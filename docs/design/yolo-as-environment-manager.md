@@ -1,14 +1,27 @@
+---
+title: "yolo as an environment manager — the shape I would want"
+status: accepted
+stage: DECIDED
+next: "Rule Q1b in environment-manager-user-stories.md — whether the inert-key handoff lands in yolo check --at <notch>, which this design specifies and nothing builds yet"
+depends-on:
+  - environment-manager-user-stories.md
+---
+
 # yolo as an environment manager — the shape I would want
 
-**Status:** DESIGN, 2026-07-27 — high level; fact-checked 2026-07-30; **re-verified against
-the code 2026-08-23 — most of it is now IMPLEMENTED.** The vision is unchanged and the verbs are
+**Status:** 2026-07-27 — high level; fact-checked 2026-07-30; **re-verified against
+the code 2026-08-23 — most of it is now implemented.** The vision is unchanged and the verbs are
 real: `apply`, `apply --at host`, `apply --sealed`, `describe`, `check-deps` and the `confinement`
 key all ship (env-manager plan Phases 0–6, 8, 9). **No live question remains** (since
 2026-09-30): [`OQ-EM2`](#OQ-EM2) is closed by
 [`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger)/[`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger)
 (the `host` layer stays), and [`OQ-EM1`](#OQ-EM1), whether the elevation-class batching around the
 shipped confirm-gated install is still owed, is answered no by
-[`OQ-HP5`](host-tool-provisioning.md#OQ-HP5). **Re-checked against the tree
+[`OQ-HP5`](host-tool-provisioning.md#OQ-HP5). Two parts are unbuilt, so work is owed:
+[§3.4](#34-check-becomes-is-this-description-satisfiable-here)'s `check --at <notch>` (re-checked
+2026-09-30: `yolo check` parses no `--at`), whose delivery shape is the user stories'
+[Q1b](environment-manager-user-stories.md#Q1b), and Linux `guest` (plan Phase 7, which has no code
+yet: a `guest` launch refuses). **Re-checked against the tree
 2026-09-24**: `yolo config promote` shipped 2026-09-12, so [§3.3](#33-apply---sealed-the-definition-binds-or-the-apply-fails)'s staging-area half is built; and
 the host notch's `assert` mode, which [`OQ-4`](#9-decision-ledger)'s row names, was retired by
 ruling on 2026-09-20 and is not yet out of the code
@@ -931,8 +944,8 @@ than by anything undecided in the design, and **neither was closed here**: a sib
 The wider set of live questions this design raised — capture-vs-closure
 (**Q1**), shortfall-as-success (**Q2**), briefing stamping (**Q4**), a confinement floor for an
 org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
-[environment-manager-user-stories.md](environment-manager-user-stories.md), which
-[`../plans/roadmap.md`](../plans/roadmap.md) routes by id. They are **not** duplicated here.
+[environment-manager-user-stories.md](environment-manager-user-stories.md), by id. They are
+**not** duplicated here.
 
 1. ✅ <a id="OQ-EM1"></a>**OQ-EM1: `program` below `jail` — is the elevation-class batching still owed?** [§4.1](#41-the-escape-valve-which-is-the-actual-user-story) and [§5](#5-packs-are-the-batteries-and-the-batteries-are-data) of this doc
    revised the original rule from *"`install` is never honored below `jail`, refused by name"* to
@@ -972,6 +985,8 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    the prompt already, so a `sudo` is visible before the answer. The part of [`OQ-7`](../plans/environment-manager-plan.md#blocks-phase-43-confirm-gated-install) worth
    keeping is ordering `sudo` first, so the OS password prompt arrives at the front.
 
+   <!-- vantage: oq id=OQ-EM1 -->
+
    **Answer:**
    > Answered by [`OQ-HP5`](host-tool-provisioning.md#OQ-HP5) (2026-09-29): no. The maintainer
    > ruled against asking again for what a selected pack declares: *"why is yolo even asking if you
@@ -999,6 +1014,8 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    derives the `/ctx` path both halves evaluate
    ([`host-render-target.md`](host-render-target.md#0-the-one-paragraph-version)'s postscript, item
    1). So no surface takes a machine-shaped input that `config ls` cannot show.
+
+   <!-- vantage: oq id=OQ-EM2 -->
 
    **Answer:**
    > **The layer stays, disclosed per surface.** Retirement is off the table, not deferred:

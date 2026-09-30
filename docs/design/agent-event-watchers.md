@@ -2,6 +2,8 @@
 title: "Any background process can ring the agent, and yolo carries the ring to whichever agent is listening"
 date: 2026-09-28
 status: in-review
+stage: DESIGN
+next: "Rule OQ-EW11, whether the doorbell is on where no sidecar starts: the build is held until it, OQ-EW12 and OQ-EW13 are ruled"
 tags: [design, sidecars, notify, hooks, claude, pi, codex, opencode, copilot, agy, omp, prompt-injection, credentials, enablement, dotfiles]
 summary: "yolo runs user-declared background processes (sidecars) for the life of a launch and gives them one agent-agnostic doorbell: a command, `yolo notify`, writes a ping into a ping box; a per-agent deliverer, shipped by that agent's own pack, carries each ping into the session: an asyncRewake hook for Claude, an extension for pi and omp, a plugin for opencode, an extension for copilot, a next-turn hook for codex and agy. The CI watcher is the worked example. Declaring a sidecar never starts it: each machine turns one on with an explicit host command, recorded in machine-local state that a synced dotfile never carries, and a repository's own sidecar is turned on by approving the config-change diff, whose own section shows it; for a sidecar that runs inside a container jail, the jail's own agent may turn it on, bound to that machine and checkout. A ping wakes one agent session per ping box, the master: the first one launched, unless an agent claims it with the in-jail `yolo notify master --claim`. A keeper owns the ping box and the host-side sidecars at every notch, replacing the lock that passed a sidecar from launch to launch. Every declared sidecar waits for an explicit turn-on (OQ-EW10, ruled). Three questions remain: whether the doorbell (the box, the deliverers and the session list) is on in a launch where no sidecar is; which notch a sidecar's pings reach when one workspace runs at two on one machine; and whether a sidecar turned on while a keeper runs starts at the next launch or only the next fresh one."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Any background process can ring the agent, and yolo carries the ring to whichever agent is listening
 
-**Status:** DESIGN, 2026-09-28. Nothing built. Evidence verified at `d4ac39db`, against Claude
+**Status:** 2026-09-28. Nothing built (checked 2026-09-30: no `notify` or `sidecar` verb and no ping box in `internal/` or `cmd/`). Evidence verified at `d4ac39db`, against Claude
 Code 2.1.284, pi 0.87.1, codex 0.158.0, copilot 1.0.48, opencode 1.18.32 and agy 1.2.9 as
 installed in this jail ([Appendix A](#appendix-a--the-evidence-per-agent)). No agent session was
 started for this doc, so every delivery path is UNMEASURED end to end. **Revised 2026-09-29:**
@@ -1693,6 +1695,8 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    for third-party host code, as [OQ-HS4](host-notch-services.md#OQ-HS4) left it. The boundary
    is disclosure, which [OQ-TP9](trust-paths.md#decision-ledger) chose over approval.
 
+   <!-- vantage: oq id=OQ-EW1 -->
+
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A.** Only the user's own word may declare a host-side
    > sidecar: user-scope config, the local pack, and packs the user's config selects by path.
@@ -1732,6 +1736,8 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    can define the shape of a watcher, but it needs explicit permission to activate it. That is
    definitely the right route to go."* Recorded as [EW-DIR2](#EW-DIR2).
 
+   <!-- vantage: oq id=OQ-EW2 -->
+
    **Answer:**
    > **Superseded 2026-09-29, not ruled.** The redesign is
    > [§12](#12-enabling-a-sidecar-redesign-2026-09-29). What this question asked is restated as
@@ -1752,6 +1758,8 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
 
    _Leaning:_ **A**, with a host-side declaration refused from workspace scope under every answer
    to [OQ-EW1](#OQ-EW1).
+
+   <!-- vantage: oq id=OQ-EW3 -->
 
    **Answer:**
    > **Ruled 2026-09-29, none of the options as written: yes, but gated.** The maintainer: *"i
@@ -1783,6 +1791,8 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    _Leaning:_ **A.** A loophole is off because it crosses the boundary. An agent-side sidecar
    crosses nothing, and a host-side one is already gated by [OQ-EW1](#OQ-EW1). The launch
    discloses every sidecar it starts, so an unwanted one is visible at once.
+
+   <!-- vantage: oq id=OQ-EW4 -->
 
    **Answer:**
    > **Ruled 2026-09-29: A, inside a gate.** The maintainer: *"The answer is yes. That was when I
@@ -1826,6 +1836,8 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    ([§12.2](#122-where-the-record-lives-and-why-there)). B is the fallback if a command is too
    much friction. The ledger rows that assume A, [EW-D14](#EW-D14)'s writer,
    [EW-D16](#EW-D16)'s no-prompt rule and [EW-D17](#EW-D17), change under B.
+
+   <!-- vantage: oq id=OQ-EW5 -->
 
    **Answer:**
    > **Ruled 2026-09-29: A, with the command's scope narrowed.** The maintainer: *"yes, I think
@@ -1880,6 +1892,8 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    Both off switches A adds, `disable` for one workspace and `disable --all-workspaces` for the
    machine, are host records the agent cannot touch.
 
+   <!-- vantage: oq id=OQ-EW6 -->
+
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A.** One workspace by default; a whole-machine option
    > (`--all-workspaces`) is kept for users who want it, and a per-workspace disable overrides
@@ -1913,6 +1927,8 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    _Leaning:_ **A.** One act covers every source, and the two answers stay separate. It is the
    leaning [`workspace-config-trust.md`](workspace-config-trust.md#OQ-WT5) took for a similar
    grant: refuse and name the verb, and `--accept-config-changes` never grants it.
+
+   <!-- vantage: oq id=OQ-EW7 -->
 
    **Answer:**
    > **Ruled 2026-09-29: B.** (Relayed: *"71 B."*) A repository's own sidecars get their own
@@ -1959,6 +1975,8 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    ([EW-P1](#EW-P1)). B is the fallback if a merge-button run that no machine hears is worse
    than a duplicate.
 
+   <!-- vantage: oq id=OQ-EW8 -->
+
    **Answer:**
    > **Ruled 2026-09-29: B.** (Relayed: *"72 B."*) No filter keeps two machines from acting on
    > the same result: each launch's disclosure line and `yolo sidecar list` on each machine are
@@ -1987,7 +2005,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    - **C — The enable command names the agent.** `yolo sidecar enable ci-watch --to claude` wakes
      every claude session and never pings pi.
 
-   <!-- vantage: oq id=OQ-EW9 leaning="A: wake only the session the user last typed into, among those that can be woken, and show the ping to the others at their next turn marked with who got it; two sessions sharing one checkout must not both act." -->
+   <!-- vantage: oq id=OQ-EW9 -->
 
    _Leaning:_ **A.** [OQ-EW2](#OQ-EW2)'s old leaning, *"a session that does not care ignores
    one line"*, answered a smaller worry than two sessions that both care and share one checkout.
@@ -2040,7 +2058,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
       watcher; a repository's own sidecar and a fetched pack's stay gated under every answer
       ([OQ-EW3](#OQ-EW3)).
 
-    <!-- vantage: oq id=OQ-EW10 leaning="A: every declared sidecar waits for a machine's explicit act, and no declaration can exempt itself, because an exemption in a synced file is the synced file starting a process; EW-DIR2 said a watcher's shape may be declared but it needs explicit permission to activate it." -->
+    <!-- vantage: oq id=OQ-EW10 -->
 
     _Leaning:_ **A.** [EW-DIR2](#EW-DIR2) says it for a watcher in general: *"you can define the
     shape of a watcher, but it needs explicit permission to activate it."* An exemption written in

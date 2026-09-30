@@ -2,19 +2,27 @@
 title: "Plan: shared OpenAI subscription authentication"
 date: 2026-09-17
 status: accepted
+stage: BUILT
+next: "A human runs step 12's last half on a real machine: one browser login end to end, then two agents crossing one expiry with one upstream redemption"
 tags: [authentication, codex, pi, oauth, implementation]
-summary: "What the machine-wide OpenAI credential service still needs: the macos-user refresh consumer and the checks no unit test reaches. Host-only import and logout and the Apple Container disclosure shipped 2026-09-18; the Codex version floor was recorded 2026-09-25."
+summary: "What the machine-wide OpenAI credential service still needs: only the checks a human must run, a browser login end to end and a real expiry crossing. The macos-user refresh consumer shipped 2026-09-29; the reachability checks passed on rootless CI and on a hosted Mac on 2026-09-30. Host-only import and logout and the Apple Container disclosure shipped 2026-09-18; the Codex version floor was recorded 2026-09-25."
 ---
 
 # Plan: shared OpenAI subscription authentication
 
-**Status:** DECIDED, 2026-09-24 — steps 1–8 are built or partial, steps 10 and 11 shipped
-2026-09-18 (`36c47baa`, `4de78ac0`; step 10's endpoint-withholding half was declined there, with
-its reason), step 9 waits on [OQ-OA6](openai-auth-broker.md#OQ-OA6), step 4 is done now that the
+**Status:** 2026-09-24, re-checked 2026-09-30. Step 12 is the checks. **MEASURED:** its
+reachability half, `TestOpenAIAuthBrokerRoundTripsAnImportedToken`, passed on rootless CI on both
+architectures (`ci.yml` run 36662086103, 2026-09-30), and step 9's hardware test,
+`TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox`, passed on the hosted Mac nightly
+(`macos-user.yml` run 36719581090, at `8f7468dd`). **UNMEASURED:** the browser login end to end
+and a real expiry crossing, which need a person with a ChatGPT account. No build step is left.
+Steps 1–8 are built (1, 2 and 5 differently from the original hand-off, as the table below says),
+steps 10 and 11 shipped 2026-09-18 (`36c47baa`, `4de78ac0`; step 10's endpoint-withholding half
+was declined there, with its reason), step 9 shipped 2026-09-29 as
+[OQ-OA6](openai-auth-broker.md#OQ-OA6)'s route (b) (`fea3b6c7`), and step 4 is done now that the
 design dropped the clause no extension could build (2026-09-29,
-[OQ-OA7](openai-auth-broker.md#OQ-OA7)), and step 12 is the checks nothing automated reaches.
-Step 12's first automated check, `TestOpenAIAuthBrokerRoundTripsAnImportedToken`, was written
-2026-09-25 and **has not run yet**.
+[OQ-OA7](openai-auth-broker.md#OQ-OA7)). One known gap has no step: a third concurrent login finds
+no port (step 5's row).
 
 **Design:** [`openai-auth-broker.md`](openai-auth-broker.md)
 
@@ -55,9 +63,9 @@ Step 12's first automated check, `TestOpenAIAuthBrokerRoundTripsAnImportedToken`
 **Precedence:** the design wins on behavior, the tree wins on implementation facts, and
 this file is advice — the first thing here to be wrong. Never twist the code to match it.
 
-**What is left:** the `macos-user` refresh consumer (9, waiting on
-[OQ-OA6](openai-auth-broker.md#OQ-OA6)) · the checks nothing automated reaches (12; its
-reachability test is written and unrun). The
+**What is left:** the checks only a person can run (12's browser login and expiry crossing). The
+`macos-user` refresh consumer (9) shipped 2026-09-29 (`fea3b6c7`), and 12's reachability test
+passed on CI (2026-09-30). The
 measured Codex floor is recorded in
 [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) (2026-09-25).
 Apple Container's disclosure (10,
@@ -78,11 +86,15 @@ dead `127.0.0.1:1460` override as one of its four measured cases, and is blocked
 | 3 | Codex adapter | **done** | `internal/openaiauthadapter` serves the native token-endpoint shape, JSON and form bodies both (`readTokenRequest`, fixed 2026-09-22); the manifest's `jail_daemon` binds `127.0.0.1:1460`; `packs/codex/pack.json` sets `CODEX_REFRESH_TOKEN_URL_OVERRIDE` at that URL. The version floor is **measured** (0.56.0, the warning above), so a launch-time refusal would be dead code. The floor is **recorded** (2026-09-25) in [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) [§1.2](../research/openai-subscription-auth.md#12-codex-refresh-is-careful-inside-one-process-not-across-processes), beside its 0.154.0 provenance line. |
 | 4 | Pi adapter | **done** | `packs/pi/extensions/yolo-openai-auth.js` registers the `openai-codex` provider (`login`/`refreshToken`/`getApiKey`), shells to `yolo internal openai-auth-client`, and puts `yolo-broker:<generation>` in Pi's `refresh` field — never the canonical token. It refreshes before expiry only, which is now all the design asks. The design's former ask-once-more after an unauthorized response was **measured unbuildable** (the warning above): pi has no 401 refresh path and the extension API exposes no status. The design dropped it 2026-09-29 ([OQ-OA7](openai-auth-broker.md#OQ-OA7)); re-open if pi adds a status hook, meaning a way for an extension to see a response's HTTP status. |
 | 5 | Callback relay and login | **partial, differs** | `openaiauthdaemon.StartLogin`: PKCE, exact-path `/auth/callback`, state compared before the code is taken, a second callback refused 409, `listenLoginPort` binding 1455 then 1457 with the redirect URI naming the port it got. **Differs:** no state registry and no routing to a jail — the host daemon owns the whole flow and the jail's `login` action only streams the URL back, which makes the design's relay unnecessary rather than unbuilt. **Missing:** a third concurrent login has no port. |
-| 6 | Backend transport | **partial** | Podman: `hostServicesMountArgs` emits the services-dir bind plus `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT`, and the adapter joins `YOLO_JAIL_DAEMONS` through `runtimeArgsFor`. `macos-user`: the arm calls `startLoopholesDisclosed` with the whole pack set, refuses the launch when this service did not start, sets the variable to the **host** path, and `macosuser.EndpointGrantCommands` ACL-grants it (`PlanInvariants` refuses a plan that carries an endpoint without a grant). Apple Container reports the loophole inert (step 10). **Missing:** step 9. |
-| 7 | Managed host use | **partial** | `openaiauthhost.Prepare`, reached from `internal/cli/host.go` through `prepareOpenAIAuthHost` (`TestHostExecUsesManagedOpenAIAuthLaunch` pins that call site): a managed `CODEX_HOME`, the ordinary config copied with this workspace marked trusted, `AGENTS.md`/`skills` symlinked, a dynamic adapter on `127.0.0.1:0` closed when Codex exits. `hostwrap.Body("codex")` routes through it. The one-shot import shipped as step 11. |
+| 6 | Backend transport | **done** (was partial until step 9) | Podman: `hostServicesMountArgs` emits the services-dir bind plus `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT`, and the adapter joins `YOLO_JAIL_DAEMONS` through `runtimeArgsFor`. `macos-user`: the arm calls `startLoopholesDisclosed` with the whole pack set, refuses the launch when this service did not start, sets the variable to the **host** path, and `macosuser.EndpointGrantCommands` ACL-grants it (`PlanInvariants` refuses a plan that carries an endpoint without a grant). Apple Container reports the loophole inert (step 10). Step 9 shipped 2026-09-29 (`fea3b6c7`): the `macos-user` launch opens the Codex doorway itself (`internal/cli/run/macosuserdoorways.go`). |
+| 7 | Managed host use | **done** (was partial until step 11) | `openaiauthhost.Prepare`, reached from `internal/cli/host.go` through `prepareOpenAIAuthHost` (`TestHostExecUsesManagedOpenAIAuthLaunch` pins that call site): a managed `CODEX_HOME`, the ordinary config copied with this workspace marked trusted, `AGENTS.md`/`skills` symlinked, a dynamic adapter on `127.0.0.1:0` closed when Codex exits. `hostwrap.Body("codex")` routes through it. The one-shot import shipped as step 11. |
 | 8 | Operations | **done** | `runProactive`; `status` returning fingerprints only (`statusView`); `selfCheck` wired as the manifest's `doctor_cmd`; `logout` reachable from `yolo openai-auth logout` on the host socket only (step 11). The docs half is listed under Ships with. |
 
 ## Map — remaining work only
+
+**Spent (2026-09-30):** step 9 shipped in `fea3b6c7`, as a launch-owned doorway in
+`internal/cli/run/macosuserdoorways.go` rather than in the two files the first two rows name. The
+rows are kept as the plan that was handed off.
 
 | Path | Change |
 | :--- | :--- |
@@ -134,7 +146,7 @@ stays in `YOLO_JAIL_DAEMONS` turns an unreachable front into no front at all.
   `packChannel.launchEnv` → `macosuser.Options.PackEnv` → the sandbox env file), while
   `internal/macosuser` has no `JailDaemon` reader and `YOLO_JAIL_DAEMONS` is emitted only
   into a container argv. Symptom: prelaunch seeds a good `auth.json`, the session works
-  until expiry, then every refresh fails against a closed port. Step 9 fixes it. Note that
+  until expiry, then every refresh fails against a closed port. Step 9 fixed it (`fea3b6c7`). Note that
   1460 is the *machine's* real loopback on this backend, so a manifest-literal port is also
   a collision between two concurrent launches.
 - **Apple Container's measurement is negative, and since step 10 the launch says so.**
@@ -172,7 +184,10 @@ stays in `YOLO_JAIL_DAEMONS` turns an unreachable front into no front at all.
 Each step ends green and committable. **Class** names the instrument that can actually
 prove it — read *Instruments* below before believing a green.
 
-9. **`macos-user` Codex refresh consumer.** Two routes, and the choice is a ruling — see
+9. **SHIPPED 2026-09-29 (`fea3b6c7`), route (b)**, ruled as
+   [OQ-OA6](openai-auth-broker.md#OQ-OA6) under
+   [HS-D15](host-notch-services.md#HS-D15); passing on the hosted Mac nightly since 2026-09-30.
+   **`macos-user` Codex refresh consumer.** Two routes, and the choice is a ruling — see
    Blockers. **(a)** Wait for
    [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) steps 3 and 4,
    which start the declared `yolo-jaild openai-auth-adapter` natively; both are blocked.
@@ -201,7 +216,9 @@ prove it — read *Instruments* below before believing a green.
     both arches) for reachability; a **human at a real machine** for the browser and the
     expiry crossing, because both need a ChatGPT account and real wall-clock time.
 
-    **The reachability half is written, 2026-09-25, and has not run:**
+    **The reachability half is written, 2026-09-25, and passed on 2026-09-30** on the CI job,
+    both architectures, each logging `podman info --format '{{.Host.Security.Rootless}}' = true`
+    and the Codex route answering HTTP 200 with a matching hash (`ci.yml` run 36662086103):
     `TestOpenAIAuthBrokerRoundTripsAnImportedToken` in `integration/openaiauth_test.go`. It
     imports a forged Codex login (random tokens, the access token a JWT expiring in a day, so the
     broker serves it from cache and nothing calls OpenAI) into a private state dir through
@@ -244,7 +261,8 @@ prove it — read *Instruments* below before believing a green.
 - **Unit, steps 10 and 11: shipped with them** — `packhostdisclosure_test.go` for the AC
   inert line, `internal/openaiauthdaemon/hostactions_test.go` and
   `internal/openaiauthhost/operator_test.go` for import and logout.
-- **Integration: step 12's first artifact is written and has not run.**
+- **Integration: step 12's first artifact is written and passing** (2026-09-30, `ci.yml` run
+  36662086103).
   `TestOpenAIAuthBrokerRoundTripsAnImportedToken` (`integration/openaiauth_test.go`) is a jail
   whose `packs` selects `codex`, asserting a brokered refresh round trip through the published
   endpoint, as step 12 describes. That is the test that would catch this breaking end to end, and
@@ -282,7 +300,8 @@ prove it — read *Instruments* below before believing a green.
 
 ## Blockers
 
-- **Stop and ask: route (a) or (b) for step 9** — filed as [OQ-OA6](openai-auth-broker.md#OQ-OA6). Route (b) is the cheaper path and un-blocks
+- **Ruled 2026-09-29: route (b)** ([OQ-OA6](openai-auth-broker.md#OQ-OA6)), and built. As it
+  stood: **stop and ask: route (a) or (b) for step 9** — filed as [OQ-OA6](openai-auth-broker.md#OQ-OA6). Route (b) is the cheaper path and un-blocks
   this service from the two rulings
   [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) is waiting on
   ([OQ-DP8](declaration-parity.md#OQ-DP8), [OQ-DP9](declaration-parity.md#OQ-DP9)) —

@@ -2,6 +2,10 @@
 title: "Extension delivery: files into agent-declared aliases"
 date: 2026-09-19
 status: accepted
+stage: DECIDED
+next: "Rework slices 1-3 onto exposes and build slice 4, the derive's addressed-content source, once slots-and-contributions.md rules its migration window"
+depends-on:
+  - slots-and-contributions.md#OQ-D6
 tags: [pi, extensions, plugins, packs, architecture, audience, agent-plugins]
 summary: "Where this landed: contributes a file tree to an agent by name (Architecture D), against the Agent Plugins 1.0 portable standard, with YOLO as the placer and no vendor install verb. Core parses nothing because the standard namespaces client-specific components. `claude_plugins` is retired. ⚠ The field-level encoding (`files` + `agent`/`agents`) is superseded by `slots-and-contributions.md`; the architecture — a slot an agent declares — stands."
 vantage:
@@ -10,8 +14,11 @@ vantage:
 
 # Extension delivery: files into agent-declared aliases
 
-**Status:** DECIDED, 2026-09-19 — the architecture; **encoding superseded** 2026-09-20. The architecture below
-stands; only its field-level encoding is under revision.
+**Status:** 2026-09-19 — the architecture; **encoding superseded** 2026-09-20. The architecture below
+stands; only its field-level encoding is under revision. Unbuilt: the rework of slices 1–3 onto
+`exposes` and slice 4, the derive source ([§5](#5-how-d-ran--the-superseded-implementation)), both
+waiting on [`OQ-D6`](slots-and-contributions.md#OQ-D6); re-checked 2026-09-30, nothing of `exposes`
+is in `packdecl`.
 
 > [!WARNING]
 > **The encoding is superseded — read [`slots-and-contributions.md`](slots-and-contributions.md).**
@@ -50,8 +57,11 @@ stands; only its field-level encoding is under revision.
 5. **Hooks are disclosed, not gated.** Same trust class as skills and briefings, which can
    already instruct arbitrary action.
 6. **Fetching is a different axis**, owned by [`pi-extension-lifecycle.md`](pi-extension-lifecycle.md).
-   Its resolver half already ships (`internal/packsrc` + `packs.lock.json`); the materializer half
-   does not.
+   ⚠ **Corrected 2026-09-30:** this line said the resolver half ships and the materializer half does
+   not, which is the other way round. The pack resolver ships (`internal/packsrc` +
+   `packs.lock.json`), but it resolves packs, not Pi packages; the materializer, a pack-declared
+   `refresh` running `pi update --extensions`, shipped 2026-09-25, and nothing in yolo resolves a Pi
+   package's version yet ([`OQ-2`](pi-extension-lifecycle.md#OQ-2) there).
 7. **`claude_plugins` is retired**, and nothing like it replaces it — no agent-named hook:
    deliver plugin trees locally, decompose them, or author one YOLO-owned Agent Plugins 1.0
    plugin rather than calling `claude plugins install`. ✅ **Built 2026-09-20**: the hook and
@@ -339,8 +349,11 @@ and is measured, but it reproduces the vendor cache layout, which is the thing
 
 **None *here*** — but the six below are now **moot**, not settled: they were ruled against the
 field shape [`slots-and-contributions.md`](slots-and-contributions.md) supersedes. The live questions are the role model's
-[`OQ-D6`–`OQ-D12`](slots-and-contributions.md#OQ-D6) (its [`OQ-D1`–`OQ-D5`](slots-and-contributions.md#7-decision-ledger) are ruled) and the
-surface's [`OQ-M1`–`OQ-M4`](manifest-language.md#OQ-M1).
+[`OQ-D6`](slots-and-contributions.md#OQ-D6), [`OQ-D9`](slots-and-contributions.md#OQ-D9),
+[`OQ-D10`](slots-and-contributions.md#OQ-D10) and [`OQ-D12`](slots-and-contributions.md#OQ-D12)
+(its [`OQ-D1`–`OQ-D5`](slots-and-contributions.md#7-decision-ledger) are ruled, and D7, D8 and D11
+were decided as implementation choices on 2026-09-30) and the surface's
+[`OQ-M1`–`OQ-M3`](manifest-language.md#OQ-M1) ([`OQ-M4`](manifest-language.md#OQ-M4) is decided).
 
 The five earlier questions were ruled in review on 2026-09-19, and this review resolved
 the sixth — the alias-root layout — by **removing the overload that created it**. A `files`

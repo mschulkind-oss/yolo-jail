@@ -3,12 +3,14 @@ title: "How executable content gets into a jail — and what makes two jails the
 date: 2026-09-06
 status: in-review
 tags: [packs, uniformity, delivery, pinning, npm, mise, image, evergreen]
-summary: "Four delivery classes, one of which kept no record and was never re-derived — and all divergence lived there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at its own invocation) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which. Largely implemented by 2026-09-04; two questions open."
+summary: "Four delivery classes, one of which kept no record and was never re-derived — and all divergence lived there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at its own invocation) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which. Largely implemented by 2026-09-04; three questions open."
+stage: DESIGN
+next: "Finish OQ-PD19's first task, why pnpm is kept out of mise: read the review of PR #19 (4369b25a, 2026-05-10), where the exclusion arrived with pnpm's lazy npm launcher"
 ---
 
 # How executable content gets into a jail — and what makes two jails the same
 
-**Status:** DESIGN, 2026-08-24 — decided then, amended 2026-09-03, **largely implemented by
+**Status:** 2026-08-24 — decided then, amended 2026-09-03, **largely implemented by
 2026-09-04**, with questions still live;
 compacted 2026-09-06; cross-checked against its sibling designs 2026-09-24. Every other question
 is ruled and sits in the [Decision Ledger](#decision-ledger), and **these are open** — [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), which asks whether two ruled-but-unbuilt steps of
@@ -238,8 +240,8 @@ sibling docs can cite it, as P1–P5 are.)*
 > `@oh-labs/oh-omp@0.15.3` — a version selector — so its npm launcher takes the pinned branch and
 > never refreshes, which is the *Pin: none* cell above not holding. Nothing in the tree or the
 > commit records why. Read against P6 it is either a project-style pin on an agent dependency or a
-> vendor-compatibility hold; this doc does not rule which, and the roadmap should. Filed
-> 2026-09-26 as [OQ-PD21](#oq-pd21).
+> vendor-compatibility hold; this warning does not rule which. Filed 2026-09-26 as
+> [OQ-PD21](#oq-pd21), for the maintainer.
 
 **This narrows [OQ-PD3](#decision-ledger) rather than reversing it.** That ruling said *"no-evergreen
 extends to mise — it is a principle, not an npm fix."* The mise half stands and is untouched: mise
@@ -1526,8 +1528,8 @@ here is used here, and publishing one is a provenance question for
   (opened 2026-09-11) **and, since it absorbed [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md) on 2026-09-11,
   the host notch too** ([`OQ-PD16`](#decision-ledger)'s amendment); the classes and resolvers here are the jail's, and it cites them without
   re-deriving them.
-- **A task list.** Sequencing is [§10](#10-what-i-would-build-in-order); ticket granularity lives in
-  [`../plans/roadmap.md`](../plans/roadmap.md).
+- **A task list.** Sequencing is [§10](#10-what-i-would-build-in-order); where this doc's work sits
+  against other work is [`../plans/roadmap.md`](../plans/roadmap.md)'s.
 
 ---
 
@@ -1836,6 +1838,13 @@ question, not an afterthought: [OQ-PD3](#decision-ledger) rules that whatever pi
 part of the general seam, so "move pnpm into mise" is the natural answer *and* the one most likely
 to re-break whatever the exclusion was protecting.
 
+⚠ *Found 2026-09-30, while migrating this doc's status:* the Python history does record where the
+exclusion came from. It arrived with PR #19 (`4369b25a`, 2026-05-10), whose summary line reads
+*"keep pnpm available via lazy npm launcher"*, and the helper it added was documented as returning
+`MISE_DISABLE_TOOLS` *"with yolo-managed package managers included"*. So pnpm is kept out of mise
+because yolo's own launcher installs it. Why that PR chose a yolo launcher over mise is still
+unrecorded, and that is what is left of the first task.
+
 <!-- vantage: oq id=OQ-PD19 leaning="Narrow both steps to the pnpm question and retire the rest. Step five dissolves for agent dependencies by OQ-PD6's own amendment, and step three's user-scope venue goes with it. What survives is one concrete question — how does yolo pin pnpm, given mise is closed to it and nobody remembers why — which is small, real, and not what either step proposed to build." -->
 
 _Leaning:_ **Narrow both steps to the pnpm question and retire the rest.** Step five dissolves for
@@ -1873,6 +1882,12 @@ themselves with `go install`, which is the ordinary way to get a Go tool. So tod
 
 The `~/.local/bin` class has the same shape (a `pipx` or `uv tool` install lands there), but there a
 pack can declare the name. For `$GOBIN`, nothing can.
+
+⚠ *Re-read 2026-09-30:* that last sentence no longer holds for one route. Since forked programs'
+step 6 (`8f394c0a`), a `via: "source"` fork may list `go/bin/<bin>` in its `produces`, and
+`catalogGoBinOrphans` (`internal/entrypoint/catalog.go`) counts those names as declared. A tool the
+user installed with `go install` is still declared by nothing, so the problem above stands, but
+option (c) would now also hide what a dropped fork leaves in `$GOBIN`.
 
 **Options.**
 
@@ -1912,6 +1927,10 @@ why.
 
 **What it decides:** whether that pin is a project-style pin on an agent dependency, which P6
 does not allow, or a vendor-compatibility hold, which would be an exception P6 does not yet state.
+
+<!-- vantage: oq id=OQ-PD21 -->
+
+It has no leaning yet: why the pack pins is the fact a leaning would need, and nothing records it.
 
 **Answer:**
 > _(empty — fill in when decided)_

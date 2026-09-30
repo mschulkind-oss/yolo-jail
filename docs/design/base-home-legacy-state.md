@@ -4,20 +4,23 @@ date: 2026-09-20
 status: accepted
 tags: [base-home, jail-home, storage, backend-parity, design]
 summary: "Podman mounts ONE machine-wide base, <state>/home, read-only at /home/agent in every jail. A jail needs nothing in it: it holds empty mountpoints, three redirect links, the machine's shared credential dirs and a login seed only the host reads. Sharing it is the defect: one workspace's pack dirs, host_files links and old bytes show up in every jail, and a jail that did not select claude can read the machine's Claude credential file. The design: mount a per-jail read-only skeleton built from the SELECTED packs, keep <state>/home as the machine store for the shared dirs and the Claude login seed, delete seedAgentDir, and leave legacy bytes unmounted and unread."
+stage: BUILT
+next: "Write an Apple Container check that a fresh workspace boots with the login seed at ~/.claude.json and the selected packs' dotted dirs, for apple-container.yml; start at integration/applecontainerparity_test.go"
 ---
 
 # Why does every podman jail share one home? It should not — a per-jail skeleton instead
 
-**Status:** DECIDED, 2026-09-25 — every question is ruled, and [OQ-BH15](#OQ-BH15) and
-[OQ-BH16](#OQ-BH16), the last two, are BUILT the same day; only the Apple Container seed's Mac
+**Status:** 2026-09-25 — every question is ruled, and every step of
+[§8](#8-build-order-and-done-conditions) is built, [OQ-BH15](#OQ-BH15) and
+[OQ-BH16](#OQ-BH16), the last two, the same day; only the Apple Container seed's Mac
 run is still owed. The doc was rewritten around a new premise after the maintainer's review,
 then every open question settled the same day. **Steps 1–3 of [§8](#8-build-order-and-done-conditions)
-BUILT 2026-09-25** (the seed fixes, the podman skeleton, the refusal's deletion and the reworded
+built 2026-09-25** (the seed fixes, the podman skeleton, the refusal's deletion and the reworded
 `yolo check` report); `integration/homeskeleton_test.go` PASSED in a nested, rootful jail the
-same day, and ROOTLESS in CI on both arches the same evening (`ci.yml` run 36167524940). **Steps 4, 4a and 5 BUILT 2026-09-25**: the
+same day, and ROOTLESS in CI on both arches the same evening (`ci.yml` run 36167524940). **Steps 4, 4a and 5 built 2026-09-25**: the
 Apple Container seed paths ([OQ-BH12](#OQ-BH12), host side only; a Mac run is still owed), name
 reservation over the selected packs only ([OQ-BH14](#OQ-BH14)), and the reference docs and code
-comments. **Review follow-ups BUILT 2026-09-25** ([§8](#8-build-order-and-done-conditions),
+comments. **Review follow-ups built 2026-09-25** ([§8](#8-build-order-and-done-conditions),
 last bullet): the reaper can now reach a jail's skeletons, a refused launch leaves none, and a
 configured pack's shared dir gets its bind source.
 MEASURED: what the base holds on two bases, EROFS on the home root, the jail writing through `/workspace/.yolo/home`, the machine credential file sitting in the base, and a
@@ -528,7 +531,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    Options: (a) under `paths.AgentsDir()/<cname>/`; (b) a new `<state>/skeletons/<cname>` with
    its own reaper. `wsState` is ruled out ([§2.2](#22-where-it-lives-host-only-never-in-wsstate)).
 
-   <!-- vantage: oq id=OQ-BH9 leaning="Under paths.AgentsDir()/<cname>/: host-only, keyed per jail, already reaped by PruneOrphanAgentStaging's liveness check. Never wsState, which the jail can write." -->
+   <!-- vantage: oq id=OQ-BH9 -->
 
    _Leaning:_ (a). It is already reaped by the liveness-gated `PruneOrphanAgentStaging`; a
    second reaper is one more liveness rule to get right.
@@ -545,7 +548,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    (c) a new directory per fresh launch under the [OQ-BH9](#OQ-BH9) root, never modified after,
    old ones reaped with the jail's `AgentsDir` entry by the existing reaper.
 
-   <!-- vantage: oq id=OQ-BH10 leaning="A new skeleton directory per fresh launch, never modified afterwards; old ones go with the jail's AgentsDir entry through PruneOrphanAgentStaging, which already declines when liveness is unknown. Reconciling in place needs two unbuilt signals, a tri-state liveness probe and a lock-acquired flag." -->
+   <!-- vantage: oq id=OQ-BH10 -->
 
    _Leaning:_ (c). No launch ever removes a mountpoint, so its safety needs no liveness answer,
    and the reaper already declines when liveness is unknown. The cost is a few 16K directories
@@ -562,7 +565,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    runtime-aware paths in `prepareWsState`; (b) bind that backend's pack dirs the podman way,
    adding mounts where mount count is the constraint.
 
-   <!-- vantage: oq id=OQ-BH12 leaning="Make prepareWsState's seed paths runtime-aware: on rt=container sync wsState/.claude.json and create dotted dirs. Moving Apple Container onto the dot-stripped layout means more mounts on the backend limited by mount count. Needs a Mac to verify." -->
+   <!-- vantage: oq id=OQ-BH12 -->
 
    _Leaning:_ (a), verified on a Mac, landing separately from the podman change.
 
@@ -577,7 +580,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    refusal, keep the check report and its printed `mv`; (b) delete both, with
    `internal/basehome`; (c) keep the refusal as a one-line launch disclosure.
 
-   <!-- vantage: oq id=OQ-BH13 leaning="Delete the launch refusal and its hatch in the same change that stops the mount and deletes seedAgentDir; nothing is left to refuse. Keep yolo check's detection-only report, reworded: the bytes are unmounted and unread, and the printed mv (no verb, per the 2026-09-21 call) is optional cleanup." -->
+   <!-- vantage: oq id=OQ-BH13 -->
 
    _Leaning:_ (a), in the same change as the skeleton; the refusal stays until then. A hatch is
    for a user's broken config, never for a yolo bug, and once the mount is gone it guards
@@ -594,7 +597,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    unselected pack's effect under [DIR-BH1](#10-decision-ledger). Options: (a) keep it, as
    DIR-BH1's one named exception; (b) narrow it to the selected packs, validated each launch.
 
-   <!-- vantage: oq id=OQ-BH14 leaning="Keep reservation over every shipped pack as DIR-BH1's one named exception: its effect is a refused config key, never anything in a jail. Narrowing moves the refusal to the day the pack is selected, possibly in another workspace, and makes one user-scope entry valid in some workspaces and refused in others." -->
+   <!-- vantage: oq id=OQ-BH14 -->
 
    _Leaning:_ (a). Its effect is a refused config key, never anything inside a jail. Narrowing
    works, since validation knows the selection, but the refusal would then arrive the day the
@@ -614,6 +617,8 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    which [DIR-BH1](#10-decision-ledger) rules out. Options: (a) narrow it to the selected packs,
    with validation resolving the selection as `writable_home_dirs` now does
    (`resolveSelectedPacks`); (b) keep it as DIR-BH1's one named exception.
+
+   <!-- vantage: oq id=OQ-BH15 -->
 
 
    _Leaning:_ (a). The collision it guards against, two writers for one file, is still refused
@@ -656,6 +661,8 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    exists, and the workspace lock was free), also remove the skeleton this launch built, which
    is the only launch that knows its name; (c) have the launch's housekeeping remove its own
    name's older skeletons, keeping the one its running container is bound from.
+
+   <!-- vantage: oq id=OQ-BH16 -->
 
 
    _Leaning:_ (b). It removes only a directory no other launch knows the name of, and only after

@@ -2,6 +2,8 @@
 title: "Yielding the disk: which kernel lever reaches a jail build's I/O, and on which scheduler"
 date: 2026-09-27
 status: in-review
+stage: DESIGN
+next: "Write the Mac measurement step 5 waits on as an experiment test in macos-user.yml's job: set IOPOL_THROTTLE, launch through LaunchArgv, and read getiopolicy_np inside the sandbox"
 tags: [resources, io, cgroups, bfq, storage, latency, podman, performance]
 summary: "A jail build can saturate the host disk and stall the desktop. Process I/O priority is free to set and reaches every program the jail runs, but only their reads and synchronous writes, and only on BFQ or mq-deadline disks; buffered writeback answers to the cgroup io controller alone, which a stock rootless host neither delegates nor enables. The design sets a declared resources.io.priority on every thread of the jail and names, at launch and in yolo check, each place it does nothing, and that much is built. Of three filed questions, one is decided and two are answered from existing rulings; four stay open: the default, a per-command flag, the host notch, and whether any cgroup half ships."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Yielding the disk — which kernel lever reaches a jail build's I/O, and on which scheduler
 
-**Status:** DESIGN, 2026-09-27. Build steps 1 to 4 are built; step 5 waits on a Mac, and step 6
+**Status:** 2026-09-27. Build steps 1 to 4 are built; step 5 waits on a Mac, and step 6
 on [OQ-IO7](#OQ-IO7). MEASURED: in a jail nested in a rootless podman jail on Linux 7.1.8, every
 thread but PID 1 read `be/7` after a launch and after an attach, and both named the Kyber NVMe
 under LUKS. UNMEASURED: a BFQ disk's latency under load, and both macOS VM backends. Kernel

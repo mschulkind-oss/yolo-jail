@@ -2,6 +2,8 @@
 title: "Codex's background service: what it is, why it hid GPT-6.1 Sol, and what it means for yolo"
 date: 2026-09-29
 status: in-review
+stage: DESIGN
+next: "Rule OQ-CDX3 — whether every in-jail codex gets --no-daemon; the leaning, B, is one launch flag in packs/codex/pack.json"
 tags: [research, codex, daemon, lifecycle, updates, models, credentials, host]
 summary: "Since Codex 0.157.0 every interactive `codex` starts, or connects to, a long-lived second copy of Codex that serves the model list, runs turns and refreshes the login. It runs from its own copied package, never follows a CLI upgrade on its own, and updates itself only when it was seeded from a plain release version (npm, Homebrew or the latest-channel standalone installer), never from a distro build such as Arch's or a pinned standalone release. A copy seeded from the Arch package never updates, which is one possible reason the maintainer's new CLI still showed an old model list; launch-day account rollout is the other, and a paired test tells them apart. Every yolo-launched Codex started one too: in a jail it went stale after each yolo update, and at `yolo host` it outlived the launch and kept that launch's refresh-doorway address. Ruled and built 2026-09-29: it is off wherever yolo launches Codex, and a Codex the user runs directly is never touched. `codex agents` still starts one in a jail and on macos-user, which OQ-CDX3 asks about."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Codex's background service: what it is, why it hid GPT-6.1 Sol, and what it means for yolo
 
-**Status:** RESEARCH, 2026-09-29; both questions ruled that day (the daemon is off wherever yolo launches Codex, and a Codex run directly is never touched), and built the same day ([ledger](#decision-ledger)). A review of the build found that `codex agents` starts the daemon whatever the config key says; the host now hands it `--no-daemon`, and what that leaves in jails and on macos-user is [OQ-CDX3](#OQ-CDX3), open. Codex evidence
+**Status:** 2026-09-29; research. The first two questions were ruled that day (the daemon is off wherever yolo launches Codex, and a Codex run directly is never touched), and built the same day ([ledger](#decision-ledger)). A review of the build found that `codex agents` starts the daemon whatever the config key says; the host now hands it `--no-daemon`, and what that leaves in jails and on macos-user is [OQ-CDX3](#OQ-CDX3), open. Codex evidence
 was read at tag `rust-v0.159.0` (commit `687a119f`, which the 0.159.0 binary embeds), yolo evidence
 at `77f52ef1`. No agent CLI was run: every Codex claim comes from source, from the binary's bytes, or
 from a published page.
@@ -697,6 +699,8 @@ What the comparison teaches:
    which means the host and possibly macos-user, the key must come with `--no-daemon` or a stop,
    and a stop leaves the updater loop running, which is why A's host arm also shuts it down.
 
+   <!-- vantage: oq id=OQ-CDX1 -->
+
    **Answer:**
    > **Ruled 2026-09-29: A, off everywhere yolo launches Codex.** The maintainer: *"I think we
    > have to turn this off. It just doesn't seem compatible with anything that we do, and it's a
@@ -735,6 +739,8 @@ What the comparison teaches:
    C is A plus a read-only diagnosis. Choose C if you want `yolo check` to have caught this
    incident, knowing it makes yolo report on a process it neither starts nor owns.
 
+   <!-- vantage: oq id=OQ-CDX2 -->
+
    **Answer:**
    > **Ruled 2026-09-29, none of the options as written, closest to A.** The maintainer: *"We
    > decided that we don't care if you get to Codex not going through YOLO. If you have host
@@ -744,7 +750,7 @@ What the comparison teaches:
    > daemon. This follows the 2026-09-28 ruling that an agent started outside yolo may lack
    > features, and [OQ-OA3](../design/openai-auth-broker.md#8-decision-ledger)'s "remains untouched".
 
-3. ❓ <a id="OQ-CDX3"></a>**[OQ-CDX3](#OQ-CDX3): In a jail and on macos-user, `codex agents`
+3. 💬 <a id="OQ-CDX3"></a>**[OQ-CDX3](#OQ-CDX3): In a jail and on macos-user, `codex agents`
    still starts Codex's daemon. Accept that, or hand every in-jail `codex` `--no-daemon`?**
 
    **The setup.** You run `codex agents` in a jail to look at your sessions. The config key
@@ -787,6 +793,8 @@ What the comparison teaches:
    every notch agree with that, and it is one pack line. `--remote` from inside a jail, the one
    loss beyond the ruling, has a one-invocation hatch. Choose A if `codex agents` in a jail
    matters more than the stale list it can bring back.
+
+   <!-- vantage: oq id=OQ-CDX3 leaning="B: the codex pack declares --no-daemon as an autonomous launch flag, so no in-jail codex starts or attaches to a daemon, as OQ-CDX1's ruling already implies; --remote in a jail is the one loss, with a one-invocation hatch." -->
 
    **Answer:**
    > *Open.*

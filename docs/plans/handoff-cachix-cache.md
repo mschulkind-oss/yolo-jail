@@ -1,13 +1,23 @@
+---
+title: "Handoff — publish the prebuilt image to a Cachix cache"
+status: accepted
+stage: BUILT
+next: "Show a Mac substituting instead of building: add a step to the macOS nightly that reports whether its shards fetch the image paths from yolo-jail.cachix.org (nightly-macos.yml's stock-tag step says no run has shown it), or run the Final test below on a Mac"
+---
+
 # Handoff — publish the prebuilt image to a Cachix cache
 
-**Status:** DECIDED, 2026-09-02, re-verified 2026-09-24 — **working**: every release since
-`v0.8.0` has pushed (the latest, `v0.10.0` on 2026-09-18, logged `Pushed image closures to
-yolo-jail.cachix.org` on both arches), the cache is being read, and only the Mac-side download
-proof is left.
+**Status:** 2026-09-02, re-verified 2026-09-30 — **working**: every release since
+`v0.8.0` has pushed (the latest, `v0.11.0` on 2026-09-28, run `36473315012`, logged `Pushed
+image closures to yolo-jail.cachix.org` on both arches), and since `1006fe6d` (2026-09-13) the
+macOS nightly pushes on every run as well (`.github/workflows/nightly-macos.yml`, the
+`build-image` and `push-arm-image-cache` jobs). MEASURED: CI pushes both Linux arches and
+substitutes the four this-repo-source paths back from the cache (run `31749547095`, below).
+UNMEASURED: the Mac-side download — no Mac, human or CI runner, has been shown substituting these
+paths rather than building them ("Final test" below).
 **Settled 2026-09-02 from the Actions log**, which closes the disagreement this doc
 carried against [`README.md`](README.md): README's *"CI has already pushed data"* was
-the correct sentence. Remaining: only the Mac-side download proof ("Final test" below),
-which needs the hardware.
+the correct sentence.
 
 > [!NOTE]
 > **The measurement, so nobody has to re-take it.** Run **`31749547095`** (`v0.8.0`,
@@ -33,10 +43,12 @@ which needs the hardware.
 > the latter three have **no** `cachix-action` at all, so before the fix they could not
 > see the cache under any circumstances and rebuilt the closure from source every run.
 >
-> **Scope caveat worth keeping:** the push is **release-gated only** (`on: push: tags:
-> v*`), so the cache holds release closures and nothing between them. Between releases a
-> consumer gets a cache hit on the release-day paths and builds the delta. That delta is
-> smaller than it was: the image no longer contains yolo's own binaries (they are mounted
+> **Scope caveat, corrected 2026-09-30:** `publish.yml`'s push is release-gated (`on: push:
+> tags: v*`), but it is no longer the only push. Since `1006fe6d` (2026-09-13) the macOS nightly
+> pushes the x86_64 closure from `build-image` on every run and the aarch64 closure from
+> `push-arm-image-cache`, so the cache also holds whatever `main` the last nightly built. A
+> consumer between those builds gets a cache hit on the last built paths and builds the delta.
+> That delta is smaller than it was: the image no longer contains yolo's own binaries (they are mounted
 > from the launch's prefix — [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)),
 > so a commit touching only `cmd/` or `internal/` does not move the image at all, and a
 > release's cached image stays current until `flake.nix`, `flake.lock` or a `packages:`
@@ -142,7 +154,8 @@ cacheable by construction).
   `ssh-ng`, then tears down (zero idle RAM, no VM, no `sudo`, no `yolo builder`
   command). The single shipped/documented fallback, per the
   [happy-path principle](../reference/happy-path-principle.md); see
-  `linux-builder-lifecycle.md` (archived 2026-09-09; git has it) (`linux-builder-lifecycle.md`, archived 2026-09-09 — the removal is DONE; the mechanism is in [`macos-linux-builder-explained.md`](../research/macos-linux-builder-explained.md)).
+  `linux-builder-lifecycle.md` (archived 2026-09-09 — the removal is DONE, git has the file,
+  and the mechanism is in [`macos-linux-builder-explained.md`](../research/macos-linux-builder-explained.md)).
   (A user's *own* nix-darwin `linux-builder` or `/etc/nix/machines` box still
   works as an advanced escape hatch — that's their nix config, orthogonal to
   ours.)

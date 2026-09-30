@@ -1,18 +1,22 @@
 ---
 title: "Synced skill trees — implementation sketch"
 date: 2026-09-18
-status: draft
+status: accepted
+stage: BUILT
+next: "Fix the live defect recorded here: yolo pack lint passes a config-overlay body that manifest.DecodeOverlay refuses — start at packLint in internal/cli/pack.go"
 tags: [plan, sketch, skills, packs, host-notch, claude]
-summary: "The parking lot for `synced-skill-trees.md`: the measurement transcripts that doc cites, and the checks worth re-running against them. Not a hand-off artifact — no design decision is made here. The design's fence, notice and recovery report shipped 2026-09-22, so the build-side notes here are history; its one remaining question belongs to the config-ownership axis."
+summary: "The parking lot for `synced-skill-trees.md`: the measurement transcripts that doc cites, and the checks worth re-running against them. Not a hand-off artifact — no design decision is made here. The design's fence, notice and recovery report shipped 2026-09-22, so the build-side notes here are history; its last question, which belongs to the config-ownership axis, was decided on 2026-09-30."
 vantage:
   status-chip: true
 ---
 
 # Synced skill trees — implementation sketch
 
-**Status:** SKETCH, 2026-09-18 — **what survives is the measurement**. The design's three steps (the
+**Status:** 2026-09-18 — **what survives is the measurement**. The design's three steps (the
 fence, the notice, the recovery report) shipped 2026-09-22, so this file's value is the transcripts
 its sibling cites and the checks worth re-running against them, not a route to build.
+MEASURED 2026-09-30: [the enabledPlugins fixture](#the-enabledplugins-measurement), re-run as a dry
+run and a render once the leaf-level record landed, drops nothing.
 
 > [!WARNING]
 > **Do not build from this.** It is a parking lot that keeps
@@ -158,13 +162,21 @@ $ jq -c .enabledPlugins $FH/.claude/settings.json
 {"my-own-plugin@mkt":true}
 ```
 
-**To re-run after row `0b` lands:** the assertion is that run 1 drops NOTHING and prints no loss
-line, while yolo's own LSP toggles are still regenerated from the derive — the second half is
-what a fix that simply stops dropping would get wrong.
+**Re-run 2026-09-30, after the leaf-level record landed** ([`CO13`](config-ownership-and-promotion.md#13-decision-ledger),
+built 2026-09-25). The assertion is that run 1 drops NOTHING and prints no loss line, while
+yolo's own LSP toggles are still regenerated from the derive — the second half is what a fix
+that simply stops dropping would get wrong. MEASURED at `4ac4b8fa`, with a binary built from that
+tree, on a fresh throwaway home holding the fixture above plus one `lsp_servers` entry:
+`yolo host apply` (the dry run) names no dropped entry, and
+`yolo config render claude/settings --at host` keeps both `enabledPlugins` entries and
+`MY_HAND_WRITTEN`, adding `"ENABLE_LSP_TOOL": "1"` beside it. Not re-run with `--assert`, which
+would also have installed `claude` into that home's host floor. `enabledPlugins` is no longer
+written by the claude derive at all (`packs/claude/derive.lua`), so the plugins half of the
+assertion now holds by construction and the `env` half is the one this run checks.
 
-## Two defects this measurement found, neither of them row `0b`
+## Two defects this measurement found, neither of them the leaf-level record
 
-Both are live on the host notch today, both are independent of every `OQ-ST`, and neither is a
+Both were live on the host notch when found, both are independent of every `OQ-ST`, and neither is a
 design question — recorded here so they are not re-discovered.
 
 - **The dropped-entry remedy names `mcp_servers` for every table.** `mcpEntryRemedy`
@@ -191,7 +203,10 @@ design question — recorded here so they are not re-discovered.
   which then contributed nothing and lost the entry at the next apply. Whatever lint is checking,
   it is not what the render decodes. This matters more than it looks because the overlay IS the
   remedy: a user following the advice above with the wrong spelling gets a green lint and the loss
-  anyway.
+  anyway. *Still live, re-checked 2026-09-30 at `4ac4b8fa`*: a binary built from that tree printed
+  `✓ pack ok` and the same claim line for a one-contribution pack whose overlay body carries only
+  `defaults`, while `DecodeOverlay` refuses that field (`overlayRefusals`,
+  `internal/agentcfg/manifest/overlay.go`).
 
 ## Where the claude.ai facts came from
 
@@ -240,7 +255,8 @@ yet, and the fence does not depend on the layout at all — it depends only on t
 - **`packload.SkillsSourceDir`** is the one resolver for a contribution's `from`, used by all
   three former hardcoding call sites. Anything new that reads a pack's skills source goes
   through it.
-- **The leaf-level record** ([OQ-ST5](synced-skill-trees.md#OQ-ST5), roadmap row `0b`) has two
+- **The leaf-level record** ([OQ-ST5](synced-skill-trees.md#OQ-ST5); the record itself is
+  [`CO13`](config-ownership-and-promotion.md#13-decision-ledger), built 2026-09-25) has two
   consumers and they are in different packages: `dropComputedTables`
   (`internal/agentcfg/staterender.go`) for the adopting branch, and `hostTableLayer` /
   `regenerateManagedTables` (`internal/entrypoint`) for the `rmw` one. A fix that lands in one

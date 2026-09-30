@@ -1,5 +1,7 @@
 ---
 status: current
+stage: CURRENT
+next: "Draft OQ-R8's options and a leaning, since it has neither (the hatch also reaches the supervisor's refusal in startJailDaemonSupervisor, or that refusal stays hatchless and says so): today a jail whose required daemon cannot publish is refused with no hatch"
 verified: 2026-09-24
 verified_commit: f491d192
 covers:
@@ -13,7 +15,7 @@ summary: "How a jail reaches a host daemon: yolo's daemons bind the host's loopb
 
 # Loopback-TLS reachability — how a jail reaches a host daemon
 
-**Status:** CURRENT. The component table and [Current values](#current-values) were re-verified
+**Status:** The component table and [Current values](#current-values) were re-verified
 against `f491d192` on 2026-09-24; the prose was last verified in full against `40915b60`, 2026-09-09.
 
 yolo's host daemons bind the **host's loopback** and advertise `host.containers.internal` — on
@@ -380,13 +382,19 @@ verdict there and stays silent on the terminal, because "ran and found nothing" 
 are otherwise the same bytes.
 
 - 💬 <a id="oq-r8"></a>**[`OQ-R8`](#oq-r8) — should a required jail daemon that cannot publish
-  refuse the launch with nothing to get past it?** The escape hatch downgrades the witness, but
-  the jail-daemon supervisor (`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`)
-  refuses on its own, through the boot's `genStep`, which reads no hatch. So a jail whose required
+  refuse the launch with nothing to get past it?**
+
+  <!-- vantage: oq id=OQ-R8 -->
+
+  The escape hatch downgrades the witness, but the jail-daemon supervisor
+  (`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`) refuses on its own, through the boot's `genStep`, which reads no hatch. So a jail whose required
   daemon cannot start gets no shell even with `YOLO_ALLOW_UNREACHABLE_SERVICES` set. MEASURED on a
   host 2026-09-19. Two gates meet here and neither one's ruling covers the pair: [OQ-R2](#oq-r2)
   made the witness fatal with a hatch, and a failed boot generator refuses the boot with none
-  ([`jail-home.md`](jail-home.md)). Filed 2026-09-26; until then the question had no id.
+  ([`jail-home.md`](jail-home.md)). Filed 2026-09-26; until then the question had no id. No
+  leaning has been stated. Re-checked 2026-09-30: the supervisor's readiness wait returns an error
+  on a `failed` report (`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`) and reads
+  no hatch, while the hatch is read only in the witness (`reachability.go`).
 
 ## A nested jail is structurally blind to this
 

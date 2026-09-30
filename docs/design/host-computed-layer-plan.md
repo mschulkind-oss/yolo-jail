@@ -1,6 +1,13 @@
+---
+title: "What a jail derives, the host leaves empty — implementation sketch"
+status: accepted
+stage: BUILT
+next: "Nothing here is left to build; retire this file when host-computed-layer.md graduates"
+---
+
 # What a jail derives, the host leaves empty — implementation sketch
 
-**Status:** BUILT, 2026-09-28 at `358f877d`. [OQ-HC1](host-computed-layer.md#OQ-HC1) ruled
+**Status:** 2026-09-28 at `358f877d`. [OQ-HC1](host-computed-layer.md#OQ-HC1) ruled
 host parity with no per-surface opt-in, so the registration option in
 [§2](#2-if-the-host-derives-by-b1) was not built ([HC-D9](host-computed-layer.md#HC-D9)); the
 rest of [§2](#2-if-the-host-derives-by-b1), and [§3](#3-if-own-renders-computed-through-stateful)
@@ -8,7 +15,9 @@ and [§4](#4-if-host-apply-selects-the-use_profiles-variant), were built as sket
 decisions the build made recorded as HC-D13 to HC-D24 in the
 [design's ledger](host-computed-layer.md#12-decision-ledger) and the result in
 [its account of what was built](host-computed-layer.md#14-what-was-built). This file is kept as
-the record of the sketch. Evidence read at `97220184`.
+the record of the sketch. Evidence read at `97220184`. UNMEASURED here: this sketch ran nothing
+of its own, and what was watched after the build is stated in
+[the design](host-computed-layer.md)'s status line.
 
 > **Precedence.** This is the implementation sketch beside
 > [`host-computed-layer.md`](host-computed-layer.md). The design wins on every behavior, and

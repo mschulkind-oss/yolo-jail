@@ -1,7 +1,11 @@
 ---
 title: "Bedrock plumbing: which transport reaches Bedrock in each agent, and what you type"
 date: 2026-09-04
-status: in-review
+status: accepted
+stage: DECIDED
+next: "Give copilot and oh-omp a Bedrock path on plain -p bedrock, as OQ-BR1 ruled: the bridge's serve decision does not know which agents lack a Bedrock client of their own (wire-bridge-gateway.md WG-I39); start at regionalBedrock's call in internal/wirebridged/via.go (the predicate is in bedrockroute.go)"
+depends-on:
+  - wire-bridge-gateway.md
 tags: [packs, providers, profiles, bedrock, aws, codex, opencode, pi, wire-bridge]
 summary: "How each shipped agent reaches Bedrock's one shipped endpoint family, bedrock-runtime: through its own native Bedrock client where it has one (codex, opencode, pi, and claude for Anthropic models), or through yolo's wire bridge where it has none (claude for every other model, copilot, oh-omp). It also covers what a user types to get either one, and the shape of the single `bedrock` provider every agent reads. Signing, routing, model lists, search, credential scoping and the provider/profile redesign each have their own doc, listed under 'Where the rest went'."
 ---
@@ -13,13 +17,13 @@ Bedrock? It can go through its own built-in Bedrock client, or through yolo's wi
 also covers what you type to pick one, and what shape yolo's Bedrock provider takes so that every
 agent can read it.
 
-**Status:** DESIGN, 2026-09-25, rewritten after the maintainer's review of that day.
-- DECIDED: yolo ships one endpoint family, `bedrock-runtime` ([DIR-BR3](#DIR-BR3)). Every agent
+**Status:** 2026-09-25, rewritten after the maintainer's review of that day.
+- Ruled: yolo ships one endpoint family, `bedrock-runtime` ([DIR-BR3](#DIR-BR3)). Every agent
   reaches every Bedrock model, across the whole matrix ([DIR-BR1](#DIR-BR1), [DIR-BR2](#DIR-BR2)).
   claude gets a native profile and an everything profile ([OQ-BR11](#OQ-BR11)). pi gets its native
   Converse client and a bridge route ([OQ-BR5](#OQ-BR5)). A launch refuses when no region is
   visible ([OQ-BR6](#OQ-BR6)).
-- BUILT: the D1 fix (`f7b14308`, 2026-09-15): the codex derive now writes codex's own
+- Built: the D1 fix (`f7b14308`, 2026-09-15): the codex derive now writes codex's own
   credential field, `env_key`. The no-region refusal, [OQ-BR6](#OQ-BR6) (2026-09-29,
   `packload.ProviderRegionGaps` and `ProviderRegionRefusal`, with the review's fixes
   [BR-D1](#BR-D1), [BR-D4](#BR-D4) and [BR-D5](#BR-D5) and its config-ref entry), at every notch,
@@ -33,13 +37,13 @@ agent can read it.
   pointer key on that platform, and a user's own Bedrock provider co-claims the AWS credential
   names ([PP-D9](providers-and-profiles-redesign.md#PP-D9), `packload.credentialClaims`). The credential
   half, [`sso-backed-bedrock.md`](sso-backed-bedrock.md), is built.
-- BUILT 2026-09-29, build step 2 ([OQ-BR9](#OQ-BR9), [OQ-BR1](#OQ-BR1); [§12](#12-what-i-would-build-in-order)
+- Built 2026-09-29, build step 2 ([OQ-BR9](#OQ-BR9), [OQ-BR1](#OQ-BR1); [§12](#12-what-i-would-build-in-order)
   steps 3 to 5 and 8.2): the provider moved into its own pack, `packs/bedrock`, which claude,
   codex, opencode and pi need, with one model list of every maker, each entry naming its
   `vendor` ([BR-D6](#BR-D6) to [BR-D8](#BR-D8)); codex, opencode and pi are bound to their own
   Bedrock clients, and claude's picks only Anthropic entries ([BR-D9](#BR-D9) to
   [BR-D14](#BR-D14)); and `bedrock-bridge` ships ([BR-D16](#BR-D16)).
-- BUILT 2026-09-30: the bridge's own Bedrock upstream
+- Built 2026-09-30: the bridge's own Bedrock upstream
   ([`wire-bridge-gateway.md` §8](wire-bridge-gateway.md#8-build-order), step 1,
   [WG-I37](wire-bridge-gateway.md#WG-I37) to [WG-I39](wire-bridge-gateway.md#WG-I39)). A provider
   named by region alone is reached at runtime's own `/openai/v1` in the served agent's region, so
@@ -61,8 +65,12 @@ ruled ([BR-D19](#BR-D19)): GPT-6.1 Sol everywhere, with no Region detection. [OQ
 directed ([BR-DIR1](#BR-DIR1)): yolo reads the effective profile's region from `~/.aws/config` and
 delivers it the same way at `yolo host` and in a jail. Both were built 2026-09-29. [OQ-BR9](#OQ-BR9) and [OQ-BR1](#OQ-BR1) were ruled 2026-09-29:
 one `bedrock` pack pulls in every model family, and `-p bedrock` uses each agent's own Bedrock
-client, with `bedrock-bridge` forcing the wire bridge. Both are built, except the bridge's own
-Bedrock upstream ([BR-D16](#BR-D16)).
+client, with `bedrock-bridge` forcing the wire bridge. Both are built, and the bridge's own
+Bedrock upstream that [BR-D16](#BR-D16) waited on followed on 2026-09-30
+([`wire-bridge-gateway.md` WG-I39](wire-bridge-gateway.md#WG-I39)). What [OQ-BR1](#OQ-BR1)'s ruling still
+lacks is copilot and oh-omp on plain `-p bedrock`, which reach nothing: copilot's derive composes
+nothing for the via-only address without a via (`packs/copilot/derive.lua`, `viaOnly`), and the
+profile line says so.
 
 ## The Bedrock and provider design set
 
@@ -77,9 +85,9 @@ names what is open there.
 | 2 | this doc | one Bedrock provider, and what you type ([OQ-BR9](#OQ-BR9) with [OQ-BR1](#OQ-BR1)) | 2026-09-29, built |
 | 3 | [`provider-credential-scope.md`](provider-credential-scope.md) | which credentials and env a profile lets through to which agent ([OQ-CN6](provider-credential-scope.md#OQ-CN6) with [OQ-CN2](provider-credential-scope.md#OQ-CN2) first) | 2026-09-26 |
 | 4 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | what a provider and a profile should mean ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), then [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), then the PP questions) | [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8): 2026-09-29, built; the PP questions open |
-| 5 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md) | which models each picker shows, and which yolo picks ([OQ-ML2](model-lists-and-pickers.md#OQ-ML2) first) | — |
+| 5 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md) | which models each picker shows, and which yolo picks ([OQ-ML2](model-lists-and-pickers.md#OQ-ML2) first) | [OQ-ML1](model-lists-and-pickers.md#OQ-ML1), [OQ-ML2](model-lists-and-pickers.md#OQ-ML2): 2026-09-29; the MM questions open |
 | 6 | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) | how the bridge signs, and sending all traffic through it ([OQ-WG1](wire-bridge-gateway.md#OQ-WG1) first) | 2026-09-25 |
-| 7 | [`bedrock-web-search.md`](bedrock-web-search.md) | web search on Bedrock profiles | — |
+| 7 | [`bedrock-web-search.md`](bedrock-web-search.md) | web search on Bedrock profiles | [OQ-BR21](bedrock-web-search.md#OQ-BR21), [OQ-BR22](bedrock-web-search.md#OQ-BR22): 2026-09-29; the rest open |
 | 8 | [`sso-backed-bedrock.md`](sso-backed-bedrock.md) | the SSO credential's last two edges ([OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8), [OQ-SSO9](sso-backed-bedrock.md#OQ-SSO9)) | 2026-09-25 |
 
 ## Where the split ended up
@@ -815,6 +823,8 @@ R6 to R11 moved with the bridge, model-list and search designs.
    AgentCore search preset ([`bedrock-web-search.md`](bedrock-web-search.md)). The vendor is
    declared, never parsed.
 
+   <!-- vantage: oq id=OQ-BR9 -->
+
    **Answer:**
    > **Ruled 2026-09-29: A, with the packaging left to the build.** The maintainer: *"I guess we
    > can split these into different packs if that's convenient, but I do still want one pack that
@@ -861,6 +871,8 @@ R6 to R11 moved with the bridge, model-list and search designs.
    its spelling is yours to rule. No profile is named for an agent or a vendor. Rule it with
    [OQ-BR9](#OQ-BR9).
 
+   <!-- vantage: oq id=OQ-BR1 -->
+
    **Answer:**
    > **Ruled 2026-09-29, as leaned.** The maintainer: *"we get to select it and point it at an
    > agent just like everywhere else … by default we should pick the right thing, the native by
@@ -872,14 +884,22 @@ R6 to R11 moved with the bridge, model-list and search designs.
    > maker.
 
 3. ✅ <a id="OQ-BR5"></a>[**OQ-BR5**](#OQ-BR5) (ruled 2026-09-25): **Is pi bound through its native
-   Converse client, or through runtime's OpenAI-compatible route?** Both ([Decision Ledger](#decision-ledger)). The
+   Converse client, or through runtime's OpenAI-compatible route?**
+
+   <!-- vantage: oq id=OQ-BR5 -->
+
+   Both ([Decision Ledger](#decision-ledger)). The
    native half is [§6.2](#62-what-each-derive-emits)'s pi row. The bridge half is pi's OpenAI
    chat-completions client pointed at the bridge's sign-only route
    ([`wire-bridge-gateway.md`](wire-bridge-gateway.md)). Its premise: a hand-written API-key provider
    would leave pi needing a bearer because of yolo, not AWS (INFERRED); pi-ai 0.87.1 ships the built-in
    (SOURCED).
 4. ✅ <a id="OQ-BR6"></a>[**OQ-BR6**](#OQ-BR6) (ruled 2026-09-25, as its leaning): **Refuse the
-   launch when no region is resolvable?** Only when yolo can see none; the rule is in
+   launch when no region is resolvable?**
+
+   <!-- vantage: oq id=OQ-BR6 -->
+
+   Only when yolo can see none; the rule is in
    [§8](#8-behaviour-this-design-fixes). Its premise: codex refuses and names the sources, while
    opencode 1.18.32 and pi-ai 0.87.1 fall silently to `us-east-1` (read, not run), and so does
    Claude Code 2.1.285 (read statically 2026-09-29). **Built 2026-09-29**; the implementation
@@ -893,11 +913,21 @@ R6 to R11 moved with the bridge, model-list and search designs.
    > yolo reads the region of the profile the credential comes from in the host's file and
    > delivers it, at `yolo host` and in a jail alike. The decisions are [BR-D20](#BR-D20) to
    > [BR-D26](#BR-D26).
+
 5. ✅ <a id="OQ-BR7"></a>[**OQ-BR7**](#OQ-BR7) (answered 2026-09-25 by [DIR-BR3](#DIR-BR3)): **Is
-   `endpoint_family` its own field?** No; with one family there is nothing to name. The fact it
+   `endpoint_family` its own field?**
+
+   <!-- vantage: oq id=OQ-BR7 -->
+
+   No; with one family there is nothing to name. The fact it
    protected now shows as the mantle recipe being its own provider.
+
 6. ✅ <a id="OQ-BR11"></a>[**OQ-BR11**](#OQ-BR11) (ruled 2026-09-24): **How does claude use native
-   Bedrock for Anthropic ids and the bridge for the rest?** Both profiles, with the everything
+   Bedrock for Anthropic ids and the bridge for the rest?**
+
+   <!-- vantage: oq id=OQ-BR11 -->
+
+   Both profiles, with the everything
    profile routing by model id; [`wire-bridge-gateway.md`](wire-bridge-gateway.md) owns the routing
    mechanism. It touched [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8): the everything
    profile must not set claude's `CLAUDE_CODE_USE_BEDROCK`, yet the credential pointer must reach

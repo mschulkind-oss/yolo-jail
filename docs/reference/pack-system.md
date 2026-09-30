@@ -29,11 +29,13 @@ covers:
   - internal/loopholedecl/capabilities.go
   - packs/
 tags: [packs, config, kinds, manifest, prism, trust, disclosure]
+stage: CURRENT
+next: "Draft OQ-PK1's options and a leaning, since it has neither: the safe subset of packs a workspace config may declare, as OQ-MP7 framed it (content kinds first, or executable kinds such as mcp too); mcp-presets-removal.md's build steps 1-3 wait on the ruling"
 ---
 
 # The pack system — how a jail gets everything in it
 
-**Status:** CURRENT as of 2026-09-24. Verified in full against `7ad8358c` (2026-09-23); every
+**Status:** verified as of 2026-09-24, in full against `7ad8358c` (2026-09-23); every
 commit since that touches a path this doc covers was re-checked against `f491d192`. The
 [fetch section](#fetch-refresh-lock) was rewritten on 2026-09-25 for the launch-time fetch
 ([`OQ-PF1`](#oq-pf1)), in the same change that builds it, so no commit has verified it yet. The
@@ -2113,9 +2115,18 @@ residue.
   `yolo host apply` retires `config-overlay` keys only, and no render reaches a surface whose owner
   is not loaded. `yolo host apply --revert` is the one path that removes them, and only for an
   owner yolo ships.
+
+  <!-- vantage: oq id=OQ-AL3 -->
+
+  No leaning is recorded.
+
 - 💬 <a id="oq-al4"></a>**[`OQ-AL4`](#oq-al4) — should `yolo config promote` lift list
   captures?** Today it leaves them in the workspace and names how many captured list entries a
   surface holds, and at which paths ([the list above](#config-list-visibility)).
+
+  <!-- vantage: oq id=OQ-AL4 -->
+
+  No leaning is recorded.
 
 ### Provenance, and what `config diff` can say
 
@@ -2646,6 +2657,10 @@ a key that does nothing must not be accepted quietly.
   because that ruling moved the workspace-scope boundary they build against. *PK* stands for the
   `packs` key; the prefix is new with this question.
 
+  <!-- vantage: oq id=OQ-PK1 -->
+
+  No leaning is recorded.
+
 ### Fetch, refresh, lock
 
 **A host launch fetches and refreshes git packs itself, and the ref decides what moves**
@@ -2956,6 +2971,8 @@ longer waits for the other launch's staging.
   Apple Container attach finds its tree through the host record, are for a Mac run to show.
 
 #### <a id="oq-pk2"></a>✅ [`OQ-PK2`](#oq-pk2) — does a running jail keep the pack tree it booted with?
+
+<!-- vantage: oq id=OQ-PK2 -->
 
 **Ruled (c), 2026-09-26, and built the same day:** one immutable pack tree per
 launch, plus a notice on attach (`newPackTree` and `noteBootedPackSetDiffers`, pinned by

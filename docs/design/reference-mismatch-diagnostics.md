@@ -4,12 +4,17 @@ date: 2026-08-30
 status: in-review
 tags: [packs, config, validation, diagnostics, ux, principles]
 summary: "Closing the gap between what stringly-typed-references-principle.md asks for and what the code does, written from the user's side. Today a mistyped pack name, an invented wire_api, and a plaintext credential in a base_url all return [PASS]; a mistyped KEY one line away returns [FAIL]. And a whole class of diagnostic — the bare stderr warning — is structurally excluded from the summary line users actually read (measured: 5 warnings printed, summary says 2). This is what changes, what starts failing, and what each message becomes."
+stage: BUILT
+next: "Rule OQ-RM4 — whether an unmatched reference gets an escape hatch; the build shipped the leaning, none"
 ---
 
 # What a mistyped name does to you today
 
-**Status:** DESIGN, 2026-09-25 — all six of [§7](#7-sequencing-by-user-visible-payoff)'s steps
-are shipped; steps 4 and 5 landed 2026-09-30. Triaged 2026-09-30: [`OQ-RM2`](#OQ-RM2) is
+**Status:** 2026-09-25 — all six of [§7](#7-sequencing-by-user-visible-payoff)'s steps
+are shipped; steps 4 and 5 landed 2026-09-30. MEASURED: the real binary refuses an unmatched
+`supersedes` claim at launch and `yolo check` fails it (`TestLaunchRefusesAnUnmatchedSupersession`,
+`integration/supersession_test.go`), passing on both CI arches in `ci.yml` run 36734688583
+(2026-09-30, at `9003abf6`). Triaged 2026-09-30: [`OQ-RM2`](#OQ-RM2) is
 answered by [`OQ-TP6`](trust-paths.md#decision-ledger), [`OQ-RM1`](#OQ-RM1) and
 [`OQ-RM3`](#OQ-RM3) are decided as implementation choices ([RM-D1](#RM-D1), [RM-D2](#RM-D2)),
 and only [`OQ-RM4`](#OQ-RM4) is still open; the build shipped its leaning, no hatch. Re-audited
@@ -484,9 +489,11 @@ day. Nothing in this section is left to build.
    the first place. **This decides whether `check` ever exits non-zero for a reference it had to
    resolve, or only ever shows a `[FAIL]` row that the launch then enforces.**
 
+   <!-- vantage: oq id=OQ-RM1 -->
+
    _Leaning:_ `check` shows `[FAIL]` and exits non-zero here as well — it already does exactly this
    for every parse-time check, and a `check` that passes on a config the next launch refuses is the
-   defect this doc has a roadmap row for. The "don't break the diagnostic tool" carve-out belongs
+   defect this doc exists to close. The "don't break the diagnostic tool" carve-out belongs
    to `loopholes list`, which reports one subsystem, not to `check`, which is the pre-flight.
 
    **Answer:**
@@ -505,6 +512,8 @@ day. Nothing in this section is left to build.
    with the approval prompt on 2026-09-04 by [`OQ-TP9`](trust-paths.md#decision-ledger); the
    rule stands and binds any future refusal source, which a refusing supersession would be. Its
    "approve" option no longer exists.)*
+
+   <!-- vantage: oq id=OQ-RM2 -->
 
    _Leaning:_ (a), refuse the launch, for consistency with the shipped TP6 rule — *"no partial
    packs: fix it, remove it, or approve it."* A pack that half-loads is the state that rule exists
@@ -529,6 +538,8 @@ day. Nothing in this section is left to build.
    on almost none of them. *(Bears on this, and does not answer it: the launch already refuses a
    host `yolo` older than its source through a git comparison, `run.refuseOnSourceSkew` — see
    [§4.6](#46-skew-your-image-is-older-than-your-tree)'s note.)*
+
+   <!-- vantage: oq id=OQ-RM3 -->
 
    _Leaning:_ Compute it **lazily — only when a reference has already failed to match.** The refusal
    is the slow path by definition, and 0.3 s on the way to an error message nobody minds. Do not put

@@ -2,13 +2,15 @@
 title: "Why a bridge endpoint shadowed Pi's Codex provider — and how ambient keys took over"
 date: 2026-09-25
 status: in-review
+stage: DESIGN
+next: "Rule OQ-3 — pi's Converse route through the wire bridge is not built until it does (wire-bridge-gateway.md WG-I36)"
 tags: [providers, codex, pi, openai-auth, shadowing, credentials]
 summary: "Adding an openai-responses endpoint to the openai-codex provider allowed wire-bridge to route to ChatGPT, but caused Pi's derive to shadow its built-in subscription provider with a third-party models.json row. When Pi treated openai-codex as a generic OpenAI platform endpoint, it picked up the workspace's ambient OPENAI_API_KEY, resulting in 401 errors against the Codex backend."
 ---
 
 # Why a bridge endpoint shadowed Pi's Codex provider — and how ambient keys took over
 
-**Status:** DESIGN, 2026-09-27 — [OQ-3](#OQ-3) is open: how far [OQ-2](#OQ-2)'s rule reaches. The `openai-codex` exclusion is BUILT, 2026-09-26, at `92c20cc6` (pi) and `4ed48212` (omp); codex already excluded it. Measured through the boot render only, by the catalog tests, which compose each agent's `needs` closure since 2026-09-27 ([§6.2](#62-test-composition-alignment)); no live pi or omp has run it. Evidence verified at `c5bab09b`; pi's and claude's codex handling re-verified at `4dcebd18`.
+**Status:** 2026-09-27 — [OQ-3](#OQ-3) is open: how far [OQ-2](#OQ-2)'s rule reaches. The `openai-codex` exclusion is built, 2026-09-26, at `92c20cc6` (pi) and `4ed48212` (omp); codex already excluded it. Measured through the boot render only, by the catalog tests, which compose each agent's `needs` closure since 2026-09-27 ([§6.2](#62-test-composition-alignment)); no live pi or omp has run it. Evidence verified at `c5bab09b`; pi's and claude's codex handling re-verified at `4dcebd18`.
 
 > **In short.** A pack-level endpoint added for wire-bridge adaptation caused Pi's derive
 > to generate a `models.json` entry for `openai-codex`, overriding Pi's built-in subscription
@@ -31,7 +33,9 @@ the boundary between subscription OAuth tokens and ambient platform API keys.
 
 **Needs your ruling:** [OQ-3](#OQ-3): does the natively-implements rule cover every provider an agent implements natively, or only a subscription provider with its own client and login?
 
-**Blocks:** [`wire-bridge-gateway.md`'s OQ-WG8](wire-bridge-gateway.md#OQ-WG8), which defers to this rule.
+**Blocks:** pi's Converse route through the wire bridge. [OQ-WG8](wire-bridge-gateway.md#OQ-WG8) was decided on
+2026-09-30 as [WG-I36](wire-bridge-gateway.md#WG-I36), which leaves where pi's override row lives to
+[OQ-3](#OQ-3) and does not build the route until it rules.
 
 **Reads with:** [`pi-codex-provider-shadowing-plan.md`](pi-codex-provider-shadowing-plan.md) (the companion sketch — incomplete while questions are open),
 [`provider-credential-scope.md`](provider-credential-scope.md) (the ambient environment delivery boundary),
@@ -427,6 +431,8 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    a new manifest schema field to `packdecl` for a single provider is unnecessary complexity when
    `openai-codex` is already recognized across core as the sole subscription provider.
 
+   <!-- vantage: oq id=OQ-1 -->
+
    **Answer:**
    > **Name exclusion for v1**, ruled in review 2026-09-26: *"to match Codex CLI, deferring schema
    > changes until another subscription provider exists."* `packs/pi/derive.lua` skips `openai-
@@ -443,6 +449,8 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    is factually true: ChatGPT's backend does expose an `openai-responses` wire API at that URL. The
    architectural defect was not declaring the endpoint; it was Pi's derive assuming that any declared
    endpoint must be cataloged in `models.json`, even for providers Pi implements natively.
+
+   <!-- vantage: oq id=OQ-2 -->
 
    **Answer:**
    > **Keep the endpoint on `openai-codex` in `packs/openai-auth`, and establish the rule**, ruled

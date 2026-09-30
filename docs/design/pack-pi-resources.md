@@ -1,14 +1,17 @@
 ---
 title: "A pack gives pi a whole package, not a list of files: delivering pi extensions, themes and prompts without naming pi's paths"
 date: 2026-09-25
-status: draft
+status: in-review
+stage: DESIGN
+next: "Rule OQ-PR1: the register field, the core-emitted packages entries and pi's slot all wait on it, and nothing else does"
 tags: [pi, packs, files, slots, extensions, themes, config-list]
 summary: "A content pack that ships pi extensions today writes one `files` entry per file, each naming a path inside pi. pi's own loader explains why: a top-level file in ~/.pi/agent/extensions is an extension, but a subdirectory there loads only through a manifest listing exact paths or an index.ts. pi's `packages` setting has the shape the pack wants: a local directory with conventional extensions/, themes/, skills/ and prompts/ folders loads with no list at all. So pi's pack declares a slot outside auto-discovery, and the slot declaration tells core to register every tree that lands there as a local pi package, appended beside the user's own packages. A content pack then writes one entry and no pi path. One ruling owed: adopting this route."
 ---
 
 # A pack gives pi a whole package, not a list of files
 
-**Status:** DESIGN, 2026-09-25. Nothing built. pi's behavior read from `@earendil-works/pi-coding-agent`
+**Status:** 2026-09-25. Nothing built (re-checked 2026-09-30: no `register` field in `packdecl`, and
+`packs/pi` declares no slot at `.pi/agent/yolo-packs`). pi's behavior read from `@earendil-works/pi-coding-agent`
 0.87.1 as installed in this jail (`dist/core/package-manager.js`, `dist/core/pi-manifest.js`,
 `dist/core/extensions/loader.js`, `docs/packages.md`, `docs/settings.md`, `docs/extensions.md`); yolo
 claims read against the working tree on this date. **MEASURED:** nothing. The pi claims come from

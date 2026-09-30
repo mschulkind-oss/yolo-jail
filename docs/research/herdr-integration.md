@@ -4,13 +4,15 @@ date: 2026-09-29
 status: in-review
 tags: [research, herdr, terminal, multiplexer, sessions, lifecycle, worktrees, host, notches, integration]
 summary: "herdr is a terminal multiplexer built for coding agents. A background server owns every pane's terminal, so agents keep running when the window closes, and herdr shows which agent is working, blocked or done. It sits beside yolo rather than competing with it: herdr is where the terminals live, and yolo is the environment each agent runs in. `yolo host -- <agent>` in a herdr pane already gets everything herdr offers. `yolo -- <agent>` in a container jail shows up as a plain terminal, because herdr looks for the agent among host processes and finds only podman. The best first step is small. When the launcher runs in a herdr pane, it tells herdr which program is inside by setting a variable on the host-side runtime process, and, for an agent herdr recognizes, it labels the pane as a jail, the way yolo already marks tmux panes and kitty tabs. Three things break and need rulings or other designs. Closing a herdr pane signals the launcher and, through podman's signal forwarding, the jail's own processes, and probably kills the launcher during its teardown (inferred, not measured). herdr's worktrees break git inside container jails. A herdr restart brings jail panes back as empty shells. herdr's socket must never cross into a jail, because it gives full control of the user's terminals. Four rulings are owed."
+stage: DESIGN
+next: "Measure §6 item 8 in a Linux jail, the fact OQ-HR3 turns on: bind a host-path .git into a --read-only podman container, then commit from the worktree"
 vantage:
   status-chip: true
 ---
 
 # herdr: a terminal multiplexer for coding agents, and how yolo fits inside its panes
 
-**Status:** RESEARCH, 2026-09-29. Nothing is built, and nothing here changes the tree. herdr evidence
+**Status:** 2026-09-29; research. Nothing is built, and nothing here changes the tree (re-checked 2026-09-30: nothing under `internal/`, `cmd/` or `packs/` names herdr). herdr evidence
 was read at tag `v0.9.3` (commit `7b116c05`). yolo evidence was read at `e766fb23`. No agent CLI was
 run. One research lens ran the herdr 0.9.3 release binary as a headless named herdr session in a
 scratch directory, with `sh` and `sleep` probes in its panes. Those results are marked MEASURED.

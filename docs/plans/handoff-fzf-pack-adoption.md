@@ -1,11 +1,29 @@
+---
+title: "Handoff — finishing the fzf pack, and what changed under it"
+status: accepted
+stage: DECIDED
+next: "Move the example pack's briefing out of AGENTS.md (docs/examples/claude-fzf-pack/pack.json and its README's snippet): `yolo pack lint --allow-exec docs/examples/claude-fzf-pack` has refused the pack since d7178caf"
+---
+
 # Handoff — finishing the fzf pack, and what changed under it
 
 **Audience:** the next agent picking up `docs/examples/claude-fzf-pack/` (or the maintainer
 adopting it by hand).
 **Written:** 2026-08-02, after the pack was built and verified at both notches.
-**Status:** DECIDED, 2026-08-02 — the pack itself **works, is committed and was verified at both
-notches**. This handoff is about the four things that are *not* done, plus the context that
-changed while it was being built.
+**Status:** 2026-08-02 — the pack **worked, was committed and was verified at both notches**
+([§7](#7-how-to-verify-after-any-change)). Re-checked against the tree 2026-09-30: of the four
+things this handoff said were not done, the `requires` declaration shipped
+([§2.2](#22-no-program-contribution--a-workaround-not-a-design-choice--adopted-requires-2026-08-03)),
+and the two host-side copies ([§6](#6-checklist-for-a-successor)) are the maintainer's. **The
+pack no longer lints**, which is the work left in the tree (below).
+
+> [!WARNING]
+> **Measured 2026-09-30: `yolo pack lint --allow-exec docs/examples/claude-fzf-pack` exits 1.**
+> The pack's `briefing` contribution reads `"from": "AGENTS.md"`, and since `d7178caf`
+> (2026-09-23) a pack may not ship a file named `AGENTS.md` as prose, because agent tools read
+> that name at any depth (`internal/packdecl/contributes.go`). The refusal names its own fix:
+> move the prose under `briefing/` and point `from` at it. The README's adoption snippet carries
+> the same `from`, so a copy made from it fails the same way.
 
 The pack's own README (`docs/examples/claude-fzf-pack/README.md`) covers what it contains and
 how to adopt it — read that first, and do not duplicate it here. This doc is only what a
@@ -201,6 +219,14 @@ reading only the pack would miss these.
 
 ## 5. Three product defects this pack surfaced
 
+> [!NOTE]
+> **All three are fixed, checked 2026-09-30.** (1) No launcher is written for a name the image
+> already provides (`internal/entrypoint/launchercollision.go`, the generation-time half of
+> [`OQ-PD12a`](../design/program-delivery.md#decision-ledger)). (2) Every `program` in a pack installs
+> ([`proposed-fixes-open-findings.md` #3](proposed-fixes-open-findings.md#3-only-the-first-program-per-pack-installs-112--fix-the-loop)).
+> (3) Each launch stages a new pack tree holding only the selected packs
+> (`internal/cli/run/packtree.go`, `b2e796a7`). The list below is the 2026-08-02 record.
+
 All three are why [§2.2](#22-no-program-contribution--a-workaround-not-a-design-choice--adopted-requires-2026-08-03) exists. Full context and the decisions needed are in
 [`../reference/pack-system.md#program`](../reference/pack-system.md#program); Phase 11 of the plan
 lists them as work items. Summarized so a successor does not rediscover them:
@@ -230,7 +256,8 @@ lists them as work items. Summarized so a successor does not rediscover them:
       `config-overlay`, which cannot set `mode` at all ([§3](#3-the-trap-that-was-defused-by-convention-and-is-now-closed-by-the-mechanism)).
 - [x] ~~When `config-overlay` lands, convert the `config` contribution to it~~ — **done
       2026-08-02** ([§2.4](#24-the-pack-declares-config-which-will-eventually-be-wrong--converted-2026-08-02)).
-- [ ] When Q1.x is decided, add the `fd`/`fzf` dependency declaration with `install_hints`
+- [x] ~~When Q1.x is decided, add the `fd`/`fzf` dependency declaration with `install_hints`~~
+      — **done 2026-08-03**: `pack.json` declares both as `requires`, with hints
       ([§2.2](#22-no-program-contribution--a-workaround-not-a-design-choice--adopted-requires-2026-08-03)).
 - [x] ~~Expect two `claude/settings rendered` lines until R4 is fixed~~ — one line now; two
       would mean a collision, which is refused ([§2.3](#23-the-double-rendered-line-is-expected-here--fixed-2026-08-02)).

@@ -1,7 +1,9 @@
 ---
 title: "Models that follow you into pi's extensions — without yolo owning the extensions"
 date: 2026-09-25
-status: draft
+status: accepted
+stage: DECIDED
+next: "Build OQ-XM4's per-agent YOLO_MODEL_<ROLE> variables, whose condition holds since provider-credential-scope.md's per-agent env files landed on 2026-09-26: start at AgentEnv in internal/packload/deriveenv.go"
 tags: [pi, extensions, models, subagents, workflows, tiers, defaults, research]
 summary: "pi extensions that spawn agents mostly inherit the session's model, so yolo's default already follows them. The ones that don't keep their own role config (tiers, model classes, per-agent overrides) in files yolo never renders, and pi has no model-role concept to aim at. The proposal: core exposes yolo's existing tier aliases to pack derives, extensions get ADAPTER PACKS that someone other than yolo ships, the one adapter yolo ships today (pi-subagents' block in pi's derive) moves out, and a model-roles setting is proposed upstream to pi. Ruled and built 2026-09-28: the helper and a fourth alias, frontier; the block stays in pi's derive and is written for every provider; no upstream proposal."
 ---
@@ -13,9 +15,13 @@ agents they launch. How does the default model a user carries everywhere reach t
 when yolo can configure pi but not each extension, and must not take an opinion on which
 extensions to support?
 
-**Status:** DESIGN, 2026-09-25. **BUILT 2026-09-28:** [OQ-XM1](#OQ-XM1)'s helper
+**Status:** 2026-09-25. **Built 2026-09-28:** [OQ-XM1](#OQ-XM1)'s helper
 (`yolo.model_for`), [OQ-XM2](#OQ-XM2)'s `frontier` and [OQ-XM3](#OQ-XM3)'s `subagents` block for
 every provider; the implementation decisions are in the [Decision Ledger](#7-decision-ledger).
+**Not built:** [OQ-XM4](#OQ-XM4)'s role variables, `YOLO_MODEL_<ROLE>` per agent. The ruling
+deferred them until per-agent environment exists, and the per-agent env files of
+[OQ-CN6](../design/provider-credential-scope.md#OQ-CN6) were built on 2026-09-26, two days before
+it; nothing in the tree sets such a variable (checked 2026-09-30).
 **MEASURED:** the model-selection code of eight
 extensions and of pi 0.87.1, read from the published packages (versions in
 [Appendix A](#appendix-a-evidence)). **UNMEASURED:** no extension was run; no agent was started.
@@ -156,6 +162,8 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ yes. It's the one core change, it names no extension, and claude's and opencode's
    derives can adopt it to lose their hand-written copies.
 
+   <!-- vantage: oq id=OQ-XM1 -->
+
       **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** yes. A derive helper resolves a tier alias for the
    > selected provider to `provider/id`. It is the one core change, it names no extension, and
@@ -169,6 +177,8 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
 
    _Leaning:_ keep yolo's three and add `frontier` as a fourth conventional alias, with the same
    warn-don't-refuse rule. Each adapter maps names; core does not.
+
+   <!-- vantage: oq id=OQ-XM2 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** keep `default`, `fast` and `balanced`, and add
@@ -202,6 +212,8 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ (a), and it answers [OQ-PM1](pi-model-selection-ux.md#OQ-PM1) the same way: the adapter writes `defaultModel` from the
    profile's `default` alias and `modelScope` from the provider's models, for every provider.
 
+   <!-- vantage: oq id=OQ-XM3 -->
+
       **Answer:**
    > **Ruled in review 2026-09-28, amending the options:** the rule is not about codex. *"I want
    > always the default to switch to the default. If it's not otherwise specified, it should
@@ -225,6 +237,8 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ not until per-agent env exists ([OQ-CN6](../design/provider-credential-scope.md#OQ-CN6));
    then as `YOLO_MODEL_<ROLE>` per agent.
 
+   <!-- vantage: oq id=OQ-XM4 -->
+
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** not until per-agent environment exists
    > ([OQ-CN6](../design/provider-credential-scope.md#OQ-CN6)); then as `YOLO_MODEL_<ROLE>`, set
@@ -237,6 +251,8 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
 
    _Leaning:_ yes. It would let yolo's pi derive write one key and most adapters retire, and
    `@henryqw/pi-task-models` shows the demand.
+
+   <!-- vantage: oq id=OQ-XM5 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, against the leaning:** no. yolo does not propose a model-roles

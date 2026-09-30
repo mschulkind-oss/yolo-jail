@@ -4,13 +4,15 @@ date: 2026-08-25
 status: in-review
 tags: [design, disk, prune, images, podman, nix]
 summary: "Every reclaimer yolo owned was correct, tested, and reachable only from a human typing `yolo prune` — so 404 GiB of regenerable image tars sat unreclaimed under a hint that had been true for a month. The fix is not a better sweeper: it is moving the delete into the process that made the bytes. Three of the four questions are ruled and in the tree — the tar is never written, the podman reap fires on its own, and it touches only images yolo can prove are its own. OQ-DF4, whether the byte budget is ever written down as a number, is the one live question."
+stage: DESIGN
+next: "Before OQ-DF4 is ruled, check whether mise's own tracked-configs record (what mise prune reads) already supplies the version-use signal option (A) says does not exist, since that decides (A)'s cost"
 vantage:
   status-chip: true
 ---
 
 # Minimal disk footprint — reclamation that waits for a human is not reclamation
 
-**Status:** DESIGN, 2026-08-25 — one ruling owed; audited and compacted 2026-09-18, re-checked
+**Status:** 2026-08-25 — one ruling owed; audited and compacted 2026-09-18, re-checked
 against the tree 2026-09-24. [OQ-DF4](#OQ-DF4) is the last live question and is no longer
 blocked — its measurement was taken 2026-09-15
 ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)),
@@ -721,14 +723,14 @@ are [§11.1](#111-decision-ledger) rows.
 
 2. ✅ <a id="OQ-DF2"></a>**[OQ-DF2](#OQ-DF2) — ANSWERED 2026-09-08, and COMPACTED: where does the automatic reclamation live — the write path, the launch path, or `yolo prune`'s default?** The ruling and the fourth placement it could not have named are [§11.1](#111-decision-ledger)'s row; the argument it settled runs through [§4.2](#42-the-shape-this-lands-on) and [§3.3](#33-ledger-c--the-runtime-image-store-and-the-nameless-row).
 
-   <!-- vantage: oq id=OQ-DF2 leaning="ANSWERED 2026-09-08. All three components, split by ledger, plus a fourth placement the question could not have named: the post-launch housekeeping slot, which keeps the launch path's reach without its P7 exposure." -->
+   <!-- vantage: oq id=OQ-DF2 -->
 
    > [!WARNING]
    > **Do not read the launch-path reap as a reversal of this ruling's objection to the launch path.** The objection was P7 — a sweep that fires during another jail's build — and that is a property of the MOMENT, not of the component. The housekeeping slot pays it off rather than refusing it ([`disk-levers-and-backfill.md`](disk-levers-and-backfill.md) [§5.1](disk-levers-and-backfill.md#51-the-housekeeping-slot)). The debounce and the unchanged veto are load-bearing precisely because a launch-triggered sweep was the riskiest of the three options.
 
 3. ✅ <a id="OQ-DF3"></a>**[OQ-DF3](#OQ-DF3) — RULED IN THREE HALVES and COMPACTED: how much of the runtime's image store may yolo reclaim, on what trigger, and how many images does it keep?** NUMBER and TRIGGER 2026-09-06, REACH 2026-09-08; all three are [§11.1](#111-decision-ledger) rows. The reach argument is [§3.3](#33-ledger-c--the-runtime-image-store-and-the-nameless-row), the retention argument [§10](#10-sequencing--what-i-would-build-in-order) step 4.
 
-   <!-- vantage: oq id=OQ-DF3 leaning="RULED. NARROW: yolo never removes an image it cannot prove is its own, and provenance is carried by a label baked into the image config rather than by a side-file ledger. The count stayed 2 and has since been deleted outright by OQ-LS3. The trigger is the launch, debounced to a day, in the housekeeping slot." -->
+   <!-- vantage: oq id=OQ-DF3 -->
 
    **The maintainer's words, because both halves of the ruling are in them:**
 

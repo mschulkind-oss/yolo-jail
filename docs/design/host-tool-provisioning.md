@@ -4,13 +4,15 @@ date: 2026-09-25
 status: accepted
 tags: [host, provisioning, floor, program, npm, capture, mise, path, evergreen]
 summary: "yolo host should run every agent a selected pack declares from any launcher, a Waybar widget included, without the user having arranged a PATH. The design is a host agent floor: the program binaries of the user-scope selected packs, installed with no prompt into a yolo-owned host prefix (selecting the pack is the consent), kept current the way the jail's launchers keep them, and exec'd from there by path, so the floor's copy runs even where the user installed their own. The prefix is on no PATH of the user's, and a launch appends its bin/ last to the agent's PATH. npm agents run on the prefix's own Node; the installer-recipe agents come from a yolo capture, and on macOS from a host capture measured before it ships. yolo never runs mise install at the host. Every question here is ruled; what runs for a selected pack's program the floor cannot hold is OQ-HE11 in host-launch-environment.md. Built 2026-09-29 on Linux; the macOS host capture (HP-D2) is not built, and the Built column of the ledger says what each ruling's code is."
+stage: DECIDED
+next: "Measure HP-D2 on a Mac: run each installer agent's vendor installer (claude, codex, agy) under Seatbelt with a throwaway $HOME and record what it writes, then build the host capture on that shape"
 ---
 
 # A host agent floor: yolo keeps its own agents installed on the host, so a launch needs no particular PATH
 
-**Status:** DESIGN, 2026-09-25; every question ruled 2026-09-29, the last by [HP-DIR4](#HP-DIR4).
+**Status:** 2026-09-25; every question ruled 2026-09-29, the last by [HP-DIR4](#HP-DIR4).
 **Built 2026-09-29** (`internal/hostfloor`, wired in `internal/cli/hostfloor.go`), except the macOS
-host capture ([HP-D2](#HP-D2)): the [Decision Ledger](#decision-ledger)'s Built column says what
+host capture ([HP-D2](#HP-D2)), the one unbuilt step, which needs a Mac to measure first: the [Decision Ledger](#decision-ledger)'s Built column says what
 each ruling's code is, [HP-D4](#HP-D4) to [HP-D9](#HP-D9) record the implementation's own
 decisions, and [§8](#8-done-looks-like) says which rows are pinned by a test and which only a real
 host can confirm. Evidence read against `7e529260`, and it cites symbols, never line numbers. Where
@@ -427,6 +429,8 @@ reproduces only by unsetting PATH in-process.
    nobody turns on guarantees nothing. [`OQ-HE0`](host-launch-environment.md#oq-he0) isn't
    engaged, because the prefix is machine state yolo owns rather than an ambient input.
 
+   <!-- vantage: oq id=OQ-HP1 -->
+
       **Answer:**
       > **Ruled 2026-09-29: (a), on by default.** The maintainer: *"this floor should be on by
       > default for the host agent stuff because you're going to already have to have opted into
@@ -445,6 +449,8 @@ reproduces only by unsetting PATH in-process.
    nothing on the composed PATH provided at install time. A user who wants their own copy says
    so through [OQ-PS7](provisioner-sets.md#OQ-PS7)'s override, and then the prefix never holds
    that name. It also matches the jail, where the launch dir precedes every install prefix.
+
+   <!-- vantage: oq id=OQ-HP2 -->
 
       **Answer:**
       > **Ruled 2026-09-29: moot — the prefix is on no PATH of the user's.** The maintainer: *"It
@@ -479,6 +485,8 @@ reproduces only by unsetting PATH in-process.
    _Leaning:_ **(a), with (c) on macOS**, pending a measurement that a captured `claude` runs on
    a Linux host. It is the only option that keeps the standing ruling.
 
+   <!-- vantage: oq id=OQ-HP3 -->
+
       **Answer:**
       > **Ruled 2026-09-29: (a), and on macOS a host capture instead of hint-only.** The maintainer:
       > *"I want to reuse the yolo capture. Like, that would be great if we just have one package
@@ -502,6 +510,8 @@ reproduces only by unsetting PATH in-process.
    _Leaning:_ **(a)**, with (b) and (c) left to [OQ-PS6](provisioner-sets.md#OQ-PS6)'s ranking
    later. It is the only source present on every host, and it lives entirely inside the prefix.
 
+   <!-- vantage: oq id=OQ-HP4 -->
+
       **Answer:**
       > **Ruled 2026-09-29, as leaned: (a).** The official Node tarball, checksum-verified, at a
       > version yolo ships raised to the highest selected `node_floor`. The maintainer: *"Using the
@@ -518,6 +528,8 @@ reproduces only by unsetting PATH in-process.
    ([P6](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)).
    The refresh runs at the agent's own invocation rather than in the background, and a changed
    recipe prompts again ([§4](#4-when-provisioning-runs)).
+
+   <!-- vantage: oq id=OQ-HP5 -->
 
       **Answer:**
       > **Ruled 2026-09-29, past both options: no consent prompt at all.** The maintainer: *"why is
@@ -540,6 +552,8 @@ reproduces only by unsetting PATH in-process.
    _Leaning:_ **(a).** It is what the user's own `mise.toml` asks for. mise's trust prompt
    already guards a cloned repository's config. A widget can't consent to a download.
 
+   <!-- vantage: oq id=OQ-HP6 -->
+
       **Answer:**
       > **Ruled 2026-09-29: never** ([HP-DIR3](#HP-DIR3)). The maintainer: *"when you're inside of
       > the jail, you can't really truly manage all the things in the environment … it's the safer
@@ -556,6 +570,8 @@ reproduces only by unsetting PATH in-process.
    environment (the floor's node by absolute path, mise stripped). **(a)** Only the agent's own
    startup is fixed; what it runs sees the user's own shell environment. **(b)** The set
    environment all the way down, so `npm test` runs on the floor's node.
+
+   <!-- vantage: oq id=OQ-HP7 -->
 
    **Answer:**
    > **Ruled 2026-09-29: (a)** ([HP-DIR3](#HP-DIR3)). Only a delivered agent's own startup runs in
@@ -574,7 +590,7 @@ reproduces only by unsetting PATH in-process.
 | [OQ-HP4](#OQ-HP4) | **Maintainer ruling:** the prefix's Node is the official tarball, checksum-verified, at yolo's version raised to the highest selected `node_floor` | 2026-09-29 | **Built** ([HP-D6](#HP-D6)): Node v24.21.0 with its published sha256 compiled in, raised to a higher `node_floor` |
 | [OQ-HP5](#OQ-HP5) | **Maintainer ruling:** no consent prompt; selecting the pack is the consent, and the floor installs and updates like a jail's launchers | 2026-09-29 | **Built.** Nothing prompts |
 | <a id="HP-D3"></a>HP-D3 | *Consequence of HP5:* [§4](#4-when-provisioning-runs)'s consent step and HP1's "installs still need consent" are withdrawn; a launch with no terminal installs too, disclosed on its launch line | 2026-09-29 | **Built.** A launch installs the one program it starts, with progress lines on stderr; `yolo host apply --assert` installs every missing entry ([HP-D8](#HP-D8)) |
-| <a id="HP-DIR2"></a>HP-DIR2 | **Maintainer direction (2026-09-29), the two environment layers:** *"we always want our own node … like a nix shell thing … make the predictable environment predictable … we construct an environment. We do not sniff the command line … yolo host will let it use the node from the project. It will have a fallback of the floor … And then when you run the agent's wrapper … that one will now strip out the mise because now it wants not just a floor, but a predictable environment."* (1) `yolo host -- <cmd>` composes an environment: the user's PATH, project tools and mise shims included, with the floor as a FALLBACK after it; yolo never inspects the command. (2) An agent yolo delivers from the floor runs in a set, predictable environment: the floor's own node by absolute path, mise stripped. Replaces [HP-D1](#HP-D1)'s "prefix first" | 2026-09-29 | **Built**, except `host_path` ([`host-launch-environment.md` §2.2](host-launch-environment.md#22-the-launch-path-and-what-host_path-adds); the per-OS baseline was withdrawn by [HE-DIR1](host-launch-environment.md#he-dir1)): the child's PATH is the caller's, then the floor's `bin/`. Item (2) as [HP-D4](#HP-D4) reads it |
+| <a id="HP-DIR2"></a>HP-DIR2 | **Maintainer direction (2026-09-29), the two environment layers:** *"we always want our own node … like a nix shell thing … make the predictable environment predictable … we construct an environment. We do not sniff the command line … yolo host will let it use the node from the project. It will have a fallback of the floor … And then when you run the agent's wrapper … that one will now strip out the mise because now it wants not just a floor, but a predictable environment."* (1) `yolo host -- <cmd>` composes an environment: the user's PATH, project tools and mise shims included, with the floor as a FALLBACK after it; yolo never inspects the command. (2) An agent yolo delivers from the floor runs in a set, predictable environment: the floor's own node by absolute path, mise stripped. Replaces [HP-D1](#HP-D1)'s "prefix first" | 2026-09-29 | **Built**, `host_path` included since 2026-09-30 ([`host-launch-environment.md` §2.2](host-launch-environment.md#22-the-launch-path-and-what-host_path-adds), [HE-D3](host-launch-environment.md#he-d3); the per-OS baseline was withdrawn by [HE-DIR1](host-launch-environment.md#he-dir1)): the child's PATH is the caller's, then `host_path`'s folders, then the floor's `bin/`. Item (2) as [HP-D4](#HP-D4) reads it |
 | <a id="HP-DIR3"></a>HP-DIR3 | **Maintainer principle (2026-09-29): at the host, yolo manages the AGENT's environment, never the WORKSPACE's runtime.** In a jail yolo provisions the workspace's runtime (it is the contained room, and safe to provision); at the host the workspace is where the user works, and its toolchain is the user's, or the host agent's to install once running. Extended by the maintainer to every question it applies to | 2026-09-29 | **Built** as an absence: nothing at the host provisions or activates the workspace's runtime |
 | [OQ-HP6](#OQ-HP6) | **Maintainer ruling:** never; no `mise install`, `mise env` or direnv at the host | 2026-09-29 | **Built** as an absence: no `mise` call anywhere at the host |
 | [OQ-HP7](#OQ-HP7) | **Maintainer ruling:** (a); the agent's own startup is fixed, its children see the user's environment | 2026-09-29 | **Built.** The child's environment is the one it was handed, the caller's PATH first |

@@ -1,13 +1,23 @@
+---
+title: "Packs and the prism — one delivery mechanism for all agent support"
+date: 2026-07-26
+status: deprecated
+stage: SUPERSEDED
+next: "Nothing: ../reference/pack-system.md is the live account of the system this argued for, and this doc is kept for the argument"
+---
+
 # Packs and the prism — one delivery mechanism for all agent support
 
-**Status:** SKETCH, 2026-07-26 — conceptual, **and the bet it describes was TAKEN.** Re-checked
+**Status:** 2026-07-26, written as a conceptual sketch, **and the bet it describes was TAKEN**;
+[`../reference/pack-system.md`](../reference/pack-system.md) is the live account. Re-checked
 2026-08-23: the pack system is the architecture, not a sharing feature. `AGENTS.md` now opens with
 *"AGENTS ARE PACKS. Core does not know what an agent is"*; there is no agent registry, `internal/agents`
-was renamed `internal/jailcontent` when the registry it named was deleted, and all **sixteen**
-shipped packs — **re-counted 2026-09-14; ten install no CLI now** (six ship a loophole,
-`zai` and `cerebras` are declarative provider/profile facts,
-`guardrails` ships blocked-tool refusals, `wire-bridge` is a service) — are pack
-files rather than Go code. Read this as the
+was renamed `internal/jailcontent` when the registry it named was deleted, and every shipped pack
+is a pack file rather than Go code, most of them installing no CLI at all (on 2026-09-14 that was
+ten of sixteen: six shipped a loophole, `zai` and `cerebras` declarative provider/profile facts,
+`guardrails` blocked-tool refusals, and `wire-bridge` a service;
+`rg -l '"kind": "program"' packs/*/pack.json` is the current agent list, and the count moves too
+often to write down here). Read this as the
 argument that produced that, not as a shape still being argued. **Not a plan** — a shape to argue with
 before anyone commits. Written in response to: *"what would it be like if we built the pack
 system and then pulled all agent support out into 'official' packs?"*

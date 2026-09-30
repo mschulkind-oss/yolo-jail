@@ -1,9 +1,11 @@
 ---
 title: "Handoff: what the first macos-user hardware run left open"
-status: in-review
+status: accepted
+stage: DECIDED
+next: "Write item 1's twin (§3): a TestMacosUser… launch asserting `whoami` is _yolojail and `pwd` is the workspace, for the macos-user CI job to run; nothing asserts whose sandbox a launch starts"
 date: 2026-09-12
 tags: [macos-user, handoff, lsp, integration, provisioning]
-summary: "The macos-user manual-checks runbook was run end to end on hardware for the first time on 2026-09-12. All ten items now have a measurement, three defects were found and fixed that day, and seven threads were opened. Five are left: one test-suite design flaw that only bites a persistent Mac, one logging gap, and three automation gaps that are work nobody has done rather than problems. Two are closed: provider credentials on every argv this backend builds, and the one product defect (lsp_servers installed nothing here) — wired on 2026-09-13, then closed by deletion on 2026-09-25 when yolo stopped installing language servers on any backend."
+summary: "The macos-user manual-checks runbook was run end to end on hardware for the first time on 2026-09-12. All ten items now have a measurement, three defects were found and fixed that day, and seven threads were opened. Four are left: one test-suite design flaw that only bites a persistent Mac and three automation gaps that are work nobody has done rather than problems. Three are closed: provider credentials on every argv this backend builds, the launch.log gap (fixed 2026-09-17), and the one product defect (lsp_servers installed nothing here) — wired on 2026-09-13, then closed by deletion on 2026-09-25 when yolo stopped installing language servers on any backend."
 ---
 
 # Handoff: what the first macos-user hardware run left open
@@ -11,15 +13,28 @@ summary: "The macos-user manual-checks runbook was run end to end on hardware fo
 **Audience:** the next agent working on `macos-user`, on a Mac or off it. Each thread below
 says which it needs.
 
-**Status:** DESIGN, 2026-09-12 — a handoff; one ruling is owed and the rest is work nobody has done.
+**Status:** 2026-09-12, re-checked against the tree 2026-09-30 — a handoff; work nobody has done,
+and no ruling. The one choice this doc leaves open, [§2](#2-the-twin-suite-poisons-itself-in-test-order--a-persistent-mac-only)'s
+cleanup shape, is test design, and `integration/macosuserhometier_test.go` now describes the
+leftover links as self-healing (`ensureLayoutSymlink` repoints a link yolo wrote on the next
+launch). [§3](#3-items-1-2-and-4-have-no-automated-twin) is partly covered since: the Seatbelt
+policy suite (`integration/macosuserseatbelt_test.go`, 2026-09-18) runs each deny against a bare
+control outside a launch, and `integration/macosusercontent_test.go` finds a staged skill in a
+real launch; item 1 still has no twin. [§4](#4-item-8s-two-named-halves-stay-manual-and-one-needs-a-seam)'s
+seam does not exist (`/usr/bin/sandbox-exec` is still spelled at each argv builder in
+`internal/macosuser`). [§6](#6-provider-secrets-rode-the-launch-argv--fixed-2026-09-13-and-the-framing-below-it-was-wrong)
+and [§7](#7-nothing-the-macos-user-backend-prints-reaches-launchlog--fixed-2026-09-17) are fixed
+and each owes one hardware observation. The run this doc came from:
 [`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md) end to end on
 the maintainer's Apple Silicon Mac (macOS 26.5, arm64) — the first time items 5-10 or any of
 their automated twins had executed anywhere. **Nothing here is speculative about whether the
-backend works:** it does, and the run says so. What is left is one test-design flaw, one
-logging gap, and three pieces of automation nobody has written —
+backend works:** it does, and the run says so. What is left is one test-design flaw and three
+pieces of automation nobody has written —
 [§6](#6-provider-secrets-rode-the-launch-argv--fixed-2026-09-13-and-the-framing-below-it-was-wrong)
-was a seventh thread and is now closed, and the product defect
-([§1](#1-lsp_servers-installs-nothing-on-this-backend--ruled-and-wired-2026-09-13)) was ruled and wired on 2026-09-13, leaving one Mac run of its subtest.
+and [§7](#7-nothing-the-macos-user-backend-prints-reaches-launchlog--fixed-2026-09-17) are closed,
+and the product defect
+([§1](#1-lsp_servers-installs-nothing-on-this-backend--ruled-and-wired-2026-09-13)) was closed by
+deletion on 2026-09-25, so its subtest will never run.
 
 **What the session settled, so you do not re-do it:** every item of that runbook passes on
 hardware, the six automated twins ran `executed=6 skipped=0` with **one** subtest red

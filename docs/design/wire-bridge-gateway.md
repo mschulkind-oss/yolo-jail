@@ -2,6 +2,10 @@
 title: "The wire bridge as the jail's model gateway: signing, routing by model and by agent, failover, and allowlists"
 date: 2026-09-25
 status: accepted
+stage: DECIDED
+next: "Read AWS's documentation for whether bedrock-runtime serves Responses at /openai/v1/responses, which codex's via route to Bedrock signs for and nothing has confirmed"
+depends-on:
+  - pi-codex-provider-shadowing.md#OQ-3
 tags: [wire-bridge, bedrock, aws, sigv4, routing, failover, models, allowlist, providers, subscription]
 summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled: it signs its own AWS requests with SigV4 (built, keyed on the provider's platform marker since 2026-09-30), routes claude's everything profile by model id so Claude models reach Bedrock's own Messages route untranslated (built), offers a sign-only OpenAI chat-completions route (built), and carries claude's subscription with opt-in per-model failover to Bedrock (unbuilt). A Bedrock provider named by region alone is reached at runtime's own URL composed from the region (built 2026-09-30), so the shipped bedrock-bridge profile carries every agent. A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default; built 2026-09-30) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, is decided (WG-I36, 2026-09-30: pi's client sends a placeholder bearer and only the bridge signs) and not built; where pi's re-pointing row may live waits on pi-codex-provider-shadowing's OQ-3."
 vantage:
@@ -14,20 +18,20 @@ vantage:
 provider, what may it do? It could sign for AWS, choose an upstream per model or per agent,
 fail over when a subscription runs out, or refuse a model that is not on a list.
 
-**Status:** DECIDED, 2026-09-25; the one question opened since, [OQ-WG8](#OQ-WG8), was decided as an implementation choice on 2026-09-30 ([WG-I36](#WG-I36)) — the SigV4 signer, [OQ-WG6](#OQ-WG6), [OQ-WG7](#OQ-WG7) and Part 3's sign-only route are BUILT, and the via route's Responses wire for codex is BUILT (2026-09-26, [WG-I20](#WG-I20)). Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
-day, carrying its bridge questions with their ids unchanged. **Part 1 (signing) is BUILT,
+**Status:** 2026-09-25; the one question opened since, [OQ-WG8](#OQ-WG8), was decided as an implementation choice on 2026-09-30 ([WG-I36](#WG-I36)) — the SigV4 signer, [OQ-WG6](#OQ-WG6), [OQ-WG7](#OQ-WG7) and Part 3's sign-only route are built, and the via route's Responses wire for codex is built (2026-09-26, [WG-I20](#WG-I20)). Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
+day, carrying its bridge questions with their ids unchanged. **Part 1 (signing) is built,
 2026-09-25** ([§2](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)), with the
 region-composed upstream URL and the re-key on the provider's platform marker built 2026-09-30
 ([§2.2](#22-how-the-bedrock-upstream-is-chosen-built-2026-09-30), [WG-I37](#WG-I37)–[WG-I39](#WG-I39)).
-**Part 3 (the sign-only route) and Part 5's selection are BUILT,
+**Part 3 (the sign-only route) and Part 5's selection are built,
 2026-09-25** ([§4.1](#41-how-it-is-built)): a profile's `via` puts its agent on a per-agent route of
-the bridge. **Part 2 (routing by model id) is BUILT, 2026-09-29** ([§3.1](#31-how-it-is-built),
+the bridge. **Part 2 (routing by model id) is built, 2026-09-29** ([§3.1](#31-how-it-is-built),
 [WG-I30](#WG-I30)–[WG-I35](#WG-I35)): on a Bedrock upstream, a model the provider's list declares
 Anthropic's goes untranslated to runtime's own Messages route, and every other model is translated
 as before. Since 2026-09-30 the shipped `bedrock-bridge` profile reaches it: the provider names a
 region and no address, and the bridge composes runtime's URL from the region ([§8](#8-build-order),
-step 1). **Part 5's allowlist is BUILT, 2026-09-30** ([§6.1](#61-how-the-allowlist-is-built),
-[WG-I40](#WG-I40)–[WG-I43](#WG-I43)). Part 4 is DECIDED and unbuilt; Part 5's
+step 1). **Part 5's allowlist is built, 2026-09-30** ([§6.1](#61-how-the-allowlist-is-built),
+[WG-I40](#WG-I40)–[WG-I43](#WG-I43)). Part 4 is decided and unbuilt; Part 5's
 four questions were ruled in review on 2026-09-25. **MEASURED:** what the bridge does today
 ([§1](#1-what-the-bridge-does-today)), from the code at `5e8e64f6`, symbols re-checked at
 `ee8154f2`; the signer against AWS's published SigV4 test suite (31 cases) and through the real
@@ -1092,6 +1096,8 @@ Three earlier non-licenses are reopened here by name:
    waiting on [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2).
 
 
+   <!-- vantage: oq id=OQ-WG1 -->
+
    **Answer:**
    > **(a) now, with (b) owed as a follow-up** (ruled in review, 2026-09-25): *"Yes, let's do A,
    > but I do want to follow up with B because A is cheating and I have no idea what other
@@ -1110,6 +1116,8 @@ Three earlier non-licenses are reopened here by name:
    [OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s bridge-forcing profile is then the Bedrock instance of
    the same switch.
 
+
+   <!-- vantage: oq id=OQ-WG2 -->
 
    **Answer:**
    > **Per profile, opt-in, off by default** (ruled in review, 2026-09-25): *"this should be a
@@ -1130,6 +1138,8 @@ Three earlier non-licenses are reopened here by name:
    `enabledModels`). The launch-time "refuse unknown id"
    ([providers reference](../reference/providers.md#no-launch-time-model-id-refusal)) stays rejected as the enforcement point.
 
+
+   <!-- vantage: oq id=OQ-WG3 -->
 
    **Answer:**
    > **One list, and a separate gate that defaults on** (ruled in review, 2026-09-25): *"I don't
@@ -1153,6 +1163,8 @@ Three earlier non-licenses are reopened here by name:
    That every agent keeps a base URL's path is INFERRED, not read.
 
 
+   <!-- vantage: oq id=OQ-WG4 -->
+
    **Answer:**
    > **A path prefix per agent on the one listen port**, delegated to the implementer in
    > review (*"you decide"*, 2026-09-25) and decided so. Each agent's derive writes
@@ -1172,6 +1184,8 @@ Three earlier non-licenses are reopened here by name:
    revises [`bedrock-plumbing.md`](bedrock-plumbing.md)'s non-goal to "no bridge unless a profile
    asks for it".
 
+
+   <!-- vantage: oq id=OQ-WG5 -->
 
    **Answer:**
    > **One path per profile: native, or the bridge** (ruled in review, 2026-09-25): *"a straight
@@ -1201,6 +1215,8 @@ Three earlier non-licenses are reopened here by name:
    concrete, and it needs no new provider vocabulary. (a) would tie selection to the provider
    redesign ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)) that WG1 was ruled to avoid.
 
+
+   <!-- vantage: oq id=OQ-WG6 -->
 
    **Answer:**
    > **(b)**, ruled in review 2026-09-25: a profile field (e.g. `via: "bridge"`). The derive writes
@@ -1234,6 +1250,8 @@ Three earlier non-licenses are reopened here by name:
    extends an existing vocabulary (a declared address, `needs`, a derive ctx field, a provider's
    env name) rather than adding a new one.
 
+
+   <!-- vantage: oq id=OQ-WG7 -->
 
    **Answer:**
    > **All five as tabled**, 2026-09-25. The maintainer's review: *"there's only one answer here …
@@ -1310,6 +1328,8 @@ Three earlier non-licenses are reopened here by name:
    region-composed upstream, and [OQ-CN6](provider-credential-scope.md#OQ-CN6)'s per-agent env
    file later takes the variables out of pi's environment. The placeholder path is read from
    pi's source, not measured: no pi session has sent a Converse request through it.
+
+   <!-- vantage: oq id=OQ-WG8 -->
 
    **Answer:**
    > Decided as an implementation choice ([WG-I36](#WG-I36)), reversible: (b), pi's via override

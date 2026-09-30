@@ -1,6 +1,13 @@
+---
+title: "Host↔jail state separation — the one open question"
+status: in-review
+stage: GRADUATED
+next: "Rule SS-6 — file the drafted mise Discussion below, or close the question unfiled"
+---
+
 # Host↔jail state separation — the one open question
 
-**Status:** GRADUATED, 2026-07-03 — the design shipped and its as-built account is
+**Status:** 2026-07-03 — the design shipped and its as-built account is
 [`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md) —
 read that for the split mise store, the neutral `/mise` path, per-side venv shadows, the
 jail↔jail store residue and its gated prune, the migration, and the `SS-1`…`SS-5` rulings.
@@ -139,5 +146,4 @@ moved in August 2026 (#11798), and that is recorded there too.
    **Answer:**
    > _(empty — fill in when decided)_
 
-Dispositioned on the roadmap as one of the *deliberately not* rows: it concerns a shipped mechanism
-working as designed, not a gap, and it blocks nothing.
+It concerns a shipped mechanism working as designed, not a gap, and it blocks nothing.

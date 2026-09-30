@@ -2,13 +2,15 @@
 title: "Loophole packaging — the two questions still open"
 date: 2026-08-13
 status: in-review
+stage: DESIGN
+next: "Rule OQ-LP5, whether a pack-shipped loophole may declare jail_env; OQ-LP7 is meant for the same sitting as the guest-notch questions in environment-manager-user-stories.md"
 tags: [loopholes, packs, config, guest]
 summary: "A stub. The loophole packaging design is built and its as-built account is docs/reference/loophole-system.md; what stays here are the two questions that never got a ruling — whether a pack-shipped loophole may declare conditional jail environment, and whether the `guest` notch gets a field census of its own."
 ---
 
 # Loophole packaging — the two questions still open
 
-**Status:** DESIGN, 2026-09-23 — a stub that owes two rulings and nothing else. The design itself
+**Status:** 2026-09-23 — a stub that owes two rulings and nothing else. The design itself
 graduated on 2026-08-13 and its as-built account is
 [`../reference/loophole-system.md`](../reference/loophole-system.md); what stays here is the two
 questions that never got a ruling.
@@ -26,10 +28,7 @@ questions that never got a ruling.
 >
 > **This stub exists for one reason:** a reference doc may not carry a live question, and
 > two of this design's questions have never been ruled. They keep their ids and this
-> filename so that [`../plans/roadmap.md`](../plans/roadmap.md)'s links keep resolving — the
-> compaction retired the row these two once had to themselves, and both ids are now cited by
-> anchor from the *small calls that do not deserve a row* list under
-> [💬 Needs you](../plans/roadmap.md#-needs-you).
+> filename so that every inbound link to them keeps resolving.
 
 Both are cheap to rule and expensive to discover later. Neither blocks anything shipped.
 
@@ -55,6 +54,8 @@ Both are cheap to rule and expensive to discover later. Neither blocks anything 
 ## Open questions
 
 #### <a id="oq-lp5"></a>💬 **[OQ-LP5](#oq-lp5)** — does `jail_env` stay refused for pack-shipped loopholes?
+
+<!-- vantage: oq id=OQ-LP5 leaning="Keep the refusal: audio wants conditional env and tolerates the unconditional form, and a cost one consumer absorbs is not yet a reason for a cross-kind collision pass. Revisit at the first pack that cannot absorb it." -->
 
 The pack-shipped subset refuses `jail_env` because it emits container environment variables
 into the same target namespace the `env` contribution kind claims, and cross-kind collisions
@@ -94,6 +95,8 @@ a reason for a cross-kind collision pass. Revisit at the first pack that **canno
 
 #### <a id="oq-lp7"></a>💬 **[OQ-LP7](#oq-lp7)** — does `guest` get its own field census, or keep borrowing `HostFields()`?
 
+<!-- vantage: oq id=OQ-LP7 leaning="Split the census when the guest notch lands, and not before: the funnel is wrong for a reason, but a third field set with zero consumers grows the vocabulary faster than the system it describes." -->
+
 A loophole is **incoherent at the `host` target** — it is a host daemon whose only client is a
 container, so with no jail there is no client and nothing for the endpoint file to be mounted
 into — and it is **coherent at `guest`**, which is a real process on the real machine under an
@@ -132,9 +135,8 @@ wrong for a reason, but inventing a third field set with zero consumers is how a
 grows faster than the system it describes.
 
 **Interaction to respect:** this is the same `guest` notch as the environment manager's
-unbuilt phase — carried now by the [💬 Needs you](../plans/roadmap.md#-needs-you) row on
-what the environment manager promises at each notch, whose doc is
-[`environment-manager-user-stories.md`](environment-manager-user-stories.md) — so the two are
+unbuilt phase, whose open questions on what the environment manager promises at each notch are
+in [`environment-manager-user-stories.md`](environment-manager-user-stories.md), so the two are
 meant to be ruled in one sitting.
 
 **Answer:**

@@ -1,14 +1,16 @@
 ---
 title: "Why host-jail version skew breaks running sessions — and how to prevent contract drift"
 date: 2026-09-26
-status: in-review
+status: accepted
+stage: BUILT
+next: "Attach to a jail an actual older yolo launched: build the last release's yolo from its tag, launch a nested jail with it, and attach with this tree's build"
 tags: [attach, skew, versioning, contracts, packs, footer, generations]
 summary: "When a host yolo updates, running containers retain their original binary generation while receiving freshly staged pack definitions on attach. Incompatible contract additions (such as the agent footer) cause in-jail crashes because the container's frozen binaries cannot execute what the new packs configure. This design establishes a capability contract between launcher and jail, promotes attach skew from an invisible stderr notice to a capability preflight, and introduces automated remediation."
 ---
 
 # Why host-jail version skew breaks running sessions — and how to prevent contract drift
 
-**Status:** DESIGN, 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) was decided on 2026-09-30 as an implementation choice ([SK-D15](#decision-ledger)), and is **built** the same day: an acknowledged attach names the skew in the briefing it refreshes ([what was built](#the-acknowledged-attach-in-the-briefing-2026-09-30)). **The attach gate is BUILT** for the contracts an attach delivers today, the provider/profile channel and the per-agent env files, together with the CI check that decodes the shipped packs with the last release's reader ([what was built](#what-was-built-2026-09-26), [ledger](#decision-ledger)). **Pack-contract skew on attach is CLOSED** by [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch pack trees, built the same day: an attach writes into no pack tree, so a jail an older yolo launched never reads a newer yolo's packs, and the release-decode allowlist now cites that guard with a test that pins it ([closed](#pack-contract-skew-closed-2026-09-26)). Layer 2 (pack `requires_capabilities`) is not built, and those trees make it unnecessary. MEASURED on a real podman, against a stand-in older jail: a container named for the workspace whose frozen environment an older launch would have left. Without a terminal the attach refused and counted the live sessions (`TestAttachRefusesAJailThatCannotReceiveTheSelection`). At a real pty, answering `y` stopped the jail, and the same launch started a fresh one carrying the tags and ran the command (`TestAttachRestartsAnOlderJailAtATerminal`). The acknowledgment is unit-tested only, and no jail an actual older yolo launched has been attached to. Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
+**Status:** 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) was decided on 2026-09-30 as an implementation choice ([SK-D15](#decision-ledger)), and is **built** the same day: an acknowledged attach names the skew in the briefing it refreshes ([what was built](#the-acknowledged-attach-in-the-briefing-2026-09-30)). **The attach gate is built** for the contracts an attach delivers today, the provider/profile channel and the per-agent env files, together with the CI check that decodes the shipped packs with the last release's reader ([what was built](#what-was-built-2026-09-26), [ledger](#decision-ledger)). **Pack-contract skew on attach is CLOSED** by [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch pack trees, built the same day: an attach writes into no pack tree, so a jail an older yolo launched never reads a newer yolo's packs, and the release-decode allowlist now cites that guard with a test that pins it ([closed](#pack-contract-skew-closed-2026-09-26)). Layer 2 (pack `requires_capabilities`) is not built, and those trees make it unnecessary. MEASURED on a real podman, against a stand-in older jail: a container named for the workspace whose frozen environment an older launch would have left. Without a terminal the attach refused and counted the live sessions (`TestAttachRefusesAJailThatCannotReceiveTheSelection`). At a real pty, answering `y` stopped the jail, and the same launch started a fresh one carrying the tags and ran the command (`TestAttachRestartsAnOlderJailAtATerminal`). The acknowledgment was unit-tested only until 2026-09-30, when `TestAnAcknowledgedAttachNamesTheSkewInTheBriefing` pinned it against the same stand-in on a real podman ([the briefing section](#the-acknowledged-attach-in-the-briefing-2026-09-30)). No jail an actual older yolo launched has been attached to. Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
 
 > **In short.** When an existing container is attached to after a host update, the
 > host re-stages current packs into an immutable prefix whose binaries predate them.
@@ -525,6 +527,8 @@ launched, and an agent reading it there.
    _Leaning:_ Interactive restart prompt in TTY (`Restart jail now? [Y/n]`), fatal refusal
    in non-interactive/CI unless `YOLO_ALLOW_ATTACH_SKEW=1` is passed.
 
+   <!-- vantage: oq id=OQ-SK1 -->
+
    **Answer:**
    > **As leaned, and never silent**, ruled 2026-09-26 in review (*"Interactive restart prompt in
    > TTY, fatal refusal in non-interactive/CI"*) and in conversation (*"it's fine if new jails refuse
@@ -547,6 +551,8 @@ launched, and an agent reading it there.
    Tags make requirements explicit in pack manifests and avoid merge collisions on a single
    monotonic number.
 
+   <!-- vantage: oq id=OQ-SK2 -->
+
    **Answer:**
    > **Named capability tags, as leaned**, ruled 2026-09-26 in review: *"Feature tags allow
    > independent evolution across branches and packs without requiring a single centralized
@@ -563,6 +569,8 @@ launched, and an agent reading it there.
    _Leaning:_ Filter out unsupported surfaces during prism render when capability is missing.
    Degrading gracefully (e.g., omitting the yolo status line) allows the agent to run
    without crashing.
+
+   <!-- vantage: oq id=OQ-SK3 -->
 
    **Answer:**
    > **Only under the explicit acknowledgment, never silently**, ruled 2026-09-26 in review: *"Is
@@ -582,6 +590,8 @@ launched, and an agent reading it there.
 
    _Leaning:_ Briefing injection into `AGENTS.md`. It survives TUI screen clears and provides
    ground truth to both the agent and developer.
+
+   <!-- vantage: oq id=OQ-SK4 -->
 
    **Answer:**
    > Decided as an implementation choice (SK-D15, [ledger](#decision-ledger)), reversible: the

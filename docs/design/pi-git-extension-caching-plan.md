@@ -1,8 +1,22 @@
+---
+title: "Companion implementation sketch: pi git extension trees"
+date: 2026-09-25
+status: draft
+stage: SKETCH
+next: "Nothing to build from here: §2 onward is already built on branch wip/pi-extension-store, which waits on the design's ruling on the post-merge rewrite"
+depends-on:
+  - pi-git-extension-caching.md#OQ-6
+---
+
 # Companion implementation sketch: pi git extension trees
 
-**Status:** SKETCH, 2026-09-25 — incomplete, and unstable while [OQ-5](pi-git-extension-caching.md#OQ-5)
+**Status:** 2026-09-25 — incomplete, and unstable while [OQ-6](pi-git-extension-caching.md#OQ-6)
 is open. Rewritten for the redesign ([design §3](pi-git-extension-caching.md#3-the-design--share-content-never-state)).
-Nobody builds from this; the design wins on behavior.
+Nobody builds from this; the design wins on behavior. Re-checked 2026-09-30: [§1](#1-the-revert-first-interim-independent-of-the-rest),
+the revert, is built on main (the design's PG-D8, the `unshare_directory` hook; `shareddirgit_test.go`
+is gone), and the trees of [§2](#2-the-trees-after-the-revert) are built only on the branch
+`wip/pi-extension-store`. This line used to say the sketch was unstable while
+[OQ-5](pi-git-extension-caching.md#OQ-5) was open; that question was ruled on 2026-09-26.
 
 ## 1. The revert first (interim, independent of the rest)
 
@@ -50,5 +64,7 @@ Nobody builds from this; the design wins on behavior.
   notch.
 - `pi update --extensions` (a fake pi, never the real one) changes nothing under `.pi-git-store`.
 
-Blocked on [OQ-5](pi-git-extension-caching.md#OQ-5): whether `npm:` entries join the same resolver
-now, which decides whether the pi `refresh` declaration survives.
+[OQ-5](pi-git-extension-caching.md#OQ-5), which this section used to be blocked on, was ruled (a) on
+2026-09-26: `npm:` entries join the same resolver, after git, in one build. Whether the pi `refresh`
+declaration survives follows from that build; the design's option (a) says pi's pre-launch refresh
+then has nothing to do.

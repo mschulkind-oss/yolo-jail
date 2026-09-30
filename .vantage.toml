@@ -1,0 +1,17 @@
+# Planning: which file is the roadmap, and which paths are not planning documents
+# (vendored code, agent and jail state, personal notes, build output).
+[planning]
+roadmap = "docs/plans/roadmap.md"
+exclude = ["vendor/**", ".claude/**", ".yolo/**", "swarf/**", "node_modules/**", "dist-go/**", "result/**"]
+
+# Stage words: what each frontmatter `stage` value means to the planning index.
+# CURRENT is evergreen, not a proposal; it maps to built rather than done so a
+# reference doc's live questions stay in the queue.
+[planning.stages]
+SKETCH = "open"
+DESIGN = "open"
+DECIDED = "ready"
+BUILT = "built"
+GRADUATED = "done"
+SUPERSEDED = "done"
+CURRENT = "built"

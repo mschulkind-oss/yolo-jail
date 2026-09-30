@@ -2,6 +2,10 @@
 title: "Two presets, seven hardcodings, and a backend that can have neither"
 date: 2026-09-12
 status: accepted
+stage: DECIDED
+next: "Rule the packs safe subset at pack-system.md#OQ-PK1 — steps 1–3 build against the workspace-scope boundary it redraws, and ship together"
+depends-on:
+  - ../reference/pack-system.md#OQ-PK1
 tags: [design, mcp, packs, config, removal, chrome-devtools, macos-user]
 summary: "mcp_presets is core's opinion about which MCP servers exist, spelled in seven places across two packages. sequential-thinking is deleted outright; chrome-devtools becomes a builtin pack, which needs a contribution kind that does not exist yet. This doc specifies what that pack must carry, what the image must keep providing, and what breaks on the day the key retires."
 vantage:
@@ -10,12 +14,14 @@ vantage:
 
 # Two presets, seven hardcodings, and a backend that can have neither
 
-**Status:** DECIDED, 2026-09-20 — every question settled. Only
+**Status:** 2026-09-20 — every question settled. Only
 [§13](#13-what-i-would-build-in-order)'s step 0, the chromium-path fix against today's preset, is
 built; steps 1–3 are not. ⚠ One ruling
 ([`OQ-MP7`](#OQ-MP7)) rejected its own leaning and its consequence is NOT contained here: it
 redraws the `packs` workspace-scope boundary, so this doc cannot be built against without that
-being ruled too.
+being ruled too. That ruling is [`OQ-PK1`](../reference/pack-system.md#oq-pk1), open. Checked
+against the tree on 2026-09-30: there is no `packs/chrome-devtools` and no `mcp` kind, and
+`sequential-thinking` is still a valid preset (`validMCPPresets`, `internal/config/config.go`).
 
 > **In short.** `mcp_presets` is the last place core states *which MCP servers exist*, and that
 > is a content claim, not a domain one — so it dissolves rather than moves. `sequential-thinking`
@@ -535,7 +541,7 @@ Observable outcomes a human can check, not test names:
    other answer here is downstream of it, and it is the one that adds a twentieth entry to a
    deliberately closed registry.
 
-   <!-- vantage: oq id=OQ-MP3 leaning="A new mcp kind — a named server entry composed into mcp_servers the way the provider kind composes into providers. Exclusive by server name, never review-worthy." -->
+   <!-- vantage: oq id=OQ-MP3 -->
 
    _Leaning:_ **A new `kind: "mcp"`.** The `provider` precedent gives the composition rule, the
    exclusivity rule and the review posture for free, and shape B is principle 2 violated from the
@@ -548,6 +554,8 @@ Observable outcomes a human can check, not test names:
    > host-grant banner.
 
 2. ✅ <a id="OQ-MP4"></a> **OQ-MP4: Does an `mcp` declaration compose on the HOST or inside the JAIL? — DISSOLVED 2026-09-20.**
+
+   <!-- vantage: oq id=OQ-MP4 -->
 
    **The question rested on a false premise and is withdrawn.** It asserted that *"a preset's
    `command` is a jail path that the host does not know."* **The host does know it**, and the
@@ -593,7 +601,7 @@ Observable outcomes a human can check, not test names:
    list core resolves at boot; or the entry names a bare binary and something else guarantees
    PATH.
 
-   <!-- vantage: oq id=OQ-MP5 leaning="requires + run-time resolution in the pack's own wrapper. Core resolving a candidate list would put browser-finding logic back in core, which is what this change removes." -->
+   <!-- vantage: oq id=OQ-MP5 -->
 
    _Leaning:_ **`requires` plus run-time resolution in the pack's own wrapper.** A candidate list
    core resolves puts browser-finding back in core; a bare binary name loses to environment
@@ -610,7 +618,7 @@ Observable outcomes a human can check, not test names:
    warn-and-ignore on both notches? This decides whether an unmigrated user's next launch fails
    or degrades.
 
-   <!-- vantage: oq id=OQ-MP6 leaning="Full retirement, both names, with a targeted message naming packs and an mcp_servers snippet. A warn-and-ignore release means the browser is silently gone, which is worse than a refusal that says what to type." -->
+   <!-- vantage: oq id=OQ-MP6 -->
 
    _Leaning:_ **Full retirement.** Warn-and-ignore means the browser silently disappears from a
    jail that still says it wants one — worse than a refusal that names the replacement. The
@@ -624,6 +632,8 @@ Observable outcomes a human can check, not test names:
    > that says what to type.
 
 5. ✅ <a id="OQ-MP7"></a> **OQ-MP7: Is the scope demotion acceptable? — RULED NO, 2026-09-20, and it reopened a bigger question.**
+
+   <!-- vantage: oq id=OQ-MP7 -->
 
    *The leaning was "accept it: what a workspace loses is the power to cause an install, which is
    exactly the power the `packs` scope rule withholds on purpose." That was REJECTED.*
@@ -674,7 +684,7 @@ Observable outcomes a human can check, not test names:
    loopback, shared across spawns and surviving a server restart). The second is what the orphan
    script implements and what a future `kind: "service"` would supervise.
 
-   <!-- vantage: oq id=OQ-MP8 leaning="Ship ONE script with the orphan's resolution behaviour and the browser-url shape, but as a plain wrapper rather than a service — so the service conversion is later and free, and this change adds one kind, not two." -->
+   <!-- vantage: oq id=OQ-MP8 -->
 
    _Leaning:_ **One script, the `--browser-url` shape, not yet a service.** It keeps the resolution
    behaviour that is currently unreachable, deletes the pinned path, and leaves the `service`

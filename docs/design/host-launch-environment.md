@@ -1,9 +1,11 @@
 ---
 title: "What `yolo host` reads for PATH — the PATH it was started with, plus `host_path`, and the floor for the agents yolo provides"
 date: 2026-09-25
-status: in-review
+status: accepted
 tags: [design, host, env, path, mise, depcheck, predictability]
 summary: "At `yolo host`, yolo's checks (is a program a pack needs present, and which copy of a program no floor entry covers runs) read the PATH yolo was started with, plus the folders a user-scope `host_path` list adds, by the maintainer's ruling HE-DIR1. The checks look in no other folder, and a launcher with a bare PATH can get a different answer from a terminal. What stays fixed whoever starts yolo is what yolo provides: the host agent floor's copy of each selected pack's agent, and the floor's own Node. The agent is handed that same PATH (from a launcher with no PATH at all, the system folders first) with the floor's `bin/` after it, and a miss prints one line naming the PATH searched and the `host_path` fix. Nothing waits on a ruling: API keys, a region and the override check's variables keep counting from the shell that started yolo, because the agent is handed that shell (HE-D10, reversible)."
+stage: BUILT
+next: "Graduate into docs/reference/: the ledger's Built column maps each ruling to its code and the test that pins its call site"
 ---
 
 # What `yolo host` reads for PATH — the PATH it was started with, plus `host_path`, and the floor for the agents yolo provides
@@ -16,8 +18,10 @@ summary: "At `yolo host`, yolo's checks (is a program a pack needs present, and 
 > [HE-D10](#he-d10), which keeps today's behavior and is reversible. Nothing here waits on a
 > ruling ([§9](#9-open-questions)).
 
-**Status:** DESIGN, 2026-09-25; restated 2026-09-29 under [HE-DIR1](#he-dir1); built 2026-09-30,
-as the [ledger](#10-decision-ledger)'s Built column records row by row. The code claims were
+**Status:** 2026-09-25; restated 2026-09-29 under [HE-DIR1](#he-dir1); built 2026-09-30,
+as the [ledger](#10-decision-ledger)'s Built column records row by row. UNMEASURED: unit tests pin
+each call site, and no launch from a real bare-PATH launcher (the Waybar case of
+[§1.3](#13-how-the-incident-happened)) is recorded since the build. The code claims were
 re-read against `303e0367` on 2026-09-29. Besides HE-DIR1 it rests on three rulings of that day:
 
 - principle [HP-DIR3](host-tool-provisioning.md#HP-DIR3): at the host, yolo manages the agent's
@@ -703,6 +707,8 @@ answers. Each keeps its anchor and says why in a line.
 
 ### <a id="oq-he1"></a>✅ [`OQ-HE1`](#oq-he1) — what does an unset `host_path` resolve to once enforced? — **ANSWERED BY HE-DIR1, 2026-09-29**
 
+<!-- vantage: oq id=OQ-HE1 -->
+
 It asked which fixed list an unset `host_path` would stand for once yolo's checks stopped reading
 the PATH yolo was started with: (a) a per-OS baseline of system folders, or (b) that plus the common
 per-user tool folders that exist.
@@ -713,6 +719,8 @@ per-user tool folders that exist.
 > [PATH]."*
 
 ### <a id="oq-he2"></a>✅ [`OQ-HE2`](#oq-he2) — may a pack declare the directory its program installs into? — **ANSWERED BY HE-DIR1, 2026-09-29**
+
+<!-- vantage: oq id=OQ-HE2 -->
 
 It asked whether a pack may name the folder its installer puts its program in, so a launch looks
 there with no user config. After [HP-DIR4](host-tool-provisioning.md#HP-DIR4) the one case left
@@ -726,6 +734,8 @@ started from a launcher whose PATH lacks `~/.local/bin`.
 
 ### <a id="oq-he3"></a>✅ [`OQ-HE3`](#oq-he3) — ship the `{"mise": "shims"}` typed entry, or plain directories only? — **ANSWERED BY HE-DIR1, 2026-09-29**
 
+<!-- vantage: oq id=OQ-HE3 -->
+
 It asked whether `host_path` should take a typed mise entry that adds mise's shims folder and
 confirms each shim hit with `mise which`, or plain folders only.
 
@@ -738,6 +748,8 @@ confirms each shim hit with `mise which`, or plain folders only.
 
 ### <a id="oq-he4"></a>✅ [`OQ-HE4`](#oq-he4) — `YOLO_HOST_PATH`: exist at all; replace or prepend? — **RETIRED BY HE-DIR1, 2026-09-29**
 
+<!-- vantage: oq id=OQ-HE4 -->
+
 It asked whether a `YOLO_HOST_PATH` variable should let a systemd unit or CI job use its own
 folders without editing the user config, and whether it replaces `host_path` or goes in front of
 it.
@@ -748,6 +760,8 @@ it.
 
 ### <a id="oq-he5"></a>✅ [`OQ-HE5`](#oq-he5) — offer `{"inherit": "PATH"}`? — **RETIRED BY HE-DIR1, 2026-09-29**
 
+<!-- vantage: oq id=OQ-HE5 -->
+
 It asked whether `host_path` should accept an entry that splices the PATH yolo was started with
 into the list.
 
@@ -755,6 +769,8 @@ into the list.
 > The entry would say what always happens.
 
 ### <a id="oq-he6"></a>✅ [`OQ-HE6`](#oq-he6) — does yolo keep looking for API keys in the shell that started it? — **ANSWERED BY IMPLEMENTATION DECISION HE-D10, 2026-09-29 (reversible)**
+
+<!-- vantage: oq id=OQ-HE6 -->
 
 It asked whether `yolo host` should stop counting what the shell that started it exports. From a
 terminal whose `.bashrc` exports `ZAI_API_KEY`, `yolo host -p zai -- claude` starts. A Waybar
@@ -793,6 +809,8 @@ release of notice.
 
 ### <a id="oq-he7"></a>✅ [`OQ-HE7`](#oq-he7) — does the ruling extend to jail launches' host-side lookups? — **RETIRED BY HE-DIR1, 2026-09-29**
 
+<!-- vantage: oq id=OQ-HE7 -->
+
 It asked whether the 2026-09-25 ruling should extend to the host side of a jail launch: `yolo`,
 `yolo check`, `describe` and `commands` finding podman, nix and the macOS tools on the PATH they
 were started with.
@@ -811,6 +829,8 @@ were started with.
 
 ### <a id="oq-he8"></a>✅ [`OQ-HE8`](#oq-he8) — the macOS baseline, and whether Homebrew is in it — **RETIRED BY HE-DIR1, 2026-09-29**
 
+<!-- vantage: oq id=OQ-HE8 -->
+
 It asked which folders a macOS baseline holds (the files `path_helper` reads, or a compiled list),
 and whether Homebrew's prefix is one of them.
 
@@ -821,6 +841,8 @@ and whether Homebrew's prefix is one of them.
 
 ### <a id="oq-he9"></a>✅ [`OQ-HE9`](#oq-he9) — when does stage 3 flip the default? — **RETIRED BY HE-DIR1, 2026-09-29**
 
+<!-- vantage: oq id=OQ-HE9 -->
+
 It asked when a later release would switch everyone from the PATH yolo was started with to the
 composed host PATH.
 
@@ -828,6 +850,8 @@ composed host PATH.
 > keep reading it, so there is nothing to stage ([HE-D8](#he-d8)).
 
 ### <a id="oq-he10"></a>✅ [`OQ-HE10`](#oq-he10) — is the composed value the child's whole PATH, or its prefix? — **RULED (c) 2026-09-29**
+
+<!-- vantage: oq id=OQ-HE10 -->
 
 > ⚠ **Read with [HE-DIR1](#he-dir1).** This question was asked, and answered, under the reading
 > HE-DIR1 withdrew. Below, the text says twice that yolo's checks never read the ambient PATH. They
@@ -924,6 +948,8 @@ ruled (c). The answer settles both.
 > from the child's PATH as from the checks ([HE-D9](#he-d9)); and [OQ-HE5](#oq-he5) is retired.
 
 ### <a id="oq-he11"></a>✅ [`OQ-HE11`](#oq-he11) — what runs for a selected pack's program the floor cannot hold? — **RULED (a) 2026-09-29**
+
+<!-- vantage: oq id=OQ-HE11 -->
 
 Raised in review, 2026-09-29. [HP-DIR4](host-tool-provisioning.md#HP-DIR4) says
 `yolo host -- <agent>` runs the floor's copy, and that a copy the user installed is not the one that

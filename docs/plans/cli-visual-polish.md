@@ -1,8 +1,17 @@
+---
+title: "CLI visual polish — color to guide the eye"
+status: accepted
+stage: DECIDED
+next: "Build Group A's first item, yolo loopholes status: wire a color gate and a richtext.Printer through Deps, starting at Status in internal/loopholes/loopholescmd.go"
+tags: [plan, cli, color, polish]
+---
+
 # Plan: CLI visual polish — color to guide the eye
 
-**Status:** DECIDED, 2026-07-20 — in progress, **no checklist item has moved since 2026-07-21 —
+**Status:** 2026-07-20 — in progress, **no checklist item has moved since 2026-07-21 —
 re-checked 2026-09-24**, when this doc's line-number anchors were replaced by symbol names because
-they had drifted. `broker status` below is now `yolo host-daemon status`; the `broker` spelling
+they had drifted, **and again 2026-09-30** (Group A's two `loopholes` items still have no color
+path: `internal/loopholes/loopholescmd.go` imports no `richtext`). `broker status` below is now `yolo host-daemon status`; the `broker` spelling
 survives as an alias for the Claude broker (2026-09-20). One item in
 the "remaining" list below is now unbuildable as written: `builder` polish, because `yolo builder`
 and `internal/builder` were **deleted** on 2026-07-23 when the container builder became the sole

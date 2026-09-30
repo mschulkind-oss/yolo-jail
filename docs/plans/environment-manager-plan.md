@@ -1,7 +1,21 @@
+---
+title: "Environment-manager implementation plan"
+status: accepted
+stage: DECIDED
+next: "Draft Phase 7's two unstated choices as a proposal with a leaning — the guest notch's mode policy (the KindGuest row in internal/render/modes.go) and which backend a `confinement: guest` launch runs — since neither is written anywhere and 7.1 cannot be built without them"
+depends-on:
+  - ../design/environment-manager-user-stories.md
+---
+
 # Environment-manager implementation plan
 
-**Status:** DECIDED, 2026-07-31 — a plan; **build status re-verified against the tree 2026-08-23.**
-Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environment-manager.md)
+**Status:** 2026-07-31 — a plan; **build status re-verified against the tree 2026-08-23**, rows
+corrected 2026-09-24, re-checked 2026-09-30. Phases 0–6 and 9 are built and 8 is built but for
+8.2, which is moot. **Phase 7, the `guest` notch, is the work left, and it has no code yet**: a
+`guest` launch refuses (`refuseUnbuiltNotch`, `internal/cli/run/run.go`), as does
+`yolo apply --at guest` (`internal/cli/apply.go`). 7.2 also waits on
+[user-stories Q7](../design/environment-manager-user-stories.md#Q7), whether Linux `guest`
+stays a promise. Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environment-manager.md)
 (the vision — finalized, the maintainer is happy with it) into buildable phases.
 
 > **Build status — verified against the tree 2026-08-23; rows 1, 5 and 6 corrected 2026-09-24.**
@@ -567,8 +581,12 @@ defect bites). **Motivated by:** a host agent following the migration guide woul
 the only protection when there is no jail. Today those keys are unconditional pack config
 with nothing marking them jail-only.
 
-**[OQ-11](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) — RESOLVED (2026-08-01): a dedicated `autonomy` contribution kind (Encoding A
-below).** The maintainer delegated the choice ("do the sketch now, I'm not sure I care").
+✅ **[OQ-11](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) — RESOLVED (2026-08-01): a dedicated `autonomy` contribution kind (Encoding A
+below).**
+
+<!-- vantage: oq id=OQ-11 -->
+
+The maintainer delegated the choice ("do the sketch now, I'm not sure I care").
 The sketch ([§9.0](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs)) settles it: the discriminator-field encoding forces the `claude`
 settings surface to be *split* into a conditional half and an always-on half, which is
 exactly the way a jail-bypass key gets left in the unconditional part by accident. The
@@ -710,11 +728,17 @@ implementing any phase.
 > whether a rendered briefing carries a notch stamp (**Q4**), and whether Linux `guest` stays a
 > promise (**Q7**). Those live in
 > [`../design/environment-manager-user-stories.md`](../design/environment-manager-user-stories.md)
-> and are cited from [`roadmap.md`](roadmap.md) 💬 7.
+> as [Q1](../design/environment-manager-user-stories.md#Q1),
+> [Q2](../design/environment-manager-user-stories.md#Q2),
+> [Q4](../design/environment-manager-user-stories.md#Q4) and
+> [Q7](../design/environment-manager-user-stories.md#Q7).
 
 ### Resolved
 
-- **[OQ-1](#open-questions-to-resolve-before-their-phase) — Is there a `--revert` verb on the host target? → RESOLVED: NO (2026-08-01).**
+- ✅ **[OQ-1](#open-questions-to-resolve-before-their-phase) — Is there a `--revert` verb on the host target? → RESOLVED: NO (2026-08-01).**
+
+  <!-- vantage: oq id=OQ-1 -->
+
   Undo is "stop declaring the key and re-apply," which drops it with a notice, the shipped
   "regenerate, don't reconcile" model (`internal/entrypoint/prism.go`, OQ12(d)). A `--revert` to a
   pre-yolo state would need a before-snapshot nothing takes. *Consequence:* no revert verb,
@@ -724,8 +748,12 @@ implementing any phase.
   > the table under [Blocks Phase 4](#blocks-phase-4-host-render). `yolo host apply --revert`
   > SHIPPED on 2026-09-12, consuming the per-key host provenance record that did not exist when
   > this was ruled. The host-render doc keeps its `--revert` design, annotated rather than struck.
-- **[OQ-2](#open-questions-to-resolve-before-their-phase) — Is host management user-scoped, with the workspace contributing nothing? →
-  RESOLVED: YES (2026-08-01).** What `yolo host apply` asserts is a function of your *user*
+- ✅ **[OQ-2](#open-questions-to-resolve-before-their-phase) — Is host management user-scoped, with the workspace contributing nothing? →
+  RESOLVED: YES (2026-08-01).**
+
+  <!-- vantage: oq id=OQ-2 -->
+
+  What `yolo host apply` asserts is a function of your *user*
   config + the packs *you* installed, never of the repo you ran it from — the same
   user-scope rule packs already enforce (`pack-system.md` [§8](../reference/pack-system.md#selection-and-the-load-path)), written up as
   `host-render-target.md` [§6.6](../design/host-render-target.md#66-a-host-target-is-user-scoped-not-workspace-scoped). *Consequence:* the "two workspaces collide" question is
@@ -755,7 +783,11 @@ implementing any phase.
 **Context — how `yolo host apply` touches a file the agent also writes.** Two calls, both now
 resolved; the reviewer's push on [OQ-4](#open-questions-to-resolve-before-their-phase) corrected an over-complication I had introduced.
 
-- **[OQ-3](#open-questions-to-resolve-before-their-phase) — Retire the `reads-host` read-*in* layer? → RESOLVED: YES (2026-08-01).** Drop
+- ✅ **[OQ-3](#open-questions-to-resolve-before-their-phase) — Retire the `reads-host` read-*in* layer? → RESOLVED: YES (2026-08-01).**
+
+  <!-- vantage: oq id=OQ-3 -->
+
+  Drop
   settings-inheritance (yolo reading your real `~/.claude/settings.json` *into* a jail as a
   compose layer); express personal settings as a **local pack** instead — declared, locked,
   portable to every notch. This collapses a Declared-impure closure row into Declared
@@ -763,8 +795,12 @@ resolved; the reviewer's push on [OQ-4](#open-questions-to-resolve-before-their-
   the `host` compose layer and the `reads-host` kind's compose role go away; credentials are
   unaffected (they cross as mounts, not a layer).
 
-- **[OQ-4](#open-questions-to-resolve-before-their-phase) — On the host notch, `rmw` (surgical) or whole-file compose? → RESOLVED: pure
-  `rmw` (2026-08-01).** The reviewer is right that **overwrite is the only workable option
+- ✅ **[OQ-4](#open-questions-to-resolve-before-their-phase) — On the host notch, `rmw` (surgical) or whole-file compose? → RESOLVED: pure
+  `rmw` (2026-08-01).**
+
+  <!-- vantage: oq id=OQ-4 -->
+
+  The reviewer is right that **overwrite is the only workable option
   for a key yolo manages**, and once you see why, `rmw` is not just workable — it is the
   *simpler* and *complete* answer, so my earlier "keep capture" lean was wrong. The two
   models differ only in blast radius:
@@ -792,7 +828,11 @@ resolved; the reviewer's push on [OQ-4](#open-questions-to-resolve-before-their-
   person") was loose — the real reason is "`rmw` only ever rewrites yolo's own keys, so the
   agent's are safe without capture." I will tighten [§6.3](../design/host-render-target.md#63-the-structural-problem-on-a-host-target-the-host-layer-is-the-output) to say that.
 
-- **~~[OQ-5](#open-questions-to-resolve-before-their-phase) — where does a host capture overlay live?~~ → MOOT.** It only existed if [OQ-4](#open-questions-to-resolve-before-their-phase)
+- ✅ **~~[OQ-5](#open-questions-to-resolve-before-their-phase) — where does a host capture overlay live?~~ → MOOT.**
+
+  <!-- vantage: oq id=OQ-5 -->
+
+  It only existed if [OQ-4](#open-questions-to-resolve-before-their-phase)
   chose capture. With pure `rmw` there is no host capture overlay, so there is no new
   storage location to decide. (Removed from the count.)
 
@@ -802,24 +842,40 @@ resolved; the reviewer's push on [OQ-4](#open-questions-to-resolve-before-their-
 details are open.** I will draft a short note for your sign-off rather than improvise at
 the call site.
 
-- **[OQ-6](#open-questions-to-resolve-before-their-phase) — What does the curl-to-shell install confirm display? → RESOLVED: URL only
-  (2026-08-01).** Show the resolved install URL; do not fetch-and-display the script or a
+- ✅ **[OQ-6](#open-questions-to-resolve-before-their-phase) — What does the curl-to-shell install confirm display? → RESOLVED: URL only
+  (2026-08-01).**
+
+  <!-- vantage: oq id=OQ-6 -->
+
+  Show the resolved install URL; do not fetch-and-display the script or a
   hash. (Simplest, and consistent with the confirm being "approve running *this command*,"
   not a code review of the payload.)
-- **[OQ-7](#open-questions-to-resolve-before-their-phase) — Where is the category-(a) *no-elevation* / category-(b) *needs-`sudo`* line drawn
-  per remedy? → RESOLVED (2026-08-01).** (a) = writes only under the user's own tree (user
+- ✅ **[OQ-7](#open-questions-to-resolve-before-their-phase) — Where is the category-(a) *no-elevation* / category-(b) *needs-`sudo`* line drawn
+  per remedy? → RESOLVED (2026-08-01).**
+
+  <!-- vantage: oq id=OQ-7 -->
+
+  (a) = writes only under the user's own tree (user
   `brew`, `pip --user`, `~`); (b) = anything else (a system `apt install`, anything outside
   the user's tree). The split is now *only* used to **batch confirmations by elevation
   class** — see [OQ-9](#open-questions-to-resolve-before-their-phase), which the reviewer answered together with this.
 
 ### Blocks Phase 6 (dep provisioning)
 
-- **[OQ-8](#open-questions-to-resolve-before-their-phase) — Dep-checker boundary: a declared schema, or an importable Go package? → RESOLVED:
-  schema, evolvable (2026-08-01).** Start with a declared schema a third-party doctor can
+- ✅ **[OQ-8](#open-questions-to-resolve-before-their-phase) — Dep-checker boundary: a declared schema, or an importable Go package? → RESOLVED:
+  schema, evolvable (2026-08-01).**
+
+  <!-- vantage: oq id=OQ-8 -->
+
+  Start with a declared schema a third-party doctor can
   read; this can grow a Go helper later if a spec proves too weak. No lock-in either way.
   Design doc [§3.5](../design/yolo-as-environment-manager.md#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest).
-- **[OQ-9](#open-questions-to-resolve-before-their-phase) — Offer-to-run confirm UX → RESOLVED: batch by elevation class, minimize
-  interaction (2026-08-01).** ⚠ **Half-reversed 2026-09-12 by
+- ✅ **[OQ-9](#open-questions-to-resolve-before-their-phase) — Offer-to-run confirm UX → RESOLVED: batch by elevation class, minimize
+  interaction (2026-08-01).**
+
+  <!-- vantage: oq id=OQ-9 -->
+
+  ⚠ **Half-reversed 2026-09-12 by
   [`report-tiers.md`](../reference/report-tiers.md#why-its-this-way)** for `yolo host apply
   --assert` only: one prompt rather than one per elevation class, and a decline is FATAL rather
   than falling back to the manifest floor. See the Phase 6 status box above. Not per-command (my earlier split was too interactive) and not
@@ -832,12 +888,20 @@ the call site.
 
 ### Decide at its phase, not up front
 
-- **[OQ-10](#open-questions-to-resolve-before-their-phase) — The composable-primitive model shape (Phase 2).** How confinement is represented
+- ✅ **[OQ-10](#open-questions-to-resolve-before-their-phase) — The composable-primitive model shape (Phase 2).**
+
+  <!-- vantage: oq id=OQ-10 -->
+
+  How confinement is represented
   internally (separate user / Seatbelt / bwrap / namespace as independent knobs) so a fourth
   combination is expressible and `describe`-printable without exposing a hand-assembled
   policy vector (`happy-path-principle.md`). Design doc [§4.0](../design/yolo-as-environment-manager.md#40-why-the-middle-notch-is-not-called-sandbox). **No call needed from you now** —
   I will propose it as part of Phase 2 and you review then; flagged here only so Phase 2 does
   not hard-code three monoliths and foreclose it.
+
+  **Answered in the build** (recorded in the consumption check above): the primitive model is
+  `internal/render/confinement.go`, and `describe` prints it (`printConfinementVector`,
+  `internal/cli/describe.go`).
 
 ---
 

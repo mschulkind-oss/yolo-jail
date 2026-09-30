@@ -1,21 +1,30 @@
+---
+title: "Host-only config contributions — implementation sketch"
+date: 2026-09-27
+status: deprecated
+stage: SUPERSEDED
+next: "Nothing: the build is done, and the design's Decision Ledger (NS-D1 to NS-D26) is its record"
+---
+
 # Host-only config contributions — implementation sketch
 
-**Status:** SKETCH, 2026-09-27 — incomplete, and unstable while [OQ-5](notch-scoped-config-contributions.md#OQ-5)
-is open. Evidence verified at `8da7840d`. **[§2](#2-step-1--posture-lists) (rows 1–7), row 8
+**Status:** 2026-09-27 as a sketch, and superseded by the build. It was unstable while
+[OQ-5](notch-scoped-config-contributions.md#OQ-5) was open; that question was ruled as leaned on
+2026-09-28. Evidence verified at `8da7840d`. **[§2](#2-step-1--posture-lists) (rows 1–7), row 8
 and [§4](#4-the-end-to-end-test-of-the-fifth-disposition) were BUILT on 2026-09-27** on
 [OQ-5](notch-scoped-config-contributions.md#OQ-5)'s leaning (`bbe5c878`, `499a332f`,
 `a6021d86`); the design's [ledger](notch-scoped-config-contributions.md#10-decision-ledger)
 records the mechanism choices as `NS-D` rows (NS-D14 is a host-apply fix the review found outside
 this build, and NS-D15 to NS-D18 correct it).
-[§3](#3-only-if-the-rulings-are-amended--the-posture-modifier) stays blocked on
-[OQ-5](notch-scoped-config-contributions.md#OQ-5).
+[§3](#3-only-if-the-rulings-are-amended--the-posture-modifier) is moot: it applied only if
+[OQ-5](notch-scoped-config-contributions.md#OQ-5) amended the rulings, and the ruling kept them.
 [OQ-3](notch-scoped-config-contributions.md#OQ-3)'s posture overlay was built on 2026-09-28
 (`12032eb2`) with no section here; the design's ledger rows NS-D19 to NS-D26 are its record.
 
 > **Precedence.** This is the implementation sketch beside
 > [`notch-scoped-config-contributions.md`](notch-scoped-config-contributions.md). The design wins on
-> every behavior, and nothing here makes a design decision. Do not build from this file while it is
-> stamped SKETCH; `implementation-plan` owns what it must become first.
+> every behavior, and nothing here makes a design decision. Do not build from this file: what it
+> sketched is built, and the design's ledger is the record.
 
 ---
 
@@ -69,7 +78,8 @@ Rests on [OQ-5](notch-scoped-config-contributions.md#OQ-5)'s leaning. If [OQ-5](
 
 ## 3. Only if the rulings are amended — the posture modifier
 
-Blocked on [OQ-5](notch-scoped-config-contributions.md#OQ-5). The selector is the posture either
+Was blocked on [OQ-5](notch-scoped-config-contributions.md#OQ-5), which kept the rulings on
+2026-09-28, so this section was never built. The selector is the posture either
 way ([OQ-1](notch-scoped-config-contributions.md#10-decision-ledger)).
 
 - A `Posture` field on `Contribution`, validated in `validateContribution` by one helper for

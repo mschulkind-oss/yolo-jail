@@ -2,6 +2,8 @@
 title: "What a jail derives, the host leaves empty — for a reason that holds for one input in four"
 date: 2026-09-27
 status: accepted
+stage: BUILT
+next: "Graduate the built body into the reference that owns host-apply rendering, by the one-at-a-time rules in docs/plans/README.md; choose the fold target first"
 tags: [host, notch, derive, computed, providers, mcp, lsp, profiles, pi, host-apply]
 summary: "yolo host apply used to render no derive's content, so every derived pack surface reached the real home with its declared layers only: no provider catalog, no MCP or LSP entries, no openai-codex list for pi. The stated reason was jail-absolute paths, and only the MCP presets carry any. The maintainer ruled host parity with the same handling: the host now runs the jail's derives over inputs composed at user scope, lands their output per key, and refuses a surface whose output names a jail path. This doc records the argument, the ruling, the build, and what a look at host pi with pi-automode found."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # What a jail derives, the host leaves empty — for a reason that holds for one input in four
 
-**Status:** BUILT 2026-09-28 at `358f877d`, as ruled in [OQ-HC1](#OQ-HC1)–[OQ-HC3](#OQ-HC3): `yolo host apply` and a wrapped launch's automatic apply run every derive over user-scope inputs. The build follows [§6](#6-the-proposed-shape-under-b1) with the ruling's two changes: no registration option, since every derived surface takes part, and a jail-path check on the output ([HC-D14](#HC-D14)). [§14](#14-what-was-built) says what each surface now gets. Revised 2026-09-29 by [HC-D25](#HC-D25): a computed leaf yolo wrote and stops asserting is cleared at the next apply. [§7](#7-fixes-that-do-not-wait-for-a-ruling)'s fixes and [§8.1](#81-measured) item 3's message shipped before the ruling, and their rows say where each changed what was measured. Sections 2 to 6 describe the tree before the build: evidence MEASURED at `97220184` in a clean build under a temporary home, with no host, no pi CLI and no jail started. Code claims cite a symbol, never a line.
+**Status:** 2026-09-28 at `358f877d`, as ruled in [OQ-HC1](#OQ-HC1)–[OQ-HC3](#OQ-HC3): `yolo host apply` and a wrapped launch's automatic apply run every derive over user-scope inputs. The build follows [§6](#6-the-proposed-shape-under-b1) with the ruling's two changes: no registration option, since every derived surface takes part, and a jail-path check on the output ([HC-D14](#HC-D14)). [§14](#14-what-was-built) says what each surface now gets. MEASURED after the build: `yolo config render --at host` for `codex` and `opencode` on 2026-09-28 ([§14](#14-what-was-built)), and each of its tests failing with its call site removed. UNMEASURED: no agent has been started against a file a host apply wrote. Revised 2026-09-29 by [HC-D25](#HC-D25): a computed leaf yolo wrote and stops asserting is cleared at the next apply. [§7](#7-fixes-that-do-not-wait-for-a-ruling)'s fixes and [§8.1](#81-measured) item 3's message shipped before the ruling, and their rows say where each changed what was measured. Sections 2 to 6 describe the tree before the build: evidence MEASURED at `97220184` in a clean build under a temporary home, with no host, no pi CLI and no jail started. Code claims cite a symbol, never a line.
 
 > **In short.** The host leaves the computed layer empty because a jail's derive inputs carry
 > jail paths, yet only the MCP presets do: the provider table is already composed at the host for
@@ -511,6 +513,8 @@ install and the classifier belong to
    yolo's at the host, so [OQ-CO16](config-ownership-and-promotion.md#oq-co16) reaches the host;
    and host pi's picker losing pi-ai's GPT-5.x ids.
 
+   <!-- vantage: oq id=OQ-HC1 -->
+
    **Answer:**
    > **Ruled in review 2026-09-28:** *"yes of course host apply and the auto one in a wrapper
    > should generate this content. we're trying for host parity with the same handling."* The
@@ -542,6 +546,8 @@ install and the classifier belong to
    baseline, under `own`. `oh-omp/models` also needs a yaml encoder for that path, which is
    UNMEASURED.
 
+   <!-- vantage: oq id=OQ-HC2 -->
+
    **Answer:**
    > **Ruled 2026-09-28, as leaned, by [OQ-HC1](#OQ-HC1)'s parity ruling:** under `own` a
    > `computed` surface renders through `stateful`, the first owned render adopting the file
@@ -561,6 +567,8 @@ install and the classifier belong to
    `/model` pick stands. Its cost: a per-home selection record beside the provenance record, and
    yolo writing a model choice into a real agent file. If the answer is no, host apply names
    `use_profiles` as not applied, so it stops doing nothing silently.
+
+   <!-- vantage: oq id=OQ-HC3 -->
 
    **Answer:**
    > **Ruled 2026-09-28, as leaned, by [OQ-HC1](#OQ-HC1)'s parity ruling:** host apply writes

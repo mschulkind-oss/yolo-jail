@@ -1,7 +1,9 @@
 ---
 title: "`yolo -- true` says it provisions, and leaves every agent CLI uninstalled"
 date: 2026-09-22
-status: draft
+status: in-review
+stage: DESIGN
+next: "Rule OQ-JR1, what a failed install does to the launch: the readiness act waits on it, every other ruling it needs being in"
 tags: [notches, provisioning, readiness, apply, launchers, program-delivery]
 summary: "Each notch is supposed to have an ahead-of-time act that leaves the environment ready. The host has one — `yolo host apply --assert` probes dependencies, offers the install, and refuses rather than returning 0 on an unready home. The jail's equivalent is the launch, and the launch does not install the programs its selected packs declare: they arrive on first invocation. Until 2026-09-24 yolo's own message called `yolo -- true` the provisioning act; the message is corrected, and the readiness act it promised is still unbuilt."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # `yolo -- true` says it provisions, and leaves every agent CLI uninstalled
 
-**Status:** DESIGN, 2026-09-22; re-checked against the tree 2026-09-24; questions triaged
+**Status:** 2026-09-22; re-checked against the tree 2026-09-24; questions triaged
 2026-09-30. **The readiness act is not built.** One question is open, [OQ-JR1](#OQ-JR1) (what a
 failed install does to the launch). [OQ-JR2](#OQ-JR2) is answered by
 [HP-DIR2](host-tool-provisioning.md#HP-DIR2): every declared program, once per home.
@@ -255,6 +257,8 @@ a declared floor the host cannot show met starts it too).
    will run, which is the registry this project deleted — and the cost is one-time rather than
    per-launch, which is what made the earlier shape intolerable.
 
+   <!-- vantage: oq id=OQ-JR2 -->
+
    **Answer:**
    > Answered by [HP-DIR2](host-tool-provisioning.md#HP-DIR2) (2026-09-29): *"we construct an
    > environment. We do not sniff the command line"*, so readiness covers every program a selected
@@ -276,6 +280,8 @@ a declared floor the host cannot show met starts it too).
    _Leaning:_ **Keep it a pointer, with the message corrected.** Once the launch genuinely
    provisions, that sentence is true, and a second path to the same work is a second thing to keep
    correct. Revisit if a consumer appears that cannot afford to start a container just to provision.
+
+   <!-- vantage: oq id=OQ-JR3 -->
 
    **Answer:**
    > Decided as an implementation choice ([JR-D1](#JR-D1)), reversible: `yolo apply --at jail`

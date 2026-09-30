@@ -1,14 +1,16 @@
 ---
 title: "Docs website — implementation sketch"
 date: 2026-09-25
-status: draft
+status: accepted
 tags: [docs, website, userguide, vantage, cloudflare, plan]
 summary: "Parking lot for build-level detail behind docs-website.md: file list, the installer question for the Cloudflare build image, the gate wiring, and the order. Not a hand-off; the design wins on behavior."
+stage: BUILT
+next: "Retire it with docs-website.md when that design graduates; its four steps are done"
 ---
 
 # Docs website — implementation sketch
 
-**Status:** DECIDED, 2026-09-30 — the repository build described here is in place, and the site serves at `docs.yolo-jail.mschulkind.dev` (probed 2026-09-30), so the Cloudflare dashboard connection is made. [OQ-DW1](docs-website.md#OQ-DW1) is ruled; [OQ-DW2](docs-website.md#OQ-DW2) was decided as the build already had it ([DW-D1](docs-website.md#DW-D1)). The [design](docs-website.md) wins on behavior.
+**Status:** 2026-09-30 — every step of [Order](#order) is done: the repository build described here is in place, and the site serves at `docs.yolo-jail.mschulkind.dev`, so the Cloudflare dashboard connection is made. MEASURED 2026-09-30: HTTP 200 at that address, and its commit list names a guide change pushed to `main` the same morning. [OQ-DW1](docs-website.md#OQ-DW1) is ruled; [OQ-DW2](docs-website.md#OQ-DW2) was decided as the build already had it ([DW-D1](docs-website.md#DW-D1)). The [design](docs-website.md) wins on behavior.
 
 **Precedence:** [`docs-website.md`](docs-website.md) wins on behavior. This file holds settled detail
 the design doesn't need.

@@ -1,14 +1,40 @@
+---
+title: "Unblocking the deferred environment-manager work"
+status: deprecated
+stage: SUPERSEDED
+next: "Nothing here: Phase 7 is owed by environment-manager-plan.md and the no-exec jail provision by jail-notch-readiness.md; read those"
+---
+
 # Unblocking the deferred environment-manager work
 
-**Status:** DECIDED, 2026-08-23 — a handover, still live. All four items below remain unbuilt,
-and the reason is unchanged for each: three need hardware or a terminal this jail does not have, and
-the fourth is in-jail work nobody has picked up. **One correction to the sentence below:** Phase 9
-(agent autonomy as a notch policy) has shipped too, so the plan's built set is Phases **0–6, 8 and
-9**, and **Phase 7 — the `guest` notch, items 1 and 2 here — is the only unbuilt phase**.
-Item 3's half-state is worth knowing before you start it: `yolo check-deps` exists and is
-deliberately the *probe* half — *"It NEVER installs anything … the offer-to-run belongs to `apply` at
-a lower notch"* (`internal/cli/checkdeps.go:9-12`) — so what is missing is the offer, not the
-detection.
+**Status:** 2026-09-30 — replaced, item by item, by the docs that now own each piece, and kept for
+the per-item reasoning about what hardware each step needs. Re-checked against the tree that day:
+
+- **Items 1 and 2, the `guest` notch (Phase 7), are code, not verification.** A `guest` launch
+  refuses (`refuseUnbuiltNotch` in `internal/cli/run/run.go`) and `yolo apply --at guest`
+  prints the same sentence (`internal/cli/apply.go`), so there is nothing on a Mac or a Linux
+  host to run yet. The work and its gates are
+  [`environment-manager-plan.md` Phase 7](environment-manager-plan.md#phase-7--make-the-guest-notch-actually-work---not-built).
+  ⚠ This doc's claim that the Linux half needs "a real Linux host" does not hold for the probe
+  that matters: in this repo's own jail on 2026-09-30, `landlock_create_ruleset` reported ABI 10
+  and a process could create a user and a mount namespace. A nested jail was not tried.
+- **Item 3, the offer-to-run install (Phase 6.4), shipped** on 2026-09-11 (`f94b2c97`) as the
+  `yolo host apply --assert` dependency gate (`internal/cli/applyhostdepgate.go`), behind one
+  prompt. The elevation-class batching this doc describes is not owed
+  ([`OQ-EM1`](../design/yolo-as-environment-manager.md#OQ-EM1), answered 2026-09-30).
+- **Item 4, the no-exec jail provision, moved** to
+  [`jail-notch-readiness.md`](../design/jail-notch-readiness.md), where
+  [`JR-D1`](../design/jail-notch-readiness.md#JR-D1) decides that `yolo apply --at jail` runs the
+  launch's readiness act and one question is open.
+
+The 2026-08-23 status, kept as written: *a handover, still live. All four items below remain
+unbuilt, and the reason is unchanged for each: three need hardware or a terminal this jail does not
+have, and the fourth is in-jail work nobody has picked up. One correction to the sentence below:
+Phase 9 (agent autonomy as a notch policy) has shipped too, so the plan's built set is Phases 0–6, 8
+and 9, and Phase 7 — the `guest` notch, items 1 and 2 here — is the only unbuilt phase. Item 3's
+half-state is worth knowing before you start it: `yolo check-deps` exists and is deliberately the
+probe half — "It NEVER installs anything … the offer-to-run belongs to `apply` at a lower notch"
+(`internal/cli/checkdeps.go:9-12`) — so what is missing is the offer, not the detection.*
 
 The environment-manager plan shipped Phases 0–6 and 8. Four things were deferred.
 This doc is the **handover**: for each one, what it is, *why* it couldn't be finished

@@ -1,6 +1,18 @@
+---
+title: "Cache relocation — let a cache subdir live on other storage"
+status: in-review
+stage: DESIGN
+next: "Write the podman integration test the test plan now allows: place cache_relocations through isolateHome (integration/packs_test.go) and assert an in-jail write lands at the target; item 11 still waits on OQ-CR1"
+tags: [plan, storage, cache]
+---
+
 # Cache relocation — let a cache subdir live on other storage
 
-**Status:** DESIGN, 2026-07-21 — **built**, and three questions are still live. Work items 1–10 landed. The host-gated
+**Status:** 2026-07-21 — work items 1–10 landed and three questions are still live. Re-read in
+the tree 2026-09-30: `LoadCacheRelocations`, `EnsureCacheRelocations`, `validateCacheRelocations`
+and prune's `CacheRelocated` section are all there, and no podman integration test exercises the
+key (the one integration test naming it, `TestMacosUserSaysResourcesAndRelocationsAreIgnored`,
+covers the `macos-user` warning). The host-gated
 acceptance step is now **done**: a real cross-filesystem HuggingFace-cache move
 to cold storage was verified on the maintainer's host (2026-07-22). Item 11
 (`yolo cache relocate`) is **held pending a design question, not merely
@@ -426,8 +438,8 @@ _Leaning was:_ refuse to relocate while jails are up.
 
 ## Open Questions
 
-All three are **HELD** rather than merely unscheduled — the roadmap carries this doc in 🧊 because
-what is undecided is whether we want the feature, not when. **[OQ-CR1](#OQ-CR1) gates item 11**, and [OQ-CR2](#OQ-CR2) is
+All three are **HELD** rather than merely unscheduled, because what is undecided is whether we want
+the feature, not when. **[OQ-CR1](#OQ-CR1) gates item 11**, and [OQ-CR2](#OQ-CR2) is
 the same decision seen from the host side (the doc says so below); answering CR1 without CR2 is
 answering half of one question.
 
@@ -470,6 +482,8 @@ that owns the copy-verify-swap — or whether the honest primitive is one level
 down (host filesystem) or one level out (per-tool env), in which case yolo's job
 shrinks to *consuming* a host-declared layout rather than *managing* one.
 
+<!-- vantage: oq id=OQ-CR1 -->
+
 _Leaning:_ genuinely undecided — this is a real fork, not a formality. Revisit
 alongside the host-side-reflection question; they resolve together.
 
@@ -483,6 +497,8 @@ Today's design is container-only: host `cache/<subdir>` is an empty stub and
 alternative is to make the host agree physically — a bind mount or symlink at
 `cache/<subdir>` — so `du`, backup tools, and anything else that walks the cache
 see one truth without knowing about yolo.
+
+<!-- vantage: oq id=OQ-CR2 leaning="No: keep relocation container-side and teach prune. A host symlink is the primitive the threat model rejects, and a host bind mount would make yolo own a mount unit's lifecycle; it resolves together with OQ-CR1." -->
 
 _Leaning:_ No. A symlink there is the primitive the [threat
 model](#threat-model-why-user-scope-is-the-whole-design) rejects, and a host bind
@@ -504,6 +520,8 @@ A plausible follow-on: point several machines' jails at one NFS-mounted model
 cache. That is a different feature (shared, possibly read-only, contention on
 `huggingface_hub`'s lock files) and might argue for a `mode` field rather than a
 bare path.
+
+<!-- vantage: oq id=OQ-CR3 leaning="Out of scope for v1: ship the bare subdir-to-path map, since a value struct can be added later compatibly and a second top-level key cannot." -->
 
 _Leaning:_ Out of scope for v1 — ship the bare `subdir → path` map. Adding a
 value struct later is a compatible change (string or object); adding a second

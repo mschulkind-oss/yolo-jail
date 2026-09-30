@@ -2,6 +2,10 @@
 title: "Implementation sketch: disk I/O priority, build steps 5 and 6"
 date: 2026-09-27
 status: draft
+stage: SKETCH
+next: "Write step 5's first measurement as an experiment test in macos-user.yml's job: set IOPOL_THROTTLE, launch through LaunchArgv, and read getiopolicy_np inside the sandbox"
+depends-on:
+  - io-priority.md#OQ-IO7
 tags: [sketch, plan, io, resources, cgroups, implementation]
 summary: "Companion sketch for docs/design/io-priority.md after build steps 1 to 4 landed: what steps 5 (macos-user) and 6 (a cgroup half) would touch, and what they reuse from the built code. Both are blocked, so nothing here is a hand-off."
 vantage:
@@ -10,8 +14,11 @@ vantage:
 
 # Implementation sketch: disk I/O priority, build steps 5 and 6
 
-**Status:** SKETCH, 2026-09-27 — incomplete, and unstable while questions are open. Build steps 1
-to 4 landed, and their plan went with them; this file's own history has it.
+**Status:** 2026-09-27 — incomplete, and unstable while questions are open. Build steps 1
+to 4 landed, and their plan went with them; this file's own history has it. Noted 2026-09-30:
+step 5's measurement can be written from a Linux jail as a `TestMacosUser…` experiment, since the
+scheduled `macos-user.yml` job runs that prefix on a Mac runner with the sandbox account set up,
+the way [`host-daemon-ownership.md` OQ-HD10](host-daemon-ownership.md#OQ-HD10)'s experiment runs.
 
 > [!IMPORTANT]
 > This is the companion sketch for [`io-priority.md`](io-priority.md), and it is not a hand-off:

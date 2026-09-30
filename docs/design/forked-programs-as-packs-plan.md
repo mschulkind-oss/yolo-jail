@@ -4,13 +4,15 @@ date: 2026-09-21
 status: accepted
 tags: [plan, packs, programs, capture, forks]
 summary: "Build hand-off for the source-built program route: a fork declared as a program with via source, pinned in its own lock by the explicit pack verbs, built once per platform in a sealed capture jail, recorded under a new receipt kind, and delivered to the jail by an entry key the host hands over. Promoted against the tree 2026-09-30; steps 1–6, the jail notch, built the same day, and step 7, the host notch, stopped at its measurement. The design wins on behavior."
+stage: DECIDED
+next: "Step 7's measurement, on a stand-in until a maintainer names the motivating fork: pin a public Node CLI as a fork pack, run yolo pack install and yolo capture from a nested jail, then read capture-manifest.json and search tree/ for /nix/store and /lib (Step 7 needs, steps 1 to 3)"
 vantage:
   status-chip: true
 ---
 
 # Forked programs as packs — implementation plan
 
-**Status:** DECIDED, 2026-09-30 — promoted against the tree at `4c3d6a85`. Steps 1–6, the jail
+**Status:** 2026-09-30 — promoted against the tree at `4c3d6a85`. Steps 1–6, the jail
 notch, were built on 2026-09-30. Step 7, the host notch, stopped at its measurement, which needs
 what the building jail could not do: [Step 7 needs](#step-7-needs) records exactly what. The
 implementation choices this promotion made are

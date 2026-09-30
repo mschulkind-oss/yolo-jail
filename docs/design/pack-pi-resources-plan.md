@@ -2,13 +2,17 @@
 title: "Plan sketch: a pack gives pi a whole package"
 date: 2026-09-25
 status: draft
+stage: SKETCH
+next: "Nothing to build from here until pack-pi-resources.md's one question is ruled; then an implementation-plan pass re-reads the tree"
+depends-on:
+  - pack-pi-resources.md#OQ-PR1
 tags: [pi, packs, files, slots, config-list, plan]
 summary: "Parking lot for build-level detail behind pack-pi-resources.md: where `register` and `expects` decode, where core emits the per-landing list contribution at each notch, what to verify on the host retire path and the macOS backends, and the order. Not a hand-off; the design wins on behavior."
 ---
 
 # Plan sketch: a pack gives pi a whole package
 
-**Status:** SKETCH, 2026-09-25 — incomplete, and unstable while [OQ-PR1](pack-pi-resources.md#OQ-PR1)
+**Status:** 2026-09-25 — incomplete, and unstable while [OQ-PR1](pack-pi-resources.md#OQ-PR1)
 is open. Do not build from it.
 
 **Precedence:** [`pack-pi-resources.md`](pack-pi-resources.md) wins on behavior. This file holds

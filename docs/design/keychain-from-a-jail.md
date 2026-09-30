@@ -1,7 +1,9 @@
 ---
 title: "Copilot's keychain, from a jail: a Secret Service inside, the real keychain outside"
 date: 2026-09-29
-status: draft
+status: in-review
+stage: DESIGN
+next: "Rule OQ-KC1, whether a jail's Copilot shares the host's own login; the plan sketch opens once all four are ruled, and OQ-KC4's leaning first asks for a measurement on a Mac"
 tags: [design, copilot, credentials, keychain, secret-service, d-bus, loopholes, macos-user]
 summary: "Copilot CLI stores its login in the system keychain first and falls back to plain text only after asking. A container jail has no keychain, so every workspace gets a fresh login and a plain-text prompt. This design gives the jail a small Secret Service that yolo writes itself. It runs inside the jail, and its entries live in sealed files on the host, locked by keys in the macOS login keychain or the desktop keyring. The host side only touches items yolo created for that jail, and the launch says what it stored and where. Where no keychain can be reached, yolo copies only Copilot's copilotTokens entry between workspaces, and says so on every launch that copies. Four questions are open: whether jails share the host's own Copilot login, which Copilot entries are machine-wide, which programs in a jail get the keychain, and whether the macos-user sandbox account gets a keychain of its own."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Copilot's keychain, from a jail: a Secret Service inside, the real keychain outside
 
-**Status:** DESIGN, 2026-09-29. Nothing is built, and four rulings are owed. The repository
+**Status:** 2026-09-29. Nothing is built, and four rulings are owed. The repository
 evidence was verified at `232e4dcd`. The Copilot evidence comes from the published 1.0.89 packages
 ([Appendix A](#appendix-a--evidence)). No agent CLI was run.
 
@@ -41,8 +43,8 @@ rule for an attach, and a host-side step when a jail ends.
 **Start at [§3](#3-the-design).** The per-backend answer in [§1](#1-the-short-answer) falls out of
 it.
 
-**Needs your ruling:** [OQ-KC1](#OQ-KC1), [OQ-KC2](#OQ-KC2), [OQ-KC3](#OQ-KC3),
-[OQ-KC4](#OQ-KC4). Accepting this design also answers
+**Needs your ruling:** [OQ-KC1](#OQ-KC1), [OQ-KC2](#OQ-KC2), [OQ-KC3](#OQ-KC3), [OQ-KC4](#OQ-KC4).
+Accepting this design also answers
 [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1). That question stays open in its own document
 until the ruling is recorded there.
 

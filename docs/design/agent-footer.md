@@ -2,23 +2,27 @@
 title: "Which provider is this session on? — yolo facts in every agent's footer"
 date: 2026-09-25
 status: accepted
+stage: BUILT
+next: "Watch one live session per agent with a footer hook and read its footer back, as section 2.1 names: a human check, since no test may start an agent"
 tags: [footer, statusline, packs, providers, profiles, confinement, claude, pi, omp, agy, copilot, opencode, codex]
 summary: "Six of the seven agents yolo ships can show extra text in their footer, through one of three hooks: a status-line command (claude, copilot, agy), a keyed status call in an extension (pi, omp), or a TUI plugin (opencode). Codex has no hook. One core renderer, `yolo internal footer`, prints two facts: what the session is billed through, in plain words, and where the agent runs (jail, guest or host). Each agent pack wires it into its agent's hook, on by default at the lowest layer so a user's own footer replaces it, and always beside the agent's stock status line, never over it. Bedrock cost and bridge failover state are a separate, later design."
 ---
 
 # Which provider is this session on? — yolo facts in every agent's footer
 
-**Status:** BUILT, 2026-09-30 — no ruling owed. [OQ-FT15](#OQ-FT15), how a one-launch
-`yolo host -p` reaches the host footer, was decided as an implementation choice ([FT-D2](#FT-D2)) and BUILT
+**Status:** 2026-09-30 — no ruling owed. [OQ-FT15](#OQ-FT15), how a one-launch
+`yolo host -p` reaches the host footer, was decided as an implementation choice ([FT-D2](#FT-D2)) and built
 2026-09-30: `yolo host --` exports the three tables it composed for its agent, as a jail launch does, and a unit
 test runs the filled Claude command in that launch's environment. Every other question is ruled: six in 2026-09-25's first review,
-and the two they opened ([OQ-FT13](#OQ-FT13), [OQ-FT14](#OQ-FT14)) in the second. Everything they rule was BUILT
+and the two they opened ([OQ-FT13](#OQ-FT13), [OQ-FT14](#OQ-FT14)) in the second. Everything they rule was built
 on 2026-09-25, all seven build items: the bridge's streamed-usage fix, the renderer, an adapter for each of the six
 agents with a hook, the host's profile read, and macos-user's jail marker ([as built](#21-as-built); [what I would build](#what-i-would-build-in-order)). Not yet
 seen under a live agent: a human checks each footer. MEASURED: each agent's hook ([appendix](#appendix-evidence)),
 this jail's env and the renderer's cost at both notches. UNMEASURED: that Claude's status-line command runs in a jail
-and inherits its env, that opencode draws the plugin's text from `tui.jsonc`, and anything about macos-user, which
-needs a Mac. Review moved opencode's plugin list out of `tui.json` and made the host profile read write nothing
+and inherits its env, that opencode draws the plugin's text from `tui.jsonc`, and any footer at macos-user under a
+live agent. The macos-user marker itself is MEASURED on a Mac: `TestMacosUserFooterSaysJail` (the sandbox's
+`YOLO_VERSION`, the renderer on its PATH, and `{yolo.notch}` rendering `jail`) passed in the scheduled `macos-user.yml`
+run 36719581090 (`8f7468dd`, 2026-09-30), read from its log. Review moved opencode's plugin list out of `tui.json` and made the host profile read write nothing
 ([§2.1](#21-as-built)).
 
 > **In short.** No agent's footer knows what yolo routed it to or where yolo put it, so both facts have to come from
@@ -483,19 +487,45 @@ Withdrawn on review 2026-09-25, hence the gaps: rendering's home and the table-v
 decide, and the cost questions moved to the [later design](#later-cost-and-failover-a-separate-design). Rulings are
 in the [Decision Ledger](#decision-ledger).
 
-1. ✅ <a id="OQ-FT1"></a>[**OQ-FT1**](#OQ-FT1) (ruled 2026-09-25, as its leaning): **On by default, or opt-in?** On
-   by default, in each agent pack's defaults ([§3](#3-how-a-users-own-footer-survives)).
-2. ✅ <a id="OQ-FT4"></a>[**OQ-FT4**](#OQ-FT4) (ruled 2026-09-25, leaning overruled): **What else goes in?** The
-   billing route in plain words and the notch; no region, version or backend ([§1](#1-what-the-footer-shows)).
+1. ✅ <a id="OQ-FT1"></a>[**OQ-FT1**](#OQ-FT1) (ruled 2026-09-25, as its leaning): **On by default, or opt-in?**
+
+   <!-- vantage: oq id=OQ-FT1 -->
+
+   On by default, in each agent pack's defaults ([§3](#3-how-a-users-own-footer-survives)).
+
+2. ✅ <a id="OQ-FT4"></a>[**OQ-FT4**](#OQ-FT4) (ruled 2026-09-25, leaning overruled): **What else goes in?**
+
+   <!-- vantage: oq id=OQ-FT4 -->
+
+   The billing route in plain words and the notch; no region, version or backend ([§1](#1-what-the-footer-shows)).
+
 3. ✅ <a id="OQ-FT5"></a>[**OQ-FT5**](#OQ-FT5) (ruled 2026-09-25, as its leaning): **How does a user keep their own
-   footer and yolo's segment?** Their footer wins, and they call the renderer from it.
+   footer and yolo's segment?**
+
+   <!-- vantage: oq id=OQ-FT5 -->
+
+   Their footer wins, and they call the renderer from it.
+
 4. ✅ <a id="OQ-FT6"></a>[**OQ-FT6**](#OQ-FT6) (ruled 2026-09-25, as its leaning): **Does your host Claude get it?**
+
+   <!-- vantage: oq id=OQ-FT6 -->
+
    Yes: env first, else your user config's profile selection ([§4](#4-where-the-facts-come-from-and-how-fresh-they-are)).
+
 5. ✅ <a id="OQ-FT7"></a>[**OQ-FT7**](#OQ-FT7) (ruled 2026-09-25): **Does yolo turn on Copilot's experimental flag?**
+
+   <!-- vantage: oq id=OQ-FT7 -->
+
    No, and it does not check it either: the status line is written like every other agent's.
+
 6. ✅ <a id="OQ-FT12"></a>[**OQ-FT12**](#OQ-FT12) (ruled 2026-09-25): **In agy, stack yolo's line with agy's own,
-   or replace it?** Stack. It was only ever about agy's built-in line; a footer you write yourself is
+   or replace it?**
+
+   <!-- vantage: oq id=OQ-FT12 -->
+
+   Stack. It was only ever about agy's built-in line; a footer you write yourself is
    [OQ-FT5](#OQ-FT5)'s, and just works. The rule behind the answer covers every agent: [DIR-FT2](#DIR-FT2).
+
 7. ✅ <a id="OQ-FT13"></a>**OQ-FT13: What does a macos-user session's footer say, and what tells the renderer?**
    Today it would say `host` ([§1.2](#12-the-notch)). Options: (a) the macos-user launch sets `YOLO_VERSION` as the
    container launch does, so it says `jail`, the notch its config resolves to (`ResolveConfinement` defaults to
@@ -503,7 +533,7 @@ in the [Decision Ledger](#decision-ledger).
    is checked first. (b) A marker only the renderer reads: a second answer to "am I in a jail?". (c) `host` until
    the guest notch is built.
 
-   <!-- vantage: oq id=OQ-FT13 leaning="(a) macos-user sets YOLO_VERSION like the container launch, after each other config.InJail caller on that backend is checked, so its footer says jail: one probe, one answer." -->
+   <!-- vantage: oq id=OQ-FT13 -->
 
    _Leaning:_ (a). One probe keeps one answer, and `host` inside a sandbox is the one label that is plainly wrong.
 
@@ -516,7 +546,7 @@ in the [Decision Ledger](#decision-ledger).
    credential file, which yolo never reads. Options: (a) `Claude subscription`; (b) `Claude Team`, read from that
    cache on every run: a second exception to "reads no file" beside [OQ-FT6](#OQ-FT6)'s, from an undocumented file.
 
-   <!-- vantage: oq id=OQ-FT14 leaning="(a) Claude subscription: it already tells your Team login from Bedrock, since a home holds one login, and naming the plan means reading Claude's undocumented account cache on every run." -->
+   <!-- vantage: oq id=OQ-FT14 -->
 
    _Leaning:_ (a). A home holds one login, so `Claude subscription` already tells your Team login from Bedrock.
 
@@ -544,6 +574,8 @@ in the [Decision Ledger](#decision-ledger).
 
    _Leaning:_ (b). It fixes the measured wrong label without putting the jail's wire tables into a host
    agent's env, where a later host reader could take them for the user's config.
+
+   <!-- vantage: oq id=OQ-FT15 -->
 
    **Answer:**
    > Decided as an implementation choice ([FT-D2](#FT-D2)), reversible: **(a)**, against the leaning.

@@ -4,13 +4,18 @@ date: 2026-09-21
 status: accepted
 tags: [packs, programs, mise, node, provisioning, open-questions]
 summary: "A stub. The Node floor, its resolution, the launcher splice and the refusal graduated to docs/reference/agent-program-runtimes.md; what stays here is three questions about where the refusal did not reach (OQ-AR5, OQ-AR6) and the launch whose launcher did not yet honor a floor the stage just met (OQ-AR7). All three were decided as implementation choices on 2026-09-30 (AR-L3 to AR-L5) and built the same day, with two choices the build made (AR-L6, AR-L7); the stub is ready to graduate."
+stage: BUILT
+next: "Graduate the stub: move the OQ-AR5 to OQ-AR7 answers and AR-L3 to AR-L7 into ../reference/agent-program-runtimes.md's Why it's this way table, then repoint the links into this file (the reference, macos-user-provisioning.md, jail-notch-readiness.md and the Go comments that cite these ids)"
 ---
 
 # Agent program runtimes — the three gaps left after graduation, decided and built
 
-**Status:** BUILT, 2026-09-30 — all three questions were decided as implementation choices
-([AR-L3](#AR-L3)–[AR-L5](#AR-L5)) and their fixes were built the same day; [AR-L6](#AR-L6) and
-[AR-L7](#AR-L7) record the two choices the build made. The stub is now ready to graduate into
+**Status:** 2026-09-30 (`3282f448`, `cf847b3e`, `5cf7f0b4`) — all three questions were decided as
+implementation choices ([AR-L3](#AR-L3)–[AR-L5](#AR-L5)) and their fixes were built the same day;
+[AR-L6](#AR-L6) and [AR-L7](#AR-L7) record the two choices the build made. UNMEASURED: unit tests
+pin each fix and its call site, and no run of the shipped behavior on a real workload is recorded;
+the macos-user half ([AR-L3](#AR-L3), [AR-L7](#AR-L7)) was built from a Linux jail and has not run
+on a Mac. The stub is now ready to graduate into
 the reference, which already describes the built behavior; its ids stay here until the links
 into it move. The
 settled body of this doc GRADUATED on 2026-09-25 to
@@ -55,6 +60,8 @@ reference now that the three fixes are built.
    refused with "Available: none" while the floor's `nodejs_24` sat on `PATH`. What stays open is
    only whether a floor starts a stage.
 
+   <!-- vantage: oq id=OQ-AR5 -->
+
    **Answer:**
    > Decided as an implementation choice ([AR-L3](#AR-L3)), reversible: **(b)**. A declared floor
    > starts the stage unless the host can show a candidate it can read already meets it. macos-user
@@ -72,6 +79,8 @@ reference now that the three fixes are built.
 
    _Leaning:_ **(a)**. The refusal is a claim about the jail, and a workspace's broken `mise.toml`
    should not be the thing that silences it.
+
+   <!-- vantage: oq id=OQ-AR6 -->
 
    **Answer:**
    > Decided as an implementation choice ([AR-L4](#AR-L4)), reversible: **(a)**. The bootstrap runs
@@ -99,6 +108,8 @@ reference now that the three fixes are built.
    _Leaning:_ **(a)**. It keeps resolution at generation, costs nothing on a launch that installs
    nothing, and makes the first launch honor the floor. (c) turns a working install into a
    refusal, and (d) runs the program under the wrong node on exactly the launch that noticed.
+
+   <!-- vantage: oq id=OQ-AR7 -->
 
    **Answer:**
    > Decided as an implementation choice ([AR-L5](#AR-L5)), reversible: **(a)**. After a floor

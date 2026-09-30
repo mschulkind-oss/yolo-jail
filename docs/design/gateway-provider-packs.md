@@ -2,6 +2,8 @@
 title: "Gateway packs expose stable endpoints while users curate selectable models"
 date: 2026-09-15
 status: in-review
+stage: DESIGN
+next: "Rule OQ-GP4 — until it does, claude's derive gives every Kilo model with no declared window a 1M-token context"
 tags: [providers, packs, openrouter, kilo, models]
 summary: "A built design for opt-in OpenRouter and Kilo packs whose model lists are supplied by user configuration. One question is open: OQ-GP4, whether the Kilo special-casing a later change added to the pi and claude derives stays."
 vantage:
@@ -10,8 +12,8 @@ vantage:
 
 # Gateway packs expose stable endpoints while users curate selectable models
 
-**Status:** DESIGN, 2026-09-26 — one question is open, [OQ-GP4](#OQ-GP4): whether the Kilo
-special-casing in the pi and claude derives stays (restated 2026-09-30 with lettered options). Everything else was BUILT on 2026-09-15 and
+**Status:** 2026-09-26 — one question is open, [OQ-GP4](#OQ-GP4): whether the Kilo
+special-casing in the pi and claude derives stays (restated 2026-09-30 with lettered options). Everything else was built on 2026-09-15 and
 re-checked against the tree 2026-09-24 — MEASURED: the two
 manifests, the codex credential-field fix and the per-agent projections are pinned by
 `internal/entrypoint/providerderive_test.go`. UNMEASURED: no live OpenRouter or Kilo run — no
@@ -223,5 +225,5 @@ the config, the existing behavior is unchanged.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-GP1 | Ship two packs rather than one generic gateway pack; endpoint capability differs by provider. | 2026-09-15 | [§1](#1-the-provider-facts) | shipped |
-| OQ-GP2 | Ship no models; users curate the finite selectable map and profiles choose defaults. **Amended 2026-09-25 by [OQ-BR3](model-lists-and-pickers.md#OQ-BR3):** where an agent cannot fall back to its own default by yolo having no opinion, yolo does pick model ids, shipped in a built-in pack that comes with yolo rather than in core (*"I do want to pick these … a built-in pack (it's not in core per se but it comes with [yolo]) with these that tries to pick these different models"*). Where an agent can default, yolo still ships nothing, and the user still curates the selectable map. The OpenRouter and Kilo packs are unchanged. Whether a pack may also carry a list an org reshapes is [OQ-BR12](model-lists-and-pickers.md#OQ-BR12), still open. | 2026-09-15; amended 2026-09-25 | [§2](#2-a-selected-set-not-a-synchronized-catalog); amendment in [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-BR3) | shipped; amendment not built |
+| OQ-GP2 | Ship no models; users curate the finite selectable map and profiles choose defaults. **Amended 2026-09-25 by [OQ-BR3](model-lists-and-pickers.md#OQ-BR3):** where an agent cannot fall back to its own default by yolo having no opinion, yolo does pick model ids, shipped in a built-in pack that comes with yolo rather than in core (*"I do want to pick these … a built-in pack (it's not in core per se but it comes with [yolo]) with these that tries to pick these different models"*). Where an agent can default, yolo still ships nothing, and the user still curates the selectable map. The OpenRouter and Kilo packs are unchanged. Whether a pack may also carry a list an org reshapes was [OQ-BR12](model-lists-and-pickers.md#OQ-BR12), ruled 2026-09-29: yes, the `models` kind. | 2026-09-15; amended 2026-09-25 | [§2](#2-a-selected-set-not-a-synchronized-catalog); amendment in [`model-lists-and-pickers.md`](model-lists-and-pickers.md#OQ-BR3) | shipped; the amendment built as each provider's own list in its own pack, as [OQ-ML1](model-lists-and-pickers.md#OQ-ML1) ruled ([ML-D1](model-lists-and-pickers.md#ML-D1), [ML-D9](model-lists-and-pickers.md#ML-D9)) |
 | OQ-GP3 | Kilo is Chat Completions only until a documented, verified Responses route exists; Claude and Copilot reuse the existing wire bridge. | 2026-09-15 | [§3](#3-failure-and-safety-rules) | shipped |

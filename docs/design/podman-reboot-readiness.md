@@ -2,6 +2,8 @@
 title: "Let Podman finish waking before a jail gives up"
 date: 2026-09-29
 status: accepted
+stage: BUILT
+next: "Run the real-host check on a rootless Linux host: reproduce the cold refresh, then read runtime.ready from each launch at a real reboot"
 tags: [design, launch, podman, reliability]
 summary: "Built 2026-09-29: a patient, budget-bounded Podman readiness probe shared by the launch and yolo check, whose one answer every later Podman fact on the launch path reads; answers that cannot clear fail at once (OQ-PR1), the housekeeping slot holds its lock one deletion at a time (OQ-PR2), and every launch leaves one machine-wide log line (OQ-PR3)."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Let Podman finish waking before a jail gives up
 
-**Status:** BUILT 2026-09-29, the same day it was designed and its three questions ruled
+**Status:** 2026-09-29, the same day it was designed and its three questions ruled
 ([the ledger](#decision-ledger), PR-D1 to PR-D21). MEASURED by unit tests through `run.Run`,
 runtime selection and `check.Check`, on a fake podman whose clock the test drives, plus a real
 subprocess for the attempt runner; [the testing section](#testing-and-the-real-host-check) names
@@ -394,6 +396,8 @@ rootless host or CI**, and so is the whole of a real reboot.
    alternative reading of this incident is a refresh at 10:49 with no reboot,
    which B would not recover.
 
+   <!-- vantage: oq id=OQ-PR1 -->
+
    **Answer:**
    > **Ruled 2026-09-29: the budget applies always (the doc's A), and never on a reboot test.**
    > The maintainer: *"We definitely shouldn't detect a reboot, so we certainly shouldn't do
@@ -445,6 +449,8 @@ rootless host or CI**, and so is the whole of a real reboot.
    this workspace's probe had finished before its slot began. What is measured is
    the 16.1 s lock hold on the load path.
 
+   <!-- vantage: oq id=OQ-PR2 -->
+
    **Answer:**
    > **Ruled 2026-09-29, none of the doc's options as written: the cleanup takes its lock one
    > deletion at a time.** The maintainer rejected skipping on a slow probe: *"why are we going
@@ -484,6 +490,8 @@ rootless host or CI**, and so is the whole of a real reboot.
    _Leaning:_ B. The host check needs this record to be read at all. What it adds
    for a jail that mounts the log directory is every other workspace's launch
    times and outcomes under stable hashes, never which project a hash is.
+
+   <!-- vantage: oq id=OQ-PR3 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: B.** One line per launch in `~/.local/share/yolo-jail/logs/`,

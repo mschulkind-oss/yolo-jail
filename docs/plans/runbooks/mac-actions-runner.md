@@ -3,12 +3,14 @@ title: "RUNBOOK — turn a Mac into the Apple Container CI runner"
 status: accepted
 date: 2026-09-14
 tags: [ci, macos, apple-container, self-hosted, runbook]
+stage: CURRENT
+next: "Nothing is owed until the next Mac; if a Local Network grant makes backend-parity.md's #10 hold, add that grant to this procedure"
 summary: "The one-time procedure for registering a maintainer's Mac as the self-hosted runner apple-container.yml has been waiting for: the runner registration and the one label it needs, Apple Container's per-user apiserver, the optional launchd dispatcher that replaced a cron plus an admin PAT, and the account decision — including the launchd constraint that rules out the hidden service account pattern the rest of this repo uses. It needs no repository secret: a runner is an outbound client, so the Mac can answer 'am I online' locally for free."
 ---
 
 # RUNBOOK — turn a Mac into the Apple Container CI runner
 
-**Status:** CURRENT — a procedure kept true for the next Mac. The first Mac is registered and
+**Status:** a procedure kept true for the next Mac. The first Mac is registered and
 `apple-container.yml` runs on it; see the note below.
 
 **Audience:** the maintainer, at the Mac. **Time:** ~20 minutes, most of it waiting on

@@ -4,13 +4,18 @@ date: 2026-08-24
 status: in-review
 tags: [backends, apple-container, macos-user, parity, silent-drop]
 summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and confirmed 31, deduping to 17 distinct defects — 21 once a class test written for three of them found a fourth nobody had looked for. All one shape: a mechanism wired into the podman branch of the run pipeline with nothing checking the other two backends. Fourteen are fixed or warned; the rest need a census — a per-backend disposition table with FOUR states, because 'achieved another way' is the state that half the audit turned out to be."
+stage: DESIGN
+next: "Rule OQ-BP-1 — build the per-backend census table, or keep the annotation check and the two hand-kept tables"
 ---
 
 # Three backends, one pipeline, and no census — why a mechanism goes missing quietly
 
-**Status:** DESIGN, 2026-08-24 — a diagnosis and a proposal. **Fourteen fixes are shipped** ([§5](#5-what-is-already-fixed-2026-08-24)), and since
-2026-09-25 each has a named hardware test or a stated reason for having none, most of them still
-unrun ([§5.4](#54-which-test-answers-which-row)); the census
+**Status:** 2026-08-24 — a diagnosis and a proposal. **Fourteen fixes are shipped** ([§5](#5-what-is-already-fixed-2026-08-24)), and since
+2026-09-25 each has a named hardware test or a stated reason for having none
+([§5.4](#54-which-test-answers-which-row)). Every row with a hardware test except #10 has since
+held or passed on a Mac: the Apple Container rows by `apple-container.yml` run 36378256230
+(2026-09-28), the macos-user rows (#6, #7, #9, #14) in `macos-user.yml` run 36719581090
+(2026-09-30). #10 waits on the runner Mac's Local Network permission, not on yolo. The census
 in [§4](#4-the-proposal--a-backend-census-sibling-to-renderfieldset) is unbuilt **as a data structure** and **built as an
 enforced annotation** — `internal/cli/run/backendparity_test.go` (2026-09-14) has required a
 `// parity: <Disposition> — <reason>` on every runtime-gated line in the run pipeline since,
@@ -419,6 +424,13 @@ has passed on the Mac. The macos-user rows are REAL ASSERTIONS
 comment or launch line already makes. Three of those four (#6, #7, #14) were REWRITTEN after
 2026-08-24, so each asserts today's behavior, not the original fix. So a red there is a defect or
 a stale claim, and the failure message names the comment to read.
+
+**The macos-user rows have run (2026-09-30).** `macos-user.yml` run 36719581090, at `8f7468dd`,
+passed all four: `TestMacosUserReportsOnlyPlatformInertLoopholes` (#6),
+`TestMacosUserStartsAConfigDeclaredLoophole` (#7),
+`TestMacosUserSaysResourcesAndRelocationsAreIgnored` (#9) and
+`TestMacosUserDeliversHostBytesByCopy` (#14). The run itself failed on an unrelated test,
+`TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox`.
 
 **First Mac run of the experiments, 2026-09-25** (`apple-container.yml` run 36170072271,
 `container` 1.1.0): #2, #4 and #8 **HOLD**. #3's `DOES NOT HOLD` is **not a measurement of #3**.

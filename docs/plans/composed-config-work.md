@@ -1,10 +1,23 @@
+---
+title: "Composed-config work — the implementable list"
+status: deprecated
+stage: SUPERSEDED
+next: "Nothing here: pick up the open items from BACKLOG.md, which holds 3.1 and 3.2 as its E1 and E2 and 3.4's residue as its stateful comment-preservation question"
+---
+
 # Composed-config work — the implementable list
 
-**Status:** DECIDED, 2026-07-26 — a plan, **per-item detail only**, and the cluster it details has largely
-shipped (the prism is the unconditional config path; the six bespoke `Configure*` writers are
-deleted). Re-checked 2026-08-23. *(The old header pointed at "ROADMAP items 3 and 4", a numbering
-the 2026-08-17 restructure retired — [`roadmap.md`](roadmap.md) holds states and OQ IDs now, and
-[`BACKLOG.md`](BACKLOG.md) is the ordered list.)*
+**Status:** 2026-07-26 — replaced as the work list by [`BACKLOG.md`](BACKLOG.md) and kept for the
+per-item detail (the failure each item fixes, the file it touched). Re-checked against the tree
+and BACKLOG on 2026-09-30, every item here is closed or carried there: tranches 0-2 are BACKLOG
+Stages A and B, both complete 2026-07-27; 3.3, 3.7 and 3.8 shipped (BACKLOG E3, E7, A11); 3.9
+became D1, host-side validation, with composition staying in the container; 3.5's array append
+became the `config-list` kind (2026-09-24); 3.6 was resolved as not a gap; and 1.9's `transform`
+key was wired and then removed with the Lua transform
+([`OQ-LT1`](../reference/pack-system.md#oq-lt1)). What is still open is BACKLOG's:
+[E1](BACKLOG.md#E1) (3.1), [E2](BACKLOG.md#E2) (3.2) and [OQ-E4](BACKLOG.md#OQ-E4) (3.4's residue).
+*(The old header pointed at "ROADMAP items 3 and 4", a numbering the 2026-08-17 restructure
+retired.)*
 
 > **⚠ For picking up work, use [BACKLOG.md](BACKLOG.md) instead.** It is the single
 > ordered list across the whole cluster (prism + packs + rip-out) and maps each item to
@@ -62,7 +75,7 @@ Google is deprecating Gemini CLI. Do this first because it is *subtractive*: it 
 rows from the tables every other item edits, so doing it later means doing that work twice.
 
 Blast radius, coupling analysis and the migration note are in
-[ROADMAP item 0](sequencing-2026-07.md). The one scary-looking dependency is settled: **`agy` already
+[`sequencing-2026-07.md`](sequencing-2026-07.md)'s item 0. The one scary-looking dependency is settled: **`agy` already
 runs with `gemini` unselected in this very jail** (probed — `~/.gemini/antigravity-cli` is
 rw while its parent `~/.gemini` is ro), so removal is safe for it.
 
@@ -121,7 +134,9 @@ ADOPT -> {"copilot_tokens":{…},"model":"x","yolo": true}    <- token preserved
 Both states are "no baseline", so the engine cannot distinguish them today.
 
 **Question for the maintainer: how does the engine tell "first migration" from "the user
-asked to discard"?** Options, cheapest first:
+asked to discard"?** *(Answered 2026-07-26: option 1, `reset` also truncates the surface to the
+pure render — [BACKLOG Stage B](BACKLOG.md#stage-b--the-data-loss-chain---complete-2026-07-27).)*
+Options, cheapest first:
 
 1. **`reset` also truncates the surface file to the pure render** — nothing left to adopt.
    Smallest, and it matches what a user means by "reset".

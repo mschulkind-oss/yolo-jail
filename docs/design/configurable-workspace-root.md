@@ -4,15 +4,21 @@ date: 2026-09-16
 status: in-review
 tags: [macos-user, seatbelt, workspace, isolation, config, design]
 summary: "macos-user hardcodes /Users/Shared/yolo as the only place a workspace may live, and the obvious relaxation — let the user configure the root — silently removes the sandbox's only protection against reading their OTHER projects. The reason is that the Seatbelt profile's read policy is (allow default) with a deny on /Users, so sibling projects are hidden by WHERE they sit rather than by anything the root does. The proposal is to derive a second read-deny from the configured root, which makes an arbitrary root safe and also closes a hole that exists under today's default. Includes the four lexical bypasses in the current neutral-ground check and the whitelist that closes them."
+stage: DESIGN
+next: "Rule OQ-CW2 — the §5 whitelist waits on it, and should land before anyone relies on today's lexical home check"
 vantage:
   status-chip: true
 ---
 
 # The configurable workspace root, and why the root is a deny prefix
 
-**Status:** DESIGN, 2026-09-16 — four questions open, all in [§8](#8-open-questions). The finding in
+**Status:** 2026-09-16 — four questions open, all in [§8](#8-open-questions). The finding in
 [§3](#3-the-finding-reads-are-allow-default) is what makes this a design rather than a config-key
 ticket, and it is verified against the profile generator rather than reasoned from the docs.
+Nothing in [§4](#4-the-proposal-derive-a-second-deny-from-the-root) or
+[§5](#5-the-tightening-is-separable-and-cheaper) is built (re-checked 2026-09-30):
+`HomeContaining` still compares a path's parent with `/Users` lexically, and `ancestorLiterals`
+still starts from the constant `/Users/Shared/`.
 
 **Needs your ruling:** [OQ-CW1](#OQ-CW1), [OQ-CW2](#OQ-CW2), [OQ-CW3](#OQ-CW3), [OQ-CW4](#OQ-CW4).
 

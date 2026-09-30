@@ -1,6 +1,13 @@
+---
+title: "Managing host agent configs from yolo — the host as a reduced render target"
+status: in-review
+stage: DESIGN
+next: "Rule 9.2 — whether yolo host apply stays a narrow convenience or becomes the recommended way to configure agents"
+---
+
 # Managing host agent configs from yolo — the host as a reduced render target
 
-**Status:** DESIGN, 2026-07-27 — largely implemented, and two questions still live: steps 1, 3, 4, 5 and 6 of [§8](#8-what-i-would-actually-do-in-order) have shipped.
+**Status:** 2026-07-27 — largely implemented, and two questions still live: steps 1, 3, 4, 5 and 6 of [§8](#8-what-i-would-actually-do-in-order) have shipped, and step 2 was answered by step 1.
 
 **Needs your ruling:** [9.2](#9.2) (does a host target defeat the sandbox's purpose), [9.6](#9.6) (do the reservation lists survive contact with a *configured* pack).
 

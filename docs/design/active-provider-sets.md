@@ -2,6 +2,8 @@
 title: "Several providers in one agent session: an ordered set per agent, and the first entry decides where it starts"
 date: 2026-09-29
 status: accepted
+stage: DECIDED
+next: "Build the oh-omp slice the doc lists as not built: declare provider_sets on packs/omp/pack.json's program, so a list named at oh-omp is taken whole and each entry's key reaches it"
 tags: [design, providers, profiles, selection, models, credentials, pi, opencode, notches, wire-bridge]
 summary: "Today each agent runs on exactly one profile, so one provider. The maintainer wants several active at once, switched freely inside pi. The proposal: an agent's selection becomes an ordered list of profiles (`-p pi=zai,openrouter`, `profile: {pi: [\"zai\", \"openrouter\"]}`); the picker offers the union of their models; the session starts, per OQ-ML2, only where it must, on the first entry's default; each listed provider's key reaches that agent alone; child agents stay inside the set. Only agents whose pack declares it may hold a set: pi, opencode and oh-omp can, claude, codex and copilot cannot. OQ-AP1 to OQ-AP3 were ruled 2026-09-29 and BUILT the same day for pi at every notch (the grammar, the config list, both refusals, the bare-list narrowing, the gate, the pre-flights, the contract tag and pi's render), and re-expressed on the `profile` key that replaced `use_profiles` (PP-D10, AP-D13); opencode's slice (§8 step 3) was BUILT 2026-09-30 (AP-D15, AP-D16). Measured by tests and by integration launches that render pi's and opencode's files for a set; no pi or opencode session was run."
 vantage:
@@ -10,14 +12,15 @@ vantage:
 
 # Several providers in one agent session: an ordered set per agent, and the first entry decides where it starts
 
-**Status:** ACCEPTED, 2026-09-29, and the first slice is BUILT ([§8](#8-what-i-would-build-in-order)
+**Status:** 2026-09-29 — the first slice is built ([§8](#8-what-i-would-build-in-order)
 steps 1, 2 and 4; [§13](#13-what-was-built-2026-09-29)): the grammar, the config list, the
 single-provider refusal, the bare-list narrowing, and pi holding a set at every notch. The build
 first spelled the config list under `use_profiles`; it lands on the `profile` key that replaced
 that key the same day ([PP-D10](providers-and-profiles-redesign.md#PP-D10)), as the key's list
-form ([AP-D13](#AP-D13)). opencode (step 3) was BUILT on 2026-09-30
-([§14](#14-what-was-built-2026-09-30-opencode), [AP-D15](#AP-D15), [AP-D16](#AP-D16)). Several
-via routes (step 5) are not built. MEASURED: unit tests pin each rule, every call site the review
+form ([AP-D13](#AP-D13)). opencode (step 3) was built on 2026-09-30
+([§14](#14-what-was-built-2026-09-30-opencode), [AP-D15](#AP-D15), [AP-D16](#AP-D16)). Not built:
+oh-omp, which can hold a set and does not declare one yet ([§4.3](#43-which-agents-take-a-set)),
+and several via routes (step 5), which wait on a user asking for two. MEASURED: unit tests pin each rule, every call site the review
 cut to the set's first entry now fails one, and integration launches rendered pi's and
 opencode's files for a set in a real jail ([§13](#13-what-was-built-2026-09-29),
 [§14](#14-what-was-built-2026-09-30-opencode)). UNMEASURED: no pi or opencode session was run, so
@@ -422,6 +425,8 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    _Leaning:_ A. It is what the maintainer typed, it fixes today's silent drop of exactly that
    input, and the first entry is the primary with no extra key.
 
+   <!-- vantage: oq id=OQ-AP1 -->
+
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A.** A comma continues one agent's list (`-p
    > pi=zai,openrouter,claude=codex`); in config the value is an array (`"use_profiles": {"pi":
@@ -457,6 +462,8 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    itself unmeasured. B is the one I would not pick, because it makes a list mean different things
    to different agents in one config.
 
+   <!-- vantage: oq id=OQ-AP2 -->
+
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A.** A set of more than one provider given to an agent that
    > runs one provider per session (Claude, Codex, Copilot) is refused before anything starts,
@@ -483,6 +490,8 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    _Leaning:_ A. The per-CLI form is what the maintainer asked for, B makes the bare form refuse
    almost everywhere, and C imports the one behavior [OQ-AP2](#OQ-AP2)'s leaning rejects. A can be
    widened later without breaking anything that works.
+
+   <!-- vantage: oq id=OQ-AP3 -->
 
    **Answer:**
    > **Ruled 2026-09-29: C, in the maintainer's words.** *"if you don't direct it at a specific

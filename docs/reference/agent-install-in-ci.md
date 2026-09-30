@@ -1,5 +1,7 @@
 ---
 status: current
+stage: CURRENT
+next: "Give OQ-CI7 its options, stakes and a leaning so it can be ruled, starting from what one vendor-install cell costs in the Linux Pack Installs runs; it was filed with none"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -14,7 +16,7 @@ summary: "How the integration suite tests agent-CLI installation without letting
 
 # Agent installs in CI — the pinned gate and the vendor-install workflow
 
-**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. MEASURED in CI on Linux: the
+**Status:** verified 2026-09-23 against `7ad8358c`. MEASURED in CI on Linux: the
 Pack Installs workflow was green at `7ad8358c` (run 35820702398) and on its 2026-09-21 weekly
 schedule (run 35620029721). **Not measured on macOS:** the macOS nightly runs no vendor install.
 Its warmup, skipped there from 2026-08-23 to 2026-09-25, was MEASURED on the eight nightlies of
@@ -359,8 +361,12 @@ test do run, so the podman-VM install path is exercised on macOS by the pinned f
 (INFERRED from the workflow's env; not observed in a run log for this stamp).
 
 - 💬 <a id="oq-ci7"></a>**[`OQ-CI7`](#oq-ci7) — should the macOS nightly run any vendor agent
-  install at all?** Today it runs none, as above. Filed 2026-09-26; until then the question had
-  no id.
+  install at all?**
+
+  <!-- vantage: oq id=OQ-CI7 -->
+
+  Today it runs none, as above. Filed 2026-09-26; until then the question had no id. It has no
+  options or leaning yet.
 
 ## Traps
 

@@ -2,6 +2,8 @@
 title: "No singleton: a host-side daemon belongs to the jail that asked for it"
 date: 2026-09-19
 status: in-review
+stage: DESIGN
+next: "Rule OQ-HD10, which three Mac runs have now measured: the HD-R1 retirement, not built, waits on what replaces the spawn lock"
 tags: [design, loopholes, daemons, lifecycle, ownership, credentials, host]
 summary: "RULED 2026-09-20 and BUILT NOWHERE: retire host_daemon.scope 'host'. The scope's own stated justification — that a second broker would race the single-use refresh token — is false in the code: each host-scoped daemon serializes on a flock whose path is a function of the home or the state file, never of the process, so N copies in one home take the same kernel lock. What genuinely forces a credential daemon host-side is that the vendor's own refresh lock is per-jail and cannot be shared portably, plus lifetime and a hostname pin — and none of the three needs exactly one. Most of this doc's open questions dissolve with the singleton; what remains is the reclaimer's hard kill, the mid-session silence, who refreshes when no jail runs, and what serializes spawn on macos-user."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # No singleton: a host-side daemon belongs to the jail that asked for it
 
-**Status:** DESIGN, 2026-09-20 — four questions still owe a ruling ([OQ-HD4](#OQ-HD4), [OQ-HD5](#OQ-HD5), [OQ-HD9](#OQ-HD9), [OQ-HD10](#OQ-HD10)), and **NOTHING IS BUILT.** The central ruling is in: retire
+**Status:** 2026-09-20 — four questions still owe a ruling ([OQ-HD4](#OQ-HD4), [OQ-HD5](#OQ-HD5), [OQ-HD9](#OQ-HD9), [OQ-HD10](#OQ-HD10)), and **NOTHING IS BUILT.** The central ruling is in: retire
 `host_daemon.scope: "host"` and give every host-side daemon the lifetime of the jail that
 asked for it. Nothing in the tree has changed. One earlier ruling IS built — the
 management surface ([§5.1](#51-the-management-surface-one-verb-over-the-host-scoped-set))
@@ -1183,11 +1185,21 @@ each, because a deleted question is one the next reader re-derives.
    it took no guard and removed the dir. `TestAMacosUserSessionsExitLeavesAConcurrentSessionsEndpointsWorking`
    ([`macosusersessions_test.go`](../../internal/cli/run/macosusersessions_test.go)) reproduced
    the `GONE` on Linux through the real macos-user arm and passes now. What the next Mac run should
-   show, NOT YET RUN: `ENDPOINT AFTER B EXITED: STILL WORKS`, and `ENDPOINT DURING` naming two
+   show, and has since (below): `ENDPOINT AFTER B EXITED: STILL WORKS`, and `ENDPOINT DURING` naming two
    files (`one file for both: false`). The experiment is no longer silent on this half: it now
    fails when the survivor's endpoint does not answer (`hd10SurvivorFailure`). The spawn question
    is unchanged. Both sessions still front the one host-wide broker, and only
    `paths.HostSingletonLock` serializes its spawn.
+
+   **The runs since the fix, MEASURED (scheduled macos-user runs 36437881715 at `650e84b0`,
+   36575801495 at `4a2f2506` and 36719581090 at `8f7468dd`, 2026-09-28 to 2026-09-30; each
+   commit carries `6a894647`, the fix), read from each run's log on 2026-09-30.** In all three both
+   launches ran (`A rc=0`, `B rc=0`) and overlapped. `SPAWN: ONE BROKER` each time. `ENDPOINT
+   DURING` named two files, one per session's host-services dir, both readable and both dialed
+   (`one file for both: false`). `ENDPOINT AFTER B EXITED`: A's file still readable and its port
+   still answering. So [`HD-D1`](#HD-D1) holds on a Mac, and the spawn answer is the same as
+   before the fix: one broker, which the test's verdict line credits to the spawn flock or the
+   liveness re-check inside it.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1253,7 +1265,7 @@ where the ruling went past them — that record is the point.
    the other seven hung off, and the one that decided whether [OQ-HD3](#OQ-HD3) stayed a
    trade or stopped existing.
 
-   <!-- vantage: oq id=OQ-HD1 leaning="DISSOLVED 2026-09-20 by HD-R1. The leaning identified the right blocker - a versioned path strands daemons nothing reaps - and the ruling took the other exit: remove the seam instead of versioning it." -->
+   <!-- vantage: oq id=OQ-HD1 -->
 
    _Leaning (preserved):_ The right unit is a **wire-contract generation**, not a build
    version — the same thing the stamp's single bit means today, promoted from a file beside
@@ -1280,7 +1292,7 @@ where the ruling went past them — that record is the point.
    the OpenAI daemon on a different predicate, and nothing reconciles them. This decided
    whether that was a second ruling or a contradiction.
 
-   <!-- vantage: oq id=OQ-HD3 leaning="DISSOLVED 2026-09-20 by HD-R1. The reconciling sentence was correct and is now unnecessary: with no singleton, neither branch has an occasion." -->
+   <!-- vantage: oq id=OQ-HD3 -->
 
    _Leaning (preserved):_ Both stand; what is missing is the sentence. The restart-loop
    argument is about a path that runs on **every launch**; a human typing `yolo host -- codex`
@@ -1302,7 +1314,7 @@ where the ruling went past them — that record is the point.
    reaper which cannot ask declines rather than sweeping. [OQ-HD1](#OQ-HD1) made this urgent
    rather than academic — versioned paths strand daemons on purpose.
 
-   <!-- vantage: oq id=OQ-HD6 leaning="DISSOLVED 2026-09-20 by HD-R1. The reaper had no predicate because the daemon outlived everyone who knew whether it was wanted; per-jail gives the process holding the handle that knowledge." -->
+   <!-- vantage: oq id=OQ-HD6 -->
 
    _Leaning (preserved):_ No reaper, ruled rather than merely absent. An idle singleton costs
    one sleeping process and one socket; a wrong reaper cuts off a live jail's credential path,
@@ -1327,7 +1339,7 @@ where the ruling went past them — that record is the point.
    enumerates it. This decided whether the other questions were about three daemons or an
    open-ended population.
 
-   <!-- vantage: oq id=OQ-HD7 leaning="DISSOLVED 2026-09-20 by HD-R1 - the key is retired. The transferable half survives: a free pack declaration whose set nobody enumerates grows unnoticed, which is a property of free declarations rather than of this key." -->
+   <!-- vantage: oq id=OQ-HD7 -->
 
    _Leaning (preserved):_ Keep it free. The pack-only rule and the origin gate already govern
    the crossing, and a second gate would duplicate it. What is missing is not a gate but
@@ -1353,7 +1365,7 @@ where the ruling went past them — that record is the point.
    dial the 0600 socket, and is refused by the reachability witness with a message naming the
    socket rather than the collision.
 
-   <!-- vantage: oq id=OQ-HD8 leaning="MOSTLY DISSOLVED 2026-09-20 by HD-R1: per-jail paths already carry a workspace hash, so two users with different workspaces no longer collide. The residue - same workspace path, two users - moves to OQ-HD10. Fixing the message is still worth doing while the singleton ships." -->
+   <!-- vantage: oq id=OQ-HD8 -->
 
    _Leaning (preserved):_ Declare it a non-goal and fix the *message*. A uid in the rendezvous
    is a small change and it would work, but it promises a multi-user-host story nothing else

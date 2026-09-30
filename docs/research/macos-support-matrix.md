@@ -1,6 +1,14 @@
+---
+title: "macOS support matrix — every runtime × builder × config"
+status: in-review
+stage: CURRENT
+next: "Rule OQ-MX1 before nixpkgs 26.05's security window for the Intel runner closes at the end of 2026"
+tags: [research, macos, tracker, ci]
+---
+
 # macOS support matrix — every runtime × builder × config
 
-**Status:** LIVE TRACKER — reconciled against the tree **2026-08-23**, with the `macos-user` cells
+**Status:** a live tracker, reconciled against the tree **2026-08-23**, with the `macos-user` cells
 updated **2026-09-11** from a session on real hardware and a doc sweep of **2026-09-24** that moved
 the cells later rulings and builds had overtaken (each says so with that date). Cells
 carry the date they were last checked; an undated cell is from the 2026-07 era
@@ -104,6 +112,8 @@ and nothing else here does.** Verified against `flake.nix` 2026-08-23.
   should skip instead. Filed 2026-09-26 from
   [`handoff-mac-unmeasured-claims.md` §4](../plans/handoff-mac-unmeasured-claims.md#4-the-nightly--five-links-all-now-named),
   where it was recorded without an id.
+
+  <!-- vantage: oq id=OQ-MX2 -->
 
   **Answer:** moot (2026-09-30): the failure it asks about no longer happens. The nightly's
   `build-image` job realizes the `zbar` and `libsodium.dev` image variants on Linux and pushes
@@ -210,7 +220,7 @@ that says the thing does not work.
 > needed), ran it with an internal-network IP, and host nix built through it
 > (`Trusted: 1` → `AC-CONTAINER-BUILDER-WORKS`). AC is now a fully-supported
 > container-builder path alongside podman. Next: wire the CLI orchestration
-> (roadmap #3).
+> ([§5](#5-roadmap-ordered) item 3).
 
 **macos-user end-to-end — ✅ DONE (2026-07-21), macos-user column unblocked:**
 > Does the native no-VM backend run an agent as `_yolojail` under Seatbelt with

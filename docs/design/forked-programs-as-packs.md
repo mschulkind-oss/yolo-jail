@@ -4,11 +4,16 @@ date: 2026-09-21
 status: accepted
 tags: [design, packs, programs, capture, notches, forks, build]
 summary: "A pack can declare a program from npm or from a vendor installer, and neither can express a fork the maintainer builds themselves. The proposal adds a third delivery route — a pinned source address plus a build recipe, built once in a throwaway capture jail and delivered from the capture store — and the load-bearing problem is not the build but relocation: capture is cheap today only because the capture home and the materialize home are the same string, which a host-and-jail artifact breaks by definition."
+stage: DECIDED
+next: "Measure the plan's step 7 on a stand-in fork, since no file names the motivating one: pin a public Node CLI (pi's upstream at a release tag) as a fork pack, build it with yolo capture from a nested jail, and search the entry's tree/ for /nix/store and /lib"
+depends-on:
+  - ../plans/install-capture.md
+  - host-tool-provisioning.md
 ---
 
 # A fork is a package with no registry — distributing source-built programs through a pack
 
-**Status:** DECIDED, 2026-09-30 — no ruling is owed. Building: the
+**Status:** 2026-09-30 — no ruling is owed. Building: the
 [plan](forked-programs-as-packs-plan.md#build-order)'s steps 1–6, the `source` vocabulary, the selection's rewrite of a fork's base, the pin, the seal, the build act and the jail's delivery, landed
 2026-09-30, and the Built column of [§14](#14-decision-ledger) says what each step built. Step 7,
 the host notch, stopped at its measurement: the plan's [step 7](forked-programs-as-packs-plan.md#step-7-needs) records what it needs. The original six
@@ -412,6 +417,8 @@ implementation choices on 2026-09-30.
    a human can retry. A launch cannot, and refusing a jail because another jail is building the same
    bytes is the mis-scoped fatal the 2026-09-03 reversal deleted, in a new costume.
 
+   <!-- vantage: oq id=OQ-FP7 -->
+
    **Answer:**
    > Decided as an implementation choice ([FP-D1](#FP-D1)), reversible: a launch that finds the
    > build lock held waits for the winner, bounded, then re-checks the store and uses the winner's
@@ -428,6 +435,8 @@ implementation choices on 2026-09-30.
    _Leaning:_ **A per-kind table, written down.** The kinds already differ in whether they key on a
    `bin` or on an owning pack, so one blanket rule is false for at least one of them — and its failure
    mode is a silently dropped contribution.
+
+   <!-- vantage: oq id=OQ-FP8 -->
 
    **Answer:**
    > Decided as an implementation choice ([FP-D2](#FP-D2)), reversible: one rule, not a per-kind
@@ -455,6 +464,8 @@ implementation choices on 2026-09-30.
    _Leaning:_ **Ship container-only, with the gap named and reported on that backend.** `macos-user`
    is where relocation must be proven anyway and wants its own slice; what it must not do is silently
    deliver no program.
+
+   <!-- vantage: oq id=OQ-FP9 -->
 
    **Answer:**
    > Decided as an implementation choice ([FP-D3](#FP-D3)), reversible: the route ships in

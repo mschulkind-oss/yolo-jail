@@ -1,7 +1,9 @@
 ---
 title: "Providers and profiles, redesigned: what `-p <name>` should mean"
 date: 2026-09-25
-status: draft
+status: in-review
+stage: DESIGN
+next: "Rule OQ-PP1 — what -p names; the plain-words rewrite of providers.md waits on it"
 tags: [providers, profiles, selection, gates, derives, wire-bridge, bedrock]
 summary: "A provider is a place models are served from; a profile is the name you type after `-p`, picking one provider plus options. Today pack facts gated on a profile NAME and derives keyed on the PROVIDER disagree, so a second profile over one provider silently loses facts, the transport (an agent's own client or the wire bridge) has nowhere to live, and a bare `-p X` does nothing for an agent that cannot reach X without saying so. This doc owns the marker that tells a derive what a provider is (OQ-BR2), whether a gate keys on the name or the provider (OQ-BR8), and three new questions about what `-p` names."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Providers and profiles, redesigned: what `-p <name>` should mean
 
-**Status:** DESIGN, 2026-09-25. [OQ-BR8](#OQ-BR8) and [OQ-BR2](#OQ-BR2) ruled 2026-09-29 (key facts on the provider, recognized by its `platform` field), and [PP-D1](#PP-D1) the same day; all three **built 2026-09-29** ([§8](#8-decision-ledger) has how), with the review's fixes the same day: a user's own provider of a platform co-claims its credential names ([PP-D9](#PP-D9)), a switch `yolo host apply` wrote is yolo's to clear and to name ([PP-D1](#PP-D1)), and a via no route carries claude through is disclosed ([PP-D4](#PP-D4)). Trap D5 is closed. [PP-D10](#PP-D10), the `profile` config key that mirrors `-p` and replaces `use_profiles`, was ruled and built the same day ([PP-D11](#PP-D11) has how). Triaged 2026-09-30: [OQ-PP2](#OQ-PP2) is answered by [OQ-BR1](bedrock-plumbing.md#OQ-BR1) with [OQ-WG2](wire-bridge-gateway.md#OQ-WG2), and [OQ-PP3](#OQ-PP3) by [OQ-AP3](active-provider-sets.md#OQ-AP3). [OQ-PP1](#OQ-PP1) stays open, restated against what those rulings built.
+**Status:** 2026-09-25. [OQ-BR8](#OQ-BR8) and [OQ-BR2](#OQ-BR2) ruled 2026-09-29 (key facts on the provider, recognized by its `platform` field), and [PP-D1](#PP-D1) the same day; all three **built 2026-09-29** ([§8](#8-decision-ledger) has how), with the review's fixes the same day: a user's own provider of a platform co-claims its credential names ([PP-D9](#PP-D9)), a switch `yolo host apply` wrote is yolo's to clear and to name ([PP-D1](#PP-D1)), and a via no route carries claude through is disclosed ([PP-D4](#PP-D4)). Trap D5 is closed. [PP-D10](#PP-D10), the `profile` config key that mirrors `-p` and replaces `use_profiles`, was ruled and built the same day ([PP-D11](#PP-D11) has how). Triaged 2026-09-30: [OQ-PP2](#OQ-PP2) is answered by [OQ-BR1](bedrock-plumbing.md#OQ-BR1) with [OQ-WG2](wire-bridge-gateway.md#OQ-WG2), and [OQ-PP3](#OQ-PP3) by [OQ-AP3](active-provider-sets.md#OQ-AP3), whose launch line was found already built as the profile line's per-agent warning. [OQ-PP1](#OQ-PP1) stays open, restated against what those rulings built.
 BUILT AND MEASURED BY TESTS ONLY: each moved fact is pinned where it is delivered, through the
 credential gate and the shipped derives, for the shipped profile, a user's own profile over
 `bedrock` and a user's own provider declaring `"platform": "aws-bedrock"`; no launch was run, no
@@ -366,6 +368,8 @@ transport's home leaves the everything profile distinguished only by its name. T
    ([OQ-BR22](bedrock-web-search.md#OQ-BR22)). The bridge's signer does not wait: [OQ-WG1](wire-bridge-gateway.md#OQ-WG1)
    leans toward keying it on the upstream host.
 
+   <!-- vantage: oq id=OQ-BR2 -->
+
    **Answer:**
    > **Ruled 2026-09-29, as leaned.** A provider declares what service it is in an
    > open-vocabulary field, `platform` (for example `"platform": "aws-bedrock"`), accepted by
@@ -424,6 +428,8 @@ transport's home leaves the everything profile distinguished only by its name. T
 
    _Leaning:_ The first option, as the bullets above spell it, built with
    [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s fix, which is the same function.
+
+   <!-- vantage: oq id=OQ-BR8 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: key provider facts on the provider, never the profile's
@@ -499,6 +505,8 @@ transport's home leaves the everything profile distinguished only by its name. T
    and is never preferred over a native endpoint. This confirms
    [OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s Bedrock leaning for every provider.
 
+   <!-- vantage: oq id=OQ-PP2 -->
+
    **Answer:**
    > **Answered by [OQ-BR1](bedrock-plumbing.md#OQ-BR1) (2026-09-29), with
    > [OQ-WG2](wire-bridge-gateway.md#OQ-WG2) (2026-09-25): derived per agent, with an opt-in on
@@ -524,6 +532,8 @@ transport's home leaves the everything profile distinguished only by its name. T
    _Leaning:_ One launch line naming the agents X does not reach. A disclosure, never a
    refusal, so a jail with several agents still launches.
 
+   <!-- vantage: oq id=OQ-PP3 -->
+
    **Answer:**
    > **Answered by [OQ-AP3](active-provider-sets.md#OQ-AP3) (2026-09-29): one launch line
    > naming the agents the selection does not reach, and never a refusal.** The maintainer, ruling
@@ -532,10 +542,18 @@ transport's home leaves the everything profile distinguished only by its name. T
    > have agents that don't support it on your pack list, we're going to print out that these
    > will only get the first one and the others will be ignored."* That question named this one as
    > the case it meets. A bare `-p X` is the same kind of selection, aimed at no agent in
-   > particular: an agent that cannot reach X is named on one line, and the launch goes on. **Not
-   > built.** The line needs a reachability predicate on the launcher side. The `platform` marker
-   > it reads is built ([OQ-BR2](#OQ-BR2)), and [OQ-PP2](#OQ-PP2)'s answer (derived per agent)
-   > says how it decides.
+   > particular: an agent that cannot reach X is named on one line, and the launch goes on.
+
+   **Found built, 2026-09-30.** The launch's profile line already carries it: for each agent the
+   profile table keys to X, `packload.profileReach` (`internal/packload/profiledisclosure.go`)
+   decides from the launch's declarations whether the agent can reach X's provider at this
+   notch, through protocol resolution, a via, or its pack's binding of the provider's `platform`,
+   and prints `Warning: profile "X" reaches nothing for <agent>: …`, naming why and the fix, never
+   a refusal.
+   The jail launch (`internal/cli/run/run.go`) and `yolo host` (`internal/cli/host.go`) both call
+   it, and `TestNoteUseProfilesWarnsWhereTheSelectionReachesNothing` pins the bare `-p bedrock`
+   case for copilot. It prints one warning per agent rather than one line naming them all;
+   whether that form is the ruled one is unconfirmed.
 
 ### Decision Ledger
 
@@ -562,8 +580,8 @@ in [OQ-BR2](#OQ-BR2).
 | <a id="PP-D9"></a>PP-D9 | *Implementation decision, revised by the review the same day.* **The credential claims follow the platform.** A composed provider that declares a `platform` and no `api_key_env_name` of its own co-claims every name a same-platform provider in the composed table lists (`packload.credentialClaims`); one that lists its own keeps exactly those, and only a provider's own list is inherited. So a user's `"platform": "aws-bedrock"` provider keeps the six AWS names the shipped `bedrock` claims ([CN-D2](provider-credential-scope.md#7-decision-ledger)) to its agents, like the region variables, which are a platform fact too ([BR-D1](bedrock-plumbing.md#BR-D1)). The first build left the claims out and said such a key "reaches every process"; the review measured the opposite: the shipped `bedrock`, always in the table beside it, still claimed the names, so the gate withheld them from every process, the agent on the user's provider included, and claude started in Bedrock mode with no AWS credential and no word of it. The claim model still reads the composed table alone: the platform is a field of the composed entry, and the pre-flight, which asks for exactly one named key, is unchanged | 2026-09-29 | ✅ `packload.credentialClaims` |
 | <a id="PP-D10"></a>PP-D10 | **Maintainer ruling** (in chat): *"yes, let's go with your profile proposal. fire that off now."* The proposal it accepted: the persistent selection becomes the `profile` key, mirroring `-p`/`--profile` exactly. `"profile": "bedrock"` is `-p bedrock` (every agent); `"profile": { "pi": "codex", "claude": "bedrock" }` is `-p pi=codex,claude=bedrock`; `"profile": { "*": "bedrock", "pi": "codex" }` is `-p bedrock -p pi=codex`, *"`"*"` is every agent not named"*; and a list value (`{ "pi": ["zai", "openrouter"] }`) once the provider-list build lands (built 2026-09-30 as [AP-D13](active-provider-sets.md#AP-D13): `{ "pi": ["zai", "openrouter"] }` is `-p pi=zai,openrouter`, and the list form and a list under `"*"` are `-p zai,openrouter`). *"`"*"` can't collide with an agent, because agents are named by the program they install and no program is called `*`."* `use_profiles` is *"refused by name, with the new spelling in the message"*. It *"stays user-scope only, as today: a repo's committed config can't pick where your credentials go."* The key follows whatever [OQ-PP1](#OQ-PP1) decides `-p` names. The cost the maintainer accepted: `profile` (which to use) and `profiles` (the declarations) differ by one letter | 2026-09-29 | ✅ [PP-D11](#PP-D11); the list value ✅ 2026-09-30 ([AP-D13](active-provider-sets.md#AP-D13)) |
 | <a id="PP-D11"></a>PP-D11 | *Implementation decision.* **One shape and one fold for both spellings, and a pair keeps its CLI beside a bare `-p`.** The key and every `-p` value lower to `config.ProfileSelection` (a default and per-CLI entries), and `config.ProfileTableFor` is the one function that turns selections into the CLI-keyed table, at the jail launch, `yolo host --` and `yolo host env`, `yolo host apply`, the host footer, the overlay gate, `yolo check` and the selection closure. The precedence between the two sources is kept: every `-p` form beats every key form for each CLI it reaches. Within one source a named CLI keeps its entry and the default reaches every other CLI the selected packs install, never the command after `--`. That is a change to `-p`, which the ruling's equation requires: a bare `-p` was folded last and overwrote a pair typed beside it, so `-p bedrock -p pi=codex` ran pi on bedrock. A null entry keeps `"*"` off its agent; an empty name is refused, null being the spelling of none. At `yolo host` the default reaches the one command only when a selected pack installs it, so an ad-hoc command is neither refused nor handed a profile. `use_profiles` is an error on the host, respelling the user's own entries under the new key, at every host reader of the selection: `yolo host --` and `yolo host env`, `yolo host apply` in both postures, the automatic apply a wrapped launch runs (asked before its observe pass) and `yolo config render --at host` each run the provider and profile section of validation over user scope. The review found the first build refusing it at the two launch verbs alone: `yolo host apply --assert` read the selection off the new key, ignored the old one, and deselected the profile an earlier apply had written into the real home. It is a warning in-jail, where a snapshot an older launcher wrote carries it (the `agent_profiles` precedent); a workspace carrying it gets the rename and the user-scope refusal together. What crosses into a jail is unchanged: `YOLO_USE_PROFILES` is the folded table, the derive still reads it as `ctx.use_profiles`, and the inherited snapshots carry `profile` verbatim, `"*"` included. The list value landed where this row said it would, in the two fields of `ProfileSelection`, which are now ordered lists ([AP-D13](active-provider-sets.md#AP-D13), 2026-09-30): `config.ParseProfileFlag` reads -p's comma continuation, `ProfileSelectionOf` a JSON array, `validateProfile` checks both shapes, and the fold (`config.FoldProfiles`, whose table `ProfileTableFor` returns) emits a set and narrows a list naming no agent (the key's list form, a list under `"*"`, a bare `-p`) to its first entry for an agent whose pack declares no `provider_sets`, saying so at launch. The precedence and the pair-beside-a-bare-`-p` rule above are unchanged | 2026-09-29 | ✅ `config.ProfileSelection`, `config.FoldProfiles` and `config.ProfileTableFor`; pinned by `internal/cli/profilekeyflag_test.go` (its list rows included), `internal/cli/run/profilekey_test.go`, `internal/cli/hostprofilekey_test.go` and `internal/config/profileselection_test.go` |
-| [OQ-PP2](#OQ-PP2) | **Answered by [OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s ruling** (2026-09-29, the maintainer: *"by default we should pick the right thing, the native by default, but we should allow configurations to force the bridge"*) **and [OQ-WG2](wire-bridge-gateway.md#OQ-WG2)'s** (2026-09-25: *"this should be a property of the profile"*). The transport is derived per agent (a native client for the provider's `platform` or endpoints, else the bridge), and a profile's `via` forces the bridge. No provider declares a per-agent table, which also keeps agent knowledge out of providers ([OQ-CS8](../reference/providers.md#oq-cs8)) | 2026-09-30 | ✅ the native half for Bedrock ([BR-D9](bedrock-plumbing.md#BR-D9) to [BR-D14](bedrock-plumbing.md#BR-D14)); `bedrock-bridge` ships with no agent routed until the bridge has a Bedrock upstream ([BR-D16](bedrock-plumbing.md#BR-D16)) |
-| [OQ-PP3](#OQ-PP3) | **Answered by [OQ-AP3](active-provider-sets.md#OQ-AP3)'s ruling** (2026-09-29, the maintainer: *"if you don't direct it at a specific agent, then we should print out a message showing you … these will only get the first one and the others will be ignored"*). A bare `-p X` names, on one launch line, each agent it does not reach, and never refuses, so a jail with several agents still launches | 2026-09-30 | no: needs a launcher-side reachability predicate over the `platform` marker and the derived transport |
+| [OQ-PP2](#OQ-PP2) | **Answered by [OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s ruling** (2026-09-29, the maintainer: *"by default we should pick the right thing, the native by default, but we should allow configurations to force the bridge"*) **and [OQ-WG2](wire-bridge-gateway.md#OQ-WG2)'s** (2026-09-25: *"this should be a property of the profile"*). The transport is derived per agent (a native client for the provider's `platform` or endpoints, else the bridge), and a profile's `via` forces the bridge. No provider declares a per-agent table, which also keeps agent knowledge out of providers ([OQ-CS8](../reference/providers.md#oq-cs8)) | 2026-09-30 | ✅ the native half for Bedrock ([BR-D9](bedrock-plumbing.md#BR-D9) to [BR-D14](bedrock-plumbing.md#BR-D14)); the forcing half, `bedrock-bridge` ([BR-D16](bedrock-plumbing.md#BR-D16)), carries every agent since the bridge reached Bedrock by region on 2026-09-30 ([`wire-bridge-gateway.md` WG-I39](wire-bridge-gateway.md#WG-I39)) |
+| [OQ-PP3](#OQ-PP3) | **Answered by [OQ-AP3](active-provider-sets.md#OQ-AP3)'s ruling** (2026-09-29, the maintainer: *"if you don't direct it at a specific agent, then we should print out a message showing you … these will only get the first one and the others will be ignored"*). A bare `-p X` names, on one launch line, each agent it does not reach, and never refuses, so a jail with several agents still launches | 2026-09-30 | found built 2026-09-30 as the profile line's per-agent warning (`packload.profileReach`), one line per agent; pinned by `TestNoteUseProfilesWarnsWhereTheSelectionReachesNothing` |
 
 ## Appendix: Evidence, and how to re-check it
 

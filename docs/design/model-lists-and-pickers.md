@@ -1,7 +1,9 @@
 ---
 title: "Which model ids yolo ships, how an org shapes the list, and what each picker shows"
 date: 2026-09-25
-status: draft
+status: in-review
+stage: DESIGN
+next: "Build MM-D5's yolo check line saying opencode's menu is not narrowed with enforce_models off, beside modelListNotes in internal/cli/check/modellists.go; OQ-MM1 is the first ruling owed"
 tags: [providers, profiles, models, aliases, pickers, packs, bedrock, currency]
 summary: "Where yolo must pick model ids itself (the 2026-09-25 ruling on OQ-BR3: only where an agent cannot just fall back to its own default), how those picks ship in a built-in pack that comes with yolo rather than in core, how a company pack adds to or narrows a model list, how each agent's picker renders the result, and how the list stays current without yolo keeping a catalog."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Which model ids yolo ships, how an org shapes the list, and what each picker shows
 
-**Status:** DESIGN, 2026-09-25, with two pieces BUILT. On 2026-09-27: the `openai-codex` list is
+**Status:** 2026-09-25, and built in parts since. On 2026-09-27: the `openai-codex` list is
 declared once, in [`packs/openai-auth/pack.json`](../../packs/openai-auth/pack.json), and every
 consumer reads it ([ML-D1](#ML-D1) to [ML-D7](#ML-D7)), in a jail and, since 2026-09-28, at the
 host notch too ([OQ-HC1](host-computed-layer.md#OQ-HC1), which superseded [ML-D8](#ML-D8)). On
@@ -1381,6 +1383,8 @@ while it runs, and its next `/new` would fail.
    shipping a list, and `-p bedrock` gets defaults with no new always-on rule. The cost: (b)
    could ship this week and (a) waits on a new kind.
 
+   <!-- vantage: oq id=OQ-ML1 -->
+
    **Answer:**
    > **Ruled 2026-09-29: neither a separate picks pack nor always-on.** Each provider declares
    > its own default in its pack, the way everything else is declared, and the default layers
@@ -1403,6 +1407,8 @@ while it runs, and its next `/new` would fail.
    provider-switching's same-tier-word done-condition unless ruled otherwise. Each id is dated in
    the pack README and covered by [OQ-BR14](#OQ-BR14)'s warning.
 
+   <!-- vantage: oq id=OQ-ML2 -->
+
    **Answer:**
    > **Ruled 2026-09-29, narrower than the leaning** (the maintainer: *"YOLO by default should
    > never pick a default model … whenever you start up a session, we always want to make sure
@@ -1422,7 +1428,11 @@ while it runs, and its next `/new` would fail.
    the first-listed provider's default. Designed in
    [`active-provider-sets.md` §4.4](active-provider-sets.md#44-models-the-union-and-the-start-model).
 
-3. ✅ <a id="OQ-BR3"></a>**[OQ-BR3](#OQ-BR3): Does yolo ship model aliases at all?** (moved
+3. ✅ <a id="OQ-BR3"></a>**[OQ-BR3](#OQ-BR3): Does yolo ship model aliases at all?**
+
+   <!-- vantage: oq id=OQ-BR3 -->
+
+   (moved
    from [`bedrock-plumbing.md`](bedrock-plumbing.md) on 2026-09-25, id kept.) **Ruled
    2026-09-25:** yes, where the agent cannot default, in a built-in pack that comes with yolo
    ([Decision Ledger](#16-decision-ledger)). The old proposal, `default`/`balanced`/`fast` →
@@ -1433,7 +1443,11 @@ while it runs, and its next `/new` would fail.
    `7ad8358c`). Which ids ship is a build-time check, dated in the README.
 
 4. ✅ <a id="OQ-PSW3"></a>**[OQ-PSW3](#OQ-PSW3): Does yolo ship the model ids, or only the empty
-   provider shape?** (moved from the retired `provider-switching.md` on 2026-09-25,
+   provider shape?**
+
+   <!-- vantage: oq id=OQ-PSW3 -->
+
+   (moved from the retired `provider-switching.md` on 2026-09-25,
    where it was `PS3` before the rename noted at the top of this doc.) **Answered 2026-09-25 by [OQ-BR3](#OQ-BR3)'s ruling:** yolo ships the ids, in a
    built-in pack. It was always the same decision. Which of its two cases (the first-party
    provider, claude's `bedrock` map) get ids is [OQ-ML2](#OQ-ML2)'s. The geo-prefix verification
@@ -1458,6 +1472,8 @@ while it runs, and its next `/new` would fail.
 
    _Leaning:_ A. `add` unions in pack order, `only` intersects, and the user's config is the last
    writer. yolo's own packs ship as few ids as [OQ-BR3](#OQ-BR3)'s ruling allows.
+
+   <!-- vantage: oq id=OQ-BR12 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A, for every provider.** The maintainer: *"you ship a pack
@@ -1486,6 +1502,8 @@ while it runs, and its next `/new` would fail.
 
    _Leaning:_ A. Move the GPT-6 lists into data under a byte-identical test, which needs the
    `description` field.
+
+   <!-- vantage: oq id=OQ-BR13 -->
 
    **Answer:**
    > **Directed 2026-09-29: set the model selection however each agent allows.** The maintainer:
@@ -1525,6 +1543,8 @@ while it runs, and its next `/new` would fail.
    _Leaning:_ A. Warn, never refuse; say so when no catalog could be read; no launch network
    call; no "newer model exists" report.
 
+   <!-- vantage: oq id=OQ-BR14 -->
+
    **Answer:**
    > Decided as an implementation choice ([MM-D16](#MM-D16)), reversible: A, the agents' own
    > catalogs plus a `yolo check` warning for a listed id no installed catalog knows. The policy
@@ -1541,6 +1561,8 @@ while it runs, and its next `/new` would fail.
 
    _Leaning:_ Move, with synonyms. A vendor tier name cannot survive a switch to another vendor,
    and synonyms make the move free for existing config.
+
+   <!-- vantage: oq id=OQ-PSW1 -->
 
    **Answer:**
    > Decided as an implementation choice ([MM-D17](#MM-D17)), reversible: claude's derive reads
@@ -1565,6 +1587,8 @@ while it runs, and its next `/new` would fail.
    _Leaning:_ A. Measure first. If discovery survives, serve the effective list from memory and
    never call upstream for it.
 
+   <!-- vantage: oq id=OQ-BR15 -->
+
    **Answer:**
    > **Settled 2026-09-29 by the measurement it waited on: C, never** ([MM-D4](#MM-D4)). Discovery
    > does survive `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, so the leaning's condition held,
@@ -1587,6 +1611,8 @@ while it runs, and its next `/new` would fail.
     `host_management: own` accepts, since `own` refuses `computed`; **C**, deliver the list to the
     host some other way, such as a host-notch file the extension reads, a second channel ML-D3
     rejected for the jail.
+
+    <!-- vantage: oq id=OQ-ML3 -->
 
     **Answer:** A, for now. The maintainer, 2026-09-27: *"basically option 1, but then make sure
     there's a design doc about the host option left."* Host pi keeps pi-ai's own `openai-codex`
@@ -1680,6 +1706,8 @@ while it runs, and its next `/new` would fail.
 
     _Leaning:_ B. It adds a second file of a kind that already exists, in the same directory, with
     the same readers.
+
+    <!-- vantage: oq id=OQ-MM2 -->
 
     **Answer:**
     > **Settled 2026-09-29 on a corrected premise, rather than asked: B** ([MM-D10](#MM-D10)). The

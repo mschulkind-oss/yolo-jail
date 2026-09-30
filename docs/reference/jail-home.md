@@ -27,12 +27,14 @@ covers:
   - internal/entrypoint/scripts.go
   - internal/entrypoint/packhooks.go
 tags: [home, mounts, overlays, storage, entrypoint, path]
+stage: CURRENT
+next: "Re-verify against the tree with the system-doc skill: only the home root was re-checked when the per-jail skeleton landed, and the stamp is d14bdab7"
 summary: "How /home/agent is composed: a per-jail read-only skeleton, per-workspace writable overlays punched through it, staged :ro content on top, and files the entrypoint regenerates into the overlays on every boot. Covers the mount stack, the write rules that keep bind mounts alive, PATH, what is shared at which scope, and how the three backends differ."
 ---
 
 # The jail home — how `/home/agent` is composed
 
-**Status:** CURRENT as of 2026-09-09, verified against `d14bdab7`. The home root was
+**Status:** verified 2026-09-09 against `d14bdab7`. The home root was
 rewritten 2026-09-25 for the per-jail skeleton, the machine store, name reservation and the
 Apple Container seed ([`base-home-legacy-state.md`](../design/base-home-legacy-state.md)),
 against the working tree of that build; the rest was not re-verified then. The rule for host

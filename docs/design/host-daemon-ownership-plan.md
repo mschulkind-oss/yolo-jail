@@ -2,13 +2,23 @@
 title: "Plan sketch: host-daemon ownership"
 date: 2026-09-19
 status: draft
+stage: SKETCH
+next: "Prune the three entries parked on design questions that HD-R1 dissolved or that are built (HD1, HD6, HD2), before a plan for HD-R1 is written against the tree"
+depends-on:
+  - host-daemon-ownership.md#OQ-HD10
 tags: [plan, sketch, daemons, loopholes, lifecycle]
 summary: "The parking lot for implementation material that surfaced while writing the host-daemon ownership design. Not a hand-off: every entry rests on an unruled question, and nothing here has been checked against the tree as a build plan."
 ---
 
 # Plan sketch: host-daemon ownership
 
-**Status:** SKETCH, 2026-09-19 — incomplete, and unstable while questions are open.
+**Status:** 2026-09-19 — incomplete, and unstable while questions are open. Checked 2026-09-30:
+three of its four parked entries rest on questions that no longer gate anything.
+[OQ-HD2](host-daemon-ownership.md#OQ-HD2) is built (the design's ledger), and
+[OQ-HD1](host-daemon-ownership.md#OQ-HD1) and [OQ-HD6](host-daemon-ownership.md#OQ-HD6) were
+dissolved by [HD-R1](host-daemon-ownership.md#HD-R1); only the entry on
+[OQ-HD4](host-daemon-ownership.md#OQ-HD4) is still parked on a live question. Nothing here plans
+HD-R1 itself.
 
 **Design:** [`host-daemon-ownership.md`](host-daemon-ownership.md). **Precedence:** the
 design wins on behavior; this file is the first thing here to be wrong.

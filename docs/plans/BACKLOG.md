@@ -1,6 +1,14 @@
+---
+title: "Backlog — the one implementable list"
+status: in-review
+stage: CURRENT
+next: "Settle E5's residual fact: survey the shipped packs' managed and defaults layers (packs/*/pack.json) for an array a pack would need to append to now that config-list exists; none found means E5 has no subject"
+tags: [backlog, packs, composed-config]
+---
+
 # Backlog — the one implementable list
 
-**Status:** CURRENT — the single entry point for *what to build next* on the composed-config /
+**Status:** The single entry point for *what to build next* on the composed-config /
 packs cluster, and **six questions are live** in its stages. Created 2026-07-26; **restamped
 2026-08-23** (header + Stage E + Stage G); **re-checked 2026-09-24** against the tree and the
 designs it points at (E5's trigger fired, `file:line` anchors replaced by symbols).
@@ -28,7 +36,7 @@ stage, and G1 within it is a live data-loss bug"*; both halves of that are now s
 moved into [environment-manager-plan.md](environment-manager-plan.md) on 2026-07-31, and that
 plan's build-status table is the authority for which phases are whole. This file does not restate
 its tally: the restated one went stale twice. Two of the plan's "partial" residues have since shipped,
-and the plan's table does not yet say so: 5.3's `yolo config promote` (2026-09-12) and 6.4's
+and the plan's table has said so since 2026-09-24: 5.3's `yolo config promote` (2026-09-12) and 6.4's
 offer-to-run (the confirm-gated install in `yolo host apply --assert`, 2026-09-12).
 Spot-checked against the tree, re-checked 2026-09-24:
 
@@ -362,7 +370,7 @@ elsewhere.
 
 ### ✅ **E4 — comment preservation. Mostly shipped 2026-08-12; the residue is [`OQ-E4`](#OQ-E4).**
 
-**Why `E4` is absent from the roadmap's list while [`OQ-E4`](#OQ-E4) is present.** They are not the same
+**Why `E4` and [`OQ-E4`](#OQ-E4) are different items.** They are not the same
 item. `E4` was "comment preservation on `json`/`toml` surfaces" across all modes; three of its
 four cases are now closed, and the fourth was promoted to its own question ID:
 
@@ -529,7 +537,9 @@ gate holds; do not re-audit it"** — this is a fan-out question, not a security
   `packload.ResolveDestinations`, called from `internal/cli/apply.go`. Re-checked 2026-09-24:
   `ResolveDestinations` has **no caller** under `internal/cli/run` or `internal/entrypoint`; its
   one other production caller, `basehome.DeclsFromPacks`, reads the result for credential files,
-  not skills.
+  not skills. *(Re-checked 2026-09-30: `internal/cli/run` now calls it for addressed `files`
+  (`packfiles.go`, notch-convergence item 21) and for the audience check
+  (`unmatchedaudience.go`), still not for skills, so the jail's skills fan-out is unchanged.)*
 
 Pinned deliberately by `internal/cli/run/packskillsdelivery_test.go`, so answering this either
 way moves a test on purpose rather than rediscovering the behavior.
@@ -554,6 +564,8 @@ way moves a test on purpose rather than rediscovering the behavior.
 reaches everything. That is arguably correct (it is what the pack declared) and arguably a
 regression, and `pack-system.md`'s own advice pushed authors toward declaring rather than
 staying silent.
+
+<!-- vantage: oq id=OQ-S4 leaning="(2): run ResolveDestinations on the jail path too, so a pack that declares a destination delivers only there and one that declares none borrows every destination; and do (1), honest reporting in pack-system.md and yolo pack footprint, either way." -->
 
 _Leaning:_ **(2)**, because it makes both notches answer from one inference instead of two,
 makes `into` mean what it says, and makes `yolo pack footprint` true — the same argument F1
@@ -592,6 +604,8 @@ fingerprint gate depend on.
    JSON has nowhere to put a header line, so it serves `toml` only.
 3. **Leave it, and say so.** `raw` already round-trips a hand-written file byte-exact, and
    `config-ref` already documents the structured-codec trade. *Cost:* none new.
+
+<!-- vantage: oq id=OQ-E4 leaning="(3) for now: leave stateful surfaces without comment preservation and say so; build (1), the TriviaCodec route, only when a stateful surface's host source is a commented TOML file a user maintains." -->
 
 _Leaning:_ **(3) for now, then (1) when something needs it.** The reader this was for — an
 agent reading config to learn *why* a value is what it is — is now served on the file the

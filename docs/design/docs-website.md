@@ -4,11 +4,13 @@ date: 2026-09-25
 status: accepted
 tags: [docs, website, userguide, vantage, cloudflare, deploy]
 summary: "The user guide is split into a closed userguide/ tree, built with pinned Vantage, and served by a Cloudflare static-assets Worker at docs.yolo-jail.mschulkind.dev. Both questions are settled: the address by ruling, and which reference page crosses into the guide as an implementation choice."
+stage: BUILT
+next: "File §2.1's leftover question with an id: whether runtime messages name the site's URL rather than a userguide/ repository path (they name repository paths today, e.g. internal/runtime/machineshares.go), which §2.1 left waiting on OQ-DW1; then graduate"
 ---
 
 # The user guide becomes a website, deployed exactly the way Vantage deploys its own
 
-**Status:** DECIDED, 2026-09-30 — no ruling owed. [OQ-DW1](#OQ-DW1) is ruled, and [OQ-DW2](#OQ-DW2) was decided as an implementation choice ([DW-D1](#DW-D1)), matching what the repository build already did. The site serves at `docs.yolo-jail.mschulkind.dev` (probed 2026-09-30: HTTP 200, a Vantage static export), so the dashboard connection and the custom domain are in place. [§4](#4-done-looks-like)'s last condition, that no file names the deleted guide directory, is met as of 2026-09-30, in the form [DW-D2](#DW-D2) gives it. Vantage claims were checked against `mschulkind-oss/vantage` at `4b2ccbc` and against the live sites on 2026-09-25; the original yolo-jail measurement was at `7e529260`.
+**Status:** 2026-09-30 — no ruling owed. [OQ-DW1](#OQ-DW1) is ruled, and [OQ-DW2](#OQ-DW2) was decided as an implementation choice ([DW-D1](#DW-D1)), matching what the repository build already did. MEASURED 2026-09-30: the site serves at `docs.yolo-jail.mschulkind.dev` (HTTP 200, a Vantage static export), so the dashboard connection and the custom domain are in place, and its `api/git/recent.json` lists `4bae5a30`, a guide change pushed to `main` that morning, so a push reaches the live site with nobody running anything. UNMEASURED: whether the site's history view follows the `git mv` renames (its history endpoint returns only the latest ten commits per page). One question from [§2.1](#21-layout) is still unfiled: whether runtime messages name the site's URL instead of a repository path, which that section left waiting on [OQ-DW1](#OQ-DW1). [§4](#4-done-looks-like)'s last condition, that no file names the deleted guide directory, is met as of 2026-09-30, in the form [DW-D2](#DW-D2) gives it. Vantage claims were checked against `mschulkind-oss/vantage` at `4b2ccbc` and against the live sites on 2026-09-25; the original yolo-jail measurement was at `7e529260`.
 
 > **In short.** The user guide becomes a published site by copying Vantage's setup whole: a
 > `userguide/` tree, one build script, one static-assets Worker and a dashboard-configured Cloudflare
@@ -250,7 +252,7 @@ needs no build.
    _Leaning:_ **(b)**, and launch on the `workers.dev` address meanwhile. Attaching the domain later
    is a dashboard action, and no file in the repo changes.
 
-   <!-- vantage: oq id=OQ-DW1 leaning="(b): a docs. subdomain of a registered domain, launching on the workers.dev address meanwhile; attaching the domain later changes no file in the repo." -->
+   <!-- vantage: oq id=OQ-DW1 -->
 
    **Answer (maintainer, 2026-09-25):**
    > `docs.yolo-jail.mschulkind.dev`. The `workers.dev` address stays enabled; attach the custom domain in the Cloudflare dashboard after connecting Workers Builds.
@@ -265,6 +267,8 @@ needs no build.
 
    _Leaning:_ **(a)**. It is the only one written for someone choosing a setup rather than changing
    the code. The `AGENTS.md` authority table follows it to its new path.
+
+   <!-- vantage: oq id=OQ-DW2 -->
 
    **Answer:**
    > Decided as an implementation choice ([DW-D1](#DW-D1)), reversible: **(a)**. `settings-per-setup.md`

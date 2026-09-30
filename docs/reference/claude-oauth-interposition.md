@@ -1,5 +1,7 @@
 ---
 status: current
+stage: CURRENT
+next: "Draft OQ-CI1's leaning from OQ-CL1's ruling (claude-login-without-interception.md: the credential view keeps the login shared), so its ruling is one sentence; host claude's own login (notch-convergence.md OQ-NC7) waits on it"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -30,7 +32,7 @@ summary: "What yolo interposes on for Claude OAuth and what it leaves alone: exa
 
 # Claude OAuth interposition — one hostname, one grant, and why there is still a file
 
-**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`.
+**Status:** verified 2026-09-23 against `7ad8358c`.
 
 > **In short.** yolo interposes on **one hostname** (`platform.claude.com`), and on that hostname it
 > terminates **one grant** (`grant_type=refresh_token`) and proxies everything else. Model traffic to
@@ -931,10 +933,21 @@ easy to over-read:
 > credential should be shared at all. [`agent-install-in-ci.md#oq-ci1`](agent-install-in-ci.md#oq-ci1)
 > is an unrelated CI-pinning ruling. Cite either one as a file-qualified link, never as bare text.
 
-### <a id="oq-ci1"></a>[`OQ-CI1`](#oq-ci1) — should the credential be shared at all?
+### <a id="oq-ci1"></a>💬 [`OQ-CI1`](#oq-ci1) — should the credential be shared at all?
+
+<!-- vantage: oq id=OQ-CI1 -->
 
 **Not decided. Recorded with the measurements on both sides**, because the whole stack above exists to
 serve one choice: that every jail on a machine share one Claude login.
+
+> [!NOTE]
+> **Re-read 2026-09-30; not a ruling.** No leaning has been stated. Since this was written,
+> [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1) was ruled (2026-09-28): the
+> credential view replaces the interception everywhere and keeps the login shared, which that
+> design says removes the costs listed below
+> ([its §8](../design/claude-login-without-interception.md#8-what-this-does-not-cover)).
+> [OQ-NC7](../plans/notch-convergence.md#OQ-NC7) keeps host claude on its own login until this
+> question is decided. Whether that ruling decides this one is the maintainer's to say.
 
 **If the credential stopped being shared**, the interception, the CA, the terminator, the host daemon
 and the flock all become unnecessary, and several live risks evaporate with them: the vendor's

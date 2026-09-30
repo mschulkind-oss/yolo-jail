@@ -1,13 +1,21 @@
+---
+title: "Agent config packs — sharing agent environment configuration by git repo"
+status: in-review
+stage: DESIGN
+next: "Rule OQ-ACP4, the doc's one live question; once it is ruled the doc holds only its landscape research and scope verdict, which pack-system.md has overtaken"
+tags: [design, packs, distribution, research]
+---
+
 # Agent config packs — sharing agent environment configuration by git repo
 
-**Status:** DESIGN, 2026-07-25 — a proposal, **largely OVERTAKEN by what shipped**. Re-checked
+**Status:** 2026-07-25 — a proposal, **largely OVERTAKEN by what shipped**. Re-checked
 2026-08-23 and again 2026-09-24: the `packs` key, host-side fetch, the lockfile, the origin gate and
 `yolo pack {install,status,lint,footprint}` are all in the tree, so read this for its **landscape
-research and its scope verdict**, not as a plan. The live questions are
-[OQ-ACP1](#OQ-ACP1) and [OQ-ACP4](#OQ-ACP4) at the end ([OQ-ACP2](#OQ-ACP2) was ruled 2026-09-27);
-[OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) is answered by reference ([Decision ledger](#decision-ledger)). *(The old header said
-"ROADMAP item: 5" — a numbering the 2026-08-17 restructure retired; the roadmap holds states and OQ
-IDs now.)*
+research and its scope verdict**, not as a plan. The one live question is [OQ-ACP4](#OQ-ACP4) at the
+end. [OQ-ACP1](#OQ-ACP1) was found answered on 2026-09-30 by
+[`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s ruling of 2026-09-26, [OQ-ACP2](#OQ-ACP2) was
+ruled 2026-09-27, and
+[OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) is answered by reference ([Decision ledger](#decision-ledger)).
 
 > [!NOTE]
 > **Where the body no longer describes the tree.** The system as built is
@@ -26,7 +34,7 @@ IDs now.)*
 > - **Code paths.** `internal/agents` is now `internal/jailcontent`, and the file:line citations
 >   in the body are from 2026-07; treat them as history.
 
-**Needs your ruling:** [OQ-ACP1](#OQ-ACP1), [OQ-ACP4](#OQ-ACP4).
+**Needs your ruling:** [OQ-ACP4](#OQ-ACP4).
 **Research base:** [`../research/agent-config-distribution.md`](../research/agent-config-distribution.md)
 (14 agents surveyed, 6 distribution mechanisms, measured git plumbing).
 
@@ -413,7 +421,7 @@ per pack with explicit **DROPPED** rows. Without it a wrong path is a silent
 no-op indistinguishable from success, and the first silent gap destroys trust
 permanently.
 
-The supported set is **six** agents, per ROADMAP item 0 (`gemini` is being
+The supported set is **six** agents, per [`sequencing-2026-07.md`](sequencing-2026-07.md)'s item 0 (`gemini` is being
 removed — Google is deprecating Gemini CLI — and is out of design consideration
 here).
 
@@ -1035,7 +1043,7 @@ half is (`internal/packsrc`, below) and so, measurably, is the composition engin
 `internal/`, so Go's visibility rules forbid an external tool from filling
 `Inputs.Workspace`." That is circular and it is withdrawn: `internal/` is a choice
 this repo makes, reversible by one directory move, not a fact about the world. The
-same sentence is in ROADMAP item 5 and is corrected there too. The honest version
+same sentence is in [`sequencing-2026-07.md`](sequencing-2026-07.md)'s item 5 and is corrected there too. The honest version
 of the argument is below, and it is narrower — *projection* is not extractable;
 the composition engine demonstrably is.
 
@@ -1333,7 +1341,7 @@ Controls, in the order they must ship:
   duplicate** of the manifest, kept duplicated to keep the Lua VM out of
   `internal/config` and guarded only by `TestBuiltinSurfacePathsMatchManifest` — so
   a pack-declared surface must be added there too, or the drift check goes stale
-  silently. This is also where ROADMAP item 3's symlink-target gap
+  silently. This is also where the symlink-target gap of [`sequencing-2026-07.md`](sequencing-2026-07.md)'s item 3
   (`~/.config/git/config` validates while its alias is rejected) is inherited
   rather than re-introduced.
 - **Reserve the four built-in skill names.** `internal/agents/skills.go` writes
@@ -1471,12 +1479,12 @@ two packs asserting the same surface: deep merge in declaration order for object
 hard error naming both slugs for keyless ones. Wire form
 `YOLO_PACKS` mirroring `MarshalHostFiles`. `files/` staging behind the existing
 `checkHostFileDest` so the reserved-destination list is shared, not re-derived —
-including the symlink-target gap already tracked as ROADMAP item 3. Capture mode
+including the symlink-target gap already tracked as [`sequencing-2026-07.md`](sequencing-2026-07.md)'s item 3. Capture mode
 forbidden for pack-declared surfaces, with a test. A fragment aimed at a `copy`-mode
 or `unrendered` surface gets a **DROPPED** row, not silence.
 
 Separable and independently valuable: it closes a documented zero-caller engine
-seam that ROADMAP item 1 benefits from regardless of packs. Note the risk: those
+seam that [`sequencing-2026-07.md`](sequencing-2026-07.md)'s item 1 benefits from regardless of packs. Note the risk: those
 call sites are shared with the `host_files` dynamic-surface capture path, so a
 capture regression test lands *before* `Workspace` is filled. The per-backend
 fallbacks named in phase 0 apply to this mount too; both halves are Mac-gated.
@@ -1551,8 +1559,10 @@ Recorded so scope creep is visible:
 ## Open Questions
 
 > [!IMPORTANT]
-> **[OQ-ACP1](#OQ-ACP1) and [OQ-ACP4](#OQ-ACP4) are still live ([OQ-ACP2](#OQ-ACP2) was ruled 2026-09-27), and they are the only
-> reason this doc is not purely historical** (checked 2026-09-24). The `OQ-ACP` prefix was
+> **[OQ-ACP4](#OQ-ACP4) is still live, and it is the only reason this doc is not purely
+> historical** (checked 2026-09-30: [OQ-ACP1](#OQ-ACP1) was answered by
+> [`OQ-PK2`](../reference/pack-system.md#oq-pk2) on 2026-09-26, and [OQ-ACP2](#OQ-ACP2) was ruled
+> 2026-09-27). The `OQ-ACP` prefix was
 > verified free across `docs/` when the names were given. [OQ-ACP3](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) is answered by
 > reference and now sits under [Answered questions](#answered-questions); the older answered
 > ones keep their rulings inline.
@@ -1599,7 +1609,7 @@ widening the boundary.
 > copy-paste worse, and threat-model-identical. See
 > `three-decisions.md` (archived 2026-09-09; superseded by `docs/reference/pack-system.md`) (`three-decisions.md`, archived 2026-09-09 — superseded by [`pack-system.md`](../reference/pack-system.md)).
 
-### <a id="OQ-ACP1"></a>💬 [OQ-ACP1](#OQ-ACP1) — what happens when two people attach to the same jail with different pack sets
+### <a id="OQ-ACP1"></a>✅ [OQ-ACP1](#OQ-ACP1) — what happens when two people attach to the same jail with different pack sets
 
 `refreshJailBriefings` runs on **every** invocation including attach, so an
 attach re-renders skills and briefings from the *attaching* user's config —
@@ -1609,12 +1619,22 @@ addresses this. Options: refuse to re-stage when the container is already runnin
 and the pack set differs; warn loudly; or make staging per-session rather than
 per-container.
 
+<!-- vantage: oq id=OQ-ACP1 -->
+
 _Leaning:_ detect and warn in phase 1 (cheap, honest), then refuse-on-mismatch
 in phase 3. Silently mutating a running session's instructions is the worst of
 the three.
 
 **Answer:**
-> _(empty — fill in when decided)_
+> **Answered 2026-09-26 by [`OQ-PK2`](../reference/pack-system.md#oq-pk2)**, ruled (c) there and
+> built the same day: one immutable pack tree per launch, plus a notice on attach. An attach
+> writes into no pack tree and refreshes skills and briefing from the running jail's own tree, so
+> a second person attaching with another pack set no longer changes a colleague's session. The
+> attach says the configured packs differ and that a restart picks them up
+> (`noteBootedPackSetDiffers`, [`packtree.go`](../../internal/cli/run/packtree.go)). That is this
+> question's first leaning, detect and warn; the ruling names no refusal on mismatch. The premise
+> above, that an attach re-renders from the attaching user's config, describes the tree before
+> that ruling. Found answered on 2026-09-30, when this label changed.
 
 ### <a id="OQ-ACP2"></a>✅ [OQ-ACP2](#OQ-ACP2) — whether opencode's skills gap should be closed by writing into `/workspace`
 
@@ -1637,6 +1657,8 @@ becomes the dominant complaint, the right fix is upstream in opencode.
 > [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4) is filed to answer it and to record the
 > answer here.
 
+<!-- vantage: oq id=OQ-ACP2 -->
+
 **Answer:**
 > **Never in containers or on `macos-user`**, ruled 2026-09-27 as [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4): *"A alone in containers and on macos-user; B is a host-notch tool and nothing else — and this ruling closes [`OQ-ACP2`](#OQ-ACP2) in its own doc."* The workspace's skills reach every agent through the staged mirror, which writes nothing into `/workspace`; writing links into a repo is left to the host notch, deferred to v2 ([`OQ-WS5`](../design/workspace-skills.md#OQ-WS5)).
 
@@ -1648,6 +1670,8 @@ surveyed design has a mechanism against it. Uber's answer is usage data plus a
 hard cap. Claude Code emits OpenTelemetry including skill names with
 `OTEL_LOG_TOOL_DETAILS`, so a `yolo pack usage` view is mechanically available
 for at least one agent.
+
+<!-- vantage: oq id=OQ-ACP4 leaning="Out of scope for all phases: no usage telemetry. Name pruning as a human responsibility in the user docs, and show an owner in pack ls so there is someone to ask." -->
 
 _Leaning:_ out of scope for all phases, but worth a paragraph in the user docs
 naming pruning as a human responsibility, plus `owner` in `pack ls` so there is
@@ -1682,6 +1706,8 @@ with no Seatbelt around the host-side process — trades that for a string in an
 var. Runner-up against, and the killer for the in-jail half: boot re-renders every
 surface on every invocation, so there is no durable in-jail write posture to build a
 verb on.
+
+<!-- vantage: oq id=OQ-ACP3 -->
 
 _Leaning:_ split the three. (a) Do **not** block packs on it — phase 2 fills
 `Inputs.Workspace` from data, which is the last step of making the manifest
@@ -1784,6 +1810,6 @@ until `include_if_found` distributes a baseline `packs` list.
 | A pack must also be a valid Claude plugin | **No, but it may be one.** Their format, our resolution | 2026-07-25 | [Answered questions](#whether-a-pack-should-be-required-to-also-be-a-valid-claude-plugin) |
 | The committable lockfile ships in phase 1 | **Yes**, beside the spec in `~/.config/yolo-jail/` | 2026-07-25 | [Answered questions](#whether-the-committable-lockfile-should-just-ship-in-phase-1) |
 | [**OQ-ACP3**](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) | **By reference: not a standalone tool; host configs yes, inside yolo** | 2026-07-27 | [`host-render-target.md` §2.3](../design/host-render-target.md#23-extraction-settled-and-the-answer-is-no) and [ruling 9.1](../design/host-render-target.md#decision-ledger) |
-| [**OQ-ACP1**](#OQ-ACP1) | — open | — | — |
-| [**OQ-ACP2**](#OQ-ACP2) | — open; its opencode premise is gone, and [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4) is filed to answer the rest | — | — |
+| [**OQ-ACP1**](#OQ-ACP1) | **By reference: the running jail keeps the pack tree it booted with, and an attach with another pack set is told so** | 2026-09-26 | [`pack-system.md` OQ-PK2](../reference/pack-system.md#oq-pk2), option (c) |
+| [**OQ-ACP2**](#OQ-ACP2) | **Never write into `/workspace` in containers or on `macos-user`**; its opencode premise was already gone | 2026-09-27 | [`workspace-skills.md` OQ-WS4](../design/workspace-skills.md#OQ-WS4) |
 | [**OQ-ACP4**](#OQ-ACP4) | — open | — | — |

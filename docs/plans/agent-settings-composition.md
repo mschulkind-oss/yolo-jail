@@ -1,6 +1,23 @@
+---
+title: "Generated-config composition — layered regeneration + Lua transforms"
+status: deprecated
+stage: SUPERSEDED
+next: "Nothing is built from this doc now; the one unbuilt piece, §4's workspace layer, has no owner — find whether host_files and config-overlay already cover its case, then retire it or file it where the compose engine is described"
+---
+
 # Generated-config composition — layered regeneration + Lua transforms
 
-**Status:** DECIDED, 2026-07-20 — the design of record, **finalized** that day (all [§9](#9-decisions-all-settled) *composition*
+**Status:** 2026-07-20 — the design of record from that day, since replaced as the authority for
+the system as built by
+[`pack-system.md`'s compose-engine section](../reference/pack-system.md#config-surfaces-and-the-compose-engine),
+as the 2026-09-24 postscript below says, and kept for the argument: why config regenerates, the
+layer order, and the capture overlay. Re-checked against the tree 2026-09-30: the one piece this
+doc decided that was never built is [§4](#4-layers-and-scope)'s `workspace` layer.
+`agentcfg.Inputs.Workspace` exists (`internal/agentcfg/compose.go`) and no caller sets it, and no
+`agent_config` config key exists; no other doc owns that work. The paragraph below is the
+2026-07-20 status, kept as written.
+
+The design was **finalized** on 2026-07-20 (all [§9](#9-decisions-all-settled) *composition*
 questions resolved). Supersedes the exploratory RFC that carried a menu of models
 and a data-filter vocabulary — this is the line in the sand. Retiring the
 `host_*_files` keys was **decided 2026-07-23** ([§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23)) and **landed** (commit
@@ -547,7 +564,7 @@ once, in a real language, on yolo's own output.
 ## 8. Migration — serial foundation, then parallel fan-out
 
 Structured as three phases; the parallelism is called out because it maps to how
-this gets built (see ROADMAP "Config-composition build").
+this gets built.
 
 **Phase A — engine (serial gate).** A leaf library with **no callers**, fully
 testable in isolation. Pin the interfaces (`layer`/`surface`/`manifest`/`ctx`)

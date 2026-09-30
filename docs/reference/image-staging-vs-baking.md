@@ -17,12 +17,14 @@ covers:
   - scripts/build-go.sh
   - scripts/stage-source-bundle.sh
 tags: [image, nix, podman, mounts, packages, disk]
+stage: CURRENT
+next: "Re-verify against the tree with the system-doc skill: covered files have moved since f491d192, the stock-tag GC root and the rootless store naming of issue #47 among them"
 summary: "How a jail gets its image and its own binaries: the image bakes nixpkgs and names, a launch bind-mounts yolo's binaries and can deliver packages from the mounted nix store, a failed build is fatal, the loaded image is addressed by content and delivered by a layer-negotiating `skopeo copy` (layer-aware delivery, C9) over a three-tier layer plan, serialised machine-wide and with no retained tar anywhere. The invariants, the pipeline, the traps, and the cost model that shaped them."
 ---
 
 # Image delivery — what the image bakes, and what a launch mounts in
 
-**Status:** CURRENT as of 2026-09-24, verified against `f491d192`. The two macOS delivery
+**Status:** verified 2026-09-24 against `f491d192`. The two macOS delivery
 arms were **measured at their launch call site on 2026-09-25**, both passing at `22011184` (Apple
 Container on an arm64 Mac, Podman Machine on an Intel runner) — see
 [Archive destinations](#archive-destinations).
@@ -1423,7 +1425,7 @@ ones cited from sibling docs and code comments and are never renumbered.
 | OQ-7 | **Do not strip the `git describe` stamp from the bundle's binaries.** The stamp no longer moves the image (stamped bytes are prefix content), so removing it would buy a cheaper `runCommand` at the price of the fallback the in-jail version banner keeps. | 2026-09-06 |
 | C9 | **Layer-aware delivery** is the candidate id for [the layer plan plus the negotiating copy](#delivering-into-the-runtime), cited by that id from `internal/image`, `internal/prune`, `internal/cli/check` and the integration harness. It is a name, not a ruling; the rulings are the `OQ-LI` rows. | 2026-09-09 |
 | OQ-LI1 | The patched copier's **binary cache is an optimisation and may never become load-bearing** — a miss builds it, and nothing is wired to the miss. Losing the cache costs time only, and no path may require `--accept-flake-config` to function. | 2026-09-08 |
-| OQ-LI2 | **Apple Container shipped in the same pass as podman/Linux**, not deferred: the objection was that nobody could measure it, a fact about the project rather than the backend, so a backend's measurement is a **precondition** of trusting its delivery rather than a follow-up. For both macOS arms that precondition is still [outstanding at the call site](#archive-destinations): the delta archive both now take is measured on Linux against a remote podman, and Apple Container's half of it is UNMEASURED. | 2026-09-08 |
+| OQ-LI2 | **Apple Container shipped in the same pass as podman/Linux**, not deferred: the objection was that nobody could measure it, a fact about the project rather than the backend, so a backend's measurement is a **precondition** of trusting its delivery rather than a follow-up. For both macOS arms that precondition was still outstanding when this row was last written (the delta archive both take measured on Linux against a remote podman, Apple Container's half UNMEASURED), and it was met [at the call site](#archive-destinations) on 2026-09-25: real launches through the delta archive passed on Apple Container and on Podman Machine at `22011184`. | 2026-09-08 |
 | OQ-LI3 | **Keep the extras tier — three tiers, not two.** It is not transition scaffolding: store delivery is opt-in and podman-on-Linux only, so every macOS, Apple Container and un-opted Linux launch still bakes `packages:`. An opted-in launch simply has no extras tier. | 2026-09-08 |
 | OQ-LI4 | **Refuse a per-build `created` timestamp**, and never pick a date to feed a sort: it would trade content addressing away for an ordering. The **load sentinel** is the recency instrument if an order is ever wanted. Its other half — ordering prune's keep-window by sentinel recency — is superseded: [`OQ-LS3`](image-retention.md#why-its-this-way) deleted the window, and the `CreatedAt` sort now orders only the report. | 2026-09-08 |
 | OQ-LI5 | **One delivery mechanism, no way back**: the legacy streamer is deleted rather than kept behind a flag, and a failed copy abandons the launch. A second path no launch exercises is broken by the time anyone reaches for it. This retired R3 — two delivery mechanisms indefinitely — by removing it rather than accepting it, and R8 is what replaced it. | 2026-09-08 |

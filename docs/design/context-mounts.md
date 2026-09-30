@@ -1,14 +1,16 @@
 ---
 title: "Context directories: a writable form, and a macos-user delivery where Seatbelt is the authority and the link is only a name"
 date: 2026-09-25
-status: draft
+status: in-review
 tags: [mounts, ctx, macos-user, seatbelt, trust, parity, disclosure]
 summary: "Two proposals the maintainer raised together on 2026-09-25. First, a read-write form of the config `mounts` key: refused at the credential boundary, and disclosed on every launch as an injection channel into the host. Second, context directories on macos-user with no copy: a root-owned tree of links, named by a new env var, with Seatbelt rules on the resolved paths doing all the enforcing. The second narrows DP-D15's fatal refusal rather than overturning it, which the maintainer's own DP-D15 and OQ-DP4 words already ask for (OQ-CX5). Where an rw mount may be declared is deferred to workspace-config-trust.md. Triaged 2026-09-30: two questions answered by earlier rulings, six decided as reversible implementation choices (CX-D1 to CX-D6), and one open, OQ-CX7 (sources inside a real home on macos-user). §4 steps 1-3 are built (2026-09-30): the read-write form on podman and Apple Container, YOLO_CONTEXT_DIR on every backend, and DP-D15's fatal refusal on macos-user. Steps 4-5, the macos-user delivery, need Mac hardware and are not built."
+stage: DECIDED
+next: "Build §4 step 4, the macos-user read-only delivery: links in macosuser.StagedCtxRoot, the generated Seatbelt rules and the DAC preflight, with its probes added to integration/macosuserseatbelt_test.go for macos-user.yml to run"
 ---
 
 # Context directories: a writable form, and a macos-user delivery where Seatbelt is the authority and the link is only a name
 
-**Status:** DESIGN, 2026-09-25; questions triaged 2026-09-30 (one left open). **[§4](#4-staging-and-the-tests-that-pin-each-piece) steps 1-3 built 2026-09-30**, with the implementation choices they needed recorded as [CX-D7](#CX-D7) to [CX-D16](#CX-D16); steps 4-5 (macos-user delivery) need Mac hardware and are not built, so every declared context mount on that backend refuses. Evidence was checked against the working tree on 2026-09-25, and the facts the triage turned on were re-checked on 2026-09-30. It cites symbols, never line numbers.
+**Status:** 2026-09-25; questions triaged 2026-09-30 (one left open, [OQ-CX7](#OQ-CX7): whether to go past v1's refusal of sources inside a real home; v1 refuses them, so [§4](#4-staging-and-the-tests-that-pin-each-piece)'s steps as written do not wait on it). **[§4](#4-staging-and-the-tests-that-pin-each-piece) steps 1-3 built 2026-09-30**, with the implementation choices they needed recorded as [CX-D7](#CX-D7) to [CX-D16](#CX-D16); steps 4-5 (macos-user delivery) are not built, so every declared context mount on that backend refuses. Their Mac-hardware probes are `sandbox-exec` runs as `_yolojail` in `integration/macosuserseatbelt_test.go`'s registry, which the scheduled `macos-user.yml` job already executes on GitHub's hosted Mac, so building them does not wait on a human at a Mac. Evidence was checked against the working tree on 2026-09-25, and the facts the triage turned on were re-checked on 2026-09-30. It cites symbols, never line numbers.
 
 > **In short.** A context mount has two jobs: making host bytes *appear* at a named path, and
 > *deciding who may write them*. On the container backends, one bind does both jobs. On macos-user
@@ -520,6 +522,8 @@ rootless host or CI.
    than an element-level one, which matters only if
    [`workspace-config-trust.md`](workspace-config-trust.md) rules for scope rather than a trust record.
 
+   <!-- vantage: oq id=OQ-CX1 -->
+
    _Leaning:_ **(a)**. It gives one list, one briefing section and one duplicate check. Either
    shape can carry the trust predicate from [§2.2](#22-where-an-rw-mount-may-be-declared-deferred).
 
@@ -531,6 +535,8 @@ rootless host or CI.
 2. ✅ <a id="OQ-CX2"></a>**[OQ-CX2](#OQ-CX2): does the rw refusal set name credential dirs
    (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, …)?** **(a)** The boundary predicate plus
    workspace overlap only ([§2.3](#23-refusal-set)). **(b)** Also a named list.
+
+   <!-- vantage: oq id=OQ-CX2 -->
 
    _Leaning:_ **(a)**. An actor who passes the trust predicate already has host-user authority
    ([gate-placement Test 1](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it)).
@@ -548,6 +554,8 @@ rootless host or CI.
    `yolo-jail.jsonc` mounts `~/.local/share/yolo-jail/logs` read-only, and that mount would trip
    the "inside a yolo dir" clause.
 
+   <!-- vantage: oq id=OQ-CX3 -->
+
    _Leaning:_ **no**. Reading is not the injection channel, and the ro form is workspace-scopable
    behind the diff prompt. Refusing would break a mount this repo relies on.
 
@@ -561,6 +569,8 @@ rootless host or CI.
 
 4. ✅ <a id="OQ-CX4"></a>**[OQ-CX4](#OQ-CX4): may a pack declare a rw `mount`?**
    ([§2.7](#27-packs).)
+
+   <!-- vantage: oq id=OQ-CX4 -->
 
    _Leaning:_ **not in v1**. There is no approval gate any more ([OQ-TP9](trust-paths.md#decision-ledger)), so a selected pack
    would write into the user's home on disclosure alone, and no shipped pack needs it. Revisit
@@ -577,6 +587,8 @@ rootless host or CI.
    **(b)** Narrow it: deliver by link plus Seatbelt wherever the DAC preflight and siting rules
    pass, and refuse fatally elsewhere ([§3.1](#31-does-dp-d15-still-hold)).
 
+   <!-- vantage: oq id=OQ-CX5 -->
+
    _Leaning:_ **(b)**. DP-D15's reason was size, and its premise was that copying is the only
    mechanism. For a reachable source neither applies: nothing is copied, and the bytes are live.
 
@@ -591,6 +603,8 @@ rootless host or CI.
 6. ✅ <a id="OQ-CX6"></a>**[OQ-CX6](#OQ-CX6): `YOLO_CONTEXT_DIR`, on every backend?**
    ([§3.2](#32-where-the-bytes-are-named).) The name is coined here, and it sits beside the
    existing `YOLO_CTX_ROOT`, which means something else.
+
+   <!-- vantage: oq id=OQ-CX6 -->
 
    _Leaning:_ **yes, on every backend, always exported, under this name** (or another the
    maintainer prefers). Parity is the point: pack text and agents write one spelling everywhere.
@@ -626,6 +640,8 @@ rootless host or CI.
 8. ✅ <a id="OQ-CX8"></a>**[OQ-CX8](#OQ-CX8): `/Volumes` and TCC-protected sources.**
    ([§3.6](#36-volumes-and-tcc).)
 
+   <!-- vantage: oq id=OQ-CX8 -->
+
    _Leaning:_ **refuse until measured**, naming the reason. Record the probe results from
    [§4](#4-staging-and-the-tests-that-pin-each-piece) and revisit.
 
@@ -637,6 +653,8 @@ rootless host or CI.
 
 9. ✅ <a id="OQ-CX9"></a>**[OQ-CX9](#OQ-CX9): rw on rootful podman.** Writes land host-root-owned
    in the user's tree.
+
+   <!-- vantage: oq id=OQ-CX9 -->
 
    _Leaning:_ **disclose, don't refuse**. Rootful is uncommon and deliberate, and the launch line
    says what will happen.

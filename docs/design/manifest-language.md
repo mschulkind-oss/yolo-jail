@@ -6,11 +6,13 @@ tags: [packs, manifest, config, format, lua, starlark, design]
 summary: "A pack manifest compresses to a quarter of its bytes — more redundant than the repo's own prose — because it is a flat tagged union that repeats the pack's identity and the `kind` tag on every entry, and spells mechanism rather than intent. The syntax and the MODEL are two independent decisions, and the model change (group by kind, state the agent name once per pack, keep distinct facts explicit) carries most of the gain under any syntax. This doc ARGUES both and rules neither yet: what a manifest may be written in (JSON restructured, data-only Lua, Starlark, or the heavier config languages), and the rule that compression may remove repetition but never a claim."
 vantage:
   status-chip: true
+stage: DESIGN
+next: "Rule OQ-M1, whether the syntax-free model change goes now, with the exposes split, or not at all; OQ-M2 and OQ-M3 follow it"
 ---
 
 # The manifest language: declarations stay inert data, and the syntax should stop fighting us
 
-**Status:** DESIGN, 2026-09-30 — three rulings owed, [`OQ-M1`](#OQ-M1) to [`OQ-M3`](#OQ-M3);
+**Status:** 2026-09-30 — three rulings owed, [`OQ-M1`](#OQ-M1) to [`OQ-M3`](#OQ-M3);
 [`OQ-M4`](#OQ-M4) was decided as an implementation choice ([MN-D1](#MN-D1)). Nothing built: re-checked
 2026-09-30, every shipped manifest is still one flat `contributes` list tagged by `kind`, and
 `packs/claude` still repeats `"agent": "claude"` on its own contributions. Re-checked against the tree
@@ -331,6 +333,8 @@ Dhall (total, typed).
    > _(empty — fill in when decided)_
 
 4. ✅ <a id="OQ-M4"></a>**OQ-M4: Does the user/workspace config (`yolo-jail.jsonc`) share the language?**
+
+   <!-- vantage: oq id=OQ-M4 -->
 
    _Leaning:_ Not necessarily — the user config is *settings* (no claims to enumerate), so it may
    keep a plain data syntax even if the manifest moves. Sharing is a convenience, not a

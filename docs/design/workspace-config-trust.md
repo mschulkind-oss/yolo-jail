@@ -1,14 +1,16 @@
 ---
 title: "Who may hand a jail a writable host path from inside a workspace — scope, trust, or both?"
 date: 2026-09-25
-status: draft
+status: in-review
+stage: DESIGN
+next: "Rule OQ-WT1 — C or D, and whether the design stays iced; OQ-WT5 matters only if the answer is C"
 tags: [trust, config, scope, workspace, mounts, consent, gate-placement, icebox]
 summary: "The maintainer asked whether yolo should add a mise-style trust layer so a workspace config can declare read-write context mounts, and whether such grants should be allowed only in the untracked local file. Neither half works alone. The local file answers the cloned-repo author and not the in-jail agent, because the local file is writable from inside the jail, even under `workspace_readonly`. A trust record answers the agent, but on a cloned repo it becomes the prompt that OQ-TP9 and the Safehouse comparison both said not to build. The recommendation is to combine them, with each gating a different actor. Grants are refused in the committed file. They are admitted from the local file only once the human approves the grant set on the host, in a host-side record keyed on the workspace path and a hash of the grant set. Whether that approval is a new `yolo trust` verb or a labeled section of the existing config-change prompt is OQ-WT5, whose leaning moved to the prompt on 2026-09-30. They stay free in user config. The tracked-file check is demoted to a warning. Proposed and iceboxed; the maintainer has not decided whether to build it (OQ-WT1). The other seven questions were decided as implementation choices on 2026-09-30."
 ---
 
 # Who may hand a jail a writable host path from inside a workspace — scope, trust, or both?
 
-**Status:** DESIGN, 2026-09-25 — iceboxed candidate; the maintainer has not decided whether to build it. Nothing
+**Status:** 2026-09-25 — iceboxed candidate; the maintainer has not decided whether to build it. Nothing
 built. Evidence checked against the tree at `71acddac` plus the working tree on this date. It cites symbols, not
 line numbers. **Triaged 2026-09-30** against `927bb54d`: seven questions were decided as implementation choices
 ([WT-D1](#WT-D1) to [WT-D7](#WT-D7)), two remain the maintainer's, and [OQ-WT5](#OQ-WT5) was restated after
@@ -459,6 +461,8 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    _Leaning:_ **Refuse them**, from either workspace file. The builder reads the local file's own top level only.
    A grant always sits in one file that `yolo trust` names.
 
+   <!-- vantage: oq id=OQ-WT2 -->
+
    **Answer:**
    > Decided as an implementation choice ([WT-D1](#WT-D1)), reversible: a grant is honored only from the local
    > file's own top level, and a grant in any `include_if_found` target, from either workspace file, is refused
@@ -473,6 +477,8 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    property cannot be kept. Separately, `yolo init` should add the local file's names to `.gitignore`, alongside
    `.yolo/`.
 
+   <!-- vantage: oq id=OQ-WT3 -->
+
    **Answer:**
    > Decided as an implementation choice ([WT-D2](#WT-D2)), reversible: a warning, never a refusal, raised only
    > when a local file that declares a grant is tracked or not ignored, and `yolo init` adds both local-file names
@@ -484,6 +490,8 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    _Leaning:_ **The grant set**, resolved on the host. Hashing the whole file would re-ask trust on every package
    edit, doubling the approval gate's prompts. That is the fatigue [OQ-S1](../reference/config-safety.md#oq-s1)
    ruled against.
+
+   <!-- vantage: oq id=OQ-WT4 -->
 
    **Answer:**
    > Decided as an implementation choice ([WT-D3](#WT-D3)), reversible: the grant set, resolved on the host and
@@ -538,6 +546,8 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    same human, on the same host, should not consent to one edit twice. The approval gate still re-asks for any
    later edit.
 
+   <!-- vantage: oq id=OQ-WT6 -->
+
    **Answer:**
    > Decided as an implementation choice ([WT-D4](#WT-D4)), reversible: one edit is consented to once, so
    > whichever step [OQ-WT5](#OQ-WT5) picks writes the grant record and the approval record together.
@@ -549,6 +559,8 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    mount. Provider `base_url` stays user-scope-only even though trust could admit it, because a steered endpoint
    receives every credential the provider hydrates, and a mistaken trust there costs more than a mistaken mount.
 
+   <!-- vantage: oq id=OQ-WT7 -->
+
    **Answer:**
    > Decided as an implementation choice ([WT-D5](#WT-D5)), reversible: only the rw context mount in version 1.
    > Every other key in [§6](#6-what-a-trusted-grant-could-unlock) keeps today's refusal, and moving one is its
@@ -558,6 +570,8 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
 
    _Leaning:_ **Pair.** AS3 stays the question of whether ro `mounts` and `env_sources` leave workspace scope. This
    doc adds a third answer to it: "local file plus trust". AS3 can then rule without this doc being built.
+
+   <!-- vantage: oq id=OQ-WT8 -->
 
    **Answer:**
    > Decided as an implementation choice ([WT-D6](#WT-D6)), reversible: pair. AS3 keeps its question in
@@ -569,6 +583,8 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    _Leaning:_ **Allowed for nested workspaces, and refused for the jail's own**, naming the host. The jail's store
    governs only its own children (P1 and Test 2). A refusal for the jail's own workspace stops an agent believing it
    trusted the outer launch.
+
+   <!-- vantage: oq id=OQ-WT9 -->
 
    **Answer:**
    > Decided as an implementation choice ([WT-D7](#WT-D7)), reversible: from inside a jail, consent for the jail's

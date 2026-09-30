@@ -1,14 +1,16 @@
 ---
 title: "Host agent floor — implementation sketch"
 date: 2026-09-25
-status: draft
+status: deprecated
 tags: [host, provisioning, floor, plan]
 summary: "Parking lot for build-level detail behind host-tool-provisioning.md: reuse of the jail launcher generator at the host, the prefix layout, the lock, and what to measure before OQ-HP3 and OQ-HP4 can be ruled. Not a hand-off; the design wins on behavior."
+stage: SUPERSEDED
+next: "Nothing: kept as history; host-tool-provisioning.md's ledger (HP-D4 to HP-D9) records what was built instead"
 ---
 
 # Host agent floor — implementation sketch
 
-**Status:** SKETCH, 2026-09-25, and **superseded by the build of 2026-09-29**: every question it
+**Status:** 2026-09-25, and **replaced by the build of 2026-09-29**: every question it
 waited on is ruled, and what was built — a Go-side provisioner rather than a reused launcher
 template, the `host-floor/` layout, the flock — is recorded as
 [HP-D4](host-tool-provisioning.md#HP-D4) to [HP-D9](host-tool-provisioning.md#HP-D9). Read it as

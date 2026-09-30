@@ -1,15 +1,47 @@
+---
+title: "Plan: bounded parallelism for the integration suite"
+status: accepted
+stage: DECIDED
+next: "Measure the full Linux suite serial against N separate `go test -run` shard processes, which the machine lock in integration/machinelock_test.go already makes safe, before any in-process t.Parallel work"
+---
+
 # Plan: bounded parallelism for the integration suite
 
-**Status:** DECIDED, 2026-07-20 — deliberately parked, **re-checked 2026-08-23** — only the
-bounded-parallelism refactor remains (the launch-merges landed in `c4ae68a`). `integration/` still
-carries the explicit rule that nothing in it may call `t.Parallel()`, so this is a deliberate
-non-decision rather than a forgotten one. Deferred deliberately:
+**Status:** 2026-07-20 — deliberately parked; re-checked 2026-08-23 and against the tree
+2026-09-30. Deferred deliberately:
 CI is free (open-source runners), so integration wall time is a convenience, not
 a cost; and the fast **local** dev loop (`just test-fast`) never runs these
 container tests at all (they're `requireJail`-gated, skipped under
 `testing.Short()`). So this only pays off when someone runs the FULL `just test`
 (container suite) locally and wants it faster than serial. Pick it up if that
-becomes a real friction; the launch-merges (below) already landed.
+becomes a real friction; the launch-merges (below) already landed in `c4ae68a`.
+`integration/` still carries the explicit rule that nothing in it may call `t.Parallel()`
+(`integration/harness_test.go`), so this is a deliberate non-decision rather than a forgotten one.
+
+**What moved under this plan by 2026-09-30, checked in the tree:**
+
+- **Step 1's premise changed: the shared state is now locked, not isolated.** `requireJail`
+  calls `isolateHome` (`integration/harness_test.go`, `integration/packs_test.go`), which points
+  `HOME` at a per-test temp dir, and each `go test` process gets a yolo state dir of its own
+  (`integration/runstore_test.go`). But `build` — the load sentinel and the GC roots — is
+  linked back to the machine's on purpose, because the image reaper must see every jail's
+  images; the sentinel is written under a lock in `internal/image/autoload.go`, and image
+  copies take the machine-wide lock in `internal/image/copylock.go`.
+- **Separate test processes may already overlap safely.** `integration/machinelock_test.go`
+  is a cross-run readers-writer lock: every container test holds it shared, and the few tests
+  that take machine state over (`requireJailExclusive`) hold it exclusive. It was added after
+  6 of 16 overlapping full runs failed on 2026-09-27. Whether shards run this way are faster
+  than one serial run is not measured.
+- **Step 2 as written would hit a Go rule.** `isolateHome` sets `HOME` with `t.Setenv`,
+  and Go's `testing` package refuses `t.Setenv` in a test that calls `t.Parallel()`, so
+  in-process parallelism needs `HOME` passed per command instead. The machine lock's
+  bookkeeping is also one package variable (`heldMachineLock`) because the tests run
+  serially.
+- **CI already splits the macOS suite across jobs.** `.github/workflows/nightly-macos.yml`
+  runs twelve shards: doubled to eight on 2026-09-13 after two of four shards hit the 50-minute
+  cap, then raised to twelve with a 75-minute cap on 2026-09-15 (`7b59711f`).
+  That is sharding across runners, not `t.Parallel()`, and it is the one place where wall time
+  has cost evidence rather than a convenience.
 
 ## Why the suite is serial today (and why it can't just flip)
 
@@ -18,7 +50,8 @@ stated reason ("the session image load must not run per worker") is only half of
 it; the real blocker is **shared global state that every `yolo run` touches**:
 
 - The image-load **sentinel** `last-load-<runtime>` lives at a single global path
-  `paths.BuildDir()` = `GlobalStorage()/build` (`internal/image/autoload.go:143`),
+  `paths.BuildDir()` = `GlobalStorage()/build` (`image.LoadSentinelPath` in
+  `internal/image/image.go`, written from `AutoLoadImage` in `internal/image/autoload.go`),
   and **every** `yolo run` reads/writes it via `AutoLoadImage` — not just
   `TestMain`'s one-time `ensureJailImage()`. Tests with `packages:` configs
   (zbar, libsodium in `packages_test.go`) trigger *additional* per-run `--impure`

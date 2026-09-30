@@ -1,186 +1,216 @@
 ---
 title: "Roadmap"
-date: 2026-09-30
 status: accepted
-tags: [roadmap, routing, open-questions]
-summary: "The routing table for open work: one line per decision, the doc that holds it, and what ruling it releases — ordered so the next hour is obvious."
+stage: CURRENT
+tags: [roadmap, priorities]
+summary: "The order in which yolo-jail's open work should be taken up, with the reason for each place; each linked document owns its own state and next step."
 vantage:
   status-chip: true
 ---
 
 # Roadmap
 
-**Status:** CURRENT — reconciled against the docs and the tree 2026-09-30. **Row counts are DERIVED,
-never written here**: run the command below.
+**Reconciled:** 2026-09-30
 
-This file is a **routing table, not a place to think**: one line per open decision, naming
-the doc that holds it and what a ruling releases. It is **not a record of what happened** —
-work that closes leaves the file, and `git log -p` is the history. Every count here is
-derived rather than carried forward; re-derive the live-question totals with check 2 of
-[`README.md`](README.md#keeping-this-corpus-honest--the-five-checks-so-they-are-re-runnable):
+This page owns the order in which open work is taken up, and why. Each linked document owns its state, next step and
+gates; read it before starting, because a place on this list is not permission to build.
 
-```console
-$ rg -c '^(#{2,4} |\s*[0-9]+[a-z]?\. |\s*[-*] )(<a id="[^"]*"></a> ?)?💬' docs/ --sort path
-```
+## Ordering basis
 
-⚠ It scores this file 1 (the `## 💬 Needs you` heading, not a question), and it misses a question
-written with 🔒, which no regex over `docs/` can see.
+**Verified live defects first**: behavior contradicting a ruling, a promise the CLI makes, or what a launch discloses,
+each found in the code during this reconciliation, with fixes an agent can make now ahead of fixes awaiting a ruling.
+**Then work that unblocks other work**: a ruling or step holding a later build, or a ruling with a dated deadline.
+**Then smaller independent steps**: builds, tests, measurements, re-verification, graduation. **A ruling that only
+closes a document ranks last**, since nothing waits on it. Work needing a Mac, a live human session, a real rootless
+host or an outside account follows under [External waits](#external-waits).
 
-## Rule these first
+## The queue
 
-**The ordering basis, so it is checkable:** a defect live in shipped code outranks blocked
-build work, which outranks a ruling that only closes a doc; ties break toward the smallest
-sitting. Every row below is the first class. **A row with an empty `Gate` is the bug**: file the
-question in the doc that owns the model, then point the row at it.
+1. [Disclose a pack's in-jail daemon at launch](../design/trust-paths.md) — a loophole declaring only a `jail_daemon`
+   runs it as root with no launch line, and disclosure is today's whole trust boundary.
+2. [Make `yolo pack lint` decode overlays as the render does](../design/synced-skill-trees-plan.md) — lint approves an
+   overlay the render refuses, the very fix yolo's own loss message tells users to write.
+3. [Let an explicit `--network` win over `network.mode` (G25)](setup-support-gaps.md) — the workspace config silently
+   overrides the flag the help text calls an override.
+4. [Let a pack's own capability satisfy `required_capabilities`](../design/agent-auth-modes.md#6-capability-resolution--selective-tool-augmentation-the-web-search-pattern)
+   — requiring web search with claude selected refuses the launch, though claude searches natively.
+5. [Give copilot and oh-omp a Bedrock route on plain `-p bedrock`](../design/bedrock-plumbing.md) — both reach nothing
+   there, against the behavior the design settled; users are warned, not served.
+6. [Name a dangling host settings or briefing file at jail launch](../design/agent-directory-map.md#64-exactly-what-ships-in-the-pi-slice)
+   — the launch drops a broken link without a line, and this piece rests on none of the map's questions.
+7. [Fix two defects the directory surveys found outside the map](../design/agent-directory-map.md#appendix-b-defects-the-surveys-found-that-the-map-does-not-fix)
+   — the built-in `configuring-the-jail` skill misstates pi's overlay path, and core exports pi's `PI_TELEMETRY`.
+8. [Stop telling a host with no package manager to install through nix](../design/provisioner-sets.md#OQ-PS9) — the
+   dependency check offers `nix profile install` while `yolo check` reports nix missing.
+9. [Repair the fzf example pack](handoff-fzf-pack-adoption.md) — lint refuses the shipped example, so anyone who copies it gets a pack that will not load.
+10. [Give the macos-user AWS doorway test a region](../design/host-notch-services.md) — its fixture predates the region
+    refusal, so the only Mac check of that doorway, which [SSO Bedrock](../design/sso-backed-bedrock.md) also awaits, fails early.
+11. Rulings that hold a defect's fix: [the Kilo special-casing in two derives](../design/gateway-provider-packs.md), while
+    claude gives every Kilo model without a declared window a 1M-token context; [whether a hatch reaches a required daemon's
+    refusal](../reference/loopback-tls-reachability.md#OQ-R8), which the documented hatch cannot reach today (no leaning yet,
+    so an agent drafts one first); and [`--no-daemon` for every in-jail `codex`](../research/codex-background-service.md#OQ-CDX3),
+    since `codex agents` there still starts the daemon yolo turns off, stale model list and all.
+12. [Land the per-commit pi extension store](../design/pi-git-extension-caching.md) — every jail on a machine shares one
+    npm prefix against the no-leakage rulings, and an agent can rebase the branch holding the fix now.
+13. [Close the macos-user home-check bypasses](../design/configurable-workspace-root.md) — the check compares path
+    strings, so a case-changed or firmlinked home passes it, and tightening it later withdraws what users may rely on.
+14. [Decide whether a workspace config may feed host dotenvs and mounts into a jail](../research/agent-safehouse.md#OQ-AS3)
+    — a committed config still can, and notch convergence's `env_sources` item waits on the answer.
+15. [Rule which packs a workspace config may declare](../reference/pack-system.md#OQ-PK1), then [retire `mcp_presets`](../design/mcp-presets-removal.md)
+    — that build rests on the boundary the ruling redraws, and ends macos-user's blanket refusal of MCP presets; the
+    question has no options or leaning yet, so an agent drafts those first.
+16. [Rule the slot split's migration window](../design/slots-and-contributions.md#OQ-D6), then [the manifest language](../design/manifest-language.md)
+    with [the slots' other calls](../design/slots-and-contributions.md) — `exposes` and [the pi extension-tree
+    rework](../design/pi-pack-extensions.md) wait on the first, and one sitting for the rest rewrites manifests once.
+17. Provider rulings later decisions build on: [how far the natively-implements rule reaches](../design/pi-codex-provider-shadowing.md),
+    which holds pi's Converse route through the wire bridge, and [what `-p` names](../design/providers-and-profiles-redesign.md),
+    which the plain-words rewrite of the provider reference waits on.
+18. [Decide whether a jail shell gets the credential grant](../design/credential-sources-separation.md) — a jail's
+    `--with-credentials` and [its build sketch](../design/credential-sources-separation-plan.md) wait on it.
+19. [Rule one env composition order](notch-convergence.md), and [confirm whether host claude may join the jails'
+    login](../reference/claude-oauth-interposition.md#OQ-CI1) — one variable's value depends on how the agent starts,
+    and an existing ruling may answer the login, so an agent drafts that leaning first; the plan's other held items
+    wait on the workspace-config and jail-credential rulings above and the `assert` ruling next.
+20. [Settle what retiring `host_management: "assert"` does to configs on it](../design/config-ownership-and-promotion.md)
+    — the retirement cannot start until then, and an agent can draft the missing leaning first.
+21. [Rule what serializes a daemon's spawn once the host singleton goes](../design/host-daemon-ownership.md) — retiring
+    the machine-wide credential daemons waits on it; prune [its plan](../design/host-daemon-ownership-plan.md) first.
+22. [Rule the provisioner override's grain](../design/provisioner-sets.md) — the user-scope preference that re-ranks the
+    recipes packs ship waits on it, and macos-user's corporate-CA trust rides in the same design.
+23. [Rule what the environment manager promises at each notch](../design/environment-manager-user-stories.md) — Q1b
+    decides [`yolo check --at`](../design/yolo-as-environment-manager.md) and Q7 [the Linux guest notch](environment-manager-plan.md).
+24. [Choose what replaces the Intel macOS runner](../research/macos-support-matrix.md) — its nixpkgs security window
+    closes at the end of 2026, leaving the podman macOS suite unpatched or without a hosted runner.
+25. [Rule the keychain from a jail](../design/keychain-from-a-jail.md), which settles [Copilot's machine-wide
+    login](../research/copilot-token-storage.md) — until then every workspace asks for its own Copilot login.
+26. [Build the keeper's record of a service that dies](../design/jail-lifetime-last-session-wins.md), and rule it with
+    [the sidecars and doorbell](../design/agent-event-watchers.md) — later sessions are not told a host service died,
+    and no watcher reaches any agent but Claude. Rule both together: each design's host half waits on the other.
+27. [Build the boundary broker's widening entry](../design/boundary-broker.md) — a workspace that needs a second
+    repository has no way to reach it; the write path's terminal notice also needs the doorbell.
+28. Jail-boot rulings: [what a failed agent install does to a launch](../design/jail-notch-readiness.md), since the
+    provisioning command leaves every declared agent CLI uninstalled until first use, and [the boot snapshot and
+    diagnostic dial](../design/diagnostics-past-the-boundary.md), since a refused boot keeps no record of the jail's state
+    when it gave up, such as which process held a port.
+29. [Build the model-list check line, then rule the add-only menus](../design/model-lists-and-pickers.md), and measure
+    [web search on Bedrock](../design/bedrock-web-search.md) and [Responses at codex's route](../design/wire-bridge-gateway.md)
+    — they decide what most agents' menus show, whether Bedrock can search, and whether codex's Bedrock route is real.
+30. [Decide whether pack-declared traps fold into the agent directory map](../design/agent-directory-map.md) — the map
+    would supersede [the traps design](../design/pack-declared-file-diagnostics.md), so rule it before building either.
+31. [Deliver context directories on macos-user](../design/context-mounts.md) — every context mount there refuses, and
+    the delivery and its sandbox probes need no human at a Mac.
+32. [Register an in-jail build's GC roots under the host's spelling](../design/in-jail-nix-roots.md) — every root a
+    podman jail asks for is dead on arrival; the jail's briefing already says so, which keeps it out of the defects above,
+    and yolo's own roots need no ruling, so they can be fixed before the rest.
+33. Small builds that need no ruling, each one self-contained step: [config keys in the census](../design/declaration-parity.md),
+    [per-agent model roles](../research/extension-model-defaults.md), [an oh-omp provider set](../design/active-provider-sets.md),
+    [pi's codex exclusion in a real launch](../design/pi-codex-provider-shadowing-plan.md),
+    [a prune at every launcher run](../design/disk-levers-and-backfill.md) and [CLI color](cli-visual-polish.md).
+34. Two small fixes whose only home is this entry, ranked here because neither breaks anything yet: cap
+    [the host-service and socat logs](../research/central-yolo-watcher.md#26-done-by-nobody), which grow without bound
+    (at their `O_APPEND` opens in `internal/cli/run/loopholesruntime.go` and `network.go`, bounded as
+    `internal/crossaudit` bounds `crossings.log`), and make [the jail boot's drop notice](../design/diagnostics-past-the-boundary.md#31-one-of-the-six-is-not-this-designs-problem)
+    name each table's own remedy (one `Fprintf` in `noteDroppedManagedEntries`, `internal/entrypoint/prism.go`); today
+    only `claude/config`'s `mcpServers` reaches that notice, and `mcp_servers` is the right remedy for it.
+35. Mac CI checks an agent can write now for a scheduled or dispatched Mac job: [the sandbox's user and
+    directory](handoff-macos-user-open-threads.md), [the no-darwin-build abort](macos-revival-and-distribution-plan.md),
+    [Cachix substitution](handoff-cachix-cache.md), [render-mark parity in the sandbox](handoff-guest-notch-macos.md),
+    [I/O priority](../design/io-priority-plan.md), [a sandboxed source build](../design/macos-user-build-step-threat-model.md),
+    [declaration parity's macos-user rows](../design/declaration-parity.md#11-what-i-would-build-in-order), and Apple
+    Container's [login seed](../design/base-home-legacy-state.md), [storage-classes briefing](../design/durable-scratch-space.md)
+    and [keeper measures](../design/jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order).
+36. First real runs and measurements an agent can make now, each deciding whether a next build is worth doing:
+    [the landing gate](test-suite-speed.md), [a Linux claude capture for the macos-user hand-off](install-capture.md),
+    [the stalled in-VM copier](../research/macos-layer-reusing-image-delivery.md), [a stand-in forked program at the host](../design/forked-programs-as-packs.md),
+    [sharded integration runs](integration-parallelism.md), [posture lists in a jail](../design/notch-scoped-config-contributions.md),
+    [cache relocation under podman](cache-relocation.md#test-plan), [an attach to an older yolo's jail](../design/attach-skew-and-contract-guardrails.md)
+    and [capability-driven MCP delivery](../reference/mcp-configuration.md#what-the-derive-boundary-removes).
+37. References describing code that moved since their last check, some of whose cells were already false:
+    [agent credentials](../reference/agent-credentials.md), [providers](../reference/providers.md),
+    [the wire bridge](../reference/wire-bridge.md), [image delivery](../reference/image-staging-vs-baking.md),
+    [the jail home](../reference/jail-home.md) and [the host-duty inventory](../research/central-yolo-watcher.md).
+38. Finished designs to graduate, since a reader landing on one reads a proposal for code that exists:
+    [OpenAI service](../design/openai-auth-broker.md), [credential scope](../design/provider-credential-scope.md),
+    [host computed layer](../design/host-computed-layer.md) ([plan](../design/host-computed-layer-plan.md)),
+    [workspace skills](../design/workspace-skills.md), [synced skill trees](../design/synced-skill-trees.md),
+    [host launch PATH](../design/host-launch-environment.md), [program runtimes](../design/agent-program-runtimes.md),
+    [macos-user jail daemon](../design/jail-daemon-on-macos-user-plan.md), [keeper hand-off](../design/jail-lifetime-last-session-wins-plan.md),
+    [findings index](proposed-fixes-open-findings.md), [docs website](../design/docs-website.md) ([plan](../design/docs-website-plan.md)).
+39. Agent work that leaves a ruling one decision — facts: [a subject for array-append pinning](BACKLOG.md#E5), [pnpm outside mise](../design/program-delivery.md),
+    [mise's prune record](../design/minimal-disk-footprint.md), [colliding attribute paths](../design/package-nested-attribute-paths.md),
+    [a read-only `.git` bind](../research/herdr-integration.md), [per-version npm trees](../design/pi-extension-lifecycle.md),
+    [pi's package loader](../design/pack-pi-resources.md); drafts: [copilot's updater question](native-installer-migration.md),
+    leanings for [the pack system's other calls](../reference/pack-system.md), options for
+    [vendor installs in CI](../reference/agent-install-in-ci.md), rows for [the `:ro` degradation table](../design/composed-file-permissions.md).
+40. [Rule whether yolo may hold an editor preference](../design/baked-editor-preference.md) — the maintainer asked
+    for it, and its first ruling decides the rest and an image change every jail pays.
+41. [Find whether the config engine's workspace layer is still wanted](agent-settings-composition.md) — one settled
+    piece was never built and no document owns it; retire it, or file it where the engine is described.
+42. Rulings nothing shipped waits on. Gating one later step: [the host-file permission asymmetry](BACKLOG.md#E2) with
+    [its host-side twin](pack-host-management-plan.md) in one sitting, [the jail's skills fan-out](BACKLOG.md#OQ-S4), [pack binary pins](../design/broker-as-a-pack.md),
+    [loophole env and guest fields](../design/loophole-packaging.md), [workspace MCP files](../design/workspace-mcp-sources.md),
+    [the backend census](../design/backend-parity.md), [Seatbelt deny-default](../research/agent-safehouse.md),
+    [host apply's posture](../design/host-render-target.md), [the I/O priority default](../design/io-priority.md). Only closing a
+    document: [an unmatched-reference hatch](../design/reference-mismatch-diagnostics.md), [path mirroring](../design/workspace-path-mirroring.md),
+    [pack telemetry](agent-config-packs.md), [AWS's key pair](../design/agent-auth-modes.md#OQ-9), [stateful-surface comments](BACKLOG.md#OQ-E4),
+    [the upstream mise issue](../design/jail-state-separation-design.md).
+43. The four calls the 2026-09-26 open-source audit left to the maintainer: whether one public research doc stays
+    public, the scratch-directory `.gitignore` entries, a `last-release` recipe from the template, and when to retire
+    the Python-version migration; the audit's report is outside this repository, so this is their only record.
 
-| | Rule | Doc | Gate | Releases | Cost |
-|---|---|---|---|---|---|
-| **5** | Whether the pi pack may rewrite its own `packages` list after the merge, which [`OQ-LT2`](../reference/pack-system.md#oq-lt2) forbade for a post-merge script | [`pi-git-extension-caching.md`](../design/pi-git-extension-caching.md) · accepted | [`OQ-6`](../design/pi-git-extension-caching.md#OQ-6) | **build** — the content-addressed pi extension store, finished and green on the branch `wip/pi-extension-store`; its npm half ends `.pi-shared-npm`, which shares one npm prefix across every jail today. Leaning (a): amend [`OQ-LT2`](../reference/pack-system.md#oq-lt2) for a pack's own surface | one ruling |
+44. [Make the Chrome DevTools MCP server work at `yolo host`](../design/mcp-presets-removal.md#5-the-chrome-devtools-inventory--what-the-pack-carries-what-the-image-keeps)
+    — the maintainer wants it, after this week's work (2026-09-30).
 
-## 💬 Needs you
+    A host agent gets no `chrome-devtools` server today, because host apply expands no MCP preset
+    ([HC-D16](../design/host-computed-layer.md#HC-D16)): composing one meant yolo keeping npm packages in a real home,
+    and the host agent floor now gives yolo a prefix of its own for that. Build one path that works on every host, per
+    the [happy-path principle](../reference/happy-path-principle.md). First stop: HC-D16's reason, then the inventory this links.
 
-| # | Decides | Doc | Live | Gate | Releases |
-|---|---|---|---|---|---|
-| 1 | Whether the backend census is worth building | [`backend-parity.md`](../design/backend-parity.md) · in-review | 1 | [`OQ-BP-1`](../design/backend-parity.md#OQ-BP-1) | **build** — the census itself. [`OQ-BP-3`](../design/backend-parity.md#OQ-BP-3), whether a `Warned` disposition can be suppressed, was answered 2026-09-30 by [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) |
-| 4 | A stated byte budget, or a policy | [`minimal-disk-footprint.md`](../design/minimal-disk-footprint.md) · in-review | 1 | [`OQ-DF4`](../design/minimal-disk-footprint.md#OQ-DF4) | **doc** — sweep `mise/` + `cache/staticcheck`, or declare them yours. The embedded-pack tree store is reclaimed only by `yolo prune --apply`, which is the same call |
-| 10 | What the environment manager promises at each notch | [`environment-manager-user-stories.md`](../design/environment-manager-user-stories.md) · no frontmatter | 11 | [`Q8`](../design/environment-manager-user-stories.md#Q8) | **defect** — `internal/cli/briefing.txt` prints `YOLO JAIL — AGENT BRIEFING` at every notch |
-| 11 | Overlay-key collisions, the jail's skills fan-out, and `host_files` modes | [`BACKLOG.md`](BACKLOG.md) Stage E · current | 6 | [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) | **defect** — two packs writing one `config-overlay` key is still silent last-one-wins ([`OQ-CO`](BACKLOG.md#OQ-CO)). A skill-name collision refuses the launch since [`OQ-NC11`](notch-convergence.md#OQ-NC11) answered [`S5`](BACKLOG.md#S5) |
-| 12 | Whether the provisioner override is per-package or per-environment only | [`provisioner-sets.md`](../design/provisioner-sets.md) · in-review | 7 | [`OQ-PS7`](../design/provisioner-sets.md#OQ-PS7) | **build** — [§9](../design/provisioner-sets.md#9-what-i-would-build-in-order) step 4, the user-scope preference that re-ranks the recipes the selected packs ship. Its default ([`OQ-PS6`](../design/provisioner-sets.md#OQ-PS6), answered 2026-09-30: each pack's own recipe first) and its values ([`PS-D3`](../design/provisioner-sets.md#PS-D3)) are settled, and [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1) is ruled. The other six: [`OQ-PS11`](../design/provisioner-sets.md#OQ-PS11) with the rename it gates ([`OQ-PS5`](../design/provisioner-sets.md#OQ-PS5)), [`OQ-NX4`](../design/provisioner-sets.md#OQ-NX4), [`OQ-NX8`](../design/provisioner-sets.md#OQ-NX8), [`OQ-PS14`](../design/provisioner-sets.md#OQ-PS14) and [`OQ-PS15`](../design/provisioner-sets.md#OQ-PS15) |
-| 15 | How a dotted leaf in `packages:` resolves | [`package-nested-attribute-paths.md`](../design/package-nested-attribute-paths.md) · draft | 1 | [`OQ-1`](../design/package-nested-attribute-paths.md#OQ-1) | **build** — the resolver, or nothing |
-| 16 | Whether program-delivery steps three and five survive | [`program-delivery.md`](../design/program-delivery.md) · in-review | 3 | [`OQ-PD19`](../design/program-delivery.md#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split) | **build** — or a retirement |
-| 17 | What main pins for an official pack binary between two releases: the last release's build, or the tree's own | [`broker-as-a-pack.md`](../design/broker-as-a-pack.md) · in-review | 1 | [`OQ-BP7`](../design/broker-as-a-pack.md#OQ-BP7) | **build** — [§14.4](../design/broker-as-a-pack.md#144-the-plan-in-order) step 7, the release matrix's last; steps 1–6 are built ([BP-D10](../design/broker-as-a-pack.md#BP-D10)–[BP-D14](../design/broker-as-a-pack.md#BP-D14)). No shipped manifest declares a binary yet, so nothing in the tree waits on it |
-| 18 | What replaces `macos-26-intel` before 26.05 lapses | [`macos-support-matrix.md`](../research/macos-support-matrix.md) · live tracker | 1 | [`OQ-MX1`](../research/macos-support-matrix.md#OQ-MX1) | **build** — a CI commitment, with a 2026 deadline. [`OQ-MX2`](../research/macos-support-matrix.md#OQ-MX2) went moot 2026-09-30 |
-| 19 | What an attach does with the attacher's pack set | [`agent-config-packs.md`](agent-config-packs.md) · no frontmatter | 2 | [`OQ-ACP1`](agent-config-packs.md#-oq-acp1--what-happens-when-two-people-attach-to-the-same-jail-with-different-pack-sets) | **doc** — no longer a defect: since [`OQ-PK2`](../reference/pack-system.md#oq-pk2) an attach refreshes skills and briefing from the running jail's own pack tree, writes nothing into it, and names the restart when the configured packs differ (`attachExisting`, `internal/cli/run/run.go`) |
-| 20 | Whether `yolo host apply` is a convenience or the path | [`host-render-target.md`](../design/host-render-target.md) · no frontmatter | 2 | [`9.2`](../design/host-render-target.md#9.2) | **doc** — product posture; re-read 9.2's leaning once [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14) is ruled |
-| 21 | Whether the jail mounts the workspace at the host's path | [`workspace-path-mirroring.md`](../design/workspace-path-mirroring.md) · draft | 3 | [`OQ-WP8`](../design/workspace-path-mirroring.md#OQ-WP8) | **doc** — ratify the no |
-| 22 | Whether `macos-user`'s workspace root becomes configurable, and what the profile has to derive from it | [`configurable-workspace-root.md`](../design/configurable-workspace-root.md) · in-review | 4 | [`OQ-CW1`](../design/configurable-workspace-root.md#OQ-CW1) | **build** — the read-deny derived from the root, plus the whitelist that closes four lexical bypasses. ⚠ The whitelist wants to land before anyone relies on the current blacklist |
-| 26 | Whether `mounts` and `env_sources` become user-scope-only, like every other key that grants host access | [`agent-safehouse.md`](../research/agent-safehouse.md) · in-review | 3 | [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3) | **defect-shaped** — neither key has a workspace-scope refusal in `internal/config`, so a repo-committed `yolo-jail.jsonc` can mount a host path and read a host dotenv. [`OQ-AS1`](../research/agent-safehouse.md#OQ-AS1)'s stated precondition (the Seatbelt suite green on macOS) is now met. A third answer, "local file plus host-side trust", is [`workspace-config-trust.md`](../design/workspace-config-trust.md)'s, iceboxed, which pairs with AS3 rather than absorbing it ([`OQ-WT8`](../design/workspace-config-trust.md#OQ-WT8), decided as [WT-D6](../design/workspace-config-trust.md#WT-D6)); AS3 does not depend on it being built |
-| 27 | Whether the hard-coded Kilo special-casing in two agent derives stays or goes | [`gateway-provider-packs.md`](../design/gateway-provider-packs.md) · in-review | 1 | [`OQ-GP4`](../design/gateway-provider-packs.md#OQ-GP4) | **graduation** — the only thing holding that doc back |
-| 28 | How packs declare bypassed or unmanaged file diagnostics for yolo check | [`pack-declared-file-diagnostics.md`](../design/pack-declared-file-diagnostics.md) · in-review | 3 | [`OQ-1`](../design/pack-declared-file-diagnostics.md#oq-1) | **build** — declarative traps in `pack.json` or self-check. ⚠ [`OQ-AM8`](../design/agent-directory-map.md#OQ-AM8) ([row 79](#-needs-you)) proposes that a trap become an agent-directory map entry with a note, which would close this row into that one |
-| 29 | What replaces the spawn lock that retiring `scope: "host"` removes | [`host-daemon-ownership.md`](../design/host-daemon-ownership.md) · in-review | 4 | [`OQ-HD10`](../design/host-daemon-ownership.md#OQ-HD10) | **build** — the no-singleton retirement (`HD-R1`, ruled 2026-09-20, nothing built); building it also reverts three user-facing docs that describe the built tree |
-| 30 | Whether a required jail daemon that cannot publish should refuse the launch with nothing to get past it | [`loopback-tls-reachability.md`](../reference/loopback-tls-reachability.md) · current | 1 | [`OQ-R8`](../reference/loopback-tls-reachability.md#oq-r8) | **defect-shaped, MEASURED on a host 2026-09-19** — `YOLO_ALLOW_UNREACHABLE_SERVICES=1` downgrades the reachability witness, but `startJailDaemonSupervisor` (`internal/entrypoint/runtime.go`) still refuses through `genStep`, which reads no hatch, so a jail whose required daemon cannot start gets no shell |
-| 31 | What `--verbose` means past the host↔jail boundary: a level or a boolean, and whether a boot snapshot at a give-up is always-on | [`diagnostics-past-the-boundary.md`](../design/diagnostics-past-the-boundary.md) · in-review | 6 | [`OQ-DB1`](../design/diagnostics-past-the-boundary.md#oq-db1) · [`OQ-DB2`](../design/diagnostics-past-the-boundary.md#oq-db2) | **defect** — the `paths.VerboseEnv` disjunct in `internal/entrypoint/runtime.go`'s two lifecycle notices can never be true in a jail. Steps 1–2 of [§8](../design/diagnostics-past-the-boundary.md#8-what-i-would-build-in-order) are built |
-| 35 | What a pack manifest is written in, once the model stops repeating itself | [`manifest-language.md`](../design/manifest-language.md) · in-review | 3 | [`OQ-M1`](../design/manifest-language.md#OQ-M1) | **doc** — its identity half is fixed by [`OQ-D5`](../design/slots-and-contributions.md#OQ-D5) |
-| 39 | Whether `exposes` can be BUILT — the migration window above all | [`slots-and-contributions.md`](../design/slots-and-contributions.md) · in-review | 4 | [`OQ-D6`](../design/slots-and-contributions.md#OQ-D6) | **build** — the split itself, the pi rework it gates, and accepting the skew window the claude and pi packs' addressed prose lines open ([DS-D33](../design/durable-scratch-space.md#DS-D33)). ⚠ D6's evidence assumes a baked entrypoint, false since the image stopped containing yolo, so the window may be much narrower |
-| 40 | Whether a workspace's own MCP config may override the canonical table, and whether yolo discloses the override | [`workspace-mcp-sources.md`](../design/workspace-mcp-sources.md) · in-review | 1 | [`OQ-WM1`](../design/workspace-mcp-sources.md#OQ-WM1) | **doc** — a ruling plus at most a disclosure line |
-| 41 | Whether yolo may hold an editor preference — neovim is baked into every image and every backend | [`baked-editor-preference.md`](../design/baked-editor-preference.md) · draft | 3 | [`OQ-ED1`](../design/baked-editor-preference.md#OQ-ED1) | **design, and the maintainer's own request** |
-| 42 | Whether the jail notch gets the readiness act the host already has | [`jail-notch-readiness.md`](../design/jail-notch-readiness.md) · draft | 1 | [`OQ-JR1`](../design/jail-notch-readiness.md#OQ-JR1) | **defect, live today** — `yolo -- true` exits 0 with no `via: npm` program installed, because the launcher installs on first invocation. The false message was fixed 2026-09-24 |
-| 43 | What retiring `host_management: "assert"` does to a config, and a home, already on it | [`config-ownership-and-promotion.md`](../design/config-ownership-and-promotion.md) · in-review | 3 | [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14) | **build** — the retirement itself (ruled 2026-09-20, unbuilt), and the graduation of that doc. ⚠ `layerRetired`, the `YOLO_HOST_LAYERS` mark and `RetiredLayer` stay live under `own` ([§4.5.2](../design/config-ownership-and-promotion.md#452-what-the-ruling-does-not-delete--the-mechanism-tally-corrected)) |
-| 49 | What `-p <name>` names at all | [`providers-and-profiles-redesign.md`](../design/providers-and-profiles-redesign.md) · draft | 1 | [`OQ-PP1`](../design/providers-and-profiles-redesign.md#OQ-PP1) | **doc** — the redesign's core. Every ruling since it was filed built on the profile: [`OQ-BR2`](../design/providers-and-profiles-redesign.md#OQ-BR2), [`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8) and [PP-D1](../design/providers-and-profiles-redesign.md#PP-D1) are built, and so are the `profile` key ([PP-D10](../design/providers-and-profiles-redesign.md#PP-D10)) and active sets ([`OQ-AP1`](../design/active-provider-sets.md#OQ-AP1)). [`OQ-PP2`](../design/providers-and-profiles-redesign.md#OQ-PP2) and [`OQ-PP3`](../design/providers-and-profiles-redesign.md#OQ-PP3) were answered 2026-09-30 by [`OQ-BR1`](../design/bedrock-plumbing.md#OQ-BR1) and [`OQ-AP3`](../design/active-provider-sets.md#OQ-AP3) |
-| 50 | What a model list that only adds does to an agent's own catalog, whether a list no `only` narrowed refuses on a gateway, whether copilot takes a whole list in the only mode that also shows GitHub's own models, and whether a `-p` at `yolo host` moves codex onto its provider | [`model-lists-and-pickers.md`](../design/model-lists-and-pickers.md) · draft | 4 | [`OQ-MM1`](../design/model-lists-and-pickers.md#OQ-MM1), then [`OQ-MM3`](../design/model-lists-and-pickers.md#OQ-MM3), then [`OQ-MM4`](../design/model-lists-and-pickers.md#OQ-MM4), then [`OQ-MM5`](../design/model-lists-and-pickers.md#OQ-MM5) | **build** — the two renderings [§14.5](../design/model-lists-and-pickers.md#145-what-was-built-2026-09-29) left as today's, each with a comment naming its question; copilot's `providers.json` ([MM-D10](../design/model-lists-and-pickers.md#MM-D10)), stopped on its measurement until [`OQ-MM4`](../design/model-lists-and-pickers.md#OQ-MM4) rules; and codex's menu at `yolo host` under a `-p` over a provider the configured profile does not select, which [MM-D25](../design/model-lists-and-pickers.md#MM-D25) leaves menu-less until [`OQ-MM5`](../design/model-lists-and-pickers.md#OQ-MM5) rules. |
-| 51 | Where the AgentCore gateway URL lives, whether yolo ever creates the gateway, and which search wins beside a user's Tavily | [`bedrock-web-search.md`](../design/bedrock-web-search.md) · draft | 3 | [`OQ-BR19`](../design/bedrock-web-search.md#OQ-BR19) · [`OQ-BR20`](../design/bedrock-web-search.md#OQ-BR20) · [`OQ-BR23`](../design/bedrock-web-search.md#OQ-BR23) | **build** — [DIR-BR4](../design/bedrock-web-search.md#DIR-BR4) is ruled (search on by default on Bedrock profiles); the signing proxy's shape ([`OQ-BR21`](../design/bedrock-web-search.md#OQ-BR21)) and the provider-gated pack entry ([`OQ-BR22`](../design/bedrock-web-search.md#OQ-BR22)) were settled 2026-09-29, and none of the feature is built. The example policy in `packs/aws-auth` still denies search (trap [D6](../design/bedrock-web-search.md#d6-live-in-docs-the-aws-auth-example-policy-denies-search)) |
-| 57 | Whether a content pack reaches pi as one pi-package tree, registered by core, instead of one `files` entry per file | [`pack-pi-resources.md`](../design/pack-pi-resources.md) · draft | 1 | [`OQ-PR1`](../design/pack-pi-resources.md#OQ-PR1) | **build** — a `register` field on a `files` slot, core-emitted `config-list` entries for landed trees, and a slot in `packs/pi`; then the maintainer's pack migrates from eight entries to one. pi's own loader is why today's pack lists every file: a subdirectory of `extensions/` loads only through an exact-path manifest or an `index.ts` |
-| 60 | Which packs a workspace config may declare: the safe subset [`OQ-MP7`](../design/mcp-presets-removal.md#OQ-MP7) asked for | [`pack-system.md`](../reference/pack-system.md) · current | 5 | [`OQ-PK1`](../reference/pack-system.md#oq-pk1) | **build** — [`mcp-presets-removal.md`](../design/mcp-presets-removal.md)'s [§13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) steps 1–3 wait on it. [`OQ-WS1`](../design/workspace-skills.md#OQ-WS1), the same question for skills, which the ruling asked for in the same sitting, is ruled and built as the staged mirror |
-| 63 | How a `macos-user` launch reaches the capture store (install-capture hand-off H4): a Seatbelt read grant on `<CapturesDir>/entries`, a machine store on neutral ground, or retiring that backend's materialize half | [`install-capture.md`](install-capture.md) · decided | 1 | [H4](install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it) | **build** — `YOLO_CAPTURES_DIR` from `buildBootstrapEnv` plus the chosen read path. H2's relocation rewrite is BUILT (2026-09-26, measured on Linux only). No leaning yet. **Mac-only** first step: `cat` a real claude capture's `capture-manifest.json` on a Mac, because a non-relocatable claude entry makes H4 buy nothing for claude |
-| 67 | Four leftovers of the 2026-09-26 `open-source-project` audit: one public research doc to review before it stays public, the scratch-dir `.gitignore` entries, a `last-release` recipe from the template, and when to retire the Python-version migration | — (the audit's report) | 4 | — | **cleanup** — each is a maintainer call the audit declined to make; the first wants a look soon |
-| 69 | Whether a host-scoped singleton may name `{loophole_dir}` now that each launch has its own pack tree | [`pack-system.md`](../reference/pack-system.md) · current | 5 | [`OQ-PK3`](../reference/pack-system.md#oq-pk3) | **small** — no shipped pack is affected; the tree such a singleton resolves goes when its jail does. Leaning: refuse the token there |
-| 70 | Whether "an agent never derives catalog entries from providers it natively implements" covers every provider an agent ships its own client for, or only a subscription provider with its own client and login | [`pi-codex-provider-shadowing.md`](../design/pi-codex-provider-shadowing.md) · in-review | 1 | [`OQ-3`](../design/pi-codex-provider-shadowing.md#OQ-3) | **build, or nothing** — the narrow reading changes nothing built (`openai-codex` stays the one exclusion, in pi, omp and codex). The broad one drops the `zai`, `cerebras` and `openrouter` rows from pi's catalog and those plus `kilo` from omp's and opencode's, via rows included, and puts opencode's zai on `ZHIPU_API_KEY` and the metered endpoint instead of the coding plan. pi's Converse route waits on it ([WG-I36](../design/wire-bridge-gateway.md#WG-I36), which decided [`OQ-WG8`](../design/wire-bridge-gateway.md#OQ-WG8) on 2026-09-30): its `baseUrl` override on pi's built-in `amazon-bedrock` is forbidden under the broad reading. Leaning: narrow |
-| 72 | Whether a jail shell gets an explicit grant for a command `-p` cannot reach, and whether a claimed generic name such as `AWS_PROFILE` may be shared with every process | [`credential-sources-separation.md`](../design/credential-sources-separation.md) · in-review | 2 | [`OQ-ES5`](../design/credential-sources-separation.md#OQ-ES5) (jail half) · [`OQ-ES6`](../design/credential-sources-separation.md#OQ-ES6) | **build** — notch-convergence item 12, `--with-credentials` in a jail, is gated on ES5's jail half. The host half is built (`yolo host --with-credentials`, with ES-D1–ES-D23), and on 2026-09-30 [`OQ-ES1`](../design/credential-sources-separation.md#OQ-ES1) was answered and [`OQ-ES7`](../design/credential-sources-separation.md#OQ-ES7) went moot |
-| 73 | Whether a jail's disk I/O priority, now built as an opt-in, is on by default, whether any cgroup half ships beside it, a per-command `yolo-cglimit` flag, and the host notch | [`io-priority.md`](../design/io-priority.md) · in-review | 4 | [`OQ-IO3`](../design/io-priority.md#OQ-IO3) · [`OQ-IO7`](../design/io-priority.md#OQ-IO7) | **build** — steps 1–4 are BUILT (2026-09-27): `resources.io.priority`, set by the entrypoint on one pinned thread and carried to every thread by a re-exec, disclosed at launch and on attach where the workspace's disk ignores it, Warned on Apple Container and podman under macOS, and a `yolo check` row grading that disk. IO3 releases the default flip, and IO7 releases build step 6, a cgroup half, which nothing ships until it rules; step 5 (macos-user) waits on a Mac measurement, and [`io-priority-plan.md`](../design/io-priority-plan.md) sketches both. Of three filed questions, [`OQ-IO1`](../design/io-priority.md#11-decision-ledger) is decided and [`OQ-IO2`](../design/io-priority.md#11-decision-ledger) and [`OQ-IO5`](../design/io-priority.md#11-decision-ledger) are answered from existing rulings. Priority reaches reads and synchronous writes on BFQ or mq-deadline only, so on Kyber or `none` (the maintainer's jail disk) it does nothing, and the launch says so. Leanings: IO3 opt-in, IO7 no cgroup half in v1, IO4 no, IO6 no |
-| 75 | When two of yolo's own sources set one variable, which wins, and whether the host keeps a value the user's shell already has | [`notch-convergence.md`](notch-convergence.md) · in-review | 2 | [`OQ-NC12`](notch-convergence.md#OQ-NC12) · [`OQ-NC13`](notch-convergence.md#OQ-NC13) | **build** — item 16, one ordered env composition at every vehicle: one key has three winners today, measured in [`OQ-NC12`](notch-convergence.md#OQ-NC12) ([NC-D68](notch-convergence.md#NC-D68)). The plan's other unbuilt items wait on other rows' questions: 12 on [`OQ-ES5`](../design/credential-sources-separation.md#OQ-ES5)'s jail half ([row 72](#-needs-you)), 18's `env_sources` half on [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3) ([row 26](#-needs-you)), 28's `rmw` rule on [`OQ-CO15`](../design/config-ownership-and-promotion.md#oq-co15), and 31 on [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) by [`OQ-NC7`](notch-convergence.md#OQ-NC7)'s ruling |
-| 76 | Two more levers on test-suite speed: `cancel-in-progress` in `ci.yml`, and moving the darwin lint pass to CI only | [`test-suite-speed.md`](test-suite-speed.md) · in-review | 2 | [`OQ-TS2`](test-suite-speed.md#OQ-TS2) · [`OQ-TS4`](test-suite-speed.md#OQ-TS4) | **build, small** — the five work items in that plan wait on neither. [`OQ-TS1`](test-suite-speed.md#OQ-TS1) and [`OQ-TS3`](test-suite-speed.md#OQ-TS3) were answered 2026-09-29, adding no lever |
-| 77 | What registers a GC root for an in-jail nix build, so a host garbage collection stops deleting a jail's `result` links and profiles between commands | [`in-jail-nix-roots.md`](../design/in-jail-nix-roots.md) · draft | 2 | [`OQ-NR1`](../design/in-jail-nix-roots.md#OQ-NR1) | **defect** — every root a podman jail asks for is dead on arrival; the fix (an indirect root sent under the host's spelling of the link) is measured from an untrusted jail. Leaning C: a watcher on a read-only bind of the host's `gcroots/auto`, which also needs [`OQ-NR2`](../design/in-jail-nix-roots.md#OQ-NR2). [`OQ-NR3`](../design/in-jail-nix-roots.md#OQ-NR3) and [`OQ-NR4`](../design/in-jail-nix-roots.md#OQ-NR4) were decided 2026-09-30 ([NR-D1](../design/in-jail-nix-roots.md#NR-D1), [NR-D2](../design/in-jail-nix-roots.md#NR-D2)) |
-| 79 | What yolo manages in an agent's directory: every path classed state, cache or yours by a pack-declared map, with yolo's own writes derived rather than declared twice, instead of only what some surface happens to name. Pi first: who declares "yours", whether any finding is ever refused, whether a wipe verb exists, whether the jail's copy is walked, and the order after pi | [`agent-directory-map.md`](../design/agent-directory-map.md) · in-review | 10 | [`OQ-AM1`](../design/agent-directory-map.md#OQ-AM1) · [`OQ-AM2`](../design/agent-directory-map.md#OQ-AM2) · [`OQ-AM4`](../design/agent-directory-map.md#OQ-AM4) · [`OQ-AM9`](../design/agent-directory-map.md#OQ-AM9) | **defect + build.** The defect is live: at the maintainer's host rcm left three broken links under `~/.pi/agent`, pi crashed writing through `npm/`, and yolo named none of them. A jail launch still skips a broken host `settings.json` or `AGENTS.md` silently. The build is the `directory` kind, one read-only evaluator, and pi's measured map, which names broken links at `yolo host -- pi`, `yolo check` and `yolo host apply` without refusing anything. The jail-launch line needs no ruling. Leanings: AM1 the pack that adds an extension declares what it writes, AM2 three declared classes plus marks, AM4 never refused, AM5 report only, AM6 walked in-jail, AM8 absorb [row 28](#-needs-you), AM9 root at `~/.pi`, AM10 opencode then claude |
-| 81 | Three sidecar questions: whether the doorbell is on where no sidecar is, which notch a sidecar's pings reach when one workspace runs at two, and whether a sidecar turned on beside a running keeper waits for a fresh launch | [`agent-event-watchers.md`](../design/agent-event-watchers.md) · in-review | 3 | [`OQ-EW11`](../design/agent-event-watchers.md#OQ-EW11) · [`OQ-EW12`](../design/agent-event-watchers.md#OQ-EW12) · [`OQ-EW13`](../design/agent-event-watchers.md#OQ-EW13) | **held** — the feature stays unreleased until the open ones are ruled. [`OQ-EW5`](../design/agent-event-watchers.md#OQ-EW5)–[`OQ-EW8`](../design/agent-event-watchers.md#OQ-EW8) and [`OQ-EW10`](../design/agent-event-watchers.md#OQ-EW10) were ruled 2026-09-29 and [`OQ-EW9`](../design/agent-event-watchers.md#OQ-EW9) directed; nothing is built |
-| 83 | GitHub across the jail boundary. Ruled 2026-09-29: free reads reach only the workspace's own repositories (BB1), re-read at each fresh launch and approved in the config-change diff (BB7); grants hand over named permission sets, read-only always and read-write for 15 minutes (BB2); the notification offers Allow once · Allow read-write 15 min · Deny (BB3), shown on macOS by terminal-notifier, which the Homebrew formula brings (BB4); one workspace is widened by a user-scope entry, and an out-of-scope read refuses (BB6); a bare `gh` reaches the broker through a generic pack contribution that intercepts a command name (BB8); a brokered command's full output crosses (OQ-C). A widened repository joins the scope for every set (BB9). Open: how a host daemon hands the launching terminal a line (BB10) | [`boundary-broker.md`](../design/boundary-broker.md) · in-review | 1 | [`OQ-BB10`](../design/boundary-broker.md#OQ-BB10) | **build** — step 1 of [§11](../design/boundary-broker.md#11-recommendation-and-the-first-build-slice), the `gh` read path, the scope and its approval, the audit log and the mount fence, is BUILT (2026-09-29). Step 2, writes on Linux, also needs `yolo notify` and a deliverer from [row 81](#-needs-you); its widening entry is released (BB9) |
-| 87 | How host Pi receives its `openai-codex` credential, and whether unselected providers stay in `models.json` | [`pi-host-openai-auth.md`](../design/pi-host-openai-auth.md) · in-review | 2 | [`OQ-1`](../design/pi-host-openai-auth.md#OQ-1) | **defect, live today** — `yolo host -- pi` under the default codex profile cannot select any ChatGPT subscription model and falls back to `local/qwen3.8-27b`, because Pi requires an OAuth entry in `~/.pi/agent/auth.json` which NC-D37 withheld at the host notch |
+## External waits
 
+45. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
+    by running [its runbook](runbooks/claude-credential-view-measures.md), on a Mac and for a day on a rootless host,
+    and [the OpenAI service](../design/openai-auth-broker-plan.md) by recording one browser login and one shared expiry.
+46. One session at a Mac clears [the host capture for installer agents](../design/host-tool-provisioning.md), which runs
+    each vendor installer under Seatbelt; the hosted Mac job runs no vendor install until [OQ-CI7](../reference/agent-install-in-ci.md#OQ-CI7) says it may.
+47. A real rootless Linux host, which a nested jail is not, clears [a real reboot](../design/podman-reboot-readiness.md#testing-and-the-real-host-check),
+    [a low-space collection with a jail up](storage-lifecycle.md) and [the keeper's scope move and logout](../design/jail-lifetime-last-session-wins.md#8-what-done-looks-like).
+48. One live agent session per check, which no test may start, clears [the footer](../design/agent-footer.md#21-as-built),
+    [Claude's LSP plugin](../reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin), [the via route](../design/wire-bridge-gateway.md#41-how-it-is-built),
+    [menus under a model list](../design/model-lists-and-pickers.md#13-build-order-and-what-done-looks-like),
+    [a switch inside a provider set](../design/active-provider-sets.md#9-what-done-looks-like),
+    [Copilot's config migration](../design/agent-directory-map.md#74-copilot) and [a Kilo session](../design/gateway-provider-packs.md).
+49. A human with the cloud account clears [a first Bedrock request](../design/bedrock-plumbing.md),
+    [an SSO lapse mid-turn](../design/sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it),
+    [settings-only Bedrock mode](../reference/providers.md#two-channels-split-by-payload-type),
+    [an AgentCore gateway](../design/bedrock-web-search.md) and
+    [a Claude usage-limit response](../design/wire-bridge-gateway.md#5-part-4--the-subscription-arm-and-opt-in-failover-ruled).
+50. [Apple Container's published ports on the runner Mac](../design/backend-parity.md#54-which-test-answers-which-row) clear
+    with a Local Network grant or Apple's signed `container` package and a rerun, which [the runbook](runbooks/mac-actions-runner.md) records.
+51. The maintainer's own commits and launches clear [the `matt` pack's `briefing/`](../reference/pack-system.md#briefing),
+    [its posture list at the host](../design/notch-scoped-config-contributions.md#5-fastest-path-to-the-motivating-case),
+    [a dropped pack's host output](../reference/pack-system.md#retiring-a-dropped-packs-host-output), [the fzf pack's adoption](handoff-fzf-pack-adoption.md) and
+    [the listen-port fix where reported](../reference/wire-bridge.md#what-can-hold-the-listen-port-before-the-bridge-does).
+52. A live `llama-server` and one manual agent turn per row clear [the `llamacpp` provider](../../packs/llamacpp/README.md),
+    whose per-agent spellings are read from each agent's code and have never met a server; copilot is the one to try first.
 
-**Rule together, or not at all.** [`E1`](BACKLOG.md#-e1--collapse-host_files-modes-43-copy-merges-into-readonly) · [`E2`](BACKLOG.md#-e2--readonly-as-a-real-ro-mount-instead-of-0o444) · [`OQ-B`](pack-host-management-plan.md#open-questions) are one asymmetry seen three times, and each doc says so.
+## Boundaries
 
-**Small calls that do not deserve a row**, each blocking nothing by its own doc's account:
-[`CFP-1`](../design/composed-file-permissions.md#CFP-1)–[`CFP-3`](../design/composed-file-permissions.md#CFP-3) (graduated; three postures — CFP-2's "when `macos-user` is next worked on" trigger has arrived) ·
-[`OQ-LP5`](../design/loophole-packaging.md#oq-lp5) and [`OQ-LP7`](../design/loophole-packaging.md#oq-lp7) (cheap to rule, expensive to discover later) ·
-[`SS-6`](../design/jail-state-separation-design.md#ss-6) (file an upstream mise issue; unverifiable from in here) ·
-[`Q2`](../design/macos-user-build-step-threat-model.md#-q2--is---accept-flake-config-worth-the-substituter-poisoning-surface) (keep `--accept-flake-config`, or drop it) ·
-[`Q3`](../design/macos-user-build-step-threat-model.md#-q3--do-we-want-the-macos-nix-build-sandbox-on-for-yolo-triggered-builds) (the macOS nix build sandbox for yolo-triggered builds; its CI measurement found no floor build breaking under it, and could not see a package built from source) ·
-[`OQ-B`](pack-host-management-plan.md#open-questions) (`0o444` at the host — explicitly taste) ·
-[`OQ-ACP4`](agent-config-packs.md#-oq-acp4--whether-pruning-needs-usage-telemetry-to-be-anybodys-job) (pruning telemetry) ·
-[`OQ-9`](../design/agent-auth-modes.md#OQ-9) (whether AWS's credential pair ever gets a declaration; [`OQ-CN1`](../design/provider-credential-scope.md#OQ-CN1), its live form, was ruled 2026-09-26, and [`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8) built 2026-09-29) ·
-terminal-gating the generated script's three colored lines ([`cli-visual-polish.md` decision 4](cli-visual-polish.md#implementation-decisions--no_color-2026-09-26); a redirected stderr still gets color unless `NO_COLOR` is set, and the fix moves golden-pinned bytes).
-**Open, gating only a later step of a 📦 row:** [`OQ-CX7`](../design/context-mounts.md#OQ-CX7) (context sources inside a real user home on macos-user, which v1 refuses; [row 53](#-ready)) · [`OQ-JL9`](../design/jail-lifetime-last-session-wins.md#OQ-JL9) (what the keeper holds at `yolo host`, step 5; [row 86](#-ready)).
-**Filed and not yet placed in a row:** [`OQ-CO15`](../design/config-ownership-and-promotion.md#oq-co15) (the jail read-modify-write path ignores `in_full` — CO13's residual; notch-convergence item 28's `rmw` rule waits on it) · [`OQ-CO16`](../design/config-ownership-and-promotion.md#oq-co16) · [`OQ-PD20`](../design/program-delivery.md#oq-pd20) · [`OQ-DR1`](../reference/pack-system.md#oq-dr1) · [`OQ-JH1`](../reference/jail-home.md#OQ-JH1) · [`OQ-AL3`](../reference/pack-system.md#oq-al3) and [`OQ-AL4`](../reference/pack-system.md#oq-al4) (the two `config-list` tails: entries left in the host file after every contributor drops, and promote not lifting list captures) · [`OQ-PD21`](../design/program-delivery.md#oq-pd21) (may a pack pin an agent CLI against P6's *Pin: none*) · [`OQ-DB6`](../design/diagnostics-past-the-boundary.md#oq-db6) (does step 1's "already established" line stay on the terminal) · [`OQ-CI7`](../reference/agent-install-in-ci.md#oq-ci7) (should the macOS nightly run any vendor agent install) · [`OQ-4`](../design/pi-extension-lifecycle.md#OQ-4) (who installs a pi package the refresh did not reach, and under what lock) · [`OQ-KC1`](../design/keychain-from-a-jail.md#OQ-KC1)–[`OQ-KC4`](../design/keychain-from-a-jail.md#OQ-KC4) (the keychain from a jail, Copilot's login first; accepting it also answers [`OQ-CT1`](../research/copilot-token-storage.md#OQ-CT1)) · [`OQ-HR1`](../research/herdr-integration.md#OQ-HR1)–[`OQ-HR4`](../research/herdr-integration.md#OQ-HR4) (herdr: where yolo's knowledge of it lives, a jail pane after a herdr restart, git in a worktree outside the jail, and whether a jailed agent may drive herdr).
-🤷 **Genuinely subjective, wherever they sit:** [`OQ-RM4`](../design/reference-mismatch-diagnostics.md#OQ-RM4) ·
-[`OQ-WP7`](../design/workspace-path-mirroring.md#OQ-WP7) · `OQ-B`.
-
-## 📦 Ready
-
-Ruled, unblocked, and implementable cold — no memory of any conversation required. A row marked **Mac-only** needs the
-self-hosted Mac or a Mac workflow; a row whose plan is a sketch starts by promoting it against the tree.
-
-| | Build | Why it is ready | Where |
-|---|---|---|---|
-| 12 | **Mac-only.** Layer-reusing image delivery on the two Mac backends: build the delta archive in `deliverViaArchive` for podman on macOS and Apple Container, then measure the first load and improve it where it measurably can be | All three questions ruled 2026-09-24 ([`OQ-LR1`](../research/macos-layer-reusing-image-delivery.md#OQ-LR1)–[`OQ-LR3`](../research/macos-layer-reusing-image-delivery.md#OQ-LR3)); the delta archive is built ([how it works](../reference/image-staging-vs-baking.md#the-delta-archive)), and the first-load work is not started. The transfer saving is MEASURED on Linux podman (a 27.8 MB delta archive where the full one is 3.45 GB) and SOURCED for Apple Container; the Mac-side numbers wait on a Mac run of the doc's commands | [`macos-layer-reusing-image-delivery.md`](../research/macos-layer-reusing-image-delivery.md#decisions) |
-| 14 | **Mac-only.** The per-jail home skeleton: its Apple Container seed, and the runs that prove the podman half | The podman skeleton and its follow-ups are BUILT (2026-09-25): a per-jail read-only skeleton, reservation of only the selected packs' dirs, a gone jail's tracking file dropped so the reaper reaches its skeleton. The rootless run passed in CI on both arches (2026-09-25, `ci.yml` 36167524940). What is left is the Apple Container seed (plan step 4, needs a Mac) | [`base-home-legacy-state-plan.md`](../design/base-home-legacy-state-plan.md) |
-| 53 | **Mac-only.** Context mounts, [§4](../design/context-mounts.md#4-staging-and-the-tests-that-pin-each-piece) steps 4 and 5: the macos-user delivery, read-only and then read-write (shared root only), as root-owned links, generated Seatbelt rules and a DAC preflight run as the sandbox uid, each proved by a `sandbox-exec` probe on the Mac | Steps 1–3 are built ([CX-D7](../design/context-mounts.md#CX-D7)–[CX-D16](../design/context-mounts.md#CX-D16)), so every context mount a macos-user launch declares refuses until these land. [`OQ-CX7`](../design/context-mounts.md#OQ-CX7), sources inside a real user home, stays open, and v1 refuses that case | [`context-mounts.md`](../design/context-mounts.md) · draft |
-| 55 | **Mac-only.** The macOS host capture for installer agents ([HP-D2](../design/host-tool-provisioning.md#HP-D2)), measured on a Mac before it ships | Every question was ruled 2026-09-29 and the host agent floor was built the same day (`internal/hostfloor`), except this. Until it ships, an installer agent on macOS has no floor entry and `yolo host` runs the PATH copy, saying so ([`OQ-HE11`](../design/host-launch-environment.md#oq-he11)) | [`host-tool-provisioning.md`](../design/host-tool-provisioning.md) · accepted |
-| 86 | **Mac-only.** Last session wins, [§7](../design/jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order) step 4: the session signal arm [`proxy_other.go`](../../internal/cli/run/proxy_other.go) lacks, Apple Container's `container exec` client-death and detach-key measures, and the lifecycle on both Mac runners | The keeper is built at the container backends ([JL-D55](../design/jail-lifetime-last-session-wins.md#JL-D55)–[JL-D69](../design/jail-lifetime-last-session-wins.md#JL-D69)) and has not run on a Mac. Beside this step, step 5, the keeper at macos-user and `yolo host`, waits on [`OQ-JL9`](../design/jail-lifetime-last-session-wins.md#OQ-JL9), and [§8](../design/jail-lifetime-last-session-wins.md#8-what-done-looks-like) items 11 and 13 and the scope move ([JL-D61](../design/jail-lifetime-last-session-wins.md#JL-D61)) wait on a real rootless systemd host | [`jail-lifetime-last-session-wins.md`](../design/jail-lifetime-last-session-wins.md) · in-review · [plan](../design/jail-lifetime-last-session-wins-plan.md) |
-
-## 🔒 Waiting
-
-> [!IMPORTANT]
-> **"A Mac" stopped being a blocker on 2026-09-14.** A self-hosted arm64 runner is registered
-> ([the runbook](runbooks/mac-actions-runner.md)), and `integration/applecontainer_test.go` runs
-> green on it. The rows below that say "a Mac" are **waiting on someone writing the test, not on
-> hardware.**
-
-| | Blocked on | What clears it |
-|---|---|---|
-| **1** · The OpenAI subscription service, the checks CI cannot reach | a Mac and a human. `TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox` is written and has not run on a Mac: the last `macos-user.yml` run predates the doorway. The browser login and the expiry crossing need a ChatGPT account and wall-clock time. The reachability half passed on rootless CI on both arches (`TestOpenAIAuthBrokerRoundTripsAnImportedToken`, `ci.yml` 36662086103), and plan step 9, the `macos-user` refresh consumer, is built ([`OQ-OA6`](../design/openai-auth-broker.md#OQ-OA6), route (b), by [HS-D15](../design/host-notch-services.md#HS-D15)) | a green `macos-user.yml` run of that test, then one human login and one expiry crossing — [`openai-auth-broker.md` §7](../design/openai-auth-broker.md#7-completion-criteria) |
-| **2** · `jail_daemon` on `macos-user`, confined in the guest | the next `macos-user.yml` run. Every step of the plan is built; the 2026-09-29 run (36575801495) failed `TestMacosUserJailDaemonRunsConfinedInTheGuest` on a fault in the test's own probe, since fixed (the supervisor is now looked for from the host) | a green run of that test — [`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md) |
-| **37** · Forked programs as packs, the plan's step 7: the host notch | three things a jail cannot supply ([Step 7 needs](../design/forked-programs-as-packs-plan.md#step-7-needs)): the motivating fork's address, since no file here names a fork pack's `source`, `build` and `produces`; a network fetch, for `yolo pack install`'s pin and the fork's own dependencies; and a real sealed build on a Linux host with podman. Steps 1–6, the jail notch, are built, their choices ledgered as [FP-D1](../design/forked-programs-as-packs.md#FP-D1)–[FP-D15](../design/forked-programs-as-packs.md#FP-D15). Past step 7, the design's macos-user step waits on hand-off H4 ([row 63](#-needs-you)) and the macOS host capture ([row 55](#-ready)), and its guest step on env-manager Phase 7 | a maintainer's fork pack, then on that host `yolo pack install` and `yolo capture pi`, the entry's `capture-manifest.json` read and its tree searched for `/nix/store` and `/lib`; then the `hostfloor` arms, or a stop to ask if the tree names the image's own paths — [`forked-programs-as-packs.md`](../design/forked-programs-as-packs.md) · accepted · [plan](../design/forked-programs-as-packs-plan.md#step-7-needs) |
-| **80** · Claude's login without interception, the measures before the deletion | a human: [§7](../design/claude-login-without-interception.md#7-what-must-be-measured-before-building)'s measures need a real Claude on a real login, which no automated test may start ([the runbook](runbooks/claude-credential-view-measures.md), written, not run). Steps 2–4 are built behind `YOLO_CLAUDE_CREDENTIAL_VIEW=1`, and [`OQ-CL1`](../design/claude-login-without-interception.md#OQ-CL1) and [`OQ-CL2`](../design/claude-login-without-interception.md#OQ-CL2) were ruled 2026-09-28 | the measures passing and a day on a real rootless host, then step 5, the deletion ([CL-D7](../design/claude-login-without-interception.md#CL-D7)), which also closes notch-convergence item 4 — [§10](../design/claude-login-without-interception.md#10-what-i-would-build-in-order) |
-| **85** · Podman reboot readiness, on a real host | a rootless Linux host: the fix was built 2026-09-29 and is measured by unit tests on a fake podman whose clock the test drives; nothing has run it at a real reboot or on a rootless podman | the doc's real-host check: its reproduction on a rootless host, and at a real reboot each of the restorer's launches starting or refusing within the budget — [`podman-reboot-readiness.md`](../design/podman-reboot-readiness.md#testing-and-the-real-host-check) |
-| Pack `briefing/` defaults, the external `matt` pack | its own commit: the pack still needs `git mv AGENTS.md briefing/house-rules.md` (its state INFERRED, it lives outside this repo). Per-agent routing ran in a launched jail: `TestPackAudienceRoutesBriefingFilesPerAgent` passed on rootless CI on both arches (`ci.yml` 36662086103) | the `matt` pack's own commit — [`pack-system.md`](../reference/pack-system.md#briefing) |
-| The wire-bridge 8214 collision fix, on the host that reported it | a run of `yolo -p kilo -- pi` against `3c20a5d8` on that host — UNMEASURED | one launch; [`wire-bridge.md`](../reference/wire-bridge.md#what-can-hold-the-listen-port-before-the-bridge-does) |
-| The agent footer, under a live agent | a human: no footer has been watched in a live session. That Claude's status-line command runs in a jail and inherits its env, and that opencode draws the plugin's text from `tui.jsonc`, are unmeasured; macos-user needs a Mac; the no-agent-tests rule keeps all of it out of CI | one session per agent with a footer hook, its footer read back — [`agent-footer.md` §2.1](../design/agent-footer.md#21-as-built) |
-| Claude's generated LSP plugin, in a live session | a human: no `claude` session has run against a rendered `yolo-lsp` plugin, and the no-agent-tests rule keeps it out of CI | one interactive session with `lsp_servers` set — [`mcp-configuration.md`](../reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin) |
-| Archive delivery on macOS, at the launch call site | a Mac: `deliverViaArchive`, which now sends a [delta archive](../reference/image-staging-vs-baking.md#the-delta-archive), has not run in a real launch on podman/macOS or Apple Container, which is [`OQ-LI2`](../reference/image-staging-vs-baking.md#why-its-this-way)'s outstanding precondition. The podman half is measured on Linux against a remote client; the Apple Container half is UNMEASURED. No job builds `.#imageCopier` on x86_64-darwin | two launches per backend (a first load, then one after a `packages:` change), the research's Apple Container commands, and one darwin `nix build .#imageCopier` — [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#archive-destinations) |
-| Bedrock from a host `aws sso login`: a turn inside a real lapse | a portal session ending while a jail runs. Everything is built ([SSO-D1](../design/sso-backed-bedrock.md#SSO-D1), the launch warning, included) and graduated into [`agent-credentials.md`](../reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth). A running jail picking up a re-login with no relaunch is observed: a jail up about ten hours worked across at least two of the host's four-hourly logouts. A turn during a real lapse, the real CLI's expiry wording, and `macos-user` are unmeasured | the next lapse: the launch warning and the agent's error name `aws sso login --profile …` — [`sso-backed-bedrock.md` §11](../design/sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it) |
-| Claude Code in Bedrock mode from its settings file alone | the switch's settings-file path with real credentials. Bedrock mode on real AWS credentials is MEASURED (the 2026-09-29 try-out: a jail's claude completed turns on credentials served by `aws-auth`), but that claude, like every yolo-launched one, had `CLAUDE_CODE_USE_BEDROCK` in its process environment as well as in the `claude/settings` env block, so the settings-only path a bare `claude` outside yolo takes is not isolated | one Bedrock-mode run of a `claude` started without yolo's process environment — [`providers.md`](../reference/providers.md#two-channels-split-by-payload-type) |
-| Backend-parity's fourteen shipped macOS fixes | the next runs of the two Mac workflows: every row now has a named hardware test or a stated reason ([`backend-parity.md` §5.4](../design/backend-parity.md#54-which-test-answers-which-row)). Green: #1, #11/#13, #12. HOLD on the 2026-09-25 Mac run (`apple-container.yml` 36170072271): #2, #4, #8. #3 HOLDS (run 36186125172, after its test-isolation fix). #10 DOES NOT HOLD for a reason outside yolo: `container inspect` shows the ports published as asked and `lsof` shows Apple's forwarder listening, but it accepts and resets, and the Mac cannot route to the container ("no route to host"). Hand dials on the runner's Mac MEASURED that as macOS Local Network privacy: every non-Apple binary, the ad-hoc-signed Homebrew `container` helpers included, gets "no route to host" to every LAN and vmnet peer, interactive or not, while Apple binaries reach them. Unverified: that a Local Network grant, or Apple's signed `container` package, makes #10 hold. The recorded loopback refusal is a probe artifact, not a missing listener ([`backend-parity.md`](../design/backend-parity.md#54-which-test-answers-which-row)). The #10 probe now records every dial with its time and the jail's phase, and names Local Network privacy when no dial reaches the container, one fails with "no route to host" and the route is live; its verdict line then points to that diagnosis, which concedes when a published port answers. The probe is written, not yet run on the Mac. Unrun: the macos-user checks #6, #7, #9, #14 (`macos-user.yml`; absent from its last run) | a Local Network grant (or the signed `container` package) on the runner's Mac, then a #10 rerun; and the macos-user run |
-| The `llamacpp` mode, end to end | a live `llama-server` — nothing in it has ever run against one | the per-agent smoke tests in [`packs/llamacpp/README.md`](../../packs/llamacpp/README.md); copilot's and codex's are load-bearing rather than confirmatory |
-| The bridge's via route, through a real agent | a human: no pi, oh-omp, opencode or codex session has sent a request through `/agent/<name>/`. That each keeps a base URL's path is read from its client's source (oh-omp's from its published package), not observed on the wire, and whether `bedrock-runtime` serves Responses at `/openai/v1/responses` is unread; the no-agent-tests rule keeps it out of CI | one session per agent on a `via: "wire-bridge"` profile — [`wire-bridge-gateway.md` §4.1](../design/wire-bridge-gateway.md#41-how-it-is-built) |
-| The bridge's subscription arm and failover (Part 4) | the subscription's usage-limit response, which nobody has seen | one recorded usage-limit response — [`wire-bridge-gateway.md` §5](../design/wire-bridge-gateway.md#5-part-4--the-subscription-arm-and-opt-in-failover-ruled) |
-| The storage-classes briefing on Apple Container | a Mac: its wording is unit-tested only, and no Mac has rendered it | one Apple Container launch's briefing, read back — [`durable-scratch-space.md`](../design/durable-scratch-space.md) |
-| Capability-driven MCP delivery, in a launched jail | no launch with a `provides` server configured is recorded; the rule's acceptance cells drive the boot loop in unit tests only | one launch with a personal server declaring `provides: "web_search"`, once under Kilo and once under a source that searches natively — [`mcp-configuration.md`](../reference/mcp-configuration.md#capability-driven-mcp-delivery) |
-| Retiring a dropped pack's host output, in a real home | a human: no real `yolo host apply` over a dropped pack is recorded; unit tests drive the apply into throwaway homes | one `yolo host apply --assert` after a pack leaves `packs`, in a real home — [`pack-system.md`](../reference/pack-system.md#retiring-a-dropped-packs-host-output) |
-
-## 🧊 Icebox
-
-| | The uncertainty | What would thaw it |
-|---|---|---|
-| [`cache-relocation.md`](cache-relocation.md) — `yolo cache relocate` | all three questions are HELD by choice: what is undecided is whether we want the feature | ruling [`OQ-CR1`](cache-relocation.md#-oq-cr1--is-cache_relocations-the-right-level-held), which carries CR2 with it |
-| [`workspace-config-trust.md`](../design/workspace-config-trust.md) — trust-gated grants in the local file | whether per-workspace rw grants are wanted at all, given user scope already covers every actor ([`OQ-WT1`](../design/workspace-config-trust.md#OQ-WT1)) | a concrete rw mount that is workspace-specific and cannot move into the workspace — i.e. [context-mounts](../design/context-mounts.md)' rw form being wanted |
-| [G21](setup-support-gaps.md#2-ranked-gap-backlog) — in-jail nix on the container Macs | none technical: **ruled 2026-09-24 possible, but not planned for now**; a route is measured in [G21/G22's sketch](setup-support-gaps.md#2-ranked-gap-backlog) | a user who needs `nix` inside a container-Mac jail and for whom `packages:`, mise and the `macos-user` backend all fall short |
-| [`central-yolo-watcher.md`](../research/central-yolo-watcher.md) — what a central host watcher would buy (**exploration**, nothing proposed) | whether yolo wants a resident watcher at all: no ruled duty holds a live listener across launches, and [`OQ-YW1`](../research/central-yolo-watcher.md#OQ-YW1) was ruled 2026-09-29 (no scheduled reclaim). One finding needs no watcher: a SIGKILLed launcher's loophole daemons (podman and macos-user) and socat are killed by nobody (INFERRED; a lifeline, or `Pdeathsig` for socat, closes it, and the boundary broker's per-jail grants depend on that fix) | a ruled duty that must hold a live listener across launches, or [`OQ-HD9`](../design/host-daemon-ownership.md#OQ-HD9) ruling a timer in |
-
-## What this file does not cover
-
-**Candidate work nobody committed to.** [`further-roadmap-ideas.md`](further-roadmap-ideas.md#1-the-five-i-would-build)
-carries five *build it* verdicts. That file is a shelf by its own rule, and none of the five is a
-task until someone wants it.
-
-**Live questions that block nothing** are listed under *Small calls* above rather than given
-rows; they are real and cheap, and none of them is holding anything up.
-
-**Questions with no id, invisible to the count command.** Each wants an id before it wants a row.
-
-- Whether Go comments should cite a reference doc by named section, and what becomes of the dangling citations that census found ([the dangling `§N` citations](README.md#the-dangling-n-citations-in-go-comments)).
-- Whether a bare `-p <name>` that selects NOTHING should say so, stated only at `checkProfileTargets`' docstring in [`packs.go`](../../internal/cli/run/packs.go).
-
-**Doc closures that are bookkeeping, not decisions.** Docs graduate one at a time
-([`OQ-DT1`](README.md#oq-dt1)). These say BUILT, or that their done conditions are met, and hold no
-live question, so each is a candidate to
-check against that rule: [`workspace-skills.md`](../design/workspace-skills.md),
-[`provider-credential-scope.md`](../design/provider-credential-scope.md),
-[`host-computed-layer.md`](../design/host-computed-layer.md) (and its plan),
-[`host-notch-services.md`](../design/host-notch-services.md),
-[`podman-reboot-readiness.md`](../design/podman-reboot-readiness.md) (and its plan),
-[`agent-program-runtimes.md`](../design/agent-program-runtimes.md) (a stub that says it is ready
-to graduate), [`agent-footer.md`](../design/agent-footer.md),
-[`attach-skew-and-contract-guardrails.md`](../design/attach-skew-and-contract-guardrails.md) and
-[`docs-website.md`](../design/docs-website.md). They are listed
-here because a graduation is work, not a question.
-
-*A question is promoted to a row the day it starts blocking something, and leaves the day it stops.*
+- **Not committed to:** [`further-roadmap-ideas.md`](further-roadmap-ideas.md), a shelf of unverified candidates.
+  **Iced**, with what would thaw each: [`yolo cache relocate`](cache-relocation.md) (someone wanting it),
+  [trust-gated grants in a local config](../design/workspace-config-trust.md) (a workspace-specific read-write mount that
+  cannot move into the workspace), [in-jail nix on the container Macs](setup-support-gaps.md#2-ranked-gap-backlog) (a user
+  for whom `packages:`, mise and macos-user all fall short) and [a central host watcher](../research/central-yolo-watcher.md#7-what-would-have-to-be-true-before-building-one)
+  (a duty that must hold a listener across launches, or a ruled credential timer).
+- **Ids Vantage cannot index**, not being `OQ-` shaped, reached here by name: [Q1 to Q9](../design/environment-manager-user-stories.md#Q1),
+  [9.2 and 9.6](../design/host-render-target.md#9.2), [CFP-1 to CFP-3](../design/composed-file-permissions.md#CFP-1),
+  [Q2 and Q3](../design/macos-user-build-step-threat-model.md#Q2), [SS-6](../design/jail-state-separation-design.md#ss-6),
+  [BP-1](../design/backend-parity.md#OQ-BP-1), [E1, E2, E5 and CO](BACKLOG.md#E1), [the host-files mode](pack-host-management-plan.md#open-questions),
+  [H4](install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it), and two left outside this queue:
+  [SH-1](macos-revival-and-distribution-plan.md#oq-sh-1--is-macos-user-self-hosting-worth-pursuing-at-all-maintainer),
+  which blocks nothing, and [JD-4](../design/jail-daemon-on-macos-user-plan.md#decision-ledger), a maintainer follow-up.
+- **With no id at all:** [Go comments citing sections by number](README.md#the-dangling-n-citations-in-go-comments),
+  [check 2's two marker conventions](README.md#check-2-has-two-known-errors-and-a-convention-question-under-each),
+  [the storage lifecycle's `min-free` values](storage-lifecycle.md#open-questions), the unruled half of
+  [OQ-ST2](../design/synced-skill-trees.md#OQ-ST2) on user-reserved skill children, and whether a bare `-p` whose packs
+  install no CLI should say it selects nothing (`checkProfileTargets`, `internal/cli/run/packs.go`).

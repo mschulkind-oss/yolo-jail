@@ -1,10 +1,18 @@
+---
+title: "Plan: capture-and-repackage for the installer class"
+status: accepted
+stage: DECIDED
+next: "Measure on Linux, as a proxy for the Mac fact H4 waits on: capture claude from the current tree in a nested jail and read whether its capture-manifest.json says relocatable:true"
+tags: [plan, capture, installers, program-delivery, macos-user]
+---
+
 # Plan: capture-and-repackage for the installer class
 
 **Design:** [`program-delivery.md` §6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
 (ruled [OQ-PD10](../design/program-delivery.md#decision-ledger)) ·
 Written 2026-09-03.
 
-**Status:** DECIDED, 2026-09-26 — **owed: slice 6's hand-off
+**Status:** 2026-09-26 — **owed: slice 6's hand-off
 [H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it), a capture store a
 `macos-user` launch can read**, so no launch on that backend materializes a capture yet. H4 needs a
 ruling before it is built: every way to wire it changes what that backend's sandbox may read.
@@ -17,7 +25,7 @@ reversed by [OQ-CP1](../reference/agent-cli-copies.md#oq-cp1). On `macos-user`, 
 `yolo capture` to that backend) landed 2026-09-04 and the recording half was measured on hardware
 2026-09-11. The confinement denial probe (slice 6's hardware item 3) has no recorded run. H3 is a
 stated non-default, not a gap. **This is not a graduation candidate until H4 lands or is retired.**
-The word stays `DECIDED` although H4 wants a ruling, because H4's question is about the
+The doc owes work rather than a ruling although H4 wants one, because H4's question is about the
 `macos-user` sandbox's read set (the session Seatbelt profile), not one of this design's rulings;
 it is named here so that judgement can be checked
 ([the tie-breaker](README.md#the-vocabulary--seven-words-and-the-word-names-what-is-owed)).
@@ -995,7 +1003,7 @@ wrong one to sequence on.
   fail until `pruneUsage` and `commandHelp` carry the new flag and the `capture` row.
 - **Docs:** [`../design/program-delivery.md`](../design/program-delivery.md) [§10](../design/program-delivery.md#10-what-i-would-build-in-order) step six status; [`../reference/storage-and-config.md`](../reference/storage-and-config.md)
   [§2](../reference/storage-and-config.md#machine-wide-storage)'s `<gs>` table (line 112 — already 9 dirs stale, so add `captures/` and say the table was
-  incomplete); [`roadmap.md`](roadmap.md)'s program-delivery row; [`../guides/USER_GUIDE.md`](../../userguide/README.md) for the new verb.
+  incomplete); a review of [`roadmap.md`](roadmap.md)'s link to program delivery, for its order and reason; [`../guides/USER_GUIDE.md`](../../userguide/README.md) for the new verb.
 - **Surfaces:** `yolo capture --help`; **`YOLO_NO_AUTO_CAPTURE`** (slice 7 — any non-empty value,
   the `YOLO_ALLOW_STALE_IMAGE` convention, documented in
   [`USER_GUIDE.md`](../../userguide/README.md)'s `yolo capture` section, which no longer says a

@@ -2,6 +2,10 @@
 title: "MCP presets removal — implementation sketch"
 date: 2026-09-12
 status: draft
+stage: SKETCH
+next: "Promote to a hand-off with the implementation-plan skill once pack-system.md#OQ-PK1 is ruled; the inventory's symbols were re-checked 2026-09-30"
+depends-on:
+  - ../reference/pack-system.md#OQ-PK1
 tags: [plan, sketch, mcp, packs, removal]
 summary: "Parking lot for the implementation material of the mcp_presets removal: the call sites, the tests that pin the preset names, the staging traps, and the documentation that describes the old behaviour. Not a hand-off artifact."
 vantage:
@@ -10,17 +14,18 @@ vantage:
 
 # MCP presets removal — implementation sketch
 
-**Status:** SKETCH, 2026-09-12 — incomplete. Every design question it used to wait on is settled
+**Status:** 2026-09-12 — incomplete. Every design question it used to wait on is settled
 (2026-09-20), so what it owes now is completion against the tree rather than a decision.
 
 **The design wins on behaviour.** This file holds settled-but-boring material only; every design
 decision lives in [`mcp-presets-removal.md`](mcp-presets-removal.md), and nothing here may decide
-one. An agent must **not** build from this file while it carries the SKETCH stamp — a real plan's
+one. An agent must **not** build from this file while its frontmatter stage is `SKETCH` — a real plan's
 product is codebase knowledge, and the `implementation-plan` skill owns what this has to become
 first.
 
 Inventory first taken against `7079d3ef`, 2026-09-12, and re-checked 2026-09-22: every symbol named
-below still exists under that name.
+below still exists under that name. Re-checked by name again on 2026-09-30 at `4ac4b8fa`, with the
+same result.
 
 ---
 
@@ -127,9 +132,10 @@ Each one pins a shape the inventory above could otherwise only describe two ways
 
 ⚠ **What the removal is still gated on is [OQ-MP7](mcp-presets-removal.md#OQ-MP7)'s consequence, not
 on anything in this file.** The ruling redraws the `packs` scope rule on **host reach** rather than on
-install, and that redrawing lives in
-[`loophole-system.md`](../reference/loophole-system.md#principles)'s `R5` and in
-[`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1) — still open.
+install, and that redrawing is [`OQ-PK1`](../reference/pack-system.md#oq-pk1), still open, which names
+[`loophole-system.md`](../reference/loophole-system.md#principles)'s `R5` as the wording it amends.
+[`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1), the same question
+for skills, was ruled on 2026-09-27 as a staged mirror outside `packs`, so it did not redraw the rule.
 
 ## Documentation that describes the old behaviour
 

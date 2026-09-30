@@ -1,7 +1,9 @@
 ---
 title: "Pi extensions want machine-scoped storage and pre-launch refreshes across jails"
 date: 2026-09-17
-status: accepted
+status: in-review
+stage: DESIGN
+next: "Rule OQ-4; its leaning builds nothing, and pi-git-extension-caching.md's ruled npm trees would replace the shared store the question is about"
 tags: [pi, extensions, updates, packages, machine-tier, launchers]
 summary: "Architecture for managing Pi package and extension lifecycles across multiple YOLO jails: machine-scoped extension storage, rate-limited pre-launch updates, and cross-jail concurrency control."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Pi extensions want machine-scoped storage and pre-launch refreshes across jails
 
-**Status:** DECIDED, 2026-09-20. **All three tiers are built.** The STORAGE tier
+**Status:** 2026-09-20. **All three tiers are built.** The STORAGE tier
 ([§3.1](#31-storage-tier-decoupling-packages-from-session-state), [OQ-1](#OQ-1)) shipped
 2026-09-21. The REFRESH and CONCURRENCY tiers ([§3.2](#32-execution-tier-pre-launch-auto-refresh),
 [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion)) were built 2026-09-25 as a `refresh`
@@ -25,7 +27,12 @@ observed that way too; until it is, a two-home unit test pins it. **One new ques
 the build, [OQ-4](#OQ-4):** the lock serializes only the launcher's refresh. Pi's own startup
 installs any configured package that is missing from the store, pinned or not, with no lock,
 whenever the refresh did not reach it first. That happens when the refresh is throttled, when
-the launch is contended, and for exact pins, which `pi update --extensions` skips.
+the launch is contended, and for exact pins, which `pi update --extensions` skips. ⚠ **The
+shared store itself is ruled to go:** [`pi-git-extension-caching.md`](pi-git-extension-caching.md)'s
+[OQ-5](pi-git-extension-caching.md#OQ-5), ruled 2026-09-26, extends its immutable-tree design to
+`npm:` packages, because `.pi-shared-npm` lets one jail's install change what another jail runs
+([§3.11](pi-git-extension-caching.md#311-the-npm-store) there). That build is not on main
+(re-checked 2026-09-30), so the storage tier below is still what ships.
 
 > **In short.** Pi extensions belong in YOLO's machine-scoped storage tier rather than
 > isolated per-workspace homes: decoupling extension storage from workspace session state
@@ -456,7 +463,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    Should `~/.pi/agent/npm` live in machine-scoped storage (`paths.GlobalHome()`, mounted across
    all workspaces) or remain workspace-scoped with independent downloads?
 
-   <!-- vantage: oq id=OQ-1 leaning="Machine-scoped storage — extensions are shared tool capabilities like global binaries, and duplicating node_modules across N workspaces wastes disk and creates cross-jail version drift." -->
+   <!-- vantage: oq id=OQ-1 -->
 
    **Answer (2026-09-20):**
    > **Machine-scoped storage.** Extensions are shared tool capabilities, like global binaries.
@@ -471,7 +478,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    pins the package set through `internal/packsrc` + `packs.lock.json`, and the launcher only
    materializes it** ([Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store)).
 
-   <!-- vantage: oq id=OQ-2 leaning="Option (c): YOLO resolves and PINS through internal/packsrc + packs.lock.json, and the launcher only materializes via `pi update --extensions` under a non-blocking lock. Pi's CLI keeps the package-manager half (no npm reimplemented), but the VERSION CHOICE moves to YOLO — the seam a distributor must own, since no ecosystem here ships a lockfile or rollback." -->
+   <!-- vantage: oq id=OQ-2 -->
 
    **Answer (2026-09-20): option (c).**
    > YOLO resolves and **pins** through `internal/packsrc` + `packs.lock.json`, and the launcher
@@ -521,7 +528,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    should YOLO attempt to suppress Pi's warning box (e.g. by setting pinned versions in generated
    settings) or leave it untouched?
 
-   <!-- vantage: oq id=OQ-3 leaning="Leave Pi's in-app notification untouched — in the normal path, the pre-launch update ensures extensions are up-to-date before the TUI starts, so the in-app check passes cleanly without warning." -->
+   <!-- vantage: oq id=OQ-3 -->
 
    **Answer (2026-09-20):**
    > **Leave it untouched.** In the normal path the pre-launch update runs before the TUI starts,

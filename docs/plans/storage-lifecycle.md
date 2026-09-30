@@ -1,7 +1,20 @@
+---
+title: "Storage / cache / image lifecycle — make GC safe at any moment"
+status: accepted
+stage: BUILT
+next: "On the host: the maintainer sets min-free/max-free in /etc/nix/nix.conf (§2; the values are theirs), then runs the host acceptance in the test plan — a forced low-space GC with a jail up, and `yolo prune --nix-gc` against the real store"
+---
+
 # Storage / cache / image lifecycle — make GC safe at any moment
 
-**Status:** DECIDED, 2026-07-22 — [§1](#1-root-the-running-images-closure--first-everything-depends-on-it)–[§4](#4-log--overlay--cache-lifecycle--independent-lower-priority) implemented; host-gated residuals remain (see
-below). Anchored on a real incident: a host `nix-collect-garbage` reclaiming
+**Status:** 2026-07-22 — [§1](#1-root-the-running-images-closure--first-everything-depends-on-it)–[§4](#4-log--overlay--cache-lifecycle--independent-lower-priority) implemented; host-gated residuals remain (see
+below). MEASURED 2026-09-30, from a jail on the maintainer's host: `nix-store --query --roots` on
+the store path behind this jail's `/bin/git` listed two `build/roots/<sha16>` image roots, so a
+running image's closure is rooted ([§1](#1-root-the-running-images-closure--first-everything-depends-on-it)).
+UNMEASURED: the bounded store GC of [§3](#3-bounded-rooting-aware-store-gc-in-yolo-prune--after-1-and-2)
+against a real host store, and the [test plan](#test-plan)'s host acceptance (a forced
+low-space GC with a jail up). Both are host-gated, and [§2](#2-auto-gc-safety-net-min-freemax-free--only-after-1)'s
+`nix.conf` edit is the maintainer's to make. Anchored on a real incident: a host `nix-collect-garbage` reclaiming
 ~2.5 TiB swept the **running jail image's own store closure**, leaving 235 of
 467 `/bin` symlinks pointing at dead targets (git, gh, curl, gcc, rg, fd, node,
 yolo, …). The jail kept running but its tools were broken. Root cause: **the

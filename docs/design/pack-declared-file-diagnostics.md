@@ -6,11 +6,17 @@ tags: [packs, diagnostics, check, dotfiles, isolation]
 summary: "When users or coding agents configure tool-specific files (e.g. APPEND_SYSTEM.md) that do not project into isolated jail environments, the configuration is silently inert. This doc designs a generic, declarative mechanism for agent packs to declare bypassed or trapped file patterns, enabling yolo check to detect and warn about inert dotfiles without core knowing about individual agents."
 vantage:
   status-chip: true
+stage: DESIGN
+next: "Rule agent-directory-map.md's traps question (its AM8) first: its leaning supersedes this doc and answers OQ-1 to OQ-3 at once"
+depends-on:
+  - agent-directory-map.md#OQ-AM8
 ---
 
 # Pack-declared file diagnostics: detecting bypassed dotfiles without core agent knowledge
 
-**Status:** DESIGN, 2026-09-18. Nothing built; three open questions need a ruling.
+**Status:** 2026-09-18. Nothing built (re-checked 2026-09-30: `packdecl`'s closed kind set has no
+`traps` or `self_check`); three open questions need a ruling, and
+[`OQ-AM8`](agent-directory-map.md#OQ-AM8) may fold all three into the agent-directory map.
 
 **Needs your ruling:** [`OQ-1`](#oq-1), [`OQ-2`](#oq-2), [`OQ-3`](#oq-3).
 They ask, in order: declarative JSON trap patterns or executable pack self-checks; whether the
@@ -161,13 +167,25 @@ concerns during `yolo check`.
    - **Option (a) [Recommended]:** Declarative JSON under `"kind": "traps"`. Fast, safe, and easily inspectable by `yolo check`.
    - **Option (b):** Executable pack self-checks. More flexible for complex inspections, but slower, executes pack code, and needs an origin gate of its own. Both options cost a new contribution kind — the existing `doctor_cmd` seam belongs to a loophole and is activation-gated ([§3](#3-proposed-mechanism)), so it cannot carry this.
 
+   <!-- vantage: oq id=OQ-1 leaning="(a) Declarative JSON under kind traps: fast, safe to evaluate without running pack code, and easily inspectable by yolo check. Either option costs a new contribution kind." -->
+
+   _Leaning:_ (a), the option marked recommended.
+
 2. <a id="oq-2"></a>💬 **[`OQ-2`](#oq-2) — Where should trap diagnostics run?**
    - **Option (a) [Recommended]:** In `yolo check` only. `yolo check` is the designated diagnostic tool for environment health; launches and applies should stay fast and focused on execution.
    - **Option (b):** In `yolo check` and also as an informational warning during `yolo host apply`.
 
+   <!-- vantage: oq id=OQ-2 leaning="(a) In yolo check only: it is the designated environment-health tool, and launches and applies stay fast and focused on execution." -->
+
+   _Leaning:_ (a), the option marked recommended.
+
 3. <a id="oq-3"></a>💬 **[`OQ-3`](#oq-3) — Should the path search be restricted to host `$HOME`, or also inspect the workspace?**
    - **Option (a) [Recommended]:** Host `$HOME` only (`~`). Workspace files (`<workspace>/pi/agent/APPEND_SYSTEM.md`) in dotfile repositories may just be source files awaiting installation; checking host `$HOME` catches the actual deployed files.
    - **Option (b):** Both host `$HOME` and workspace paths.
+
+   <!-- vantage: oq id=OQ-3 leaning="(a) Host $HOME only: workspace copies in a dotfiles repository may be sources awaiting installation, and $HOME holds the deployed files." -->
+
+   _Leaning:_ (a), the option marked recommended.
 
 ---
 

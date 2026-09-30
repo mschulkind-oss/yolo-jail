@@ -1,14 +1,16 @@
 ---
 title: "Nested nixpkgs attribute paths in `packages`"
 date: 2026-08-22
-status: draft
+status: in-review
 tags: [config, nix, packages, flake]
 summary: "A `packages` entry like `rocmPackages.clr` fails because yolo reads any dot as an output selection. In Nix both are the same attribute walk, so one path-walking resolver supports nested collections and output selection alike — provided it keeps the base derivation for the /lib symlink farm."
+stage: DESIGN
+next: "Rule OQ-1 — the resolver's disambiguation rule decides the whole build"
 ---
 
 # Nested nixpkgs attribute paths in `packages` — and why output selection is the same operation
 
-**Status:** DESIGN, 2026-09-24 — sketched 2026-08-22, and it owes one ruling,
+**Status:** 2026-09-24 — sketched 2026-08-22, and it owes one ruling,
 [OQ-1](#OQ-1), which decides the resolver's central rule. Nothing built: re-checked 2026-09-24,
 `packageNameRe` is still the single-optional-dot pattern and `flake.nix` still has no
 `attrByPath`, `hasAttrByPath` or `resolvePackagePath`. `60376fed` does not invalidate any premise
@@ -263,9 +265,8 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
    code, it is a different algorithm. It also decides what [§4.2](#42-the-base-derivation-vs-output-trap-in-lib-farm-extraction)'s base-derivation contract means in
    the ambiguous case: an output resolution keeps `foo` as the base and feeds `getLib foo` to the
    `/lib` farm, while a member resolution makes `foo.bar` the base and feeds `getLib foo.bar`. Those
-   produce **different image contents**, silently, from the same config string. This is the rule the
-   [roadmap](../plans/roadmap.md)'s row for this doc names as gating the item as a whole rather than
-   one corner of it.
+   produce **different image contents**, silently, from the same config string. That is why this
+   rule gates the feature as a whole rather than one corner of it.
 
    <!-- vantage: oq id=OQ-1 leaning="Output wins on the leaf; a deeper path wins over both — if the remaining path is exactly one component and it is in `curr.outputs`, resolve it as an output, otherwise keep walking. Held loosely: refusing the ambiguity with a throw that names both candidate resolutions is the alternative worth ruling for instead." -->
 

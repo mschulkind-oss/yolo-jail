@@ -6,13 +6,20 @@ tags: [design, packs, agent-directories, host, check, dotfiles, credentials, pi]
 summary: "yolo manages an agent's directory only where some pack happens to name a path, so a dotfiles manager's dangling links in ~/.pi/agent crashed pi without yolo noticing, and 'can I wipe ~/.pi?' took a code read. Each agent pack should declare its agent's directory whole: every path is state, cache or yours, and yolo's own writes (composed files, links it lays, names it deletes) are derived from the declarations that already cause them rather than declared a second time. One read-only evaluator, run where the agent runs, names dangling links, shadowing files and unexplained entries, and it never deletes or refuses anything. Pi ships first, with a full measured map; claude, codex, opencode, copilot, agy and omp follow, each with its own hard parts."
 vantage:
   status-chip: true
+stage: DESIGN
+next: "Build the jail-launch line for a dangling readsHost or after: host: source (§6.4 item 5, which rests on no open question): start at hostFileArgs in internal/cli/run/packhostgrants.go"
 ---
 
 # Every path in an agent's directory gets a class, and yolo names the ones that fit none
 
-**Status:** DESIGN, 2026-09-28. The map is not built. Two rulings on pi's MCP files that the
+**Status:** 2026-09-28. The map is not built (re-checked 2026-09-30: `packdecl` has no
+`directory` kind). Two rulings on pi's MCP files that the
 surveys raised are built, in `a4cc690b` ([AM-R1, AM-R2](#13-decision-ledger)). Evidence read at
-`daac6eb4`. Pi, claude, codex, opencode, copilot, agy and omp were surveyed read-only the same day
+`daac6eb4`. The jail-launch line ([§6.4](#64-exactly-what-ships-in-the-pi-slice) item 5) is
+independent of the map and of every question below, and is not built either: re-checked
+2026-09-30, `hostFileArgs` still skips a source `isFile` rejects with no line, and `isFile` is an
+`os.Stat`, so a dangling link is dropped silently; `PrependHostBriefing` still returns the jail
+content on any read error. Pi, claude, codex, opencode, copilot, agy and omp were surveyed read-only the same day
 ([Appendix A](#appendix-a-evidence)).
 
 > **In short.** yolo should own each agent directory's **map**, meaning what every path in it is,
@@ -1046,8 +1053,8 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    ask for a declarative kind, where it runs, and which home it scans. This doc answers all three:
    declarative, at check, apply and the preflight, and in the home where the agent runs.
 
-   - **A: Absorb it.** A trap is a map entry with a `note`, that doc is superseded, and roadmap
-     row 28 closes into this one.
+   - **A: Absorb it.** A trap is a map entry with a `note`, that doc is superseded, and its three
+     questions close into this one.
    - **B: Keep both.** `traps` for "inert here" diagnostics, and the map for classification. That is
      two kinds naming the same paths.
 

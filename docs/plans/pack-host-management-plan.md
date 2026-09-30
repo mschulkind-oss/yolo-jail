@@ -1,10 +1,14 @@
 ---
+title: "Implementation plan — pack-managed host briefings, skills, and files"
 status: in-review
+stage: BUILT
+next: "Rule OQ-B together with BACKLOG.md's E1 and E2, one asymmetry seen three times; this plan graduates once the three are ruled"
+tags: [plan, packs, host, skills, briefing, files]
 ---
 
 # Implementation plan — pack-managed host briefings, skills, and files
 
-**Status:** BUILT, 2026-08-02 — MEASURED: the acceptance test passed at both notches that day, one
+**Status:** 2026-08-02 — MEASURED: the acceptance test passed at both notches that day, one
 pack delivering the fzf file finder into a real home and into a jail (the build-status note
 below). **Phases 0–10 shipped** that day and
 [Phase 11](#phase-11--three-programstaging-defects-found-by-building-the-real-pack--shipped)'s
@@ -49,7 +53,8 @@ not here:
   that finds a declared `program` missing offers that pack's own install command once, before
   anything is written. A decline stops the run
   ([the dependency rule](../reference/report-tiers.md#the-dependency-rule)). The batching by
-  elevation class is still owed to env-manager Phase 4.3.
+  elevation class is not owed: it was
+  [`OQ-EM1`](../design/yolo-as-environment-manager.md#OQ-EM1)'s, answered 2026-09-30.
 - **Phase 9's paths.** The records and the archive live under the state dir
   `~/.local/share/yolo-jail/` (`host-skills-manifest.json`, `archive/<bucket>/<stamp>/`), not
   under `~/.local/state/`.

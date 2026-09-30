@@ -138,6 +138,8 @@ This is a reproducible code-path gap, but **the claimed OpenRouter launch was no
    holds, and it needs no new config key; a separate budget set is a new surface nobody has
    asked for yet.
 
+   <!-- vantage: oq id=OQ-PM1 -->
+
    **Answer:**
    > **Ruled 2026-09-28, as leaned**, through
    > [OQ-XM3](extension-model-defaults.md#OQ-XM3)'s ruling: the provider's configured model set,

@@ -1,6 +1,16 @@
+---
+title: "Implementation plan sketch: attach skew and contract guardrails"
+date: 2026-09-26
+status: deprecated
+stage: SUPERSEDED
+next: "Nothing to build: retire this file with the design's graduation, whose What was built section and ledger are the record"
+tags: [plan, sketch, attach, skew, contracts]
+summary: "The pre-ruling implementation sketch for the attach-skew guardrails, kept for its table of where each built piece landed; the design's What was built section and ledger supersede it."
+---
+
 # Implementation Plan Sketch: Attach Skew and Contract Guardrails
 
-**Status:** SKETCH, 2026-09-26, and SUPERSEDED where it disagrees with what was built the same
+**Status:** 2026-09-26 — superseded wherever it disagrees with what was built the same
 day. The design doc's [What was built](attach-skew-and-contract-guardrails.md#what-was-built-2026-09-26)
 and [ledger](attach-skew-and-contract-guardrails.md#decision-ledger) are the record; the table
 below says where each piece landed. The signature sketches further down are the pre-ruling

@@ -2,6 +2,8 @@
 title: "Should credentials leave env_sources?"
 date: 2026-09-27
 status: in-review
+stage: DESIGN
+next: "Rule OQ-ES5's jail half — notch-convergence item 12, --with-credentials in a jail, waits on it"
 tags: [providers, profiles, credentials, env-sources, notches, cli]
 summary: "A key listed in env_sources is withheld from `yolo host -- bash`, and the filing proposed a separate credential_sources key. Measured against the built credential gate: the surprise happens only for a claimed name that env_sources supplies, the host remedy (`yolo host -p <profile> -- <cmd>`) is already built but undocumented, and the split would revisit OQ-CN1. Five implementation decisions, now built, make the host remedy findable. OQ-ES5's host half is ruled (2026-09-27): an explicit `yolo host --with-credentials <provider…|all>` grant, keys only, host only. Two questions stay open: OQ-ES5's jail half, and shared generic names such as AWS_PROFILE. The split itself (OQ-ES1) is answered no by OQ-ES5's own ruling, and aws-auth's pointer under a typed -p (OQ-ES7) is moot, since -p reaches agent CLIs only."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Should credentials leave `env_sources`?
 
-**Status:** DESIGN, 2026-09-27, filed at `9ebbb659` and corrected the same day against the built
+**Status:** 2026-09-27, filed at `9ebbb659` and corrected the same day against the built
 gate (`b8759598`). Evidence verified at `8da7840d`, by scratch cells driving `hostMain` as
 `internal/cli`'s `TestHostGate*` cells do. **ES-D1 to ES-D5 are BUILT** (2026-09-27; the cells
 are `internal/cli/hostcredentialgrant_test.go`), with the mechanism
@@ -57,11 +59,12 @@ fires on `AWS_PROFILE` for every claude-pack user.
 [§5](#5-the-host-half-is-built-what-shipping-it-takes), and for the ruled multi-provider grant,
 [§5.1](#51-the-explicit-grant---with-credentials-built).
 
-**Needs your ruling:** [OQ-ES5](#OQ-ES5)'s jail half (its host half is ruled), and
-[OQ-ES6](#OQ-ES6), which asks for an exception to [OQ-BR4](provider-credential-scope.md#OQ-BR4).
+**Needs your ruling:** [OQ-ES5](#OQ-ES5)'s jail half and [OQ-ES6](#OQ-ES6).
+The first's host half is ruled; the second asks for an exception to
+[OQ-BR4](provider-credential-scope.md#OQ-BR4).
 
 **Reads with:** [`credential-sources-separation-plan.md`](credential-sources-separation-plan.md)
-(the sketch; its host section is ready), [`provider-credential-scope.md`](provider-credential-scope.md)
+(the sketch; its host section is built), [`provider-credential-scope.md`](provider-credential-scope.md)
 (the gate's design, rulings and implementation decisions),
 [`providers.md`](../reference/providers.md#the-credential-gate) (the gate as built),
 [`host-agent-environment.md`](../reference/host-agent-environment.md) (the host's composition).
@@ -229,16 +232,19 @@ grant.
 
 Delivery is per launch, keyed by the basename of argv[0]
 ([CN-D12](provider-credential-scope.md#7-decision-ledger), `(*packChannel).launchEnv`). So
-`yolo -- zsh` gets the shared values only, and an agent started from that shell gets none of its
-profile's values. That second part is [OQ-CN9](provider-credential-scope.md#OQ-CN9), still open.
-There is no grant for an ad-hoc command here either.
+`yolo -- zsh` gets the shared values only. An agent started from that shell used to get none of its
+profile's values either; that was [OQ-CN9](provider-credential-scope.md#OQ-CN9), ruled and built
+2026-09-28 (`949d9430`): macos-user now writes each profiled agent's env file, which that agent's
+launcher sources. There is no grant for an ad-hoc command here either.
 
 ### 3.4 The case the filing missed: claimed generic names
 
-`packs/claude`'s `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
+The `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
 `AWS_CONTAINER_CREDENTIALS_FULL_URI` ([CN-D2](provider-credential-scope.md#7-decision-ledger)).
-With only `"packs": ["claude"]` and `AWS_PROFILE` plus an access key in `env_sources`,
+It was declared in `packs/claude` when this was measured; since 2026-09-29 it is `packs/bedrock`'s
+([`bedrock-plumbing.md` BR-D15](bedrock-plumbing.md#BR-D15)), which `packs/claude` names in its
+`needs` unconditionally, so the claude pack alone still selects it. With only `"packs": ["claude"]` and `AWS_PROFILE` plus an access key in `env_sources`,
 `yolo host -- terraform` receives neither, and the launch discloses
 `AWS_PROFILE, AWS_ACCESS_KEY_ID (provider bedrock): withheld from every process` (measured). The
 same rule keeps them out of the jail's shared file (`SharedEnvSources`, read from the code), so
@@ -464,8 +470,7 @@ works:
   only its own entry's exec environment.
 - **No workspace-scope credential key.** A workspace config can be edited by an agent, which is
   why `yolo host` never reads one (`UserScopeConfig`).
-  [Roadmap row 26](../plans/roadmap.md#-needs-you)
-  ([`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3)) asks whether `env_sources` itself should go
+  [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3) asks whether `env_sources` itself should go
   user-scope-only.
 - **Not access control within a jail's uid.** A per-agent file is readable by every process of the
   jail's uid ([§3.2](#32-in-the-jail)). The gate governs ambient environment.
@@ -477,6 +482,8 @@ works:
 ## 9. Open Questions
 
 1. ✅ <a id="OQ-ES1"></a>**OQ-ES1: Should credentials move out of `env_sources` into a key of their own?**
+
+   <!-- vantage: oq id=OQ-ES1 -->
 
    This was filed as question 1, and ruling it **revisits a ruling you made.**
    [OQ-CN1](provider-credential-scope.md#OQ-CN1) put the key-to-provider fact on the provider
@@ -504,6 +511,9 @@ works:
    > moot, as each said it would be on a no.
 
 2. ✅ <a id="OQ-ES2"></a>**OQ-ES2: Under a split, what happens to a claimed name found in `env_sources`?**
+
+   <!-- vantage: oq id=OQ-ES2 -->
+
    **Moot (2026-09-30):** [OQ-ES1](#OQ-ES1) is answered no, so there is no split. This was filed
    as question 2, blocked on [OQ-ES1](#OQ-ES1) and moot if that ruled no.
    The filed leaning was a hard refusal, and it is the worst of the options:
@@ -522,6 +532,9 @@ works:
    [OQ-ES5](#OQ-ES5) and [OQ-ES7](#OQ-ES7).
 
 4. ✅ <a id="OQ-ES4"></a>**OQ-ES4: Under a split, at which config scope may `credential_sources` appear?**
+
+   <!-- vantage: oq id=OQ-ES4 -->
+
    **Moot (2026-09-30):** [OQ-ES1](#OQ-ES1) is answered no, so there is no `credential_sources`.
    This was filed as question 4, blocked on [OQ-ES1](#OQ-ES1) and moot if that ruled no. The
    filed leaning, "both scopes, matching `env_sources`", misreads the host. `yolo host` reads user
@@ -649,6 +662,8 @@ works:
    > _(empty — fill in when decided)_
 
 7. ✅ <a id="OQ-ES7"></a>**OQ-ES7: Does a typed host `-p` hand an ad-hoc command a CLI-less pack's gated env?**
+
+   <!-- vantage: oq id=OQ-ES7 -->
 
    Today `yolo host -p bedrock -- bash` receives the static AWS pair but not aws-auth's
    `AWS_CONTAINER_CREDENTIALS_FULL_URI`. `gateFiresFor` does not fire for a basename that no

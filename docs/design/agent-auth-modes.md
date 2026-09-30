@@ -2,15 +2,22 @@
 title: "Auth modes and cloud provider swapping — declarative profiles across agents"
 date: 2026-08-29
 status: in-review
+stage: DESIGN
+next: "Close §6's capability-gate gap, failing test first: a pack's own capability (claude's web_search) never satisfies required_capabilities — start at capabilitySatisfiers in internal/cli/run/preflight.go"
 tags: [auth, providers, config, prism, agents, superseded]
 summary: "SUPERSEDED IN PART 2026-09-12. The provider/profile half (§4, §5) shipped and is described by reference/providers.md — cite that, not this. The body is kept, not stubbed, because four of its arguments were never absorbed by that successor: the measured evidence that a mode is a bundle (§2-§3), capability resolution and web-search suppression (§6, built except that the launch's capability gate cannot see a pack-declared capability), the deferred-failover ruling plus the measured subscription-bearer leak (§8), and the credential traps (§9). OQ-9 is still open."
 ---
 
 # Auth modes and cloud provider swapping — declarative profiles across agents
 
-**Status:** SUPERSEDED, 2026-09-12 — in part, by [`../reference/providers.md`](../reference/providers.md).
+**Status:** 2026-09-12 — superseded in part by [`../reference/providers.md`](../reference/providers.md).
 Accepted 2026-08-29, expanded from the 2026-08-05 sketch, and half of it replaced by that shipped
-reference. Read the banner before the body.
+reference. Read the banner before the body. What this doc still owes is one ruling,
+[OQ-9](#OQ-9), and one piece of work, [§6](#6-capability-resolution--selective-tool-augmentation-the-web-search-pattern)'s
+capability-gate gap (re-checked 2026-09-30: `capabilitySatisfiers` in
+`internal/cli/run/preflight.go` still reads the merged user config alone, so `packs/claude`'s
+declared `web_search` does not satisfy a `required_capabilities` entry). The rest of the body is
+the record of built work.
 
 **Needs your ruling:** [OQ-9](#OQ-9).
 
@@ -36,9 +43,9 @@ reference. Read the banner before the body.
 | [§4](#4-declarative-provider-profiles-in-yolo-config), [§5](#5-projection-via-prism-derivelua-and-core) — schema, CLI, projection | **SUPERSEDED.** Read [`providers.md`](../reference/providers.md). What is below is the 2026-08-29 proposal, in spellings the tree now refuses; the vocabulary note under this table says which. [§4.3](#43-pre-existing-jails--re-entry-behavior) alone is still cited as the *intent* a shipped mechanism met (`internal/cli/run/userenv.go`). |
 | [§6](#6-capability-resolution--selective-tool-augmentation-the-web-search-pattern) — capability resolution, web-search suppression | **Kept here: still the only design for it, and BUILT except one gap.** [OQ-CAP1](#12-decision-ledger)'s collision refusal shipped (`internal/config`'s `mcp_servers` validation refuses two servers declaring one `provides`). The suppression is no longer per-agent: since 2026-09-17 (`8e324800`) a pack declares native `capabilities` on its `kind: "provider"` or `kind: "program"` contribution, and `luahook.buildDeriveCtxTable` omits an MCP server whose `provides` the SELECTED authentication source declares, for every derive — the hardcoded branches in `packs/claude/derive.lua` and `packs/agy/derive.lua` are deleted. [OQ-CAP2](#12-decision-ledger)'s fatal refusal for an unmet `required_capabilities` **shipped 2026-09-17** (`run.refuseUnmetCapabilities`, in `loadAndValidateConfig` so it sits above the backend dispatch — the placement DP-B30 predicted would otherwise let macos-user silently not refuse). Satisfaction is by declaration: `providers.<name>.capabilities`, an `mcp_servers.<name>.provides`, or the `code_editing`/`command_execution` baseline. `YOLO_REQUIRED_CAPABILITIES` is no longer exported — it had no reader, and the host now answers the question the jail was being handed. **The gap:** that gate reads the merged user config, and pack declarations compose below it, so a capability a pack declares natively does not satisfy a `required_capabilities` entry (`AllowUnmetCapabilitiesEnv`'s doc comment, `internal/cli/run/preflight.go`). `internal/cli/config_ref.txt` cites this id, so it stays. |
 | [§7](#7-in-jail-vs-host-cli-parity-cleaning-up-auto-yolo-mode) — in-jail vs host-CLI auto-YOLO parity | **Fixed; kept as the diagnosis.** [§7.2](#72-the-fix) step 1 **shipped**, and has since been re-pointed: `packAliases` (`internal/entrypoint/shell.go`) calls `packload.InjectLaunchFlags` over the bare `<bin>` — the host's own call — rather than folding the flag table a second time, and states what it wrote. So the `.bashrc` alias and `yolo -- claude` agree, and both are disclosed. **Step 2 shipped too**, 2026-09-13, once [OQ-DP7](declaration-parity.md#OQ-DP7) ruled to close the third spelling: the generated launcher now carries the flags, so a non-interactive `bash -c claude` gets them, and `YOLO_NO_LAUNCH_FLAGS=1` is the one-invocation escape ([`declaration-parity.md`](declaration-parity.md)'s `DP-B44`). |
-| [§8](#8-dynamic-overflow-what-is-reachable-and-what-is-not) — why dynamic failover is deferred; [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) — the measured subscription bearer | **Kept here, and cited from outside.** [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) is the measurement that a subscription OAuth bearer follows `ANTHROPIC_BASE_URL` unconditionally — cited by [`claude-oauth-refresh-mechanics.md`](../research/claude-oauth-refresh-mechanics.md) and [`roadmap.md`](../plans/roadmap.md), and the fact under [`boundary-broker.md`](boundary-broker.md)'s B2. [OQ-1](#12-decision-ledger) is [`boundary-broker.md`](boundary-broker.md)'s delegated `OQ-D`. |
+| [§8](#8-dynamic-overflow-what-is-reachable-and-what-is-not) — why dynamic failover is deferred; [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) — the measured subscription bearer | **Kept here, and cited from outside.** [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) is the measurement that a subscription OAuth bearer follows `ANTHROPIC_BASE_URL` unconditionally — cited by [`claude-oauth-refresh-mechanics.md`](../research/claude-oauth-refresh-mechanics.md), and the fact under [`boundary-broker.md`](boundary-broker.md)'s B2. [OQ-1](#12-decision-ledger) is [`boundary-broker.md`](boundary-broker.md)'s delegated `OQ-D`. |
 | [§9](#9-traps-and-failure-modes) — blank `ANTHROPIC_API_KEY`, single-use refresh tokens, scope isolation, wire-API mismatch | **Kept here.** [`providers.md`](../reference/providers.md) states the scope rule as a ruling ([OQ-CS5](../reference/providers.md#oq-cs5)) and carries none of the other three. |
-| [§11](#11-open-questions) [OQ-9](#11-open-questions) — AWS's two-part credential has no declarative home | **STILL OPEN**, carried by [`roadmap.md`](../plans/roadmap.md) under this id, and the same question as [`provider-credential-scope.md`](provider-credential-scope.md)'s live [`OQ-CN1`](provider-credential-scope.md#OQ-CN1). |
+| [§11](#11-open-questions) [OQ-9](#11-open-questions) — AWS's two-part credential has no declarative home | **STILL OPEN.** Its live form, [`provider-credential-scope.md`](provider-credential-scope.md)'s [`OQ-CN1`](provider-credential-scope.md#OQ-CN1), was ruled 2026-09-26 and built; whether that answers this question is the note under [OQ-9](#OQ-9). |
 
 > [!NOTE]
 > **Vocabulary drift (2026-09-02).** This doc's spellings are the 2026-08-29 design as accepted;
@@ -64,7 +71,7 @@ reference. Read the banner before the body.
 
 **The short version.** yolo-jail manages the agent development environment so users never have to hand-edit disparate native agent config files (`~/.pi/agent/models.json`, `~/.claude/settings.json`, `~/.codex/config.toml`, `.opencode.json`). A provider or auth mode is an atomic **bundle** ($$\text{credentials} + \text{endpoint} + \text{wire format} + \text{model IDs} + \text{env vars}$$). This doc specifies declarative cloud provider configuration in `yolo-jail.jsonc`, transient CLI swapping (proposed here as `yolo --claude-auth=bedrock` / `yolo --agent-profile pi=glm`; **shipped as `yolo -p claude=bedrock`, `yolo -p pi=glm`** — both of the proposed flags were built and deleted), projection via Prism (`derive.lua`), selective capability augmentation (e.g. Tavily search for agents lacking native search), and fixing in-jail vs. host-CLI auto-YOLO permission parity.
 
-**Reads with:** [`agent-credentials.md`](../reference/agent-credentials.md) (boundary credential crossing), [`pack-system.md`](../reference/pack-system.md) (the layer model, `config-overlay`, and `derive.lua`), [`pack-config-collaboration.md`](../reference/pack-system.md#config-surfaces-and-the-compose-engine) (surface sharing), [`../research/local-model-endpoints.md`](../research/local-model-endpoints.md) (per-agent wire formats and BYOK surfaces), [`../plans/roadmap.md`](../plans/roadmap.md) (**💬 3**).
+**Reads with:** [`agent-credentials.md`](../reference/agent-credentials.md) (boundary credential crossing), [`pack-system.md`](../reference/pack-system.md) (the layer model, `config-overlay`, and `derive.lua`), [`pack-config-collaboration.md`](../reference/pack-system.md#config-surfaces-and-the-compose-engine) (surface sharing), [`../research/local-model-endpoints.md`](../research/local-model-endpoints.md) (per-agent wire formats and BYOK surfaces).
 
 ---
 
@@ -464,6 +471,19 @@ dropped it without answering it (the roadmap and sibling docs cited it as [`auth
    provider-catalog work ([OQ-CS8](../reference/providers.md#oq-cs8)) is moving env composition into per-agent env derives,
    which can read whatever the environment holds — that likely absorbs this question rather than
    answering it, and deciding it now would design against a moving surface.
+
+   > [!NOTE]
+   > **Re-checked against the tree 2026-09-30; not a ruling.** The question's first premise, a
+   > single credential pointer, no longer holds: [`OQ-CN1`](provider-credential-scope.md#OQ-CN1)
+   > was ruled 2026-09-26 as *"Grow `api_key_env_name` into a list on the provider declaration"*
+   > and built as `packdecl.EnvNames` (`internal/packdecl/envnames.go`). The `bedrock` provider,
+   > now `packs/bedrock`'s, lists `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
+   > `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
+   > `AWS_CONTAINER_CREDENTIALS_FULL_URI` (`packs/bedrock/pack.json`). The values still arrive
+   > through `env_sources`, which [`OQ-ES1`](credential-sources-separation.md#OQ-ES1) (answered
+   > 2026-09-30) keeps as the one credential store. So the pair has a declaration of its names,
+   > and `env_sources` is its source. Whether that answers this question, or it asks for more
+   > (a declared pair with a hydration template, say), is the maintainer's to say.
 
    <!-- vantage: oq id=OQ-9 leaning="Leave AWS's two-part credential on env_sources until a second multi-var credential shows up. The provider-catalog work (OQ-CS8) is moving env composition into per-agent env derives that can read whatever the environment holds — that likely absorbs this question rather than answering it, and deciding it now would design against a moving surface." -->
 

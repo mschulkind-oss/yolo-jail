@@ -2,6 +2,8 @@
 title: "A pack's service runs wherever its agent runs"
 date: 2026-09-28
 status: accepted
+stage: BUILT
+next: "Give TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox an AWS region, which the Bedrock region refusal now demands before its probe runs, so the Mac run can measure the AWS doorway: integration/macosuserdoorway_test.go"
 tags: [design, services, wire-bridge, host, notches, profiles, credentials, macos-user]
 summary: "Built 2026-09-28: yolo host and the macos-user launch start each needed pack service's host half as a child of that one launch, on a loopback port it picked, answering only that launch's caller token, and stop it when the agent exits (OQ-NC1 ruled A, OQ-HS3 per launch, OQ-HS4 as leaned). Built 2026-09-29: the doorway rule (HS-D15), so macos-user opens the Codex and AWS credential doorways the same way, and yolo host opens the AWS one for an agent on Bedrock. This doc holds the shape, the rulings, and the implementation decisions under them."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # A pack's service runs wherever its agent runs
 
-**Status:** BUILT 2026-09-28: the mechanism, pinned by `TestStartWaitsForReadinessAndStopEndsTheService`
+**Status:** 2026-09-28: the mechanism, pinned by `TestStartWaitsForReadinessAndStopEndsTheService`
 and `TestTheHostHalfServesFromItsInputAndPublishesNoFile`; the host launch,
 `TestHostCodexClaudeRunsThroughALaunchOwnedBridge`; macos-user,
 `TestTheMacosUserArmStartsTheServiceAndStopsItAfterTheCommand`; and the disclosure's address
@@ -20,14 +22,16 @@ through the macos-user arm of `run.Run`: a real host half, run by the test binar
 for `yolo`, serves a fake agent against a stubbed upstream and a fake host broker. No agent CLI
 has run it, and the macos-user arm has not run on a Mac. The pre-build evidence was verified at
 `1baf1fd4` ([Appendix A](#appendix-a--the-measured-runs)). **The doorway rule ([HS-D15](#HS-D15))
-is BUILT 2026-09-29 for macos-user** (`1b35ed10`, `1a276996`, `d7e17341`, `fea3b6c7`, `824cb859`;
+is built 2026-09-29 for macos-user** (`1b35ed10`, `1a276996`, `d7e17341`, `fea3b6c7`, `824cb859`;
 HS-D16 to HS-D20, and the fixes `5b1059a1`, `6e8dce61`, `f8529a43`): the Codex and AWS
 credential doorways open outside the sandbox through the same mechanism. MEASURED on Linux by
 unit tests through `run.Run`, one against a real Codex doorway process and one against a real
-aws-auth host service; UNMEASURED on a Mac, where
-`TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox` and
-`TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox` are what settle it. **At `yolo host` the AWS
-doorway is BUILT 2026-09-29** ([HS-D21](#HS-D21), [HS-D22](#HS-D22),
+aws-auth host service. On a Mac, read from the scheduled `macos-user.yml` run 36719581090
+(`8f7468dd`, 2026-09-30): `TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox` passed, so the
+Codex doorway is MEASURED there; `TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox` failed before
+its probe ran, because its config names no AWS region and the launch's Bedrock region refusal
+stopped it, so the AWS doorway is still UNMEASURED on a Mac. **At `yolo host` the AWS
+doorway is built 2026-09-29** ([HS-D21](#HS-D21), [HS-D22](#HS-D22),
 [§4.8](#48-yolo-host)): for an agent whose profile selects a Bedrock provider, with aws-auth
 enabled, `yolo host --` opens the adapter as its own listener and hands that agent the pointer.
 MEASURED by unit tests through `hostMain` against a real aws-auth host service and a real doorway
@@ -715,6 +719,8 @@ option A and are moot under its option B.
    owner ([OQ-HD9](host-daemon-ownership.md#OQ-HD9)'s question), and needs a caller secret that
    outlives every launch, which NC-D3's per-launch secret is not.
 
+   <!-- vantage: oq id=OQ-HS3 -->
+
    **Answer:**
    > **Ruled 2026-09-28, as leaned: per launch.** The maintainer: *"how or why would a host
    > service be long lived? sounds like the answer has to be no?"* and then *"I'm totally fine
@@ -751,6 +757,8 @@ option A and are moot under its option B.
    (it holds nothing past its launch), but the ruling should say so. **Rejected:** a per-service
    special case ([§5](#5-alternatives-considered)), and the loophole `host_daemon` machinery,
    since a daemon with no grants is not a loophole ([WB-D16](../reference/wire-bridge.md#wb-d16)).
+
+   <!-- vantage: oq id=OQ-HS4 -->
 
    **Answer:**
    > **Decided 2026-09-28 by the orchestrator, as leaned**, as the mechanism [OQ-HS3](#OQ-HS3)'s

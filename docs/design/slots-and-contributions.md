@@ -6,11 +6,13 @@ tags: [packs, manifest, declarations, slots, audience, design]
 summary: "A `kind` names what a pack CONTRIBUTES. A destination names what an agent pack ACCEPTS, which is the opposite role — so it is not a contribution and should not be a kind or a field shape within one. Today `briefing`, `skills` and `files` each carry both roles and tell them apart with `agent` vs `agents`, a singular/plural flag that already produced a real layout bug (`files` required `from`, so a destination had to carry content). This splits the manifest into two axes — `contributes` (kinds) and `exposes` (named slots) — and addresses a slot by the AGENT (the `bin` name audiences already key on), never the pack slug, so content survives swapping which pack supplies that agent."
 vantage:
   status-chip: true
+stage: DESIGN
+next: "Rule OQ-D6, the migration window: the exposes build, pi-pack-extensions.md's rework and durable-scratch-space.md's DS-D33 lines all wait on it"
 ---
 
 # Slots are not kinds: a pack accepts content through a named exposure, addressed by agent
 
-**Status:** DESIGN, 2026-09-21 — four rulings are owed. The ROLE MODEL is decided (2026-09-20) and
+**Status:** 2026-09-21 — four rulings are owed. The ROLE MODEL is decided (2026-09-20) and
 the BUILD is blocked (2026-09-21). Triaged 2026-09-30: [OQ-D7](#OQ-D7), [OQ-D8](#OQ-D8) and
 [OQ-D11](#OQ-D11) each had one sensible answer inside the ruled role model, and are decided as
 implementation choices [SC-D1](#SC-D1) to [SC-D3](#SC-D3), each reversible. Re-checked against
@@ -288,7 +290,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 
 1. ✅ <a id="OQ-D1"></a> **OQ-D1: Is a slot a second axis (`exposes`) or its own kind?**
 
-   <!-- vantage: oq id=OQ-D1 leaning="A second axis. A kind names a contribution; a slot is not one, and making it a kind would put the receiving role inside the supplying vocabulary." -->
+   <!-- vantage: oq id=OQ-D1 -->
 
    **Answer (2026-09-20):**
    > **A second axis.** A `kind` names a contribution; a slot is not one, and making it a kind
@@ -297,7 +299,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 
 2. ✅ <a id="OQ-D2"></a> **OQ-D2: Is the slot address `(agent, name)` keyed on the `bin` name, or on the pack?**
 
-   <!-- vantage: oq id=OQ-D2 leaning="The agent/bin name — so content survives swapping which pack supplies that agent." -->
+   <!-- vantage: oq id=OQ-D2 -->
 
    **Answer (2026-09-20):**
    > **The agent (`bin`) name** — so content survives swapping which pack supplies that agent. A
@@ -313,7 +315,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 
 3. ✅ <a id="OQ-D3"></a> **OQ-D3: Does the split reach `briefing` and `skills`, or only `files`?**
 
-   <!-- vantage: oq id=OQ-D3 leaning="All three. The conflation is identical, and fixing files alone leaves two kinds with the flag this doc exists to delete." -->
+   <!-- vantage: oq id=OQ-D3 -->
 
    ⚠ **The original leaning ("all three, eventually") rested on a premise the tree does not
    support, and it is withdrawn.** It said the `agent`/`agents` flag "lives in all three kinds",
@@ -387,7 +389,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    `program` bin in **7 of 7** agent packs, so the key is pure redundancy today and the split is
    the moment to decide whether it stays.
 
-   <!-- vantage: oq id=OQ-D5 leaning="B — declare the agent identity once per pack. It is the only candidate that removes the 7-of-7 redundancy rather than renaming or re-deriving it, and OQ-BA2 already refused the derivation." -->
+   <!-- vantage: oq id=OQ-D5 -->
 
    _Leaning:_ **B**, the pack declaring its identity once. It is the only candidate that *removes*
    the redundancy rather than renaming it (A) or re-deriving what [`OQ-BA2`](../reference/agent-briefings.md#oq-ba2) refused (C) — and it is
@@ -433,7 +435,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 
 5. ✅ <a id="OQ-D4"></a> **OQ-D4: Are the field names `exposes` / `to` / `accepts` right?**
 
-   <!-- vantage: oq id=OQ-D4 leaning="Provisional. 'exposes'/'accepts' read as the receiving end; 'to' is the shortest thing that is not 'into'." -->
+   <!-- vantage: oq id=OQ-D4 -->
 
    **Answer (2026-09-20):**
    > **Provisional.** `exposes`/`accepts` read as the receiving end; `to` is the shortest thing
@@ -473,8 +475,10 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    > **Premise changed, not ruled here.** The image has baked no yolo binary since 2026-09-06: the
    > entrypoint is mounted from the flake bundle on every launch
    > ([`jailprefix.go`](../../internal/cli/run/jailprefix.go)). So "an entrypoint baked before the
-   > change" and "unrecoverable without a `just load`" no longer describe the tree, although the
-   > test comment still says them. The shipped manifests are staged from the host `yolo`'s own
+   > change" and "unrecoverable without a `just load`" no longer describe the tree. (The test
+   > comment said them too when this note was written; by 2026-09-30 it had been rewritten to name
+   > where an older entrypoint still comes from: a from-source launch whose binary and tree differ,
+   > under `YOLO_ALLOW_SOURCE_SKEW=1` or a skew the gate cannot prove.) The shipped manifests are staged from the host `yolo`'s own
    > embed, so the pairing that bricks a boot is now a host `yolo` newer than the bundle its
    > entrypoint comes from. `just install` publishes the two together, a release ships them
    > together, and `version.SourceSkew` refuses a from-source launch whose binary and checkout
@@ -530,6 +534,8 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    [§2](#2-what-a-kind-is-and-what-a-slot-is)'s own example, so under (c) one fact is declared twice
    — the disease, not the cure.
 
+   <!-- vantage: oq id=OQ-D7 -->
+
    _Leaning:_ the combine rule stays the KIND's — it already is, it is what `Collisions` reads, and
    moving it would relocate the duplication rather than remove it. That leaves `accepts` doing one
    job worth doing: a COMPATIBILITY check, refused by name when a contribution's kind cannot produce
@@ -564,6 +570,8 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    > (`{"kind":"briefing"}`), and the implicit one covers every `briefing/` file no contribution
    > names, whatever destinations the pack declares. Each carries a kind and no address, so this
    > question now decides how a DECLARED broadcast finds its slots too.
+
+   <!-- vantage: oq id=OQ-D8 -->
 
    _Leaning:_ conventional, and stated as a rule rather than left to convention — the slot that
    receives a `kind` is NAMED for that kind. It is the only reading under which a content pack can
@@ -642,6 +650,8 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
     capability removal this doc does not state. Same question for `exposes` on a pack that provides
     NO agent: its slots have no address prefix and can never be named, so is that refused at load or
     accepted as inert?
+
+    <!-- vantage: oq id=OQ-D11 -->
 
     _Leaning:_ the field stays, and slice 3 is "packs stop REPEATING it" rather than "the field
     moves" — deleting the segment breaks `mise/config` and every `user/<slug>` host-file surface,

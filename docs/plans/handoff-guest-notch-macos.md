@@ -1,16 +1,32 @@
+---
+title: "Handoff: the `guest` notch, and the macOS work only a Mac can finish"
+status: accepted
+stage: DECIDED
+next: "Write §4's render-mark parity row as a TestMacosUser… check for the hosted macos-user.yml job (plant a host-render mark, launch, and assert the sandbox reads the file as a baseline; notch-scoped-config-contributions.md §4.3); the Cachix row is handoff-cachix-cache.md's own next"
+depends-on:
+  - environment-manager-plan.md
+---
+
 # Handoff: the `guest` notch, and the macOS work only a Mac can finish
 
 **Audience:** the maintainer on a Mac, and any agent working there. Written 2026-08-03 from
 inside a Linux jail, which is exactly why this document exists: everything below was either
 verified by reading code or is explicitly marked as unverifiable from here.
 
-**Status:** DECIDED, 2026-09-23 — a handoff that owes work, not a ruling: all four of its questions
-are answered ([§9](#9-open-questions)), and Phase 7 is unbuilt and host-gated. Written 2026-08-03 and
+**Status:** 2026-09-23, re-checked against the tree 2026-09-30 — a handoff that owes work, not a
+ruling: all four of its questions are answered ([§9](#9-open-questions)). Phase 7 is unbuilt and
+has no code yet (a `guest` launch refuses: `refuseUnbuiltNotch`, `internal/cli/run/run.go`); its
+next step is owned by [`environment-manager-plan.md`](environment-manager-plan.md). Of
+[§4](#4-what-else-on-the-mac-is-gated-beyond-phase-7)'s Mac rows, render-mark parity and the
+Cachix download proof are the two with a Mac step ready to run; the agent-auth row could not be
+re-verified, and cache relocation is its own doc's. Written 2026-08-03 and
 restamped 2026-08-23; [§§1](#1-what-the-three-notches-are-and-why-the-middle-one-matters), 3, 7, 8
 are unchanged from the first date. `guest` is the one notch of three that does not work. Phases
 0–6, 8, and 9 of [`environment-manager-plan.md`](environment-manager-plan.md) are shipped;
-**Phase 7 is not built**, and it is host/Mac-gated rather than blocked on any design
-decision. **What moved since 2026-08-03:** [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it)'s item 1.4 is now *half*-answered rather than
+**Phase 7 is not built**. ⚠ *Corrected 2026-09-30:* it is not only host/Mac-gated. The notch's
+mode policy is unstated in the code (`KindGuest`'s `UndecidedModes` row, `internal/render/modes.go`),
+and Linux `guest` waits on
+[user-stories Q7](../design/environment-manager-user-stories.md#Q7). **What moved since 2026-08-03:** [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it)'s item 1.4 is now *half*-answered rather than
 wholly unverified (the confinement half was measured on a Mac 2026-08-19), and [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23)'s nix
 prerequisite has **shipped** — it is no longer a prerequisite, it is done. The four questions
 [§9](#9-open-questions) collected are all answered: a Mac session on 2026-09-11 settled the two only a
@@ -35,8 +51,9 @@ Mac-gated ledger; its Track M and this doc's [§4](#4-what-else-on-the-mac-is-ga
 > returns nothing.
 > The IDs are kept here rather than deleted, because they are the spelling the git history and
 > the sibling design docs use; treat them as **archival labels, not live pointers**. Where the
-> content survives, this restamp names the file:line instead. [`roadmap.md`](roadmap.md)'s current macOS
-> state lives in its 🔒 *Waiting* section.
+> content survives, this restamp names the file:line instead. The macOS work still owed is
+> [§4](#4-what-else-on-the-mac-is-gated-beyond-phase-7)'s table, each row linking the doc that
+> owns it.
 
 ---
 
@@ -177,15 +194,15 @@ have closed, one has changed shape, and one is new and blocks every other row on
 
 | Item | What is needed | Where |
 |---|---|---|
-| **🔴 The Mac's config** | **Do this first or nothing below can run.** Measured 2026-08-19: that machine's `~/.config/yolo-jail/config.jsonc` still uses the **removed `agents` key**, so every current `yolo` — every backend, `yolo check` included — refuses with the config-invalid fatal, and its installed `yolo` was **531 commits stale**. All four names it selects (`claude`, `pi`, `codex`, `agy`) exist as packs; the fix is renaming the key to `packs`. **Maintainer's config, maintainer's call** | [`roadmap.md`](roadmap.md) 🔒 macOS rows |
-| **Item 1.4's staging step** | The `sudo -u _yolojail` copy into `/var/yolo-jail/packs/<session>` + the sandbox-uid read. The confinement half was measured 2026-08-19; **this half never has been** | [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) |
-| **D4 Cachix** | ONE real download proof, and it is now genuinely the only item. **The push question is SETTLED (2026-09-02, [OQ-GN3](#9-open-questions)):** run `31749547095` (`v0.8.0`, both arches) pushed both variants and substituted the four this-repo-source paths back from the cache. Substituter live at `flake.nix:13-16`; cache + account + token all done. Note the cache holds `v0.8.0` only (tag-triggered push), and the CI `--accept-flake-config` omission that made off-release runs miss the cache entirely is fixed | [`handoff-cachix-cache.md`](handoff-cachix-cache.md), [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) D4 |
+| ~~**🔴 The Mac's config**~~ | **CLOSED 2026-09-11 ([OQ-GN2](#9-open-questions)): renamed by hand, `yolo check` green there.** The rest of this cell is the 2026-08-19 record. **Do this first or nothing below can run.** Measured 2026-08-19: that machine's `~/.config/yolo-jail/config.jsonc` still uses the **removed `agents` key**, so every current `yolo` — every backend, `yolo check` included — refuses with the config-invalid fatal, and its installed `yolo` was **531 commits stale**. All four names it selects (`claude`, `pi`, `codex`, `agy`) exist as packs; the fix is renaming the key to `packs`. **Maintainer's config, maintainer's call** | [OQ-GN2](#9-open-questions) |
+| ~~**Item 1.4's staging step**~~ | **CLOSED 2026-09-11 ([OQ-GN1](#9-open-questions)): measured on a Mac.** The 2026-08-23 record: the `sudo -u _yolojail` copy into `/var/yolo-jail/packs/<session>` + the sandbox-uid read. The confinement half was measured 2026-08-19; **this half never has been** | [§2](#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) |
+| **D4 Cachix** | ONE real download proof, and it is now genuinely the only item. **The push question is SETTLED (2026-09-02, [OQ-GN3](#9-open-questions)):** run `31749547095` (`v0.8.0`, both arches) pushed both variants and substituted the four this-repo-source paths back from the cache. Substituter live at `flake.nix:13-16`; cache + account + token all done. *(Corrected 2026-09-30: every release since has pushed too, `v0.11.0` the latest, and the macOS nightly pushes on every run since `1006fe6d`.)* The CI `--accept-flake-config` omission that made off-release runs miss the cache entirely is fixed | [`handoff-cachix-cache.md`](handoff-cachix-cache.md), [`macos-revival-and-distribution-plan.md`](macos-revival-and-distribution-plan.md) D4 |
 | ~~**E8's nightly**~~ | **CLOSED, and its stated cause was wrong.** `BACKLOG.md:208` marks E8 done 2026-08-03, and the macOS nightly is **GREEN** as of run `32623453131` (2026-08-23). The row said the nightly stayed red until the multi-arch builder image reached GHCR — but the nightly builds the image on `ubuntu-latest` and downloads it as an artifact (`nightly-macos.yml`, `build-image` → `integration-macos`); it never pulls the GHCR builder. **The 29 red nights were the flake throwing on `x86_64-darwin`**, fixed by `927fb9f` (2026-08-18). *(v0.8.0 did ship 2026-08-13, so `publish.yml` has run since E8's fix — whether GHCR carries the multi-arch index is not verifiable from here.)* | [`BACKLOG.md`](BACKLOG.md) E8 |
-| **agent-auth macos-user parity** | 4 verified defects whose fixes need a Mac to verify. *(The "ROADMAP item 4" pointer is dead; the defects are in the agent-auth design doc.)* | [`../design/agent-auth-modes.md`](../design/agent-auth-modes.md) |
-| **`cache_relocations`** | One real cross-filesystem move as an acceptance step. Still **held** — [`roadmap.md`](roadmap.md) keeps it in 🧊 Icebox as genuinely undecided, not merely unscheduled | [`cache-relocation.md`](cache-relocation.md) |
+| **agent-auth macos-user parity** | 4 verified defects whose fixes need a Mac to verify. *(The "ROADMAP item 4" pointer is dead.)* ⚠ **Unverified 2026-09-30:** the agent-auth design doc no longer names four macos-user defects, so whether they were fixed or moved is not known from here | [`../design/agent-auth-modes.md`](../design/agent-auth-modes.md) |
+| **`cache_relocations`** | One real cross-filesystem move as an acceptance step. Its state and next step are that doc's own | [`cache-relocation.md`](cache-relocation.md) |
 | ~~**`yoloDarwinPackages` rename**~~ | **SHIPPED — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23).** No longer Mac-gated to write *or* to prove on Linux; only a `packages:` launch on a Mac would exercise it there | [`../design/provisioner-sets.md` §10](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict) alternative H (formerly Option 1) |
 | **Render-mark parity on `macos-user`** | *New, 2026-09-27.* Built in `499a332f` and unit-tested only: a `readsHost` host file yolo has already rendered into the home must reach the sandbox as a baseline, not as the user's layer. On the Mac: `yolo host apply --assert`, add a key to `~/.claude/settings.json` by hand, launch, and confirm the sandbox's copy lacks it (the boot log says "baseline and not a layer"). `TestMacosUserDeliversHostBytesByCopy` must still pass there; it now hides the machine's own render mark | [`notch-scoped-config-contributions.md` §4.3](../design/notch-scoped-config-contributions.md#43-render-mark-parity-on-macos-user) |
-| **MCP wrappers on macOS** | *New, found 2026-08-23.* `internal/entrypoint/darwin.go:59` runs `GenerateMCPWrappers` unconditionally, and the bodies are Linux-absolute — `/usr/bin/chromium` (`mcp_wrappers.go:39`), `exec /bin/node` (`:74`), `/etc/fonts` (`:26-27`). A macos-user home gets three wrappers pointing at paths macOS does not have. Harmless until one is exec'd | revival plan, Open decision #4 |
+| ~~**MCP wrappers on macOS**~~ | **CLOSED 2026-09-03 ([OQ-GN4](#9-open-questions), `d28f951f`): skipped on macOS, and said so.** The 2026-08-23 record: *New, found 2026-08-23.* `internal/entrypoint/darwin.go:59` runs `GenerateMCPWrappers` unconditionally, and the bodies are Linux-absolute — `/usr/bin/chromium` (`mcp_wrappers.go:39`), `exec /bin/node` (`:74`), `/etc/fonts` (`:26-27`). A macos-user home gets three wrappers pointing at paths macOS does not have. Harmless until one is exec'd | revival plan, Open decision #4 |
 
 ---
 

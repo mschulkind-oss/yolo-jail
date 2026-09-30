@@ -2,6 +2,8 @@
 title: "Last session wins: the keeper at the container backends, implementation plan"
 date: 2026-09-30
 status: accepted
+stage: BUILT
+next: "Delete this file, as it asks once its work lands: step 3 landed at e343542d, and the design names its code and tests in its section 7"
 tags: [plan, lifecycle, attach, sessions, keeper]
 summary: "The build hand-off for step 3 of jail-lifetime-last-session-wins.md: the keeper at podman and Apple Container. The map, what to reuse, the traps, the build order and what ships with it, written against f596a969. The keeper at yolo host and macos-user (§9.9) and the Mac measurements (step 4) are out of scope."
 vantage:
@@ -10,11 +12,15 @@ vantage:
 
 # Last session wins: the keeper at the container backends, implementation plan
 
+**Status:** 2026-09-30 (`e343542d`). Written against `f596a969` the same day, as the hand-off
+step 3's build followed. MEASURED in nested jails on Linux podman, by the integration tests the design's
+[§7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order) step 3 entry names.
+UNMEASURED: on either Mac backend and on a real rootless systemd host.
+
 **Design:** [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md), step 3 of
 its [§7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order) and all of
 [§9](jail-lifetime-last-session-wins.md#9-the-keeper-design-2026-09-29) up to
-[§9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user). **Status:**
-ready. Written against `f596a969`, 2026-09-30.
+[§9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user).
 
 **Built** at `e343542d`, 2026-09-30 (the design's [§7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order) step 3 entry names the code and the tests).
 Delete this file when the work lands. What the build had to rediscover, which the next plan should

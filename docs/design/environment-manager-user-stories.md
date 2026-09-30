@@ -1,6 +1,14 @@
+---
+title: "User Stories: meeting yolo when it manages the environment, not just the box"
+status: in-review
+stage: DESIGN
+next: "Rule Q1, the closure question — whether a captured value may keep outranking declared layers now that promote and --sealed exist"
+tags: [stories, environment-manager, notch, closure]
+---
+
 # User Stories: meeting yolo when it manages the environment, not just the box
 
-**Status:** DESIGN, 2026-07-27 — user stories, with their open questions; **re-verified against the tree
+**Status:** 2026-07-27 — user stories, with their open questions; **re-verified against the tree
 2026-08-23, anchors repinned 2026-09-02, re-checked 2026-09-24** (the promote verb shipped, the
 macOS `guest` staging was measured on a Mac, and the `file:line` anchors were replaced by symbols). Most of the verbs the stories exercise **have since
 shipped** (`apply`, `yolo host apply` — the `apply --host` spelling this line used to name was
@@ -9,8 +17,8 @@ REMOVED outright by `e23df4aa`, 2026-08-30 — `apply --sealed`, `describe`, `ch
 Phases 0–6, 8, 9), and **all three "live defects" (G1, G2, G3) are FIXED**. Every gap below now carries
 a dated verdict; read those before hunting for a bug. **Eleven questions are still live**
 (Q1 · Q1a · Q1b · Q2–Q9, below); **Q1 is the closure question and the biggest one in the
-document**, and Q7 decides whether Linux `guest` is a promise or a hypothesis. IDs are cited from
-[`../plans/roadmap.md`](../plans/roadmap.md) — do not renumber them.
+document**, and Q7 decides whether Linux `guest` is a promise or a hypothesis. IDs are cited by id from
+sibling docs and plans — do not renumber them.
 
 **Needs your ruling:** [Q1](#Q1), [Q1a](#Q1a), [Q1b](#Q1b), [Q2](#Q2), [Q3](#Q3), [Q4](#Q4), [Q5](#Q5), [Q6](#Q6), [Q7](#Q7), [Q8](#Q8), [Q9](#Q9).
 
@@ -990,8 +998,8 @@ nothing stamps a rendering with the notch it was made for.**
 
 **All eleven are still live, re-checked 2026-09-24** — none has been answered by a ruling. Several have
 been *partly overtaken by shipped code*, and each of those now carries a `_Shipped since:_` line
-saying what moved and what the question still decides. **IDs are cited by id from
-[`../plans/roadmap.md`](../plans/roadmap.md) — do not renumber, do not delete.**
+saying what moved and what the question still decides. **IDs are cited by id from sibling
+docs and plans — do not renumber, do not delete.**
 
 1. 💬 <a id="Q1"></a>**[Q1](#Q1) — whether the capture overlay may outrank the definition at all.**
    This is the closure question, and it is the biggest one in the document. Capture is a real
@@ -1247,6 +1255,13 @@ saying what moved and what the question still decides. **IDs are cited by id fro
    says two different things about the same run: the launch banner asserts a jail, the briefing
    names the actual notch. That divergence is new since the question was written and is the
    strongest argument for its leaning.
+
+   _Checked 2026-09-30, and the premise is narrower than stated:_ the quoted text is `yolo
+   init`'s, not a launch's. `printBriefing` (`internal/cli/init.go`) renders
+   `internal/cli/briefing.txt`, and its only callers are in `Init`, so no launch at any notch
+   prints `YOLO JAIL — AGENT BRIEFING`. The briefing a launch writes is the generated one, whose
+   heading `confinementHeader` already words per notch (`# YOLO Environment — host`). What stays
+   true is that the post-init text describes a container whatever notch the user then runs at.
 
    **Answer:**
    > _(empty — fill in when decided)_

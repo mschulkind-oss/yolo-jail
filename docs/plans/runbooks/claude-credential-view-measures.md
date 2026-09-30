@@ -1,6 +1,8 @@
 ---
 title: "RUNBOOK — the Claude credential view's measures, M1 to M11, on a real host"
 status: accepted
+stage: CURRENT
+next: "The maintainer runs Part A on the host (M1, M2 and M4 to M6 against a hand-made view), then Parts B and C"
 date: 2026-09-29
 tags: [runbook, host, claude, credentials, oauth, broker, measures]
 summary: "The measures the Claude credential view owes before the interception can be deleted, written as one sitting's procedure for the maintainer: Part A runs M1, M2 and M4 to M6 in an ordinary interception jail against a hand-made view, with the terminator's log as the witness for any token request; Part B turns the view on for one throwaway workspace and runs M3 and M7 to M10 against the broker's own rewrites; Part C exercises /login, /logout and yolo claude-auth logout; Part D is the Mac measure M11 and the day on a rootless host. Nothing here prints a token."
@@ -8,10 +10,13 @@ summary: "The measures the Claude credential view owes before the interception c
 
 # RUNBOOK — the Claude credential view's measures, M1 to M11, on a real host
 
-**Status:** CURRENT — a procedure. None of it has run yet. It is what
+**Status:** A procedure. None of it has run yet. It is what
 [OQ-CL1](../../design/claude-login-without-interception.md#OQ-CL1)'s ruled order puts between the
 built view and the deletion of the interception: the measures pass, the view runs a day on a real
 rootless host, then the interception goes ([CL-D7](../../design/claude-login-without-interception.md#CL-D7)).
+
+That none of it has run was last checked on 2026-09-30, against the host broker's log, which
+records no view write.
 
 **Audience:** the maintainer, on the **host**. No automated test may run any of this: every step
 needs a real Claude Code session on a real login ([`AGENTS.md`](../../../AGENTS.md#testing), "No

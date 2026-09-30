@@ -5,18 +5,22 @@ date: 2026-09-24
 status: accepted
 tags: [research, macos, image-delivery, podman, apple-container]
 summary: "Can podman-on-macOS and Apple Container get the per-layer reuse skopeo gives podman on Linux? Measured on Linux, sourced for the Mac side. A delta archive gets it with no new listener, but Apple Container still rebuilds its ext4 snapshot for every new image."
+stage: DECIDED
+next: "Find whether OQ-LR2's in-VM copier is slow or wedged: on nightly run 36711874486 it printed 'Writing manifest' and was killed at its 45-minute cap; start at TestMacArchiveFirstLoadInVMCopierOnPodman in integration/macarchivedelivery_test.go"
 vantage:
   status-chip: true
 ---
 
 # Layer-reusing image delivery on the two Mac backends
 
-**Status:** RESEARCH, 2026-09-24; all three questions ruled the same day ([Decisions](#decisions)) — build the delta archive, and improve the first load where it measurably can be. **Built the same day** in `deliverViaArchive` (placeholder seeding, the Apple Container delivery record, the single empty-set retry); how it works and what it measured through the real launch path are in [The delta archive](../reference/image-staging-vs-baking.md#the-delta-archive). Everything on Linux here is **MEASURED** in this jail. Everything
+**Status:** 2026-09-24; research, with all three questions ruled the same day ([Decisions](#decisions)) — build the delta archive, and improve the first load where it measurably can be. **Built the same day** in `deliverViaArchive` (placeholder seeding, the Apple Container delivery record, the single empty-set retry); how it works and what it measured through the real launch path are in [The delta archive](../reference/image-staging-vs-baking.md#the-delta-archive). Everything on Linux here is **MEASURED** in this jail. Everything
 about the Mac was **SOURCED** (read in upstream source at a named commit) or **INFERRED** when
 this was written, and no Mac was used. [What only a Mac can confirm](#what-only-a-mac-can-confirm)
 lists the commands that settle each Mac claim. ⚠ **Since 2026-09-25 the built delta archive is
 MEASURED on both Mac backends**, through real launches in CI rather than through those commands:
-[Mac results](#mac-results-2026-09-25) has the numbers.
+[Mac results](#mac-results-2026-09-25) has the numbers. What is left is
+[`OQ-LR2`](#OQ-LR2)'s first-load work: the gzip candidate has lost in every later sample, and
+the in-VM copier has not yet produced a time.
 
 **The question** (the maintainer, 2026-09-24): on podman-on-macOS and on Apple Container, can
 image delivery get the layer reuse that `skopeo copy nix: → containers-storage:` gives podman on
@@ -590,9 +594,11 @@ What each step settles:
 
 ## Decisions
 
-1. <a id="OQ-LR1"></a>[**OQ-LR1**](#OQ-LR1) (ruled): Build the delta archive for the two Mac backends?** It is the only option that
+1. ✅ <a id="OQ-LR1"></a>[**OQ-LR1**](#OQ-LR1) (ruled): Build the delta archive for the two Mac backends?** It is the only option that
    reuses layers with no listener and no new binary. It helps the maintainer's day-to-day Mac and
    does nothing for CI's ephemeral runners.
+
+   <!-- vantage: oq id=OQ-LR1 -->
 
 
    _Leaning:_ Yes, once the Mac commands above confirm two things. First, that on Podman Machine
@@ -603,12 +609,14 @@ What each step settles:
    **Answer:**
    > **Ruled 2026-09-24 (maintainer): build it.** "yes build" — for both Mac backends, in `deliverViaArchive`, with the empty present set as today's full archive and the single retry. Built after this ruling, not after the Mac run; the Mac run now verifies it rather than gating it.
 
-2. <a id="OQ-LR2"></a>[**OQ-LR2**](#OQ-LR2) (ruled): Is the first load worth its own work?** On CI's ephemeral Intel runners, reuse
+2. ✅ <a id="OQ-LR2"></a>[**OQ-LR2**](#OQ-LR2) (ruled): Is the first load worth its own work?** On CI's ephemeral Intel runners, reuse
    cannot help. The candidates are:
    - a gzip archive (2.8× fewer bytes, CPU paid);
    - `podman machine ssh` reading over virtiofs;
    - on machines with `/nix` shared, a Linux copier running inside the VM, which is exactly the
      Linux path.
+
+   <!-- vantage: oq id=OQ-LR2 -->
 
 
    _Leaning:_ Measure before building. The in-VM copier is the only candidate that removes the
@@ -641,10 +649,32 @@ What each step settles:
    fit the third cold delivery. The in-VM copy has no measurement yet, so it also carries its own
    deadline inside the test.
 
-3. <a id="OQ-LR3"></a>[**OQ-LR3**](#OQ-LR3) (decided): What is Apple Container's present-set probe?** Podman has one:
+   **Three more nightlies have run both candidates (read 2026-09-30 from the job logs).** One
+   cold `podman load` sample each, into a store with A evicted, on GitHub's `macos-26-intel`:
+
+   | Nightly run (commit) | Uncompressed load | gzip load | In-VM copier |
+   | :--- | :--- | :--- | :--- |
+   | `36470275574` (`5e7213da`, 2026-09-28) | 11 min 32 s | 20 min 42 s | failed at once: `mkdir /run/containers/storage: permission denied` |
+   | `36566584474` (`4a2f2506`, 2026-09-29) | 10 min 53 s | 15 min 32 s | the same failure |
+   | `36711874486` (`8f7468dd`, 2026-09-30) | 15 min 25 s | 30 min 41 s | killed at its 45-minute cap |
+
+   - **gzip loses.** In each of the three runs the gzip archive took longer to load than the
+     uncompressed one, where the first sample had called them even.
+   - **The in-VM copier's first two failures were the rootless-store fault of issue #47.** Both
+     runs predate `b32eb058` and `d7bd57e0`, which name podman's store on a rootless copy, and
+     the 2026-09-30 run, which has both, carried the store in the destination
+     (`containers-storage:[overlay@/var/home/core/.local/share/containers/storage+/run/user/501/containers]`).
+   - **The 2026-09-30 copy got to its last step and did not return.** Its output lists every
+     blob copied, then `Writing manifest to image destination`, then `signal: killed` at 45
+     minutes. Whether the copy was slow to commit or the `podman machine ssh` session never
+     exited is not known, so the in-VM copier still has no time.
+
+3. ✅ <a id="OQ-LR3"></a>[**OQ-LR3**](#OQ-LR3) (decided): What is Apple Container's present-set probe?** Podman has one:
    `PresentLayerDigests`. For Apple Container the choice is `container image inspect`, if it
    lists layer digests, or yolo's own record of which image.json it last delivered, confirmed by
    `container image list`.
+
+   <!-- vantage: oq id=OQ-LR3 -->
 
 
    _Leaning:_ yolo's own record. It depends on no Apple Container output format, and a wrong

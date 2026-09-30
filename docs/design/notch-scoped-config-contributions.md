@@ -1,7 +1,9 @@
 ---
 title: "Host-only config contributions — the gate is missing, and the jail leak mostly is not"
 date: 2026-09-27
-status: in-review
+status: accepted
+stage: BUILT
+next: "Show a posture list in a launched jail: an integration test beside TestConfigListSurvivesInJailEditsAndPackDrop (integration/configlist_test.go), whose file:// pack already contributes a list"
 tags: [packs, notch, autonomy, host, config-list, config-overlay, pi, permissions]
 summary: "A pack could not declare a config-list entry for the host alone, because packoverlay.Collect placed every list at every notch. A host-applied entry coming back into a jail through a readsHost mount was already prevented on podman and Apple Container by the OQ-CR6 render mark, and happened only on macos-user. Recommended, and built on 2026-09-27 on OQ-5's leaning: posture-selected lists inside the autonomy kind, where standing rulings put confinement-conditional content, plus render-mark parity on macos-user (unit-tested only)."
 vantage:
@@ -10,11 +12,12 @@ vantage:
 
 # Host-only config contributions — the gate is missing, and the jail leak mostly is not
 
-**Status:** DESIGN, 2026-09-27 — **steps 1, 3 and 4 of [§5](#5-fastest-path-to-the-motivating-case)
-are BUILT** (`bbe5c878`, `499a332f`, `a6021d86`): posture lists, render-mark parity on
-`macos-user`, and the end-to-end test. Step 2 is the maintainer's, by hand, and is not done. One
-ruling is owed, [OQ-5](#OQ-5), whose leaning the build implements; if it amends the rulings,
-[§4.2](#42-the-first-drafts-modifier-corrected) replaces what step 1 built. Evidence verified at
+**Status:** 2026-09-27 — **steps 1, 3 and 4 of [§5](#5-fastest-path-to-the-motivating-case)
+are built** (`bbe5c878`, `499a332f`, `a6021d86`): posture lists, render-mark parity on
+`macos-user`, and the end-to-end test. Step 2 is the maintainer's, by hand, on the maintainer's own host
+and in the `matt` pack, which lives outside this repository, and is not done. The one ruling this line used to say was
+owed, [OQ-5](#OQ-5), was ruled as leaned on 2026-09-28, so what step 1 built stands and
+[§4.2](#42-the-first-drafts-modifier-corrected) is not built. Evidence verified at
 `8da7840d`; the build was made against `33c0eb18`. A review of the build found four defects, fixed
 in `1300fb12`, `2ab44527`, `77dc6afa` and `22d086bd` (NS-D11 to NS-D13, and the release note). A
 fifth, found by the same review, was not the build's: `yolo host apply` applied any pack whose
@@ -57,7 +60,7 @@ how a host-only scalar exists. It is measured by unit tests and the in-process c
 the rest of this build.
 
 **Reads with:** [`notch-scoped-config-contributions-plan.md`](notch-scoped-config-contributions-plan.md)
-(the implementation sketch, incomplete while [OQ-5](#OQ-5) is open),
+(the implementation sketch, superseded by the build),
 [`config-target-resolution.md`](../reference/config-target-resolution.md#a-staged-copy-is-not-always-a-layer)
 (the render mark), and [`pack-system.md`](../reference/pack-system.md#autonomy) (posture lists and
 posture overlays as built).
@@ -542,6 +545,8 @@ it leaks on `macos-user`, and it depends on the mark outliving the `assert` reti
    host-only scalar ever exists. The motivating case needs none: pi-automode keeps its own
    settings in `~/.pi/agent/extensions/pi-automode/config.json` (its README, as reported).
 
+   <!-- vantage: oq id=OQ-3 -->
+
    _Leaning:_ Defer until a real case arrives. Nothing in the motivating case needs it, and
    widening the posture's `config` reach is a ruling of its own.
 
@@ -565,6 +570,8 @@ it leaks on `macos-user`, and it depends on the mark outliving the `assert` reti
    hold, step 1 builds [§4.1](#41-recommended-posture-lists-inside-autonomy). If they are amended,
    it builds [§4.2](#42-the-first-drafts-modifier-corrected), a `posture` modifier on
    `config-list` and `config-overlay`.
+
+   <!-- vantage: oq id=OQ-5 -->
 
    _Leaning:_ They hold; build posture lists. A permission gate is exactly the content
    [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) put

@@ -2,6 +2,8 @@
 title: "Workspace skills — the repo picks the content, never the agent"
 date: 2026-09-17
 status: accepted
+stage: BUILT
+next: "Graduate into agent-briefings.md, whose workspace-layer section already describes the build: fold the WS rulings into its why-appendix and cut this doc to a stub"
 tags: [design, skills, packs, workspace, notch, git, trust]
 summary: "A repo that commits .claude/skills/ has chosen its readers' agent for them: a codex or pi user gets a worse experience from the same repo for no reason either of them chose. yolo already owns the one place every agent's skills converge — the per-agent staging it composes host-side and binds read-only — and the cheapest agent-neutral answer is to make the workspace one more SOURCE of that composition, declared by the agent packs rather than known to core. Whether the workspace may be a source at all is the user's ruling, and the argument runs both ways; the fact that most reshapes the answer is that the staging copier dereferences symlinks host-side, which a cloned repo turns into a host-file read."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Workspace skills — the repo picks the content, never the agent
 
-**Status:** BUILT (v1), 2026-09-27 — the staged mirror in containers and on `macos-user`, as
+**Status:** 2026-09-27 (`7df13e51`) — v1 is built: the staged mirror in containers and on `macos-user`, as
 [OQ-WS1](#OQ-WS1)–[OQ-WS4](#OQ-WS4) ruled that day, with the same day's review fixes; every
 mechanism choice is a `WS-D` row in the [ledger](#12-decision-ledger), whose Built column names
 the commits. The host half ([OQ-WS5](#OQ-WS5), [OQ-WS6](#OQ-WS6)) is out of v1 and unbuilt, and
@@ -19,7 +21,10 @@ the commits. The host half ([OQ-WS5](#OQ-WS5), [OQ-WS6](#OQ-WS6)) is out of v1 a
 [the workspace layer](../reference/agent-briefings.md#the-workspace-layer). Earlier stamps: every current-behavior
 claim below was checked against the tree on 2026-09-17 and re-checked on 2026-09-24, and every
 claim about an agent's discovery paths against the bundle installed in this jail, version named
-in the table that makes it (those were not re-read on 2026-09-24).
+in the table that makes it (those were not re-read on 2026-09-24). UNMEASURED in this doc: no
+observed launch is recorded here; `TestWorkspaceSkillsReachAContainerJail` and, on a Mac,
+`TestMacosUserWorkspaceSkillsArriveThroughTheComposedTree` (`integration/workspaceskills_test.go`)
+are the instruments that would show it.
 
 > **In short.** A repo may hold an opinion about *what* its agents should know; it must not
 > get to hold one about *which* agent its readers use. The one place every agent's skills
@@ -584,6 +589,8 @@ is answered *by* two of them.
    not a boundary. The *against* bullet is real and is why the leaning is lowest-layer rather
    than "another pack".
 
+   <!-- vantage: oq id=OQ-WS1 -->
+
    **Answer:**
    > **As leaned**, ruled 2026-09-27 in review: *"Yes, in containers and macos-user, at the lowest layer, with escaping symlinks refused — the repo already reaches every agent by shipping every path, so the mirror grants no authority it lacks; but this is the user's call and the against case is real."*
 
@@ -601,6 +608,8 @@ is answered *by* two of them.
    letting it shadow `configuring-the-jail` is R2. Disclosure of every shadowed name makes the
    loss visible without reopening S5.
 
+   <!-- vantage: oq id=OQ-WS2 -->
+
    **Answer:**
    > **As leaned, (a)**, ruled 2026-09-27 in review: *"(a) lowest — the workspace is the one agent-writable and clone-populated source, so it must never be able to shadow a jail-management skill; every shadowed name is disclosed."*
 
@@ -614,6 +623,8 @@ is answered *by* two of them.
 
    _Leaning:_ **(a).** P2, and it serves the repo that already made its choice — the user's
    framing — rather than asking it to make another.
+
+   <!-- vantage: oq id=OQ-WS3 -->
 
    **Answer:**
    > **Neither (a) nor (b): every agent's convention, whatever is selected**, ruled 2026-09-27 in
@@ -644,6 +655,8 @@ is answered *by* two of them.
    [`agent-config-packs.md`](../plans/agent-config-packs.md#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace)
    too.
 
+   <!-- vantage: oq id=OQ-WS4 -->
+
    **Answer:**
    > **As leaned, A alone**, ruled 2026-09-27 in review: *"A alone in containers and on macos-user; B is a host-notch tool and nothing else — and this ruling closes [`OQ-ACP2`](../plans/agent-config-packs.md#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace) in its own doc."*
 
@@ -657,6 +670,8 @@ is answered *by* two of them.
 
    _Leaning:_ **v2.** The container answer stands alone; the host half is a single exec-time
    step that can land later without reshaping anything, and it should not delay A.
+
+   <!-- vantage: oq id=OQ-WS5 -->
 
    **Answer:**
    > **As leaned, not in v1**, ruled 2026-09-27 in review: *"Out of scope for v1 — ship A in containers first; the host half is B or nothing, is one exec-time step, and can follow once [`OQ-WS6`](#OQ-WS6) is ruled."*
@@ -687,6 +702,8 @@ is answered *by* two of them.
    ran more than once. So "not fought" does not carry over by itself; (a) needs its own record of
    having written the line once. The leaning itself is unchanged.
 
+   <!-- vantage: oq id=OQ-WS6 -->
+
    **Answer:**
    > **Deferred with [OQ-WS5](#OQ-WS5)**, 2026-09-27: the maintainer confirmed it is moot for v1
    > (*"and OQ6 is moot, right?"*). The links are the host half's mechanism, which v1 does not
@@ -709,6 +726,8 @@ is answered *by* two of them.
 
       _Leaning:_ **(b)**, with a cap no real skill set meets: the refusal is disclosed like every
    other, and (c)'s would land on legitimate repos.
+
+   <!-- vantage: oq id=OQ-WS7 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** (b). A per-launch byte and entry cap on the

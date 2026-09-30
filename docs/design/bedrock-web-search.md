@@ -1,14 +1,18 @@
 ---
 title: "Web search on every Bedrock profile: the AgentCore MCP preset"
 date: 2026-09-25
-status: draft
+status: in-review
+stage: DESIGN
+next: "Measure D7, build step 9.1, from the agents' shipped packages: which offer a native search tool on a Bedrock profile, and which resolve ${VAR} in an MCP server's env; it needs no ruling, while OQ-BR19 is the first one owed"
+depends-on:
+  - mcp-presets-removal.md
 tags: [bedrock, aws, agentcore, mcp, web-search, tavily, packs, providers]
 summary: "No agent has native web search on bedrock-runtime, the one Bedrock endpoint family yolo ships. So every Bedrock profile gets one MCP search tool served by an AgentCore gateway the company creates once, reached through an in-jail signing proxy, shipped by the Bedrock pack, on by default and keyed the way a user's Tavily server is keyed. Five questions decide how it is built; the direction is ruled, the proxy's shape is decided and the Bedrock gate is answered."
 ---
 
 # Web search on every Bedrock profile: the AgentCore MCP preset
 
-**Status:** DESIGN, 2026-09-25. The direction is ruled ([DIR-BR4](#DIR-BR4)). On 2026-09-29
+**Status:** 2026-09-25. The direction is ruled ([DIR-BR4](#DIR-BR4)). On 2026-09-29
 [OQ-BR21](#OQ-BR21) was decided and [OQ-BR22](#OQ-BR22) answered; three questions remain. None of the
 search feature is built; the signer it reuses is. Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) on 2026-09-25, where it was section 6.9;
 question ids are unchanged. **MEASURED:** yolo's MCP pipeline, read at `6f21b82c` ([§3](#3-what-yolos-mcp-pipeline-does-today)).
@@ -451,7 +455,7 @@ Measure both before the preset ships (build step 9.1).
     bridge needs ([R11](#12-risks)), and keeps a credential in no process the agent did not start.
     B stays the upgrade if a per-agent proxy process proves costly.
 
-    <!-- vantage: oq id=OQ-BR21 leaning="A: a stdio MCP proxy that is a hidden yolo subcommand, named by the preset's command and built on the wire bridge's signer package. It is expressible today (command/args/env only, no schema change) and shares one signer with the bridge. A loopback bridge route (B) needs a URL transport in knownMCPServerKeys and six derives; AWS's mcp-proxy-for-aws via uvx (C) adds a Python dependency fetched at run time." -->
+    <!-- vantage: oq id=OQ-BR21 -->
 
     **Answer:**
     > **Decided 2026-09-29 (implementation decision, no ruling needed):** A. The signing proxy is a
@@ -505,7 +509,7 @@ Measure both before the preset ships (build step 9.1).
     It is written spelling-neutral so it can be ruled before [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2);
     only build step 9.3 waits on that.
 
-    <!-- vantage: oq id=OQ-BR22 leaning="A: packs/bedrock ships agentcore-web-search as an mcp entry (the kind OQ-MP3 ruled) with a gate that fires only when the render target's selected provider is Bedrock, however providers-and-profiles-redesign.md spells that; evaluated per render target, merged before the capability filter, the user's mcp_servers the last writer. Never keyed on a name. Not a core preset (core would learn an AWS service; mcp_presets retires); not a recipe (not default-on)." -->
+    <!-- vantage: oq id=OQ-BR22 -->
 
     **Answer:**
     > **Answered 2026-09-29 by rulings ([DIR-BR4](#DIR-BR4),

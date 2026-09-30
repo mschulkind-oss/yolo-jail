@@ -1,10 +1,25 @@
+---
+title: "Credential sources: implementation sketch"
+status: draft
+stage: SKETCH
+next: "Once the design rules a jail shell's grant (depends-on), turn §3's jail entry into build steps: start at refuseHostOnlyFlags in internal/cli"
+depends-on:
+  - credential-sources-separation.md#OQ-ES5
+  - credential-sources-separation.md#OQ-ES6
+tags: [providers, profiles, credentials, env-sources, plan]
+---
+
 # Credential sources: implementation sketch
 
-**Status:** SKETCH, 2026-09-27. [§1](#1-ship-now-es-d1-to-es-d5) is BUILT (2026-09-27; the
+**Status:** 2026-09-27; re-read 2026-09-30. [§1](#1-ship-now-es-d1-to-es-d5) is built (2026-09-27; the
 design's [ledger](credential-sources-separation.md#10-decision-ledger) has the commits and the
 mechanism choices and the review's fixes, ES-D6 to ES-D12). Everything after it is incomplete and blocked on the question
 it names, except [§3](#3-blocked-on-the-other-open-questions)'s [OQ-ES5](credential-sources-separation.md#OQ-ES5) host half, ruled and built
-the same day (ES-D13 to ES-D17). Codebase facts were verified at `8da7840d`.
+the same day (ES-D13 to ES-D17). [§2](#2-only-if-the-split-is-ruled-in) is moot since 2026-09-30,
+when the design's [OQ-ES1](credential-sources-separation.md#OQ-ES1) was answered no, and so is
+[§3](#3-blocked-on-the-other-open-questions)'s [OQ-ES7](credential-sources-separation.md#OQ-ES7)
+entry. What is left waits on [OQ-ES5](credential-sources-separation.md#OQ-ES5)'s jail half and
+[OQ-ES6](credential-sources-separation.md#OQ-ES6). Codebase facts were verified at `8da7840d`.
 
 > **Precedence.** This sketch accompanies
 > [`credential-sources-separation.md`](credential-sources-separation.md). The design wins on
@@ -37,6 +52,10 @@ it, and `composeHostVars` step (2), `scope.EnvSourcesFor(agent)`, appends that p
   exported helper, or restate it, but keep one source for the wording.
 
 ## 2. Only if the split is ruled in
+
+**Moot (2026-09-30).** [OQ-ES1](credential-sources-separation.md#OQ-ES1) was answered no, so there
+is no split and nothing below is built. The table stays as the record of what a second key would
+have touched.
 
 Blocked on [OQ-ES1](credential-sources-separation.md#OQ-ES1). Its leaning is no, and a no deletes
 this section. These are the call sites a second key would touch. Two of them are easy to miss:
@@ -79,7 +98,9 @@ the shared file is narrowed where `deliverChannel` calls `writeUserEnvFile`, not
   acknowledgment. It would be read through `UserScopeConfig`, never the merged config. The gate
   would treat an acknowledged name as unclaimed for `SharedEnvSources` and `EnvSourcesFor`, and
   `Disclosure` would name it on every launch.
-- **[OQ-ES7](credential-sources-separation.md#OQ-ES7)**, a CLI-less pack's gated env under a
+- **[OQ-ES7](credential-sources-separation.md#OQ-ES7)**, moot since
+  [OQ-NC5](../plans/notch-convergence.md#OQ-NC5): a typed host `-p` for an ad-hoc command is now
+  refused, so nothing here is built. As filed, a CLI-less pack's gated env under a
   typed host `-p`. This touches `gateFiresFor` and `EnvFold` for the host's typed `-p` only, and
   the comment on `gateFiresFor` (which currently says the host leans on the no-activation rule)
   has to be restated. The pin is `yolo host -p bedrock -- bash` receiving aws-auth's

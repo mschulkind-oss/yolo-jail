@@ -1,16 +1,18 @@
 ---
 title: "yolo has an editor, and it should not — neovim is baked into every jail on every backend"
 date: 2026-09-22
-status: draft
+status: in-review
 tags: [image, flake, core-floor, env, preferences, packs, macos-user]
 summary: "neovim sits in coreFloorNames, so it is baked into the image AND installed into the darwin nix profile, and its stated justification is that yolo sets VISUAL=nvim unconditionally — a circular argument yolo wrote for itself. Seven places carry the preference. The fix is the move the repo already made for blocked tools: the core floor carries yolo's dependencies, a human's editor comes from their own config, and the only real question is what VISUAL becomes."
+stage: DESIGN
+next: "Rule OQ-ED1 — it also decides whether neovim leaves the image, and OQ-ED2 and OQ-ED3 follow from it"
 vantage:
   status-chip: true
 ---
 
 # yolo has an editor, and it should not — neovim is baked into every jail on every backend
 
-**Status:** DESIGN, 2026-09-30 — three rulings owed, [OQ-ED1](#OQ-ED1) to [OQ-ED3](#OQ-ED3).
+**Status:** 2026-09-30 — three rulings owed, [OQ-ED1](#OQ-ED1) to [OQ-ED3](#OQ-ED3).
 [OQ-ED4](#OQ-ED4) was decided as an implementation choice ([ED-D1](#ED-D1)): this doc rules on
 neovim alone. Nothing built — re-verified 2026-09-30: `"neovim"` is still in `coreFloorNames` and both
 `VISUAL=nvim` copies are still constants. Code is cited by symbol, not by line.
@@ -290,6 +292,8 @@ version collision made it urgent.
    _Leaning:_ **Rule on `neovim` alone here; the table above is what a follow-up sprint would take.**
    That was the leaning before the measurement and it survives it — the audit's value is that the
    follow-up now has a priority order set by bytes rather than by guesswork.
+
+   <!-- vantage: oq id=OQ-ED4 -->
 
    **Answer:**
    > Decided as an implementation choice ([ED-D1](#ED-D1)), reversible: this doc rules on `neovim`

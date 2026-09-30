@@ -2,20 +2,27 @@
 title: "Test suite speed"
 date: 2026-09-27
 status: in-review
+stage: DECIDED
+next: "Retake recipes 1 and 2 of the measurement recipe on the current tree and record which targets hold, then list what is left of the five work items"
 tags: [testing, ci, performance, plan]
 summary: "Why the unit gate doubled and the integration suite grew by half in three weeks, what is being cut, the targets, and four questions for the maintainer, two of them answered."
 ---
 
 # The suite got slower because tests were added, and the suite got run more often
 
-**Status:** DECIDED, 2026-09-27. Evidence measured 2026-09-27 against `71114ecc` and its parents.
+**Status:** 2026-09-27. Evidence measured 2026-09-27 against `71114ecc` and its parents.
 Five work items are ruled and being built, and some have landed, among them the **integration**
-partition's two isolations ([OQ-TS1](#OQ-TS1)'s answer names the commits). Four questions each
+partition's two isolations ([OQ-TS1](#OQ-TS1)'s answer names the commits). Read in the tree on
+2026-09-30, not re-measured: most of the other four partitions' fixes are in too
+(`startExternalServiceHarness` takes a readiness deadline, the bounded-wait test fakes its clock,
+the bootstrap tests carry a fake `fc-cache`, `TestASocketPathThatExistsAccepts` runs 500 rounds,
+and `check-ci` is `[parallel]`), while `perf.SlowSpanThreshold` is still a fixed constant, so no
+target is confirmed met until the recipe is retaken. Four questions each
 asked for one more lever. [OQ-TS1](#OQ-TS1) and [OQ-TS3](#OQ-TS3) were answered 2026-09-29, both as
 leaned and both adding no lever ([Decision Ledger](#decision-ledger)). [OQ-TS2](#OQ-TS2) and
 [OQ-TS4](#OQ-TS4) are still open, and none of the five work items waits on them. This follows the
-precedent [`install-capture.md`](install-capture.md) set for a `DECIDED` plan with an additive
-question still open.
+precedent [`install-capture.md`](install-capture.md) set for a plan that owes work with an
+additive question still open.
 
 > **In short.** No existing test got slower. The time went into tests added since mid-August,
 > several of which wait on real clocks, and into running the full suite 28 to 34 times a day.
@@ -75,7 +82,7 @@ Together that is about 18.2 s of `internal/cli/run`'s 40.8 s, and about 19 s of
 ### The gate: slower tests, a second lint pass, and a cache that kept getting invalidated
 
 - **Lint gained 43 s on 09-13**, when the darwin `go vet` and `staticcheck` pass was added
-  ([`Justfile:334`](../../Justfile#L334)). The Justfile comment gives the reason and puts the cost
+  (the `lint` recipe in the [`Justfile`](../../Justfile)). The Justfile comment gives the reason and puts the cost
   at "roughly doubles a COLD `just lint`".
 - **`lint-ci` and `test-fast` run one after the other.** Running them concurrently with `just`'s
   `[parallel]` attribute saved about 7.5 s in a local trial (54.0 s to 46.5 s).
@@ -241,6 +248,8 @@ two depend on how a particular day's agents were scheduled.
    test. It would also make every other agent that reaches its landing wait for the current run to
    finish.
 
+   <!-- vantage: oq id=OQ-TS1 -->
+
    _Leaning:_ No. A suite-wide lock works against the maintainer's standing preference not to limit
    parallelism ([TS-D1](#TS-D1)). Isolating the two tests that share state (the **integration**
    partition) fixes the cause, and the lock would only hide it.
@@ -282,6 +291,8 @@ two depend on how a particular day's agents were scheduled.
    that other runs share. The repository already uses this pattern once: `YOLO_TEST_REAL_PACK_INSTALLS`,
    which the `test` recipe in the [`Justfile`](../../Justfile) sets.
 
+   <!-- vantage: oq id=OQ-TS3 -->
+
    _Leaning:_ No. The full suite now runs only at landing, so a run that is not a landing already
    executes only the tests its change reaches. A second switch would add another way to land with
    those tests skipped.
@@ -301,7 +312,7 @@ two depend on how a particular day's agents were scheduled.
 
    <!-- vantage: oq id=OQ-TS4 leaning="No. The Justfile comment rules that the landing gate is the one that must not be blind to darwin-only files, and the pass is close to free on a warm cache. Parallelizing recovers much of the cold cost instead." -->
 
-   _Leaning:_ No. The Justfile comment ([`Justfile:298`](../../Justfile#L298)) rules against it: the
+   _Leaning:_ No. The comment above the `lint` recipe's darwin pass in the [`Justfile`](../../Justfile) rules against it: the
    landing gate is the one that must not miss darwin-only files. On a warm cache the pass costs close
    to nothing. Running the lint passes in parallel gets much of the cold cost back
    without dropping it.

@@ -2,6 +2,10 @@
 title: "Where GitHub Copilot CLI keeps its login, and why one manifest line cannot share it"
 date: 2026-09-29
 status: in-review
+stage: DESIGN
+next: "Rule OQ-CT1 together with the keychain design: accepting that design answers it (the keychain route first, the copilotTokens copy only where the route is off)"
+depends-on:
+  - ../design/keychain-from-a-jail.md
 tags: [copilot, authentication, credentials, packs, research, measured]
 summary: "Copilot CLI 1.0.89 stores its GitHub token in the system keychain first, on Linux and macOS alike. Only when that fails, and only after the user says yes to a prompt, does it write the token in plain text into ~/.copilot/config.json, a file that also holds folder trust and plugin state. So there is no credential file for the shared_credentials hook to link, no directory for the shared_directory hook to share, and the copilot pack was left unchanged."
 vantage:
@@ -10,8 +14,13 @@ vantage:
 
 # Where GitHub Copilot CLI keeps its login
 
-**Status:** MEASURED 2026-09-29, from the shipped package bytes. Copilot was never run: no
-login, no `--version`, no API call. One ruling is owed, [OQ-CT1](#OQ-CT1).
+**Status:** 2026-09-29 — measured from the shipped package bytes. Copilot was never run: no
+login, no `--version`, no API call. One ruling is owed, [OQ-CT1](#OQ-CT1). The maintainer's
+direction on it asked for a keychain design first, and that design,
+[`keychain-from-a-jail.md`](../design/keychain-from-a-jail.md), came back on 2026-09-29: accepting
+it answers this question.
+
+**Needs your ruling:** [OQ-CT1](#OQ-CT1), together with the keychain design.
 
 **The ask:** the backlog item "Copilot logs in once per machine, not once per workspace", which is
 the `copilot` half of gap [G16](../plans/setup-support-gaps.md#2-ranked-gap-backlog). The

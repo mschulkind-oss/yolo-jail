@@ -4,11 +4,15 @@ date: 2026-09-28
 status: draft
 tags: [plan, sketch, packs, agent-directories, pi]
 summary: "The parking lot for the agent directory map's implementation-level material: where the kind, the evaluator, the reporting and pi's map probably land, what each derived status reads, and the traps to check before relying on anything here. Not a hand-off; nobody builds from it while it is a sketch."
+stage: SKETCH
+next: "Nothing to hand off yet: §4, the jail-launch line, rests on no question and is what the design builds first; the rest waits on the design's rulings"
+depends-on:
+  - agent-directory-map.md
 ---
 
 # Agent directory map — implementation sketch
 
-**Status:** SKETCH, 2026-09-28 — incomplete, and unstable while questions are open.
+**Status:** 2026-09-28 — incomplete, and unstable while questions are open.
 
 **The design wins on behavior.** This file holds material that surfaced while writing
 [`agent-directory-map.md`](agent-directory-map.md) and that needs no ruling. Where it disagrees with

@@ -1,5 +1,7 @@
 ---
 status: current
+stage: CURRENT
+next: "Re-verify the body against HEAD with the system-doc skill and move its 2026-09-23 stamp; the sections added since each carry their own date and measurement"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -48,7 +50,7 @@ tags: [providers, profiles, packs, derives, selection, deselection, zai, cerebra
 
 # The provider system — catalog, composition, and selection
 
-**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. It is also the as-built home
+**Status:** verified 2026-09-23 against `7ad8358c`. It is also the as-built home
 of the profile-variant design (`profiles-as-pack-variants.md`, retired): its surviving rulings
 are [the profile-variant rows](#the-profile-variant-rulings) of the appendix. MEASURED: each
 section was re-read against the code at `7ad8358c` — the profile and preflight sections line by
@@ -662,7 +664,8 @@ Where each answer lands is the vehicle's:
     `eval "$(yolo host env --with-credentials zai)"` puts them in the current shell. No pack's
     env derive runs for a name no pack installs, and a CLI-less pack's gated env (`aws-auth`'s
     pointer) does not fire for it
-    ([`OQ-ES7`](../design/credential-sources-separation.md#OQ-ES7), open). A `profile` key
+    ([`OQ-ES7`](../design/credential-sources-separation.md#OQ-ES7), moot since
+    [OQ-NC5](../plans/notch-convergence.md#OQ-NC5)). A `profile` key
     naming a command no resolvable pack installs is refused here with the validator's message,
     as `yolo check` and every jail launch refuse it
     ([OQ-NC5](../plans/notch-convergence.md#OQ-NC5), which retired ES-D1;
@@ -1833,7 +1836,8 @@ environment.
   model id outside the selected provider's `models`.** It would catch deselection residue loudly,
   but it also refuses every legitimate hand-picked model, and a launch-time check cannot see a
   mid-session `/model` switch at all. An enforced model allowlist is the wire bridge's job, which
-  sees every request ([`OQ-WG3`](../design/wire-bridge-gateway.md#OQ-WG3), ruled, not built).
+  sees every request ([`OQ-WG3`](../design/wire-bridge-gateway.md#OQ-WG3), ruled, and built
+  2026-09-30 as [WG-I40](../design/wire-bridge-gateway.md#WG-I40)).
 - **No value schema for options** — a typechecker in core is `wire_api`'s enum one layer up.
 - **No credential VALUE in any composed or wire table.** The name crosses; the value is
   hydrated per derive invocation and in the 0600 env files (`yolo-user-env.sh` for an

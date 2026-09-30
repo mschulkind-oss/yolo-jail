@@ -2,6 +2,8 @@
 title: "Bedrock from an SSO login, without handing over the account"
 date: 2026-09-17
 status: accepted
+stage: GRADUATED
+next: "Give TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox a region (integration/macosuserdoorway_test.go): its 2026-09-30 Mac run was refused at the region pre-flight before it reached the doorway"
 tags: [aws, bedrock, sso, credentials, loopholes, packs, boundary, graduated]
 summary: "GRADUATED 2026-09-29 into docs/reference/agent-credentials.md, whose SSO-backed Bedrock section now states the delivered behavior. This file stays whole as the argument: how a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach, why narrowing and refresh are independent problems, the evidence, and the Decision Ledger the reference links for its reasoning. The live-login try-out happened 2026-09-29 (the maintainer's jails, daily, on a Linux host); a running jail picking up each new login, with no relaunch, was observed the same day; a turn during a real lapse is still unobserved."
 ---
@@ -12,7 +14,7 @@ summary: "GRADUATED 2026-09-29 into docs/reference/agent-credentials.md, whose S
 human's own access is an `aws sso login` on the host, and how does the jail end up holding no
 more than Bedrock out of it — and still keep working after the human logs in again?
 
-**Status:** GRADUATED, 2026-09-29 — the delivered behavior is described in
+**Status:** 2026-09-29 — the delivered behavior is described in
 [`agent-credentials.md`'s SSO-backed Bedrock section](../reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth),
 which is now the authority for what a user configures, what crosses into the jail, the
 narrowing, the [OQ-SSO8](#OQ-SSO8) refusals and the un-narrowed disclosure. This file stays
@@ -26,7 +28,11 @@ which meets [§8](#8-behaviour-this-design-specifies)'s done-conditions 1, 2, 4 
 running jail picking up a new login with no relaunch) and 5
 ([§11](#11-evidence-and-how-to-re-check-it)). **UNMEASURED:** a turn during a real lapse and the
 error it sees (condition 6), and condition 7;
-`macos-user`, which has not run on a Mac. Repo claims verified against `d4c0e7e3`, those the
+`macos-user`, which has not run on a Mac: the one hardware test for it,
+`TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox`, ran in the hosted `macos-user.yml` nightly on
+2026-09-30 (run 36719581090, at `8f7468dd`) and was refused at the region pre-flight (*"a
+selected provider is reached through a region, and this launch names none"*) before its probe
+ran, because its config names no region. Repo claims verified against `d4c0e7e3`, those the
 2026-09-25 questions add against `ee8154f2`, and step 6's against the working tree it landed from
 (2026-09-25); vendor claims carry their dates in [§11](#11-evidence-and-how-to-re-check-it). The
 body below was not re-verified in the graduation, so where it and the reference disagree, the
@@ -1260,7 +1266,7 @@ Bedrock credential comes from. Two terms both use:
    narrowing nor [§7](#7-refresh--what-happens-when-you-log-in-again)'s refresh happens, and
    every turn still succeeds — which is what makes it silent.
 
-   <!-- vantage: oq id=OQ-SSO8 leaning="Refuse: extend awschain's exclusivity refusal to a static AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY pair delivered beside the container-credentials pointer, worded like the bearer refusal (both origins named, drop one), with no escape hatch." -->
+   <!-- vantage: oq id=OQ-SSO8 -->
 
    _Leaning:_ refuse the pair beside the pointer, worded like the bearer refusal, with no hatch.
 
@@ -1397,7 +1403,7 @@ Bedrock credential comes from. Two terms both use:
    generic client at the gateway route by hand, and whether
    [§12](#12-what-i-would-build-in-order) step 7 is built or deleted.
 
-   <!-- vantage: oq id=OQ-SSO9 leaning="Retire option D: the signing wire bridge covers every shipped agent, a bearer minted from the narrowed session dies within an hour of launch, and a user pointing a generic client at the gateway route supplies an API key, so document that route as API-key-only." -->
+   <!-- vantage: oq id=OQ-SSO9 -->
 
    _Leaning:_ retire option D, and document the gateway route as API-key-only.
 
@@ -1466,6 +1472,7 @@ Bedrock credential comes from. Two terms both use:
    `needs` `aws-auth`) would put that silence in front of every claude user who selects the
    `bedrock` profile.
 
+   <!-- vantage: oq id=OQ-SSO10 -->
 
    _Leaning:_ (a).
 

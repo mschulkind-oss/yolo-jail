@@ -2,6 +2,8 @@
 title: "Plan: agent CLIs from npm to their vendors' native installers"
 date: 2026-09-03
 status: accepted
+stage: DECIDED
+next: "File, as a question in this plan, the one the Blockers section says the copilot flip re-opens — may copilot's own updater replace its binary unobserved — with the dropped flag as its starting position; the flip itself (PREFIX on its install recipe, then TestPackInstallsVersionsAndConfigures/copilot on both arches) waits on that ruling"
 tags: [packs, program-delivery, installers, evergreen]
 summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and claude's dead autoUpdaterStatus is gone. copilot did NOT flip — its installer picks PREFIX=/usr/local under root and the jail's rootfs is read-only, so the flip would make it uninstallable. Its --no-auto-update question was ruled separately on 2026-09-12 (option A: the flag is dropped, without the flip). opencode stays deferred; pi's 'native installer' is an npm wrapper and must not be flipped."
 ---
@@ -11,9 +13,20 @@ summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and
 **Design:** [`program-delivery.md` §3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
 ruling **[OQ-PD13](../design/program-delivery.md#decision-ledger)** · Written 2026-09-03.
 
-**Status:** DECIDED, 2026-09-04 — shipped in part: codex flipped and claude's dead
-`autoUpdaterStatus` is gone; **copilot did not flip**, and that is the work left. Re-checked
-against the tree 2026-09-24: both sibling rulings this plan waited on
+**Status:** 2026-09-04 — shipped in part: codex flipped and claude's dead
+`autoUpdaterStatus` is gone; **copilot did not flip**, and that is the work left. **Re-checked
+2026-09-30:** the served copilot installer still takes `PREFIX="${PREFIX:-/usr/local}"` when
+`id -u` is 0 (`gh.io/copilot-install`, lines 127-132), and opencode's still assigns
+`INSTALL_DIR=$HOME/.opencode/bin` with no override (line 68). The per-installer variable the flip
+needs is now allowed:
+[`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8) was answered on 2026-09-30 as
+[`PS-D1`](../design/provisioner-sets.md#PS-D1) — core runs every vendor installer with no
+controlling terminal, adds no env field for non-interactivity, and adds *"a variable an installer
+needs in order to succeed … to the recipe when a flip needs one (copilot's `PREFIX`)"*. So the
+flip is no longer blocked on mechanism, and this plan's *Don't* about an env field is spent. What
+still stands before it is the question the Blockers section says the flip re-opens — whether
+copilot's own updater may replace its binary unobserved — which is not filed as a question yet.
+Re-checked against the tree 2026-09-24: both sibling rulings this plan waited on
 ([OQ-PD12a](../design/program-delivery.md#decision-ledger) and
 [OQ-PD14](../design/program-delivery.md#decision-ledger)) shipped 2026-09-04, and codex's
 installer prompt and payload capture were fixed 2026-09-14. `omp`, an npm pack added 2026-09-15,
@@ -124,7 +137,9 @@ what the caller asked to be a `--version` probe. `codex` honors
 at all in core. ✅ **Closed for codex on 2026-09-14 by neither of those**: the pack sets the
 variable through its `env` contribution (above), which reaches the installer because it is set
 for the whole jail. That route fits a vendor-prefixed name and not a generic one such as copilot's
-`PREFIX`, so [`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8) stays open for the general case.
+`PREFIX`. ⚠ *Since answered (2026-09-30):* [`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8) was
+decided as [`PS-D1`](../design/provisioner-sets.md#PS-D1): no terminal for any installer, and a
+variable an installer needs goes on its recipe when a flip needs one, copilot's `PREFIX` named.
 
 **MEASURED 2026-09-14 — codex's standalone payload was not captured; FIXED the same day** (the
 *FIXED 2026-09-14* paragraph above). The installer unpacks the standalone runtime under
@@ -265,8 +280,10 @@ edit, so each step's proof is its own CI cell on both arches.
 - **Don't add an `env` field to `packdecl.Install`** to pass `PREFIX=`/`VERSION=` from this plan.
   The reason as first written — [OQ-PD14](../design/program-delivery.md#decision-ledger) was opening
   the same struct — is spent: that verb shipped 2026-09-04 with no env field. What still holds is
-  that per-recipe installer env is an open question, not a plan's to settle:
-  [`OQ-PS8`](../design/provisioner-sets.md#OQ-PS8) owns it.
+  that per-recipe installer env was a question, not a plan's to settle. ⚠ *Spent 2026-09-30:*
+  [`PS-D1`](../design/provisioner-sets.md#PS-D1) settled it — no env field for
+  non-interactivity, and a variable an installer needs added to its recipe when a flip needs
+  one, copilot's `PREFIX` named.
 - **Don't `npm uninstall -g` from the entrypoint** to clear the stale copies. [OQ-PD4](../design/program-delivery.md#decision-ledger) rules that
   dropping a program is an explicit act; the boot catalog reports and does not remove.
 

@@ -2,21 +2,22 @@
 title: "Composed-file postures — the three questions left open"
 date: 2026-07-25
 status: in-review
+stage: DESIGN
+next: "Draft CFP-2's degradation rows from the tree — which Derived surfaces lose :ro on macos-user and on Apple Container below 1.1.0 — so its ruling prices a real table"
 tags: [config, prism, permissions, open-questions]
 summary: "A stub. The taxonomy, the postures, the 0o444 finding and the writer-class split graduated to docs/reference/composed-file-permissions.md; what stays here is the three open questions (CFP-1…CFP-3), which are consequence questions about shipped mechanisms rather than gaps."
 ---
 
 # Composed-file postures — the three questions left open
 
-**Status:** GRADUATED, 2026-09-09 — the settled body of this doc moved to
+**Status:** 2026-09-09 — the settled body of this doc graduated to
 [`../reference/composed-file-permissions.md`](../reference/composed-file-permissions.md) — the
 Derived/Shared/State taxonomy, the host-linked axis, the `0o444` asymmetry finding, the model,
 the `host_files` mode collapse, the home-root symlink decision, the program-operation /
 directed-agent split, and the restart axis all live there and describe shipped behavior.
 
-**This file is what remains: three open questions.** They are deliberately *not* roadmap rows —
-each concerns a shipped mechanism working as designed rather than a gap, and none blocks
-anything. Read the reference first; each question below assumes it.
+**This file is what remains: three open questions.** Each concerns a shipped mechanism working
+as designed rather than a gap, and none blocks anything. Read the reference first; each question below assumes it.
 
 **Needs your ruling:** [CFP-1](#CFP-1) (whether `:ro` for a Derived surface needs host-side composition, per-surface or blanket), [CFP-2](#CFP-2) (a documented degradation table for `macos-user` and Apple Container), [CFP-3](#CFP-3) (whether per-workspace is the right scope for the capture overlay sidecars).
 

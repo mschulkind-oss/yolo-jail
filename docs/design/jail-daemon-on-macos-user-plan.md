@@ -3,15 +3,22 @@ title: "Plan: start a jail daemon on macos-user"
 date: 2026-09-17
 status: accepted
 tags: [macos-user, loopholes, jail-daemon, parity, plan]
-summary: "The in-jail half of the loophole lifecycle on the native macOS backend. The host half shipped 2026-09-17; steps 1, 2 and 5 by 2026-09-24. Steps 3 and 4 are BUILT (2026-09-28) on OQ-DP8 and OQ-DP9: the bundle carries darwin in-jail binaries as bin/darwin-<arch>, the launch stages them into the sandbox's root-owned prefix, and yolo-jaild supervise runs the declared daemons, verbatim and confined by the Seatbelt profile, with caller tokens in a root-owned 0600 file. Unexecuted on a Mac."
+summary: "The in-jail half of the loophole lifecycle on the native macOS backend. The host half shipped 2026-09-17; steps 1, 2 and 5 by 2026-09-24. Steps 3 and 4 are BUILT (2026-09-28) on OQ-DP8 and OQ-DP9: the bundle carries darwin in-jail binaries as bin/darwin-<arch>, the launch stages them into the sandbox's root-owned prefix, and yolo-jaild supervise runs the declared daemons, verbatim and confined by the Seatbelt profile, with caller tokens in a root-owned 0600 file. Its Mac test passed on 2026-09-30."
+stage: BUILT
+next: "Graduate into docs/reference/macos-user-nix-and-features.md, which already holds the as-built account; its 'None of this has run on a Mac' warning is stale since the 2026-09-30 pass"
 vantage:
   status-chip: true
 ---
 
 # Plan: start a jail daemon on macos-user
 
-**Status:** BUILT, 2026-09-28 — every step is in the tree, and none of steps 3 and 4 has run on a
-Mac. **Steps 1 and 2 shipped 2026-09-18** (`f6387968`): the payload is composed once above the
+**Status:** 2026-09-28 — every step is in the tree. MEASURED: on a Mac,
+`TestMacosUserJailDaemonRunsConfinedInTheGuest` passed in `macos-user.yml` run 36719581090
+(2026-09-30, at `8f7468dd`). The one earlier run, 36575801495 (2026-09-29, at `4a2f2506`),
+failed it before `9280f5e1` moved the test's supervisor probe from the agent's `ps` to the
+host's. UNMEASURED: what the [Verification split](#verification-split) leaves to a
+human at a Mac — two concurrent launches of one workspace, whether Codex refreshes through the
+adapter, and the start time against JD-8's bound. **Steps 1 and 2 shipped 2026-09-18** (`f6387968`): the payload is composed once above the
 backend dispatch. Step 5 landed by 2026-09-24. **Steps 3 and 4 shipped 2026-09-28**
 (`7b1c1d48`, `068f8fe2`) on the rulings of [OQ-DP8](declaration-parity.md#OQ-DP8) and
 [OQ-DP9](declaration-parity.md#OQ-DP9): the jail daemons run in the Seatbelt guest. The
@@ -288,8 +295,8 @@ against them.
     closed both in its row and in [§11](declaration-parity.md#11-what-i-would-build-in-order)'s
     note, the authority that doc names for which rows a wave closed. `DP-L3` stays **approved and
     unbuilt**, which is correct — steps 3 and 4 are what would build it.
-- **Roadmap:** the "Start `jail_daemon` on `macos-user`" row of
-  [`roadmap.md`](../plans/roadmap.md)'s 📦 table moves in the same commit as this file's status.
+- **Roadmap:** the roadmap's link to this plan, and the reason beside it, are reviewed in the
+  same commit as this file's status.
 - **Cheap and yours:** the producer's return type (`[]any` matching today's payload is fine — it is
   serialized immediately); the new file's name; one decline line per daemon or per pack.
 

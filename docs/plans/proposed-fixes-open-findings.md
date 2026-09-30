@@ -1,12 +1,36 @@
+---
+title: "Proposed fixes for the open findings"
+status: accepted
+stage: BUILT
+next: "Graduate and retire this findings index: confirm each item's outcome is described in pack-system.md (#program, #retiring-a-dropped-packs-host-output) and program-delivery.md, repoint the inbound links, then remove the file"
+---
+
 # Proposed fixes for the open findings
 
-**Status:** DECIDED, 2026-08-03 — re-checked 2026-08-23. **All ten items decided; nine shipped.** #1's PATH split, #4, #5, #7 landed
+**Status:** 2026-08-03 — re-checked 2026-08-23 and against the tree 2026-09-30. **All eleven items
+are decided and none is open in the tree.** #1's PATH split, #4, #5, #7 landed
 2026-08-02; #2, #3, #6 landed 2026-08-03; **#8** (parity table), **#9** (multi-arch builder +
 GOARCH-derived builder system) and **#10** (host MCP servers) landed 2026-08-03 too.
-**One item is genuinely open: #1's baked fallback** — and it is the LEAST urgent thing in this
-doc, because the PATH split made the collision it guards against unrepresentable (see #1).
 **#11** (new 2026-08-03): a dropped pack's host output was not retired — **SHIPPED the same day**
-(`77663ae`, `ecf3564`, `af70f4c`). Written
+(`77663ae`, `ecf3564`, `af70f4c`). Three things moved under this doc after 2026-08-23:
+
+- **#1's baked fallback, the item this line used to call open, is moot.** On 2026-09-04
+  program-delivery's [`OQ-PD12a`](../design/program-delivery.md#decision-ledger) moved the launch
+  dir back ahead of the install prefixes and stopped writing a launcher for any name the image
+  already provides (`internal/entrypoint/launchercollision.go`), so no launcher exists for a
+  baked binary to fall back to. The same ruling reversed #1's after-`/bin` split; the lesson in
+  [§1](#1-the-program-shim-shadowing-a-baked-binary-111) still holds, and its mechanism is gone.
+- **#4 is fixed by another route**: each launch stages a new pack tree holding only the selected
+  packs (`internal/cli/run/packtree.go`, `b2e796a7`, 2026-09-26), so a dropped pack is absent from
+  the next launch.
+- **#8's unification stays deferred by ruling** until a third derivation exists; the `guest`
+  notch is the likely one.
+
+MEASURED: on 2026-09-30, `TestProvenanceParityAcrossBothDerivations` (#8),
+`TestBlockedAndDeclaredToolGetsBothAndBlockerWins`, `TestNoLauncherForANameTheImageProvides` and
+`TestTheCollisionCheckNeverConsidersTheInstallPrefixes` (#1's successor) pass in
+`internal/entrypoint`. UNMEASURED this pass: #9's nightly and the host-side #10 and #11 were not
+re-run. Written
 2026-08-02 in answer to *"do you have proposed fixes for what you're pointing out?"*, then
 resolved by nine review rulings the same day; each section carries a shipped note where the
 implementation differed from the proposal.
@@ -54,7 +78,7 @@ waiting on a decision — this doc is ready to implement against.
 
 | # | Finding | Decided approach | Ruling |
 |---|---|---|---|
-| 1 | `program` shadows a baked binary and breaks it (11.1 / Q1.1) | **Split the shim dir** — installers move *after* `/bin`, so shadowing is impossible. Baked-in fallback stays as the safety net for a real install failure | **RULED — do it now**; my "wrong blast radius" hedge overruled. **SPLIT SHIPPED 2026-08-02** (`~/.yolo-launchers`); the fallback is still open |
+| 1 | `program` shadows a baked binary and breaks it (11.1 / Q1.1) | **Split the shim dir** — installers move *after* `/bin`, so shadowing is impossible. Baked-in fallback stays as the safety net for a real install failure | **RULED — do it now**; my "wrong blast radius" hedge overruled. **SPLIT SHIPPED 2026-08-02** (`~/.yolo-launchers`), reversed 2026-09-04 by [`OQ-PD12a`](../design/program-delivery.md#decision-ledger); the fallback is moot since (status line) |
 | 2 | Presence-vs-install conflated (Q1.3) | Add a `requires` kind (asserts presence, generates nothing) | **RULED — build it, AND keep #1**; they are not alternatives · **SHIPPED 2026-08-03** |
 | 3 | Only the first `program` per pack installs (11.2 / Q2.1) | **Return a slice, generate N launchers** | **REVERSED** — I proposed a validation error; no case for constricting packs · **SHIPPED 2026-08-03** |
 | 4 | A dropped pack's staged tree keeps rendering (11.3 / Q3.1) | Prune unconfigured slugs, contents-only, **never** clear-and-restage | context expanded on request |
@@ -874,7 +898,7 @@ radius**, not about waiting for answers.
 3. ~~**#1 the PATH split**~~ — **DONE 2026-08-02** (`~/.yolo-launchers`, ordered after `/bin`;
    nested-jail verified). It removed the *cause* that #1's fallback and #3's caution were both
    working around, so both are now smaller than described.
-4. **#1 the baked fallback** (still open) and ~~**#3** (slice + N launchers)~~ — **#3 DONE
+4. **#1 the baked fallback** (moot since 2026-09-04 — see the status line) and ~~**#3** (slice + N launchers)~~ — **#3 DONE
    2026-08-03.** Trivial once the split landed, as predicted, and its only objection
    (N launchers = N shadowing hazards) was indeed gone by then. The fallback is the remaining
    half of #1.

@@ -1,7 +1,9 @@
 ---
 title: "What a central yolo watcher would buy, and why the answer is mostly a scheduler"
 date: 2026-09-29
-status: in-review
+status: accepted
+stage: CURRENT
+next: "Re-verify section 2.3's two SIGKILL rows against the keeper, whose children get the parent-death signal on Linux (internal/cli/run/keeper_linux.go), and say where they still hold"
 tags: [research, exploration, host, daemons, lifecycle, housekeeping, credentials, cleanup]
 summary: "Exploration, not a proposal: an inventory of every recurring host duty yolo has, who does it today, and what one long-lived per-user watcher would fix. Most gaps are either crash leftovers, which per-launch lifelines close with no watcher, or work that is due while no yolo command runs, which one-shot runs on an OS timer reach. Only a duty that must hold a live listener across launches needs a resident process, and no ruled duty does today. Nothing here is proposed for implementation now."
 vantage:
@@ -10,8 +12,17 @@ vantage:
 
 # What a central yolo watcher would buy, and why the answer is mostly a scheduler
 
-**Status:** DESIGN, 2026-09-29. Exploration: **nothing here is proposed for implementation now**,
-and nothing is built. Evidence verified at `51620f7e`, and the review corrections re-checked at `bfb79a6e`. One ruling is owed, on direction only.
+**Status:** Exploration: **nothing here is proposed for implementation now**, and nothing is
+built. Evidence verified at `51620f7e` (2026-09-29), and the review corrections re-checked at
+`bfb79a6e`. No ruling is owed: [OQ-YW1](#OQ-YW1) was ruled 2026-09-29, and [YW-D7](#YW-D7)
+records why the direction needs none. Since then the sibling below was built at the container
+backends, and the two SIGKILL rows of this inventory moved with it (checked 2026-09-30, not re-verified
+row by row): on Linux each child a jail's keeper starts, the socat forwards and the fronted
+daemons, now gets the kernel's parent-death signal
+([JL-D60](../design/jail-lifetime-last-session-wins.md#JL-D60); `setChildDeathSignal` in
+`internal/cli/run/keeper_linux.go`, applied in `network.go` and `loopholesruntime.go`), so
+[§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune)'s "no `Pdeathsig` under `internal/`" is no
+longer true.
 
 > **In short.** A central watcher would fix three different kinds of gap, and only one of them
 > needs a resident process. Crash leftovers want a lifeline on each launch's children, and work
@@ -37,7 +48,7 @@ Everything else falls out of it.
 
 **Needs your ruling:** none; [OQ-YW1](#OQ-YW1) was ruled 2026-09-29 (no scheduled reclaim).
 
-**Reads with:** `docs/design/jail-lifetime-last-session-wins.md`
+**Reads with:** [`jail-lifetime-last-session-wins.md`](../design/jail-lifetime-last-session-wins.md)
 (the sibling from the same run, not in the tree at `51620f7e`, on keeping a jail up until its last session leaves;
 [§8](#8-where-this-touches-the-last-session-wins-sibling) says where the two meet), and
 [`host-daemon-ownership.md`](../design/host-daemon-ownership.md) (HD-R1, the ruling a watcher would collide with, and
@@ -576,6 +587,8 @@ choice with one answer, recorded as [YW-D8](#YW-D8).
    meets [§7](#7-what-would-have-to-be-true-before-building-one) items 2, 3 and 6 first, and a
    call-site test pins its launch-path floor.
 
+   <!-- vantage: oq id=OQ-YW1 -->
+
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A.** A6 stands: disk reclaim stays at launch, and any timer
    > [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9) brings stays credential-only. The maintainer:
@@ -602,7 +615,7 @@ them. None is built, because nothing here is proposed.
 
 | Doc | Why it reads with this one |
 | :--- | :--- |
-| `docs/design/jail-lifetime-last-session-wins.md` | the sibling: jail lifetime without a watcher; [§8](#8-where-this-touches-the-last-session-wins-sibling) |
+| [`jail-lifetime-last-session-wins.md`](../design/jail-lifetime-last-session-wins.md) | the sibling: jail lifetime without a watcher; [§8](#8-where-this-touches-the-last-session-wins-sibling) |
 | [`host-daemon-ownership.md`](../design/host-daemon-ownership.md#HD-R1) | [HD-R1](../design/host-daemon-ownership.md#HD-R1), the failure modes, [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9) and [OQ-HD10](../design/host-daemon-ownership.md#OQ-HD10) |
 | [`host-notch-services.md`](../design/host-notch-services.md#44-lifetime) | [OQ-HS3](../design/host-notch-services.md#OQ-HS3) and the lifeline |
 | [`claude-login-without-interception.md`](../design/claude-login-without-interception.md#CL-D16) | CL-D3 and CL-D16: views written at registration and on each new token |

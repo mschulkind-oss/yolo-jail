@@ -4,13 +4,15 @@ date: 2026-09-11
 status: in-review
 tags: [packs, program, requires, provisioning, notch, nix, npm, brew, capture, host, guest]
 summary: "Every notch has a provisioner set — the mechanisms that can make a binary present there — and a pack's `program` named one provisioner (`via`) rather than a need, so it degenerated wherever that provisioner was absent. The jail has a full set, the guest a nix profile plus half-wired launchers, the host nothing yolo drives. Three rulings now stand: a pack declares a need plus its recipes, yolo ships a default precedence order the user's config overrides, and yolo drives the winner behind a confirm, sequenced last. The model is unbuilt, and a confirm-gated host install shipped ahead of it on the pack-first precedence, which the default order keeps: each pack's own recipe comes first at every notch, and another provisioner serves an agent only where the user's override ranks it up (OQ-PS6, answered 2026-09-30 by OQ-PS1's ruling). Three compound questions were carved into their real decisions on 2026-09-11, and a 2026-09-30 triage answered or decided seven more; what is still open is the maintainer's. Split three ways on 2026-09-20: this file is the model and the questions, the survey and the measurements are siblings."
+stage: DESIGN
+next: "Fix the live defect OQ-PS9's answer names: detectManager (internal/depcheck/depcheck.go) returns nix by elimination without looking for it, so a host with no package manager is told to run nix profile install while yolo check reports nix missing"
 vantage:
   status-chip: true
 ---
 
 # yolo is a package manager whose backends differ per environment — and the pack contract cannot say so yet
 
-**Status:** DESIGN, 2026-09-11, **split three ways on 2026-09-20.** This file is the **model**: the
+**Status:** 2026-09-11, **split three ways on 2026-09-20.** This file is the **model**: the
 verdict, the rulings, the alternatives and the live questions. The survey it rests on —
 the provisioner inventory, the coverage matrix, the nix resolver's depth and the verification
 tables — is [`provisioner-evidence.md`](provisioner-evidence.md); the Mac measurements are
@@ -826,8 +828,9 @@ misses rather than a syntax error ([M2](../plans/runbooks/mac-provisioner-measur
 
 ## 9. What I would build, in order
 
-Prose, not tickets — granularity lives in [`../plans/roadmap.md`](../plans/roadmap.md). Two of
-these are independent of every open question and should not wait on one.
+Prose, not tickets, and this list is the steps' order; where the doc's work sits against other
+work is [`../plans/roadmap.md`](../plans/roadmap.md)'s. Two of these are independent of every open
+question and should not wait on one.
 
 1. **Fix F5, and warn on the guest's npm row.** ~~Two provisioners are armed and unreachable on
    the guest, silently: either put the staged `yolo` on `SandboxPath` or stop baking a server list
@@ -1718,6 +1721,8 @@ recommendation the doc rests on.
    the second. [`HP-D2`](host-tool-provisioning.md#HP-D2) wants one materialization path for the
    floor. And the user's pluralism (*"claude from brew"*) is still served by the override.
 
+   <!-- vantage: oq id=OQ-PS1 -->
+
    **Answer:**
    > **Ruled 2026-09-29, as leaned: (b).** The maintainer: *"maybe we can allow you to use Nix
    > here for where you get the host floor, but in general, I think if we're going to be
@@ -1786,6 +1791,8 @@ recommendation the doc rests on.
    ⚠ One number moved under nix on 2026-09-11: an unfree attr has **no binary cache**, so the
    three unfree CLIs build locally on first use ([M3](../plans/runbooks/mac-provisioner-measurements.md#m3--does-nix-profile-install-refuse-the-unfree-agent-clis-on-darwin)),
    which is a real cost against ranking nix first on macOS.
+
+   <!-- vantage: oq id=OQ-PS6 -->
 
    **Answer:**
    > **Answered by [`OQ-PS1`](#OQ-PS1)'s ruling and [`HP-DIR4`](host-tool-provisioning.md#HP-DIR4)
@@ -1873,6 +1880,8 @@ recommendation the doc rests on.
    is unchanged: an installer that genuinely needs an answer fails instead of prompting, which is
    the right failure for something running where nobody is watching.
 
+   <!-- vantage: oq id=OQ-PS8 -->
+
    **Answer:**
    > **Decided as an implementation choice ([`PS-D1`](#PS-D1)), reversible: core runs every vendor
    > installer with no controlling terminal, and no per-recipe env field is added for it.** The
@@ -1953,6 +1962,8 @@ recommendation the doc rests on.
    (`internal/depcheck/depcheck.go`), so a user with no other manager is told to
    run nix by one command while another tells them nix is missing.
 
+   <!-- vantage: oq id=OQ-PS9 -->
+
    **Answer:**
    > **Answered by the maintainer's reframe in the 2026-09-11 review, narrowed by
    > [`OQ-PS1`](#OQ-PS1) (2026-09-29): yes in principle and not now, and no longer as a member of
@@ -2032,6 +2043,8 @@ recommendation the doc rests on.
    own root ([`OQ-NX2`](#decision-ledger)). Revisit if generations and rollback are ever asked for
    by name.
 
+   <!-- vantage: oq id=OQ-PS10 -->
+
    **Answer:**
    > **Decided as an implementation choice ([`PS-D2`](#PS-D2)), reversible: (a), a closure pinned by
    > yolo's own `flake.lock`, built into that program's floor entry and GC-rooted inside the host
@@ -2104,6 +2117,8 @@ recommendation the doc rests on.
    read 2026-09-11). A user-authored recipe is a new trust surface and belongs with
    [`trust-paths.md`](trust-paths.md), not with a preference list; opening it later costs nothing
    that closing it now does not already pay.
+
+   <!-- vantage: oq id=OQ-PS12 -->
 
    **Answer:**
    > **Decided as an implementation choice ([`PS-D3`](#PS-D3)), reversible: the override re-ranks
@@ -2237,6 +2252,8 @@ recommendation the doc rests on.
     the user declared explicitly. And now that the host trigger is gone, (a) can stand without a
     revisit clause unless a guest-side surprise shows up.
 
+    <!-- vantage: oq id=OQ-NX5 -->
+
     **Answer:**
     > **Ruled 2026-09-29, as leaned: (a).** The maintainer: *"the warning is in principle useful,
     > but seems like it's hard to implement, and yes, like you did this, so like this is what
@@ -2333,6 +2350,8 @@ recommendation the doc rests on.
     diagnose a nix installation, not a notch, and `check` has no notch-shaped reason to run them
     on a Linux host that is about to launch a container.
 
+    <!-- vantage: oq id=OQ-NX9 -->
+
     **Answer:**
     > **Decided as an implementation choice ([`PS-D5`](#PS-D5)), reversible, once
     > [`OQ-PS1`](#OQ-PS1) was ruled: the daemon connectivity probe runs wherever `nix` is found,
@@ -2377,6 +2396,8 @@ recommendation the doc rests on.
 
     _Leaning:_ **(b).** It keeps point 3 true without rewording it, and a refusal that names the URL is
     what the jail already gives for the same fault.
+
+    <!-- vantage: oq id=OQ-PS13 -->
 
     **Answer:**
     > **Decided as an implementation choice ([`PS-D4`](#PS-D4)), reversible: (b), the gate prints
@@ -2511,7 +2532,7 @@ this doc already had, per the rule that one subject gets one question.
 | [`OQ-7`](#decision-ledger) | **folded into [`OQ-PS6`](#OQ-PS6)** | it is that question's jail row; [§10](#10-alternatives-each-with-a-verdict) alternative F |
 | [`OQ-8`](#decision-ledger) | [`OQ-NX8`](#OQ-NX8) | live |
 | [`OQ-9`](#decision-ledger) | [`OQ-NX9`](#OQ-NX9) | decided 2026-09-30 as [`PS-D5`](#PS-D5) — **and this is the id whose collision forced the prefix** |
-| `N2` | `N2` | unchanged — a roadmap id, not an open-question one; [Decision Ledger](#decision-ledger) |
+| `N2` | `N2` | unchanged — a former roadmap row id, not an open-question one; [Decision Ledger](#decision-ledger) |
 
 **This doc's own ids moved twice, both on 2026-09-11.** [`OQ-PS4`](#decision-ledger) was
 **answered** and compacted into the ledger; its residues opened as [`OQ-PS6`](#OQ-PS6) and

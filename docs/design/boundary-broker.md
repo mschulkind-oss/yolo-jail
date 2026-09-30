@@ -2,6 +2,10 @@
 title: "Reads run, writes ring the doorbell: time-boxed GitHub access across the jail boundary"
 date: 2026-09-28
 status: in-review
+stage: DESIGN
+next: "Build step 2's widening entry (BB-D33; OQ-BB6 and OQ-BB9 are ruled): nothing writes brokerscope.File.Widened yet, so an out-of-scope repository has no way in — start at internal/brokerscope/file.go"
+depends-on:
+  - agent-event-watchers.md
 tags: [design, credentials, github, gh, approvals, notifications, loopholes, audit, broker]
 summary: "Revised around the maintainer's 2026-09-28 brief and his 2026-09-29 rulings. A host daemon runs the host's own `gh` login on the jail's behalf, only against the workspace's own GitHub repositories. Each source defines named permission sets: GitHub's default two are read-only, always held, and read-write, which a human hands over whole for a window (15 minutes by default) from a persistent desktop notification on Linux and macOS. The request outlives its connection, the answer reaches the agent later through the `yolo notify` ping channel, and the agent re-issues its command under the grant. Credential-printing and host-reaching commands are refused outright, whatever is granted. Every brokered call is appended to a host audit log that yolo mounts into no jail. The scope is re-read from the workspace's remotes at every fresh launch and approved in that launch's config-change diff; an out-of-scope command is refused, and a user-scope entry keyed by workspace is the only widening. On macOS the notifier is terminal-notifier, a dependency of the Homebrew formula on Apple silicon running macOS 14 or later, where a prebuilt bottle exists. Step 1 (reads, the scope, the audit log, the mount fence) is built; a pack intercepts `gh` through a generic contribution kind. A widened repository joins the scope for every set. Open: how a host daemon hands the launch a line to print."
 vantage:
@@ -10,8 +14,8 @@ vantage:
 
 # Reads run, writes ring the doorbell: time-boxed GitHub access across the jail boundary
 
-**Status:** DESIGN, 2026-09-28; **step 1 of [§11](#11-recommendation-and-the-first-build-slice)
-BUILT 2026-09-29** (the read path, the repository scope, the audit log, the mount fence), and
+**Status:** 2026-09-28; **step 1 of [§11](#11-recommendation-and-the-first-build-slice)
+built 2026-09-29** (the read path, the repository scope, the audit log, the mount fence), and
 steps 2 and 3 not started. Revised around the maintainer's brief of that day; first sketched
 2026-08-05. [OQ-BB1](#OQ-BB1), [OQ-BB2](#OQ-BB2), [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4),
 [OQ-BB6](#OQ-BB6), [OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8), [OQ-BB9](#OQ-BB9) and OQ-C were ruled on
@@ -52,7 +56,8 @@ ping box, which is designed and not built.
 
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
-**Needs your ruling:** [OQ-BB10](#OQ-BB10). [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6),
+**Needs your ruling:** [OQ-BB10](#OQ-BB10).
+[OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6),
 [OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8), [OQ-BB9](#OQ-BB9) and OQ-C were ruled 2026-09-29.
 
 **Reads with:** [`agent-event-watchers.md`](agent-event-watchers.md) (the `yolo notify` doorbell
@@ -1527,6 +1532,8 @@ covered:
    of it never ask) while making "read my other private repositories" a thing a human sees once.
    Starting narrow and widening later needs no migration; the reverse does.
 
+   <!-- vantage: oq id=OQ-BB1 -->
+
    **Answer:**
    > **Ruled 2026-09-29: B's default, with widening still open.** The maintainer: *"by default,
    > let's make it only have visibility into the repository that is for that workspace, but we
@@ -1557,6 +1564,8 @@ covered:
    repository-wide ones stay in front of the human. unYOLO's single best idea is exactly this
    floor as a code-owned flag ([§A.1](#a1-the-six-claims-from-the-website-pass-checked-against-code)).
 
+   <!-- vantage: oq id=OQ-BB2 -->
+
    **Answer:**
    > **Ruled 2026-09-29, against the leaning: grants are named permission sets.** The maintainer:
    > *"allow for 15 minutes would be configurable per source, but what I'm proposing here right
@@ -1581,6 +1590,8 @@ covered:
    - **B — Allow read-write 15 min · 1 hour · This session**, dismissal meaning Deny. Three
      durations, but every press hands over the whole set, with no one-shot yes and no visible no.
 
+   <!-- vantage: oq id=OQ-BB3 -->
+
    _Leaning:_ **A.** "Allow once" is the answer that most often fits a single comment. The
    permission-set ruling makes it matter more: without it, the only yes to one comment hands over
    `read-write` whole for 15 minutes. A visible Deny is clearer than a dismissal that means no on
@@ -1600,6 +1611,8 @@ covered:
    - **B — A small helper `.app` yolo builds and ships,** ad-hoc signed in a Homebrew build,
      Developer ID signed and notarized in a downloaded release. Ours to maintain; no install step.
    - **C — `osascript` `display dialog`.** Nothing to install, but a modal window, not a toast.
+
+   <!-- vantage: oq id=OQ-BB4 -->
 
    _Leaning:_ **A now, B once yolo's macOS release has a signing step.** terminal-notifier 3.x is
    the same UserNotifications API a helper would call, Homebrew installs it unquarantined (a
@@ -1649,6 +1662,8 @@ covered:
      account-wide reads, ring, and are grantable for a time"*), which this doc's body does not
      yet follow ([BB-D20](#BB-D20)). It composes with (a) to (d).
 
+   <!-- vantage: oq id=OQ-BB6 -->
+
    _Leaning:_ **(a), without (e).** A user-scope entry keyed by workspace is the plain answer to
    *"how do you give a user level permission a workspace level thing"*: only the host user writes
    it, so it passes the gate-placement authority test
@@ -1681,6 +1696,8 @@ covered:
      remotes are disclosed as outside the scope and admitted only through [OQ-BB6](#OQ-BB6)'s mechanism. An
      agent cannot widen the next session. A remote the user adds waits for [OQ-BB6](#OQ-BB6), and the first
      launch trusts whatever remotes the workspace had then.
+
+   <!-- vantage: oq id=OQ-BB7 -->
 
    _Leaning:_ **B.** It is the only option under which [BB-P9](#BB-P9) holds across sessions, which
    is the maintainer's *"we can't allow it to be widened in the workspace"*. It departs from the
@@ -1719,6 +1736,8 @@ covered:
      the pack system. Cost: agents type `gh` from habit, get the real one with no login and exit
      4, and the briefing must teach the new name.
 
+   <!-- vantage: oq id=OQ-BB8 -->
+
    _Leaning:_ **A.** Agents keep typing `gh`, the image does not move, and interception is what the
    first `PATH` directory already means.
 
@@ -1755,6 +1774,8 @@ covered:
      `read-only` alone. A user can say "read, never write" for a borrowed repository. The cost is
      a dimension the model does not have today: the scope says where and the sets say what, and
      nothing says "this set, only here".
+
+   <!-- vantage: oq id=OQ-BB9 -->
 
    _Leaning:_ **A.** It is the smallest shape that does what the ruling asks, widening that
    workspace alone. It keeps the sets about what and the scope about where ([BB-P8](#BB-P8)). And
@@ -2197,7 +2218,8 @@ wholesale, not ignore.** The four decisive facts, in order of weight:
 test file, and drop into `vendor/` with **no new module requirements** and no change to the `goSrc`
 fileset. Given [§A.4](#a4-maturity--the-decisive-negative)'s no-compatibility policy, copying at a pinned SHA is strictly safer than a
 module dependency, and it is the one piece where copying plausibly beats re-deriving. **This is a
-genuine fork in the road and it is the maintainer's call — tracked as [`💬 OQ-B1b`](#OQ-B1b) in [§14](#14-open-questions).**
+genuine fork in the road and it is the maintainer's call — tracked as [`OQ-B1b`](#OQ-B1b) in [§14](#14-open-questions),
+where it was decided on 2026-09-29 as an implementation choice ([BB-D25](#BB-D25)).**
 (It used to point at "the B1b row in `roadmap.md`", which was never a row: the roadmap cites
 questions by ID and holds none of its own, so the pointer resolved to nothing in either direction.)
 

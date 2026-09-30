@@ -339,6 +339,8 @@ collision — see the "Residual issue" section in
 [jail-state-separation-design.md](../reference/jail-state-separation-design.md); new
 leaning is boot-time prune (C) instead.)_
 
+<!-- vantage: oq id=OQ-MP1 -->
+
 **Answer:**
 > No (2026-07-03). Superseded by the accepted separation bundle; the
 > jail↔jail residue is handled by boot-time prune per the "Residual issue"
@@ -350,6 +352,8 @@ Option A assumes the runtime can mount at `/home/<host-user>/...`. Podman can;
 verify the Apple Container backend before committing to A.
 
 _Leaning:_ Unverified; needs a check on macOS.
+
+<!-- vantage: oq id=OQ-MP2 -->
 
 **Answer:**
 > Moot (2026-07-03). Option A is rejected and the accepted bundle mounts at
@@ -364,6 +368,8 @@ how the `.mise.toml` gap shipped.
 
 _Leaning:_ Probably a no-op; replace with `MISE_TRUSTED_CONFIG_PATHS=/workspace`
 and un-gate the `mise trust` calls (run without a path argument).
+
+<!-- vantage: oq id=OQ-MP3 -->
 
 **Answer:**
 > Confirmed a no-op (2026-07-03): `mise settings ls --all` has no `trust`
@@ -384,6 +390,8 @@ no project config, and the pre-create hook populates the jail side
 naturally. (The earlier `.mise.local.toml` idea is unworkable: the file
 would live in the shared workspace and leak to the host; also nothing in
 `src/` generates one today — option D's claim above was wrong.)
+
+<!-- vantage: oq id=OQ-MP4 -->
 
 **Answer:**
 > **Shadow mount — the leaning shipped, and then generalized.** This question
@@ -421,6 +429,8 @@ unnoticed).
 
 _Leaning:_ Don't abort (agents can often self-serve), but print a red
 end-of-boot summary line so it can't be missed.
+
+<!-- vantage: oq id=OQ-MP5 -->
 
 **Answer:**
 > Decided 2026-07-03 — three parts:

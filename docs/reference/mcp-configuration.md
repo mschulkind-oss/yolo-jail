@@ -1,5 +1,7 @@
 ---
 status: current
+stage: CURRENT
+next: "Record one nested-jail launch with a provides: web_search server, under Kilo and under a source that searches natively, reading the rendered MCP files without starting an agent"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -22,7 +24,7 @@ summary: "How MCP and LSP server config reaches an agent: one canonical server t
 
 # MCP and LSP configuration — one table, projected per tool
 
-**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`; the LSP sections were
+**Status:** Verified 2026-09-23 against `7ad8358c`; the LSP sections were
 re-checked on 2026-09-25 against the working tree that deleted the LSP install recipes and
 pinned the plugin's injection call site (both uncommitted when this was written, so no SHA).
 UNMEASURED: no `claude` session has been started against the generated LSP plugin — the facts

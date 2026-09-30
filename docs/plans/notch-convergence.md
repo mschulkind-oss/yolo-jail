@@ -2,20 +2,28 @@
 title: "Notch convergence — one code path per concern, and the loopback services that assumed a boundary"
 date: 2026-09-28
 status: in-review
+stage: DECIDED
+next: "Rule OQ-NC12 and OQ-NC13 — item 16, one ordered env composition at every vehicle, waits on both"
+depends-on:
+  - ../design/credential-sources-separation.md#OQ-ES5
+  - ../research/agent-safehouse.md#OQ-AS3
+  - ../design/config-ownership-and-promotion.md#OQ-CO15
 tags: [plan, notches, host, parity, security, loopback]
 summary: "Five audits found that the host notch, the container jail and macos-user reach one declaration through different code for flags, pack selection, providers, env order and render, and that the loopback services serving credentials are safe only while the jail has its own network namespace. The plan: one description, one code path per concern, the notch choosing only the confinement. Caller authentication comes first, because network.mode host and macos-user already share the host's loopback. Then an ordered build list: pure merges that need no ruling, and behavior changes gated on this plan's own questions and on questions other docs own."
 ---
 
 # Notch convergence — one code path per concern, and the loopback services that assumed a boundary
 
-**Status:** DECIDED, 2026-09-28 — owed: **work.** The thesis and every pure merge in the build list
+**Status:** 2026-09-28 — owed: **work.** The thesis and every pure merge in the build list
 are ruled by the maintainer's 2026-09-27 words ([§1](#1-the-thesis)). Caller authentication for the
-loopback services is ruled the same day and comes first ([§2](#2-security-first-the-boundary-that-is-not-one)).
-The wire-bridge part of it is being built elsewhere. The word was `DECIDED` while 💬 questions
-were open, because each one gated a single build item and none gated the thesis or blocked the items
-before it, which is [the tie-breaker](README.md#the-vocabulary--seven-words-and-the-word-names-what-is-owed)
-applied to per-item gates. Since 2026-09-30 none is open: the last, [OQ-NC2](#OQ-NC2), was found
-answered by another doc's ruling. Each item's row in
+loopback services is ruled the same day and comes first ([§2](#2-security-first-the-boundary-that-is-not-one)),
+and is built for all five services (item 1). Two questions are open, [OQ-NC12](#OQ-NC12) and
+[OQ-NC13](#OQ-NC13), filed 2026-09-30. Each gates only item 16 and neither gates the thesis or the
+items before it, so the doc owes work rather than a ruling, which is
+[the tie-breaker](README.md#the-vocabulary--seven-words-and-the-word-names-what-is-owed)
+applied to per-item gates. The earlier questions are all answered, the last of them,
+[OQ-NC2](#OQ-NC2), found answered on 2026-09-30 by another doc's ruling. Items 12, 18 and 28 wait on
+questions other docs own, and item 31 on [OQ-NC7](#OQ-NC7)'s ruling. Each item's row in
 [§4](#4-the-ordered-build-list) says when it is built. Evidence was verified against `eb0af5ee` on
 2026-09-28. The measurements are the five auditors' from 2026-09-27, taken in scratch homes under
 `/tmp` against a binary built from that commit.
@@ -388,7 +396,7 @@ after it, except where its **After** cell says otherwise.
 | 28 | Derives at the host; one `rmw` rule | D4, D11 | **behavior-changing.** ✅ The [`OQ-HC1`](../design/host-computed-layer.md#OQ-HC1) half, derives at the host, ruled and built `358f877d` ([its §14](../design/host-computed-layer.md#14-what-was-built)), pinned by `TestTheHostRendersEachDerivedSurfaceClass` and `TestYoloHostApplyAssertWritesTheComputedLayer`. The one `rmw` rule is gated on [`OQ-CO15`](../design/config-ownership-and-promotion.md#oq-co15) | 24 | — |
 | 29 | `host_files` and `mise_tools` at the host | D12 | **behavior-changing, ruled** ([OQ-NC8](#OQ-NC8) A). ✅ **Built** `7f77a618` ([NC-D48](#NC-D48) to [NC-D51](#NC-D51)) | 24 | A source-less entry renders at the host through the one loop and a later apply removes what it wrote once the entry goes; a source-bearing entry and `mise_tools` are named as inert |
 | 30 | Autonomy on a shared namespace | E4 | **behavior-changing, ruled** ([OQ-NC3](#OQ-NC3) A). ✅ **Built** `9a5c5b68` ([NC-D47](#NC-D47)). Verified by unit tests through `Run` and `refreshJailBriefings`; the real `network.mode: "host"` arm is in the reachability carve-out below | 1 | A shared-namespace jail keeps autonomy and says so at launch and in its briefing; a bridged one says nothing |
-| 31 | Claude OAuth at the host | C8 | **behavior-changing, gated** on [OQ-NC7](#OQ-NC7) | 1 | — |
+| 31 | Claude OAuth at the host | C8 | **behavior-changing, held** by [OQ-NC7](#OQ-NC7)'s ruling (A, 2026-09-28): host claude keeps its own login until [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) decides whether the credential is shared | 1 | — |
 
 **Verification, per item.** Every item touches `cmd/` or `internal/`, so it gets the nested-jail run
 AGENTS.md requires. **Items 1 to 4 and 30 are in AGENTS.md's reachability carve-out**: a nested jail
@@ -442,6 +450,8 @@ is reported verified only against a real rootless host or CI, with
    act like everywhere else" asks for. After item 1, a service on the host's loopback is no weaker
    than one in a jail.
 
+   <!-- vantage: oq id=OQ-NC1 -->
+
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A, run them launch-owned. It is the `openaiauthhost`
    > shape already shipped for host Codex, it makes one declaration mean one thing at every notch,
@@ -475,6 +485,8 @@ is reported verified only against a real rootless host or CI, with
 
    _Leaning:_ C, falling back to A with the race disclosed. B refuses a configuration that works
    today for a reason the user cannot act on.
+
+   <!-- vantage: oq id=OQ-NC2 -->
 
    **Answer:**
    > **Answered by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1) (2026-09-28):
@@ -516,6 +528,8 @@ is reported verified only against a real rootless host or CI, with
       _Leaning:_ A. Autonomy rests on filesystem confinement, which a shared network does not remove,
    and item 1 closes yolo's own listeners.
 
+   <!-- vantage: oq id=OQ-NC3 -->
+
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A. Keep autonomy, and disclose it from a network
    > primitive in `render.Profile`: autonomy rests on filesystem confinement, which a shared network
@@ -532,6 +546,8 @@ is reported verified only against a real rootless host or CI, with
    - **C — Alphabetical,** which is what the boot does by accident.
 
       _Leaning:_ A. It is the only order a user can predict from their own config.
+
+   <!-- vantage: oq id=OQ-NC4 -->
 
    **Answer:**
    > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
@@ -552,6 +568,8 @@ is reported verified only against a real rootless host or CI, with
       _Leaning:_ A. The grant exists now and is ruled, so a second, implicit route for the same thing
    is the duplicate path this plan removes.
 
+   <!-- vantage: oq id=OQ-NC5 -->
+
    **Answer:**
    > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
    > sure"*; the host acts like every other notch, with the same handling): A. A bare `-p` reaches
@@ -568,6 +586,8 @@ is reported verified only against a real rootless host or CI, with
    - **B — Merge, and disclose** a workspace value that changes a claim.
 
       _Leaning:_ A. [OQ-LM3](../research/local-model-endpoints.md#oq-lm3)'s reason applies unchanged: the blast radius is total.
+
+   <!-- vantage: oq id=OQ-NC6 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A. Every provider field that decides where a
@@ -586,6 +606,8 @@ is reported verified only against a real rootless host or CI, with
 
       _Leaning:_ A. A shared store without interception is worse than two lineages.
 
+   <!-- vantage: oq id=OQ-NC7 -->
+
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A. Host claude keeps its own login until
    > [`OQ-CI1`](../reference/claude-oauth-interposition.md#oq-ci1) decides whether the credential is
@@ -602,6 +624,8 @@ is reported verified only against a real rootless host or CI, with
      tools belong to [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1).
 
       _Leaning:_ B. It ends the silence today without choosing an ownership model early.
+
+   <!-- vantage: oq id=OQ-NC8 -->
 
    **Answer:**
    > **Ruled 2026-09-28 by parity, against the leaning** (the maintainer, 2026-09-28: *"yes, NC as
@@ -637,6 +661,8 @@ is reported verified only against a real rootless host or CI, with
    the jail refusing a pack the host accepts, and it keeps the no-escape rule for the case that
    motivated it.
 
+   <!-- vantage: oq id=OQ-NC9 -->
+
    **Answer:**
    > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
    > sure"*; the host acts like every other notch, with the same handling): A. A local pack's links
@@ -665,6 +691,8 @@ is reported verified only against a real rootless host or CI, with
         _Leaning:_ A. A one-way door that drops a user's servers should not open for a flag typed to
     get past a prompt that no longer exists. B re-creates a grant for the one question the gate
     deliberately keeps behind a terminal.
+
+    <!-- vantage: oq id=OQ-NC10 -->
 
     **Answer:**
     > **Ruled in review 2026-09-28, as leaned:** A. The zero-prompt auto-apply left the host launch
@@ -706,6 +734,8 @@ is reported verified only against a real rootless host or CI, with
         _Leaning:_ A. The refusal would be a launch pre-flight on the host, like the agent-name one, not
     an A12 boot failure inside a running jail, so the stranding cost S5 weighs does not apply. The
     jail has to honor the tier, or the remedy the message offers does nothing there.
+
+    <!-- vantage: oq id=OQ-NC11 -->
 
     **Answer:**
     > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for

@@ -1,7 +1,9 @@
 ---
 title: "One declaration, many mechanisms — and the four inputs that decide which one runs"
 date: 2026-09-12
-status: in-review
+status: accepted
+stage: DECIDED
+next: "Build OQ-DP5's second half, the census extended from pack kinds to config keys on internal/config/inherit.go's shape (DP-B31): start at render.FieldSet in internal/render/fieldset.go"
 tags: [confinement, notches, backends, macos-user, guest, parity, silent-drop]
 summary: "The maintainer's principle already holds where it is built: `packages:` ships three mechanisms behind one key. But it quantifies over a composed primitive vector, not over a backend, and that vector has FOUR inputs — notch, mechanism, platform, and which verb is running — of which two are now named, one is a plain word, and one is deliberately nameless. This is the catalog of every declaration a site accepts and does not honor, sorted into four dispositions. Four of its questions were ruled in review on 2026-09-12, a fifth dissolved, and two more ruled on 2026-09-13. Two filed on 2026-09-21 — OQ-DP8 and OQ-DP9, how a macos-user jail daemon's argv resolves with no image and whether it runs confined — were ruled on 2026-09-28 and are built."
 vantage:
@@ -10,7 +12,14 @@ vantage:
 
 # One declaration, many mechanisms — and the four inputs that decide which one runs
 
-**Status:** DESIGN, 2026-09-12 — a catalog, amended after review and **partly built since**.
+**Status:** 2026-09-12 — a catalog, amended after review and **partly built since**; every question
+is ruled, and what is left is build order: [OQ-DP5](#OQ-DP5)'s second half (re-checked
+2026-09-30: `render.FieldSet` is still keyed on `packdecl.Kind` alone, so a config key such as
+`packages` is invisible to the census, [DP-B31](#54-the-host-notch-and-the-entry-point)),
+[DP-L16](#6-alignable-with-the-mechanism-and-its-cost) behind it,
+the delivery half of [`DP-D15`](#7-ruled-divergent-and-the-ones-i-would-re-open)'s directory-shaped
+cells (its refusal half is built, and [`context-mounts.md`](context-mounts.md) owns the rest), and
+[§11](#11-what-i-would-build-in-order)'s step 7, which waits on a Mac.
 [OQ-DP1](#decision-ledger) through [OQ-DP4](#decision-ledger) are ruled and compacted,
 [OQ-DP6](#decision-ledger) dissolved rather than being answered, and [OQ-DP5](#OQ-DP5) and
 [OQ-DP7](#OQ-DP7) were ruled on 2026-09-13. **Two filed on 2026-09-21 were ruled on 2026-09-28 and are BUILT** (`068f8fe2`) — [OQ-DP8](#OQ-DP8) and [OQ-DP9](#OQ-DP9), both owed back by [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) against [`DP-L3`](#decision-ledger), which approved a mechanism without settling how its argv resolves or whether it runs confined. Every code claim below
@@ -1321,6 +1330,8 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    | ship `yolo-jaild` for darwin | grows the host ship set from `{yolo}`, which AGENTS.md states as a property |
    | stage a shim at the declared name | argv untouched, but it is a generated in-jail client, which the transport unification exists to end |
 
+   <!-- vantage: oq id=OQ-DP8 -->
+
    _Leaning:_ **`yolo` gains the dispatch and `argv[0]` is rewritten.** The in-jail daemons
    already dispatch on plain `args[0]` rather than on `argv[0]` or a symlink, so the dispatch is
    portable as written; it keeps the ship set at `{yolo}`; and it adds no generated client. The
@@ -1344,6 +1355,8 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    The faithful reading of *in-jail* says it is confined; the mechanism as approved does not say
    so. **Getting it wrong puts a pack-declared long-running process outside the only confinement
    this backend has**, which is the property `macos-user` is otherwise defined by.
+
+   <!-- vantage: oq id=OQ-DP9 -->
 
       _Leaning:_ **Yes, confined.** Silence in `DP-L3` is not permission, and a pack-declared
    long-running process is exactly the code the profile exists to bound. The cost is that a daemon
@@ -1383,7 +1396,7 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) each want to print,
    which are the first fixes this ruling reaches.
 
-   <!-- vantage: oq id=OQ-DP5 leaning="Prefer the three shapes that already ship over a warning: (a) a coded decline with one banner line for what yolo decides, (b) a user-declarable expected absence wherever the user can decide it, (c) a third disposition held as data for anything genuinely unbuilt. And yes — extend the census vocabulary to config keys, on internal/config/inherit.go's shape." -->
+   <!-- vantage: oq id=OQ-DP5 -->
 
    _Leaning:_ **(a) for what yolo decides, (b) wherever the USER can decide it, (c) for anything
    genuinely unbuilt.** (c) has the best track record of the three: four of its five entries were
@@ -1439,7 +1452,7 @@ approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-
    the only one whose disclosure lands while the user can still Ctrl-C
    ([§5.6.1](#561-can-they-be-one-path) (3)).
 
-   <!-- vantage: oq id=OQ-DP7 leaning="Close it, but not by making the launcher the sole injector — keep the host argv rewrite either way, and add injection to the wrapper only if the installer/wrapper split is paid for, so a name the image bakes still gets its flags. If that split is not worth it, rule the third spelling DIVERGENT and say so in the briefing, rather than leaving it looking like an oversight." -->
+   <!-- vantage: oq id=OQ-DP7 -->
 
    _Leaning:_ **close it, but never as the SOLE injector, and only with (b) paid for.** A
    partial injector is worse than none here: it would deliver the bypass for most packs and

@@ -1,16 +1,18 @@
 ---
 title: "Sharing pi git extensions across jails: immutable per-commit trees, never one shared checkout"
 date: 2026-09-25
-status: accepted
+status: in-review
+stage: DESIGN
+next: "Rebase branch wip/pi-extension-store onto main over the credential gate and re-run its tests: the store, launcher step and garbage collection survive every OQ-6 option, so landing then waits only on that ruling"
 tags: [pi, extensions, git, caching, machine-tier, storage, isolation]
-summary: "pi's git extensions cost every new jail a clone and a dependency build. The first build shared one mutable checkout per repository across jails, which let one jail's pin or update change the files another jail was running; the maintainer's rulings of 2026-09-25 withdraw it. The redesign shares content, never state: a machine store of bare mirrors and one immutable tree per resolved commit, each jail pointing at the commit its own config resolves to, pi loading each tree as a local package so it never clones or updates one itself. A launch waits for the tree it needs and never boots on another launch's leftovers. One question is open: whether the npm store gets the same treatment now."
+summary: "pi's git extensions cost every new jail a clone and a dependency build. The first build shared one mutable checkout per repository across jails, which let one jail's pin or update change the files another jail was running; the maintainer's rulings of 2026-09-25 withdraw it. The redesign shares content, never state: a machine store of bare mirrors and one immutable tree per resolved commit, each jail pointing at the commit its own config resolves to, pi loading each tree as a local package so it never clones or updates one itself. A launch waits for the tree it needs and never boots on another launch's leftovers. The npm store gets the same treatment, git first (ruled 2026-09-26). One question is open: whether the pi pack may rewrite its own packages list after the merge."
 vantage:
   status-chip: true
 ---
 
 # Sharing pi git extensions across jails: immutable per-commit trees, never one shared checkout
 
-**Status:** DESIGN, 2026-09-26 — **redesigned after review on 2026-09-25**, and [OQ-5](#OQ-5) ruled on 2026-09-26 (npm gets the same design, git first). The redesign is
+**Status:** 2026-09-26 — **redesigned after review on 2026-09-25**, and [OQ-5](#OQ-5) ruled on 2026-09-26 (npm gets the same design, git first). The redesign is
 built and green on the branch `wip/pi-extension-store` but **not on main**: [OQ-6](#OQ-6), the rewrite hook against [`OQ-LT2`](../reference/pack-system.md#oq-lt2), must be ruled first. What `c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared
 checkout is REVERTED, with the boot step that removes the link it left BUILT
 ([§3.10](#310-migration-from-what-c402dd43-shipped)), and its `due_on_change` refresh trigger
@@ -18,6 +20,11 @@ stays ([§3.12](#312-the-refresh-trigger-that-stays)). Until the redesign is bui
 clones its own git extensions again, as before `c402dd43`. **MEASURED:**
 pi 0.87.1's package manager, read (not run) at `dist/core/package-manager.js` in the jail's install.
 **UNMEASURED:** nothing has run against a real pi git extension; every cost figure is an estimate.
+Re-checked 2026-09-30: the branch is still unmerged, its tests have not been re-run since its own
+commit (`f300bf00`, whose message says the launcher templates must be rebased over the credential
+gate before it can land), and the npm half is still live on main as one shared prefix:
+`packs/pi/pack.json` declares `.pi-shared-npm` at `scope: "machine"` with a `shared_directory`
+hook from `.pi/agent/npm`, the leak [OQ-5](#OQ-5)'s ruling replaces.
 
 > **In short.** Jails may share what is identical, never what one of them can change. So the
 > machine keeps one immutable tree per resolved commit, each jail points at the commit its own
@@ -396,6 +403,7 @@ unlocked. It is independent of the store's shape, so it stays either way.
    sandbox it would replace already exists for derives. The narrowing (pack-owned, its own
    surface, deterministic, never user-supplied) keeps what [`OQ-LT2`](../reference/pack-system.md#oq-lt2) protected: no script over a raw
    file the host owns, and no config key that runs code.
+
    <!-- vantage: oq id=OQ-6 leaning="(a): amend OQ-LT2 so a pack's own yolo.finalize on its own surface is the one allowed post-fold step — deterministic, in the derive sandbox, in every compose including the capture's, never user- or config-supplied. Built and tested. (b), a declarative pattern-to-template op in pack.json, needs per-capture transforms and so grows the filter vocabulary the transform removal retired." -->
 
    **Answer:**
@@ -406,11 +414,14 @@ unlocked. It is independent of the store's shape, so it stays either way.
    way the git store did, and it is live today. The earlier ruling that shared it
    ([`pi-extension-lifecycle.md` OQ-1](pi-extension-lifecycle.md#OQ-1), *"one version instead of N that
    drift"*) predates the no-winner ruling, and the two now pull apart for any pinned version.
+
    - **(a)** Extend this design to `npm:` entries now: one mechanism, and pi's updater touches
      nothing in a jail. The largest build, and pi's pre-launch refresh then has nothing to do.
    - **(b)** Ship git first and give npm its own follow-up; npm stays leaky until then.
    - **(c)** Unshare the npm store for now (per-workspace prefixes). No leakage, at the cost of a
      full npm install per workspace until (a).
+
+   <!-- vantage: oq id=OQ-5 -->
 
    _Leaning:_ **(a)**, sequenced git first then npm inside one build. The rulings apply to npm
    exactly as they do to git, and a second mechanism for the same property is the drift this repo

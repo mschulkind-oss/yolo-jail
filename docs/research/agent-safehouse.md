@@ -4,13 +4,15 @@ date: 2026-09-18
 status: in-review
 tags: [research, macos, seatbelt, macos-user, packs, threat-model, comparison]
 summary: "Agent Safehouse confines an agent that runs AS YOU, by enumerating what it may touch; yolo-jail gives the agent a different machine and a different identity, so there is nothing of yours to enumerate. On the one axis where they build the same artifact — the macos-user Seatbelt profile — theirs is decisively tighter and ours is barely tested, and that is the adoption surface. Their per-agent prose is the better human artifact and the worse machine one: measured on their own repo, the enforced half moved 106 commits to the documented half's 3, and their opencode investigation documents a program three major versions and one whole reimplementation behind the profile that ships beside it."
+stage: DESIGN
+next: "Rule OQ-AS3 — a workspace config's env_sources and read-only mounts still pass with no scope refusal"
 vantage:
   status-chip: true
 ---
 
 # Agent Safehouse — the neighbouring tool, and what yolo should take from it
 
-**Status:** CURRENT — gathered 2026-09-18 against Agent Safehouse `v0.12.0`, HEAD `3b22b30`
+**Status:** gathered 2026-09-18 against Agent Safehouse `v0.12.0`, HEAD `3b22b30`
 (2026-09-13), read from a full clone of
 [eugene1g/agent-safehouse](https://github.com/eugene1g/agent-safehouse) and from
 [agent-safehouse.dev](https://agent-safehouse.dev/). The yolo half was checked against this
@@ -918,6 +920,14 @@ Re-check these before quoting them; everything here moved within the last six mo
    `internal/config` (verified 2026-09-18).** So a repo-committed config can name a host
    directory to mount at `/ctx` and a host dotenv whose values become the jail's environment,
    disclosed only by the config-change diff.
+
+   *Re-checked 2026-09-30.* Two narrower refusals have landed since, and neither answers this
+   question. A read-write `mounts` element is refused from a workspace config
+   (`validateMountScope`, `internal/config/mounts.go`, from
+   [`context-mounts.md`](../design/context-mounts.md)), and a workspace mount of a path a
+   brokered loophole fences is refused (`validateBrokerMountFence`,
+   `internal/config/brokerfence.go`). A read-only string element and every `env_sources` entry
+   still pass from a workspace config.
 
    `env_sources` is the sharper half: source-bearing `host_files` is user-scope-only precisely
    because it carries host bytes into the jail, and `env_sources` reaches the same class of host

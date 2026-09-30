@@ -1,16 +1,21 @@
 ---
 title: "Why an in-jail nix build is never a GC root, and the one string that fixes it"
 date: 2026-09-28
-status: draft
+status: in-review
 tags: [nix, gc-roots, podman, mount-namespaces, storage, design]
 summary: "A podman jail builds through the host nix daemon, and every root it asks for is recorded under the jail's own spelling of the out-link path. The host daemon resolves that spelling on the HOST filesystem, where it does not exist, so the root is deleted as stale at the next GC or root query and the build is unprotected. Measured end to end from an untrusted jail: an indirect root registered under the HOST spelling of the same link is honored, and dies when the link does, exactly as host nix behaves. The design question is what registers that string: an explicit verb, a nix wrapper, or a watcher on a read-only view of the host's gcroots/auto."
+stage: DESIGN
+next: "Build §4's translated root for NR-D2's consumer, which needs no OQ-NR1 trigger: the launcher's jail-to-host map and the one-operation daemon client, replacing the three in-jail root skips (rootImageFn in internal/cli/run/imageload.go, the RegisterPrefixRoot skip in jailprefix.go, rootExtrasProfile's in storepackages.go)"
 vantage:
   status-chip: true
 ---
 
 # Why an in-jail nix build is never a GC root, and the one string that fixes it
 
-**Status:** DESIGN, 2026-09-28; questions triaged 2026-09-30. Nothing of the fix is built. The
+**Status:** 2026-09-28; questions triaged 2026-09-30. Nothing of the fix is built (re-checked
+2026-09-30: no `AddIndirectRoot` client exists under `internal/`, and `rootImageFn` still returns
+nil in-jail). [NR-D2](#NR-D2)'s consumer, yolo's own in-jail roots, needs only [§4](#4-the-translated-root)
+and none of [OQ-NR1](#OQ-NR1)'s triggers, so it can be built before that ruling. The
 briefing now tells a jail agent that its nix links are not roots. Two questions are open,
 [OQ-NR1](#OQ-NR1) and [OQ-NR2](#OQ-NR2). [OQ-NR3](#OQ-NR3) and [OQ-NR4](#OQ-NR4) were decided as
 implementation choices ([NR-D1](#NR-D1), [NR-D2](#NR-D2)), and both take effect only once a
@@ -329,6 +334,8 @@ for anything a translated root cannot cover, so it outlives this design. Its wor
    _Leaning:_ Binds only in the first version. `/tmp` is scratch, and a nested jail's own roots are
    better handled by [OQ-NR4](#OQ-NR4) than by translating volumes.
 
+   <!-- vantage: oq id=OQ-NR3 -->
+
    **Answer:**
    > Decided as an implementation choice ([NR-D1](#NR-D1)), reversible: binds only. The map holds
    > the binds the launcher wrote, and a link under `/tmp` or `/var/tmp` stays unrooted, as it is
@@ -345,6 +352,8 @@ for anything a translated root cannot cover, so it outlives this design. Its wor
    _Leaning:_ Yes, as the first consumer. It replaces two skips with the real root. One detail to
    check when building it: the host's reapers enumerate the host's own `build/roots` directories,
    so a nested jail's roots under a workspace's home overlay would need their own reaping story.
+
+   <!-- vantage: oq id=OQ-NR4 -->
 
    **Answer:**
    > Decided as an implementation choice ([NR-D2](#NR-D2)), reversible: yes, as the first

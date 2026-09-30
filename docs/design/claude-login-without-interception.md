@@ -1,7 +1,9 @@
 ---
 title: "Claude login without interception: share the grant, not the file"
 date: 2026-09-28
-status: in-review
+status: accepted
+stage: DECIDED
+next: "Run the measures runbook's Parts A to C on the host with a real Claude login (docs/plans/runbooks/claude-credential-view-measures.md); step 5, the deletion, waits on them"
 tags: [design, credentials, oauth, claude, broker, interception, notches, network, macos-user]
 summary: "Why yolo can stop intercepting platform.claude.com. The race exists only because each jail's Claude redeems the one single-use refresh token itself. If the host broker is the only holder of that token and writes each workspace a credential view with the current access token and no refresh token, Claude never refreshes, so there is nothing to intercept: no hosts entry, no CA, no listener on port 443, at every notch and on every backend. Claude Code has no supported endpoint override, and the options that keep a network hop (a proxy, the vendor's ssh tunnel mode, the wire bridge) each cost more. Two product questions remain: whether the view replaces interception everywhere, and what /login and /logout in a jail mean."
 vantage:
@@ -10,11 +12,12 @@ vantage:
 
 # Claude login without interception: share the grant, not the file
 
-**Status:** BUILT BEHIND A SWITCH, 2026-09-29: [§10](#10-what-i-would-build-in-order)'s steps 2 to 4
-are built, off by default on every backend, with `YOLO_CLAUDE_CREDENTIAL_VIEW=1` as the opt-in
+**Status:** 2026-09-29 — [§10](#10-what-i-would-build-in-order)'s steps 2 to 4
+are built behind a switch, off by default on every backend, with `YOLO_CLAUDE_CREDENTIAL_VIEW=1` as the opt-in
 ([CL-D10](#CL-D10), [CL-D11](#CL-D11)); step 1's measures are written as a
-[runbook](../plans/runbooks/claude-credential-view-measures.md) and have not run; step 5, the
-deletion, waits on them. Vendor facts are read from the Claude Code **2.1.284** binary installed
+[runbook](../plans/runbooks/claude-credential-view-measures.md) and have not run (re-checked
+2026-09-30: the host broker's log records no view write); step 5, the
+deletion, waits on them and on a day on a real rootless host. Vendor facts are read from the Claude Code **2.1.284** binary installed
 in this jail (`claude --version` prints `2.1.284 (Claude Code)`). No experiment ran Claude, so
 every statement about what Claude *does* is INFERRED from its code and is listed in
 [§7](#7-what-must-be-measured-before-building) as a measurement owed.
@@ -431,6 +434,8 @@ The mechanism is decided in [§11](#11-decision-ledger). These two change what a
    entry and the terminator are deleted, or kept for bridged podman jails beside a second
    mechanism for shared namespaces, `macos-user` and Apple Container.
 
+   <!-- vantage: oq id=OQ-CL1 -->
+
       _Leaning:_ **Everywhere, deleted rather than switched.** Two mechanisms for one concern is what
    [notch convergence](../plans/notch-convergence.md#1-the-thesis) exists to end. The view covers
    every setup the interception covers plus three it cannot. A kept terminator keeps the CA, the
@@ -457,6 +462,8 @@ The mechanism is decided in [§11](#11-decision-ledger). These two change what a
    refresh token to revoke, because Claude revokes only one it holds (`if(m?.refreshToken)await
    JE(…)`, offset 217147433), and it rewrites the view without its `claudeAiOauth` entry. This
    decides what the broker does with each.
+
+   <!-- vantage: oq id=OQ-CL2 -->
 
       _Leaning:_ **`/login` in any jail still enrolls the machine; `/logout` in a jail signs out that
    workspace; machine-wide logout is a host verb.** The broker adopts a view that carries a

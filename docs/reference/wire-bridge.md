@@ -1,5 +1,7 @@
 ---
 status: current
+stage: CURRENT
+next: "Re-verify against the tree: the stamp is 7ad8358c, and the sections added from 2026-09-25 to 2026-09-30 were never checked under it"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -19,7 +21,7 @@ summary: "A translating reverse proxy, in a jail or run for one host or macos-us
 
 # The wire bridge — an Anthropic endpoint on the jail's loopback
 
-**Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`; [streamed usage](#streamed-usage)
+**Status:** Verified 2026-09-23 against `7ad8358c`; [streamed usage](#streamed-usage)
 was rewritten 2026-09-25, after that verification, and is UNMEASURED against the live upstreams. UNMEASURED on the host that
 reported the listen-port collision: that the provider-table fix ends it is inferred from an
 in-process reproduction, and no launch there has been observed succeeding
@@ -995,6 +997,8 @@ the picked port have not run on a Mac: the macos-user arm is pinned by unit test
 ## Open questions
 
 ### <a id="oq-wb1"></a>✅ [`OQ-WB1`](#oq-wb1) — what does the Codex route do with `response.failed`? — **RULED (b), BUILT 2026-09-25**
+
+<!-- vantage: oq id=OQ-WB1 -->
 
 Opened 2026-09-25. *WB* stands for "wire bridge"; the prefix is new with this question. **What
 follows is the defect as it stood before the ruling was built**; the answer below says what the bridge

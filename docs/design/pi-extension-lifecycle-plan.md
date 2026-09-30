@@ -1,7 +1,9 @@
 ---
 title: "Implementation Sketch: Pi Extension Lifecycle"
 date: 2026-09-17
-status: draft
+status: deprecated
+stage: SUPERSEDED
+next: "Nothing: pi-extension-lifecycle.md's as-built notes are the live record, and its open question is that doc's"
 tags: [pi, extensions, plan, sketch]
 summary: "Companion implementation sketch for Pi extension lifecycle management across YOLO jails."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Implementation Sketch: Pi Extension Lifecycle
 
-**Status:** SKETCH, 2026-09-17, and **superseded by the build**. §1–§3 below shipped, none of them exactly as sketched. §1–§2 shipped 2026-09-21 as the `shared_directory` hook. §3 shipped 2026-09-25 as a pack-declared `refresh`, not a `pi`-named branch in the template. The design's as-built notes ([§3.1](pi-extension-lifecycle.md#31-storage-tier-decoupling-packages-from-session-state), [§3.2](pi-extension-lifecycle.md#32-execution-tier-pre-launch-auto-refresh), [§3.3](pi-extension-lifecycle.md#33-concurrency-tier-cross-jail-mutual-exclusion)) are the record. This note makes no claim about §4, the macOS parity check.
+**Status:** 2026-09-17 as a sketch, and **superseded by the build**. [§1](#1-pack-manifest-additions-packspipackjson)–[§3](#3-launcher-template-extension-internalentrypointshimsgo) below shipped, none of them exactly as sketched. [§1](#1-pack-manifest-additions-packspipackjson)–[§2](#2-hook-implementation-internalentrypointpackhooksgo) shipped 2026-09-21 as the `shared_directory` hook. [§3](#3-launcher-template-extension-internalentrypointshimsgo) shipped 2026-09-25 as a pack-declared `refresh`, not a `pi`-named branch in the template. The design's as-built notes ([§3.1](pi-extension-lifecycle.md#31-storage-tier-decoupling-packages-from-session-state), [§3.2](pi-extension-lifecycle.md#32-execution-tier-pre-launch-auto-refresh), [§3.3](pi-extension-lifecycle.md#33-concurrency-tier-cross-jail-mutual-exclusion)) are the record, and the design's [§3.1](pi-extension-lifecycle.md#31-storage-tier-decoupling-packages-from-session-state) states the `macos-user` layout. This note makes no claim about [§4](#4-darwin--macos-user-parity-internalentrypointdarwinhomelayoutgo), the macOS parity check.
 
 > [!NOTE]
 > This is a companion sketch to [`pi-extension-lifecycle.md`](pi-extension-lifecycle.md).

@@ -2,6 +2,8 @@
 title: "Which workspace MCP files reach an in-jail agent"
 date: 2026-09-22
 status: in-review
+stage: DESIGN
+next: "Rule OQ-WM1 — who wins when a workspace MCP file and the canonical mcp_servers table name the same server, and whether yolo says so"
 tags: [mcp, workspace, packs, copilot, claude, config, shadow]
 summary: "yolo does not try to keep a workspace's MCP config away from an in-jail agent — that config is the repo's or the user's own, and reaching the agent is the desired behavior. The /dev/null shadow over .vscode/mcp.json was removed on that basis on 2026-09-22. What is left is precedence: when a workspace file and yolo's canonical mcp_servers table name the same server, which one wins, and today the answer is whatever each vendor's merge order happens to be."
 vantage:
@@ -10,8 +12,8 @@ vantage:
 
 # Which workspace MCP files reach an in-jail agent
 
-**Status:** DESIGN, 2026-09-22 — one question open, [OQ-WM1](#OQ-WM1).
-The removal in [§3](#3-the-removal-2026-09-22) is BUILT and owes no ruling; the position it rests on is
+**Status:** 2026-09-22 — one question open, [OQ-WM1](#OQ-WM1).
+The removal in [§3](#3-the-removal-2026-09-22) is built and owes no ruling; the position it rests on is
 recorded in [`../plans/retired-decisions.md`](../plans/retired-decisions.md#a-jail-does-not-shadow-workspace-mcp-config).
 
 **Needs your ruling:** [OQ-WM1](#OQ-WM1).
@@ -104,6 +106,8 @@ table yolo owns is regenerated wholesale, and an entry it does not declare is dr
 (the `claude/config` `mcpServers` case, whose notice is the MCP-entry row of
 [the remedy contract](../reference/report-tiers.md#the-remedy-contract)).
 Silently losing to a workspace file is the same surprise the notice exists to prevent.
+
+<!-- vantage: oq id=OQ-WM1 leaning="Workspace wins, and yolo discloses it: one line on the launch stream naming the server and the workspace file that overrode the canonical table's entry, with no precedence rule of yolo's own." -->
 
 **Leaning.** Workspace wins, but yolo **discloses** when a workspace source overrides a server the
 canonical table named — one line on the launch stream, naming the server and the file. This is

@@ -2,23 +2,35 @@
 title: "One OpenAI refresh owner for Codex, Pi, hosts, and jails"
 date: 2026-09-14
 status: accepted
+stage: BUILT
+next: "Graduate into agent-credentials.md's OpenAI subscription section (system-doc), which then states the build rather than §3's relay; §7's login and expiry checks stay owed to a human"
 tags: [authentication, codex, pi, oauth, design]
 summary: "A machine-wide OpenAI credential service owns refresh-token rotation and browser callbacks while agents retain isolated runtime state."
 ---
 
 # One OpenAI refresh owner for Codex, Pi, hosts, and jails
 
-**Status:** DESIGN, 2026-09-24 — built, the last backend's refresh consumer on
-2026-09-29 ([OQ-OA6](#OQ-OA6): on `macos-user` the launch opens Codex's refresh doorway
-outside the sandbox, `fea3b6c7`). The one sentence of
+**Status:** 2026-09-24, re-checked 2026-09-30. **MEASURED:** a brokered refresh through the jail's
+published endpoint on rootless podman, both architectures
+(`TestOpenAIAuthBrokerRoundTripsAnImportedToken`, passing in `ci.yml` run 36662086103,
+2026-09-30), and the `macos-user` doorway on a hosted Mac: reachable from inside the sandbox,
+refusing a refresh without the launch's caller token, admitting one bound to it, and gone when the
+session ends (`TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox`, passing in `macos-user.yml`
+run 36719581090 at `8f7468dd`, 2026-09-30; it runs no Codex). **UNMEASURED:** the
+[§7](#7-completion-criteria) criteria that need a ChatGPT account and wall-clock time: a browser
+login end to end, and agents crossing a real expiry, on any backend. Every part is built, the last
+backend's refresh consumer on 2026-09-29 ([OQ-OA6](#OQ-OA6): on `macos-user` the launch opens
+Codex's refresh doorway outside the sandbox, `fea3b6c7`). The one sentence of
 [§2](#2-one-writer-and-two-views) that turned out unbuildable, Pi asking again after an
-unauthorized response, was dropped the same day ([OQ-OA7](#OQ-OA7)). The canonical
-transaction, host service, container adapters, pack dependency, browser login,
-managed host launch, status and self-check are implemented, and so are host-only import and logout
-(`4de78ac0`, 2026-09-18; the public `yolo openai-auth` verb since `fafb7493`,
-2026-09-20) and Apple Container reporting the service inert
-(`36c47baa`, 2026-09-18). **Unmeasured:** the [§7](#7-completion-criteria)
-criteria only real hardware reaches, the `macos-user` doorway among them.
+unauthorized response, was dropped the same day ([OQ-OA7](#OQ-OA7)). The canonical transaction,
+host service, container adapters, pack dependency, browser login, managed host launch, status and
+self-check are implemented, and so are host-only import and logout (`4de78ac0`, 2026-09-18; the
+public `yolo openai-auth` verb since `fafb7493`, 2026-09-20) and Apple Container reporting the
+service inert (`36c47baa`, 2026-09-18). Two places where the build and this body part ways, both
+recorded in the [plan](openai-auth-broker-plan.md): [§3](#3-browser-callback-relay)'s state-routed
+relay was not built, because the host daemon owns the whole login flow and the jail only streams
+the URL back (plan step 5), and [§2](#2-one-writer-and-two-views)'s shared broker engine was not
+generalized: `internal/openaiauth` sits beside `internal/oauthbroker` (the plan's Blockers).
 
 > **In short.** A yolo host service owns one OpenAI subscription grant and is
 > the only component allowed to refresh it. Codex and Pi receive compatible
@@ -37,7 +49,8 @@ host Codex keeps its existing home and, if logged in there, an independent grant
 
 **Start at [§2](#2-one-writer-and-two-views)** — the ownership rule.
 
-**Needs your ruling:** none. [OQ-OA6](#OQ-OA6) was ruled 2026-09-29, and
+**Needs your ruling:** none.
+[OQ-OA6](#OQ-OA6) was ruled 2026-09-29, and
 [OQ-OA7](#OQ-OA7) was decided the same day as an implementation decision.
 
 **Reads with:** [`openai-auth-broker-plan.md`](openai-auth-broker-plan.md) (the
@@ -252,7 +265,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
    generic jail-daemon work lands, and whether one manifest key may have two delivery
    mechanisms, a declared jail daemon on containers and a launcher-owned listener here.
 
-   
+   <!-- vantage: oq id=OQ-OA6 -->
 
    _Leaning:_ **Route (b).** It is already written once, it matches what
    [§4](#4-backend-transport) says this backend does, and it is subject to neither blocker. The
@@ -278,6 +291,8 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
    (`wirebridged.NewCodexResponsesHandler` sets `retryUnauthorized`). **What it decides:** whether
    the design states only what pi allows (refresh before expiry), or keeps a requirement that
    waits on an upstream pi hook.
+
+   <!-- vantage: oq id=OQ-OA7 -->
 
    _Leaning:_ **Drop it for Pi, and say why.** The expiry-gated refresh plus the broker's
    proactive refresh inside the five-minute window already covers what the clause was for; a

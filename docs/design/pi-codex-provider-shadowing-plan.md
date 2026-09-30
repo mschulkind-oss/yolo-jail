@@ -1,6 +1,18 @@
+---
+title: "Implementation sketch: Pi Codex provider shadowing"
+date: 2026-09-27
+status: accepted
+stage: DECIDED
+next: "Close the verification checklist's nested-jail step with a real-jail check: assert, in TestCodexProfileRendersOneModelListForEveryAgent (integration/codex_model_list_test.go), that pi's rendered models.json has no openai-codex row"
+depends-on:
+  - pi-codex-provider-shadowing.md#OQ-3
+tags: [providers, codex, pi, openai-auth, shadowing, plan]
+summary: "File targets and verification for pi-codex-provider-shadowing.md: the openai-codex exclusion in pi's derive and the needs-closure test helper are built; the nested-jail check has not run, and a broad reading of OQ-3 would widen the exclusion."
+---
+
 # Implementation Sketch: Pi Codex Provider Shadowing
 
-**Status:** SKETCH, 2026-09-27 — [§2](#2-pi-derive-changes) and [§3](#3-entrypoint-test-alignment) are built (`92c20cc6`, and the 2026-09-27 test helper); [§5](#5-verification-checklist)'s nested-jail step has not run. Unstable while [OQ-3](pi-codex-provider-shadowing.md#OQ-3) is open, which decides whether the exclusion widens past `openai-codex`.
+**Status:** 2026-09-27 — [§2](#2-pi-derive-changes) and [§3](#3-entrypoint-test-alignment) are built (`92c20cc6`, and the 2026-09-27 test helper); [§5](#5-verification-checklist)'s nested-jail step has not run. Unstable while [OQ-3](pi-codex-provider-shadowing.md#OQ-3) is open, which decides whether the exclusion widens past `openai-codex`.
 
 This sketch holds implementation notes, file targets, and test verification details for
 [`pi-codex-provider-shadowing.md`](pi-codex-provider-shadowing.md). The design doc wins on
@@ -15,13 +27,14 @@ all questions of behavior, architecture, and invariants.
 | `packs/pi/derive.lua` | Pi configuration derive script | Exclude `openai-codex` from the `models` catalog derive loop ([§2](#2-pi-derive-changes)). Built in `92c20cc6`, as [OQ-1](pi-codex-provider-shadowing.md#OQ-1) ruled. |
 | `internal/entrypoint/pi_codex_profile_test.go` | Entrypoint Pi profile tests | Compose `TestPiCodexProfileSelectsBuiltInProviderAndExplicitModel` from pi's `needs` closure, which brings `openai-auth`, to activate the shadowing check ([§3](#3-entrypoint-test-alignment)). Built 2026-09-27. |
 | `internal/entrypoint/packclosure_test.go` | Test helper | `testPacksForAgent`, the `needs` closure through the launch's resolver (the design doc's R2). Built 2026-09-27. |
-| `docs/plans/roadmap.md` | Living roadmap | Track the design doc and open questions ([§4](#4-roadmap-tracking)). |
+| `docs/plans/roadmap.md` | Living roadmap | Links the design doc and its open question for priority ([§4](#4-roadmap-tracking)). |
 
 ---
 
 ## 2. Pi Derive Changes
 
-In `packs/pi/derive.lua`, inside `yolo.derive("pi", "models", function(ctx) ...)` around line 299:
+In `packs/pi/derive.lua`, inside `yolo.derive("pi", "models", function(ctx) ...)`, as this sketch first
+proposed it:
 
 ```lua
   local providers = {}
@@ -91,8 +104,8 @@ Revert-checked 2026-09-27: removing the exclusion fails the edited test and pass
 ## 4. Roadmap Tracking
 
 [OQ-1](pi-codex-provider-shadowing.md#OQ-1) and [OQ-2](pi-codex-provider-shadowing.md#OQ-2) are
-ruled. [OQ-3](pi-codex-provider-shadowing.md#OQ-3) is row 70 of `docs/plans/roadmap.md` under
-`## 💬 Needs you`.
+ruled. [OQ-3](pi-codex-provider-shadowing.md#OQ-3) is open in the design doc, which owns its state;
+the roadmap links that question for its place in the order.
 
 ---
 

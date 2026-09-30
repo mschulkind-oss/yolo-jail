@@ -2,6 +2,8 @@
 title: "What reaches which agent: a profile's credentials and env stay with the agent that selected it"
 date: 2026-09-22
 status: accepted
+stage: BUILT
+next: "Graduate into providers.md's credential-gate section (system-doc); whether the per-agent file reaches every way an agent is started stays unmeasured outside tests"
 tags: [providers, profiles, credentials, env-sources, delivery, notches, bedrock]
 summary: "When one agent selected a provider, yolo delivered that provider's credentials and profile-gated variables to every agent in the jail, through four channels that all ended in one shared env file. OQ-BR4 is ruled (2026-09-25): nothing leaks, delivery is as specific as possible. OQ-CN1 to OQ-CN6 are ruled (2026-09-26), all as leaned, and BUILT 2026-09-26: one gate (packload.ScopeCredentials) that all three delivery vehicles read, a pre-flight narrowed with it, and a per-agent env file, sourced by that agent's launcher, as the container vehicle. Review the same day found eight defects, fixed, and raised OQ-CN7 to OQ-CN9, ruled 2026-09-28 as leaned and BUILT the same day: the aws-auth adapter starts only for a profile that selects it and serves only that agent, the user's own value beats a composed one, and macos-user writes the per-agent files. Measured by tests only."
 vantage:
@@ -15,7 +17,7 @@ credentials and settings. Should claude, pi, or a plain shell in the same jail g
 maintainer ruled no. This doc works out how yolo delivers a provider's credentials and
 profile-gated variables to the agent that selected it, and to no other.
 
-**Status:** BUILT, 2026-09-28 — every ruling here is built. The three questions raised in
+**Status:** 2026-09-28 — every ruling here is built; MEASURED BY TESTS ONLY, save one nested boot, and UNMEASURED on a real host (both below). The three questions raised in
 review are built at `7d0af878` ([OQ-CN7](#OQ-CN7): the `aws-auth` adapter starts only when a
 profile selects `bedrock`, and its caller token reaches only that agent), `cef51809`
 ([OQ-CN8](#OQ-CN8): the user's explicit value wins) and `949d9430` ([OQ-CN9](#OQ-CN9): macos-user
@@ -54,8 +56,9 @@ was skipped on every launch (`TestRequiresEnvIsEvaluatedPerAgent`); a manifest's
 `TestMacosUserLaunchOmitsAnotherAgentsGatedEnv`,
 `TestABedrockRouteSignsWithTheServedAgentsOwnPair` and
 `TestSectionPacksPredictsTheOverrideOfADeliveredClaimedCredential`). The rows CN-D1, CN-D7,
-CN-D10, CN-D16, CN-D18 and CN-D19 in [§7](#7-decision-ledger) say what changed. UNMEASURED: no
-real container launch, nested jail, macos-user session or Apple Container has run it, so whether
+CN-D10, CN-D16, CN-D18 and CN-D19 in [§7](#7-decision-ledger) say what changed. UNMEASURED beyond
+that one nested boot: no launch on a real host, macos-user session or Apple Container has been
+checked for it, so whether
 the per-agent file reaches EVERY way an agent is started is still the open fact [OQ-CN6](#OQ-CN6) named: an absolute-path exec bypasses every carrier.
 Earlier: the leak
 was measured in this jail on 2026-09-22 ([§2.1](#21-delivery-is-profile-blind-by-construction)),
@@ -458,6 +461,9 @@ reaches two agents.
 ## 6. Open Questions
 
 1. ✅ <a id="OQ-CN1"></a>**[OQ-CN1](#OQ-CN1): where does the key→provider association live?**
+
+   <!-- vantage: oq id=OQ-CN1 -->
+
    `api_key_env_name` has nine consumers but is **single-valued**, and `bedrock` sets it to
    nothing ([§2.5](#25-the-mapping-half-exists)). A second credential route to one service need
    not make a provider multi-keyed **if** [`OQ-BR8`](providers-and-profiles-redesign.md#OQ-BR8)
@@ -483,6 +489,9 @@ reaches two agents.
    > config is the fallback and is worse: it puts a fact about zai in every user's file.
 
 2. ✅ <a id="OQ-CN2"></a>**[OQ-CN2](#OQ-CN2): which layer holds the gate, and is the rendered config gated too?**
+
+   <!-- vantage: oq id=OQ-CN2 -->
+
    Filtering the environment leaves `hydrateProviders` writing every `api_key` into the agent's
    config ([§3.1](#31-four-layers-and-filtering-the-environment-is-not-enough)); gating only the
    config leaves the environment open. The alternative, two independent filters on
@@ -499,6 +508,9 @@ reaches two agents.
    > the duplicate-implementation defect this repo already treats as a class.
 
 3. ✅ <a id="OQ-CN3"></a>**[OQ-CN3](#OQ-CN3): what happens to the credential pre-flight?**
+
+   <!-- vantage: oq id=OQ-CN3 -->
+
    `requiredProviders` is scoped to the selected packs, not the profile, so it refuses the launch
    for exactly the key the gate withholds ([§3.2](#32-the-pre-flight-refuses-what-the-gate-withholds)).
    Either it narrows with the gate, reopening the ruling that scoped it to packs, or the gate sits
@@ -516,6 +528,9 @@ reaches two agents.
    > accident.
 
 4. ✅ <a id="OQ-CN4"></a>**[OQ-CN4](#OQ-CN4): is the goal narrowing the MENU or withholding the CREDENTIAL?**
+
+   <!-- vantage: oq id=OQ-CN4 -->
+
    They come apart ([§2.4](#24-the-agents-disagree-about-what-a-credential-even-decides)). opencode
    and claude ship a hard menu key, cheap and exact. For pi, narrowing the menu means writing
    `enabledModels`, which **yolo already does**, and that is as strong as pi's menu gets: a default
@@ -538,6 +553,9 @@ reaches two agents.
    > writes, which must never be described as a restriction.
 
 5. ✅ <a id="OQ-CN5"></a>**[OQ-CN5](#OQ-CN5): does the gate ship on all three vehicles at once?**
+
+   <!-- vantage: oq id=OQ-CN5 -->
+
    `macos-user` hydrates on its own and the host notch composes independently
    ([§2.3](#23-three-vehicles-and-a-gate-in-one-covers-one-backend)), so a container-only gate
    leaves two paths delivering everything, one of them the host notch outside every sandbox. The
@@ -554,6 +572,9 @@ reaches two agents.
    > doc reads as done. If that is too large, the host notch goes first, not last.
 
 6. ✅ <a id="OQ-CN6"></a>**[OQ-CN6](#OQ-CN6): how does a value reach only the agent that selected it?**
+
+   <!-- vantage: oq id=OQ-CN6 -->
+
    Every agent reads one shared env file, whose first reader exports it into the entrypoint's
    process environment ([§2.7](#27-one-shared-file-five-readers)). With [OQ-BR4](#7-decision-ledger)
    ruled "as specific as possible", a credential, a shape variable or a satisfied pack `env` gate
@@ -583,6 +604,9 @@ reaches two agents.
    > stays per launch and says so as a disclosure.
 
 7. ✅ <a id="OQ-CN7"></a>**[OQ-CN7](#OQ-CN7): are loopback credential services inside the gate?**
+
+   <!-- vantage: oq id=OQ-CN7 -->
+
    The gate scopes what each agent's ENVIRONMENT carries. `aws-auth`'s in-jail adapter
    (`127.0.0.1:1461`, started whenever the loophole is enabled, whatever any profile selects)
    hands the minted AWS credential to any process that asks, a bare shell and claude under
@@ -605,6 +629,9 @@ reaches two agents.
    > adapter requires.
 
 8. ✅ <a id="OQ-CN8"></a>**[OQ-CN8](#OQ-CN8): should a user's own override beat a profile-composed value?**
+
+   <!-- vantage: oq id=OQ-CN8 -->
+
    Before the gate, the shape variables and gated env sat in the shared file, sourced before
    the user's command, so `ANTHROPIC_MODEL=x claude` or an `export` in a jail shell won. Now
    the agent's launcher sources its file after the user's shell, and those lines are
@@ -621,6 +648,9 @@ reaches two agents.
    > inherited one cannot.
 
 9. ✅ <a id="OQ-CN9"></a>**[OQ-CN9](#OQ-CN9): should macos-user write per-agent files too?**
+
+   <!-- vantage: oq id=OQ-CN9 -->
+
    macos-user delivers per LAUNCH (CN-D12): the session carries the launched program's own
    values. A bare `yolo` there starts a login zsh, which is no agent, so `use_profiles:
    {claude: zai}` and then `claude` inside the sandbox reaches Anthropic first-party; before
@@ -711,8 +741,7 @@ Done 2026-09-28, with the builds of [OQ-CN7](#OQ-CN7)–[OQ-CN9](#OQ-CN9):
 and its macos-user arm describe what was built; [`packs/aws-auth/README.md`](../../packs/aws-auth/README.md)
 says the adapter starts only for `bedrock` and serves only its agent; the user guide's
 providers page and settings-per-setup say a value you set wins, and what the Bedrock service
-serves; the CHANGELOG says what changed for a user; and 📦 Ready row 19 is gone from the
-[roadmap](../plans/roadmap.md). None is owed.
+serves; and the CHANGELOG says what changed for a user. None is owed.
 
 ## 9. Evidence
 

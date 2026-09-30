@@ -1,7 +1,9 @@
 ---
 title: "The sync root is not a skill"
 date: 2026-09-18
-status: in-review
+status: accepted
+stage: BUILT
+next: "Graduate into pack-system.md, whose skills section already carries the reserved-child rule: fold the ST ledger into its why-appendix and cut this doc to a stub"
 tags: [design, skills, packs, host-notch, claude, adoption, trust]
 summary: "~/.claude/skills/synced/<uuid>_<uuid>/ is a sync root, not a skill: a bucket named after the user's Anthropic identity, filled by Claude Code, and regenerated from a registration that lives outside it. Until `packs/claude` reserved the name, `yolo host apply` read it as a single hand-written skill named `synced`, moved the whole tree into the user's local pack and thereafter reverted every update the syncer pushed — measured, including for an empty bucket. yolo now composes around it and says so on a non-empty one: the transition for such a user is a notice, not a copier."
 vantage:
@@ -10,8 +12,8 @@ vantage:
 
 # The sync root is not a skill
 
-**Status:** DECIDED, 2026-09-22 — **the transition is a NOTICE, not a mechanism**, and that ruling
-DELETED most of this design. ✅ **All three of [§12](#12-what-i-would-build-in-order)'s steps are BUILT
+**Status:** 2026-09-22 (`113d6731`) — **the transition is a NOTICE, not a mechanism**, and that ruling
+DELETED most of this design. ✅ **All three of [§12](#12-what-i-would-build-in-order)'s steps were built
 2026-09-22**: the fence, the notice, and the recovery's REPORT half (which is all R1 asked to ship —
 the *offer* to put a tree back is deliberately not built, per [§7](#7-homes-that-are-already-wrong)).
 No question remains. [OQ-ST5](#OQ-ST5), which belongs to the config-ownership axis rather than
@@ -25,7 +27,9 @@ was always separable.
 [§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed),
 [§3.2](#32-on-the-host-yolo-eats-it--measured) and [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
 are **MEASURED**; everything else is read from the tree or from the vendor's binary, dated
-where it is claimed.
+where it is claimed. Since the fix, UNMEASURED against a real synced tree: no apply over a
+non-empty `synced/` bucket on a real host is recorded, and the fence and the notice are pinned by
+tests that drive a real apply over fixtures.
 
 > **In short.** `~/.claude/skills/synced/<uuid>_<uuid>/` is a **sync root**: a bucket named
 > after the user's Anthropic identity, filled by Claude Code, and **regenerated from a
@@ -857,8 +861,10 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
   part of it is not, and the row was amended on 2026-09-22 to say so.
 - **Not a general "import anything into a pack" facility.** The unit is a synced skill, from a
   declared sync root, and nothing else.
-- **Not roadmap row `0b`.** [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
-  works that row's hazard through as this design's second specimen and does not build it. The two
+- **Not the leaf-level record.** [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
+  works that record's hazard through as this design's second specimen and does not build it; the
+  record is [the drop-narrowing ruling](config-ownership-and-promotion.md#the-drop-narrows-again--wholesale-against-computed-is-withdrawn-as-the-general-rule)'s,
+  and [`CO13`](config-ownership-and-promotion.md#13-decision-ledger) built it on 2026-09-25. The two
   are separable in both directions — the fence ships without a leaf-level record, and the record
   ships without a fence — and they are in one doc because they are the same missing thing at two
   granularities, not because either waits on the other. The question [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
@@ -925,6 +931,8 @@ once the signal exists.
 
 1. ✅ <a id="OQ-ST2"></a> **OQ-ST2: Is the fence pack-declared, or does core know the name?**
 
+   <!-- vantage: oq id=OQ-ST2 -->
+
    **Answer (2026-09-20):**
    > **Pack-declared, per P2.** Hardcoding `synced` into core is cheaper today and is exactly the
    > coupling `internal/hostskills`' tier comment already refuses by name — core learning one
@@ -937,6 +945,8 @@ once the signal exists.
    ⚠ It gates nothing either way — [§12](#12-what-i-would-build-in-order) step 1 ships without it.
 
 2. ✅ <a id="OQ-ST5"></a> **OQ-ST5: When yolo regenerates a table, what happens to the keys inside it that yolo did not write?**
+
+   <!-- vantage: oq id=OQ-ST5 -->
 
    *Rewritten 2026-09-20 to stand alone. It had accreted three corrections and read as a diff
    against its own earlier self.*

@@ -2,13 +2,15 @@
 title: "Every path by which someone else's content runs in your jail"
 date: 2026-09-06
 status: accepted
+stage: DECIDED
+next: "Build the jail_daemon half of the TP10 ruling: first give the producer behind notePackLoopholesInert a per-launch answer to whether a declared jail daemon will run (internal/cli/run), then disclose it"
 tags: [trust, packs, security, inventory]
 summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. Pinning changes an outcome in three of them, because every gate keys on a declaration and none on content. All ten questions are settled — the fetched-pack approval prompt among them, deleted as theatre, and last the disclosure hole that deletion opened: a wrapped plugin's hooks get their own disclosure class, rendered as one counted line per pack."
 ---
 
 # Every path by which someone else's content runs in your jail
 
-**Status:** DECIDED, 2026-09-23 — an inventory, first written 2026-08-17 and **compacted 2026-09-06
+**Status:** 2026-09-23 — an inventory, first written 2026-08-17 and **compacted 2026-09-06
 and again 2026-09-14.** Ten questions filed and **all ten settled** (seven ruled, three retired), so
 what is owed is work, not a ruling.
 

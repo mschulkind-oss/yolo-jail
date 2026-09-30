@@ -1,14 +1,16 @@
 ---
 title: "Should the jail mount the workspace at the host's own path?"
 date: 2026-09-04
-status: draft
+status: in-review
 tags: [mounts, paths, backends, macos-user, state-separation, trust]
 summary: "Two questions, one verdict. Mirroring just the workspace is a good idea not worth the churn. MAXIMAL mirroring — jail user, home, workspace and toolchain store all matching the host — is mechanically expressible and churn is not the objection; it fails because you can mirror a path NAME but not its CONTENT, so a cross-boundary reference resolves to an ABI-incompatible artifact instead of failing loudly, the credential boundary loses its cheapest signal, and macos-user cannot express the mirrored home. The two arguments expected to carry it (capture relocation, notch portability) come back negative. Recommendation: no; if the goal is one environment at several notches, unify the userland instead."
+stage: DESIGN
+next: "Rule OQ-WP10 — what the want behind mirroring was; the doc asks for it before OQ-WP8, the closure question"
 ---
 
 # Should the jail mount the workspace at the host's own path?
 
-**Status:** DESIGN, 2026-09-30 — sketched 2026-09-04 and **reopened and extended the same day** (see
+**Status:** 2026-09-30 — sketched 2026-09-04 and **reopened and extended the same day** (see
 the postscript); three questions owe a ruling, [`OQ-WP8`](#OQ-WP8) the closure one. [`OQ-WP12`](#OQ-WP12) was answered by
 another design's ruling, and [`OQ-WP5`](#OQ-WP5) by measurement on 2026-09-25. Six more were closed on 2026-09-30
 without a ruling being owed: [`OQ-WP6`](#OQ-WP6) by the maintainer's own reopening, [`OQ-WP1`](#OQ-WP1) and
@@ -1311,6 +1313,8 @@ and it already has a home in the tree.
    narrow question by the 2026-09-04 reopening** — the closure question for the doc as a whole
    is now [`OQ-WP8`](#OQ-WP8).
 
+   <!-- vantage: oq id=OQ-WP1 -->
+
    _Leaning (as filed):_ Accept. But I am asking rather than asserting, because a maintainer's lived
    annoyance is evidence a repo sweep cannot produce, and "this bites me weekly" would
    outweigh my census.
@@ -1337,6 +1341,8 @@ and it already has a home in the tree.
    Fixing it means binding a per-workspace directory over one vendor-specific path — a
    mount added for one tool's cache layout, which is the shape yolo usually refuses.
 
+   <!-- vantage: oq id=OQ-WP3 -->
+
    _Leaning:_ Leave it, and note it in [`jail-home.md`](../reference/jail-home.md) [§2.1](../reference/jail-home.md#the-mount-stack) so the next person
    who finds interleaved MCP logs does not spend an afternoon on it. Revisit if a
    second consumer appears ([§1.1](#11-what-would-change-my-mind)).
@@ -1355,6 +1361,8 @@ and it already has a home in the tree.
    [`trust-paths.md`](trust-paths.md)'s scope model, which currently lists workspace `mounts`
    as un-scope-ruled, and it stands whether or not mirroring ever happens.
 
+   <!-- vantage: oq id=OQ-WP4 -->
+
    _Leaning:_ Raise it in [`trust-paths.md`](trust-paths.md), not here. The measured blast
    radius is small (a workspace subdir gets a second read-only appearance under `/ctx`; the
    `/ctx/packs` shadow is refused by podman), so it is a model tidy-up rather than a fix.
@@ -1363,7 +1371,7 @@ and it already has a home in the tree.
    > **Decided as an implementation choice ([`WP-D2`](#WP-D2)), reversible:** it is not ruled
    > here, because it is already asked elsewhere. [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3),
    > which the maintainer opened on 2026-09-18, asks whether `mounts` and `env_sources` become
-   > user-scope-only, and roadmap row 26 carries it. [`trust-paths.md`](trust-paths.md) holds no
+   > user-scope-only, and is still open there. [`trust-paths.md`](trust-paths.md) holds no
    > open question to raise it in. This doc's one addition, [§4.4](#44-trust-one-undocumented-fail-safe-and-nothing-else)'s accidental fail-safe, matters
    > only if [`OQ-WP8`](#OQ-WP8) is answered yes, so AS3 needs nothing from it today.
 
@@ -1371,6 +1379,8 @@ and it already has a home in the tree.
    Unanswered since [`OQ-MP2`](../research/mise-host-jail-path-mismatch.md#-oq-mp2-does-apple-container-support-arbitrary-same-path-bind-targets--moot-2026-07-03) closed it as moot in July. It does not block the *no*, but it
    would block a future *yes*, and it is cheap to measure for whoever next has AC hardware
    in front of them. `docs/design/backend-parity.md` is where the answer belongs.
+
+   <!-- vantage: oq id=OQ-WP5 -->
 
    _Leaning:_ Unverified, and I would guess yes (AC does ordinary directory binds), but a
    guess is exactly what this repo's doc norms forbid recording as fact.
@@ -1404,6 +1414,8 @@ and it already has a home in the tree.
    [`../reference/jail-state-separation-design.md`](../reference/jail-state-separation-design.md)) that exist because
    *not* sharing those was worth paying for. Worth a paragraph of intent before anyone
    invests in it.
+
+   <!-- vantage: oq id=OQ-WP6 -->
 
    **Superseded in substance by [§12](#12-follow-up-maximal-mirroring), 2026-09-04** — the
    question was asked for real and is now analysed rather than deferred. Its verdict half is
@@ -1484,6 +1496,8 @@ and it already has a home in the tree.
    **path prefix** plus an existence check. [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content) uses its degradation under mirroring as
    evidence, but the guard is already thin: it misses any jail-made venv whose recorded
    interpreter happens to exist on the host at the same path.
+
+   <!-- vantage: oq id=OQ-WP9 -->
 
    _Leaning:_ Yes, but as separate, small work, and only if a better oracle exists. Reading
    the ELF interpreter out of the recorded `home` binary was the candidate. It is now measured
@@ -1617,6 +1631,8 @@ and it already has a home in the tree.
     constant that mirroring would remove. So slice 6 is not blocked on this decision and the
     two work streams do not collide.
 
+    <!-- vantage: oq id=OQ-WP11 -->
+
     _Leaning:_ Yes — one line in [`../plans/install-capture.md`](../plans/install-capture.md)'s
     build-order step 6 saying the deletion is not available, so nobody sequences around a
     saving that is not coming. That is an edit to a file another agent is actively working in,
@@ -1637,6 +1653,8 @@ and it already has a home in the tree.
     SandVault with no argument recorded, contradicted a must-keep in
     [`macos-no-vm-direction.md`](../reference/macos-no-vm-direction.md) (*"Per-workspace isolation
     … not one shared home"*), and carried a cross-workspace transcript leak.
+
+    <!-- vantage: oq id=OQ-WP12 -->
 
     _Leaning (as filed):_ the maintainer's call — a tier tradeoff — with the bar
     [`backend-parity.md`](backend-parity.md) sets: restore **both** tiers explicitly, never just

@@ -1,17 +1,33 @@
+---
+title: "Plan: macOS revival + source-distribution fix (post-ejection)"
+status: in-review
+stage: BUILT
+next: "Write A2's missing twin: a TestMacosUser… launch whose `packages:` names a package with no darwin build must abort naming it, for the macos-user CI job to run — the hard error has never fired live"
+---
+
 # Plan: macOS revival + source-distribution fix (post-ejection)
 
-**Status:** DECIDED, 2026-07-21 — in progress, restamped **2026-09-24** (body
-below is the original plan except where a dated annotation says otherwise).
-Tracks J and M are done. Track D's engineering is done, but **two of its four
-steps were later reverted or superseded** and the header this line replaces did
-not say so. **Track L part 1's host half is done** (2026-09-17/18: this backend starts
-every admitted host daemon through the same `startLoopholesDisclosed` a container launch
-uses); **its jail half is the one open engineering item, and it is blocked on two rulings**
-— [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) and
+**Status:** 2026-07-21 — restamped 2026-09-24 and re-checked against the tree 2026-09-30 (the
+body below is the original plan except where a dated annotation says otherwise). **Every track is
+built.** Tracks J and M are done. Track D's engineering is done, but **two of its four
+steps were later reverted or superseded**. The A-items are done. **Track L part 1 is built in
+both halves**: the host half on 2026-09-17/18 (this backend starts every admitted host daemon
+through the same `startLoopholesDisclosed` a container launch uses), and the jail half on
+2026-09-28 (`068f8fe2`) on the rulings of
+[`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) and
 [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9), tracked by
-[`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md). The
-original header's closing claim — *"nothing engineering-side fully open"* — was **false**;
-it is retracted in §*Retracted claims* below.
+[`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md). **Track L
+part 2**, the GitHub access-scoping proxy, is now
+[`boundary-broker.md`](../design/boundary-broker.md)'s design, which answers
+[OQ-L1](#open-questions-blocking). One question here is live,
+[OQ-SH-1](#oq-sh-1--is-macos-user-self-hosting-worth-pursuing-at-all-maintainer), and it blocks
+nothing. MEASURED: the four runbook items on 2026-09-10 and the full run on 2026-09-12, on the
+maintainer's Mac ([`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md)).
+UNMEASURED: A2's hard error has never fired live on a package with no darwin build; the Cachix
+download on a Mac ([`handoff-cachix-cache.md`](handoff-cachix-cache.md)); and Track L part 1's
+jail daemons on a Mac, which their own plan owns. The original header's closing claim —
+*"nothing engineering-side fully open"* — was **false**; it is retracted in §*Retracted claims*
+below.
 
 > [!NOTE]
 > **Code citations name a FILE, not a line** (since 2026-09-24). This plan cited by line from
@@ -103,7 +119,8 @@ rather than by the source bundle this plan designed. What is left is not a track
 is **one loose end** — the jail half of the loophole framework on the macos-user launch
 path (Track L part 1), whose host half shipped 2026-09-17/18 and whose jail half waits on
 [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) and
-[`OQ-DP9`](../design/declaration-parity.md#OQ-DP9). *(This sentence said "two loose ends" and named A2's hard-error half as the
+[`OQ-DP9`](../design/declaration-parity.md#OQ-DP9). *(Corrected 2026-09-30: both were ruled
+and the jail half shipped on 2026-09-28, `068f8fe2`, so that loose end is tied.)* *(This sentence said "two loose ends" and named A2's hard-error half as the
 other until 2026-09-11; A2 shipped 2026-09-04. It was the fourth place in this file
 that outlived it.)* The pile of Mac-gated *proofs* that no Linux jail can perform is
 **no longer pending**: all four ran on 2026-09-10 and passed.
@@ -135,8 +152,8 @@ reading code or `git log`; nothing here is carried over on trust.
 | A1 (config-diff on macos-user) | **DONE 2026-08-18, by the rejected alternative** | `bb825486`, `fb19e8ed`; `internal/cli/run/run.go` |
 | A2 (hard error + `linux-only`) | **DONE 2026-09-04** | both pieces shipped: `platforms: ["linux"]` on the package object form filters in `EffectivePackages(cfg, platform)` BEFORE materialize, and a declared package still missing from the build aborts the launch naming every one at once (`internal/macosuser/orchestrator.go`). The plan's `linux-only` spelling became `platforms`, a list — see A2 below |
 | A3 (drop `macos_shared_root`) | **DONE 2026-07-23** | `68026c61`; `rg macos_shared_root internal/` is empty; message at `internal/macosuser/runplan.go` |
-| Track L part 1 (framework plumbing) | **HOST HALF DONE 2026-09-17; JAIL HALF BLOCKED on [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) + [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9)** | `6d118252` (2026-09-15) started the openai-auth broker alone; `c28bfde7` (2026-09-17) replaced that one-name allow-list with the same `startLoopholesDisclosed` path a container launch takes, so the arm starts **every** admitted host daemon, discloses it, and `macosuser.BuildRunPlan` stages `macosuser.EndpointGrantCommands` for each published endpoint ([`OQ-BP-5`](../design/backend-parity.md#OQ-BP-5) answered in code). `f6387968` (2026-09-18) made the jail half SAY it does not run — one `Declined:` line per `jail_daemon`. What is unbuilt is running a jail daemon natively: [`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md) steps 3 and 4 |
-| Track L part 2 (scoping proxy) | **BLOCKED on [OQ-L1](#open-questions-blocking)** | unchanged |
+| Track L part 1 (framework plumbing) | **BOTH HALVES DONE** — host half 2026-09-17; jail half 2026-09-28 (`068f8fe2`, checked 2026-09-30), on the rulings of [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) + [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9). The rest of this row is the 2026-09-24 record | `6d118252` (2026-09-15) started the openai-auth broker alone; `c28bfde7` (2026-09-17) replaced that one-name allow-list with the same `startLoopholesDisclosed` path a container launch takes, so the arm starts **every** admitted host daemon, discloses it, and `macosuser.BuildRunPlan` stages `macosuser.EndpointGrantCommands` for each published endpoint ([`OQ-BP-5`](../design/backend-parity.md#OQ-BP-5) answered in code). `f6387968` (2026-09-18) made the jail half SAY it does not run — one `Declined:` line per `jail_daemon`. What is unbuilt is running a jail daemon natively: [`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md) steps 3 and 4 |
+| Track L part 2 (scoping proxy) | **MOVED to [`boundary-broker.md`](../design/boundary-broker.md)** (checked 2026-09-30) | its step 1 (reads, the repository scope, the audit log) is built in `internal/ghbroker`; [OQ-L1](#open-questions-blocking) is answered there |
 | check's python3 probe | **DELETED 2026-09-03** | it hard-FAILed a python-less Mac for a requirement J2 dropped on 2026-07-21 (`544a8069`); `internal/cli/check/sections_macos.go` |
 | macos-user repo-root gate for `packages:` | **FIXED 2026-09-03** | an unresolved root reached `darwinpkg.Materialize("")` → empty `cmd.Dir` → nix evaluated the user's cwd; `internal/cli/run/run.go`, `internal/darwinpkg/materialize.go` |
 | macos-user self-hosting (jail-in-jail) | **STRUCTURALLY BLOCKED; the workaround was proposed and REJECTED** | measured 2026-09-03 — see §*Self-hosting*, OQ-SH-1 |
@@ -160,7 +177,8 @@ longer a description of that machine: measured 2026-08-19, the Mac's installed
 `yolo` was **531 commits stale** and its `~/.config/yolo-jail/config.jsonc`
 still used the **removed `agents` key**, so no current `yolo` launches there on
 any backend. M2's "Mac agent sessions run under macos-user" is therefore true of
-the 07-21 build and not of today's. See [`roadmap.md`](roadmap.md)'s 🔒 macOS rows.
+the 07-21 build and not of today's. *(Superseded 2026-09-10: the Mac was brought back onto the
+product and the dogfood was restored; see the note under the status line.)*
 
 ### Retracted claims
 
@@ -756,8 +774,8 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > `~/.dotfiles` and the keychains are all `Operation not permitted`. What is
 > **not** proven end-to-end is the launch itself — the `sudo -u _yolojail` +
 > bootstrap path around that confinement. See
-> [`handoff-guest-notch-macos.md` §2](handoff-guest-notch-macos.md#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it) and
-> [`roadmap.md`](roadmap.md)'s 🔒 macOS rows.
+> [`handoff-guest-notch-macos.md` §2](handoff-guest-notch-macos.md#2-the-bug-that-was-fixed-blind--your-first-job-is-to-run-it)
+> and its [§4](handoff-guest-notch-macos.md#4-what-else-on-the-mac-is-gated-beyond-phase-7).
 
 - **M0 — bootstrap (human, ~30 min):** on the Mac: nix (flakes) + a git
   checkout with its own push credentials (deploy key — host creds stay
@@ -794,6 +812,12 @@ The bullets below are the original plan; see that runbook for what actually ran.
 
 ## Track L — loophole framework on macos-user (future; use-case-gated)
 
+> **⚠ Corrected 2026-09-30: both halves are built.** The jail half shipped 2026-09-28
+> (`068f8fe2`) once [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) and
+> [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9) were ruled, and part 2 moved to
+> [`boundary-broker.md`](../design/boundary-broker.md). The notes below are the record up to
+> 2026-09-24.
+>
 > **Status: HOST HALF DONE 2026-09-17, JAIL HALF BLOCKED on [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) and [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9). Sequencing UNCHANGED** — recorded 2026-07-23 from the
 > `macos-user-nix-and-features.md` [§3.5](../reference/macos-user-nix-and-features.md#loopholes-mostly-moot-and-the-framework-ports-better) discussion, still a forward-looking
 > capability and not a revival blocker.
@@ -1070,7 +1094,7 @@ since a macos-user jail cannot verify a macos-user change no matter how the nest
 question is answered. Requires `podman machine init` on that Mac (measured
 2026-09-03: the binary is installed, no machine is created).
 
-### OQ-SH-1 — is macos-user self-hosting worth pursuing at all? (maintainer)
+### <a id="oq-sh-1--is-macos-user-self-hosting-worth-pursuing-at-all-maintainer"></a>💬 OQ-SH-1 — is macos-user self-hosting worth pursuing at all? (maintainer)
 
 Ranked, after the retraction above:
 
@@ -1105,16 +1129,17 @@ DONE:  J1.1 J1.2 J1.3† J1.4  D1‡ ─►  J2.1 J2.2 J2.3 J2.4 + D2✗ ──�
 mac:                           └─ M0 (SandVault)     └─ M1 (e2e verify) ──► M2 (dogfood, docs)
 
 DONE (A-track):  A1 ✅ 2026-08-18   A2 ✅ 2026-09-04   A3 ✅ 2026-07-23
-NOW:             Track L part 1 — host half DONE 2026-09-17; jail half blocked on OQ-DP8 + OQ-DP9 (declaration-parity.md)
-LATER:           Track L part 2 (the scoping proxy) — gated on OQ-L1
+DONE:            Track L part 1 — host half 2026-09-17; jail half 2026-09-28 (068f8fe2)
+MOVED:           Track L part 2 (the scoping proxy) — now docs/design/boundary-broker.md
 
 † J1.3's fix landed and was then deleted with `internal/builder` (Open Decision #3).
 ‡ D1's `repo_path` key was RETIRED 2026-07-23; D3's source bundle was SUPERSEDED by the prebuilt bundle.
 ✗ D2 was REVERTED 2026-07-29 — a missing repo root is fatal again.
 ```
 
-**The one live engineering item is Track L part 1's jail half** — running a `jail_daemon` on
-the macos-user launch path, blocked on two rulings; see
+**No engineering item is live** (checked 2026-09-30). Until 2026-09-28 the one live item was
+Track L part 1's jail half — running a `jail_daemon` on the macos-user launch path — which
+shipped that day; see
 [`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md). *(This line named A2's second half until
 2026-09-10, which A2 shipping on 2026-09-04 made wrong — see the note under the
 status header.)* A2 still carries a Track M checklist line: confirm the hard error
@@ -1203,7 +1228,18 @@ Verified 2026-09-10.
 
 ## Open questions (blocking)
 
-- **[OQ-L1](#open-questions-blocking) — the access-scoping model for the Track L proxy.** *Blocks Track L
+- ✅ **[OQ-L1](#open-questions-blocking) — the access-scoping model for the Track L proxy.**
+
+  <!-- vantage: oq id=OQ-L1 -->
+
+  **Answered, checked 2026-09-30, by [`boundary-broker.md`](../design/boundary-broker.md)'s
+  rulings of 2026-09-29** ([§1.2](../design/boundary-broker.md#12-what-it-rules)): no credential
+  crosses or is minted — a host daemon runs the host's own `gh` for the jail; the scope is the
+  workspace's own GitHub remotes; commands fall into a read-only set that is always held and a
+  read-write set a human grants for a window; and every brokered call goes to a host audit log
+  no jail mounts. The question as filed follows.
+
+  *Blocks Track L
   part 2 (the specific proxy), not part 1 (framework plumbing).* Before building
   the GitHub-scoping/auditing daemon, the maintainer needs to pin down what
   "scoped access" precisely means: which credential the host daemon holds and how

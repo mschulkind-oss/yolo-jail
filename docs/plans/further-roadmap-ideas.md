@@ -2,13 +2,15 @@
 title: "Where the next roadmap items come from — seven candidates, and three rows to drop"
 date: 2026-08-23
 status: draft
+stage: SKETCH
+next: "Re-check each candidate's verdict against the tree before any is promoted: I2 and I5 are closed, and I3's no-[SKIP] premise no longer holds (internal/cli/check/reporter.go)"
 tags: [roadmap, docs, process, candidates]
 summary: "The 📦 queue emptied by shipping, so this file says where the next items come from. Seven proposals from auditing every doc the roadmap points at — twice, the second time with five parallel agents, then adversarially re-checked — each with an explicit verdict. Plus three rows that should LEAVE the roadmap: a pointer is not a question and neither is a confirmation."
 ---
 
 # Where the next roadmap items come from — seven candidates, and three rows to drop
 
-**Status:** SKETCH, 2026-08-23 — candidates, not a queue (updated the same evening after a five-agent verification pass
+**Status:** 2026-08-23 — candidates, not a queue (updated the same evening after a five-agent verification pass
 over the whole corpus). **Nothing here is committed, and nothing here is a task.** Every item is a
 *proposal with a verdict* — this file deliberately carries **no open questions of its own**: an
 entry here either has a verdict or does not belong. **Five say build** ([§1](#1-the-five-i-would-build)), **two say rule first** ([§2](#2-the-two-that-need-a-ruling-before-they-are-anything)), and **three say
@@ -25,8 +27,8 @@ believes in, with no mechanism that would notice it being false** — an open qu
 status line that says NOTHING BUILT about code that shipped, a jail-blind check that reports the
 wrong side, and a reproduction recipe that lives in prose instead of a test.
 
-**How to use it.** Nothing here becomes work by being written down. An item earns a 💬 row in the
-roadmap when you want it; until then this file is a shelf. **[§4](#4-two-rows-already-on-the-roadmap-that-i-would-drop) and §[4a](#4a-a-third-row-i-would-drop-added-after-the-deeper-pass) are the parts that argue in
+**How to use it.** Nothing here becomes work by being written down. An item earns a place in the
+roadmap's order when you want it; until then this file is a shelf. **[§4](#4-two-rows-already-on-the-roadmap-that-i-would-drop) and §[4a](#4a-a-third-row-i-would-drop-added-after-the-deeper-pass) are the parts that argue in
 the other direction** — three rows already on the roadmap that I think should leave it.
 
 **Reads with:** [`roadmap.md`](roadmap.md) (the live state; this file is deliberately NOT it),
@@ -187,7 +189,14 @@ above decided it wrong.
 
 **Verdict: worth one ruling, then build.** The ruling is what a jail-observable section should
 *print* — and note `check`'s reporter has exactly three verdict tokens and **no `[SKIP]`**, so the
-ruling is really "does a fourth token exist". The AMD device section is the reference
+ruling is really "does a fourth token exist".
+
+> [!NOTE]
+> **Re-checked 2026-09-30: the fourth token exists.** `check`'s reporter prints `[SKIP]` and counts
+> it apart from the three grades (`internal/cli/check/reporter.go`), from broker-ca
+> [OQ-3](../reference/claude-oauth-interposition.md#oq-3)'s ruling that a check that did not look
+> is not a pass. Whether every jail-observable section uses it has not been re-checked here, so
+> this verdict needs re-reading before anyone builds from it. The AMD device section is the reference
 implementation: it guards both of its checks, and its NVIDIA twin guards neither.
 
 ### I4. Make the reachability class reproducible in CI, not only in prose
@@ -258,17 +267,23 @@ say.
 
 - **No new subsystems, no new config keys, no new pack kinds.** Every item above is a report, a
   test, or a ruling on wording.
-- **Not a queue, and not a commitment.** [`roadmap.md`](roadmap.md) is the only file that says what
-  is being built. Nothing here has a position in it.
+- **Not a queue, and not a commitment.** [`roadmap.md`](roadmap.md) is the only file that orders
+  committed work. Nothing here has a position in it.
 - **No re-litigation of what shipped.** The broker's move, the npm ruling, the refused-contribution
-  fatal and the darwin warmup skip are all done; where one of them left a residue, the residue is a
-  row in the roadmap, not an entry here.
+  fatal and the darwin warmup skip are all done; where one of them left a residue, the residue lives
+  in its own doc, not an entry here.
 - **No archaeology-driven work.** A doc being old is not a reason to change it. [§5](#5-the-weakest-idea-in-the-file-kept-because-it-is-nearly-free)'s archiving idea
   is deliberately the weakest thing in this file for exactly that reason.
 
 ---
 
 ## 4. Two rows already on the roadmap that I would drop
+
+> [!NOTE]
+> **The row numbers in this section and in §[4a](#4a-a-third-row-i-would-drop-added-after-the-deeper-pass)
+> (💬 8, 💬 10, 💬 12, the 📦 note, "Small repairs") are the 2026-08-23 roadmap's.** That roadmap
+> was rebuilt as an ordered list on 2026-09-30 and holds none of them, so read them as history. The
+> argument, that a pointer or a confirmation is not a question, does not depend on them.
 
 *(§[4a](#4a-a-third-row-i-would-drop-added-after-the-deeper-pass) generalises them into a class, found on the second pass. **Executed 2026-09-02:** (b) is
 done — OQ-CAP retired into `pack-capabilities.md` [§10](../reference/pack-system.md#capabilities-and-supersession)'s settled record, the one-line residue queued

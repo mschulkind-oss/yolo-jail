@@ -1,5 +1,7 @@
 ---
 status: current
+stage: CURRENT
+next: "Re-verify against the tree (system-doc), starting at the per-backend table's macos-user column: the stamp is d8bf06a0, and the launch-owned doorways and Claude's store bridge landed after it"
 verified: 2026-09-20
 verified_commit: d8bf06a0
 covers:
@@ -33,7 +35,7 @@ tags: [credentials, security, boundary, env_sources, host_files, broker, oauth, 
 
 # Agent credentials — what crosses the jail boundary, and how
 
-**Status:** CURRENT as of 2026-09-20, verified against `d8bf06a0`. The
+**Status:** verified 2026-09-20 against `d8bf06a0`. The
 [gemini-paths paragraph](#agys-paths-under-gemini) alone was re-checked against `f937d0fd` on
 2026-09-27. The [SSO-backed Bedrock section](#sso-backed-bedrock-credentials-aws-auth) and the
 `aws-auth` rows in the tables below were written against `fe24347c` on 2026-09-29, when
@@ -41,7 +43,10 @@ tags: [credentials, security, boundary, env_sources, host_files, broker, oauth, 
 warning in that section, and its rows, were added the same day with the change that built it
 ([SSO-D1](../design/sso-backed-bedrock.md#SSO-D1)). Their `yolo host` sentences were rewritten
 when that notch started opening the adapter
-([HS-D21](../design/host-notch-services.md#HS-D21)). Nothing else in the doc was re-checked.
+([HS-D21](../design/host-notch-services.md#HS-D21)). The OpenAI service's `macos-user` warning and
+its two `macos-user` cells in [the backend table](#per-backend-differences) were corrected on
+2026-09-30 against `4ac4b8fa`, for the launch-owned doorway (`fea3b6c7`). Nothing else in the doc
+was re-checked.
 
 yolo-jail's credential story is **structural, not a policy one**: host credentials are
 *physically absent* from the jail, and the only credentials an agent can reach are ones a human
@@ -533,14 +538,17 @@ in that home is stopped once, when no other launch of it is live
 [CDX-D3](../research/codex-background-service.md#CDX-D3)).
 
 > [!WARNING]
-> The OpenAI service is a host-service loophole, and **neither macOS backend carries it end to
-> end** — for two different reasons, which is why one sentence cannot cover both. On Apple
-> Container it is allow-listed out of an otherwise total loophole skip: the daemon starts and the
-> jail cannot reach it (measured on `container` 1.1.0). On `macos-user` the HOST half is no longer
-> special at all — that arm starts every loophole's host daemon through the ordinary spawn
-> boundary — and what is missing there is the JAIL half: its refresh adapter is a `jail_daemon`,
-> and this backend runs none, so `CODEX_REFRESH_TOKEN_URL_OVERRIDE` points at a port nothing
-> binds. ⚠ This warning said the service was "the **one** loophole the two macOS backends carry"
+> The OpenAI service is a host-service loophole, and **Apple Container does not carry it end to
+> end**: it is allow-listed out of an otherwise total loophole skip, so the daemon starts and the
+> jail cannot reach it (measured on `container` 1.1.0). On `macos-user` the HOST half is not
+> special — that arm starts every loophole's host daemon through the ordinary spawn boundary — and
+> since 2026-09-29 (`fea3b6c7`) the JAIL half arrives by another route: the refresh adapter is a
+> `jail_daemon`, which this backend does not run, so the launch opens it outside the Seatbelt
+> sandbox as a listener it owns on the Mac's loopback, and `CODEX_REFRESH_TOKEN_URL_OVERRIDE`
+> names that port ([`host-notch-services.md` HS-D15](../design/host-notch-services.md#HS-D15)).
+> MEASURED on a hosted Mac on 2026-09-30 (`TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox`,
+> `macos-user.yml` run 36719581090), with no Codex run through it. Until that change this
+> warning said the adapter's port was bound by nothing. ⚠ It also said the service was "the **one** loophole the two macOS backends carry"
 > and that the `macos-user` arm "starts it by hand" until 2026-09-18; both described the arm as it
 > was before its lifecycle was generalised. Starting a service is still not the same as the jail
 > reaching it, and the agent pack dependency alone creates no second credential path. See
@@ -898,9 +906,9 @@ fully open.
 | User `host_files` | source-bearing: `/ctx/host-user/<slug>` `:ro`; source-less: composed | source-less composes; a **file** `source` is materialized (copied into the workspace home, since Apple Container cannot bind a single file there); a **directory** `source` binds `:ro` from Apple Container 1.1.0 and is skipped with a named reason below it or when the version is unreadable | source-less composes; a **file** `source` is copied into a root-owned `/ctx` tree (2026-09-13); a **directory** `source` is skipped and warned |
 | Claude shared credentials | shared bind + relative symlink | shared bind **nested inside** the whole-home bind, then the same relative symlink — one mount per declared shared dir (2026-08-24; before that the single bind put the creds in the per-workspace home) | free — one real credentials file in the shared home |
 | claude-oauth-broker | active when the `claude` pack is selected | **skipped whole** — no singleton is ensured on this backend, the host-service start admits only the OpenAI service, and the container args drop the loophole for its `intercepts` (which need `--add-host`) | **host half runs, jail half does not.** ⚠ This cell said "the arm returns before any broker ensure", which stopped being true when the arm's lifecycle was generalised: the singleton is ensured and a per-jail front publishes `claude-oauth-broker.endpoint` (measured, unit, 2026-09-18). Nothing uses it — the TLS terminator that would route a refresh through it is a `jail_daemon`, this backend runs none, and the interception would need an `--add-host` it cannot emit either. So refreshes are still not serialized, and the launch now declines the terminator by name |
-| OpenAI subscription credentials | canonical host-service state; Codex and Pi get workspace views | the **one** service this backend starts, endpoint file mounted — and measured unreachable from the guest, so the agent sees "OpenAI login is required" ([G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog)). The launch **names the cause** as of 2026-09-18: this was the one pack the inert report was withheld for, so the single service this backend starts was the single one it said nothing about. The endpoint variable and the mount are still emitted — the measurement is per BACKEND, so withholding one service's pointer would patch a per-service hole in a per-backend fact | host daemon started like every other, and a launch that cannot start it is the one that is **refused**; the endpoint path rides the sandbox env instead of a mount. Its jail-side refresh adapter does **not** run, so a session works until its first token refresh |
-| AWS SSO credentials (`aws-auth`) | host singleton; adapter in the jail; pointer and caller token in the env file of the agent on `bedrock`. MEASURED, in daily use (2026-09-29) | not started: this backend starts no host service but the OpenAI one | host singleton; the adapter opens outside the Seatbelt sandbox as a listener the launch owns, on the Mac's loopback the agent shares, and the pointer names its port. UNMEASURED: not run on a Mac. `yolo host`, which is no backend, does the same for the one agent it runs when that agent is on a Bedrock provider ([`host-notch-services.md` §4.8](../design/host-notch-services.md#48-yolo-host)), MEASURED by unit tests with a fake agent and a fake `aws` |
-| Host-service loopholes | endpoint file + `YOLO_SERVICE_*_ENDPOINT` | only the OpenAI credential service starts; its endpoint file crosses in the host-services dir bind, gated on the loophole being active and its pack cleared to run host code. Every other pack host daemon is skipped and each one is reported inert | **every host daemon starts**, through the same spawn boundary and the same exec disclosure the container path uses; each endpoint's path rides the sandbox env with a per-file ACL grant instead of a mount. ⚠ "the same one service and nothing else" is retracted (2026-09-18) — it described the arm before the generalisation. The inert report here is the PLATFORM axis only. The `jail_daemon` half runs for nothing and is declined by name |
+| OpenAI subscription credentials | canonical host-service state; Codex and Pi get workspace views | the **one** service this backend starts, endpoint file mounted — and measured unreachable from the guest, so the agent sees "OpenAI login is required" ([G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog)). The launch **names the cause** as of 2026-09-18: this was the one pack the inert report was withheld for, so the single service this backend starts was the single one it said nothing about. The endpoint variable and the mount are still emitted — the measurement is per BACKEND, so withholding one service's pointer would patch a per-service hole in a per-backend fact | host daemon started like every other, and a launch that cannot start it is the one that is **refused**; the endpoint path rides the sandbox env instead of a mount. Its refresh adapter does not run as a jail daemon: the launch opens it outside the sandbox as a listener it owns, and Codex's refresh URL names that port (2026-09-29, HS-D15; MEASURED on a hosted Mac 2026-09-30, with no Codex run). Until then a session worked only until its first token refresh |
+| AWS SSO credentials (`aws-auth`) | host singleton; adapter in the jail; pointer and caller token in the env file of the agent on `bedrock`. MEASURED, in daily use (2026-09-29) | not started: this backend starts no host service but the OpenAI one | host singleton; the adapter opens outside the Seatbelt sandbox as a listener the launch owns, on the Mac's loopback the agent shares, and the pointer names its port. UNMEASURED: its hardware test ran on a hosted Mac on 2026-09-30 and was refused at the region pre-flight before its probe, so nothing past the launch was observed. `yolo host`, which is no backend, does the same for the one agent it runs when that agent is on a Bedrock provider ([`host-notch-services.md` §4.8](../design/host-notch-services.md#48-yolo-host)), MEASURED by unit tests with a fake agent and a fake `aws` |
+| Host-service loopholes | endpoint file + `YOLO_SERVICE_*_ENDPOINT` | only the OpenAI credential service starts; its endpoint file crosses in the host-services dir bind, gated on the loophole being active and its pack cleared to run host code. Every other pack host daemon is skipped and each one is reported inert | **every host daemon starts**, through the same spawn boundary and the same exec disclosure the container path uses; each endpoint's path rides the sandbox env with a per-file ACL grant instead of a mount. ⚠ "the same one service and nothing else" is retracted (2026-09-18) — it described the arm before the generalisation. The inert report here is the PLATFORM axis only. The `jail_daemon` half runs for nothing and is declined by name, except a doorway, one whose `jail_daemon` declares `host_cmd`, which the launch opens outside the sandbox instead (HS-D15) |
 | Per-workspace cred isolation | per-workspace `.yolo/home` overlay | one whole-home bind per workspace, but the claude dir is shared across workspaces there | **one shared home for all sessions** |
 | Isolation boundary | userns (Linux) / VM (macOS) + read-only root | VM + read-only root | Unix user + Seatbelt — weaker, deliberately |
 

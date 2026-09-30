@@ -1,7 +1,9 @@
 ---
 title: "Podman reboot readiness implementation sketch"
 date: 2026-09-29
-status: draft
+status: accepted
+stage: BUILT
+next: "Retire this sketch with the design when it graduates: nothing here is left to build, and the design names the tests"
 tags: [plan, podman, launch]
 summary: "Codebase map for the patient Podman readiness gate: where it lives, what it replaces, and the tests that pin its call sites."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Podman reboot readiness — implementation sketch
 
-**Status:** BUILT 2026-09-29. This sketch was checked against `51620f7e` and built
+**Status:** 2026-09-29. This sketch was checked against `51620f7e` and built
 as written, with three changes the rulings of the same day made and the design's
 ledger records: the gate refuses at once on an answer that cannot clear on its own
 ([OQ-PR1](podman-reboot-readiness.md#OQ-PR1),
@@ -22,7 +24,8 @@ skip it sketched but a lock held one deletion at a time
 ([OQ-PR3](podman-reboot-readiness.md#OQ-PR3),
 [PR-D17](podman-reboot-readiness.md#PR-D17)). The design's
 [testing section](podman-reboot-readiness.md#testing-and-the-real-host-check) names
-the tests. Code is cited by symbol.
+the tests. Code is cited by symbol. MEASURED by those unit tests, on a fake podman whose
+clock the test drives. UNMEASURED at a real reboot, and on a rootless podman at all.
 
 **Reads with:** [`podman-reboot-readiness.md`](podman-reboot-readiness.md) (the
 design, which wins on behavior).

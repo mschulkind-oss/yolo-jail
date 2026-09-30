@@ -6,11 +6,15 @@ tags: [sketch, packs, diagnostics, check, plan]
 summary: "Implementation sketch for pack-declared traps and bypassed file diagnostics in yolo check."
 vantage:
   status-chip: true
+stage: SKETCH
+next: "Nothing to build from here until the design's three questions are ruled; retire this sketch if agent-directory-map.md absorbs traps"
+depends-on:
+  - pack-declared-file-diagnostics.md
 ---
 
 # Pack-declared file diagnostics — implementation sketch
 
-**Status:** SKETCH, 2026-09-18 — incomplete, and unstable while questions are open. Nothing is built.
+**Status:** 2026-09-18 — incomplete, and unstable while questions are open. Nothing is built.
 
 > **Precedence:** [`pack-declared-file-diagnostics.md`](pack-declared-file-diagnostics.md) leads on all behavioral
 > and architectural decisions.
@@ -19,7 +23,7 @@ vantage:
 
 | File | Proposed Change |
 | :--- | :--- |
-| `internal/packdecl/manifest.go` | Add `Traps` contribution definition and JSON unmarshaling. |
+| `internal/packdecl/kinds.go`, `internal/packdecl/contributes.go` | Add `traps` to the `footprints` table `KnownKinds` derives from, and its fields to `Contribution`. (Corrected 2026-09-30: this row named `internal/packdecl/manifest.go`, which does not exist.) |
 | `internal/packload/packload.go` | Collect `Traps` contributions across selected packs. |
 | `internal/cli/check/section_traps.go` | New `yolo check` section: iterates declared traps, evaluates conditions, and emits warnings. |
 | `packs/pi/pack.json` | Declare initial trap for `~/.pi/agent/APPEND_SYSTEM.md`. |

@@ -2,13 +2,15 @@
 title: "The instrument stops at the boundary"
 date: 2026-09-19
 status: in-review
+stage: DESIGN
+next: "Rule OQ-DB2, whether the boot snapshot is always-on: build step 3, the snapshot, waits on it"
 tags: [diagnostics, observability, entrypoint, boundary, logging, launch]
 summary: "yolo's observability facility is mature and entirely host-side. The one dial that calls itself a diagnostics gate, --verbose, has no vocabulary past the host↔jail boundary at all — two of its jail-side call sites read a variable P5 guarantees never arrives. So every failure whose answer lives inside the container is diagnosed by hypothesis instead of measurement. The fix is not more lines: it is a jail-side diagnostic tier writing to the sink that already survives a refused boot, a bounded state snapshot at every give-up led by a listener inventory read from /proc, and a give-up discipline for the abandon-with-no-report shape — measured at 153 sites where the hazard is documented and still reports nothing, against 316 where it was made loud. Two constraints are forced rather than chosen: boot.log is closed at handover, and a give-up ON a sink cannot be reported TO that sink, which is why the canonical specimen is still silent."
 ---
 
 # The instrument stops at the boundary
 
-**Status:** DESIGN, 2026-09-19, evidence read at `16ef96cb`. Rulings owed: see **Needs your
+**Status:** 2026-09-19, evidence read at `16ef96cb`. Rulings owed: see **Needs your
 ruling** below. Two of
 [§8](#8-what-i-would-build-in-order)'s steps landed the same day, independently of any ruling:
 step 2, the [listener inventory](#43-the-listener-inventory-in-go) (`internal/listeners`,
@@ -226,7 +228,7 @@ is how one gets built for the wrong three.
 The wrong-remedy message is worth stating precisely, because the fault was mis-attributed
 during the investigation and the mis-attribution points at the wrong file. `dropComputedTables`
 (`internal/agentcfg/staterender.go`) reports **nothing at all** — it silently drops keys from
-an adopted residue. The over-drop it was known for (the roadmap's row `0b`, since removed) was
+an adopted residue. The over-drop it was known for was
 fixed on 2026-09-25 by [`CO13`](config-ownership-and-promotion.md#built-2026-09-25--what-shipped):
 it now takes whole only a table its derive declares in full. The message naming `mcp_servers` comes from a
 different pass in a different package: `noteDroppedManagedEntries`
@@ -236,9 +238,13 @@ sentence and then hardcodes `mcp_servers` in the remedy clause, so `claude/setti
 
 It earns its row for one reason: **a remedy that names the wrong key is worse than no
 remedy**, and it is the same defect class as a give-up with no report — a diagnostic that
-is present, confident and wrong. The fix is one `Fprintf`. It was assigned to whoever closed
-row `0b`; `CO13` closed that row and left the message as it was, so it now has no owner.
-(Checked 2026-09-25: `noteDroppedManagedEntries` still hardcodes `mcp_servers`.)
+is present, confident and wrong. The fix is one `Fprintf`. It was assigned to whoever fixed
+the over-drop; `CO13` fixed it and left the message as it was, so it now has no owner.
+(Checked 2026-09-25, and again 2026-09-30: `noteDroppedManagedEntries` still hardcodes
+`mcp_servers` in its remedy clause, whatever table it names. But only `regenerateManagedTables`, on an `rmw`
+surface, calls it, the host render's `Env` carries no `Stderr`, and the one shipped `rmw` surface whose derive
+returns a table is `claude/config`, whose table is `mcpServers`; `claude/settings` is not `rmw`. So with the
+shipped packs the wrong remedy is reachable only from a pack that declares such a surface.)
 
 ### 3.2 The 8214 failure, as the worked case
 
@@ -703,7 +709,11 @@ Observable outcomes a human can check, not test names:
    the warning that names the port's holder, is not part of this question: it stays on the
    terminal either way, because it is what made a skipped forward stop being silent
    ([§3.2](#32-the-8214-failure-as-the-worked-case), the collision-branch finding). Filed
-   2026-09-26 from step 1's own note, which leaves the one line unruled.
+   2026-09-26 from step 1's own note, which leaves the one line unruled. No leaning has been
+   stated. Re-checked 2026-09-30: the line still goes through `e.warn`
+   (`internal/entrypoint/runtime.go`, the port-forward loop's "already established" branch).
+
+   <!-- vantage: oq id=OQ-DB6 -->
 
    **Answer:**
    > _(empty — fill in when decided)_

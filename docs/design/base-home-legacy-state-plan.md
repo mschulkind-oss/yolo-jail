@@ -1,22 +1,26 @@
 ---
 title: "Per-jail home skeleton — build sketch"
 date: 2026-09-20
-status: draft
+status: accepted
 tags: [plan, sketch, base-home, jail-home, storage]
 summary: "Build sketch for the per-jail read-only skeleton that replaces podman's shared base home: the seed fixes that ship first, the skeleton builder and the writers it takes over, the tests and fixtures that move, and the traps found in the tree. No design decision lives here."
+stage: BUILT
+next: "Verify step 4 on a Mac, through the Apple Container check that base-home-legacy-state.md names as its next step"
 ---
 
 # Per-jail home skeleton — build sketch
 
-**Status:** SKETCH, 2026-09-25 — every design question this sketch builds is settled,
+**Status:** 2026-09-25 — a build sketch; every design question it builds is settled,
 including the two found in the build, [OQ-BH15](base-home-legacy-state.md#OQ-BH15) and
-[OQ-BH16](base-home-legacy-state.md#OQ-BH16), both BUILT the same day. **Every step BUILT 2026-09-25**: 1, 2 and 3 first, then 4, 4a and 5, then the review
+[OQ-BH16](base-home-legacy-state.md#OQ-BH16), both built the same day. **Every step built 2026-09-25**: 1, 2 and 3 first, then 4, 4a and 5, then the review
 fixes and follow-ups below. `integration/homeskeleton_test.go` passed in a nested, rootful jail
 the same day, and **ROOTLESS in CI** on both arches (`ci.yml` run 36167524940 at `e56d871e`,
 `integration (ubuntu-latest)` and `integration (ubuntu-24.04-arm)`, the same jobs' concurrency
 test reporting `podman rootless=true`), its anywhere-under-`~` search included: the codex-only jail
-found no Claude credential file. Still owed: a Mac run of step 4. Rewritten with the design; the previous quarantine sketch is superseded
-and lives in git history.
+found no Claude credential file. MEASURED: the podman skeleton, rootful in a nested jail and
+rootless in CI. UNMEASURED: step 4, the Apple Container seed, which a Mac run still owes.
+Rewritten with the design; the previous quarantine sketch is superseded and lives in git
+history.
 
 **Where the build departed from this sketch** (2026-09-25):
 

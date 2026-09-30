@@ -4,18 +4,25 @@ date: 2026-09-28
 status: accepted
 tags: [design, briefing, jail-home, storage-classes, worktrees, scratch, workflows, packs, pi, claude, codex, opencode, macos-user]
 summary: "An agent put its landing worktree in /tmp, a restart deleted it, and the next command cherry-picked onto main ungated. yolo gives every jail six kinds of writable and read-only space with different lifetimes and tells the agent about none of them. The design names those storage classes, generates a briefing section from the launch's own mounts, adds one agent-neutral durable dir at <workspace>/.yolo/durable exported as $YOLO_DURABLE_DIR, reports what accumulates there at every launch and in yolo check and yolo stores without ever deleting it, and has each agent's own pack point its workflow tool there where the tool's default is not durable."
+stage: BUILT
+next: "Read Apple Container's Storage classes section back from a real launch: add a check beside TestAppleContainerBriefingAdvertisesNoLoopholes in integration/applecontainerparity_test.go for apple-container.yml"
+depends-on:
+  - slots-and-contributions.md#OQ-D6
 vantage:
   status-chip: true
 ---
 
 # Where an agent's work survives a restart, and why it keeps choosing /tmp
 
-**Status:** DECIDED, 2026-09-28. All three questions ruled in review the same day. Built
+**Status:** 2026-09-28. All three questions ruled in review the same day. Built
 whole on 2026-09-29 ([§9](#9-the-first-build-slice)): the durable dir, its report, the pi
 extension, the claude and pi packs' own prose, and each backend's own wording of the
-section. Apple Container's wording is unit-tested only; no Mac has rendered it. Evidence
-verified at `c8fda25f` in a podman jail on a rootless Linux host
-([Appendix A](#appendix-a--the-measured-runs)).
+section. MEASURED: in a podman jail on a rootless Linux host, with evidence verified at
+`c8fda25f` ([Appendix A](#appendix-a--the-measured-runs)); on 2026-09-30 a podman jail's
+`$YOLO_DURABLE_DIR` is `/workspace/.yolo/durable` and its Claude briefing carries the section.
+UNMEASURED: Apple Container's wording, which is unit-tested only; no Mac has rendered it. The
+version-skew window the claude and pi pack lines open waits on
+[OQ-D6](slots-and-contributions.md#OQ-D6) ([DS-D33](#DS-D33)).
 
 > **In short.** The agent chose `/tmp` because nothing it reads says which paths outlive the
 > jail, and the one line that tries says the whole home is *"persistent across sessions"* when
@@ -792,6 +799,8 @@ found only the per-launch scratch volumes. All three questions were ruled in rev
    live? — RESOLVED (2026-09-28)** The path every briefing names and every agent writes into
    memory.
 
+   <!-- vantage: oq id=OQ-DS1 -->
+
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A, `<workspace>/.yolo/durable` and
    > `$YOLO_DURABLE_DIR`, *"because the name must say durable and scratch already means the
@@ -799,6 +808,8 @@ found only the per-launch scratch volumes. All three questions were ruled in rev
 
 2. ✅ <a id="OQ-DS2"></a>**[OQ-DS2](#OQ-DS2): Who reclaims the durable dir? — RESOLVED
    (2026-09-28)** Whether yolo ever deletes an agent's work, and how the growth stays visible.
+
+   <!-- vantage: oq id=OQ-DS2 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned and extended:** A, report and never delete. The
@@ -811,6 +822,8 @@ found only the per-launch scratch volumes. All three questions were ruled in rev
 
 3. ✅ <a id="OQ-DS3"></a>**[OQ-DS3](#OQ-DS3): What does the host notch get? — RESOLVED
    (2026-09-28)** Whether the same variable exists at every notch.
+
+   <!-- vantage: oq id=OQ-DS3 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A, one static sentence in the host header and no

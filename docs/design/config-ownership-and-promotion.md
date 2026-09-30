@@ -2,6 +2,8 @@
 title: "Who owns the config file — declared host management, and the way out of capture"
 date: 2026-09-09
 status: in-review
+stage: DESIGN
+next: "Draft a leaning for OQ-CO14 — it lists options but states no leaning, and the assert retirement's build starts by ruling it"
 tags: [design, config, host, capture, packs, ownership]
 summary: "yolo decides who owns an agent's config file by inferring it from the confinement notch, and the inference is wrong for anyone who adopted `yolo host apply`. Declare ownership in the user config instead, make the host render like a jail when it is owned, and build the promotion path that turns a captured in-jail edit into a declared one — the verb a shipped message already advises and nothing implements."
 vantage:
@@ -10,7 +12,7 @@ vantage:
 
 # Who owns the config file — declared host management, and the way out of capture
 
-**Status:** DESIGN, 2026-09-25 — the bulk was BUILT 2026-09-12 and amended twice on 2026-09-20, and the first amendment's follow-on [`CO13`](#13-decision-ledger) is BUILT 2026-09-25; but [`OQ-CO14`](#oq-co14) now owes a ruling, so the word names that rather than the code.
+**Status:** 2026-09-25 — the bulk was built 2026-09-12 and amended twice on 2026-09-20, and the first amendment's follow-on [`CO13`](#13-decision-ledger) was built 2026-09-25; but [`OQ-CO14`](#oq-co14) now owes a ruling, which is why the stage names the ruling rather than the code.
 
 **Needs your ruling:** [`OQ-CO14`](#oq-co14) (what retiring `assert` does to a config, and a home, already on it). Two smaller ones, both opened 2026-09-25 by the `CO13` build and neither blocking anything: [`OQ-CO15`](#oq-co15) (what the jail's `rmw` arm does with a table not declared in full) and [`OQ-CO16`](#oq-co16) (whether the provider catalogs stay declared in full).
 
@@ -1563,6 +1565,10 @@ confirmation prompt would have been built to provide.
 > docstring finds the opposite of this section. The body at
 > [`staterender.go`](../../internal/agentcfg/staterender.go) is
 > the authority (noted 2026-09-11; the docstrings are listed for the roadmap).
+>
+> ⚠ **Re-checked 2026-09-30, and no longer true:** the package comment now says B1 inverted that
+> path and that the docstrings describe the body as it stands, and `LastRenderPresent` and
+> `OverlayJSON` describe adoption, so the header and the body agree.
 
 **For a home already on `assert` the diff is empty for MOST keys for a second
 reason — and not for all.** `rmw` re-asserts the declared keys on every apply, so
@@ -2768,6 +2774,8 @@ either order — and if the retirement lands first, whoever builds `CO13` has on
 contract to make the declaration agree across.
 
 ### <a id="oq-co14"></a>💬 [`OQ-CO14`](#oq-co14) — what the retirement does to a config already on `assert` — **OPEN**
+
+<!-- vantage: oq id=OQ-CO14 -->
 
 **Opened 2026-09-20 by the ruling in [§4.5](#45-retiring-assert--the-two-value-key).** It is a
 question and not an implementation shape by this section's own test — *do the alternatives
