@@ -154,7 +154,7 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 	if !strings.Contains(got, "Stopping "+cname) {
 		t.Errorf("the restart must say it is stopping the jail:\n%s", got)
 	}
-	if !strings.Contains(got, "FRESH-TAGS-entry-channel,agent-env-files,profile-sets") {
+	if !strings.Contains(got, "FRESH-TAGS-entry-channel,agent-env-files,profile-sets,session-hangup") {
 		t.Errorf("the command must run in a FRESH jail, one this yolo launched with its contract "+
 			"tags:\n%s", got)
 	}

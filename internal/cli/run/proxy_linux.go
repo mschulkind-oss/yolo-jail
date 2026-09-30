@@ -46,12 +46,14 @@ func proxyObserver(o *Options) ttyproxy.Observer {
 	}
 }
 
-// runFirstSession runs a fresh launch's first session under the TTY proxy with NO ARM OF THE
-// PROXY'S OWN: the launch's arm, installed before the main process started and kept until its
-// client has exited, is the one arm for the whole child window, and the proxy hands it the
+// runArmedSession runs one session's exec under the TTY proxy with NO ARM OF THE PROXY'S OWN:
+// the caller's arm (launchSignalArm) is the one arm for the run, and the proxy hands it the
 // Handle it needs to put the terminal back and end the exec client (launchSignalArm.attach).
-// Two arms handing a signal between them each lost one in the gap.
-func runFirstSession(cmd []string, arm *launchSignalArm, o *Options) (int, error) {
+// Two arms handing a signal between them each lost one in the gap. A fresh launch's first
+// session runs under the launch's arm, installed before the main process started and kept until
+// its client has exited; an attach's session under an arm of its own, whose teardown hangs up
+// that session's processes in the jail (sessionhangup.go).
+func runArmedSession(cmd []string, arm *launchSignalArm, o *Options) (int, error) {
 	obs := proxyObserver(o)
 	obs.Arm = func(h ttyproxy.Handle) { arm.attach(h) }
 	return ttyproxy.RunWithProxyObserved(cmd, nil, nil, obs)

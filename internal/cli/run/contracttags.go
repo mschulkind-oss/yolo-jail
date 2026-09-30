@@ -89,6 +89,13 @@ const (
 	// agent on a set would start with none of it. No legacy inference: a jail that predates the
 	// tag list predates sets too.
 	contractProfileSets = "profile-sets"
+	// contractSessionHangup: the jail's entrypoint records each session an exec names in
+	// entrypoint.SessionIDEnv, and its entrypoint.HangupSessionArg form ends that session's
+	// processes (sessionhangup.go). An attach's signal arm asks it when the attach's terminal
+	// closes or its launcher is signalled. No attach NEEDS it: a jail without it is attached to as
+	// before, and its arm says it cannot hang the session up. No legacy inference: a jail that
+	// predates the tag list predates the hangup too.
+	contractSessionHangup = "session-hangup"
 )
 
 // launchContractTags is every contract THIS build's jail implements, frozen into every
@@ -102,7 +109,8 @@ const (
 // to learn this jail has it. The per-launch pack trees of pack-system.md's OQ-PK2 needed none: an
 // attach no longer writes any pack tree, so it asks nothing of the jail's binaries, and it finds
 // the tree an older jail binds on the host side (packtree.go's runningJailPackTree).
-var launchContractTags = []string{contractEntryChannel, contractAgentEnvFiles, contractProfileSets}
+var launchContractTags = []string{contractEntryChannel, contractAgentEnvFiles, contractProfileSets,
+	contractSessionHangup}
 
 // launchContractTagsValue is ContractTagsEnv's value for a launch: the tags, comma-joined.
 func launchContractTagsValue() string { return strings.Join(launchContractTags, ",") }

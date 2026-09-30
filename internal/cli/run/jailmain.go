@@ -323,6 +323,9 @@ type sessionHandle interface {
 // SIGINT, SIGHUP or SIGTERM runs the launch's own teardown (onTerminate, then the embedded pack
 // tree's release, as the proxy's arm does) and exits 128+N, which is what the proxy's arm did
 // when it held the terminal from the container's start.
+//
+// An attach runs its one session under an arm of the same kind (attachSignalArm), whose
+// onTerminate hangs up that session's processes in the jail instead of stopping the jail.
 type launchSignalArm struct {
 	mu          sync.Mutex
 	signals     chan os.Signal

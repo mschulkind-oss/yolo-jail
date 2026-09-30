@@ -41,10 +41,11 @@ func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(),
 	return 1, nil
 }
 
-// runFirstSession is the fallback's first session: the same plain foreground exec, with the
-// launch's own arm (launchSignalArm) handed the client so its teardown ends it at its pid.
+// runArmedSession is the fallback's session run, a fresh launch's first session or an attach's:
+// the same plain foreground exec, with the caller's arm (launchSignalArm) handed the client so its
+// teardown ends it at its pid.
 // There is no terminal to put back here: the runtime's own client sets its tty modes.
-func runFirstSession(cmd []string, arm *launchSignalArm, o *Options) (int, error) {
+func runArmedSession(cmd []string, arm *launchSignalArm, o *Options) (int, error) {
 	c := exec.Command(cmd[0], cmd[1:]...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := c.Start(); err != nil {

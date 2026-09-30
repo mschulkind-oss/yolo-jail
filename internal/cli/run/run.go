@@ -1896,7 +1896,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	var rc int
 	if jm.awaitReady() {
 		var execErr error
-		rc, execErr = runFirstSession(firstExec, arm, o)
+		rc, execErr = runArmedSession(firstExec, arm, o)
 		if !arm.detach() {
 			select {} // the signal arm is ending this launch; never race it
 		}
@@ -2396,6 +2396,10 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// NO_COLOR rides the exec itself — and a NO_COLOR the launch froze is cleared when
 	// this invocation has none (attachNoColorEnvArgs says why).
 	execFlags = append(execFlags, o.attachNoColorEnvArgs(envLines)...)
+	// THIS SESSION'S NAME in the jail, which its signal arm hands back to end its processes
+	// there (sessionhangup.go); none for a jail that cannot hang a session up.
+	sessionID := attachSessionID(envLines)
+	execFlags = append(execFlags, sessionEnvArgs(sessionID)...)
 	runCmd := append([]string{rt, "exec"}, execFlags...)
 	// The absolute path into the mounted install prefix, matching the fresh-launch
 	// argv. `podman exec <cname> yolo-entrypoint` would resolve on the CONTAINER's
@@ -2410,9 +2414,18 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// reproduces HERE the delay is inside the runtime's exec — a different
 	// suspect list than the fresh-launch arm's, and the spans say which arm
 	// you are in.
+	//
+	// ITS SIGNAL ARM ENDS THIS SESSION AND NOTHING ELSE (OQ-JL8, JL-D4): a closed terminal or
+	// pane, or a kill, hangs up this session's processes in the jail before the exec client is
+	// killed, since killing the client alone left them running there with no terminal. Armed
+	// just before the exec and disarmed once it returns, with or without a terminal.
+	arm := o.attachSignalArm(rt, cname, sessionID)
 	sp := o.Perf.Span("attach.exec")
-	rc, err := runWithProxy(runCmd, nil, nil, o)
+	rc, err := runArmedSession(runCmd, arm, o)
 	sp.End()
+	if !arm.disarm() {
+		select {} // the signal arm is ending this launch; never race it
+	}
 	if err != nil {
 		out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
 		out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")

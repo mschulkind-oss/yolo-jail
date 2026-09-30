@@ -549,10 +549,29 @@ func Main(args []string) error {
 	// gets past it (iopriority.go). What it found is reported once the log is open.
 	ioOutcome := applyIOPriority(os.Args)
 
+	// A SESSION'S HANGUP IS NOT A BOOT (sessionhangup.go): a launcher whose terminal closed asks
+	// the jail to end its session's processes, and this invocation does that and nothing else —
+	// no environment, no log, no generator. Only the priority above comes first, as it must for
+	// every invocation.
+	if len(args) == 2 && args[0] == HangupSessionArg {
+		return hangUpSession(args[1])
+	}
+
 	// WHICH OF THREE THINGS THIS INVOCATION IS (jailmain.go): the container's main process, the
 	// jail's first session, or any other session. For a session, command is what its shell runs;
 	// for the main process it is the provisioning stage it records for the first session.
 	mode, command := parseEntryArgs(args)
+
+	// A SESSION RECORDS ITSELF under the id its launcher named, before anything that can wait,
+	// so a launcher signalled during the boot's waits can still hang it up (sessionhangup.go).
+	// This process's pid is the session's for good: execBash keeps it. A jail's main process
+	// is no session, and an exec with no id is one this launcher cannot hang up.
+	if id := os.Getenv(SessionIDEnv); id != "" && mode != modeHold {
+		if err := registerSession(id); err != nil {
+			fmt.Fprintf(os.Stderr, "yolo-entrypoint: warning: could not record this session for "+
+				"its launcher (%v); if its terminal closes, what it runs may go on in the jail\n", err)
+		}
+	}
 
 	// Covers the REFUSAL path (genFailuresError below returns before the exec). The
 	// successful path releases explicitly just above execBash, since a deferred call never

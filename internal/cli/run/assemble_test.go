@@ -534,7 +534,7 @@ func podmanLinuxGolden(home string) []string {
 		// (contracttags.go). Spelled out, not read from launchContractTags: a tag dropped
 		// from the launch must fail here, since an attach from this build would then refuse
 		// a jail this build launched.
-		"-e", "YOLO_CONTRACT_TAGS=entry-channel,agent-env-files,profile-sets",
+		"-e", "YOLO_CONTRACT_TAGS=entry-channel,agent-env-files,profile-sets,session-hangup",
 		"-e", "YOLO_JAIL_MAIN=hold",
 		// The three provider/profile wire tables are NOT on the argv: they cross in
 		// yolo-user-env.sh's channel section with the pack env fold and the shape

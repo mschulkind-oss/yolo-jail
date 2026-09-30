@@ -393,16 +393,16 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 		name := skelCallee(call)
 		switch name {
 		case "provisionStage", "sessionCmd", "firstSessionExecCmd", "holdSessionLock",
-			"armLaunchSignals", "startJailMain", "awaitReady", "runFirstSession", "detach",
+			"armLaunchSignals", "startJailMain", "awaitReady", "runArmedSession", "detach",
 			"awaitJailMainEnd", "firstSessionStatus", "teardownAfterExit":
 			firstPos(name, call.Pos())
 		case "disarm":
 			disarms = append(disarms, call.Pos())
 		case "runWithProxy":
 			t.Error("the fresh launch runs a proxy with an arm of its own; its first session must be " +
-				"runFirstSession's, under the launch's one arm")
+				"runArmedSession's, under the launch's one arm")
 		}
-		if name == "runFirstSession" && len(call.Args) > 1 {
+		if name == "runArmedSession" && len(call.Args) > 1 {
 			if skelIdent(call.Args[0]) != "firstExec" {
 				t.Errorf("the fresh launch's first session runs %v, want the first session's exec (firstExec)", call.Args[0])
 			}
@@ -418,7 +418,7 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 		return true
 	})
 	order := []string{"append HoldMainArg", "provisionStage", "firstSessionExecCmd", "sessionCmd",
-		"holdSessionLock", "armLaunchSignals", "startJailMain", "awaitReady", "runFirstSession",
+		"holdSessionLock", "armLaunchSignals", "startJailMain", "awaitReady", "runArmedSession",
 		"detach", "awaitJailMainEnd", "firstSessionStatus", "teardownAfterExit"}
 	last := token.NoPos
 	for _, name := range order {
@@ -436,7 +436,7 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 	// disarm between them, and one after it, before the normal teardown.
 	disarmedAfterTheEnd := false
 	for _, p := range disarms {
-		if p > pos["runFirstSession"] && p < pos["awaitJailMainEnd"] {
+		if p > pos["runArmedSession"] && p < pos["awaitJailMainEnd"] {
 			t.Error("runContainer disarms the signal arm between the first session's return and the " +
 				"main process's end, where a hangup would then kill the launcher with no teardown")
 		}
