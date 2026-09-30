@@ -797,7 +797,7 @@ end
 
 -- THE ACTIVE SET (docs/design/active-provider-sets.md, OQ-AP1 to OQ-AP3 ruled 2026-09-29). pi
 -- is SET-CAPABLE (packs/pi/pack.json's `provider_sets`): `-p pi=zai,openrouter` or
--- `"use_profiles": {"pi": ["zai", "openrouter"]}` makes every listed provider live in one
+-- `"profile": {"pi": ["zai", "openrouter"]}` makes every listed provider live in one
 -- session, and ctx.active_set carries the entries in order. The first entry, the PRIMARY, is
 -- ctx.selected_provider and ctx.profile as it always was, so the settings derive below answers
 -- for it unchanged; piSetSettings then widens that answer to the set, and a set of one returns

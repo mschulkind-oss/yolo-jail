@@ -425,7 +425,9 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 // A LIST (docs/design/active-provider-sets.md OQ-AP1) comes back comma-joined, the spelling
 // run.Options carries it in: a bare `-p zai,openrouter` or a pair `-p pi=zai,openrouter`. Which
 // lists this one agent may hold is the composition's to decide (packload.ProfileSetProblems),
-// and a bare list is narrowed for a single-provider agent by narrowHostBareList first (OQ-AP3).
+// and a typed bare list is narrowed, for an agent whose pack declares no provider_sets, by
+// narrowHostBareList first (OQ-AP3); the config key's bare list is narrowed by the fold
+// (hostProfileFold).
 func hostProfileFor(v, agent string, envVerb bool) (string, error) {
 	bare, pairs, err := parseProfileValue(v)
 	if err != nil {

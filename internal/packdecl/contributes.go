@@ -188,8 +188,8 @@ type Contribution struct {
 	// See nodefloor.go for the comparison, and why a mise selector cannot express this.
 	NodeFloor string `json:"node_floor,omitempty"`
 	// ProviderSets declares that this program holds SEVERAL PROVIDERS IN ONE SESSION: its
-	// pack's derives read the whole active set (ctx.active_set), so a `use_profiles` list, or a
-	// `-p <bin>=a,b` list, of more than one profile may select for its bin. `program` only.
+	// pack's derives read the whole active set (ctx.active_set), so a list in the config `profile`
+	// key, or a `-p <bin>=a,b` list, of more than one profile may select for its bin. `program` only.
 	//
 	// An ACTIVE SET is a term docs/design/active-provider-sets.md coins: the ordered list of
 	// profiles one agent runs on for one launch, the first of which is where a fresh session
@@ -3074,7 +3074,7 @@ func validateContribution(label string, c Contribution) []string {
 		problems = append(problems, prob)
 	}
 	// `provider_sets` is program's alone, for `node_floor`'s reason: it is a fact about what the
-	// agent a program installs can hold, and a use_profiles key names that program's bin.
+	// agent a program installs can hold, and a `profile` key names that program's bin.
 	if c.ProviderSets && c.Kind != KindProgram {
 		problems = append(problems, fmt.Sprintf(
 			"%s: kind %q does not take \"provider_sets\" — it declares that the agent a PROGRAM "+

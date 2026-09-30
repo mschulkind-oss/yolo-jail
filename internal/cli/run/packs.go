@@ -494,8 +494,8 @@ func (o *Options) checkProfileTargets() error {
 	// A LIST NAMED AT A SINGLE-PROVIDER CLI (docs/design/active-provider-sets.md OQ-AP2, ruled
 	// 2026-09-29) is refused over the same universe, whether or not this launch selects the
 	// CLI's pack: the user asked that agent for something it cannot do, which is a fact about
-	// the flag and the agent, and the config validator refuses the same list in use_profiles on
-	// the same terms. The selected agents' lists are asked again after resolution, with the
+	// the flag and the agent, and the config validator refuses the same list named in the
+	// `profile` key on the same terms. The selected agents' lists are asked again after resolution, with the
 	// set's other rules (ProfileSetProblems).
 	// Asked only when some pair carries a list: the namespace walk resolves every configured
 	// pack, and a launch whose pairs each name one profile has nothing here to refuse.

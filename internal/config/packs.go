@@ -637,8 +637,8 @@ func UseProfileCLINames() ([]string, bool) {
 }
 
 // SetCapableCLINames is the subset of UseProfileCLINames whose program declares
-// `provider_sets` (docs/design/active-provider-sets.md AP-D2): the CLIs a use_profiles LIST
-// of more than one profile may name. Answered over the same universe, with the same known
+// `provider_sets` (docs/design/active-provider-sets.md AP-D2): the CLIs a `profile` LIST
+// of more than one profile may be named at. Answered over the same universe, with the same known
 // contract, so a validator asking both questions cannot see two different sets of packs.
 func SetCapableCLINames() (map[string]bool, bool) {
 	clis, known := useProfileCLIs()

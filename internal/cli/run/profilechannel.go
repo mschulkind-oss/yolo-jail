@@ -354,7 +354,6 @@ func (o *Options) checkProfileDeclarations(fold config.ProfileFold,
 	return fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
 }
 
-
 // deliveryLookup is what "set in this launch's environment" means to the credential
 // pre-flight, in the order the launch would have used the value:
 //

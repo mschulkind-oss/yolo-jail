@@ -6,7 +6,7 @@ package packload
 // The terms are that doc's, and it coins all three:
 //
 //   - an ACTIVE SET is the ordered list of profiles one agent (one CLI name) runs on for one
-//     launch — the value of its `use_profiles` entry or its `-p` pair;
+//     launch — the value of its entry in the config `profile` key or its `-p` pair;
 //   - its PRIMARY is the first entry, where a fresh session starts when yolo has to pick, and
 //     what every fold written before sets reads as "the selected profile" (ProfileTable);
 //   - a SET-CAPABLE agent is one whose pack declares `provider_sets` on the program that installs
@@ -24,7 +24,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// ProfileSetValue lowers ONE use_profiles value to its set: a non-empty string is a set of one,
+// ProfileSetValue lowers ONE value of a profile table to its set: a non-empty string is a set of one,
 // a non-empty array of non-empty strings is the set in written order. ok is false for anything
 // else — a null (the key removed), an empty array, or an element that is not a name — so a
 // malformed value selects nothing, the answer ProfileTable always gave a non-string. The config
@@ -63,8 +63,8 @@ func ProfileSetValue(v any) ([]string, bool) {
 	return nil, false
 }
 
-// ProfileSets lowers a decoded profile table — YOLO_USE_PROFILES in the jail, the config's
-// `use_profiles` at the host — to CLI name → active set, in order. ProfileTable's twin, with the
+// ProfileSets lowers a decoded profile table — YOLO_USE_PROFILES in the jail, the config
+// `profile` key folded at the host (config.FoldProfiles) — to CLI name → active set, in order. ProfileTable's twin, with the
 // same null and malformed-value rule, so the two agree about which agents select anything.
 func ProfileSets(m *jsonx.OrderedMap) map[string][]string {
 	if m == nil {
@@ -119,18 +119,6 @@ func SplitProfileList(v string) []string {
 func HoldsProviderSets(packs []*Pack, agent string) bool {
 	owner := binOwner(packs, agent)
 	return owner != nil && owner.Decl != nil && owner.Decl.HoldsProviderSets(agent)
-}
-
-// NarrowBareList is what a BARE list (a `-p a,b` naming no agent) selects for one agent
-// (OQ-AP3, ruled 2026-09-29, option C): the whole list for a set-capable agent, and its first
-// entry for every other, whose pack does not declare provider_sets. The narrowing is disclosed by the
-// caller (BareListNote), so it is never the silent drop AP-P2 forbids: the user asked no agent in
-// particular for the list.
-func NarrowBareList(packs []*Pack, agent string, list []string) []string {
-	if len(list) <= 1 || HoldsProviderSets(packs, agent) {
-		return list
-	}
-	return list[:1]
 }
 
 // BareListNote is the one launch line OQ-AP3 rules for a bare list: which agents took it whole
@@ -195,7 +183,7 @@ func SingleProviderSetRefusal(agent string, set []string) string {
 //   - A name listed twice is refused, naming it.
 //   - A set of more than one at an agent that does not declare provider_sets is refused
 //     (SingleProviderSetRefusal). A bare list never reaches here in that shape: the caller
-//     narrowed it (NarrowBareList), so a list left at such an agent was named at it.
+//     narrowed it (config.FoldProfiles), so a list left at such an agent was named at it.
 //   - Two entries resolving to ONE provider are refused, naming both: one provider has one
 //     catalog row and one key, so two option sets for it mean nothing once a session switches.
 //   - Two entries on ONE REGIONAL PLATFORM are refused, naming both (AP-D12): a platform some
