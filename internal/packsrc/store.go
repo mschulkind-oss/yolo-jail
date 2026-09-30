@@ -268,7 +268,12 @@ func gitLabel(args []string) string {
 //     both. Measured with git 2.55: a post-checkout hook exiting 1 made every checkout into a
 //     pack tree fail (git makes that hook's status the checkout's), and a failing
 //     reference-transaction hook aborted the clone.
-var storeGitConfig = []string{"-c", "core.hooksPath=" + os.DevNull}
+//   - core.fsmonitor=false: NO FSMONITOR DAEMON. With core.fsmonitor=true, a setting GitHub
+//     recommends for large repositories, git starts a `git fsmonitor--daemon` for a worktree
+//     the first time it reads that worktree's index, and the daemon outlives the command. The
+//     checkout into a pack tree reads one, so each materialized pack left a resident daemon
+//     watching a tree nothing edits, after yolo had exited (measured with git 2.55 on Linux).
+var storeGitConfig = []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "core.fsmonitor=false"}
 
 // gitCmd builds the git command for one store run: the store's git, the environment
 // hygiene, and — when Detached — a new session whose whole process group the budget's

@@ -143,6 +143,57 @@ func TestStoreRunsNoHookFromTheUsersConfig(t *testing.T) {
 	})
 }
 
+// fsmonitorWatching reports whether a git fsmonitor daemon is watching worktree (of the
+// repository gitDir), asking git itself (`fsmonitor--daemon status` exits 0 only then), and
+// has git stop one it finds, so a failing run leaves no daemon behind.
+func fsmonitorWatching(t *testing.T, gitDir, worktree string) bool {
+	t.Helper()
+	git := func(args ...string) error {
+		cmd := exec.Command("git", append([]string{"--git-dir=" + gitDir, "--work-tree=" + worktree}, args...)...)
+		cmd.Dir = worktree
+		cmd.Env = CleanGitEnv(os.Environ())
+		return cmd.Run()
+	}
+	if git("fsmonitor--daemon", "status") != nil {
+		return false
+	}
+	_ = git("fsmonitor--daemon", "stop")
+	return true
+}
+
+// THE STORE STARTS NO FSMONITOR DAEMON. core.fsmonitor=true is a setting a user may have
+// globally (GitHub recommends it for large repositories): git then starts a
+// `git fsmonitor--daemon` for a worktree the first time it reads that worktree's index, and
+// the daemon outlives the command. The checkout into a pack tree reads one, so every
+// materialized pack left a resident daemon on the host, watching a tree nothing edits, long
+// after yolo exited.
+func TestStoreStartsNoFsmonitorDaemon(t *testing.T) {
+	env := storeGlobalConfig(t, "[core]\n\tfsmonitor = true\n")
+	// A git that starts no daemon here (a platform without the builtin daemon) would pass this
+	// test without testing anything, so first see one start the way the store's did.
+	probe := t.TempDir()
+	gitIn(t, probe, "init", "-q")
+	status := exec.Command("git", "status", "--porcelain")
+	status.Dir, status.Env = probe, env
+	if err := status.Run(); err != nil {
+		t.Fatalf("git status with core.fsmonitor=true: %v", err)
+	}
+	if !fsmonitorWatching(t, filepath.Join(probe, ".git"), probe) {
+		t.Skip("this git starts no fsmonitor daemon for core.fsmonitor=true")
+	}
+	f := exerciseStore(t, env)
+	trees, err := filepath.Glob(filepath.Join(f.store.Dir, "trees", "*"))
+	if err != nil || len(trees) == 0 {
+		t.Fatalf("no pack trees to check: %v", err)
+	}
+	mirror := f.store.mirrorPath(mustParse(t, f.source("main")).Repo)
+	for _, tree := range trees {
+		if fsmonitorWatching(t, mirror, tree) {
+			t.Errorf("the store left an fsmonitor daemon watching the pack tree %s", tree)
+		}
+	}
+}
+
 // storeConfigOverrides is every `-c` setting in argv, as key=value.
 func storeConfigOverrides(argv []string) []string {
 	var out []string
@@ -155,9 +206,9 @@ func storeConfigOverrides(argv []string) []string {
 	return out
 }
 
-// EVERY STORE RUN TURNS THE USER'S HOOKS OFF, the clone included, whose new mirror gets the
-// template's hooks.
-func TestGitCmdTurnsHooksOff(t *testing.T) {
+// EVERY STORE RUN TURNS THE USER'S HOOKS AND FSMONITOR OFF, the clone included, whose new
+// mirror gets the template's hooks.
+func TestGitCmdTurnsHooksAndFsmonitorOff(t *testing.T) {
 	s := &Store{Dir: t.TempDir(), Env: []string{"PATH=/bin"}}
 	for _, tc := range []struct {
 		dir  string
@@ -170,6 +221,9 @@ func TestGitCmdTurnsHooksOff(t *testing.T) {
 		argv := s.gitCmd(t.Context(), tc.dir, tc.args...).Args
 		if !slices.Contains(storeConfigOverrides(argv), "core.hooksPath="+os.DevNull) {
 			t.Errorf("git %v runs the user's hooks: argv %q", tc.args, argv)
+		}
+		if !slices.Contains(storeConfigOverrides(argv), "core.fsmonitor=false") {
+			t.Errorf("git %v may start an fsmonitor daemon: argv %q", tc.args, argv)
 		}
 	}
 }
