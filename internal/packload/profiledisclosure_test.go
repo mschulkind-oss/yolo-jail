@@ -127,3 +127,23 @@ func TestTheProfileDisclosureSaysWhenNoCredentialReachesTheAgent(t *testing.T) {
 		t.Errorf("a disclosure asked no credential question warned: %+v", unasked)
 	}
 }
+
+// THE ACTIVE-SET LINE NAMES EACH SET OF MORE THAN ONE, in order, and says where a fresh session
+// starts in words true of every set-capable agent (docs/design/active-provider-sets.md AP-D15):
+// pi keeps a pick of its own inside the set, and opencode keeps none past its session while yolo
+// writes its `model`, so "when yolo has to pick", which the line said before, was false for
+// opencode. A set of one prints nothing.
+func TestTheActiveSetLineSaysWhereAFreshSessionStarts(t *testing.T) {
+	got := ActiveSetLines(map[string][]string{
+		"pi": {"zai", "openrouter"}, "opencode": {"zai", "bedrock"}, "claude": {"zai"},
+	})
+	want := []string{
+		"Active set for opencode: zai, bedrock — every entry's provider is live in one session, " +
+			"and a fresh session starts on zai unless the agent keeps a pick of its own inside the set",
+		"Active set for pi: zai, openrouter — every entry's provider is live in one session, " +
+			"and a fresh session starts on zai unless the agent keeps a pick of its own inside the set",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("ActiveSetLines =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

@@ -128,8 +128,9 @@ into your files and says so; a `claude` you start some other way runs on its own
 every listed provider's models, the agent receives every listed provider's key while other agents
 and a plain shell receive none of them, and pi's child agents may use any listed provider and no
 other. opencode shows exactly the listed providers. A new
-session starts on the first provider's default model, and a model you pick yourself in pi stays
-picked.
+session starts on the first provider's default model. A model you pick yourself in pi stays
+picked; opencode goes back to the first provider's default model each time it starts, when that
+provider has one.
 A missing key for any listed provider stops the launch and names that provider and its place in
 the list. Until now `-p pi=zai,openrouter` started pi on z.ai alone and dropped the rest without a
 word, and a stray name before any `agent=` was ignored the same way; it now stops the launch.

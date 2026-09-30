@@ -174,6 +174,8 @@ yolo -p opencode=zai,openrouter -- opencode
 
 - **The first entry is where a new session starts**: here pi and opencode open on z.ai's default
   model. A model you pick yourself in pi, on any listed provider, stays picked on the next launch.
+  opencode goes back to the first entry's default model each time it starts, when that entry has
+  one, so a model you pick in opencode lasts until you quit it.
 - **Every listed provider is live**: each agent's model picker offers every listed provider's
   models, and the agent receives every listed provider's key, while other agents and a plain
   shell receive none of them. In pi the `/model` list shows the first entry's models first, and

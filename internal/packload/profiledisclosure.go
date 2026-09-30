@@ -309,6 +309,11 @@ func credentialWarning(in ProfileDisclosureInput, agent, profile, provider strin
 // which entry a fresh session starts on — the reading the risk table asks the launch to show
 // before anything runs, since `pi=zai,codex` names a CLI and a profile in one value. Nil when
 // every set has one entry, so a launch with none prints what it always printed.
+//
+// "UNLESS THE AGENT KEEPS A PICK OF ITS OWN" is the one wording true of every set-capable agent,
+// and core names none of them: pi keeps a valid pick across sessions, so the first entry decides
+// only when yolo has to pick, while opencode keeps none past its session whenever yolo writes the
+// first entry's `model`, which its start order tries before its recent picks (AP-D15).
 func ActiveSetLines(sets map[string][]string) []string {
 	agents := make([]string, 0, len(sets))
 	for agent, set := range sets {
@@ -322,7 +327,7 @@ func ActiveSetLines(sets map[string][]string) []string {
 		set := sets[agent]
 		out = append(out, "Active set for "+agent+": "+strings.Join(set, ", ")+
 			" — every entry's provider is live in one session, and a fresh session starts on "+
-			set[0]+" when yolo has to pick")
+			set[0]+" unless the agent keeps a pick of its own inside the set")
 	}
 	return out
 }
