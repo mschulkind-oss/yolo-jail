@@ -439,6 +439,14 @@ composed for the sandbox name the listener it starts ([HS-D16](#HS-D16) to [HS-D
 Unlike a service's host half, a doorway has no trigger of its own: it opens whenever its jail
 daemon is in the payload, which for `aws-auth` means some agent's profile selects `bedrock`.
 
+**Under the keeper.** [OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5) was ruled on 2026-09-29:
+a keeper at every notch that starts a long-lived host service. At macos-user the doorways, like
+everything else the launch starts outside the sandbox, then belong to the workspace's macos-user
+keeper, and every session of the workspace there uses one set
+([JL-D38](jail-lifetime-last-session-wins.md#JL-D38)). They still open on the machine's loopback,
+outside Seatbelt, as [HS-D15](#HS-D15) rules; only the process that owns them changes
+([JL-D43](jail-lifetime-last-session-wins.md#JL-D43)). Designed, not built.
+
 ## 5. Alternatives considered
 
 | Alternative | Verdict |
