@@ -65,7 +65,7 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		// The capture act itself — the same `yolo capture <bin>` a human runs and a jail
 		// launch's auto-capture calls — with its report on the launch's stderr too.
 		Capture: func(bin string) error {
-			if rc := captureHost([]string{bin}, out, out, false); rc != 0 {
+			if rc := hostFloorCaptureAct([]string{bin}, out, out, false); rc != 0 {
 				return fmt.Errorf("`yolo capture %s` exited %d", bin, rc)
 			}
 			return nil
@@ -86,6 +86,11 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		Prefix: "yolo host: ",
 	}
 }
+
+// hostFloorCaptureAct is the capture act the production floor runs: `yolo capture <bin>` itself.
+// A var only so a test can stand in for the jail it boots and still drive the floor's own Capture
+// wiring; nothing but a test reassigns it.
+var hostFloorCaptureAct = captureHost
 
 // captureRuntime is the runtime a `yolo capture` would boot its jail with: YOLO_RUNTIME, then the
 // user config's `runtime`, then the platform default — run's precedence without its probe.

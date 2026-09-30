@@ -74,14 +74,19 @@ func floorLaunchFixture(t *testing.T, extra string) (dist *floortest.Dist, handI
 // published. It returns the distribution and the pack's directory.
 func floorHostFixture(t *testing.T, extra string) (dist *floortest.Dist, pack string) {
 	t.Helper()
+	return floorHostFixtureWith(t, `{"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}`, extra)
+}
+
+// floorHostFixtureWith is floorHostFixture with the floorpack's one program contribution given.
+func floorHostFixtureWith(t *testing.T, program, extra string) (dist *floortest.Dist, pack string) {
+	t.Helper()
 	home := floortest.ResolvedTemp(t)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(floortest.ResolvedTemp(t))
 	pack = filepath.Join(floortest.ResolvedTemp(t), "floorpack")
-	writeFile(t, filepath.Join(pack, "pack.json"), `{"name":"floorpack","contributes":[
-	  {"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}]}`)
+	writeFile(t, filepath.Join(pack, "pack.json"), `{"name":"floorpack","contributes":[`+program+`]}`)
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"packs":[{"source":"file://`+pack+`","name":"floorpack"}]`+extra+`}`)
 	orig := prepareOpenAIAuthHost
