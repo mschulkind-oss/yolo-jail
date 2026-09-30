@@ -196,7 +196,7 @@ func lostBy(er entryRecords, selected map[Program]Selected) []Superseded {
 	seen := map[Program]bool{}
 	var out []Superseded
 	for _, r := range er.Records {
-		p := Program{Bin: r.Bin, Platform: r.Platform}
+		p := Program{Bin: r.Bin, Platform: r.Platform, Source: r.Source}
 		if seen[p] {
 			continue
 		}

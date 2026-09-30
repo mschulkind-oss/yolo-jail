@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -130,8 +131,19 @@ func forkStatusLines() (lines []string, drift bool, err error) {
 			lines = append(lines, "[yellow]⚠ "+p.Line()+"[/yellow]")
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%-20s %s [dim]%s — fork of %s's %s, from %s[/dim]",
-			p.Fork.Key(), shortSHA(p.Commit), p.Ref, p.Fork.Base, p.Fork.Bin, p.Fork.Source))
+		lines = append(lines, fmt.Sprintf("%-20s %s [dim]%s — fork of %s's %s, from %s; %s[/dim]",
+			p.Fork.Key(), shortSHA(p.Commit), p.Ref, p.Fork.Base, p.Fork.Bin, p.Fork.Source, forkBuiltState(p)))
 	}
 	return lines, drift, nil
+}
+
+// forkBuiltState says whether the capture store holds this pin's build for a container jail on
+// this machine, read offline through the one fork query (resolveForkBuild).
+func forkBuiltState(p packload.ForkPin) string {
+	b := forkBuild{Fork: p.Fork, Commit: p.Commit, Platform: captureJailPlatform()}
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	if entry, _, err := resolveForkBuild(store, p.Fork.Bin, b.Platform, p.Fork.Source, p.Commit, b.recipe()); err == nil {
+		return "built (" + entry.Key + ", " + b.Platform + ")"
+	}
+	return "not built yet for " + b.Platform + " — the next launch builds it"
 }

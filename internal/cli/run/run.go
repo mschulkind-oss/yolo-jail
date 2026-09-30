@@ -805,9 +805,10 @@ func Run(opts Options) (rc int) {
 	// HERE, and the placement carries three decisions:
 	//
 	//   - BELOW the macos-user return, which is what makes it container-only. See
-	//     autocapture.go for the two reasons that backend is excluded — nothing there
-	//     emits CapturesDirEnv, and slice 6's relocation rewrite is unbuilt — and why
-	//     `yolo capture` stays available on it as an explicit act.
+	//     autocapture.go for why that backend is excluded — nothing there emits
+	//     CapturesDirEnv (hand-off H4; slice 6's relocation rewrite, the second reason this
+	//     said, landed as hand-off H2) — and why `yolo capture` stays available on it as an
+	//     explicit act.
 	//   - BELOW stageRunPacks, because the pack set is the input: the trigger asks the
 	//     SELECTED packs what they install, through HonoredInstalls, so a pack the
 	//     config dropped stops being captured and a fetched pack's refused installer

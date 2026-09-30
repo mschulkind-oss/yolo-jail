@@ -82,6 +82,13 @@ type receipt struct {
 	Act string
 	// Time is the writer's 20-char UTC ISO stamp.
 	Time string
+	// Revision, Recipe and Toolchain are written by the BUILD kind alone — a fork's store entry
+	// (docs/design/forked-programs-as-packs.md FP-D8): the full commit the source was built at,
+	// the sha256 of the build recipe, and the capture jail's image identity. Every other kind
+	// omits them.
+	Revision  string
+	Recipe    string
+	Toolchain string
 }
 
 // HasResolved reports whether this receipt states a resolved identity at all.
@@ -170,11 +177,14 @@ func parseReceiptLine(line string) (receipt, error) {
 		SHA256   string `json:"sha256"`
 		// A POINTER so an omitted field is distinguishable from a written 0. `bytes` is the
 		// one numeric field, and 0 is a size a real file can have.
-		Bytes    *int64 `json:"bytes"`
-		Path     string `json:"path"`
-		Platform string `json:"platform"`
-		Act      string `json:"act"`
-		Time     string `json:"time"`
+		Bytes     *int64 `json:"bytes"`
+		Path      string `json:"path"`
+		Platform  string `json:"platform"`
+		Revision  string `json:"revision"`
+		Recipe    string `json:"recipe"`
+		Toolchain string `json:"toolchain"`
+		Act       string `json:"act"`
+		Time      string `json:"time"`
 	}
 	if err := json.Unmarshal([]byte(line), &raw); err != nil {
 		return receipt{}, err
@@ -189,6 +199,7 @@ func parseReceiptLine(line string) (receipt, error) {
 		Schema: raw.Schema, Kind: raw.Kind, Bin: raw.Bin, Declared: raw.Declared,
 		Spec: raw.Spec, Resolved: raw.Resolved, SHA256: raw.SHA256, Path: raw.Path,
 		Platform: raw.Platform, Act: raw.Act, Time: raw.Time, Bytes: -1,
+		Revision: raw.Revision, Recipe: raw.Recipe, Toolchain: raw.Toolchain,
 	}
 	if raw.Bytes != nil {
 		r.Bytes = *raw.Bytes

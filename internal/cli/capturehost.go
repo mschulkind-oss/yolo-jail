@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -16,7 +18,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -76,8 +80,15 @@ The capture is machine-local and never distributed. <bin> must be a program some
 pack installs with ` + "`via: \"installer\"`" + ` — an npm-declared program has a registry
 version to name and needs no capture.
 
+A program a FORK builds (` + "`via: \"source\"`" + `) is captured by BUILDING it: <bin>'s pinned
+commit (forks.lock.json, pinned by ` + "`yolo pack install`" + `) is checked out and built in a
+sealed jail, which gets no credential, no host file and no host service, and the result is
+stored under a build receipt naming the commit. This is the explicit rebuild: it builds even
+when the store already holds that commit's build, for instance after the image changed.
+
 Examples:
-  yolo capture codex                  # record codex's installer once, for every jail`
+  yolo capture codex                  # record codex's installer once, for every jail
+  yolo capture pi                     # rebuild a forked pi at its pinned commit`
 
 // runCapture is the `yolo capture` dispatch entry.
 //
@@ -131,6 +142,11 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
 		return 1
 	}
+	// A FORK'S PROGRAM: `yolo capture <bin>` is its explicit REBUILD, from the pinned commit, in
+	// the sealed build jail (forkbuild.go) — never the vendor installer of the base it forks.
+	if target.Fork != nil {
+		return captureFork(*target.Fork, out, errw, color)
+	}
 
 	// ONE CAPTURE OF ONE BIN AT A TIME, non-blocking. Two concurrent captures of the same
 	// program would run the vendor's installer twice into two jails and race to admit the
@@ -162,31 +178,24 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	pr.Printf("[bold]capture[/bold] [cyan]%s[/cyan]  [dim]%s[/dim]", bin, target.URL)
 	pr.Printf("[dim]pack %s → jail %s[/dim]", target.Pack, cname)
 
-	if rc := runCaptureJail(staging, bin, out, errw, color); rc != 0 {
-		fmt.Fprintf(errw, "yolo capture: the capture jail exited %d — nothing was stored\n", rc)
-		return rc
-	}
-
-	outDir := filepath.Join(staging, captureOutLeaf)
-	m, err := capture.ReadManifest(outDir)
-	if err != nil {
-		fmt.Fprintf(errw, "yolo capture: reading the capture manifest: %v\n", err)
-		return 1
-	}
-	// AN EMPTY DELTA IS A FAILURE, not an empty package. It is what a bin resolved to
-	// something already on PATH looks like (the image bakes a program a pack also claims —
-	// the ~/.yolo/bin/launch ordering makes the baked one win), and admitting it would file
-	// an entry that materializes nothing and satisfies every later resolve.
-	if len(m.Entries) == 0 {
-		fmt.Fprintf(errw, "yolo capture: %s's installer left nothing in the capture "+
-			"surfaces (%s) — nothing was stored. Either it writes somewhere else, or "+
-			"%s already resolved to a program this image bakes.\n",
-			bin, strings.Join(m.Surfaces, ", "), bin)
-		return 1
-	}
-
-	entry, err := store.AdmitEntry(outDir)
-	if err != nil {
+	// THE CAPTURE ACT'S MIDDLE (captureStaged, shared with a fork's build): the jail, the
+	// manifest, and the admit. AN EMPTY DELTA IS A FAILURE, not an empty package. It is what a
+	// bin resolved to something already on PATH looks like (the image bakes a program a pack also
+	// claims — the ~/.yolo/bin/launch ordering makes the baked one win), and admitting it would
+	// file an entry that materializes nothing and satisfies every later resolve.
+	entry, m, err := captureStaged(store, staging,
+		func() int { return runCaptureJail(staging, bin, captureJailArgv(bin), nil, out, errw, color) },
+		func(m *capture.Manifest) string {
+			return fmt.Sprintf("%s's installer left nothing in the capture surfaces (%s). Either it "+
+				"writes somewhere else, or %s already resolved to a program this image bakes",
+				bin, strings.Join(m.Surfaces, ", "), bin)
+		}, nil)
+	var exit captureJailExit
+	switch {
+	case errors.As(err, &exit):
+		fmt.Fprintf(errw, "yolo capture: %v\n", err)
+		return exit.rc
+	case err != nil:
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
 		return 1
 	}
@@ -210,6 +219,37 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	return 0
 }
 
+// captureFork is `yolo capture <forked bin>`: the explicit REBUILD of a fork at its pinned commit
+// (docs/design/forked-programs-as-packs.md §9 "no implicit rebuilds", OQ-FP2's forced rebuild). It
+// builds even when the store holds this build, and REFUSES on contention, as a capture does: a human
+// who typed it can re-run it, where a launch waits (FP-D1).
+func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
+	pin := forkPinOf(f)
+	if pin.Commit == "" {
+		fmt.Fprintf(errw, "yolo capture: %s\n", pin.Line())
+		return 1
+	}
+	b := forkBuild{Fork: f, Commit: pin.Commit, Platform: captureJailPlatform()}
+	if _, err := buildFork(b, buildMode{force: true, lock: pidlock.NoWait}, out, errw, color); err != nil {
+		fmt.Fprintf(errw, "yolo capture: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// forkPinOf reads f's pin from the fork lock.
+func forkPinOf(f packload.Fork) packload.ForkPin {
+	lock, err := packsrc.LoadForkLock(forkLockPath())
+	if err != nil {
+		return packload.ForkPin{Fork: f, Reason: "the fork lock cannot be read (" + err.Error() + ")"}
+	}
+	return packload.ForkPins([]packload.Fork{f}, lock)[0]
+}
+
+// captureJailPlatform is the platform a container capture jail on this machine reports: linux, on
+// this machine's architecture (run's containerJailPlatform, which the launch hands its triggers).
+func captureJailPlatform() string { return "linux/" + goruntime.GOARCH }
+
 // captureTarget is the one install declaration a capture is about.
 type captureTarget struct {
 	// Bin is the program name.
@@ -218,6 +258,9 @@ type captureTarget struct {
 	URL string
 	// Pack is the pack that declared it, for the report.
 	Pack string
+	// Fork is set when bin is a FORK's program (the base's, rewritten with the fork's delivery):
+	// its capture is its build, and URL is empty.
+	Fork *packload.Fork
 }
 
 // resolveCaptureTarget finds the pack-declared native installer for bin.
@@ -250,10 +293,14 @@ func resolveCaptureTarget(bin string) (*captureTarget, error) {
 			}
 			if in.Kind == packdecl.InstallKindSource {
 				// A FORK's program: its capture is its BUILD, from the pinned source rather than a
-				// vendor installer (docs/design/forked-programs-as-packs.md). Said by name: filing
-				// it with the npm programs below would tell the user it "names a registry version".
-				return nil, fmt.Errorf("pack %s's %q is built from source by fork pack %s — this "+
-					"build of yolo cannot build a fork yet", p.Name, bin, in.ForkedBy)
+				// vendor installer (docs/design/forked-programs-as-packs.md). Never filed with the
+				// npm programs below, which would tell the user it "names a registry version".
+				for _, f := range packload.Forks(sel.packs) {
+					if f.Bin == bin && f.Pack == in.ForkedBy {
+						f := f
+						return &captureTarget{Bin: bin, Pack: p.Name, Fork: &f}, nil
+					}
+				}
 			}
 			if in.Kind != packdeclNativeKind {
 				npmBins = append(npmBins, p.Name)
@@ -321,12 +368,20 @@ func captureJailArgv(bin string) []string {
 //
 // The ORDINARY pipeline, deliberately: a capture jail must be the same jail a launch
 // produces, or the bytes it records are not the bytes a launch would have installed. The
-// only thing this changes is the workspace and the command.
-func runCaptureJail(workspace, bin string, out, errw io.Writer, color bool) int {
+// only thing this changes is the workspace and the command — argv, captureJailArgv(bin) for an
+// installer — and, for a FORK'S BUILD, the seal (docs/design/forked-programs-as-packs.md FP-D9):
+// the pipeline withholds every host crossing (run.Options.Sealed) and narrows the pack selection to
+// the packs the seal names. seal nil is the installer capture's jail, unchanged: the design scopes
+// the seal to the fork route.
+func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out, errw io.Writer, color bool) int {
 	opts := run.NewDefaultOptions()
 	opts.Workspace = workspace
-	opts.Args = captureJailArgv(bin)
+	opts.Args = argv
 	opts.Color = color
+	if seal != nil {
+		opts.Sealed = true
+		opts.OnlyPacks = seal.only
+	}
 	opts.Stdout, opts.Stderr = out, errw
 	// NO CAPTURE STORE IN A CAPTURE JAIL. Every ordinary launch binds the store :ro so a
 	// native launcher can materialize instead of downloading (run/captures.go); this one
@@ -399,6 +454,13 @@ func runCaptureJail(workspace, bin string, out, errw io.Writer, color bool) int 
 	opts.MacosUserRun = func(cfg *jsonx.OrderedMap, _ string, _, _ []string,
 		_, packRoot string, _ macosuser.HomeOverlay, _ macosuser.HostContext, dryRun bool,
 		packEnv *jsonx.OrderedMap, blocked []packload.BlockedTool, _ macosuser.JailDaemons) int {
+		// A FORK BUILD DOES NOT RUN ON THIS BACKEND (FP-D3): the eager slot and the capture
+		// store's reach there wait on hand-off H4, and the sealed capture act is container-only.
+		if seal != nil {
+			fmt.Fprintln(errw, "yolo capture: a fork is built on a container backend only — on "+
+				"macos-user no launch can read the capture store yet (install-capture.md hand-off H4)")
+			return 1
+		}
 		deps := macosuser.RealDeps(nil, nil, color)
 		deps.Out = out
 		return macosuser.RunCaptureAct(deps, macosuser.CaptureOptions{

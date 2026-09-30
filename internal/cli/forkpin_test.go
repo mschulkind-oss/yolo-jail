@@ -150,6 +150,10 @@ func TestPackStatusReportsAForkPinAndItsDrift(t *testing.T) {
 	if !strings.Contains(out.String(), "forkpack/tool") || !strings.Contains(out.String(), shortSHA(pinnedCommit(t))) {
 		t.Errorf("status does not show the fork's pin:\n%s", out.String())
 	}
+	// And what is built: nothing yet, and which act builds it.
+	if !strings.Contains(out.String(), "not built yet for linux/") {
+		t.Errorf("status does not say the pin is not built yet:\n%s", out.String())
+	}
 
 	writeForkManifest(t, manifest, "git+file://"+repo+"?ref=v2")
 	out.Reset()

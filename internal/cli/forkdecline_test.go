@@ -71,20 +71,21 @@ func TestHostLaunchOfAForkedProgramSaysTheFloorHoldsNoneYet(t *testing.T) {
 	}
 }
 
-// `yolo capture <forked bin>`: refused by name, never filed with the npm programs ("names a
-// registry version") and never run as the base's installer.
-func TestCaptureOfAForkedProgramIsRefusedByName(t *testing.T) {
+// `yolo capture <forked bin>` of a fork with no pin: refused, naming the command that pins it —
+// never filed with the npm programs ("names a registry version") and never run as the base's
+// installer.
+func TestCaptureOfAnUnpinnedForkNamesThePin(t *testing.T) {
 	forkHostFixture(t, "probetool", captureFixtureInstaller)
 	withFakeCaptureJail(t, func(run.Options) int {
-		t.Error("a capture jail ran for a forked program")
+		t.Error("a capture jail ran for a fork with no pin")
 		return 1
 	})
 	var out, errw bytes.Buffer
 	if rc := captureHost([]string{"probetool"}, &out, &errw, false); rc == 0 {
-		t.Fatal("capture of a forked program succeeded")
+		t.Fatal("capture of an unpinned fork succeeded")
 	}
-	if !strings.Contains(errw.String(), `"probetool" is built from source by fork pack forkpack`) {
-		t.Errorf("the refusal does not name the fork:\n%s", errw.String())
+	if !strings.Contains(errw.String(), "it has no pin yet — run `yolo pack install`") {
+		t.Errorf("the refusal does not name the pin:\n%s", errw.String())
 	}
 	if strings.Contains(errw.String(), "registry version") {
 		t.Errorf("a forked program was described as an npm one:\n%s", errw.String())

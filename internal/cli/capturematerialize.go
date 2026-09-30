@@ -211,12 +211,24 @@ func resolveCaptureFor(store *capture.Store, bin, platform string) (*capture.Ent
 // FILTERING IS THE SELECTION'S PRECONDITION, NOT A SECOND RULE: only `act:"record"` lines
 // describe a capture that was made (the other act is `materialize`, written per workspace and
 // never beside an entry), so anything else is not a candidate for any question.
+//
+// BOTH RECEIPT KINDS, a vendor installer's capture and a fork's build
+// (docs/design/forked-programs-as-packs.md FP-D8), read in the same commit as the first build
+// receipt was written: the reap is this reader's complement, so a reader that kept only `capture`
+// lines would let `yolo prune --apply` delete every fork entry as unattributed. A build record
+// carries its source address, which selection keys on, so neither kind can answer a query for the
+// other.
 func captureRecords(entryDir string) ([]capture.Record, error) {
-	recs, err := entrypoint.ReadCaptureReceipts(capture.ReceiptsPath(entryDir))
+	path := capture.ReceiptsPath(entryDir)
+	recs, err := entrypoint.ReadCaptureReceipts(path)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]capture.Record, 0, len(recs))
+	builds, err := entrypoint.ReadBuildReceipts(path)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]capture.Record, 0, len(recs)+len(builds))
 	for _, r := range recs {
 		if r.Act != entrypoint.ReceiptActRecord {
 			continue
@@ -225,5 +237,43 @@ func captureRecords(entryDir string) ([]capture.Record, error) {
 			Bin: r.Bin, Platform: r.Platform, Time: r.Time, Digest: r.Digest,
 		})
 	}
+	for _, r := range builds {
+		// An empty source is not a fork's build: selection would file it with the installer
+		// captures, which is the near-miss the kind exists to rule out.
+		if r.Act != entrypoint.ReceiptActRecord || r.Source == "" {
+			continue
+		}
+		out = append(out, capture.Record{
+			Bin: r.Bin, Platform: r.Platform, Source: r.Source, Revision: r.Revision,
+			Recipe: r.Recipe, Time: r.Time, Digest: r.Digest,
+		})
+	}
 	return out, nil
+}
+
+// resolveForkBuild answers a FORK's query of the store (FP-D8): the entry selection names for
+// (bin, platform, source) — newest wins, as for every program — and a HIT only when that entry was
+// built at the revision and from the recipe asked for. A newer entry of another revision is a miss,
+// not a substitution (§9: never serve a near-miss), and the error says which revision is there.
+func resolveForkBuild(store *capture.Store, bin, platform, source, revision, recipe string) (*capture.Entry, *capture.Record, error) {
+	selected, err := capture.Select(store, captureRecords)
+	if err != nil {
+		return nil, nil, err
+	}
+	best, ok := selected[capture.Program{Bin: bin, Platform: platform, Source: source}]
+	if !ok {
+		return nil, nil, fmt.Errorf("nothing in %s records a build of %s from %s", store.Dir, bin, source)
+	}
+	if best.Record.Revision != revision {
+		return nil, nil, fmt.Errorf("the newest build of %s from %s is of commit %s, not the pinned %s",
+			bin, source, best.Record.Revision, revision)
+	}
+	if best.Record.Recipe != recipe {
+		return nil, nil, fmt.Errorf("the newest build of %s at %s used another build recipe", bin, revision)
+	}
+	entry, err := store.Resolve(best.Key)
+	if err != nil {
+		return nil, nil, err
+	}
+	return entry, &best.Record, nil
 }

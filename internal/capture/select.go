@@ -44,10 +44,21 @@ type Program struct {
 	// Platform is "<GOOS>/<GOARCH>" AS THE CAPTURE OBSERVED IT (capture.Platform() inside
 	// the capture jail), not the host's.
 	Platform string
+	// Source is a FORK's source address for an entry its build made (a `build` receipt;
+	// docs/design/forked-programs-as-packs.md FP-D8), and "" for an installer capture. It is part
+	// of what selection keys on, so an installer query of a bin never selects a fork's build of
+	// it, and a query for one fork never selects another's: an installer capture's is empty.
+	Source string
 }
 
-// String renders a program the way both callers print it: "claude (linux/amd64)".
-func (p Program) String() string { return p.Bin + " (" + p.Platform + ")" }
+// String renders a program the way both callers print it: "claude (linux/amd64)", or for a
+// fork's build "pi (linux/amd64, built from git+https://…)".
+func (p Program) String() string {
+	if p.Source != "" {
+		return p.Bin + " (" + p.Platform + ", built from " + p.Source + ")"
+	}
+	return p.Bin + " (" + p.Platform + ")"
+}
 
 // Record is one `record` receipt AS SELECTION READS IT — the three fields the choice needs
 // (bin, platform, time) plus the digest, which it never looks at and carries so the caller that
@@ -67,6 +78,12 @@ func (p Program) String() string { return p.Bin + " (" + p.Platform + ")" }
 type Record struct {
 	// Bin and Platform are the program this entry was captured for.
 	Bin, Platform string
+	// Source is a fork build's source address, "" for an installer capture (Program.Source).
+	Source string
+	// Revision and Recipe are a fork build's commit and recipe hash (FP-D8), which a fork's
+	// query checks the selected entry against; "" for an installer capture. Selection itself never
+	// reads them: newest wins per Program, and a caller asking for one revision checks the winner.
+	Revision, Recipe string
 	// Time is the receipt's stamp — one-second resolution, which is why the selection has a
 	// tie-break at all. A receipt whose stamp did not parse arrives here as the zero time,
 	// the safe end of the ordering ("I cannot tell" sorts oldest).
@@ -167,7 +184,7 @@ func selectFrom(scan []entryRecords) map[Program]Selected {
 	out := map[Program]Selected{}
 	for _, er := range scan {
 		for _, r := range er.Records {
-			p := Program{Bin: r.Bin, Platform: r.Platform}
+			p := Program{Bin: r.Bin, Platform: r.Platform, Source: r.Source}
 			cur, seen := out[p]
 			if !seen || r.Time.After(cur.Record.Time) ||
 				(r.Time.Equal(cur.Record.Time) && er.Key > cur.Key) {

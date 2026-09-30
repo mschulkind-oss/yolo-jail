@@ -12,9 +12,13 @@ package packdecl
 // the base's, where a fork cannot restate them.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -262,6 +266,22 @@ func (in Install) ProgramPath() string {
 		return ""
 	}
 	return ForkProgramPath(in.Bin, in.Produces)
+}
+
+// ForkRecipe is a fork build's RECIPE HASH (docs/design/forked-programs-as-packs.md §6, FP-D8): the
+// sha256, in hex, of a canonical form of everything besides the revision that could change the
+// bytes a build leaves — its command line, the paths it must leave, and the source subdirectory it
+// runs in. Editing any of them is a different recipe, so an entry built from the old one is a miss.
+//
+// THE CANONICAL FORM is the JSON array [build, sorted produces, subdir]: JSON so no separator can
+// be spelled inside a value, and produces sorted because their order changes nothing the build does.
+// The toolchain is deliberately not in it (OQ-FP2): it is recorded on the receipt instead.
+func ForkRecipe(build string, produces []string, subdir string) string {
+	sorted := append([]string(nil), produces...)
+	sort.Strings(sorted)
+	canonical, _ := json.Marshal([]any{build, sorted, subdir})
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])
 }
 
 // forkProgramExample renders the accepted program paths for a message.

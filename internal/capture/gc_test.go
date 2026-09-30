@@ -95,7 +95,7 @@ func TestReapIsExactlyTheComplementOfSelect(t *testing.T) {
 	if got := len(selected); got != 2 {
 		t.Fatalf("Select returned %d programs, want 2: %+v", got, selected)
 	}
-	if k := selected[Program{"probetool", "linux/amd64"}].Key; k != newest.Key {
+	if k := selected[Program{Bin: "probetool", Platform: "linux/amd64"}].Key; k != newest.Key {
 		t.Errorf("Select chose %s for the linux program, want the newest %s", k, newest.Key)
 	}
 
@@ -244,7 +244,7 @@ func TestPruneOnAnAbsentStoreIsNotAnError(t *testing.T) {
 // receipt stamp has one-second resolution and directory order must not decide a re-capture.
 func TestSelectFromTieBreaksOnTheGreaterKey(t *testing.T) {
 	when := time.Date(2026, 9, 4, 9, 0, 0, 0, time.UTC)
-	p := Program{"probetool", "linux/amd64"}
+	p := Program{Bin: "probetool", Platform: "linux/amd64"}
 	linux := Record{Bin: p.Bin, Platform: p.Platform}
 	scan := []entryRecords{
 		{Key: "aaaa", Records: []Record{rec(linux, when)}},
