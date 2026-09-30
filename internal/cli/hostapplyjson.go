@@ -81,6 +81,28 @@ type hostApplyDoc struct {
 	// Groups are the remedy contract's tier-3 groups — every loss and blocker, grouped by remedy
 	// key, each with its class and its pasteable fix.
 	Groups []hostApplyDocGroup `json:"groups"`
+	// HostFloor is the host agent floor stage (host-tool-provisioning.md §4), the rows the text
+	// report prints for it: every program the selected packs declare, with its disposition and
+	// what an --assert would do about it, and every entry an --assert would remove.
+	HostFloor []hostApplyDocFloorEntry `json:"host_floor"`
+}
+
+// hostApplyDocFloorEntry is one host agent floor row.
+type hostApplyDocFloorEntry struct {
+	Bin string `json:"bin"`
+	// Pack is the selected pack that declares it; absent for an entry no selected pack does.
+	Pack string `json:"pack,omitempty"`
+	// Disposition is the floor entry disposition ("provisioned", "missing", "no floor entry"), or
+	// "leftover" for an entry the floor no longer keeps.
+	Disposition string `json:"disposition"`
+	// Action is what an --assert would do: "none", "would install", or "would remove".
+	Action string `json:"action"`
+	// Reason is why, when the action or the disposition has one.
+	Reason string `json:"reason,omitempty"`
+	// Version is the installed version of a provisioned entry.
+	Version string `json:"version,omitempty"`
+	// Launcher is where the floor's bin/<bin> is or would be.
+	Launcher string `json:"launcher,omitempty"`
 }
 
 // hostApplyDocCounts is the verdict block's count block. Every field counts what the reader
@@ -188,6 +210,7 @@ func buildHostApplyDoc(s *hostApplySurvey) hostApplyDoc {
 		UnresolvedPacks:   append([]unresolvedPack{}, s.UnresolvedPacks()...),
 		Destinations:      []hostApplyDocDestination{},
 		Groups:            []hostApplyDocGroup{},
+		HostFloor:         append([]hostApplyDocFloorEntry{}, s.floor...),
 	}
 	for _, c := range s.Changed {
 		doc.Destinations = append(doc.Destinations, hostApplyDocDestination{

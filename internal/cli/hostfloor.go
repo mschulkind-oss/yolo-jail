@@ -164,16 +164,28 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 	floor := newHostFloor(out, progs)
 	floor.Prefix = "    "
 	rc := 0
+	// note records a row for the machine document (hostApplyDoc.HostFloor), which only the dry
+	// run emits, so the dry run's rows are the ones it carries.
+	note := func(row hostApplyDocFloorEntry) {
+		if survey != nil && !write {
+			survey.floor = append(survey.floor, row)
+		}
+	}
 	for _, p := range progs {
 		st := floor.Status(p)
+		row := hostApplyDocFloorEntry{Bin: p.Bin(), Pack: p.Pack, Disposition: string(st.Disposition),
+			Action: "none", Reason: st.Reason, Launcher: st.Launcher}
 		switch {
 		case st.Disposition == hostfloor.NoEntry:
 			pr.Printf("  [cyan]%-20s[/cyan] %s: no floor entry — %s; `yolo host -- %s` runs the one on "+
 				"your PATH", "host_floor", p.Bin(), st.Reason, p.Bin())
+			note(row)
 			continue
 		case !write && st.Disposition == hostfloor.Provisioned && st.Pending == "":
 			detail(pr, "  [cyan]%-20s[/cyan] %s %s  [dim]%s[/dim]", "host_floor", p.Bin(),
 				st.Record.Version, homeTilde(st.Launcher))
+			row.Version = st.Record.Version
+			note(row)
 			continue
 		case !write:
 			why := st.Reason
@@ -182,6 +194,11 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 			}
 			pr.Printf("  [cyan]%-20s[/cyan] %s: would install (%s)  [dim]%s[/dim]", "host_floor",
 				p.Bin(), why, homeTilde(st.Launcher))
+			row.Action, row.Reason = "would install", why
+			if st.Record != nil {
+				row.Version = st.Record.Version
+			}
+			note(row)
 			continue
 		}
 		after, outcome, err := floor.Ensure(context.Background(), p)
@@ -208,6 +225,7 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 			verb = "removed"
 		}
 		pr.Printf("  [cyan]%-20s[/cyan] %s: %s (%s)", "host_floor", r.Bin, verb, r.Why)
+		note(hostApplyDocFloorEntry{Bin: r.Bin, Disposition: "leftover", Action: verb, Reason: r.Why})
 	}
 	return rc
 }

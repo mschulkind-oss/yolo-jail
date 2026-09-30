@@ -166,6 +166,11 @@ type hostApplySurvey struct {
 	// apply, because a launch installs the one agent it starts and removes nothing
 	// (host-tool-provisioning.md §4).
 	floorStage bool
+	// floor is what the floor stage reported, one row per line it printed (applyHostFloor), for
+	// the machine document: the text report's floor rows, which outfmt.Sink discards in the JSON
+	// branch, would otherwise be the one stage the document silently leaves out — "would remove"
+	// among them, a loss.
+	floor []hostApplyDocFloorEntry
 	// unresolvedPacks are the configured packs this run could not resolve, with the resolver's
 	// reason. A BLOCKER that outranks every other: an --assert over them is refused before the
 	// first write (no half states), so the verdict of a dry run that found one is "would refuse".
