@@ -2,6 +2,7 @@ package macosuser
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -322,6 +323,108 @@ func TestAFailedMiseInstallStillRunsThisBackendsBootstrap(t *testing.T) {
 				t.Errorf("stage body exit = %d, want %d", rc, tc.wantRC)
 			}
 		})
+	}
+}
+
+// floorPackRoot stages, as the run pipeline stages a launch's packs, one pack whose program
+// declares floor, and returns the tree's root (Options.HostPackRoot).
+func floorPackRoot(t *testing.T, floor string) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "pi")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name": "pi", "contributes": [{"kind": "program", "bin": "pi", "via": "npm", ` +
+		`"package": "pi-pkg", "node_floor": "` + floor + `"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// AR-L3 (docs/design/agent-program-runtimes.md): with no `mise_tools`, a Node floor a selected
+// pack declares starts the provisioning stage unless the host shows it met. Before it, this
+// backend started the stage for `mise_tools` alone, so such a workspace got neither the floor's
+// install nor its refusal. Driven through buildPlan, the orchestrator's composition RunMacosUser
+// launches from, so dropping the host check there fails this test. The check is asked of the
+// sandbox's own PATH (the one the bootstrap is told) and home, and every doubt starts the stage.
+func TestADeclaredNodeFloorStartsTheStageUnlessTheHostShowsItMet(t *testing.T) {
+	root := floorPackRoot(t, "22.19")
+	for _, tc := range []struct {
+		name      string
+		wired     bool // whether deps carry a host check at all
+		met       bool // its answer
+		wantStage bool
+		wantUnmet string
+	}{
+		{"the host shows it met", true, true, false, "[]"},
+		{"the host cannot show it met", true, false, true, "[22.19]"},
+		{"no host check wired", false, false, true, "[22.19]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			deps := mockDeps(nil)
+			var askedFloor, askedPath, askedHome string
+			if tc.wired {
+				deps.NodeFloorMet = func(floor, loginPath, home string) bool {
+					askedFloor, askedPath, askedHome = floor, loginPath, home
+					return tc.met
+				}
+			}
+			opts := newOpts("/Users/Shared/yolo/proj")
+			opts.HostPackRoot = root
+			plan := buildPlan(deps, opts, mockDarwin())
+			if got := len(plan.ProvisionArgv) > 0; got != tc.wantStage {
+				t.Fatalf("stage started = %v, want %v (floors %+v)", got, tc.wantStage, plan.ProvisionFloors)
+			}
+			if got := fmt.Sprint(plan.ProvisionFloors.Unmet); got != tc.wantUnmet {
+				t.Errorf("unmet floors = %s, want %s", got, tc.wantUnmet)
+			}
+			if !tc.wired {
+				return
+			}
+			if askedFloor != "22.19" {
+				t.Errorf("the host was asked about floor %q, want the declared 22.19", askedFloor)
+			}
+			if want, _ := argvEnvValue(plan.BootstrapArgv, entrypoint.DarwinLoginPathEnv); askedPath != want {
+				t.Errorf("the host check read PATH %q, but the sandbox's is %q", askedPath, want)
+			}
+			if askedHome != SandboxHome() {
+				t.Errorf("the host check excluded home %q, want the sandbox's %q", askedHome, SandboxHome())
+			}
+		})
+	}
+}
+
+// An unreadable staged tree is a host that cannot answer, and it starts the stage, which reads
+// the tree again from inside; the dry run names why.
+func TestAnUnreadablePackTreeStartsTheStage(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "bad"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bad", "pack.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deps := mockDeps(nil)
+	deps.NodeFloorMet = func(string, string, string) bool { return true }
+	opts := newOpts("/Users/Shared/yolo/proj")
+	opts.HostPackRoot = root
+	plan := buildPlan(deps, opts, mockDarwin())
+	if len(plan.ProvisionArgv) == 0 || plan.ProvisionFloors.Unknown == "" {
+		t.Fatalf("an unreadable pack tree must start the stage; floors %+v", plan.ProvisionFloors)
+	}
+	var out bytes.Buffer
+	PrintPlan(&out, plan, nil)
+	if !strings.Contains(out.String(), "runs for: the staged packs' Node floors could not be read") {
+		t.Errorf("the dry run does not say why the stage runs:\n%s", out.String())
+	}
+}
+
+// The production deps wire the host check, so the rule above is live outside tests.
+func TestRealDepsWireTheHostNodeFloorCheck(t *testing.T) {
+	if RealDeps(nil, nil, false).NodeFloorMet == nil {
+		t.Fatal("RealDeps leaves NodeFloorMet nil, so every declared floor starts a stage")
 	}
 }
 

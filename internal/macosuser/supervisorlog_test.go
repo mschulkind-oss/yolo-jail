@@ -111,7 +111,7 @@ func TestTheLogWrapperAppendsStdoutAndStderrToTheLog(t *testing.T) {
 	ws := t.TempDir()
 	plan := BuildRunPlanWithDaemons(ws, jsonx.NewOrderedMap(), []string{"codex"}, []string{"codex"},
 		"/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil,
-		openAIAdapterDaemons("/src"))
+		openAIAdapterDaemons("/src"), FloorStage{})
 	start := -1
 	for i, a := range plan.JailDaemonArgv {
 		if a == supervisorLogWrapper {

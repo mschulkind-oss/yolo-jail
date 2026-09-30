@@ -200,11 +200,16 @@ func ResolveNodeForFloor(floor string) string {
 // does) — are processes whose environment IS the sandbox's. `yolo check`'s host-side dry run never
 // has the variable, so it reads nothing here, as before.
 func packageFloorNodes() []string {
-	loginPath := os.Getenv(DarwinLoginPathEnv)
+	return packageFloorNodesOn(os.Getenv(DarwinLoginPathEnv), os.Getenv("HOME"))
+}
+
+// packageFloorNodesOn is packageFloorNodes over a named sandbox PATH and home rather than this
+// process's environment, so the HOST can ask it before the sandbox exists (PackageFloorMeets).
+func packageFloorNodesOn(loginPath, home string) []string {
 	if loginPath == "" {
 		return nil
 	}
-	home := strings.TrimSuffix(os.Getenv("HOME"), "/")
+	home = strings.TrimSuffix(home, "/")
 	var out []string
 	seen := map[string]bool{}
 	for _, dir := range strings.Split(loginPath, ":") {
@@ -222,6 +227,28 @@ func packageFloorNodes() []string {
 		out = append(out, bin)
 	}
 	return out
+}
+
+// PackageFloorMeets reports whether a node the resolution's first macos-user candidate reads (the
+// package floor's: each runnable `node` in an entry of loginPath outside home, packageFloorNodes)
+// has a readable version meeting floor. It is the HOST half of docs/design/agent-program-runtimes.md
+// AR-L3: macos-user has no mount namespace, so the host reads the same paths the sandbox will, and
+// a declared floor this answers yes for needs no provisioning stage.
+//
+// IT FAILS TOWARD THE STAGE. No candidate, a version it cannot read, or an unusable floor is
+// false, and false costs one stage, which asks the full resolution again and installs or refuses.
+// A true is never a guess, so a wrong answer can cost a stage and never skip a refusal. The mise
+// store (candidate 2) is not asked: it lives in the sandbox home, which this is not the reader of.
+func PackageFloorMeets(floor, loginPath, home string) bool {
+	if !packdecl.ValidNodeFloor(floor) {
+		return false
+	}
+	for _, bin := range packageFloorNodesOn(loginPath, home) {
+		if v := nodeVersionAt(bin); v != "" && packdecl.SatisfiesNodeFloor(v, floor) {
+			return true
+		}
+	}
+	return false
 }
 
 // newestSatisfyingMiseNode picks the highest version in the mise store that meets the floor and has a

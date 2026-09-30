@@ -82,6 +82,14 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 		// on that backend means the same thing it means everywhere else — no packs.
 		return nil, nil
 	}
+	return loadPackRoot(e, root)
+}
+
+// loadPackRoot reads the staged pack tree at root, in the launch's order. It is LoadJailPacks
+// without the tolerant-decoding switch, which is process-wide: a HOST-side reader of a tree this
+// binary staged (DeclaredNodeFloorsAt, macos-user's stage decision) reads it strictly, as the
+// staging did, and must not turn tolerance on for the rest of the host process.
+func loadPackRoot(e *Env, root string) ([]*packload.Pack, error) {
 	// THE ORDER IS THE LAUNCH'S, read from the tree's record (packload.ReadPackTreeRecord): the
 	// one precedence order every notch composes in (docs/plans/notch-convergence.md OQ-NC4, ruled
 	// A), config order, then the closure's additions, then the local pack last. Later wins for a

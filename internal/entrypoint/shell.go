@@ -620,6 +620,32 @@ func declaredNodeFloors(e *Env) []nodeFloorDecl {
 	if err != nil {
 		return nil
 	}
+	return nodeFloorDecls(packs)
+}
+
+// DeclaredNodeFloorsAt is the distinct Node floors the packs staged at packRoot declare, sorted:
+// the floors the bootstrap generated from that tree will check (declaredNodeFloors). It is the
+// HOST-side read macos-user's stage decision needs (docs/design/agent-program-runtimes.md AR-L3),
+// so it loads the tree strictly (loadPackRoot) and returns the error rather than an empty list:
+// a caller that cannot tell whether a floor is declared must start the stage, which checks again.
+// An empty packRoot is a launch that staged no packs, and declares nothing.
+func DeclaredNodeFloorsAt(packRoot string) ([]string, error) {
+	if packRoot == "" {
+		return nil, nil
+	}
+	packs, err := loadPackRoot(&Env{}, packRoot)
+	if err != nil {
+		return nil, err
+	}
+	var floors []string
+	for _, d := range nodeFloorDecls(packs) {
+		floors = append(floors, d.Floor)
+	}
+	return floors, nil
+}
+
+// nodeFloorDecls is declaredNodeFloors over packs already loaded.
+func nodeFloorDecls(packs []*packload.Pack) []nodeFloorDecl {
 	byFloor := map[string]*nodeFloorDecl{}
 	for _, p := range packs {
 		if p == nil {

@@ -45,7 +45,10 @@ type RunPlan struct {
 	// ProvisionScriptPath is the generated script that argv execs; both are "" together.
 	ProvisionArgv       []string
 	ProvisionScriptPath string
-	LaunchArgv          []string
+	// ProvisionFloors is the host's answer to whether a declared Node floor starts the stage
+	// (FloorStage, AR-L3), carried so the dry run can say why the stage runs or is skipped.
+	ProvisionFloors FloorStage
+	LaunchArgv      []string
 	// JailDaemonArgv is the CONFINED supervisor (jaildaemon.go): `yolo-jaild supervise`
 	// under the session's Seatbelt profile, reading DaemonEnvFile. nil when the launch
 	// handed this backend no daemon to run, which is the common case and costs nothing.
@@ -258,13 +261,32 @@ func DarwinBootstrapArgv(stagedYolo, home string, bootstrapEnv *jsonx.OrderedMap
 // section (core blocks nothing by default). `darwin` may be nil.
 func BuildRunPlan(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool) RunPlan {
 	return BuildRunPlanWithDaemons(workspace, cfg, agents, agentArgv, selfExe, hostPackRoot,
-		hostHomeOverlay, hostCtx, sandboxEnv, darwin, blockedTools, JailDaemons{})
+		hostHomeOverlay, hostCtx, sandboxEnv, darwin, blockedTools, JailDaemons{}, FloorStage{})
+}
+
+// sandboxPathPrefix is the store bin dirs this launch puts on the sandbox PATH, in order: the
+// materialized floor and `packages:` (darwin.PathPrefix), then the host's nix client when the
+// launch delivers one (hostnix.go), after them so a declared `packages:` nix still wins. That one
+// list reaches the launch PATH, the provisioning stage's PATH and the bootstrap's
+// $YOLO_DARWIN_LOGIN_PATH (PlanInvariants checks the first and the last), and the orchestrator's
+// Node floor check reads the same PATH through it (floorStageFor). Empty for a nil darwin.
+func sandboxPathPrefix(darwin *Darwin) []string {
+	prefix := []string{}
+	if darwin == nil {
+		return prefix
+	}
+	prefix = append(prefix, darwin.PathPrefix...)
+	if darwin.Nix.BinDir != "" {
+		prefix = append(prefix, darwin.Nix.BinDir)
+	}
+	return prefix
 }
 
 // BuildRunPlanWithDaemons is BuildRunPlan plus the jail daemons this launch runs in the guest
-// (jaildaemon.go). The orchestrator's buildPlan calls this one; BuildRunPlan is the plan of a
-// launch that runs none.
-func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool, jailDaemons JailDaemons) RunPlan {
+// (jaildaemon.go) and the host's answer to whether a declared Node floor starts the provisioning
+// stage (FloorStage, AR-L3). The orchestrator's buildPlan calls this one; BuildRunPlan is the plan
+// of a launch that runs no daemon and whose floors, if any, the host showed met.
+func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, agentArgv []string, selfExe, hostPackRoot string, hostHomeOverlay HomeOverlay, hostCtx HostContext, sandboxEnv *jsonx.OrderedMap, darwin *Darwin, blockedTools []packload.BlockedTool, jailDaemons JailDaemons, floors FloorStage) RunPlan {
 	// SYMLINK-RESOLVED ONCE, HERE, BECAUSE THE KERNEL RESOLVES BEFORE THE POLICY IS CONSULTED.
 	// Measured on hardware 2026-09-13 (declaration-parity.md §6.1's probe 2): a profile denying
 	// `(subpath "/tmp")` does not stop `touch /tmp/canary`, while one denying
@@ -286,11 +308,10 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	// receive a shell's logical spelling — this is reachable from an ordinary `cd`, not only
 	// from an argument somebody constructed.
 	workspace = resolvePathAbs(workspace)
-	darwinPrefix := []string{}
+	darwinPrefix := sandboxPathPrefix(darwin)
 	darwinEnv := jsonx.NewOrderedMap()
 	darwinSkipped := []string{}
 	if darwin != nil {
-		darwinPrefix = append([]string{}, darwin.PathPrefix...)
 		if darwin.Env != nil {
 			for _, k := range darwin.Env.Keys() {
 				v, _ := darwin.Env.Get(k)
@@ -315,15 +336,11 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		}
 		sandboxEnv = merged
 	}
-	// THE HOST'S nix CLIENT (hostnix.go), after the floor's bin dir so a declared `packages:`
-	// nix still wins, and appended to darwinPrefix rather than riding a channel of its own:
-	// that one list is what reaches the launch PATH, the provisioning stage's PATH and the
-	// bootstrap's $YOLO_DARWIN_LOGIN_PATH, and PlanInvariants already checks every entry of
-	// it reached the first and the last.
+	// THE HOST'S nix CLIENT (hostnix.go): its bin dir is already the last entry of darwinPrefix
+	// (sandboxPathPrefix); its NIX_REMOTE and NIX_CONFIG ride the launch env.
 	nixClientDir := ""
 	if darwin != nil && darwin.Nix.BinDir != "" {
 		nixClientDir = darwin.Nix.BinDir
-		darwinPrefix = append(darwinPrefix, nixClientDir)
 		sandboxEnv = withHostNixEnv(sandboxEnv)
 	}
 
@@ -404,7 +421,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 
 	var provisionArgv []string
 	provisionScriptPath := ""
-	if ProvisionNeeded(cfg) {
+	if ProvisionNeeded(cfg, floors) {
 		provisionScriptPath = ProvisionBootstrapScript(workspace)
 		// The console line's color is the NO_COLOR half of the one gate (tty.NoColor), read
 		// from the env this stage will run in — the forwarded host value (MacosSandboxEnv), or
@@ -463,6 +480,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		BootstrapArgv:       DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
 		ProvisionArgv:       provisionArgv,
 		ProvisionScriptPath: provisionScriptPath,
+		ProvisionFloors:     floors,
 		LaunchArgv:          LaunchArgv(agentArgv, profilePath, envFile, workspace, "", "", darwinPrefix),
 
 		JailDaemonArgv:          jailDaemonArgv,

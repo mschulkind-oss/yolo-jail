@@ -1,6 +1,8 @@
 package macosuser
 
 import (
+	"strings"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -201,17 +203,61 @@ func ProvisionBootstrapScript(workspace string) string {
 // script too. Counting presets here would start a stage whose only work is a download
 // nothing can exec.
 //
-// ⚠ A DECLARED NODE FLOOR IS NOT ONE EITHER, and that one IS a gap rather than a decision.
-// The floor's eager install and its refusal live in the generated bootstrap, so on this
-// backend they run only when `mise_tools` happens to start a stage: a workspace selecting a
-// floor-declaring pack with no `mise_tools` gets neither. Counting a floor here is not the
-// obvious fix — this backend's image-equivalent node, if the package floor supplies one as
-// flake.nix intends (unmeasured on hardware, docs/reference/agent-program-runtimes.md's "macos-user: UNVERIFIED"), is on the floor
-// prefix and usually meets the floor already (the resolution now sees it:
-// entrypoint.packageFloorNodes), so counting every declared floor would charge each such launch
-// a privileged stage for nothing. Counting only a floor the resolution cannot meet is the
-// leaning; docs/design/agent-program-runtimes.md OQ-AR5 holds the ruling, not guessed at here.
-func ProvisionNeeded(cfg *jsonx.OrderedMap) bool {
+// A DECLARED NODE FLOOR THE HOST CANNOT SHOW MET IS ONE (docs/design/agent-program-runtimes.md
+// AR-L3), which floors carries. The floor's eager install and its refusal live in the generated
+// bootstrap, so before AR-L3 they ran here only when `mise_tools` happened to start a stage: a
+// workspace selecting a floor-declaring pack with no `mise_tools` got neither. Counting EVERY
+// declared floor would charge each such launch a privileged stage for a node the package floor
+// usually supplies already, so the caller counts only a floor the host could not show met
+// (FloorStage) — and fails toward the stage, which checks again.
+func ProvisionNeeded(cfg *jsonx.OrderedMap, floors FloorStage) bool {
+	if floors.Needed() {
+		return true
+	}
 	mise := config.MergeMiseTools(cfg)
 	return mise != nil && mise.Len() > 0
+}
+
+// FloorStage is the host's answer to AR-L3's question, "does a declared Node floor start the
+// stage?", composed by the orchestrator (floorStageFor) and handed to the pure plan builder.
+// The zero value starts nothing: no floor declared, or every declared floor shown met.
+type FloorStage struct {
+	// Unmet is each declared floor no candidate the host can read was shown to meet
+	// (entrypoint.PackageFloorMeets), sorted.
+	Unmet []string
+	// Unknown is why the host could not read which floors the staged packs declare, "" when it
+	// could. A host that cannot answer starts the stage, whose bootstrap asks again.
+	Unknown string
+}
+
+// Needed reports whether this answer starts the stage.
+func (f FloorStage) Needed() bool { return len(f.Unmet) > 0 || f.Unknown != "" }
+
+// Reason is the dry run's words for why a floor starts the stage, "" when none does.
+func (f FloorStage) Reason() string {
+	switch {
+	case f.Unknown != "":
+		return "the staged packs' Node floors could not be read on the host (" + f.Unknown + ")"
+	case len(f.Unmet) > 0:
+		return "Node floor " + strings.Join(f.Unmet, ", ") + " not shown met by a node the host can read"
+	}
+	return ""
+}
+
+// floorStageFor is AR-L3's host-side check: the floors the staged pack tree at packRoot declares
+// (entrypoint.DeclaredNodeFloorsAt, the tree this launch's bootstrap renders from), each asked of
+// met, which reads the package-floor candidates on the sandbox's PATH. A nil met answers no for
+// every floor, and an unreadable tree is Unknown: both start the stage.
+func floorStageFor(packRoot string, met func(floor string) bool) FloorStage {
+	floors, err := entrypoint.DeclaredNodeFloorsAt(packRoot)
+	if err != nil {
+		return FloorStage{Unknown: err.Error()}
+	}
+	var out FloorStage
+	for _, floor := range floors {
+		if met == nil || !met(floor) {
+			out.Unmet = append(out.Unmet, floor)
+		}
+	}
+	return out
 }

@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -59,6 +60,11 @@ type Deps struct {
 	// HostNix resolves the host's nix client for the sandbox PATH (hostnix.go). Asked once
 	// per launch, after the floor build that proved that client works. nil delivers no nix.
 	HostNix func() HostNix
+	// NodeFloorMet reports whether a node the host can read on loginPath, outside home, meets
+	// floor: AR-L3's host-side check (entrypoint.PackageFloorMeets), asked for each Node floor
+	// the staged packs declare, so a floor already met starts no provisioning stage. nil
+	// answers no for every floor, which starts the stage (the stage checks again).
+	NodeFloorMet func(floor, loginPath, home string) bool
 	// LockWorkspace takes the per-workspace launch lock and returns the release
 	// (idempotent, never nil). nil means "no lock available", which degrades the launch
 	// rather than refusing it — the same choice the container's own acquire makes.
@@ -367,9 +373,22 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	if deps.SelfExe != nil {
 		selfExe = deps.SelfExe()
 	}
+	// AR-L3 (docs/design/agent-program-runtimes.md): a Node floor the staged packs declare starts
+	// the provisioning stage unless the host can show it met. Asked HERE, host-side, because the
+	// plan builder below is pure and this backend has no mount namespace: the package-floor
+	// nodes the sandbox's resolution reads first are the same files on the sandbox's PATH that
+	// this process can read now. A dry run asks too, against a PATH with no floor materialized,
+	// so its plan shows the stage for any declared floor, which is the direction the rule fails.
+	home := SandboxHome()
+	loginPath := SandboxPath(home, sandboxPathPrefix(darwin))
+	var met func(string) bool
+	if deps.NodeFloorMet != nil {
+		met = func(floor string) bool { return deps.NodeFloorMet(floor, loginPath, home) }
+	}
+	floors := floorStageFor(opts.HostPackRoot, met)
 	return BuildRunPlanWithDaemons(opts.Workspace, opts.Config, opts.Agents, opts.AgentArgv,
 		selfExe, opts.HostPackRoot, opts.HostHomeOverlay, opts.HostCtx, env, darwin,
-		opts.BlockedTools, opts.JailDaemons)
+		opts.BlockedTools, opts.JailDaemons, floors)
 }
 
 // RunMacosUser launches agent_argv in the dedicated-user + Seatbelt sandbox.
@@ -856,9 +875,13 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p.print("")
 	if len(plan.ProvisionArgv) == 0 {
 		p.print("[bold]── provisioning stage ──[/bold]")
-		p.print("  [dim]skipped — no mise_tools declared[/dim]")
+		p.print("  [dim]skipped — no mise_tools declared, and no declared Node floor " +
+			"the host could not show met[/dim]")
 	} else {
 		p.print("[bold]── provisioning stage (confined, before the agent) ──[/bold]")
+		if why := plan.ProvisionFloors.Reason(); why != "" {
+			p.print("  [dim]runs for: " + why + "[/dim]")
+		}
 		p.print("  " + strings.Join(plan.ProvisionArgv, " "))
 	}
 	p.print("")
@@ -999,6 +1022,7 @@ func RealDeps(runProxy func(argv []string) int, materialize func(repoRoot string
 		MaterializeDarwin: materialize,
 		StartBackground:   startBackgroundReal,
 		HostNix:           hostNixReal,
+		NodeFloorMet:      entrypoint.PackageFloorMeets,
 		TakenIDs:          takenIDsReal,
 		SetRandomPassword: func() bool { return setRandomPasswordReal(SandboxUser) },
 		PathIsDir:         pathIsDirReal,

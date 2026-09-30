@@ -81,7 +81,7 @@ func TestLSPServersAskNothingToInstall(t *testing.T) {
 			"session env file:\n%s", plan.EnvFileContent)
 	}
 
-	if ProvisionNeeded(cfg) {
+	if ProvisionNeeded(cfg, FloorStage{}) {
 		t.Errorf("ProvisionNeeded is true for a config whose only declaration is lsp_servers; " +
 			"the stage it starts would run a privileged step that installs nothing")
 	}

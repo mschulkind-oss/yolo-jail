@@ -39,7 +39,7 @@ func openAIAdapterDaemons(src string) JailDaemons {
 func guestPlan(t *testing.T, jd JailDaemons) RunPlan {
 	t.Helper()
 	return BuildRunPlanWithDaemons("/Users/Shared/yolo/proj", jsonx.NewOrderedMap(), []string{"codex"},
-		[]string{"codex"}, "/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil, jd)
+		[]string{"codex"}, "/opt/yolo/bin/yolo", "", HomeOverlay{}, HostContext{}, jsonx.NewOrderedMap(), mockDarwin(), nil, jd, FloorStage{})
 }
 
 // THE DECLARED COMMAND RUNS VERBATIM, INSIDE THE PROFILE (OQ-DP8's "runs exactly as declared",

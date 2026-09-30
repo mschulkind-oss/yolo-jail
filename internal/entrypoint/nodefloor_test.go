@@ -460,6 +460,59 @@ func TestANodeWhoseNameSaysNothingIsAskedByExec(t *testing.T) {
 	}
 }
 
+// PackageFloorMeets is AR-L3's host half (docs/design/agent-program-runtimes.md): the HOST asks,
+// of a named sandbox PATH and home rather than its own environment, whether the package floor's
+// node meets a floor. It reads the resolution's first macos-user candidate and nothing else: a
+// node under the home (the mise shims, whose node is the workspace's pin) never answers, and every
+// doubt answers no, which starts the stage.
+func TestPackageFloorMeetsReadsTheNamedSandboxPath(t *testing.T) {
+	node := fakePackageFloor(t, "24.1.0")
+	loginPath, home := os.Getenv(DarwinLoginPathEnv), os.Getenv("HOME")
+	// Named, not read from this process: clearing the environment must change nothing.
+	t.Setenv(DarwinLoginPathEnv, "")
+	t.Setenv("HOME", "")
+	for _, tc := range []struct {
+		floor     string
+		loginPath string
+		want      bool
+	}{
+		{"22.19", loginPath, true},
+		{"24.1", loginPath, true},
+		// The shim under the home answers v99, and must not be what says yes.
+		{"25", loginPath, false},
+		{"", loginPath, false},
+		{"not-a-floor", loginPath, false},
+		{"22.19", "", false},
+	} {
+		if got := PackageFloorMeets(tc.floor, tc.loginPath, home); got != tc.want {
+			t.Errorf("PackageFloorMeets(%q, %q) = %v, want %v (the floor's node is %s)",
+				tc.floor, tc.loginPath, got, tc.want, node)
+		}
+	}
+}
+
+// DeclaredNodeFloorsAt reads the floors a staged tree declares, as the bootstrap generated from it
+// will check them: distinct and sorted. An unreadable tree is an error the caller turns into "start
+// the stage", never an empty list, and no root declares nothing.
+func TestDeclaredNodeFloorsAtReadsTheStagedTree(t *testing.T) {
+	root := stageFloorPacks(t, map[string]string{
+		"zeta":  floorProgram("zed", "22.19"),
+		"alpha": floorProgram("ay", "24"),
+		"mid":   floorProgram("em", "22.19"),
+	})
+	got, err := DeclaredNodeFloorsAt(root)
+	if err != nil || fmt.Sprint(got) != "[22.19 24]" {
+		t.Errorf("DeclaredNodeFloorsAt = %v, %v; want [22.19 24]", got, err)
+	}
+	if got, err := DeclaredNodeFloorsAt(""); err != nil || len(got) != 0 {
+		t.Errorf("no staged tree declares nothing; got %v, %v", got, err)
+	}
+	broken := stageFloorPacks(t, map[string]string{"bad": `{"name": "bad", "contributes": [`})
+	if _, err := DeclaredNodeFloorsAt(broken); err == nil {
+		t.Error("an unreadable tree must be an error, so the caller starts the stage")
+	}
+}
+
 // A store-shaped name OUTSIDE the store is not trusted: the path must sit directly under
 // nixStoreDir, so the version is exec'd.
 func TestAStoreShapedNameOutsideTheStoreIsNotTrusted(t *testing.T) {
