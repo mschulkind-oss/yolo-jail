@@ -50,6 +50,24 @@ func backoffFor(n int) time.Duration {
 	return podmanReadyBackoff[len(podmanReadyBackoff)-1]
 }
 
+// retryFloorCap bounds the RETRY FLOOR (PR-D22 of podman-reboot-readiness.md; the term is
+// coined there): the gate starts a retry only when what is left of the budget after the
+// backoff is longer than the floor, which is how long podman took to give the early answer
+// being retried, capped at this. An attempt started with less than that left is one that
+// would most likely be abandoned mid-answer, leaving a podman running for nothing and a
+// refusal that shows "still running" instead of podman's error. The cap keeps a slow error
+// (one that waited behind a lock, and whose next attempt may answer at once) from costing
+// more than a few seconds of the budget.
+const retryFloorCap = 5 * time.Second
+
+// retryFloor is the floor for a retry of a, the early answer just given.
+func retryFloor(a Attempt) time.Duration {
+	if a.Duration > retryFloorCap {
+		return retryFloorCap
+	}
+	return a.Duration
+}
+
 // PodmanInfoArgv is the gate's probe (PR-D5): the JSON answer is parsed into the launch's
 // Podman facts, so no later reader on the launch path asks podman again.
 func PodmanInfoArgv(rt string) []string { return []string{rt, "info", "--format", "json"} }
@@ -132,7 +150,7 @@ const (
 	// PodmanReady: an attempt exited 0 with JSON that parses. Result.Info is that JSON.
 	PodmanReady ReadyOutcome = iota
 	// PodmanNotReady: the budget ran out — the last attempt is still running, or no retry
-	// fits in what is left.
+	// fits in what is left (its backoff and its retry floor).
 	PodmanNotReady
 	// PodmanRefused: an attempt failed with an error that cannot clear on its own
 	// (Result.Failure names it and its fix).
@@ -168,8 +186,9 @@ func (r ReadyResult) Last() Attempt {
 }
 
 // WaitForPodman is the readiness gate. It runs argv until one attempt answers, an answer
-// cannot clear on its own, the budget ends, or the user interrupts; see the file comment for
-// the rules and podman-reboot-readiness.md for why each one is there.
+// cannot clear on its own, the budget ends (no retry fits in what is left, or the last
+// attempt is still running), or the user interrupts; see the file comment for the rules and
+// podman-reboot-readiness.md for why each one is there.
 //
 // Elapsed time is the larger of the clock's reading and the sum of the backoffs the gate
 // slept, so a clock that does not move (a test's frozen seam) still ends the loop.
@@ -228,8 +247,10 @@ func WaitForPodman(argv []string, budget time.Duration, seams ReadySeams, hooks 
 			res.Elapsed = elapsed()
 			return res
 		}
+		// A retry must fit its backoff AND its floor: an attempt started with less left than
+		// podman just took to answer would most likely be abandoned mid-answer (PR-D22).
 		wait := backoffFor(n)
-		if elapsed()+wait >= budget {
+		if elapsed()+wait+retryFloor(a) >= budget {
 			res.Outcome = PodmanNotReady
 			res.Elapsed = elapsed()
 			return res

@@ -283,3 +283,86 @@ func TestClassifyPodmanFailure(t *testing.T) {
 		})
 	}
 }
+
+// deadlineAttempts runs every attempt as fail: it takes fail.Duration to exit, unless the
+// deadline comes first, in which case it is still running there (pid 110), exactly as the real
+// runner reports an attempt it stopped waiting on. It records when each attempt started.
+func deadlineAttempts(c *fakeGateClock, fail Attempt, starts *[]time.Duration) AttemptRunner {
+	origin := c.t
+	return func(argv []string, deadline time.Time, interrupt <-chan struct{}) Attempt {
+		*starts = append(*starts, c.t.Sub(origin))
+		if end := c.t.Add(fail.Duration); end.After(deadline) {
+			a := Attempt{Pid: 110, Duration: deadline.Sub(c.t)}
+			c.t = deadline
+			return a
+		}
+		c.t = c.t.Add(fail.Duration)
+		return fail
+	}
+}
+
+// THE RETRY FLOOR (PR-D22): a podman that fails the same unrecognized way every time, taking
+// 3 s to say so. The attempt ending at 54 s is followed by a 4 s backoff (58 s), which leaves
+// 2 s: less than podman takes to answer, so a tenth attempt would only be abandoned
+// mid-answer. The gate stops instead, every attempt it started got to answer, and the refusal
+// carries podman's own error rather than a pid it left running.
+func TestTheGateStartsNoRetryItWouldHaveToAbandon(t *testing.T) {
+	c := &fakeGateClock{t: time.Unix(1000, 0)}
+	fail := Attempt{Exited: true, RC: 125, Duration: 3 * time.Second, Pid: 7,
+		Stderr: "Error: unable to connect to Podman socket: dial unix /run/user/1000/podman/podman.sock: connect: connection refused\n"}
+	var starts []time.Duration
+	res := WaitForPodman(PodmanInfoArgv("podman"), PodmanReadyBudget,
+		fakeSeams(c, deadlineAttempts(c, fail, &starts)), ReadyHooks{})
+	if res.Outcome != PodmanNotReady || res.Running != 0 {
+		t.Fatalf("outcome=%v running=%d after attempts starting at %v: the gate started an attempt "+
+			"it could only abandon", res.Outcome, res.Running, starts)
+	}
+	for i, a := range res.Attempts {
+		if !a.Exited {
+			t.Errorf("attempt %d (started at %s) did not get to answer: %+v", i+1, starts[i], a)
+		}
+	}
+	if last := starts[len(starts)-1]; last != 51*time.Second || len(starts) != 9 {
+		t.Errorf("attempts started at %v, want nine, the last at 51s", starts)
+	}
+	refusal := res.Refusal("podman")
+	if !strings.Contains(refusal, "the last attempt: exit 125: Error: unable to connect to Podman socket") ||
+		strings.Contains(refusal, "still running") {
+		t.Errorf("the refusal does not carry podman's error, or names a podman it left running:\n%s", refusal)
+	}
+
+	// The floor is capped: an error that took 20 s (one that waited behind a lock) still
+	// leaves a retry that has more than the cap left to run.
+	c2 := &fakeGateClock{t: time.Unix(1000, 0)}
+	slow := fail
+	slow.Duration = 20 * time.Second
+	var starts2 []time.Duration
+	WaitForPodman(PodmanInfoArgv("podman"), PodmanReadyBudget, fakeSeams(c2, deadlineAttempts(c2, slow, &starts2)), ReadyHooks{})
+	if len(starts2) != 3 || starts2[2] != 43*time.Second {
+		t.Errorf("a slow error's retries started at %v, want 0s, 21s and 43s: the floor is capped at %s",
+			starts2, retryFloorCap)
+	}
+}
+
+// When the last attempt was still running at the end of the budget, the refusal still gives
+// the last error podman DID give, beside the pid it left running.
+func TestARefusalBehindARunningAttemptCarriesTheLastErrorPodmanGave(t *testing.T) {
+	c := &fakeGateClock{t: time.Unix(1000, 0)}
+	calls := 0
+	failed := Attempt{Exited: true, RC: 125, Duration: time.Second,
+		Stderr: "Error: something podman has never said before\n"}
+	res := WaitForPodman(PodmanInfoArgv("podman"), PodmanReadyBudget,
+		fakeSeams(c, scriptedAttempts(c, []Attempt{failed, {Pid: 4242}}, &calls)), ReadyHooks{})
+	if res.Outcome != PodmanNotReady || res.Running != 4242 || calls != 2 {
+		t.Fatalf("outcome=%v running=%d calls=%d", res.Outcome, res.Running, calls)
+	}
+	refusal := res.Refusal("podman")
+	for _, want := range []string{
+		"the last error it gave: exit 125: Error: something podman has never said before",
+		"podman (pid 4242) is still running; yolo left it to finish.",
+	} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("refusal lacks %q:\n%s", want, refusal)
+		}
+	}
+}

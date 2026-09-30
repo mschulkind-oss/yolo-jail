@@ -106,8 +106,15 @@ func (r ReadyResult) Refusal(rt string) string {
 		fmt.Fprintf(&b, "Interrupted while waiting for %s info to answer (%s).", rt, span)
 	default:
 		fmt.Fprintf(&b, "%s info did not answer within %ds (%s)", rt, int(PodmanReadyBudget.Seconds()), span)
-		if r.Failure.Line != "" && last.Exited {
-			fmt.Fprintf(&b, "; the last attempt: %s", Describe(last, r.Failure))
+		// Podman's own reason whenever it gave one: the last attempt's, or — when the last
+		// attempt was still running at the end of the budget — the last error an earlier one
+		// gave, which is otherwise dropped for a line that only says a podman is running.
+		if answered, ok := r.lastAnswered(); ok && r.Failure.Line != "" {
+			if answered == len(r.Attempts)-1 {
+				fmt.Fprintf(&b, "; the last attempt: %s", Describe(last, r.Failure))
+			} else {
+				fmt.Fprintf(&b, "; the last error it gave: %s", Describe(r.Attempts[answered], r.Failure))
+			}
 		}
 		b.WriteString(".")
 	}
@@ -115,6 +122,17 @@ func (r ReadyResult) Refusal(rt string) string {
 		fmt.Fprintf(&b, "\n%s (pid %d) is still running; yolo left it to finish.", rt, r.Running)
 	}
 	return b.String()
+}
+
+// lastAnswered is the index of the last attempt that ended with podman's answer, the one
+// r.Failure classifies; false when none did.
+func (r ReadyResult) lastAnswered() (int, bool) {
+	for i := len(r.Attempts) - 1; i >= 0; i-- {
+		if r.Attempts[i].Exited {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // AttemptNote is one `runtime.ready.attempt` note: the attempt's number, how long the gate
