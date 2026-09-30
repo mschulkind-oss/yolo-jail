@@ -200,6 +200,31 @@ type Contribution struct {
 	// closed where that derive would fail open (AP-D2), which is why it sits on the pack rather
 	// than being inferred: core does not know what an agent can hold.
 	ProviderSets bool `json:"provider_sets,omitempty"`
+	// ModelCatalog names the files, inside the package an npm PROGRAM installs, that hold its
+	// agent's own MODEL CATALOG: the model ids the agent knows with no network. `program` with
+	// `via: "npm"` only. Each entry is a slash-separated glob relative to the installed package's
+	// directory (`<npm prefix>/lib/node_modules/<package name>`), matched one path segment at a
+	// time with path.Match's syntax; every file it matches is read as JSON, and every string an
+	// object holds under an `id` key, at any depth, is an id that catalog knows. packs/pi declares
+	// pi-ai's per-provider data files.
+	//
+	// # What reads it
+	//
+	// `yolo check` alone (docs/design/model-lists-and-pickers.md MM-D16, MM-D19): it warns about a
+	// model id a composed provider list names that no installed agent's catalog knows, and says it
+	// could not ask when no catalog could be read. No launch reads it, and nothing RUNS the program
+	// to learn its catalog: the files are read where the agent was installed (a jail's npm prefix,
+	// the host floor's copy), so an agent not installed yet is one the check could not ask.
+	//
+	// # Why a pack declares it and core does not know it
+	//
+	// Where an agent keeps its catalog is a fact about a release of that agent, and only its pack
+	// can keep it current (P2, docs/reference/extension-point-principle.md). A release that moved
+	// it matches nothing, and the check says it could not read that catalog rather than guessing.
+	// Only a JSON file can be declared: an agent whose catalog lives inside its binary (codex,
+	// opencode, oh-omp) declares none, and a check that ran the binary to print it would start an
+	// agent program, which `yolo check` never does.
+	ModelCatalog []string `json:"model_catalog,omitempty"`
 	// After, as `"host:<path>"` on a `briefing`, prepends the user's own host file to the
 	// jail's composed briefing (run.briefingHostOverlay → jailcontent.PrependHostBriefing) — so a
 	// personal AGENTS.md outranks anything a pack ships INSIDE A JAIL.
@@ -994,6 +1019,11 @@ func (m *Manifest) InstallContributions() []Install {
 		switch c.Via {
 		case "npm":
 			in.Package = c.Package
+			// Inside the switch: validation refuses the field on every other via, since its
+			// entries are relative to the directory npm installs the package into.
+			if len(c.ModelCatalog) > 0 {
+				in.ModelCatalog = append([]string(nil), c.ModelCatalog...)
+			}
 		case "installer":
 			in.InstallerURL = c.URL
 			// Inside the switch, unlike the verb: only the native launcher prunes, and
@@ -3191,6 +3221,10 @@ func validateContribution(label string, c Contribution) []string {
 				"installs holds several providers in one session, so only \"program\" has an agent "+
 				"to declare it for", label, c.Kind))
 	}
+	// `model_catalog` is an npm program's alone: its entries are relative to the directory npm
+	// installs the program's package into, so no other kind, and no other via, has that
+	// directory for them to name a file in.
+	problems = append(problems, modelCatalogProblems(label, c)...)
 	// `reserved` is skills' alone, refused in `profile`'s position and for `profile`'s reason:
 	// the only consumer is the skills destination walk, so a reserved name on any other kind is
 	// a declaration that silently protects nothing.

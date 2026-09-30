@@ -254,6 +254,10 @@ type Install struct {
 	// carries the grammar and the reasoning; this is its projection, and
 	// SupportsPlatform below is the predicate every consumer must ask before installing.
 	Platforms []string `json:"platforms,omitempty"`
+	// ModelCatalog is the program's declared model catalog files (kind == "npm"): globs relative
+	// to the installed package's directory. The Contribution field of the same name carries the
+	// grammar and the reasoning; `yolo check` is its one reader (MM-D16).
+	ModelCatalog []string `json:"model_catalog,omitempty"`
 }
 
 // Refresh declares a program's PRE-LAUNCH REFRESH — a term coined here (2026-09-25) for the
