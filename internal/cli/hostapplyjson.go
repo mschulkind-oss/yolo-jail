@@ -164,6 +164,9 @@ type hostApplyDocGroup struct {
 	// NoRemedy is why there is none, for the classes that have none. Mutually exclusive with
 	// Remedy — a group states one or the other, never both and never neither.
 	NoRemedy string `json:"no_remedy,omitempty"`
+	// Miss is a missing dependency's miss line: the PATH yolo searched and the `host_path` fix
+	// (host-launch-environment.md §4.2). Absent for every other class.
+	Miss string `json:"miss,omitempty"`
 }
 
 // buildHostApplyDoc renders a finished observe pass's survey as the document.
@@ -226,6 +229,7 @@ func buildHostApplyDoc(s *hostApplySurvey) hostApplyDoc {
 		doc.Groups = append(doc.Groups, hostApplyDocGroup{
 			Class: g.Class, Key: g.Key, Headline: g.Headline,
 			Items: emptyIfNil(g.Items), Remedy: g.Remedy, Alt: g.Alt, NoRemedy: g.NoRemedy,
+			Miss: g.Miss,
 		})
 	}
 	return doc

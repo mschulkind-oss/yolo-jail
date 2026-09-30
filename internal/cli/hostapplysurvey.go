@@ -29,6 +29,8 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -145,6 +147,12 @@ type hostApplySurvey struct {
 	// and they are not missing either — they were never probed (the dependency rule point 6).
 	deps      map[string]hostDepFinding
 	depsNoBin int
+	// launchPath is the LAUNCH PATH the dependency pre-flight read (probeHostDeps): the PATH
+	// this process was started with, then `host_path`'s folders. Recorded once per run, so the
+	// install the gate runs, its re-probe and every miss line read the PATH the probe did.
+	// declarers is which packs declare each probed binary, by kind: the miss line's "required by".
+	launchPath *hostpath.Launch
+	declarers  map[string]*depDeclarers
 	// installedDeps are the binaries THIS RUN installed, at the user's y, before anything
 	// was rendered (applyhostdepgate.go). The verdict leads with them — "Installed `rg`;
 	// applied: …" — because an apply that changed the host's toolchain did something the
@@ -441,6 +449,50 @@ func (s *hostApplySurvey) noteDep(bin string, f hostDepFinding) {
 	}
 	cur, seen := s.deps[bin]
 	s.deps[bin] = mergeDepFinding(cur, f, seen)
+}
+
+// noteLaunchPath records the launch PATH this run's dependency pre-flight read.
+func (s *hostApplySurvey) noteLaunchPath(lp *hostpath.Launch) {
+	if s == nil {
+		return
+	}
+	s.launchPath = lp
+}
+
+// noteDepDeclarer records that pack declares bin as a dependency of kind k.
+func (s *hostApplySurvey) noteDepDeclarer(bin, pack string, k packdecl.Kind) {
+	if s == nil || bin == "" {
+		return
+	}
+	if s.declarers == nil {
+		s.declarers = map[string]*depDeclarers{}
+	}
+	d := s.declarers[bin]
+	if d == nil {
+		d = &depDeclarers{}
+		s.declarers[bin] = d
+	}
+	d.note(pack, k)
+}
+
+// launchPATH is the launch PATH this run read: the one the pre-flight recorded, or — for a run
+// that never reached it — a fresh resolution, which reads the same two inputs.
+func (s *hostApplySurvey) launchPATH() *hostpath.Launch {
+	if s != nil && s.launchPath != nil {
+		return s.launchPath
+	}
+	return hostLaunchPath()
+}
+
+// MissLine is the miss line (host-launch-environment.md §4.2, HE-D2) for a binary this run found
+// MISSING — the program, the packs that declare it, the whole PATH searched and the `host_path`
+// fix — and "" for any other binary, or in a jail. launch says whether it is a launch's line (the
+// gate's), whose PATH is "this launch's".
+func (s *hostApplySurvey) MissLine(bin string, launch bool) string {
+	if s == nil || s.deps[bin].State != depMissing {
+		return ""
+	}
+	return s.launchPATH().MissLine(s.declarers[bin].miss(bin, launch))
 }
 
 // mergeDepFinding is THE rule for two declarations of one binary, and it is a function rather

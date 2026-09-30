@@ -67,7 +67,7 @@ func TestApplyHostReportsMissingDepWithRemedy(t *testing.T) {
 	// The remedy must be the shared checker's own, not a second rendering of it — compare
 	// against depcheck for the same requirement, so a divergent formatter fails here.
 	want := depcheck.Check([]depcheck.Requirement{{Bin: "missingbin",
-		Hints: map[string]string{"apt": "missing-apt-pkg", "brew": "missing-brew-pkg"}}})[0].Remedy
+		Hints: map[string]string{"apt": "missing-apt-pkg", "brew": "missing-brew-pkg"}}}, hostLaunchPath().LookPath)[0].Remedy
 	if want == "" {
 		t.Fatal("fixture PATH did not yield a detected manager with a hint — test setup bug")
 	}

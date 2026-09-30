@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -224,19 +225,26 @@ func TestHostLaunchOfATargetGivenAsAPathRunsThatFile(t *testing.T) {
 	}
 }
 
-// TestHostChildPathIsTheCallersThenTheFloorsDeduplicated.
-func TestHostChildPathIsTheCallersThenTheFloorsDeduplicated(t *testing.T) {
+// TestHostChildPathIsTheCallersThenHostPathThenTheFloorsDeduplicated: the caller's PATH, then each
+// host_path folder not already on it (HE-D3), then the floor's bin/ (HE-D1), duplicates removed.
+func TestHostChildPathIsTheCallersThenHostPathThenTheFloorsDeduplicated(t *testing.T) {
 	sep := string(os.PathListSeparator)
-	got := hostChildPath(strings.Join([]string{"/a", "", "/b", "/a", "/floor/bin"}, sep), "/floor/bin")
+	ambient := strings.Join([]string{"/a", "", "/b", "/a", "/floor/bin"}, sep)
+	got := hostChildPath(hostpath.New(ambient, nil, nil, "/home/u"), "/floor/bin")
 	if want := strings.Join([]string{"/a", "/b", "/floor/bin"}, sep); got != want {
 		t.Errorf("hostChildPath = %q, want %q", got, want)
 	}
-	// A caller with no PATH: the system baseline stands in for it, ahead of the floor's bin/, so
-	// the agent's own commands still resolve.
-	baseline := strings.Join(append(hostfloor.BaselinePath(), "/floor/bin"), sep)
+	got = hostChildPath(hostpath.New("/a"+sep+"/b", []string{"/tools", "/a", "/more"}, nil, "/home/u"), "/floor/bin")
+	if want := strings.Join([]string{"/a", "/b", "/tools", "/more", "/floor/bin"}, sep); got != want {
+		t.Errorf("with host_path, hostChildPath = %q, want %q: host_path's new folders after the "+
+			"caller's PATH and before the floor", got, want)
+	}
+	// A caller with no PATH: the system baseline stands in for it, ahead of host_path's folders
+	// and the floor's bin/, so the agent's own commands still resolve (HP-D12).
+	baseline := strings.Join(append(hostfloor.BaselinePath(), "/tools", "/floor/bin"), sep)
 	for _, empty := range []string{"", sep, sep + sep} {
-		if got := hostChildPath(empty, "/floor/bin"); got != baseline {
-			t.Errorf("caller PATH %q gives %q, want the baseline then the floor: %q", empty, got, baseline)
+		if got := hostChildPath(hostpath.New(empty, []string{"/tools"}, nil, "/home/u"), "/floor/bin"); got != baseline {
+			t.Errorf("caller PATH %q gives %q, want the baseline, host_path, then the floor: %q", empty, got, baseline)
 		}
 	}
 }

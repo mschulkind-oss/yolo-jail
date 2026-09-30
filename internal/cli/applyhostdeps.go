@@ -35,6 +35,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -110,7 +111,12 @@ func isDepKind(k packdecl.Kind) bool {
 // contributions declare. A pack with neither probes nothing — depcheck.DetectManager
 // shells out looking for apt/dnf/pacman/brew, and that cost should not be paid by the many
 // packs that declare no host dep at all.
-func resolveHostDeps(p *packload.Pack) *hostDeps {
+//
+// Every binary the floor does not answer for is looked up on lp, the LAUNCH PATH (the PATH this
+// process was started with, then `host_path`'s folders: host-launch-environment.md §2.2), through
+// its one lookup, which skips yolo's own folders so a wrapper never reads as the program it wraps
+// (HE-D5). The package manager a remedy names is found on the same PATH.
+func resolveHostDeps(p *packload.Pack, lp *hostpath.Launch) *hostDeps {
 	h := &hostDeps{byBin: map[string]depcheck.Result{}}
 	// The floor's programs first, and never through PATH: whether some other copy is on the
 	// caller's PATH says nothing about the one `yolo host` runs (HP-DIR4).
@@ -122,7 +128,7 @@ func resolveHostDeps(p *packload.Pack) *hostDeps {
 	if len(reqs) == 0 {
 		return h
 	}
-	for _, r := range depcheck.Check(reqs) {
+	for _, r := range depcheck.Check(reqs, lp.LookPath) {
 		h.byBin[r.Bin] = r
 	}
 	return h
@@ -176,17 +182,24 @@ var hostDepProbe = resolveHostDeps
 // early for those without shelling out, and probing unconditionally keeps this loop the same
 // shape as the render loop it precedes — a filter here would be a second, quieter answer to
 // "which packs have dependencies?" than the one the report gives.
+//
+// THE LAUNCH PATH IS RESOLVED ONCE HERE, for the whole run, and recorded in the survey: every
+// pack's probe reads it, the dependency gate's install runs with it and its re-probe reads it
+// (HE-D6), and each missing binary's miss line names it (HE-D2). So one run asks one PATH.
 func probeHostDeps(loaded []*packload.Pack, fields render.FieldSet,
 	survey *hostApplySurvey) hostDepPreflight {
 	pf := hostDepPreflight{byPack: make(map[*packload.Pack]*hostDeps, len(loaded))}
+	lp := hostLaunchPath()
+	survey.noteLaunchPath(lp)
 	for _, p := range loaded {
-		h := hostDepProbe(p)
+		h := hostDepProbe(p, lp)
 		pf.byPack[p] = h
 		for _, c := range p.Decl.Contributions() {
 			if !isProbedDep(fields, c) {
 				continue
 			}
 			survey.noteDep(c.Bin, h.finding(c))
+			survey.noteDepDeclarer(c.Bin, p.Name, c.Kind)
 		}
 	}
 	return pf

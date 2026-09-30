@@ -12,7 +12,7 @@ func TestCheck(t *testing.T) {
 	// Deterministic seams: only "have" is present; manager is brew.
 	orig, origM := LookPath, DetectManager
 	t.Cleanup(func() { LookPath, DetectManager = orig, origM })
-	DetectManager = func() string { return "brew" }
+	DetectManager = func(Lookup) string { return "brew" }
 	LookPath = func(bin string) (string, error) {
 		if bin == "have" {
 			return "/opt/homebrew/bin/have", nil
@@ -25,7 +25,7 @@ func TestCheck(t *testing.T) {
 		{Bin: "want", Hints: map[string]string{"brew": "want-pkg", "apt": "want-apt"}},
 		{Bin: "nohint"}, // missing, no remedy
 	}
-	res := Check(reqs)
+	res := Check(reqs, nil)
 
 	byBin := map[string]Result{}
 	for _, r := range res {
@@ -92,7 +92,7 @@ func TestManifestBrewfile(t *testing.T) {
 func TestSelfInstallBeatsAManagerHint(t *testing.T) {
 	orig, origM := LookPath, DetectManager
 	t.Cleanup(func() { LookPath, DetectManager = orig, origM })
-	DetectManager = func() string { return "brew" }
+	DetectManager = func(Lookup) string { return "brew" }
 	LookPath = func(string) (string, error) { return "", errors.New("not found") }
 
 	res := Check([]Requirement{
@@ -103,7 +103,7 @@ func TestSelfInstallBeatsAManagerHint(t *testing.T) {
 		{Bin: "solo", SelfInstall: "npm install -g solo-pkg"},
 		// No self-installer (a `requires`): the hint is the remedy, as before.
 		{Bin: "fzf", Hints: map[string]string{"brew": "fzf"}},
-	})
+	}, nil)
 	byBin := map[string]Result{}
 	for _, r := range res {
 		byBin[r.Bin] = r
@@ -151,7 +151,7 @@ func TestSelfInstallBeatsAManagerHint(t *testing.T) {
 func TestBrewCaskHint(t *testing.T) {
 	orig, origM := LookPath, DetectManager
 	t.Cleanup(func() { LookPath, DetectManager = orig, origM })
-	DetectManager = func() string { return "brew" }
+	DetectManager = func(Lookup) string { return "brew" }
 	LookPath = func(string) (string, error) { return "", errors.New("not found") }
 
 	res := Check([]Requirement{
@@ -162,7 +162,7 @@ func TestBrewCaskHint(t *testing.T) {
 		{Bin: "copilot", Hints: map[string]string{"brew-cask": "copilot-cli", "brew": "copilot"}},
 		// A real formula stays a formula.
 		{Bin: "psql", Hints: map[string]string{"brew": "postgresql@16"}},
-	})
+	}, nil)
 	byBin := map[string]Result{}
 	for _, r := range res {
 		byBin[r.Bin] = r
@@ -197,8 +197,8 @@ func TestBrewCaskHint(t *testing.T) {
 
 	// A non-brew host cannot select a brew-cask hint at all: nothing covers it, so the
 	// result is missing-with-no-remedy rather than a bogus `apt install claude-code`.
-	DetectManager = func() string { return "apt" }
-	apt := Check([]Requirement{{Bin: "claude", Hints: map[string]string{"brew-cask": "claude-code"}}})
+	DetectManager = func(Lookup) string { return "apt" }
+	apt := Check([]Requirement{{Bin: "claude", Hints: map[string]string{"brew-cask": "claude-code"}}}, nil)
 	if apt[0].Remedy != "" || apt[0].Flavor != "" {
 		t.Errorf("brew-cask must not be selected for apt, got %+v", apt[0])
 	}
@@ -227,13 +227,52 @@ func TestPresentReprobesThroughTheSeam(t *testing.T) {
 		}
 		return "", errors.New("not found")
 	}
-	if p, ok := Present("there"); !ok || p != "/stub/there" {
+	if p, ok := Present("there", nil); !ok || p != "/stub/there" {
 		t.Errorf("Present(there) = %q/%v, want the seam's path", p, ok)
 	}
-	if p, ok := Present("gone"); ok || p != "" {
+	if p, ok := Present("gone", nil); ok || p != "" {
 		t.Errorf("Present(gone) = %q/%v, want not found", p, ok)
 	}
 	if asked != 2 {
 		t.Errorf("the seam was consulted %d times, want 2 — Present probed something else", asked)
+	}
+}
+
+// TestEveryProbeReadsTheCallersLookup: the presence probe, the package-manager guess and the
+// re-probe all go through the lookup the caller hands them (host-launch-environment.md §3's
+// dependency-probe and detectManager rows), never LookPath or a bare exec.LookPath beside it. A
+// manager only the lookup can see names the remedy; with a lookup that sees none, the remedy
+// falls to nix whatever the machine's own PATH holds.
+func TestEveryProbeReadsTheCallersLookup(t *testing.T) {
+	real := LookPath
+	t.Cleanup(func() { LookPath = real })
+	LookPath = func(bin string) (string, error) {
+		t.Errorf("LookPath(%q) consulted although the caller passed a lookup", bin)
+		return "", errors.New("not found")
+	}
+	only := func(have ...string) Lookup {
+		return func(bin string) (string, error) {
+			for _, h := range have {
+				if h == bin {
+					return "/launch/path/" + bin, nil
+				}
+			}
+			return "", errors.New("not found")
+		}
+	}
+	req := []Requirement{{Bin: "tool", Hints: map[string]string{"pacman": "tool-pkg", "nix": "tool-nix"}},
+		{Bin: "have", Hints: map[string]string{"pacman": "have-pkg"}}}
+	res := Check(req, only("pacman", "have"))
+	if res[0].Bin != "have" || !res[0].Present || res[0].Path != "/launch/path/have" {
+		t.Errorf("have = %+v, want present at the lookup's path", res[0])
+	}
+	if res[1].Manager != "pacman" || res[1].Remedy != "sudo pacman -S --noconfirm tool-pkg" {
+		t.Errorf("tool = %+v, want pacman's remedy: pacman is on the lookup's PATH", res[1])
+	}
+	if res := Check(req, only()); res[1].Manager != "nix" {
+		t.Errorf("with a lookup that sees no manager, manager = %q, want nix", res[1].Manager)
+	}
+	if p, ok := Present("have", only("have")); !ok || p != "/launch/path/have" {
+		t.Errorf("Present = %q/%v, want the lookup's answer", p, ok)
 	}
 }

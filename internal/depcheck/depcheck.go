@@ -127,45 +127,68 @@ type Result struct {
 	Unpublished string
 }
 
-// LookPath is the probe seam — overridable in tests so a check does not depend on the
-// host's real PATH.
+// Lookup resolves a binary on one PATH, exec.LookPath's shape. Every probe here takes it from
+// its CALLER (docs/design/host-launch-environment.md §3): at the host that is the launch PATH's
+// one resolver (internal/hostpath), so the dependency probe, the package-manager guess and the
+// re-probe after an install all read the PATH the launch does, `host_path` included. A nil
+// Lookup is LookPath.
+type Lookup func(bin string) (string, error)
+
+// LookPath is the probe used when a caller passes no Lookup — a TEST SEAM, so a check in this
+// package's tests does not depend on the machine's real PATH. No production caller passes nil.
 var LookPath = exec.LookPath
 
-// DetectManager returns the host package manager to prefer for remedies. Overridable in
-// tests. Order: on macOS prefer brew; on Linux probe apt/dnf/pacman in turn; nix last as
-// the always-available fallback (it is the jail's manager too).
+// lookupOrDefault is look, or LookPath when look is nil.
+func lookupOrDefault(look Lookup) Lookup {
+	if look != nil {
+		return look
+	}
+	return func(bin string) (string, error) { return LookPath(bin) }
+}
+
+// DetectManager returns the host package manager to prefer for remedies, found through look.
+// Overridable in tests. Order: on macOS prefer brew; on Linux probe apt/dnf/pacman in turn; nix
+// last as the always-available fallback (it is the jail's manager too).
+//
+// Through the CALLER'S lookup, not a bare exec.LookPath: a launcher whose PATH lacks
+// /opt/homebrew/bin has no `brew` on the PATH the dependency probe reads either, and naming
+// Homebrew's remedy there while the probe could not see Homebrew's folder would be two answers
+// about one PATH.
 var DetectManager = detectManager
 
-func detectManager() string {
+func detectManager(look Lookup) string {
+	look = lookupOrDefault(look)
 	if runtime.GOOS == "darwin" {
-		if _, err := exec.LookPath("brew"); err == nil {
+		if _, err := look("brew"); err == nil {
 			return "brew"
 		}
 	}
 	for _, m := range []string{"apt", "dnf", "pacman", "brew"} {
-		if _, err := exec.LookPath(m); err == nil {
+		if _, err := look(m); err == nil {
 			return m
 		}
 	}
 	return "nix"
 }
 
-// Check probes every requirement against the host and returns the results in Bin order.
-// It never installs anything — it reports (BACKLOG's "detect vs. apply" split); the
-// caller decides whether to offer to run the remedies.
+// Check probes every requirement through look and returns the results in Bin order. It
+// never installs anything — it reports (BACKLOG's "detect vs. apply" split); the caller
+// decides whether to offer to run the remedies. The package manager a remedy names is found
+// through the same look.
 //
 // REMEDY PRECEDENCE: the declaring pack's OWN installer first, then the detected package
 // manager's hint. See selfInstallFlavor for why that order — in short, a tool with a
 // first-party installer has a first-party updater, and a distro package silently pins it to
 // whatever that repo has. When both exist the manager's command is kept as Fallback rather
 // than discarded, so a user who prefers their package manager still sees the token.
-func Check(reqs []Requirement) []Result {
-	mgr := DetectManager()
+func Check(reqs []Requirement, look Lookup) []Result {
+	look = lookupOrDefault(look)
+	mgr := DetectManager(look)
 	var out []Result
 	for _, r := range reqs {
 		res := Result{Bin: r.Bin, Manager: mgr}
 		switch {
-		case presentAt(r.Bin, &res):
+		case presentAt(look, r.Bin, &res):
 			// probed present; nothing to remedy
 		case r.Unpublished != "":
 			// Absent, and no vendor build exists for this host: there is no remedy to offer,
@@ -191,8 +214,8 @@ func Check(reqs []Requirement) []Result {
 // presentAt probes for bin and records the resolved path on res, reporting whether it was
 // found. Split out so Check's precedence reads as one switch rather than an if/else chain
 // with a probe buried in its condition.
-func presentAt(bin string, res *Result) bool {
-	p, err := LookPath(bin)
+func presentAt(look Lookup, bin string, res *Result) bool {
+	p, err := look(bin)
 	if err != nil {
 		return false
 	}
@@ -207,11 +230,11 @@ func presentAt(bin string, res *Result) bool {
 // (docs/reference/report-tiers.md's dependency rule point 5, where a still-missing binary is
 // the same fatal as a declined install).
 //
-// Through the LookPath SEAM rather than exec.LookPath directly, so a caller that stubbed the
-// probe for Check does not get an unstubbed second opinion here — two probes over one PATH is
-// the drift this package exists to prevent.
-func Present(bin string) (path string, ok bool) {
-	p, err := LookPath(bin)
+// Through the caller's look, the one Check was handed, so the re-probe reads the PATH the
+// probe did (and the install ran with) rather than a second opinion — two probes over two PATHs
+// is the drift this package exists to prevent.
+func Present(bin string, look Lookup) (path string, ok bool) {
+	p, err := lookupOrDefault(look)(bin)
 	if err != nil {
 		return "", false
 	}

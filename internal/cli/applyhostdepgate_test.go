@@ -102,7 +102,7 @@ func watchInstalls(t *testing.T, then func(cmd string) error) *[]string {
 	var ran []string
 	prev := depInstallRun
 	t.Cleanup(func() { depInstallRun = prev })
-	depInstallRun = func(cmd string, _ io.Writer) error {
+	depInstallRun = func(cmd string, _ []string, _ io.Writer) error {
 		ran = append(ran, cmd)
 		if then == nil {
 			return nil
@@ -344,7 +344,7 @@ func TestRunDepInstallCommandGoesThroughAShell(t *testing.T) {
 
 	var log bytes.Buffer
 	// A PIPE and a REDIRECT: both are shell syntax, and both are shapes real hints have.
-	if err := runDepInstallCommand("echo installed | tr a-z A-Z > "+out, &log); err != nil {
+	if err := runDepInstallCommand("echo installed | tr a-z A-Z > "+out, os.Environ(), &log); err != nil {
 		t.Fatalf("a well-formed command must succeed: %v (%s)", err, log.String())
 	}
 	body, err := os.ReadFile(out)
@@ -358,10 +358,21 @@ func TestRunDepInstallCommandGoesThroughAShell(t *testing.T) {
 	// A failing command is an ERROR, and its output reaches the writer — which is how the
 	// gate's refusal gets to say what went wrong rather than only that something did.
 	log.Reset()
-	if err := runDepInstallCommand("echo boom >&2; exit 3", &log); err == nil {
+	if err := runDepInstallCommand("echo boom >&2; exit 3", os.Environ(), &log); err == nil {
 		t.Error("a non-zero exit must be reported as an error")
 	}
 	if !strings.Contains(log.String(), "boom") {
 		t.Errorf("the command's own output must reach the report, got %q", log.String())
+	}
+
+	// THE ENVIRONMENT IT IS HANDED is the one it runs with — the gate hands it the launch PATH
+	// (HE-D6) — and not this process's own.
+	marked := filepath.Join(dir, "marked")
+	if err := runDepInstallCommand(`printf '%s|%s' "$YOLO_TEST_INSTALL_MARK" "$PATH" > `+marked,
+		[]string{"YOLO_TEST_INSTALL_MARK=handed", "PATH=/launch/path/bin"}, &log); err != nil {
+		t.Fatalf("the marked command failed: %v (%s)", err, log.String())
+	}
+	if body, _ := os.ReadFile(marked); string(body) != "handed|/launch/path/bin" {
+		t.Errorf("the command saw %q, want the environment it was handed", body)
 	}
 }

@@ -226,7 +226,10 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 		// The common case, and the one R3 is about: silence. A freshly-applied home must
 		// prompt not at all, ever, until something actually changes. A standing failure in
 		// another program's configuration is the one thing said here, because nothing else
-		// will say it until the next explicit apply.
+		// will say it until the next explicit apply — and so is a declared dependency this
+		// launch's PATH lacks, the miss line being a disclosure rather than a prompt
+		// (host-launch-environment.md §4.2: it prints on every miss).
+		reportGateMisses(errw, survey, bin)
 		reportUnrelatedLaunchFailures(errw, home, bin, unrelated)
 		return true
 	}
@@ -245,6 +248,7 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	// program this launch is not — between the user and the program they asked for.
 	if decisions := survey.PendingDecisions(); len(decisions) > 0 && !surveyOnlyNeedsLossPrompt(survey) {
 		reportHostApplyGateDecisions(errw, bin, decisions)
+		reportGateMisses(errw, survey, bin)
 		return true
 	}
 
@@ -314,6 +318,22 @@ func reportHostApplyGateDecisions(errw io.Writer, bin string, decisions []string
 	fmt.Fprintf(errw, "  → yolo host apply --assert   (shows each question and asks it), then "+
 		"launch again.\n")
 	fmt.Fprintf(errw, "  Launching %s against the configuration your last apply left in place.\n", bin)
+}
+
+// reportGateMisses prints the miss line (host-launch-environment.md §4.2, HE-D2) for every declared
+// dependency the observe pass found missing on this launch's PATH: the program, the packs that
+// need it, the whole PATH searched and the `host_path` fix. Once per missing program: the one this
+// launch starts is left to the exec's own lookup, which prints the same line moments later if it
+// misses too — and does not, when a floor copy or a given path runs instead.
+func reportGateMisses(errw io.Writer, survey *hostApplySurvey, bin string) {
+	for _, dep := range survey.MissingDeps() {
+		if dep == bin {
+			continue
+		}
+		if line := survey.MissLine(dep, true); line != "" {
+			fmt.Fprintf(errw, "yolo host: %s\n", line)
+		}
+	}
 }
 
 // noPromptStdin is the stdin the hook's buffered apply reads. The hook only runs an apply the

@@ -47,7 +47,7 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 		}
 	}
 
-	reqs, unresolved, floor := configuredDepRequirements()
+	reqs, unresolved, floor, declarers := configuredDepRequirements()
 	pr := richtext.Printer{W: out, Color: color}
 	// NAMED, NEVER SKIPPED: a pack this probe could not resolve declares deps nobody looked
 	// at, so "nothing missing" would be a claim about binaries it never checked.
@@ -78,7 +78,12 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 		}
 		return 0
 	}
-	results := depcheck.Check(reqs)
+	// THE LAUNCH PATH (host-launch-environment.md §2.2): the PATH this command was started with,
+	// then `host_path`'s folders — the PATH a `yolo host` launch from the same shell checks, read
+	// through the one resolver's lookup, so check-deps and the launch cannot disagree about a
+	// binary. The package manager each remedy names is found on it too.
+	lp := hostLaunchPath()
+	results := depcheck.Check(reqs, lp.LookPath)
 
 	missing := depcheck.Missing(results)
 	for _, r := range results {
@@ -100,6 +105,13 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 			}
 		default:
 			pr.Printf("[yellow]?[/yellow] %-16s MISSING, no install hint for this host", r.Bin)
+		}
+		// THE MISS LINE (HE-D2) under every missing binary: the whole PATH searched and the
+		// `host_path` fix, since from a bare launcher "missing" may only mean "not on this PATH".
+		if !r.Present && r.Unpublished == "" {
+			if line := lp.MissLine(declarers[r.Bin].miss(r.Bin, false)); line != "" {
+				pr.Printf("  %s", richtext.Escape(line))
+			}
 		}
 	}
 	if len(missing) == 0 {
@@ -149,19 +161,22 @@ func depManifestDir() string {
 // The third return is the programs the HOST AGENT FLOOR answers for, left out of the first: their
 // answer is the floor entry — the copy `yolo host` runs — never whatever a PATH holds
 // (host-launch-environment.md §3). Empty in a jail.
-func configuredDepRequirements() ([]depcheck.Requirement, []unresolvedPack, map[string]hostfloor.Status) {
+//
+// The fourth is which packs declare each binary, the "required by" of a miss line.
+func configuredDepRequirements() ([]depcheck.Requirement, []unresolvedPack, map[string]hostfloor.Status,
+	map[string]*depDeclarers) {
 	// The one selection function (selectHostPacks, notch-convergence item 6): a pack the
 	// selection closure joins is one a launch delivers, so its deps are probed too.
 	sel := selectConfiguredHostPacks()
 	if sel.loadErr != nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	floor := floorDeliveredBins(sel.packs)
 	var reqs []depcheck.Requirement
 	for _, p := range sel.packs {
 		reqs = append(reqs, withoutFloorBins(packDepRequirements(p), floor)...)
 	}
-	return reqs, sel.problems(), floor
+	return reqs, sel.problems(), floor, declarersOf(sel.packs)
 }
 
 // unresolvedPack is one configured pack that could not be resolved, and the resolver's own

@@ -80,6 +80,10 @@ type remedyGroup struct {
 	NoRemedy string
 	// Note is one trailing fact about the class, printed under the last group of its kind.
 	Note string
+	// Miss is the miss line of a missing dependency (host-launch-environment.md §4.2): the whole
+	// PATH yolo searched for it and the `host_path` fix, printed under the headline. "" for every
+	// other class, and in a jail.
+	Miss string
 	// VerdictTerm is the word the verdict block requires for this group. It
 	// travels WITH the group so the contract is checkable: the verdict is produced from the
 	// survey independently, and a class that stops being counted there fails the assertion
@@ -241,6 +245,7 @@ func depBlockerGroups(blockers []hostDepBlocker) []remedyGroup {
 			Remedy:      b.Remedy,
 			Alt:         b.Alt,
 			NoRemedy:    b.NoRemedy,
+			Miss:        b.Miss,
 			VerdictTerm: b.Bin,
 			Warn:        true,
 		})
@@ -444,6 +449,9 @@ func printRemedyGroups(pr richtext.Printer, groups []remedyGroup) {
 			pr.Printf("  [bold yellow]⚠ %s[/bold yellow]", head)
 		} else {
 			pr.Printf("  [yellow]%s[/yellow]", head)
+		}
+		if g.Miss != "" {
+			pr.Printf("    %s", richtext.Escape(g.Miss))
 		}
 		switch {
 		case g.Remedy != "":

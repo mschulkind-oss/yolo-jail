@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
@@ -658,10 +659,13 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 
 	// WHICH BINARY RUNS (HP-DIR4, host-launch-environment.md §3): a bare name of a program a
 	// selected pack delivers is the FLOOR's copy, installed first when missing; a path is exec'd
-	// as given; anything else is looked up on the child's PATH — the caller's PATH, then the
-	// floor's bin/ (OQ-HE10 (c), HE-D1), which is also the PATH the child is handed below.
-	childPath := hostChildPath(os.Getenv("PATH"), hostFloorBinDir())
-	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], childPath, errw)
+	// as given; anything else is looked up on the child's PATH — the LAUNCH PATH (the caller's
+	// PATH, then `host_path`'s folders not already on it: HE-DIR1, HE-D3), then the floor's bin/
+	// (OQ-HE10 (c), HE-D1), which is also the PATH the child is handed below. The launch PATH is
+	// resolved once, here, for both.
+	lp := hostLaunchPath()
+	childPath := hostChildPath(lp, hostFloorBinDir())
+	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw)
 	if rc != 0 {
 		return rc
 	}
@@ -845,9 +849,10 @@ func resolveHostTarget(pathEnv, bin string) (string, error) {
 
 // yoloManagedDirs are the directories a host PATH lookup must skip. The whole generated
 // tree is named rather than just bin/wrap, so bin/block and bin/launch are covered the
-// day they exist without this list needing to be revisited.
+// day they exist without this list needing to be revisited. It is the launch PATH's own skip
+// list (hostpath.ManagedDirs), so the checks and the exec skip the same folders (HE-D5).
 func yoloManagedDirs() []string {
-	return []string{paths.GeneratedBinDir()}
+	return hostpath.ManagedDirs()
 }
 
 // hostComposition is one host agent launch's composed environment, with the facts the

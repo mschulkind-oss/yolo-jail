@@ -326,7 +326,7 @@ func TestHostServicesLaunchRunsTheFloorsCopyWithTheFloorsPath(t *testing.T) {
 	}
 	floorBin := filepath.Join(paths.HostFloorDir(), "bin")
 	sep := string(os.PathListSeparator)
-	if want := hostChildPath(os.Getenv("PATH"), floorBin); l.report.Path != want ||
+	if want := hostChildPath(hostLaunchPath(), floorBin); l.report.Path != want ||
 		!strings.HasSuffix(l.report.Path, sep+floorBin) {
 		t.Errorf("the agent's PATH = %q, want the caller's then the floor's bin/: %q", l.report.Path, want)
 	}

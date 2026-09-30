@@ -47,10 +47,12 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -65,6 +67,9 @@ type hostDepBlocker struct {
 	// and why there is none. Embedded rather than copied field by field so a finding that
 	// grows a field reaches the gate and the report together.
 	hostDepFinding
+	// Miss is the miss line (host-launch-environment.md §4.2): the whole PATH the probe searched
+	// and the `host_path` fix, printed under the blocker's headline. "" in a jail.
+	Miss string
 }
 
 // installable reports whether yolo has an install to OFFER for this dependency — OQ-RO7's
@@ -87,17 +92,34 @@ func (f hostDepFinding) installable() bool {
 func hostDepBlockers(s *hostApplySurvey) []hostDepBlocker {
 	var out []hostDepBlocker
 	for _, bin := range s.MissingDeps() {
-		out = append(out, hostDepBlocker{Bin: bin, hostDepFinding: s.MissingDepFinding(bin)})
+		out = append(out, hostDepBlocker{Bin: bin, hostDepFinding: s.MissingDepFinding(bin),
+			Miss: s.MissLine(bin, false)})
 	}
 	return out
 }
 
-// depInstallRun runs one install command, behind a var so a test can observe what the gate
-// would run against a real host without running it. The seam is the ONLY way a test reaches
-// this code: an automated test must never execute a pack's install hint (AGENTS.md's
-// no-agent-tests rule is the same rule one layer down), and the commands are `sudo apt install`
-// and `curl … | sh`.
+// depInstallRun runs one install command with env, behind a var so a test can observe what the
+// gate would run against a real host — and with which PATH — without running it. The seam is
+// the ONLY way a test reaches this code: an automated test must never execute a pack's install
+// hint (AGENTS.md's no-agent-tests rule is the same rule one layer down), and the commands are
+// `sudo apt install` and `curl … | sh`.
 var depInstallRun = runDepInstallCommand
+
+// depInstallEnviron is the environment an install the gate runs gets: this process's own, with
+// PATH set to the launch PATH (HE-D6) — the PATH yolo was started with, then `host_path`'s folders
+// — so the `npm` or `brew` an accepted remedy runs is the one the probe's PATH names first, and an
+// install that lands in a `host_path` folder is found by the re-probe, which reads the same PATH.
+// Never the agent's PATH: that ends with the floor's bin/, which holds agents, not installers.
+func depInstallEnviron(lp *hostpath.Launch) []string {
+	env := os.Environ()
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "PATH=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, "PATH="+lp.Value())
+}
 
 // runDepInstallCommand runs a declared install hint through a shell.
 //
@@ -116,8 +138,12 @@ var depInstallRun = runDepInstallCommand
 // check, then `sh <file>`), which docs/reference/report-tiers.md's dependency rule does not
 // allow as written: its point 3 promises "the exact command each install would run". So it
 // waits on a ruling.
-func runDepInstallCommand(cmd string, out io.Writer) error {
+//
+// env is the install's environment (depInstallEnviron). `sh` itself is still found on this
+// process's own PATH, as exec.Command finds any program.
+func runDepInstallCommand(cmd string, env []string, out io.Writer) error {
 	c := exec.Command("sh", "-c", cmd)
+	c.Env = env
 	c.Stdout, c.Stderr = out, out
 	return c.Run()
 }
@@ -167,9 +193,11 @@ func gateHostDeps(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			"Nothing was written.[/bold red]", depBlockerPhrase(offer))
 		return 1
 	}
+	lp := survey.launchPATH()
+	env := depInstallEnviron(lp)
 	for _, b := range offer {
 		pr.Printf("  [cyan]→ %s[/cyan]", b.Remedy)
-		if err := depInstallRun(b.Remedy, out); err != nil {
+		if err := depInstallRun(b.Remedy, env, out); err != nil {
 			pr.Printf("  [red]%s: %v[/red]", b.Bin, err)
 		}
 		// RE-PROBE, and it is the command's answer rather than its exit code that decides
@@ -180,10 +208,13 @@ func gateHostDeps(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// sentence the decline gets, so nothing further runs — neither a render nor the next
 		// install. The user consented to the commands as a set, not to having the remainder
 		// run against a host this run has already refused.
-		path, ok := depcheck.Present(b.Bin)
+		//
+		// ON THE LAUNCH PATH the install ran with (HE-D6), so a binary it put in a `host_path`
+		// folder is found.
+		path, ok := depcheck.Present(b.Bin, lp.LookPath)
 		if !ok {
-			pr.Printf("[bold red]host apply: refused — installing `%s` did not produce it. "+
-				"Nothing was written.[/bold red]", b.Bin)
+			pr.Printf("[bold red]host apply: refused — installing `%s` did not produce it on the "+
+				"PATH yolo searched. Nothing was written.[/bold red]", b.Bin)
 			return 1
 		}
 		deps.markInstalled(b.Bin, path)

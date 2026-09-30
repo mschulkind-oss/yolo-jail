@@ -15,7 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
-	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -271,22 +271,37 @@ type hostTarget struct {
 //     is a selected pack's program the floor cannot hold on this machine, with one line saying
 //     so, which keeps today's behavior while OQ-HE11 is open.
 //
-// That lookup skips the floor's own bin/, which the child's PATH ends with (HE-D1). Every name in
-// bin/ is a floor entry, and one a selected pack delivers never reaches the lookup (it runs by
-// path), so a hit there could only be a DESELECTED ENTRY: one a deselected pack — or one
-// `host_floor` now leaves out — left behind until the next `yolo host apply --assert` removes it
-// (§4, "Deselection"). yolo host runs its floor copy of what a selected pack delivers and of
-// nothing else (HP-DIR4), so a deselected entry is never run, in either case, and a launch that
-// finds nothing else says what it is and what removes it.
+// That lookup is the launch PATH's (lp, host-launch-environment.md §2.2: the PATH yolo was started
+// with, then `host_path`'s folders not already on it) through its one lookup (HE-D5), as the
+// child searches it (hostChildLaunch) — the child's PATH less the floor's bin/, which it ends with
+// (HE-D1). Every name in bin/ is a floor entry, and one a selected pack delivers never reaches the
+// lookup (it runs by path), so a hit there could only be a DESELECTED ENTRY: one a deselected pack
+// — or one `host_floor` now leaves out — left behind until the next `yolo host apply --assert`
+// removes it (§4, "Deselection"). yolo host runs its floor copy of what a selected pack delivers
+// and of nothing else (HP-DIR4), so a deselected entry is never run, in either case, and a launch
+// that finds nothing else says what it is and what removes it.
+//
+// A bare name the lookup misses prints the MISS LINE (§4.2, HE-D2) in place of the lookup's own
+// error: the whole PATH searched, `host_path`'s part marked, and the `host_path` fix.
 //
 // The second return is the exit code of a launch this refuses (127: the program is not
 // available), 0 otherwise. In a jail there is no floor: the jail's own launchers are on PATH.
-func resolveHostLaunchTarget(packs []*packload.Pack, cmd0, childPath string, errw io.Writer) (hostTarget, int) {
+func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.Launch, errw io.Writer) (hostTarget, int) {
 	floorBin := hostFloorBinDir()
+	child := hostChildLaunch(lp)
 	onPath := func() (hostTarget, int) {
-		target, err := hostwrap.LookPathSkipping(childPath, cmd0, append(yoloManagedDirs(), floorBin))
+		target, err := child.LookPathSkipping(cmd0, floorBin)
 		if err != nil {
-			fmt.Fprintf(errw, "yolo host: %v\n", err)
+			line := ""
+			if !strings.ContainsRune(cmd0, os.PathSeparator) {
+				miss := declarersOf(packs)[cmd0].miss(cmd0, true)
+				miss.Skipping = []string{floorBin}
+				line = child.MissLine(miss)
+			}
+			if line == "" {
+				line = err.Error()
+			}
+			fmt.Fprintf(errw, "yolo host: %s\n", line)
 			if !config.InJail() && !strings.ContainsRune(cmd0, os.PathSeparator) {
 				if _, lerr := os.Lstat(filepath.Join(floorBin, cmd0)); lerr == nil {
 					fmt.Fprintf(errw, "yolo host: yolo's floor still holds a copy of %s that it no longer "+
@@ -369,24 +384,22 @@ func homeTilde(p string) string {
 }
 
 // hostChildPath is the PATH a host launch hands its child (OQ-HE10, ruled (c), and HE-D1): the
-// caller's own PATH, then the floor's bin/, duplicates removed with the first kept. The caller's
-// PATH comes first because the commands a host agent runs see the user's own environment, mise
-// included (OQ-HP7); the floor's bin/ comes last because it holds agent names only, so it supplies
-// one only where nothing of the user's has it. (The composed host PATH of host_path and the
-// per-OS baseline, which belongs between the two, is not built yet.)
+// launch PATH — the caller's own PATH, then each `host_path` folder not already on it (HE-D3) —
+// then the floor's bin/, duplicates removed with the first kept. The caller's PATH comes first
+// because the commands a host agent runs see the user's own environment, mise included (OQ-HP7);
+// `host_path`'s folders follow it, so they fill in for a launcher that lacks them and never shadow
+// what the caller's PATH finds; the floor's bin/ comes last because it holds agent names only, so
+// it supplies one only where nothing of the user's has it.
 //
 // A caller that passed NO PATH (`env -i`) gets the system baseline (hostfloor.BaselinePath) in
-// its place, ahead of the floor's bin/. Handing that child the floor's bin/ alone would leave every
-// command the agent runs by name — git, sh — unfound, where before the floor a child with no PATH
-// at least had libc's default search path (/bin:/usr/bin).
-func hostChildPath(ambient, floorBin string) string {
-	callers := strings.Split(ambient, string(os.PathListSeparator))
-	if strings.Trim(ambient, string(os.PathListSeparator)) == "" {
-		callers = hostfloor.BaselinePath()
-	}
+// its place, ahead of `host_path`'s folders and the floor's bin/ (hostChildLaunch, HP-D12).
+// Handing that child the floor's bin/ alone would leave every command the agent runs by name —
+// git, sh — unfound, where before the floor a child with no PATH at least had libc's default
+// search path (/bin:/usr/bin).
+func hostChildPath(lp *hostpath.Launch, floorBin string) string {
 	var out []string
 	seen := map[string]bool{}
-	for _, d := range append(callers, floorBin) {
+	for _, d := range append(hostChildLaunch(lp).Entries(), floorBin) {
 		if d == "" || seen[d] {
 			continue
 		}

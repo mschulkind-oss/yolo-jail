@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -36,9 +37,9 @@ func TestHostApplyProbesEveryPackBeforeTheFirstReportLine(t *testing.T) {
 	var snapshots []string
 	real := hostDepProbe
 	t.Cleanup(func() { hostDepProbe = real })
-	hostDepProbe = func(p *packload.Pack) *hostDeps {
+	hostDepProbe = func(p *packload.Pack, lp *hostpath.Launch) *hostDeps {
 		snapshots = append(snapshots, out.String())
-		return real(p)
+		return real(p, lp)
 	}
 
 	if rc := applyHostSurveyed(&out, &errw, false, false, nil, &hostApplySurvey{}); rc != 0 {

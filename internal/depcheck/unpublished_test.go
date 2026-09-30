@@ -12,7 +12,7 @@ import (
 func TestCheckOffersNoRemedyForAnUnpublishedBinary(t *testing.T) {
 	orig, origM := LookPath, DetectManager
 	t.Cleanup(func() { LookPath, DetectManager = orig, origM })
-	DetectManager = func() string { return "brew" }
+	DetectManager = func(Lookup) string { return "brew" }
 	LookPath = func(bin string) (string, error) {
 		if bin == "built" {
 			return "/usr/local/bin/built", nil
@@ -25,7 +25,7 @@ func TestCheckOffersNoRemedyForAnUnpublishedBinary(t *testing.T) {
 			Hints: map[string]string{"brew": "gone"}, Unpublished: why},
 		{Bin: "built", SelfInstall: "curl -fsSL https://x/i.sh | sh", Unpublished: why},
 		{Bin: "control", Hints: map[string]string{"brew": "control"}},
-	})
+	}, nil)
 	by := map[string]Result{}
 	for _, r := range res {
 		by[r.Bin] = r
