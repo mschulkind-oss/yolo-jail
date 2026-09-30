@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // writeAWSConfig writes body as home/.aws/config.
@@ -134,5 +136,38 @@ func TestAJailLaunchDoesNotReplaceARegionOrProfileLeftInTheLaunchShell(t *testin
 	o.Getenv = shellWith(map[string]string{"HOME": home, "AWS_PROFILE": "default"})
 	if got := agentEnvFileContent(channelFor(t, o, newConfig(), packs, emptyEnv()), "claude"); !strings.Contains(got, "'us-east-2'") {
 		t.Errorf("AWS_PROFILE=default in the launch shell names the profile the jail reads anyway:\n%s", got)
+	}
+}
+
+// THE PROFILE AWS-AUTH MINTS FOR, at the jail notch (BR-D21's first rung): the channel hands the
+// gate the loophole settings the launch writes aws-auth's settings file from, so claude, served
+// aws-auth's credential pointer, is given the region of `loopholes.aws-auth.settings.profile` —
+// neither the default profile's nor that of the AWS_PROFILE it receives. The gate's own rung is
+// pinned in packload with a Setting of its own; this fails with the notch's Setting deleted.
+func TestAJailLaunchReadsTheProfileAWSAuthMintsFor(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	writeAWSConfig(t, home, "[default]\nregion = eu-north-1\n\n[profile team]\nregion = ap-northeast-1\n\n"+
+		"[profile other]\nregion = ca-central-1\n")
+	var stderr bytes.Buffer
+	o := retireOptions(t, &stderr)
+	o.Getenv = shellWith(map[string]string{"HOME": home})
+	o.UseProfiles = map[string]string{"claude": "bedrock"}
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock"), officialPack(t, "aws-auth")}
+	awsAuthServedConfig(t, packs)
+	cfg := newConfig("loopholes", newConfig("aws-auth", newConfig("enabled", true,
+		"settings", newConfig("profile", "team"))))
+
+	channel := channelFor(t, o, cfg, packs, userEnvWith(map[string]string{"AWS_PROFILE": "other"}))
+	got := agentEnvFileContent(channel, "claude")
+	if !strings.Contains(got, "AWS_CONTAINER_CREDENTIALS_FULL_URI") {
+		t.Fatalf("aws-auth must serve claude's credential pointer in this fixture:\n%s", got)
+	}
+	if !strings.Contains(got, "'ap-northeast-1'") {
+		t.Errorf("claude, served aws-auth's credential for profile team, must get [profile team]'s region:\n%s", got)
+	}
+	o.noteCredentialScope(channel)
+	if want := `(profile "team", the one loopholes.aws-auth.settings.profile names for the credential)`; !strings.Contains(stderr.String(), want) {
+		t.Errorf("the launch must say which setting chose the profile, %q:\n%s", want, stderr.String())
 	}
 }
