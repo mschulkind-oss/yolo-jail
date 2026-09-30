@@ -752,6 +752,21 @@ pinned to (`fork <pack>: <bin> (in place of pack <base>'s) is built from <source
 or why it has none and the command that pins it. A fork's source never goes through the launch's
 hourly pack refresh.
 
+**The build runs in a sealed capture jail**
+([FP-D9](../design/forked-programs-as-packs.md#FP-D9)). The pinned commit is checked out of the
+pack store's mirror and copied into a workspace inside the capture store. The ordinary run pipeline
+then runs the fork's `build` there under the seal (`run.Options.Sealed`), which withholds every
+crossing of the host into the jail: `env_sources`, pack `env`, provider credentials, `host_files`,
+`mounts`, pack `mount` and reads-host layers, loopholes and host services, machine-scope pack
+directories, the host-cache alias and the nix daemon socket. `~/.cache` and `/mise` are private
+directories of the build's workspace. The selection is narrowed to the fork and its configured
+base. A build whose result misses a `produces` path stores nothing, and an admitted build is
+recorded under a `kind: "build"` receipt carrying the commit, the recipe hash and the jail's image
+identity ([FP-D8](../design/forked-programs-as-packs.md#FP-D8)). Selection keys a fork's entry on
+its bin, platform and source address, so an installer capture never answers for a fork or the
+reverse. `yolo capture <bin>` of a forked program is the explicit rebuild, and refuses while another
+build of the same commit holds its lock.
+
 #### `requires`
 
 A binary that must **already exist**. Asserts presence and installs nothing — no launcher,
