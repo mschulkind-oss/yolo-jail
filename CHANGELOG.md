@@ -111,6 +111,14 @@ names that model's maker. This works under the shipped `bedrock-bridge` profile,
 provider of your own whose `openai` endpoint is Bedrock's `/openai/v1` address. Claude Code still
 counts tokens with its own estimate there. See
 [the Messages pass-through](docs/reference/wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream).
+**A jailed agent now shows up as that agent in [herdr](https://herdr.dev).** herdr recognises an
+agent by the program running in its pane, and for a jailed one that program is yolo, so the pane
+used to read as a plain shell. A launch in a herdr pane whose command is an agent one of your packs
+installs, such as `yolo -- claude`, now tells herdr which agent it is, and says so in one line.
+herdr's own screen rules then show whether it is working, blocked or done. The registration is
+removed when the jail exits. A bare `yolo` or `yolo -- bash` registers nothing, and
+`YOLO_NO_HERDR=1` turns it off. If herdr refuses the registration, the launch says why and carries
+on.
 
 **Every jail now has a place for work that survives a restart: `$YOLO_DURABLE_DIR`.** Each launch
 makes a directory inside the workspace's own `.yolo` folder and tells every process in the jail
