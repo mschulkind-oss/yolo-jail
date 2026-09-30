@@ -158,13 +158,17 @@ func TestLauncherTemplatesParseWithHostileValues(t *testing.T) {
 	}
 	// The pre-launch refresh's argv and lock (prelaunchrefresh.go) are pack values too.
 	refresh := &packdecl.Refresh{Argv: []string{v, "--extensions"}, Lock: v + "/" + v}
+	// The model menu's declaration (prelaunchmodelmenu.go) is spliced as ONE JSON argument, so
+	// every field carries the payload.
+	menu := &packdecl.ModelMenu{Catalog: []string{v}, List: v, Into: v, Flag: []string{v + "{into}"},
+		Entries: v, ID: v, Order: v, Name: v, Clear: []string{v}, Set: map[string]string{v: v}}
 	assertParses(t, npmAgentLauncher(
 		&packdecl.Install{Kind: "npm", Bin: v, Package: v, Flags: []string{v, "--plain"},
-			UpdateVerb: []string{v, "--self"}, Refresh: refresh},
+			UpdateVerb: []string{v, "--self"}, Refresh: refresh, ModelMenu: menu},
 		v, v, true, srv, inj), "npm launcher")
 	assertParses(t, nativeAgentLauncher(
 		&packdecl.Install{Kind: "native", Bin: v, InstallerURL: v, UpdateVerb: []string{v, "--self"},
-			Refresh: refresh},
+			Refresh: refresh, ModelMenu: menu},
 		v, v, v, true, srv, inj), "native launcher")
 	// The wrapper is the fourth carrier and obeys the same contract; its own two values
 	// (the dir it must skip and the fallback it may exec) are paths derived from $HOME,

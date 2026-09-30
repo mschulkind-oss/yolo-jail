@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/modelmenu"
 	"github.com/mschulkind-oss/yolo-jail/internal/notty"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
@@ -35,7 +36,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|image-copy|installer-check|migrate-host|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|image-copy|installer-check|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -93,6 +94,12 @@ func runInternal(args []string) int {
 		return runOpenAIAuth(args)
 	case "openai-auth-client":
 		return openauthclient.Main(args[1:])
+	case modelmenu.Verb:
+		// A program's MODEL MENU (packdecl.ModelMenu; docs/design/model-lists-and-pickers.md
+		// MM-D9, MM-D22), called by the GENERATED AGENT LAUNCHERS before they exec a program
+		// whose pack declares one. Hidden: it runs that program and writes into the home it is
+		// pointed at, and its caller is the launcher.
+		return modelmenu.Run(args[1:], os.Getenv("HOME"), os.Stdout, os.Stderr)
 	case "refresh-servers":
 		// Evergreen's TRANSITIVE half (program-delivery.md §3.5, OQ-PD12a), called by
 		// the GENERATED AGENT LAUNCHERS before they exec the agent. Hidden for

@@ -578,7 +578,7 @@ func npmAgentLauncherSegments(inst *packdecl.Install, stampDir, receiptsPath str
 		//
 		// Spliced as the split token here; npmAgentLauncher joins the segments with the prefix.
 		"__YOLO_EXEC_PREFIX__", token,
-	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)
+	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
 	return strings.Split(r.Replace(npmLauncherTemplate), token)
 }
 
@@ -666,7 +666,7 @@ func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath, capture
 		// this sentinel is the resolved node interpreter. A native program is exec'd directly,
 		// so here it renders nothing.
 		"__YOLO_EXEC_PREFIX__", "",
-	}, append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...)...)...)
+	}, append(append(launchFlagSplices(flags), refreshSplices(inst.Refresh)...), modelMenuSplices(inst.ModelMenu)...)...)...)
 	return r.Replace(nativeLauncherTemplate)
 }
 
@@ -1157,7 +1157,7 @@ SERVERS_NPM=__YOLO_SERVERS_NPM__
 # every expansion of the array for HAS_UPDATE_VERB's reason: bash 3.2 under "set -u".
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
 
 # --- re-entry ----------------------------------------------------------------------
 # B2 PUT THE LAUNCH DIR AHEAD OF THE INSTALL PREFIXES, so a BARE-NAME call of this program
@@ -1451,9 +1451,10 @@ if [ "$SERVERS_ENABLED" = "1" ]; then
     _refresh_servers
 fi
 ` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
+    _yolo_model_menu
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 else
     echo "  ⚠ $BIN not available" >&2
@@ -1569,7 +1570,7 @@ SERVERS_NPM=__YOLO_SERVERS_NPM__
 # every expansion of the array for HAS_UPDATE_VERB's reason: bash 3.2 under "set -u".
 HAS_LAUNCH_FLAGS=__YOLO_HAS_LAUNCH_FLAGS__
 LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
-` + refreshDeclShell + launchFlagsShellFn + `
+` + refreshDeclShell + modelMenuDeclShell + launchFlagsShellFn + `
 # ONE lock per INSTALL PREFIX, not per program: §3.5's contention rule is about who may
 # write into $HOME/.local, and two vendor updaters running there at once is what it
 # forbids. On the container backends the prefix is a per-workspace bind and nothing can
@@ -2049,9 +2050,10 @@ if [ "$SERVERS_ENABLED" = "1" ]; then
 fi
 
 ` + prelaunchRefreshShellFn + `
-` + agentEnvShellFn + agentAuthPrelaunchShellFn + `
+` + agentEnvShellFn + agentAuthPrelaunchShellFn + modelMenuShellFn + `
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
+    _yolo_model_menu
     exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 else
     echo "  ⚠ $BIN not available" >&2

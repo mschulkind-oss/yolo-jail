@@ -266,6 +266,15 @@ type Contribution struct {
 	// opencode, oh-omp) declares none, and a check that ran the binary to print it would start an
 	// agent program, which `yolo check` never does.
 	ModelCatalog []string `json:"model_catalog,omitempty"`
+	// ModelMenu is how the generated launcher writes this PROGRAM's model menu from the
+	// program's own catalog, before exec'ing it, and hands it to the program with a flag
+	// (a coined term — see the ModelMenu type, which carries the grammar;
+	// docs/design/model-lists-and-pickers.md MM-D9, MM-D22). `program` only, any `via`.
+	//
+	// DECLARED BY THE PACK, never keyed on a bin name in core, for Refresh's reason: the
+	// launcher templates are shared by every program, and the argv, the catalog's shape and the
+	// flag that names a catalog file are facts about a release of one program.
+	ModelMenu *ModelMenu `json:"model_menu,omitempty"`
 	// After, as `"host:<path>"` on a `briefing`, prepends the user's own host file to the
 	// jail's composed briefing (run.briefingHostOverlay → jailcontent.PrependHostBriefing) — so a
 	// personal AGENTS.md outranks anything a pack ships INSIDE A JAIL.
@@ -1071,6 +1080,24 @@ func (m *Manifest) InstallContributions() []Install {
 		// same reason, and a projection carrying it for one of them would leave the
 		// other's decline unexpressible.
 		in.Platforms = c.Platforms
+		// The model menu too, for every via: it is what the PROGRAM prints and reads, whichever
+		// mechanism delivered it. Copied, for Refresh's reason.
+		if c.ModelMenu != nil {
+			m := *c.ModelMenu
+			m.Catalog = append([]string(nil), c.ModelMenu.Catalog...)
+			m.Flag = append([]string(nil), c.ModelMenu.Flag...)
+			m.Clear = append([]string(nil), c.ModelMenu.Clear...)
+			if len(m.Clear) == 0 {
+				m.Clear = nil
+			}
+			if c.ModelMenu.Set != nil {
+				m.Set = make(map[string]string, len(c.ModelMenu.Set))
+				for k, v := range c.ModelMenu.Set {
+					m.Set[k] = v
+				}
+			}
+			in.ModelMenu = &m
+		}
 		switch c.Via {
 		case "npm":
 			in.Package = c.Package
@@ -3293,6 +3320,8 @@ func validateContribution(label string, c Contribution) []string {
 	// installs the program's package into, so no other kind, and no other via, has that
 	// directory for them to name a file in.
 	problems = append(problems, modelCatalogProblems(label, c)...)
+	// `model_menu` is a program's alone: the launcher runs it before exec'ing the program.
+	problems = append(problems, modelMenuProblems(label, c)...)
 	// `reserved` is skills' alone, refused in `profile`'s position and for `profile`'s reason:
 	// the only consumer is the skills destination walk, so a reserved name on any other kind is
 	// a declaration that silently protects nothing.

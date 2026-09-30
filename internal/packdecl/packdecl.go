@@ -270,6 +270,10 @@ type Install struct {
 	// not a fork's. Provenance only: every line that says what a source-built program is names
 	// the pack that supplied its bytes, not only the pack that owns its name.
 	ForkedBy string `json:"forked_by,omitempty"`
+	// ModelMenu is the program's declared model menu, nil when it declares none. The
+	// Contribution field of the same name carries the reasoning; the generated launcher is its
+	// one reader (MM-D9, MM-D22).
+	ModelMenu *ModelMenu `json:"model_menu,omitempty"`
 }
 
 // Refresh declares a program's PRE-LAUNCH REFRESH — a term coined here (2026-09-25) for the
