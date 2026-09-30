@@ -152,6 +152,13 @@ func forkStatusLines() (lines []string, drift bool, err error) {
 	if len(forks) == 0 {
 		return nil, false, nil
 	}
+	// IN A JAIL the lock is not here: it is beside the host's user config, which no jail reads, so
+	// an absent file would read as every fork being unpinned (pinForks' in-jail line, the twin).
+	if config.InJail() {
+		return []string{fmt.Sprintf("[dim]%d %s: the pins are recorded on the host (%s) — run "+
+			"`yolo pack status` there[/dim]", len(forks), plural(len(forks), "fork", "forks"),
+			packsrc.ForkLockName)}, false, nil
+	}
 	lock, err := packsrc.LoadForkLock(forkLockPath())
 	if err != nil {
 		return nil, false, err

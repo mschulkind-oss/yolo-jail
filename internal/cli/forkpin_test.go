@@ -214,3 +214,21 @@ func TestPackInstallMakesAPinnedForkBuildableOnASecondMachine(t *testing.T) {
 			err, out.String(), errw.String())
 	}
 }
+
+// `yolo pack status` IN A JAIL: the fork lock is on the host, beside the host's user config, which
+// no jail can read. So the jail says where the pins are, rather than reading an absent lock as
+// every fork being unpinned and sending the user to a `yolo pack install` that, in a jail, pins
+// nothing.
+func TestPackStatusInAJailPointsAtTheHostsForkPins(t *testing.T) {
+	repo, _ := forkRepo(t)
+	forkPinHome(t, "git+file://"+repo+"?ref=main")
+	t.Setenv("YOLO_VERSION", "9.9.9-test")
+	var out, errw bytes.Buffer
+	rc := packMain([]string{"status"}, &out, &errw, false)
+	if strings.Contains(out.String(), "no pin yet") {
+		t.Errorf("in a jail, status reads the host's absent fork lock as no pin (rc %d):\n%s", rc, out.String())
+	}
+	if !strings.Contains(out.String(), "recorded on the host") {
+		t.Errorf("in a jail, status does not say where the fork pins are (rc %d):\n%s", rc, out.String())
+	}
+}
