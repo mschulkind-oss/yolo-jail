@@ -62,7 +62,7 @@ The gate is the provider, not the profile's name: a profile of your own over `be
 provider of your own that declares `"platform": "aws-bedrock"`, get the pointer as `-p bedrock`
 does ([`OQ-BR8`](../../docs/design/providers-and-profiles-redesign.md#OQ-BR8)).
 
-**The same config serves `yolo host`.** With `"use_profiles": {"pi": "bedrock"}` (or
+**The same config serves `yolo host`.** With `"profile": {"pi": "bedrock"}` (or
 `yolo host -p bedrock -- pi`), `yolo host -- pi` starts the host service if it is not running,
 opens the adapter for pi alone on a port it picks, hands pi the pointer and its token, and stops
 the adapter when pi exits; it says so on stderr:
