@@ -133,3 +133,73 @@ yolo.derive("oh-omp", "models", function(ctx)
   if next(providers) == nil then return {} end
   return { providers = in_full(ctx, providers) }
 end)
+
+-- settings (~/.oh-omp/agent/config.yml, omp's own settings file, which omp edits too, so the
+-- surface is stateful): UNDER AN `only`, the selected provider's narrowed list as omp's
+-- `enabledModels` scope (docs/design/model-lists-and-pickers.md §14.1, MM-D8). omp resolves the
+-- scope once at startup and its selector then shows only the scope, with no "all" view. A
+-- scope naming no model omp knows fails open to its full list, which yolo cannot see at render
+-- time.
+--
+-- THE DEFAULT ENTRY LEADS, and that is the whole start rule: with a scope and no `--model`,
+-- omp starts a fresh session on the model its own `modelRoles.default` remembers when that is
+-- in the scope, else on the scope's first entry (0.15.3's startup, read in the shipped binary).
+-- So a valid saved choice is never steered and an off-list one never starts, which is what
+-- OQ-ML2's ruling asks of yolo, with nothing written to `modelRoles`: the selection namespace
+-- lifts top-level keys only, and `modelRoles.default` is a key of a record (MM-D12).
+--
+-- Under the SELECTION, not the computed layer, as pi's enabledModels is: written on
+-- activation, a user's edit kept, yolo's own list cleared on deselect (OQ-PSW2). Nothing when
+-- no profile is active at omp's CLI name, when the selected provider's list is not narrowed
+-- (what a list that only adds does to omp's catalog is OQ-MM1's), or when omp cannot reach it.
+-- The scope does not refuse: `--model` still resolves any model omp knows, and `modelRoles`
+-- may name one outside it.
+yolo.derive("oh-omp", "settings", function(ctx)
+  local name = ctx.selected_provider
+  if name == nil or name == "" then return {} end
+  local prov = ctx.providers and ctx.providers[name] or nil
+  if type(prov) ~= "table" or prov.models_only ~= true or type(prov.models) ~= "table" then
+    return {}
+  end
+  local reachable = (name == "openai-codex") or (ctx.via_url ~= nil and ctx.via_url ~= "")
+    or (providerEndpoint(prov) ~= nil)
+  if not reachable then return {} end
+  -- The list's order (`order`, then id), the default entry first: the profile's `model`, as an
+  -- alias or an id, else the provider's `default` alias, else the first entry.
+  local opts = type(prov.model_options) == "table" and prov.model_options or {}
+  local rows, byId = {}, {}
+  for alias, id in pairs(prov.models) do
+    if type(id) == "string" and id ~= "" then
+      local r = byId[id]
+      if not r then
+        r = { id = id }
+        byId[id] = r
+        table.insert(rows, r)
+      end
+      local f = opts[alias]
+      if r.order == nil and type(f) == "table" then r.order = tonumber(f.order) end
+    end
+  end
+  table.sort(rows, function(a, b)
+    if a.order and b.order and a.order ~= b.order then return a.order < b.order end
+    if a.order and not b.order then return true end
+    if b.order and not a.order then return false end
+    return a.id < b.id
+  end)
+  if #rows == 0 then return {} end
+  local default = nil
+  local m = type(ctx.profile) == "table" and ctx.profile.model or nil
+  if type(m) == "string" and m ~= "" then
+    local id = prov.models[m] or m
+    if byId[id] then default = id end
+  end
+  if not default and type(prov.models.default) == "string" and byId[prov.models.default] then
+    default = prov.models.default
+  end
+  default = default or rows[1].id
+  local scope = { name .. "/" .. default }
+  for _, r in ipairs(rows) do
+    if r.id ~= default then table.insert(scope, name .. "/" .. r.id) end
+  end
+  return { selection = { enabledModels = scope } }
+end)

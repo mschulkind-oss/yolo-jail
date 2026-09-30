@@ -7,12 +7,71 @@ package entrypoint
 // env derive through packload.AgentEnv.
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
+
+// OH-OMP UNDER AN `only` (§14.1, oh-omp; MM-D8): the selected provider's narrowed list becomes
+// omp's `enabledModels` scope in ~/.oh-omp/agent/config.yml, the default entry first. omp then
+// shows only the scope, and starts a fresh session on the model its own `modelRoles.default`
+// remembers when that is in the scope, else on the scope's first entry — so a valid saved choice
+// is never steered, and an off-list one never starts (OQ-ML2).
+func TestOmpScopesANarrowedList(t *testing.T) {
+	providers, profiles := zaiNarrowed(t, "omp", nil)
+	omp, err := embeddedPack("omp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var errw bytes.Buffer
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Stderr: &errw, Vars: map[string]string{
+		"YOLO_PROVIDERS":    providers,
+		"YOLO_USE_PROFILES": `{"oh-omp":"zai"}`,
+		"YOLO_PROFILES":     profiles,
+	}}
+	withCtxRoot(t, t.TempDir(), "omp")
+	ConfigurePackSurfaces(e, []*packload.Pack{omp})
+	if fails := e.GenFailures(); len(fails) != 0 {
+		t.Fatalf("boot render failed: %v\n%s", fails, errw.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(e.Home, ".oh-omp", "agent", "config.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := (codec.YAML{}).Decode(raw)
+	if err != nil {
+		t.Fatalf("config.yml is not YAML: %v\n%s", err, raw)
+	}
+	cfg, _ := decoded.(map[string]any)
+	if got, want := cfg["enabledModels"], []any{"zai/glm-5.3", "zai/glm-5.3-flash"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("enabledModels = %v, want %v, the default first", got, want)
+	}
+	if _, present := cfg["selection"]; present {
+		t.Errorf("config.yml carries yolo's reserved selection key:\n%s", raw)
+	}
+
+	// The same launch with the list not narrowed writes no scope: a list that only adds sits
+	// beside omp's catalog as models.yml rows (OQ-MM1).
+	plain := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Stderr: &errw, Vars: map[string]string{
+		"YOLO_PROVIDERS":    zaiReachableJSON,
+		"YOLO_USE_PROFILES": `{"oh-omp":"zai"}`,
+		"YOLO_PROFILES":     `{"zai":{"provider":"zai"}}`,
+	}}
+	ConfigurePackSurfaces(plain, []*packload.Pack{omp})
+	if raw, err := os.ReadFile(filepath.Join(plain.Home, ".oh-omp", "agent", "config.yml")); err == nil {
+		if decoded, _ := (codec.YAML{}).Decode(raw); decoded != nil {
+			if m, _ := decoded.(map[string]any); m["enabledModels"] != nil {
+				t.Errorf("an unnarrowed list wrote enabledModels = %v", m["enabledModels"])
+			}
+		}
+	}
+}
 
 // zaiNarrowed composes zai's shipped provider narrowed by a company pack's `only`, and resolves
 // the profiles (zai's own and the user's).

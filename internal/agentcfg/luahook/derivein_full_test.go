@@ -226,6 +226,8 @@ func TestShippedDerivesDeclareTheirInFullTables(t *testing.T) {
 		"copilot/lsp":     {"lspServers"},
 		"copilot/mcp":     {"mcpServers"},
 		"oh-omp/models":   {"providers"},
+		// Its only output is the selection's enabledModels, an array: no table to declare.
+		"oh-omp/settings": nil,
 		"opencode/config": {"mcp", "provider"},
 		"pi/mcp":          {"mcpServers"},
 		// A cross-tool file the user may already keep (~/.config/mcp/mcp.json), so its first

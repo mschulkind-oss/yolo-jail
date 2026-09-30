@@ -38,6 +38,12 @@
           "mode": "computed",
           "name": "models",
           "path": "~/.oh-omp/agent/models.yml"
+        },
+        {
+          "agent": "oh-omp",
+          "codec": "yaml",
+          "name": "settings",
+          "path": "~/.oh-omp/agent/config.yml"
         }
       ],
       "kind": "config"
