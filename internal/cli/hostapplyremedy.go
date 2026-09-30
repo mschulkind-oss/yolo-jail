@@ -19,10 +19,13 @@ package cli
 // per-surface copy omitted *"reaching every agent"* — so mcpEntryRemedy is now the one string
 // all three read, and it names the FILE the declaration goes in as well as the scope it covers
 // (P2: copy-paste form, and the scope the remedy covers). That scope was itself wrong at this
-// notch: "one `mcp_servers` entry reaches every agent" is a jail's behavior, and here it left
-// the entry dropped. The remedy names a `config-overlay` per surface instead (HC-D2,
-// docs/design/host-computed-layer.md §7); what keeps it one group is that every such overlay
-// goes in one file.
+// notch while host apply ran no derive for content: "one `mcp_servers` entry reaches every
+// agent" was a jail's behavior, and here it left the entry dropped, so HC-D2
+// (docs/design/host-computed-layer.md §7) named a `config-overlay` per surface instead. Since
+// OQ-HC1 the host runs the jail's derives over the user's own tables, so the remedy names
+// `mcp_servers`, `lsp_servers` and `providers` first again, with the per-surface overlay as the
+// one-agent alternative (HC-D20); what keeps it one group is that the declaration goes in one
+// file, the user config (mcpEntryRemedyKey).
 //
 // A GROUP WITH NO REMEDY SAYS SO (P2). A value replaced by the owning pack's MANAGED layer has
 // no fix at this notch — that layer outranks every declaration — and a dropped comment has none
