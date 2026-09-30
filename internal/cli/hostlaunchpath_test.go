@@ -316,4 +316,18 @@ func TestAWrapperNeverReadsAsItsProgram(t *testing.T) {
 	if strings.Contains(report, filepath.Join(wrap, "yolo-hp-wrapped")+"\n") {
 		t.Errorf("check-deps named the wrapper as the program's path:\n%s", report)
 	}
+
+	orig := prepareOpenAIAuthHost
+	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
+	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"yolo-hp-wrapped"}, io.Discard, &errw, nil); rc != 127 || got.execed {
+		t.Fatalf("rc=%d execed=%v (target %s), want 127: the exec ran the wrapper\n%s",
+			rc, got.execed, got.target, errw.String())
+	}
+	if !strings.Contains(errw.String(), "yolo host: yolo-hp-wrapped (required by the needpack pack) is not on "+
+		"this launch's PATH, ") {
+		t.Errorf("the exec's miss lacks the miss line:\n%s", errw.String())
+	}
 }
