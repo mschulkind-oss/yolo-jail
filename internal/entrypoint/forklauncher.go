@@ -90,10 +90,6 @@ func forkDeliveryFor(d map[string]ForkDelivery, bin string) ForkDelivery {
 func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDir, receiptsPath,
 	capturesPath string, updates bool, servers launcherServers, flags *packload.LaunchInjection) []string {
 	token := execPrefixToken()
-	var produces []string
-	for _, p := range inst.Produces {
-		produces = append(produces, p)
-	}
 	r := strings.NewReplacer(append([]string{
 		"__YOLO_BIN__", shquote.Quote(inst.Bin),
 		"__YOLO_PROGRAM_PATH__", shquote.Quote(inst.ProgramPath()),
@@ -101,7 +97,7 @@ func sourceAgentLauncherSegments(inst *packdecl.Install, d ForkDelivery, stampDi
 		"__YOLO_FORK_REASON__", shquote.Quote(d.Reason),
 		"__YOLO_FORKED_BY__", shquote.Quote(inst.ForkedBy),
 		"__YOLO_SOURCE__", shquote.Quote(inst.Source),
-		"__YOLO_PRODUCES__", shquote.Join(produces),
+		"__YOLO_PRODUCES__", shquote.Join(inst.Produces),
 		"__YOLO_STAMP_DIR__", shquote.Quote(stampDir),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
 		"__YOLO_CAPTURES_DIR__", shquote.Quote(capturesPath),
