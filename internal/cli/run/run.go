@@ -1904,8 +1904,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// WHY THE JAIL IS ABOUT TO END, for every session attached to it: its first session has,
 		// and the main process follows that out. Recorded now, before the end, since those
 		// sessions read it the moment theirs is cut short; and only when no stop was recorded
-		// since this session began, which would be what ended it (stopreason.go).
-		o.recordFirstSessionEnd(cname, sessionStart)
+		// since this session began, which would be what ended it (stopreason.go). A status a
+		// jail's end gives leaves it undecided, settled below from the main process's status: a
+		// jail ended from outside yolo is not this session's end.
+		endUndecided := o.recordFirstSessionEnd(cname, sessionStart, rc)
 		if execErr != nil {
 			out.printf("[bold red]Configured runtime '%s' not found on PATH.[/bold red]", rt)
 			out.print("[dim]Run `yolo check` to validate runtime availability before restarting.[/dim]")
@@ -1917,6 +1919,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// `kill %1` here must still run the teardown. Then the launch's status, which a jail
 		// stopped from outside would otherwise report as a SIGKILLed session.
 		launcherStopped := o.awaitJailMainEnd(jm, cname, rt)
+		if endUndecided {
+			o.settleFirstSessionEnd(cname, sessionStart, jm.exitCode)
+		}
 		rc = firstSessionStatus(rc, jm.exitCode, launcherStopped)
 	} else {
 		<-jm.exited

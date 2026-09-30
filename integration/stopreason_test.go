@@ -8,14 +8,19 @@ package integration
 // attach asks, and that the record is there to read.
 
 import (
+	"context"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
+
+	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // TestAnAttachWhoseJailEndedSaysWhy: a second terminal is attached when the jail ends, first
-// because the session that started it quit, then because `yolo stop` stopped it. Each time the
-// attach returns 137, the status of a process the jail's end killed, and says what ended it.
+// because the session that started it quit, then because `yolo stop` stopped it, then because a
+// stop from outside yolo did. Each time the attach returns 137, the status of a process the jail's
+// end killed, and says what ended it, or that nothing recorded why.
 func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 	requireJail(t)
 	const release = "release-first"
@@ -65,6 +70,36 @@ func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 		}
 		if !strings.Contains(attach.combined(), "This session ended because its jail stopped: `yolo stop` (pid ") {
 			t.Errorf("the attached session was not told that yolo stop ended its jail:\n%s", attach.combined())
+		}
+		if rc := first.wait(t, jailTimeout()); rc != 143 {
+			t.Errorf("the first session ended rc %d, want 143 from a stopped jail:\n%s", rc, first.combined())
+		}
+	})
+
+	// A stop from outside yolo records nothing, so the attached session says that nothing did,
+	// and never that the session that started the jail ended: that session's exec returned 137
+	// because its jail ended too, and its launcher must not record that as its own end.
+	t.Run("a stop from outside yolo", func(t *testing.T) {
+		dir := writeProject(t, `{}`)
+		first, attach := start(t, dir)
+		cname := naming.FromWorkspace(dir)
+		rt := detectRuntime()
+		ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
+		defer cancel()
+		// The same tolerance as `yolo stop` above: a nested podman may say 125 at a stop with a
+		// live exec session while the stop itself goes through.
+		if out, err := exec.CommandContext(ctx, rt, "stop", "-t", "5", cname).CombinedOutput(); err != nil {
+			t.Logf("%s stop: %v\n%s", rt, err, out)
+		}
+		if rc := attach.wait(t, jailTimeout()); rc != 137 {
+			t.Errorf("the attached session ended rc %d, want 137 from its jail's end:\n%s", rc, attach.combined())
+		}
+		got := attach.combined()
+		if !strings.Contains(got, "This session ended because its jail stopped, and nothing recorded why") {
+			t.Errorf("the attached session was not told that nothing recorded why its jail ended:\n%s", got)
+		}
+		if strings.Contains(got, "the session that started it ended") {
+			t.Errorf("a stop from outside yolo was blamed on the first session:\n%s", got)
 		}
 		if rc := first.wait(t, jailTimeout()); rc != 143 {
 			t.Errorf("the first session ended rc %d, want 143 from a stopped jail:\n%s", rc, first.combined())

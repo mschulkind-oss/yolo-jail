@@ -371,8 +371,9 @@ func TestADisarmedLaunchSignalArmDoesNothing(t *testing.T) {
 // before the main process starts; the first session is the first-session run, handed the arm,
 // and its command is sessionCmd's; the arm stays armed from the first session's return through
 // the main process's end, and is disarmed after it and before the teardown; the first session's
-// end is recorded for the jail's other sessions before the main process's end is waited for
-// (stopreason.go); the launch's status is firstSessionStatus's. The deferred session-lock release
+// end is recorded for the jail's other sessions before the main process's end is waited for, from
+// the session's status, and an end that status leaves undecided is settled from the main
+// process's after it (stopreason.go); the launch's status is firstSessionStatus's. The deferred session-lock release
 // at Run's top is pinned too. Deleting any of them fails here.
 func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) {
 	fd := funcDecl(t, "run.go", "runContainer")
@@ -395,7 +396,8 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 		switch name {
 		case "provisionStage", "sessionCmd", "firstSessionExecCmd", "holdSessionLock",
 			"armLaunchSignals", "startJailMain", "awaitReady", "runArmedSession", "detach",
-			"recordFirstSessionEnd", "awaitJailMainEnd", "firstSessionStatus", "teardownAfterExit":
+			"recordFirstSessionEnd", "awaitJailMainEnd", "settleFirstSessionEnd", "firstSessionStatus",
+			"teardownAfterExit":
 			firstPos(name, call.Pos())
 		case "disarm":
 			disarms = append(disarms, call.Pos())
@@ -416,11 +418,23 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 				firstPos("append HoldMainArg", call.Pos())
 			}
 		}
+		// The first session's end is judged on the session's own status, and an undecided one on
+		// the main process's: a jail ended from outside is not the first session's end.
+		if name == "recordFirstSessionEnd" && len(call.Args) == 3 && skelIdent(call.Args[2]) != "rc" {
+			t.Errorf("the first session's end is recorded from %v, want the session's status (rc)", call.Args[2])
+		}
+		if name == "settleFirstSessionEnd" && len(call.Args) == 3 {
+			if sel, ok := call.Args[2].(*ast.SelectorExpr); !ok || sel.Sel.Name != "exitCode" {
+				t.Errorf("an undecided first session's end is settled from %v, want the main process's "+
+					"status (jm.exitCode)", call.Args[2])
+			}
+		}
 		return true
 	})
 	order := []string{"append HoldMainArg", "provisionStage", "firstSessionExecCmd", "sessionCmd",
 		"holdSessionLock", "armLaunchSignals", "startJailMain", "awaitReady", "runArmedSession",
-		"detach", "recordFirstSessionEnd", "awaitJailMainEnd", "firstSessionStatus", "teardownAfterExit"}
+		"detach", "recordFirstSessionEnd", "awaitJailMainEnd", "settleFirstSessionEnd",
+		"firstSessionStatus", "teardownAfterExit"}
 	last := token.NoPos
 	for _, name := range order {
 		p, ok := pos[name]

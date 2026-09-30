@@ -18,7 +18,9 @@ package run
 // `yolo stop` (RecordJailStop). The fresh launch writes one more, the end of its first session,
 // which ends the jail with no stop of its own (the hold follows it out). That one is a
 // consequence and may itself be the result of a stop another process recorded, so it is written
-// only when nothing was recorded since the session began (recordFirstSessionEnd).
+// only when nothing was recorded since the session began (recordFirstSessionEnd); and a session
+// whose status is the one a jail's end gives may be the result of an end nothing recorded, so its
+// end waits for the main process's status (settleFirstSessionEnd).
 //
 // HOW A READER KNOWS IT IS THIS JAIL'S. Every record carries the time it was written, and an
 // attach believes only one written after it began: a record left by an earlier jail of the same
@@ -104,10 +106,39 @@ func RecordJailStop(cname, reason string) {
 const firstSessionEndedReason = "the session that started it ended, and a jail still ends with " +
 	"the session that started it"
 
-// recordFirstSessionEnd records that the fresh launch's first session ended, unless something
-// recorded a stop since that session began: then the session ended because of that stop, and
-// the record already says why.
-func (o *Options) recordFirstSessionEnd(cname string, since time.Time) {
+// recordFirstSessionEnd records that the fresh launch's first session ended, as soon as its exec
+// returned rc, unless something recorded a stop since that session began: then the session ended
+// because of that stop, and the record already says why.
+//
+// A status a jail's end gives (jailEndStatus) leaves the end UNDECIDED instead, and nothing is
+// written: the session may have ended because its jail did, from outside yolo — `podman stop`, an
+// out-of-memory kill of the container — which records nothing, and a first-session record written
+// then would tell every attached session that the first session's quitting ended the jail. The
+// caller settles it once the main process has ended (settleFirstSessionEnd).
+func (o *Options) recordFirstSessionEnd(cname string, since time.Time, rc int) (undecided bool) {
+	if jailEndStatus(rc) {
+		return true
+	}
+	o.recordFirstSessionEndSince(cname, since)
+	return false
+}
+
+// settleFirstSessionEnd decides an undecided first session's end from the main process's status:
+// 0 is a hold that followed its first session out (entrypoint.holdExitStatus), so the session's
+// end is what ended the jail, and is recorded as recordFirstSessionEnd would have; any other
+// status is a main process a signal ended, so the jail ended under the session, and whatever
+// stopped it recorded why or nothing did. The record lands after the jail's end then, which the
+// attach's wait for a late record (stopRecordWait) covers.
+func (o *Options) settleFirstSessionEnd(cname string, since time.Time, mainRC int) {
+	if mainRC != 0 {
+		return
+	}
+	o.recordFirstSessionEndSince(cname, since)
+}
+
+// recordFirstSessionEndSince writes the first session's end, unless a stop was recorded since the
+// session began.
+func (o *Options) recordFirstSessionEndSince(cname string, since time.Time) {
 	if rec, ok := readJailStop(cname); ok && !rec.At.Before(since) {
 		return
 	}

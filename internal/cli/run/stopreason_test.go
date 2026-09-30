@@ -42,7 +42,9 @@ func TestAStopRecordIsReplacedByACauseAndNotByTheFirstSessionsEnd(t *testing.T) 
 	}
 	o.recordJailStop("yolo-ws-1", "an earlier reason")
 	now = time.Unix(2000, 0)
-	o.recordFirstSessionEnd("yolo-ws-1", time.Unix(1500, 0))
+	if undecided := o.recordFirstSessionEnd("yolo-ws-1", time.Unix(1500, 0), 0); undecided {
+		t.Error("a session that exited 0 left its end undecided")
+	}
 	if rec, _ := readJailStop("yolo-ws-1"); rec.Reason != firstSessionEndedReason || rec.PID != 77 ||
 		!rec.At.Equal(time.Unix(2000, 0)) {
 		t.Errorf("a record older than the session did not give way to its end: %+v", rec)
@@ -50,9 +52,61 @@ func TestAStopRecordIsReplacedByACauseAndNotByTheFirstSessionsEnd(t *testing.T) 
 
 	o.recordJailStop("yolo-ws-1", YoloStopReason(9))
 	now = time.Unix(3000, 0)
-	o.recordFirstSessionEnd("yolo-ws-1", time.Unix(1500, 0))
+	o.recordFirstSessionEnd("yolo-ws-1", time.Unix(1500, 0), 0)
 	if rec, _ := readJailStop("yolo-ws-1"); rec.Reason != YoloStopReason(9) {
 		t.Errorf("the first session's end replaced the stop that ended it: %+v", rec)
+	}
+}
+
+// TestAJailEndedFromOutsideIsNotRecordedAsItsFirstSessionsEnd: a first session whose exec returned
+// a status a jail's end gives may have ended because the jail did, and an end from outside yolo
+// (`podman stop`, an out-of-memory kill of the container) records nothing. So that session's end
+// is left undecided until the main process's status says which: 0 is a hold that followed its
+// first session out, and records the session's end; a signalled main process (143, 137) is a jail
+// ended under the session, and records nothing, so an attached session says that nothing recorded
+// why instead of blaming the first session. A session's own status is recorded at once.
+func TestAJailEndedFromOutsideIsNotRecordedAsItsFirstSessionsEnd(t *testing.T) {
+	stopRecordHome(t)
+	o := goldenOptions("/ws", t.TempDir())
+	now := time.Unix(1000, 0)
+	o.Now = func() time.Time { return now }
+	since := time.Unix(900, 0)
+	const cname = "yolo-ws-1"
+	for _, rc := range []int{137, 125, 255} {
+		if undecided := o.recordFirstSessionEnd(cname, since, rc); !undecided {
+			t.Errorf("session rc %d: its end was decided before the main process's end", rc)
+		}
+		if rec, ok := readJailStop(cname); ok {
+			t.Errorf("session rc %d: recorded %q before the main process said why it ended", rc, rec.Reason)
+		}
+		for _, mainRC := range []int{143, 137} {
+			o.settleFirstSessionEnd(cname, since, mainRC)
+			if rec, ok := readJailStop(cname); ok {
+				t.Errorf("session rc %d, main rc %d: a jail ended from outside was recorded as %q",
+					rc, mainRC, rec.Reason)
+			}
+		}
+		o.settleFirstSessionEnd(cname, since, 0)
+		if rec, _ := readJailStop(cname); rec.Reason != firstSessionEndedReason {
+			t.Errorf("session rc %d, a hold that followed it out: recorded %q", rc, rec.Reason)
+		}
+		_ = os.Remove(stopRecordPath(cname))
+	}
+	// A stop recorded since the session began is what ended it, however the main process ended.
+	o.recordJailStop(cname, YoloStopReason(9))
+	o.settleFirstSessionEnd(cname, since, 0)
+	if rec, _ := readJailStop(cname); rec.Reason != YoloStopReason(9) {
+		t.Errorf("the settled end replaced the stop that ended it: %+v", rec)
+	}
+	_ = os.Remove(stopRecordPath(cname))
+	for _, rc := range []int{0, 1, 2, 130, 143} {
+		if undecided := o.recordFirstSessionEnd(cname, since, rc); undecided {
+			t.Errorf("session rc %d: its own status left its end undecided", rc)
+		}
+		if rec, _ := readJailStop(cname); rec.Reason != firstSessionEndedReason {
+			t.Errorf("session rc %d: recorded %q, want the first session's end", rc, rec.Reason)
+		}
+		_ = os.Remove(stopRecordPath(cname))
 	}
 }
 
