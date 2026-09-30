@@ -32,7 +32,7 @@ first slice.
 **Start at [§4](#4-the-proposed-shape).** [§3](#3-what-each-agent-can-hold) is the per-agent
 finding it rests on.
 
-**Needs your ruling:** [OQ-AP1](#OQ-AP1), [OQ-AP2](#OQ-AP2), [OQ-AP3](#OQ-AP3).
+**Needs your ruling:** none; [OQ-AP1](#OQ-AP1), [OQ-AP2](#OQ-AP2) and [OQ-AP3](#OQ-AP3) were ruled 2026-09-29, and the build is released.
 
 **Reads with:** [`model-lists-and-pickers.md`](model-lists-and-pickers.md) (the parent: its
 [OQ-ML1](model-lists-and-pickers.md#OQ-ML1) ruling split this doc off, and its
@@ -383,7 +383,7 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
 
 ## 10. Open Questions
 
-1. 💬 <a id="OQ-AP1"></a>**[OQ-AP1](#OQ-AP1): How is a set spelled, and what does it list?** The
+1. ✅ <a id="OQ-AP1"></a>**[OQ-AP1](#OQ-AP1): How is a set spelled, and what does it list?** The
    answer is the user-facing grammar, which is expensive to change once it ships, and it decides
    whether a comma leaves the profile-name alphabet.
 
@@ -400,15 +400,16 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    A comma string in config (`"zai,openrouter"`) is offered by none of these, since a JSON array
    already is a list.
 
-   <!-- vantage: oq id=OQ-AP1 leaning="A: the list names profiles, a comma after a cli=name pair continues that pair's list, config takes a string or an array, the first entry is the primary, and a profile name may no longer contain a comma." -->
-
    _Leaning:_ A. It is what the maintainer typed, it fixes today's silent drop of exactly that
    input, and the first entry is the primary with no extra key.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: A.** A comma continues one agent's list (`-p
+   > pi=zai,openrouter,claude=codex`); in config the value is an array (`"use_profiles": {"pi":
+   > ["zai", "openrouter"]}`), a plain string still works, and the first entry is where a fresh
+   > session starts. (Relayed from the conversational walkthrough: *"46A."*)
 
-2. 💬 <a id="OQ-AP2"></a>**[OQ-AP2](#OQ-AP2): What does yolo do with a set of more than one for
+2. ✅ <a id="OQ-AP2"></a>**[OQ-AP2](#OQ-AP2): What does yolo do with a set of more than one for
    claude, codex or copilot?** None of them can hold two providers natively
    ([§3](#3-what-each-agent-can-hold)). This decides whether `-p claude=zai,openrouter` is an
    error, a narrowing, or a bridge feature.
@@ -427,17 +428,18 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
      gets, and it is unbuilt, unmeasured, and a new route kind. codex and copilot would still
      take A or B.
 
-   <!-- vantage: oq id=OQ-AP2 leaning="A now, C for claude later: refuse a set of more than one for an agent whose pack does not declare it set-capable, naming the one-entry spelling; once the wire bridge routes by model id, claude may declare itself set-capable through that route, and codex and copilot stay refused." -->
-
    _Leaning:_ A now, C for claude later. Refusal costs nothing to build and closes the silent
    drop. C is the real answer for claude, but it waits on the bridge's model-id routing, which is
    itself unmeasured. B is the one I would not pick, because it makes a list mean different things
    to different agents in one config.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: A.** A set of more than one provider given to an agent that
+   > runs one provider per session (Claude, Codex, Copilot) is refused before anything starts,
+   > naming the agent and the single-provider fix. Claude may take a list later through the wire
+   > bridge once it can route per model. (Relayed: *"47 A."*)
 
-3. 💬 <a id="OQ-AP3"></a>**[OQ-AP3](#OQ-AP3): What does a bare list mean?** A bare name
+3. ✅ <a id="OQ-AP3"></a>**[OQ-AP3](#OQ-AP3): What does a bare list mean?** A bare name
    (`-p zai`) selects that profile for every selected pack today. A bare list
    (`-p zai,openrouter`) is refused today, as an undeclared name. This decides whether one list
    can switch every agent at once, which interacts with
@@ -454,14 +456,20 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
      disclosed on one line. Convenient, and it is [OQ-AP2](#OQ-AP2)'s option B for the bare form
      only.
 
-   <!-- vantage: oq id=OQ-AP3 leaning="A: a bare list stays refused in a jail launch, so a set is always spelled per CLI; at yolo host, which composes one command, a bare list is that command's set." -->
-
    _Leaning:_ A. The per-CLI form is what the maintainer asked for, B makes the bare form refuse
    almost everywhere, and C imports the one behavior [OQ-AP2](#OQ-AP2)'s leaning rejects. A can be
    widened later without breaking anything that works.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: C, in the maintainer's words.** *"if you don't direct it at a specific
+   > agent, then we should print out a message showing you if you give a comma separated list, if
+   > you have agents that don't support it on your pack list, we're going to print out that these
+   > will only get the first one and the others will be ignored."* A bare list (no `agent=` in
+   > front) goes to every set-capable agent whole, and every single-provider agent gets its first
+   > entry, with one launch line naming those agents and the entries they ignore. This does not
+   > contradict [OQ-AP2](#OQ-AP2): a list NAMED at a single-provider agent is refused, because
+   > the user asked that agent for something it cannot do; a bare list asked no agent in
+   > particular.
 
 ## 11. Decision Ledger
 
@@ -470,6 +478,9 @@ made in this doc, and every one yields to a ruling on the questions above.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| [OQ-AP1](#OQ-AP1) | **Maintainer ruling:** A; a comma continues an agent's list, first entry is where a session starts | 2026-09-29 | [§10](#10-open-questions) | pending |
+| [OQ-AP2](#OQ-AP2) | **Maintainer ruling:** A; a list named at a single-provider agent is refused, naming the fix | 2026-09-29 | [§10](#10-open-questions) | pending |
+| [OQ-AP3](#OQ-AP3) | **Maintainer ruling:** C; a bare list goes whole to set-capable agents and its first entry to single-provider agents, with one launch line naming what they ignore | 2026-09-29 | [§10](#10-open-questions) | pending |
 | <a id="DIR-AP1"></a>DIR-AP1 | **Maintainer direction:** an agent may run on several explicitly activated providers and switch freely between them in pi, spelled as a list; providers scope the models, and every session starts on one of them. *"we will want to be able to activate multiple providers explicitly. Like if you want, you should be able to use two providers within Pi and switch freely between them. We should allow like, you know, a comma list or something like that … providers will scope to models. And whenever you start up a session, we always want to make sure that we have picked one of those models. You just want a valid configuration, basically."* Split off from [OQ-ML1](model-lists-and-pickers.md#OQ-ML1). A direction, so no question id | 2026-09-29 | [§1](#1-the-verdict-and-the-words-it-uses) | — |
 | <a id="AP-D1"></a>AP-D1 | *Implementation decision.* The first entry is the primary: its provider is `ctx.selected_provider` for every derive, and its default is the one [OQ-ML2](model-lists-and-pickers.md#OQ-ML2)'s pick reads | 2026-09-29 | [§4.4](#44-models-the-union-and-the-start-model) | — |
 | <a id="AP-D2"></a>AP-D2 | *Implementation decision.* An agent is set-capable only when its pack declares it; the declaration fails closed where a derive older than sets would fail open | 2026-09-29 | [§4.3](#43-which-agents-take-a-set) | — |
