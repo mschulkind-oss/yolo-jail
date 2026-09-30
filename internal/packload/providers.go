@@ -136,6 +136,7 @@ func ComposeProviders(user *jsonx.OrderedMap, packs []*Pack, opts ...ComposeOpti
 			out.Set(name, u)
 			continue
 		}
+		dropRepointedVendors(cm, u)
 		mergeUnder(cm, u)
 		if err := addressConflict(name, cm, shipper[name]); err != nil {
 			return nil, err
@@ -280,6 +281,64 @@ func flattenModelFacts(obj *jsonx.OrderedMap) *jsonx.OrderedMap {
 		facts.Set("vendor", v)
 	}
 	return facts
+}
+
+// dropRepointedVendors removes, from a pack-shipped entry about to take the user layer, the
+// `vendor` of every alias the user points at a DIFFERENT model id. A shipped vendor names
+// the maker of the id the pack put under that alias, not of the alias: kept over the user's
+// id, it would declare that id the pack model's maker's, and the wire bridge routes on it
+// (wirebridged.anthropicModelIDs sends an id declared "anthropic" untranslated to Bedrock's
+// Anthropic Messages route, so a DeepSeek id there fails at AWS instead of being
+// translated). A user's own entry declares no vendor (model-lists-and-pickers.md §7.2), and
+// `vendor` is not a key a user's config can write (config.knownModelKeys), so a stale one
+// could not be corrected there either.
+//
+// Only the vendor goes. The other shipped facts keep the per-field rule liftModelFacts
+// states, since a user's object-form entry can override each of them; the vendor is the
+// one fact it cannot. Restating the pack's own id, as a string or as an object's `id`, is
+// no re-pointing and keeps everything. The comparison is on the id exactly as spelled: core
+// does not interpret an id, so a different spelling is a different id.
+func dropRepointedVendors(shipped, user *jsonx.OrderedMap) {
+	userModels := childMap(user, "models")
+	shippedModels := childMap(shipped, "models")
+	options := childMap(shipped, "model_options")
+	if userModels == nil || shippedModels == nil || options == nil {
+		return
+	}
+	for _, alias := range userModels.Keys() {
+		raw, _ := userModels.Get(alias)
+		if raw == nil {
+			continue // the alias is deleted; mergeUnder drops it, and no id is left to misdescribe
+		}
+		userID, _ := raw.(string)
+		if obj, isMap := raw.(*jsonx.OrderedMap); isMap {
+			id, _ := obj.Get("id")
+			userID, _ = id.(string)
+		}
+		shippedRaw, had := shippedModels.Get(alias)
+		shippedID, _ := shippedRaw.(string)
+		if !had || userID == shippedID {
+			continue
+		}
+		facts := childMap(options, alias)
+		if facts == nil {
+			continue
+		}
+		facts.Delete("vendor")
+		if facts.Len() == 0 {
+			options.Delete(alias)
+		}
+	}
+	if options.Len() == 0 {
+		shipped.Delete("model_options")
+	}
+}
+
+// childMap is m's object-valued member k, or nil for an absent or non-object one.
+func childMap(m *jsonx.OrderedMap, k string) *jsonx.OrderedMap {
+	v, _ := m.Get(k)
+	c, _ := v.(*jsonx.OrderedMap)
+	return c
 }
 
 // numberString renders a decoded JSON number as the decimal string the flat option

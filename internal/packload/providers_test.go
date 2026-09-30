@@ -75,6 +75,40 @@ func TestShippedModelFactsSurviveUserModelObjects(t *testing.T) {
 	}
 }
 
+// TestARepointedAliasDropsTheShippedVendor: a pack's model_options.<alias>.vendor names the
+// maker of the id the PACK put under that alias, and the wire bridge routes on it
+// (wirebridged.anthropicModelIDs sends an id declared "anthropic" untranslated to Bedrock's
+// Messages route). A user who points the alias at another id must not inherit the pack's
+// maker for it: the id would be sent in a protocol its model does not speak, and `vendor`
+// is not a key a user's config can write to correct it. Restating the pack's own id keeps
+// the vendor, and the other facts keep today's per-field rule.
+func TestARepointedAliasDropsTheShippedVendor(t *testing.T) {
+	pack := &Pack{Name: "br", Decl: declFrom(t, `{"contributes":[{"kind":"provider","name":"br",
+	 "models":{"opus":"global.anthropic.claude-opus-5-5","sonnet":"global.anthropic.claude-sonnet-5",
+	  "haiku":"global.anthropic.claude-haiku-5","fable":"global.anthropic.claude-fable-5"},
+	 "model_options":{"opus":{"vendor":"anthropic","context_window":"1000000"},"sonnet":{"vendor":"anthropic"},
+	  "haiku":{"vendor":"anthropic"},"fable":{"vendor":"anthropic"}}}]}`)}
+	user := userProviders(t, `{"br":{"models":{
+	 "opus":"us.deepseek.r1-v1:0",
+	 "sonnet":{"id":"us.qwen.qwen3-coder-v1:0"},
+	 "haiku":{"id":"global.anthropic.claude-haiku-5","context_window":200000},
+	 "fable":"global.anthropic.claude-fable-5"}}}`)
+	got := dump(t, compose(t, user, []*Pack{pack}))
+	want := `"model_options": {"fable": {"vendor": "anthropic"}, ` +
+		`"haiku": {"vendor": "anthropic", "context_window": "200000"}, "opus": {"context_window": "1000000"}}`
+	if !strings.Contains(got, want) {
+		t.Errorf("a re-pointed alias must lose the pack's vendor and keep its other facts; "+
+			"a restated id keeps it:\n got %s\nwant a substring %s", got, want)
+	}
+	if strings.Contains(got, `"sonnet": {`) {
+		t.Errorf("an alias whose only shipped fact was the vendor must have no facts left: %s", got)
+	}
+	// The pack's declaration is untouched: the next composition reads it whole again.
+	if s := dump(t, compose(t, nil, []*Pack{pack})); !strings.Contains(s, `"opus": {"context_window": "1000000", "vendor": "anthropic"}`) {
+		t.Errorf("composing over a user layer changed the pack's own facts: %s", s)
+	}
+}
+
 // TestComposeProvidersShipsUnderUserConfig pins the composition and its direction: the
 // pack's SERVICE facts arrive whole, and the user's config wins PER FIELD — an override
 // of one model alias or one endpoint's URL must not force restating the rest, which is

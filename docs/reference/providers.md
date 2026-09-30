@@ -1149,6 +1149,17 @@ they override individual shipped facts without erasing other aliases' facts:
 > reachable value is an explicit zero. If Kilo bills cache writes at a rate it does not publish,
 > that zero understates cost silently; re-check the row before trusting the figure.
 
+**One shipped fact does not follow an alias you re-point: `vendor`.** A pack may declare a
+model's maker in `model_options.<alias>.vendor`, and the wire bridge routes on it: on a Bedrock
+upstream, an id declared `anthropic` goes untranslated to Bedrock's Anthropic Messages route
+([the Messages pass-through](wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream)).
+The vendor describes the id the pack put under that alias, so when your `models.<alias>` names a
+different id, as a string or as an object's `id`, the composed entry drops the pack's `vendor`
+for that alias and keeps its other facts. Your config cannot declare a vendor (the object form's
+field set above has none), so a vendor carried over to your id could not be corrected. Restating
+the pack's own id keeps it. `packload.dropRepointedVendors` is the rule;
+`TestARepointedAliasDropsTheShippedVendor` pins it.
+
 The provider's `options` is the **fallback**: a fact common to every model is declared once
 there, and a per-model value overrides it for that alias. The facts are **additive** — an alias
 that declares none renders the same `models.json` row it did before, leaving pi's own defaults
