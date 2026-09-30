@@ -49,7 +49,8 @@ pack ships. Under an `only`, the list is each agent's model menu for that provid
 allows it: Claude Code, opencode, pi and oh-omp show exactly the list, and Claude Code and opencode
 also refuse any other model; Codex and Copilot start on the list's default model. An agent that
 reaches the provider through the wire bridge is refused any other model by the bridge too,
-except Codex and Copilot, whose own background requests use models off the list. A profile's new
+except Codex and Copilot, whose own background requests use models off the list, and Claude Code
+while Copilot shares its provider through the bridge. A profile's new
 `"enforce_models": false` drops the refusals; opencode then shows its full menu, and Claude Code
 starts each session on the profile's model again. `"pin_model": "true"` makes Claude Code start
 every session on the profile's model with the refusals on too. Your own `providers` entry still has the
@@ -210,9 +211,10 @@ launch needs a region yolo can see
 ([the region preflight](docs/reference/providers.md#the-region-preflight)): the `aws-auth`
 profile's counts, and one only in Claude Code's own settings does not. A `bedrock-bridge` profile ships too, for sending an agent
 through the wire bridge instead, which reaches Bedrock in the agent's region and signs each
-request with your AWS credentials itself: Claude Code then switches between Claude and every
-other model on the list in one session, with prompt caching kept for Claude models, codex,
-opencode, pi and oh-omp go through the bridge, and Copilot and oh-omp reach Bedrock at all. A
+request with your AWS credentials itself. Under it Claude Code switches between Claude and every
+other model on the list in one session, keeping prompt caching for Claude models; codex,
+opencode, pi and oh-omp send their own requests through the bridge; and Copilot and oh-omp, which
+have no Bedrock support of their own, can use Bedrock through it. A
 Bedrock provider of your own at an address of its own, such as a FIPS or private endpoint, is
 signed there once its `platform` is `aws-bedrock`. See
 [the shipped Bedrock provider](docs/reference/providers.md#the-shipped-bedrock-provider).

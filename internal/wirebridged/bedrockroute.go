@@ -45,7 +45,7 @@ const bedrockPlatform = "aws-bedrock"
 
 // FrontedPlatforms is every provider platform this daemon reaches with no address of the
 // provider's own. packs/wire-bridge's chat-completions adapter declares the same list under
-// `fronts_platforms`, which is what composes the adapter's address onto such a provider
+// `from_platforms`, which is what composes the adapter's address onto such a provider
 // (packload.adaptEndpoints); TestTheAdapterFrontsExactlyThePlatformsTheDaemonReaches keeps the
 // declaration and this implementation one list.
 var FrontedPlatforms = []string{bedrockPlatform}
