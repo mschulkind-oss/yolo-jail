@@ -60,6 +60,9 @@ type Launch struct {
 	started bool
 	// standIn is whether caller is WithStandIn's stand-in rather than a PATH yolo was handed.
 	standIn bool
+	// child is whether this is the child's view of a launch started with no PATH (WithStandIn), the
+	// PATH the launch's agent searches — as opposed to the checks' view, host_path's folders alone.
+	child bool
 	// added is each `host_path` folder not already in caller, in written order (HE-D3).
 	added []string
 	// declared is `host_path` as read, expanded, in written order: what `yolo check` reports.
@@ -119,6 +122,7 @@ func (l *Launch) WithStandIn(dirs []string) *Launch {
 	c := *l
 	c.caller = uniqueEntries(dirs, nil)
 	c.standIn = len(c.caller) > 0
+	c.child = true
 	c.added = uniqueEntries(l.declared, c.caller)
 	return &c
 }
@@ -294,7 +298,8 @@ type Miss struct {
 	// a program. Either may be empty, and both are for a program no pack names.
 	Requires, Programs []string
 	// Launch is whether the line is a launch's — the gate's or the exec's — whose PATH is "this
-	// launch's"; a verb that only checks (`yolo host apply`, `check-deps`) says the PATH yolo searched.
+	// launch's"; a verb that only checks (`yolo host apply`, `check-deps`) says the PATH yolo searched,
+	// and so does the gate for a launch started with no PATH, whose child searches more (MissLine).
 	Launch bool
 	// Skipping is more folders the lookup skipped besides yolo's own (the exec's floor bin/), so the
 	// line can name every skipped folder that is on the PATH it prints.
@@ -313,8 +318,12 @@ func (l *Launch) MissLine(m Miss) string {
 	if l.jail || m.Bin == "" {
 		return ""
 	}
+	// "This launch's PATH" only where it is: a launch started with a PATH hands its child the PATH
+	// the check searched, but one started with none hands it the stand-in ahead of host_path's
+	// folders (WithStandIn), so from the checks' view — the gate's — host_path's folders alone are
+	// only the PATH yolo searched (HE-D4).
 	where := "the PATH yolo searched"
-	if m.Launch {
+	if m.Launch && (l.started || l.child) {
 		where = "this launch's PATH"
 	}
 	var b strings.Builder

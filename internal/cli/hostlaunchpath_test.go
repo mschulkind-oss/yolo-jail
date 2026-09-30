@@ -328,6 +328,20 @@ func TestTheStartingLineSaysWhichPartOfThePathTheTargetCameFrom(t *testing.T) {
 	}
 }
 
+// TestWithNoPathTheGateDoesNotCallHostPathAloneThisLaunchsPath: started with no PATH, the checks
+// search host_path's folders alone (HE-D4) while the launch's child searches the system folders ahead
+// of them (HP-D12), so the gate's line names what the check searched as "the PATH yolo searched" —
+// calling it "this launch's PATH" would describe a PATH the agent does not get.
+func TestWithNoPathTheGateDoesNotCallHostPathAloneThisLaunchsPath(t *testing.T) {
+	launchPathFixture(t, `,"host_path":["~/tools/bin"],"host_apply_on_launch":true`, hpTool)
+	t.Setenv("PATH", "")
+	got := runGate(t, "someagent")
+	if want := "yolo host: yolo-hp-tool (required by the needpack pack) is not on the PATH yolo searched, " +
+		"~/tools/bin, host_path's folders alone: yolo was started with no PATH."; !strings.Contains(got, want) {
+		t.Errorf("the gate's no-PATH line lacks %q:\n%s", want, got)
+	}
+}
+
 // TestAProgramTheFloorCannotHoldIsFoundInHostPath: a selected pack's program `host_floor` leaves out
 // is looked up on the child's PATH (OQ-HE11 (a)) — which includes `host_path`'s folders — and, with
 // no copy anywhere, exits 127 with the miss line naming the pack it belongs to.

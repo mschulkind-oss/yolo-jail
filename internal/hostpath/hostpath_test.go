@@ -71,7 +71,10 @@ func TestTheLaunchPathIsTheAmbientPathThenHostPathsNewFolders(t *testing.T) {
 // TestWithNoPathTheChecksSearchHostPathAlone: HE-D4 — started with no PATH, or an empty one, the
 // launch PATH is host_path's folders alone, and the miss line says yolo was started with no PATH.
 // WithStandIn is the child's variant (HP-D12): the stand-in folders ahead of host_path, named as
-// such; with a PATH it changes nothing.
+// such; with a PATH it changes nothing. So with no PATH the checks' PATH is not the one the launch's
+// child searches, and a launch's line from the checks' view (the gate's) says "the PATH yolo
+// searched" rather than calling host_path's folders alone "this launch's PATH"; the child's own line
+// (the exec's) is this launch's.
 func TestWithNoPathTheChecksSearchHostPathAlone(t *testing.T) {
 	fakeHome(t)
 	for _, empty := range []string{"", sep, sep + sep} {
@@ -80,7 +83,7 @@ func TestWithNoPathTheChecksSearchHostPathAlone(t *testing.T) {
 			t.Errorf("PATH %q: started=%v value=%q, want not started and host_path alone", empty, l.Started(), l.Value())
 		}
 		if line := l.MissLine(Miss{Bin: "rg", Launch: true}); !strings.Contains(line,
-			"is not on this launch's PATH, /opt/tools, host_path's folders alone: yolo was started with no PATH") {
+			"is not on the PATH yolo searched, /opt/tools, host_path's folders alone: yolo was started with no PATH") {
 			t.Errorf("miss line = %q", line)
 		}
 		child := l.WithStandIn([]string{"/usr/bin"})
@@ -91,7 +94,8 @@ func TestWithNoPathTheChecksSearchHostPathAlone(t *testing.T) {
 			t.Errorf("the stand-in's source = %q", got)
 		}
 		if line := child.MissLine(Miss{Bin: "rg", Launch: true}); !strings.Contains(line,
-			"/usr/bin, the system folders yolo uses when it is started with no PATH, then host_path's /opt/tools.") {
+			"is not on this launch's PATH, /usr/bin, the system folders yolo uses when it is started with no "+
+				"PATH, then host_path's /opt/tools.") {
 			t.Errorf("the child's miss line = %q", line)
 		}
 	}
