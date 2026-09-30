@@ -256,6 +256,37 @@ func TestLoopholesStatusGradesAnUnfetchedBuildInactive(t *testing.T) {
 	}
 }
 
+// A NESTED LAUNCH whose own cache lacks a jail build binds on the copy its outer jail mounted,
+// rather than counting the loophole on and then mounting nothing (BP-D6's in-jail rule).
+// Deleting the in-jail branch of jailBinarySource fails both halves.
+func TestANestedLaunchBindsTheBuildItsOuterJailMounted(t *testing.T) {
+	_, _, md := loadTool(t, bothBuilds())
+	outer := filepath.Join(t.TempDir(), "toold")
+	if err := os.WriteFile(outer, []byte("#!/bin/sh\n"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	prev := mountedJailBinary
+	mountedJailBinary = func(loophole, name string) string {
+		if loophole == "tool" && name == "toold" {
+			return outer
+		}
+		return prev(loophole, name)
+	}
+	t.Cleanup(func() { mountedJailBinary = prev })
+	t.Setenv("YOLO_VERSION", "test")
+
+	set := approvedSetFrom(md)
+	lp := set.All()[0]
+	if !lp.BinariesFetched() || !lp.Active() {
+		r, _ := lp.InactiveReason()
+		t.Fatalf("in a jail whose outer launch mounted the build, the loophole is off: %s", r)
+	}
+	want := outer + ":/etc/yolo-jail/loophole-binaries/tool/toold:ro"
+	if args := set.RuntimeArgsFor(set.Enabled(), "podman"); !hasPair(args, "-v", want) {
+		t.Errorf("the nested launch does not bind the outer jail's copy (-v %s):\n%q", want, args)
+	}
+}
+
 // Inside a jail a HOST reference is the host's business: the jail's own cache not holding it
 // does not make the loophole read as off, for `requires`' reason (presence decides in a jail).
 func TestInAJailAHostBuildIsTheHostsBusiness(t *testing.T) {

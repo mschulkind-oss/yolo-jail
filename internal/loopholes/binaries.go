@@ -72,7 +72,7 @@ func binaryNeedsOn(binaries []Binary, refs BinaryRefs, goos, goarch string) []Bi
 
 // hostBinaryPaths answers resolve's `{binary:<name>}` substitution: the cached path of each host
 // reference's build for this machine, and false for a name with no build here.
-func hostBinaryPaths(loophole string, binaries []Binary, refs BinaryRefs) func(string) (string, bool) {
+func hostBinaryPaths(binaries []Binary, refs BinaryRefs) func(string) (string, bool) {
 	paths := map[string]string{}
 	for _, n := range binaryNeedsOn(binaries, refs, runtime.GOOS, runtime.GOARCH) {
 		if !n.Jail && n.HasBuild {
@@ -105,12 +105,33 @@ func (l *Loophole) binaryUnsupportedReason(goos, goarch string) (string, bool) {
 	return "", false
 }
 
+// mountedJailBinary is where an OUTER launch mounted a jail build: the container path
+// `{jail_binary:<name>}` resolved to. Inside a jail it is the copy this jail already runs, which a
+// nested launch binds on when its own cache lacks the build. A package var so a test can point it
+// at a file; production reads JailBinaryPath.
+var mountedJailBinary = JailBinaryPath
+
+// jailBinarySource is the host file a launch binds for a jail need: the cached build, or, inside a
+// jail whose own cache lacks it, the copy the outer launch mounted. "" when neither is there.
+func (l *Loophole) jailBinarySource(n BinaryNeed) string {
+	if n.Fetched() {
+		return n.Path
+	}
+	if inJail() {
+		if p := mountedJailBinary(l.Name, n.Binary); isFile(p) {
+			return p
+		}
+	}
+	return ""
+}
+
 // BinariesFetched reports whether every build the loophole runs on this machine is in the cache.
 // A need with no build is SupportedHere's to report and is not counted here.
 //
 // INSIDE A JAIL, presence decides, as it does for bind mounts (inJailActive): a jail daemon's
 // build counts when the outer launch mounted it at its container path, whether or not this
-// jail's own cache holds a copy, and a host reference is the host's business, not this jail's.
+// jail's own cache holds a copy — a nested launch binds that copy on (jailBinarySource) — and a
+// host reference is the host's business, not this jail's.
 func (l *Loophole) BinariesFetched() bool {
 	_, missing := l.UnfetchedBinaryReason()
 	return !missing
@@ -124,10 +145,8 @@ func (l *Loophole) UnfetchedBinaryReason() (string, bool) {
 		if !n.HasBuild || n.Fetched() {
 			continue
 		}
-		if inJail() {
-			if !n.Jail || pathExists(JailBinaryPath(l.Name, n.Binary)) {
-				continue
-			}
+		if inJail() && (!n.Jail || l.jailBinarySource(n) != "") {
+			continue
 		}
 		return "waiting for its binary " + n.Binary + " (" + n.Platform + ", run " + n.Where() +
 			"), which is not fetched yet — " + packInstallFix, true

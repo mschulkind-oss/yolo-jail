@@ -216,7 +216,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 	// loophole. `{jail_binary:<name>}` becomes the container path the launch mounts the
 	// jail's build at, unconditionally — the mount, not the argv, is what depends on the
 	// cache (runtime.go).
-	hostBinary := hostBinaryPaths(m.Name, m.Binaries, m.BinaryRefs)
+	hostBinary := hostBinaryPaths(m.Binaries, m.BinaryRefs)
 	jailBinary := func(name string) (string, bool) { return JailBinaryPath(m.Name, name), true }
 
 	var doctorCmd []string

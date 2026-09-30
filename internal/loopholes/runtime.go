@@ -405,16 +405,18 @@ func runtimeArgsWith(loopholes []*Loophole, runtime string, gate *Set, specs []J
 				if !n.Jail || !n.HasBuild {
 					continue
 				}
-				if !isFile(n.Path) {
-					// Active() refuses a loophole with an unfetched build, so this is a
-					// nested launch whose outer jail mounted the build this one's cache
-					// lacks. Never a -v for a missing source: the runtime would create an
-					// empty directory where the daemon expects its program.
+				// The cached build, or in a nested launch the copy the outer jail mounted
+				// (jailBinarySource). Active() refuses a loophole with neither, so an empty
+				// source here is a record some caller did not gate; never a -v for a missing
+				// source, since the runtime would create an empty directory where the daemon
+				// expects its program.
+				src := m.jailBinarySource(n)
+				if src == "" {
 					warnf("loophole %s: skipping binary %s, not in this machine's cache: %s",
 						m.Name, n.Binary, n.Path)
 					continue
 				}
-				args = append(args, "-v", n.Path+":"+JailBinaryPath(m.Name, n.Binary)+":ro")
+				args = append(args, "-v", src+":"+JailBinaryPath(m.Name, n.Binary)+":ro")
 			}
 			if isDir(m.StateDir()) {
 				if len(m.StateFiles) > 0 {
