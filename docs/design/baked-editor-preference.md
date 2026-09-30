@@ -10,9 +10,10 @@ vantage:
 
 # yolo has an editor, and it should not — neovim is baked into every jail on every backend
 
-**Status:** DESIGN, 2026-09-22. Nothing built — re-verified 2026-09-24: `"neovim"` is still in
-`coreFloorNames` and both `VISUAL=nvim` copies are still constants. Code is cited by symbol, not by
-line.
+**Status:** DESIGN, 2026-09-30 — three rulings owed, [OQ-ED1](#OQ-ED1) to [OQ-ED3](#OQ-ED3).
+[OQ-ED4](#OQ-ED4) was decided as an implementation choice ([ED-D1](#ED-D1)): this doc rules on
+neovim alone. Nothing built — re-verified 2026-09-30: `"neovim"` is still in `coreFloorNames` and both
+`VISUAL=nvim` copies are still constants. Code is cited by symbol, not by line.
 
 > **In short.** The core floor should carry what yolo's own machinery cannot run without. An editor
 > is a human's preference, and it belongs in that human's config.
@@ -32,7 +33,10 @@ becomes a thing that can be unset — which is a behaviour change for Copilot's 
 **Start at [§2](#2-dependency-or-preference--the-test-the-floor-does-not-apply)** — the test that
 decides what the floor is for. The seven sites fall out of it.
 
-**Needs your ruling:** [OQ-ED1](#OQ-ED1), [OQ-ED2](#OQ-ED2), [OQ-ED3](#OQ-ED3), [OQ-ED4](#OQ-ED4).
+**Needs your ruling:** [OQ-ED1](#OQ-ED1) (does nvim leave, and what does `VISUAL` become?),
+[OQ-ED2](#OQ-ED2) (where the host nvim config copy lives), [OQ-ED3](#OQ-ED3) (the `vi`/`vim` aliases,
+and whether to state a rule). [OQ-ED4](#OQ-ED4) was decided as an implementation choice,
+[ED-D1](#ED-D1).
 
 **Reads with:** [`../reference/image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md)
 (what baking costs and when the image moves),
@@ -65,7 +69,9 @@ and the fix for a delivery problem moved it somewhere harder to remove.
 > (stable by default, configurable via `mise_tools`)"*. Since `ead07715` (2026-09-22) it reads
 > *"Editors: nvim, baked into the image; override it with mise_tools"*, which is true today — and
 > becomes false the moment [§3](#3-the-proposal) item 1 lands, so the briefing line is part of this
-> change, not a follow-up.
+> change, not a follow-up. So is a second copy, found 2026-09-30: the *Tools & Runtimes* block of
+> [`config_ref.txt`](../../internal/cli/config_ref.txt) says *"Editors: nvim (version configurable via
+> mise_tools config)"*.
 
 ## 2. Dependency or preference — the test the floor does not apply
 
@@ -170,6 +176,19 @@ version collision made it urgent.
    happen to provide. The stakes: whether "no editor configured" is a legible state or a keystroke
    that quietly does nothing.
 
+   ⚠ **Restated 2026-09-30 with letters, and with the premise made explicit.** The question arises
+   only if neovim leaves the image, which is [§3](#3-the-proposal) item 1 and has no question of its
+   own, so answering this one rules that too. (D) is the way to say no.
+
+   - **(A) Unset unless the user names one**, and the launch says once that none is configured. A
+     user names one with an `env_sources` entry such as `{"VISUAL": "vim"}`, which works today: the
+     value lands in `~/.config/yolo-user-env.sh`, and the generated `.bashrc` sources that after its
+     own `export VISUAL=nvim`.
+   - **(B) Derived from a new config key** that names the editor.
+   - **(C) Derived from what the user's `mise_tools` or `packages` happen to provide.**
+   - **(D) Nothing changes**: neovim stays in the image and `VISUAL` stays `nvim`, which is
+     [§4](#4-alternatives-with-verdicts)'s alternative A.
+
    <!-- vantage: oq id=OQ-ED1 leaning="Unset unless the user names one, with the launch saying so once. A variable yolo invents is how the current circular justification happened; and an unset VISUAL makes ctrl-g fail in a way a user can act on, where VISUAL pointing at a missing binary fails in a way they cannot." -->
 
    _Leaning:_ **Unset unless the user names one**, with the launch disclosing it once. A
@@ -180,10 +199,19 @@ version collision made it urgent.
    > _(empty — fill in when decided)_
 
 2. 💬 <a id="OQ-ED2"></a>**[OQ-ED2](#OQ-ED2): does the host-nvim-config machinery survive, and where does it live?**
-   Sites 6 and 7 are a mount, a boot step, a copy-merge into the `.config` overlay and a documented
-   `macos`-guide behaviour — real machinery serving people who do want their own nvim in the jail.
-   Either it stays in core gated on an editor being configured, or it moves to an opt-in pack, or it
-   goes. The stakes: whether core keeps editor-shaped code after the preference leaves.
+   Sites 6 and 7 are a mount, a boot step and a copy-merge into the `.config` overlay, documented in
+   [`jail-home.md`](../reference/jail-home.md) — real machinery serving people who do want their own
+   nvim config in the jail. Today it runs for anyone whose host has `~/.config/nvim`, whether or not
+   they asked. The stakes: whether core keeps editor-shaped code after the preference leaves.
+
+   ⚠ **Restated 2026-09-30 with letters.** The block used to call this a documented macOS-guide
+   behavior; that guide no longer mentions nvim, and `jail-home.md` is where it is written down.
+
+   - **(A) Move it to an opt-in pack**, which can also carry the `VISUAL` value. A pack can already
+     declare the mount (`mount`) and the value (`env`); whether the boot copy fits an existing
+     contribution kind is not checked.
+   - **(B) Keep it in core, gated on an editor being configured.**
+   - **(C) Delete it.**
 
    <!-- vantage: oq id=OQ-ED2 leaning="Move it to an opt-in pack. It is the guardrails precedent applied exactly: a genuinely useful editor-specific behaviour that core has no reason to know about, and a pack is where the mount, the boot copy and the VISUAL value can travel together." -->
 
@@ -200,6 +228,18 @@ version collision made it urgent.
    the repo wants a stated rule — *core never aliases one program's name to another's* — since a
    one-off deletion invites the next one. The stakes: a line in `AGENTS.md`, or nothing.
 
+   ⚠ **Restated 2026-09-30 with letters.** They are fixed text in the generated `.bashrc`
+   (`bashrcPart4`, [`shell.go`](../../internal/entrypoint/shell.go)). The pack aliases written above
+   them add launch flags to the command typed, and the boot announces each one (*"yolo CHANGED what
+   these commands mean in this jail's interactive shell"*); these two are announced nowhere. If nvim
+   leaves the image they point at nothing, so keeping them unchanged is not offered.
+
+   - **(A) Drop them, and state the rule** in `AGENTS.md`: core never aliases one program's name to
+     another's.
+   - **(B) Drop them, with no stated rule.**
+   - **(C) Derive them from [OQ-ED1](#OQ-ED1)'s answer**: `vi` and `vim` alias to the editor the user
+     named, and to nothing when none is named.
+
    <!-- vantage: oq id=OQ-ED3 leaning="Drop them, and state the rule. The blocker shims already occupy the legitimate version of this (refuse and suggest, never silently substitute), so an alias that silently substitutes is the same act without the disclosure." -->
 
    _Leaning:_ **Drop them and state the rule.** The blocker shims already hold the legitimate form of
@@ -209,7 +249,7 @@ version collision made it urgent.
    **Answer:**
    > _(empty — fill in when decided)_
 
-4. 💬 <a id="OQ-ED4"></a>**[OQ-ED4](#OQ-ED4): is `neovim` the only preference in the floor?**
+4. ✅ <a id="OQ-ED4"></a>**[OQ-ED4](#OQ-ED4): is `neovim` the only preference in the floor?**
    [§2](#2-dependency-or-preference--the-test-the-floor-does-not-apply)'s test is cheap to apply to
    the rest of the list, and `gh` is the obvious next candidate — nothing in yolo requires the GitHub
    CLI. `ripgrep` and `fd` are the interesting case: they were dependencies of the *default* blocked
@@ -252,13 +292,16 @@ version collision made it urgent.
    follow-up now has a priority order set by bytes rather than by guesswork.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([ED-D1](#ED-D1)), reversible: this doc rules on `neovim`
+   > alone. The other twelve entries with no consumer are left to a follow-up in the byte order above,
+   > each needing its own ruling, and `ripgrep` and `fd` stay as live dependencies of the guardrails
+   > pack.
 
 ## 8. Decision Ledger
 
-No rulings yet. Rows land here as [§7](#7-open-questions)'s questions are answered, and the ruling
-moves into the body section it governs.
+No rulings yet, and one implementation decision. Rows land here as [§7](#7-open-questions)'s
+questions are answered, and each ruling moves into the body section it governs.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| — | — | — | — | — |
+| <a id="ED-D1"></a>ED-D1 | *Implementation decision, [OQ-ED4](#OQ-ED4).* **This doc rules on `neovim` alone; the rest of the floor audit is a follow-up.** The measurement in [OQ-ED4](#OQ-ED4) answered the factual question (neovim is not the only entry with no consumer), and what is left is the scope of this doc. Each other entry is a separate call about what every jail carries, so none is decided here, and none should ride on neovim's ruling. The follow-up takes them in the measured byte order: `sox`, `gh`, `overmind`, then the nine small ones. `ripgrep` and `fd` are not candidates: `packs/guardrails` generates its blockers only when they are on the agent's PATH. Reversible: the follow-up can be folded back into this doc | 2026-09-30 | [§7](#7-open-questions) | nothing to build |
