@@ -267,77 +267,90 @@ func TestAssembleBareProfileReachesTheCLIsWithANonAgentCommand(t *testing.T) {
 	}
 }
 
-// THE LAUNCH LINE (providers.md#what-the-launch-checks-and-prints): one line per distinct name, naming what DECLARED it and who
-// RECEIVED it. RECEIVED is every selected pack — the table crosses to the jail whole
-// and every pack's derive sees all of it — and DECLARED is the packs shipping a
-// `profile` variant with that name. `glm` is a name no shipped pack declares, so this
-// pins the undeclared half of the print (packs/bedrock's own `bedrock` is the declared
-// one, which is why these tests cannot use it).
-//
-// Driven through the same merge the env block consumes, so the line cannot claim
-// something the table does not carry.
-func TestNoteUseProfilesPrintsDeclaredAndReceived(t *testing.T) {
-	packs := packsFixture(t, "claude", "bedrock", "pi")
+// profileLineChannel composes the real channel for packs with useProfiles as the launch's
+// `-p cli=name` pairs and prints the launch's profile line over it, returning what it printed.
+// region is set on the bedrock provider, as a Bedrock launch needs one.
+func profileLineChannel(t *testing.T, packs []*packload.Pack, useProfiles map[string]string,
+	userEnv *jsonx.OrderedMap) string {
+	t.Helper()
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
 	var out bytes.Buffer
-	o := goldenOptions("/ws", t.TempDir())
-	o.Stdout = discardBuf()
-	o.Stderr = &out
+	o := retireOptions(t, &out)
+	o.UseProfiles = useProfiles
 	cfg := newConfig()
-	profiles := jsonx.NewOrderedMap()
-	profiles.Set("claude", "glm")
-	profiles.Set("pi", "glm")
-	cfg.Set("profile", profiles)
-	effective := o.effectiveUseProfiles(cfg, packs)
-	o.noteUseProfiles(effective, packs)
+	providers := jsonx.NewOrderedMap()
+	bedrock := jsonx.NewOrderedMap()
+	bedrock.Set("region", "eu-west-1")
+	providers.Set("bedrock", bedrock)
+	cfg.Set("providers", providers)
+	channel := channelFor(t, o, cfg, packs, userEnv)
+	out.Reset()
+	o.noteUseProfiles(channel, packs, nil)
+	return out.String()
+}
 
-	want := "Profile glm: declared: none; received: bedrock, claude, pi"
-	if !strings.Contains(out.String(), want) {
-		t.Errorf("launch line %q, want it to contain %q", out.String(), want)
+// THE LAUNCH LINE (providers.md#what-the-launch-checks-and-prints): one line per distinct name,
+// naming the packs that DECLARE it and, for each agent the table keys to it, the provider its
+// selection resolved to and how that agent reaches it in this jail. claude and pi on the
+// shipped bedrock each reach it through their own Bedrock client, which their packs bind by
+// needing packs/bedrock. The every-pack "received" list it replaced said nothing a user could act
+// on. Driven through the channel the jail receives, so the line cannot claim a composition the
+// jail did not get.
+func TestNoteUseProfilesSaysWhatEachAgentsSelectionReaches(t *testing.T) {
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "pi"),
+		officialPack(t, "bedrock"), officialPack(t, "aws-auth")}
+	key := jsonx.NewOrderedMap()
+	key.Set("AWS_BEARER_TOKEN_BEDROCK", "bearer-for-bedrock-agents")
+	got := profileLineChannel(t, packs, map[string]string{"claude": "bedrock", "pi": "bedrock"}, key)
+	want := `Profile bedrock: declared by bedrock; claude → provider "bedrock", through claude's ` +
+		`own "aws-bedrock" client; pi → provider "bedrock", through pi's own "aws-bedrock" client`
+	if !strings.Contains(got, want) {
+		t.Errorf("launch line\n%s\nwant it to contain\n%s", got, want)
 	}
-	// providers.md#pv-oq-10: the line may not claim the name was honored. What a derive does with the
-	// string is unobservable from here, and a transparency print that overclaims is
+	if strings.Contains(got, "received:") || strings.Contains(got, "Warning:") {
+		t.Errorf("a selection both agents reach, with a credential, warns or lists receivers:\n%s", got)
+	}
+	// providers.md#pv-oq-10: the line may not claim the name was honored. What a derive does
+	// with the string is unobservable from here, and a transparency print that overclaims is
 	// the silent-skip failure wearing a badge.
-	if strings.Contains(out.String(), "honored") {
-		t.Errorf("the launch line must never claim a profile was honored:\n%s", out.String())
+	if strings.Contains(got, "honored") {
+		t.Errorf("the launch line must never claim a profile was honored:\n%s", got)
 	}
 }
 
-// Two names in play print two lines, so a launch that selected differently for
-// different CLIs says both rather than the winner.
-func TestNoteUseProfilesPrintsOneLinePerName(t *testing.T) {
-	packs := packsFixture(t, "claude", "bedrock", "pi")
-	var out bytes.Buffer
-	o := goldenOptions("/ws", t.TempDir())
-	o.Stdout = discardBuf()
-	o.Stderr = &out
-	cfg := newConfig()
-	profiles := jsonx.NewOrderedMap()
-	profiles.Set("claude", "bedrock")
-	profiles.Set("pi", "glm")
-	cfg.Set("profile", profiles)
-	o.noteUseProfiles(o.effectiveUseProfiles(cfg, packs), packs)
-
+// WHERE THE SELECTION REACHES NOTHING, THE LINE SAYS SO AND NAMES THE FIX: copilot has no Bedrock
+// client of its own (its pack binds no aws-bedrock provider), so a bare `-p bedrock` keyed to it
+// configures nothing for it, which the line used to hide behind "received: …copilot…". And an
+// agent none of whose provider's credential variables reaches it is told so, naming the withheld
+// aws-auth pointer (its loophole is disabled here) as the channel that would carry one.
+func TestNoteUseProfilesWarnsWhereTheSelectionReachesNothing(t *testing.T) {
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "copilot"),
+		officialPack(t, "bedrock"), officialPack(t, "aws-auth")}
+	got := profileLineChannel(t, packs, map[string]string{"claude": "bedrock", "copilot": "bedrock"},
+		emptyEnv())
 	for _, want := range []string{
-		"Profile bedrock: declared: bedrock; received: bedrock, claude, pi",
-		"Profile glm: declared: none; received: bedrock, claude, pi",
+		`copilot → provider "bedrock", which it cannot use here (below)`,
+		`Warning: profile "bedrock" reaches nothing for copilot: provider "bedrock" names no ` +
+			`endpoint, only platform "aws-bedrock", and no selected pack gives copilot a client`,
+		"(`-p copilot=<name>`)",
+		`Warning: profile "bedrock" delivers claude no credential for provider "bedrock" at this notch`,
+		`AWS_CONTAINER_CREDENTIALS_FULL_URI`, `The "aws-auth" jail daemon's pointer would carry`,
 	} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("launch line missing %q:\n%s", want, out.String())
+		if !strings.Contains(got, want) {
+			t.Errorf("the profile disclosure must say %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "reaches nothing for claude") {
+		t.Errorf("claude, whose pack binds Bedrock, is warned as reaching nothing:\n%s", got)
 	}
 }
 
 // No profile selected, no line: a plain launch is the common case, and restating the
 // absence on every launch is noise rather than disclosure.
 func TestNoteUseProfilesPrintsNothingWithoutAProfile(t *testing.T) {
-	packs := packsFixture(t, "claude")
-	var out bytes.Buffer
-	o := goldenOptions("/ws", t.TempDir())
-	o.Stdout = discardBuf()
-	o.Stderr = &out
-	o.noteUseProfiles(o.effectiveUseProfiles(newConfig(), packs), packs)
-	if out.String() != "" {
-		t.Errorf("an unprofiled launch must print no profile line, got:\n%s", out.String())
+	if got := profileLineChannel(t, packsFixture(t, "claude"), nil, emptyEnv()); got != "" {
+		t.Errorf("an unprofiled launch must print no profile line, got:\n%s", got)
 	}
 }
 
@@ -450,35 +463,23 @@ func TestAssembleSelectedProfileEnvReachesTheJailArgv(t *testing.T) {
 	}
 }
 
-// DECLARED now names the packs that actually declare the variant — the half of the line
-// that tells a user whether the name they typed means anything. A pack shipping no such
-// variant is RECEIVED only, and stays listed there.
+// DECLARED names the packs that actually declare the variant — the half of the line that tells a
+// user whether the name they typed means anything — and a pack shipping no such variant is not
+// named at all. A name only the user's own `profiles` declares says that instead.
 func TestNoteUseProfilesNamesTheDeclaringPack(t *testing.T) {
 	declares := profilePackFixture(t, "acme")
 	silent := packsFixture(t, "pi")
 	all := append([]*packload.Pack{declares}, silent...)
-	var out bytes.Buffer
-	o := goldenOptions("/ws", t.TempDir())
-	o.Stdout = discardBuf()
-	o.Stderr = &out
-	cfg := newConfig()
-	profiles := jsonx.NewOrderedMap()
-	profiles.Set("claude", "bedrock")
-	cfg.Set("profile", profiles)
-	o.noteUseProfiles(o.effectiveUseProfiles(cfg, all), all)
-	if !strings.Contains(out.String(), "declared: acme; received: acme, pi") {
-		t.Errorf("the declaring pack must be named:\n%s", out.String())
+	got := profileLineChannel(t, all, map[string]string{"claude": "bedrock"}, emptyEnv())
+	if !strings.Contains(got, "Profile bedrock: declared by acme; claude → ") || strings.Contains(got, "pi") {
+		t.Errorf("the declaring pack, and no other, must be named:\n%s", got)
 	}
 
-	// A name nothing declares still prints — that is the silent-typo signal the line
-	// exists for — and says plainly that nothing declared it.
-	profiles.Set("claude", "bedrok")
-	o2 := goldenOptions("/ws", t.TempDir())
-	o2.Stdout = discardBuf()
-	var out2 bytes.Buffer
-	o2.Stderr = &out2
-	o2.noteUseProfiles(o2.effectiveUseProfiles(cfg, all), all)
-	if !strings.Contains(out2.String(), "Profile bedrok: declared: none;") {
-		t.Errorf("an undeclared name must say so rather than vanish:\n%s", out2.String())
+	d := packload.ProfileDisclosures(packload.ProfileDisclosureInput{
+		Table: map[string]string{"pi": "mine"}, Packs: silent,
+		Resolved: map[string]packload.ResolvedProfile{"mine": {Provider: "nowhere"}},
+	})
+	if len(d) != 1 || !strings.Contains(d[0].Line(), "Profile mine: declared by your config's `profiles`") {
+		t.Errorf("a name only the user declares must say so: %+v", d)
 	}
 }

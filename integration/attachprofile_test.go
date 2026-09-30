@@ -113,8 +113,8 @@ func TestAttachDeliversTheSelectedProfile(t *testing.T) {
 			"per-entry into a jail that launched without it):\n%s", tail, want)
 	}
 	// The disclosure belongs to the delivery: an attach that delivers a profile says
-	// which packs declared the name it carried.
-	if !strings.Contains(r.stderr, "Profile zai: declared: zai") {
+	// which packs declared the name it carried, and the provider it resolved to for claude.
+	if !strings.Contains(r.stderr, `Profile zai: declared by zai; claude → provider "zai"`) {
 		t.Errorf("the attach must print where the selection landed:\n%s", r.stderr)
 	}
 	// And the channel was composed over the jail's OWN pack tree, found through the record the

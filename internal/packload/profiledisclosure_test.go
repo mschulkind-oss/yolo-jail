@@ -1,0 +1,129 @@
+package packload
+
+import (
+	"strings"
+	"testing"
+)
+
+// profiledisclosure_test.go pins what the profile disclosure answers per agent from the launch's
+// declarations alone (docs/reference/providers.md#what-the-launch-checks-and-prints), over the
+// shipped packs: the route each agent's selection reaches its provider by, the one binding rule
+// for a provider named by its platform, and the credential half for a provider no endpoint names.
+
+// disclose runs the disclosure over the shipped packs named, with table as the profile table and
+// reaches as the per-agent lookup, and returns the one entry for profile.
+func disclose(t *testing.T, names []string, table map[string]string,
+	reaches func(agent, name string) bool) ProfileDisclosure {
+	t.Helper()
+	packs := embeddedNamed(t, names...)
+	providers, resolved, _ := launchSelection(t, packs, nil, nil, table)
+	got := ProfileDisclosures(ProfileDisclosureInput{Table: table, Packs: packs,
+		Resolved: resolved, Providers: providers, Reaches: reaches})
+	if len(got) != 1 {
+		t.Fatalf("want one disclosure for %v, got %+v", table, got)
+	}
+	return got[0]
+}
+
+func reachOf(t *testing.T, d ProfileDisclosure, agent string) ProfileReach {
+	t.Helper()
+	for _, a := range d.Agents {
+		if a.Agent == agent {
+			return a
+		}
+	}
+	t.Fatalf("no answer for %s in %+v", agent, d)
+	return ProfileReach{}
+}
+
+// A BEDROCK PROVIDER IS REACHED ONLY BY A CLIENT OF THE AGENT'S OWN, which its pack declares it
+// binds (bindsPlatform): every shipped agent pack whose derive binds Bedrock needs packs/bedrock,
+// which ships a provider of that platform (awsauthneed_test.go pins that need to the derives).
+// copilot's needs no such pack, so the selection reaches nothing for it and says why, with the fix.
+func TestTheProfileDisclosureReadsEachAgentsPlatformBinding(t *testing.T) {
+	table := map[string]string{"claude": "bedrock", "pi": "bedrock", "codex": "bedrock",
+		"opencode": "bedrock", "copilot": "bedrock"}
+	d := disclose(t, []string{"claude", "pi", "codex", "opencode", "copilot", "bedrock", "aws-auth",
+		"openai-auth", "wire-bridge"}, table, nil)
+	if strings.Join(d.Declared, ",") != "bedrock" {
+		t.Errorf("declared by %v, want the bedrock pack alone", d.Declared)
+	}
+	for _, agent := range []string{"claude", "pi", "codex", "opencode"} {
+		r := reachOf(t, d, agent)
+		if r.Provider != "bedrock" || r.Route != `through `+agent+`'s own "aws-bedrock" client` || len(r.Warnings) != 0 {
+			t.Errorf("%s: %+v, want provider bedrock through its own client and no warning", agent, r)
+		}
+	}
+	copilot := reachOf(t, d, "copilot")
+	if copilot.Route != "" || len(copilot.Warnings) != 1 ||
+		!strings.Contains(copilot.Warnings[0], `reaches nothing for copilot`) ||
+		!strings.Contains(copilot.Warnings[0], "`-p copilot=<name>`") {
+		t.Errorf("copilot: %+v, want one warning that the selection reaches nothing for it", copilot)
+	}
+	if !strings.Contains(d.Line(), `copilot → provider "bedrock", which it cannot use here (below)`) {
+		t.Errorf("the line must say copilot cannot use it: %s", d.Line())
+	}
+}
+
+// THE OTHER TWO BINDING DECLARATIONS, each alone in a pack that needs nothing: a program's own
+// region variables for the platform (opencode's `platform_regions` shape), and its own switch for
+// it (claude's `platform_switches` shape). The same agent with neither reaches nothing.
+func TestAProgramsOwnPlatformDeclarationBindsIt(t *testing.T) {
+	bedrock := embeddedNamed(t, "bedrock")
+	for _, tc := range []struct{ name, program string }{
+		{"region", `{"kind": "program", "bin": "acme", "via": "npm", "package": "@acme/acme", ` +
+			`"platform_regions": [{"platform": "aws-bedrock", "region_env_name": ["AWS_REGION"]}]}`},
+		{"switch", `{"kind": "program", "bin": "acme", "via": "npm", "package": "@acme/acme", ` +
+			`"platform_switches": [{"platform": "aws-bedrock", "surface": "acme/settings", ` +
+			`"pointer": "/env/ACME_USE_BEDROCK"}]}`},
+		{"neither", `{"kind": "program", "bin": "acme", "via": "npm", "package": "@acme/acme"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			acme := writePack(t, "acme", "acme", `{"name": "acme", "contributes": [`+tc.program+`]}`)
+			packs := append([]*Pack{acme}, bedrock...)
+			table := map[string]string{"acme": "bedrock"}
+			providers, resolved, _ := launchSelection(t, packs, nil, nil, table)
+			d := ProfileDisclosures(ProfileDisclosureInput{Table: table, Packs: packs,
+				Resolved: resolved, Providers: providers})
+			r := reachOf(t, d[0], "acme")
+			if binds := r.Route == `through acme's own "aws-bedrock" client`; binds != (tc.name != "neither") {
+				t.Errorf("%s: %+v", tc.name, r)
+			}
+		})
+	}
+}
+
+// A PROVIDER WITH ENDPOINTS is reached by the pairing protocol resolution settles, and the
+// credential half stays the credential pre-flight's, which refuses a missing key itself.
+func TestTheProfileDisclosureNamesTheResolvedEndpoint(t *testing.T) {
+	d := disclose(t, []string{"claude", "zai"}, map[string]string{"claude": "zai"},
+		func(string, string) bool { return false })
+	r := reachOf(t, d, "claude")
+	if r.Provider != "zai" || r.Route != `on its "anthropic" endpoint` || len(r.Warnings) != 0 {
+		t.Errorf("claude on zai: %+v, want its anthropic endpoint and no warning", r)
+	}
+}
+
+// THE CREDENTIAL HALF: a Bedrock agent none of whose provider's claimed variables reaches it is
+// told so, naming them; one reached by any of them, the pointer included, is not; and a notch
+// that asks no credential question (Reaches nil) says nothing either way.
+func TestTheProfileDisclosureSaysWhenNoCredentialReachesTheAgent(t *testing.T) {
+	names := []string{"pi", "bedrock", "aws-auth", "openai-auth"}
+	table := map[string]string{"pi": "bedrock"}
+	none := reachOf(t, disclose(t, names, table, func(string, string) bool { return false }), "pi")
+	if len(none.Warnings) != 1 || !strings.Contains(none.Warnings[0],
+		`profile "bedrock" delivers pi no credential for provider "bedrock" at this notch`) ||
+		!strings.Contains(none.Warnings[0], "AWS_CONTAINER_CREDENTIALS_FULL_URI") ||
+		!strings.Contains(none.Warnings[0], "AWS_PROFILE") {
+		t.Errorf("pi with no credential: %+v", none)
+	}
+	pointer := reachOf(t, disclose(t, names, table, func(_, name string) bool {
+		return name == "AWS_CONTAINER_CREDENTIALS_FULL_URI"
+	}), "pi")
+	if len(pointer.Warnings) != 0 {
+		t.Errorf("pi reached by the pointer is still warned: %+v", pointer)
+	}
+	if unasked := reachOf(t, disclose(t, names, table, nil), "pi"); len(unasked.Warnings) != 0 {
+		t.Errorf("a disclosure asked no credential question warned: %+v", unasked)
+	}
+}

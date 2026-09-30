@@ -895,15 +895,27 @@ func (c *hostComposition) prelaunch(interactive bool) openaiauthhost.Prelaunch {
 const fromRemoval = "a removal"
 
 // profileLines are the launch's profile disclosure (packload.ProfileDisclosures, the lines a jail
-// launch prints) over this launch's one-agent table and its selected packs.
+// launch prints) over this launch's one-agent table, its selected packs and the composition the
+// gate composed it against: the line, then any warning that the selection reaches nothing for
+// the agent or delivers it no credential here. "Reaches the agent" is environ(), the environment
+// the exec hands it, which at this notch includes the invoking shell.
 func (c *hostComposition) profileLines() []string {
 	table := map[string]string{}
 	if c.profile != "" {
 		table[c.agent] = c.profile
 	}
+	env := map[string]string{}
+	for _, kv := range c.environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			env[k] = v
+		}
+	}
 	var out []string
-	for _, d := range packload.ProfileDisclosures(table, c.packs) {
-		out = append(out, d.Line())
+	for _, d := range packload.ProfileDisclosures(packload.ProfileDisclosureInput{
+		Table: table, Packs: c.packs, Resolved: c.resolved, Providers: c.providers, Scope: c.scope,
+		Reaches: func(agent, name string) bool { return agent == c.agent && env[name] != "" },
+	}) {
+		out = append(append(out, d.Line()), d.Warnings()...)
 	}
 	return out
 }

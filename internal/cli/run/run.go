@@ -615,7 +615,7 @@ func Run(opts Options) (rc int) {
 		// beside the container's banner: this is the block that answers "what will this
 		// launch do for you", and it is the only stderr this arm writes before the
 		// backend takes the terminal.
-		o.noteUseProfiles(channel.profiles, staged.packs)
+		o.noteUseProfiles(channel, staged.packs, nil)
 		// THE SELECTED-PACK CREDENTIAL PRE-FLIGHT, on this arm too. It used to live only
 		// in runContainer, below the return above, so a native launch with a provider
 		// pack and no key started a sandbox that failed its first API call and said
@@ -966,16 +966,43 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack, channel *pack
 
 // noteUseProfiles prints, to stderr, where this launch's profile selections landed
 // (docs/reference/providers.md#what-the-launch-checks-and-prints): one line per DISTINCT name in
-// the effective table, naming the packs that DECLARE a variant of that name and the packs that
-// RECEIVED it. It reads the same merge the env block emits (effectiveUseProfiles), so the line
-// cannot describe a table the jail did not get.
+// the channel's table, naming the packs that declare it and, for each agent keyed to it, the
+// provider it resolved to and how that agent reaches it in this jail, then a warning for each
+// agent the selection reaches nothing for or delivers no credential to. It reads the channel the
+// jail receives (its table is the merge the env block emits, effectiveUseProfiles), so the line
+// cannot describe a composition the jail did not get.
+//
+// "Reaches the agent" is what crosses for it: the channel's delivery to that agent
+// (CredentialScope.DeliveredTo), and on a container the argv's `-e` pairs (argvPairs, nil
+// elsewhere), never the environment yolo was launched from, which no backend forwards.
 //
 // The line is packload.ProfileDisclosures', which `yolo host` prints too (notch-convergence
-// item 13): what the two halves mean, and why the verb is never "honored", is stated there.
-func (o *Options) noteUseProfiles(effective *jsonx.OrderedMap, loadedPacks []*packload.Pack) {
+// item 13): what each half means, and why the verb is never "honored", is stated there. A
+// disclosure, so no quiet switch (OQ-RO3).
+func (o *Options) noteUseProfiles(channel *packChannel, loadedPacks []*packload.Pack,
+	argvPairs map[string]string) {
+	if channel == nil {
+		return
+	}
 	out := o.pr(o.Stderr)
-	for _, d := range packload.ProfileDisclosures(packload.ProfileTable(effective), loadedPacks) {
+	for _, d := range packload.ProfileDisclosures(packload.ProfileDisclosureInput{
+		Table:     packload.ProfileTable(channel.profiles),
+		Packs:     loadedPacks,
+		Resolved:  channel.resolvedProfiles,
+		Providers: channel.providers,
+		Scope:     channel.scope,
+		Reaches: func(agent, name string) bool {
+			if v, found := argvPairs[name]; found && v != "" {
+				return true
+			}
+			_, ok := channel.scope.DeliveredTo(agent, name)
+			return ok
+		},
+	}) {
 		out.print("[dim]" + d.Head() + "[/dim] " + d.Detail())
+		for _, w := range d.Warnings() {
+			out.print("[yellow]" + w + "[/yellow]")
+		}
 	}
 }
 
@@ -1749,7 +1776,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// dim register, same reason — a selected profile is part of the effective
 	// environment, and the human reading the launch should see the name every pack's
 	// derive is about to receive rather than infer it from an env var.
-	o.noteUseProfiles(channel.profiles, loadedPacks)
+	o.noteUseProfiles(channel, loadedPacks, envPairs(runCmd))
 
 	// The whole child window — spawn through podman's own post-exit cleanup —
 	// under one span, with the proxy's internal transitions arriving as
@@ -2334,7 +2361,7 @@ func (o *Options) deliverChannelOnAttach(cname, rt string, cfg *jsonx.OrderedMap
 	// WHERE THE SELECTIONS LANDED, on this arm too — the disclosure line the fresh
 	// path prints beside its banner. An attach that delivers a profile owes the same
 	// sentence; providers.md#pv-oq-10's rule (never "honored") travels with it.
-	o.noteUseProfiles(channel.profiles, staged.packs)
+	o.noteUseProfiles(channel, staged.packs, nil)
 	return 0
 }
 

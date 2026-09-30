@@ -388,6 +388,22 @@ func (s *CredentialScope) UnservedEnvLines(servedByLaunch func(string) bool) []s
 	return lines
 }
 
+// WithheldBy is the jail daemon whose pointer this notch withheld under the variable name, for
+// any of UnservedEnvLines' three reasons (not served here, no served address, no caller token),
+// "" when it withheld nothing by that name. The profile disclosure names it as the fix for a
+// credential that reaches no agent (profileReach).
+func (s *CredentialScope) WithheldBy(name string) string {
+	if s == nil {
+		return ""
+	}
+	for _, withheld := range []map[string]string{s.unservedEnv, s.unlistenedEnv, s.untokenedEnv} {
+		if daemon := withheld[name]; daemon != "" {
+			return daemon
+		}
+	}
+	return ""
+}
+
 // deliveryAgents is every process the gate composes a delivery for, sorted: each with a
 // selected profile, and each a grant names.
 func deliveryAgents(profiles map[string]string, grants map[string][]string) []string {

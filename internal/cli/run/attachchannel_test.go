@@ -112,7 +112,7 @@ func TestAttachDeliversTheChannelFile(t *testing.T) {
 			t.Errorf("claude's env file missing %s:\n%s", want, ab)
 		}
 	}
-	if out := stderr.String(); !strings.Contains(out, "Profile zai: declared: zai") {
+	if out := stderr.String(); !strings.Contains(out, `Profile zai: declared by zai; claude → provider "zai", on its "anthropic" endpoint`) {
 		t.Errorf("the attach must print where the selection landed:\n%s", out)
 	}
 	if out := stderr.String(); !strings.Contains(out, "ZAI_API_KEY (provider zai): claude only") {

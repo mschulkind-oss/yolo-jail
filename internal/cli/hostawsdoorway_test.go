@@ -280,6 +280,15 @@ func TestHostPiOnBedrockGetsCredentialsThroughALaunchOwnedDoorway(t *testing.T) 
 	if got := l.report.Env["AWS_REGION"]; got != "eu-west-1" {
 		t.Errorf("pi's AWS_REGION = %q, want the provider's eu-west-1 (pi's derive, as in a jail)", got)
 	}
+	// THE PROFILE LINE says pi's selection resolved to a provider pi reaches, and warns of
+	// nothing: the doorway's pointer is a credential that reaches it.
+	if want := `yolo host: Profile bedrock: declared by bedrock; pi → provider "bedrock", through ` +
+		`pi's own "aws-bedrock" client`; !strings.Contains(l.errs, want) {
+		t.Errorf("the profile line must say %q:\n%s", want, l.errs)
+	}
+	if strings.Contains(l.errs, "Warning: profile") {
+		t.Errorf("a pi the doorway serves is warned about its profile:\n%s", l.errs)
+	}
 	sessions, _ := filepath.Glob(paths.HostServicesSessionGlob(paths.HostServicesBase(false)))
 	for _, s := range sessions {
 		if _, err := os.Stat(filepath.Join(s, "aws-auth"+paths.ServiceEndpointExt)); err == nil {
@@ -361,7 +370,12 @@ func TestHostOpensNoDoorwayWhenTheLoopholeIsDisabled(t *testing.T) {
 		t.Fatalf("rc = %d, exec'd %v, started %d; want a plain exec\n%s", l.rc, l.execed, len(l.started), l.errs)
 	}
 	for _, want := range []string{"Not set at this notch", "AWS_CONTAINER_CREDENTIALS_FULL_URI",
-		`loophole "aws-auth" is disabled`, `"loopholes": {"aws-auth": {"enabled": true}}`} {
+		`loophole "aws-auth" is disabled`, `"loopholes": {"aws-auth": {"enabled": true}}`,
+		// THE MAINTAINER'S SYMPTOM, NAMED: pi reaches Bedrock through its own client, and nothing
+		// delivers it a credential, so the profile line warns and names the pointer that would.
+		`pi → provider "bedrock", through pi's own "aws-bedrock" client`,
+		`yolo host: Warning: profile "bedrock" delivers pi no credential for provider "bedrock" at this notch`,
+		`The "aws-auth" jail daemon's pointer would carry AWS_CONTAINER_CREDENTIALS_FULL_URI`} {
 		if !strings.Contains(l.errs, want) {
 			t.Errorf("the withheld pointer's line must say %q:\n%s", want, l.errs)
 		}
