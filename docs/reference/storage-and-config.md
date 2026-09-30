@@ -191,7 +191,12 @@ programs loophole manifests declare as downloads, at `<sha256>/<name>`, mode `05
 by `yolo pack install`; never mounted as a directory, since a host daemon's build runs from
 there, and each jail daemon's build reaches its jail as one read-only file bind —
 [`loophole-system.md`](loophole-system.md#a-program-the-loophole-downloads)). Nothing reclaims
-`pack-binaries/` yet: a build stays until it is deleted by hand.
+`pack-binaries/` yet: a build stays until it is deleted by hand. `model-menus/<pack>/<bin>/` holds
+the model menus `yolo host --` hands the programs it runs, one `<key>.json` per list and program
+build: `0700`, never mounted into a jail in any mode, because a menu carries the prompt text a host
+program runs its model with, and self-bounded, since a launch that writes a new menu removes the
+others once no program holding one runs
+([`model-lists-and-pickers.md` MM-D27](../design/model-lists-and-pickers.md#MM-D27)).
 
 **`embedded-packs/`** holds the on-disk copy of the packs compiled into the binary: one
 read-only tree per build, named by a content hash of the embedded pack files, populated by
