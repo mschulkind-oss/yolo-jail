@@ -40,6 +40,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // testFakeAWSAgentArg makes a child of this test binary the fake AWS agent (TestMain).
@@ -127,6 +128,14 @@ func bedrockDoorwayConfig(agent string, enabled bool) string {
 // happened. The aws-auth singleton the launch spawns is stopped when the test ends.
 func runDoorwayLaunch(t *testing.T, cfg string, shell map[string]string, flags []string, agent string) doorwayLaunch {
 	t.Helper()
+	return runDoorwayLaunchAfter(t, cfg, shell, flags, agent, nil)
+}
+
+// runDoorwayLaunchAfter is runDoorwayLaunch with before run in the launch's workspace, its cwd,
+// just before hostMain.
+func runDoorwayLaunchAfter(t *testing.T, cfg string, shell map[string]string, flags []string,
+	agent string, before func()) doorwayLaunch {
+	t.Helper()
 	home := hostGateHome(t, cfg, shell)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	for _, k := range []string{"AWS_PROFILE", "AWS_BEARER_TOKEN_BEDROCK", "AWS_SESSION_TOKEN",
@@ -188,6 +197,9 @@ func runDoorwayLaunch(t *testing.T, cfg string, shell map[string]string, flags [
 	hostSyscallExec = func(string, []string, []string) error { got.execed = true; return nil }
 	t.Cleanup(func() { hostSyscallExec = origExec })
 
+	if before != nil {
+		before()
+	}
 	var out, errw bytes.Buffer
 	got.rc = hostMain(append(append([]string{}, flags...), "--", agent), &out, &errw, false, nil)
 	got.errs = errw.String()
@@ -294,6 +306,49 @@ func TestHostPiOnBedrockGetsCredentialsThroughALaunchOwnedDoorway(t *testing.T) 
 		if _, err := os.Stat(filepath.Join(s, "aws-auth"+paths.ServiceEndpointExt)); err == nil {
 			t.Errorf("the launch's session dir %s outlived it, its aws-auth endpoint with it", s)
 		}
+	}
+}
+
+// THE FRONT IS THE LAUNCH'S OWN, NEVER THE WORKSPACE'S JAIL'S. A `yolo host` launch that opens a
+// doorway publishes its aws-auth front in a host-services dir of its own session, as a macos-user
+// session does (startLoopholesMatching's session arm). The workspace-keyed dir is a container
+// jail's: a jail of this workspace that is running has it mounted, with its own aws-auth.endpoint
+// in it. Published there, the host launch would write over the jail's endpoint and unlink it
+// when its agent exits, leaving the jail's in-jail adapter with no front and no warning.
+func TestHostDoorwayFrontsInASessionDirNotTheWorkspacesJailDir(t *testing.T) {
+	const jailEndpoint = "a running jail's own aws-auth front"
+	var jailDir string
+	l := runDoorwayLaunchAfter(t, bedrockDoorwayConfig("pi", true), nil, nil, "pi", func() {
+		ws, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		jailDir = paths.HostServicesDir(runtime.FromWorkspace(ws), paths.IsMacOS)
+		if err := os.MkdirAll(jailDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(jailDir) })
+		endpoint := filepath.Join(jailDir, "aws-auth"+paths.ServiceEndpointExt)
+		if err := os.WriteFile(endpoint, []byte(jailEndpoint), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	})
+	assertDoorwayServed(t, l)
+	got, err := os.ReadFile(filepath.Join(jailDir, "aws-auth"+paths.ServiceEndpointExt))
+	if err != nil || string(got) != jailEndpoint {
+		t.Errorf("the host launch touched the workspace jail's aws-auth endpoint in %s: %q, %v",
+			jailDir, got, err)
+	}
+	const using = `using the host-wide "aws-auth" service for this launch, through a front of its own that closes when pi exits: `
+	i := strings.Index(l.errs, using)
+	if i < 0 {
+		t.Fatalf("the launch must name the front it published:\n%s", l.errs)
+	}
+	published, _, _ := strings.Cut(l.errs[i+len(using):], "\n")
+	if matched, _ := filepath.Match(paths.HostServicesSessionGlob(paths.HostServicesBase(paths.IsMacOS)),
+		filepath.Dir(published)); !matched || filepath.Dir(published) == jailDir {
+		t.Errorf("the front was published at %s, want a session dir of the launch's own (not %s)",
+			published, jailDir)
 	}
 }
 

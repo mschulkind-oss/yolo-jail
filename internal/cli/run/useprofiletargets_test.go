@@ -273,6 +273,14 @@ func TestAssembleBareProfileReachesTheCLIsWithANonAgentCommand(t *testing.T) {
 func profileLineChannel(t *testing.T, packs []*packload.Pack, useProfiles map[string]string,
 	userEnv *jsonx.OrderedMap) string {
 	t.Helper()
+	return profileLineChannelArgv(t, packs, useProfiles, userEnv, nil)
+}
+
+// profileLineChannelArgv is profileLineChannel with argvPairs as the container argv's `-e` pairs
+// the line reads beside the channel.
+func profileLineChannelArgv(t *testing.T, packs []*packload.Pack, useProfiles map[string]string,
+	userEnv *jsonx.OrderedMap, argvPairs map[string]string) string {
+	t.Helper()
 	home := retireHome(t)
 	writeUserPacks(t, home, `[]`)
 	var out bytes.Buffer
@@ -286,7 +294,7 @@ func profileLineChannel(t *testing.T, packs []*packload.Pack, useProfiles map[st
 	cfg.Set("providers", providers)
 	channel := channelFor(t, o, cfg, packs, userEnv)
 	out.Reset()
-	o.noteUseProfiles(channel, packs, nil)
+	o.noteUseProfiles(channel, packs, argvPairs)
 	return out.String()
 }
 
@@ -343,6 +351,57 @@ func TestNoteUseProfilesWarnsWhereTheSelectionReachesNothing(t *testing.T) {
 	}
 	if strings.Contains(got, "reaches nothing for claude") {
 		t.Errorf("claude, whose pack binds Bedrock, is warned as reaching nothing:\n%s", got)
+	}
+}
+
+// A CREDENTIAL ON THE CONTAINER'S ARGV REACHES THE AGENT, so the line does not claim none does.
+// A container jail's agent receives the `-e` pairs as well as its own delivery, and the fresh
+// container launch hands the line those pairs (envPairs(runCmd)); a claimed variable that crosses
+// only there, here AWS_PROFILE for claude on bedrock, silences the "delivers claude no
+// credential" warning the same launch prints without it.
+func TestNoteUseProfilesCountsTheContainerArgvAsReachingTheAgent(t *testing.T) {
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock"),
+		officialPack(t, "aws-auth")}
+	sel := map[string]string{"claude": "bedrock"}
+	const warned = `delivers claude no credential for provider "bedrock"`
+	if got := profileLineChannelArgv(t, packs, sel, emptyEnv(), nil); !strings.Contains(got, warned) {
+		t.Fatalf("with nothing on the argv the line must warn %q:\n%s", warned, got)
+	}
+	got := profileLineChannelArgv(t, packs, sel, emptyEnv(), map[string]string{"AWS_PROFILE": "on-the-argv"})
+	if strings.Contains(got, warned) {
+		t.Errorf("an AWS_PROFILE on the container argv reaches claude, and the line still warns:\n%s", got)
+	}
+}
+
+// THE CALL SITE THE TEST ABOVE STANDS FOR: runContainer is the one arm with a container argv, and
+// it hands the line that argv's pairs. The unit above cannot reach runContainer's call (it runs
+// after the image and prefix builds), so its shape is pinned here: an argument of nil there
+// passes every other test and warns every container launch whose credential crosses as `-e`.
+func TestRunContainerHandsTheProfileLineItsArgvPairs(t *testing.T) {
+	fn := methodDecl(t, "run.go", "runContainer")
+	found := false
+	ast.Inspect(fn, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "noteUseProfiles" {
+			return true
+		}
+		found = true
+		if len(call.Args) != 3 {
+			t.Errorf("runContainer's noteUseProfiles call has %d arguments, want 3", len(call.Args))
+			return true
+		}
+		if arg, ok := call.Args[2].(*ast.CallExpr); !ok || !isIdentNamed(arg.Fun, "envPairs") {
+			t.Errorf("runContainer hands the profile line something other than envPairs(<argv>): %T",
+				call.Args[2])
+		}
+		return true
+	})
+	if !found {
+		t.Fatal("runContainer no longer prints the profile line")
 	}
 }
 
