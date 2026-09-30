@@ -16,9 +16,9 @@ summary: "How the integration suite tests agent-CLI installation without letting
 
 **Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. MEASURED in CI on Linux: the
 Pack Installs workflow was green at `7ad8358c` (run 35820702398) and on its 2026-09-21 weekly
-schedule (run 35620029721). **Not measured on macOS:** the macOS nightly runs no vendor install,
-and its warmup, skipped there until 2026-09-25, runs again and is being measured
-([Suite warmup](#suite-warmup)).
+schedule (run 35620029721). **Not measured on macOS:** the macOS nightly runs no vendor install.
+Its warmup, skipped there from 2026-08-23 to 2026-09-25, was MEASURED on the eight nightlies of
+2026-09-26 to 2026-09-29 and stays ([Suite warmup](#suite-warmup), [OQ-CI8](#oq-ci8)).
 
 Installing an agent CLI is a real yolo feature, and it has broken for real. It is also the one
 part of the integration suite whose result can be decided by someone else: a vendor's release,
@@ -297,19 +297,43 @@ are comparable.
 - `warmupTimeout` bounds it far below a test's budget. A warmup is worth waiting for only while it
   costs less than the misattribution it removes, and a failed one has to be cheap because nothing
   depends on it.
-- **It runs on darwin again, and that measurement is IN FLIGHT (2026-09-25).** Until then it was
-  skipped there. On the 2026-08-22 and 2026-08-23 nightlies a darwin warmup realised a full image
-  rather than starting a container, and it spent its whole bound warming nothing. Two changes
-  removed the reason for that. [OQ-IP1](image-staging-vs-baking.md#why-its-this-way) made the
-  image identity a content hash that any host computes, and the stock short-circuit returns
-  before the build when the runtime already holds a matching image, which every nightly shard's
-  `Load jail image` step preloads. Nobody has measured the result yet, so the next macOS nightly is
-  the measurement. **How to read it:** each shard's log carries one of two lines.
-  - `[integration] warmed the jail in <d> on darwin`: the warmup ran. It earned its place if the
-    first container test in that shard got cheaper by about `<d>`.
-  - `[integration] DEGRADED: warmup jail failed after <d> (…)`: the warmup failed. A failure at
-    `warmupTimeout`'s bound whose output is pages of `Fetching …` is the 2026-08-23 shape again,
-    and the skip should come back, citing that run. A failure for any other reason is a separate
+- **It runs on darwin, and it STAYS: MEASURED on the eight macOS nightlies of 2026-09-26 to
+  2026-09-29** ([OQ-CI8](#oq-ci8)). From 2026-08-23 to 2026-09-25 it was skipped there. On the
+  2026-08-22 and 2026-08-23 nightlies a darwin warmup realised a full image rather than starting
+  a container, and it spent its whole bound warming nothing. Two changes removed the reason for
+  that. [OQ-IP1](image-staging-vs-baking.md#why-its-this-way) made the image identity a content
+  hash that any host computes, and the stock short-circuit returns before the build when the
+  runtime already holds a matching image, which every nightly shard's `Load jail image` step
+  preloads. The eight runs say the warmup now does its job:
+  - **It warmed 91 of the 93 shards that reached their test step**, in 1m59s to 4m45s (median
+    3m1s).
+  - **Each shard's first container test is back to its steady-state cost.** With the skip in
+    place (the four nightlies of 2026-09-22 to 2026-09-25), the first test to take over ten
+    seconds in each of the 45 logged shards took 129s to 562s. `TestAgentToolsAvailableDirect`
+    took 148s to 317s as a shard's first test, and 17s to 28s after a warmup. `TestBlockedTools`
+    took 129s to 203s, and 23s to 42s after one. That is the saving the warmup exists for: the
+    first test got cheaper by about the warmup's own time.
+  - **No [Mode B](#mode-b) failure.** No shard log in the eight runs has a `yolo timed out after`
+    line, which the harness prints when a command exceeds its deadline. The five red runs are
+    runner faults (a runner that lost contact, a podman machine that never started, a podman
+    machine image whose download broke off) and six assertion failures, none a timeout.
+  - **The two degraded warmups are not the 2026-08-23 shape**, although their output has a page
+    of `Fetching …` lines. Both spent their time in `Building yolo's own binaries
+    (.#installPrefix)`, the nix build of yolo's own Go binaries, which a launch mounts into the
+    jail rather than baking into the image. The fetches were that build's darwin toolchain. One
+    was killed inside that build at the 5-minute bound. The other finished it at 4m41s, printed
+    `Image build skipped: … already carries this source tree's identity`, so realised no image,
+    and was killed before its launch returned. Both shards' first container tests passed, in
+    215s and 54s.
+
+  **How to read a later run:** each shard's log carries one of two lines.
+  - `[integration] warmed the jail in <d> on darwin`: the warmup ran. It is earning its place
+    while the first container test in that shard costs about what the same test costs later.
+  - `[integration] DEGRADED: warmup jail failed after <d> (…)`: the warmup failed. It is the
+    2026-08-23 shape again only when its output shows the launch realising an IMAGE, a
+    `Building the jail image with nix` line with no `Image build skipped` line; then the skip
+    should come back, citing that run. `Fetching …` lines alone do not decide it, because the
+    `.#installPrefix` build prints them too. A failure for any other reason is a separate
     defect.
 - **The Apple Container parity job warms too, deliberately, and its line is not that evidence.**
   `apple-container.yml`'s parity step sets no `YOLO_RUNTIME`, so the harness picks `container` on
@@ -415,3 +439,4 @@ Rulings a maintainer reading only the normative text would otherwise undo. [OQ-C
 | <a id="oq-ci4"></a>[**OQ-CI4**](#oq-ci4) — suite warmup runs in `TestMain`'s seam, outside any timed test; **no cap widening** | [Mode B](#mode-b) was a misattribution. On x64 (run 32419507352) the first test's two installs cost about ten times what the same two cost later in the run, and on the macOS nightly most of a blown 1200s cap was warmup. After the warmup landed (run 32597479510) it took 1m56s, moving that one-time cost into a line that belongs to no test, while the job's wall clock barely moved |
 | <a id="oq-ci5"></a>[**OQ-CI5**](#oq-ci5) — **no warm-prefix seeding** | Measured in run 32597479510: with vendor installs off the push path, the whole residual per-test install cost is the two pinned cells, about 18 seconds. A seeded prefix has nothing left to remove, and it would risk silently deleting the one cold install per mechanism |
 | <a id="oq-ci6"></a>[**OQ-CI6**](#oq-ci6) — the push gate uses **fixture packs**, and real packs get a **path-filtered trigger** | A fixture pins with shipped mechanisms only (a `file://` pack and a version in its `package` string), and lets the specimen be a small, fast package instead of a large agent CLI. The cost is that the gate no longer proves the shipped manifests install. The path-filtered and weekly triggers exist to cover exactly that |
+| <a id="oq-ci8"></a>[**OQ-CI8**](#oq-ci8) — the darwin warmup **stays**, and a warmup killed while building yolo's own binaries is **not** a reason to skip it again | The roadmap's rule was *keep it if the nightly's Mode B failures stop*, applied 2026-09-30 to the eight macOS nightlies since the skip went (runs 36237110678, 36315864178, 36425623325, 36461553752, 36470275574, 36476746916, 36521751485, 36566584474): no test timed out, and each shard's first container test fell back to its steady-state cost ([Suite warmup](#suite-warmup)). The second half is decided here, because the old reading rule would have misfired on the first degraded warmup: it keyed on `Fetching …` lines, and the `.#installPrefix` build prints those too. The skip had rested on a warmup that realised an image, so only that, a `Building the jail image with nix` line, is the evidence for bringing it back |

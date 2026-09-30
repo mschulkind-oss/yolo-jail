@@ -93,7 +93,7 @@ and nothing else here does.** Verified against `flake.nix` 2026-08-23.
 | Nightly, 2026-08-23 | **GREEN** — run `32623453131`, `build-image` success, `integration-macos` success, suite `ok … 3915.734s` | 2026-08-23 |
 | Previous night | `32557449248` — `FAIL … 5073.141s` | 2026-08-22 |
 | The real 08-22 failure | `TestExtraPackageLibFarm` at **1216.11s** against the job's 1200s cap — the only one. Fixed by an explicit 40-minute `withTimeout(nixBuildJailTimeout)` on both `packages:`-setting tests (`01a51dc4`, `integration/packages_test.go`); the lib farm then passed at 812.37s | 2026-08-23 |
-| **Darwin warmup: SKIPPED** | `warmJail` returns early on `GOOS == "darwin"` — `integration/harness_test.go`, commit `e5b60902` (2026-08-23). A warmup pre-pays a *container start*; on darwin every launch **realises an image** (a loaded image can never match a darwin `nix eval`), so the warmup was a full nix build wearing a warmup's name — **12m0s of waste per night**. The first container test absorbs the one-time cost instead. Linux CI keeps the warmup, where the premise holds and it earns its 1m56s | 2026-08-23 |
+| **Darwin warmup: RUNS, and stays** | Skipped from 2026-08-23 (`e5b60902`), when every darwin launch realised an image and the warmup wasted 12m0s a night, to 2026-09-25 (`0c4bdbee`), once the stock short-circuit stopped that. MEASURED on the eight nightlies of 2026-09-26 → 2026-09-29: it warmed 91 of 93 shards in 1m59s–4m45s, each shard's first container test fell back to its steady-state cost, and no test timed out ([`agent-install-in-ci.md`](../reference/agent-install-in-ci.md#suite-warmup)). Linux CI keeps it too | 2026-09-30 |
 | Image-skew oracle on darwin | **auto-downgraded to `warn`** — a Linux-runner-built image can never match a darwin `nix eval`, so on a Mac you do **not** get the stale-image protection. Check by hand | 2026-08-23 |
 
 - ✅ <a id="OQ-MX2"></a>**[OQ-MX2](#OQ-MX2): Should the three `packages:`-declaring tests SKIP
@@ -117,10 +117,10 @@ and nothing else here does.** Verified against `flake.nix` 2026-08-23.
   miss would make the two baked-path tests build and fail again, and that failure is the one
   worth seeing: a stale or unbuilt image is never a basis for an integration result.
 
-**Still unobserved:** nobody has watched a nightly run *with* the warmup skip in
-place. The expectation is `integration-macos` losing ~12 minutes of wall clock
-and the first container test growing by roughly the image realisation. Needs the
-nightly.
+**Observed since (2026-09-30):** with the skip in place, on the nightlies of
+2026-09-22 → 2026-09-25, a shard's first container test took 129s–562s; with the
+warmup back it costs what the same test costs later in the run
+([`agent-install-in-ci.md`](../reference/agent-install-in-ci.md#suite-warmup)).
 
 ---
 

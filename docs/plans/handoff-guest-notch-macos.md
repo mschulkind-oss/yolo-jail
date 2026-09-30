@@ -272,7 +272,11 @@ From `AGENTS.md`, plus what this session learned:
 - **A failed nix build STOPS the jail** (fatal since 2026-08-15). `AutoLoadImage` used to fall back silently to the
   loaded image, so a broken flake looks like a working jail on stale code. Watch the build
   output.
-- **The suite's darwin warmup is now SKIPPED, on purpose — do not "fix" it back** (added
+- ⚠ **Superseded:** the darwin warmup runs again since 2026-09-25 (`0c4bdbee`), and the nightlies
+  of 2026-09-26 to 2026-09-29 measured it worth keeping
+  ([`agent-install-in-ci.md`](../reference/agent-install-in-ci.md#suite-warmup)). The rest of this
+  bullet is the 2026-08-23 state.
+  **The suite's darwin warmup is now SKIPPED, on purpose — do not "fix" it back** (added
   2026-08-23, `e5b60902`, `integration/harness_test.go:147-153`). A warmup exists to pre-pay a
   **container start**; on darwin every launch **realises an image**, because a loaded image can
   never match a darwin `nix eval`. So the warmup was a full nix build wearing a warmup's name —
