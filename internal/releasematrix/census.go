@@ -1,7 +1,6 @@
 package releasematrix
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
@@ -100,7 +99,12 @@ func censusBinary(root string, e Entry, b loopholedecl.Binary, release []string)
 		}
 	}
 
-	platforms := union(want, have)
+	// The program is checked where the release would build it. A declared build no release
+	// produces is already refused above, and the program need not build there at all.
+	platforms := want
+	if len(platforms) == 0 {
+		platforms = have
+	}
 	for _, p := range platforms {
 		goos, goarch, _ := strings.Cut(p, "/")
 		chain, err := EmbedChain(root, b.Name, goos, goarch)
@@ -160,18 +164,5 @@ func minus(a, b []string) []string {
 			out = append(out, s)
 		}
 	}
-	return out
-}
-
-func union(a, b []string) []string {
-	set := map[string]bool{}
-	for _, s := range append(append([]string{}, a...), b...) {
-		set[s] = true
-	}
-	out := make([]string, 0, len(set))
-	for s := range set {
-		out = append(out, s)
-	}
-	sort.Strings(out)
 	return out
 }

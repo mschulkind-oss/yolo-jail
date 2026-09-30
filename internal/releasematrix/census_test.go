@@ -39,6 +39,8 @@ func fixtureTree(t *testing.T) string {
 	writeFile(t, root, "cmd/macker/main.go", "package main\n\nfunc main() {}\n")
 	writeFile(t, root, "cmd/macker/mac_darwin.go", "package main\n\nimport _ \""+EmbedPackage+"\"\n")
 	writeFile(t, root, "cmd/notmain/lib.go", "package notmain\n")
+	writeFile(t, root, "cmd/unixonly/main_linux.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, root, "cmd/unixonly/main_darwin.go", "package main\n\nfunc main() {}\n")
 	return root
 }
 
@@ -159,6 +161,17 @@ func TestCensusRefusesEachWayOffTheMatrix(t *testing.T) {
 			t.Errorf("Census = %v, want a problem of kind %d on %q naming %q", got, tc.kind,
 				tc.platform, tc.want)
 		})
+	}
+}
+
+// The program is judged where the release builds it: a declared build no release produces is a
+// platform refusal, and the program not building there is no second one.
+func TestCensusJudgesTheProgramOnlyWhereTheReleaseBuildsIt(t *testing.T) {
+	root := fixtureTree(t)
+	data := renamed(fixtureManifest(true, false, nil, append([]string{"windows/amd64"}, allFour...)...), "unixonly")
+	got := Census(root, []Entry{entryFor(t, "p", "tool", data)}, allFour)
+	if len(got) != 1 || got[0].Kind != KindPlatforms || got[0].Platform != "windows/amd64" {
+		t.Errorf("Census = %v, want only the windows/amd64 build refused", got)
 	}
 }
 
