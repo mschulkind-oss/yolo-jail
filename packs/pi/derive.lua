@@ -1200,11 +1200,14 @@ end)
 yolo.derive("pi", "model-lists", function(ctx)
   local lists = {}
   for name, prov in pairs(ctx.providers or {}) do
-    if name ~= "openai-codex" and type(prov) == "table" and prov.models_only == true then
-      local piID = name
-      if prov.platform == "aws-bedrock" and not (ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider) then
-        piID = "amazon-bedrock"
-      end
+    local viaRow = ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider
+    local nativeBedrock = type(prov) == "table" and prov.platform == "aws-bedrock" and not viaRow
+    -- Only a provider pi can use: one it has a models.json row for (piReachable, or the via row),
+    -- or yolo's Bedrock provider on pi's own client. A registration for a provider pi has no
+    -- address or credential for is refused by pi at load ("no authentication method configured").
+    local usable = type(prov) == "table" and (viaRow or nativeBedrock or piReachable(prov) ~= nil)
+    if name ~= "openai-codex" and usable and prov.models_only == true then
+      local piID = nativeBedrock and "amazon-bedrock" or name
       local provOpts = type(prov.options) == "table" and prov.options or {}
       local models = {}
       for _, e in ipairs(codexModelList(prov)) do

@@ -233,6 +233,18 @@ func TestPiGetsANarrowedListToRegister(t *testing.T) {
 	}
 }
 
+// A NARROWED PROVIDER PI CANNOT USE IS NOT REGISTERED: pi refuses a registration for a provider
+// it has no address or credential for ("no authentication method configured"), which would fail
+// the extension's whole load.
+func TestPiRegistersNoNarrowedListItCannotUse(t *testing.T) {
+	r := newPioencodeRender(t, `{"anthropic_only":{"endpoints":{"anthropic":{"base_url":"https://a.example"}},
+	  "models":{"m-1":"m-1"},"models_only":true}}`)
+	r.render(t, `{}`)
+	if file := r.surface(t, ".pi", "agent", "yolo-model-lists.json"); len(file) != 0 {
+		t.Errorf("pi model-lists = %v, want nothing for a provider pi cannot reach", file)
+	}
+}
+
 // A LIST NO `only` NARROWED GIVES PI NOTHING TO REGISTER: it stays a models.json row beside pi's
 // own catalog (what an `add` does to that catalog is OQ-MM1's), and the scope stays as before.
 func TestPiRegistersNothingForAnUnnarrowedList(t *testing.T) {
