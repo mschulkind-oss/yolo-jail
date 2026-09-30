@@ -504,16 +504,31 @@ derive output reaches pi's own `~/.pi/agent` only through the host render: `yolo
 the [host launch gate](../reference/host-apply-staleness.md) when it is on. With the gate off,
 `yolo host -- pi` hands pi the pointer and writes none of pi's config.
 
-**An explicit profile still wins.** Every client above puts the container provider after the
-profile provider, so an agent the user already points at an AWS profile of their own (an
-`AWS_PROFILE` in the shell, or in claude's own `~/.claude/settings.json` `env` block, which
-Claude Code applies before its first request, [`providers.md` OQ-4](../reference/providers.md#pv-oq-4))
-signs with that profile whenever the profile resolves, and the doorway is not asked. The launch
-passes that `AWS_PROFILE` through untouched and refuses nothing over it: the override declaration
-names no `AWS_PROFILE`, and lets a static pair through beside one
+**The profile the agent's SDK resolves still wins.** Every client above puts the container
+provider after the profile providers, which read the user's own `~/.aws` at the host. So an agent
+the user already points at an AWS profile of their own (an `AWS_PROFILE` in the shell, or in
+claude's own `~/.claude/settings.json` `env` block, which Claude Code applies before its first
+request, [`providers.md` OQ-4](../reference/providers.md#pv-oq-4)) signs with that profile
+whenever the profile resolves, and the doorway is not asked. The launch passes that
+`AWS_PROFILE` through untouched and refuses nothing over it: the override declaration names no
+`AWS_PROFILE`, and lets a static pair through beside one
 (`TestHostClaudeKeepsItsOwnAWSProfileBesideTheDoorway`). So the doorway takes no credential away
 from claude on its own settings, with aws-auth on or off. What decides whether that launch starts
 at all is the region pre-flight below, not the doorway.
+
+⚠ **With no `AWS_PROFILE`, the SDK resolves the `default` profile**, and the same order applies:
+a `[default]` in `~/.aws/config` or `~/.aws/credentials` that holds credentials, an SSO session
+or a credential process is used before the pointer, with its whole permission set rather than
+aws-auth's narrowed one. If that SSO session has lapsed, the chain stops at it and the agent fails
+with an SSO error rather than falling back to the pointer (pi's SDK,
+`@aws-sdk/credential-provider-sso` 3.973.14 in pi 0.99.1's install: `tryNextLink` is `false` for
+an expired or invalid session, READ 2026-09-30). The launch cannot tell: the host's
+[OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8) check passes no host files, since aws-auth's `.aws`
+entry would then warn on every host launch (every aws-auth user has a `~/.aws`), against that
+ruling's no-false-positive condition, and reading which profile holds what is AWS knowledge the
+same ruling keeps out of core. So the launch says it opened the doorway, which is true, and does
+not say the agent uses it. For the doorway to serve, the profile the agent resolves must hold no
+credentials: no `[default]` credentials, or an `AWS_PROFILE` naming a region-only profile.
 
 **The region at the host is the jail's.** The derives compose it the same way at both notches:
 pi's and claude's env derives set `AWS_REGION` from the provider's `region` (pinned: pi receives

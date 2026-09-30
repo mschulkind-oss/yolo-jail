@@ -627,9 +627,11 @@ process. `yolo host -- <agent>` runs it for that one agent: with the loophole en
 agent on a Bedrock provider, the launch opens the adapter itself as a listener on the host's
 loopback, on a port it picked and behind a caller token it minted, forwarding through a front of
 its own to the host service, and closes it when the agent exits
-([`host-notch-services.md` §4.8](../design/host-notch-services.md#48-yolo-host)). An `AWS_PROFILE`
-of the user's own still wins there: every shipped agent's AWS client asks the profile before the
-pointer. The adapter holds nothing across a request: it checks the caller token,
+([`host-notch-services.md` §4.8](../design/host-notch-services.md#48-yolo-host)). A profile of
+the user's own still wins there: every shipped agent's AWS client asks the profile it resolves in
+the user's `~/.aws` before the pointer, which is `AWS_PROFILE`'s, or `default` when that is unset,
+so a `[default]` holding credentials is used instead, and the launch cannot tell. The adapter
+holds nothing across a request: it checks the caller token,
 forwards through the authenticated front to the host service, and passes the answer back. The
 host service answers from its cache. It mints ahead of need and re-mints well before expiry,
 because the SDK gives each fetch about a second, and the SDK re-fetches shortly before expiry on

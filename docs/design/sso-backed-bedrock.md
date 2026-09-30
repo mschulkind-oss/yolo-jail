@@ -1016,7 +1016,11 @@ agent a user already runs on Bedrock through a profile of their own: in every co
 the profile providers (SSO and ini in the JavaScript SDKs, `Profile` in codex's crate) come
 before the container provider, so an `AWS_PROFILE` in the shell, or in claude's own
 `~/.claude/settings.json` `env` block, is resolved first and the pointer is not asked while that
-profile resolves. What the pointer does change is the static pair and the bearer: exported in
+profile resolves. The same order holds with no `AWS_PROFILE`, where the profile is `default`: a
+`[default]` in the host's `~/.aws` that holds credentials is used before the pointer, and one
+whose SSO session lapsed stops the chain, and the launch cannot see either
+([`host-notch-services.md` §4.8](host-notch-services.md#48-yolo-host)). What the pointer does
+change is the static pair and the bearer: exported in
 the shell beside it, they are delivered at the host, and the [OQ-SSO8](#OQ-SSO8) refusal fires
 there as it does in a jail (`TestHostRefusesABearerBesideTheDoorwaysPointer`).
 

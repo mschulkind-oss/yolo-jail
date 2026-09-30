@@ -188,8 +188,13 @@ agent exits; both deliver the pointer at a port the launch picks
 ([`host-notch-services.md` HS-D15](../../docs/design/host-notch-services.md#HS-D15),
 [§4.8](../../docs/design/host-notch-services.md#48-yolo-host);
 [notch convergence §2.4](../../docs/plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)).
-An `AWS_PROFILE` of your own still wins at the host: every shipped agent's AWS client asks the
-profile before the pointer, so an agent you already point at a profile keeps signing with it. **Do not "fix" the gate by narrowing it to the pack's own bins**: that
+A profile of your own in `~/.aws` still wins at the host: every shipped agent's AWS client asks
+the profile it resolves before the pointer, so an agent you already point at a profile keeps
+signing with it. With no `AWS_PROFILE` that profile is `default`, so a `[default]` holding
+credentials or an SSO session is used instead of the adapter, and a lapsed one fails with an SSO
+error rather than falling back to it. The launch cannot tell which of these happens, and still
+says it opened the adapter. For the adapter to serve, leave `[default]` without credentials, or
+point `AWS_PROFILE` at a region-only profile. **Do not "fix" the gate by narrowing it to the pack's own bins**: that
 would break this pack outright, because CLI-less is the case the gate's CLI-less arm exists
 for.
 

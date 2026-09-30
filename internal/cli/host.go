@@ -965,6 +965,14 @@ func (c *hostComposition) envOverrideFindings(getenv func(string) string) []pack
 	// The gate's view of this one-agent selection, platform included (OQ-BR8), built from the
 	// table and resolution the credential gate composed this launch against.
 	sel := packload.SelectionOf(table, c.resolved, c.providers)
+	// NO HOST FILES, ON PURPOSE. A pack's `host_file` override (aws-auth's `.aws`) asks whether
+	// the launch renders that file for the agent, and at the host the agent reads the user's own
+	// home: every aws-auth user has a ~/.aws, since the service mints from its SSO login, so
+	// passing it would print the pack's MAY-override warning on every host launch, whatever the
+	// profile the agent's SDK resolves holds, against OQ-SSO8's "never a false positive"
+	// condition. Whether that profile holds credentials is AWS knowledge core may not carry
+	// (OQ-SSO8 condition 1). So the host cannot tell when ~/.aws wins over the doorway's pointer,
+	// and host-notch-services.md §4.8 says so instead.
 	return packload.EnvOverrideFindings(c.packs, sel, lookup, nil, &served)
 }
 

@@ -131,8 +131,9 @@ one command. The `aws-auth` login now reaches agents run with `yolo host` too: w
 on, `yolo host -- pi` on a Bedrock profile, and claude, codex and opencode the same way, runs the
 credential helper for that one command on your machine's own network, gives it to that agent
 alone, and stops it when the agent exits, where before the host held it back and pi started with
-no API key. An `AWS_PROFILE` you already use still comes first, so an agent you already run on
-Bedrock with your own AWS settings keeps signing with them, and a launch that also finds a Bedrock
+no API key. A profile in your `~/.aws` that holds credentials still comes first, the one
+`AWS_PROFILE` names or `[default]` when it is unset, so an agent you already run on Bedrock with
+your own AWS settings keeps signing with them, and a launch that also finds a Bedrock
 bearer, or an AWS key pair without `AWS_PROFILE`, in your shell stops and says why, as a jail
 launch does. With the loophole off, the launch says which setting turns it on. Either way the
 launch needs a region yolo can see

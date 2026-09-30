@@ -72,7 +72,8 @@ Loopholes work fully on Podman on Linux. On a Mac they depend on the runtime:
   shared Claude login does not: its in-jail half needs a container, and the launch says so.
 - **`yolo host`, with no jail:** Bedrock through `aws-auth` works too. `yolo host -- pi` (or any
   agent on a Bedrock profile) runs the credential helper for that one command, on your machine's
-  own loopback, and stops it when the agent exits. An `AWS_PROFILE` you already use still wins.
+  own loopback, and stops it when the agent exits. A profile in your `~/.aws` that holds
+  credentials still wins: the one `AWS_PROFILE` names, or `[default]` when it is unset.
   It needs the region setting a jail launch needs, in your yolo config or your shell: a region
   only in the agent's own settings or in `~/.aws/config` does not count. Tested with stand-ins
   for the agent and for `aws`, not yet with a real agent.
