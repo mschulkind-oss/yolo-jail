@@ -10,8 +10,11 @@ vantage:
 
 # Why an in-jail nix build is never a GC root, and the one string that fixes it
 
-**Status:** DESIGN, 2026-09-28. Nothing of the fix is built. The briefing now tells a jail agent
-that its nix links are not roots. MEASURED: every mechanism claim in [§3](#3-measured-in-this-jail),
+**Status:** DESIGN, 2026-09-28; questions triaged 2026-09-30. Nothing of the fix is built. The
+briefing now tells a jail agent that its nix links are not roots. Two questions are open,
+[OQ-NR1](#OQ-NR1) and [OQ-NR2](#OQ-NR2). [OQ-NR3](#OQ-NR3) and [OQ-NR4](#OQ-NR4) were decided as
+implementation choices ([NR-D1](#NR-D1), [NR-D2](#NR-D2)), and both take effect only once a
+translated root is built. MEASURED: every mechanism claim in [§3](#3-measured-in-this-jail),
 against the maintainer's host daemon (Nix 2.35.2) from an untrusted jail client (Nix 2.34.8).
 UNMEASURED: the root watcher of [§5](#5-what-registers-the-translated-root) on a real host, because
 the host's `gcroots/auto` cannot be mounted into this jail.
@@ -38,7 +41,8 @@ inside the jail.
 **Start at [§2](#2-the-mechanism-why-the-root-is-lost).** Everything else follows once it is clear
 which process resolves the path, and on which filesystem.
 
-**Needs your ruling:** [OQ-NR1](#OQ-NR1), [OQ-NR2](#OQ-NR2), [OQ-NR3](#OQ-NR3), [OQ-NR4](#OQ-NR4).
+**Needs your ruling:** [OQ-NR1](#OQ-NR1), [OQ-NR2](#OQ-NR2). [OQ-NR3](#OQ-NR3) and
+[OQ-NR4](#OQ-NR4) were decided as implementation choices ([NR-D1](#NR-D1), [NR-D2](#NR-D2)).
 
 **Reads with:** [`workspace-path-mirroring.md`](workspace-path-mirroring.md) (the ruled-against way
 to make paths agree; this fix does not need it),
@@ -185,7 +189,8 @@ launcher knows. The launcher states that set; the jail does not derive it (the `
 - The **home overlay binds** map `/home/agent/.local`, `.config`, `.cache` and the rest to their
   sources under `<workspace>/.yolo/home/` and the machine state dir.
 - **A path under no mapped bind is not translated.** That covers the container root fs, the
-  anonymous `/tmp` and `/var/tmp` volumes ([OQ-NR3](#OQ-NR3)), and `/nix/store` itself. The root
+  anonymous `/tmp` and `/var/tmp` volumes ([OQ-NR3](#OQ-NR3), decided as [NR-D1](#NR-D1)), and
+  `/nix/store` itself. The root
   stays exactly as dead as it is today, and nothing is reported.
 - **Longest destination prefix wins**, because the home binds nest (`/home/agent/.claude/skills`
   inside `/home/agent/.claude`).
@@ -262,7 +267,7 @@ weighs heavily. And the steering it needs changes where `nix profile` keeps its 
 ## 7. Non-goals
 
 - **Rooting jail-only paths.** `/tmp` in a jail is scratch. A link there stays unrooted
-  ([OQ-NR3](#OQ-NR3)).
+  ([OQ-NR3](#OQ-NR3), decided as [NR-D1](#NR-D1)).
 - **Reaping.** No yolo reaper for translated roots; the link is the root ([§4](#4-the-translated-root)).
 - **Apple Container and the container Macs.** In-jail nix there is ruled "possible, but not planned"
   ([`setup-support-gaps.md`](../plans/setup-support-gaps.md#2-ranked-gap-backlog) G21). Everything here applies unchanged if that ever changes.
@@ -316,20 +321,20 @@ for anything a translated root cannot cover, so it outlives this design. Its wor
    **Answer:**
    > _(empty — fill in when decided)_
 
-3. 💬 <a id="OQ-NR3"></a>**OQ-NR3: Do the anonymous `/tmp` and `/var/tmp` volumes translate?** The host launcher can
+3. ✅ <a id="OQ-NR3"></a>**OQ-NR3: Do the anonymous `/tmp` and `/var/tmp` volumes translate?** The host launcher can
    learn their host paths from `podman volume inspect`, but a nested launcher cannot, and the
    documented nested-jail workspace is `/tmp/yolo-nested`. Translating them would root builds made
    under nested workspaces; leaving them out keeps the map to binds the launcher itself wrote.
-
-   <!-- vantage: oq id=OQ-NR3 leaning="Binds only in the first version; /tmp is scratch, and a nested jail's own image and prefix roots are better fixed by OQ-NR4 than by translating volumes." -->
 
    _Leaning:_ Binds only in the first version. `/tmp` is scratch, and a nested jail's own roots are
    better handled by [OQ-NR4](#OQ-NR4) than by translating volumes.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([NR-D1](#NR-D1)), reversible: binds only. The map holds
+   > the binds the launcher wrote, and a link under `/tmp` or `/var/tmp` stays unrooted, as it is
+   > today.
 
-4. 💬 <a id="OQ-NR4"></a>**OQ-NR4: Should yolo's own in-jail roots use translated roots?** A nested launch skips
+4. ✅ <a id="OQ-NR4"></a>**OQ-NR4: Should yolo's own in-jail roots use translated roots?** A nested launch skips
    `image.RegisterImageRoot` and `image.RegisterPrefixRoot` in-jail
    ([`imageload.go`](../../internal/cli/run/imageload.go) `rootImageFn`,
    [`jailprefix.go`](../../internal/cli/run/jailprefix.go)), because such a root was dead. Those
@@ -337,18 +342,25 @@ for anything a translated root cannot cover, so it outlives this design. Its wor
    would translate. The prefix is protected by runtime roots while a nested jail runs, but not
    between nested launches.
 
-   <!-- vantage: oq id=OQ-NR4 leaning="Yes, as the first consumer: it replaces two skips with the real root. The host reapers only enumerate the host's own build directories, so these roots need their own reaping story." -->
-
    _Leaning:_ Yes, as the first consumer. It replaces two skips with the real root. One detail to
    check when building it: the host's reapers enumerate the host's own `build/roots` directories,
    so a nested jail's roots under a workspace's home overlay would need their own reaping story.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([NR-D2](#NR-D2)), reversible: yes, as the first
+   > consumer. There are three skips to replace, not two: the store-delivered packages' extras
+   > profile skips its root in-jail too. Their reaping is the existing reapers', run by the jail
+   > that made the links.
 
 ## Decision Ledger
 
-None yet.
+No rulings yet: [OQ-NR1](#OQ-NR1) and [OQ-NR2](#OQ-NR2) are open. The two rows below are
+implementation decisions, and each takes effect only once a translated root is built.
+
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| <a id="NR-D1"></a>NR-D1 | *Implementation decision, [OQ-NR3](#OQ-NR3).* **Binds only: the map holds the binds the launcher itself wrote, and the anonymous `/tmp` and `/var/tmp` volumes do not translate.** Those volumes are per-launch scratch that yolo deletes once the jail exits, so a root there could outlive nothing but the launch. A running process that uses the store path is already kept by runtime and temp roots ([§2.3](#23-what-already-protects-a-jail)). A nested launcher cannot learn a volume's host path, while the host launcher could from `podman volume inspect`, so translating volumes would give one link two answers depending on who launched. A nested jail's own roots are [NR-D2](#NR-D2)'s. Reversible: the host launcher can add its volumes to the map later | 2026-09-30 | [§4](#4-the-translated-root), [§7](#7-non-goals) | — |
+| <a id="NR-D2"></a>NR-D2 | *Implementation decision, [OQ-NR4](#OQ-NR4).* **Yes: yolo's own in-jail roots become translated roots, the first consumer of the protocol client in [§4](#4-the-translated-root).** Three skips go, not the two the question names: `rootImageFn` (the image root, [`imageload.go`](../../internal/cli/run/imageload.go)), the in-jail skip of `image.RegisterPrefixRoot` ([`jailprefix.go`](../../internal/cli/run/jailprefix.go)), and the in-jail skip of `rootExtrasProfile` for the store-delivered packages' extras profile ([`storepackages.go`](../../internal/cli/run/storepackages.go)). All three root under `paths.BuildDir()`, which in a jail is inside `/home/agent/.local`, a mapped bind, so each one translates. This consumer needs no trigger from [OQ-NR1](#OQ-NR1), because yolo registers its own links directly. **Reaping stays with the existing reapers, run where the links live.** A translated root dies with its link. A nested launcher's `yolo prune` sweeps its own `build/roots` and `build/prefix-roots` under the same retention rules the host's sweep follows ([`OQ-LS1`](../reference/image-retention.md#why-its-this-way)'s week, [`OQ-LS4`](../reference/image-retention.md#why-its-this-way)'s liveness), so nothing new reaps. The leaning's concern holds, and it is why this is so: the host's reapers never walk a workspace's home overlay, so the jail that made a link reaps it. What remains is [§4](#4-the-translated-root)'s *who can hold host disk*: a nested jail's root holds its closure until that jail's own sweep removes the link. Reversible: keep the skips | 2026-09-30 | [OQ-NR4](#OQ-NR4) | — |
 
 ## Appendix: reproducing M4 and M6
 
