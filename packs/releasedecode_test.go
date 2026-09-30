@@ -166,6 +166,12 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.11.0", pack: "pi", problem: `unknown field "whenListed"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("whenListed")},
+	// Measured against v0.11.0 on 2026-09-30: codex's model-list surface, the list its launcher
+	// writes codex's model menu from (docs/design/model-lists-and-pickers.md MM-D22), carries
+	// notAtHost, which v0.11.0's strict surface decoder refuses by name, as it does pi's.
+	{release: "v0.11.0", pack: "codex", problem: `unknown field "notAtHost"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("notAtHost")},
 }
 
 // releaseDecodeProbe is the program compiled INSIDE the last release's tree: that release's
