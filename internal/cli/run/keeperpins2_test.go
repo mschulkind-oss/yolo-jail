@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,9 +20,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 )
 
-// TestAKeeperMovesIntoAScopeOfItsOwnFirst is JL-D61 at keeper.run's call site: where there is a
-// busctl, the keeper's first runtime act is StartTransientUnit naming its own pid, and the scope it
-// moved into is in its start record, which the reap of an unkept jail stops (JL-D32).
+// TestAKeeperMovesIntoAScopeOfItsOwnFirst is JL-D61 at keeper.run's call site. On Linux, where there
+// is a busctl, the keeper's first runtime act is StartTransientUnit naming its own pid, and the scope
+// it moved into is in its start record, which the reap of an unkept jail stops (JL-D32). Off Linux
+// there is no systemd (JL-D5 puts the keeper in a scope "where systemd is present"; keeper_other.go),
+// so even with a busctl on PATH the keeper makes no scope move and records no scope. On both, its log
+// says what became of the move: a line only that call site writes, so deleting the call fails here.
 func TestAKeeperMovesIntoAScopeOfItsOwnFirst(t *testing.T) {
 	var session *sessionLock
 	f := startKeeperFixtureWith(t, true, func(p *keeperPlan) {
@@ -46,13 +50,27 @@ func TestAKeeperMovesIntoAScopeOfItsOwnFirst(t *testing.T) {
 	f.jail.mu.Lock()
 	calls := append([]string(nil), f.jail.calls...)
 	f.jail.mu.Unlock()
-	if len(calls) == 0 || !strings.HasPrefix(calls[0], "/usr/bin/busctl --user call org.freedesktop.systemd1") ||
-		!strings.Contains(calls[0], "StartTransientUnit") || !strings.Contains(calls[0], unit) ||
-		!strings.Contains(calls[0], "PIDs au 1 "+pid) {
-		t.Errorf("the keeper's first runtime act is not its scope move naming its pid: %q", calls)
+	wantScope, wantLine := unit, "keeper: moved into the systemd user scope "+unit
+	if goruntime.GOOS == "linux" {
+		if len(calls) == 0 || !strings.HasPrefix(calls[0], "/usr/bin/busctl --user call org.freedesktop.systemd1") ||
+			!strings.Contains(calls[0], "StartTransientUnit") || !strings.Contains(calls[0], unit) ||
+			!strings.Contains(calls[0], "PIDs au 1 "+pid) {
+			t.Errorf("the keeper's first runtime act is not its scope move naming its pid: %q", calls)
+		}
+	} else {
+		wantScope = ""
+		wantLine = "keeper: no systemd on this platform, so it runs in a session of its own and no scope of its own"
+		for _, c := range calls {
+			if strings.Contains(c, "busctl") || strings.Contains(c, "StartTransientUnit") {
+				t.Errorf("the keeper tried a systemd scope move on %s, which has no systemd: %q", goruntime.GOOS, c)
+			}
+		}
 	}
-	if rec, ok := readKeeperRecord(f.cname); !ok || rec.Scope != unit {
-		t.Errorf("the start record names the scope %q (%v), want %q", rec.Scope, ok, unit)
+	if rec, ok := readKeeperRecord(f.cname); !ok || rec.Scope != wantScope {
+		t.Errorf("the start record names the scope %q (%v), want %q", rec.Scope, ok, wantScope)
+	}
+	if log := f.keeperLog(); !strings.Contains(log, wantLine) {
+		t.Errorf("the keeper's log does not say what became of its scope move (want %q):\n%s", wantLine, log)
 	}
 	session.release()
 	if rc := f.wait(); rc != 0 {
