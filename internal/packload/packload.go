@@ -1260,6 +1260,11 @@ type LaunchInjection struct {
 	// second copy of it is one the two could disagree about.
 	Before []string
 	After  []string
+	// Why, when set, is what the flags are for, closing the line that names the pack. Empty for
+	// a pack's launch flags, which say what they are for in their own words; set by a rewrite
+	// whose flag names a file yolo made, such as `yolo host --`'s model menu
+	// (docs/design/model-lists-and-pickers.md MM-D26), whose path alone would not say why.
+	Why string
 }
 
 // InjectLaunchFlags returns fullCommand with the flags declared for its leading binary
@@ -1340,11 +1345,15 @@ func (inj *LaunchInjection) DisclosureLines() []string {
 	if inj == nil {
 		return nil
 	}
+	added := "  added by pack " + inj.Pack + ": " + strings.Join(inj.Flags, " ")
+	if inj.Why != "" {
+		added += " (" + inj.Why + ")"
+	}
 	return []string{
 		"yolo CHANGED the command you asked for:",
 		"  you asked for: " + shquote.Join(inj.Before),
 		"  yolo will run: " + shquote.Join(inj.After),
-		"  added by pack " + inj.Pack + ": " + strings.Join(inj.Flags, " "),
+		added,
 	}
 }
 

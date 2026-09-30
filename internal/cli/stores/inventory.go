@@ -290,6 +290,11 @@ var stateReclaimers = map[string]Reclaimer{
 	// selected pack delivers (hostfloor.Floor.Reconcile) — so prune's reach is only what a killed
 	// install left, lock-gated.
 	"host-floor": {Func: "PruneHostFloor", Detail: "interrupted installs, lock-gated; each program keeps current + previous, deselected ones go at `yolo host apply --assert`", Trigger: "yolo prune --apply"},
+	// The model menus `yolo host --` hands the programs it runs (paths.HostModelMenusDir;
+	// docs/design/model-lists-and-pickers.md MM-D27). Self-bounded, collected by liveness: a launch
+	// that writes a new menu removes a program's others once no program holding one runs
+	// (modelmenu.Request.WriteIn), so no sweep of prune's has anything to add.
+	"model-menus": {Detail: "self-bounded: a `yolo host --` that writes a new menu removes the program's others once no program holding one runs", Trigger: "the next `yolo host --` that writes a menu"},
 }
 
 // stateStores inventories the direct children of the state dir, one row each.

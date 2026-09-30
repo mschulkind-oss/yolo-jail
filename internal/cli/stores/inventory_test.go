@@ -400,3 +400,25 @@ func TestEmbeddedPacksRowIsYolosOwn(t *testing.T) {
 			"PruneEmbeddedPackTrees, 10", row.Verdict, row.Reclaimer.Func, row.Bytes)
 	}
 }
+
+// THE HOST'S MODEL MENUS ARE YOLO'S OWN (docs/design/model-lists-and-pickers.md MM-D27): the row
+// for paths.HostModelMenusDir's leaf says what bounds it, and offers the user nothing to delete.
+func TestHostModelMenusRowIsYolosOwn(t *testing.T) {
+	leaf := filepath.Base(paths.HostModelMenusDirUnder("/h"))
+	o, state := testOptions(t)
+	writeFile(t, filepath.Join(state, leaf, "codex", "codex", "0123abcd.json"), 12)
+	rows := stateStores(o, nil)
+	var row *Store
+	for i := range rows {
+		if rows[i].Key == "state."+leaf {
+			row = &rows[i]
+		}
+	}
+	if row == nil {
+		t.Fatalf("no state.%s row in %v", leaf, rows)
+	}
+	if row.Verdict != VerdictYolo || !strings.Contains(row.Reclaimer.Detail, "self-bounded") || row.Bytes != 12 {
+		t.Errorf("model-menus row = verdict %q, reclaimer %+v, %d bytes; want yolo's own, self-bounded, 12",
+			row.Verdict, row.Reclaimer, row.Bytes)
+	}
+}

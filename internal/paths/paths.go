@@ -809,6 +809,29 @@ func HostFloorDirUnder(home string) string {
 	return filepath.Join(GlobalStorageUnder(home), hostFloorLeaf)
 }
 
+// hostModelMenusLeaf is the state-dir child holding the host's MODEL MENUS (internal/modelmenu).
+const hostModelMenusLeaf = "model-menus"
+
+// HostModelMenusDir returns $HOME/.local/share/yolo-jail/model-menus — where `yolo host --`
+// keeps the model menus it hands the programs it runs (docs/design/model-lists-and-pickers.md
+// MM-D27): one directory per pack and program, one menu per cache key, each kept while a running
+// program holds it (modelmenu.Request.WriteIn). Never the user's own config dir of the program
+// (`~/.codex`), which is theirs.
+//
+// ⚠ NO JAIL MOUNTS IT, IN ANY MODE, for HostFloorDir's reason in another form: a menu carries the
+// prompt text the host program runs its model with (codex's catalog entries hold each model's
+// instructions), so a copy a jail could write would be a jail choosing the instructions of an
+// agent outside every sandbox, read BECAUSE OF WHERE IT SITS. So it is never under GlobalCache()
+// or GlobalMise(), and it is created 0700. The test that pins the floor's mount rule in
+// internal/cli/run pins this directory too.
+func HostModelMenusDir() string { return HostModelMenusDirUnder(home()) }
+
+// HostModelMenusDirUnder is HostModelMenusDir under an EXPLICIT home — see GlobalStorageUnder
+// for why a caller that has already resolved a home must not re-derive it from $HOME.
+func HostModelMenusDirUnder(home string) string {
+	return filepath.Join(GlobalStorageUnder(home), hostModelMenusLeaf)
+}
+
 // imageDeliveryLeaf is the state-dir child an archive delivery works in
 // (internal/image's deltaarchive.go).
 const imageDeliveryLeaf = "image-delivery"

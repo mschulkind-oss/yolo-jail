@@ -1181,10 +1181,17 @@ func TestAssembleNeverMountsTheEmbeddedPackCache(t *testing.T) {
 // floor, anything under it, or an ancestor that would carry it in wholesale — in ANY mode, since
 // even a read-only view would let a jail read the prefix's receipts and records. A floor that
 // exists under the launch's HOME makes the assertion non-vacuous.
+//
+// The host's model menus (paths.HostModelMenusDir; docs/design/model-lists-and-pickers.md MM-D27)
+// are held to the same rule: a menu carries the prompt text a host program runs its model with, so
+// a jail that could write one would choose an unconfined agent's instructions.
 func TestAssembleNeverMountsTheHostFloor(t *testing.T) {
 	check := func(t *testing.T, home string, argv []string) {
 		t.Helper()
-		floor := paths.HostFloorDirUnder(home)
+		guarded := map[string]string{
+			paths.HostFloorDirUnder(home):      "the host agent floor",
+			paths.HostModelMenusDirUnder(home): "the host's model menus",
+		}
 		under := func(p, dir string) bool { return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator)) }
 		sawState := false
 		for _, m := range mountSources(argv) {
@@ -1194,8 +1201,10 @@ func TestAssembleNeverMountsTheHostFloor(t *testing.T) {
 			if under(m.src, paths.GlobalStorageUnder(home)) {
 				sawState = true
 			}
-			if under(m.src, floor) || under(floor, m.src) {
-				t.Errorf("the launch bind-mounts %s (ro=%v), which reaches the host agent floor %s", m.src, m.ro, floor)
+			for dir, what := range guarded {
+				if under(m.src, dir) || under(dir, m.src) {
+					t.Errorf("the launch bind-mounts %s (ro=%v), which reaches %s %s", m.src, m.ro, what, dir)
+				}
 			}
 		}
 		if !sawState {
@@ -1211,6 +1220,9 @@ func TestAssembleNeverMountsTheHostFloor(t *testing.T) {
 	}
 	plantFloor := func(t *testing.T, home string) {
 		if err := os.MkdirAll(filepath.Join(paths.HostFloorDirUnder(home), "bin"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(paths.HostModelMenusDirUnder(home), "codex", "codex"), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -674,6 +674,17 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// argv[0] stays the name the user typed, not the resolved path: agents branch on it
 	// (usage text, `$0`), and handing them an absolute path changes what they print.
 	argv := injectHostLaunchFlags(launch.packs, append([]string{cmd[0]}, cmd[1:]...), errw)
+	// THE PROGRAM'S MODEL MENU (docs/design/model-lists-and-pickers.md §14.7, MM-D24 to MM-D28):
+	// the jail launcher's step, run here against the resolved target with the list this launch
+	// composed, and only where the launch's provider is the configured profile's. After the
+	// binary resolves and the pack's flags are added, so the catalog is the program that runs;
+	// its flag goes right after argv[0], ahead of those flags, and is disclosed in their words.
+	// The menu's lock is held for the program's life: by this process where it stays resident
+	// (the deferred Close), and by the program itself across the exec below.
+	menu := launch.modelMenu(target, launch.childEnviron(childPath), errw)
+	defer menu.Close()
+	argv, menuLines := menu.rewrite(argv)
+	printHostLines(errw, menuLines)
 	// THE DECLARATIVE OPENAI PRELAUNCH (notch-convergence item 15): what the launched command's
 	// pack declares, from the composition, logging in only where a human can answer the browser
 	// login. It used to switch on the command's name and log in regardless of profile or terminal.
@@ -760,6 +771,9 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// per-process FALLBACK tree it is the only thing that deletes it. Nothing after the exec
 	// reads a Pack.Root: the host-apply sync above rendered copies out of it.
 	packload.ReleaseEmbedded()
+	// The menu's lock crosses the exec, so the program holds it for its own life (MM-D27): the
+	// deferred Close above never runs once this process is replaced.
+	menu.KeepAcrossExec(errw)
 	if err := hostSyscallExec(target, argv, environ); err != nil {
 		fmt.Fprintf(errw, "yolo host: exec %s: %v\n", target, err)
 		return 126
@@ -938,6 +952,11 @@ type hostComposition struct {
 	// with its grant widened must spell again (grantRemedy). profile can instead come from
 	// the config `profile` key, which the re-run picks up by itself.
 	typedProfile string
+	// configuredProfile is the primary profile the user-scope `profile` key selects for this
+	// agent, "" when it selects none: profile's value had no -p been typed, which is the one
+	// `yolo host apply` writes into the agent's own config. The model menu builds only where
+	// the two select one provider (docs/design/model-lists-and-pickers.md MM-D25).
+	configuredProfile string
 	// services are the launch-owned services this composition planned (hostServicesStart), or
 	// the one a pairing needs (hostServicesDetect, with no ports or token): zero or one, since
 	// one agent resolves one pairing (docs/design/host-notch-services.md §4.2).
@@ -1771,6 +1790,15 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	c.profile = profileName
 	c.set = set
 	c.typedProfile = profile
+	c.configuredProfile = profileName
+	if profile != "" {
+		// The fold with no -p: what the config alone selects for this agent (MM-D25).
+		if cfgSet := packload.ProfileSets(hostProfileFold(cfg, packs, agent, "").Table)[agent]; len(cfgSet) > 0 {
+			c.configuredProfile = cfgSet[0]
+		} else {
+			c.configuredProfile = ""
+		}
+	}
 	// NO PROFILE KEYS A COMMAND NO PACK INSTALLS (docs/design/credential-sources-separation.md
 	// ES-D5, and OQ-NC5 for the typed -p below). A `profile` entry for `bash` delivered
 	// here only because this notch ran no validation, while `yolo check` and every jail launch

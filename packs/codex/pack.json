@@ -81,7 +81,7 @@
           "codec": "json",
           "mode": "computed",
           "name": "model-list",
-          "notAtHost": "only a jail's codex launcher reads it, to write codex's model menu, and `yolo host --` runs codex with no launcher, so at the host the file would name models nothing reads",
+          "notAtHost": "`yolo host -- codex` composes this list for its own launch, in-process, and builds codex's model menu from it without the file, so at the host the file would name models nothing reads",
           "path": "~/.codex/yolo-model-list.json"
         }
       ],
