@@ -1,16 +1,17 @@
 # `bedrock` — Amazon Bedrock, as one provider every agent reads
 
 This pack declares Amazon Bedrock's `bedrock-runtime` endpoint as one provider, `bedrock`, and
-the profile `bedrock` that selects it. It installs no program. Every agent pack that can put its
-agent on Bedrock `needs` it, so selecting that agent brings it in:
+two profiles over it, `bedrock` and `bedrock-bridge`. It installs no program. Every agent pack
+that can put its agent on Bedrock `needs` it, so selecting that agent brings it in:
 
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc
 { "packs": ["codex"] }
 ```
 
-`-p bedrock` then resolves for codex with nothing else listed. The launch prints
-`+ bedrock (needed by codex)` and `+ aws-auth (needed by bedrock)`.
+`yolo -p bedrock -- codex` then runs codex on Bedrock through its own Bedrock client, with
+nothing else listed but a region. The launch prints `+ bedrock (needed by codex)` and
+`+ aws-auth (needed by bedrock)`.
 
 Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9](../../docs/design/bedrock-plumbing.md#OQ-BR9),
 [OQ-BR1](../../docs/design/bedrock-plumbing.md#OQ-BR1)); behavior:
@@ -18,9 +19,10 @@ Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9]
 
 ## What the provider declares
 
-- **`"platform": "aws-bedrock"`**, what service it is. claude's Bedrock switch, `aws-auth`'s
-  credential pointer and the region check all key on it, never on the provider's name, so a
-  provider of your own that declares the same platform gets the same behavior.
+- **`"platform": "aws-bedrock"`**, what service it is. Each agent's own Bedrock binding,
+  claude's Bedrock switch among them, `aws-auth`'s credential pointer and the region check all
+  key on it, never on the provider's name, so a provider of your own that declares the same
+  platform gets the same behavior.
 - **No endpoint and no region.** Each agent's own Bedrock client composes its URL from a region,
   and yolo ships none: set one as `"providers": {"bedrock": {"region": "us-east-1"}}` in your
   user config, or as `AWS_REGION` in an `env_sources` entry. A launch that can see neither is
@@ -52,8 +54,8 @@ states (`context_window`, `max_tokens`, `input`), and Claude Opus 5.5 its reason
   `global.` or a geography such as `us.`, where the bare id is the other endpoint family's
   spelling. `global.` routes worldwide with no data-residency constraint.
 - **GPT-6.1 Sol is `us.` only.** AWS offers it on runtime through the US inference profile
-  alone, with no global or in-Region id (read 2026-09-29, its launch day). Outside the US and
-  Canada Regions it is refused, so pick GPT-6 Astra there, or name your own model.
+  alone, with no global or in-Region id (read 2026-09-29, its launch day), so a Region outside
+  that profile's source Regions cannot call it: pick GPT-6 Astra there, or name your own model.
 - **GPT-6 Sol is not shipped.** AWS publishes no GPT-6 Sol page and its model list names none
   (read 2026-09-29), so there is no id to verify. The maintainer's rule was to ship GPT-6.1 Sol
   where Bedrock offers it and GPT-6 Sol only where Bedrock offers nothing newer.
