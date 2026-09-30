@@ -10,6 +10,7 @@ package entrypoint
 import (
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -104,6 +105,41 @@ func TestTheShippedBedrockListDeclaresEachEntrysMaker(t *testing.T) {
 	for _, maker := range []string{"anthropic", "openai"} {
 		if !makers[maker] {
 			t.Errorf("the shipped list has no %s entry, so the agent that calls only that maker has no fallback", maker)
+		}
+	}
+}
+
+// EVERY AGENT'S START MODEL IS ONE EVERY REGION CAN CALL. yolo picks a model only to make a
+// session valid (docs/design/model-lists-and-pickers.md OQ-ML2), and ships no region, so the
+// entry an agent falls back to must be callable from whatever region the user sets: a `global.`
+// cross-Region inference profile. A geography's id (`us.`) is callable only from that
+// geography's source Regions, so leading with GPT-6.1 Sol (`us.` only) started codex on a model
+// AWS refuses from eu-west-1 (docs/design/bedrock-plumbing.md BR-D17). The makers are the binding
+// derives' filters: OpenAI's for codex, every maker's for opencode and pi. (claude's own client
+// picks nothing unless a model is named, BR-D9.)
+func TestEachBedrockAgentStartsOnAModelEveryRegionCanCall(t *testing.T) {
+	decl := shippedBedrockDeclaration(t)
+	first := func(makers map[string]bool) string {
+		best, bestOrder := "", 0
+		for alias, id := range decl.Models {
+			facts := decl.ModelOptions[alias]
+			if makers != nil && !makers[facts["vendor"]] {
+				continue
+			}
+			n, _ := strconv.Atoi(facts["order"])
+			if best == "" || n < bestOrder {
+				best, bestOrder = id, n
+			}
+		}
+		return best
+	}
+	for agent, makers := range map[string]map[string]bool{
+		"codex":           {"openai": true},
+		"opencode and pi": nil,
+	} {
+		if id := first(makers); !strings.HasPrefix(id, "global.") {
+			t.Errorf("%s starts on %q, which is not a global cross-Region inference profile, so a "+
+				"region outside its geography cannot call it", agent, id)
 		}
 	}
 }

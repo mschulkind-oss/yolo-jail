@@ -92,8 +92,9 @@ so. See [what service a provider is](docs/reference/providers.md#the-platform-wh
 **`-p bedrock` now runs codex, opencode and pi on AWS Bedrock, not only Claude Code.** Each agent
 uses its own Bedrock support, so it signs with your AWS credentials, the `aws-auth` login
 included, and nothing needs a URL: `yolo -p bedrock -- codex` works with `"packs": ["codex"]` and a
-region. One Bedrock provider now carries every agent's models, and yolo ships three of them:
-Claude Opus 5.5, GPT-6.1 Sol (offered by AWS in its US Regions only) and GPT-6 Astra. Each agent
+region. One Bedrock provider now carries every agent's models, and yolo ships four of them:
+Claude Opus 5.5, GPT-6 Sol, GPT-6.1 Sol (offered by AWS in its US Regions only) and GPT-6 Astra.
+codex starts on GPT-6 Sol, which every Region can call; in the US, name GPT-6.1 Sol yourself. Each agent
 is offered the ones it can use, Anthropic's for Claude Code and OpenAI's for codex, and starts on
 the first of those, while Claude Code keeps its own Bedrock default unless you name a model. Name
 another with a profile's `model`, or add one under `providers.bedrock.models` with a `vendor`

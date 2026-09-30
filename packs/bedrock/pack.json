@@ -25,7 +25,16 @@
           "input": "text,image",
           "max_tokens": "128000",
           "name": "GPT-6 Astra (Global)",
-          "order": "3",
+          "order": "4",
+          "vendor": "openai"
+        },
+        "global.openai.gpt-6-sol": {
+          "context_window": "1050000",
+          "input": "text,image",
+          "max_tokens": "128000",
+          "name": "GPT-6 Sol (Global)",
+          "order": "2",
+          "reasoning": "true",
           "vendor": "openai"
         },
         "us.openai.gpt-6.1-sol": {
@@ -33,13 +42,14 @@
           "input": "text,image",
           "max_tokens": "131072",
           "name": "GPT-6.1 Sol (US)",
-          "order": "2",
+          "order": "3",
           "vendor": "openai"
         }
       },
       "models": {
         "global.anthropic.claude-opus-5-5": "global.anthropic.claude-opus-5-5",
         "global.openai.gpt-6-astra": "global.openai.gpt-6-astra",
+        "global.openai.gpt-6-sol": "global.openai.gpt-6-sol",
         "us.openai.gpt-6.1-sol": "us.openai.gpt-6.1-sol"
       },
       "name": "bedrock",

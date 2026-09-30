@@ -17,9 +17,12 @@ import (
 // over the tables pi's real needs closure composes.
 
 func TestPiOnBedrockUsesItsOwnConverseClient(t *testing.T) {
-	const opus, sol, astra = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol", "global.openai.gpt-6-astra"
+	const opus, sol6, sol, astra = "global.anthropic.claude-opus-5-5", "global.openai.gpt-6-sol",
+		"us.openai.gpt-6.1-sol", "global.openai.gpt-6-astra"
 	wantModels := []any{
 		map[string]any{"id": opus, "name": "Claude Opus 5.5 (Global)", "contextWindow": float64(1000000),
+			"maxTokens": float64(128000), "reasoning": true, "input": []any{"text", "image"}},
+		map[string]any{"id": sol6, "name": "GPT-6 Sol (Global)", "contextWindow": float64(1050000),
 			"maxTokens": float64(128000), "reasoning": true, "input": []any{"text", "image"}},
 		map[string]any{"id": sol, "name": "GPT-6.1 Sol (US)", "contextWindow": float64(1000000),
 			"maxTokens": float64(131072), "input": []any{"text", "image"}},
@@ -34,11 +37,11 @@ func TestPiOnBedrockUsesItsOwnConverseClient(t *testing.T) {
 		enabled  []any
 	}{
 		{"the shipped profile starts on the list's first", nil, `{"pi":"bedrock"}`, opus,
-			[]any{"amazon-bedrock/" + opus, "amazon-bedrock/" + sol, "amazon-bedrock/" + astra}},
+			[]any{"amazon-bedrock/" + opus, "amazon-bedrock/" + sol6, "amazon-bedrock/" + sol, "amazon-bedrock/" + astra}},
 		{"a profile's model leads the scope",
 			map[string]packload.UserProfile{"astra": {Provider: "bedrock", Options: map[string]string{"model": astra}}},
 			`{"pi":"astra"}`, astra,
-			[]any{"amazon-bedrock/" + astra, "amazon-bedrock/" + opus, "amazon-bedrock/" + sol}},
+			[]any{"amazon-bedrock/" + astra, "amazon-bedrock/" + opus, "amazon-bedrock/" + sol6, "amazon-bedrock/" + sol}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			providersJSON, wire := bedrockTables(t, "pi", `{"bedrock":{"region":"eu-west-1"}}`, tc.profiles)

@@ -198,7 +198,7 @@ MEASURED at `ee8154f2`, 2026-09-24, unless marked.
 - **packs/claude's `bedrock` provider is a bare name**, with no `models`. With no profile `model`
   option, the claude env derive emits no model variable and Claude Code chooses its own.
   ⚠ **Changed 2026-09-29** ([ML-D9](#ML-D9)): the provider is `packs/bedrock`'s now, with a list
-  of three entries of two makers, and claude's derive still emits no model variable unless a
+  of four entries of two makers, and claude's derive still emits no model variable unless a
   profile or a `default` alias names an Anthropic one.
 - **Claude resolves its own tier words, per provider.** `--model opus` is provider-relative, and
   on Bedrock `sonnet` reaches an older Sonnet than on the first-party API (vendor docs, SOURCED

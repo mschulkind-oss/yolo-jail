@@ -16,7 +16,7 @@ import (
 // the list's first OpenAI entry moves.
 
 func TestCodexOnBedrockUsesItsOwnRuntimeClient(t *testing.T) {
-	const sol, astra, opus = "us.openai.gpt-6.1-sol", "global.openai.gpt-6-astra", "global.anthropic.claude-opus-5-5"
+	const sol, astra, opus = "global.openai.gpt-6-sol", "global.openai.gpt-6-astra", "global.anthropic.claude-opus-5-5"
 	for _, tc := range []struct {
 		name      string
 		providers string
@@ -71,7 +71,7 @@ func TestCodexOnBedrockUsesItsOwnRuntimeClient(t *testing.T) {
 func TestCodexOnABridgedBedrockProfileRidesItsViaRoute(t *testing.T) {
 	providersJSON, wire := bedrockTables(t, "codex", `{"bedrock":{"region":"us-east-1"}}`, bedrockViaProfile, "wire-bridge")
 	cfg := renderCodexConfig(t, providersJSON, `{"codex":"over-bridge"}`, wire)
-	if cfg["model_provider"] != "bedrock" || cfg["model"] != "us.openai.gpt-6.1-sol" {
+	if cfg["model_provider"] != "bedrock" || cfg["model"] != "global.openai.gpt-6-sol" {
 		t.Errorf("selection = %v/%v, want the via row bedrock on the first OpenAI entry", cfg["model_provider"], cfg["model"])
 	}
 	rows, _ := cfg["model_providers"].(map[string]any)

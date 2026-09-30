@@ -66,9 +66,10 @@ Two more come with the agent packs, with no extra pack to add:
 - **`bedrock`**, in the `bedrock` pack, which the `claude`, `codex`, `opencode` and `pi` packs
   bring in: AWS Bedrock, for each of those agents through its own Bedrock support. Claude Code
   uses Anthropic's models there; codex uses OpenAI's; opencode and pi use any model on the list.
-  yolo ships three: Claude Opus 5.5, GPT-6.1 Sol (US Regions only, which is where AWS offers it)
-  and GPT-6 Astra. codex starts on GPT-6.1 Sol, opencode and pi on Claude Opus 5.5, and Claude
-  Code on its own Bedrock default, unless your profile names a model:
+  yolo ships four: Claude Opus 5.5, GPT-6 Sol, GPT-6.1 Sol (US Regions only, which is where AWS
+  offers it) and GPT-6 Astra. codex starts on GPT-6 Sol, opencode and pi on Claude Opus 5.5, all
+  of which any Region can call, and Claude Code on its own Bedrock default, unless your profile
+  names a model:
 
   ```jsonc
   "profiles": { "astra": { "provider": "bedrock", "model": "global.openai.gpt-6-astra" } }
