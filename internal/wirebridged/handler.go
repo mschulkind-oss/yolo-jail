@@ -184,6 +184,10 @@ type bridgeHandler struct {
 	// Anthropic Messages route under signer, and every other request is translated to
 	// upstreamURL as before (wire-bridge-gateway.md Part 2, routing by model id).
 	messages *messagesPassthrough
+	// allow is the route's model allowlist (allowlist.go, Part 5), nil when the provider's list
+	// is not narrowed or its switch is off: a request for a model off the list is refused
+	// before it reaches either upstream.
+	allow *modelAllowlist
 }
 
 func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -240,6 +244,14 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Model  string `json:"model"`
 	}
 	_ = json.Unmarshal(body, &probe) // unparseable JSON fails in TranslateRequest with a better error
+
+	// THE ALLOWLIST FIRST (Part 5, WG-I40): a model off the provider's narrowed list goes to no
+	// upstream, translated or not.
+	if ok, msg := h.allow.checks("the adapter route", body); !ok {
+		note = " (model refused: off the provider's list)"
+		writeAnthropicError(rec, http.StatusBadRequest, "invalid_request_error", msg)
+		return
+	}
 
 	// ROUTING BY MODEL ID (wire-bridge-gateway.md Part 2): on a Bedrock upstream, a model the
 	// provider's list declares Anthropic's is forwarded untranslated to runtime's Messages

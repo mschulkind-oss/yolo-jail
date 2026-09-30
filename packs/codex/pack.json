@@ -11,6 +11,7 @@
         "openai-responses",
         "openai"
       ],
+      "unlisted_background_models": true,
       "update": [
         "update"
       ],

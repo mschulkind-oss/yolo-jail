@@ -652,6 +652,21 @@ type Contribution struct {
 	// fact about that binary, and core names no variable. ON `program` ALONE. A platform the
 	// program lists nothing for is asked about every variable its providers list.
 	PlatformRegions []PlatformRegion `json:"platform_regions,omitempty"`
+	// UnlistedBackgroundModels says this program sends requests for models its selection does
+	// not name, and yolo does not pin to the provider's list: a background, review, memory or
+	// helper model the program picks itself, or ids nobody has measured. The wire bridge's
+	// model allowlist (docs/design/wire-bridge-gateway.md Part 5, WG-I40) then admits every
+	// model this program sends and logs an off-list one, because refusing them would break the
+	// program's own features: the design requires an agent's background traffic to be on the
+	// list before the bridge's default-on refusal applies to it (model-lists-and-pickers.md
+	// §14.3). packs/codex declares it (its review and memories models bypass the picker, and
+	// pointing them at listed ids is MM-D9's unbuilt step), and packs/copilot (which ids its
+	// background requests carry is unmeasured). A program that declares nothing is refused an
+	// off-list model like claude, whose tiers yolo pins to the list (MM-D2).
+	//
+	// A PACK FACT for `platform_switches`' reason: what a binary sends is that binary's fact,
+	// and core names no agent. ON `program` ALONE.
+	UnlistedBackgroundModels bool `json:"unlisted_background_models,omitempty"`
 
 	// --- adapter (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1) ---
 	// Adapts is the protocol PAIR this contribution converts, and Address is where the
@@ -3238,6 +3253,10 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, protocolsProblems(label, c)...)
 	problems = append(problems, platformSwitchProblems(label, c)...)
 	problems = append(problems, platformRegionProblems(label, c)...)
+	if c.UnlistedBackgroundModels && c.Kind != KindProgram {
+		problems = append(problems, fmt.Sprintf("%s: kind %q does not take \"unlisted_background_models\" — "+
+			"it says which models a PROGRAM sends, so only \"program\" has an answer", label, c.Kind))
+	}
 	problems = append(problems, regionFileProblems(label, c)...)
 	problems = append(problems, regionProfileSettingProblems(label, c)...)
 	problems = append(problems, envOverrideProblems(label, c)...)

@@ -372,6 +372,8 @@ type passthroughHandler struct {
 	key      string
 	signer   *bedrockSigner
 	client   *http.Client
+	// allow is the agent's model allowlist (allowlist.go, Part 5), nil when none is in force.
+	allow *modelAllowlist
 }
 
 // The pass-through's client has no Client.Timeout, because net/http counts reading the
@@ -415,6 +417,12 @@ func (h *passthroughHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(body) > maxViaBody {
 		writeOpenAIError(w, http.StatusRequestEntityTooLarge, "invalid_request_error",
 			fmt.Sprintf("wire-bridge: the request body exceeds %d bytes", maxViaBody))
+		return
+	}
+	// THE ALLOWLIST (Part 5, WG-I40): a model off the provider's narrowed list is not passed
+	// through. A request naming no model (GET /models) is not the list's to refuse.
+	if ok, msg := h.allow.checks("via route for "+h.agent, body); !ok {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", msg)
 		return
 	}
 	resp, err := h.do(r, body)
@@ -581,23 +589,32 @@ func writeOpenAIError(w http.ResponseWriter, status int, typ, message string) {
 // distinct upstream, each with its own credential from the key channel (WG7 (e)), and an
 // idle handler for an upstream whose credential is missing. It returns the handler and
 // one description per upstream for the serve log.
-func viaHandlerFor(plan viaPlan, home string) (http.Handler, []string) {
+func viaHandlerFor(plan viaPlan, home string, allow map[string]*modelAllowlist) (http.Handler, []string) {
 	mux := &viaMux{routes: map[string]http.Handler{}}
 	var lines []string
 	for _, rt := range plan.Routes {
+		// The agent's allowlist rides every upstream handler of its route (Part 5, WG-I40).
+		upstreamFor := func(up viaUpstream) (http.Handler, string) {
+			h, line := viaUpstreamHandler(rt, up, home)
+			if ph, ok := h.(*passthroughHandler); ok && allow[rt.Agent] != nil {
+				ph.allow = allow[rt.Agent]
+				line += allowlistNote(allow[rt.Agent])
+			}
+			return h, line
+		}
 		split := viaWireSplit{agent: rt.Agent, provider: rt.ProviderName}
 		if rt.Chat.served() && rt.Chat == rt.Responses {
-			h, line := viaUpstreamHandler(rt, rt.Chat, home)
+			h, line := upstreamFor(rt.Chat)
 			split.chat, split.responses = h, h
 			lines = append(lines, "/agent/"+rt.Agent+"/ chat-completions and Responses "+line)
 		} else {
 			if rt.Chat.served() {
-				h, line := viaUpstreamHandler(rt, rt.Chat, home)
+				h, line := upstreamFor(rt.Chat)
 				split.chat = h
 				lines = append(lines, "/agent/"+rt.Agent+"/ chat-completions "+line)
 			}
 			if rt.Responses.served() {
-				h, line := viaUpstreamHandler(rt, rt.Responses, home)
+				h, line := upstreamFor(rt.Responses)
 				split.responses = h
 				lines = append(lines, "/agent/"+rt.Agent+"/ Responses "+line)
 			}

@@ -351,6 +351,9 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 	}
 	var ls []*listener
 	var serving []string
+	// PART 5'S ALLOWLIST (allowlist.go, WG-I40): from the same tables the plan was read from, and
+	// the pack tree for which agents send models off the list.
+	allow := allowlistsFor(p, e.LoadProviders(), useProfilesTable(e.LoadUseProfiles()), e.LoadProfiles(), e)
 	if p.adapter != nil {
 		// The region first, when it is the served agent's (WG-I38), so the serve line names the
 		// upstream the route dials and not an address still to be composed.
@@ -374,11 +377,14 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 				route.ProviderName, why)
 		default:
 			what := fmt.Sprintf("provider %q (from its anthropic base_url)", route.ProviderName)
+			if bh, ok := handler.(*bridgeHandler); ok {
+				bh.allow = allow.adapter
+			}
 			ls = append(ls, &listener{addr: route.ListenAddr, what: what,
 				handler: requireAnthropicCaller(token, "the adapter route for "+what, handler)})
-			serving = append(serving, fmt.Sprintf("provider %q: anthropic on {addr} → openai %s (endpoint {endpoint}, credential %s)%s",
+			serving = append(serving, fmt.Sprintf("provider %q: anthropic on {addr} → openai %s (endpoint {endpoint}, credential %s)%s%s",
 				route.ProviderName, route.UpstreamBaseURL, credentialDescription(route, keySource),
-				messagesServeNote(handler)))
+				messagesServeNote(handler), allowlistNote(allow.adapter)))
 			if len(route.VendorConflicts) > 0 {
 				logf("provider %q's list names %s under aliases declaring different vendors, so the bridge "+
 					"translates %s as it does any model not declared Anthropic's (wire-bridge-gateway.md WG-I34)",
@@ -388,7 +394,7 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 		}
 	}
 	if len(p.via.Routes) > 0 {
-		handler, lines := viaHandlerFor(p.via, e.Home)
+		handler, lines := viaHandlerFor(p.via, e.Home, allow.via)
 		ls = append(ls, &listener{addr: p.via.ListenAddr, what: "via routes",
 			handler: requireOpenAICaller(token, "the via address", handler)})
 		serving = append(serving, "via routes on {addr} (endpoint {endpoint}): "+strings.Join(lines, "; "))
