@@ -1464,9 +1464,12 @@
                     `only`s intersect; then your own `providers.<name>.models` composes
                     over the result, so your config has the last word.  `vendor` (the
                     model's maker) is required on each entry; `alias` makes the entry
-                    reachable under a second name, such as `default`.  `yolo check`
-                    names a duplicate, an `only` id nothing added, and a provider
-                    nothing declares.
+                    reachable under a second name, such as `default`.  Under an
+                    `only`, each agent's model menu for the provider is exactly the
+                    list where the agent allows it, and while the profile's
+                    `enforce_models` is on (the default) claude and opencode also
+                    refuse any other model.  `yolo check` names a duplicate, an
+                    `only` id nothing added, and a provider nothing declares.
       adapter       {adapts:{from, to}, address} — a PROTOCOL CONVERSION: the wire it
                     reads, the wire it speaks, and where the converted wire is served.
                     An agent that speaks `to` can be pointed at a provider that offers
