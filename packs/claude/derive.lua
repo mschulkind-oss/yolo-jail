@@ -260,6 +260,87 @@ local function nativeBedrock(ctx)
   return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
 end
 
+-- routedProvider: claude reaches the selected provider at an anthropic endpoint yolo composed
+-- — a gateway's own (z.ai, OpenRouter, llama.cpp) or the wire bridge's (Kilo, Cerebras, a via
+-- profile) — rather than through its own login or its own Bedrock client. There claude has no
+-- catalog of its own, so the provider's list is its WHOLE UNIVERSE
+-- (docs/design/model-lists-and-pickers.md §14): its built-in rows are only its tier names,
+-- meaning whatever the tier pins say. The same predicate the env derive below routes on.
+local function routedProvider(ctx, p)
+  return type(p) == "table" and type(p.endpoints) == "table" and type(p.endpoints.anthropic) == "table"
+    and type(p.endpoints.anthropic.base_url) == "string" and p.endpoints.anthropic.base_url ~= ""
+    and not nativeBedrock(ctx)
+end
+
+-- routedSpelling returns the function that spells a provider's wire id the way claude sends it
+-- on that provider, the rule the env derive below applies to its tier pins: Kilo's bare
+-- `deepseek-` ids gain their `deepseek/` vendor prefix, and every id gains `[1m]` when the
+-- provider's context window (the profile's, else the provider's; Kilo's 1,048,576 when neither
+-- says) is 1,000,000 tokens or more, claude's own spelling for the 1M-context beta. A picker
+-- row spelled differently from the tier pins would be a second model to claude.
+local function routedSpelling(ctx, p)
+  local provOpts = (type(p) == "table" and type(p.options) == "table" and p.options) or {}
+  local profileOpts = (type(ctx.profile) == "table" and ctx.profile) or {}
+  local kilo = ctx.selected_provider == "kilo" or (type(p) == "table" and type(p.endpoints) == "table"
+    and type(p.endpoints.openai) == "table"
+    and string.find(p.endpoints.openai.base_url or "", "api%.kilo%.ai") ~= nil)
+  local cw = profileOpts.context_window or profileOpts.max_context_tokens or provOpts.context_window
+    or provOpts.max_context_tokens
+  if not cw and kilo then cw = "1048576" end
+  local cwNum = tonumber(cw or "")
+  local suffix = (cwNum and cwNum >= 1000000) and "[1m]" or ""
+  return function(id)
+    if type(id) ~= "string" or id == "" then return id end
+    if kilo and string.find(id, "^deepseek%-") and not string.find(id, "/") then
+      id = "deepseek/" .. id
+    end
+    if suffix ~= "" and string.sub(id, -4) ~= "[1m]" then id = id .. suffix end
+    return id
+  end
+end
+
+-- routedRows is a routed provider's list as claude's picker shows it: the one expansion every
+-- list consumer shares (codexModelList: `order`, then id; a `long_context_window` variant after
+-- its base), each id spelled by routedSpelling. `wire` keeps the id as the provider declares
+-- it, which is what a row with no name of its own is labelled by.
+local function routedRows(ctx, p)
+  local spell = routedSpelling(ctx, p)
+  local rows = {}
+  for _, e in ipairs(codexModelList(p)) do
+    table.insert(rows, { id = spell(e.id), wire = e.id, name = e.name, description = e.description })
+  end
+  return rows
+end
+
+-- completeRoutedTiers finishes MM-D2's tier pins for a routed provider over what the env
+-- derive's provider branch pinned: the fable tier, which that branch never pinned, takes the
+-- provider's `fable` alias or else the opus tier's model (the branch's default entry), and
+-- every pinned tier gains its entry's name and description, so claude's Default row and its
+-- tier labels name a model of the list rather than a Claude tier. Nothing is pinned when the
+-- branch pinned nothing: no model resolved, which is claude's own choice.
+local function completeRoutedTiers(ctx, p, out)
+  if not routedProvider(ctx, p) or not out.ANTHROPIC_DEFAULT_OPUS_MODEL then return out end
+  local spell = routedSpelling(ctx, p)
+  if not out.ANTHROPIC_DEFAULT_FABLE_MODEL then
+    local fable = type(p.models) == "table" and p.models.fable or nil
+    out.ANTHROPIC_DEFAULT_FABLE_MODEL = (type(fable) == "string" and fable ~= "" and spell(fable))
+      or out.ANTHROPIC_DEFAULT_OPUS_MODEL
+  end
+  local byId = {}
+  for _, r in ipairs(routedRows(ctx, p)) do
+    if byId[r.id] == nil then byId[r.id] = r end
+  end
+  for _, tier in ipairs(claudeTiers) do
+    local var = "ANTHROPIC_DEFAULT_" .. tier[2] .. "_MODEL"
+    local e = out[var] and byId[out[var]]
+    if e then
+      out[var .. "_NAME"] = e.name
+      out[var .. "_DESCRIPTION"] = e.description
+    end
+  end
+  return out
+end
+
 -- config (~/.claude.json, RMW): the mcpServers managed table — a passthrough of the
 -- servers this launch is eligible for.
 --
@@ -379,6 +460,28 @@ yolo.derive("claude", "settings", function(ctx)
       end
       out.availableModels = ids
       out.enforceAvailableModels = true
+      out.modelPicker = {
+        options = options,
+        replaceBuiltInOptions = true,
+      }
+    end
+  elseif routedProvider(ctx, ctx.providers and ctx.providers[ctx.selected_provider]) then
+    -- EVERY OTHER ROUTED PROVIDER (MM-D1): the list is claude's whole universe there, so its
+    -- rows replace the built-ins, which on a routed provider are only claude's tier names. Each
+    -- row is spelled as the env derive's tier pins spell it (routedSpelling), so the Default
+    -- row, which resolves by tier, is one of them. A provider that lists no model writes no
+    -- picker, and claude keeps its built-ins over whatever the provider serves.
+    --
+    -- NO ALLOWLIST HERE, and that is an open question, not an omission: whether a list no
+    -- `only` narrowed refuses other models on a gateway that serves more than it (z.ai, Kilo,
+    -- OpenRouter) is OQ-MM3's (docs/design/model-lists-and-pickers.md), so claude's off-list
+    -- refusal stays where it was, on openai-codex alone.
+    local rows = routedRows(ctx, ctx.providers[ctx.selected_provider])
+    if #rows > 0 then
+      local options = {}
+      for _, r in ipairs(rows) do
+        table.insert(options, { model = r.id, label = r.name or r.wire, description = r.description })
+      end
       out.modelPicker = {
         options = options,
         replaceBuiltInOptions = true,
@@ -671,5 +774,6 @@ yolo.env("claude", function(ctx)
     out.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku .. suffix
     out.ANTHROPIC_SMALL_FAST_MODEL = haiku .. suffix
   end
-  return out
+  -- MM-D2's remaining tier pins and every pin's name, on a routed provider (completeRoutedTiers).
+  return completeRoutedTiers(ctx, p, out)
 end)

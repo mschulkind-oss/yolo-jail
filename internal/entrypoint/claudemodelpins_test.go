@@ -125,3 +125,91 @@ func TestClaudeOnTheCodexListPinsTheStartOnlyOnTheOptIn(t *testing.T) {
 		})
 	}
 }
+
+// A ROUTED PROVIDER'S LIST IS CLAUDE'S WHOLE MENU (MM-D1). claude reaches z.ai at the gateway's
+// own Anthropic endpoint, where it has no catalog: its built-in rows are only its tier names,
+// meaning whatever the tier pins say. So the picker's built-ins are replaced by the list's own
+// rows — spelled as claude sends them, with the [1m] the provider's 1M context window earns — and
+// every tier, fable included, is pinned to a list id with the entry's name (MM-D2).
+//
+// What stays as today, and why: no availableModels on a list that no `only` narrowed, since z.ai
+// serves more than yolo lists and whether a list refuses there is OQ-MM3's; and the start pin,
+// ANTHROPIC_MODEL, since it is the only check on claude's start where the allowlist does not
+// render, until OQ-MM3 says what replaces it (§14.4 step 1).
+func TestClaudeOnARoutedProviderShowsTheListAndPinsEveryTier(t *testing.T) {
+	packs := testPacksForAgent(t, "claude", "zai")
+	user := jsonx.NewOrderedMap()
+	zai := jsonx.NewOrderedMap()
+	models := jsonx.NewOrderedMap()
+	named := jsonx.NewOrderedMap()
+	named.Set("id", "glm-5.3")
+	named.Set("name", "GLM-5.3")
+	models.Set("glm-5.3", named)
+	zai.Set("models", models)
+	user.Set("zai", zai)
+	got := renderClaudeModels(t, packs, user, nil, "zai")
+
+	picker, _ := got.settings["modelPicker"].(map[string]any)
+	if picker["replaceBuiltInOptions"] != true {
+		t.Errorf("modelPicker = %v, want the built-ins replaced", got.settings["modelPicker"])
+	}
+	options, _ := picker["options"].([]any)
+	var ids, labels []any
+	for _, o := range options {
+		ids = append(ids, o.(map[string]any)["model"])
+		labels = append(labels, o.(map[string]any)["label"])
+	}
+	if want := []any{"glm-4.6[1m]", "glm-5.3[1m]", "glm-5.3-flash[1m]"}; !reflect.DeepEqual(ids, want) {
+		t.Errorf("modelPicker ids = %v, want %v", ids, want)
+	}
+	if want := []any{"glm-4.6", "GLM-5.3", "glm-5.3-flash"}; !reflect.DeepEqual(labels, want) {
+		t.Errorf("modelPicker labels = %v, want %v", labels, want)
+	}
+	for _, k := range []string{"availableModels", "enforceAvailableModels"} {
+		if v, present := got.settings[k]; present {
+			t.Errorf("settings %s = %v, want it absent: no `only` narrowed z.ai's list (OQ-MM3)", k, v)
+		}
+	}
+
+	for _, k := range claudeTierVars {
+		if got.env[k] != "glm-5.3[1m]" {
+			t.Errorf("%s = %q, want glm-5.3[1m], the provider's declared default", k, got.env[k])
+		}
+		if got.env[k+"_NAME"] != "GLM-5.3" {
+			t.Errorf("%s_NAME = %q, want the entry's name", k, got.env[k+"_NAME"])
+		}
+	}
+	// Every tier pin is a row of the picker, so Default and every background request resolve
+	// to a model the menu offers.
+	for _, k := range claudeTierVars {
+		found := false
+		for _, id := range ids {
+			found = found || id == got.env[k]
+		}
+		if !found {
+			t.Errorf("%s = %q is not a modelPicker row %v", k, got.env[k], ids)
+		}
+	}
+	if got.env["ANTHROPIC_MODEL"] != "glm-5.3[1m]" {
+		t.Errorf("ANTHROPIC_MODEL = %q, want today's start pin kept until OQ-MM3 is ruled", got.env["ANTHROPIC_MODEL"])
+	}
+}
+
+// A BRIDGED PROVIDER IS ROUTED TOO. Cerebras serves no Anthropic endpoint of its own; core
+// composes the wire bridge's address as its `anthropic` endpoint (packload.adaptEndpoints), and
+// claude reaches it there, where it has no catalog either. Its one declared model is the menu,
+// named by its id rather than by the `default` alias it sits under.
+func TestClaudeOnABridgedProviderShowsTheList(t *testing.T) {
+	got := renderClaudeModels(t, testPacksForAgent(t, "claude", "cerebras"), nil, nil, "cerebras")
+	picker, _ := got.settings["modelPicker"].(map[string]any)
+	options, _ := picker["options"].([]any)
+	want := []any{map[string]any{"model": "qwen-3.8-27b", "label": "qwen-3.8-27b"}}
+	if picker["replaceBuiltInOptions"] != true || !reflect.DeepEqual(options, want) {
+		t.Errorf("modelPicker = %v, want %v with the built-ins replaced", got.settings["modelPicker"], want)
+	}
+	for _, k := range claudeTierVars {
+		if got.env[k] != "qwen-3.8-27b" {
+			t.Errorf("%s = %q, want qwen-3.8-27b", k, got.env[k])
+		}
+	}
+}
