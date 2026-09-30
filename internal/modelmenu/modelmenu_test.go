@@ -298,6 +298,33 @@ func TestRunLeavesOutAListedIDTheCatalogLacks(t *testing.T) {
 	}
 }
 
+// EVERY LAUNCH SAYS WHICH LISTED ID THE MENU LEAVES OUT, not only the one that rebuilt it: the
+// menu is reused until the program, the list or the declaration changes, and a reused menu lacks
+// the model as much as the rebuilt one did, so the warning MM-D9 promises for it ("like ML-D7's",
+// which pi repeats at every start) must not go quiet with the cache.
+func TestRunSaysAtEveryLaunchWhichListedIDTheMenuLeavesOut(t *testing.T) {
+	f := newFixture(t, `{"models":[{"id":"gpt-6.1-sol"},{"id":"gpt-6-luna"}]}`, catalog, 0)
+	for i := 0; i < 2; i++ {
+		words, stderr, _ := f.run(t)
+		if len(words) != 2 {
+			t.Fatalf("launch %d printed %q, want the flag for the one id the catalog has", i+1, words)
+		}
+		if !strings.Contains(stderr, "has no gpt-6-luna") {
+			t.Errorf("launch %d said %q, want it to name gpt-6-luna, which its menu still leaves out", i+1, stderr)
+		}
+	}
+	if n := f.runCount(t); n != 1 {
+		t.Errorf("the program ran %d times for two launches with nothing changed, want once", n)
+	}
+	// A list the catalog covers whole says nothing, reused or not.
+	g := newFixture(t, twoListed, catalog, 0)
+	for i := 0; i < 2; i++ {
+		if _, stderr, _ := g.run(t); stderr != "" {
+			t.Errorf("launch %d said %q with every listed id in the catalog, want nothing", i+1, stderr)
+		}
+	}
+}
+
 func TestRunRefusesAMisuse(t *testing.T) {
 	var out, errw bytes.Buffer
 	for _, args := range [][]string{

@@ -207,9 +207,14 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	key := cacheKey(specJSON, listPath, program[len(program)-1])
-	if got, err := os.ReadFile(keyPath); err == nil && string(got) == key && fileExists(into) {
-		printFlag(stdout, Flag(spec, into))
-		return 0
+	if got, err := os.ReadFile(keyPath); err == nil && fileExists(into) {
+		if gotKey, missing := parseKeyFile(got); gotKey == key {
+			// A reused menu leaves out what the rebuilt one did, so it says so again: the
+			// warning is about the menu this launch hands the program, not about the rebuild.
+			warnMissing(stderr, bin, missing)
+			printFlag(stdout, Flag(spec, into))
+			return 0
+		}
 	}
 	catalog, err := runCatalog(program, spec.Catalog)
 	if err != nil {
@@ -225,15 +230,7 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 		removeMenu(into, keyPath)
 		return 0
 	}
-	if len(res.Missing) > 0 {
-		these, it := "the model", "it"
-		if len(res.Missing) > 1 {
-			these, it = "these models", "them"
-		}
-		fmt.Fprintf(stderr, "yolo: %s's own model catalog has no %s, so its model menu leaves %s out. "+
-			"A %s older than %s lacks %s; updating %s adds %s.\n",
-			bin, strings.Join(res.Missing, ", "), it, bin, these, it, bin, it)
-	}
+	warnMissing(stderr, bin, res.Missing)
 	if res.Menu == nil {
 		fmt.Fprintf(stderr, "yolo: none of yolo's models for this provider is in %s's own catalog, so %s "+
 			"shows its own model menu.\n", bin, bin)
@@ -245,10 +242,42 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	// The key is written last: a crash between the two leaves a menu with no key, which the next
-	// launch rebuilds, never a key vouching for a menu that is not there.
-	_ = writeAtomic(keyPath, []byte(key))
+	// launch rebuilds, never a key vouching for a menu that is not there. It carries the ids the
+	// menu left out, so a launch that reuses the menu warns about them as this one did.
+	_ = writeAtomic(keyPath, keyFile(key, res.Missing))
 	printFlag(stdout, Flag(spec, into))
 	return 0
+}
+
+// warnMissing says which of yolo's listed ids the program's own catalog lacks, and so the menu
+// leaves out, or nothing when there are none. Printed at EVERY launch whose menu lacks them, the
+// one that rebuilt it and each that reuses it (MM-D9: "left out, with a warning").
+func warnMissing(stderr io.Writer, bin string, missing []string) {
+	if len(missing) == 0 {
+		return
+	}
+	these, it := "the model", "it"
+	if len(missing) > 1 {
+		these, it = "these models", "them"
+	}
+	fmt.Fprintf(stderr, "yolo: %s's own model catalog has no %s, so its model menu leaves %s out. "+
+		"A %s older than %s lacks %s; updating %s adds %s.\n",
+		bin, strings.Join(missing, ", "), it, bin, these, it, bin, it)
+}
+
+// keyFile is the key file's bytes: the cache key on the first line, then the listed ids the menu
+// left out, as a JSON array, so no id can be split or lost on its way back.
+func keyFile(key string, missing []string) []byte {
+	ids, _ := json.Marshal(append([]string{}, missing...))
+	return []byte(key + "\n" + string(ids))
+}
+
+// parseKeyFile is keyFile's inverse: the key, and the ids the menu left out. A second line that
+// is not a JSON array of strings reads as none left out.
+func parseKeyFile(data []byte) (key string, missing []string) {
+	key, rest, _ := strings.Cut(string(data), "\n")
+	_ = json.Unmarshal([]byte(rest), &missing)
+	return key, missing
 }
 
 // cacheKey names what the menu was built from: the declaration, the list's bytes, and the

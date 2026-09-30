@@ -224,6 +224,10 @@ func TestCodexLauncherHandsCodexItsModelMenu(t *testing.T) {
 	if len(again.argv) < 2 || again.argv[0] != "-c" {
 		t.Errorf("the second launch exec'd codex with %q, want the menu's flag again", again.argv)
 	}
+	// The reused menu still leaves gpt-6-luna out, and that launch says so too.
+	if !strings.Contains(again.out, "has no gpt-6-luna") {
+		t.Errorf("the second launch did not say gpt-6-luna is missing from the menu it reused:\n%s", again.out)
+	}
 }
 
 // WITH NO MENU TO NAME, CODEX RUNS AS TYPED: on a provider whose ids codex's catalog does not
