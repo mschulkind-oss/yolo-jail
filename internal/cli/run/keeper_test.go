@@ -96,8 +96,10 @@ type fakeJail struct {
 	dir     string
 	cname   string
 	stopped bool
-	stops   int
-	calls   []string
+	// stuck is a runtime whose stop ends nothing: the container runs on after it.
+	stuck bool
+	stops int
+	calls []string
 }
 
 func newFakeJail(t *testing.T, cname string) *fakeJail {
@@ -123,6 +125,9 @@ func (f *fakeJail) exec(argv []string, _ string, _ []string, _ time.Duration) Ex
 	switch {
 	case len(argv) > 1 && argv[1] == "stop":
 		f.stops++
+		if f.stuck {
+			return ExecResult{Ran: true}
+		}
 		f.stopped = true
 		_ = os.WriteFile(filepath.Join(f.dir, "stop"), nil, 0o644)
 		return ExecResult{Ran: true}

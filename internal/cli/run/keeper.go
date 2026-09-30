@@ -175,6 +175,9 @@ type keeper struct {
 	// ending closes at the keeper's last act, so a watch still looking at the runtime stops.
 	ending     chan struct{}
 	endingOnce sync.Once
+	// jailLeft is a container the keeper's stop did not end: the keeper leaves it UNKEPT, its
+	// owner-PID file and start record in place, rather than a container nothing owns (endJail).
+	jailLeft bool
 }
 
 // newKeeper builds a keeper and its Options from a plan.
@@ -533,6 +536,14 @@ func (k *keeper) awaitNotRunning(done func()) {
 
 // endJail stops the container when stop is set, recording reason first, confirms it is gone,
 // removing a stopped leftover (JL-D9), and runs today's teardown chain.
+//
+// A CONTAINER ITS STOP DID NOT END is left UNKEPT, never unowned: the chain takes down what the
+// keeper runs, and leaves what the container holds (the guarded cleanups back off a container that
+// exists), and the keeper puts back the owner-PID file the chain removes and keeps its start record
+// (finish). Those two are how every reader tells a jail whose keeper is gone: an arrival is refused
+// and pointed at `yolo stop` (JL-D13), its last session or `yolo stop` reaps it (JL-D30), and the
+// orphan sweep reaps it once no session is in it (JL-D7). Without them nothing could prove the
+// jail's owner dead, and its hold would keep it running for good.
 func (k *keeper) endJail(reason string, stop bool) {
 	o, p := k.o, k.plan
 	if stop && k.jm != nil {
@@ -540,7 +551,7 @@ func (k *keeper) endJail(reason string, stop bool) {
 		o.stopJail(p.Cname, p.Runtime, reason)
 		sp.End()
 	}
-	k.confirmGone()
+	k.jailLeft = !k.confirmGone()
 	rc := 0
 	if k.jm != nil {
 		select {
@@ -550,26 +561,35 @@ func (k *keeper) endJail(reason string, stop bool) {
 		}
 	}
 	o.teardownAfterExit(k.socat, p.ForwardDir, k.handles, p.SocketsDir, p.Cname, p.Runtime, p.Skeleton, rc)
+	if k.jailLeft {
+		o.writeOwnerPID(p.Cname)
+	}
 }
+
+// keeperGoneAttempts bounds confirmGone's wait for the container to be gone, restartPollInterval
+// apart. A var so a test need not wait it out.
+var keeperGoneAttempts = restartPollAttempts
 
 // confirmGone waits, bounded, for the tri-state existence probe to answer that no container of the
 // name exists, and removes a stopped leftover it finds: a `--rm` removal fails while a headless exec
-// was live at the stop (MEASURED in nested podman, §4.4). It never removes a running container.
-func (k *keeper) confirmGone() {
+// was live at the stop (MEASURED in nested podman, §4.4). It never removes a running container. It
+// reports whether the container is gone.
+func (k *keeper) confirmGone() bool {
 	o, p := k.o, k.plan
-	for i := 0; i < restartPollAttempts; i++ {
+	for i := 0; i < keeperGoneAttempts; i++ {
 		if id, known := o.probeExistingContainer(p.Cname, p.Runtime, trackingProbeTimeout); known && id == "" {
-			return
+			return true
 		}
 		time.Sleep(restartPollInterval)
 	}
 	if id, known := o.probeRunningContainer(p.Cname, p.Runtime, trackingProbeTimeout); known && id == "" {
 		if o.removeStaleContainer(p.Cname, p.Runtime) {
 			k.sink.logf("keeper: removed the stopped container %s its --rm left behind", p.Cname)
-			return
+			return true
 		}
 	}
-	k.sink.logf("keeper: %s is still there after its stop; its host-services dir and records stay for the next launch", p.Cname)
+	k.sink.logf("keeper: %s is still there after its stop, so the keeper leaves it unkept: its host-services dir and records stay, a new session is refused, and %s ends it", p.Cname, stopRemedy(p.Runtime, p.Cname))
+	return false
 }
 
 // keeperSessionsWait bounds the keeper's wait, after the container ended, for the sessions whose
@@ -599,7 +619,9 @@ func (k *keeper) finish(rc int, drained <-chan struct{}) int {
 			_ = k.jm.cmd.Process.Kill()
 		}
 	}
-	removeKeeperRecord(p.Cname, k.pid)
+	if !k.jailLeft {
+		removeKeeperRecord(p.Cname, k.pid)
+	}
 	k.sink.logf("keeper: done")
 	k.mu.Lock()
 	releaseLock(k.sessions)

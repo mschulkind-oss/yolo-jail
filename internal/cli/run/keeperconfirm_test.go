@@ -58,3 +58,47 @@ func TestAMainProcessClientThatDiesUnderARunningJailEndsNothing(t *testing.T) {
 		t.Errorf("the stop recorded %q, want %q", rec.Reason, lastSessionLeftReason)
 	}
 }
+
+// TestAJailItsKeeperCouldNotStopIsLeftUnkept: a keeper whose stop did not end its container (a
+// wedged runtime, a stop that timed out) takes down what it runs itself, but not the two records
+// that say the jail had a keeper: its owner-PID file and its start record. With them, the jail it
+// leaves behind reads as UNKEPT, which every reader already handles: an arrival is refused and
+// pointed at `yolo stop` (JL-D13), the last session or `yolo stop` reaps it (JL-D30), and the
+// orphan sweep reaps it once no session is in it (JL-D7). Without them the container, whose main
+// process is a hold that never ends by itself, would run on with no owner anything can prove dead,
+// and a new terminal would enter it with no host services and no word of why.
+func TestAJailItsKeeperCouldNotStopIsLeftUnkept(t *testing.T) {
+	saved := keeperGoneAttempts
+	keeperGoneAttempts = 2
+	t.Cleanup(func() { keeperGoneAttempts = saved })
+	var session *sessionLock
+	f := startKeeperFixture(t, true, func(p *keeperPlan) {
+		lock, _, err := takeSessionLock(p.Cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		session = lock
+	})
+	if !f.relay() {
+		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())
+	}
+	f.jail.mu.Lock()
+	f.jail.stuck = true
+	f.jail.mu.Unlock()
+	session.release()
+	if rc := f.wait(); rc != 0 {
+		t.Errorf("the keeper ended %d", rc)
+	}
+	if f.jail.stopCount() != 1 {
+		t.Fatalf("the keeper stopped the jail %d times, want once", f.jail.stopCount())
+	}
+	if pid, ok := readOwnerPID(f.cname); !ok || pid != os.Getpid() {
+		t.Errorf("the owner-PID file of a jail still running names %d (%v), want its keeper", pid, ok)
+	}
+	if rec, ok := readKeeperRecord(f.cname); !ok || rec.PID != os.Getpid() {
+		t.Errorf("the start record of a jail still running is %+v (%v), want its keeper's", rec, ok)
+	}
+	if probeKeeper(f.cname) != keeperGone {
+		t.Error("the keeper's liveness lock is still held after its end")
+	}
+}
