@@ -44,12 +44,15 @@ A TUI application takes over the terminal in raw mode, reads keystrokes itself, 
 in its own code. The handler that causes the problem sends `SIGTSTP` to **process group 0** — every
 process in its own group.
 
-Inside the container that group is PID 1 plus the application plus its children, because
-**`bash -c '<cmd>'` runs the command in its own process group, does not enable job control, and
-just waits.** There is no job-control shell in between. So:
+Inside the container that group is the session's shell plus the application plus its children,
+because **`bash -c '<cmd>'` runs the command in its own process group, does not enable job
+control, and just waits.** There is no job-control shell in between. The session's shell was the
+container's PID 1 until the main process became a hold and every session, the first included, an
+exec ([`jail-lifetime-last-session-wins.md`](../design/jail-lifetime-last-session-wins.md), step 2
+of its §7); the wedge is the same either way. So:
 
 - the application receives `SIGTSTP` and stops;
-- the container's PID 1 receives it and stops;
+- the session's shell receives it and stops;
 - the runtime's attach is only relaying bytes, and nothing alive is reading them;
 - **the host shell's own process is not stopped** — the signal went to processes in the container's
   PID namespace — so the host shell thinks the foreground job is still running and never prompts.
@@ -236,7 +239,7 @@ Each of these is the obvious first move, and each was tried.
 > **Ignoring `SIGTSTP` before exec does not help either.** `SIG_IGN` survives `exec`, but a
 > pgroup-wide signal is checked against *each* process's own disposition — and the application's
 > runtime installs its own handler when its TUI library takes raw mode. The application still
-> stops, PID 1 is then merely stuck waiting on a stopped child, and the wedge is the same for
+> stops, the session's shell is then merely stuck waiting on a stopped child, and the wedge is the same for
 > slightly different reasons.
 
 > [!WARNING]

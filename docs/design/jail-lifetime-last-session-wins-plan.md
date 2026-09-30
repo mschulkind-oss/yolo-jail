@@ -17,7 +17,9 @@ vantage:
 below assumes its answer: a **keeper**, one small background process per running container jail,
 owns the jail's host services and ends itself
 ([§9](jail-lifetime-last-session-wins.md#9-the-keeper-design-2026-09-29)). No terminal holds
-the jail for the others.
+the jail for the others. Step 2 of the design's
+[§7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order) is built (`6973b476`,
+`2963cbed`), and the notes below that it settled say so.
 
 This is the companion sketch of
 [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md). **The design wins on
@@ -41,7 +43,8 @@ host-side shared lock each session holds while it runs
   tail and runs in the first session's exec, where `[ -t 0 ]` still sees the terminal. It runs
   under an in-jail flock and records an outcome, *done* or *refused*. Every other session waits
   on that outcome, never on a done marker, and reads a free flock with no outcome as *abandoned*
-  ([JL-D33](jail-lifetime-last-session-wins.md#JL-D33)).
+  ([JL-D33](jail-lifetime-last-session-wins.md#JL-D33)). Built at step 2 (`6973b476`): the
+  stage rides pid 1's argv, and the flock and the outcome are in the jail's `/run/yolo/main`.
 - **The keeper's verb.** A hidden subcommand in the daemon group, `yolo internal daemon
   jail-keeper`, not a new binary (AGENTS.md: *"Host daemons are hidden self-exec subcommands of
   `yolo` (`yolo internal daemon <name>`)"*). So it needs no `flake.nix` or
@@ -76,7 +79,11 @@ host-side shared lock each session holds while it runs
   without holding the session lock exclusively or the launch lock
   ([JL-D18](jail-lifetime-last-session-wins.md#JL-D18)).
 - **`jailSessionCount`.** Drop its `+1` once the main process is the hold process
-  ([`contracttags.go`](../../internal/cli/run/contracttags.go)).
+  ([`contracttags.go`](../../internal/cli/run/contracttags.go)). Done at step 2 (`2963cbed`),
+  keyed on the jail's `YOLO_JAIL_MAIN`, so a jail launched before keeps its `+1`.
+- **Step 3 undoes one step-2 coupling.** The hold also ends when the first session's process
+  does ([JL-D46](jail-lifetime-last-session-wins.md#JL-D46)), and the fresh launch stops the jail
+  itself when it has not (`awaitJailMainEnd`); the keeper replaces both with its drain.
 - **Detach keys.** Verify that `--detach-keys=""` disables the sequence on podman 5.x for both
   `run` and `exec` before relying on it. Check Apple Container separately.
 - **Death pipe (local Linux podman only).** `podman exec --preserve-fds=N` (the list form

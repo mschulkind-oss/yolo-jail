@@ -45,6 +45,13 @@ older image.
 **"No packs are configured, so this jail has no coding agent".** Add an agent pack to your user
 config; see [Choose an agent](../getting-started.md#choose-an-agent).
 
+**My other terminal's agent stopped when I quit the first one.** A jail lives with the terminal
+that started it: quitting that terminal's agent, or closing its window, ends the jail and every
+terminal that joined it. Start the long-running agent first, or start both from the jail's own
+shell (a bare `yolo`). A terminal that started a jail and was killed outright, with `kill -9`,
+leaves its agent running in the jail with no window, and the jail with it; the next `yolo` no
+longer cleans that jail up while another terminal is still in it.
+
 ## After a config change
 
 **My edit did nothing.** Running `yolo` while the project's jail is running joins that jail, which

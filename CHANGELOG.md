@@ -389,6 +389,11 @@ credential to a server of its choosing. See
   it deletes, and checks again that each item is still unused right before deleting it.
 - A launch that cannot ask Podman whether its workspace's jail is already running now stops and
   says so, instead of starting a second jail beside the running one.
+- A second terminal in a jail is no longer ended by the next `yolo` you run, in any project,
+  after the terminal that started the jail was killed outright, for example by `kill -9` or the
+  out-of-memory killer. yolo counts every terminal running in a jail, and it cleans up a jail
+  left behind by a dead terminal only once no terminal is left in it. Quitting the terminal that
+  started a jail still ends the jail and every terminal in it.
 - Rootless Podman with no storage.conf of your own, as on stock Ubuntu 26.04, no longer fails
   every launch while delivering the image with `mkdir /run/containers: permission denied`. The
   image now goes into the store Podman itself reports, whatever your storage.conf files say, and

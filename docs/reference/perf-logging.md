@@ -6,6 +6,7 @@ covers:
   - internal/perf/
   - internal/cli/run/runcmd.go
   - internal/cli/run/run.go
+  - internal/cli/run/jailmain.go
   - internal/cli/run/perfevents.go
   - internal/cli/run/lingerprobe.go
   - internal/cli/run/hostloopback.go
@@ -51,7 +52,7 @@ which this system reads and prints but does not own.
 | The probe's launch wiring, forwarded-input timing, the stderr line | `internal/cli/run` (`startLingerProbe`, `stopLingerProbe`, `noteForwardedInput`, `noteLingeringClient`) |
 | The `child.*` marks and the input/pty observer | `internal/ttyproxy` (`Observer`, `StageHook`, `RunWithProxyObserved`), `internal/cli/run` (`runWithProxy`) |
 | The `image.*` spans inside the image load | `internal/image` (`Options.Perf`) |
-| The jail half's switch: the argv pair and the bash timers | `internal/cli/run` (`assembleRunCmd`, `buildFinalInternalCmd`) |
+| The jail half's switch: the argv pair and the bash timers | `internal/cli/run` (`assembleRunCmd`, `buildSessionCmd`) |
 | The global `--verbose` / `-v` flag | `internal/cli` (`applyVerboseFlag`, `explicitVerbose`) |
 | `yolo stop`'s spans | `internal/cli` (`stopJail`), `internal/cli/run` (`TimingLogFor`) |
 | The host-process env opt-ins | `internal/paths` (`TimingEnv`, `VerboseEnv`) |
@@ -126,7 +127,11 @@ intended.
   `podman run --rm` child, after the container's PID 1 dies and before the podman
   process exits. No yolo code runs there, so no span can cover it; it can only be
   *attributed* after the fact, and is entered as a Record. Coined in the design
-  this reference replaces (2026-09-06). It has two halves, recorded separately
+  this reference replaces (2026-09-06). Since the container's main process became
+  a hold, that child is the **main process's client**, which a fresh launch starts
+  outside the TTY proxy (`startJailMain`), and its exit is the `jail_main.exited`
+  mark; the proxy's child is the first session's `podman exec`, which returns
+  before the container dies. It has two halves, recorded separately
   since 2026-09-24:
   - **podman's teardown** — from the `died` event to podman's last teardown event
     (`remove` for a `--rm` container): conmon's exit file, the cleanup process,
@@ -284,10 +289,11 @@ and the members that carry meaning:
 | :--- | :--- | :--- |
 | `probes.done` (mark) | the end of the repo-root / storage / config / runtime probes | the first line of every launch after the header |
 | `runtime.ready` | the podman readiness gate inside runtime selection, with a `runtime.ready.attempt` note per attempt | written on a refused launch too; see [the podman readiness wait](#the-podman-readiness-wait) |
-| `launch.*` | every host-side step from staging to the child window: auto-capture, orphan reaping, briefing refresh, the workspace lock, the jail prefix, the image load, workspace state, argv assembly, port forwarding, loophole start, and `launch.run_with_proxy` — the whole child window under one span | `launch.auto_capture` was added after the first real run put most of a two-minute launch in an unspanned installer capture: **a span table's holes are only visible on a real launch** |
+| `launch.*` | every host-side step from staging to the child window: auto-capture, orphan reaping, briefing refresh, the workspace lock, the jail prefix, the image load, workspace state, argv assembly, port forwarding, loophole start, and `launch.run_with_proxy` — the whole child window under one span: on a fresh launch, the main process's spawn and boot, the first session's exec, and the main process's client's exit | `launch.auto_capture` was added after the first real run put most of a two-minute launch in an unspanned installer capture: **a span table's holes are only visible on a real launch** |
 | `image.*` | inside `launch.auto_load_image`: the nix build, the stream load, the tar materialize | split because one span over four unrelated things measured minutes on a real host with no way to say which; the fixes for a slow build and a slow stream have nothing in common |
 | `assemble.*` | the two argv-assembly steps that run subprocesses: the host-loopback probe and the host git identity | |
-| `child.*` (marks) | the tty proxy's own transitions: `spawned`, `exited`, `drain_done`, `termios_restored` | `child.exited` → `child.drain_done` bounds the proxy-drain hypothesis; a path that skips a stage (a non-tty stdin, the non-Linux fallback) simply never reports it |
+| `child.*` (marks) | the tty proxy's own transitions: `spawned`, `exited`, `drain_done`, `termios_restored` | `child.exited` → `child.drain_done` bounds the proxy-drain hypothesis; a path that skips a stage (a non-tty stdin, the non-Linux fallback) simply never reports it. On a fresh launch the proxy's child is the first session's `exec` |
+| `jail_main.*` (marks) | a fresh launch's main-process client: `spawned`, `exited` | `jail_main.exited` is where Window A ends; from `spawned` the boot is relayed to the terminal, so slow-span notices wait, as they do while the proxy's child has it |
 | `housekeeping.slot` | the post-launch housekeeping slot, on the proxy's `onStarted` goroutine | runs *concurrently with the child*, so it overlaps `launch.run_with_proxy` by design |
 | `shutdown.*` | the normal-exit teardown chain | see [The shutdown path](#the-shutdown-path) |
 | `terminate.*` | the signal arm's teardown chain | the same steps under a different family, so the report says which arm ran |
@@ -713,14 +719,22 @@ and try count for every launch, whether or not timing is on.
 ## The jail half
 
 The jail half is switched on by one variable the launcher puts on the container
-argv, and consumed by bash the same launcher generates: `buildFinalInternalCmd`
-wraps the in-container phases in timers and, at exit, prints the
+argv, and consumed by bash the same launcher generates: `buildSessionCmd`, the first
+session's command, wraps the in-container phases in timers and, at exit, prints the
 `=== YOLO Jail Profile ===` block — the entrypoint's boot checkpoints for this run,
 read back from the jail's own perf log, followed by the in-container phase times
 and a node-startup comparison — to the terminal. The entrypoint appends its
 checkpoints to that log **whether or not** the variable is set; the variable only
 decides whether the block is printed. It therefore rides the **reporting** gate:
 a quietly recording launch leaves it off the argv.
+
+Since the container's main process became a hold and the first session an exec
+([`jail-lifetime-last-session-wins.md`](../design/jail-lifetime-last-session-wins.md), step 2
+of its §7), the provisioning stage runs before that command, in a shell of its own on the first
+session's terminal, so the block's `mise install + bootstrap` line reads the stage's duration
+from `YOLO_PROVISION_MS`, which the entrypoint sets for that session. Its
+`--- Entrypoint (config generation) ---` section is the first session's own boot pass, the
+jail's second: the last run block in the jail's perf log.
 
 **Both halves of this switch are host-side.** Nothing in the image or the
 entrypoint reads the variable — the launcher emits it and also generates the bash
@@ -1075,7 +1089,7 @@ is the only place the exact values and spellings are stated.
 | Slow-span notice threshold | 1 s | `perf.SlowSpanThreshold` |
 | Report header | `--- Host-side timing (rc <n>) ---` | `run.emitTimingReportLocked` |
 | Quiet line | `yolo: timings recorded in <file> (--timing prints them)` | `run.noteTimingLogLocation` |
-| In-container block header | `=== YOLO Jail Profile ===` | `run.buildFinalInternalCmd` |
+| In-container block header | `=== YOLO Jail Profile ===` | `run.buildSessionCmd` |
 | Window A query | `podman events --since <collector start> --stream=false --filter container=<name> --format '{{.TimeNano}} {{.Status}}'` | `run.attributeWindowA` |
 | Window A statuses parsed | first `died`; last `remove` or `cleanup` | `run.parseDieAndCleanup` |
 | Window A query timeout | 3 s | `run.windowAEventsTimeout` |
