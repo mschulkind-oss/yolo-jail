@@ -1,7 +1,8 @@
 package check
 
 import (
-	"errors"
+	"fmt"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -13,10 +14,12 @@ import (
 // that reaches the gate without one of these fails loudly instead of running the machine's
 // podman.
 
-// refusingPodmanAttempt is TestMain's default attempt runner.
+// refusingPodmanAttempt is TestMain's default attempt runner. Its start error wraps
+// exec.ErrNotFound so the gate refuses it at once (runtime.ClassifyStartError): an error the
+// gate retried would make the offending test wait out the real budget before failing.
 func refusingPodmanAttempt([]string, time.Time, <-chan struct{}) runtime.Attempt {
-	return runtime.Attempt{StartErr: errors.New("test guard: this test reached the podman " +
-		"readiness gate without a fake; set Options.PodmanReadiness (answeringPodman)")}
+	return runtime.Attempt{StartErr: fmt.Errorf("test guard: this test reached the podman "+
+		"readiness gate without a fake; set Options.PodmanReadiness (answeringPodman): %w", exec.ErrNotFound)}
 }
 
 // gateRecorder counts the gate's attempts.
@@ -77,7 +80,7 @@ func answeringPodman(o *Options, info string) *gateRecorder {
 func podmanAnswers(o *Options, res ExecResult) *gateRecorder {
 	switch {
 	case !res.Ran:
-		return scriptedPodman(o, runtime.Attempt{StartErr: errors.New("exec: podman: not started")})
+		return scriptedPodman(o, runtime.Attempt{StartErr: &exec.Error{Name: "podman", Err: exec.ErrNotFound}})
 	case res.Timeout:
 		return scriptedPodman(o, runtime.Attempt{Pid: 4242})
 	}

@@ -2,7 +2,10 @@ package runtime
 
 import (
 	"errors"
+	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -205,10 +208,86 @@ func TestAMissingBinaryFailsAtOnce(t *testing.T) {
 	c := &fakeGateClock{t: time.Unix(1000, 0)}
 	calls := 0
 	res := WaitForPodman(PodmanInfoArgv("podman"), PodmanReadyBudget,
-		fakeSeams(c, scriptedAttempts(c, []Attempt{{StartErr: errors.New("exec: \"podman\": executable file not found in $PATH")}}, &calls)),
+		fakeSeams(c, scriptedAttempts(c, []Attempt{{StartErr: &exec.Error{Name: "podman", Err: exec.ErrNotFound}}}, &calls)),
 		ReadyHooks{})
 	if res.Outcome != PodmanNotStarted || calls != 1 {
 		t.Fatalf("outcome=%v calls=%d", res.Outcome, calls)
+	}
+	if refusal := res.Refusal("podman"); !strings.Contains(refusal, "Fix: install podman, or put it on PATH.") {
+		t.Errorf("the refusal does not name the fix:\n%s", refusal)
+	}
+}
+
+// A start error that can clear on its own is retried like an early exit (PR-D23): a podman
+// binary busy being replaced by a package upgrade (ETXTBSY) answers once the upgrade is done.
+func TestAStartErrorThatCanClearIsRetried(t *testing.T) {
+	c := &fakeGateClock{t: time.Unix(1000, 0)}
+	calls := 0
+	var retried []string
+	busyBinary := Attempt{StartErr: &os.PathError{Op: "fork/exec", Path: "/usr/bin/podman", Err: syscall.ETXTBSY}}
+	res := WaitForPodman(PodmanInfoArgv("podman"), PodmanReadyBudget,
+		fakeSeams(c, scriptedAttempts(c, []Attempt{busyBinary, answer()}, &calls)),
+		ReadyHooks{OnRetry: func(_ int, a Attempt, f Failure, _ time.Duration) { retried = append(retried, Describe(a, f)) }})
+	if res.Outcome != PodmanReady || calls != 2 {
+		t.Fatalf("outcome=%v calls=%d: a busy binary refused the launch at once", res.Outcome, calls)
+	}
+	if len(retried) != 1 || retried[0] != "could not run: fork/exec /usr/bin/podman: text file busy" {
+		t.Errorf("retry lines = %q", retried)
+	}
+}
+
+// OQ-PR1's rule for an attempt that could not start, errno by errno: only what cannot clear
+// refuses at once, anything else is retried, and yolo's own scratch files are named as such.
+func TestClassifyStartError(t *testing.T) {
+	pathErr := func(errno syscall.Errno) error {
+		return &os.PathError{Op: "fork/exec", Path: "/usr/bin/podman", Err: errno}
+	}
+	scratch := func(errno syscall.Errno) error {
+		return &ProbeScratchError{Err: &os.PathError{Op: "open", Path: "/tmp/yolo-podman-ready-1.out", Err: errno}}
+	}
+	for _, tc := range []struct {
+		name  string
+		err   error
+		class FailureClass
+		fix   string
+	}{
+		{"not on PATH", &exec.Error{Name: "podman", Err: exec.ErrNotFound}, FailurePermanent, "install podman"},
+		{"relative PATH entry", &exec.Error{Name: "podman", Err: exec.ErrDot}, FailurePermanent, "absolute path"},
+		{"ENOENT", pathErr(syscall.ENOENT), FailurePermanent, "install podman"},
+		{"ENOTDIR", pathErr(syscall.ENOTDIR), FailurePermanent, "install podman"},
+		{"EACCES", pathErr(syscall.EACCES), FailurePermanent, "executable by this user"},
+		{"EPERM", pathErr(syscall.EPERM), FailurePermanent, "executable by this user"},
+		{"ENOEXEC", pathErr(syscall.ENOEXEC), FailurePermanent, "not a program"},
+		{"EISDIR", pathErr(syscall.EISDIR), FailurePermanent, "not a program"},
+		{"empty argv", errEmptyArgv, FailurePermanent, "yolo bug"},
+		{"ETXTBSY", pathErr(syscall.ETXTBSY), FailureTransient, ""},
+		{"EAGAIN", pathErr(syscall.EAGAIN), FailureTransient, ""},
+		{"ENOMEM", pathErr(syscall.ENOMEM), FailureTransient, ""},
+		{"EMFILE", pathErr(syscall.EMFILE), FailureTransient, ""},
+		{"an errno no row names", pathErr(syscall.ELOOP), FailureUnknown, ""},
+		{"no errno at all", errors.New("something no one has seen"), FailureUnknown, ""},
+		{"scratch: no temp dir", scratch(syscall.ENOENT), FailurePermanent, "TMPDIR"},
+		{"scratch: not writable", scratch(syscall.EACCES), FailurePermanent, "TMPDIR"},
+		{"scratch: read-only", scratch(syscall.EROFS), FailurePermanent, "TMPDIR"},
+		{"scratch: disk full", scratch(syscall.ENOSPC), FailureUnknown, ""},
+		{"scratch: out of descriptors", scratch(syscall.EMFILE), FailureUnknown, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := ClassifyStartError(tc.err)
+			if f.Class != tc.class {
+				t.Fatalf("class = %v, want %v (%+v)", f.Class, tc.class, f)
+			}
+			if tc.fix != "" && !strings.Contains(f.Fix, tc.fix) {
+				t.Errorf("fix = %q, want it to mention %q", f.Fix, tc.fix)
+			}
+			if f.Line != tc.err.Error() {
+				t.Errorf("line = %q, want the error itself", f.Line)
+			}
+			var s *ProbeScratchError
+			if errors.As(tc.err, &s) && (strings.Contains(f.Fix, "podman") || !strings.Contains(f.Line, "scratch file")) {
+				t.Errorf("a scratch-file failure must be named as yolo's own, not podman's: %+v", f)
+			}
+		})
 	}
 }
 

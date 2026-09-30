@@ -9,10 +9,10 @@ package run
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -179,18 +179,34 @@ func TestAnAnswerThatCannotClearRefusesAtOnceNamingTheFix(t *testing.T) {
 	}
 }
 
-// A podman that cannot be started at all fails at once.
+// A podman that cannot be started at all fails at once, naming the fix; one whose start can
+// clear on its own (its binary busy being replaced) is retried and accepted (PR-D23).
 func TestAPodmanThatCannotStartFailsAtOnce(t *testing.T) {
 	for _, p := range gatePaths() {
 		t.Run(p.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			o := gateOptions(p, &stdout, &stderr)
-			gate := scriptedPodman(o, yoloruntime.Attempt{StartErr: errors.New(`exec: "podman": permission denied`)})
+			gate := scriptedPodman(o, yoloruntime.Attempt{StartErr: &os.PathError{Op: "fork/exec",
+				Path: "/usr/bin/podman", Err: syscall.EACCES}})
 			if _, ok := o.resolveRuntime(p.cfg); ok {
 				t.Fatal("an unstartable podman was accepted")
 			}
-			if gate.count() != 1 || !strings.Contains(stdout.String(), "podman info could not run") {
+			if gate.count() != 1 || !strings.Contains(stdout.String(), "podman info could not run") ||
+				!strings.Contains(stdout.String(), "Fix: a permission error") {
 				t.Errorf("attempts=%d refusal=%q", gate.count(), stdout.String())
+			}
+
+			stdout.Reset()
+			stderr.Reset()
+			o = gateOptions(p, &stdout, &stderr)
+			gate = scriptedPodman(o, yoloruntime.Attempt{StartErr: &os.PathError{Op: "fork/exec",
+				Path: "/usr/bin/podman", Err: syscall.ETXTBSY}}, yoloruntime.Attempt{Exited: true, RC: 0, Stdout: podmanInfoFixture})
+			if rt, ok := o.resolveRuntime(p.cfg); !ok || rt != "podman" || gate.count() != 2 {
+				t.Errorf("a busy binary: resolveRuntime = %q,%v after %d attempts\nstdout:\n%s", rt, ok,
+					gate.count(), stdout.String())
+			}
+			if !strings.Contains(stderr.String(), "podman info: could not run: fork/exec /usr/bin/podman: text file busy; retrying in 1s") {
+				t.Errorf("the retry was not printed:\n%s", stderr.String())
 			}
 		})
 	}

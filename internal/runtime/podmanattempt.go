@@ -30,16 +30,16 @@ const attemptOutputCap = 4 << 20
 func RunPodmanAttempt(argv []string, deadline time.Time, interrupt <-chan struct{}) Attempt {
 	start := time.Now()
 	if len(argv) == 0 {
-		return Attempt{StartErr: errors.New("empty argv")}
+		return Attempt{StartErr: errEmptyArgv}
 	}
 	stdout, err := unlinkedTemp("yolo-podman-ready-*.out")
 	if err != nil {
-		return Attempt{StartErr: err}
+		return Attempt{StartErr: &ProbeScratchError{Err: err}}
 	}
 	stderr, err := unlinkedTemp("yolo-podman-ready-*.err")
 	if err != nil {
 		_ = stdout.Close()
-		return Attempt{StartErr: err}
+		return Attempt{StartErr: &ProbeScratchError{Err: err}}
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
@@ -75,6 +75,21 @@ func RunPodmanAttempt(argv []string, deadline time.Time, interrupt <-chan struct
 		return Attempt{Pid: cmd.Process.Pid, Duration: time.Since(start), Interrupted: true}
 	}
 }
+
+// errEmptyArgv is the probe asked to run nothing: a yolo bug, which nothing will clear.
+var errEmptyArgv = errors.New("empty argv")
+
+// ProbeScratchError is a start error of yolo's own, not podman's: the attempt could not
+// create the scratch files that hold podman's answer (unlinkedTemp), so podman never ran.
+// ClassifyStartError reports it as that, with its own fix, never as a podman that could not
+// be started.
+type ProbeScratchError struct{ Err error }
+
+func (e *ProbeScratchError) Error() string {
+	return "yolo could not create the scratch file for podman's answer: " + e.Err.Error()
+}
+
+func (e *ProbeScratchError) Unwrap() error { return e.Err }
 
 // unlinkedTemp creates a temp file and removes its name at once: only the two descriptors
 // (yolo's and the child's) keep it alive, so nothing is left behind whichever way either

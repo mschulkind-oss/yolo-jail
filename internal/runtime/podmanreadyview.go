@@ -99,6 +99,9 @@ func (r ReadyResult) Refusal(rt string) string {
 	switch r.Outcome {
 	case PodmanNotStarted:
 		fmt.Fprintf(&b, "%s info could not run: %s.", rt, r.Failure.Line)
+		if r.Failure.Fix != "" {
+			fmt.Fprintf(&b, "\nFix: %s.", r.Failure.Fix)
+		}
 	case PodmanRefused:
 		fmt.Fprintf(&b, "%s info failed with an error that does not clear on its own (%s): %s\nFix: %s.",
 			rt, span, Describe(last, r.Failure), r.Failure.Fix)
@@ -124,11 +127,11 @@ func (r ReadyResult) Refusal(rt string) string {
 	return b.String()
 }
 
-// lastAnswered is the index of the last attempt that ended with podman's answer, the one
-// r.Failure classifies; false when none did.
+// lastAnswered is the index of the last attempt that ended with an answer — it exited, or it
+// could not start — the one r.Failure classifies; false when none did.
 func (r ReadyResult) lastAnswered() (int, bool) {
 	for i := len(r.Attempts) - 1; i >= 0; i-- {
-		if r.Attempts[i].Exited {
+		if r.Attempts[i].Exited || r.Attempts[i].StartErr != nil {
 			return i, true
 		}
 	}

@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"errors"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -79,10 +81,44 @@ func TestAnAttemptReportsItsExitCodeAndStderr(t *testing.T) {
 	}
 }
 
-// A binary that does not exist cannot start.
+// A binary that does not exist cannot start, and the error the real runner returns — by path
+// and by bare name looked up on PATH — is one the gate refuses at once.
 func TestAnAttemptOfAMissingBinaryDoesNotStart(t *testing.T) {
-	a := RunPodmanAttempt([]string{"/nonexistent/yolo-test-podman", "info"}, time.Now().Add(time.Second), nil)
-	if a.StartErr == nil {
-		t.Fatalf("attempt = %+v, want a start error", a)
+	for _, argv0 := range []string{"/nonexistent/yolo-test-podman", "yolo-test-podman-not-on-any-path"} {
+		a := RunPodmanAttempt([]string{argv0, "info"}, time.Now().Add(time.Second), nil)
+		if a.StartErr == nil {
+			t.Fatalf("%s: attempt = %+v, want a start error", argv0, a)
+		}
+		if f := ClassifyStartError(a.StartErr); f.Class != FailurePermanent || !strings.Contains(f.Fix, "install podman") {
+			t.Errorf("%s: %v classified as %+v, want a refusal naming the install", argv0, a.StartErr, f)
+		}
+	}
+}
+
+// A temporary directory yolo cannot create its scratch files in never ran podman at all: the
+// gate says it was yolo's own scratch file, names the directory to fix, and does not tell the
+// user to install podman (PR-D23).
+func TestAScratchFileYoloCannotCreateIsNamedAsYolos(t *testing.T) {
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "no-such-dir"))
+	a := RunPodmanAttempt([]string{"sh", "-c", "echo '{}'"}, time.Now().Add(5*time.Second), nil)
+	var scratch *ProbeScratchError
+	if !errors.As(a.StartErr, &scratch) {
+		t.Fatalf("attempt = %+v, want a scratch-file start error", a)
+	}
+	calls := 0
+	res := WaitForPodman([]string{"sh", "-c", "echo '{}'"}, PodmanReadyBudget, ReadySeams{
+		Attempt: func(argv []string, d time.Time, i <-chan struct{}) Attempt {
+			calls++
+			return RunPodmanAttempt(argv, d, i)
+		},
+		Sleep: func(time.Duration, <-chan struct{}) bool { return true },
+	}, ReadyHooks{})
+	refusal := res.Refusal("podman")
+	if res.Outcome != PodmanNotStarted || calls != 1 {
+		t.Fatalf("outcome=%v after %d attempts: %s", res.Outcome, calls, refusal)
+	}
+	if !strings.Contains(refusal, "yolo could not create the scratch file for podman's answer") ||
+		!strings.Contains(refusal, "TMPDIR") || strings.Contains(refusal, "install podman") {
+		t.Errorf("refusal = %q", refusal)
 	}
 }

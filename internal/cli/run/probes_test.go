@@ -2,10 +2,10 @@ package run
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -309,7 +309,8 @@ func TestResolveRuntimeLinuxPodmanFailureDetails(t *testing.T) {
 	}{
 		{"nonzero", yoloruntime.Attempt{Exited: true, RC: 125, Stderr: "rootless storage lock busy"}, "rootless storage lock busy"},
 		{"still running", yoloruntime.Attempt{Pid: 31337}, "podman (pid 31337) is still running; yolo left it to finish"},
-		{"not run", yoloruntime.Attempt{StartErr: errors.New("exec: no such file")}, "could not run"},
+		{"not run", yoloruntime.Attempt{StartErr: &os.PathError{Op: "fork/exec", Path: "/usr/bin/podman",
+			Err: syscall.ENOENT}}, "could not run"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer

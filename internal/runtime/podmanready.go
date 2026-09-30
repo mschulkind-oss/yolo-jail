@@ -18,17 +18,22 @@ package runtime
 //
 // # What it retries, and what it refuses at once (OQ-PR1)
 //
-// An attempt that exits early is classified from its stderr (ClassifyPodmanFailure). One that
-// cannot clear on its own — a permission or configuration error, a missing helper, an
-// explicit "run podman system migrate" — refuses at once and names the fix. Everything else
-// is retried after a backoff, including every error the table does not recognize: the rule is
+// An attempt that exits early is classified from its stderr (ClassifyPodmanFailure), and one
+// that could not start from its errno (ClassifyStartError). One that cannot clear on its own
+// — a missing podman, a permission or configuration error, a missing helper, an explicit
+// "run podman system migrate" — refuses at once and names the fix. Everything else is
+// retried after a backoff, including every error the table does not recognize: the rule is
 // tri-state, so "I do not know what this is" keeps waiting within the budget and never
 // refuses early.
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -74,8 +79,11 @@ func PodmanInfoArgv(rt string) []string { return []string{rt, "info", "--format"
 
 // Attempt is what one run of the probe did.
 type Attempt struct {
-	// StartErr is set when the binary could not be started at all (missing, not
-	// executable). That fails the gate at once: nothing will make it start.
+	// StartErr is set when the probe could not be started at all. ClassifyStartError reads
+	// it: a binary that is missing or not executable fails the gate at once, since nothing
+	// will make it start, while an error that can clear (the binary busy being replaced, a
+	// process or file limit hit during a storm) is retried within the budget like any early
+	// exit. A failure of yolo's own scratch files is a *ProbeScratchError.
 	StartErr error
 	// Exited is true when the process ended before the gate stopped waiting; RC, Stdout and
 	// Stderr are then its exit code and output.
@@ -155,7 +163,8 @@ const (
 	// PodmanRefused: an attempt failed with an error that cannot clear on its own
 	// (Result.Failure names it and its fix).
 	PodmanRefused
-	// PodmanNotStarted: the binary could not be started at all.
+	// PodmanNotStarted: the probe could not be started, for a reason that cannot clear on
+	// its own (Result.Failure names it and its fix).
 	PodmanNotStarted
 	// PodmanInterrupted: the user interrupted the wait.
 	PodmanInterrupted
@@ -171,7 +180,8 @@ type ReadyResult struct {
 	Attempts []Attempt
 	// Elapsed is the whole wait, retries and backoffs included.
 	Elapsed time.Duration
-	// Failure classifies the last attempt that exited with an error ({} when none did).
+	// Failure classifies the last attempt that ended with an error: one that exited early,
+	// or one that could not start ({} when none did).
 	Failure Failure
 	// Running is the pid of a probe yolo stopped waiting on and left running, 0 when none.
 	Running int
@@ -211,8 +221,7 @@ func WaitForPodman(argv []string, budget time.Duration, seams ReadySeams, hooks 
 		var f Failure
 		switch {
 		case a.StartErr != nil:
-			f = Failure{Class: FailurePermanent, Line: a.StartErr.Error(),
-				Fix: "podman could not be started; check that it is installed and on PATH"}
+			f = ClassifyStartError(a.StartErr)
 		case a.Exited && a.RC == 0 && isJSONObject(a.Stdout):
 		case a.Exited && a.RC == 0:
 			f = Failure{Class: FailureUnknown, Line: "the output is not JSON"}
@@ -223,7 +232,9 @@ func WaitForPodman(argv []string, budget time.Duration, seams ReadySeams, hooks 
 			hooks.OnAttempt(n+1, a, f)
 		}
 		switch {
-		case a.StartErr != nil:
+		case a.StartErr != nil && f.Class == FailurePermanent:
+			// Nothing will make it start. A start error that can clear is retried below, as
+			// an early exit is.
 			res.Outcome, res.Failure = PodmanNotStarted, f
 			res.Elapsed = elapsed()
 			return res
@@ -231,7 +242,7 @@ func WaitForPodman(argv []string, budget time.Duration, seams ReadySeams, hooks 
 			res.Outcome, res.Running = PodmanInterrupted, a.Pid
 			res.Elapsed = elapsed()
 			return res
-		case !a.Exited:
+		case a.StartErr == nil && !a.Exited:
 			// Still running at the end of the budget. Left to finish, and named.
 			res.Outcome, res.Running = PodmanNotReady, a.Pid
 			res.Elapsed = elapsed()
@@ -420,6 +431,55 @@ func ClassifyPodmanFailure(stderr string) Failure {
 		f.Line = first
 	}
 	return f
+}
+
+// ClassifyStartError reads an attempt that could not be started (Attempt.StartErr) by the
+// errno under it, never its words, with ClassifyPodmanFailure's tri-state: only what cannot
+// clear on its own refuses at once (OQ-PR1, PR-D23).
+//
+//   - PERMANENT: no binary at the path or on PATH (ENOENT, ENOTDIR, exec's not-found and
+//     relative-path refusals), one this user may not execute (EACCES, EPERM), a file that is
+//     not a program (ENOEXEC, EISDIR), and an empty argv, which is a yolo bug.
+//   - RETRIED within the budget, like any early exit: everything else. ETXTBSY is a podman
+//     binary being replaced (a package upgrade), EAGAIN a fork refused at a process limit,
+//     ENOMEM, EMFILE and ENFILE the kind of limit a restore storm hits; each clears once the
+//     moment passes, and an errno this list does not name keeps retrying, never refusing
+//     early.
+//
+// A failure of yolo's own scratch files (*ProbeScratchError) says so, with its own fix:
+// permanent when the temporary directory cannot be used at all (missing, not a directory,
+// not writable, read-only), retried otherwise (a full disk may be freed, a descriptor limit
+// may lift).
+func ClassifyStartError(err error) Failure {
+	line := err.Error()
+	var scratch *ProbeScratchError
+	if errors.As(err, &scratch) {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) ||
+			errors.Is(err, syscall.EROFS) || errors.Is(err, syscall.ENOTDIR) {
+			return Failure{Class: FailurePermanent, Line: line,
+				Fix: "make the temporary directory usable: TMPDIR, or /tmp when TMPDIR is unset, must be a writable directory"}
+		}
+		return Failure{Class: FailureUnknown, Line: line}
+	}
+	switch {
+	case errors.Is(err, errEmptyArgv):
+		return Failure{Class: FailurePermanent, Line: line, Fix: "this is a yolo bug; please report it"}
+	case errors.Is(err, exec.ErrDot):
+		return Failure{Class: FailurePermanent, Line: line,
+			Fix: "put podman's directory on PATH by its absolute path, not as a relative one"}
+	case errors.Is(err, exec.ErrNotFound), errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
+		return Failure{Class: FailurePermanent, Line: line, Fix: "install podman, or put it on PATH"}
+	case errors.Is(err, fs.ErrPermission):
+		return Failure{Class: FailurePermanent, Line: line,
+			Fix: "a permission error: make the podman on PATH executable by this user"}
+	case errors.Is(err, syscall.ENOEXEC), errors.Is(err, syscall.EISDIR):
+		return Failure{Class: FailurePermanent, Line: line,
+			Fix: "the podman on PATH is not a program this host can run: reinstall podman"}
+	case errors.Is(err, syscall.ETXTBSY), errors.Is(err, syscall.EAGAIN), errors.Is(err, syscall.EINTR),
+		errors.Is(err, syscall.ENOMEM), errors.Is(err, syscall.EMFILE), errors.Is(err, syscall.ENFILE):
+		return Failure{Class: FailureTransient, Line: line}
+	}
+	return Failure{Class: FailureUnknown, Line: line}
 }
 
 // fatalLines is stderr without podman's logrus lines and blanks.
