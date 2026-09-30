@@ -134,7 +134,7 @@ func TestResolveViasRefusesAPackThatServesNoViaRoute(t *testing.T) {
 	}
 }
 
-// TestAViaForAnAgentNoSelectedPackInstallsIsInactive pins WG-I10: a use_profiles key may
+// TestAViaForAnAgentNoSelectedPackInstallsIsInactive pins WG-I10: a profile key may
 // name any CLI a resolvable pack installs, selected or not, so an entry for an agent this
 // launch does not carry must neither add the via's pack nor refuse the launch — not even
 // when the via names a pack that would be refused for an agent that is present.

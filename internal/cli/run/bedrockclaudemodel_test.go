@@ -30,7 +30,7 @@ func bedrockRegionOnly(models *jsonx.OrderedMap) *jsonx.OrderedMap {
 	sec := jsonx.NewOrderedMap()
 	sec.Set("blocked_tools", []any{})
 	return newConfig("agents", []any{"claude"}, "security", sec,
-		"providers", providers, "use_profiles", profiles)
+		"providers", providers, "profile", profiles)
 }
 
 var claudeModelKeys = []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",

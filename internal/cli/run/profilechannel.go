@@ -263,7 +263,7 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 }
 
 // checkProfileDeclarations refuses a SELECTED profile name nothing declares — the flag
-// and config spellings alike: a `use_profiles` value and a `-p <name>` are both in the
+// and config spellings alike: a `profile` value and a `-p <name>` are both in the
 // table this reads (effectiveUseProfiles merged them). It sits beside
 // checkProfileTargets, its CLI-name twin on the same table, and shares that check's
 // reason for being FATAL: a silently inert selector is indistinguishable from a working

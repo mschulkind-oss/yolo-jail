@@ -63,7 +63,7 @@ func TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt(t *test
 	const providers = `"providers": {"bedrock": {"region": "us-west-2"},
 	  "mine": {"endpoints": {"anthropic": {"base_url": "https://anthropic.example"}}}},
 	  "profiles": {"mine": {"provider": "mine"}}`
-	home := hostGateHome(t, `{"packs": ["claude"], "use_profiles": {"claude": "bedrock"}, `+providers+`}`, nil)
+	home := hostGateHome(t, `{"packs": ["claude"], "profile": {"claude": "bedrock"}, `+providers+`}`, nil)
 	// `yolo host apply` refuses while a declared program is missing, and `claude` is on this
 	// development jail's PATH but not on CI's: stub it, or the test passes only here.
 	stubDeclaredBins(t)
@@ -99,7 +99,7 @@ func TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt(t *test
 	}
 
 	// The host selection leaves Bedrock: the apply removes what it wrote, and nothing is named.
-	userCfg(t, home, `{"packs": ["claude"], "use_profiles": {"claude": "mine"}, `+providers+`}`)
+	userCfg(t, home, `{"packs": ["claude"], "profile": {"claude": "mine"}, `+providers+`}`)
 	if got := apply(); strings.Contains(got, `"CLAUDE_CODE_USE_BEDROCK"`) {
 		t.Errorf("host apply with claude off Bedrock must remove the switch it wrote:\n%s", got)
 	}

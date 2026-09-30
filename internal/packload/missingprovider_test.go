@@ -280,7 +280,7 @@ func TestAProviderTheUserDroppedRefuses(t *testing.T) {
 }
 
 // `yolo check` predicts the launch through PairingRefusals, so it reports the same refusal for
-// a `use_profiles` selection: a config check called clean that the launch then refuses is the
+// a `profile` selection: a config check called clean that the launch then refuses is the
 // defect PairingRefusals exists to prevent.
 func TestPairingRefusalsReportsAMissingProvider(t *testing.T) {
 	claude := embeddedNamed(t, "claude")

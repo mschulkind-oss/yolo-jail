@@ -9,7 +9,7 @@ package cli
 // so what differs between the notches is composed HERE, from user scope alone:
 //
 //	providers     composedHostProviders — the table `yolo host --` already composes
-//	profiles      the user's `use_profiles`, resolved over that table, via addresses cleared
+//	profiles      the user's `profile`, resolved over that table, via addresses cleared
 //	              (nothing serves one here, WG-I12), and a selection the host launch refuses
 //	              left out and named
 //	mcp_servers   the user's own entries, less any that names a jail-only path (named)
@@ -56,7 +56,7 @@ func (c hostInputComposition) summary() string {
 		selection = strings.Join(c.selection, ", ")
 	}
 	return "provider table composed for the derives: " + providers +
-		" · profile selection (use_profiles): " + selection
+		" · profile selection (the profile key): " + selection
 }
 
 // composeHostInputs composes the derive inputs for a host render of packs into home, from the
@@ -89,12 +89,12 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 	inert, _ := packload.ViaServedAt(resolved, packs, packload.NothingServed())
 	vars[entrypoint.ProfilesWireEnv] = wireJSON(packload.ProfilesWireTable(inert))
 
-	// THE SELECTION (OQ-HC3): the user-scope `use_profiles`, never a `-p` (host apply has
+	// THE SELECTION (OQ-HC3): the user-scope `profile`, never a `-p` (host apply has
 	// none). A pairing the host launch refuses — a profile only a jail's service can serve —
 	// is left out and named, since a file selecting it would name a provider no host process
 	// of that agent can reach.
 	use := jsonx.NewOrderedMap()
-	selected := effectiveHostProfiles(cfg, "", "")
+	selected := effectiveHostProfiles(cfg, packs, "", "")
 	for _, agent := range selected.Keys() {
 		v, _ := selected.Get(agent)
 		profile, _ := v.(string)
@@ -108,7 +108,7 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 				c.omitted = append(c.omitted, note)
 				continue
 			}
-			c.omitted = append(c.omitted, fmt.Sprintf("use_profiles %s → %s is not applied at "+
+			c.omitted = append(c.omitted, fmt.Sprintf("profile %s → %s is not applied at "+
 				"the host: %s", agent, profile, firstLine(refusal.Error())))
 			continue
 		}
@@ -240,7 +240,7 @@ func sortedOmitted(lines []string) []string {
 	return out
 }
 
-// bridgedSelectionNote is what `yolo host apply` says of a use_profiles selection whose pairing
+// bridgedSelectionNote is what `yolo host apply` says of a profile selection whose pairing
 // runs through a pack service a host launch starts for its command (launchservice.Admit admits
 // its host half), "" for any other refusal: the apply renders no address for it, and the
 // selection takes effect only through `yolo host --` or the host wrappers. An agent started any
@@ -254,7 +254,7 @@ func bridgedSelectionNote(packs []*packload.Pack, agent, profile string, refusal
 	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf("use_profiles %s → %s renders no address here: it runs through pack %q's "+
+	return fmt.Sprintf("profile %s → %s renders no address here: it runs through pack %q's "+
 		"%q service, which a host launch starts for its own command and stops when that command "+
 		"exits, so no file can name it. It takes effect through `yolo host -- %s` or the host "+
 		"wrappers; %s started any other way runs without it (docs/design/host-notch-services.md "+

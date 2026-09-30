@@ -196,7 +196,7 @@ func TestHostGateRelaysAShellHeldKeyToTheEnvDerive(t *testing.T) {
 // and the gate's disclosure names it on stderr, as `yolo host --` does. It used to drop the
 // value from the export with no message at all.
 func TestHostEnvDisclosesWhatItsSliceWithholds(t *testing.T) {
-	hostGateHome(t, `{"packs": ["claude", "pi", "zai"], "use_profiles": {"pi": "zai"}, "env_sources": [`+
+	hostGateHome(t, `{"packs": ["claude", "pi", "zai"], "profile": {"pi": "zai"}, "env_sources": [`+
 		`{"ZAI_API_KEY": "tok-host", "GH_TOKEN": "gh-host"}]}`, nil)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env"}, &out, &errw, false, nil); rc != 0 {

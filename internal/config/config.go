@@ -73,17 +73,19 @@ var knownTopLevelConfigKeys = set(
 	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers",
 	"host_apply_on_launch", "host_management", "agent_updates", "packs", "perf_logging",
 	"update_check", "promotion_target",
-	"providers", "profiles", "use_profiles", "required_capabilities", "adapters",
+	"providers", "profiles", "profile", "required_capabilities", "adapters",
 	// `agent_profiles` retired 2026-09-01, renamed to `pack_profiles` (the keys were
 	// always CLI names, and core knows packs, not agents — docs/design/
 	// docs/reference/providers.md#declaring-and-selecting-a-profile), which was itself renamed to `use_profiles`
 	// on 2026-09-02 (docs/reference/providers.md — Profiles and options: `pack` named neither of
-	// the two things the key holds). NEITHER intermediate name ever shipped in a
-	// release, which is why `pack_profiles` earns no census entry of its own — see
-	// knownProviderKeys below for the rule. `agent_profiles` KEEPS its entry: that
-	// spelling is written into every host-generated jail snapshot in existence.
+	// the two things the key holds). `pack_profiles` never shipped in a release, which is why
+	// it earns no census entry of its own — see knownProviderKeys below for the rule.
+	// `agent_profiles` KEEPS its entry: that spelling is written into every host-generated
+	// jail snapshot in existence. `use_profiles` shipped in v0.11.0 and was renamed to
+	// `profile` on 2026-09-29, mirroring -p/--profile (docs/design/
+	// providers-and-profiles-redesign.md PP-D10), so it keeps an entry for the same reason.
 	// Listed so the retirement message is the only error, per the convention above.
-	"agent_profiles",
+	"agent_profiles", "use_profiles",
 )
 
 // retiredTopLevelConfigKeys are the keys knownTopLevelConfigKeys keeps ONLY so
@@ -98,7 +100,7 @@ var knownTopLevelConfigKeys = set(
 // document keys yolo refuses, or is silenced with an allowlist of its own that
 // drifts from this list.
 var retiredTopLevelConfigKeys = set(
-	"repo_path", "agents", "host_processes", "journal", "agent_profiles",
+	"repo_path", "agents", "host_processes", "journal", "agent_profiles", "use_profiles",
 )
 
 // TopLevelConfigKeys returns the LIVE top-level config keys — everything

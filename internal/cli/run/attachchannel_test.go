@@ -61,12 +61,12 @@ func attachFixture(t *testing.T, frozenEnv string, packs []*packload.Pack,
 }
 
 // configSelects puts the CONFIG-side spelling of a selection on the fixture's cfg —
-// the persistent use_profiles table, as opposed to the -p flag fields on Options,
+// the persistent profile table, as opposed to the -p flag fields on Options,
 // which the pre-change check must treat differently (typed vs config).
 func configSelects(cfg *jsonx.OrderedMap, cli, profile string) {
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set(cli, profile)
-	cfg.Set("use_profiles", profiles)
+	cfg.Set("profile", profiles)
 }
 
 // TestAttachDeliversTheChannelFile is the positive pin on the WRITE: a post-change
@@ -307,7 +307,7 @@ func TestAttachRefusesADifferingSelectionOnAPreChangeJail(t *testing.T) {
 // delivery existed — no refusal, no warning, no delivery. The first cut of the
 // pre-change check refused every attach whose table was merely NON-EMPTY, which
 // broke the daily 'yolo -- <cmd>' of any config carrying a persistent
-// use_profiles (measured on a live jail, 2026-09-05).
+// profile (measured on a live jail, 2026-09-05).
 func TestAttachToAPreChangeJailWithMatchingSelectionIsSilent(t *testing.T) {
 	packs := preChangePacks(t)
 	for _, tc := range []struct {

@@ -65,7 +65,7 @@ func TestHostExecComposesTheProviderEnv(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeZaiLocalPack(t, home)
 	userCfg(t, home, `{
-	  "use_profiles": {"claude": "zai"},
+	  "profile": {"claude": "zai"},
 	  "env_sources": [{"ZAI_API_KEY": "tok-9"}]
 	}`)
 

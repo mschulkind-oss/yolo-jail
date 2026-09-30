@@ -95,7 +95,8 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateMCPServers(config, errs)
 	validateProviders(config, workspace, errs, warns)
 	validateAgentProfilesRetired(config, errs, warns)
-	validateUseProfiles(config, errs)
+	validateUseProfilesRetired(config, errs, warns)
+	validateProfile(config, errs)
 	validateProfiles(workspace, errs)
 	validateAdapters(workspace, errs)
 	validatePrune(config, errs)
@@ -1163,8 +1164,8 @@ func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *
 }
 
 // ValidateProviderSection is ValidateConfig's provider and profile section over one config
-// with no workspace in it: the `providers` entries, the retired `agent_profiles` key, the
-// `use_profiles` table, and the user file's `profiles` and `adapters`, in ValidateConfig's
+// with no workspace in it: the `providers` entries, the retired `agent_profiles` and
+// `use_profiles` keys, the `profile` selection, and the user file's `profiles` and `adapters`, in ValidateConfig's
 // order and words. `yolo host` composes from user scope alone (UserScopeConfig) and runs no
 // ValidateConfig, so it composed a provider written with removed keys and sent claude to its
 // first-party endpoint with a model named `m1`, where every jail launch and `yolo check`
@@ -1175,7 +1176,8 @@ func ValidateProviderSection(config *jsonx.OrderedMap) (errors []string, warning
 	errs, warns := &[]string{}, &[]string{}
 	validateProviderEntries(config, errs, warns)
 	validateAgentProfilesRetired(config, errs, warns)
-	validateUseProfiles(config, errs)
+	validateUseProfilesRetired(config, errs, warns)
+	validateProfile(config, errs)
 	validateUserScopeProfiles(errs)
 	validateUserScopeAdapters(errs)
 	return *errs, *warns
@@ -1460,7 +1462,7 @@ const providersKey = "providers"
 // write can then name only a region of the domain the agent appends. NC-D63 judged the field to
 // route no credential before that was read (docs/plans/notch-convergence.md).
 //
-// It is the same boundary `profiles`/`use_profiles` draw one step further in (profiles.go's
+// It is the same boundary `profiles`/`profile` draw one step further in (profiles.go's
 // userScopeOnlyMessage, OQ-CS5): a profile decides WHICH declared provider an agent talks to,
 // and these fields decide where that provider is and what it is handed. The workspace file
 // travels with the repo and is writable by the agent running inside the jail.
@@ -1781,8 +1783,8 @@ func validateAgentProfilesRetired(config *jsonx.OrderedMap, errs, warns *[]strin
 	if _, present := config.Get("agent_profiles"); !present {
 		return
 	}
-	msg := "config.agent_profiles: RENAMED — this key is now `use_profiles`, because " +
-		"the keys were always CLI names and core knows packs, not agents " +
+	msg := "config.agent_profiles: RENAMED — this key is now `profile` (it was `use_profiles` " +
+		"in between), because the keys were always CLI names and core knows packs, not agents " +
 		"(docs/reference/providers.md#declaring-and-selecting-a-profile). Rename the key in place; " +
 		"the values are unchanged."
 	if inJail() {
@@ -1793,28 +1795,66 @@ func validateAgentProfilesRetired(config *jsonx.OrderedMap, errs, warns *[]strin
 	add(errs, msg)
 }
 
-func validateUseProfiles(config *jsonx.OrderedMap, errs *[]string) {
-	v, present := config.Get("use_profiles")
+// validateUseProfilesRetired refuses `use_profiles` by name (PP-D10, 2026-09-29): the key is
+// `profile` now, mirroring -p/--profile. The agent_profiles pattern above: an error on the
+// host, a warning in-jail, where the config is the snapshot a launcher generated and one
+// written by a launcher older than the rename legitimately carries the old key. The message
+// respells the user's own value, since the object form takes the old table unchanged.
+func validateUseProfilesRetired(config *jsonx.OrderedMap, errs, warns *[]string) {
+	v, present := config.Get(retiredUseProfilesKey)
+	if !present {
+		return
+	}
+	msg := "config.use_profiles: RENAMED — this key is now `profile`, which mirrors -p/--profile: " +
+		"a string selects one profile for every agent (`-p <name>`), and an object selects per " +
+		"CLI name (`-p <cli>=<name>`), with \"*\" for every agent the object does not name " +
+		"(docs/reference/providers.md#declaring-and-selecting-a-profile)."
+	if sel, ok := ProfileSelectionOf(v); ok && !sel.IsZero() {
+		msg += " Your entries, respelled: " + ProfileKeySpelling(sel)
+	} else {
+		msg += " Rename the key in place; an object's entries are unchanged."
+	}
+	if inJail() {
+		add(warns, msg+" (ignored here: this is the host-generated config snapshot, "+
+			"so rename the key in the HOST config.)")
+		return
+	}
+	add(errs, msg)
+}
+
+// validateProfile checks the `profile` key's shape: a profile name, or an object of CLI name →
+// profile name (or null) with "*" for every agent it does not name.
+func validateProfile(config *jsonx.OrderedMap, errs *[]string) {
+	v, present := config.Get(ProfileKey)
 	if !present || v == nil {
+		return
+	}
+	if name, isString := v.(string); isString {
+		if problem := profileNameProblem(name); problem != "" {
+			add(errs, "config.profile: "+problem)
+		}
 		return
 	}
 	profiles, ok := asMap(v)
 	if !ok {
-		add(errs, "config.use_profiles: expected an object")
+		add(errs, "config.profile: expected a string (the profile every agent runs) or an "+
+			"object (CLI name → profile name, \"*\" for every agent it does not name)")
 		return
 	}
 	// The KEY is a CLI name — the binary a pack installs — and an unknown one is fatal
-	// (providers.md#what-the-launch-checks-and-prints). Before this check {"cloude": "bedrock"} validated clean and silently
-	// did nothing, which is the live hole the design documents: the values were checked
-	// as strings while the thing they were keyed by was never checked at all.
+	// (providers.md#what-the-launch-checks-and-prints). Before this check {"cloude": "bedrock"}
+	// validated clean and silently did nothing, which is the live hole the design documents:
+	// the values were checked as strings while the thing they were keyed by was never checked
+	// at all.
 	//
-	// A null value REMOVES a profile and asserts nothing about its key, so an object
-	// holding only nulls costs no pack resolution at all — the same leniency the
-	// retired-key convention gives a key being deleted.
+	// "*" names no CLI, so it is never checked against the namespace. A null value selects no
+	// profile for its CLI and asserts nothing about the key, so an object holding only nulls
+	// (and "*") costs no pack resolution at all — the same leniency the retired-key convention
+	// gives a key being deleted.
 	keys := profiles.Keys()
 	wantsNamespace := false
 	for _, k := range keys {
-		if val, _ := profiles.Get(k); val != nil {
+		if val, _ := profiles.Get(k); val != nil && k != ProfileEveryAgent {
 			wantsNamespace = true
 			break
 		}
@@ -1833,41 +1873,65 @@ func validateUseProfiles(config *jsonx.OrderedMap, errs *[]string) {
 	}
 	for _, agent := range keys {
 		profV, _ := profiles.Get(agent)
-		path := "config.use_profiles." + agent
+		path := "config.profile." + agent
 		if profV == nil {
 			continue
 		}
-		if !isStr(profV) {
-			add(errs, path+": expected a string profile name")
+		name, isString := profV.(string)
+		if !isString {
+			add(errs, path+": expected a string profile name, or null for none")
 			continue
 		}
-		if namespaceKnown && !containsStr(installed, agent) {
-			add(errs, unknownUseProfileKeyError(agent, installed))
+		if problem := profileNameProblem(name); problem != "" {
+			add(errs, path+": "+problem)
+			continue
+		}
+		if agent != ProfileEveryAgent && namespaceKnown && !containsStr(installed, agent) {
+			add(errs, unknownProfileKeyError(agent, installed))
 		}
 	}
 }
 
-// UnknownUseProfileKey is validateUseProfiles' refusal for ONE use_profiles key, for a caller
-// that never runs ValidateConfig: `yolo host`, which reads the user file directly
+// profileNameProblem is what is wrong with name as a `profile` value, "" when nothing is. An
+// empty name would select nothing in silence, so null is the one spelling of "none". A name
+// holding "=" can never be declared (profile names refuse it), and it is nearly always the
+// flag's pair grammar written into the string form, so the message respells it as the object.
+func profileNameProblem(name string) string {
+	if name == "" {
+		return "expected a profile name; null selects none"
+	}
+	if strings.Contains(name, "=") {
+		msg := fmt.Sprintf("%q is not a profile name — a name cannot contain \"=\", and the "+
+			"per-agent form is an object, not -p's cli=name grammar", name)
+		if _, pairs := ParseProfileFlag(name); len(pairs) > 0 {
+			msg += ": " + ProfileKeySpelling(ProfileSelection{Named: pairs})
+		}
+		return msg
+	}
+	return ""
+}
+
+// UnknownProfileKey is validateProfile's refusal for ONE `profile` key, for a caller that never
+// runs ValidateConfig: `yolo host`, which reads the user file directly
 // (docs/design/credential-sources-separation.md ES-D5). It returns the exact message the
 // validator adds and true when no resolvable pack — selected or not — installs a CLI named key,
 // and false when one does or when that namespace cannot be enumerated (an unresolvable
 // configured pack), where the validator steps aside too. One rule and one message, so the host
 // refuses exactly what `yolo check` and every jail launch refuse in the same user file.
-func UnknownUseProfileKey(key string) (string, bool) {
+func UnknownProfileKey(key string) (string, bool) {
 	installed, known := UseProfileCLINames()
 	if !known || containsStr(installed, key) {
 		return "", false
 	}
-	return unknownUseProfileKeyError(key, installed), true
+	return unknownProfileKeyError(key, installed), true
 }
 
-// unknownUseProfileKeyError is the one spelling of the refusal, path included.
-func unknownUseProfileKeyError(key string, installed []string) string {
-	return "config.use_profiles." + key + ": " + unknownProfileCLIMessage(key, installed)
+// unknownProfileKeyError is the one spelling of the refusal, path included.
+func unknownProfileKeyError(key string, installed []string) string {
+	return "config.profile." + key + ": " + unknownProfileCLIMessage(key, installed)
 }
 
-// unknownProfileCLIMessage explains a use_profiles key no resolvable pack answers to.
+// unknownProfileCLIMessage explains a `profile` key no resolvable pack answers to.
 //
 // It lists what IS installed, because the most likely cause is a typo in a tool name and
 // the real list is the whole fix — the same reason unknownEmbeddedMessage lists pack
@@ -1877,8 +1941,9 @@ func unknownProfileCLIMessage(key string, installed []string) string {
 	if len(installed) > 0 {
 		have = strings.Join(installed, ", ")
 	}
-	return fmt.Sprintf("no pack installs a CLI named %q (installed: %s) — a use_profiles "+
-		"key selects a profile by the binary a pack installs, not by pack or agent name",
+	return fmt.Sprintf("no pack installs a CLI named %q (installed: %s) — a `profile` "+
+		"key selects a profile by the binary a pack installs, not by pack or agent name "+
+		"(\"*\" is the one key that names no CLI: every agent the object does not name)",
 		key, have)
 }
 

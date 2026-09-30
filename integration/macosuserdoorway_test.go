@@ -130,7 +130,7 @@ func TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox(t *testing.T) {
 	holdMachineLock(t, true, "the macos-user AWS doorway test owns the aws-auth host singleton")
 	packHome(t, `{
 		"packs": ["claude", "aws-auth"],
-		"use_profiles": {"claude": "bedrock"},
+		"profile": {"claude": "bedrock"},
 		"loopholes": {"aws-auth": {
 			"enabled": true,
 			"settings": {"profile": "`+awsAuthProfile+`", "unnarrowed": true}

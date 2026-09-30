@@ -169,7 +169,7 @@ func TestCopilotByokHandlesLocalProviderAndContext(t *testing.T) {
 	profiles.Set("copilot", "local")
 
 	cfg := newConfig(
-		"use_profiles", profiles,
+		"profile", profiles,
 		"providers", provs,
 	)
 

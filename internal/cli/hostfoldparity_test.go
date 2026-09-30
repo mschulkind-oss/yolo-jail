@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -69,7 +70,7 @@ func writeFoldParityPacks(t *testing.T, home string) {
 	    {"source": "file://`+filepath.Join(base, "alpha")+`", "name": "alpha"},
 	    {"source": "file://`+filepath.Join(base, "beta")+`", "name": "beta"}
 	  ],
-	  "use_profiles": {"claude": "p"}
+	  "profile": {"claude": "p"}
 	}`)
 }
 
@@ -96,7 +97,7 @@ func TestHostFoldMatchesTheJailFoldWinner(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFoldParityPacks(t, home)
 
-	sel := loadedHostPacks("claude", "p")
+	sel := loadedHostPacks(config.UserScopeConfigOrEmpty(), "claude", "p")
 	if err := sel.launchRefusal(); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestHostFoldParityWithoutAProfile(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFoldParityPacks(t, home)
 
-	sel := loadedHostPacks("pi", "")
+	sel := loadedHostPacks(config.UserScopeConfigOrEmpty(), "pi", "")
 	if err := sel.launchRefusal(); err != nil {
 		t.Fatal(err)
 	}

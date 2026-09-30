@@ -51,7 +51,7 @@ func selectedNames(t *testing.T) []string {
 func TestValidationsSelectionIncludesThePackAViaAdds(t *testing.T) {
 	writeViaSelectionConfig(t, `{"packs": ["pi", "zai"],
 	  "profiles": {"pz": {"provider": "zai", "via": "wire-bridge"}},
-	  "use_profiles": {"pi": "pz"}}`)
+	  "profile": {"pi": "pz"}}`)
 	if names := selectedNames(t); !viaHasName(names, "wire-bridge") {
 		t.Errorf("validation's selection omits the pack pi's via profile adds: %v", names)
 	}
@@ -67,7 +67,7 @@ func TestValidationsSelectionIgnoresAnInactiveVia(t *testing.T) {
 	} {
 		writeViaSelectionConfig(t, `{"packs": ["pi", "zai"],
 		  "profiles": {"pz": {"provider": "zai", "via": "wire-bridge"}, "plain": {"provider": "zai"}},
-		  "use_profiles": `+use+`}`)
+		  "profile": `+use+`}`)
 		if names := selectedNames(t); viaHasName(names, "wire-bridge") {
 			t.Errorf("%s: the bridge joined validation's selection: %v", name, names)
 		}

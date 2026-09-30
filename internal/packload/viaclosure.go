@@ -18,10 +18,11 @@ type Selection struct {
 	// via may add from (WB-D9, WG-I7).
 	Embedded func(name string) (*Pack, bool)
 	// UseProfiles returns the effective CLI-name → profile-name table for the given pack
-	// set, which is the needs-closed set when the closure asks. A pack set, because the
-	// launch folds a bare `-p <name>` over every bin the set installs; a reader with no
-	// launch in hand returns its config's `use_profiles` whatever it is handed. nil means
-	// no profile is selected, and the via half is skipped.
+	// set, which is the needs-closed set when the closure asks. A pack set, because a
+	// bare `-p <name>`, and the config `profile` key's "*" (or its string form), reach every
+	// bin the set installs; a reader with no launch in hand folds its config's `profile`
+	// over the set it is handed. nil means no profile is selected, and the via half is
+	// skipped.
 	UseProfiles func(set []*Pack) map[string]string
 	// UserProfiles reads the user's profile declarations. It is called only when some
 	// profile is selected, so a closure with nothing to resolve reads no user file. nil

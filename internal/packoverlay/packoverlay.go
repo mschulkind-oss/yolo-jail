@@ -254,7 +254,7 @@ func (s *OverlaySet) For(agent, name string) []agentcfg.Overlay {
 // because ownership is a property of the packs alone.
 //
 // profiles is the ACTIVE profile table the CALLER's render resolved — packload.ProfileTable's
-// lowering of YOLO_USE_PROFILES in the jail, of the config's use_profiles at the host —
+// lowering of YOLO_USE_PROFILES in the jail, of the config's profile at the host —
 // keyed by CLI name, and it gates the `profile` MODIFIER (docs/reference/providers.md#the-profile-modifier):
 // an overlay declaring a profile contributes only while that name is the one active for the
 // surface's OWNING agent, which is the target identity's agent segment (an "agent/name"

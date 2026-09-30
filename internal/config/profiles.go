@@ -1,17 +1,17 @@
 package config
 
-// The profiles/use_profiles config keys: docs/reference/providers.md
+// The profiles/profile config keys: docs/reference/providers.md
 
 // profiles.go implements the `profiles` config key: the USER-declared half of a profile
 // (docs/reference/providers.md — Profiles and options: a profile is a named selection over a
 // provider, user intent over a surface the provider defines).
 //
 // SCOPE, and it is the same security model `packs` runs (packs.go's header carries the
-// full argument, OQ-CS5 ruled it for BOTH keys — `profiles` and the `use_profiles`
-// selector it defines, the pair this file's validateProfiles refuses at workspace
+// full argument, OQ-CS5 ruled it for BOTH keys — `profiles` and the `profile` selector,
+// `use_profiles` until PP-D10, the pair this file's validateProfiles refuses at workspace
 // scope): USER-SCOPE ONLY. `profiles` is read from paths.UserConfigPath() DIRECTLY
 // rather than from the merged config, so workspace scope is inexpressible by
-// construction; `use_profiles` is read from the merged map by the launch (assemble's
+// construction; `profile` is read from the merged map by the launch (assemble's
 // effectiveUseProfiles), so a workspace spelling there is a REFUSAL rather than an
 // impossibility. The reason is one sentence long and covers the pair: a workspace config
 // travels with the repo and is agent-editable, and a profile steers which ENDPOINT and
@@ -169,12 +169,12 @@ func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 // existing (the OQ-CS6 failure mode, one layer up).
 //
 // It owns the SCOPE half of BOTH profile keys (OQ-CS5 — user scope only, both of them,
-// the same rule `packs` follows): `profiles` is what a profile declares, `use_profiles`
-// is what activates one, and a workspace config may write neither, because activating a
-// profile steers the endpoint and the model an agent talks to exactly as declaring one
-// does. `use_profiles` is the reason this is a refusal rather than a construction: the
-// selection is read off the merged config (assemble.effectiveUseProfiles), so a
-// workspace spelling would have taken effect, and only this check stops it.
+// the same rule `packs` follows): `profiles` is what a profile declares, `profile`
+// (`use_profiles` until PP-D10) is what activates one, and a workspace config may write
+// neither, because activating a profile steers the endpoint and the model an agent talks to
+// exactly as declaring one does. `profile` is the reason this is a refusal rather than a
+// construction: the selection is read off the merged config (assemble.effectiveUseProfiles),
+// so a workspace spelling would have taken effect, and only this check stops it.
 //
 // It reads the USER config (validateUserScopeProfiles, the half `yolo host` runs too through
 // ValidateProviderSection) and the WORKSPACE config separately, never the merged map —
@@ -199,16 +199,16 @@ func validateProfiles(workspace string, errs *[]string) {
 	if err != nil || wsCfg == nil {
 		return
 	}
-	for _, key := range []string{profilesKey, useProfilesKey} {
+	// ProfileKey (profileselection.go) is the key that ACTIVATES a profile; it shares one scope
+	// rule and one refusal with profilesKey. The retired `use_profiles` keeps the scope refusal
+	// beside its rename refusal, so a workspace that carries it is told both halves of the fix
+	// at once: rename it, and move it to user scope.
+	for _, key := range []string{profilesKey, ProfileKey, retiredUseProfilesKey} {
 		if _, atWorkspace := wsCfg.Get(key); atWorkspace {
 			add(errs, userScopeOnlyMessage(key))
 		}
 	}
 }
-
-// useProfilesKey is the top-level config key that ACTIVATES a profile per CLI. It lives
-// beside profilesKey because the two share one scope rule and one refusal.
-const useProfilesKey = "use_profiles"
 
 // userScopeOnlyMessage is the ONE workspace-scope refusal both profile keys give. The
 // shape is validatePacks' (the key that drew the boundary first), and the reason is

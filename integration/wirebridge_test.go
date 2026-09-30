@@ -112,12 +112,12 @@ func TestWireBridgeTranslatesAnthropicToOpenai(t *testing.T) {
 	stubAddr := fmt.Sprintf("127.0.0.1:%d", stubPort)
 
 	dir := writeProject(t, `{}`)
-	// `packs` is user-scope only, and so are use_profiles/providers/env_sources.
+	// `packs` is user-scope only, and so are `profile`/providers/env_sources.
 	// The openai base_url override is per-field over the pack's shipped facts —
 	// the anthropic endpoint and the wire_api stay the pack's.
 	packHome(t, `{
 		"packs": ["claude", "cerebras"],
-		"use_profiles": {"claude": "cerebras"},
+		"profile": {"claude": "cerebras"},
 		"env_sources": [{"CEREBRAS_API_KEY": "`+sentinel+`"}],
 		"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "http://`+stubAddr+`/v1"}}}}
 	}`)

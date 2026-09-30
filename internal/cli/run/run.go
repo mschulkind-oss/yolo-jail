@@ -159,7 +159,7 @@ func Run(opts Options) (rc int) {
 	// a never-fetched git pack is fetched here and a branch-following one re-fetched at
 	// most hourly (packrefresh.go). Above config validation, not merely above staging,
 	// because validation already resolves the selected packs (writable_home_dirs
-	// reservation, use_profiles keys) and would otherwise judge a pack this launch is
+	// reservation, profile keys) and would otherwise judge a pack this launch is
 	// about to deliver as absent. A no-op in a jail. Pinned by
 	// TestLaunchFetchesANeverInstalledGitPack.
 	o.refreshPacks()

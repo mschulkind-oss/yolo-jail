@@ -135,7 +135,7 @@ func profiledConfig() *jsonx.OrderedMap {
 	return newConfig(
 		"agents", []any{"claude"},
 		"security", sec,
-		"use_profiles", profiles,
+		"profile", profiles,
 	)
 }
 

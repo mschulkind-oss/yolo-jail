@@ -52,7 +52,7 @@ import (
 // Skipped, and so never refused or disclosed:
 //
 //   - an agent no pack installs (packload.ActiveVias' reason, WG-I10: a user-scope
-//     `use_profiles` entry may name an agent this launch does not carry);
+//     `profile` entry may name an agent this launch does not carry);
 //   - an agent that is not a via agent (preferredViaWire: claude and copilot prefer
 //     `anthropic` and reach the bridge through its adapter routes, and an agent that
 //     declares no protocols, such as agy, names no wire the via route carries). It is never

@@ -149,7 +149,7 @@ func TestResolveSelectedPacksFollowsAnUnfilteredLocalPacksLinks(t *testing.T) {
 }
 
 // USEPROFILECLINAMES FOLLOWS IT TOO, for the same reason: a pack it cannot resolve makes it step
-// aside (ok=false), which silently drops the use_profiles key check for every workspace.
+// aside (ok=false), which silently drops the profile key check for every workspace.
 func TestUseProfileCLINamesFollowsAnUnfilteredLocalPacksLinks(t *testing.T) {
 	root := escapingLocalPack(t, "stow")
 	selectionHome(t, `["file://`+root+`"]`)

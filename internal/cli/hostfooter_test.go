@@ -122,12 +122,12 @@ func TestHostClaudeFooterNamesTheConfigsProfile(t *testing.T) {
 	cases := []struct {
 		name, config, want string
 	}{
-		{"a pack-declared profile", `{"packs": ["claude"], "use_profiles": {"claude": "bedrock"}}`,
+		{"a pack-declared profile", `{"packs": ["claude"], "profile": {"claude": "bedrock"}}`,
 			"Opus · yolo: Bedrock · host"},
 		// A profile only the user declares resolves through the user's `profiles`, the way
 		// `yolo host env` resolves it, and is named because it differs from its provider.
 		{"a user-declared profile", `{"packs": ["claude"], "profiles": {"work": {"provider": "bedrock"}}, ` +
-			`"use_profiles": {"claude": "work"}}`,
+			`"profile": {"claude": "work"}}`,
 			"Opus · yolo: Bedrock (profile work) · host"},
 		{"no selection", `{"packs": ["claude"]}`,
 			"Opus · yolo: Claude subscription · host"},
@@ -150,11 +150,11 @@ func TestHostClaudeFooterNamesTheConfigsProfile(t *testing.T) {
 // pack missing from the store) and a user config that does not parse both cost the footer its
 // profile at most. Neither may put a word on stderr, which Claude would show.
 func TestHostFooterStaysSilentOnABrokenPackSet(t *testing.T) {
-	home, command := hostFooterHome(t, `{"packs": ["claude"], "use_profiles": {"claude": "bedrock"}}`)
+	home, command := hostFooterHome(t, `{"packs": ["claude"], "profile": {"claude": "bedrock"}}`)
 	cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
 
 	writeFile(t, cfg, `{"packs": ["claude", {"source": "git+https://example.invalid/ghost.git", "name": "ghost"}], `+
-		`"use_profiles": {"claude": "bedrock"}}`)
+		`"profile": {"claude": "bedrock"}}`)
 	if line, stderr := hostFooterRun(t, command); line != "Opus · yolo: Bedrock · host" || stderr != "" {
 		t.Errorf("with an unresolvable pack: line=%q stderr=%q, want the profile and no stderr", line, stderr)
 	}
@@ -173,7 +173,7 @@ func TestHostFooterChecksNoFetchedPackOut(t *testing.T) {
 	repo := gitPackRepoWith(t, map[string]string{
 		"pack.json": `{"name": "gp", "contributes": [{"kind": "profile", "name": "mybed", "provider": "bedrock"}]}`,
 	})
-	home := gitPackHome(t, "git+file://"+repo+"?ref=main", `,"use_profiles":{"claude":"mybed"}`)
+	home := gitPackHome(t, "git+file://"+repo+"?ref=main", `,"profile":{"claude":"mybed"}`)
 	installGitPack(t)
 	if rc, report := applyWith(t, true, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("host apply --assert rc=%d\n%s", rc, report)
@@ -229,8 +229,8 @@ func TestHostFooterNamesABridgedSelectionTheHostServes(t *testing.T) {
 	cases := []struct {
 		name, config string
 	}{
-		{"the provider's pack joined", `{"packs": ["claude"], "use_profiles": {"claude": "codex"}}`},
-		{"the provider's pack listed", `{"packs": ["claude", "openai-auth"], "use_profiles": {"claude": "codex"}}`},
+		{"the provider's pack joined", `{"packs": ["claude"], "profile": {"claude": "codex"}}`},
+		{"the provider's pack listed", `{"packs": ["claude", "openai-auth"], "profile": {"claude": "codex"}}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -253,9 +253,25 @@ func TestHostFooterTablesKeepsAComposedSelection(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
-		`{"packs": ["claude", "pi"], "use_profiles": {"claude": "codex", "pi": "codex"}}`)
+		`{"packs": ["claude", "pi"], "profile": {"claude": "codex", "pi": "codex"}}`)
 	got := hostFooterTables().UseProfiles
 	if got != `{"claude": "codex", "pi": "codex"}` {
-		t.Errorf("host footer use_profiles = %q, want both composed selections", got)
+		t.Errorf("host footer profile = %q, want both composed selections", got)
+	}
+}
+
+// The key's string form and "*" name the same selection in the footer as the named entries
+// above (PP-D10): the footer folds the key over the packs it read, so reading the table
+// before the packs, or over none, leaves it naming the login.
+func TestHostFooterTablesFoldTheProfileKeysDefault(t *testing.T) {
+	for name, sel := range map[string]string{"string form": `"codex"`, "\"*\"": `{"*": "codex"}`} {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+		writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+			`{"packs": ["claude", "pi"], "profile": `+sel+`}`)
+		if got := hostFooterTables().UseProfiles; got != `{"claude": "codex", "pi": "codex"}` {
+			t.Errorf("%s: host footer profile = %q, want claude and pi on codex", name, got)
+		}
 	}
 }

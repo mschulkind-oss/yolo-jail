@@ -15,7 +15,7 @@ func TestPromoteFoldIncludesThePackAViaAdds(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	userCfg(t, home, `{"packs": ["pi", "zai"],
 	  "profiles": {"pz": {"provider": "zai", "via": "wire-bridge"}},
-	  "use_profiles": {"pi": "pz"}}`)
+	  "profile": {"pi": "pz"}}`)
 	fold, unresolved := loadPromoteFold()
 	if len(unresolved) != 0 {
 		t.Fatalf("unresolved = %+v", unresolved)

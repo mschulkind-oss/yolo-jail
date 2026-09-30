@@ -586,7 +586,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// overlayGateProfiles): a `profile`-gated overlay renders here only while its name is
 	// active at the surface's agent.
 	overlays := packoverlay.Collect(loaded, render.Host(home, nil, hostOwnership()).Profile().AgentAutonomy,
-		overlayGateProfiles(render.KindHost))
+		overlayGateProfiles(render.KindHost, loaded))
 	for _, prob := range overlays.Problems {
 		pr.Printf("  [red]%s refused[/red] — %s", collectProblemKind(prob), prob)
 		rc = 1

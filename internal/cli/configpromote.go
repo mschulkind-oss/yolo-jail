@@ -687,7 +687,7 @@ func loadPromoteFold() (promoteFold, []unresolvedPack) {
 	fold.packs = packs
 	notch := render.KindJail
 	fold.set = packoverlay.Collect(packs, render.ProfileFor(notch).AgentAutonomy,
-		overlayGateProfiles(notch))
+		overlayGateProfiles(notch, packs))
 	return fold, unresolved
 }
 

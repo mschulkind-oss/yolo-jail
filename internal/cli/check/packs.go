@@ -116,7 +116,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// so check running them over anything narrower could pass a config the launch
 	// refuses. It is the launch's own selection function (config.SelectPacks); what differs is
 	// how an entry resolves (staged here, each entry reported as it resolves) and the
-	// selection table, the merged config's `use_profiles` (the table the protocol-pairing
+	// selection table, the merged config's `profile` (the table the protocol-pairing
 	// prediction reads, and it cannot see `-p` either). A closure refusal
 	// (a need or a via naming a pack outside the embedded official set, a via naming a
 	// pack that serves no via route, a needs cycle) is a FAIL here, not a warning, for the
@@ -190,8 +190,8 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			return nil, nil
 		},
 		Selection: packload.Selection{
-			UseProfiles: func([]*packload.Pack) map[string]string {
-				return packload.ProfileTable(subMap(merged, "use_profiles"))
+			UseProfiles: func(set []*packload.Pack) map[string]string {
+				return config.ConfigProfileTable(merged, set)
 			},
 			UserProfiles: userProfiles,
 		},

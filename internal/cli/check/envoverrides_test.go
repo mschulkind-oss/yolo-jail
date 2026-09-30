@@ -40,7 +40,7 @@ const (
 // overriddenPack writes a local pack whose `kind: "env"` contribution sets WIDGET_POINTER,
 // gated on a profile, and declares WIDGET_TOKEN and a ~/.widget grant as overriding it —
 // aws-auth's shape in made-up names. It carries an agent and a provider too, so
-// `use_profiles` can select the gating profile the way a real config does.
+// `profile` can select the gating profile the way a real config does.
 func overriddenPack(t *testing.T, agentBin, profile string) string {
 	t.Helper()
 	return overriddenPackWith(t, agentBin, profile, `[

@@ -288,7 +288,7 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 		t.Setenv("ANTHROPIC_AUTH_TOKEN", "inherited")
 		// The persistent spelling, in the user config where selection keys live (OQ-CS5).
 		// Last subtest on purpose: this packHome redirect wins for the rest of the test.
-		packHome(t, `{"packs": ["claude", "zai"], "use_profiles": {"claude": "zai"}}`)
+		packHome(t, `{"packs": ["claude", "zai"], "profile": {"claude": "zai"}}`)
 		// The pair reaches claude alone, through its own env file (the credential gate,
 		// docs/reference/providers.md#the-credential-gate), so read it the way claude's
 		// launcher does: by sourcing that file.
@@ -318,7 +318,7 @@ func TestProvidersRenderInTheAgentsOwnVocabulary(t *testing.T) {
 	// the boot at the witness). The claude/zai subtest above stays on the invoking
 	// environment because zai needs no bridge.
 	t.Run("copilot env carries the selected provider's BYOK block", func(t *testing.T) {
-		packHome(t, `{"packs": ["copilot", "cerebras"], "use_profiles": {"copilot": "cerebras"},
+		packHome(t, `{"packs": ["copilot", "cerebras"], "profile": {"copilot": "cerebras"},
 			"env_sources": [{"CEREBRAS_API_KEY": "integration-probe-not-a-real-key"}]}`)
 		// Copilot's own env file, as its launcher sources it (the credential gate).
 		// The key copilot sends the bridge is the launch's caller token, never the cerebras

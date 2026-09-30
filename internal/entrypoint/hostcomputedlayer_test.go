@@ -320,7 +320,7 @@ func TestAnOwnedHostRenderAdoptsAComputedSurface(t *testing.T) {
 	}
 }
 
-// THE use_profiles SELECTION, with the jail's edge-triggered rule (OQ-HC3, OQ-PSW2), under both
+// THE profile SELECTION, with the jail's edge-triggered rule (OQ-HC3, OQ-PSW2), under both
 // contracts: written when the chosen profile arrives, your own later pick standing through a
 // re-apply, and on deselection only what yolo wrote cleared.
 func TestHostApplyWritesTheUseProfilesSelectionOnTheEdge(t *testing.T) {

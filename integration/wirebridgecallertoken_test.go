@@ -57,7 +57,7 @@ func TestAnAttachKeepsTheBridgesCallerTokenAndALaunchRotatesIt(t *testing.T) {
 	dir := writeProject(t, `{}`)
 	packHome(t, fmt.Sprintf(`{
 		"packs": ["claude", "cerebras"],
-		"use_profiles": {"claude": "cerebras"},
+		"profile": {"claude": "cerebras"},
 		"env_sources": [{"CEREBRAS_API_KEY": "caller-token-integration-key"}],
 		"providers": {"cerebras": {"endpoints": {"openai": {"base_url": "http://127.0.0.1:%d/v1"}}}}
 	}`, stubPort))

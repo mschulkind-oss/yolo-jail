@@ -361,7 +361,7 @@ func undeclaredOptionMessage(profile, provider, key string, declared map[string]
 // selected packs' kind:profile names plus the user's own entries.
 //
 // It is the OQ-CS6 check's source of truth — declaration is MANDATORY, so a name in
-// use_profiles or on -p that answers to neither is a reportable error, not a silent
+// profile or on -p that answers to neither is a reportable error, not a silent
 // no-op — and it is a FUNCTION rather than a private set so the launch pre-flight and
 // the host notch cannot grow different ideas of what "declared" means.
 func DeclaredProfileNames(packs []*Pack, user map[string]UserProfile) []string {

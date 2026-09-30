@@ -183,20 +183,20 @@ func TestWithCredentialsCombinesWithAProfile(t *testing.T) {
 	}
 }
 
-// NOTHING ELSE IMPLIES IT: not -p, not use_profiles, not any YOLO_ALLOW_* variable, and no
+// NOTHING ELSE IMPLIES IT: not -p, not profile, not any YOLO_ALLOW_* variable, and no
 // variable spelling of the flag. Without the typed flag no grant line is printed and an
 // unselected provider's key stays withheld.
 func TestWithCredentialsIsImpliedByNothingElse(t *testing.T) {
 	shell := wcShell(map[string]string{"YOLO_ALLOW_MISSING_PROVIDERS": "1", "YOLO_ALLOW_SOURCE_SKEW": "1",
 		"YOLO_ALLOW_UNREACHABLE_SERVICES": "1", "YOLO_ALLOW_ATTACH_SKEW": "1", "YOLO_WITH_CREDENTIALS": "all",
 		"YOLO_ALLOW_ALL_CREDENTIALS": "1"})
-	cfg := `{"packs": ["claude", "zai", "cerebras"], "use_profiles": {"claude": "zai"}, "env_sources": [` +
+	cfg := `{"packs": ["claude", "zai", "cerebras"], "profile": {"claude": "zai"}, "env_sources": [` +
 		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c"}]}`
 	for _, tc := range []struct {
 		flags []string
 		cmd   string
 	}{
-		{nil, "claude"}, // use_profiles selects zai for claude
+		{nil, "claude"}, // profile selects zai for claude
 		{nil, "bash"},   // an ad-hoc command, which no profile reaches (OQ-NC5)
 		{[]string{"-p", "zai"}, "claude"},
 	} {
@@ -212,10 +212,10 @@ func TestWithCredentialsIsImpliedByNothingElse(t *testing.T) {
 
 // `eval "$(yolo host env --with-credentials all)"` exports the keys into the current shell, and
 // only the keys: with no --agent the script is the ad-hoc slice, so claude's zai profile —
-// selected by use_profiles — sends none of its shape into the shell, and the grant's disclosure
+// selected by profile — sends none of its shape into the shell, and the grant's disclosure
 // goes to stderr with the verb's prefix.
 func TestHostEnvWithCredentialsExportsTheKeysOnly(t *testing.T) {
-	hostGateHome(t, `{"packs": ["claude", "zai", "cerebras"], "use_profiles": {"claude": "zai"}, "env_sources": [`+
+	hostGateHome(t, `{"packs": ["claude", "zai", "cerebras"], "profile": {"claude": "zai"}, "env_sources": [`+
 		`{"ZAI_API_KEY": "tok-z", "CEREBRAS_API_KEY": "tok-c", "PORT": "8080"}]}`, wcShell(nil))
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env", "--with-credentials", "all"}, &out, &errw, false, nil); rc != 0 {

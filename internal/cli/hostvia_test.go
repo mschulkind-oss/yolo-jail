@@ -42,7 +42,7 @@ end)`), 0o644); err != nil {
 	userCfg(t, home, `{
 	  "packs": ["wire-bridge"],
 	  "profiles": {"pv": {"provider": "up", "via": "wire-bridge"}},
-	  "use_profiles": {"viaagent": "pv"}
+	  "profile": {"viaagent": "pv"}
 	}`)
 }
 

@@ -81,7 +81,7 @@ func TestHostDeliversTheResolvedProfileOptionsToItsDerive(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeOptionsLocalPack(t, home)
 	userCfg(t, home, `{
-	  "use_profiles": {"claude": "fast"},
+	  "profile": {"claude": "fast"},
 	  "profiles": {"fast": {"provider": "zai", "model": "fast"}},
 	  "env_sources": [{"ZAI_API_KEY": "tok-9"}]
 	}`)

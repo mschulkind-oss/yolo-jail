@@ -38,7 +38,7 @@ func TestEveryHostSpellingOfClaudeOnCodexStartsTheBridge(t *testing.T) {
 		{claudeAlone, "host -p codex -- claude"},
 		{claudeAlone, "-p codex host -- claude"},
 		{claudeAlone, "--at host -p codex -- claude"},
-		{`{"packs": ["claude"], "use_profiles": {"claude": "codex"}}`, "host -- claude"},
+		{`{"packs": ["claude"], "profile": {"claude": "codex"}}`, "host -- claude"},
 	} {
 		t.Run(tc.spelling, func(t *testing.T) {
 			out := runHostSpelling(t, "^TestEveryHostSpellingOfClaudeOnCodexStartsTheBridge$", helper,

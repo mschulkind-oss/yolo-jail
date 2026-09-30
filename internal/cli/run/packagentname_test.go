@@ -46,7 +46,7 @@ func TestLaunchRefusesTwoPacksClaimingOneAgentName(t *testing.T) {
 	_, _, _, err := o.stagePacks("yolo-test-agentname")
 	if err == nil {
 		t.Fatal("stagePacks accepted two packs claiming the agent name `claude` — every " +
-			"consumer of that name (`-p claude=…`, `use_profiles.claude`, an " +
+			"consumer of that name (`-p claude=…`, `profile.claude`, an " +
 			"`agents: [\"claude\"]` selector) resolves it by literal against whichever " +
 			"declaration it reads first, so this launch is silently ambiguous")
 	}

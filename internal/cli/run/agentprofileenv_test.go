@@ -129,7 +129,7 @@ func bedrockConfig() *jsonx.OrderedMap {
 		"agents", []any{"claude"},
 		"security", sec,
 		"providers", providers,
-		"use_profiles", profiles,
+		"profile", profiles,
 	)
 }
 
@@ -298,7 +298,7 @@ func TestAssembleEmitsCodexBridgeProfileEnv(t *testing.T) {
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set("claude", "codex")
 	la := assembleWithPacksAssembled(t, newConfig(
-		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles),
+		"agents", []any{"claude"}, "security", sec, "profile", profiles),
 		// The set a claude launch really has: the two packs claude `needs`
 		// unconditionally. They became load-bearing when the codex route stopped being a
 		// literal in claude's derive — openai-auth declares the Responses endpoint the
@@ -346,7 +346,7 @@ func TestAssembleEmitsCodexBridgeProfileEnvWith1MModel(t *testing.T) {
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set("claude", "codex")
 	la := assembleWithPacksAssembled(t, newConfig(
-		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles),
+		"agents", []any{"claude"}, "security", sec, "profile", profiles),
 		[]string{"claude", "openai-auth", "wire-bridge"},
 		func() {
 			writeProfilesAtHome(t, `{"codex": {"provider": "openai-codex", "model": "gpt-6-astra[1m]"}}`)
@@ -400,7 +400,7 @@ func TestAssembleEmitsLocalLLMClaudeEnv(t *testing.T) {
 	provs.Set("local", localProv)
 
 	la := assembleWithConfigAssembled(t, newConfig(
-		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles, "providers", provs),
+		"agents", []any{"claude"}, "security", sec, "profile", profiles, "providers", provs),
 		func() {
 			writeProfilesAtHome(t, `{"local": {"provider": "local"}}`)
 		})
@@ -459,7 +459,7 @@ func TestAssembleEmitsKiloClaudeEnv(t *testing.T) {
 	provs.Set("kilo", kiloProv)
 
 	la := assembleWithConfigAssembled(t, newConfig(
-		"agents", []any{"claude"}, "security", sec, "use_profiles", profiles, "providers", provs),
+		"agents", []any{"claude"}, "security", sec, "profile", profiles, "providers", provs),
 		func() {
 			writeProfilesAtHome(t, `{"kilo": {"provider": "kilo"}}`)
 		})

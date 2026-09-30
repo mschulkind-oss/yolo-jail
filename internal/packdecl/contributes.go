@@ -215,7 +215,7 @@ type Contribution struct {
 	// agent launched as `claude` reads". It is the same field name, holding the same
 	// string, that a config surface already uses to name its owner (`"agent": "pi"` in
 	// agentcfg/manifest) — and the value is a BIN, the launcher command `-p <name> -- <bin>`
-	// and `use_profiles.<cli>` key on, never the pack slug (OQ-BA1/BA5). Declared by the
+	// and `profile.<cli>` key on, never the pack slug (OQ-BA1/BA5). Declared by the
 	// AGENT pack, beside its `into`, because where an agent reads is a fact about that
 	// agent and changes when it changes.
 	//
@@ -1250,7 +1250,7 @@ func OptionDefaultFromValue(v any) (OptionDefault, bool) {
 }
 
 // ProfileContribution is one named selection over a provider: the name it answers to —
-// the selector the user writes in `use_profiles` or `-p` — and the provider it selects.
+// the selector the user writes in `profile` or `-p` — and the provider it selects.
 // That is the whole kind (OQ-PT8); a body lives on the contributions the `profile`
 // modifier gates, not here.
 type ProfileContribution struct {
@@ -1287,7 +1287,7 @@ func (m *Manifest) Profiles() []ProfileContribution {
 // declares none — the shape the launch disclosure keys off ("did any selected pack DECLARE
 // this selection?"), beside DeclaredProfileNames, the union a selected name must answer to.
 //
-// The selector is the name the user chose (`use_profiles`, `-p`), which is what makes
+// The selector is the name the user chose (`profile`, `-p`), which is what makes
 // this the open-selector twin of PostureFor(autonomy bool): same body, different
 // authority for the choice (§3.1).
 func (m *Manifest) ProfileFor(name string) *ProfileContribution {

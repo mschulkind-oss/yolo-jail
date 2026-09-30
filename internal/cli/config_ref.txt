@@ -430,7 +430,7 @@
     that file, truncating it to empty when nothing resolves, so a removed
     credential stops being exported.  Values already live in a RUNNING jail
     persist until it restarts.
-    The same file carries the per-entry provider channel (see `use_profiles`):
+    The same file carries the per-entry provider channel (see `profile`):
     the three tables and the ungated pack env land in a marked section as
     unconditional exports, rewritten by every ENTRY — a fresh launch and an
     attach alike — so `-p` reaches a running jail.  Those lines are not
@@ -1367,7 +1367,7 @@
                     flag yolo injects is one some notch can withhold; an injection is
                     printed at the launch that makes it, with both command lines.
       profile       {name, provider} — a NAMED SELECTION OVER A PROVIDER, and that is the
-                    whole body.  `name` is the selector `use_profiles` or `-p <name>`
+                    whole body.  `name` is the selector the `profile` key or `-p <name>`
                     sets; `provider` is the `providers` entry it selects and is
                     REQUIRED — a profile without one is refused by the manifest schema.
                     Whatever ELSE a launch under that profile should deliver (env
@@ -1495,7 +1495,7 @@
     apply a wrapped launch runs, run each pack's derives over inputs composed from
     your USER config alone — the providers table (your `providers` over the selected
     packs' provider facts), your `mcp_servers`, your `lsp_servers`, and the selection
-    your `use_profiles` names.  So the provider facts reach `pi/models`,
+    your `profile` key names.  So the provider facts reach `pi/models`,
     `pi/codex-models`, `codex/config`, `opencode/config` and `oh-omp/models` at the
     host too, pi registers the declared openai-codex list, and every agent's MCP and
     LSP files carry your servers.  Never an MCP preset (its command is a wrapper only
@@ -1503,7 +1503,7 @@
     a path only a jail has: each is left out and named.  A table a derive declares in
     full is yolo's there, as in a jail, so an entry you added by hand to one is
     dropped — confirmed first, the first time — unless your config declares it.
-    `use_profiles` is applied edge-triggered: written when the chosen profile
+    That selection is applied edge-triggered: written when the chosen profile
     changes, your own later /model pick kept, and only what yolo wrote cleared when
     you deselect.  A one-launch `-p` has no meaning here, since this command launches
     nothing.
@@ -1680,24 +1680,38 @@
                      is refused only once the provider declares at least one.
     A name both sides declare is yours to customize: your entry wins per option and
     keeps the pack's provider when it states none.  Declaring a profile does nothing
-    until a launch selects it (use_profiles, or `-p <name>` before the `--`).
+    until a launch selects it (the `profile` key, or `-p <name>` before the `--`).
     Example: {"zai-fast": {"provider": "zai", "model": "fast"}}
 
-  [bold]use_profiles[/bold] (object): The selections this launch ACTIVATES — CLI name →
-    profile name, where the key is the BINARY a pack installs (`claude`, `pi`, `codex`)
-    and NOT a pack or agent name; an unknown key is fatal, naming what is installed.
+  [bold]profile[/bold] (string or object): The profile each agent runs — the persistent
+    spelling of `-p`/`--profile`, form for form:
+      "profile": "bedrock"                             every agent: -p bedrock
+      "profile": {"pi": "codex", "claude": "bedrock"}  per agent: -p pi=codex,claude=bedrock
+      "profile": {"*": "bedrock", "pi": "codex"}       "*" is every agent not named:
+                                                       -p bedrock -p pi=codex
+    An object key is the BINARY a pack installs (`claude`, `pi`, `codex`) and NOT a pack
+    or agent name; an unknown key is fatal, naming what is installed.  "*" names no
+    CLI, so it cannot collide with one.  The string form and "*" reach every CLI the
+    selected packs install that the object does not name, whether or not a command
+    follows `--` — the command is never a profile target, so `yolo -- sleep 60` launches
+    with the profile active for every CLI the jail installs.  A named agent keeps its
+    own entry beside "*", as `-p pi=codex` keeps pi's beside a bare `-p bedrock`.
+    A null entry selects NO profile for that agent, so "*" does not reach it; a null
+    `profile` selects nothing.  An empty name is refused (null is the spelling of none).
+    PRECEDENCE: every `-p` beats this key, form for form — a bare `-p <name>` replaces
+    the key's selection for every CLI it reaches, named entries included, and
+    `-p <cli>=<name>` replaces that CLI's.
     USER-SCOPE ONLY, like `profiles`: this key is read from the merged config, so a
     workspace spelling would TAKE EFFECT rather than sit inert — it is REFUSED there
     for the same reason `profiles` is (OQ-CS5).
-    A bare `-p <name>` keys the same name for every selected pack, by the CLI name each
-    one installs, whether or not a command follows `--` — the command is never a profile
-    target, so `yolo -p <name> -- sleep 60` launches with the name active for every CLI
-    the jail installs.  The same holds at `yolo host`: a profile reaches agent CLIs
-    only, so `yolo host -p zai -- curl …` is REFUSED, naming the grant that hands an
-    arbitrary command a provider's key, `yolo host --with-credentials zai -- curl …`.
-    A use_profiles key cannot do it either — it is the unknown key above, refused at
-    `yolo host` too.
-    A null value REMOVES a key and asserts nothing about it.
+    At `yolo host` it selects for the one command composed: its own entry, else "*" when
+    a selected pack installs it.  A profile reaches agent CLIs only, so
+    `yolo host -p zai -- curl …` is REFUSED, naming the grant that hands an arbitrary
+    command a provider's key, `yolo host --with-credentials zai -- curl …`; an object
+    key naming such a command cannot do it either — it is the unknown key above,
+    refused at `yolo host` too — and "*" simply does not reach it.
+    RENAMED from `use_profiles` (2026-09-29): that key is refused by name, and the
+    refusal respells your entries, which the object form takes unchanged.
     Selecting a name nothing declares (pack-shipped or yours) refuses the
     launch rather than selecting nothing — a silently inert selector is
     indistinguishable from a working one.  A selected profile switches ON; deactivating
@@ -1713,7 +1727,7 @@
     only for the command that starts it, so the selection takes effect through
     `yolo host -- <agent>` or the host wrappers, which start it, and `yolo host env`
     refuses it.  An agent started any other way runs without it.
-    Example: {"pi": "zai-fast", "codex": null}
+    Example: {"*": "bedrock", "pi": "zai-fast", "codex": null}
 
   [bold]required_capabilities[/bold] (array of strings): Named capabilities this
     environment DECLARES it needs, e.g. ["web_search"].  Validated as a string list

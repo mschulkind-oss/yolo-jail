@@ -119,7 +119,7 @@ func TestHostExecFetchesANeverInstalledGitPack(t *testing.T) {
 }
 
 // THE READ-ONLY SURFACES NEVER FETCH: `yolo host env` (an observe verb), the agent footer's
-// host pack read, the use_profiles CLI-name universe, `yolo config promote`'s fold, and
+// host pack read, the profile CLI-name universe, `yolo config promote`'s fold, and
 // `yolo check` (whose Packs section is pinned separately, in internal/cli/check). Every one
 // resolves the selected packs; none may reach the network.
 func TestReadOnlySurfacesDoNotFetchPacks(t *testing.T) {

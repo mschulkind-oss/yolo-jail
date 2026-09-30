@@ -129,18 +129,20 @@ type Options struct {
 	// ProfileName is --profile <name> or -p <name> (e.g. "glm" or "glm-dev" — the
 	// name is the next token, and there is no other reading of either flag). It is
 	// GLOBAL, whether or not a command follows `--`: the selected profile of every CLI
-	// every pack this launch selects installs (effectiveUseProfiles). The command after
-	// `--` is not read as a profile target anywhere — it was, in checkProfileTargets'
-	// refusal alone, which is why a non-agent command used to be refused here while the
-	// table it produced had never keyed on one.
+	// every pack this launch selects installs and UseProfiles does not name
+	// (effectiveUseProfiles) — the flag half of what the config `profile` key's "*" says.
+	// The command after `--` is not read as a profile target anywhere — it was, in
+	// checkProfileTargets' refusal alone, which is why a non-agent command used to be refused
+	// here while the table it produced had never keyed on one.
 	ProfileName string
 	// UseProfiles is the -p <cli>=<name> overrides, keyed by CLI name (the spelling was
 	// --pack-profile until 2026-09-03, when -p took both grammars). It is the only
-	// profile spelling that NAMES a CLI, so a key no resolvable pack installs is
-	// refused at launch (checkProfileTargets).
+	// profile flag spelling that NAMES a CLI, so a key no resolvable pack installs is
+	// refused at launch (checkProfileTargets). A named CLI keeps its entry beside a bare
+	// -p, as a named entry of the config `profile` key keeps its own beside "*" (PP-D10).
 	UseProfiles map[string]string
 	// stagingCfg is the launch's merged config, handed to stagePacks so the `via` closure
-	// (OQ-WG6/WG7 (c)) sees the config's use_profiles as well as -p. Set by Run before
+	// (OQ-WG6/WG7 (c)) sees the config's profile as well as -p. Set by Run before
 	// staging; nil in a caller that stages without a config (every such caller is a test),
 	// where only the flags select.
 	stagingCfg *jsonx.OrderedMap

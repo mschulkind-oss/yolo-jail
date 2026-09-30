@@ -94,7 +94,7 @@ func TestWireBridgeTranslatesClaudeCodexToResponses(t *testing.T) {
 	dir := writeProject(t, `{}`)
 	packHome(t, `{
 		"packs": ["claude"],
-		"use_profiles": {"claude": "codex"},
+		"profile": {"claude": "codex"},
 		"providers": {"openai-codex": {"endpoints": {"openai-responses": {"base_url": "http://127.0.0.1:`+
 		strconv.Itoa(stubPort)+`/codex"}}}}
 	}`)

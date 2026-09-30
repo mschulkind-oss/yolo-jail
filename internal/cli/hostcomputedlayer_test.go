@@ -51,14 +51,14 @@ func readJSONAt(t *testing.T, home, rel string) map[string]any {
 }
 
 // THE REAL `yolo host apply --assert`, end to end: pi with a user MCP server, an LSP server and
-// `use_profiles` selecting the codex profile. Every derived pi surface gets its computed layer,
+// `profile` selecting the codex profile. Every derived pi surface gets its computed layer,
 // and the inputs the host does not carry — a preset, an entry naming a jail path — are named.
 func TestYoloHostApplyAssertWritesTheComputedLayer(t *testing.T) {
 	home := hostComputedHome(t, `{"packs":["pi"],
 		"mcp_servers":{"tavily":{"command":"npx","args":["-y","tavily-mcp"]},
 		               "jailed":{"command":"/workspace/bin/mcp"}},
 		"mcp_presets":["sequential-thinking"],
-		"use_profiles":{"pi":"codex"}}`)
+		"profile":{"pi":"codex"}}`)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
@@ -84,7 +84,7 @@ func TestYoloHostApplyAssertWritesTheComputedLayer(t *testing.T) {
 	}
 	settings := readJSONAt(t, home, ".pi/agent/settings.json")
 	if settings["defaultProvider"] != "openai-codex" || settings["defaultModel"] == nil {
-		t.Errorf("use_profiles pi=codex did not select pi's provider and model: %v", settings)
+		t.Errorf("profile pi=codex did not select pi's provider and model: %v", settings)
 	}
 }
 

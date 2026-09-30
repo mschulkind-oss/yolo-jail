@@ -1175,44 +1175,38 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 	return env
 }
 
-// effectiveUseProfiles merges the three profile sources, later winning: workspace/user
-// config, then --pack-profile, then -p. Every key in the result is a CLI name — the bin a
-// pack installs — which is what makes the table readable as "the profile each CLI runs"
-// and what lets `yolo check` and the launch pre-flight validate it against one namespace.
+// effectiveUseProfiles folds the launch's two profile sources, the config's `profile` key
+// and then the -p flags, through the one fold both spellings share (config.ProfileTableFor,
+// PP-D10). So every `-p` form beats every key form for each CLI it reaches — the precedence
+// the persistent table always had under the flag — and within each source a named CLI keeps
+// its own entry while the source's default (a bare -p, the key's string form or its "*")
+// reaches every other CLI this pack set installs. Every key in the result is a CLI name —
+// the bin a pack installs — which is what makes the table readable as "the profile each CLI
+// runs" and what lets `yolo check` and the launch pre-flight validate it against one
+// namespace.
+//
+// A default reaches the CLIs each selected pack installs, not the pack slug — the table's
+// keys are CLI names everywhere else, and a derive reads its own bin. A pack that installs
+// nothing gets no key (no CLI to select for) but is still a receiver of the table, which is
+// what the launch line says. It never keys on the command after `--` (the 2026-09-03 ruling):
+// a short option whose meaning depends on a token further down the argv is the confusion the
+// ruling removed — name the CLI explicitly with -p <cli>=<name> when the distinction matters.
 //
 // A method on Options taking the config and the pack set, rather than a method on
 // assembleInput, because it has TWO consumers that must agree byte for byte: the env
 // block below (the jail's copy of the table) and the launch's profile disclosure line,
 // which describes the same table to the human. One merge, so neither can drift.
 func (o *Options) effectiveUseProfiles(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
-	out := jsonx.NewOrderedMap()
-	if cfgProfiles, ok := cfg.Get("use_profiles"); ok {
-		if m, ok := cfgProfiles.(*jsonx.OrderedMap); ok {
-			for _, k := range m.Keys() {
-				v, _ := m.Get(k)
-				out.Set(k, v)
-			}
-		}
-	}
-	for k, v := range o.UseProfiles {
-		out.Set(k, v)
-	}
-	if o.ProfileName != "" {
-		// A bare -p <name> selects that profile for EVERY selected pack (2026-09-03
-		// ruling). The key is the CLI name each pack installs, not the pack slug — the
-		// table's keys are CLI names everywhere else, and a derive reads its own bin.
-		// A pack that installs nothing gets no key (no CLI to select for) but is still
-		// a receiver of the table, which is what the launch line says. It never keys
-		// on the command after `--`: a short option whose meaning depends on a token
-		// further down the argv is the confusion the ruling removed — name the CLI
-		// explicitly with -p <cli>=<name> when the distinction matters.
-		for _, p := range packs {
-			for _, bin := range p.InstallBins() {
-				out.Set(bin, o.ProfileName)
-			}
-		}
-	}
-	return out
+	return config.ProfileTableFor(config.InstalledBins(packs), config.ConfigProfileSelection(cfg),
+		o.ProfileFlags())
+}
+
+// ProfileFlags is this launch's -p/--profile selection in the shape the config `profile` key
+// lowers to (config.ProfileSelection): ProfileName is its default and UseProfiles its named
+// entries. The one bridge from the flag fields to the fold, so the flag cannot be read any
+// other way than the key is.
+func (o *Options) ProfileFlags() config.ProfileSelection {
+	return config.ProfileSelection{Default: o.ProfileName, Named: o.UseProfiles}
 }
 
 // unsetImageRef is what the argv gets when nobody threaded a ref in. It is

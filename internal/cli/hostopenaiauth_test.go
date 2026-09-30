@@ -2,6 +2,7 @@ package cli
 
 import (
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,6 +46,12 @@ func (f *fakeManagedHostLaunch) Run(_ string, argv []string, env []string, _ io.
 }
 
 func TestHostExecUsesManagedOpenAIAuthLaunch(t *testing.T) {
+	// A home of its own: hostExec composes from the user config, so without this the test
+	// asserted whatever this machine's config says. It failed inside a jail whose generated
+	// config snapshot an older launcher wrote with a key this build refuses.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	original := prepareOpenAIAuthHost
 	fake := &fakeManagedHostLaunch{}
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return fake, nil }

@@ -213,7 +213,7 @@ func runRemedy(t *testing.T, argv []string) (int, string, map[string]string, str
 // the agent's backend. The line says so, naming the profile it replaces, and never words it as
 // handing the agent the key.
 func TestHostGrantAgentRemedyIsWordedAsAProfileSwitch(t *testing.T) {
-	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"], "use_profiles": {"claude": "bedrock"}, `+
+	_, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"], "profile": {"claude": "bedrock"}, `+
 		`"env_sources": [{"ZAI_API_KEY": "tok-es", "AWS_PROFILE": "dev"}]}`, nil, nil, "claude")
 	line := scopeLine(t, errs, "ZAI_API_KEY")
 	want := "To run claude on the zai profile for one launch, replacing its bedrock profile: " +
@@ -542,24 +542,24 @@ func TestHostGrantBeatsTheShellsValue(t *testing.T) {
 	}
 }
 
-// esUseProfilesBash is the design's ES-D5 case: a use_profiles entry keyed by a command no pack
+// esUseProfilesBash is the design's ES-D5 case: a profile entry keyed by a command no pack
 // installs, which `yolo check` and every jail launch already refuse.
-const esUseProfilesBash = `{"packs": ["claude", "pi", "zai"], "use_profiles": {"bash": "zai"}, ` +
+const esUseProfilesBash = `{"packs": ["claude", "pi", "zai"], "profile": {"bash": "zai"}, ` +
 	`"env_sources": [{"ZAI_API_KEY": "tok-es", "PORT": "8080"}]}`
 
-// ES-D5: no profile keys a command no pack installs. The use_profiles entry is refused at
+// ES-D5: no profile keys a command no pack installs. The profile entry is refused at
 // `yolo host --` before anything is exec'd, with the validator's own message and the grant
 // spelling that is legal (OQ-NC5); it used to deliver here only because the host skips
 // validation.
 func TestHostGrantRefusesAUseProfilesKeyNoPackInstalls(t *testing.T) {
 	rc, env, errs := hostGateRun(t, esUseProfilesBash, nil, nil, "bash")
 	if rc == 0 || env != nil {
-		t.Fatalf("use_profiles {bash: zai} must refuse `yolo host -- bash` before the exec; "+
+		t.Fatalf("profile {bash: zai} must refuse `yolo host -- bash` before the exec; "+
 			"rc = %d, reached exec = %v\n%s", rc, env != nil, errs)
 	}
-	want, unknown := config.UnknownUseProfileKey("bash")
+	want, unknown := config.UnknownProfileKey("bash")
 	if !unknown {
-		t.Fatal("fixture: the validator must refuse a use_profiles key for bash")
+		t.Fatal("fixture: the validator must refuse a profile key for bash")
 	}
 	for _, s := range []string{want, "`yolo host --with-credentials zai -- bash`"} {
 		if !strings.Contains(errs, s) {
@@ -575,12 +575,12 @@ func TestHostGrantRefusesAUseProfilesKeyNoPackInstalls(t *testing.T) {
 // typed -p still refuses, since it reaches agent CLIs only (OQ-NC5), and the grant delivers.
 func TestHostGrantTypedProfileRefusesBesideARefusedEntry(t *testing.T) {
 	rc, env, errs := hostGateRun(t, esUseProfilesBash, nil, []string{"-p", "zai"}, "bash")
-	want, _ := config.UnknownUseProfileKey("bash")
+	want, _ := config.UnknownProfileKey("bash")
 	if rc == 0 || env != nil || !strings.Contains(errs, want) {
-		t.Errorf("a typed -p beside a use_profiles key every launch refuses must refuse with the "+
+		t.Errorf("a typed -p beside a profile key every launch refuses must refuse with the "+
 			"validator's message: rc = %d\n%s", rc, errs)
 	}
-	clean := strings.Replace(esUseProfilesBash, `"use_profiles": {"bash": "zai"}, `, "", 1)
+	clean := strings.Replace(esUseProfilesBash, `"profile": {"bash": "zai"}, `, "", 1)
 	if rc, env, errs := hostGateRun(t, clean, nil, []string{"-p", "zai"}, "bash"); rc == 0 || env != nil {
 		t.Errorf("a typed -p zai reaches agent CLIs only, so -- bash refuses: rc = %d\n%s", rc, errs)
 	}
@@ -597,7 +597,7 @@ func TestHostEnvRefusesTheEntryAndPrintsTheTypedGrant(t *testing.T) {
 	home := hostGateHome(t, esUseProfilesBash, nil)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"env", "--agent", "bash"}, &out, &errw, false, nil); rc == 0 {
-		t.Errorf("yolo host env --agent bash must refuse use_profiles {bash: zai}:\n%s", out.String())
+		t.Errorf("yolo host env --agent bash must refuse profile {bash: zai}:\n%s", out.String())
 	}
 	if !strings.Contains(errw.String(), "`eval \"$(yolo host env --with-credentials zai)\"`") {
 		t.Errorf("the refusal names the env verb's grant spelling:\n%s", errw.String())
@@ -607,7 +607,7 @@ func TestHostEnvRefusesTheEntryAndPrintsTheTypedGrant(t *testing.T) {
 	if rc := hostMain([]string{"env", "--agent", "bash", "-p", "zai"}, &out, &errw, false, nil); rc == 0 {
 		t.Errorf("yolo host env --agent bash -p zai must refuse the entry too:\n%s", out.String())
 	}
-	userCfg(t, home, strings.Replace(esUseProfilesBash, `"use_profiles": {"bash": "zai"}, `, "", 1))
+	userCfg(t, home, strings.Replace(esUseProfilesBash, `"profile": {"bash": "zai"}, `, "", 1))
 	out.Reset()
 	errw.Reset()
 	if rc := hostMain([]string{"env", "--agent", "bash", "-p", "zai"}, &out, &errw, false, nil); rc == 0 {
@@ -625,14 +625,14 @@ func TestHostEnvRefusesTheEntryAndPrintsTheTypedGrant(t *testing.T) {
 	}
 }
 
-// The validator's rule, not a narrower one: a use_profiles key naming a shipped pack's CLI is
+// The validator's rule, not a narrower one: a profile key naming a shipped pack's CLI is
 // accepted by `yolo check` whether or not that pack is selected, so the host accepts it too
 // rather than refusing what the validator passes.
 func TestHostGrantAcceptsAUseProfilesKeyTheValidatorAccepts(t *testing.T) {
-	env, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"], "use_profiles": {"codex": "zai"}, `+
+	env, errs := hostGateLaunchWith(t, `{"packs": ["claude", "zai"], "profile": {"codex": "zai"}, `+
 		`"env_sources": [{"ZAI_API_KEY": "tok-es"}]}`, nil, nil, "codex")
 	if env["ZAI_API_KEY"] != "tok-es" {
-		t.Errorf("use_profiles {codex: zai} is valid config, so codex is keyed: ZAI_API_KEY = %q\n%s",
+		t.Errorf("profile {codex: zai} is valid config, so codex is keyed: ZAI_API_KEY = %q\n%s",
 			env["ZAI_API_KEY"], errs)
 	}
 }

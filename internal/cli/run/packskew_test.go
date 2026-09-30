@@ -115,7 +115,7 @@ func headline(out, prefix string) string {
 }
 
 // TestAnAttachWhoseJailLacksTheSelectedPackTakesTheDisposition: the jail was launched without
-// zai, and this entry selects zai's profile, by -p or by the config's persistent use_profiles.
+// zai, and this entry selects zai's profile, by -p or by the config's persistent profile.
 // Nothing can be composed over the jail's packs, so the attach never proceeds on its own: without a
 // terminal it refuses, headed by the pack the jail lacks rather than the composition's own remedy
 // (which tells the user to declare a profile their configured zai already declares); the
@@ -135,7 +135,7 @@ func TestAnAttachWhoseJailLacksTheSelectedPackTakesTheDisposition(t *testing.T) 
 	}{
 		{name: "no terminal", env: current, want: "refused"},
 		{name: "no terminal, a jail v0.10.0 launched", env: preGateEnv, want: "refused"},
-		{name: "no terminal, the config's use_profiles", env: current, persist: true, want: "refused"},
+		{name: "no terminal, the config's profile", env: current, persist: true, want: "refused"},
 		{name: "the acknowledgment", env: current, tty: true, stdin: "n\n",
 			getenv: map[string]string{AllowAttachSkewEnv: "1"}, want: "acknowledged"},
 		{name: "a terminal, declined", env: current, tty: true, stdin: "n\n", want: "declined"},
@@ -146,7 +146,7 @@ func TestAnAttachWhoseJailLacksTheSelectedPackTakesTheDisposition(t *testing.T) 
 			mutate := typed
 			if tc.persist {
 				dir := filepath.Join(home, ".config", "yolo-jail")
-				body := "{\n  \"packs\": [\"claude\", \"zai\"],\n  \"use_profiles\": {\"claude\": \"zai\"}\n}\n"
+				body := "{\n  \"packs\": [\"claude\", \"zai\"],\n  \"profile\": {\"claude\": \"zai\"}\n}\n"
 				if err := os.WriteFile(filepath.Join(dir, "config.jsonc"), []byte(body), 0o644); err != nil {
 					t.Fatal(err)
 				}
@@ -502,7 +502,7 @@ func TestAnAcknowledgedPackSkewExecsWithTheJailsOwnLaunchFlags(t *testing.T) {
 	if err := writeLivePackTree(cname, staged.root); err != nil {
 		t.Fatal(err)
 	}
-	body := "{\n  \"packs\": [\"claude\", \"zai\"],\n  \"use_profiles\": {\"claude\": \"zai\"}\n}\n"
+	body := "{\n  \"packs\": [\"claude\", \"zai\"],\n  \"profile\": {\"claude\": \"zai\"}\n}\n"
 	if err := os.WriteFile(filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}

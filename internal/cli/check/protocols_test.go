@@ -43,13 +43,13 @@ func unpairablePack(t *testing.T, agentBin, agentProtocol, providerProtocol stri
 	return dir
 }
 
-// useProfiles builds the merged-config shape the section reads: `use_profiles` keyed by
+// useProfiles builds the merged-config shape the section reads: `profile` keyed by
 // the agent's CLI name.
 func useProfiles(agentBin, profile string) *jsonx.OrderedMap {
 	inner := jsonx.NewOrderedMap()
 	inner.Set(agentBin, profile)
 	merged := jsonx.NewOrderedMap()
-	merged.Set("use_profiles", inner)
+	merged.Set("profile", inner)
 	return merged
 }
 
@@ -114,7 +114,7 @@ func TestSectionPacksIgnoresAnUnselectedProvider(t *testing.T) {
 }
 
 // An agent nothing installs has no owner, so there is no `protocols` list to compare and
-// nothing to refuse. It is the shape a user gets from a `use_profiles` key naming a CLI no
+// nothing to refuse. It is the shape a user gets from a `profile` key naming a CLI no
 // selected pack ships, and the launch passes it through to the same silence.
 func TestSectionPacksIgnoresAProfileForAnUninstalledAgent(t *testing.T) {
 	pack := unpairablePack(t, "someagent", "anthropic", "openai")
@@ -126,5 +126,26 @@ func TestSectionPacksIgnoresAProfileForAnUninstalledAgent(t *testing.T) {
 
 	if r.failed != 0 {
 		t.Errorf("a profile for an agent no pack installs must not be graded:\n%s", buf.String())
+	}
+}
+
+// THE KEY'S DEFAULT REACHES THE PREDICTION (PP-D10): the string form and "*" select for every
+// CLI the selected packs install, so `yolo check` grades the pairing they select exactly as
+// the named entry's above, through the one fold the launch reads (config.ConfigProfileTable).
+// Reading only named entries would pass a config the launch refuses.
+func TestSectionPacksPredictsThePairingTheKeysDefaultSelects(t *testing.T) {
+	pack := unpairablePack(t, "someagent", "anthropic", "openai")
+	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
+	star := jsonx.NewOrderedMap()
+	star.Set("*", "faraway")
+	for name, sel := range map[string]any{"string form": "faraway", "\"*\"": star} {
+		merged := jsonx.NewOrderedMap()
+		merged.Set("profile", sel)
+		var buf bytes.Buffer
+		r := &reporter{w: &buf}
+		(&Options{}).sectionPacks(r, merged)
+		if r.failed == 0 || !strings.Contains(buf.String(), "REFUSED") {
+			t.Errorf("%s: the pairing the key's default selects must FAIL the check:\n%s", name, buf.String())
+		}
 	}
 }

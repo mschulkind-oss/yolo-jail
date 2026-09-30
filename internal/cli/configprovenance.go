@@ -152,7 +152,7 @@ func overlayContributionRows(t configTarget, agent, surface string) ([]overlayCo
 	// table matches the same notch for the same reason: a `profile`-gated overlay is not a
 	// contribution this report may list when the selection that gates it is off.
 	set := packoverlay.Collect(packs, render.ProfileFor(notch).AgentAutonomy,
-		overlayGateProfiles(notch))
+		overlayGateProfiles(notch, packs))
 	var out []overlayContribution
 	for _, s := range packSurfacesForAgent(packs, agent, surface) {
 		overlays := set.For(s.Agent, s.Name)

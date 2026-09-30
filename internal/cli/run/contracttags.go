@@ -169,7 +169,8 @@ type attachContract struct {
 	// nothing and needs nothing. It is the plain re-entry into a jail launched before per-entry
 	// delivery, with the selection it was launched with or with none. The first cut of that
 	// jail's check refused here, which broke every plain attach of a config carrying a
-	// persistent use_profiles (measured on a live jail, 2026-09-05).
+	// persistent selection, `use_profiles` then and the `profile` key now (measured on a live
+	// jail, 2026-09-05).
 	standIn bool
 }
 

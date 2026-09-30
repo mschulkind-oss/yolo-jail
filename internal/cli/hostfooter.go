@@ -17,7 +17,7 @@ import (
 // own env carries no selection ("env first").
 //
 // THE RESOLUTION IS `yolo host env`'s WITH NO `-p`, piece by piece: the user-scope config's
-// `use_profiles` (effectiveHostProfiles, with no `-p`, since a status-line command has
+// `profile` (effectiveHostProfiles, with no `-p`, since a status-line command has
 // none), the user's `profiles` (config.LoadProfiles), the provider table
 // (composedHostProviders) and the profile resolution over both (packload.ResolveProfiles).
 // So it names what a host launch with no `-p` composes. A one-launch `yolo host -p X --
@@ -54,12 +54,17 @@ import (
 func hostFooterTables() footer.Tables {
 	cfg := config.UserScopeConfigOrEmpty()
 	var t footer.Tables
-	use := effectiveHostProfiles(cfg, "", "")
-	if use.Len() == 0 {
+	if config.ConfigProfileSelection(cfg).IsZero() {
 		return t // no selection: the footer names the login, and nothing else is needed
 	}
-	t.UseProfiles = footerJSON(use)
+	// The packs before the table, because the key's "*" (or its string form) reaches the CLIs
+	// the selected packs install, as it does at every notch.
 	packs := footerHostPacks()
+	use := effectiveHostProfiles(cfg, packs, "", "")
+	if use.Len() == 0 {
+		return t
+	}
+	t.UseProfiles = footerJSON(use)
 	providers, unservable, err := composedHostProviders(cfg, packs, nil)
 	if err != nil {
 		return t

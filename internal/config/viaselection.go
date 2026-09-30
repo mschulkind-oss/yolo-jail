@@ -9,24 +9,22 @@ package config
 // (notch-convergence item 6), and this is the one place their shared input is assembled.
 
 import (
-	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // UserScopeSelection returns the closure input these readers share. The selection table is
-// the user-scope config's `use_profiles`: a workspace spelling of that key is refused
-// (validateProfiles), so the user scope is the whole of what a launch with no `-p` reads,
-// and a `-p` is an argument to a launch that has not happened. The declarations are
+// the user-scope config's `profile`, folded over the set the closure hands it
+// (ConfigProfileTable, so "*" reaches every CLI that set installs): a workspace spelling of
+// that key is refused (validateProfiles), so the user scope is the whole of what a launch
+// with no `-p` reads, and a `-p` is an argument to a launch that has not happened. The declarations are
 // LoadProfiles', warnings discarded, the way these readers call LoadPacks: validation
 // reports a malformed entry as an error of its own.
 //
 // Embedded is left unset: SelectPacks fills it from the process's one materialization.
 func UserScopeSelection() packload.Selection {
 	return packload.Selection{
-		UseProfiles: func([]*packload.Pack) map[string]string {
-			v, _ := UserScopeConfigOrEmpty().Get(useProfilesKey)
-			m, _ := v.(*jsonx.OrderedMap)
-			return packload.ProfileTable(m)
+		UseProfiles: func(set []*packload.Pack) map[string]string {
+			return ConfigProfileTable(UserScopeConfigOrEmpty(), set)
 		},
 		UserProfiles: func() (map[string]packload.UserProfile, error) {
 			return LoadProfiles(nil)

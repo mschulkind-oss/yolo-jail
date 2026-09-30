@@ -266,17 +266,17 @@ func TestHostCodexClaudeRunsThroughALaunchOwnedBridge(t *testing.T) {
 	assertServiceGone(t, l)
 }
 
-// The same through use_profiles, which is how a host wrapper (`exec yolo host -- claude`) reaches
+// The same through profile, which is how a host wrapper (`exec yolo host -- claude`) reaches
 // it, and through the bridge's other route: claude on cerebras, whose key reaches the service from
 // the launch's composition and nowhere else.
 func TestHostWrapperSpellingAndTheChatRouteRunThroughTheBridge(t *testing.T) {
 	upstream, auths := fakeUpstream(t)
 	fakeHostBroker(t)
-	l := runServiceLaunch(t, `{"packs": ["claude"], "use_profiles": {"claude": "codex"}, "providers": `+
+	l := runServiceLaunch(t, `{"packs": ["claude"], "profile": {"claude": "codex"}, "providers": `+
 		`{"openai-codex": {"endpoints": {"openai-responses": {"base_url": "`+upstream.URL+`/codex"}}}}}`,
 		nil, "", nil)
 	if l.rc != 0 || l.report.WithToken != http.StatusOK {
-		t.Fatalf("use_profiles claude=codex: rc = %d, request %d\n%s", l.rc, l.report.WithToken, l.errs)
+		t.Fatalf("profile claude=codex: rc = %d, request %d\n%s", l.rc, l.report.WithToken, l.errs)
 	}
 	assertServiceGone(t, l)
 
@@ -387,7 +387,7 @@ func TestHostEnvRefusesABridgedProfile(t *testing.T) {
 		spell string
 	}{
 		{claudeAlone, []string{"env", "--agent", "claude", "-p", "codex"}, "`yolo host -p codex -- claude`"},
-		{`{"packs": ["claude"], "use_profiles": {"claude": "codex"}}`, []string{"env", "--agent", "claude"},
+		{`{"packs": ["claude"], "profile": {"claude": "codex"}}`, []string{"env", "--agent", "claude"},
 			"`yolo host -- claude`"},
 	} {
 		hostGateHome(t, tc.cfg, nil)
@@ -411,16 +411,16 @@ func TestHostEnvRefusesABridgedProfile(t *testing.T) {
 	}
 }
 
-// `yolo host apply` writes no bridged address and says where a bridged use_profiles selection
+// `yolo host apply` writes no bridged address and says where a bridged profile selection
 // takes effect (OQ-HS3).
 func TestHostApplyWritesNoBridgedAddressAndSaysWhy(t *testing.T) {
-	home := hostComputedHome(t, `{"packs": ["claude"], "use_profiles": {"claude": "codex"}}`)
+	home := hostComputedHome(t, `{"packs": ["claude"], "profile": {"claude": "codex"}}`)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	report := out.String() + errw.String()
-	for _, want := range []string{"use_profiles claude → codex renders no address here",
+	for _, want := range []string{"profile claude → codex renders no address here",
 		`pack "wire-bridge"'s "wire-bridge" service`, "`yolo host -- claude` or the host wrappers"} {
 		if !strings.Contains(report, want) {
 			t.Errorf("the apply must say %q:\n%s", want, report)

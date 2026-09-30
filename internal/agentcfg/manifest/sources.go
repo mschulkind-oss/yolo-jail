@@ -17,6 +17,9 @@ const (
 	SourceLSPServers = "lsp_servers"
 	// SourceProviders is the declared cloud providers table (config providers).
 	SourceProviders = "providers"
-	// SourceUseProfiles is the active agent profile assignments (config use_profiles).
+	// SourceUseProfiles is the active agent profile assignments: the CLI-keyed table the
+	// launch folds from the config `profile` key and -p (YOLO_USE_PROFILES). The name is the
+	// derive's `ctx.use_profiles` and predates the key's rename (PP-D10); it names the resolved
+	// table, which is unchanged, so a pack derive reading it did not move.
 	SourceUseProfiles = "use_profiles"
 )

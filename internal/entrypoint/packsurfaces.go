@@ -230,7 +230,7 @@ func reportOverlayResolution(e *Env, overlays *packoverlay.OverlaySet) {
 // necessarily the profile's name. The provider comes off the resolved table the launcher
 // composed (YOLO_PROFILES) — packload.ProviderFor over LoadProfiles, the ONE rule both
 // derive paths answer through, user declarations included — so the fallback a derive can
-// write for itself, "index use_profiles by my own agent name", answers a different
+// write for itself, "index ctx.use_profiles by my own agent name", answers a different
 // question. The Provider field is "" when no profile is active at
 // this agent's CLI name, which is the derive's signal to write nothing (OQ-CS2: the
 // no-profile case is the agent's own).

@@ -213,7 +213,7 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	//   - FAIL-CLOSED (A12): the first pack that cannot be staged, or a closure the selection
 	//     refuses, is the launch's error.
 	//
-	//   - THE CLOSURE'S TABLE is this launch's effective use_profiles (launchSelection: config
+	//   - THE CLOSURE'S TABLE is this launch's effective profile table (launchSelection: config
 	//     plus `-p`, a bare `-p` folded over every bin the set installs). The closure extends the
 	//     set with every pack a live `needs` entry pulls in, transitively, and with every service
 	//     pack a selected profile's `via` names, so the agent a via re-points at the service's
@@ -340,7 +340,7 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	// THE FIFTH bespoke pre-flight: a profile selector keyed to a CLI name no pack
 	// installs (docs/reference/providers.md#what-the-launch-checks-and-prints). The spelling is `-p <cli>=<name>`
 	// — the one that NAMES a CLI — and it keys the profile by a CLI name the way
-	// `use_profiles` does in config, which is validated there and is NOT validated
+	// `profile` does in config, which is validated there and is NOT validated
 	// anywhere here, because a flag never reaches ValidateConfig. Without this the typo
 	// passed silently: the key went into the table no derive read, and the launch looked
 	// exactly like the profile working.
@@ -372,7 +372,7 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	// (docs/reference/agent-briefings.md#oq-ba6, #oq-ba7). Beside the others, for the reason all seven are
 	// here — this is where the pack set becomes complete, and it covers attach too — and
 	// FATAL because every consumer of the name resolves it by literal against whichever
-	// declaration it happens to read: `-p claude=<profile>`, `use_profiles.claude`, and now
+	// declaration it happens to read: `-p claude=<profile>`, `profile.claude`, and now
 	// an `agents: ["claude"]` selector routing prose to "where claude reads". Two owners
 	// make all three ambiguous with nothing reported.
 	//
@@ -439,7 +439,7 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 
 // checkProfileTargets refuses an EXPLICIT profile selector — `-p <cli>=<name>` — keyed to
 // a CLI name no resolvable pack installs. It is the FIFTH launch pre-flight, and the flag
-// half of the check ValidateConfig does for `use_profiles` keys.
+// half of the check ValidateConfig does for `profile` keys.
 //
 // The namespace is the SAME one config validation uses (config.UseProfileCLINames), so
 // a key `yolo check` accepts a launch accepts and neither can drift from what is
@@ -1024,7 +1024,7 @@ func packProviderNameConflicts(loaded []*packload.Pack) []string {
 }
 
 // launchSelection is the selection closure's input as the launch reads it: the effective
-// use_profiles table over the set the closure hands it (effectiveUseProfiles — config plus
+// profile table over the set the closure hands it (effectiveUseProfiles — config plus
 // `-p`, a bare `-p` folded over every bin that set installs), and the user's profile
 // declarations. The config arrives through o.stagingCfg (WG-I9); an empty one computes the
 // same table a launch with no config would.

@@ -55,7 +55,7 @@ package check
 // a false negative for podman and a current Apple Container, never a false positive.
 //
 // ⚠ AND IT CANNOT SEE `-p`, exactly as protocols.go cannot: a `-p <name>` is an argument to
-// a launch that has not happened. So a clean prediction means "the `use_profiles` selection
+// a launch that has not happened. So a clean prediction means "the `profile` selection
 // delivers nothing a pack declares overridden", never "any launch from this config does".
 // `packs/aws-auth`'s pointer is gated on the `bedrock` profile, so `-p bedrock` is precisely
 // the flag that turns a clean config into the refused one.
@@ -117,9 +117,9 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 	// nothing" with a warning on configWarn, which is the loader's own contract; it never
 	// changes the verdict, because an unreadable source delivers no variable at launch either.
 	userEnv := config.ResolveEnvSources(workspace, merged, configWarn)
-	// The CONFIG's profile table — the `use_profiles` selection, which is the only one a
+	// The CONFIG's profile table — the `profile` selection, which is the only one a
 	// launch-less command has. See the `-p` note above.
-	profiles := packload.ProfileTable(subMap(merged, "use_profiles"))
+	profiles := config.ConfigProfileTable(merged, packs)
 
 	// "DELIVERED" IS THE CREDENTIAL GATE'S ANSWER, as it is at launch
 	// (docs/design/provider-credential-scope.md, OQ-CN2): a variable reaches the jail when

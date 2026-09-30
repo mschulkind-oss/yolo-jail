@@ -78,7 +78,7 @@ func configRenderHost(agent, surface string, explain bool, out, errw io.Writer, 
 		return 1
 	}
 	overlays := packoverlay.Collect(packs, render.ProfileFor(render.KindHost).AgentAutonomy,
-		overlayGateProfiles(render.KindHost))
+		overlayGateProfiles(render.KindHost, packs))
 	for _, prob := range overlays.Problems {
 		fmt.Fprintf(errw, "yolo config render: not folded — %s (`yolo host apply` refuses this)\n", prob)
 	}

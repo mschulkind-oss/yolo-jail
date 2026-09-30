@@ -34,7 +34,7 @@ package entrypoint
 //     handling"). Every derived surface's computed layer is rendered here from the same
 //     derive.lua a jail runs, over the wire tables the caller composed at user scope
 //     (HostInputs, hostinputs.go): the provider table, the user's own mcp_servers and
-//     lsp_servers, and the use_profiles selection. It was empty here until then, on the stated
+//     lsp_servers, and the profile selection. It was empty here until then, on the stated
 //     reason that the live tables embed jail-absolute paths; only the MCP presets do, and they
 //     are never an input at this notch. The output lands per key (hostcomputed.go, HC-D10) and a
 //     surface whose output still names a jail-only path is refused, never written (HC-D14). A
@@ -319,7 +319,7 @@ func RenderHostPack(p *packload.Pack, homeDir string, ownership render.HostOwner
 	// home, which is the fix for the host apply bypass leak. Reading it from the profile is
 	// what makes that one statement rather than a boolean repeated in four files.
 	//
-	// The SELECTION is the user-scope `use_profiles` table the caller composed (OQ-HC3), and
+	// The SELECTION is the user-scope `profile` table the caller composed (OQ-HC3), and
 	// nothing else: there is no `-p` here, so no one-launch variant is ever selected.
 	//
 	// THE ONE LOOP's head (surfaceloop.go, planPackSurfaces): the posture fold, each surface's

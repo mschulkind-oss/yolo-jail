@@ -10,7 +10,7 @@ package integration
 //  2. YOLO_PROFILES actually CROSSED. The variable is written by the launcher onto the
 //     container argv and parsed by the entrypoint, and the two halves deploy on different
 //     cadences — a unit tier can pin each side, only a launch can pin them together;
-//  3. an undeclared profile NAME in use_profiles refuses the LAUNCH, naming it — the
+//  3. an undeclared profile NAME in the `profile` key refuses the LAUNCH, naming it — the
 //     OQ-CS6 reversal, whose unit-tier twin composes a channel directly and would stay
 //     green if the check were wired nowhere at all;
 //  4. the option an active profile states becomes the AGENT'S OWN selection key — pi's
@@ -72,7 +72,7 @@ func TestUserProfilesEntryLaunchesAndTheTableCrosses(t *testing.T) {
 	}
 }
 
-// A use_profiles name nothing declares refuses the launch, and the refusal names the name
+// A `profile` key name nothing declares refuses the launch, and the refusal names the name
 // and what IS declared — the OQ-CS6 reversal end to end. A typo'd profile used to select
 // nothing and print a transparency line; now the launch stops, because a silently inert
 // selector is indistinguishable from a working one.
@@ -83,11 +83,11 @@ func TestUndeclaredProfileNameRefusesTheLaunch(t *testing.T) {
 	// claude alone keeps the declared set to one name, so the message's list is the fix a
 	// reader types; no provider pack is selected, so no credential pre-flight can produce
 	// a second, unrelated refusal.
-	packHome(t, `{"packs": ["claude"], "use_profiles": {"claude": "zai-fst"}}`)
+	packHome(t, `{"packs": ["claude"], "profile": {"claude": "zai-fst"}}`)
 
 	r := runYolo(t, dir, "true")
 	if r.rc == 0 {
-		t.Fatalf("a use_profiles name nothing declares must refuse the launch, not select nothing:\n%s",
+		t.Fatalf("a profile name nothing declares must refuse the launch, not select nothing:\n%s",
 			r.combined())
 	}
 	for _, want := range []string{`zai-fst`, `declared: bedrock`} {

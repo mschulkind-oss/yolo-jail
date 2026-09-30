@@ -961,20 +961,20 @@ func TestValidateProvidersAPIKeyEnvAbsentIsClean(t *testing.T) {
 	}
 }
 
-func TestValidateUseProfiles(t *testing.T) {
-	valid := `{"use_profiles": {"claude": "bedrock", "pi": "glm", "codex": "default"}}`
+func TestValidateProfileKeyShape(t *testing.T) {
+	valid := `{"profile": {"claude": "bedrock", "pi": "glm", "codex": "default"}}`
 	errs, _ := ValidateConfig(decode(t, valid), t.TempDir(), nil)
 	for _, e := range errs {
-		if strings.HasPrefix(e, "config.use_profiles") {
-			t.Errorf("valid use_profiles should pass validation, got: %s", e)
+		if strings.HasPrefix(e, "config.profile") {
+			t.Errorf("valid profile should pass validation, got: %s", e)
 		}
 	}
 
-	invalid := `{"use_profiles": {"pi": 123}}`
+	invalid := `{"profile": {"pi": 123}}`
 	errs, _ = ValidateConfig(decode(t, invalid), t.TempDir(), nil)
 	found := false
 	for _, e := range errs {
-		if strings.Contains(e, "config.use_profiles.pi") {
+		if strings.Contains(e, "config.profile.pi") {
 			found = true
 		}
 	}
@@ -1001,7 +1001,7 @@ func TestValidateAgentProfilesRetiredIsTheOnlyError(t *testing.T) {
 		if e == "config.agent_profiles: unknown key" {
 			t.Errorf("the bare unknown-key error duplicates the retirement message: %v", errs)
 		}
-		if !strings.Contains(e, "use_profiles") {
+		if !strings.Contains(e, "this key is now `profile`") {
 			t.Errorf("the retirement message must name the replacement spelling: %v", errs)
 		}
 	}

@@ -8,7 +8,7 @@ import (
 )
 
 // This file pins the KEY namespace check (docs/reference/providers.md#what-the-launch-checks-and-prints):
-// a `use_profiles` key is a CLI name — a bin some resolvable pack installs — and
+// a `profile` key is a CLI name — a bin some resolvable pack installs — and
 // an unknown one is FATAL. Before the check, {"cloude": "bedrock"} validated clean
 // and silently did nothing, which is the live hole the profile-variant design documented.
 
@@ -43,15 +43,15 @@ func writeUseProfileKeysUserConfig(t *testing.T, home, packsJSON string) {
 //
 // Driven through ValidateConfig (the caller both `yolo check` and the launch preflight
 // use), not the validator, so the test fails if the check is unwired from validation.
-func TestValidateUseProfilesKeysAreCLINames(t *testing.T) {
+func TestValidateProfileKeysKeysAreCLINames(t *testing.T) {
 	useProfileKeysHome(t)
 	errs, _ := ValidateConfig(decode(t,
-		`{"use_profiles": {"claude": "bedrock", "cloude": "glm"}}`), t.TempDir(), nil)
+		`{"profile": {"claude": "bedrock", "cloude": "glm"}}`), t.TempDir(), nil)
 	if len(errs) != 1 {
 		t.Fatalf("want exactly one error (the typo'd key), got %d: %v", len(errs), errs)
 	}
 	e := errs[0]
-	if !strings.HasPrefix(e, "config.use_profiles.cloude:") {
+	if !strings.HasPrefix(e, "config.profile.cloude:") {
 		t.Errorf("the error must name the unknown key: %s", e)
 	}
 	if !strings.Contains(e, `no pack installs a CLI named "cloude"`) {
@@ -67,10 +67,10 @@ func TestValidateUseProfilesKeysAreCLINames(t *testing.T) {
 // Keys the packs install stay legal — including for a pack this config does not
 // select, which is providers.md#what-the-launch-checks-and-prints's split: existence is answered against the resolvable universe,
 // selection only governs whether the contribution renders.
-func TestValidateUseProfilesAcceptsKeysThePacksInstall(t *testing.T) {
+func TestValidateProfileKeysAcceptsKeysThePacksInstall(t *testing.T) {
 	useProfileKeysHome(t)
 	errs, _ := ValidateConfig(decode(t,
-		`{"use_profiles": {"claude": "bedrock", "pi": "glm", "codex": "default"}}`),
+		`{"profile": {"claude": "bedrock", "pi": "glm", "codex": "default"}}`),
 		t.TempDir(), nil)
 	if len(errs) != 0 {
 		t.Fatalf("keys every embedded pack installs must validate clean, got: %v", errs)
@@ -80,10 +80,10 @@ func TestValidateUseProfilesAcceptsKeysThePacksInstall(t *testing.T) {
 // A null value removes a profile and asserts nothing about the key, so a nulled key
 // is not held to the namespace — the same leniency the retired-key convention gives a
 // key being deleted.
-func TestValidateUseProfilesSkipsNulledKeys(t *testing.T) {
+func TestValidateProfileKeysSkipsNulledKeys(t *testing.T) {
 	useProfileKeysHome(t)
 	errs, _ := ValidateConfig(decode(t,
-		`{"use_profiles": {"cloude": null}}`), t.TempDir(), nil)
+		`{"profile": {"cloude": null}}`), t.TempDir(), nil)
 	if len(errs) != 0 {
 		t.Fatalf("a nulled key removes the profile and must not error, got: %v", errs)
 	}
@@ -94,14 +94,14 @@ func TestValidateUseProfilesSkipsNulledKeys(t *testing.T) {
 // key: the launch refuses an unresolvable pack (stagePacks) and `yolo check` fails it
 // in its Packs section, both louder and first. Pinning this so the degradation cannot
 // silently become either "always skip" or "false fatals".
-func TestValidateUseProfilesNamespaceStepsAsideWhenAPackCannotResolve(t *testing.T) {
+func TestValidateProfileKeysNamespaceStepsAsideWhenAPackCannotResolve(t *testing.T) {
 	home := useProfileKeysHome(t)
 	writeUseProfileKeysUserConfig(t, home,
 		`[{"name": "gone", "source": "git+ssh://git@example.com/gone/pack.git"}]`)
 	errs, _ := ValidateConfig(decode(t,
-		`{"use_profiles": {"cloude": "glm"}}`), t.TempDir(), nil)
+		`{"profile": {"cloude": "glm"}}`), t.TempDir(), nil)
 	for _, e := range errs {
-		if strings.HasPrefix(e, "config.use_profiles.") {
+		if strings.HasPrefix(e, "config.profile.") {
 			t.Errorf("an unresolvable pack must not be misdiagnosed as a bad profile key: %s", e)
 		}
 	}
@@ -111,14 +111,14 @@ func TestValidateUseProfilesNamespaceStepsAsideWhenAPackCannotResolve(t *testing
 // not a string is a fact about this config alone, and reporting it depends on no pack
 // resolving. Split from the test above so the two halves of the step-aside cannot grow
 // back into one blanket return.
-func TestValidateUseProfilesStillChecksValuesWhenTheUniverseIsUnknown(t *testing.T) {
+func TestValidateProfileKeysStillChecksValuesWhenTheUniverseIsUnknown(t *testing.T) {
 	home := useProfileKeysHome(t)
 	writeUseProfileKeysUserConfig(t, home,
 		`[{"name": "gone", "source": "git+ssh://git@example.com/gone/pack.git"}]`)
 	errs, _ := ValidateConfig(decode(t,
-		`{"use_profiles": {"cloude": 4}}`), t.TempDir(), nil)
+		`{"profile": {"cloude": 4}}`), t.TempDir(), nil)
 	for _, e := range errs {
-		if strings.HasPrefix(e, "config.use_profiles.cloude:") {
+		if strings.HasPrefix(e, "config.profile.cloude:") {
 			return
 		}
 	}
@@ -126,23 +126,23 @@ func TestValidateUseProfilesStillChecksValuesWhenTheUniverseIsUnknown(t *testing
 		"cannot resolve, got %v", errs)
 }
 
-// UnknownUseProfileKey is the validator's refusal for one key, for `yolo host`, which never
+// UnknownProfileKey is the validator's refusal for one key, for `yolo host`, which never
 // runs ValidateConfig (credential-sources-separation.md ES-D5): it must answer exactly what
 // ValidateConfig answers — the same message for an unknown key, and nothing for a key some
 // resolvable pack installs, selected or not — or the two notches would disagree about one
 // user file again.
-func TestUnknownUseProfileKeyIsTheValidatorsRefusal(t *testing.T) {
+func TestUnknownProfileKeyIsTheValidatorsRefusal(t *testing.T) {
 	useProfileKeysHome(t)
-	errs, _ := ValidateConfig(decode(t, `{"use_profiles": {"bash": "zai"}}`), t.TempDir(), nil)
+	errs, _ := ValidateConfig(decode(t, `{"profile": {"bash": "zai"}}`), t.TempDir(), nil)
 	if len(errs) != 1 {
 		t.Fatalf("want the validator's one refusal for bash, got %v", errs)
 	}
-	msg, unknown := UnknownUseProfileKey("bash")
+	msg, unknown := UnknownProfileKey("bash")
 	if !unknown || msg != errs[0] {
-		t.Errorf("UnknownUseProfileKey(bash) = %q, %v; want the validator's %q", msg, unknown, errs[0])
+		t.Errorf("UnknownProfileKey(bash) = %q, %v; want the validator's %q", msg, unknown, errs[0])
 	}
 	for _, installed := range []string{"claude", "codex", "pi"} {
-		if msg, unknown := UnknownUseProfileKey(installed); unknown {
+		if msg, unknown := UnknownProfileKey(installed); unknown {
 			t.Errorf("%s is installed by a shipped pack, which the validator accepts; got %q", installed, msg)
 		}
 	}
@@ -150,11 +150,11 @@ func TestUnknownUseProfileKeyIsTheValidatorsRefusal(t *testing.T) {
 
 // Where the validator steps aside — an unresolvable configured pack makes the namespace
 // unknowable — the helper does too, rather than refusing every key.
-func TestUnknownUseProfileKeyStepsAsideWhenTheNamespaceIsUnknowable(t *testing.T) {
+func TestUnknownProfileKeyStepsAsideWhenTheNamespaceIsUnknowable(t *testing.T) {
 	home := useProfileKeysHome(t)
 	writeUseProfileKeysUserConfig(t, home,
 		`[{"name": "gone", "source": "git+ssh://git@example.com/gone/pack.git"}]`)
-	if msg, unknown := UnknownUseProfileKey("bash"); unknown {
+	if msg, unknown := UnknownProfileKey("bash"); unknown {
 		t.Errorf("an unknowable namespace refuses nothing, got %q", msg)
 	}
 }

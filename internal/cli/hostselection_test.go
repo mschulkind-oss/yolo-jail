@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -59,7 +60,7 @@ func TestClaudeAloneSelectsTheLaunchClosureAtEveryHostVerb(t *testing.T) {
 		verb  string
 		packs []*packload.Pack
 	}{
-		{"yolo host -- claude / yolo host env", loadedHostPacks("claude", "").packs},
+		{"yolo host -- claude / yolo host env", loadedHostPacks(config.UserScopeConfigOrEmpty(), "claude", "").packs},
 		{"the host footer", footerHostPacks()},
 		{"the config inspection verbs", inspected},
 		{"config promote's fold", fold.packs},

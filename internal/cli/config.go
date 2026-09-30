@@ -537,7 +537,7 @@ func renderContributions(t configTarget, errw io.Writer) *packoverlay.OverlaySet
 			describeUnresolved(unresolved))
 	}
 	set := packoverlay.Collect(packs, render.ProfileFor(t.notch).AgentAutonomy,
-		overlayGateProfiles(t.notch))
+		overlayGateProfiles(t.notch, packs))
 	for _, prob := range set.Problems {
 		fmt.Fprintf(errw, "yolo config render: not folded — %s (a launch refuses this)\n", prob)
 	}

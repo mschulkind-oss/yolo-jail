@@ -363,7 +363,7 @@ func TestHostFooterTablesSkipAMalformedPack(t *testing.T) {
 		`"endpoints":{"openai":{"base_url":"https://bad.example/v1"}}},`
 	for _, malformed := range []bool{true, false} {
 		malformedPackHome(t, provider, malformed,
-			`,"profiles":{"bp":{"provider":"badprov"}},"use_profiles":{"claude":"bp"}`)
+			`,"profiles":{"bp":{"provider":"badprov"}},"profile":{"claude":"bp"}`)
 		tables := hostFooterTables()
 		has := strings.Contains(tables.Providers, "bad.example")
 		if !malformed {

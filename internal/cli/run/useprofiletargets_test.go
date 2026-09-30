@@ -286,7 +286,7 @@ func TestNoteUseProfilesPrintsDeclaredAndReceived(t *testing.T) {
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set("claude", "glm")
 	profiles.Set("pi", "glm")
-	cfg.Set("use_profiles", profiles)
+	cfg.Set("profile", profiles)
 	effective := o.effectiveUseProfiles(cfg, packs)
 	o.noteUseProfiles(effective, packs)
 
@@ -314,7 +314,7 @@ func TestNoteUseProfilesPrintsOneLinePerName(t *testing.T) {
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set("claude", "bedrock")
 	profiles.Set("pi", "glm")
-	cfg.Set("use_profiles", profiles)
+	cfg.Set("profile", profiles)
 	o.noteUseProfiles(o.effectiveUseProfiles(cfg, packs), packs)
 
 	for _, want := range []string{
@@ -464,7 +464,7 @@ func TestNoteUseProfilesNamesTheDeclaringPack(t *testing.T) {
 	cfg := newConfig()
 	profiles := jsonx.NewOrderedMap()
 	profiles.Set("claude", "bedrock")
-	cfg.Set("use_profiles", profiles)
+	cfg.Set("profile", profiles)
 	o.noteUseProfiles(o.effectiveUseProfiles(cfg, all), all)
 	if !strings.Contains(out.String(), "declared: acme; received: acme, pi") {
 		t.Errorf("the declaring pack must be named:\n%s", out.String())

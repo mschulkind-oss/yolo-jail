@@ -20,9 +20,9 @@ package cli
 import (
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 // runUsage is what `yolo run --help` prints. Plain text (no rich markup),
@@ -165,36 +165,21 @@ func refuseHostOnlyFlags(parsed runArgv, errw io.Writer) bool {
 // name can never collide with it.
 //
 // The grammar itself is parseProfileValue, which `yolo host` and `yolo host env` read too
-// (ES-D27), so the two notches cannot disagree about what a -p value says.
+// (ES-D27), so the two notches cannot disagree about what a -p value says. The fold is
+// config.ProfileSelection's, the one the config `profile` key lowers to (PP-D10), so a flag
+// and the key's equivalent form set the same two fields.
 func applyProfileValue(v string, opts *run.Options) {
-	name, pairs := parseProfileValue(v)
-	if pairs == nil {
-		opts.ProfileName = name
-		return
-	}
-	if opts.UseProfiles == nil {
-		opts.UseProfiles = make(map[string]string)
-	}
-	for cli, profile := range pairs {
-		opts.UseProfiles[cli] = profile
-	}
+	sel := opts.ProfileFlags()
+	sel.ApplyFlag(v)
+	opts.ProfileName, opts.UseProfiles = sel.Default, sel.Named
 }
 
-// parseProfileValue is the -p grammar every notch reads: a value with no "=" is a bare
-// profile name (pairs nil), and one with "=" is comma-separated cli=name pairs (a non-nil
-// map, later pairs winning). An element with no "=" inside the pair grammar is dropped, as
-// the run path always dropped it.
+// parseProfileValue is the -p grammar every notch reads (config.ParseProfileFlag): a value
+// with no "=" is a bare profile name (pairs nil), and one with "=" is comma-separated
+// cli=name pairs (a non-nil map, later pairs winning). An element with no "=" inside the pair
+// grammar is dropped, as the run path always dropped it.
 func parseProfileValue(v string) (name string, pairs map[string]string) {
-	if !strings.Contains(v, "=") {
-		return v, nil
-	}
-	pairs = make(map[string]string)
-	for _, pair := range strings.Split(v, ",") {
-		if parts := strings.SplitN(pair, "=", 2); len(parts) == 2 {
-			pairs[parts[0]] = parts[1]
-		}
-	}
-	return "", pairs
+	return config.ParseProfileFlag(v)
 }
 
 // runHelpRequested reports whether args (the rewritten argv[1:], so it may carry

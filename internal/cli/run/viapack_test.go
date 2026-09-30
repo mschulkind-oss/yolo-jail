@@ -138,13 +138,13 @@ func TestAViaRouteWithoutTheAgentsWireWarns(t *testing.T) {
 }
 
 // TestAViaForAnAgentThisLaunchDoesNotCarryAddsNothing pins WG-I10 at the launch: a
-// use_profiles key may name any CLI a resolvable pack installs, so a user-scope entry for
+// profile key may name any CLI a resolvable pack installs, so a user-scope entry for
 // pi in a launch without pi must not bring the bridge in, nor claim it is "active for pi".
 func TestAViaForAnAgentThisLaunchDoesNotCarryAddsNothing(t *testing.T) {
 	home := packHome(t)
 	writeUserConfig(t, home, `{"packs": ["zai"],
 	  "profiles": {"pz": {"provider": "zai", "via": "wire-bridge"}}}`)
-	cfg, err := jsonx.Decode([]byte(`{"use_profiles": {"pi": "pz"}}`))
+	cfg, err := jsonx.Decode([]byte(`{"profile": {"pi": "pz"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestTheLazyResolversApplyTheViaClosure(t *testing.T) {
 	home := packHome(t)
 	writeUserConfig(t, home, `{"packs": ["pi", "zai"],
 	  "profiles": {"pz": {"provider": "zai", "via": "wire-bridge"}},
-	  "use_profiles": {"pi": "pz"}}`)
+	  "profile": {"pi": "pz"}}`)
 	var names []string
 	for _, p := range resolveConfiguredPacks() {
 		names = append(names, p.Name)

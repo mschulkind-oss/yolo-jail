@@ -43,13 +43,13 @@ const badProfileContribs = `{"kind":"provider","name":"badprov",` +
 	`"endpoints":{"anthropic":{"base_url":"https://bad.example"}}},` +
 	`{"kind":"profile","name":"bp","provider":"badprov"},`
 
-// THE REFUSAL NAMES THE PACK, with its problem and the lint remedy, whether `use_profiles` or a
+// THE REFUSAL NAMES THE PACK, with its problem and the lint remedy, whether `profile` or a
 // typed -p selects the profile only it declares. The control is the same pack without the
 // problem, whose profile launches.
 func TestHostLaunchNamesTheMalformedPackDeclaringTheSelectedProfile(t *testing.T) {
-	for _, via := range []string{"use_profiles", "-p"} {
+	for _, via := range []string{"profile", "-p"} {
 		for _, malformed := range []bool{true, false} {
-			extra, flags := `,"use_profiles":{"claude":"bp"}`, []string(nil)
+			extra, flags := `,"profile":{"claude":"bp"}`, []string(nil)
 			if via == "-p" {
 				extra, flags = "", []string{"-p", "bp"}
 			}
@@ -81,7 +81,7 @@ func TestHostLaunchNamesTheMalformedPackDeclaringTheSelectedProfile(t *testing.T
 // unusable pack, a profile nothing declares keeps the plain undeclared message.
 func TestHostLaunchNamesAnUnusablePackBeforeAnUndeclaredProfile(t *testing.T) {
 	for _, broken := range []bool{true, false} {
-		_, dir := malformedPackHome(t, "", false, `,"use_profiles":{"claude":"bp"}`)
+		_, dir := malformedPackHome(t, "", false, `,"profile":{"claude":"bp"}`)
 		if broken {
 			writeFile(t, filepath.Join(dir, "pack.json"),
 				`{"name":"bad","fieldFromANewerYolo":1,"contributes":[`+

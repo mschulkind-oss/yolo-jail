@@ -55,7 +55,7 @@ import (
 //
 // ⚠ IT CANNOT SEE `-p`. `check` reads configuration; a `-p <name>` is an argument to a
 // launch that has not happened, and `effectiveUseProfiles` folds it in ABOVE this. So a
-// clean prediction means "the `use_profiles` selection pairs", never "any launch from this
+// clean prediction means "the `profile` selection pairs", never "any launch from this
 // config pairs". Narrowing that needs the flag, not a wider census — and widening the census
 // here to guess at flags would make the prediction wrong in places the launch is not, which
 // is capabilities.go's ⚠ with the sign flipped.
@@ -75,7 +75,7 @@ import (
 // (notch convergence item 2: `yolo check` predicts per runtime).
 func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served packload.ServedDaemons,
 	configWarn func(string), userProfiles func() (map[string]packload.UserProfile, error)) (errs []string, warns []string) {
-	profiles := packload.ProfileTable(subMap(merged, "use_profiles"))
+	profiles := config.ConfigProfileTable(merged, packs)
 	if len(profiles) == 0 || len(packs) == 0 {
 		return nil, nil
 	}

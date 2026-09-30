@@ -175,7 +175,7 @@ var hostUnimplemented = map[packdecl.Kind]string{
 		"symlink into the machine tier, per-jail history) — `yolo host apply` does not run " +
 		"them against your real home",
 	// `profile` WAS HERE, and is built (OQ-HC3): `yolo host apply` applies the selection your
-	// user-scope `use_profiles` names, by the jail's edge-triggered rule, and gates each
+	// user-scope `profile` names, by the jail's edge-triggered rule, and gates each
 	// profile-gated config-overlay on the same table. A one-launch `-p` still has no meaning
 	// here, since this command launches nothing.
 }

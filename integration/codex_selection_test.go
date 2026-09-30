@@ -119,12 +119,12 @@ func TestCodexSelectionFollowsTheActiveProfile(t *testing.T) {
 		// pack that owns the surface. The profile is DECLARED beside the provider
 		// (OQ-CS6 — a name nothing declares refuses the launch, as the undeclared
 		// spelling of this very fixture proved), and it names the provider it selects,
-		// which is itself. The persistent spelling for the selection (use_profiles,
+		// which is itself. The persistent spelling for the selection (the `profile` key,
 		// OQ-CS5 — the same merge the flag above feeds), so both spellings of a
 		// selection are covered by one file.
 		packHome(t, `{"packs": ["codex"], `+codexProbeProvider+`, `+
 			`"profiles": {"llamacpp": {"provider": "llamacpp"}}, `+
-			`"use_profiles": {"codex": "llamacpp"}}`)
+			`"profile": {"codex": "llamacpp"}}`)
 		r := runYolo(t, dir, "true")
 		if r.rc != 0 {
 			t.Fatalf("profiled codex launch failed: rc %d\n%s", r.rc, r.combined())

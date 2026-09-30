@@ -193,7 +193,7 @@ func TestHostEnvComposesAPackWhoseOnlyProblemIsAnExcludedFile(t *testing.T) {
 func TestHostFooterTablesReadTheFilteredDeclaration(t *testing.T) {
 	const manifest = `{"name":"flt","description":"d","contributes":[
   {"kind":"provider","name":"fltprov","endpoints":{"openai":{"base_url":"https://flt.example/v1"}}}]}`
-	const selects = `,"profiles":{"fp":{"provider":"fltprov"}},"use_profiles":{"claude":"fp"}`
+	const selects = `,"profiles":{"fp":{"provider":"fltprov"}},"profile":{"claude":"fp"}`
 	cases := []struct {
 		name, filter string
 		files        map[string]string

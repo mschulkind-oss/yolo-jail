@@ -711,7 +711,7 @@ func binOwner(packs []*Pack, bin string) *Pack {
 //
 //   - A `-p <name>` at the command line is NOT here. `check` reads configuration; the flag
 //     is an argument to a launch that has not happened. So a prediction covers the
-//     `use_profiles` selection and nothing else, and a flag can still produce a refusal
+//     `profile` selection and nothing else, and a flag can still produce a refusal
 //     nobody was warned about. Narrowing that needs the flag, not a wider census.
 //   - An agent with no profile is not pairing with anything. AgentEnv returns early on an
 //     empty profile and so does this, because the gate it predicts is reached through a

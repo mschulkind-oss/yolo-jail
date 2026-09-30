@@ -73,7 +73,7 @@ func TestValidateProfilesRejectsWorkspaceScope(t *testing.T) {
 
 // TestValidateProfilesRejectsWorkspaceScopeForBothKeys is OQ-CS5's ruling as an
 // assertion: USER SCOPE ONLY, BOTH keys. `profiles` declares what a profile is and
-// `use_profiles` switches one on, and the second is the dangerous half to have missed —
+// `profile` switches one on, and the second is the dangerous half to have missed —
 // it is read off the MERGED config by the launch, so a workspace spelling did not sit
 // inert the way a workspace `profiles` does, it took effect. Same refusal both ways, and
 // the message names the file to move it to, because that is the whole fix.
@@ -84,10 +84,10 @@ func TestValidateProfilesRejectsWorkspaceScopeForBothKeys(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{}`)
 	write(t, filepath.Join(ws, WorkspaceConfigName),
-		`{"profiles": {"zai": {"provider": "zai"}}, "use_profiles": {"claude": "zai"}}`)
+		`{"profiles": {"zai": {"provider": "zai"}}, "profile": {"claude": "zai"}}`)
 
 	errs, _ := ValidateConfig(decode(t, `{}`), ws, nil)
-	for _, key := range []string{profilesKey, useProfilesKey} {
+	for _, key := range []string{profilesKey, ProfileKey} {
 		found := ""
 		for _, e := range errs {
 			if strings.HasPrefix(e, "config."+key+":") {
@@ -121,7 +121,7 @@ func TestValidateProfilesAcceptsBothKeysAtUserScope(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
 	write(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
 		`{"profiles": {"zai-fast": {"provider": "zai", "model": "fast"}},`+
-			` "use_profiles": {"claude": "zai-fast"}}`)
+			` "profile": {"claude": "zai-fast"}}`)
 
 	errs, _ := ValidateConfig(decode(t, `{}`), t.TempDir(), nil)
 	for _, e := range errs {

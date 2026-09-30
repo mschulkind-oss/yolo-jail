@@ -266,7 +266,7 @@ type FoldNote struct {
 }
 
 // ProfileTable lowers a decoded profile table — YOLO_USE_PROFILES in the jail, the
-// config's `use_profiles` on the host — into the map the folds below take.
+// config's `profile` on the host — into the map the folds below take.
 //
 // THE one lowering, and not a convenience: a JSON null at a key REMOVES that profile
 // (the merge-patch convention the table uses), and a null decoded into map[string]string
@@ -794,7 +794,7 @@ func (p *Pack) HonoredInstalls() (granted []packdecl.Install, refused []string) 
 // InstallBins lists the binaries this pack installs, sorted — the CLI names it puts on
 // PATH, one per `program` contribution with a bin.
 //
-// "CLI name" is the namespace a `use_profiles` key resolves in
+// "CLI name" is the namespace a `profile` key resolves in
 // (docs/reference/providers.md#the-profile-modifier): `program` is CombineExclusive by bin, so a CLI
 // name resolves to at most one pack and the agents a config yields ARE the bins its
 // packs install. Config validation and the launch pre-flight both answer "does this key

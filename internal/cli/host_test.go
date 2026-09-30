@@ -203,7 +203,7 @@ func TestHostEnvExportFormat(t *testing.T) {
 	writeClaudeBedrockLocalPack(t, home)
 	userCfg(t, home, `{
 	  "providers": {"bedrock": {"region": "us-east-1"}},
-	  "use_profiles": {"claude": "bedrock"},
+	  "profile": {"claude": "bedrock"},
 	  "env_sources": [{"AWS_ACCESS_KEY_ID": "AKIAEXAMPLE", "AWS_PROFILE": null}]
 	}`)
 
@@ -274,7 +274,7 @@ func TestComposeHostEnvOrdering(t *testing.T) {
 	writeClaudeBedrockLocalPack(t, home)
 	userCfg(t, home, `{
 	  "providers": {"bedrock": {"region": "us-east-1"}},
-	  "use_profiles": {"claude": "bedrock"},
+	  "profile": {"claude": "bedrock"},
 	  "env_sources": [{"AWS_PROFILE": null}]
 	}`)
 
@@ -365,7 +365,7 @@ func TestHostEnvCarriesTheGatedEnv(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	userCfg(t, home, `{"use_profiles": {"claude": "bedrock"}}`)
+	userCfg(t, home, `{"profile": {"claude": "bedrock"}}`)
 
 	env, _, err := composeHostEnv("claude", "", func(string) {})
 	if err != nil {
@@ -613,7 +613,7 @@ func TestHostEnvAgentFlagSelectsTheProfile(t *testing.T) {
 	writeClaudeBedrockLocalPack(t, home)
 	userCfg(t, home, `{
 	  "providers": {"bedrock": {"region": "us-east-1"}},
-	  "use_profiles": {"claude": "bedrock"}
+	  "profile": {"claude": "bedrock"}
 	}`)
 
 	// Default agent picks up claude's profile.

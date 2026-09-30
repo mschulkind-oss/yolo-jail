@@ -145,17 +145,18 @@ var inheritCensus = map[string]keyDisposition{
 	// arrives at the scope it was written at, and the inner launch's own gate still refuses
 	// one the inner WORKSPACE adds.
 	"providers": {preflight: true, nested: true, reason: "cloud provider declarations for agent configuration and nested launches"},
-	// `profiles` and `use_profiles` are user-scope-only (OQ-CS5 ruled BOTH keys), exactly
+	// `profiles` and `profile` are user-scope-only (OQ-CS5 ruled BOTH keys), exactly
 	// like `packs` three entries up — so a workspace spelling can never reach the render
 	// that this census classifies, because the launch refuses it first. The two keys
 	// arrive here differently, which is the distinction worth recording: `profiles` is
 	// user-scope-only BY CONSTRUCTION (config/profiles.go reads the user file directly),
-	// while `use_profiles` is read off the merged config and is user-scope-only BY
+	// while `profile` is read off the merged config and is user-scope-only BY
 	// REFUSAL (config.validateProfiles errors on a workspace spelling). The host CLI
 	// resolves both into the YOLO_PROFILES/YOLO_USE_PROFILES tables for THIS jail, and an
-	// inner launcher composes the same tables for the jail it spawns.
-	"profiles":     {preflight: true, nested: true, reason: "user-declared profiles over provider-declared options; the launch resolves them into YOLO_PROFILES here and in nested launches"},
-	"use_profiles": {preflight: true, nested: true, reason: "active CLI-to-profile-name selections for this jail and nested launches (keys are CLI names: core knows packs, not agents)"},
+	// inner launcher composes the same tables for the jail it spawns. The key crosses
+	// VERBATIM, "*" and all: an inner launcher folds it over its own pack set, as this one did.
+	"profiles": {preflight: true, nested: true, reason: "user-declared profiles over provider-declared options; the launch resolves them into YOLO_PROFILES here and in nested launches"},
+	"profile":  {preflight: true, nested: true, reason: "the profile each agent runs (a name for every agent, or CLI name → name with \"*\" for the rest), folded into YOLO_USE_PROFILES for this jail and nested launches"},
 	// `adapters` is `profiles`' twin in scope and in crossing: user-scope-only BY
 	// CONSTRUCTION (config/adapters.go reads the user file directly) AND by refusal, and
 	// what it carries is an ADDRESS inside the jail — the port an adapted provider answers
@@ -324,7 +325,11 @@ var inheritCensus = map[string]keyDisposition{
 	// `pack` named neither of the two things the key holds). `pack_profiles` is gone
 	// with no census entry at all: it never shipped in a release, so the old spelling is
 	// an ordinary unknown key (config.go's rule comment).
-	"agent_profiles": {reason: "RETIRED — renamed to use_profiles (briefly pack_profiles, never in a release); emitting it would re-trigger the retirement error"},
+	"agent_profiles": {reason: "RETIRED — renamed to use_profiles (briefly pack_profiles, never in a release), and that to profile; emitting it would re-trigger the retirement error"},
+	// `use_profiles` joined them on 2026-09-29, renamed to `profile` to mirror -p/--profile
+	// (docs/design/providers-and-profiles-redesign.md PP-D10). It shipped in v0.11.0, so a
+	// snapshot an older launcher wrote carries it, and the in-jail validator warns on it.
+	"use_profiles": {reason: "RETIRED — renamed to profile, which mirrors -p/--profile; emitting it would re-trigger the retirement error"},
 }
 
 // InheritDisposition returns the census entry for a key, and ok=false for a key the census

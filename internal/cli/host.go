@@ -78,7 +78,7 @@ Exec flags (yolo host -- ...):
                                 and everything the command starts inherits it. An
                                 unknown provider refuses, naming the known ones; a named
                                 provider env_sources holds no value for is reported.
-                                Nothing else implies it: not -p, not use_profiles, not
+                                Nothing else implies it: not -p, not the profile key, not
                                 any YOLO_ALLOW_* variable, and no config key. HOST ONLY:
                                 a jail launch refuses it.
   --at host                     Accepted and changes nothing: this verb is the host notch.
@@ -142,9 +142,9 @@ env flags:
                   keys. With -p it is the slice -p composes, plus the keys.
   --agent <name>  Compose as if launching this agent (default: claude, or bash under
                   --with-credentials without -p). The agent name selects which
-                  use_profiles entry applies, and the output is that agent's slice: a
-                  provider credential another agent's profile claims is withheld from
-                  it, and stderr says which, by name.
+                  entry of the profile key applies ("*" when none names it), and the
+                  output is that agent's slice: a provider credential another agent's
+                  profile claims is withheld from it, and stderr says which, by name.
 
 Examples:
   yolo host -- claude                 # bare claude, with the composed environment
@@ -791,7 +791,7 @@ type hostComposition struct {
 	// whether a -p it would name composes (runsOn).
 	scopeInput packload.ScopeInput
 	// profile is the profile this launch selected for its command — a typed -p, else the
-	// command's use_profiles entry — "" when none. The remedy says the -p it names replaces
+	// command's entry in the config `profile` key — "" when none. The remedy says the -p it names replaces
 	// it (remedyAction).
 	profile string
 	// grant is the --with-credentials request this launch was given, resolved; nil without
@@ -799,7 +799,7 @@ type hostComposition struct {
 	grant *hostGrant
 	// typedProfile is the -p as typed, "" when none: what a remedy that re-runs this launch
 	// with its grant widened must spell again (grantRemedy). profile can instead come from
-	// use_profiles, which the re-run picks up by itself.
+	// the config `profile` key, which the re-run picks up by itself.
 	typedProfile string
 	// services are the launch-owned services this composition planned (hostServicesStart), or
 	// the one a pairing needs (hostServicesDetect, with no ports or token): zero or one, since
@@ -1492,16 +1492,6 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	var vars []agentenv.Var
 	c := &hostComposition{agent: agent, command: command}
 
-	// The profile this launch selects, resolved once: it gates (1) and feeds (3), and
-	// both must read the same selection or the env a host launch carries and the one its
-	// launch line describes would disagree. It is also the selection closure's table below.
-	effective := effectiveHostProfiles(cfg, agent, profile)
-	profileName := ""
-	if v, ok := effective.Get(agent); ok {
-		if s, isStr := v.(string); isStr {
-			profileName = s
-		}
-	}
 	// The selected packs, read once for both the env they declare and the provider they
 	// ship, through the one selection function every notch calls (notch-convergence item 6):
 	// the configured packs and every pack their `needs`, or this agent's profile's `via`,
@@ -1513,7 +1503,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// `packs` entry, a pack that does not resolve, or a closure the selection refuses. This
 	// launch used to compose without the pack and warn, so a typo refused every jail launch
 	// while `yolo host` ran the agent without the pack's env and providers.
-	sel := loadedHostPacks(agent, profileName)
+	sel := loadedHostPacks(cfg, agent, profile)
 	if err := sel.launchRefusal(); err != nil {
 		c.err = err
 		return c
@@ -1521,6 +1511,12 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	packs := sel.packs
 	c.packs = packs
 	c.selection = sel
+	// The profile this launch selects, resolved once over the selected packs (the closure
+	// above read the same fold): it gates (1) and feeds (3), and both must read the same
+	// selection or the env a host launch carries and the one its launch line describes would
+	// disagree. Over the packs because the config key's "*" (or its string form) reaches the
+	// agent only when a selected pack installs it, as a bare -p reaches a jail's CLIs.
+	profileName := hostAgentProfile(cfg, packs, agent, profile)
 	// Scoped to the ONE agent this process is. A jail carries the whole CLI-keyed table
 	// because one container holds every agent; a host launch composes a single process, so
 	// only the profile selected at THIS agent's own CLI name may contribute env to it.
@@ -1531,16 +1527,16 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	c.profile = profileName
 	c.typedProfile = profile
 	// NO PROFILE KEYS A COMMAND NO PACK INSTALLS (docs/design/credential-sources-separation.md
-	// ES-D5, and OQ-NC5 for the typed -p below). A `use_profiles` entry for `bash` delivered
+	// ES-D5, and OQ-NC5 for the typed -p below). A `profile` entry for `bash` delivered
 	// here only because this notch ran no validation, while `yolo check` and every jail launch
-	// refuse that entry in the same user file. So a use_profiles key doing the selecting is asked
+	// refuse that entry in the same user file. So a profile key doing the selecting is asked
 	// the validator's own question, and refused with its message plus the spelling that IS
 	// legal: the grant. The provider and profile section of validation below refuses the same
 	// entry whatever selects this launch's profile; this refusal runs first for the remedy it
 	// adds.
 	if profile == "" && profileName != "" && !selectedPackInstalls(packs, agent) {
-		if msg, unknown := config.UnknownUseProfileKey(agent); unknown {
-			c.err = fmt.Errorf("%s. A profile reaches agent CLIs only, so no use_profiles entry "+
+		if msg, unknown := config.UnknownProfileKey(agent); unknown {
+			c.err = fmt.Errorf("%s. A profile reaches agent CLIs only, so no profile entry "+
 				"or -p selects one for a command no pack installs: remove the entry. %s",
 				msg, c.adHocGrantSpelling(hostProfileProvider(packs, profileName), grant))
 			return c
@@ -1661,7 +1657,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// only. Resolved here, after the table and env_sources it reads and before the gate, which
 	// delivers it — a grant is one more recipient of a claimed value, so the gate's own claim
 	// model decides which names it carries. Nothing but the typed flag reaches this: no config
-	// key, no use_profiles entry, no -p and no environment variable builds a request.
+	// key, no profile entry, no -p and no environment variable builds a request.
 	var grants map[string][]string
 	if grant != nil {
 		g, err := resolveHostGrant(grant, providers, userEnv)
@@ -1865,7 +1861,7 @@ func hostProfileProvider(packs []*packload.Pack, profile string) string {
 }
 
 // selectedPackInstalls reports whether a selected pack installs a CLI named bin — the case in
-// which a use_profiles key for it is certainly one the validator accepts, so ES-D5's refusal
+// which a profile key for it is certainly one the validator accepts, so ES-D5's refusal
 // need not enumerate the whole namespace to know it.
 func selectedPackInstalls(packs []*packload.Pack, bin string) bool {
 	return installingPack(packs, bin) != ""
@@ -2110,19 +2106,24 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 // serves. That pointer declares the daemon that serves it (`served_by`), and the credential gate
 // withholds it and names it where that daemon does not run (NC-D16), so `yolo host -p bedrock --
 // claude` exports no address nothing serves (NC-D4).
-func loadedHostPacks(agent, profile string) hostPackSet {
-	return selectHostPacks(resolveConfiguredPack, hostLaunchSelection(agent, profile))
+//
+// cfg is the user-scope config the launch composes from and typed the -p it was given for
+// agent (hostProfileFor's answer, "" for none): the closure selects agent's profile from them
+// over each set it is handed (hostAgentProfile), so a "*" reaches agent only when that set
+// installs it.
+func loadedHostPacks(cfg *jsonx.OrderedMap, agent, typed string) hostPackSet {
+	return selectHostPacks(resolveConfiguredPack, hostLaunchSelection(cfg, agent, typed))
 }
 
 // hostLaunchSelection is the closure's profile input for a host launch: agent's profile alone,
 // and the user's profile declarations from user scope.
-func hostLaunchSelection(agent, profile string) packload.Selection {
+func hostLaunchSelection(cfg *jsonx.OrderedMap, agent, typed string) packload.Selection {
 	return packload.Selection{
-		UseProfiles: func([]*packload.Pack) map[string]string {
-			if profile == "" {
-				return nil
+		UseProfiles: func(set []*packload.Pack) map[string]string {
+			if profile := hostAgentProfile(cfg, set, agent, typed); profile != "" {
+				return map[string]string{agent: profile}
 			}
-			return map[string]string{agent: profile}
+			return nil
 		},
 		UserProfiles: func() (map[string]packload.UserProfile, error) {
 			return config.LoadProfiles(nil)
@@ -2130,23 +2131,28 @@ func hostLaunchSelection(agent, profile string) packload.Selection {
 	}
 }
 
-// effectiveHostProfiles returns the use_profiles map with a `-p` override applied to
-// the agent being launched, mirroring what `yolo run -p` does for a jail so the two
-// notches agree about what a profile selects.
-func effectiveHostProfiles(cfg *jsonx.OrderedMap, agent, profile string) *jsonx.OrderedMap {
-	out := jsonx.NewOrderedMap()
-	if v, ok := cfg.Get("use_profiles"); ok {
-		if m, ok := v.(*jsonx.OrderedMap); ok {
-			for _, k := range m.Keys() {
-				val, _ := m.Get(k)
-				out.Set(k, val)
-			}
-		}
+// hostAgentProfile is the profile a host launch of agent selects over packs: its entry in
+// effectiveHostProfiles, "" when none.
+func hostAgentProfile(cfg *jsonx.OrderedMap, packs []*packload.Pack, agent, typed string) string {
+	v, _ := effectiveHostProfiles(cfg, packs, agent, typed).Get(agent)
+	s, _ := v.(string)
+	return s
+}
+
+// effectiveHostProfiles is the host notch's profile table over packs: the config `profile`
+// key with a typed -p for agent above it, through the one fold every notch reads
+// (config.ProfileTableFor, PP-D10), so a host launch and a jail's agree about what a profile
+// selects. The key's "*" (or its string form) reaches every CLI those packs install that the
+// key does not name, as in a jail. The typed -p names agent whatever it is, because at this
+// notch it is the launch's only command; a -p for a command no selected pack installs is
+// refused by the launch that composes it, never dropped here. With agent "" (a verb that
+// launches nothing: `yolo host apply`, the footer, the overlay gate) it is the key alone.
+func effectiveHostProfiles(cfg *jsonx.OrderedMap, packs []*packload.Pack, agent, typed string) *jsonx.OrderedMap {
+	var flag config.ProfileSelection
+	if typed != "" && agent != "" {
+		flag.Named = map[string]string{agent: typed}
 	}
-	if profile != "" && agent != "" {
-		out.Set(agent, profile)
-	}
-	return out
+	return config.ProfileTableFor(config.InstalledBins(packs), config.ConfigProfileSelection(cfg), flag)
 }
 
 // overlayGateProfiles is the ACTIVE profile table the config-overlay `profile` modifier
@@ -2159,9 +2165,10 @@ func effectiveHostProfiles(cfg *jsonx.OrderedMap, agent, profile string) *jsonx.
 // inspection answers with the render that actually happened rather than a re-derivation
 // that could disagree with it.
 //
-// The HOST half reads the USER-SCOPE config's use_profiles and nothing else, and that is
-// the boundary every host composition draws (UserScopeConfig's whole argument): a gated
-// overlay's payload lands in the user's REAL config files, and the one this design ships
+// The HOST half reads the USER-SCOPE config's `profile` and nothing else, folded over packs
+// (the set the caller collects overlays from, so a "*" reaches the agents that set installs),
+// and that is the boundary every host composition draws (UserScopeConfig's whole argument): a
+// gated overlay's payload lands in the user's REAL config files, and the one this design ships
 // first rewrites ANTHROPIC_BASE_URL — where an agent sends the credentials the user
 // already has. Letting a workspace yolo-jail.jsonc (agent-editable, /workspace is
 // bind-mounted rw) switch that on would hand a cloned repository the redirection
@@ -2169,7 +2176,7 @@ func effectiveHostProfiles(cfg *jsonx.OrderedMap, agent, profile string) *jsonx.
 // there. No `-p` is honored because neither caller takes one — the flag exists on `yolo
 // host --` and `yolo --`, which compose per-process and read this same table through their
 // own channels.
-func overlayGateProfiles(notch render.Kind) map[string]string {
+func overlayGateProfiles(notch render.Kind, packs []*packload.Pack) map[string]string {
 	if notch == render.KindJail {
 		raw := os.Getenv("YOLO_USE_PROFILES")
 		if raw == "" {
@@ -2184,7 +2191,7 @@ func overlayGateProfiles(notch render.Kind) map[string]string {
 		}
 		return nil
 	}
-	return packload.ProfileTable(effectiveHostProfiles(config.UserScopeConfigOrEmpty(), "", ""))
+	return packload.ProfileTable(effectiveHostProfiles(config.UserScopeConfigOrEmpty(), packs, "", ""))
 }
 
 // hostEnv prints the composed environment instead of exec'ing into it — the third front
@@ -2265,7 +2272,7 @@ func hostEnv(args []string, out, errw io.Writer) int {
 	}
 	if agent == "" {
 		// A default rather than "every configured agent": the composition is per-agent by
-		// construction (use_profiles maps ONE profile per agent), so there is no single
+		// construction (`profile` selects ONE profile per agent), so there is no single
 		// environment that is right for all of them — two agents on different providers
 		// would produce contradictory values for the same variable. `claude` is the
 		// default because it is the pack this repo's own workflows assume; --agent names

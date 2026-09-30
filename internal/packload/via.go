@@ -17,7 +17,7 @@ import (
 // with a via profile gets the service's daemon. Core knows only "the pack a via names";
 // which pack that is, and that it runs a bridge, are the manifests' facts.
 //
-// active is the launch's CLI-name → profile-name table (the effective use_profiles);
+// active is the launch's CLI-name → profile-name table (the effective profile);
 // user is the user's profile declarations, whose `via` wins over a pack-shipped one's,
 // as it does in ResolveProfiles. embedded looks a name up in the embedded official set.
 // The vias it walks are ActiveVias', so an entry for an agent no selected pack installs
@@ -83,7 +83,7 @@ type ActiveVia struct {
 // for each, and the launch's via-route gate (wirebridged.ViaRouteGate) is asked only
 // when there is one.
 //
-// AN AGENT NO PACK IN packs INSTALLS HAS NO ACTIVE VIA (WG-I10). A `use_profiles` key is
+// AN AGENT NO PACK IN packs INSTALLS HAS NO ACTIVE VIA (WG-I10). A `profile` key is
 // checked against every CLI a resolvable pack installs, selected or not, so a user-scope
 // entry for an agent this launch does not carry is legal and common. Its via has no agent
 // to route: it must neither add a pack (the disclosure line would say "active for" an
