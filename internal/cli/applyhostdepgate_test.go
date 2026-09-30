@@ -15,15 +15,18 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/notty"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -317,6 +320,42 @@ func TestApplyHostAssertRunsAnInstallerRemedyWithNoTerminal(t *testing.T) {
 		t.Errorf("the prompt must say, before it is answered, that an installer runs with no "+
 			"terminal:\n%s", report)
 	}
+}
+
+// AN INSTALL STOPPED BY A SIGNAL STOPS THE RUN (PS-D1). An installer run with no terminal is out
+// of the terminal's foreground group, so a Ctrl-C reaches yolo, which forwards it to the installer
+// (internal/notty) rather than dying of it as it did when the installer shared its terminal. Where
+// that stopped the apply outright, the gate must now stop it: an installer interrupted after it
+// had already put its binary in place used to pass the re-probe, and the run went on to the next
+// install and then wrote the host's config, over a Ctrl-C. The stub hands back what the real
+// runner returns for that case, having left the binary behind.
+func TestApplyHostAssertStopsWhenAnInstallIsInterrupted(t *testing.T) {
+	home, briefing, cfgDest, binDir := depGateFixtureWithConfig(t,
+		`{"kind":"program","bin":"gatecurl","via":"installer","url":"https://example.invalid/i.sh"}`,
+		`{"kind":"program","bin":"gatenpm","via":"npm","package":"gatenpm"}`)
+	ran := watchInstalls(t, func(cmd string) error {
+		if !strings.Contains(cmd, "installer-check") {
+			return os.WriteFile(filepath.Join(binDir, "gatenpm"), []byte("#!/bin/sh\n"), 0o755)
+		}
+		if err := os.WriteFile(filepath.Join(binDir, "gatecurl"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			return err
+		}
+		return &notty.Stopped{Signal: syscall.SIGINT, Err: errors.New("signal: interrupt")}
+	})
+	var out, errw bytes.Buffer
+	rc := applyHost(&out, &errw, false, true, strings.NewReader("y\n"))
+	report := out.String() + errw.String()
+	if rc != 128+int(syscall.SIGINT) {
+		t.Errorf("an interrupted install must stop the run with the interrupt's status; rc=%d\n%s",
+			rc, report)
+	}
+	if len(*ran) != 1 {
+		t.Errorf("nothing may run after an interrupted install; ran %v\n%s", *ran, report)
+	}
+	if !strings.Contains(report, "installing `gatecurl` was interrupted") {
+		t.Errorf("the refusal must say which install was interrupted:\n%s", report)
+	}
+	wroteNothing(t, home, briefing, cfgDest, report)
 }
 
 // The real runner's two modes: with noTerminal the command leads a session of its own (so it has

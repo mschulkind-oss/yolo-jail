@@ -435,7 +435,11 @@ Six properties an implementer would otherwise decide by accident:
 4. **Silence is NO**, so an unattended `--assert` refuses rather than installing.
 5. **An install that runs and leaves the binary missing is a decline.** The re-probe is the
    command's *answer*, not its exit code: an installer that exits 0 and delivers nothing leaves the
-   environment exactly as unready as one that failed loudly.
+   environment exactly as unready as one that failed loudly. One exit status does decide, ahead of
+   the re-probe: an installer run with no terminal that an interrupt (Ctrl-C), a hangup or a
+   terminate signal stopped (yolo forwards those to it) stops the run with that signal's status
+   and nothing written, even when the installer had already put its binary in place
+   ([`PS-D7`](../design/provisioner-sets.md#PS-D7)).
 6. **Both kinds are fatal; only `program` gets the install offer.** `hostDepFinding.installable`
    splits them. Offering to install a `requires` would contradict the kind's own definition, so it
    refuses with the remedy named — and when any blocker is un-offerable the whole set is refused

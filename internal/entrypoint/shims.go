@@ -1798,7 +1798,8 @@ _installer_body_kind() (
 # written to survive "curl | sh" reads /dev/tty, and codex's asked "Start Codex now? [y/N]"
 # there, so the installer is started in a session of its own, which has no /dev/tty. A shell
 # cannot drop its terminal itself, so yolo does it (yolo internal no-terminal, internal/notty),
-# and forwards a Ctrl-C to the installer while it waits. Output still reaches the terminal.
+# and forwards a Ctrl-C to the installer while it waits, then dies of it too, so this launcher
+# stops as it did when the installer shared its terminal. Output still reaches the terminal.
 #
 # ASKED FIRST, BECAUSE A yolo WITHOUT THE VERB IS POSSIBLE: none on PATH, or one older than
 # this launcher. The jail's own yolo is this build's, so the probe costs one exec on an install

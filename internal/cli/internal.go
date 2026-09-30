@@ -499,7 +499,9 @@ const noTerminalVerb = entrypoint.NoTerminalVerb
 
 // runNoTerminal runs args after `--` with no controlling terminal and a /dev/null stdin, its
 // stdout and stderr this process's, and exits with its status (notty.ExitCode: 128+N for a death
-// by signal N, 127 for a command that could not start, 2 for misuse).
+// by signal N, 127 for a command that could not start, 2 for misuse). A command stopped by a signal
+// this verb forwarded to it ends the verb by that signal instead (notty.WrapperExit), so a Ctrl-C at
+// an installer still stops the launcher that ran it.
 func runNoTerminal(args []string) int {
 	if len(args) < 2 || args[0] != "--" {
 		fmt.Fprintln(os.Stderr, "usage: yolo internal "+noTerminalVerb+" -- <command> [args...]")
@@ -512,7 +514,7 @@ func runNoTerminal(args []string) int {
 	if err != nil && !errors.As(err, &ee) {
 		fmt.Fprintf(os.Stderr, "yolo internal %s: %v\n", noTerminalVerb, err)
 	}
-	return notty.ExitCode(err)
+	return notty.WrapperExit(err)
 }
 
 // runNodeFloorLaunchers is `yolo internal node-floor-launchers --pending=<dir> --launch=<dir>

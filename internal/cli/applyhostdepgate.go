@@ -45,6 +45,7 @@ package cli
 // which prints everything, prompts for nothing and writes nothing.
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -212,6 +213,18 @@ func gateHostDeps(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	for _, b := range offer {
 		pr.Printf("  [cyan]→ %s[/cyan]", b.Remedy)
 		if err := depInstallRun(b.Remedy, env, out, b.NoTerminal); err != nil {
+			// A STOP IS A STOP. An install run with no terminal is out of the terminal's
+			// foreground group, so a Ctrl-C (or a hangup, or a kill) reaches this process, which
+			// forwards it to the installer rather than dying of it as it did when the installer
+			// shared the terminal (internal/notty). So the run stops here, whatever the installer
+			// left behind: an installer interrupted after it placed its binary passes the
+			// re-probe below, and the run would go on to the next install and write.
+			var stopped *notty.Stopped
+			if errors.As(err, &stopped) {
+				pr.Printf("[bold red]host apply: refused — installing `%s` was interrupted (%v), "+
+					"so nothing after it runs. Nothing was written.[/bold red]", b.Bin, stopped.Signal)
+				return 128 + int(stopped.Signal)
+			}
 			pr.Printf("  [red]%s: %v[/red]", b.Bin, err)
 		}
 		// RE-PROBE, and it is the command's answer rather than its exit code that decides
