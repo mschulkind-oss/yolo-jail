@@ -41,6 +41,36 @@ local function in_full(ctx, t)
   return t
 end
 
+-- THE DISPLAY NAME OF A CATALOG ROW (docs/design/model-lists-and-pickers.md MM-D7): the
+-- entry's own `name` fact, or nil so the agent shows its own catalog's name for the id, or the
+-- id. NEVER the yolo alias the id sits under: `default` and `fast` are yolo's pointers, and a
+-- row named after one showed a model as "default". The fact is read from the alias spelled as
+-- the id first, then from any other alias naming the id, in sorted alias order, the precedence
+-- codexModelList's rows follow (ML-D6).
+--
+-- ⚠ DUPLICATED VERBATIM in packs/opencode/derive.lua, packs/pi/derive.lua and
+-- packs/omp/derive.lua, because a derive cannot load another file.
+-- internal/entrypoint/modeldisplayname_test.go fails when the copies differ.
+local function modelDisplayName(prov, id)
+  if type(prov) ~= "table" or type(prov.models) ~= "table" then return nil end
+  local opts = type(prov.model_options) == "table" and prov.model_options or {}
+  local function named(alias)
+    local f = opts[alias]
+    if type(f) == "table" and type(f.name) == "string" and f.name ~= "" then return f.name end
+    return nil
+  end
+  if prov.models[id] == id and named(id) then return named(id) end
+  local aliases = {}
+  for alias, target in pairs(prov.models) do
+    if type(alias) == "string" and target == id then table.insert(aliases, alias) end
+  end
+  table.sort(aliases)
+  for _, alias in ipairs(aliases) do
+    if named(alias) then return named(alias) end
+  end
+  return nil
+end
+
 yolo.derive("oh-omp", "models", function(ctx)
   local providers = {}
   for name, prov in pairs(ctx.providers or {}) do
@@ -83,8 +113,18 @@ yolo.derive("oh-omp", "models", function(ctx)
         entry.auth = "none"
       end
       local models = {}
-      for alias, id in pairs(prov.models or {}) do
-        table.insert(models, { id = id, name = alias })
+      -- Each row's name is the entry's own, or none, so omp shows the id (MM-D7). Never the
+      -- alias: cerebras's and llamacpp's one model showed as "default". One row per id, since
+      -- a second alias for an id is a pointer, not a second model.
+      local aliases, seen = {}, {}
+      for alias in pairs(prov.models or {}) do table.insert(aliases, alias) end
+      table.sort(aliases)
+      for _, alias in ipairs(aliases) do
+        local id = prov.models[alias]
+        if type(id) == "string" and id ~= "" and not seen[id] then
+          seen[id] = true
+          table.insert(models, { id = id, name = modelDisplayName(prov, id) })
+        end
       end
       if #models > 0 then entry.models = models end
       providers[name] = entry

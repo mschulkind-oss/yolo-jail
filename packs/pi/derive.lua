@@ -286,6 +286,36 @@ local function isLocalEndpoint(url)
          string.find(url, "://0%.0%.0%.0")
 end
 
+-- THE DISPLAY NAME OF A CATALOG ROW (docs/design/model-lists-and-pickers.md MM-D7): the
+-- entry's own `name` fact, or nil so the agent shows its own catalog's name for the id, or the
+-- id. NEVER the yolo alias the id sits under: `default` and `fast` are yolo's pointers, and a
+-- row named after one showed a model as "default". The fact is read from the alias spelled as
+-- the id first, then from any other alias naming the id, in sorted alias order, the precedence
+-- codexModelList's rows follow (ML-D6).
+--
+-- ⚠ DUPLICATED VERBATIM in packs/opencode/derive.lua, packs/pi/derive.lua and
+-- packs/omp/derive.lua, because a derive cannot load another file.
+-- internal/entrypoint/modeldisplayname_test.go fails when the copies differ.
+local function modelDisplayName(prov, id)
+  if type(prov) ~= "table" or type(prov.models) ~= "table" then return nil end
+  local opts = type(prov.model_options) == "table" and prov.model_options or {}
+  local function named(alias)
+    local f = opts[alias]
+    if type(f) == "table" and type(f.name) == "string" and f.name ~= "" then return f.name end
+    return nil
+  end
+  if prov.models[id] == id and named(id) then return named(id) end
+  local aliases = {}
+  for alias, target in pairs(prov.models) do
+    if type(alias) == "string" and target == id then table.insert(aliases, alias) end
+  end
+  table.sort(aliases)
+  for _, alias in ipairs(aliases) do
+    if named(alias) then return named(alias) end
+  end
+  return nil
+end
+
 local function isKiloEndpoint(url)
   if type(url) ~= "string" then return false end
   return string.find(url, "api%.kilo%.ai") ~= nil
@@ -612,12 +642,10 @@ yolo.derive("pi", "models", function(ctx)
         for _, alias in ipairs(aliases) do
           local rawModelId = prov.models[alias]
           local modelId = isKilo and normalizeKiloModel(rawModelId) or rawModelId
-          local m = { id = modelId, name = alias }
+          -- `name` is the entry's own display name, or none, so pi shows the id (MM-D7). Never
+          -- the alias: a row under `default` showed as "default".
+          local m = { id = modelId, name = modelDisplayName(prov, rawModelId) }
           local mopts = type(prov.model_options) == "table" and prov.model_options[alias] or nil
-          -- `name` is the display name; the alias is the default, a declared one overrides.
-          if type(mopts) == "table" and type(mopts.name) == "string" and mopts.name ~= "" then
-            m.name = mopts.name
-          end
           local modelCw = cw
           local modelMaxTokens = maxTokens
           if type(mopts) == "table" then

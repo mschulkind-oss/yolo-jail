@@ -179,6 +179,36 @@ local function opencodeBedrockModels(list)
   return models
 end
 
+-- THE DISPLAY NAME OF A CATALOG ROW (docs/design/model-lists-and-pickers.md MM-D7): the
+-- entry's own `name` fact, or nil so the agent shows its own catalog's name for the id, or the
+-- id. NEVER the yolo alias the id sits under: `default` and `fast` are yolo's pointers, and a
+-- row named after one showed a model as "default". The fact is read from the alias spelled as
+-- the id first, then from any other alias naming the id, in sorted alias order, the precedence
+-- codexModelList's rows follow (ML-D6).
+--
+-- ⚠ DUPLICATED VERBATIM in packs/opencode/derive.lua, packs/pi/derive.lua and
+-- packs/omp/derive.lua, because a derive cannot load another file.
+-- internal/entrypoint/modeldisplayname_test.go fails when the copies differ.
+local function modelDisplayName(prov, id)
+  if type(prov) ~= "table" or type(prov.models) ~= "table" then return nil end
+  local opts = type(prov.model_options) == "table" and prov.model_options or {}
+  local function named(alias)
+    local f = opts[alias]
+    if type(f) == "table" and type(f.name) == "string" and f.name ~= "" then return f.name end
+    return nil
+  end
+  if prov.models[id] == id and named(id) then return named(id) end
+  local aliases = {}
+  for alias, target in pairs(prov.models) do
+    if type(alias) == "string" and target == id then table.insert(aliases, alias) end
+  end
+  table.sort(aliases)
+  for _, alias in ipairs(aliases) do
+    if named(alias) then return named(alias) end
+  end
+  return nil
+end
+
 yolo.derive("opencode", "config", function(ctx)
   local res = {}
 
@@ -227,8 +257,11 @@ yolo.derive("opencode", "config", function(ctx)
           maxTokens = tonumber(prov.options.max_tokens or prov.options.max_output_tokens)
         end
         if type(prov.models) == "table" then
-          for alias, modelId in pairs(prov.models) do
-            local m = { name = alias }
+          for _, modelId in pairs(prov.models) do
+            -- The entry's own name, or none so opencode shows its catalog's (MM-D7). A
+            -- config `name` beats the catalog's, so the alias this used to write showed an
+            -- entry under `default` as "default".
+            local m = { name = modelDisplayName(prov, modelId) }
             if cw or maxTokens then
               local limit = {}
               if cw then limit.context = cw end
