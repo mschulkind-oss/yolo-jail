@@ -72,8 +72,12 @@ type Launch struct {
 	refused []config.HostPathRefusal
 	// skip is the folders every lookup skips (ManagedDirs).
 	skip []string
-	// home is the home a folder under which is written ~/…, and the hint folders' base.
+	// home is the home a folder under which is written ~/….
 	home string
+	// hints is the folders Hint looks in, in order: hostfloor.HintLocations(home), which New sets.
+	// The list names absolute folders no home moves (/opt/homebrew/bin, the Linuxbrew folder), so a
+	// test replaces it with folders it made instead of reading the machine it runs on.
+	hints []string
 	// jail is whether this is a jail's passthrough: the process PATH unchanged, no `host_path`,
 	// and no miss line, which names a host key.
 	jail bool
@@ -103,7 +107,8 @@ func ManagedDirs() []string { return []string{paths.GeneratedBinDir()} }
 // New builds the launch PATH from its inputs. Resolve is the one production caller; a test calls it
 // with a fake PATH and home.
 func New(ambient string, declared, skip []string, home string) *Launch {
-	l := &Launch{declared: append([]string(nil), declared...), skip: skip, home: home}
+	l := &Launch{declared: append([]string(nil), declared...), skip: skip, home: home,
+		hints: hostfloor.HintLocations(home)}
 	l.caller = uniqueEntries(filepath.SplitList(ambient), nil)
 	l.started = len(l.caller) > 0
 	l.added = uniqueEntries(declared, l.caller)
@@ -354,10 +359,10 @@ func (l *Launch) MissLine(m Miss) string {
 	return b.String()
 }
 
-// Hint is the first hint location (hostfloor.HintLocations, the compiled list §4.2 coins) that is
-// not on the launch PATH and holds an executable named bin, written ~/… — or "". A HINT, NEVER A
-// VERDICT: a bounded look at a fixed handful of folders, which changes the text of a miss and
-// nothing else. No check counts a program found here, and nothing runs one.
+// Hint is the first hint location (l.hints: hostfloor.HintLocations, the compiled list §4.2 coins)
+// that is not on the launch PATH and holds an executable named bin, written ~/… — or "". A HINT,
+// NEVER A VERDICT: a bounded look at a fixed handful of folders, which changes the text of a miss
+// and nothing else. No check counts a program found here, and nothing runs one.
 func (l *Launch) Hint(bin string) string {
 	if bin == "" || strings.ContainsRune(bin, filepath.Separator) {
 		return ""
@@ -366,7 +371,7 @@ func (l *Launch) Hint(bin string) string {
 	for _, d := range l.Entries() {
 		on[filepath.Clean(d)] = true
 	}
-	for _, d := range hostfloor.HintLocations(l.home) {
+	for _, d := range l.hints {
 		if on[filepath.Clean(d)] {
 			continue
 		}
