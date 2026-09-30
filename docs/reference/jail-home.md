@@ -516,6 +516,15 @@ The pre-rename generated-script dirs are emptied for the same reason.
 | **Per boot** | `/tmp`, `/run`, `/dev/shm`, anonymous volumes, PID files |
 | **Host-only, never mounted** | the host's own mise data, and host credentials generally |
 
+**One vendor key in the shared cache is shared across workspaces, and is left that way.** Claude
+Code keeps MCP logs under `~/.cache/claude-cli-nodejs/<cwd>/`, where `<cwd>` is its working
+directory with each `/` written as `-`. Every container jail's cwd is `/workspace`, so every
+workspace on the machine writes into one key,
+`-workspace`. Its contents are interleaved MCP logs and nothing else (measured 2026-09-30: four
+`mcp-logs-*` directories, 1.8 MB). A per-workspace bind over that one path would be a mount made
+for one vendor's cache layout, so none is made
+([`WP-D1`](../design/workspace-path-mirroring.md#WP-D1)).
+
 ### Why the home root is a read-only skeleton, with symlink hatches
 
 A **skeleton** (a term [`base-home-legacy-state.md`](../design/base-home-legacy-state.md#1-the-question-and-the-answer)
