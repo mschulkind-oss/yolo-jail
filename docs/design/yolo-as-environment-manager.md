@@ -3,12 +3,12 @@
 **Status:** DESIGN, 2026-07-27 — high level; fact-checked 2026-07-30; **re-verified against
 the code 2026-08-23 — most of it is now IMPLEMENTED.** The vision is unchanged and the verbs are
 real: `apply`, `apply --at host`, `apply --sealed`, `describe`, `check-deps` and the `confinement`
-key all ship (env-manager plan Phases 0–6, 8, 9). **One live question remains, and it is much
-narrower than it was**: [`OQ-EM2`](#OQ-EM2) is closed by
+key all ship (env-manager plan Phases 0–6, 8, 9). **No live question remains** (since
+2026-09-30): [`OQ-EM2`](#OQ-EM2) is closed by
 [`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger)/[`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger)
-(the `host` layer stays), and [`OQ-EM1`](#OQ-EM1) no longer describes a contradiction between this
-doc and the tree — the confirm-gated install below `jail` SHIPPED, and what is left of the question
-is whether the elevation-class batching around it is still owed. **Re-checked against the tree
+(the `host` layer stays), and [`OQ-EM1`](#OQ-EM1), whether the elevation-class batching around the
+shipped confirm-gated install is still owed, is answered no by
+[`OQ-HP5`](host-tool-provisioning.md#OQ-HP5). **Re-checked against the tree
 2026-09-24**: `yolo config promote` shipped 2026-09-12, so [§3.3](#33-apply---sealed-the-definition-binds-or-the-apply-fails)'s staging-area half is built; and
 the host notch's `assert` mode, which [`OQ-4`](#9-decision-ledger)'s row names, was retired by
 ruling on 2026-09-20 and is not yet out of the code
@@ -19,7 +19,7 @@ this batteries-included approach — the jail is not the novel thing, it is what
 it. Maybe we redescribe ourselves as an agentic development environment describer that can
 describe a jail."*
 
-**Needs your ruling:** [OQ-EM1](#OQ-EM1).
+**Needs your ruling:** nothing. [OQ-EM1](#OQ-EM1) was found answered on 2026-09-30.
 
 > **Refresh note (2026-07-30).** Two verbs this doc proposed as future now partly exist:
 > **`yolo config dump`** ships (the canonical computed-config dump this doc folds into
@@ -47,7 +47,7 @@ describe a jail."*
 > | [§3.3](#33-apply---sealed-the-definition-binds-or-the-apply-fails) retire the read-in `host` layer ([`OQ-3`](#9-decision-ledger)) | n/a | **REVERSED 2026-09-12** — the ledger below strikes [`OQ-3`](#9-decision-ledger) through, and this row contradicted it for five days. `HostSource` at `internal/agentcfg/manifest/manifest.go` is not residue of an unbuilt retirement; it is the IMPLEMENTATION of the ruling that replaced it (`cc674ac1`, *"a surface declares its own host layer, and the read fails closed"*). Nothing is owed here |
 > | [§3.4](#34-check-becomes-is-this-description-satisfiable-here) `check --at <notch>` naming inert keys | ❌ | `yolo check` takes no `--at`; the flag parses on `apply`, on a launch (`yolo --at <notch> -- <cmd>`, judged by `run.refuseUnbuiltNotch`) and on the `config` verbs |
 > | [§3.5](#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) declare-once / check-once / manifest handoff | ✅ | `internal/depcheck/`, `yolo check-deps` (`internal/cli/checkdeps.go`) |
-> | [§3.5](#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) offer-to-run behind a batched confirm | ⚠ **partly** — it ships in `apply`, unbatched | `applyhostdepgate.go` offers the install at `yolo host apply --assert` behind ONE prompt. `yolo check-deps` still never installs — it is the probe half by design, and says so. The elevation-class batching is the unbuilt part ([`OQ-EM1`](#OQ-EM1)) |
+> | [§3.5](#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) offer-to-run behind a batched confirm | ⚠ **partly** — it ships in `apply`, unbatched | `applyhostdepgate.go` offers the install at `yolo host apply --assert` behind ONE prompt. `yolo check-deps` still never installs — it is the probe half by design, and says so. The elevation-class batching is not built and is not owed ([`OQ-EM1`](#OQ-EM1), answered 2026-09-30) |
 > | [§4](#4-confinement-a-dial-with-three-notches) the `confinement` dial | ✅ | `internal/config/confinement.go` |
 > | [§4.0](#40-why-the-middle-notch-is-not-called-sandbox) composable primitives underneath the presets | ✅ | `internal/render/confinement.go` |
 > | [§4.1](#41-the-escape-valve-which-is-the-actual-user-story) `install` below `jail` **confirm-gated** | ✅ **since 2026-09-12**, at `yolo host apply --assert` | `HostFields` honors `program` and `applyhostdepgate.go` gates it: the commands print, one prompt covers the set, a decline is FATAL. Two deviations from this section's spelling, both ruled: **no TTY gate** (silence is NO instead) and one prompt rather than one per elevation class — see **[`OQ-EM1`](#OQ-EM1)** |
@@ -903,7 +903,8 @@ there and from `BACKLOG.md`; the `OQ-EM` spellings are this doc's own and start 
 | OQ-11 | A pack encodes its two autonomy postures as a dedicated `autonomy` **kind**, not a `when:` discriminator — so a bypass key cannot be left in the unconditional half by accident | 2026-08-01 | [§4.2](#42-agent-autonomy-is-a-confinement-policy-not-baked-pack-config) | ✅ |
 | OQ-8 | The dep-checker boundary is a **declared schema** a third-party doctor can read, not an importable Go package | 2026-08-01 | [§3.5](#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) | ✅ `install_hints` + `internal/depcheck/` |
 | OQ-EM2 | **The read-in `host` layer STAYS, disclosed per surface** — answered on the config-ownership axis rather than here ([`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger)/[`OQ-CO11`](config-ownership-and-promotion.md#13-decision-ledger)), which supersedes [`OQ-3`](#9-decision-ledger). The cost the question rested on is gone too: the hand-maintained `surfaceHasHostLayer` map was deleted 2026-09-09 and both provenance columns are derived | 2026-09-11 | [§10](#10-open-questions) | ✅ `manifest.Surface.ReadsHost` is the predicate, `packload.SurfaceHostFile` derives the `/ctx` path, and the read fails closed |
-| OQ-9 | Offer-to-run confirms are **batched by elevation class**, `sudo` first, never per-command | 2026-08-01 | [§3.5](#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) | ⚠ **a consumer exists since 2026-09-12, and it reverses half of this row.** `yolo host apply --assert`'s dependency gate ([`internal/cli/applyhostdepgate.go`](../../internal/cli/applyhostdepgate.go)) offers the install behind **one** prompt listing every missing dependency — not one per elevation class — and **a decline is FATAL at the prompt**, where this row's *"the manifest is still the floor"* made it non-fatal. [`../reference/report-tiers.md`](../reference/report-tiers.md#why-its-this-way) [`OQ-RO6`](../reference/report-tiers.md#why-its-this-way)/[`OQ-RO7`](../reference/report-tiers.md#why-its-this-way) rule that reversal for this verb and state the reason: an `--assert`'s promise is a ready environment. The elevation-class batching itself is still unbuilt |
+| OQ-9 | Offer-to-run confirms are **batched by elevation class**, `sudo` first, never per-command | 2026-08-01 | [§3.5](#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest) | ⚠ **a consumer exists since 2026-09-12, and it reverses half of this row.** `yolo host apply --assert`'s dependency gate ([`internal/cli/applyhostdepgate.go`](../../internal/cli/applyhostdepgate.go)) offers the install behind **one** prompt listing every missing dependency — not one per elevation class — and **a decline is FATAL at the prompt**, where this row's *"the manifest is still the floor"* made it non-fatal. [`../reference/report-tiers.md`](../reference/report-tiers.md#why-its-this-way) [`OQ-RO6`](../reference/report-tiers.md#why-its-this-way)/[`OQ-RO7`](../reference/report-tiers.md#why-its-this-way) rule that reversal for this verb and state the reason: an `--assert`'s promise is a ready environment. The elevation-class batching itself is unbuilt, and since 2026-09-30 is not owed ([`OQ-EM1`](#OQ-EM1)) |
+| OQ-EM1 | **No elevation-class batching and no second prompt; plan Phase 4.3 shrinks to the disclosure that already ships**, each install's exact command printed above the one prompt, so a `sudo` is visible before the answer. Answered by [`OQ-HP5`](host-tool-provisioning.md#OQ-HP5) (2026-09-29), where the maintainer rejected asking again for what a selected pack declares: *"If pi is going to be available, it's because you've already configured that pack in your config file. You've acknowledged this already. We don't have to ask again … certainly not the second time."* | 2026-09-30 | [§10](#10-open-questions) | ✅ nothing to build |
 
 > [!WARNING]
 > **A trap this ledger exists to preserve: an unsealed `describe --hash` is worse than no hash.**
@@ -924,16 +925,16 @@ there and from `BACKLOG.md`; the `OQ-EM` spellings are this doc's own and start 
 
 ## 10. Open Questions
 
-**One live, one closed.** Both were created by a gap between this doc and the shipped tree rather
-than by anything undecided in the design, and **neither was closed here** — the tree closed one and a
-sibling design closed the other. What is left of the live one is a scheduling question, not a rule.
+**Both closed.** Both were created by a gap between this doc and the shipped tree rather
+than by anything undecided in the design, and **neither was closed here**: a sibling design closed
+[`OQ-EM2`](#OQ-EM2), and a later ruling in another doc answered [`OQ-EM1`](#OQ-EM1) on 2026-09-30.
 The wider set of live questions this design raised — capture-vs-closure
 (**Q1**), shortfall-as-success (**Q2**), briefing stamping (**Q4**), a confinement floor for an
 org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
 [environment-manager-user-stories.md](environment-manager-user-stories.md), which
 [`../plans/roadmap.md`](../plans/roadmap.md) routes by id. They are **not** duplicated here.
 
-1. 💬 <a id="OQ-EM1"></a>**OQ-EM1: `program` below `jail` — is the elevation-class batching still owed?** [§4.1](#41-the-escape-valve-which-is-the-actual-user-story) and [§5](#5-packs-are-the-batteries-and-the-batteries-are-data) of this doc
+1. ✅ <a id="OQ-EM1"></a>**OQ-EM1: `program` below `jail` — is the elevation-class batching still owed?** [§4.1](#41-the-escape-valve-which-is-the-actual-user-story) and [§5](#5-packs-are-the-batteries-and-the-batteries-are-data) of this doc
    revised the original rule from *"`install` is never honored below `jail`, refused by name"* to
    *"confirm-gated, TTY-only, command shown, permission-bounded"*, and [§8](#8-what-this-costs) flagged it as needing a
    threat-model pass before shipping.
@@ -965,8 +966,6 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    nothing. [§3.5](#35-dependency-provisioning-declare-once-check-once-hand-off-with-a-manifest)'s offer-to-run has its foundation either way: the prompt, the printed
    commands and the re-probe all exist.
 
-   <!-- vantage: oq id=OQ-EM1 leaning="Leave one prompt as it is and let Phase 4.3 shrink to the elevation DISCLOSURE rather than a second prompt: the commands already print, so a reader can see a `sudo` before answering, and two prompts buy little once a decline is fatal for the whole set." -->
-
    _Leaning:_ leave one prompt as it is, and let Phase 4.3 shrink to elevation **disclosure**
    rather than a second confirm. A decline is fatal for the whole set, so splitting the approval
    in two cannot produce a partially-provisioned host worth having — and the commands print above
@@ -974,7 +973,14 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    keeping is ordering `sudo` first, so the OS password prompt arrives at the front.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Answered by [`OQ-HP5`](host-tool-provisioning.md#OQ-HP5) (2026-09-29): no. The maintainer
+   > ruled against asking again for what a selected pack declares: *"why is yolo even asking if you
+   > want to install this? If pi is going to be available, it's because you've already configured
+   > that pack in your config file. You've acknowledged this already. We don't have to ask again …
+   > certainly not the second time."* So there is no per-elevation-class prompt, and Phase 4.3
+   > shrinks to the disclosure that already ships: the commands print above the prompt, `sudo`
+   > included. The one prompt the dependency rule keeps is unchanged by this answer. Recorded
+   > 2026-09-30.
 
 2. ✅ <a id="OQ-EM2"></a>**OQ-EM2: is retiring the `host` read-in layer ([`OQ-3`](#9-decision-ledger)) still the plan?**
    **No — the layer stays, and the disclosure this question asked for shipped instead.** Answered

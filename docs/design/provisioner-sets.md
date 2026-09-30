@@ -809,8 +809,8 @@ decided was purely *does yolo execute the winner*.
 > [§8.2](#82-the-ruling-a-shipped-default-order-the-user-config-overrides) as inverting, and which
 > [`OQ-PS6`](#OQ-PS6)'s answer (2026-09-30) keeps as the default. So three
 > of this section's terms no longer describe the tree: driving is not last, it is not behind
-> [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)'s per-elevation-class batching (that is what [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1)
-> now asks), and a decline is fatal where [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) made the manifest a floor to continue over. **What
+> [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase)'s per-elevation-class batching (which [`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1)
+> asked about, answered 2026-09-30: not owed), and a decline is fatal where [`OQ-9`](../plans/environment-manager-plan.md#open-questions-to-resolve-before-their-phase) made the manifest a floor to continue over. **What
 > is still true:** no system-manager command runs without the confirm, and `check-deps` still
 > writes the manifest and installs nothing. Whether [§9](#9-what-i-would-build-in-order) step 4's
 > print-only increment still comes first — or the precedence lands directly into a verb that
@@ -875,8 +875,8 @@ these are independent of every open question and should not wait on one.
    the preference surface, or a failure is ambiguous between the two. ⚠ **Partly shipped out of
    order, 2026-09-11:** `yolo host apply --assert`'s dependency gate drives the pack-first remedy
    behind one prompt ([§8.5](#85-the-ruling-yolo-drives-the-winner-behind-the-confirm-and-last)'s
-   warning). What is left of this step is the elevation-class batching
-   ([`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1)) and running the *resolved* winner.
+   warning). What is left of this step is running the *resolved* winner; the elevation-class
+   batching is not owed ([`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1), answered 2026-09-30).
 
 Steps 1–3 are defect-shaped and ruled by P3 and by the two narrow halves already leaning; steps
 4–5 are the design, and their order was ruled rather than merely preferred — and has since been

@@ -17,7 +17,7 @@ Sequences [`../design/yolo-as-environment-manager.md`](../design/yolo-as-environ
 > | **3** — `apply` + `describe` | ✅ **SHIPPED** (`internal/cli/apply.go`, `describe.go`) | none |
 > | **4** — `yolo host apply` | ✅ **SHIPPED**, 4.3 included | `internal/cli/applyhostdeps.go` resolves a pack's `program` AND `requires` into the host's real dep state and offers the install; its own package comment records that it **replaces** the static "not run by `apply --host` yet" line this row used to cite, which was *"true and useless: the gate is real, but the line never said WHICH binary was missing"* |
 > | **5** — `--sealed` + closure | ✅ **SHIPPED** — 5.1/5.2/5.4, and **5.3 on 2026-09-12** (`4223ca95`, `yolo config promote`) | none — `applySealed`'s refusal now names `yolo config promote` as a command beside `yolo config reset` |
-> | **6** — dep provisioning | ✅ **SHIPPED** — 6.1/6.2/6.3 (`internal/depcheck/`, `yolo check-deps`), and **6.4's offer by 2026-09-12** (`f94b2c97`, the `yolo host apply --assert` dependency gate) | the offer is ONE prompt, not batched by elevation class; that batching is [`OQ-EM1`](../design/yolo-as-environment-manager.md#OQ-EM1)'s, still open |
+> | **6** — dep provisioning | ✅ **SHIPPED** — 6.1/6.2/6.3 (`internal/depcheck/`, `yolo check-deps`), and **6.4's offer by 2026-09-12** (`f94b2c97`, the `yolo host apply --assert` dependency gate) | the offer is ONE prompt, not batched by elevation class; that batching was [`OQ-EM1`](../design/yolo-as-environment-manager.md#OQ-EM1)'s, answered 2026-09-30: not owed |
 > | **7** — the `guest` notch | ❌ **NOT BUILT** — as previously stated | see below |
 > | **8** — self-describing briefing | ⚠️ **PARTIAL** — 8.1 shipped (`confinementHeader`, `internal/jailcontent/briefing.go`); **8.2 is MOOT** | the `jail-startup` built-in no longer exists |
 > | **9** — agent autonomy | ✅ **SHIPPED** 2026-08-01 | none |
@@ -700,7 +700,9 @@ implementing any phase.
 > unbatched prompt, so [OQ-6](#open-questions-to-resolve-before-their-phase),
 > [OQ-7](#open-questions-to-resolve-before-their-phase) and
 > [OQ-9](#open-questions-to-resolve-before-their-phase) now have a consumer. The elevation-class
-> batching is what is still owed ([`OQ-EM1`](../design/yolo-as-environment-manager.md#OQ-EM1)).
+> batching was what remained, and since 2026-09-30 it is not owed
+> ([`OQ-EM1`](../design/yolo-as-environment-manager.md#OQ-EM1), answered by
+> [`OQ-HP5`](../design/host-tool-provisioning.md#OQ-HP5)'s no-second-prompt ruling).
 >
 > **The decisions this plan does NOT hold, and must not be read as holding:** whether capture may
 > keep outranking the definition (user-stories **Q1**, the unbuilt half of Phase 5.3), whether

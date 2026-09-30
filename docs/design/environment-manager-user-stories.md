@@ -541,8 +541,8 @@ right, and this story is the argument for not announcing three notches until G3 
 >   home, and an inapplicable kind is refused **by name** (`render.HostFields`). *Re-checked
 >   2026-09-24:* the confirm-gated install this bullet called unbuilt **shipped 2026-09-12** —
 >   `yolo host apply --assert` offers a missing declared dependency's install behind one prompt
->   (`internal/cli/applyhostdepgate.go`); only the elevation-class batching is left
->   ([`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1)). And the posture the host renders under
+>   (`internal/cli/applyhostdepgate.go`); the elevation-class batching is not owed
+>   ([`OQ-EM1`](yolo-as-environment-manager.md#OQ-EM1), answered 2026-09-30). And the posture the host renders under
 >   is now the user-scope `host_management` key (`none`/`assert`/`own`), whose `assert` value was
 >   retired by ruling on 2026-09-20 and is not yet out of the code
 >   ([§4.5 there](config-ownership-and-promotion.md#45-retiring-assert--the-two-value-key)).
