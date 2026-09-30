@@ -64,6 +64,9 @@ func TestHostApplyRemovesTheBedrockSwitchItWroteAndTheLineSaysWhoWroteIt(t *test
 	  "mine": {"endpoints": {"anthropic": {"base_url": "https://anthropic.example"}}}},
 	  "profiles": {"mine": {"provider": "mine"}}`
 	home := hostGateHome(t, `{"packs": ["claude"], "use_profiles": {"claude": "bedrock"}, `+providers+`}`, nil)
+	// `yolo host apply` refuses while a declared program is missing, and `claude` is on this
+	// development jail's PATH but not on CI's: stub it, or the test passes only here.
+	stubDeclaredBins(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	apply := func() string {
 		t.Helper()
