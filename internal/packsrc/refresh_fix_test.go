@@ -499,14 +499,43 @@ func TestRefreshTimeoutEndsAStalledHTTPRemote(t *testing.T) {
 // (f) ONE BUDGET PER FETCH, not per git run: a clone and a fetch that each fit the timeout
 // but together exceed it are a timeout.
 //
-// THE REAL CLONE RUNS INSIDE THE BUDGET TOO, after the injected sleep, so the margin left
-// for it is the budget minus one sleep. It was 0.4s (1s budget, 0.6s sleeps), and under a
-// full parallel `go test ./...` on macOS the clone alone overran it (and overran 1.2s, at
-// 3s and 1.8s): the clone timed out first and the fetch this test is about never ran. 6s
-// and 3.6s keep both properties (one sleep fits, two do not) and give the clone 2.4s.
+// NO REAL GIT WORK RUNS INSIDE THE BUDGET, because its speed is the machine's. The fake clone
+// used to sleep and then exec the real clone, so the real clone had what one sleep left of the
+// budget: 0.4s, then 2.4s, and it overran both on a loaded laptop (a real clone is about seven
+// process starts, and one rev-parse on such a machine has taken over 500ms), so the clone
+// timed out first and the fetch this test is about never ran. Now the mirror is cloned BEFORE
+// the budget starts, with its HEAD taken away so the refresh still sees no mirror and clones,
+// and the fake clone only sleeps and writes HEAD back with a shell builtin. Both halves are
+// sleeps: the clone's 2.5s and the fetch's 4.5s each fit the 6s budget, and together they
+// cannot (the fetch cannot end before 7s). What the machine must still do inside the budget is
+// start the wrapper and its sleep, with 3.5s to do it in. Each sleep's output goes to
+// /dev/null, so a sleep orphaned by the timeout does not hold git's pipes open.
 func TestRefreshSharesOneBudgetAcrossCloneAndFetch(t *testing.T) {
 	f := newRefreshFixture(t)
-	f.store.Git = writeScript(t, "for a in \"$@\"; do case \"$a\" in clone|fetch) sleep 3.6; break;; esac; done\nexec git \"$@\"\n")
+	mirror := f.store.mirrorPath(mustParse(t, f.source("main")).Repo)
+	if err := os.MkdirAll(filepath.Dir(mirror), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, t.TempDir(), "clone", "-q", "--bare", "--filter=blob:none", "file://"+f.repo, mirror)
+	head, err := os.ReadFile(filepath.Join(mirror, "HEAD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(string(head), "'\\%") {
+		t.Fatalf("fixture: HEAD %q cannot be embedded in the script", head)
+	}
+	if err := os.Remove(filepath.Join(mirror, "HEAD")); err != nil {
+		t.Fatal(err)
+	}
+	f.store.Git = writeScript(t, `for a in "$@"; do last=$a; done
+for a in "$@"; do
+	case "$a" in
+	clone) sleep 2.5 </dev/null >/dev/null 2>&1; printf '`+strings.TrimSpace(string(head))+`\n' > "$last/HEAD"; exit 0;;
+	fetch) sleep 4.5 </dev/null >/dev/null 2>&1; break;;
+	esac
+done
+exec git "$@"
+`)
 	f.store.Timeout = 6 * time.Second
 	o := f.refresh(t, false, RefreshPack{Name: "p", Source: f.source("main")})[0]
 	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "git fetch timed out") {
