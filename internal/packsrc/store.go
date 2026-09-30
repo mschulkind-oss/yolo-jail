@@ -260,8 +260,24 @@ func gitLabel(args []string) string {
 // hygiene, and — when Detached — a new session whose whole process group the budget's
 // cancellation kills. Split from run so the hygiene is testable as a property of the
 // command every run executes.
+//
+// dir is the repository the run is IN — the mirror, for every run but the clone, which
+// passes "" — and it is NAMED to git with --git-dir as well as being the working directory.
+// A run that left git to discover the bare mirror from its working directory failed on a
+// host whose global config sets safe.bareRepository=explicit (git 2.38), a hardening setting
+// that refuses a discovered bare repository and allows one named by --git-dir or GIT_DIR, so
+// every refresh and resolution failed with "cannot use bare repository". The path is made
+// absolute because git resolves --git-dir against the working directory, which is dir itself.
 func (s *Store) gitCmd(ctx context.Context, dir string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, s.git(), args...)
+	var pre []string
+	if dir != "" {
+		gitDir := dir
+		if abs, err := filepath.Abs(dir); err == nil {
+			gitDir = abs
+		}
+		pre = append(pre, "--git-dir="+gitDir)
+	}
+	cmd := exec.CommandContext(ctx, s.git(), append(pre, args...)...)
 	cmd.Dir = dir
 	// GIT_TERMINAL_PROMPT=0 turns a missing credential into an immediate error
 	// instead of a 30-second askpass hang during a jail launch — the difference
