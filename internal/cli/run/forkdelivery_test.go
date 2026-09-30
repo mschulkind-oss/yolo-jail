@@ -126,12 +126,16 @@ func TestACaptureJailTriggersNoForkBuild(t *testing.T) {
 	forkLaunchHome(t, forkPinSource)
 	pinFork(t, strings.Repeat("cd", 20))
 	called := false
-	argv, _ := fakePodmanLaunch(t, func(o *Options) {
+	argv, printed := fakePodmanLaunch(t, func(o *Options) {
 		o.CapturesDir = func() string { return "" }
 		o.BuildForks = func([]packload.ForkPin, string) map[string]entrypoint.ForkDelivery { called = true; return nil }
 	})
 	if called || forkBuildsInArgv(t, argv) != nil {
 		t.Errorf("a capture jail triggered a fork build (called %v) or was handed decisions", called)
+	}
+	// Nor does it repeat the pin line the launch that started it already said.
+	if strings.Contains(printed, "Forks this launch") {
+		t.Errorf("a capture jail repeated the fork pin line:\n%s", printed)
 	}
 }
 

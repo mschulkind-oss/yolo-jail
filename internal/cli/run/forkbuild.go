@@ -118,6 +118,11 @@ func forkPins(packs []*packload.Pack) []packload.ForkPin {
 // that pins it. A disclosure, so it has no quiet switch (OQ-RO3). It returns the pins it read, for
 // the build trigger that acts on them.
 func (o *Options) noteForkPins(packs []*packload.Pack) []packload.ForkPin {
+	// NOT IN A CAPTURE OR BUILD JAIL (the one switch, CapturesDir returning ""): no fork is built
+	// or delivered from inside one, and the launch that started it has already said this line.
+	if o.CapturesDir() == "" {
+		return nil
+	}
 	pins := forkPins(packs)
 	if len(pins) == 0 {
 		return nil
