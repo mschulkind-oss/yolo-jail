@@ -1,16 +1,19 @@
 ---
 title: "A fork is a package with no registry — distributing source-built programs through a pack"
 date: 2026-09-21
-status: draft
+status: accepted
 tags: [design, packs, programs, capture, notches, forks, build]
 summary: "A pack can declare a program from npm or from a vendor installer, and neither can express a fork the maintainer builds themselves. The proposal adds a third delivery route — a pinned source address plus a build recipe, built once in a throwaway capture jail and delivered from the capture store — and the load-bearing problem is not the build but relocation: capture is cheap today only because the capture home and the materialize home are the same string, which a host-and-jail artifact breaks by definition."
 ---
 
 # A fork is a package with no registry — distributing source-built programs through a pack
 
-**Status:** DESIGN, 2026-09-22 — three rulings are owed ([OQ-FP7](#OQ-FP7)–[OQ-FP9](#OQ-FP9)).
-The original six questions are ruled; nothing is built. Evidence re-verified 2026-09-24 at
-`f491d192`.
+**Status:** DECIDED, 2026-09-30 — no ruling is owed, and nothing is built. The original six
+questions were ruled 2026-09-22; the three that came out of ruling them
+([OQ-FP7](#OQ-FP7)–[OQ-FP9](#OQ-FP9)) were decided as implementation choices on 2026-09-30
+([FP-D1](#FP-D1)–[FP-D3](#FP-D3)). Evidence re-verified 2026-09-24 at `f491d192`; the inheritance
+limit in [§4.1](#41-a-fork-declares-itself-a-fork-and-the-base-keeps-the-name) and the macos-user
+gap in [OQ-FP9](#OQ-FP9) were re-read against the tree on 2026-09-30.
 
 > **In short.** A fork is not a new kind of thing — it is the `installer` route with the
 > registry removed and a build step added, and capture already exists for exactly that
@@ -31,11 +34,12 @@ a path that has never run outside unit tests. Every consumer pays a local build.
 
 **Start at [§5](#5-relocation-is-the-design-not-the-build)** — the build is the easy half.
 
-**Needs your ruling:** [OQ-FP7](#OQ-FP7), [OQ-FP8](#OQ-FP8), [OQ-FP9](#OQ-FP9) — the original six
-were ruled 2026-09-22 and these three came out of ruling them.
+**Needs your ruling:** nothing. The original six were ruled 2026-09-22; [OQ-FP7](#OQ-FP7),
+[OQ-FP8](#OQ-FP8) and [OQ-FP9](#OQ-FP9) came out of ruling them and were decided as implementation
+choices ([FP-D1](#FP-D1)–[FP-D3](#FP-D3)).
 
 **Reads with:** [`forked-programs-as-packs-plan.md`](forked-programs-as-packs-plan.md) (the
-implementation sketch — incomplete, and unstable while the questions above are open),
+implementation sketch — incomplete; the questions it waited on are settled),
 [`program-delivery.md`](program-delivery.md) (the `via` routes and the PATH ruling this
 extends), [`install-capture.md`](../plans/install-capture.md) (the capture mechanism as built).
 
@@ -168,13 +172,17 @@ the base pack.** It inherits the base's launch flags, autonomy posture, profiles
 skills, and declares only the source address and the build recipe — *"we don't want a fork to have
 to fully replicate the initial package because that would be silly for a little change."*
 
-⚠ **One inheritance limit, measured.** The `NOTE` in [§3](#3-why-this-is-not-an-agent-feature) is
-right about launch flags and **wrong about the autonomy posture's config half**: a config patch folds
-only into a surface the **same pack** owns (keyed `"agent/name"`), and a patch naming no surface of
-that pack is dropped and reported
-([`contributes.go`](../../internal/packdecl/contributes.go), the config-patch fold). So "the fork
-inherits the base's contributions" needs stating per kind rather than as a blanket claim — which is
-[`OQ-FP8`](#OQ-FP8).
+⚠ **One inheritance limit was measured, and it is gone.** When this section was written, an
+autonomy posture's config patch folded only into a surface the **same pack** owns (keyed
+`"agent/name"`), and a patch naming another pack's surface was dropped and reported. Since
+2026-09-28 (`12032eb2`) such a patch is a *posture overlay*, a term coined in
+[`notch-scoped-config-contributions.md`](notch-scoped-config-contributions.md) for a
+`config-overlay` body gated on the posture: it takes the config-overlay path, below the owner's
+managed keys, with `config-overlay:<pack>` provenance
+([`contributes.go`](../../internal/packdecl/contributes.go), `AutonomyPosture.Config`). Only a
+patch on a surface no selected pack owns is inert, and it is reported. So nothing a fork might add
+is dropped silently, and [`OQ-FP8`](#OQ-FP8) is decided as one rule ([FP-D2](#FP-D2)): the base
+stays in the launch and keeps every contribution as its own.
 
 ## 5. Relocation is the design, not the build
 
@@ -319,7 +327,7 @@ the existing hard case, not a new one — which makes it the best place to find 
 | Build fails | the program is unavailable and the reason is printed; **the launch is not refused** — a broken fork is one missing tool, not a broken jail |
 | Build succeeds, produces no expected output | treated as a failed build, named as such rather than admitted as an empty capture |
 | Entry is not relocatable into the asking notch | that notch does not get the program, and says which notch it was built for |
-| Two builds of the same key race | the existing per-program lock decides, and ⚠ **it REFUSES rather than waits**: a non-blocking flock whose loser prints and exits non-zero (`captureHost`'s per-program lock, [`capturehost.go`](../../internal/cli/capturehost.go)). It does not adopt the winner's entry. Whether a fork build should instead WAIT for the winner is [`OQ-FP7`](#OQ-FP7) |
+| Two builds of the same key race | the existing per-program lock decides, and ⚠ **it REFUSES rather than waits**: a non-blocking flock whose loser prints and exits non-zero (`captureHost`'s per-program lock, [`capturehost.go`](../../internal/cli/capturehost.go)). It does not adopt the winner's entry. A fork build on the **launch** path waits for the winner instead, then re-checks the store ([`OQ-FP7`](#OQ-FP7), decided as [FP-D1](#FP-D1)); the `capture` verb keeps the refusal |
 | Store entry half-written (crash mid-build) | the missing `.yolo-capture-complete` makes it detectable and it is rebuilt |
 | Toolchain absent in the capture jail | a build-time failure like any other; the pack is responsible for declaring what it needs to build |
 
@@ -377,41 +385,47 @@ the existing hard case, not a new one — which makes it the best place to find 
 
 ## 13. Open Questions
 
-Three questions are open, and all three were raised by ruling the original six.
+None is open. All three were raised by ruling the original six, and all three were decided as
+implementation choices on 2026-09-30.
 
-1. 💬 <a id="OQ-FP7"></a>**[OQ-FP7](#OQ-FP7): should the loser of a build race WAIT for the winner?**
+1. ✅ <a id="OQ-FP7"></a>**[OQ-FP7](#OQ-FP7): should the loser of a build race WAIT for the winner?**
    The per-program lock is a non-blocking flock whose loser prints and exits non-zero
    (`captureHost`'s per-program lock, [`capturehost.go`](../../internal/cli/capturehost.go)) — correct for `yolo capture`, which
    a human invoked and can re-run. It is wrong for an eager build inside a launch: the second launch
    would refuse over a build the first is already doing, and the artifact it needs appears seconds
    later. Stakes: whether an eager fork build can share the existing lock at all.
 
-   <!-- vantage: oq id=OQ-FP7 leaning="Wait, with a bounded timeout, and only on the launch path. The capture verb keeps refusing because a human can retry; a launch cannot, and refusing a jail because another jail is building the same artifact is the unused-agent fatal the 2026-09-03 reversal deleted, in a new costume." -->
-
    _Leaning:_ **Wait, bounded, and only on the launch path.** The `capture` verb keeps its refusal —
    a human can retry. A launch cannot, and refusing a jail because another jail is building the same
    bytes is the mis-scoped fatal the 2026-09-03 reversal deleted, in a new costume.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([FP-D1](#FP-D1)), reversible: a launch that finds the
+   > build lock held waits for the winner, bounded, then re-checks the store and uses the winner's
+   > entry, as the host floor already does for an install at launch; the `capture` verb keeps its
+   > refusal.
 
-2. 💬 <a id="OQ-FP8"></a>**[OQ-FP8](#OQ-FP8): what exactly does a fork inherit from its base, per kind?**
+2. ✅ <a id="OQ-FP8"></a>**[OQ-FP8](#OQ-FP8): what exactly does a fork inherit from its base, per kind?**
    [§4.1](#41-a-fork-declares-itself-a-fork-and-the-base-keeps-the-name) says a fork must not have to
    replicate its base, and one limit is already measured: a config patch folds only into a surface the
    **same pack** owns, so a patch naming no surface of that pack is dropped and reported. Launch flags
    and autonomy postures key on the `bin` and travel; config patches do not. Stakes: whether
    inheritance is a per-kind table in the schema or a single rule with exceptions.
 
-   <!-- vantage: oq id=OQ-FP8 leaning="A per-kind table, written down. The kinds already differ in whether they key on a bin or on an owning pack, so a single rule would be false for at least one of them — and the failure mode is a silently dropped contribution, which is the worst shape available." -->
-
    _Leaning:_ **A per-kind table, written down.** The kinds already differ in whether they key on a
    `bin` or on an owning pack, so one blanket rule is false for at least one of them — and its failure
    mode is a silently dropped contribution.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([FP-D2](#FP-D2)), reversible: one rule, not a per-kind
+   > table. The base pack stays in the launch and renders every contribution as its own, so nothing
+   > is inherited because nothing changes owner. The fork adds the program's bytes, and anything
+   > else it sets on the base's surfaces goes through the existing cross-pack kinds. The measured
+   > limit behind the leaning is gone: since `12032eb2` (2026-09-28) a posture's patch on another
+   > pack's surface is an overlay, not a drop
+   > ([§4.1](#41-a-fork-declares-itself-a-fork-and-the-base-keeps-the-name)).
 
-3. 💬 <a id="OQ-FP9"></a>**[OQ-FP9](#OQ-FP9): what does an eager build do on `macos-user`, which the eager slot cannot reach?**
+3. ✅ <a id="OQ-FP9"></a>**[OQ-FP9](#OQ-FP9): what does an eager build do on `macos-user`, which the eager slot cannot reach?**
    [`OQ-FP4`](#14-decision-ledger) puts the build at the notch's readiness act, and on the container
    backends that is auto-capture's existing slot — which sits **below the `macos-user` return** in the
    run pipeline, so nothing there emits the captures-dir variable and slice 6's relocation rewrite is
@@ -419,19 +433,26 @@ Three questions are open, and all three were raised by ruling the original six.
    calls the interesting one. Stakes: whether this route ships container-only with a named gap, or
    waits for the backend.
 
-   <!-- vantage: oq id=OQ-FP9 leaning="Ship container-only with the gap named and reported at launch on that backend, rather than blocking the route. macos-user is where relocation has to be proven anyway, so it wants its own slice — but a fork pack selected there must say it got nothing, not silently deliver no program." -->
+   ⚠ *Re-read 2026-09-30:* the relocation rewrite (hand-off H2) landed 2026-09-26, so that half of
+   the gap is closed. What stays is the eager slot's position below the `macos-user` return, and
+   hand-off H4: no `macos-user` launch can read the capture store, which
+   [`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)
+   holds as its own ruling.
 
    _Leaning:_ **Ship container-only, with the gap named and reported on that backend.** `macos-user`
    is where relocation must be proven anyway and wants its own slice; what it must not do is silently
    deliver no program.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([FP-D3](#FP-D3)), reversible: the route ships in
+   > [§11](#11-sequencing)'s order, container backends first, and a `macos-user` launch with a fork
+   > pack selected says that it delivered no program and why, until H4 is ruled and the eager slot
+   > reaches that backend.
 
 ## 14. Decision Ledger
 
 The six questions this doc opened are ruled. Three new ones ([§13](#13-open-questions)) came out of
-ruling them.
+ruling them, and were decided as implementation choices ([FP-D1](#FP-D1)–[FP-D3](#FP-D3)).
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -441,3 +462,6 @@ ruling them.
 | OQ-FP4 | **Eager, at the notch's readiness act — not an explicit act and not on first use.** yolo runs complete environments: before a launch runs anything that needs the fork, the fork is built. Core cannot know what the jail will launch (there is no agent registry and no argv sniffing), so the trigger is the SELECTED PACK SET, which is statically knowable — the shape `installerBins` already implements for auto-capture. ⚠ A hit builds nothing, so [§9](#9-failure-modes)'s *"never rebuild on a timer or on every launch"* survives unchanged | 2026-09-22 | [§4](#4-the-proposed-shape), [§9](#9-failure-modes) | — |
 | OQ-FP5 | **A fork DECLARES that it is a fork of a base pack; it does not win a name.** The base keeps the name claim, the fork supplies the bytes, and selecting the fork is configuration rather than shadowing — reusing `config-overlay`'s existing owner/contributor/provenance relation. "Same bin, fork wins" was **rejected**, and is in any case unreachable: two selected packs claiming one agent name refuse the launch via `AgentNameCollisions`. A fork must not have to replicate its base | 2026-09-22 | [§4.1](#41-a-fork-declares-itself-a-fork-and-the-base-keeps-the-name) | — |
 | OQ-FP6 | **Yes — a source-built artifact gets its own disclosure, naming the resolved REVISION rather than the ref.** The existing banner has the right shape and place, and the commit that produced the binary on your PATH is the one fact a reader cannot get anywhere else | 2026-09-22 | [§7](#7-trust-and-what-the-build-may-touch) | — |
+| <a id="FP-D1"></a>FP-D1 | *Implementation decision, [OQ-FP7](#OQ-FP7).* **On the launch path, the loser of a build race waits for the winner, bounded, then re-checks the store and uses the winner's entry; `yolo capture` keeps refusing.** The host floor already works this way for an install at launch: a second launch that finds the per-program lock held *"waits for it and prints one line naming the holder's pid. After the wait it re-checks the entry rather than installing again"* ([`host-tool-provisioning.md` §4](host-tool-provisioning.md#4-when-provisioning-runs), built in `internal/hostfloor/lock.go`). [NC-D1](../plans/notch-convergence.md#7-decision-ledger) asks for one code path per concern, so the fork build takes that shape and does not get a refusal of its own. A human who typed `yolo capture` can re-run it; a launch cannot, and refusing a jail because another is building the same bytes is the jail-level fatal [`OQ-PD12a`](program-delivery.md#decision-ledger) deleted. A wait that runs out is that launch's failed build, handled by [§9](#9-failure-modes)'s *Build fails* row. Reversible: the launch path can take the verb's refusal | 2026-09-30 | [§9](#9-failure-modes) | — |
+| <a id="FP-D2"></a>FP-D2 | *Implementation decision, [OQ-FP8](#OQ-FP8).* **One rule, not a per-kind table: the base pack stays in the launch and keeps every contribution as its own; the fork adds only the program's bytes, plus whatever it sets through the existing cross-pack kinds.** The fork brings its base into the launch, as a `needs` entry brings a pack in. So the base's launch flags, autonomy posture, profiles, briefing and skills render as the base's, and nothing changes owner. That is [OQ-FP5](#14-decision-ledger)'s *"a fork does not have to replicate the base pack"*. A fork's own setting on a base-owned surface uses `config-overlay`, `config-list`, or a posture overlay or list, each under its existing rules. The leaning wanted a table because one limit was measured: a posture's patch on another pack's surface was dropped. That limit is gone since `12032eb2` (2026-09-28), and an ownerless patch is reported rather than dropped, so the table would restate the kinds' own doc comments in `internal/packdecl`, which are the schema's reference. Reversible: a kind that later needs fork-specific handling gets it in its own doc comment | 2026-09-30 | [§4.1](#41-a-fork-declares-itself-a-fork-and-the-base-keeps-the-name) | — |
+| <a id="FP-D3"></a>FP-D3 | *Implementation decision, [OQ-FP9](#OQ-FP9).* **The route ships in [§11](#11-sequencing)'s order, container backends first, and a `macos-user` launch with a fork pack selected says it delivered no program and why.** The line goes where the launch already says what a backend does not do: [`backend-parity.md`](backend-parity.md#3-the-dispositions--the-most-important-section)'s `Warned`, never `Dropped`. [§11](#11-sequencing) already puts `macos-user` fourth, as the relocation proving ground, so this adds only the line. What that backend lacks is the eager slot, which sits below its return in the run pipeline, and hand-off H4 (no `macos-user` launch can read the capture store), a ruling [`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it) holds. The relocation rewrite it also lacked when [OQ-FP9](#OQ-FP9) was written (H2) landed 2026-09-26. Reversible: the route can wait for the backend instead | 2026-09-30 | [§8](#8-notch-coverage-and-the-one-that-does-not-exist), [§11](#11-sequencing) | — |
