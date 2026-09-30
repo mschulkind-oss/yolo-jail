@@ -1654,7 +1654,7 @@ liveness lock ([JL-D38](#JL-D38)):
     to the command"* ([sudo(8)](https://www.sudo.ws/docs/man/sudo.man/)), then stops its guest
     supervisor as it does today, by signalling that `sudo`'s process group (`startBackgroundReal`,
     [`real.go`](../../internal/macosuser/real.go)). That needs the signal arm the macos-user
-    launcher lacks today (the next bullet). No step needs `sudo`: the host user signals its own
+    launcher lacks today (this section's last bullet). No step needs `sudo`: the host user signals its own
     launchers, and `sudo`, whose real user is the host user's, relays. INFERRED; unmeasured on a
     Mac.
 
@@ -1671,7 +1671,7 @@ liveness lock ([JL-D38](#JL-D38)):
   Setsid alone there, as [§9.8](#98-per-notch-podman-apple-container-macos-user-yolo-host) says
   for podman on macOS; a logout's SIGTERM ends it in order (INFERRED).
 - **The macos-user session launcher gets a signal arm** ([JL-D40](#JL-D40)). Today it has none: it
-  runs the sandboxed command as a plain child in its own process group and ignores `onTerminate`
+  runs the sandboxed command as a plain child in the launcher's process group, ignoring `onTerminate`
   ([`proxy_other.go`](../../internal/cli/run/proxy_other.go)), and nothing in `internal/cli` or
   `internal/macosuser` installs a handler for it. So a terminal's SIGINT, which reaches the whole
   foreground group, kills the launcher by Go's default, while a sandboxed program that survives
