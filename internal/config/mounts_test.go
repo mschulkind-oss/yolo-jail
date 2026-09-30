@@ -349,8 +349,9 @@ func TestAMountThatIsNeverBoundCollidesWithNothing(t *testing.T) {
 // `yolo check` duplicate-destination error"). A `mounts` element at one of them was a
 // launch podman refused late ("duplicate mount destination"); one inside one had podman
 // create its mountpoint in the tree yolo binds there; one containing them had podman
-// create yolo's mountpoints inside the user's source — measured on podman 5.8: the
-// nested mountpoint is created in the host directory even when the parent bind is :ro.
+// create yolo's mountpoints inside the user's source — measured 2026-09-30 with podman 5.8.7
+// in a nested (rootful) jail: the nested mountpoint is created in the host directory even
+// when the parent bind is :ro and refuses the jail's own writes.
 // Each is a `yolo check` error naming yolo's path, a bare element whose BASENAME is one of
 // the names included — the likeliest way to hit it.
 func TestAMountOnYolosOwnContextPathIsRefused(t *testing.T) {
