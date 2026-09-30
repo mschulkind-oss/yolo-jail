@@ -207,6 +207,25 @@ func runHostCatalogCheck(t *testing.T, floor *hostfloor.Floor) (string, *reporte
 	return buf.String(), r
 }
 
+// IN A JAIL WHOSE ENVIRONMENT NAMES NO NPM PREFIX the catalog is read where the jail's launchers
+// install the agent: $NPM_CONFIG_PREFIX, else $HOME/.npm-global, the one rule the entrypoint's Env
+// and every generated launcher resolve the prefix by. A process whose environment carries HOME and
+// no prefix (the macos-user sandbox's closed environment list names none) must not be told there
+// is nowhere to look while the agent sits at the default prefix.
+func TestCheckReadsTheJailsDefaultNpmPrefix(t *testing.T) {
+	home := t.TempDir()
+	installAgentx(t, filepath.Join(home, ".npm-global", "lib", "node_modules", "@test", "agentx"), "alpha-1")
+	packsFixture(t, `{"packs": ["file://`+catalogPack(t)+`"]}`)
+	env := map[string]string{"YOLO_VERSION": "test", "HOME": home}
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{Getenv: func(k string) string { return env[k] }}).sectionPacks(r, jsonx.NewOrderedMap())
+	out := buf.String()
+	if want := `provider "gw" lists "ghost-9", which no installed agent's catalog knows`; !strings.Contains(out, want) {
+		t.Errorf("the check should read the catalog at $HOME/.npm-global and say %q:\n%s", want, out)
+	}
+}
+
 // THE SHIPPED DECLARATION READS pi 0.99.1's LAYOUT: its catalog is one JSON file per provider under
 // pi-ai's dist/providers/data, {"<api>": {"chat:<id>": {"id": "<id>", …}}} (MEASURED 2026-09-30 on
 // the installed 0.99.1). A fixture install in that shape, under a jail's npm prefix, is read by the

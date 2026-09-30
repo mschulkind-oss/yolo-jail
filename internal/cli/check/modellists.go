@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/modelcatalog"
@@ -147,6 +148,11 @@ type declaredCatalog struct {
 // (<prefix>/lib/node_modules/<package>, where its launcher installs it), at the host the host
 // floor's copy, which is what `yolo host -- <agent>` runs (host-tool-provisioning.md).
 //
+// THE JAIL'S PREFIX IS THE ENTRYPOINT'S RULE (entrypoint.NewEnv: $NPM_CONFIG_PREFIX, else
+// $HOME/.npm-global), the one every generated launcher installs by, never a second reading of it:
+// the macos-user sandbox's closed environment list (macosuser.sandboxEnvPairs) names no prefix,
+// leaving the default to those launchers and rc files, so a process there can carry HOME alone.
+//
 // THE HOST'S COPY IS THE ONE THE FLOOR'S DISPOSITION SAYS `yolo host` RUNS (hostfloor.Status, the
 // answer the Host agent floor section prints), never whatever record the prefix still holds: a
 // program with no floor entry (`host_floor` leaves its pack out, or this machine cannot hold it)
@@ -177,13 +183,21 @@ func (o *Options) declaredCatalogs(packs []*packload.Pack) []declaredCatalog {
 			c := declaredCatalog{name: inst.Bin, globs: inst.ModelCatalog}
 			name, _ := packdecl.SplitNpmSpec(inst.Package)
 			if inJail {
-				prefix := o.getenv("NPM_CONFIG_PREFIX")
-				if prefix == "" {
-					c.missing = "this jail names no npm prefix (NPM_CONFIG_PREFIX), so there is nowhere to look"
-				} else {
-					c.dir = filepath.Join(prefix, "lib", "node_modules", filepath.FromSlash(name))
-					c.missing = "not installed in this jail yet: its launcher installs it on first use"
+				vars := map[string]string{"HOME": o.getenv("HOME"), "JAIL_HOME": o.getenv("JAIL_HOME")}
+				if prefix := o.getenv("NPM_CONFIG_PREFIX"); prefix != "" {
+					vars["NPM_CONFIG_PREFIX"] = prefix
 				}
+				// Neither a prefix nor a home: NewEnv would guess the container's /home/agent, a
+				// directory this process was not told about, so there is nowhere to look.
+				if vars["NPM_CONFIG_PREFIX"] == "" && vars["HOME"] == "" && vars["JAIL_HOME"] == "" {
+					c.missing = "this jail names neither an npm prefix (NPM_CONFIG_PREFIX) nor a HOME, " +
+						"so there is nowhere to look"
+					out = append(out, c)
+					continue
+				}
+				c.dir = filepath.Join(entrypoint.NewEnv(vars).NpmPrefix, "lib", "node_modules",
+					filepath.FromSlash(name))
+				c.missing = "not installed in this jail yet: its launcher installs it on first use"
 				out = append(out, c)
 				continue
 			}
