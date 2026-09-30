@@ -1514,7 +1514,8 @@ should show instead is an open question ([OQ-MM1](../design/model-lists-and-pick
 **`enforce_models`** is a profile field, like `via`, that decides whether a narrowed list also
 REFUSES other models. It defaults to on: claude's allowlist (`availableModels` with
 `enforceAvailableModels`), opencode's whitelist and pi's extension then turn away a model outside
-the list. Off (`"enforce_models": false`), the list only shapes the menus, and opencode's menu is not narrowed at
+the list, pi's on every provider but `openai-codex`, whose own registration carries no refusal
+yet. Off (`"enforce_models": false`), the list only shapes the menus, and opencode's menu is not narrowed at
 all, since its whitelist cannot hide without refusing. With the switch off claude's start pin
 returns, on `openai-codex` and under an `only` alike, wherever the profile's `model` or the
 provider's default names a model: no allowlist then keeps an off-list saved model from starting,
