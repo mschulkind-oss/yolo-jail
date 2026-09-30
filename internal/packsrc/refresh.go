@@ -17,6 +17,11 @@ package packsrc
 // the mirror is fetched for another pack; that move is disclosed like any other.)
 // `yolo pack update` and `yolo pack install` (Force) fetch every pack regardless.
 //
+// Whether a ref resolves is asked of the mirror alone: a lookup never fetches, not even a
+// commit the partial mirror lacks (gitCmd). So a pinned commit that is not there reads as
+// never fetched and arrives through the fetch, and one on no branch or tag of the remote
+// through a fetch of it by its id (fetchPinnedCommits).
+//
 // WHY A LAUNCH MAY FETCH AT ALL, when it used to be deliberately offline. The two reasons
 // that kept it offline are gone: the y/N host-access approval at install was deleted by
 // OQ-TP9 (docs/design/trust-paths.md), and "a launch is offline" was never true (the nix
@@ -340,6 +345,12 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 					}
 				}
 			}
+			// A commit a pack pins that is on no branch or tag, which that fetch did not bring.
+			addrs := make([]Addr, len(items))
+			for i, it := range items {
+				addrs[i] = it.addr
+			}
+			s.fetchPinnedCommits(b, mirror, addrs)
 		} else {
 			s.recordFetchFailure(repo, fetchErr)
 		}
@@ -461,7 +472,8 @@ const (
 )
 
 // classifyRef says what ref names in the mirror, the full ref name for a tag or branch,
-// and the commit it resolves to, with no network. A TAG IS CHECKED BEFORE A BRANCH
+// and the commit it resolves to, with no network (revParse fetches nothing, a commit the
+// partial mirror lacks included). A TAG IS CHECKED BEFORE A BRANCH
 // because that is git's own precedence for a bare name, and so the commit resolveCommit
 // picks for the ref as written.
 //
@@ -586,6 +598,18 @@ func (s *Store) decidedCommit(a Addr) string {
 
 func (s *Store) fetchFailure(repo string) error {
 	if v, ok := fetchFailures.Load(s.failureKey(repo)); ok {
+		return v.(error)
+	}
+	return nil
+}
+
+// pinnedFetchFailures is this PROCESS's record of a failed fetch of a pinned commit by its id
+// (fetchPinnedCommits), per store+repo+ref, so resolution can name it. In memory for the
+// reason fetchFailures is.
+var pinnedFetchFailures sync.Map
+
+func (s *Store) pinnedFetchFailure(a Addr) error {
+	if v, ok := pinnedFetchFailures.Load(s.decidedKey(a)); ok {
 		return v.(error)
 	}
 	return nil

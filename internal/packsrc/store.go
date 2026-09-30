@@ -11,7 +11,9 @@ package packsrc
 // Now a launch runs Refresh first (refresh.go): a never-fetched pack is fetched, a
 // branch is re-fetched at most hourly, and a tag or full commit SHA is never re-fetched
 // — "the ref decides" what moves. Resolve itself is still offline; the network
-// happens in fetchMirror, which Sync and Refresh call.
+// happens in fetchMirror and fetchPinnedCommits, which Sync and Refresh call, and in a
+// checkout's fetch of the files it needs (prefetchBlobs, checkoutTree). No other git run
+// fetches (gitCmd).
 //
 // Layout, and the mirror/tree split is load-bearing:
 //
@@ -40,6 +42,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -218,12 +221,20 @@ func (s *Store) newBudget() (budget, context.CancelFunc) {
 // git's child processes (GIT_CONFIG_PARAMETERS), it also covers the lazy blob fetch a
 // checkout of the partial (--filter=blob:none) mirror makes. A pack is third-party
 // content, so a malformed object is rejected at the boundary rather than after it is in
-// the store.
+// the store. A run not given them fetches nothing (receivesObjects, gitCmd).
 var fsckArgs = []string{"-c", "transfer.fsckObjects=true"}
 
 // withFsck prefixes args with fsckArgs.
 func withFsck(args ...string) []string {
 	return append(append([]string{}, fsckArgs...), args...)
+}
+
+// receivesObjects reports whether a git run is one the store makes TO RECEIVE OBJECTS: the
+// clone, the fetches (the mirror's, a pinned commit's, a checkout's prefetch) and the checkout,
+// whose own lazy fetch of a file is the prefetch's fallback. Those, and only those, are given
+// fsckArgs, so the argument list says which a run is, and gitCmd lets no other run fetch.
+func receivesObjects(args []string) bool {
+	return len(args) >= len(fsckArgs) && slices.Equal(args[:len(fsckArgs)], fsckArgs)
 }
 
 // gitLabel is the git subcommand args runs, for an error message: the first argument
@@ -255,12 +266,32 @@ func (s *Store) gitCmd(ctx context.Context, dir string, args ...string) *exec.Cm
 	// GIT_TERMINAL_PROMPT=0 turns a missing credential into an immediate error
 	// instead of a 30-second askpass hang during a jail launch — the difference
 	// between a diagnosable failure and one that looks like yolo wedging.
+	//
+	// NO RUN BUT ONE THAT RECEIVES OBJECTS MAY FETCH ANY. In the partial mirror, git fetches an
+	// object it lacks from the remote on demand, inside whatever command reads it, and its exit
+	// status does not say so. Measured with git 2.55: a `rev-parse`, an `ls-tree` or an
+	// `update-ref` naming a commit the mirror lacks fetched it and exited 0. So a lookup
+	// documented as offline went to the network, received objects without fsckArgs (its
+	// index-pack ran without --fsck-objects, and took a commit fsck rejects), and, from a remote
+	// that ignores the blobless filter, printed "warning: filtering not recognized by server,
+	// ignoring". GIT_NO_LAZY_FETCH=1 makes the missing object an answer instead: rev-parse exits
+	// 1 (absent), so the refresh fetches the commit through its own, checked fetch. It is on
+	// every run but the receiving ones, rather than on a list of lookups, so a run added later
+	// is offline unless it is given fsck. Not on those: the checkout's lazy fetch is what still
+	// delivers a file the best-effort prefetch did not, and it inherits fsck through `-c`. They
+	// get GIT_NO_LAZY_FETCH=0 instead, so a caller environment that set it cannot take that
+	// fallback away. git added the variable in 2.45; a git without it ignores it and still
+	// fetches on demand, so there only runEnv keeps what that fetch prints out of the answer.
+	lazy := "GIT_NO_LAZY_FETCH=1"
+	if receivesObjects(args) {
+		lazy = "GIT_NO_LAZY_FETCH=0"
+	}
 	env := s.Env
 	if env == nil {
 		env = os.Environ()
 	}
 	cmd.Env = append(CleanGitEnv(env),
-		"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")
+		"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=", lazy)
 	if s.Detached {
 		DetachGit(cmd)
 	}
@@ -286,8 +317,9 @@ func DetachGit(cmd *exec.Cmd) {
 	cmd.WaitDelay = gitWaitDelay
 }
 
-// run executes git with a budget of the store's own timeout, returning combined output on
-// failure so the caller can surface git's own diagnosis rather than a bare exit code.
+// run executes git with a budget of the store's own timeout, returning what git printed on
+// stdout, and on failure an error carrying its stderr too, so the caller can surface git's own
+// diagnosis rather than a bare exit code.
 func (s *Store) run(dir string, args ...string) (string, error) {
 	b, cancel := s.newBudget()
 	defer cancel()
@@ -300,17 +332,27 @@ func (s *Store) runIn(b budget, dir string, args ...string) (string, error) {
 }
 
 // runEnv is runIn with env appended to the run's environment, after gitCmd's hygiene.
+//
+// THE OUTPUT IS STDOUT ALONE, the only stream that carries what a command answers; every
+// caller parses it (a commit id, ls-tree records, rev-list lines, a tag list). git's stderr
+// carries warnings even when it succeeds, and read with stdout one led the commit id revParse
+// returned ("warning: filtering not recognized by server, ignoring" from a lookup's lazy
+// fetch, gitCmd), so the checkout of that "commit" failed on the word "warning:". stderr goes
+// into the error of a run that fails, stdout after it, which is git's diagnosis either way.
 func (s *Store) runEnv(b budget, dir string, env []string, args ...string) (string, error) {
 	cmd := s.gitCmd(b.ctx, dir, args...)
 	cmd.Env = append(cmd.Env, env...)
-	out, err := cmd.CombinedOutput()
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
 	if b.ctx.Err() != nil {
 		return "", fmt.Errorf("git %s timed out after %s", gitLabel(args), b.d)
 	}
 	if err != nil {
-		return string(out), fmt.Errorf("git %s: %w\n%s", gitLabel(args), err, strings.TrimSpace(string(out)))
+		said := strings.TrimSpace(strings.TrimSpace(stderr.String()) + "\n" + strings.TrimSpace(stdout.String()))
+		return stdout.String(), fmt.Errorf("git %s: %w\n%s", gitLabel(args), err, said)
 	}
-	return string(out), nil
+	return stdout.String(), nil
 }
 
 // Sync fetches the address's repository into the store's mirror and returns the full
@@ -344,6 +386,7 @@ func (s *Store) Sync(a Addr) (string, error) {
 	}
 	if ferr == nil {
 		s.writeStamp(a, time.Now())
+		s.fetchPinnedCommits(b, mirror, []Addr{a})
 	}
 	commit, err := s.resolveCommit(mirror, a)
 	if err == nil {
@@ -401,16 +444,60 @@ func (s *Store) fetchMirror(b budget, a Addr, explicit bool) error {
 	return nil
 }
 
-// revParse resolves one revision to a full commit SHA in the mirror. It reads refs and
-// objects only.
+// fetchPinnedCommits asks the remote for every commit that addrs pin by full SHA and the mirror
+// still lacks after fetchMirror: a commit on no branch or tag of the remote, such as a deleted
+// branch's or a pull request's, which a fetch of the branches and tags does not bring. The
+// caller holds the mirror's lock and has just fetched it successfully.
+//
+// This is how such a pin is delivered now that no lookup fetches (gitCmd). The lookup's own
+// fetch used to deliver it, unchecked; this one runs with fsckArgs. It moves no ref, and never
+// starts a gc, which is the fetch of the branches and tags' to start or not (fetchMirror).
+//
+// ONE FETCH PER COMMIT, so a pin the remote lacks (a typo) cannot fail the fetch of another. A
+// failure is not the mirror's either: the fetch of its branches and tags succeeded, and a pack
+// that pins no missing commit is unaffected. It is recorded for the addresses it was for, and
+// resolution names it (resolveCommit) instead of calling the commit missing from the remote,
+// since a remote that refused it, or sent an object fsck rejects, may well have it.
+func (s *Store) fetchPinnedCommits(b budget, mirror string, addrs []Addr) {
+	var want []string
+	askers := map[string][]Addr{}
+	for _, a := range addrs {
+		if !isFullSHA(a.Ref) {
+			continue
+		}
+		pinnedFetchFailures.Delete(s.decidedKey(a))
+		if _, seen := askers[a.Ref]; !seen {
+			if sha, err := s.revParse(mirror, a.Ref); err != nil || sha != "" {
+				continue // the mirror holds it, or git could not say: resolution reports which
+			}
+			want = append(want, a.Ref)
+		}
+		askers[a.Ref] = append(askers[a.Ref], a)
+	}
+	for _, sha := range want {
+		_, err := s.runIn(b, mirror, withFsck("-c", "gc.auto=0", "fetch", "origin", "--no-tags",
+			"--no-write-fetch-head", "--recurse-submodules=no", sha)...)
+		if err == nil {
+			continue
+		}
+		for _, a := range askers[sha] {
+			pinnedFetchFailures.Store(s.decidedKey(a), err)
+		}
+	}
+}
+
+// revParse resolves one revision to a full commit SHA in the mirror. It reads the mirror's
+// refs and objects only, and FETCHES NOTHING: a full SHA the partial mirror lacks is absent
+// here even when the remote has it (GIT_NO_LAZY_FETCH, gitCmd), so the refresh fetches it
+// through its own checked fetch. The SHA is read from git's stdout alone (runEnv).
 //
 // "" WITH A NIL ERROR IS GIT'S OWN ANSWER that rev names no commit in the mirror, and it is
 // the only answer that means absent. `rev-parse --verify --quiet` gives it as exit status 1,
-// whatever it printed (measured, git 2.55): silently for a ref the mirror lacks, and with a
-// message on stderr for a ref naming a tree or a blob, for a broken loose ref git ignores, and
-// for a full SHA the partial mirror lacks once its lazy fetch of it fails. Every one of those is
-// repaired by a fetch, or is a ref no fetch will find, so each must read as absent; a stricter
-// test on stderr would stop a pinned commit the remote lacks from reading as missing.
+// whatever it printed (measured, git 2.55): silently for a ref the mirror lacks and for a full
+// SHA it lacks, and with a message on stderr for a ref naming a tree or a blob and for a broken
+// loose ref git ignores. Every one of those is repaired by a fetch, or is a ref no fetch will
+// find, so each must read as absent; a stricter test on stderr would stop a ref naming a tree
+// from reading as missing.
 //
 // ANYTHING ELSE IS AN ERROR, never absent: a run that overran the store's timeout, git's own
 // fatal exit 128 (not a repository, an unparseable config or packed-refs, a corrupt object), a
@@ -456,13 +543,16 @@ func (e *storeMiss) Unwrap() error { return e.kind }
 // different: the fetch this process tried FAILED (the error names why); a fetch
 // SUCCEEDED and the remote does not have the ref (a typo in ?ref=, or a deleted branch —
 // no launch repairs it); or nothing has fetched it yet (ErrNotFetched — the next host
-// launch does). A fourth is not about the ref at all: git could not read the mirror (a
-// rev-parse that timed out or failed, revParse), and the error is git's own, since neither a
-// fetch nor an edit of ?ref= is what repairs it.
+// launch does). A commit pinned by its id adds one between the first two: the fetch of the
+// branches and tags succeeded without it, and the fetch of it by its id failed
+// (fetchPinnedCommits), named by that fetch's error. And one failure is not about the ref at
+// all: git could not read the mirror (a rev-parse that timed out or failed, revParse), and
+// the error is git's own, since neither a fetch nor an edit of ?ref= is what repairs it.
 func (s *Store) resolveCommit(mirror string, a Addr) (string, error) {
-	// Try the ref as written, then as a branch/tag. rev-parse on a bare repo
-	// resolves a SHA, a branch, or a tag without touching the network. A lookup that
-	// FAILED ends the search: a later candidate cannot answer for the one before it.
+	// Try the ref as written, then as a branch/tag. rev-parse on a bare repo resolves a
+	// SHA, a branch, or a tag without touching the network, a commit the partial mirror
+	// lacks included (revParse). A lookup that FAILED ends the search: a later candidate
+	// cannot answer for the one before it.
 	for _, cand := range []string{a.Ref, "refs/heads/" + a.Ref, "refs/tags/" + a.Ref} {
 		sha, err := s.revParse(mirror, cand)
 		if err != nil {
@@ -476,6 +566,10 @@ func (s *Store) resolveCommit(mirror string, a Addr) (string, error) {
 		return "", &storeMiss{kind: ErrNotFetched, msg: fmt.Sprintf("ref %q not found in the pack "+
 			"mirror of %s, and fetching it failed: %s — the next host launch retries, or run "+
 			"`yolo pack install` to fetch it now", a.Ref, a.Repo, oneLine(ferr))}
+	}
+	if perr := s.pinnedFetchFailure(a); perr != nil {
+		return "", fmt.Errorf("commit %s is on no branch or tag of %s, and fetching it by its id "+
+			"failed: %s", a.Ref, a.Repo, oneLine(perr))
 	}
 	if s.fetchedRef(a) {
 		return "", fmt.Errorf("ref %q not found on the remote %s: the pack mirror was fetched "+
@@ -873,9 +967,9 @@ func (s *Store) storeCommit(a Addr) (string, error) {
 //
 // The commands it runs in the mirror read refs and objects only: `git rev-parse`, and, for a
 // subdirectory pack whose tree is not checked out, `git ls-tree` (checkSubdir), which reads
-// trees and so fetches nothing from the partial mirror. Resolution stays the launch's: the
-// same mirror, the same ref, the same commit, so a pack this answers for is the pack a launch
-// would stage. A subdirectory pack with no tree of its own is also read from a complete
+// trees. Neither fetches, a commit the partial mirror lacks included (gitCmd). Resolution
+// stays the launch's: the same mirror, the same ref, the same commit, so a pack this answers
+// for is the pack a launch would stage. A subdirectory pack with no tree of its own is also read from a complete
 // whole-commit tree of that commit, which an earlier yolo left for it (existingFromStore):
 // the same directory of the same commit.
 func (s *Store) ResolveExisting(a Addr, name string) (*Resolved, error) {

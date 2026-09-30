@@ -335,8 +335,10 @@ func TestCheckoutFetchesTheFilesItNeedsInOneRequest(t *testing.T) {
 	control := filepath.Join(t.TempDir(), "control.git")
 	gitIn(t, "", "clone", "-q", "--bare", "--filter=blob:none", "file://"+repo, control)
 	controlTrace := filepath.Join(t.TempDir(), "control.trace")
+	// The checkout checkoutTree runs, fsckArgs included: those are what allow a store run to
+	// fetch on demand at all (gitCmd).
 	cmd := (&Store{Env: append(os.Environ(), "GIT_TRACE="+controlTrace)}).gitCmd(t.Context(), control,
-		"--work-tree="+t.TempDir(), "checkout", "--force", head, "--", literalPathspec(sub))
+		withFsck("--work-tree="+t.TempDir(), "checkout", "--force", head, "--", literalPathspec(sub))...)
 	cmd.Env = append(cmd.Env, "GIT_INDEX_FILE="+filepath.Join(t.TempDir(), "index"))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("control checkout: %v\n%s", err, out)

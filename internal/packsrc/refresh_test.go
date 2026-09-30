@@ -142,9 +142,10 @@ func TestRefreshFetchesARefTheMirrorLacks(t *testing.T) {
 
 // ONLY GIT'S OWN "NO SUCH COMMIT" IS ABSENT, and classifyRef returns it with no error for
 // every shape git answers it in (exit status 1, measured with git 2.55): a ref the mirror
-// lacks, silently; a tag naming a tree, with "expected commit type" on stderr; a full SHA
-// neither the partial mirror nor its remote holds, with its failed lazy fetch on stderr. What
-// does resolve is classified by kind, a tag before a branch.
+// lacks, silently; a tag naming a tree, with "expected commit type" on stderr; a full SHA the
+// partial mirror lacks, silently, since no lookup fetches it (this one the remote lacks too;
+// TestALookupOfACommitTheMirrorLacksFetchesNothing asks about one it holds). What does resolve
+// is classified by kind, a tag before a branch.
 func TestClassifyRefAbsentIsGitsOwnAnswer(t *testing.T) {
 	f := newRefreshFixture(t)
 	c1 := f.head(t)

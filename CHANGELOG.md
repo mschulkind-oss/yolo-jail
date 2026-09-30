@@ -690,6 +690,14 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   damaged. It now warns, naming the pack, its ref and git's error, and uses the version it has.
   When git cannot read the copy at all, the launch still stops, but now shows git's error where
   it used to say the ref was missing.
+- A git pack pinned to a full commit id (`?ref=` and 40 hex digits) that yolo's copy of the
+  repository did not have yet no longer fails to check out, from a server that does not support
+  partial clone, with an error quoting git's `filtering not recognized by server` warning. With
+  git 2.45 or later that commit is also downloaded with the checks every other download gets:
+  git used to fetch it by itself while yolo was only looking the id up, without the check that
+  refuses malformed objects. A pinned commit on no branch or tag of the remote, such as a
+  deleted branch's, is still delivered, and when the remote cannot supply it the error now
+  shows git's reason.
 - When your pi's catalog lacks some of the ChatGPT subscription models yolo lists, the warning pi
   shows now tells you why and what to do. Along with the missing models and what they lose, it
   names the pi you are running, for example `Your pi (0.85.1) predates these models`, and says

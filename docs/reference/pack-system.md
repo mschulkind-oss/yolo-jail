@@ -2664,7 +2664,7 @@ a key that does nothing must not be accepted quietly.
 
   | The ref is | The launch |
   | :--- | :--- |
-  | not in the store (no mirror, or the mirror does not hold the ref) | fetches the remote and checks the commit out, the same code path `install` runs |
+  | not in the store (no mirror, or the mirror does not hold the ref) | fetches the remote and checks the commit out, the same code path `install` runs. A full commit SHA on no branch or tag of the remote (a deleted branch's, a pull request's) is then fetched by its id |
   | a full 40-hex commit SHA the mirror holds | never fetches. A commit is frozen |
   | a tag the mirror holds (`refs/tags/<ref>`) | never fetches. A tag is treated as immutable, so following a re-pointed tag takes an explicit `yolo pack install` or `yolo pack update` |
   | a branch (`refs/heads/<ref>`) | fetches when the last successful refresh of that mirror and ref is more than an hour old, and otherwise uses the mirror as it is |
@@ -2699,9 +2699,15 @@ a key that does nothing must not be accepted quietly.
   the same two. A launch that waited on another's fetch re-reads the refresh time, so two
   launches started together fetch a branch once.
 - **Git hygiene is the install path's, and then some.** Every git run that receives objects
-  (the clone, the fetch, and a checkout of the partial mirror, which fetches blobs) runs with
-  fsck-on-transfer, so malformed third-party content is rejected at the boundary, and with
-  terminal prompts disabled, so a missing credential errors instead of hanging. A launch also
+  (the clone, the fetch, the fetch of a pinned commit by its id, and a checkout of the partial
+  mirror, which fetches blobs) runs with fsck-on-transfer, so malformed third-party content is
+  rejected at the boundary, and with terminal prompts disabled, so a missing credential errors
+  instead of hanging. **No other git run receives any.** In a partial mirror git fetches a
+  missing object from the remote inside any command that reads it, so every other run, such as
+  the lookup of a ref, has that turned off (`GIT_NO_LAZY_FETCH`): a commit the mirror lacks is
+  "not in the store" to the lookup and arrives through the fetch. git added that switch in
+  2.45; a git without it ignores it and still fetches such a commit during the lookup, without
+  the check. A launch also
   runs git with no controlling terminal: ssh reads its host-key and passphrase prompts from
   the terminal rather than through git, so without that a first contact with an ssh host would
   stop the launch at a prompt. On a timeout it kills git's whole process group, transport
@@ -2709,7 +2715,8 @@ a key that does nothing must not be accepted quietly.
   there. A git pack is cloned into a content-addressed
   store: a bare mirror per repository and a checkout per commit. The mirror is a partial
   (`--filter=blob:none`) clone: it holds every commit and directory listing of the
-  repository's branches and tags, and a file's contents only once a checkout needs them. A
+  repository's branches and tags and of any commit a pack pins by its id, and a file's contents
+  only once a checkout needs them. A
   checkout fetches the contents it lacks in one request before it starts, since git's own
   checkout would fetch each file separately, one connection to the remote apiece. A remote
   that does not support partial clone ignores the filter and sends everything.
