@@ -313,6 +313,11 @@ instead of being skipped behind a warning. See
 
 ### Changed
 
+- Re-entering a jail with `YOLO_ALLOW_ATTACH_SKEW=1` now also tells the agent, in its briefing,
+  which yolo the jail was started with and which settings of the profile you selected did not
+  reach it, so the agent can explain a missing login instead of guessing. On Apple Container the
+  launch says the briefing cannot carry it there.
+
 - GPT-6.1 Sol replaces GPT-6 Sol for every agent on the ChatGPT subscription (`-p codex`): it is the default and the first entry in the model menus, and GPT-6 Sol is no longer listed. If you had picked GPT-6 Sol yourself, pick a model again.
 
 **The launch's profile line now says what your selection reached for each agent.** Instead of

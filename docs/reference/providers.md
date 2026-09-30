@@ -581,7 +581,8 @@ re-hydrates it). Consequences worth knowing:
   as a fresh launch. Elsewhere, or when the question is declined, it refuses and names the
   two-command series, `yolo stop` and then an ordinary launch. `YOLO_ALLOW_ATTACH_SKEW=1`
   proceeds but delivers nothing, so the jail keeps what its last entry gave it, and says
-  so on stderr. Typed `-p` and config-side selections are treated alike. Two older jails
+  so on stderr and in the briefing it refreshes for the session
+  ([SK-D15](../design/attach-skew-and-contract-guardrails.md#decision-ledger)). Typed `-p` and config-side selections are treated alike. Two older jails
   lack a tag:
   - A jail launched BEFORE the file crossing carries the tables in its frozen environment,
     which its older entrypoint lets beat the file. It lacks `entry-channel`, so an entry

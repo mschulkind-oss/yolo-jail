@@ -125,11 +125,18 @@ conditional sections that appear only when their data exists. Emission order, fr
 1. **The confinement header** — see [Confinement](#confinement).
 2. **⚠ Provisioning failed** — conditional, when the provisioning log records a failure.
    Refreshed every invocation, so it appears on the next attach after a failed boot.
-3. **Handoff** — conditional, when a fresh handover pointer is carried this launch.
-4. **Environment** — workspace, home, OS, the network paragraph, the two port sections, and
+3. **⚠ This session runs in a jail that could not take what started it** — conditional, and
+   only in the briefing an attach refreshes when it went ahead under `YOLO_ALLOW_ATTACH_SKEW`
+   into a jail that could not receive what the entry delivers: the version the jail was
+   launched with, each contract tag it lacks, what else differs, what was withheld (names only)
+   and the restart that ends it. The next entry's refresh drops it
+   ([`SK-D15`](../design/attach-skew-and-contract-guardrails.md#decision-ledger)). An Apple
+   Container jail never shows it, since its briefing is the copy its launch made.
+4. **Handoff** — conditional, when a fresh handover pointer is carried this launch.
+5. **Environment** — workspace, home, OS, the network paragraph, the two port sections, and
    the resource limits the backend actually imposes.
-5. **The `rg --replace` trap** warning.
-6. **Storage classes** — leads with the launch's durable dir, `$YOLO_DURABLE_DIR`, as the
+6. **The `rg --replace` trap** warning.
+7. **Storage classes** — leads with the launch's durable dir, `$YOLO_DURABLE_DIR`, as the
    place for work that must survive a restart and for `--lock`ed worktrees, or says why this
    launch has none ([`durable-scratch-space.md`](../design/durable-scratch-space.md)). On a
    container backend the jail's storage classes follow (per launch, per workspace, every
@@ -143,19 +150,19 @@ conditional sections that appear only when their data exists. Emission order, fr
    On `macos-user` the section is the durable dir and one line about the Mac's shared `/tmp`.
    At the host notch it is absent, and the confinement header says in one sentence what the
    machine's `/tmp` survives.
-7. **What this environment does NOT do for you** — conditional, the backend's own
+8. **What this environment does NOT do for you** — conditional, the backend's own
    limitations. Placed **before** the capability sections deliberately: these are
    constraints that change how everything below them should be read, and a constraint
    discovered after the capability it qualifies has already been read too late.
-8. **Loopholes** — conditional, the actual active set by name rather than an instruction to
+9. **Loopholes** — conditional, the actual active set by name rather than an instruction to
    enumerate.
-9. **Blocked Tools** — conditional, from the blocked-tool config merged with what packs
+10. **Blocked Tools** — conditional, from the blocked-tool config merged with what packs
    contribute.
-10. **Additional Context Mounts** — conditional, and filtered to the mounts the backend will
+11. **Additional Context Mounts** — conditional, and filtered to the mounts the backend will
    actually bind (`run.briefedCtxMounts`): config `mounts` entries and pack `mount` grants, each
    labelled read-only or read-write, a grant with its pack, under a line naming what
    `$YOLO_CONTEXT_DIR` is on this backend.
-11. **Limitations**, **Packages & Resource Limits**, **Skills** — the three standing
+12. **Limitations**, **Packages & Resource Limits**, **Skills** — the three standing
     sections. On a backend with no container the middle one is **Packages**: it offers no
     resource cap and says outright that `resources` is not enforced there.
 
