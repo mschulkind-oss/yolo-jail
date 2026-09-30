@@ -1469,10 +1469,13 @@ the question, because the kernel drops a flock only when every descriptor for it
   at a `sudo` prompt, the leak [§4.2](#42-the-count-a-host-side-session-lock) designs against.
 - **A `yolo host` launch from a directory `paths.WorkspaceScopeBreach` refuses as a workspace**,
   such as the home directory a launcher widget starts in
-  ([`workspacescope.go`](../../internal/paths/workspacescope.go)), has no workspace to keep a
-  sidecar's state and log in (`YOLO_SIDECAR_STATE`, and `<workspace>/.yolo/sidecars/`,
-  [`agent-event-watchers.md` §3.2](agent-event-watchers.md#32-lifecycle-per-side-and-per-notch)).
-  It gets no key and no keeper, and runs as today.
+  ([`workspacescope.go`](../../internal/paths/workspacescope.go)), is not a workspace yolo keeps
+  state for: `paths.EnsureWorkspaceStateDir` refuses to make a `.yolo` there, so no sidecar is
+  enabled for it and no enablement record names it
+  ([`agent-event-watchers.md` §12.3](agent-event-watchers.md#123-the-command)). It gets no key
+  and no keeper, and runs as today. A sidecar's state and log are in host state no jail mounts in
+  any case, never in a workspace's `.yolo/`
+  ([EW-D31](agent-event-watchers.md#EW-D31)).
 
 #### 9.9.4 What the keeper owns there
 
@@ -1770,7 +1773,7 @@ starts it"*. From now on it reads this way ([JL-D43](#JL-D43)):
 | 4 | The ping box at macos-user must be written by two accounts, the host user's sidecars and the sandbox's `yolo notify`, and read by the sandbox's deliverers | the per-file grants a launch makes are read-only (`sandboxFileReadRights`, [`envfile.go`](../../internal/macosuser/envfile.go)), but setup already provisions the two-account write shape: a host-user-owned, group-`_yolojail`, setgid `2770` dir with inheriting ACEs, the host user being in that group (`SharedRootProvisionCommands`, `WorkspaceACLAces` and `CreateUserCommands` in [`macosuser.go`](../../internal/macosuser/macosuser.go)); SOURCED | the box goes in a dir of that shape outside every workspace, which the keeper, as the host user, can create without `sudo`; the box in it is unbuilt, and that shape's use for it is UNMEASURED on a Mac |
 | 5 | macOS has no `/proc/self/exe` and no systemd | [§9.8](#98-per-notch-podman-apple-container-macos-user-yolo-host) | the build-stamp refusal ([JL-D20](#JL-D20)) and Setsid alone, as for podman on macOS |
 | 6 | macos-user's session env file and its Seatbelt profile are described as per session but keyed per workspace (`SandboxEnvFile(cname, …)`, `<stateDir>/env/<cname>.env`; `SessionProfilePath(cname, …)`, `profile-<cname>.sb`), and every launch rewrites both; each session also removes the env file at its end. `RunMacosUser` releases the workspace lock before the sandbox reads either, so a second session writing them in that gap would hand the first sandbox the second's environment, which is scoped to another launched agent, or its profile | [`envfile.go`](../../internal/macosuser/envfile.go), [`macosuser.go`](../../internal/macosuser/macosuser.go), and `RunMacosUser`'s `InstallRootFile`, deferred removal and `release()` before `RunWithProxy`; SOURCED; the race INFERRED | both stay the session's, so the keeper does not fix them; a per-session name would, and it is recorded here as found |
-| 7 | A `yolo host` launch from the home directory has no workspace to keep sidecar state in | `paths.WorkspaceScopeBreach` | no key and no keeper there ([§9.9.3](#993-one-keeper-per-workspace-per-notch)) |
+| 7 | A `yolo host` launch from the home directory is not a workspace yolo keeps state for, so no sidecar is enabled for it | `paths.WorkspaceScopeBreach`, which `paths.EnsureWorkspaceStateDir` enforces | no key and no keeper there ([§9.9.3](#993-one-keeper-per-workspace-per-notch)) |
 | 8 | State shared across workspaces cannot be owned by a per-workspace keeper. Every `yolo host -- codex` on the machine runs on one managed Codex home keyed on the pack, whose `auth.json` carries one caller token that its live launches share. Two workspaces' keepers, each minting a token into that file, would bring NC-D18's breakage back | `prepare` and `sharedCallerToken` in [`host.go`](../../internal/openaiauthhost/host.go), [NC-D18](../plans/notch-convergence.md#NC-D18); SOURCED | under [OQ-JL9](#OQ-JL9)'s A and B the home keeps NC-D18's machine-wide token and lock; its C makes the home per workspace, the scope `.codex` has in a jail and at macos-user. The host-wide brokers stay outside every keeper, as [HD-R1](host-daemon-ownership.md#HD-R1)'s build leaves them |
 | 9 | An agent-side sidecar at macos-user cannot be kept to one instance per workspace. It would run under each session's guest supervisor, which runs as the sandbox account and is started by that session's `sudo`; only keepers take [EW-D25](agent-event-watchers.md#EW-D25)'s one-instance lock, and a keeper cannot start what runs as the sandbox account (row 2), so two sandboxes would each ping | [EW-D25](agent-event-watchers.md#EW-D25), and the guest supervisor's start in `RunMacosUser` ([`orchestrator.go`](../../internal/macosuser/orchestrator.go)); SOURCED | not started at macos-user, and each launch says so; the same sidecar declared host side runs there under the keeper. It covers user-declared sidecars, which row 2's "no shipped pack" does not |
 
