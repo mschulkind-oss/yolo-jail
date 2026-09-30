@@ -149,3 +149,51 @@ func TestRMWPreservesUnknownKeysAndCannotExpressRemoval(t *testing.T) {
 		}
 	}
 }
+
+// COPILOT'S SETTINGS LIVE IN settings.json, AND yolo WRITES THEM THERE. Since 1.0.35 copilot
+// keeps its user settings in ~/.copilot/settings.json and, at every start, moves any
+// settings-schema key it finds in config.json there, deleting it from config.json (1.0.48
+// app.js: "Settings migration: moved ${m} setting(s) from config.json to settings.json").
+// `statusLine` is such a key. Written into config.json, yolo's footer default was drained by
+// copilot on every start and put back by the next boot, forever
+// (docs/design/model-lists-and-pickers.md §14.2, "A side defect for packs/copilot"). The
+// default now lands in settings.json, beside the settings copilot or the user keep there, and
+// config.json no longer receives it.
+func TestCopilotStatusLineDefaultLandsInSettingsJSON(t *testing.T) {
+	e := &Env{Home: t.TempDir(), Workspace: t.TempDir(), Vars: map[string]string{}}
+	dir := filepath.Join(e.Home, ".copilot")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"theme":"dark","model":"claude-sonnet-5"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
+		t.Fatal(err)
+	}
+	settings := decodeJSONFile(t, settingsPath)
+	line, _ := settings["statusLine"].(map[string]any)
+	if cmd, _ := line["command"].(string); line["type"] != "command" || !strings.Contains(cmd, "footer.sh") {
+		t.Errorf("settings.json statusLine = %v, want yolo's footer command", settings["statusLine"])
+	}
+	if settings["theme"] != "dark" || settings["model"] != "claude-sonnet-5" {
+		t.Errorf("settings.json lost copilot's own settings: %v", settings)
+	}
+	cfg := decodeJSONFile(t, filepath.Join(dir, "config.json"))
+	if _, present := cfg["statusLine"]; present {
+		t.Errorf("config.json still receives statusLine %v — copilot moves it to settings.json "+
+			"at every start, so the next boot writes it back", cfg["statusLine"])
+	}
+
+	// A footer the user set in settings.json is theirs: yolo's is a DEFAULT.
+	if err := os.WriteFile(settingsPath, []byte(`{"statusLine":{"type":"command","command":"mine.sh"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigurePackByName(e, "copilot"); err != nil {
+		t.Fatal(err)
+	}
+	if line, _ := decodeJSONFile(t, settingsPath)["statusLine"].(map[string]any); line["command"] != "mine.sh" {
+		t.Errorf("settings.json statusLine = %v, want the user's own kept", line)
+	}
+}

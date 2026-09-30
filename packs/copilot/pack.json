@@ -31,15 +31,24 @@
           "agent": "copilot",
           "codec": "json",
           "defaults": {
-            "statusLine": {
-              "command": "test ! -r ~/.copilot/yolo/footer.sh || sh ~/.copilot/yolo/footer.sh",
-              "type": "command"
-            },
             "yolo": true
           },
           "mode": "rmw",
           "name": "config",
           "path": "~/.copilot/config.json"
+        },
+        {
+          "agent": "copilot",
+          "codec": "json",
+          "defaults": {
+            "statusLine": {
+              "command": "test ! -r ~/.copilot/yolo/footer.sh || sh ~/.copilot/yolo/footer.sh",
+              "type": "command"
+            }
+          },
+          "mode": "rmw",
+          "name": "settings",
+          "path": "~/.copilot/settings.json"
         }
       ],
       "kind": "config"

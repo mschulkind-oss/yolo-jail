@@ -1,9 +1,10 @@
 # yolo's segment for copilot's footer: the `custom` footer item runs this file
 # (docs/design/agent-footer.md §2, §3).
 #
-# copilot's config names only this file's PATH, and yolo fills that value into
-# ~/.copilot/config.json once, after which it is yours and no later release can
-# change it. So the path stays fixed and this file carries everything that may
+# copilot's settings name only this file's PATH, and yolo fills that value into
+# ~/.copilot/settings.json once, after which it is yours and no later release can
+# change it (settings.json, not config.json: copilot 1.0.35+ moves a setting it
+# finds in config.json there at every start). So the path stays fixed and this file carries everything that may
 # change: the copilot pack ships it and yolo rewrites it on every boot. It lives
 # in ~/.copilot/yolo/, a directory only yolo uses, never beside copilot's own
 # state.
