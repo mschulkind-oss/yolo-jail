@@ -208,11 +208,15 @@ it, and it is not a loophole: it runs entirely inside the jail and gives no acce
 
 Translating costs a few features: prompt caching and extended thinking do not survive it. On
 Amazon Bedrock the bridge skips translation for Claude models. When Claude Code or Copilot reaches
-Bedrock through the bridge, a model that the provider's model list names with the maker
-(`vendor`) `anthropic` goes to Bedrock's own Claude endpoint exactly as the agent sent it, so
-caching and thinking work, and every other model on the list is translated as before. This works
-for a Bedrock provider whose `openai` endpoint is Bedrock's `/openai/v1` address. The shipped
-`bedrock` provider does not go through the bridge yet.
+Bedrock through the bridge, a model that a pack's provider list marks as Anthropic's goes to
+Bedrock's own Claude endpoint exactly as the agent sent it, so caching and thinking work, and
+every other model on the list is translated as before. The mark is the model's maker, `vendor`,
+in the pack's `model_options`, so it comes from a pack your organization ships or from your
+[local pack](packs-and-skills.md). Your own `providers` config cannot set it: a model you add
+there is translated, and so is a pack's short name you point at a different model. This works for
+a Bedrock provider whose `openai` endpoint is Bedrock's `/openai/v1` address. The shipped
+`bedrock` provider does not go through the bridge yet, so today it takes a pack that ships such a
+provider.
 
 On your own machine the bridge runs for one command. `yolo host -p codex -- claude` runs Claude
 Code on your ChatGPT subscription: yolo starts the bridge beside `claude`, lets only that `claude`

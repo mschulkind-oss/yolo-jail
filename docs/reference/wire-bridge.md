@@ -338,7 +338,21 @@ model list at boot, and each request's `model` picks one of two upstreams
 - **Every other model** (another maker's, one listed with no vendor, one not listed) is
   translated to chat-completions exactly as the table says. The id is looked up in the list and
   never parsed for a maker, so a Claude model reaches the pass-through only by being listed with
-  its vendor. Claude's `[1m]` suffix is trimmed for the lookup and from the body sent.
+  its vendor. Claude's `[1m]` suffix is trimmed for the lookup and from the body sent, and from
+  the list's own ids, so a list that spells an id `…[1m]` for claude names the same model.
+
+**Where the vendor comes from.** Only a pack can declare one, as `model_options.<alias>.vendor`
+on its provider: a company pack's, or the local pack's. A user's `providers` entry has no
+`vendor` field, so a model the user adds is translated. Two consequences of reading the
+declaration rather than the id:
+
+- An alias that declares no vendor changes nothing. A user alias for a pack's Claude id leaves
+  that id on the pass-through. Two aliases that declare *different* vendors for one id leave it
+  translated, and the serve log names the id.
+- A pack's vendor belongs to the id the pack wrote. When the user's config points the pack's
+  alias at another id, composition drops the pack's vendor for it
+  ([providers.md](providers.md#a-re-pointed-alias-loses-the-packs-vendor)), so that id is
+  translated.
 
 Both upstreams share the route's SigV4 signer and credential chain. A Bedrock API key goes as
 `x-api-key` on the Messages route, the header AWS documents there. On the Messages route:
@@ -347,8 +361,9 @@ Both upstreams share the route's SigV4 signer and credential chain. A Bedrock AP
 | :--- | :--- |
 | an upstream refusal | its own status. An Anthropic-shaped body is relayed as sent; AWS's `{"message": …}` envelope is put into the Anthropic shape with AWS's message |
 | an expired signature | one credential refresh and one retry, as on the translating upstream |
+| a credential the bridge cannot resolve | the signer's answer, as on the translating upstream, before anything is sent: a 401 naming the sources it tried, or a 503 naming `aws-auth` and `aws sso login` when that credential service does not answer |
 | an answer framed as AWS's binary event stream (`application/vnd.amazon.eventstream`) | a 502 naming that framing, since AWS documents SSE for this route |
-| a stream that fails, or ends before `message_stop` or an `error` event | its connection aborted, so a truncated answer never reads as finished; the log names the model, the byte count and the cause |
+| an answer that fails mid-body, or an SSE answer (whether or not the request asked to stream) that ends before `message_stop` or an `error` event | its connection aborted, so a truncated answer never reads as finished; the log names the model, the byte count and the cause. The agent hanging up is not logged as a cut |
 | no response headers within ten minutes | a 504. Once headers arrive the stream runs as long as the upstream keeps sending |
 | `POST /v1/messages/count_tokens` | still **404** ([WB-D14](#wb-d14)): runtime documents no `count_tokens` on this route |
 

@@ -1149,6 +1149,8 @@ they override individual shipped facts without erasing other aliases' facts:
 > reachable value is an explicit zero. If Kilo bills cache writes at a rate it does not publish,
 > that zero understates cost silently; re-check the row before trusting the figure.
 
+<a id="a-re-pointed-alias-loses-the-packs-vendor"></a>
+
 **One shipped fact does not follow an alias you re-point: `vendor`.** A pack may declare a
 model's maker in `model_options.<alias>.vendor`, and the wire bridge routes on it: on a Bedrock
 upstream, an id declared `anthropic` goes untranslated to Bedrock's Anthropic Messages route
