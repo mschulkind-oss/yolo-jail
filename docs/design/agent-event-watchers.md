@@ -957,7 +957,7 @@ directed and lands with step 1.
 
 1. With the maintainer's pack selected and nothing else changed, `yolo -- claude` starts no
    sidecar and prints one line naming `ci-watch`, saying it is not enabled on this machine, and
-   (under [OQ-EW5](#OQ-EW5)'s leaning) naming the command that would start it. Adding
+   (as [OQ-EW5](#OQ-EW5) ruled) naming the command that would start it. Adding
    `"enabled": true` to either config changes neither.
 2. After `yolo sidecar enable ci-watch` at the host, the next launch that creates the container,
    `yolo -- claude` or `yolo -- pi`, prints one line saying `ci-watch` is enabled on this machine,
@@ -1131,7 +1131,7 @@ Two limits, stated plainly:
   ([§12.9](#129-turning-one-on-from-inside-the-jail)).
 
 The same principle explains why the act is a command rather than a launch prompt
-([OQ-EW5](#OQ-EW5)'s leaning). What makes running a watcher here safe is someone having said
+([OQ-EW5](#OQ-EW5), ruled A). What makes running a watcher here safe is someone having said
 *this is the machine*, which is knowledge, and a prompt proves only that a person is present
 ([`gate-placement-principle.md`](../reference/gate-placement-principle.md#what-this-principle-does-not-say),
 the stale-image case).
