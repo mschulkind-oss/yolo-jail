@@ -161,6 +161,9 @@ HE-DIR1), [OQ-HE10](#oq-he10) (c), [OQ-HE11](#oq-he11) (a). Retired or answered 
 - what the agent's own commands find: the caller's PATH, first ([OQ-HP7](host-tool-provisioning.md#OQ-HP7),
   [OQ-HE10](#oq-he10)).
 
+**And by implementation decision, not by ruling:** whether a key, a region or an override
+variable the launcher's shell exports counts ([HE-D10](#he-d10), reversible).
+
 **Nothing here overturns a built ruling any more.** The doc once said it overturned two, for PATH:
 [`host-agent-environment.md`'s execution flow](../reference/host-agent-environment.md#execution-flow)
 step 3, *"start from the current environment,"* and `composeHostLaunch`'s comment in
