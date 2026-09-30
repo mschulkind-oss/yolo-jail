@@ -339,6 +339,14 @@ goroutine restores cooked termios, runs `onTerminate`, and exits the process wit
 probe's final sample, while a lingering client may still be alive
 ([The terminate arm](#the-terminate-arm-and-a-killed-launcher)).
 
+**A fresh launch has one arm for its whole child window**, its own (`launchSignalArm`,
+[`jailmain.go`](../../internal/cli/run/jailmain.go)). It is installed before the main process
+starts and kept until that process's client has exited, so the boot, the first session's exec
+and the wait after it (where the fresh launch's Window A now falls) are one arm's. The proxy
+runs the first session with no arm of its own and hands this one the handle it needs to put the
+terminal back and kill the exec client (`ttyproxy.Observer.Arm`); the chain it runs, and its
+order, are the proxy's arm's. The attach arm keeps the proxy's own.
+
 > [!IMPORTANT]
 > **Ctrl-C no longer reaches this arm, as of 2026-09-19.** The host TTY is raw, so ^C arrives
 > as a byte; the proxy used to eat it and raise a targeted SIGINT at itself, which made
@@ -351,7 +359,9 @@ probe's final sample, while a lingering client may still be alive
 > ⚠ This is about a jail that is RUNNING. Everything the launch prints before the proxy
 > takes the terminal — the pack disclosures, the config-change prompt, the banner — is still
 > on a cooked TTY, so Ctrl-C there still aborts the launch, which is what the rulings that
-> rest on *"the user can still Ctrl-C"* actually depend on. `onTerminate` runs the `terminate.*` chain: stop the jail
+> rest on *"the user can still Ctrl-C"* actually depend on. So is everything after a fresh
+> launch's first session has returned: while the main process's client lingers, the terminal
+> is the shell's again, and Ctrl-C there is a SIGINT that runs the chain below, rc 130. `onTerminate` runs the `terminate.*` chain: stop the jail
 (the runtime's own graceful stop, bounded), clean up port forwarding, release the
 lock, stop the loopholes, capture config — and then prints the report as its
 **last statement**. Both arms run on this path: the terminate arm's stop is what
@@ -367,7 +377,8 @@ check, and reports.
 with a tty on stdin. A non-tty stdin (a pipe, CI) or the non-Linux fallback runs a
 plain foreground exec: `child.spawned` and `child.exited` are marked, there is no
 drain, no termios stage, and no `onTerminate`, so a signal there tears nothing
-down and reports nothing.
+down and reports nothing. A fresh launch is the exception: its own arm covers its child window
+on every path, a non-tty stdin and the non-Linux fallback included.
 
 > [!WARNING]
 > **In `onTerminate`, the report is the last statement, and nothing may follow it.**
@@ -647,6 +658,15 @@ session's typing never reaches the file.
 
 ### The terminate arm and a killed launcher
 
+> [!NOTE]
+> **A fresh launch's linger is no longer inside the proxy.** Its lingering client is the main
+> process's, which it waits for after the first session's exec, and the proxy with it, has
+> returned. The terminal is cooked there, so ^Z is the shell's ordinary job stop, with no
+> `child.suspended` mark; `kill %1` reaches the launch's own arm, which ignores SIGTTOU and
+> SIGTTIN on its way out as the proxy's does; and `kill -9 %1` leaves that client, which leads a
+> process group of its own, to exit by itself once its container has. What follows is an
+> attach's linger, and a fresh launch's before the main process became a hold.
+
 ^Z works during a linger because the proxy's own loop is still running, and it is
 marked now: `child.suspended`, then `child.resumed` on `fg`. What happens next:
 
@@ -797,7 +817,7 @@ stderr report still work, and a jail is never refused over its timing log.
 | Any other step hangs | its `start` line is in the file with no `end`; `tail` the file |
 | `podman events` times out, fails, or holds no `die` | one dim reason line beneath the table; the table is unaffected |
 | SIGHUP / SIGTERM to the launcher (or an explicit `kill -INT`) | `terminate.*` spans reach the file before the process exits; the report prints from inside the signal arm at `128 + signal`, so rc 130 for an explicit SIGINT |
-| **Ctrl-C at the keyboard** | nothing — it is forwarded to the jail (see the signal arm above), so the launcher never terminates and no report is produced |
+| **Ctrl-C at the keyboard** | nothing while a session runs — it is forwarded to the jail (see the signal arm above), so the launcher never terminates and no report is produced. After a fresh launch's first session has returned, while the main process's client lingers, the terminal is cooked and it is a SIGINT: the `terminate.*` chain, rc 130 |
 | Both teardown arms run (the ordinary signal-path interleaving) | one report, one Window A query — the once-guard |
 | A persistent opt-in with no flag | the file is written — Window A included; one dim line names it; no table and no in-container block |
 | The events query fails on a launch that prints nothing | the failure class reaches the file as a `shutdown.window_a_unattributed.<token>` mark; the prose reason has no reader and is dropped |
@@ -807,7 +827,7 @@ stderr report still work, and a jail is never refused over its timing log.
 | The client is SIGKILLed with the launcher (^Z, `kill -9 %1`) | every sample up to that moment is in the file; nothing after |
 | SIGTERM/SIGHUP while the client lingers (including `kill %1` on a stopped job) | a tagged final sample, then Window A cut at `terminate.signal`, marked `shutdown.window_a_cut.signal` |
 | A `/proc` file the probe cannot read | that field renders `?`; the sample is still written |
-| Non-tty stdin or a non-Linux host | `child.spawned` / `child.exited` only; no drain or termios marks; no signal arm |
+| Non-tty stdin or a non-Linux host | `child.spawned` / `child.exited` only; no drain or termios marks; no signal arm on an attach, while a fresh launch's own arm still runs the `terminate.*` chain |
 | `macos-user` backend | the collector records the host-side spans up to the backend dispatch and nothing after; no report and no quiet line — see [Known gaps](#known-gaps) |
 | A refused launch (the live-overlay guard) | no collector, no file, no directory |
 

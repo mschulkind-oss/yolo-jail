@@ -373,6 +373,11 @@ project's `region` with a dot or a slash in it could have sent your prompts and 
 credential to a server of its choosing. See
 [settings per setup](userguide/reference/settings-per-setup.md).
 
+**Ctrl-C now ends a slow quit.** When you quit the terminal that started a jail and yolo is still
+waiting for the jail to finish shutting down, Ctrl-C ends the wait, cleans up after the jail as
+closing the window does, and exits with status 130. While your agent runs, Ctrl-C still goes to
+the agent.
+
 ### Fixed
 
 - After a reboot, workspaces that relaunch together no longer get refused while Podman finishes
@@ -397,6 +402,11 @@ credential to a server of its choosing. See
   port forwards and cgroup delegate may be down with it, and that `yolo stop` and a new launch
   bring them back. Quitting the terminal that started a jail still ends the jail and every
   terminal in it.
+- `.yolo/boot.log` now always holds how the jail itself started, however many terminals join it
+  afterwards. Each terminal that joined used to replace it with its own start-up, pushing the
+  jail's start aside and, once a second terminal had joined, out of the log. A joining
+  terminal's start-up now goes to `.yolo/boot.session.log`, which keeps the one before it as
+  `boot.session.log.prev`.
 - Rootless Podman with no storage.conf of your own, as on stock Ubuntu 26.04, no longer fails
   every launch while delivering the image with `mkdir /run/containers: permission denied`. The
   image now goes into the store Podman itself reports, whatever your storage.conf files say, and

@@ -303,8 +303,9 @@ documented halves:
   list: which state dirs exist follows from which packs are selected.
 - **Logs and per-launch config** — `config-assembled.json` and `config-boot.json` as
   above, `startup.log` from the last new-container provisioning run, `boot.log` (plus one
-  rotation) which carries everything the entrypoint said, and `launch.log` which carries
-  everything the host launcher said.
+  rotation) which carries everything the entrypoint said as the jail started,
+  `boot.session.log` (plus one rotation) which carries the same for each session that entered
+  it since, and `launch.log` which carries everything the host launcher said.
 
 `boot.log` exists because it **outlives the container**: a boot that *refused* leaves no
 jail to ask, and the provisioning log is written by a shell wrapper that only runs on a
@@ -313,7 +314,11 @@ the same launch — the flake source, the nix build, image delivery, the pack di
 which was written down nowhere until it existed. The two retentions differ on purpose: a
 jail boots once per launch, so `boot.log` keeps one generation aside and answers "did it
 work last time?", while a host accumulates launches, so `launch.log` appends one run block
-per launch and trims to the newest 50, exactly as `host-perf.log` does beside it.
+per launch and trims to the newest 50, exactly as `host-perf.log` does beside it. Every
+session of a jail, the first included, runs the entrypoint's boot again before its command,
+and that pass goes to `boot.session.log`, never to `boot.log`: a session that rotated
+`boot.log` would push the jail's own start aside, and a relaunch after a refused boot would
+then lose that refusal's log entirely.
 
 First boot for a new workspace installs tools into empty overlay dirs; later boots reuse
 what is there.
@@ -436,6 +441,7 @@ the only place the values themselves are stated.
 | Launch lock | `<machine storage>/locks/<container-name>.lock` | `internal/cli/run/flock.go` |
 | Storage layout version | 2 | `storage.StorageLayoutVersion` |
 | Boot log, and its one rotation | `<workspace>/.yolo/boot.log`, `boot.log.prev` | `internal/entrypoint/bootlog.go` |
+| A session's boot pass, and its one rotation | `<workspace>/.yolo/boot.session.log`, `boot.session.log.prev` | `internal/entrypoint/bootlog.go` (`attachPassLog`) |
 | Launch log (the host half), trimmed to the newest 50 runs | `<workspace>/.yolo/launch.log` | `internal/cli/run/launchlog.go`, `perf.MaxRuns` |
 | Provisioning log (fresh containers only) | `<workspace>/.yolo/startup.log` | `provision.StartupLog` |
 | Host launch-wrapper dir (the one a user prepends) | `<machine storage>/bin/wrap` | `paths.WrapDir` |

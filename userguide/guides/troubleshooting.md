@@ -112,6 +112,8 @@ services, so keep it to the jails that need the device.
 
 - `yolo check` again, and read every `[FAIL]` and `[WARN]` note.
 - `<project>/.yolo/launch.log` holds everything the last launch printed, and `<project>/.yolo/boot.log`
-  what happened as the jail started.
+  what happened as the jail started. `<project>/.yolo/boot.session.log` holds the same for the
+  last terminal that entered the jail, and each log keeps the one before it with `.prev` on the
+  end.
 - [Settings per setup](../reference/settings-per-setup.md#what-works-in-each-setup) says whether a
   feature works on your setup at all.
