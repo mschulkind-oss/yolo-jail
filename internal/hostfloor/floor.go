@@ -53,7 +53,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -550,14 +549,4 @@ func HighestNodeFloor(progs []Program) string {
 		}
 	}
 	return highest
-}
-
-// sortedBins is the keys of a record map, sorted, so every report walks them in one order.
-func sortedBins(m map[string]*Record) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

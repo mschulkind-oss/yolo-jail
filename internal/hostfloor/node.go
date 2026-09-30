@@ -147,7 +147,7 @@ func (f *Floor) ensureNode(ctx context.Context, v string) (string, error) {
 	}
 	plat, ok := nodePlatform(f.GOOS, f.GOARCH)
 	if !ok {
-		return "", fmt.Errorf("Node publishes no official build for %s/%s", f.GOOS, f.GOARCH)
+		return "", fmt.Errorf("no official Node build is published for %s/%s", f.GOOS, f.GOARCH)
 	}
 	if err := f.ensureDir("node", "downloads", "locks"); err != nil {
 		return "", err
