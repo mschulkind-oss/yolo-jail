@@ -212,8 +212,7 @@ func TestTheLaunchSignalArmTearsDownAndStepsAsideForTheProxy(t *testing.T) {
 	// Armed: the teardown, then the exit, with 128+SIGHUP.
 	tore := make(chan struct{})
 	codes := make(chan int, 1)
-	var armed *launchSignalArm
-	armed = armLaunchSignalsWith(func() { close(tore) }, false, func(code int) { codes <- code })
+	armed := armLaunchSignalsWith(func() { close(tore) }, false, func(code int) { codes <- code })
 	// A proxy that does not arm (no terminal) leaves this one armed after handOff.
 	armed.handOff()
 	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
