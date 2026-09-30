@@ -99,7 +99,9 @@ var hostApplyFromPackUpdate = func(args []string, out, errw io.Writer, color boo
 // about whether an agent CLI can reach the npm registry), and an update that silently
 // stopped after the first error would leave the user unable to tell which half ran.
 func packUpdate(out, errw io.Writer, color bool) int {
-	rc := packInstall(out, errw, color)
+	// Install's whole act, with every fork's pin re-resolved: update is the act that moves a pin
+	// (docs/design/forked-programs-as-packs.md FP-D7), as it is the act that moves an npm version.
+	rc := packInstallPins(out, errw, color, true)
 	if n := programRefresh(richtext.Printer{W: out, Color: color}, errw); n != 0 && rc == 0 {
 		rc = n
 	}

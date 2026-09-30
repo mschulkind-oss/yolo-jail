@@ -192,11 +192,15 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               declares under "binaries" for this machine, checks each against
                               its pinned sha256, and caches it with its execute bit set. That
                               one is NOT optional: a launch never downloads a program, and
-                              leaves a loophole whose program is missing off, saying so
+                              leaves a loophole whose program is missing off, saying so.
+                              And it PINS every selected fork (a program built "via":"source")
+                              that forks.lock.json does not pin yet: its ref resolved to a
+                              commit, which is what a launch builds. A launch never pins one
   yolo pack update            install, PLUS the only act that resolves a new version for a
-                              pack's npm-declared program. Run it inside the jail — that is
-                              where an agent CLI is installed
-  yolo pack status            show locked commits, and flag config/lock drift
+                              pack's npm-declared program, and the act that MOVES a fork's pin
+                              to what its ref names now. Run the npm half inside the jail —
+                              that is where an agent CLI is installed
+  yolo pack status            show locked commits and fork pins, and flag config/lock drift
   yolo pack --help, -h        this text (also 'yolo pack help')
 
 Packs are configured in ~/.config/yolo-jail/config.jsonc under "packs" (USER scope
@@ -1435,6 +1439,13 @@ func reviewSummary(claims []packload.Claim) string {
 // packsrc.Store.Refresh's, so install and a concurrent launch serialise on the same
 // per-mirror and lockfile flocks.
 func packInstall(out, errw io.Writer, color bool) int {
+	return packInstallPins(out, errw, color, false)
+}
+
+// packInstallPins is packInstall with the fork half's mode: repinForks re-resolves every fork's
+// pin (`yolo pack update`), and without it install pins only a fork the lock does not pin yet for
+// its declared source (pinForks).
+func packInstallPins(out, errw io.Writer, color, repinForks bool) int {
 	entries, err := config.LoadPacks(func(msg string) {
 		fmt.Fprintf(errw, "Warning: %s\n", msg)
 	})
@@ -1556,6 +1567,12 @@ func packInstall(out, errw io.Writer, color bool) int {
 	if n := installPackBinaries(pr, errw); n != 0 {
 		rc = n
 	}
+	// THE FORK PINS (docs/design/forked-programs-as-packs.md FP-D7), after the fetched packs are in
+	// the store so a fork pack fetched just now is in the selection: install pins what is not pinned
+	// yet, update re-resolves every pin. A launch only reads them.
+	if n := pinForks(pr, errw, repinForks); n != 0 {
+		rc = n
+	}
 	if len(entries) == 0 {
 		pr.Printf("[dim]No packs configured.[/dim]")
 	}
@@ -1655,7 +1672,20 @@ func packStatus(out, errw io.Writer, color bool) int {
 		pr.Printf("    config: [cyan]%s[/cyan]", d.WantedSource)
 		pr.Printf("    [dim]%s[/dim]", driftRemedy(d.WantedSource))
 	}
-	if len(drift) > 0 {
+	// THE FORK PINS (forks.lock.json, FP-D7): each selected fork's pinned commit, or why it has
+	// none. A pin made for a source the fork no longer declares is drift, like a pack's.
+	forkLines, forkDrift, err := forkStatusLines()
+	if err != nil {
+		fmt.Fprintf(errw, "yolo pack status: %v\n", err)
+		return 1
+	}
+	if len(forkLines) > 0 {
+		pr.Printf("[bold]forks[/bold] [dim](%s)[/dim]", packsrc.ForkLockName)
+		for _, line := range forkLines {
+			pr.Printf("%s", line)
+		}
+	}
+	if len(drift) > 0 || forkDrift {
 		return 1
 	}
 	return 0

@@ -530,6 +530,10 @@ type Options struct {
 	// under (internal/ioprio.Resolve, for noteIOPriority): "" is the real root, and a test
 	// points it at a fake tree.
 	ioSysRoot string
+
+	// forkPinned is this launch's forks with what the fork lock says each is pinned to, read once
+	// above the backend dispatch (noteForkPins) and acted on by the fork build trigger.
+	forkPinned []packload.ForkPin
 }
 
 // captureConfigOnTerminate runs the injected E3 capture for a jail that has just

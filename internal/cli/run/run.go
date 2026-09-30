@@ -291,6 +291,10 @@ func Run(opts Options) (rc int) {
 	// This launch's pack tree goes at return unless a started container holds it (packtree.go).
 	defer o.discardUnheldPackTree(cname)
 
+	// THE FORK PINS, read (never resolved) and disclosed above the dispatch, so every backend and
+	// an attach say which revision each source-built program is at (OQ-FP6, forkbuild.go).
+	o.forkPinned = o.noteForkPins(staged.packs)
+
 	// PACK LAUNCH FLAGS, ABOVE THE DISPATCH — the same B-0 move pack staging made, for
 	// the same reason. The injection used to sit inside runContainer, which the
 	// macos-user arm returns before reaching, so on that backend a pack's declared
