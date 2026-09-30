@@ -224,8 +224,9 @@ profile narrowed to a Bedrock-only role. That covers step 3 below: claude works 
 through the pointer, and the jail holds no AWS secret and no `~/.aws`. It also covers the
 real `aws` calls step 1 exercises, and the `sso-session` config form step 2 asks about. Step 4,
 the narrowing shown by a denied call, was run the same day: S3 and EC2 calls were refused and
-Bedrock answered. Step 5, a running jail picking up a re-login after the session lapses, has
-not been run. What was and was not observed is in
+Bedrock answered. Step 5 is covered too: the
+maintainer's host logs the SSO profile out and back in every four hours, and running jails
+kept working across it with no relaunch. A turn during a longer lapse has not been watched. What was and was not observed is in
 [the design's evidence](../../docs/design/sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it).
 The steps stay here for anyone trying it on another host.
 

@@ -734,8 +734,12 @@ returned `401`. From the same jail, with the served credential, S3 `ListBuckets`
 the assumed Bedrock-only role, while Bedrock's `ListFoundationModels` succeeded. CI also runs the transport over a real loopback hop, on rootless podman on both
 architectures, with a fake `aws` (`integration/awsauth_test.go`).
 
-**UNMEASURED:** a running jail picking up a re-login after the portal session ends (no session
-ended during the observation); the lapse message produced by a real expiry; the legacy SSO form; the session-policy and un-narrowed arms
+The maintainer's host logs the SSO profile out and back in every four hours, and a jail up about
+ten hours, with the service never restarting, kept working across at least two of those cycles:
+a running jail picks up a new login with no relaunch.
+
+**UNMEASURED:** a turn during a real lapse (the logout-to-login gap there is short), and the lapse
+message a real expiry produces; the legacy SSO form; the session-policy and un-narrowed arms
 against a live login; codex, opencode and pi on this channel; and `macos-user`, which has not run
 on a Mac.
 

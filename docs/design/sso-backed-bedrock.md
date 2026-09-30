@@ -3,7 +3,7 @@ title: "Bedrock from an SSO login, without handing over the account"
 date: 2026-09-17
 status: accepted
 tags: [aws, bedrock, sso, credentials, loopholes, packs, boundary, graduated]
-summary: "GRADUATED 2026-09-29 into docs/reference/agent-credentials.md, whose SSO-backed Bedrock section now states the delivered behavior. This file stays whole as the argument: how a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach, why narrowing and refresh are independent problems, the evidence, and the Decision Ledger the reference links for its reasoning. The live-login try-out happened 2026-09-29 (the maintainer's jails, daily, on a Linux host); the re-login after a portal session ends is still unobserved."
+summary: "GRADUATED 2026-09-29 into docs/reference/agent-credentials.md, whose SSO-backed Bedrock section now states the delivered behavior. This file stays whole as the argument: how a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach, why narrowing and refresh are independent problems, the evidence, and the Decision Ledger the reference links for its reasoning. The live-login try-out happened 2026-09-29 (the maintainer's jails, daily, on a Linux host); a running jail picking up each new login, with no relaunch, was observed the same day; a turn during a real lapse is still unobserved."
 ---
 
 # Bedrock from an SSO login, without handing over the account
@@ -22,9 +22,10 @@ are ruled and every step of [§12](#12-what-i-would-build-in-order) is built, st
 deleted by [OQ-SSO9](#OQ-SSO9). **MEASURED:** the refusal's code, the AWS credential chain order
 in the shipped claude, codex, opencode and pi, and, on 2026-09-29, the live-login try-out: the
 service in daily use in the maintainer's jails against a live `aws sso login` on a Linux host,
-which meets [§8](#8-behaviour-this-design-specifies)'s done-conditions 1, 2 and 5
-([§11](#11-evidence-and-how-to-re-check-it)). **UNMEASURED:** done-condition 4, the headline
-(a running jail picking up a re-login after the portal session ends), and conditions 6 and 7;
+which meets [§8](#8-behaviour-this-design-specifies)'s done-conditions 1, 2, 4 (the headline: a
+running jail picking up a new login with no relaunch) and 5
+([§11](#11-evidence-and-how-to-re-check-it)). **UNMEASURED:** a turn during a real lapse and the
+error it sees (condition 6), and condition 7;
 `macos-user`, which has not run on a Mac. Repo claims verified against `d4c0e7e3`, those the
 2026-09-25 questions add against `ee8154f2`, and step 6's against the working tree it landed from
 (2026-09-25); vendor claims carry their dates in [§11](#11-evidence-and-how-to-re-check-it). The
@@ -64,8 +65,8 @@ reference is right.
   supported credentials) on 2026-09-24 — all in [§13](#13-decision-ledger).
 - **Built 2026-09-25:** the consumers' `needs` (`packs/claude` needs `aws-auth`) and the
   launch-side disclosure of an un-narrowed session ([OQ-SSO10](#OQ-SSO10)).
-- **Tried on a live login, 2026-09-29:** step 5's done-condition 1 is met; done-condition 4 has
-  not happened yet, because no portal session ended during the observation
+- **Tried on a live login, 2026-09-29:** step 5's done-conditions 1 and 4 are met, 4 through
+  the maintainer's four-hourly logout and login on the host
   ([§11](#11-evidence-and-how-to-re-check-it)).
 - **Built 2026-09-29:** the fold into the reference docs ([§12](#12-what-i-would-build-in-order)
   step 8). The minted-bearer arm (option D) is retired ([OQ-SSO9](#OQ-SSO9)).
@@ -1044,14 +1045,14 @@ $ curl -s -H "Authorization: $AWS_CONTAINER_AUTHORIZATION_TOKEN" "$AWS_CONTAINER
 ```
 
 What that settles, against [§8](#8-behaviour-this-design-specifies)'s seven done-conditions.
-[§12](#12-what-i-would-build-in-order) step 5 owes conditions 1 and 4: 1 is met and 4 is not.
+[§12](#12-what-i-would-build-in-order) step 5 owes conditions 1 and 4: both are met.
 
 | # | Done-condition | Verdict |
 | :--- | :--- | :--- |
 | 1 | a claude turn on Bedrock; the pointer and the region, and no secret, in the environment; `ls ~/.aws` fails | **MET**, MEASURED. The environment also carries the caller token, yolo's per-launch secret for the adapter rather than an AWS credential |
 | 2 | a `curl` of the pointer returns the four keys, `Expiration` under an hour out | **MET**, MEASURED, with the caller token sent as `Authorization`. The bare `curl` the condition spells gets `401` since the caller token (2026-09-28) |
 | 3 | idle past that expiry, the next turn succeeds with no human action | **Met in use; INFERRED, not isolated.** A role-chained credential lives at most an hour, so a day of use is many re-mints with no human action, and the log records no failed mint since the first of those 2026-09-28 starts. No single turn was timed across an expiry |
-| 4 | the session lapses, `aws sso login` on the host, and the running jail's next turn succeeds | **NOT OBSERVED.** No portal session ended during the observation |
+| 4 | the session lapses, `aws sso login` on the host, and the running jail's next turn succeeds | **MET**, 2026-09-29, on the maintainer's report and the host log. A job on the maintainer's host logs the SSO profile out and back in every four hours. This jail (up about ten hours) and the aws-auth service (no restart since 10:34) spanned at least two of those cycles: the service log shows requests served in every hour from 12:00 to 21:00, none failed, and no failed mint since that restart. A served credential lives at most an hour, so the service minted from each new login while the jail ran on, with no restart and no relaunch. The logout-to-login gap is short, so a turn inside a lapse, and the error it sees (condition 6), are still unobserved |
 | 5 | `aws s3 ls` from inside the jail is denied | **MET**, MEASURED 2026-09-29, on the role arm (N3). From a jail on the channel, with the served credential, S3 `ListBuckets` (the call `aws s3 ls` makes) was refused `AccessDenied`, and EC2 `DescribeInstances`, sent as a hand-signed request, returned HTTP 403 `UnauthorizedOperation`, with `DryRun=true` too; both refusals name the assumed role and say that no identity-based policy allows the action. The same credential's Bedrock `ListFoundationModels` succeeded, so the refusals are the narrowing's, not a broken credential. The CLI was `uvx --from awscli aws`, the image baking none |
 | 6 | with the session lapsed, the error names `aws sso login --profile X` | **NOT OBSERVED live.** CI's `TestAWSAuthLapsedSessionIsA4xxNamingTheLogin` covers it with a fake `aws`, so the real CLI's expiry wording is still unmatched against the classifier |
 | 7 | codex, pi and opencode each complete a turn | **NOT OBSERVED** |
@@ -1156,8 +1157,8 @@ delays nothing. It only sharpens step 2.
    pack's ([`OQ-SSO6`](#13-decision-ledger)). Selecting the pack changes nothing observable
    until step 5.
 5. **`needs` on the consumers**, and done-conditions 1 and 4 — the headline, measured.
-   **BUILT 2026-09-25.** Tried on a live login 2026-09-29: done-condition 1 is MEASURED, and 4
-   is not yet observed, because no portal session ended during the observation
+   **BUILT 2026-09-25.** Tried on a live login 2026-09-29: done-conditions 1 and 4 are met, 4 through
+   the maintainer's four-hourly logout and login on the host
    ([§11](#11-evidence-and-how-to-re-check-it)).
 6. **The conflict refusals, declared by the pack** ([OQ-SSO8](#OQ-SSO8)). **BUILT 2026-09-25.**
    First built for the bearer alone, in core (`internal/awschain`, since deleted); now
