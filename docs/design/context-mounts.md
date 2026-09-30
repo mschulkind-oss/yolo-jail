@@ -250,6 +250,10 @@ binds. What the invariant actually protects is narrower, and it should say so:
 > user named in a trusted config source (`cache_relocations`, rw `mounts`) or the workspace itself,
 > and each is disclosed.
 
+*Corrected when the restatement landed (2026-09-30):* a `cache_relocations` target gets no launch
+line, and yolo's own state and cache directories are writable binds too, so the AGENTS.md text
+names yolo's directories and says only the read-write mount is disclosed on every launch.
+
 ### 2.9 Forbidden behavior
 
 - Never emit `:z` or `:Z` on a context mount. The run path uses `label=disable`, and a relabel
