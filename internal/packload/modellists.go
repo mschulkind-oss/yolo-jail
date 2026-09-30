@@ -19,6 +19,7 @@ package packload
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -177,7 +178,9 @@ func shapeProviderModels(name string, entry *jsonx.OrderedMap, shapes []shapedMo
 		keep = set
 	}
 	if keep != nil {
-		for _, alias := range models.Keys() {
+		// Over a COPY of the keys: Keys() is the map's own slice and Delete shifts it in place,
+		// so ranging over it steps past the entry after each one dropped, which then survives.
+		for _, alias := range slices.Clone(models.Keys()) {
 			if id, _ := stringAt(models, alias); !keep[id] {
 				models.Delete(alias)
 				opts.Delete(alias)

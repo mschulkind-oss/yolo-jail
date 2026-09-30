@@ -268,3 +268,37 @@ func TestAModelsContributionIsAFootprintClaim(t *testing.T) {
 		t.Errorf("models claims = %q, want one per contribution naming what it does", details)
 	}
 }
+
+// AN `only` DROPS EVERY ENTRY IT DOES NOT NAME, ADJACENT ONES INCLUDED. The drop loop once
+// ranged over models.Keys(), the map's own slice, while Delete shifted it in place, so the entry
+// after each dropped one slid into the dropped slot unexamined and survived the narrowing, and
+// with it a model the company removed reached every menu and claude's allowlist. Two cases: the
+// shipped openai-codex list narrowed to one entry, where the two it drops sit next to each
+// other, and a synthetic list of three where only the last is kept.
+func TestAModelsOnlyDropsAdjacentEntries(t *testing.T) {
+	shipped := modelsPack(t, "company", `{"kind":"models","provider":"openai-codex","only":["gpt-6.1-sol"]}`)
+	packs := append(embeddedNamed(t, "openai-auth"), shipped)
+	table, notes := composeWithNotes(t, nil, packs)
+	if len(notes) != 0 {
+		t.Errorf("notes = %v, want none", notes)
+	}
+	if got, want := composedList(t, table, "openai-codex"), []string{"gpt-6.1-sol"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("openai-codex list = %v, want %v: every entry the only does not name is dropped", got, want)
+	}
+
+	three := &Pack{Name: "three", Decl: declFrom(t, `{"contributes":[
+	  {"kind":"provider","name":"gw3",
+	   "endpoints":{"openai":{"base_url":"https://gw3.example/v1","wire_api":"openai-chat-completions"}},
+	   "models":{"a-1":"a-1","b-1":"b-1","c-1":"c-1"}}]}`)}
+	narrow := modelsPack(t, "policy", `{"kind":"models","provider":"gw3","only":["c-1"]}`)
+	table, _ = composeWithNotes(t, nil, []*Pack{three, narrow})
+	if got, want := composedList(t, table, "gw3"), []string{"c-1"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("gw3 list = %v, want %v", got, want)
+	}
+	opts := subOrderedOrNil(providerEntry(table, "gw3"), "model_options")
+	for _, dropped := range []string{"a-1", "b-1"} {
+		if _, kept := opts.Get(dropped); kept {
+			t.Errorf("model_options.%s survived the only that dropped its model", dropped)
+		}
+	}
+}
