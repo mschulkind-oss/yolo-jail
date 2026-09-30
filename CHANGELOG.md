@@ -430,7 +430,8 @@ the agent.
 
 **A pack whose `supersedes` names a capability no loophole serves now stops the launch.** Such a
 claim turns nothing off, so the loophole it was meant to retire kept running, and the launch only
-printed a warning. The launch now refuses with the same sentence, which names the capability, the
+printed a warning. The launch now refuses, in a jail and under `yolo host` alike, with the same
+sentence, which names the capability, the
 closest one a loophole does serve and every capability served here, and says to fix the claim or
 remove the pack. `yolo check` fails that row instead of warning about it. When the `yolo` you ran
 is older than the source tree it builds from, the refusal says so and names `just install`.

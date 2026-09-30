@@ -24,6 +24,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
+	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -1562,6 +1563,18 @@ func (c *hostComposition) regionGaps() []string {
 			packload.FromLaunchEnv))
 }
 
+// hostSkewRepoRoot is the source tree the supersession refusal's skew clause compares this
+// yolo against (RM-D2): the one reporoot.Resolve answers, as `yolo check`'s default resolver
+// does, or "" when none resolves, which version.SourceSkew answers with no skew. Asked only
+// once a claim has failed to match.
+func hostSkewRepoRoot() string {
+	res, ok := reporoot.Resolve(os.Getenv)
+	if !ok {
+		return ""
+	}
+	return res.Root
+}
+
 // composeHostEnv builds the environment for one agent launch, and returns it alongside
 // the agent name it resolved.
 func composeHostEnv(bin, profile string, warn func(string)) ([]string, string, error) {
@@ -1694,6 +1707,19 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		return c
 	}
 	packs := sel.packs
+	// A `supersedes` claim that matches no capability any loophole of this selection serves
+	// REFUSES, through the gate a jail launch refuses on and in its words
+	// (run.UnmatchedSupersessionRefusal; docs/design/reference-mismatch-diagnostics.md §7
+	// step 4, one path per concern by NC-D1). At this notch a claim retires a loophole's
+	// doorway, so a mistyped one leaves the doorway open as it leaves a jail's loophole
+	// running. Here, as the first question asked of the complete selection and before
+	// run.PlanHostDoorways, whose discovery warns the same sentence to stderr, so the finding
+	// prints once, as the refusal. In the composition, so `yolo host env` refuses it too, as
+	// it refuses the selection above.
+	if lines := run.UnmatchedSupersessionRefusal(packs, hostSkewRepoRoot); lines != nil {
+		c.err = errors.New(strings.Join(lines, "\n"))
+		return c
+	}
 	c.packs = packs
 	c.selection = sel
 	// The profile this launch selects, resolved once over the selected packs (the closure
