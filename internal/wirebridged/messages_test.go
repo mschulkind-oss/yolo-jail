@@ -38,22 +38,40 @@ const (
 // Bedrock upstream reached at runtime's OpenAI-compatible route, and a list naming each
 // model's maker as vendor. "anthropic-lookalike" is an id that SAYS anthropic and declares
 // another maker, and "unlisted-vendor" declares none: the bridge reads the declaration, never
-// the id (§3).
+// the id (§3). "opus-plain" names opus's id with no vendor, which leaves opus's declaration
+// standing; "sonnet-1m" spells its id with claude's [1m] suffix, as a list written for
+// claude may; and the two "clash" aliases declare different makers for one id, which keeps
+// it translated and logged (WG-I34).
 const bedrockListPack = `{"name":"bedrock-list","contributes":[
  {"kind":"provider","name":"br",
   "api_key_env_name":["AWS_BEARER_TOKEN_BEDROCK","AWS_ACCESS_KEY_ID","AWS_SECRET_ACCESS_KEY"],
   "endpoints":{"openai":{"base_url":"https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1","wire_api":"openai-chat-completions"}},
   "models":{"opus":"global.anthropic.claude-opus-5-5","sol":"us.openai.gpt-6.1-sol",
-   "lookalike":"us.anthropic-lookalike.model-1","plain":"global.anthropic.claude-haiku-9"},
+   "lookalike":"us.anthropic-lookalike.model-1","plain":"global.anthropic.claude-haiku-9",
+   "opus-plain":"global.anthropic.claude-opus-5-5","sonnet-1m":"global.anthropic.claude-sonnet-5[1m]",
+   "clash-a":"us.clash.model-1","clash-b":"us.clash.model-1"},
   "model_options":{"opus":{"vendor":"anthropic","context_window":"1000000"},"sol":{"vendor":"openai"},
-   "lookalike":{"vendor":"lookalike"}}},
+   "lookalike":{"vendor":"lookalike"},"sonnet-1m":{"vendor":"anthropic"},
+   "clash-a":{"vendor":"anthropic"},"clash-b":{"vendor":"qwen"}}},
  {"kind":"profile","name":"bp","provider":"br"}]}`
+
+const (
+	sonnetID = "global.anthropic.claude-sonnet-5"
+	clashID  = "us.clash.model-1"
+)
 
 // composedBedrockTable composes bedrockListPack beside the shipped claude and wire-bridge
 // packs, exactly as a launch does: claude supplies the spoken anthropic protocol and
 // wire-bridge the adapter address, so the entry gains endpoints.anthropic at the bridge and
 // model_options in packload's flat shape. It is the table the daemon reads as YOLO_PROVIDERS.
 func composedBedrockTable(t *testing.T) *jsonx.OrderedMap {
+	t.Helper()
+	return composedBedrockTableUnder(t, nil)
+}
+
+// composedBedrockTableUnder is composedBedrockTable with a user `providers` layer composed
+// over the packs, as the launch composes config.providers (packload.ComposeProviders).
+func composedBedrockTableUnder(t *testing.T, user *jsonx.OrderedMap) *jsonx.OrderedMap {
 	t.Helper()
 	decl, problems := packdecl.Decode([]byte(bedrockListPack))
 	if len(problems) != 0 {
@@ -65,7 +83,7 @@ func composedBedrockTable(t *testing.T) *jsonx.OrderedMap {
 			packs = append(packs, p)
 		}
 	}
-	table, err := packload.ComposeProviders(nil, packs)
+	table, err := packload.ComposeProviders(user, packs)
 	if err != nil {
 		t.Fatalf("composing: %v", err)
 	}
@@ -229,9 +247,13 @@ func TestAnAnthropicModelGoesUntranslatedToBedrocksMessagesRoute(t *testing.T) {
 	}
 	l := logs()
 	for _, want := range []string{
-		"Anthropic models on its list pass untranslated to " + messagesAt + ": " + opusID + "\n",
+		// opus is carried though "opus-plain" names its id with no vendor; sonnet's id is
+		// the list's [1m] spelling trimmed; the clash id is not carried (WG-I34).
+		"Anthropic models on its list pass untranslated to " + messagesAt + ": " + opusID + ", " + sonnetID + "\n",
 		"POST /v1/messages 200",
 		"(model " + opusID + " is Anthropic's on the provider's list: untranslated to " + messagesAt + ")",
+		`provider "br"'s list names ` + clashID + " under aliases declaring different vendors, so the bridge " +
+			"translates it as it does any model not declared Anthropic's (wire-bridge-gateway.md WG-I34)",
 	} {
 		if !strings.Contains(l, want) {
 			t.Errorf("the daemon log lacks %q:\n%s", want, l)
@@ -265,11 +287,13 @@ func verifySignature(t *testing.T, sent *http.Request, body []byte, akid, secret
 
 // TestEveryOtherModelOnTheRouteIsStillTranslated: the same served route sends a model the
 // list declares another maker's, one whose id says "anthropic" but whose declared vendor does
-// not, one the list names with no vendor, and one it does not name, to chat-completions,
-// translated, as before Part 2. The id is never parsed for a maker.
+// not, one the list names with no vendor, one it does not name, and one two aliases declare
+// different makers for, to chat-completions, translated, as before Part 2. The id is never
+// parsed for a maker.
 func TestEveryOtherModelOnTheRouteIsStillTranslated(t *testing.T) {
 	up, addr, _ := servedBedrockRoute(t, "claude")
-	for i, model := range []string{solID, "us.anthropic-lookalike.model-1", "global.anthropic.claude-haiku-9", "unlisted.anthropic.claude-x"} {
+	for i, model := range []string{solID, "us.anthropic-lookalike.model-1", "global.anthropic.claude-haiku-9",
+		"unlisted.anthropic.claude-x", clashID} {
 		body := strings.Replace(claudeRequest, opusID, model, 1)
 		resp, got, err := postMessages(t, addr, strings.Replace(body, `"stream":true,`, "", 1), nil)
 		if err != nil || resp.StatusCode != http.StatusOK {
@@ -306,6 +330,77 @@ func TestCopilotOnABedrockRouteGetsTheSamePassThrough(t *testing.T) {
 	if up.requests[0].Header.Get("Anthropic-Version") != defaultAnthropicVersion {
 		t.Errorf("a client that sends no anthropic-version gets the one the route requires, %s: got %q",
 			defaultAnthropicVersion, up.requests[0].Header.Get("Anthropic-Version"))
+	}
+}
+
+// TestAListIDSpelledWithTheOneMillionSuffixPassesThrough: a list written for claude may
+// spell a Claude id with its [1m] client suffix, the spelling claude needs to use the
+// 1M-context variant. That id is the same wire model, so a request for it, with or without
+// the suffix, goes untranslated with the suffix trimmed from the body.
+func TestAListIDSpelledWithTheOneMillionSuffixPassesThrough(t *testing.T) {
+	up, addr, _ := servedBedrockRoute(t, "claude")
+	for i, model := range []string{sonnetID + "[1m]", sonnetID} {
+		up.responses = append(up.responses, func() *http.Response { return jsonResponse(200, `{"type":"message"}`) })
+		body := strings.Replace(strings.Replace(claudeRequest, opusID, model, 1), `"stream":true,`, "", 1)
+		resp, got, err := postMessages(t, addr, body, nil)
+		if err != nil || resp.StatusCode != http.StatusOK || up.calls() != i+1 {
+			t.Fatalf("%s: status %d, read error %v, calls %d: %s", model, resp.StatusCode, err, up.calls(), got)
+		}
+		if up.requests[i].URL.String() != messagesAt {
+			t.Errorf("%s went to %s, want the Messages route", model, up.requests[i].URL)
+		}
+		if !bytes.Contains(up.bodies[i], []byte(`"model":"`+sonnetID+`"`)) || bytes.Contains(up.bodies[i], []byte("[1m]")) {
+			t.Errorf("%s: the body sent must name the wire id %s: %s", model, sonnetID, up.bodies[i])
+		}
+	}
+}
+
+// TestAUserLayerOverThePackListRoutesByTheDeclaredVendor composes a user's `providers` entry
+// over the pack's list, as a launch does, and reads the route the daemon boots with:
+//   - the user points the pack's opus alias at a DeepSeek id: the pack's vendor was the
+//     pack model's maker, not DeepSeek's, so that id is translated (it would otherwise go
+//     untranslated to the Anthropic route and fail at AWS), and the user cannot declare a
+//     vendor to correct it;
+//   - the user adds an alias of their own for the pack's sonnet id: it declares no maker, so
+//     the pack's declaration stands and the id stays on the pass-through, with no conflict.
+func TestAUserLayerOverThePackListRoutesByTheDeclaredVendor(t *testing.T) {
+	const deepseek = "us.deepseek.r1-v1:0"
+	user := mustProviders(t, `{"br":{"models":{"opus":"`+deepseek+`","mine":"`+sonnetID+`"}}}`)
+	rt, idle := routeFor(composedBedrockTableUnder(t, user), map[string]string{"claude": "bp"},
+		map[string]packload.ResolvedProfile{"bp": {Provider: "br"}})
+	if idle != "" {
+		t.Fatalf("idle: %s", idle)
+	}
+	if rt.AnthropicModels[deepseek] {
+		t.Errorf("a user's DeepSeek id under the pack's opus alias inherited the pack's vendor: %v", rt.AnthropicModels)
+	}
+	if rt.AnthropicModels[opusID] {
+		t.Errorf("opus's id is named only by opus-plain now, which declares no vendor: %v", rt.AnthropicModels)
+	}
+	if !rt.AnthropicModels[sonnetID] {
+		t.Errorf("a user alias declaring no vendor took the pack's sonnet off the pass-through: %v", rt.AnthropicModels)
+	}
+	if fmt.Sprint(rt.VendorConflicts) != "["+clashID+"]" {
+		t.Errorf("VendorConflicts = %v, want only the pack's own clash", rt.VendorConflicts)
+	}
+	for _, v := range sigv4.EnvVars {
+		t.Setenv(v, "")
+	}
+	home := t.TempDir()
+	writeKeyChannel(t, home, "export AWS_ACCESS_KEY_ID='AKID'", "export AWS_SECRET_ACCESS_KEY='s'")
+	h, _, idle := adapterHandler(rt, tokenEnv(map[string]string{"JAIL_HOME": home}))
+	if idle != "" {
+		t.Fatalf("adapter handler idle: %s", idle)
+	}
+	passthrough := h.(*bridgeHandler).messages
+	if passthrough == nil {
+		t.Fatalf("the handler has no Messages pass-through, though the pack's sonnet is still Anthropic's")
+	}
+	if _, claimed := passthrough.claims(deepseek); claimed {
+		t.Errorf("the handler claims the user's DeepSeek id for the Messages route")
+	}
+	if _, claimed := passthrough.claims(sonnetID); !claimed {
+		t.Errorf("the handler does not claim the pack's sonnet")
 	}
 }
 
@@ -610,17 +705,22 @@ func TestSSECloseFindsTheClosingEventAtALineHeadOnly(t *testing.T) {
 }
 
 // TestAnthropicModelIDsReadsTheDeclaredVendor pins the classification on the composed table:
-// only a declared vendor "anthropic" counts, an id two aliases disagree on is none, and a
-// provider with no model_options has no Anthropic model.
+// only a declared vendor "anthropic" counts, an id two aliases declare different vendors for
+// is none, an alias declaring no vendor neither adds nor removes one (m-4), a list id spelled
+// with claude's [1m] suffix is keyed by its wire id (m-5), and a provider with no
+// model_options has no Anthropic model.
 func TestAnthropicModelIDsReadsTheDeclaredVendor(t *testing.T) {
 	entry := mustProviders(t, `{"p":{
-		"models":{"a":"m-1","b":"m-2","c":"anthropic.claude-x","d":"m-3","e":"m-3","f":"m-1"},
+		"models":{"a":"m-1","b":"m-2","c":"anthropic.claude-x","d":"m-3","e":"m-3","f":"m-1",
+			"g":"m-4","h":"m-4","i":"m-5[1m]"},
 		"model_options":{"a":{"vendor":"anthropic"},"b":{"vendor":"openai"},"d":{"vendor":"anthropic"},"e":{"vendor":"qwen"},
-			"f":{"vendor":"anthropic","context_window":"1000000"}}}}`)
+			"f":{"vendor":"anthropic","context_window":"1000000"},"g":{"vendor":"anthropic"},"h":{"context_window":"8192"},
+			"i":{"vendor":"anthropic"}}}}`)
 	v, _ := entry.Get("p")
 	ids, conflicts := anthropicModelIDs(v.(*jsonx.OrderedMap))
-	if len(ids) != 1 || !ids["m-1"] {
-		t.Errorf("ids = %v, want only m-1 (the id is never parsed, and m-3's aliases disagree)", ids)
+	if len(ids) != 3 || !ids["m-1"] || !ids["m-4"] || !ids["m-5"] {
+		t.Errorf("ids = %v, want m-1, m-4 and m-5 (the id is never parsed, m-3's aliases disagree, "+
+			"m-4's second alias declares no vendor, and m-5 is listed as m-5[1m])", ids)
 	}
 	if fmt.Sprint(conflicts) != "[m-3]" {
 		t.Errorf("conflicts = %v, want [m-3]", conflicts)

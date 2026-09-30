@@ -78,10 +78,16 @@ func bedrockMessagesURL(upstreamBaseURL string) string {
 
 // anthropicModelIDs reads, off one composed provider entry, every model id its list declares
 // vendor "anthropic" for: `models.<alias>` is the wire id and `model_options.<alias>.vendor`
-// its maker (packload.liftModelFacts' flat shape, which a pack's model_options and a user's
-// object-form model entry both compose into). The id is never parsed for a maker
-// (wire-bridge-gateway.md §3). An id two aliases name with different vendors is none of
-// them: it keeps today's translation, and conflicts says which, for the serve log.
+// its maker (the flat shape a pack's model_options composes into, and a user's config
+// cannot write; packload.dropRepointedVendors drops a pack's vendor from an alias the user
+// points at another id). The id is never parsed for a maker (wire-bridge-gateway.md §3). A
+// list id is keyed with Claude's [1m] client suffix trimmed, as a request's is (claims):
+// the suffix is never part of the wire id, and a list written for claude may carry it.
+//
+// Only a DECLARED vendor counts. An alias declaring none (a user's own alias for the id, or
+// a pack alias with no facts) says nothing about the maker, so it leaves another alias's
+// declaration standing. An id its aliases declare two different vendors for is none of
+// them: it keeps today's translation, and conflicts says which, for the serve log (WG-I34).
 func anthropicModelIDs(entry *jsonx.OrderedMap) (ids map[string]bool, conflicts []string) {
 	if entry == nil {
 		return nil, nil
@@ -93,14 +99,15 @@ func anthropicModelIDs(entry *jsonx.OrderedMap) (ids map[string]bool, conflicts 
 	}
 	ov, _ := entry.Get("model_options")
 	options, _ := ov.(*jsonx.OrderedMap)
-	vendors := map[string]map[string]bool{} // id -> the vendors its aliases declare ("" for none)
+	vendors := map[string]map[string]bool{} // wire id -> the vendors its aliases declare
 	for _, alias := range models.Keys() {
 		raw, _ := models.Get(alias)
-		id, isString := raw.(string)
-		if !isString || id == "" {
+		spelled, _ := raw.(string)
+		id := strings.TrimSuffix(spelled, oneMillionSuffix)
+		vendor := aliasVendor(options, alias)
+		if id == "" || vendor == "" {
 			continue
 		}
-		vendor := aliasVendor(options, alias)
 		if vendors[id] == nil {
 			vendors[id] = map[string]bool{}
 		}
