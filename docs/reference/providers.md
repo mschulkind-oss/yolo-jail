@@ -1525,8 +1525,8 @@ with it, so a repository's `.claude/settings.json` can widen or switch it off. p
 its extension's: a model outside the list, typed with `--model` or resumed from a session, ends
 its turn with an error naming the list and the switch, before any request leaves
 ([MM-D21](../design/model-lists-and-pickers.md#MM-D21)). It does not hold under
-`pi --no-extensions`, and on a list whose models run on two pi apis (OpenRouter's catalog mixes
-them) pi shows the menu and says once that it cannot refuse there. oh-omp does not refuse yet:
+`pi --no-extensions`, and should the extension not find pi's own stream for the list's models,
+pi shows the menu and says once that it cannot refuse there. oh-omp does not refuse yet:
 `--model` still runs a model outside the scope.
 
 **`pin_model`** is a profile option (`"pin_model": "true"`) asking claude to START every session

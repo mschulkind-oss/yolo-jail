@@ -529,6 +529,30 @@ func TestPiNarrowedKiloListRegistersTheIdsItsRowSends(t *testing.T) {
 	}
 }
 
+// OPENROUTER'S NARROWED LIST NAMES ITS ROW'S ONE API, so pi refuses there: pi's own OpenRouter
+// catalog mixes apis, but yolo reaches OpenRouter through a models.json row, whose one api every
+// registered model takes (the extension's listApi reads the derive's before any catalog). Only a
+// list with no row could reach the extension's two-api branch, and the one such list the derive
+// renders, pi's own Bedrock client, is on one api. The docs once said OpenRouter's list is shown
+// but not refused; this pins the fact they now state.
+func TestPiNarrowedOpenRouterListNamesItsRowsOneAPI(t *testing.T) {
+	r := narrowedPiRender(t, "openrouter",
+		`{"kind":"models","provider":"openrouter","add":[{"id":"anthropic/claude-opus-4.6","vendor":"anthropic"},`+
+			`{"id":"openai/gpt-5","vendor":"openai"}]},`+
+			`{"kind":"models","provider":"openrouter","only":["anthropic/claude-opus-4.6","openai/gpt-5"]}`)
+	lists, _ := r.surface(t, ".pi", "agent", "yolo-model-lists.json")["providers"].(map[string]any)
+	openrouter, _ := lists["openrouter"].(map[string]any)
+	rows, _ := r.surface(t, ".pi", "agent", "models.json")["providers"].(map[string]any)
+	row, _ := rows["openrouter"].(map[string]any)
+	if api, _ := openrouter["api"].(string); api == "" || api != row["api"] {
+		t.Errorf("openrouter's narrowed list names api %v, want its models.json row's %v, so every "+
+			"listed model shares one api and pi's wrapper refuses outside the list", openrouter["api"], row["api"])
+	}
+	if openrouter["enforce"] != true {
+		t.Errorf("openrouter's narrowed list enforce = %v, want true, the switch's default", openrouter["enforce"])
+	}
+}
+
 // A NARROWED PROVIDER PI CANNOT USE IS NOT REGISTERED: pi refuses a registration for a provider
 // it has no address or credential for ("no authentication method configured"), which would fail
 // the extension's whole load.
