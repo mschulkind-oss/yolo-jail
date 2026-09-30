@@ -1,0 +1,80 @@
+package cli
+
+import (
+	"bytes"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+)
+
+// hostfloorleftover_test.go pins what `yolo host` does with a LEFTOVER floor entry — one a launch
+// installed while its pack was selected and the floor held it, and which stays in the prefix until
+// `yolo host apply --assert` removes it: it is never run, whether the pack was deselected or
+// `host_floor` now leaves it out, and a launch that finds no other copy says what removes it.
+
+// leftoverFixture installs floorcli into the floor through a launch, then rewrites the user
+// config to cfg. It returns the hand-installed copy's directory, which is NOT on PATH afterwards.
+func leftoverFixture(t *testing.T, cfg func(pack string) string) (handInstalledDir string) {
+	t.Helper()
+	_, pack := floorHostFixture(t, "")
+	handInstalledDir = filepath.Dir(filepath.Join(stubBins(t, "floorcli"), "floorcli"))
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+		t.Fatalf("the installing launch: rc=%d\n%s", rc, errw.String())
+	}
+	if _, err := os.Stat(filepath.Join(paths.HostFloorDir(), "bin", "floorcli")); err != nil {
+		t.Fatalf("the launch left no floor entry to be a leftover: %v", err)
+	}
+	writeFile(t, paths.UserConfigPath(), cfg(pack))
+	t.Setenv("PATH", "/usr/bin:/bin")
+	return handInstalledDir
+}
+
+// TestALeftoverFloorCopyIsNeverRun: in both leftover cases, from a PATH with no other floorcli the
+// launch refuses with 127 and names the act that removes the leftover; from a PATH that has one,
+// that copy runs and the hand-over line says it came from the PATH — never the floor's copy
+// under a "from your PATH" label.
+func TestALeftoverFloorCopyIsNeverRun(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		cfg  func(pack string) string
+	}{
+		{"its pack deselected", func(string) string { return `{"packs":[]}` }},
+		{"host_floor leaves its pack out", func(pack string) string {
+			return `{"packs":[{"source":"file://` + pack + `","name":"floorpack"}],"host_floor":{"floorpack":false}}`
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			handDir := leftoverFixture(t, c.cfg)
+			got := captureHostExec(t)
+			var errw bytes.Buffer
+			rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil)
+			if rc != 127 || got.execed {
+				t.Fatalf("rc=%d execed=%v (target %s), want 127 and no exec: the leftover ran\n%s",
+					rc, got.execed, got.target, errw.String())
+			}
+			if !strings.Contains(errw.String(), "`yolo host apply --assert` removes it") {
+				t.Errorf("the refusal does not say what the leftover is and what removes it:\n%s", errw.String())
+			}
+
+			t.Setenv("PATH", handDir+string(os.PathListSeparator)+"/usr/bin:/bin")
+			errw.Reset()
+			*got = execCapture{}
+			if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 {
+				t.Fatalf("with a PATH copy: rc=%d\n%s", rc, errw.String())
+			}
+			want := filepath.Join(handDir, "floorcli")
+			if got.target != want {
+				t.Errorf("exec'd %s, want the PATH copy %s", got.target, want)
+			}
+			if !strings.Contains(errw.String(), "starting floorcli (from your PATH, "+want+")") {
+				t.Errorf("the hand-over line does not name the PATH copy:\n%s", errw.String())
+			}
+		})
+	}
+}

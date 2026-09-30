@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -243,18 +244,32 @@ type hostTarget struct {
 //     the caller's PATH holds — installed first when missing (a launch installs what it needs,
 //     HP-D3, with progress lines: a launch has no quiet mode);
 //   - a target GIVEN AS A PATH is exec'd as given;
-//   - anything else is looked up on the child's PATH (the caller's PATH, then the floor's bin/),
-//     as the user's shell would find it — and so is a selected pack's program the floor cannot
-//     hold on this machine, with one line saying so, which keeps today's behavior while OQ-HE11
-//     is open.
+//   - anything else is looked up on the child's PATH, as the user's shell would find it — and so
+//     is a selected pack's program the floor cannot hold on this machine, with one line saying
+//     so, which keeps today's behavior while OQ-HE11 is open.
+//
+// That lookup skips the floor's own bin/, which the child's PATH ends with (HE-D1). Every name in it is a floor entry, and one a selected
+// pack delivers never reaches the lookup (it runs by path), so a hit there could only be a
+// LEFTOVER: an entry a deselected pack — or one `host_floor` now leaves out — left behind until
+// the next `yolo host apply --assert` removes it (§4, "Deselection"). yolo host runs its floor copy
+// of what a selected pack delivers and of nothing else (HP-DIR4), so a leftover is never run, in
+// either case, and a launch that finds nothing else says what the leftover is and what removes it.
 //
 // The second return is the exit code of a launch this refuses (127: the program is not
 // available), 0 otherwise. In a jail there is no floor: the jail's own launchers are on PATH.
 func resolveHostLaunchTarget(packs []*packload.Pack, cmd0, childPath string, errw io.Writer) (hostTarget, int) {
+	floorBin := hostFloorBinDir()
 	onPath := func() (hostTarget, int) {
-		target, err := resolveHostTarget(childPath, cmd0)
+		target, err := hostwrap.LookPathSkipping(childPath, cmd0, append(yoloManagedDirs(), floorBin))
 		if err != nil {
 			fmt.Fprintf(errw, "yolo host: %v\n", err)
+			if !config.InJail() && !strings.ContainsRune(cmd0, os.PathSeparator) {
+				if _, lerr := os.Lstat(filepath.Join(floorBin, cmd0)); lerr == nil {
+					fmt.Fprintf(errw, "yolo host: yolo's floor still holds a copy of %s that it no longer "+
+						"keeps (no selected pack delivers it here); yolo host does not run it, and "+
+						"`yolo host apply --assert` removes it\n", cmd0)
+				}
+			}
 			return hostTarget{}, 127
 		}
 		origin := originPath
@@ -279,14 +294,9 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0, childPath string, err
 		// copy about to run is not yolo's.
 		fmt.Fprintf(errw, "yolo host: yolo has no copy of %s %s (%s); looking for it on your PATH\n",
 			cmd0, noCopyWhere(prog), st.Reason)
-		// The floor's own bin/ is skipped: an entry left there from before `host_floor` left
-		// the pack out is not what "no copy" may run.
-		target, err := hostwrap.LookPathSkipping(childPath, cmd0, append(yoloManagedDirs(), floor.BinDir()))
-		if err != nil {
-			fmt.Fprintf(errw, "yolo host: %v\n", err)
-			return hostTarget{}, 127
-		}
-		return hostTarget{Path: target, Origin: originPath}, 0
+		// The same lookup as any other name's, the floor's own bin/ skipped: an entry left there
+		// from before `host_floor` left the pack out is a leftover, not what "no copy" may run.
+		return onPath()
 	case err != nil:
 		fmt.Fprintf(errw, "yolo host: could not install %s into yolo's floor: %v\n", cmd0, err)
 		return hostTarget{}, 127
