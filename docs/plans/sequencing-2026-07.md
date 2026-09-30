@@ -485,7 +485,7 @@ Marked here so the "start here" arrow points at the real next item.
 - ↩️ **D2 — graceful launch degradation** (2026-07-21) — **REVERTED 2026-07-29.**
   Originally made repo-root resolution non-fatal: on a miss the launch ran
   degraded on a cached/loaded image (`SkipBuild`) with a soft notice (commit
-  8f1d612). Reverted because silently running a possibly-stale image hides that
+  `07975c88`). Reverted because silently running a possibly-stale image hides that
   the environment no longer matches the config — a worse failure than exiting.
   A missing flake is again FATAL on container backends (`run.go` `!repoRootOK`
   exit, after the un-gated macos-user branch); paired with `just install` now
