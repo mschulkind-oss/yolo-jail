@@ -684,7 +684,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		if reason := o.roBindsUnsupported(rt); reason != "" {
 			out.print("[yellow]Skipping host nvim config (~/.config/nvim): " + reason + "[/yellow]")
 		} else {
-			runCmd = append(runCmd, "-v", hostNvim+":/ctx/host-nvim-config:ro")
+			runCmd = append(runCmd, "-v", hostNvim+":"+paths.ContextHostNvimDir+":ro")
 		}
 	}
 

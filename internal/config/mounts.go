@@ -419,8 +419,10 @@ func validateRWMountSources(config *jsonx.OrderedMap, workspace string, errs *[]
 }
 
 // validateMountDestinations refuses two context mounts at one jail path: a `mounts` element
-// against another, or against a SELECTED pack's `mount` at /ctx/<into>. Before this, a
-// collision was simply whichever bind podman applied last (context-mounts.md §2.1).
+// against another, against a SELECTED pack's `mount` at /ctx/<into>, or at, inside or
+// containing one of yolo's own children of /ctx (paths.ReservedContextPaths). Before this, a
+// collision was a launch podman refused late ("duplicate mount destination",
+// context-mounts.md §2.1 and §3.2).
 //
 // Only collisions a `mounts` element is party to are this key's to report; the pack set is
 // resolved only when there is an element to compare it with.
@@ -447,6 +449,30 @@ func validateMountDestinations(config *jsonx.OrderedMap, errs *[]string) {
 	nConfig := len(claims)
 	if nConfig == 0 {
 		return
+	}
+	// YOLO'S OWN CHILDREN OF /ctx (paths.ReservedContextPaths): the same namespace, §3.2.
+	// Nesting counts here, where it does not between two declarations: podman refuses a
+	// second bind at one path, and for a nested pair it creates the inner mountpoint inside
+	// the outer bind's HOST directory — so an element inside one of these writes into a tree
+	// yolo stages, and one containing them (an `at` of /ctx itself) has podman create yolo's
+	// mountpoints inside the user's own source, `:ro` or not.
+	for _, c := range claims {
+		for _, r := range paths.ReservedContextPaths() {
+			var where string
+			switch {
+			case c.dest == r.Path:
+				where = "at " + r.Path
+			case pathUnderOrEqual(c.dest, r.Path):
+				where = "at " + c.dest + ", inside " + r.Path
+			case pathUnderOrEqual(r.Path, c.dest):
+				where = "at " + c.dest + ", which contains " + r.Path
+			default:
+				continue
+			}
+			add(errs, fmt.Sprintf("config.mounts: %s lands %s, where yolo binds %s itself — "+
+				"give it a different \"at\" (or \"host:/ctx/<name>\")", c.who, where, r.Holds))
+			break
+		}
 	}
 	selected, _ := resolveSelectedPacks()
 	for _, p := range selected {

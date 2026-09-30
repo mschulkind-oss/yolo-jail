@@ -33,7 +33,7 @@ import (
 // COPY at a different path (acPackRootRel) — and macos-user a third one
 // (macosuser.StagedPackRoot). Three deliveries, one variable, which is why no reader
 // spells a constant.
-const packCtxDir = "/ctx/packs"
+const packCtxDir = paths.ContextPacksDir
 
 // acPackRootRel is where Apple Container's copy of the staged pack tree lands, relative
 // to ws_state — the directory that backend mounts wholesale at /home/agent.

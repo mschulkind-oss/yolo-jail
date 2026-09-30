@@ -14,7 +14,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // rwMountHome is a fixture home whose USER config declares `mounts` (the only scope a
@@ -319,5 +321,74 @@ func writeWorkspaceConfig(t *testing.T, ws, body string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// EVERY /ctx BIND YOLO MAKES ITSELF IS ON THE RESERVED LIST that the `mounts` duplicate check
+// refuses (paths.ReservedContextPaths, context-mounts.md §3.2). The argv below carries every
+// one of them — the staged pack tree, the capture store, a directory and a file `host_files`
+// source, and the host nvim config — and no user-declared context mount, so each /ctx
+// destination in it is yolo's. A new bind added without a reservation fails here, instead of
+// surfacing as podman's "duplicate mount destination" on the launch of whoever mounts a
+// directory of the same name.
+func TestEveryContextBindYoloMakesItselfIsReserved(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	emptyLoopholeDirs(t)
+	ws := t.TempDir()
+	wsState := filepath.Join(ws, ".yolo", "home")
+	packStaging := filepath.Join(home, "pack-staging")
+	captures := filepath.Join(home, "captures-store")
+	certs := filepath.Join(home, "certs")
+	for _, d := range []string{wsState, packStaging, captures, certs, filepath.Join(home, ".config", "nvim")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	npmrc := filepath.Join(home, "npmrc")
+	if err := os.WriteFile(npmrc, []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := goldenOptions(ws, home)
+	o.PathExists = func(p string) bool { _, err := os.Stat(p); return err == nil }
+	o.Stdout, o.Stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	sec := jsonx.NewOrderedMap()
+	sec.Set("blocked_tools", []any{})
+
+	argv := o.assembleRunCmd(&assembleInput{
+		cfg: newConfig("security", sec), rt: "podman", cname: "yolo-ws-abcd1234",
+		packs: claudePackFixture(t), packStaging: packStaging, capturesDir: captures,
+		hostFiles: []config.HostFileEntry{
+			{Path: "certs", Source: certs, IsDir: true, Mode: config.HostFileModeReadonly},
+			{Path: ".npmrc", Source: npmrc, Mode: config.HostFileModeReadonly},
+		},
+		agentsPath: filepath.Join(ws, "agents"), wsState: wsState,
+		miseStore: "/mise-store", yoloVersion: "9.9.9-test",
+		mountTargets: map[string]struct{}{},
+	})
+
+	seen := map[string]bool{}
+	for _, spec := range ctxMountArgs(argv) {
+		_, dest, _ := strings.Cut(strings.TrimSuffix(spec, ":ro"), ":")
+		reserved := false
+		for _, r := range paths.ReservedContextPaths() {
+			if dest == r.Path || strings.HasPrefix(dest, r.Path+"/") {
+				reserved, seen[r.Path] = true, true
+			}
+		}
+		if !reserved {
+			t.Errorf("yolo binds %s itself, and no entry of paths.ReservedContextPaths covers it, "+
+				"so a `mounts` element there passes `yolo check` and fails at podman", dest)
+		}
+	}
+	// The fixture is only a census if it reached every reserved bind.
+	for _, r := range paths.ReservedContextPaths() {
+		if !seen[r.Path] {
+			t.Errorf("the fixture argv never bound %s, so this test says nothing about it:\n%s",
+				r.Path, strings.Join(ctxMountArgs(argv), "\n"))
+		}
 	}
 }

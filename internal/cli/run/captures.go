@@ -1,6 +1,9 @@
 package run
 
-import "github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+import (
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+)
 
 // captures.go binds the machine's INSTALL-CAPTURE STORE into the jail, read-only, and tells
 // the jail where it landed.
@@ -39,7 +42,7 @@ import "github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 // entrypoint.CapturesDirEnv rather than hardcoding it, for the reason packCtxDir gives —
 // the destination differs per backend, so it is not a constant the jail side may assume.
 // On Apple Container there is no destination at all; the branch below says why.
-const capturesCtxDir = "/ctx/captures"
+const capturesCtxDir = paths.ContextCapturesDir
 
 // capturesArgs emits the store bind plus the env var naming it, or nothing.
 //

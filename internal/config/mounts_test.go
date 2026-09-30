@@ -338,6 +338,42 @@ func TestAMountThatIsNeverBoundCollidesWithNothing(t *testing.T) {
 	})
 }
 
+// YOLO'S OWN /ctx CHILDREN SHARE THE NAMESPACE (§3.2: "it shares one namespace with the
+// composed copies (host-user/…), just as /ctx does on podman. The collision rule is the
+// `yolo check` duplicate-destination error"). A `mounts` element at one of them was a
+// launch podman refused late ("duplicate mount destination"); one inside one had podman
+// create its mountpoint in the tree yolo binds there; one containing them had podman
+// create yolo's mountpoints inside the user's source — measured on podman 5.8: the
+// nested mountpoint is created in the host directory even when the parent bind is :ro.
+// Each is a `yolo check` error naming yolo's path, a bare element whose BASENAME is one of
+// the names included — the likeliest way to hit it.
+func TestAMountOnYolosOwnContextPathIsRefused(t *testing.T) {
+	for _, tc := range []struct{ name, element, want string }{
+		{"a bare element named packs", `"` + mountSourceDir(t, "packs") + `"`, "/ctx/packs"},
+		{"an explicit at of the captures store", `{"host": "` + mountSourceDir(t, "x") + `", "mode": "rw", "at": "/ctx/captures"}`, "/ctx/captures"},
+		{"host-user", `"` + mountSourceDir(t, "y") + `:/ctx/host-user"`, "/ctx/host-user"},
+		{"host-nvim-config", `"` + mountSourceDir(t, "z") + `:/ctx/host-nvim-config"`, "/ctx/host-nvim-config"},
+		{"inside the pack tree", `{"host": "` + mountSourceDir(t, "w") + `", "mode": "rw", "at": "/ctx/packs/extra"}`, "/ctx/packs"},
+		{"the context dir itself", `"` + mountSourceDir(t, "v") + `:/ctx"`, "/ctx/packs"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newMountsHost(t)
+			h.user(t, `{"mounts": [`+tc.element+`]}`)
+			errs, _ := h.validate(t)
+			got := joined(errs)
+			if !strings.Contains(got, "yolo binds") || !strings.Contains(got, tc.want) {
+				t.Fatalf("errors = %q, want a refusal naming yolo's own %s", errs, tc.want)
+			}
+		})
+	}
+	// The control: a neighbour of a reserved name is an ordinary destination.
+	h := newMountsHost(t)
+	h.user(t, `{"mounts": ["`+mountSourceDir(t, "packs-lib")+`", "`+mountSourceDir(t, "u")+`:/ctx/host-users"]}`)
+	if errs, _ := h.validate(t); len(errs) != 0 {
+		t.Fatalf("a destination beside a reserved name was refused: %q", errs)
+	}
+}
+
 // mountPackDir writes a local pack declaring one `mount` of ~/<host> at /ctx/<into>.
 func mountPackDir(t *testing.T, name, host, into string) string {
 	t.Helper()

@@ -22,3 +22,36 @@ const ContextDirEnv = "YOLO_CONTEXT_DIR"
 // ContainerContextDir is the context dir on the container backends (podman and Apple
 // Container): every context mount's default destination is a child of it.
 const ContainerContextDir = "/ctx"
+
+// YOLO'S OWN CHILDREN OF THE CONTEXT DIR, on the container backends. Each is a bind the
+// launch makes itself, so a context mount the user declares shares a namespace with them
+// (docs/design/context-mounts.md §3.2), and the `yolo check` duplicate-destination error
+// refuses a `mounts` element at, inside or containing one (config.validateMountDestinations):
+// podman refuses two binds at one path, and for a nested pair it creates the inner mountpoint
+// in the outer bind's HOST directory, even through a `:ro` bind. The run pipeline's own
+// constants are spelled from these, so a bind and its reservation are one name.
+const (
+	// ContextPacksDir is where the staged pack trees are bound (YOLO_PACK_ROOT on podman).
+	ContextPacksDir = ContainerContextDir + "/packs"
+	// ContextCapturesDir is where the vendor-installer capture store is bound.
+	ContextCapturesDir = ContainerContextDir + "/captures"
+	// ContextHostUserDir is the root the source-bearing `host_files` entries are bound under.
+	ContextHostUserDir = ContainerContextDir + "/host-user"
+	// ContextHostNvimDir is where the host's ~/.config/nvim is bound for the entrypoint.
+	ContextHostNvimDir = ContainerContextDir + "/host-nvim-config"
+)
+
+// ReservedContextPath is one of yolo's own children of the context dir, with what it holds.
+type ReservedContextPath struct {
+	Path, Holds string
+}
+
+// ReservedContextPaths lists yolo's own children of the context dir.
+func ReservedContextPaths() []ReservedContextPath {
+	return []ReservedContextPath{
+		{ContextPacksDir, "the staged pack trees"},
+		{ContextCapturesDir, "the vendor-installer capture store"},
+		{ContextHostUserDir, "your host_files sources"},
+		{ContextHostNvimDir, "your host nvim config"},
+	}
+}

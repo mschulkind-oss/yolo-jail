@@ -494,7 +494,10 @@
     Two mounts at one jail path — a pack `mount` at /ctx/<into> included —
     are a `yolo check` error.  An entry whose source does not exist is
     skipped, so it collides with nothing: one entry per machine at the same
-    path is fine.
+    path is fine.  /ctx/packs, /ctx/captures, /ctx/host-user and
+    /ctx/host-nvim-config are yolo's own: an entry at, inside or containing
+    one (an `at` of /ctx itself) is a `yolo check` error too — including a
+    bare path whose basename is one of those names, so pin it with `at`.
     <basename> is the basename AFTER symlink resolution.  A link whose name
     differs from its target's mounts under the TARGET's name: "~/code/sysadmin"
     lands at /ctx/sysadmin-config if that is where the link points.  Use the

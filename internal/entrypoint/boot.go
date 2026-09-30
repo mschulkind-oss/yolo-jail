@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"io"
 	"os"
@@ -19,7 +20,7 @@ import (
 var cgdSocket = "/run/yolo-services/cgroup-delegate.sock"
 
 // jail's .config overlay. A package var so tests can redirect it.
-var hostNvimConfig = "/ctx/host-nvim-config"
+var hostNvimConfig = paths.ContextHostNvimDir
 
 // ---------------------------------------------------------------------------
 // Performance logging

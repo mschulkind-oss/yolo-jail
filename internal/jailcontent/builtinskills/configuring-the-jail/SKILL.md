@@ -167,7 +167,10 @@ the mount**: `"~/x:/ctx/x:ro"` parses as one host path literally named
 `~/x:/ctx/x:ro`, which does not exist, so the entry is skipped with a warning.
 `yolo check` only *warns* about it too — so the config looks accepted and mounts
 nothing. `":rw"` is refused outright. Two fields maximum. Wherever the backend
-puts context mounts, `$YOLO_CONTEXT_DIR` names the directory.
+puts context mounts, `$YOLO_CONTEXT_DIR` names the directory. `/ctx/packs`,
+`/ctx/captures`, `/ctx/host-user` and `/ctx/host-nvim-config` are yolo's own, so
+a mount landing at, inside or over one is a `yolo check` error; a bare path
+whose basename is one of those names needs an explicit destination.
 
 ### 4. An in-jail `yolo check` CANNOT judge a `mounts` path
 
