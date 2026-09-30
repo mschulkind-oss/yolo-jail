@@ -103,10 +103,17 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 	// is left out and named, since a file selecting it would name a provider no host process
 	// of that agent can reach.
 	use := jsonx.NewOrderedMap()
-	selected := effectiveHostProfiles(cfg, packs, "", "")
+	fold := hostProfileFold(cfg, packs, "", "")
+	selected := fold.Table
 	// Each agent's ACTIVE SET (docs/design/active-provider-sets.md §4.9): the value is a string or
 	// a list, and profile below is its primary. A set is rendered whole or not at all (AP-P2).
 	sets := packload.ProfileSets(selected)
+	// The key's BARE list (its list form, or a list under "*") reaches an agent whose pack
+	// declares no provider_sets as its first entry alone (OQ-AP3), and the apply says so, as a
+	// launch does: the entries that agent ignores are rendered into none of its files.
+	if note := fold.BareListNote(true); note != "" {
+		c.omitted = append(c.omitted, note)
+	}
 	for _, agent := range selected.Keys() {
 		v, _ := selected.Get(agent)
 		set := sets[agent]

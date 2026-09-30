@@ -331,3 +331,25 @@ func TestHostRefusesAnUndeclaredEntryOfTheProfileKeysBareList(t *testing.T) {
 		t.Errorf("yolo host must name the ignored entry nothing declares:\n%s", errs)
 	}
 }
+
+// OQ-AP3 at `yolo host apply`: the profile key's bare list renders pi's whole set and claude's
+// first entry, and the apply names what claude ignores, as a launch does, rather than writing
+// part of the list in silence (AP-P2).
+func TestHostApplySaysWhatTheProfileKeysBareListNarrowed(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["claude","pi","zai","openrouter"],
+		"profile":["zai","openrouter"]}`)
+	c, err := composeHostInputs(config.UserScopeConfigOrEmpty(), selectConfiguredHostPacks().packs, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.summary(); !strings.Contains(got, "pi → zai,openrouter") || !strings.Contains(got, "claude → zai") {
+		t.Errorf("the detail line must name pi's whole list and claude's first entry: %s", got)
+	}
+	said := strings.Join(c.omitted, "\n")
+	for _, want := range []string{"(the profile key's list, naming no agent)", "claude takes one profile",
+		"ignores openrouter"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("the apply must say %q:\n%s", want, said)
+		}
+	}
+}
