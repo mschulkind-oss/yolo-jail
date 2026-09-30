@@ -11,9 +11,32 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
-// machineShareExec is an Exec seam answering the three podman probes the share read makes
-// (runtime.ReadMachineShares) for a machine whose config file records shares, written
-// under a temp dir. A nil shares list makes every probe fail — the unreadable machine.
+// fakePodmanMachine makes o's podman a machine whose config file records shares, written
+// under a temp dir: its Exec seam answers the three podman probes the share read makes
+// (runtime.ReadMachineShares), counting them in probes. A nil shares list makes every probe
+// fail — the unreadable machine.
+//
+// IT OWNS THE ENVIRONMENT THAT PICKS THE MACHINE TOO. ReadMachineShares answers UNKNOWN,
+// asking podman nothing, whenever CONTAINER_HOST or CONTAINER_CONNECTION is set, since
+// podman then talks to a connection it cannot map to a machine. Both are common exports on
+// a Mac with more than one machine or a remote podman, and o.Getenv defaults to the test
+// process's own environment, so on such a developer's machine every case here saw no
+// machine at all: a refusal case refused nothing, and an inertness case passed for the
+// wrong reason. The two names read as unset; every other name still reaches the real
+// environment.
+func fakePodmanMachine(t *testing.T, o *Options, shares []string, probes *int) {
+	t.Helper()
+	getenv := o.Getenv
+	o.Getenv = func(k string) string {
+		if k == "CONTAINER_HOST" || k == "CONTAINER_CONNECTION" {
+			return ""
+		}
+		return getenv(k)
+	}
+	o.Exec = machineShareExec(t, shares, probes)
+}
+
+// machineShareExec is fakePodmanMachine's Exec seam.
 func machineShareExec(t *testing.T, shares []string, probes *int) func([]string, string, []string, time.Duration) ExecResult {
 	t.Helper()
 	dir := t.TempDir()
@@ -109,7 +132,7 @@ func TestResolveJailPrefixConsultsTheMachineShares(t *testing.T) {
 			})
 			o.IsMacOS = true
 			probes := 0
-			o.Exec = machineShareExec(t, tc.shares, &probes)
+			fakePodmanMachine(t, o, tc.shares, &probes)
 			var buf bytes.Buffer
 			o.Stderr = &buf
 
@@ -140,7 +163,7 @@ func TestUnsharedBindSourcesIsInertOffMac(t *testing.T) {
 	probes := 0
 	o := &Options{IsMacOS: false}
 	fillDefaults(o)
-	o.Exec = machineShareExec(t, defaultMacShares, &probes)
+	fakePodmanMachine(t, o, defaultMacShares, &probes)
 	if msg := o.unsharedBindSources("podman", []string{"/opt/anything"}); msg != "" || probes != 0 {
 		t.Errorf("a Linux launch consulted a Podman Machine (probes=%d): %q", probes, msg)
 	}
@@ -151,7 +174,7 @@ func TestMachineSharesAreReadOncePerLaunch(t *testing.T) {
 	probes := 0
 	o := &Options{IsMacOS: true}
 	fillDefaults(o)
-	o.Exec = machineShareExec(t, defaultMacShares, &probes)
+	fakePodmanMachine(t, o, defaultMacShares, &probes)
 	_ = o.unsharedBindSources("podman", []string{"/Users/me/a"})
 	first := probes
 	_ = o.unsharedBindSources("podman", []string{"/Users/me/b"})
