@@ -53,17 +53,41 @@ func TestHostApplyAssertProvisionsTheFloorAndRemovesADeselectedEntry(t *testing.
 	}
 }
 
-// TestTheLaunchGatesApplyNeverTouchesTheFloor: the gate's writing apply is applyHostSurveyed
-// without the verb's floor stage, so a launch neither installs every missing agent nor removes
-// one — it installs only what it starts (resolveHostLaunchTarget).
+// TestTheLaunchGatesApplyNeverTouchesTheFloor: the gate's writing applies — the unattended one
+// and the one it runs visibly on a terminal — are applyHostSurveyed without the verb's floor
+// stage, so a launch neither installs every missing agent nor removes one: it installs only what
+// it starts (resolveHostLaunchTarget). Driven through the gate's own two functions, so a gate that
+// asked for the floor stage fails here. Each apply must still have run: the render it writes is
+// checked, or a gate that applied nothing would pass.
 func TestTheLaunchGatesApplyNeverTouchesTheFloor(t *testing.T) {
-	dist, _ := floorHostFixture(t, "")
-	var out, errw bytes.Buffer
-	if rc := applyHostSurveyed(&out, &errw, false, true, nil, &hostApplySurvey{}); rc != 0 {
-		t.Fatalf("the gate's apply rc=%d:\n%s%s", rc, out.String(), errw.String())
-	}
-	if _, err := os.Stat(paths.HostFloorDir()); err == nil || len(dist.NpmCalls("install")) != 0 {
-		t.Errorf("the launch gate's apply provisioned the floor:\n%s", out.String())
+	for _, c := range []struct {
+		name  string
+		apply func(errw *bytes.Buffer, home string) bool
+	}{
+		{"unattended", func(errw *bytes.Buffer, home string) bool {
+			return hostApplyGateApply(errw, "floorcli", home)
+		}},
+		{"on a terminal", func(errw *bytes.Buffer, _ string) bool {
+			return hostApplyGateApplyInteractive(errw, strings.NewReader(""), "floorcli")
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dist, _ := floorHostFixture(t, `,"host_wrappers":true`)
+			home, err := os.UserHomeDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var errw bytes.Buffer
+			if !c.apply(&errw, home) {
+				t.Fatalf("the gate's apply refused the launch:\n%s", errw.String())
+			}
+			if _, err := os.Stat(filepath.Join(paths.WrapDirUnder(home), "floorcli")); err != nil {
+				t.Fatalf("the gate's apply did not run (no wrapper rendered: %v):\n%s", err, errw.String())
+			}
+			if _, err := os.Stat(paths.HostFloorDir()); err == nil || len(dist.NpmCalls("install")) != 0 {
+				t.Errorf("the launch gate's apply provisioned the floor:\n%s", errw.String())
+			}
+		})
 	}
 }
 
