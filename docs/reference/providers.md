@@ -1126,6 +1126,15 @@ vendor's model name ([model-lists-and-pickers §6](../design/model-lists-and-pic
 It is a convention with a warning, not an enum: a derive asking `yolo.model_for` for one the
 selected provider lacks gets `nil`, and the launch prints one warning naming the provider and
 the alias and proceeds. The list is `luahook.ConventionalModelAliases`.
+
+**claude reads three of them for its tiers** ([MM-D17](../design/model-lists-and-pickers.md#MM-D17)):
+`balanced` pins its Sonnet tier (`ANTHROPIC_DEFAULT_SONNET_MODEL`), `fast` its Haiku tier, and
+`frontier` its Opus tier wherever a tier pin reads an alias, which is the `openai-codex` list and a
+list an `only` narrowed; on a routed provider the Opus tier stays the selected model. claude's own
+names, `sonnet`, `haiku` and `opus`, stay synonyms and win where a provider declares both, and a
+name whose model claude's client cannot call gives way to the tier's other name
+([MM-D18](../design/model-lists-and-pickers.md#MM-D18)). The Fable tier reads `fable` alone.
+
 Which ids yolo ships where an agent cannot default, a `models` kind for company packs, and how
 each picker renders the list are designed in [`model-lists-and-pickers.md`](../design/model-lists-and-pickers.md).
 

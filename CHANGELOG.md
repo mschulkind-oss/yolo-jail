@@ -317,7 +317,11 @@ instead of being skipped behind a warning. See
   which yolo the jail was started with and which settings of the profile you selected did not
   reach it, so the agent can explain a missing login instead of guessing. On Apple Container the
   launch says the briefing cannot carry it there.
-
+- Claude Code now runs its Sonnet tier on a provider's `balanced` model and its Haiku tier,
+  which it also uses for background work, on its `fast` one, the names yolo asks every provider
+  to declare. A provider that named only those used to leave both tiers on its default model.
+  `sonnet` and `haiku` still work, and win when a provider names both. See
+  [tier aliases](docs/reference/providers.md#tier-aliases).
 - GPT-6.1 Sol replaces GPT-6 Sol for every agent on the ChatGPT subscription (`-p codex`): it is the default and the first entry in the model menus, and GPT-6 Sol is no longer listed. If you had picked GPT-6 Sol yourself, pick a model again.
 
 **The launch's profile line now says what your selection reached for each agent.** Instead of

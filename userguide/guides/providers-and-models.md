@@ -280,6 +280,9 @@ self-hosted server that speaks OpenAI's format:
 pack can ask for a kind of model without knowing yours: `default`, `fast` for a cheap and quick
 one, `balanced` for the middle tier and `frontier` for the most capable. None is required. If a
 pack asks for one your provider does not name, the launch prints a warning and starts anyway.
+Claude runs its Sonnet tier on your `balanced` model and its Haiku tier, which it also uses for
+background work, on your `fast` one. If you name `sonnet` or `haiku` instead, Claude still uses
+them, and they win when you name both.
 
 When you run pi with a profile and the pi-subagents extension, a child agent starts on the same
 model as pi and can use only that provider's models: the ones you list in `models`, or any of the
