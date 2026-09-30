@@ -258,6 +258,10 @@ const (
 type hostTarget struct {
 	Path   string
 	Origin hostTargetOrigin
+	// Part is which part of the child's launch PATH an originPath target was found on — the PATH
+	// yolo was started with, a `host_path` folder, or the stand-in for a launch started with none —
+	// so the starting line names the real source rather than calling every hit "your PATH".
+	Part hostpath.Part
 }
 
 // resolveHostLaunchTarget decides which binary `yolo host -- <cmd0>` runs, by the three exec rules
@@ -311,11 +315,10 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 			}
 			return hostTarget{}, 127
 		}
-		origin := originPath
 		if strings.ContainsRune(cmd0, os.PathSeparator) {
-			origin = originGiven
+			return hostTarget{Path: target, Origin: originGiven}, 0
 		}
-		return hostTarget{Path: target, Origin: origin}, 0
+		return hostTarget{Path: target, Origin: originPath, Part: child.PartOf(filepath.Dir(target))}, 0
 	}
 	if config.InJail() || strings.ContainsRune(cmd0, os.PathSeparator) || !selectedPackInstalls(packs, cmd0) {
 		return onPath()
@@ -368,8 +371,15 @@ func hostStartingLine(cmd0 string, t hostTarget) string {
 		where = "yolo's floor copy"
 	case originGiven:
 		where = "as given"
-	default:
-		where = "from your PATH"
+	case originPath:
+		switch t.Part {
+		case hostpath.PartHostPath:
+			where = "from host_path"
+		case hostpath.PartStandIn:
+			where = "from " + hostpath.StandInPhrase
+		default:
+			where = "from your PATH"
+		}
 	}
 	return fmt.Sprintf("yolo host: starting %s (%s, %s)", cmd0, where, homeTilde(t.Path))
 }

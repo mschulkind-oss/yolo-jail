@@ -202,28 +202,55 @@ func (l *Launch) Skipped(more ...string) []string {
 	return out
 }
 
-// Source names where one launch PATH folder came from: "the PATH yolo was started with", "host_path",
-// or, for a child with no PATH, the stand-in. "" for a folder not on it.
-func (l *Launch) Source(dir string) string {
+// Part is which part of a launch PATH a folder is on.
+type Part int
+
+const (
+	// PartNone: the folder is not on the launch PATH.
+	PartNone Part = iota
+	// PartCaller: the PATH yolo was started with.
+	PartCaller
+	// PartStandIn: the folders WithStandIn put in place of a PATH yolo was not handed.
+	PartStandIn
+	// PartHostPath: a `host_path` folder not already on the PATH before it.
+	PartHostPath
+)
+
+// PartOf is which part of the launch PATH dir is on, the first occurrence deciding.
+func (l *Launch) PartOf(dir string) Part {
 	c := filepath.Clean(dir)
 	for _, d := range l.caller {
 		if filepath.Clean(d) == c {
 			if l.standIn {
-				return standInPhrase
+				return PartStandIn
 			}
-			return "the PATH yolo was started with"
+			return PartCaller
 		}
 	}
 	for _, d := range l.added {
 		if filepath.Clean(d) == c {
-			return "host_path"
+			return PartHostPath
 		}
+	}
+	return PartNone
+}
+
+// Source names where one launch PATH folder came from: "the PATH yolo was started with", "host_path",
+// or, for a child with no PATH, the stand-in. "" for a folder not on it.
+func (l *Launch) Source(dir string) string {
+	switch l.PartOf(dir) {
+	case PartCaller:
+		return "the PATH yolo was started with"
+	case PartStandIn:
+		return StandInPhrase
+	case PartHostPath:
+		return "host_path"
 	}
 	return ""
 }
 
-// standInPhrase names WithStandIn's folders in a line a person reads.
-const standInPhrase = "the system folders yolo uses when it is started with no PATH"
+// StandInPhrase names WithStandIn's folders in a line a person reads.
+const StandInPhrase = "the system folders yolo uses when it is started with no PATH"
 
 // Searched is the whole PATH searched, in words: its value with each part named, never truncated,
 // since it is the answer to "where did it look".
@@ -234,7 +261,7 @@ func (l *Launch) Searched() string {
 	case len(l.caller) > 0:
 		from := "the PATH yolo was started with"
 		if l.standIn {
-			from = standInPhrase
+			from = StandInPhrase
 		}
 		s := strings.Join(l.caller, sep) + ", " + from
 		if len(added) > 0 {

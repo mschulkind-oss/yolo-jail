@@ -221,6 +221,41 @@ func TestTheExecReadsHostPathAndMissesWithTheMissLine(t *testing.T) {
 	}
 }
 
+// TestTheStartingLineSaysWhichPartOfThePathTheTargetCameFrom: the hand-over line names where the
+// binary it starts was found — the PATH yolo was started with ("from your PATH"), a `host_path`
+// folder, or, for a launch started with no PATH at all, the system folders its child searches in
+// its place (HP-D12). Hard-code "from your PATH" again, and the second and third cases fail.
+func TestTheStartingLineSaysWhichPartOfThePathTheTargetCameFrom(t *testing.T) {
+	floorHostFixture(t, `,"host_path":["~/tools/bin"]`)
+	ambient := floortest.ResolvedTemp(t)
+	fromCaller := putExe(t, ambient, "other")
+	putExe(t, filepath.Join(paths.Home(), "tools", "bin"), "extra")
+	t.Setenv("PATH", ambient)
+	captureHostExec(t)
+	for _, c := range []struct{ bin, want string }{
+		{"other", "yolo host: starting other (from your PATH, " + fromCaller + ")\n"},
+		{"extra", "yolo host: starting extra (from host_path, ~/tools/bin/extra)\n"},
+	} {
+		var errw bytes.Buffer
+		if rc := hostExec(nil, []string{c.bin}, io.Discard, &errw, nil); rc != 0 {
+			t.Fatalf("%s: rc=%d\n%s", c.bin, rc, errw.String())
+		}
+		if !strings.Contains(errw.String(), c.want) {
+			t.Errorf("%s: want the starting line %q\ngot:\n%s", c.bin, c.want, errw.String())
+		}
+	}
+
+	// Started with no PATH: `sh` is found in the stand-in system folders, and the line says so.
+	t.Setenv("PATH", "")
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"sh"}, io.Discard, &errw, nil); rc != 0 {
+		t.Fatalf("sh: rc=%d\n%s", rc, errw.String())
+	}
+	if want := "yolo host: starting sh (from the system folders yolo uses when it is started with no PATH, "; !strings.Contains(errw.String(), want) {
+		t.Errorf("want the starting line to begin %q\ngot:\n%s", want, errw.String())
+	}
+}
+
 // TestAProgramTheFloorCannotHoldIsFoundInHostPath: a selected pack's program `host_floor` leaves out
 // is looked up on the child's PATH (OQ-HE11 (a)) — which includes `host_path`'s folders — and, with
 // no copy anywhere, exits 127 with the miss line naming the pack it belongs to.
