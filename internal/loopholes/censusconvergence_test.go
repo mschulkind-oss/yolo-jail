@@ -33,6 +33,14 @@ var convergenceExemptions = map[string]string{
 	// (config-dump and yolo check construct it with an explicit root). It reads the same
 	// recorded PackModules(), which is where the convergence actually lands.
 	"internal/loopholes/resolver.go": "config.LoopholeResolver's own knobs; reads the same PackModules()",
+	// The `yolo host` launch's doorways (docs/design/host-notch-services.md HS-D21). The host
+	// notch stages no pack tree, so no SetPackModules record describes its launch, and the
+	// lazy resolver answers for `packs` resolved another way than the launch's own selection
+	// function. It hands NewSet the modules of the packs that selection chose, through
+	// packLoopholeModules and packSupersessions — the projections stagePacks records — so the
+	// set is the one a launch of those packs records, and it never writes the process-wide
+	// record, which a host verb shares with every other verb and test in its process.
+	"internal/cli/run/hostdoorways.go": "the host launch's own selection, projected as stagePacks records it",
 }
 
 // skippedTopLevelDirs are the repo-root subtrees the walker does not read, each because it

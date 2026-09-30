@@ -58,6 +58,61 @@ type ServedDaemons struct {
 	// rebind maps a declared loopback `host:port` a pack service serves at to its served
 	// address, for the declared addresses this launch moved. Empty on a private namespace.
 	rebind map[string]string
+	// host marks the host notch's set (AtHost): a notch that runs a jail daemon only as a
+	// credential doorway its launch opens (docs/design/host-notch-services.md HS-D15, HS-D21),
+	// so a daemon it does not serve is worded as one this launch did not open, never as one
+	// only a jail could run.
+	host bool
+	// notServed is why this launch leaves a named daemon unserved, keyed by daemon name, where
+	// the launch knows a reason the notch alone does not say (WithNotServedWhy): the loophole
+	// is disabled, or the front door owns no process lifetime to open a doorway for.
+	notServed map[string]string
+}
+
+// AtHost returns s marked as the host notch's set (the host field says what that changes).
+func (s ServedDaemons) AtHost() ServedDaemons {
+	s.host = true
+	return s
+}
+
+// WithNotServedWhy returns s with why, keyed by daemon name: the clause UnservedEnvLines puts
+// after the daemon's name for a pointer this launch withheld. A daemon with no entry gets the
+// notch's own clause. nil adds nothing.
+func (s ServedDaemons) WithNotServedWhy(why map[string]string) ServedDaemons {
+	if len(why) == 0 {
+		return s
+	}
+	out := make(map[string]string, len(s.notServed)+len(why))
+	for k, v := range s.notServed {
+		out[k] = v
+	}
+	for k, v := range why {
+		if v != "" {
+			out[k] = v
+		}
+	}
+	s.notServed = out
+	return s
+}
+
+// notServedWhy is the clause naming why daemon is not served here: the launch's own reason
+// when it gave one (WithNotServedWhy), else the notch's.
+func (s ServedDaemons) notServedWhy(daemon string) string {
+	if why := s.notServed[daemon]; why != "" {
+		return why
+	}
+	switch {
+	case s.host:
+		return "which this launch does not open: at the host a jail daemon runs only as the " +
+			"credential doorway `yolo host --` opens for an agent whose selected provider it " +
+			"serves (docs/design/host-notch-services.md HS-D15), and nothing this launch " +
+			"selects asks for this one"
+	case s.runs:
+		return "which this launch does not run (its loophole is disabled, or its pack is not selected)"
+	default:
+		return "which does not run here: jail daemons run only in a jail (a container, or the " +
+			"macos-user sandbox), never at the host"
+	}
 }
 
 // WithListen returns s with each daemon's served address, keyed by daemon name (internal/cli/run
@@ -152,7 +207,8 @@ func ServedByLaunch(services []string) ServedDaemons { return ServedInJail(servi
 // daemons when either does. macos-user's served set is its guest's jail daemons Plus the
 // launch-owned services it planned.
 func (s ServedDaemons) Plus(o ServedDaemons) ServedDaemons {
-	out := ServedDaemons{runs: s.runs || o.runs, names: map[string]bool{}}
+	out := ServedDaemons{runs: s.runs || o.runs, host: s.host || o.host, names: map[string]bool{}}
+	out = out.WithNotServedWhy(s.notServed).WithNotServedWhy(o.notServed)
 	for _, part := range []ServedDaemons{s, o} {
 		for n, ok := range part.names {
 			if ok {

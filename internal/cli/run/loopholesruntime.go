@@ -162,6 +162,11 @@ func sharesLauncherNetns(rt, netMode string, inContainer bool) bool {
 	if inStrSlice(paths.NativeRuntimes, rt) {
 		return true
 	}
+	// THE HOST NOTCH has no jail, so its agent is this process's own child on this process's
+	// own stack, and a front it publishes must advertise 127.0.0.1 (hostdoorways.go).
+	if rt == hostNotchRuntime {
+		return true
+	}
 	// `network.mode: "host"` is the explicit form; podman-in-podman is the forced
 	// one — netavark cannot create a netns without NET_ADMIN, so the assembler emits
 	// --net=host there whatever the config asked for.
@@ -193,7 +198,8 @@ func (o *Options) inContainer() bool {
 // keeps its in-process start (see startCgroupDelegate for the SO_PEERCRED reason it
 // cannot be a spawned daemon at all) but is GATED on its record like everything else.
 func (o *Options) startLoopholes(cname, rt string, cfg *jsonx.OrderedMap) []loopholeDaemon {
-	return o.startLoopholesMatching(cname, rt, cfg, o.loopholeAllow(rt, cfg))
+	return o.startLoopholesMatching(loopholes.NewHostSet(cfgMap(cfg, "loopholes")), cname, rt, cfg,
+		o.loopholeAllow(rt, cfg))
 }
 
 // loopholeAllow is the backend's filter on which loopholes a launch starts. It is its own
@@ -220,13 +226,21 @@ func (o *Options) loopholeAllow(rt string, cfg *jsonx.OrderedMap) func(string) b
 // startLoopholesMatching is the shared lifecycle for backends that can carry only a
 // subset of host services. Apple Container admits the OpenAI credential endpoint file,
 // while macos-user starts that same one service without activating unrelated loopholes.
-func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap, allow func(string) bool) []loopholeDaemon {
+//
+// set is the loophole set it spawns from: every jail launch passes the process's converged set
+// (loopholes.NewHostSet, startLoopholes), and a `yolo host` launch the set of the packs its own
+// selection function chose (hostdoorways.go), since that notch stages no pack tree for the
+// converged set to read.
+func (o *Options) startLoopholesMatching(set loopholes.Set, cname, rt string, cfg *jsonx.OrderedMap,
+	allow func(string) bool) []loopholeDaemon {
 	// ONE DIR PER SESSION ON macos-user, one per jail everywhere else (servicessession.go). A
 	// container jail has one set of fronts however many terminals attach to it, so its
 	// workspace-keyed dir has one publisher; a macos-user session is a sandbox of its own, and
 	// two of one workspace sharing that dir is the teardown defect OQ-HD10's second run measured.
+	// A `yolo host` launch that opens a doorway is a session too: one command, the fronts
+	// started for it, and its end (hostdoorways.go).
 	var socketsDir string
-	if rt == "macos-user" { // parity: HonoredBy — a container backend has one container per name, so its cname-keyed dir has one publisher, and its teardown's relaunch lock and existence probe keep it for a live jail
+	if rt == "macos-user" || rt == hostNotchRuntime { // parity: HonoredBy — a container backend has one container per name, so its cname-keyed dir has one publisher, and its teardown's relaunch lock and existence probe keep it for a live jail
 		if o.servicesSession == nil {
 			s, err := o.openServicesSession(cname)
 			if err != nil {
@@ -258,7 +272,6 @@ func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap
 	// delegate's own switch is a record in this set. The delegate used to start before
 	// any discovery happened at all — which is exactly what "presence activates" looked
 	// like in code.
-	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
 	discovered := set.Enabled()
 	kept := discovered[:0]
 	for _, lp := range discovered {

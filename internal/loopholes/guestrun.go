@@ -113,6 +113,14 @@ func DoorwaysOutside(rt string, specs []JailDaemonSpec) []JailDaemonSpec {
 	if rt != "macos-user" {
 		return nil
 	}
+	return Doorways(specs)
+}
+
+// Doorways is every doorway in specs that declares its host argv, whatever runtime composed
+// them, order kept: DoorwaysOutside's answer on macos-user, and the set a `yolo host` launch
+// chooses its doorways from (internal/cli/run's hostdoorways.go), since the host notch has no
+// jail for a doorway to run in instead.
+func Doorways(specs []JailDaemonSpec) []JailDaemonSpec {
 	var out []JailDaemonSpec
 	for _, s := range specs {
 		if isDoorway(s) {

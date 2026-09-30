@@ -343,17 +343,14 @@ func (s *CredentialScope) UnservedEnvLines(servedByLaunch func(string) bool) []s
 		byDaemon[daemon] = append(byDaemon[daemon], k)
 	}
 	sort.Strings(daemons)
-	why := "which does not run here: jail daemons run only in a jail (a container, or the " +
-		"macos-user sandbox), never at the host"
-	if s.served.RunsDaemons() {
-		why = "which this launch does not run (its loophole is disabled, or its pack is not selected)"
-	}
 	var lines []string
 	for _, daemon := range daemons {
 		vars := byDaemon[daemon]
 		sort.Strings(vars)
+		// The launch's own reason when it gave one, else the notch's (ServedDaemons.notServedWhy).
 		lines = append(lines, strings.Join(vars, ", ")+" — points at the "+
-			strconv.Quote(daemon)+" jail daemon, "+why+", so nothing would answer it")
+			strconv.Quote(daemon)+" jail daemon, "+s.served.notServedWhy(daemon)+
+			", so nothing would answer it")
 	}
 	unlistened := map[string][]string{}
 	var bare []string

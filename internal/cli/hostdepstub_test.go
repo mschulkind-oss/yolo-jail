@@ -65,6 +65,9 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == testFakeAgentArg {
 		os.Exit(fakeAgentMain())
 	}
+	if len(os.Args) > 1 && os.Args[1] == testFakeAWSAgentArg {
+		os.Exit(fakeAWSAgentMain())
+	}
 	if exe, err := os.Executable(); err == nil {
 		launchservice.SelfExec = func(argv []string) []string {
 			return append([]string{exe, testAsYoloArg}, argv[1:]...)

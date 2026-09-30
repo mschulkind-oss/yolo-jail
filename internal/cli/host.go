@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
@@ -455,7 +456,9 @@ func hostProfileFor(v, agent string, envVerb bool) (string, error) {
 // hostExec composes the environment and launches the target.
 //
 // Ordinary launches still use syscall.Exec. Managed Codex stays resident because its
-// dynamic loopback credential adapter must be closed when the agent exits.
+// dynamic loopback credential adapter must be closed when the agent exits, and so does a
+// launch that starts a pack service's host half or opens a credential doorway, which stay
+// the agent's parent (launchservice.RunAgent) and close both when it exits.
 func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int {
 	flags, ok := parseHostExecFlags(flagArgs, errw)
 	if flags.help {
@@ -622,11 +625,25 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// OpenAI login exists before the bridge asks for a view; the agent starts only once each
 	// service is listening, and every one stops when the agent exits. Said on stderr, every
 	// time: this is host code yolo runs on the user's machine, and a launch has no quiet mode.
-	if len(launch.services) > 0 {
+	//
+	// THE DOORWAYS FIRST (HS-D15, HS-D21; run.HostDoorways.Start): the host service each one
+	// forwards to, fronted for this launch, then the doorway, as the macos-user arm orders them
+	// (HS-D19). The fronts and their session dir close after the agent's parent has stopped the
+	// doorways, when this function returns.
+	if len(launch.services) > 0 || len(launch.doorways.Plans()) > 0 {
 		if managed != nil {
 			environ = managed.Environ(environ)
 		}
-		var running []*launchservice.Running
+		running, stopHostServices, lines, err := launch.doorways.Start(launch.cfg, launch.workspace,
+			launch.agent, errw, startLaunchService)
+		for _, line := range lines {
+			fmt.Fprintf(errw, "yolo host: %s\n", line)
+		}
+		if err != nil {
+			fmt.Fprintf(errw, "yolo host: refusing to launch: %v\n", err)
+			return 1
+		}
+		defer stopHostServices()
 		for _, plan := range launch.services {
 			r, err := startLaunchService(plan, launch.serviceInput())
 			if err != nil {
@@ -819,6 +836,18 @@ type hostComposition struct {
 	// the one a pairing needs (hostServicesDetect, with no ports or token): zero or one, since
 	// one agent resolves one pairing (docs/design/host-notch-services.md §4.2).
 	services []*launchservice.Plan
+	// doorways are the credential doorways this launch opens for its agent
+	// (run.PlanHostDoorways; docs/design/host-notch-services.md HS-D15, HS-D21), planned only
+	// by the front door that runs the agent, and the reason each one it leaves closed is closed.
+	doorways *run.HostDoorways
+	// served is the served set the credential gate composed this launch against: the doorways
+	// and services above, at their settled addresses, marked as the host notch's. The OQ-SSO8
+	// check reads it too, so a pointer this launch delivers is checked for its overrides.
+	served packload.ServedDaemons
+	// cfg and workspace are the user-scope config and the directory this launch composed from,
+	// for the doorways' host services, which read the loophole settings from that config.
+	cfg       *jsonx.OrderedMap
+	workspace string
 	// selection is the one selection function's answer this launch composed from: packs is its
 	// complete set, and its causes are the packs the closure joined (selectionLines).
 	selection hostPackSet
@@ -916,11 +945,25 @@ func (c *hostComposition) envOverrideFindings(getenv func(string) string) []pack
 	if c.profile != "" {
 		table[c.agent] = c.profile
 	}
-	served := packload.NothingServed()
+	// THE SERVED SET THE GATE COMPOSED THIS LAUNCH AGAINST, doorways included: a pointer this
+	// launch delivers, aws-auth's at a doorway `yolo host --` opens, is checked for its overrides
+	// exactly as a jail checks it (notch-convergence item 13's done-when, NC-D34), and one it
+	// withholds has nothing to override.
+	served := c.served
 	// The gate's view of this one-agent selection, platform included (OQ-BR8), built from the
 	// table and resolution the credential gate composed this launch against.
 	sel := packload.SelectionOf(table, c.resolved, c.providers)
 	return packload.EnvOverrideFindings(c.packs, sel, lookup, nil, &served)
+}
+
+// doorwayLaunchSpelling is the `yolo host` launch that opens this composition's doorways, for
+// the reason a front door that runs no process gives for leaving them closed: the typed -p when
+// there was one, since the config's `profile` key alone would not select the same profile.
+func (c *hostComposition) doorwayLaunchSpelling() string {
+	if c.typedProfile != "" {
+		return "`yolo host -p " + shquote.Quote(c.typedProfile) + " -- " + shquote.Quote(c.agent) + "`"
+	}
+	return "`yolo host -- " + shquote.Quote(c.agent) + "`"
 }
 
 // envOverrideLines splits envOverrideFindings into what refuses, as the lines of one refusal
@@ -1511,7 +1554,8 @@ const (
 func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profile string,
 	grant *hostGrantRequest, warn func(string), services hostServicesMode) *hostComposition {
 	var vars []agentenv.Var
-	c := &hostComposition{agent: agent, command: command}
+	c := &hostComposition{agent: agent, command: command, cfg: cfg, workspace: workspace,
+		served: packload.NothingServed().AtHost()}
 
 	// The selected packs, read once for both the env they declare and the provider they
 	// ship, through the one selection function every notch calls (notch-convergence item 6):
@@ -1699,7 +1743,23 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// profile delivers. A GIT PACK CONTRIBUTES HERE TOO: loadedHostPacks resolves through
 	// resolveConfiguredPack, which reads a git pack from the pack store the way a launch
 	// does. One the store does not have refuses the launch above (NC-D5).
-	hostServed := packload.NothingServed()
+	//
+	// THE CREDENTIAL DOORWAYS (docs/design/host-notch-services.md HS-D15, the doorway rule;
+	// HS-D21): a loophole's doorway that this agent's selection asks for, aws-auth's for an
+	// agent on a Bedrock provider, is served at this notch by `yolo host --`, which opens it as
+	// a launch-owned listener on a port it picked, behind a caller token it minted
+	// (run.PlanHostDoorways). So the gate composes the pointer at that address and scopes the
+	// token to this agent, as a jail's gate does for its jail daemon. A front door that runs no
+	// process plans none, and its reason rides the served set into the "Not set" line.
+	doorways, err := run.PlanHostDoorways(cfg, packs,
+		packload.SelectionOf(agentTable, resolvedProfiles, providers),
+		services == hostServicesStart, c.doorwayLaunchSpelling())
+	if err != nil {
+		c.err = err
+		return c
+	}
+	c.doorways = doorways
+	hostServed := doorways.Served()
 	c.scopeInput = packload.ScopeInput{
 		Packs:      packs,
 		Providers:  providers,
@@ -1713,11 +1773,13 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		// why (ES-D18, ES-D19). It never refuses as a pairing nothing declares an adapter for,
 		// and never as outcome 3 telling the user to list a pack that resolves nothing here.
 		UnservedAdaptations: unservedAdaptations,
-		// Nothing is served at this notch, so a pack env variable pointing at a jail daemon
-		// (`served_by`) is withheld and named rather than exported as a dead address, and on
-		// the host's own loopback a credential for whoever binds the port (notch convergence
-		// item 2). The jail's vehicles apply the same rule through the same gate.
-		Served: &hostServed,
+		// Nothing but this launch's own doorways is served at this notch, so a pack env variable
+		// pointing at any other jail daemon (`served_by`) is withheld and named rather than
+		// exported as a dead address, and on the host's own loopback a credential for whoever
+		// binds the port (notch convergence item 2). The jail's vehicles apply the same rule
+		// through the same gate.
+		Served:       &hostServed,
+		CallerTokens: doorways.CallerTokens(),
 		// THE REGION FILE, the jail's rule (docs/design/bedrock-plumbing.md BR-DIR1): this
 		// agent could read ~/.aws/config itself, and is given its credential profile's region
 		// anyway, so the refusal and the disclosure are one at every notch. The invoking shell is
@@ -1757,12 +1819,21 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		// Via stays inert at the host whatever this launch serves (WG-I12).
 		resolvedProfiles, c.unservedVias = packload.ViaServedAt(resolvedProfiles, packs, packload.NothingServed())
 		c.resolved = resolvedProfiles
-		hostServed = launchservice.Served(c.services)
+		// The services beside the doorways: the host notch serves both kinds of launch-owned
+		// listener, and each has its own caller token.
+		hostServed = launchservice.Served(c.services).Plus(doorways.Served())
 		c.scopeInput.Providers = providers
 		c.scopeInput.Resolved = resolvedProfiles
 		c.scopeInput.UnservedAdaptations = unservedAdaptations
 		c.scopeInput.Served = &hostServed
-		c.scopeInput.CallerTokens = launchservice.CallerTokens(c.services)
+		tokens := map[string]string{}
+		for k, v := range launchservice.CallerTokens(c.services) {
+			tokens[k] = v
+		}
+		for k, v := range doorways.CallerTokens() {
+			tokens[k] = v
+		}
+		c.scopeInput.CallerTokens = tokens
 		scope, err = packload.ScopeCredentials(c.scopeInput)
 	}
 	if err != nil {
@@ -1774,6 +1845,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		return c
 	}
 	c.scope = scope
+	c.served = hostServed
 	delivery := scope.Agent(agent)
 
 	// (1) the pack env fold, PER PACK — each pack's static `kind: "env"` keys, then the
