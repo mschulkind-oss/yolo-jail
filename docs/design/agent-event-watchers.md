@@ -43,8 +43,8 @@ a sidecar is enabled.
 
 **Start at [§3](#3-the-shape)**, the shape. The per-agent answer is [§2.2](#22-what-each-agent-can-hear).
 
-**Needs your ruling:** [OQ-EW10](#OQ-EW10), [OQ-EW7](#OQ-EW7), [OQ-EW8](#OQ-EW8) and
-[OQ-EW9](#OQ-EW9), from the enablement redesign; [OQ-EW5](#OQ-EW5) and [OQ-EW6](#OQ-EW6) were ruled 2026-09-29. The feature stays held until they are
+**Needs your ruling:** [OQ-EW10](#OQ-EW10) and [OQ-EW9](#OQ-EW9), from the enablement redesign;
+[OQ-EW5](#OQ-EW5) to [OQ-EW8](#OQ-EW8) were ruled 2026-09-29. The feature stays held until they are
 ruled ([EW-DIR1](#EW-DIR1)). [OQ-EW1](#OQ-EW1), [OQ-EW3](#OQ-EW3) and [OQ-EW4](#OQ-EW4) were ruled
 2026-09-29, and [OQ-EW2](#OQ-EW2) is superseded by [OQ-EW8](#OQ-EW8) and [OQ-EW9](#OQ-EW9).
 
@@ -1225,7 +1225,7 @@ inside one machine, and there a lock is cheap, because everything is on one file
    > it. The maintainer: *"Let's default to just one workspace but give whole machine as an
    > option. Who knows, maybe somebody will want it."*
 
-7. 💬 <a id="OQ-EW7"></a>**[OQ-EW7](#OQ-EW7): For a repository's own sidecar, is acknowledging it
+7. ✅ <a id="OQ-EW7"></a>**[OQ-EW7](#OQ-EW7): For a repository's own sidecar, is acknowledging it
    the same command, or part of the config-change prompt?** This decides whether "launch with
    this config" and "run this background process here" are one answer or two.
 
@@ -1249,16 +1249,20 @@ inside one machine, and there a lock is cheap, because everything is on one file
      CI launch passing `--accept-config-changes` then starts a stranger's background process that
      nobody read.
 
-   <!-- vantage: oq id=OQ-EW7 leaning="A: the same yolo sidecar enable command, bound to the declaration's hash; the config prompt's y launches without the sidecar, and --accept-config-changes never starts one." -->
-
    _Leaning:_ **A.** One act covers every source, and the two answers stay separate. It is the
    leaning [`workspace-config-trust.md`](workspace-config-trust.md#OQ-WT5) took for a similar
    grant: refuse and name the verb, and `--accept-config-changes` never grants it.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: B.** (Relayed: *"71 B."*) A repository's own sidecars get their own
+   > labeled section in the config-change diff, and approving that diff acknowledges them: the
+   > "y" starts them, with no separate `yolo sidecar enable`. The acknowledgement is host-side
+   > and per machine, like every config approval, so a synced dotfile still cannot start one. As
+   > the option stated, `--accept-config-changes` (the scripted form of that "y") acknowledges
+   > them too; the section names each sidecar's command line so the prompt shows what is being
+   > started.
 
-8. 💬 <a id="OQ-EW8"></a>**[OQ-EW8](#OQ-EW8): If two machines are both enabled for one project,
+8. ✅ <a id="OQ-EW8"></a>**[OQ-EW8](#OQ-EW8): If two machines are both enabled for one project,
    does anything stop both agents acting on one event?** This decides whether the maintainer's
    watcher narrows what it reports, given that yolo will not guarantee one watcher.
 
@@ -1283,15 +1287,17 @@ inside one machine, and there a lock is cheap, because everything is on one file
    offered: it is the guarantee EW-DIR2 declined, and it needs a write token the watcher does not
    hold.
 
-   <!-- vantage: oq id=OQ-EW8 leaning="A: disclosure on each machine, plus an authorship filter in the maintainer's own watcher so only the machine that pushed a commit hears its run; no core change and no write token." -->
-
    _Leaning:_ **A.** It removes the common case, where the machine that pushed is the one whose
    agent should react, with no credential and no shared state, and core stays blind to CI
    ([EW-P1](#EW-P1)). B is the fallback if a merge-button run that no machine hears is worse
    than a duplicate.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: B.** (Relayed: *"72 B."*) No filter keeps two machines from acting on
+   > the same result: each launch's disclosure line and `yolo sidecar list` on each machine are
+   > the whole answer, and a duplicate is at worst duplicate work (the second push is rejected
+   > because the branch moved). Consistent with [EW-DIR2](#EW-DIR2): nothing guarantees one
+   > watcher across machines.
 
 9. 💬 <a id="OQ-EW9"></a>**[OQ-EW9](#OQ-EW9): In one jail with several agent sessions, which
    sessions does a ping wake?** This restates [OQ-EW2](#OQ-EW2) after the redesign: enabling a
@@ -1384,6 +1390,8 @@ recorded so an implementer does not reopen them.
 | [OQ-EW3](#OQ-EW3) | **Maintainer ruling:** a repository may declare an agent-side sidecar, and it runs only after the user's explicit acknowledgement | 2026-09-29 | [§13](#13-open-questions) | pending |
 | [OQ-EW5](#OQ-EW5) | **Maintainer ruling:** A, narrowed; `yolo sidecar enable` runs at the host in the workspace it enables (or names that workspace's path), per repository per machine; the next launch starts it | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | pending |
 | [OQ-EW6](#OQ-EW6) | **Maintainer ruling:** A; one workspace by default, `--all-workspaces` kept as an option | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | pending |
+| [OQ-EW7](#OQ-EW7) | **Maintainer ruling:** B; approving a repository's config diff acknowledges its sidecars, shown in their own section | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | pending |
+| [OQ-EW8](#OQ-EW8) | **Maintainer ruling:** B; no cross-machine filter, disclosure and `yolo sidecar list` only | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | pending |
 | <a id="EW-DIR1"></a>EW-DIR1 | **Maintainer direction:** the feature is held until enabling a sidecar is an intentional per-machine act that a synced dotfile cannot trigger, and two machines watching one project is designed for ([OQ-EW2](#OQ-EW2)) | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | — |
 | <a id="EW-DIR2"></a>EW-DIR2 | **Maintainer direction,** the second on [OQ-EW2](#OQ-EW2): declaring a watcher's shape is separate from the explicit permission that activates it, and yolo does not try to guarantee a single watcher across machines | 2026-09-29 | [§12.6](#126-two-machines-one-project) | — |
 | [OQ-EW4](#OQ-EW4) | **Maintainer ruling:** A, inside a gate: *"it starts everywhere you specify the config needs to allow a gated set."* Read as: no second config switch per workspace. Which sidecars the gate covers is [OQ-EW10](#OQ-EW10), and its mechanics are [OQ-EW5](#OQ-EW5) to [OQ-EW7](#OQ-EW7) | 2026-09-29 | [§12.1](#121-declaring-is-not-enabling) | pending |
