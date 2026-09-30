@@ -96,11 +96,14 @@ Two more come with the agent packs, with no extra pack to add:
   Name the AWS region as `"providers": {"bedrock": {"region": "us-east-1"}}` in your config, as
   `AWS_REGION` in an `env_sources` entry, or as the `region` of your AWS profile in
   `~/.aws/config`. yolo reads that file on your machine for the profile your credential comes
-  from (the one `aws-auth` serves, else your `AWS_PROFILE`, else `default`), hands the agent its
-  region, and says so at launch, in a jail and at `yolo host` alike. A `bedrock` launch that finds
-  no region in any of the three is refused, and names the three. In a jail an `AWS_REGION`
-  exported in your own shell does not count, because it does not reach the jail. Each agent on
-  Bedrock needs its own: a region only another agent receives does not count for it.
+  from: the one `aws-auth` serves, else the `AWS_PROFILE` the agent receives, else `default`. In
+  a jail the agent receives an `AWS_PROFILE` only from your `env_sources`; at `yolo host` it also
+  gets the one in your shell. yolo hands the agent that profile's region, and says so at launch,
+  in a jail and at `yolo host` alike. A `bedrock` launch that finds no region in any of the three
+  is refused, and names the three. In a jail an `AWS_REGION` or `AWS_PROFILE` exported in your
+  own shell does not reach the agent, so the launch is refused and says so, rather than using
+  another profile's region: put it in `env_sources` instead. Each agent on Bedrock needs its own:
+  a region only another agent receives does not count for it.
 
   A profile of your own over `bedrock`, or a Bedrock provider of your own, works exactly like
   `-p bedrock`: say the provider is Bedrock with `"platform": "aws-bedrock"`.
