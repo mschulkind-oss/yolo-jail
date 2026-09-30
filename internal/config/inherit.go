@@ -245,6 +245,10 @@ var inheritCensus = map[string]keyDisposition{
 	// `yolo host` to run. A jail provisions its agents through its own launchers and has no
 	// host prefix, so the key has no referent in a container.
 	"host_floor": {reason: "chooses what yolo installs into the host's agent floor, which a jail has none of"},
+	// `host_path`: folders added to the PATH `yolo host`'s checks read and its agent is handed.
+	// A jail's PATH is composed by its own boot (entrypoint.BootPath), and a host folder named here
+	// has no referent in a container, so the key means nothing inside one.
+	"host_path": {reason: "adds folders to the PATH of a `yolo host` launch, which a jail does not have"},
 	// `update_check`: gates a check of the HOST's yolo install, which no in-jail yolo runs
 	// (selfupdate.Enabled is false wherever YOLO_VERSION is set) and a nested launcher's
 	// binary is the image's, updated by rebuilding it rather than by any channel.

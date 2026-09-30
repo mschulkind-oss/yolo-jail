@@ -117,6 +117,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateHostManagement(config, workspace, errs)
 	validateAgentUpdates(config, workspace, errs)
 	validateHostFloor(config, workspace, errs)
+	validateHostPath(config, workspace, errs)
 	validatePerfLogging(config, workspace, errs)
 	validateUpdateCheck(config, workspace, errs)
 	validatePromotionTarget(config, workspace, errs)
@@ -666,6 +667,32 @@ func validateHostFloor(config *jsonx.OrderedMap, workspace string, errs *[]strin
 		add(errs, "config."+hostFloorKey+": user-scope only — it decides which programs yolo "+
 			"installs on your machine and `yolo host` runs, so it is read from "+
 			paths.UserConfigPath()+" and a workspace value has no effect. Move it there, or remove it.")
+	}
+}
+
+// validateHostPath checks the `host_path` list (docs/design/host-launch-environment.md §2.2): a
+// list of folders, each absolute or starting with `~/`, none relative, `~user/`, or carrying `$`
+// or `:`. User scope only: a folder here decides which binary `yolo host` runs, and a workspace
+// config is agent-editable, so a workspace spelling is refused rather than left looking as if it
+// worked (HostPathFolders never reads it).
+func validateHostPath(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	v, present := config.Get(hostPathKey)
+	if !present {
+		return
+	}
+	if v != nil {
+		for _, prob := range hostPathProblems(v) {
+			add(errs, "config."+hostPathKey+": "+prob)
+		}
+	}
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	if wsValue, atWorkspace := wsCfg.Get(hostPathKey); atWorkspace && wsValue != nil {
+		add(errs, "config."+hostPathKey+": user-scope only — a folder on it decides which program "+
+			"`yolo host` runs, so it is read from "+paths.UserConfigPath()+" and a workspace value "+
+			"has no effect. Move it there, or remove it.")
 	}
 }
 
