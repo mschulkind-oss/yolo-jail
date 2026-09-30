@@ -3,7 +3,7 @@ title: "Several providers in one agent session: an ordered set per agent, and th
 date: 2026-09-29
 status: accepted
 tags: [design, providers, profiles, selection, models, credentials, pi, opencode, notches, wire-bridge]
-summary: "Today each agent runs on exactly one profile, so one provider. The maintainer wants several active at once, switched freely inside pi. The proposal: an agent's selection becomes an ordered list of profiles (`-p pi=zai,openrouter`, `use_profiles: {pi: [\"zai\", \"openrouter\"]}`); the picker offers the union of their models; the session starts, per OQ-ML2, only where it must, on the first entry's default; each listed provider's key reaches that agent alone; child agents stay inside the set. Only agents whose pack declares it may hold a set: pi, opencode and oh-omp can, claude, codex and copilot cannot. OQ-AP1 to OQ-AP3 were ruled 2026-09-29 and BUILT the same day for pi at every notch (the grammar, the config list, both refusals, the bare-list narrowing, the gate, the pre-flights, the contract tag and pi's render); opencode waits on §8 step 3. Measured by tests only."
+summary: "Today each agent runs on exactly one profile, so one provider. The maintainer wants several active at once, switched freely inside pi. The proposal: an agent's selection becomes an ordered list of profiles (`-p pi=zai,openrouter`, `use_profiles: {pi: [\"zai\", \"openrouter\"]}`); the picker offers the union of their models; the session starts, per OQ-ML2, only where it must, on the first entry's default; each listed provider's key reaches that agent alone; child agents stay inside the set. Only agents whose pack declares it may hold a set: pi, opencode and oh-omp can, claude, codex and copilot cannot. OQ-AP1 to OQ-AP3 were ruled 2026-09-29 and BUILT the same day for pi at every notch (the grammar, the config list, both refusals, the bare-list narrowing, the gate, the pre-flights, the contract tag and pi's render); opencode waits on §8 step 3. Measured by tests and by integration launches that render pi's files for a set; no pi session was run."
 vantage:
   status-chip: true
 ---
@@ -13,8 +13,10 @@ vantage:
 **Status:** ACCEPTED, 2026-09-29, and the first slice is BUILT ([§8](#8-what-i-would-build-in-order)
 steps 1, 2 and 4; [§13](#13-what-was-built-2026-09-29)): the grammar, the config list, the
 single-provider refusal, the bare-list narrowing, and pi holding a set at every notch. opencode
-(step 3) and several via routes (step 5) are not built. MEASURED BY TESTS ONLY; no launch was run
-and no pi session switched providers. The code evidence for §2 and §3 was read at `f26397cc`, and
+(step 3) and several via routes (step 5) are not built. MEASURED: unit tests pin each rule
+through the call site a launch runs, and two integration launches rendered pi's files for a set
+in a real jail ([§13](#13-what-was-built-2026-09-29)). UNMEASURED: no pi session was run, so none
+switched providers, and no request reached a provider. The code evidence for §2 and §3 was read at `f26397cc`, and
 the per-agent capabilities from each agent's config format and its derive, not from a run.
 
 > **In short.** An agent's selection stops being one profile and becomes an ordered **active
@@ -482,13 +484,13 @@ made in this doc, and every one yields to a ruling on the questions above.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| [OQ-AP1](#OQ-AP1) | **Maintainer ruling:** A; a comma continues an agent's list, first entry is where a session starts | 2026-09-29 | [§10](#10-open-questions) | ✅ 2026-09-29 (`parseProfileValue`; `validateUseProfiles`) |
-| [OQ-AP2](#OQ-AP2) | **Maintainer ruling:** A; a list named at a single-provider agent is refused, naming the fix | 2026-09-29 | [§10](#10-open-questions) | ✅ 2026-09-29 (`validateUseProfiles`, `checkProfileTargets`, `packload.ProfileSetProblems` at both notches) |
-| [OQ-AP3](#OQ-AP3) | **Maintainer ruling:** C; a bare list goes whole to set-capable agents and its first entry to single-provider agents, with one launch line naming what they ignore | 2026-09-29 | [§10](#10-open-questions) | ✅ 2026-09-29 (`effectiveUseProfiles`, `narrowHostBareList`, `packload.BareListNote`) |
+| [OQ-AP1](#OQ-AP1) | **Maintainer ruling:** A; a comma continues an agent's list, first entry is where a session starts | 2026-09-29 | [§10](#10-open-questions) | ✅ 2026-09-29 (`parseProfileValue`; `validateUseProfiles`); review fix: an empty pair beside another (`-p pi=,claude=zai`) selects nothing for its CLI again |
+| [OQ-AP2](#OQ-AP2) | **Maintainer ruling:** A; a list named at a single-provider agent is refused, naming the fix | 2026-09-29 | [§10](#10-open-questions) | ✅ 2026-09-29 (`validateUseProfiles`, `checkProfileTargets`, `packload.ProfileSetProblems` at both notches); review fix: the refusal names the missing `provider_sets`, since opencode and oh-omp can hold several providers |
+| [OQ-AP3](#OQ-AP3) | **Maintainer ruling:** C; a bare list goes whole to set-capable agents and its first entry to single-provider agents, with one launch line naming what they ignore | 2026-09-29 | [§10](#10-open-questions) | ✅ 2026-09-29 (`effectiveUseProfiles`, `narrowHostBareList`, `packload.BareListNote`); review fixes: an ignored entry must still be declared (`checkProfileDeclarations`, `hostBareTailUndeclared`), and the line names the missing `provider_sets` rather than saying the agent runs one provider |
 | <a id="DIR-AP1"></a>DIR-AP1 | **Maintainer direction:** an agent may run on several explicitly activated providers and switch freely between them in pi, spelled as a list; providers scope the models, and every session starts on one of them. *"we will want to be able to activate multiple providers explicitly. Like if you want, you should be able to use two providers within Pi and switch freely between them. We should allow like, you know, a comma list or something like that … providers will scope to models. And whenever you start up a session, we always want to make sure that we have picked one of those models. You just want a valid configuration, basically."* Split off from [OQ-ML1](model-lists-and-pickers.md#OQ-ML1). A direction, so no question id | 2026-09-29 | [§1](#1-the-verdict-and-the-words-it-uses) | — |
 | <a id="AP-D1"></a>AP-D1 | *Implementation decision.* The first entry is the primary: its provider is `ctx.selected_provider` for every derive, and its default is the one [OQ-ML2](model-lists-and-pickers.md#OQ-ML2)'s pick reads | 2026-09-29 | [§4.4](#44-models-the-union-and-the-start-model) | ✅ 2026-09-29 (`packload.ProfileTable` lowers a list to its primary) |
 | <a id="AP-D2"></a>AP-D2 | *Implementation decision.* An agent is set-capable only when its pack declares it; the declaration fails closed where a derive older than sets would fail open | 2026-09-29 | [§4.3](#43-which-agents-take-a-set) | ✅ 2026-09-29 (`provider_sets` on `program`; `packs/pi` declares it) |
-| <a id="AP-D3"></a>AP-D3 | *Implementation decision.* A set is refused when empty, when it names a profile twice, when two entries resolve to one provider, or when any entry is undeclared or lacks its key; yolo never runs the valid remainder | 2026-09-29 | [§4.2](#42-the-sets-rules), [§4.5](#45-credentials) | ✅ 2026-09-29 (`packload.ProfileSetProblems`; each entry declared; `packload.ProviderCredentialGapsIn`) |
+| <a id="AP-D3"></a>AP-D3 | *Implementation decision.* A set is refused when empty, when it names a profile twice, when two entries resolve to one provider, or when any entry is undeclared or lacks its key; yolo never runs the valid remainder | 2026-09-29 | [§4.2](#42-the-sets-rules), [§4.5](#45-credentials) | ✅ 2026-09-29 (`packload.ProfileSetProblems`; each entry declared, a bare list's ignored entries included; `packload.ProviderCredentialGapsIn`) |
 | <a id="AP-D4"></a>AP-D4 | *Implementation decision.* A typed `-p` pair replaces a CLI's `use_profiles` set whole for the launch, never appending | 2026-09-29 | [§4.2](#42-the-sets-rules) | ✅ 2026-09-29 (`effectiveUseProfiles`, `effectiveHostProfiles`) |
 | <a id="AP-D5"></a>AP-D5 | *Implementation decision.* The picker, the credential gate and pi-subagents' scope all read the union of the set, so a child agent may run on any provider in the set and on none outside it ([OQ-XM3](../research/extension-model-defaults.md#OQ-XM3) read for a set) | 2026-09-29 | [§4.4](#44-models-the-union-and-the-start-model), [§4.6](#46-child-agents) | ✅ 2026-09-29 (`ScopeInput.Sets`; pi's `piSetSettings`) |
 | <a id="AP-D6"></a>AP-D6 | *Implementation decision.* In a pi set of more than one, `enabledModels` carries an `openai-codex` entry's declared ids; [ML-D2](model-lists-and-pickers.md#ML-D2)'s omission holds when codex is the whole set | 2026-09-29 | [§4.4](#44-models-the-union-and-the-start-model) | ✅ 2026-09-29 (base ids only, [§13](#13-what-was-built-2026-09-29)) |
@@ -512,9 +514,13 @@ made in this doc, and every one yields to a ruling on the questions above.
 
 ## 13. What was built, 2026-09-29
 
-The first slice ([§8](#8-what-i-would-build-in-order) steps 1, 2 and 4), at every notch. MEASURED
-BY TESTS ONLY: each rule below is pinned through the call site a launch runs, over the shipped
-packs. UNMEASURED: no launch was run, and no pi session was watched switching providers.
+The first slice ([§8](#8-what-i-would-build-in-order) steps 1, 2 and 4), at every notch.
+MEASURED: each rule below is pinned by a unit test through the call site a launch runs, over the
+shipped packs, and each such test was checked to fail when its call site reads only the set's
+first entry. Two integration launches in a real jail, `TestPiRunsOnEveryProviderOfItsSet`
+(`-p pi=zai,openrouter`) and `TestPiRunsOnABedrockEntryAfterItsFirst` (`-p pi=zai,bedrock`),
+rendered pi's files and environment for a set. UNMEASURED: no pi session was run, so none was
+watched switching providers, and no request reached any provider.
 
 | Piece | Where it lives |
 | :--- | :--- |
@@ -522,16 +528,16 @@ packs. UNMEASURED: no launch was run, and no pi session was watched switching pr
 | `use_profiles` takes an array; an empty one, a repeated name and a non-name are refused; a profile name may not contain `,` | `validateUseProfiles` in [`validate.go`](../../internal/config/validate.go); `checkProfileEntry`; packdecl's profile validation |
 | The set-capable declaration, `provider_sets` on `program` ([AP-D2](#AP-D2)); `packs/pi` declares it | `packdecl.Contribution.ProviderSets`, `Manifest.HoldsProviderSets` |
 | A list named at an agent that holds no set is refused, naming the fix ([OQ-AP2](#OQ-AP2)) | config validation over every resolvable pack (`config.SetCapableCLINames`); `checkProfileTargets`; `packload.ProfileSetProblems` after resolution |
-| A bare list goes whole to set-capable agents and its first entry to the rest, with one line ([OQ-AP3](#OQ-AP3)) | `effectiveUseProfiles`; `narrowHostBareList`; `packload.NarrowBareList`, `packload.BareListNote` |
-| The set's own refusals ([AP-D3](#AP-D3), [AP-D9](#AP-D9)) | `packload.ProfileSetProblems`, at the jail notch (`composePackChannelWith`), the host (`composeHostVarsWith`), `yolo host apply` (`hostSetOmission`) and `yolo check` |
+| A bare list goes whole to set-capable agents and its first entry to the rest, with one line ([OQ-AP3](#OQ-AP3)); every entry must be declared, the ignored ones too | `effectiveUseProfiles`; `narrowHostBareList`; `packload.NarrowBareList`, `packload.BareListNote`; `checkProfileDeclarations` and `hostBareTailUndeclared` |
+| The set's own refusals ([AP-D3](#AP-D3), [AP-D9](#AP-D9), [AP-D12](#AP-D12)) | `packload.ProfileSetProblems`, at the jail notch (`composePackChannelWith`), the host (`composeHostVarsWith`), `yolo host apply` (`hostSetOmission`) and `yolo check` |
 | The gate: each entry's key to that agent alone, disclosed in set order; gates satisfied by any entry | `ScopeInput.Sets`, `GateSelection.Sets` in [`internal/packload`](../../internal/packload/credentialscope.go) |
 | The credential pre-flight names a missing entry's position; the region pre-flight asks each entry | `packload.ProviderCredentialGapsIn`; `checkProviderRegions`, `regionGaps` |
 | Every later entry is asked the protocol gate's question | `refuseUnspeakableSetEntries` (AgentEnv); `packload.SetEntryPairingRefusals` (`yolo check`) |
 | The derive input ([§4.3](#43-which-agents-take-a-set)): `ctx.active_set`, and `yolo.model_for(alias, provider)` answering only inside the set | [`luahook`](../../internal/agentcfg/luahook/derive.go); the boot and host renders (`surfaceSelectionFor`) and the env composition (`WithActiveSet`) |
-| pi's render ([§4.4](#44-models-the-union-and-the-start-model), [§4.6](#46-child-agents)) | `piSetSettings` and `piProfileFor` in [`packs/pi/derive.lua`](../../packs/pi/derive.lua) |
+| pi's render ([§4.4](#44-models-the-union-and-the-start-model), [§4.6](#46-child-agents)), a Bedrock entry in any position bound to pi's own client with its region | `piSetSettings`, `piProfileFor` and `piNativeBedrockEntry` in [`packs/pi/derive.lua`](../../packs/pi/derive.lua) |
 | The jail contract ([AP-D8](#AP-D8)) | the `profile-sets` tag in [`contracttags.go`](../../internal/cli/run/contracttags.go) |
 
-Three facts the build settled that the design left open:
+Four facts the build settled that the design left open:
 
 - **An `openai-codex` entry adds its declared BASE ids to `enabledModels`, never a `[1m]`
   variant.** pi matches `enabledModels` as minimatch patterns
@@ -541,6 +547,23 @@ Three facts the build settled that the design left open:
 - **A via entry may sit only first** ([AP-D9](#AP-D9)), which narrows [AP-D7](#AP-D7).
 - **A later entry that needs an unserved adaptation is refused** ([AP-D10](#AP-D10)) rather than
   planned as a second service.
+- **A set names a regional platform once** ([AP-D12](#AP-D12)): two Bedrock providers would share
+  the agent's one `AWS_REGION` and pi's one `amazon-bedrock` row. One Bedrock entry works in any
+  position.
+
+The review of the first cut, 2026-09-29, found three behaviors and a set of unpinned call sites,
+each fixed with a test that fails without the fix:
+
+- **An ignored entry of a bare list went unchecked.** With no set-capable agent selected,
+  `-p zai,typo` started claude on zai; it now refuses naming `typo` at every notch.
+- **`-p pi=,claude=zai` was refused** as an empty entry. An empty pair selects nothing for its CLI
+  again, and only a name after one (`-p pi=,openrouter`) is refused.
+- **The refusal said opencode and oh-omp "run one provider per session"**, which [§3](#3-what-each-agent-can-hold)
+  contradicts; it now names the missing `provider_sets` declaration.
+- **Reading only the primary passed every test** at the declaration check (both notches), the
+  host's `yolo host env` narrowing, `yolo host apply`'s omission, the region pre-flight (both
+  notches), the jail-daemon selection, the env-override selection (host and `yolo check`), a
+  `profile` gate, the host's profile lines and the attach's stand-in comparison. Each is pinned.
 
 Not built, and each is a known gap rather than a silent one:
 

@@ -99,9 +99,12 @@ run. UNMEASURED: no request has reached Bedrock.
 
 **Active sets came the same day** (2026-09-29): an agent may run on an ordered list of profiles
 ([an active set](#an-active-set-several-profiles-for-one-agent),
-[`active-provider-sets.md`](../design/active-provider-sets.md), OQ-AP1 to OQ-AP3). MEASURED BY
-TESTS ONLY: the grammar, every refusal, the gate's delivery and pi's render are pinned through
-each notch's call site. UNMEASURED: no launch was run and no pi session switched providers.
+[`active-provider-sets.md`](../design/active-provider-sets.md), OQ-AP1 to OQ-AP3). MEASURED: the
+grammar, every refusal, the gate's delivery and pi's render are pinned by unit tests through each
+notch's call site, each checked to fail when its call site reads only the set's first entry, and
+two integration launches in a real jail rendered pi's files and environment for
+`-p pi=zai,openrouter` and `-p pi=zai,bedrock`. UNMEASURED: no pi session was run, so none
+switched providers.
 
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its

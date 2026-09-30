@@ -92,7 +92,10 @@ Only pi takes a list so far: a list named for Claude Code, Codex, Copilot, openc
 refused before anything starts, with the one-profile spelling in the message, and a list naming no
 agent, `-p zai,openrouter`, goes whole to pi and its first entry to every other agent, with a line
 saying which agents ignore the rest. Every name in a list must be a profile that exists, including
-the ones an agent ignores, and `-p pi=,claude=zai` still selects nothing for pi. The same list works at `yolo host`, in `yolo host env`, on
+the ones an agent ignores, and `-p pi=,claude=zai` still selects nothing for pi. A Bedrock
+profile can sit anywhere in pi's list (`-p pi=zai,bedrock`) and pi reaches it through its own
+Bedrock client with the provider's region; two Bedrock providers cannot share one list, since pi
+reads one AWS region. The same list works at `yolo host`, in `yolo host env`, on
 `macos-user` and in the files `yolo host apply` writes. A profile name can no longer contain a
 comma. See
 [several providers in one pi session](userguide/guides/providers-and-models.md#several-providers-in-one-pi-session).
