@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -13,10 +15,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/flakebundle"
 	"github.com/mschulkind-oss/yolo-jail/internal/footer"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostmigrate"
+	"github.com/mschulkind-oss/yolo-jail/internal/installerbody"
 	"github.com/mschulkind-oss/yolo-jail/internal/internaldaemon"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/notty"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -31,7 +35,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|image-copy|migrate-host|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <capture-materialize|capture-run|config-dump|daemon|darwin-bootstrap|footer|image-copy|installer-check|migrate-host|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|refresh-servers|bundle-dir|scratch-rm|update-check> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -109,6 +113,16 @@ func runInternal(args []string) int {
 		// (entrypoint.RegenerateFloorLaunchers). Hidden: it rewrites launchers in the home it is
 		// pointed at, and its caller is the bootstrap.
 		return runNodeFloorLaunchers(args[1:], os.Stderr)
+	case packdecl.InstallerCheckVerb:
+		// PS-D4 (docs/design/provisioner-sets.md): the CHECK step of a `via: installer` remedy
+		// at the host, between its download and its `sh` (packdecl.InstallerRemedy). Hidden:
+		// its caller is that printed command, and its rule is internal/installerbody's.
+		return runInstallerCheck(args[1:], os.Stderr)
+	case noTerminalVerb:
+		// PS-D1 (docs/design/provisioner-sets.md), called by the GENERATED NATIVE LAUNCHER to run
+		// a vendor installer with no controlling terminal and a /dev/null stdin (internal/notty).
+		// Hidden: its caller is the launcher, and a shell has no way to drop its terminal itself.
+		return runNoTerminal(args[1:])
 	case imageCopyVerb:
 		// The launch's podman-on-Linux image copy for `just load` and the integration
 		// suite's stale-image fix, so neither spells it in shell (internalimagecopy.go).
@@ -448,6 +462,57 @@ func runNodeFloorSatisfied(args []string, stdout io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// runInstallerCheck is `yolo internal installer-check <url> <file>`: silent with exit 0 when
+// file, downloaded from url, is a script (internal/installerbody), and otherwise the launcher's
+// refusal naming the URL, on errw, with exit 1, so the remedy's `&&` runs nothing. 2 for misuse or
+// a file it cannot read.
+func runInstallerCheck(args []string, errw io.Writer) int {
+	if len(args) != 2 || args[0] == "" || args[1] == "" {
+		fmt.Fprintln(errw, "usage: yolo internal "+packdecl.InstallerCheckVerb+" <url> <file>")
+		return 2
+	}
+	url, path := args[0], args[1]
+	f, err := os.Open(path)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo internal %s: %v\n", packdecl.InstallerCheckVerb, err)
+		return 2
+	}
+	defer f.Close()
+	kind, err := installerbody.Classify(f)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo internal %s: %v\n", packdecl.InstallerCheckVerb, err)
+		return 2
+	}
+	if kind == installerbody.Script {
+		return 0
+	}
+	fmt.Fprintf(errw, "  ⚠ installer URL is not a shell script — %s\n    %s\n    %s\n",
+		installerbody.Why(kind), url, installerbody.Advice(kind))
+	return 1
+}
+
+// noTerminalVerb is `yolo internal no-terminal -- <command> [args...]`, the name the generated
+// native launcher calls, spelled once in entrypoint (NoTerminalVerb) so the two cannot drift.
+const noTerminalVerb = entrypoint.NoTerminalVerb
+
+// runNoTerminal runs args after `--` with no controlling terminal and a /dev/null stdin, its
+// stdout and stderr this process's, and exits with its status (notty.ExitCode: 128+N for a death
+// by signal N, 127 for a command that could not start, 2 for misuse).
+func runNoTerminal(args []string) int {
+	if len(args) < 2 || args[0] != "--" {
+		fmt.Fprintln(os.Stderr, "usage: yolo internal "+noTerminalVerb+" -- <command> [args...]")
+		return 2
+	}
+	c := exec.Command(args[1], args[2:]...)
+	c.Stdout, c.Stderr = os.Stdout, os.Stderr
+	err := notty.Run(c)
+	var ee *exec.ExitError
+	if err != nil && !errors.As(err, &ee) {
+		fmt.Fprintf(os.Stderr, "yolo internal %s: %v\n", noTerminalVerb, err)
+	}
+	return notty.ExitCode(err)
 }
 
 // runNodeFloorLaunchers is `yolo internal node-floor-launchers --pending=<dir> --launch=<dir>

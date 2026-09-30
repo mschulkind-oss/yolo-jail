@@ -1,6 +1,9 @@
 package packdecl
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -367,8 +370,12 @@ func TestRequiresAssertsPresenceAndInstallsNothing(t *testing.T) {
 	}
 	// The program's own installer is derived from the fields it already declares — no new
 	// schema, which is the whole point of item #6.
-	if got := byBin["claude"].SelfInstall; got != "curl -fsSL https://claude.ai/install.sh | sh" {
-		t.Errorf("a program via installer should derive its own curl remedy, got %q", got)
+	if got := byBin["claude"].SelfInstall; got != InstallerRemedy("https://claude.ai/install.sh") {
+		t.Errorf("a program via installer should derive its own installer remedy, got %q", got)
+	}
+	if byBin["claude"].SelfInstallVia != "installer" || byBin["fzf"].SelfInstallVia != "" {
+		t.Errorf("SelfInstallVia must name the via the remedy came from, and nothing for a "+
+			"requires: %q, %q", byBin["claude"].SelfInstallVia, byBin["fzf"].SelfInstallVia)
 	}
 
 	// The JAIL asserts only `requires`: a `program` bin being absent is normal, since its
@@ -394,8 +401,11 @@ func TestSelfInstallCommandDerivation(t *testing.T) {
 	}{
 		{"npm", Contribution{Kind: KindProgram, Bin: "x", Via: "npm", Package: "@o/x"},
 			"npm install -g @o/x"},
+		// PS-D4: download, check, run, never a pipe into sh. Spelled out once, here, so the
+		// command the prompt prints is pinned byte for byte.
 		{"installer", Contribution{Kind: KindProgram, Bin: "x", Via: "installer", URL: "https://h/i.sh"},
-			"curl -fsSL https://h/i.sh | sh"},
+			`(f=$(mktemp) && trap 'rm -f "$f"' EXIT && curl -fsSL https://h/i.sh -o "$f" && ` +
+				`yolo internal installer-check https://h/i.sh "$f" && sh "$f" </dev/null)`},
 		{"npm with no package", Contribution{Kind: KindProgram, Bin: "x", Via: "npm"}, ""},
 		{"installer with no url", Contribution{Kind: KindProgram, Bin: "x", Via: "installer"}, ""},
 		{"requires", Contribution{Kind: KindRequires, Bin: "x"}, ""},
@@ -404,6 +414,68 @@ func TestSelfInstallCommandDerivation(t *testing.T) {
 		if got := selfInstallCommand(tc.c); got != tc.want {
 			t.Errorf("%s: selfInstallCommand = %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// The installer remedy RUNS as its spelling says (PS-D4), with a fake curl and a fake yolo on
+// PATH: a script body reaches `sh` with a /dev/null stdin, a body the check refuses never does
+// and the command fails, and the temp file is gone either way. A URL carrying shell syntax stays
+// one word. Nothing here reaches a network.
+func TestTheInstallerRemedyDownloadsChecksThenRuns(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	for _, tc := range []struct {
+		name, check string
+		wantRun     bool
+	}{
+		{"a script", "exit 0", true},
+		{"a refused body", "echo REFUSED >&2; exit 1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			log := filepath.Join(dir, "log")
+			for name, body := range map[string]string{
+				// curl writes an installer that reports whether it has input, and where it ran.
+				"curl": "#!/bin/sh\necho \"curl $*\" >> " + log + "\nout=\nwhile [ $# -gt 0 ]; do " +
+					"[ \"$1\" = -o ] && out=$2; shift; done\necho \"temp=$out\" >> " + log + "\n" +
+					"printf '#!/bin/sh\\nif read -r x; then echo RAN-WITH-INPUT; else echo RAN-NO-INPUT; fi\\n' > \"$out\"\n",
+				"yolo": "#!/bin/sh\necho \"yolo $1 $2 $3 $4-is-file:$([ -f \"$4\" ] && echo yes)\" >> " + log +
+					"\n" + tc.check + "\n",
+			} {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			url := "https://h/i.sh?a=1;echo INJECTED"
+			cmd := exec.Command("sh", "-c", InstallerRemedy(url))
+			cmd.Env = []string{"PATH=" + dir + ":/bin:/usr/bin", "TMPDIR=" + dir}
+			cmd.Stdin = strings.NewReader("y\n")
+			out, err := cmd.CombinedOutput()
+			if tc.wantRun != (err == nil) {
+				t.Errorf("err = %v, want success %v:\n%s", err, tc.wantRun, out)
+			}
+			if got := strings.Contains(string(out), "RAN-NO-INPUT"); got != tc.wantRun {
+				t.Errorf("the installer ran = %v, want %v, and with no input:\n%s", got, tc.wantRun, out)
+			}
+			if strings.Contains(string(out), "RAN-WITH-INPUT") || strings.Contains(string(out), "INJECTED") {
+				t.Errorf("the installer read the caller's stdin, or the URL was split:\n%s", out)
+			}
+			calls, _ := os.ReadFile(log)
+			if !strings.Contains(string(calls), "curl -fsSL "+url+" -o ") ||
+				!strings.Contains(string(calls), "yolo internal "+InstallerCheckVerb+" "+url+" ") ||
+				!strings.Contains(string(calls), "-is-file:yes") {
+				t.Errorf("the download or the check did not run as spelled:\n%s", calls)
+			}
+			_, temp, found := strings.Cut(string(calls), "temp=")
+			temp, _, _ = strings.Cut(temp, "\n")
+			if !found || temp == "" {
+				t.Fatalf("curl was handed no -o file:\n%s", calls)
+			}
+			if _, err := os.Stat(temp); !os.IsNotExist(err) {
+				t.Errorf("the temp file %s outlived the command: %v", temp, err)
+			}
+		})
 	}
 }
 

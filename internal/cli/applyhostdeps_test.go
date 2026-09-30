@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
 // depNoteMark is the stable half of the one note the dep block carries: the POSTURE fact that
@@ -128,12 +129,15 @@ func TestApplyHostPrefersThePacksOwnInstaller(t *testing.T) {
 		t.Errorf("the pack's own installer must come FIRST, the manager hint second:\n%s", report)
 	}
 
-	// The installer program: the curl-to-shell command, printed as a suggestion the USER
-	// runs. yolo must not run it — that is env-manager Phase 4.3's confirm-gated territory,
+	// The installer program: its download-check-run command (PS-D4), printed as a suggestion the
+	// USER runs. yolo must not run it — that is env-manager Phase 4.3's confirm-gated territory,
 	// and the report says as much.
-	if n := strings.Count(report, "curl -fsSL https://example/i.sh | sh"); n != 1 {
-		t.Errorf("an installer program's remedy should be its own curl-to-shell line, stated "+
-			"once; got %d:\n%s", n, report)
+	if n := strings.Count(report, packdecl.InstallerRemedy("https://example/i.sh")); n != 1 {
+		t.Errorf("an installer program's remedy should be its own download-check-run line, "+
+			"stated once; got %d:\n%s", n, report)
+	}
+	if strings.Contains(report, "| sh") {
+		t.Errorf("an installer's remedy must never pipe a download into sh:\n%s", report)
 	}
 	if !strings.Contains(report, "installs nothing") {
 		t.Errorf("the report must still say yolo runs none of these:\n%s", report)

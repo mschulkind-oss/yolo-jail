@@ -2,10 +2,13 @@ package entrypoint
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/installerbody"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -275,6 +278,50 @@ func TestNativeLauncherWithoutTrKeepsTheOlderChecks(t *testing.T) {
 			t.Errorf("HTML reached bash:\n%s", out)
 		}
 	})
+}
+
+// TestTheGoAndShellChecksAgree holds the launcher's shell check and the host's Go one
+// (internal/installerbody, which `yolo internal installer-check` runs for a `via: installer`
+// remedy at the host, PS-D4) to one table: every fixture there is classified by the
+// _installer_body_kind function cut from the rendered launcher, under bash, and by Classify, and
+// the two verdicts must be the fixture's (PS-D6: two implementations, one rule).
+func TestTheGoAndShellChecksAgree(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("no bash on PATH")
+	}
+	tmpl := nativeAgentLauncher(
+		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: "https://example.invalid/i.sh"},
+		"/stamps", "/receipts", "", true, launcherServers{}, nil)
+	start := strings.Index(tmpl, "_installer_body_kind() (")
+	if start < 0 {
+		t.Fatal("the launcher no longer defines _installer_body_kind")
+	}
+	end := strings.Index(tmpl[start:], "\n)\n")
+	if end < 0 {
+		t.Fatal("could not find the end of _installer_body_kind")
+	}
+	fn := tmpl[start : start+end+3]
+	dir := t.TempDir()
+	for i, f := range installerbody.Fixtures() {
+		t.Run(f.Name, func(t *testing.T) {
+			path := filepath.Join(dir, strconv.Itoa(i))
+			if err := os.WriteFile(path, []byte(f.Body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out, err := exec.Command(bash, "-c", fn+`_installer_body_kind "$1"`, "check", path).Output()
+			if err != nil {
+				t.Fatalf("the shell check did not run: %v", err)
+			}
+			if got := installerbody.Kind(strings.TrimSpace(string(out))); got != f.Want {
+				t.Errorf("the launcher's shell check says %s, want %s", got, f.Want)
+			}
+			got, err := installerbody.Classify(strings.NewReader(f.Body))
+			if err != nil || got != f.Want {
+				t.Errorf("the host's Go check says %s (%v), want %s", got, err, f.Want)
+			}
+		})
+	}
 }
 
 // TestNativeLauncherClassifiesTheBodyBeforeRunningIt asserts the GENERATED launcher: the

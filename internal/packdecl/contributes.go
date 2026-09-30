@@ -22,6 +22,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Contribution is one typed effect a pack declares. Exactly one kind per entry;
@@ -1000,9 +1001,10 @@ type DepRequirement struct {
 	// then yolo can report Bin missing but not a remedy.
 	Hints map[string]string
 	// SelfInstall is the command the PACK ITSELF declares for this binary, derived from a
-	// `program` contribution's via/url/package — `npm install -g <pkg>` or
-	// `curl -fsSL <url> | sh`. Empty for a `requires` contribution, which by definition
-	// installs nothing, and for a program with no recognized `via`.
+	// `program` contribution's via/url/package — `npm install -g <pkg>`, or for an installer
+	// URL the download-check-run command InstallerRemedy spells. Empty for a `requires`
+	// contribution, which by definition installs nothing, and for a program with no recognized
+	// `via`.
 	//
 	// It exists because routing a tool with a FIRST-PARTY installer through a distro
 	// package manager is a staleness trap: measured 2026-08-02, nixpkgs was current for
@@ -1016,6 +1018,11 @@ type DepRequirement struct {
 	// `⚠ review` in the footprint), and running one is env-manager Phase 4.3's
 	// confirm-gated territory.
 	SelfInstall string
+	// SelfInstallVia is the `via` SelfInstall was derived from ("npm" or "installer"), "" when
+	// there is no SelfInstall. The host dependency gate reads it to run an installer's remedy with
+	// no terminal (docs/design/provisioner-sets.md PS-D1), a fact about the remedy's kind that the
+	// command string must not be parsed to recover.
+	SelfInstallVia string
 	// Platforms is a `program` contribution's `platforms` — where its vendor publishes a build
 	// — and empty for a `requires`, which installs nothing and so has no vendor to ask.
 	// UnpublishedReason is the only reader.
@@ -1046,9 +1053,36 @@ func selfInstallCommand(c Contribution) string {
 		if c.URL == "" {
 			return ""
 		}
-		return "curl -fsSL " + c.URL + " | sh"
+		return InstallerRemedy(c.URL)
 	}
 	return ""
+}
+
+// InstallerCheckVerb is the `yolo internal` verb an installer remedy checks its download with
+// (InstallerRemedy), dispatched in internal/cli on this constant.
+const InstallerCheckVerb = "installer-check"
+
+// InstallerRemedy is the host's remedy for a `via: installer` program: DOWNLOAD, CHECK, RUN, in
+// one subshell, never a pipe into `sh` (docs/design/provisioner-sets.md PS-D4):
+//
+//	(f=$(mktemp) && trap 'rm -f "$f"' EXIT && curl -fsSL <url> -o "$f" &&
+//	 yolo internal installer-check <url> "$f" && sh "$f" </dev/null)
+//
+// The check (internal/installerbody) refuses a web page, a binary or non-text bytes naming the
+// URL, as the jail's launcher refuses them, where a pipe handed an ELF body to `sh` for a shell
+// error that did not say which URL served it. The prompt prints exactly this command, so the
+// dependency rule's "the exact command each install would run" holds as written. The subshell
+// scopes the temp file's removal and keeps the command safe to paste: its `trap` and any early
+// exit end the subshell, not the user's shell. `</dev/null` is PS-D1's stdin half; the gate runs
+// the whole command with no controlling terminal as well (DepRequirement.SelfInstallVia).
+//
+// The URL is shell-quoted where it lands, which a plain URL does not change. `yolo` is found on
+// the PATH the remedy runs with; where there is none the check cannot run, and the `&&` chain
+// then runs nothing.
+func InstallerRemedy(url string) string {
+	u := shquote.Quote(url)
+	return `(f=$(mktemp) && trap 'rm -f "$f"' EXIT && curl -fsSL ` + u + ` -o "$f" && yolo internal ` +
+		InstallerCheckVerb + ` ` + u + ` "$f" && sh "$f" </dev/null)`
 }
 
 // DepRequirements returns every program AND requires contribution as the host-dep
@@ -1071,6 +1105,9 @@ func (m *Manifest) DepRequirements() []DepRequirement {
 			continue
 		}
 		d := DepRequirement{Bin: c.Bin, Hints: c.InstallHints, SelfInstall: selfInstallCommand(c)}
+		if d.SelfInstall != "" {
+			d.SelfInstallVia = c.Via
+		}
 		if c.Kind == KindProgram {
 			d.Platforms = c.Platforms
 		}

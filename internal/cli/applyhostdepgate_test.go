@@ -18,8 +18,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
 // gateConfigJSON is the fixture's CONFIG surface — the destination the render LOOP writes.
@@ -102,7 +107,7 @@ func watchInstalls(t *testing.T, then func(cmd string) error) *[]string {
 	var ran []string
 	prev := depInstallRun
 	t.Cleanup(func() { depInstallRun = prev })
-	depInstallRun = func(cmd string, _ []string, _ io.Writer) error {
+	depInstallRun = func(cmd string, _ []string, _ io.Writer, _ bool) error {
 		ran = append(ran, cmd)
 		if then == nil {
 			return nil
@@ -272,6 +277,82 @@ func TestApplyHostAssertInstallsAnOfferedProgramAndCarriesOn(t *testing.T) {
 	}
 }
 
+// PS-D1 AND PS-D4 AT THE GATE (docs/design/provisioner-sets.md): an accepted `via: installer`
+// remedy runs as the download-check-run command the prompt printed, with no terminal and a
+// /dev/null stdin, and the prompt says so before it is answered; an npm remedy in the same run
+// keeps the terminal. The runner is stubbed (no pack's install ever runs in a test): what it is
+// handed is the evidence, and the real runner's two modes are TestRunDepInstallCommand*'s.
+func TestApplyHostAssertRunsAnInstallerRemedyWithNoTerminal(t *testing.T) {
+	_, _, _, binDir := depGateFixtureWithConfig(t,
+		`{"kind":"program","bin":"gatecurl","via":"installer","url":"https://example.invalid/i.sh"}`,
+		`{"kind":"program","bin":"gatenpm","via":"npm","package":"gatenpm"}`)
+	modes := map[string]bool{}
+	prev := depInstallRun
+	t.Cleanup(func() { depInstallRun = prev })
+	depInstallRun = func(cmd string, _ []string, _ io.Writer, noTerminal bool) error {
+		modes[cmd] = noTerminal
+		bin := "gatenpm"
+		if strings.Contains(cmd, "installer-check") {
+			bin = "gatecurl"
+		}
+		return os.WriteFile(filepath.Join(binDir, bin), []byte("#!/bin/sh\n"), 0o755)
+	}
+	var out, errw bytes.Buffer
+	rc := applyHost(&out, &errw, false, true, strings.NewReader("y\n"))
+	report := out.String() + errw.String()
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, report)
+	}
+	installer := packdecl.InstallerRemedy("https://example.invalid/i.sh")
+	if noTerminal, ran := modes[installer]; !ran || !noTerminal {
+		t.Errorf("the installer remedy must run as printed with no terminal; ran=%v "+
+			"noTerminal=%v, runs %v", ran, noTerminal, modes)
+	}
+	if noTerminal, ran := modes["npm install -g gatenpm"]; !ran || noTerminal {
+		t.Errorf("an npm remedy keeps the terminal; ran=%v noTerminal=%v", ran, noTerminal)
+	}
+	prompt := strings.Index(report, "Install them now?")
+	said := strings.Index(report, "runs with no terminal and no input")
+	if said < 0 || prompt < 0 || said > prompt {
+		t.Errorf("the prompt must say, before it is answered, that an installer runs with no "+
+			"terminal:\n%s", report)
+	}
+}
+
+// The real runner's two modes: with noTerminal the command leads a session of its own (so it has
+// no controlling terminal, internal/notty) and reads a /dev/null stdin; without it, it stays in
+// this process's session, where a package manager's `sudo` can ask for a password. The session
+// is read from /proc, so this runs on Linux; its output reaches the report in both modes.
+func TestRunDepInstallCommandWithNoTerminalLeavesTheSession(t *testing.T) {
+	if _, err := os.Stat("/proc/self/stat"); err != nil {
+		t.Skip("no /proc to read a session id from")
+	}
+	const probe = `set -- $(cat /proc/$$/stat); echo "sid=$6"; ` +
+		`if read -r x; then echo GOT-INPUT; else echo NO-INPUT; fi`
+	sid, err := unix.Getsid(0)
+	if err != nil {
+		t.Skipf("getsid: %v", err)
+	}
+	own := strconv.Itoa(sid)
+	for _, tc := range []struct {
+		noTerminal bool
+		ownSession bool
+	}{{true, false}, {false, true}} {
+		var log bytes.Buffer
+		if err := runDepInstallCommand(probe, os.Environ(), &log, tc.noTerminal); err != nil {
+			t.Fatalf("noTerminal=%v: %v (%s)", tc.noTerminal, err, log.String())
+		}
+		got := log.String()
+		if inOwn := strings.Contains(got, "sid="+own+"\n"); inOwn != tc.ownSession {
+			t.Errorf("noTerminal=%v: in this process's session (%s) = %v, want %v:\n%s",
+				tc.noTerminal, own, inOwn, tc.ownSession, got)
+		}
+		if !strings.Contains(got, "NO-INPUT") {
+			t.Errorf("noTerminal=%v: the command read input:\n%s", tc.noTerminal, got)
+		}
+	}
+}
+
 // AN INSTALL THAT RUNS AND LEAVES THE BINARY MISSING IS A DECLINE (the dependency rule, point
 // 5). The command's exit code is not the evidence — an installer that exits 0 and delivers
 // nothing leaves the environment exactly as unready as one that failed loudly — so the RE-PROBE
@@ -332,7 +413,7 @@ func TestApplyHostDryRunReportsAMissingDepAndNeverPrompts(t *testing.T) {
 }
 
 // THE RUNNER RUNS A COMMAND, NOT AN ARGV. A pack's install hint is a line a user would type —
-// depcheck turns an `installer` program into `curl -fsSL <url> | sh` — so splitting it on
+// an `installer` program's remedy is a download-check-run command line — so splitting it on
 // spaces would mangle exactly the remedy the pack wrote down.
 //
 // This is the one test that calls the real runner (the seam is disarmed package-wide, see
@@ -344,7 +425,7 @@ func TestRunDepInstallCommandGoesThroughAShell(t *testing.T) {
 
 	var log bytes.Buffer
 	// A PIPE and a REDIRECT: both are shell syntax, and both are shapes real hints have.
-	if err := runDepInstallCommand("echo installed | tr a-z A-Z > "+out, os.Environ(), &log); err != nil {
+	if err := runDepInstallCommand("echo installed | tr a-z A-Z > "+out, os.Environ(), &log, false); err != nil {
 		t.Fatalf("a well-formed command must succeed: %v (%s)", err, log.String())
 	}
 	body, err := os.ReadFile(out)
@@ -358,7 +439,7 @@ func TestRunDepInstallCommandGoesThroughAShell(t *testing.T) {
 	// A failing command is an ERROR, and its output reaches the writer — which is how the
 	// gate's refusal gets to say what went wrong rather than only that something did.
 	log.Reset()
-	if err := runDepInstallCommand("echo boom >&2; exit 3", os.Environ(), &log); err == nil {
+	if err := runDepInstallCommand("echo boom >&2; exit 3", os.Environ(), &log, false); err == nil {
 		t.Error("a non-zero exit must be reported as an error")
 	}
 	if !strings.Contains(log.String(), "boom") {
@@ -369,7 +450,7 @@ func TestRunDepInstallCommandGoesThroughAShell(t *testing.T) {
 	// (HE-D6) — and not this process's own.
 	marked := filepath.Join(dir, "marked")
 	if err := runDepInstallCommand(`printf '%s|%s' "$YOLO_TEST_INSTALL_MARK" "$PATH" > `+marked,
-		[]string{"YOLO_TEST_INSTALL_MARK=handed", "PATH=/launch/path/bin"}, &log); err != nil {
+		[]string{"YOLO_TEST_INSTALL_MARK=handed", "PATH=/launch/path/bin"}, &log, false); err != nil {
 		t.Fatalf("the marked command failed: %v (%s)", err, log.String())
 	}
 	if body, _ := os.ReadFile(marked); string(body) != "handed|/launch/path/bin" {

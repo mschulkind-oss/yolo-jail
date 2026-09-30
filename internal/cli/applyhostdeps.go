@@ -261,7 +261,9 @@ func packDepRequirements(p *packload.Pack) []depcheck.Requirement {
 			// The pack's OWN installer, derived from the program contribution it already
 			// declares. depcheck prefers it over a package-manager hint.
 			SelfInstall: d.SelfInstall,
-			Unpublished: d.UnpublishedReason(runtime.GOOS, runtime.GOARCH),
+			// An installer script's remedy runs with no terminal (PS-D1); npm's keeps it.
+			SelfInstallNoTerminal: d.SelfInstallVia == "installer",
+			Unpublished:           d.UnpublishedReason(runtime.GOOS, runtime.GOARCH),
 		})
 	}
 	return reqs
@@ -292,6 +294,9 @@ type hostDepFinding struct {
 	// Remedy is the install command depcheck resolved for the detected manager, or "" when
 	// nothing covers it. Empty for a present or unprobed dep, which need no remedy.
 	Remedy string
+	// NoTerminal is whether the gate runs Remedy with no controlling terminal and a /dev/null
+	// stdin: it is a vendor installer script (depcheck.Result.NoTerminal, PS-D1).
+	NoTerminal bool
 	// Alt is the package-manager alternative, present only when Remedy is the tool's OWN
 	// installer. Second rather than first because a first-party installer carries a
 	// first-party updater while a distro package pins whatever that repo has.
@@ -323,7 +328,7 @@ func (h *hostDeps) finding(c packdecl.Contribution) hostDepFinding {
 		f.NoRemedy = noRemedyReason(c, r.Manager)
 		return f
 	}
-	f.Remedy = r.Remedy
+	f.Remedy, f.NoTerminal = r.Remedy, r.NoTerminal
 	if r.Fallback != "" {
 		f.Alt = fmt.Sprintf("or via %s: %s", r.Manager, r.Fallback)
 	}

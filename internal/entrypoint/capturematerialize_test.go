@@ -69,7 +69,10 @@ func captureLauncherFixture(t *testing.T, url, capturesDir string) (home, launch
 // (rc 0) or reports a miss (rc 1) — the two answers the launcher's branch has to tell apart.
 func writeFakeYolo(t *testing.T, fakeBin, argvLog string, succeed bool) {
 	t.Helper()
+	// `yolo internal no-terminal -- <cmd>` (PS-D1's installer runner) is passed through to the
+	// command, as the real verb does, and not logged: the log is the materializer's.
 	body := `#!/bin/bash
+if [ "$1 $2 $3" = "internal ` + NoTerminalVerb + ` --" ]; then shift 3; exec "$@"; fi
 printf '%s\n' "$*" >> ` + shq(argvLog) + `
 `
 	if succeed {

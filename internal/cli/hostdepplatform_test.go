@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
 // unpublishedProgramHome selects claude beside a pack whose one program installs through a
@@ -29,7 +31,7 @@ func unpublishedProgramHome(t *testing.T, platforms string) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 }
 
-const unpublishedRemedy = "curl -fsSL https://example.invalid/install.sh | sh"
+var unpublishedRemedy = packdecl.InstallerRemedy("https://example.invalid/install.sh")
 
 // HOST APPLY OFFERS NO INSTALL THE VENDOR DOES NOT PUBLISH. Before, `platforms` was ignored at
 // the host: the program was a missing-dependency blocker whose remedy was the vendor's

@@ -53,6 +53,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
+	"github.com/mschulkind-oss/yolo-jail/internal/notty"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -99,10 +100,10 @@ func hostDepBlockers(s *hostApplySurvey) []hostDepBlocker {
 }
 
 // depInstallRun runs one install command with env, behind a var so a test can observe what the
-// gate would run against a real host — and with which PATH — without running it. The seam is
-// the ONLY way a test reaches this code: an automated test must never execute a pack's install
-// hint (AGENTS.md's no-agent-tests rule is the same rule one layer down), and the commands are
-// `sudo apt install` and `curl … | sh`.
+// gate would run against a real host — with which PATH, and whether with a terminal — without
+// running it. The seam is the ONLY way a test reaches this code: an automated test must never
+// execute a pack's install hint (AGENTS.md's no-agent-tests rule is the same rule one layer
+// down), and the commands are `sudo apt install` and a vendor's install script.
 var depInstallRun = runDepInstallCommand
 
 // depInstallEnviron is the environment an install the gate runs gets: this process's own, with
@@ -123,28 +124,33 @@ func depInstallEnviron(lp *hostpath.Launch) []string {
 
 // runDepInstallCommand runs a declared install hint through a shell.
 //
-// A SHELL, deliberately: the hints are not argv, they are commands a user would type —
-// `curl -fsSL https://… | sh` is the shape depcheck's selfInstallFlavor produces for an
-// `installer` program — so splitting on spaces would mangle exactly the remedy the pack wrote
-// down. They run as the invoking user with the invoking environment, which is what makes
-// `sudo` in a hint behave the way the user's own shell would.
+// A SHELL, deliberately: the hints are not argv, they are commands a user would type — an
+// `installer` program's remedy is a download-check-run command line (packdecl's
+// InstallerRemedy) — so splitting on spaces would mangle exactly the remedy the pack wrote down.
+// They run as the invoking user with the invoking environment, which is what makes `sudo` in a
+// hint behave the way the user's own shell would.
 //
-// IT RUNS THE COMMAND EXACTLY AS PRINTED, so a `via: installer` remedy pipes the URL's body
-// straight into sh, with none of the check the jail's launcher makes before it runs an
-// installer (_installer_body_kind in internal/entrypoint/shims.go refuses a web page, a
-// binary or non-text bytes, naming the URL). Here an ELF body surfaces only as a shell error
-// that does not name the URL, and a "#!" script with a NUL inside its first KiB runs. Giving
-// this path that check means running something other than the printed command (download,
-// check, then `sh <file>`), which docs/reference/report-tiers.md's dependency rule does not
-// allow as written: its point 3 promises "the exact command each install would run". So it
-// waits on a ruling.
+// IT RUNS THE COMMAND EXACTLY AS PRINTED (docs/reference/report-tiers.md's dependency rule,
+// point 3). A `via: installer` remedy carries the check the jail's launcher makes before it runs
+// an installer (docs/design/provisioner-sets.md PS-D4): it downloads to a temp file, `yolo
+// internal installer-check` refuses a web page, a binary or non-text bytes naming the URL, and
+// only then does `sh` run the file. It used to pipe the body into `sh`, so an ELF body surfaced
+// as a shell error that did not name the URL.
+//
+// noTerminal runs it with NO CONTROLLING TERMINAL and a /dev/null stdin (internal/notty, PS-D1):
+// set for a vendor installer script, which would otherwise be able to prompt on /dev/tty with
+// the gate's own prompt already answered. A package manager's hint keeps the terminal, because
+// its `sudo` asks for a password there.
 //
 // env is the install's environment (depInstallEnviron). `sh` itself is still found on this
 // process's own PATH, as exec.Command finds any program.
-func runDepInstallCommand(cmd string, env []string, out io.Writer) error {
+func runDepInstallCommand(cmd string, env []string, out io.Writer, noTerminal bool) error {
 	c := exec.Command("sh", "-c", cmd)
 	c.Env = env
 	c.Stdout, c.Stderr = out, out
+	if noTerminal {
+		return notty.Run(c)
+	}
 	return c.Run()
 }
 
@@ -187,6 +193,14 @@ func gateHostDeps(pr richtext.Printer, out io.Writer, stdin io.Reader,
 
 	pr.Printf("[dim]yolo will run the %s above, as you, and re-check each binary "+
 		"afterwards.[/dim]", plural(len(offer), "command", "commands"))
+	for _, b := range offer {
+		if b.NoTerminal {
+			// Said before the answer, beside the commands it is about (PS-D1).
+			pr.Printf("[dim]A vendor installer runs with no terminal and no input, so it " +
+				"cannot stop to ask you anything; one that needs an answer fails.[/dim]")
+			break
+		}
+	}
 	if !promptYesNo(out, stdin, fmt.Sprintf("  Install %s now? [y/N] ",
 		plural(len(offer), "it", "them"))) {
 		pr.Printf("[bold red]host apply: refused — %s and the install was declined. "+
@@ -197,7 +211,7 @@ func gateHostDeps(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	env := depInstallEnviron(lp)
 	for _, b := range offer {
 		pr.Printf("  [cyan]→ %s[/cyan]", b.Remedy)
-		if err := depInstallRun(b.Remedy, env, out); err != nil {
+		if err := depInstallRun(b.Remedy, env, out, b.NoTerminal); err != nil {
 			pr.Printf("  [red]%s: %v[/red]", b.Bin, err)
 		}
 		// RE-PROBE, and it is the command's answer rather than its exit code that decides

@@ -1458,6 +1458,12 @@ fi
 // (npm's refresh path already has YOLO_PACK_UPDATE, which is a different question).
 const InstallOnlyEnv = "YOLO_INSTALL_ONLY"
 
+// NoTerminalVerb is the `yolo internal` verb the native launcher runs a vendor installer
+// through, so that it has no controlling terminal and a /dev/null stdin (internal/notty,
+// docs/design/provisioner-sets.md PS-D1). Spelled here, where the launcher template is, and
+// dispatched on in internal/cli by this same constant.
+const NoTerminalVerb = "no-terminal"
+
 // CapturesDirEnv names the in-jail path of the machine's INSTALL-CAPTURE STORE, emitted by
 // the run pipeline beside the `:ro` bind that puts it there (`internal/cli/run/assemble.go`).
 //
@@ -1786,6 +1792,28 @@ _installer_body_kind() (
     echo script
 )
 
+# _run_without_terminal runs its arguments as a command with NO CONTROLLING TERMINAL and a
+# /dev/null stdin (docs/design/provisioner-sets.md PS-D1), for the vendor installer below, on
+# first use and on update alike. A /dev/null stdin alone does not stop a prompt: an installer
+# written to survive "curl | sh" reads /dev/tty, and codex's asked "Start Codex now? [y/N]"
+# there, so the installer is started in a session of its own, which has no /dev/tty. A shell
+# cannot drop its terminal itself, so yolo does it (yolo internal no-terminal, internal/notty),
+# and forwards a Ctrl-C to the installer while it waits. Output still reaches the terminal.
+#
+# ASKED FIRST, BECAUSE A yolo WITHOUT THE VERB IS POSSIBLE: none on PATH, or one older than
+# this launcher. The jail's own yolo is this build's, so the probe costs one exec on an install
+# that downloads a vendor script anyway. Without the verb the installer keeps the /dev/null
+# stdin and loses only the terminal half, and the launcher says so.
+_run_without_terminal() {
+    if command -v yolo >/dev/null 2>&1 &&
+        YOLO_BYPASS_SHIMS=1 yolo internal ` + NoTerminalVerb + ` -- true </dev/null >/dev/null 2>&1; then
+        YOLO_BYPASS_SHIMS=1 yolo internal ` + NoTerminalVerb + ` -- "$@" </dev/null
+        return
+    fi
+    echo "  (yolo cannot detach $BIN's installer from this terminal here; it runs with no stdin)" >&2
+    YOLO_BYPASS_SHIMS=1 "$@" </dev/null
+}
+
 # _run_installer downloads the vendor's script and runs it. IT RETURNS A STATUS, and that
 # status is load-bearing for update mode alone — the same split the npm template carries,
 # for the same reason: update mode exits instead of exec'ing, so the "-x $REAL_BIN" test at
@@ -1841,7 +1869,7 @@ _run_installer() {
         touch "$STAMP"
         return 1
     fi
-    YOLO_BYPASS_SHIMS=1 bash "$script" 2>&1 || true
+    _run_without_terminal bash "$script" 2>&1 || true
     rm -f "$script"
     touch "$STAMP"
     # A receipt only for a run that LEFT SOMETHING, and the same test is the status. An

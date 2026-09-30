@@ -384,7 +384,7 @@ func TestTheInstallRunsWithTheLaunchPathAndTheReprobeReadsIt(t *testing.T) {
 	var handed []string
 	prev := depInstallRun
 	t.Cleanup(func() { depInstallRun = prev })
-	depInstallRun = func(cmd string, env []string, _ io.Writer) error {
+	depInstallRun = func(cmd string, env []string, _ io.Writer, _ bool) error {
 		handed = env
 		putExe(t, tools, "gatebin")
 		return nil

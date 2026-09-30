@@ -73,7 +73,7 @@ func TestMain(m *testing.M) {
 			return append([]string{exe, testAsYoloArg}, argv[1:]...)
 		}
 	}
-	depInstallRun = func(cmd string, _ []string, _ io.Writer) error {
+	depInstallRun = func(cmd string, _ []string, _ io.Writer, _ bool) error {
 		return fmt.Errorf("test guard: refusing to run a pack's install hint %q — override "+
 			"depInstallRun in your test if the install itself is what you are exercising", cmd)
 	}

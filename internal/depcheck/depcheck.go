@@ -29,9 +29,16 @@ type Requirement struct {
 	Bin   string
 	Hints map[string]string
 	// SelfInstall is the command the declaring PACK carries for this binary — the tool's
-	// own first-party installer (`npm install -g <pkg>`, `curl -fsSL <url> | sh`). PREFERRED
-	// over a package-manager hint when present; see selfInstallFlavor for why.
+	// own first-party installer (`npm install -g <pkg>`, or an installer URL's
+	// download-check-run command). PREFERRED over a package-manager hint when present; see
+	// selfInstallFlavor for why.
 	SelfInstall string
+	// SelfInstallNoTerminal says SelfInstall runs a vendor installer script, which a caller
+	// that runs the remedy must run with no controlling terminal and a /dev/null stdin
+	// (docs/design/provisioner-sets.md PS-D1). Carried onto Result.NoTerminal only when the
+	// remedy chosen IS SelfInstall: a package-manager hint keeps the terminal, because its
+	// `sudo` asks for a password there.
+	SelfInstallNoTerminal bool
 	// Unpublished is why the declaring program's vendor publishes NO BUILD for this host,
 	// "" when it does (packdecl.DepRequirement.UnpublishedReason, the one installable-program
 	// predicate a jail's launcher generation asks too). A binary with a reason is still probed
@@ -121,6 +128,10 @@ type Result struct {
 	// recovering that from a command string would be a second, guessing implementation.
 	Fallback       string
 	FallbackFlavor string
+	// NoTerminal is whether Remedy must run with no controlling terminal and a /dev/null stdin:
+	// it is the pack's own installer script (Requirement.SelfInstallNoTerminal). False for a
+	// package-manager remedy, and for a binary with no remedy.
+	NoTerminal bool
 	// Unpublished is Requirement.Unpublished, carried onto a binary that is ABSENT, and ""
 	// for a present one. Such a result is not missing (Missing leaves it out) and has no
 	// remedy: the reason is the whole of what a report says about it.
@@ -197,6 +208,7 @@ func Check(reqs []Requirement, look Lookup) []Result {
 			res.Unpublished = r.Unpublished
 		case r.SelfInstall != "":
 			res.Remedy, res.Flavor = r.SelfInstall, selfInstallFlavor
+			res.NoTerminal = r.SelfInstallNoTerminal
 			if pkg, flavor, ok := hintFor(r.Hints, mgr); ok {
 				res.Fallback, res.FallbackFlavor = installCmd(flavor, pkg), flavor
 			}
