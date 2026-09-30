@@ -20,7 +20,7 @@ func shippedZaiPack(t *testing.T) *Pack {
 }
 
 // shippedBedrockPack returns a pack declaring a REGIONAL provider — one whose address is
-// a region rather than a base URL, which is the shape packs/claude ships for bedrock.
+// a region rather than a base URL, which is the shape packs/bedrock ships for bedrock.
 func shippedBedrockPack(t *testing.T) *Pack {
 	return &Pack{Name: "bedrock", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"provider","name":"bedrock","region":"us-east-1"}]}`)}

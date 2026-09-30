@@ -14,7 +14,7 @@ package packload
 // ruled 2026-09-29): a provider is recognized by what it says it is, never by its name. A pack
 // says so by declaring `region_env_name` beside `platform` on a provider it ships
 // (packdecl.Contribution): the variables an agent on that platform reads its region from.
-// packs/claude declares AWS_REGION and AWS_DEFAULT_REGION on its `bedrock`, whose platform is
+// packs/bedrock declares AWS_REGION and AWS_DEFAULT_REGION on its `bedrock`, whose platform is
 // "aws-bedrock", so a provider a USER declares with "platform": "aws-bedrock" carries the same
 // requirement, naming the same variables — the ruling's "a provider a user defines gets the same
 // behavior as the shipped one". A user provider whose platform no selected pack declares

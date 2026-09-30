@@ -707,7 +707,8 @@ type Contribution struct {
 	// everything a `kind: "profile"` used to carry besides (a config patch, launch
 	// flags, an env map) was never a profile at all. Those are CONTRIBUTIONS GATED ON A
 	// PROFILE NAME, which is the `profile` modifier above; the decomposition table in
-	// §5.2 is the migration, and packs/claude's `bedrock` is its one worked case.
+	// §5.2 is the migration, and the `bedrock` profile is its one worked case (packs/claude's
+	// when the migration ran; packs/bedrock ships it since docs/design/bedrock-plumbing.md BR-D15).
 	//
 	// MANDATORY (§5.2 property 3): a profile naming no provider is the two-meanings
 	// problem the definition exists to end, and the mandatory declaration is what makes

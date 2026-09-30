@@ -16,7 +16,7 @@ import (
 )
 
 // regionalPack declares a provider that requires a region, and no region of its own — the
-// shape packs/claude ships for bedrock.
+// shape packs/bedrock ships for bedrock.
 func regionalPack(t *testing.T) *Pack {
 	return &Pack{Name: "cloudy", Decl: declFrom(t, `{"contributes":[
 	  {"kind":"provider","name":"regional","platform":"cloud","region_env_name":["AWS_REGION","AWS_DEFAULT_REGION"]}]}`)}
