@@ -287,6 +287,47 @@ local function codexReachable(prov)
   return nil
 end
 
+-- THE NATIVE BEDROCK BINDING (docs/design/bedrock-plumbing.md §6.2, OQ-BR1: `-p bedrock` puts an
+-- agent on Bedrock through its OWN Bedrock client where it has one). codex has one: the
+-- built-in provider `amazon-bedrock-runtime`, which speaks Responses to
+-- https://bedrock-runtime.<region>.amazonaws.com/openai/v1 and signs from the AWS credential
+-- chain, or sends AWS_BEARER_TOKEN_BEDROCK first when it is set. Every fact below was read
+-- from the strings of the codex-cli 0.158.0 binary the launcher installs (2026-09-29), never
+-- run:
+--
+--   - the built-in ids, in order: `responses` `openai` `amazon-bedrock` `amazon-bedrock-runtime`
+--     `ollama`; `amazon-bedrock` is the mantle client, which yolo does not ship (DIR-BR3);
+--   - `model-provider/src/amazon_bedrock/runtime.rs` beside `https://bedrock-runtime.` and
+--     `.amazonaws.com/openai/v1`, the endpoint family yolo ships;
+--   - the override guard, verbatim: "only supports changing `base_url`, `auth`,
+--     `http_headers`, `aws.profile`, `aws.region`, `aws.credential_export`, and
+--     `aws.auth_refresh`; other non-default provider fields are not supported" (trap D3), so
+--     the one row this writes carries `aws.region` and nothing else, and the generic row's
+--     `name`, `wire_api` and `env_key` never appear on it;
+--   - the region order: "`model_providers.amazon-bedrock.aws.region`, `AWS_REGION`, or
+--     `AWS_DEFAULT_REGION`", so a region only the environment carries needs no row at all.
+--
+-- The model is a runtime id from the provider's list (P3: one spelling per entry), sent as
+-- `model`. An id codex's own catalog does not hold runs on "fallback model metadata" (trap
+-- D4); that the id reaches runtime unchanged is INFERRED from that message, and `codex doctor`
+-- is the check.
+--
+-- ONLY the selected provider, and only when codex's own client is the transport: a via profile
+-- (`bedrock-bridge`) forces the wire bridge, which has no Bedrock upstream for a provider named
+-- by region alone, so it writes nothing rather than quietly running codex natively. codex has
+-- one built-in Bedrock provider, so a second Bedrock provider in the table gets no row of its
+-- own: two rows cannot share one built-in id.
+local codexBedrockProvider = "amazon-bedrock-runtime"
+
+local function codexNativeBedrock(ctx)
+  return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
+end
+
+-- codex's Bedrock client drives the Responses API, and the evidence covers OpenAI's models on
+-- it: Anthropic's are served on runtime by Messages and Converse alone (the Claude Opus 5.5 AWS
+-- card, read 2026-09-29). Widened when a turn measures another maker (done-condition 5).
+local codexBedrockMakers = { openai = true }
+
 -- in_full declares a table this derive regenerates in full — ctx.in_full, the CO13 sentinel
 -- (docs/design/config-ownership-and-promotion.md): its entries track a live table, so one on
 -- disk this run did not produce is yolo's own stale output. A table returned without it is
@@ -337,6 +378,13 @@ yolo.derive("codex", "config", function(ctx)
         if viaRow then
           baseUrl = ctx.via_url
         end
+        -- A BEDROCK PROVIDER GETS NO GENERIC ROW, even one a user gave an `openai` endpoint: the
+        -- row's one credential is an env_key, and Bedrock's is the AWS credential chain, which
+        -- only codex's own amazon-bedrock-runtime client signs with (the native binding below).
+        -- A via row still rides the bridge, which signs for it.
+        if baseUrl and not viaRow and type(prov) == "table" and prov.platform == "aws-bedrock" then
+          baseUrl = nil
+        end
         if baseUrl then
           local displayName = name
           if type(prov.name) == "string" and prov.name ~= "" then
@@ -368,6 +416,15 @@ yolo.derive("codex", "config", function(ctx)
           end
           provOut[name] = entry
         end
+      end
+    end
+    -- The native Bedrock row (codexNativeBedrock above): the built-in provider's override,
+    -- carrying `aws.region` when the selected provider declares one and nothing when the region
+    -- arrives in the environment, which codex reads itself.
+    if codexNativeBedrock(ctx) and provOut[codexBedrockProvider] == nil then
+      local p = ctx.providers[ctx.selected_provider]
+      if type(p) == "table" and type(p.region) == "string" and p.region ~= "" then
+        provOut[codexBedrockProvider] = { aws = { region = p.region } }
       end
     end
     if next(provOut) ~= nil then
@@ -418,6 +475,20 @@ yolo.derive("codex", "config", function(ctx)
       local list = codexModelList(ctx.providers and ctx.providers["openai-codex"])
       local model = codexDefault(list, ctx.profile)
       res.selection = model and { model = model } or {}
+    elseif codexNativeBedrock(ctx) then
+      -- Bedrock through codex's own client: the built-in provider, and the model among the
+      -- entries codex can call (callableModels, codexBedrockMakers), the profile's own when it
+      -- names one of them, else the list's first. yolo picks here because codex's own default
+      -- is a first-party slug, not a Bedrock id, so a session left to it would not start
+      -- (docs/design/model-lists-and-pickers.md OQ-ML2). A list with nothing codex can call
+      -- writes the provider alone, and codex resolves its own model.
+      local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
+      local sel = { model_provider = codexBedrockProvider }
+      local model = callableModel(p, callableModels(p, codexBedrockMakers), ctx.profile, true)
+      if model then
+        sel.model = model
+      end
+      res.selection = sel
     else
       local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
       if codexReachable(p) then

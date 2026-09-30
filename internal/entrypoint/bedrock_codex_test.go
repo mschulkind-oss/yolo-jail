@@ -1,0 +1,79 @@
+package entrypoint
+
+import (
+	"reflect"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+)
+
+// bedrock_codex_test.go pins codex's native Bedrock binding (docs/design/bedrock-plumbing.md
+// §6.2 and §12 step 4; OQ-BR1, ruled 2026-09-29): `-p codex=bedrock` selects codex's own
+// built-in `amazon-bedrock-runtime` client, starts it on the first OpenAI entry of the one
+// Bedrock list, and writes the built-in's override only for a region the provider declares.
+// Driven through the boot render (renderCodexConfig) over the tables codex's real needs closure
+// composes, so it fails if the derive stops binding, if codex stops needing packs/bedrock, or if
+// the list's first OpenAI entry moves.
+
+func TestCodexOnBedrockUsesItsOwnRuntimeClient(t *testing.T) {
+	const sol, astra, opus = "us.openai.gpt-6.1-sol", "global.openai.gpt-6-astra", "global.anthropic.claude-opus-5-5"
+	for _, tc := range []struct {
+		name      string
+		providers string
+		profiles  map[string]packload.UserProfile
+		use       string
+		model     string
+		row       any // model_providers["amazon-bedrock-runtime"]; nil when none is written
+	}{
+		{"a region in the environment writes no override", "", nil,
+			`{"codex":"bedrock"}`, sol, nil},
+		{"the provider's region is the built-in's aws.region",
+			`{"bedrock":{"region":"eu-west-1"}}`, nil, `{"codex":"bedrock"}`, sol,
+			map[string]any{"aws": map[string]any{"region": "eu-west-1"}}},
+		{"a profile naming another OpenAI entry", "",
+			map[string]packload.UserProfile{"astra": {Provider: "bedrock", Options: map[string]string{"model": astra}}},
+			`{"codex":"astra"}`, astra, nil},
+		// Anthropic's models are not served by the Responses API codex drives, so the profile's
+		// pick is skipped and codex starts on the first entry it can call.
+		{"a profile naming the Anthropic entry", "",
+			map[string]packload.UserProfile{"opus": {Provider: "bedrock", Options: map[string]string{"model": opus}}},
+			`{"codex":"opus"}`, sol, nil},
+		// A user default alias codex can call steers it; the OQ-ML2 opt-in.
+		{"a user default alias", `{"bedrock":{"models":{"default":"global.openai.gpt-6-astra"}}}`, nil,
+			`{"codex":"bedrock"}`, astra, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			providersJSON, wire := bedrockTables(t, "codex", tc.providers, tc.profiles)
+			cfg := renderCodexConfig(t, providersJSON, tc.use, wire)
+			if cfg["model_provider"] != "amazon-bedrock-runtime" {
+				t.Errorf("model_provider = %v, want codex's built-in amazon-bedrock-runtime", cfg["model_provider"])
+			}
+			if cfg["model"] != tc.model {
+				t.Errorf("model = %v, want %s", cfg["model"], tc.model)
+			}
+			rows, _ := cfg["model_providers"].(map[string]any)
+			if _, generic := rows["bedrock"]; generic {
+				t.Errorf("a generic row was written for bedrock: %v", rows["bedrock"])
+			}
+			if got := rows["amazon-bedrock-runtime"]; !reflect.DeepEqual(got, tc.row) {
+				t.Errorf("model_providers.amazon-bedrock-runtime = %#v, want %#v — an override "+
+					"carrying any field beyond the seven codex permits is refused (trap D3)", got, tc.row)
+			}
+		})
+	}
+}
+
+// A PROFILE FORCING THE WIRE BRIDGE writes nothing for codex: the bridge has no upstream for a
+// provider named by region alone, and running codex natively instead would ignore the profile.
+func TestCodexOnABridgedBedrockProfileWritesNothing(t *testing.T) {
+	providersJSON, wire := bedrockTables(t, "codex", `{"bedrock":{"region":"us-east-1"}}`, bedrockViaProfile, "wire-bridge")
+	cfg := renderCodexConfig(t, providersJSON, `{"codex":"over-bridge"}`, wire)
+	for _, key := range []string{"model_provider", "model"} {
+		if v, ok := cfg[key]; ok {
+			t.Errorf("%s = %v on a bridged profile, want none", key, v)
+		}
+	}
+	if rows, _ := cfg["model_providers"].(map[string]any); rows["amazon-bedrock-runtime"] != nil || rows["bedrock"] != nil {
+		t.Errorf("a bridged profile wrote a Bedrock row: %v", rows)
+	}
+}

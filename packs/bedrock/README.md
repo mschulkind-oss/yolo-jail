@@ -63,8 +63,14 @@ states (`context_window`, `max_tokens`, `input`), and Claude Opus 5.5 its reason
 | Agent | Can call on Bedrock | Starts on, with no model named |
 | :--- | :--- | :--- |
 | claude | Anthropic models: its Bedrock client drives the Messages API, which serves Claude only | its own Bedrock default. yolo pins a model only when the profile names one, or your config names a `default` alias Claude can call |
+| codex | OpenAI models: its built-in `amazon-bedrock-runtime` client drives the Responses API, which AWS serves for them and not for Anthropic's | GPT-6.1 Sol (US) |
 
 The agents that run their own Bedrock client are listed here as each is bound.
+
+codex's client reads the region from `AWS_REGION` or `AWS_DEFAULT_REGION` itself, so yolo writes
+its `aws.region` only for a region you set on the provider. While a codex profile selects
+Bedrock, yolo pins codex's `model_provider`, so `codex login` cannot switch that session to
+another Bedrock login; pick another profile for that.
 
 ### Choosing another model
 
