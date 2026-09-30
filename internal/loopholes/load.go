@@ -163,6 +163,8 @@ func (l *Loophole) subsetManifest() *loopholedecl.Manifest {
 		Serves:         l.Serves,
 		Settings:       l.Settings,
 		Brokered:       l.Brokered,
+		Binaries:       l.Binaries,
+		BinaryRefs:     l.BinaryRefs,
 	}
 }
 
@@ -207,11 +209,22 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 	statePath := StateDirFor(m.Name)
 	settingsPath := SettingsFileFor(m.Name)
 
+	// The BINARY tokens resolve here too, and for the same reason: each is a function of the
+	// manifest, this machine's platform and the cache directory, none of them per launch.
+	// `{binary:<name>}` becomes the cached build for this machine; a name with no build here
+	// keeps its token, which is harmless because SupportedHere then refuses the whole
+	// loophole. `{jail_binary:<name>}` becomes the container path the launch mounts the
+	// jail's build at, unconditionally — the mount, not the argv, is what depends on the
+	// cache (runtime.go).
+	hostBinary := hostBinaryPaths(m.Name, m.Binaries, m.BinaryRefs)
+	jailBinary := func(name string) (string, bool) { return JailBinaryPath(m.Name, name), true }
+
 	var doctorCmd []string
 	if m.DoctorCmdSet {
 		doctorCmd = substituteAll(m.DoctorCmd, loopholedecl.TokenLoopholeDir, hostDir)
 		doctorCmd = substituteAll(doctorCmd, loopholedecl.TokenSettings, settingsPath)
 		doctorCmd = substituteAll(doctorCmd, loopholedecl.TokenState, statePath)
+		doctorCmd = loopholedecl.ReplaceBinaryTokens(doctorCmd, false, hostBinary)
 	}
 
 	// EVERY field, listed. This literal is the same shape as subsetManifest's, and
@@ -233,6 +246,7 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		cmd := substituteAll(m.HostDaemon.Cmd, loopholedecl.TokenLoopholeDir, hostDir)
 		cmd = substituteAll(cmd, loopholedecl.TokenSettings, settingsPath)
 		cmd = substituteAll(cmd, loopholedecl.TokenState, statePath)
+		cmd = loopholedecl.ReplaceBinaryTokens(cmd, false, hostBinary)
 		hostDaemon = &HostDaemon{
 			Cmd:         cmd,
 			Env:         m.HostDaemon.Env,
@@ -246,8 +260,9 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 
 	var jailDaemon *JailDaemon
 	if m.JailDaemon != nil {
+		jailCmd := substituteAll(m.JailDaemon.Cmd, loopholedecl.TokenJailLoopholeDir, JailLoopholeDir(m.Name))
 		jailDaemon = &JailDaemon{
-			Cmd:         substituteAll(m.JailDaemon.Cmd, loopholedecl.TokenJailLoopholeDir, JailLoopholeDir(m.Name)),
+			Cmd:         loopholedecl.ReplaceBinaryTokens(jailCmd, true, jailBinary),
 			Restart:     m.JailDaemon.Restart,
 			CallerToken: m.JailDaemon.CallerToken,
 			Listen:      m.JailDaemon.Listen,
@@ -301,6 +316,8 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		Serves:        m.Serves,
 		Settings:      m.Settings,
 		Brokered:      m.Brokered,
+		Binaries:      m.Binaries,
+		BinaryRefs:    m.BinaryRefs,
 		// SOURCE IS THE CALLER'S FACT and this is only the fail-safe default. A
 		// manifest cannot say who shipped it (it would just lie), so every discovery
 		// path relabels the record immediately — loadModuleDirs, loadModuleDirs and
@@ -354,8 +371,15 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 // short of correct (host-role vs nested-host-role is not a distinction this
 // codebase draws anywhere), and it costs a misleading line in a report where the
 // alternative costs a daemon that cannot run.
+//
+// A BINARY WITH NO BUILD FOR THIS MACHINE is the same answer on the same axis: the loophole
+// runs a file nobody built for this platform, so nothing is missing and nothing can be
+// installed (docs/design/broker-as-a-pack.md §3.1: "a missing build for this machine is an
+// honest inert report through the mechanism `platforms` already established"). The
+// `platforms` declaration is asked first, since it is the author's own statement of where
+// the loophole runs.
 func (l *Loophole) SupportedHere() bool {
-	return l.supportsPlatform(runtime.GOOS, runtime.GOARCH)
+	return l.supportedOn(runtime.GOOS, runtime.GOARCH)
 }
 
 // UnsupportedHereReason is SupportedHere's message half. What the design asks for is that the
@@ -364,7 +388,21 @@ func (l *Loophole) SupportedHere() bool {
 // — what this machine is, what the loophole supports, and that nothing is missing —
 // or ("", false) when the platform is supported.
 func (l *Loophole) UnsupportedHereReason() (string, bool) {
-	return l.platformUnsupportedReason(runtime.GOOS, runtime.GOARCH)
+	return l.unsupportedOnReason(runtime.GOOS, runtime.GOARCH)
+}
+
+// supportedOn / unsupportedOnReason are the two above for an explicit pair: `platforms`, then
+// every binary the argvs name having a build for where it runs.
+func (l *Loophole) supportedOn(goos, goarch string) bool {
+	_, unsupported := l.unsupportedOnReason(goos, goarch)
+	return !unsupported
+}
+
+func (l *Loophole) unsupportedOnReason(goos, goarch string) (string, bool) {
+	if reason, ok := l.platformUnsupportedReason(goos, goarch); ok {
+		return reason, true
+	}
+	return l.binaryUnsupportedReason(goos, goarch)
 }
 
 // supportsPlatform / platformUnsupportedReason take the pair explicitly so every

@@ -28,6 +28,9 @@ type (
 	EnvMap        = loopholedecl.EnvMap
 	Setting       = loopholedecl.Setting
 	Brokered      = loopholedecl.Brokered
+	Binary        = loopholedecl.Binary
+	BinaryBuild   = loopholedecl.BinaryBuild
+	BinaryRefs    = loopholedecl.BinaryRefs
 )
 
 // Manifest enum values and the broker_ip default.

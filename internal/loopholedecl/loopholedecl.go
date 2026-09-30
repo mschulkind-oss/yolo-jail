@@ -334,6 +334,13 @@ type Manifest struct {
 	// Brokered is the `brokered` block (brokered.go), or nil: a loophole whose daemon
 	// runs a host credential's commands, fenced to the workspace's own repositories.
 	Brokered *Brokered
+	// Binaries are the `binaries` declarations (binaries.go): executables this loophole ships
+	// as downloads pinned by sha256, in declaration order. nil when absent.
+	Binaries []Binary
+	// BinaryRefs is which of them the argvs name, and on which side — decoded from the RAW
+	// fields, because a resolved record has substituted the tokens away. Zero when no token
+	// is written.
+	BinaryRefs BinaryRefs
 }
 
 // Decode parses and validates manifest bytes STRICTLY: an unknown key is
@@ -649,6 +656,15 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
+	binaries, err := parseBinaries(manifestPath, getOrNil(data, keyBinaries))
+	if err != nil {
+		return nil, err
+	}
+	binaryRefs, err := resolveBinaryRefs(manifestPath, binaries, binaryRefFields(doctorCmd,
+		hostDaemon, jailDaemon, jailEnv, caCert, hostBindMounts, requires, stateFiles, hostDevices))
+	if err != nil {
+		return nil, err
+	}
 	var jailCmd []string
 	if jailDaemon != nil {
 		jailCmd = jailDaemon.Cmd
@@ -742,6 +758,8 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		Serves:         serves,
 		Settings:       settings,
 		Brokered:       brokered,
+		Binaries:       binaries,
+		BinaryRefs:     binaryRefs,
 	}, nil
 }
 

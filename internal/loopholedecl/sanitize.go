@@ -11,8 +11,8 @@ import (
 // Every field a manifest declares that can end up in an APPROVAL CLAIM — the
 // `host_daemon.cmd` strings, `doctor_cmd`, `jail_daemon.cmd`, the intercept hosts,
 // the bind-mount host and container paths, the device nodes, `ca_cert`,
-// `state_files`, and the loophole's own name, which is every claim's target — must
-// refuse control characters and newlines.
+// `state_files`, a `binaries` entry's name, platform and URL, and the loophole's own
+// name, which is every claim's target — must refuse control characters and newlines.
 //
 // The reason is the rendering path, not squeamishness about odd bytes. The
 // approval prompt prints claims through richtext.Printer.Printf, which FORMATS

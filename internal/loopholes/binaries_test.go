@@ -1,0 +1,263 @@
+package loopholes
+
+// binaries_test.go pins where a manifest's `binaries` meets this machine (binaries.go,
+// docs/design/broker-as-a-pack.md BP-D1): the argvs resolve to the cache and the container path,
+// a build that is not fetched keeps the loophole off and names `yolo pack install`, a platform
+// with no build is the platform axis's answer, the jail's build is mounted read-only from the
+// cache — carrying an exec bit the pack's own tree does not have — and the macos-user guest and
+// the doctor both decline what they cannot run.
+//
+// Mutation checks (does it fail if the production line goes?):
+//   - drop ReplaceBinaryTokens from resolve → TestBinaryTokensResolveAtLoad.
+//   - drop BinariesFetched from Active() → TestAnUnfetchedBuildKeepsTheLoopholeOff.
+//   - drop the -v loop in runtimeArgsWith → TestTheJailBuildIsMountedFromTheCache.
+//   - drop the binary half of unsupportedOnReason → TestNoBuildHereIsThePlatformAxis.
+//   - drop the namesContainerBinary case → TestTheMacosUserGuestDeclinesAJailBinary.
+//   - drop hostBinariesUnready from runDoctorChecks → TestTheDoctorDoesNotRunAnUnfetchedBuild.
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packbin"
+)
+
+var (
+	hostPlatform = runtime.GOOS + "/" + runtime.GOARCH
+	jailPlatform = "linux/" + runtime.GOARCH
+	sumHost      = strings.Repeat("1", 64)
+	sumJail      = strings.Repeat("2", 64)
+)
+
+// isolateBinaryCache points the cache every record resolves against at a temp dir.
+func isolateBinaryCache(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	prev := BinaryCacheDir
+	BinaryCacheDir = func() string { return dir }
+	t.Cleanup(func() { BinaryCacheDir = prev })
+	return dir
+}
+
+// cacheBuild puts a build in the cache the way packbin.Fetcher admits one: at its digest, 0555.
+func cacheBuild(t *testing.T, dir, sum, name string) string {
+	t.Helper()
+	p := packbin.Path(dir, sum, name)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// builds declares toold for this machine and for the jail. On a Linux host the two platforms
+// are one, so the jail build wins the key and both sides share it; the tests below read the
+// digest each side resolves to rather than assuming two.
+func builds(platforms map[string]string) map[string]any {
+	out := map[string]any{}
+	for platform, sum := range platforms {
+		out[platform] = map[string]any{"url": "https://example.test/toold-" +
+			strings.ReplaceAll(platform, "/", "-"), "sha256": sum}
+	}
+	return out
+}
+
+func sideSums() (host, jail string) {
+	if hostPlatform == jailPlatform {
+		return sumJail, sumJail
+	}
+	return sumHost, sumJail
+}
+
+// toolModule writes a loophole whose host daemon, doctor and jail daemon all run toold, with
+// the module's own files read-only — the shape an embedded pack's leased tree has, where no
+// file can carry an exec bit.
+func toolModule(t *testing.T, md string, platforms map[string]string) string {
+	t.Helper()
+	mod := mkdir(t, filepath.Join(md, "tool"))
+	writeManifest(t, mod, map[string]any{
+		"name": "tool", "description": "ships toold",
+		"binaries": map[string]any{"toold": builds(platforms)},
+		"host_daemon": map[string]any{"cmd": []any{"{binary:toold}", "--socket", "{socket}"},
+			"publishes": "socket"},
+		"doctor_cmd":  []any{"{binary:toold}", "--self-check"},
+		"jail_daemon": map[string]any{"cmd": []any{"{jail_binary:toold}", "serve"}},
+	})
+	if err := os.Chmod(filepath.Join(mod, "manifest.jsonc"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	return mod
+}
+
+func bothBuilds() map[string]string {
+	h, j := sideSums()
+	return map[string]string{hostPlatform: h, jailPlatform: j}
+}
+
+func loadTool(t *testing.T, platforms map[string]string) (*Loophole, string, string) {
+	t.Helper()
+	unsetJail(t)
+	cache := isolateBinaryCache(t)
+	md := modsDir(t)
+	lp, err := LoadLoophole(toolModule(t, md, platforms))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lp, cache, md
+}
+
+func TestBinaryTokensResolveAtLoad(t *testing.T) {
+	lp, cache, _ := loadTool(t, bothBuilds())
+	hostSum, _ := sideSums()
+	hostPath := packbin.Path(cache, hostSum, "toold")
+	if lp.HostDaemon.Cmd[0] != hostPath || lp.DoctorCmd[0] != hostPath {
+		t.Errorf("host fields = %q / %q, want the cached build %s", lp.HostDaemon.Cmd, lp.DoctorCmd, hostPath)
+	}
+	if got, want := lp.JailDaemon.Cmd[0], "/etc/yolo-jail/loophole-binaries/tool/toold"; got != want {
+		t.Errorf("jail argv[0] = %q, want the container path %q", got, want)
+	}
+}
+
+func TestAnUnfetchedBuildKeepsTheLoopholeOff(t *testing.T) {
+	lp, cache, _ := loadTool(t, bothBuilds())
+	if !lp.SupportedHere() {
+		t.Fatalf("both builds are declared, so the loophole is supported here: %v",
+			func() string { r, _ := lp.UnsupportedHereReason(); return r }())
+	}
+	if lp.Active() || lp.BinariesFetched() {
+		t.Fatal("a loophole whose builds are not in the cache is Active; a launch never fetches")
+	}
+	reason, off := lp.InactiveReason()
+	if !off || !strings.Contains(reason, "yolo pack install") || !strings.Contains(reason, "toold") {
+		t.Errorf("InactiveReason = %q, want it to name the binary and `yolo pack install`", reason)
+	}
+	hostSum, jailSum := sideSums()
+	cacheBuild(t, cache, hostSum, "toold")
+	cacheBuild(t, cache, jailSum, "toold")
+	if !lp.Active() {
+		r, _ := lp.InactiveReason()
+		t.Errorf("with every build cached the loophole is still off: %s", r)
+	}
+}
+
+func TestNoBuildHereIsThePlatformAxis(t *testing.T) {
+	lp, _, _ := loadTool(t, map[string]string{"plan9/386": sumHost})
+	if lp.SupportedHere() || lp.Active() {
+		t.Fatal("a binary with no build for this machine left the loophole supported")
+	}
+	reason, ok := lp.UnsupportedHereReason()
+	if !ok || !strings.Contains(reason, "has no build for") || !strings.Contains(reason, "plan9/386") ||
+		!strings.Contains(reason, "nothing can be installed") {
+		t.Errorf("reason = %q, want the missing platform, the declared ones and 'nothing can be installed'", reason)
+	}
+	notes := PlatformInertNotes([]*Loophole{lp})
+	if len(notes) != 1 || notes[0].Axis != AxisPlatform {
+		t.Errorf("PlatformInertNotes = %+v, want one platform-axis note", notes)
+	}
+	if n := BinaryInertNotes([]*Loophole{lp}); len(n) != 0 {
+		t.Errorf("an unsupported loophole also got a binary-axis note: %+v", n)
+	}
+	// The unresolvable host token stays a token rather than naming a path nothing will fill.
+	if lp.HostDaemon.Cmd[0] != "{binary:toold}" {
+		t.Errorf("host argv[0] = %q, want the token left in place", lp.HostDaemon.Cmd[0])
+	}
+}
+
+func TestBinaryInertNotesNameTheFix(t *testing.T) {
+	lp, _, _ := loadTool(t, bothBuilds())
+	notes := BinaryInertNotes([]*Loophole{lp, lp})
+	if len(notes) != 1 || notes[0].Axis != AxisBinary || !strings.Contains(notes[0].Line(), "yolo pack install") {
+		t.Fatalf("notes = %+v, want one binary-axis note naming `yolo pack install`", notes)
+	}
+	off := *lp
+	off.Enabled = false
+	if n := BinaryInertNotes([]*Loophole{&off}); len(n) != 0 {
+		t.Errorf("a disabled loophole got a note: %+v", n)
+	}
+}
+
+// THE POINT OF THE MECHANISM: the module's own file is read-only (an embedded pack's is 0444),
+// and the jail still gets an executable, because the build is mounted from the cache.
+func TestTheJailBuildIsMountedFromTheCache(t *testing.T) {
+	lp, cache, md := loadTool(t, bothBuilds())
+	hostSum, jailSum := sideSums()
+	cacheBuild(t, cache, hostSum, "toold")
+	src := cacheBuild(t, cache, jailSum, "toold")
+	_ = lp
+	set := approvedSetFrom(md)
+	args := set.RuntimeArgsFor(set.Enabled(), "podman")
+	want := src + ":/etc/yolo-jail/loophole-binaries/tool/toold:ro"
+	if !hasPair(args, "-v", want) {
+		t.Fatalf("argv lacks -v %s:\n%q", want, args)
+	}
+	fi, err := os.Stat(src)
+	if err != nil || fi.Mode().Perm()&0o111 == 0 {
+		t.Errorf("the mounted build carries no exec bit: %v %v", fi, err)
+	}
+	payload := ""
+	for _, a := range args {
+		if strings.HasPrefix(a, "YOLO_JAIL_DAEMONS=") {
+			payload = a
+		}
+	}
+	if !strings.Contains(payload, `"/etc/yolo-jail/loophole-binaries/tool/toold"`) {
+		t.Errorf("the jail daemon's argv does not name the mounted build: %s", payload)
+	}
+}
+
+func TestAnUnfetchedLoopholeMountsNothing(t *testing.T) {
+	_, _, md := loadTool(t, bothBuilds())
+	set := approvedSetFrom(md)
+	for _, a := range set.RuntimeArgsFor(set.Enabled(), "podman") {
+		if strings.Contains(a, "loophole-binaries") || strings.Contains(a, "YOLO_JAIL_DAEMONS") {
+			t.Errorf("an inactive loophole reached the argv: %q", a)
+		}
+	}
+}
+
+func TestTheMacosUserGuestDeclinesAJailBinary(t *testing.T) {
+	spec := JailDaemonSpec{Name: "tool", Cmd: []string{"/etc/yolo-jail/loophole-binaries/tool/toold"}}
+	runs, declined := JailDaemonsRunIn("macos-user", []JailDaemonSpec{spec})
+	if len(runs) != 0 || len(declined) != 1 || !strings.Contains(declined[0].Why, "binary") {
+		t.Errorf("runs %+v declined %+v, want the jail binary declined by name", runs, declined)
+	}
+	if runs, _ := JailDaemonsRunIn("podman", []JailDaemonSpec{spec}); len(runs) != 1 {
+		t.Error("a container runs a jail binary's daemon")
+	}
+}
+
+func TestTheDoctorDoesNotRunAnUnfetchedBuild(t *testing.T) {
+	_, _, md := loadTool(t, bothBuilds())
+	set := approvedSetFrom(md)
+	results := set.RunDoctorChecks(set.Enabled(), 0)
+	if len(results) != 1 || results[0].RC != nil ||
+		!strings.Contains(results[0].Output, "not run") || !strings.Contains(results[0].Output, "yolo pack install") {
+		t.Errorf("doctor results = %+v, want 'not run' naming `yolo pack install`", results)
+	}
+}
+
+// Inside a jail a HOST reference is the host's business: the jail's own cache not holding it
+// does not make the loophole read as off, for `requires`' reason (presence decides in a jail).
+func TestInAJailAHostBuildIsTheHostsBusiness(t *testing.T) {
+	lp, _, _ := loadTool(t, map[string]string{hostPlatform: sumHost})
+	t.Setenv("YOLO_VERSION", "test")
+	if hostPlatform == jailPlatform {
+		// One platform: the jail reference has a build too, and it is not mounted here.
+		if lp.BinariesFetched() {
+			t.Error("an unmounted, uncached jail build counted as present in a jail")
+		}
+		return
+	}
+	if !lp.SupportedHere() {
+		// No linux build: unsupported, which is the platform axis's answer, not this one's.
+		return
+	}
+	if !lp.BinariesFetched() {
+		t.Error("in a jail, an uncached HOST build made the loophole read as not fetched")
+	}
+}

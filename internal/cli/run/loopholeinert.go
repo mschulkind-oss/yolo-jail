@@ -229,8 +229,8 @@ func backendInertLines(packs []*packload.Pack, reason string) []string {
 	return lines
 }
 
-// platformInertLines is the PRODUCER's answer, prefixed with the pack that shipped each
-// loophole.
+// platformInertLines is the PRODUCERS' answer — the platform axis, then the binary axis —
+// prefixed with the pack that shipped each loophole.
 //
 // The pack name is prefixed here rather than folded into the note because it is a fact about
 // THIS report's context (which selected pack shipped it) and not about the loophole —
@@ -261,6 +261,13 @@ func platformInertLines(packs []*packload.Pack, cfg *jsonx.OrderedMap) []string 
 	var lines []string
 	loopholes.ApplyConfigEnabled(resolved, cfgMap(cfg, "loopholes"))
 	for _, note := range loopholes.PlatformInertNotes(resolved) {
+		lines = append(lines, inertLineFor(packOf[note.Name], note))
+	}
+	// A declared build not fetched yet (loopholes.BinaryInertNotes, the binary axis): the
+	// launch never fetches (docs/design/broker-as-a-pack.md BP-D1), so without this line a
+	// loophole the user switched on would simply not run, with nothing said. The producer
+	// skips what the platform producer above already reported.
+	for _, note := range loopholes.BinaryInertNotes(resolved) {
 		lines = append(lines, inertLineFor(packOf[note.Name], note))
 	}
 	return lines

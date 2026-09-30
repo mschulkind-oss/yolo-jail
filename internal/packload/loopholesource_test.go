@@ -756,3 +756,31 @@ func TestLintReportsTheSubsetAndTheTypoTogether(t *testing.T) {
 			"things should not need two edit-check cycles: %v", probs)
 	}
 }
+
+// A DOWNLOADED BINARY is claimed once per BUILD (docs/design/broker-as-a-pack.md BP-D1): its
+// bytes are not in the pack's tree, so the claim is the only line that says what runs, and it
+// carries the URL, the pinning digest and where the program runs. Every build is claimed, not only
+// this machine's, so the footprint reads the same everywhere. Deleting the binaries loop in
+// moduleClaims fails this.
+func TestEachDownloadedBinaryBuildEmitsAClaim(t *testing.T) {
+	sum := strings.Repeat("c", 64)
+	root := writeLoopholePack(t, map[string]string{"tool": `{
+	  "name": "tool",
+	  "binaries": {"toold": {
+	    "linux/amd64": {"url": "https://example.test/toold-linux-amd64", "sha256": "` + sum + `"},
+	    "linux/arm64": {"url": "https://example.test/toold-linux-arm64", "sha256": "` + sum + `"}
+	  }},
+	  "jail_daemon": {"cmd": ["{jail_binary:toold}"]}
+	}`})
+	claims := disclosedCrossings(loadPack(t, root))
+	for _, platform := range []string{"linux/amd64", "linux/arm64"} {
+		if !hasClaimContaining(claims, "tool:binary:toold:"+platform, "DOWNLOADS",
+			"https://example.test/toold-"+strings.ReplaceAll(platform, "/", "-"), sum, "in the jail") {
+			t.Errorf("no claim for the %s build naming its URL, digest and where it runs: %v",
+				platform, claims)
+		}
+	}
+	if len(claims) != 2 {
+		t.Errorf("claims = %v, want exactly the two builds (a jail daemon alone claims nothing)", claims)
+	}
+}

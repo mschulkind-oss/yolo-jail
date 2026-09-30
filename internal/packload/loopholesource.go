@@ -404,6 +404,35 @@ func moduleClaims(mod LoopholeModule, official bool) []loopholeClaim {
 		})
 	}
 
+	// One per BUILD of each declared binary (loopholedecl's binaries.go): a program this pack
+	// ships as a DOWNLOAD, which is not in the pack's tree, so no other line of the footprint
+	// can say what bytes run. The URL and the digest are both in the line, because the digest
+	// is the pin — a reader checking a build checks it against the sha256 — and a claim keyed
+	// on the name alone would read the same after the author re-pointed the URL. Every build
+	// is claimed, not only this machine's, so the line reads the same on every machine; where
+	// it runs is the reference's side. Not RunsHostCode: a HOST build runs only as the argv the
+	// base claim above already discloses as host execution, `{binary:<name>}` and all.
+	for _, b := range m.Binaries {
+		var where []string
+		for _, ref := range m.BinaryRefs.Host {
+			if ref == b.Name {
+				where = append(where, "on your machine")
+			}
+		}
+		for _, ref := range m.BinaryRefs.Jail {
+			if ref == b.Name {
+				where = append(where, "in the jail (mounted read-only)")
+			}
+		}
+		for _, bb := range b.Builds {
+			out = append(out, loopholeClaim{
+				target: name + ":binary:" + b.Name + ":" + bb.Platform,
+				detail: "DOWNLOADS the program " + b.Name + " for " + bb.Platform + " from " + bb.URL +
+					", pinned by sha256 " + bb.SHA256 + ", and runs it " + strings.Join(where, " and "),
+			})
+		}
+	}
+
 	// One per device. A device node is NOT weaker than a read-write bind mount: `audio`'s
 	// own manifest describes `--device` as passing a node "so the cgroup device-allow
 	// rules permit reads/writes". Same objection, so the same claim — and the

@@ -165,7 +165,7 @@ var (
 		keyName, keyDescription, keyVersion, keyDefaultEnabled, keyTransport, keyLifecycle,
 		keyIntercepts, keyBrokerIP, keyCACert, keyJailEnv, keyDoctorCmd, keyHostDaemon,
 		keyJailDaemon, keyHostBindMounts, keyHostDevices, keyStateFiles, keyRequires,
-		keyPlatforms, keyServes, keySettings, keyBrokered,
+		keyPlatforms, keyServes, keySettings, keyBrokered, keyBinaries,
 	}
 	// settingDeclKeys is the census for ONE `settings.<key>` declaration. It is
 	// enforced by parseSettings and DELIBERATELY NOT descended into by
@@ -231,6 +231,22 @@ func unknownKeyNotes(data *jsonx.OrderedMap, manifestPath string, strict bool) [
 		for i, entry := range list {
 			if m, isMap := entry.(*jsonx.OrderedMap); isMap {
 				check(m, fmt.Sprintf("%s[%d].", keyIntercepts, i), interceptKeys)
+			}
+		}
+	}
+	// A build's keys, one level below a binary's platforms. The binary names and the platform
+	// keys are the author's own vocabulary, validated by parseBinaries, so only the build
+	// object has a census.
+	if bins, ok := getOrNil(data, keyBinaries).(*jsonx.OrderedMap); ok {
+		for _, name := range bins.Keys() {
+			builds, _ := getOrNil(bins, name).(*jsonx.OrderedMap)
+			if builds == nil {
+				continue
+			}
+			for _, platform := range builds.Keys() {
+				if m, isMap := getOrNil(builds, platform).(*jsonx.OrderedMap); isMap {
+					check(m, keyBinaries+"."+name+"."+platform+".", binaryBuildKeys)
+				}
 			}
 		}
 	}

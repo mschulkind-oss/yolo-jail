@@ -126,6 +126,12 @@ type Loophole struct {
 	// workspace's remotes at each fresh launch, approved in the config-change diff and
 	// handed to its daemon in the launch's scope file.
 	Brokered *Brokered
+	// Binaries and BinaryRefs carry the manifest's `binaries` declarations and which of them
+	// its argvs name, verbatim (loopholedecl/binaries.go). The argvs themselves are resolved
+	// at load (resolve, load.go); BinaryNeeds (binaries.go) is where the two meet this
+	// machine's platform and the cache.
+	Binaries   []Binary
+	BinaryRefs BinaryRefs
 	// SupersededBy is the claims that retired every capability this loophole serves —
 	// set at DISCOVERY, where the selected packs' claims and the loophole records are
 	// both in hand. Never a manifest declaration: the same manifest is superseded under
@@ -203,15 +209,18 @@ func (l *Loophole) inJailActive() bool {
 
 // Active is the one predicate RuntimeArgsFor and the run pipeline gate on.
 //
-// FOUR gates, ordered cheapest-and-most-categorical first, so no gate does work in
+// FIVE gates, ordered cheapest-and-most-categorical first, so no gate does work in
 // service of a message a later one would have replaced:
 //
 //	Enabled          the user's switch
 //	!Superseded()    a selected pack says the job no longer needs doing — a field
 //	                 read, decided once at discovery (supersede.go)
-//	SupportedHere()  the machine cannot run it at all; nothing is installable
-//	RequirementsMet()the probe half, and the only one that touches the world
-//	                 (exec.LookPath, os.Stat)
+//	SupportedHere()  the machine cannot run it at all; nothing is installable — a
+//	                 `platforms` miss, or a binary with no build for this machine
+//	BinariesFetched()every build it runs is in the pack-binary cache (binaries.go): a
+//	                 probe with one fix, `yolo pack install`, since a launch never
+//	                 fetches (docs/design/broker-as-a-pack.md BP-D1)
+//	RequirementsMet()the `requires` probes (exec.LookPath, os.Stat)
 //
 // Superseded() sits second rather than third because it is the cheapest of the
 // three added gates AND because it belongs with `Enabled`: both are decisions a
@@ -225,7 +234,8 @@ func (l *Loophole) inJailActive() bool {
 // relative order of the two it does not mention is what the paragraph above
 // settles.)
 func (l *Loophole) Active() bool {
-	return l.Enabled && !l.Superseded() && l.SupportedHere() && l.RequirementsMet()
+	return l.Enabled && !l.Superseded() && l.SupportedHere() && l.BinariesFetched() &&
+		l.RequirementsMet()
 }
 
 // Returns "" for None.
@@ -245,6 +255,12 @@ func (l *Loophole) InactiveReason() (string, bool) {
 	// reads as "install the missing thing", and on a Linux-only daemon under macOS
 	// that advice can never succeed.
 	if reason, ok := l.UnsupportedHereReason(); ok {
+		return reason, true
+	}
+	// Before the in-jail branch, which applies its own rule inside BinariesFetched (a
+	// jail daemon's build counts once it is mounted), and before `requires`, whose
+	// fixes are the user's to find where this one is named.
+	if reason, ok := l.UnfetchedBinaryReason(); ok {
 		return reason, true
 	}
 	if inJail() {

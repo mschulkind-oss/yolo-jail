@@ -475,6 +475,10 @@ func TestSubsetManifestProjectsEveryField(t *testing.T) {
 		}},
 		Source: SourcePack, SkewNotes: []string{"note"},
 		SupersededBy: []PackSupersession{{Pack: "p", Capability: "acme-capability", Because: "b"}},
+		Binaries: []Binary{{Name: "acmed", Builds: []BinaryBuild{{
+			Platform: "linux/amd64", URL: "https://acme.test/acmed",
+			SHA256: strings.Repeat("a", 64)}}}},
+		BinaryRefs: BinaryRefs{Jail: []string{"acmed"}},
 	}
 	rec.JailEnv.Set("A", "1")
 

@@ -395,6 +395,27 @@ func runtimeArgsWith(loopholes []*Loophole, runtime string, gate *Set, specs []J
 		if m.JailDaemon != nil {
 			args = append(args, "-v", m.Path+":"+containerDir+":ro")
 			dirMounted = true
+			// Each JAIL BINARY the jail daemon's argv names, as ONE read-only file bind from
+			// the pack-binary cache (binaries.go) at the path `{jail_binary:<name>}` resolved
+			// to. The file carries its exec bit from the cache, which is how a pack whose own
+			// tree cannot (an embedded one reads back 0444) still ships a program
+			// (docs/design/broker-as-a-pack.md BP-D1). Never the cache directory: the host runs
+			// host daemons' builds from it (paths.PackBinariesDir).
+			for _, n := range m.BinaryNeeds() {
+				if !n.Jail || !n.HasBuild {
+					continue
+				}
+				if !isFile(n.Path) {
+					// Active() refuses a loophole with an unfetched build, so this is a
+					// nested launch whose outer jail mounted the build this one's cache
+					// lacks. Never a -v for a missing source: the runtime would create an
+					// empty directory where the daemon expects its program.
+					warnf("loophole %s: skipping binary %s, not in this machine's cache: %s",
+						m.Name, n.Binary, n.Path)
+					continue
+				}
+				args = append(args, "-v", n.Path+":"+JailBinaryPath(m.Name, n.Binary)+":ro")
+			}
 			if isDir(m.StateDir()) {
 				if len(m.StateFiles) > 0 {
 					// Least privilege (issue #33): only the DECLARED files cross.
@@ -633,6 +654,12 @@ func runDoctorChecks(loopholes []*Loophole, timeout time.Duration, gate *Set) []
 		}
 		if len(m.DoctorCmd) == 0 {
 			results = append(results, DoctorResult{Loophole: m, RC: nil, Output: ""})
+			continue
+		}
+		// A self-check that would exec a build this machine does not have says so, instead
+		// of running an argv that names a missing file (or a token nothing resolved).
+		if why, unready := m.hostBinariesUnready(); unready {
+			results = append(results, DoctorResult{Loophole: m, RC: nil, Output: "not run: " + why})
 			continue
 		}
 		rc, output := runOne(m.DoctorCmd, timeout)

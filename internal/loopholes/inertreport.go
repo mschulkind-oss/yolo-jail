@@ -18,6 +18,12 @@ import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 // declaration is evaluated here; the BACKEND producer belongs with the code that
 // knows which backend is running, and plugs in by constructing an InertNote with
 // AxisBackend. Neither producer prints, so neither can print twice.
+//
+// A THIRD AXIS, AxisBinary (binaries.go), joined when a loophole could ship a program as a
+// download (docs/design/broker-as-a-pack.md BP-D1): a declared build not fetched yet.
+// Its producer, BinaryInertNotes, sits beside the platform one and is read by the same
+// report. A binary with NO build for this machine is not on it: that is the platform
+// axis's answer, through SupportedHere.
 
 // Inert-report axes. An axis says WHICH fact made the loophole inert, so a reader
 // looking at two lines can tell "wrong machine" from "wrong backend" without
@@ -33,6 +39,10 @@ const (
 	// the same spawn boundary a container launch uses. The loophole is fine; the
 	// backend does not carry it.
 	AxisBackend = "backend"
+	// AxisBinary: a program the loophole runs is declared for this machine and not
+	// fetched yet (binaries.go). The loophole is fine and so is the machine; one
+	// command, `yolo pack install`, fixes it, since a launch never downloads.
+	AxisBinary = "binary"
 )
 
 // InertNote is one loophole that will do nothing on this machine, with the reason

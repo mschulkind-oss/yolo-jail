@@ -66,9 +66,10 @@ func JailDaemonsRunIn(rt string, specs []JailDaemonSpec) ([]JailDaemonSpec, []De
 //     the sandbox for this launch instead, on the Mac's loopback the agent shares. Running its
 //     jail daemon too would serve one address twice.
 //   - A daemon whose argv names the CONTAINER'S LOOPHOLE MOUNT
-//     (loopholedecl.JailLoopholeDir, what `{jail_loophole_dir}` resolves to at load). That
-//     path exists only inside a container; the guest has no copy there, and OQ-DP8's
-//     "runs exactly as declared" leaves the argv alone rather than rewriting it.
+//     (loopholedecl.JailLoopholeDir, what `{jail_loophole_dir}` resolves to at load), or a
+//     JAIL BINARY's container path (loopholedecl.JailBinaryPath, what `{jail_binary:<name>}`
+//     resolves to). Both paths exist only inside a container; the guest has no copy there,
+//     and OQ-DP8's "runs exactly as declared" leaves the argv alone rather than rewriting it.
 func macosUserGuestDecline(s JailDaemonSpec) string {
 	switch {
 	case s.Intercepts:
@@ -83,8 +84,24 @@ func macosUserGuestDecline(s JailDaemonSpec) string {
 	case namesContainerLoopholeDir(s.Cmd):
 		return "its argv names the container's loophole mount (" + loopholedecl.JailLoopholeDir("") +
 			"…), which the sandbox has no copy of"
+	case namesContainerBinary(s.Cmd):
+		return "its argv names a binary the launch mounts into a container (" +
+			loopholedecl.JailBinaryRoot + "…), which the sandbox has no copy of"
 	}
 	return ""
+}
+
+// namesContainerBinary reports whether argv names a jail binary's container path, what
+// `{jail_binary:<name>}` resolves to at load (loopholedecl.JailBinaryPath). The guest declines
+// it for the module mount's reason: the file is a container bind the sandbox never receives,
+// and the argv is left as declared (OQ-DP8).
+func namesContainerBinary(argv []string) bool {
+	for _, a := range argv {
+		if strings.HasPrefix(a, loopholedecl.JailBinaryRoot) {
+			return true
+		}
+	}
+	return false
 }
 
 func namesContainerLoopholeDir(argv []string) bool {
