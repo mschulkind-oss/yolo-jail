@@ -164,6 +164,41 @@ func TestBedrockRefusesOpencodeARegionItDoesNotRead(t *testing.T) {
 	}
 }
 
+// OPENCODE THROUGH THE BRIDGE ON AWS_DEFAULT_REGION, at a real launch
+// (docs/design/wire-bridge-gateway.md WG-I38): under `bedrock-bridge` the wire bridge, not
+// opencode's own loader, reads the region, and it reads AWS_DEFAULT_REGION after AWS_REGION. So the
+// launch TestBedrockRefusesOpencodeARegionItDoesNotRead refuses on `-p bedrock` starts here, and the
+// bridge composes runtime's URL from the region env_sources delivered. No AWS credential is
+// delivered, so opencode's via route answers a 503 naming that URL, and nothing reaches AWS.
+func TestBedrockBridgeTakesOpencodesDefaultRegion(t *testing.T) {
+	requireJail(t)
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["opencode"], "env_sources": [{"AWS_DEFAULT_REGION": "eu-west-1"}]}`)
+
+	script := `set -u
+addr=$(cat "$YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT")
+code=$(curl -sS -o /workspace/bedrock-bridge-opencode.json -w '%{http_code}' \
+  "http://$addr/agent/opencode/chat/completions" -H 'content-type: application/json' \
+  -H "authorization: Bearer $YOLO_SERVICE_WIRE_BRIDGE_TOKEN" -d '{"model":"m","messages":[]}')
+echo "CODE=$code"`
+	r := runCommand(t, dir, append(jailRunArgs(), "-p", "bedrock-bridge", "--", "bash", "-lc", script))
+	if r.rc != 0 {
+		t.Fatalf("-p bedrock-bridge -- opencode on AWS_DEFAULT_REGION must start, since the bridge reads it:\n%s", r.combined())
+	}
+	if strings.Contains(r.combined(), "AWS_DEFAULT_REGION reaches opencode, which does not read it") {
+		t.Errorf("the launch still calls AWS_DEFAULT_REGION one opencode does not read:\n%s", r.combined())
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "bedrock-bridge-opencode.json"))
+	if err != nil {
+		t.Fatalf("opencode's request to its via route wrote nothing (%v):\n%s", err, r.combined())
+	}
+	if !strings.Contains(r.stdout, "CODE=503") ||
+		!strings.Contains(string(body), "goes to Bedrock (https://bedrock-runtime.eu-west-1.amazonaws.com/openai/v1)") {
+		t.Errorf("opencode's via route must answer 503 naming runtime's URL composed from eu-west-1: %s\n%s", body, r.combined())
+	}
+}
+
 // THE HOST'S AWS CONFIG GIVES THE REGION, at a real launch (docs/design/bedrock-plumbing.md
 // BR-DIR1): opencode on `-p bedrock` with no region on the provider and none in env_sources is
 // given its default profile's region from the launcher's ~/.aws/config (an invented one, in the
