@@ -3,14 +3,16 @@ title: "Who may hand a jail a writable host path from inside a workspace — sco
 date: 2026-09-25
 status: draft
 tags: [trust, config, scope, workspace, mounts, consent, gate-placement, icebox]
-summary: "The maintainer asked whether yolo should add a mise-style trust layer so a workspace config can declare read-write context mounts, and whether such grants should be allowed only in the untracked local file. Neither half works alone. The local file answers the cloned-repo author and not the in-jail agent, because the local file is writable from inside the jail, even under `workspace_readonly`. A trust record answers the agent, but on a cloned repo it becomes the prompt that OQ-TP9 and the Safehouse comparison both said not to build. The recommendation is to combine them, with each gating a different actor. Grants are refused in the committed file. They are admitted from the local file only against a host-side trust record, written by a new `yolo trust` verb, keyed on the workspace path and a hash of the grant set. They stay free in user config. The tracked-file check is demoted to a warning. Proposed and iceboxed; the maintainer has not decided whether to build it."
+summary: "The maintainer asked whether yolo should add a mise-style trust layer so a workspace config can declare read-write context mounts, and whether such grants should be allowed only in the untracked local file. Neither half works alone. The local file answers the cloned-repo author and not the in-jail agent, because the local file is writable from inside the jail, even under `workspace_readonly`. A trust record answers the agent, but on a cloned repo it becomes the prompt that OQ-TP9 and the Safehouse comparison both said not to build. The recommendation is to combine them, with each gating a different actor. Grants are refused in the committed file. They are admitted from the local file only once the human approves the grant set on the host, in a host-side record keyed on the workspace path and a hash of the grant set. Whether that approval is a new `yolo trust` verb or a labeled section of the existing config-change prompt is OQ-WT5, whose leaning moved to the prompt on 2026-09-30. They stay free in user config. The tracked-file check is demoted to a warning. Proposed and iceboxed; the maintainer has not decided whether to build it (OQ-WT1). The other seven questions were decided as implementation choices on 2026-09-30."
 ---
 
 # Who may hand a jail a writable host path from inside a workspace — scope, trust, or both?
 
 **Status:** DESIGN, 2026-09-25 — iceboxed candidate; the maintainer has not decided whether to build it. Nothing
 built. Evidence checked against the tree at `71acddac` plus the working tree on this date. It cites symbols, not
-line numbers.
+line numbers. **Triaged 2026-09-30** against `927bb54d`: seven questions were decided as implementation choices
+([WT-D1](#WT-D1) to [WT-D7](#WT-D7)), two remain the maintainer's, and [OQ-WT5](#OQ-WT5) was restated after
+two later rulings on agent-editable workspace state.
 
 > **In short.** "Only in the untracked local file" and "only after `yolo trust`" each stop one actor and miss
 > the other. The local file keeps a *repo author's* grant from arriving by `git clone`. Only a host-side record
@@ -23,16 +25,23 @@ this doc. The tree's only precedent is `cache_relocations`, which is user-scope-
 is agent-editable, so it cannot grant read-write host mounts" (`validateCacheRelocations`).
 
 **The shape.** Three places a grant might be written, with one rule each: user config needs nothing, the local
-file needs a trust record, and the committed file is refused. The record is written only by a host-side
-`yolo trust`, and every launch reads it.
+file needs a trust record, and the committed file is refused. The record is written only by a human act on the
+host, either a `yolo trust` command or a labeled section of the config-change prompt ([OQ-WT5](#OQ-WT5)), and
+every launch reads it.
 
-**Cost.** One new host-side record, one verb, and a ceremony that the *human* also pays when they write the
-local file themselves. That cost is real ([§4.3](#43-the-honest-cost-the-human-pays-the-agents-toll)).
+**Cost.** One new host-side record, one new consent step, and, if that step is a separate verb, a ceremony that
+the *human* also pays when they write the local file themselves. That cost is real
+([§4.3](#43-the-honest-cost-the-human-pays-the-agents-toll)). It does not arise if the step is the config-change
+prompt, which already asks about every edit to the local file.
 
 **Start at [§2](#2-two-actors-and-the-one-thing-each-can-write).** The rest falls out of which actor can write
 which file.
 
-**Needs your ruling:** [OQ-WT1](#OQ-WT1), [OQ-WT2](#OQ-WT2), [OQ-WT3](#OQ-WT3), [OQ-WT4](#OQ-WT4), [OQ-WT5](#OQ-WT5), [OQ-WT6](#OQ-WT6), [OQ-WT7](#OQ-WT7), [OQ-WT8](#OQ-WT8), [OQ-WT9](#OQ-WT9); and [OQ-AS3](../research/agent-safehouse.md#OQ-AS3), which is filed in `agent-safehouse.md` and which [OQ-WT8](#OQ-WT8) asks whether to absorb.
+**Needs your ruling:** [OQ-WT1](#OQ-WT1) (whether to build this at all) and [OQ-WT5](#OQ-WT5) (how the human
+approves a grant; restated 2026-09-30). [OQ-WT2](#OQ-WT2), [OQ-WT3](#OQ-WT3), [OQ-WT4](#OQ-WT4),
+[OQ-WT6](#OQ-WT6), [OQ-WT7](#OQ-WT7), [OQ-WT8](#OQ-WT8) and [OQ-WT9](#OQ-WT9) were decided as implementation
+choices on 2026-09-30, each reversible and each holding under either answer to [OQ-WT5](#OQ-WT5). [OQ-AS3](../research/agent-safehouse.md#OQ-AS3)
+is filed in `agent-safehouse.md`, and this doc pairs with it rather than absorbing it ([WT-D6](#WT-D6)).
 
 **Reads with:** [`context-mounts.md`](context-mounts.md) (owns the *mount* mechanics; this doc owns only its
 [§2.2](context-mounts.md#22-where-an-rw-mount-may-be-declared-deferred) trust predicate), [`config-safety.md`](../reference/config-safety.md) (the config-change approval gate that
@@ -277,6 +286,18 @@ Recommend **C**, and **ice it** until an rw mount is actually wanted
 ([OQ-WT1](#OQ-WT1)). While iced, D is the rule: an rw mount, if built first, is user-scope-only like
 `cache_relocations`. That is the house default, and C can be added later without breaking any config D admits.
 
+> [!NOTE]
+> **The consent step is open (2026-09-30).** [§4.2](#42-the-trust-record), [§4.4](#44-at-launch) and
+> [§4.6](#46-the-verb) specify trust as a separate `yolo trust` command, which is option (B) of
+> [OQ-WT5](#OQ-WT5). That question's restated leaning, option (A), records the same grant set as another part of the
+> config-change gate's host-side approval record instead, beside the scope part
+> [BB-D30](boundary-broker.md#BB-D30) built. The grant set is shown in a labeled section of the prompt the
+> launch already asks. Under (A) there is no verb, [§4.3](#43-the-honest-cost-the-human-pays-the-agents-toll)'s toll
+> does not arise, and `--accept-config-changes` approves the section. The scope rule of
+> [§4.1](#41-where-a-grant-may-be-written), the record's content in [§4.2](#42-the-trust-record) and the disclosure
+> in [§4.5](#45-disclosure-unchanged-and-unsuppressible) stay the same under both options, and so do
+> [WT-D1](#WT-D1) to [WT-D7](#WT-D7).
+
 ### 4.1 Where a grant may be written
 
 | File | A grant there |
@@ -410,28 +431,40 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
 
 1. 💬 <a id="OQ-WT1"></a>**[OQ-WT1](#OQ-WT1): Which rule — C, or D (user scope only)?** And is it iced?
 
+   *Restated 2026-09-30, with the same two options.* **C** lets a workspace's untracked local file declare a
+   writable host path once the human approves that grant set on the host. It refuses one in the committed file and
+   leaves user config free ([§3.3](#33-option-c--both-one-mechanism-per-actor)). How the human approves is
+   [OQ-WT5](#OQ-WT5), so this question is only whether a workspace may carry the declaration at all. **D** keeps
+   every writable host path in user config, as `cache_relocations` is
+   ([§3.4](#34-option-d--user-scope-only-which-is-the-status-quo-rule-applied-to-rw-mounts)). Its cost is that user
+   config has no per-workspace section, so a writable path declared there reaches the jail of every workspace
+   launched on the machine. Two later rulings point different ways, and neither is about a writable path.
+   [OQ-EW1](agent-event-watchers.md#OQ-EW1) (A, 2026-09-29) refuses a helper that runs on the host from workspace
+   config entirely. [OQ-BB7](boundary-broker.md#OQ-BB7) (2026-09-29) lets agent-editable workspace state widen what
+   a host-side broker may reach, once the config-change prompt approves it.
+
    _Leaning:_ **C, iced**. Until an rw mount is actually wanted, D is the rule, since that is the
    `cache_relocations` precedent. Thaw when someone needs an rw mount that is workspace-specific and cannot move
    into the workspace. C only adds to D, so shipping D first forecloses nothing.
 
-   <!-- vantage: oq id=OQ-WT1 leaning="C (scope for the repo author, host-side trust for the in-jail agent), iced; D (user scope only, the cache_relocations precedent) is the rule until an rw mount is actually wanted, and C only adds to it." -->
+   <!-- vantage: oq id=OQ-WT1 leaning="C (scope for the repo author, host-side consent for the in-jail agent), iced; D (user scope only, the cache_relocations precedent) is the rule until an rw mount is actually wanted, and C only adds to it." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 <a id="OQ-WT2"></a>**[OQ-WT2](#OQ-WT2): Are grants refused from `include_if_found` targets?** Includes may
+2. ✅ <a id="OQ-WT2"></a>**[OQ-WT2](#OQ-WT2): Are grants refused from `include_if_found` targets?** Includes may
    use `../`, and so may name files outside the workspace, and each include is a separate file for tracking
    purposes.
 
    _Leaning:_ **Refuse them**, from either workspace file. The builder reads the local file's own top level only.
    A grant always sits in one file that `yolo trust` names.
 
-   <!-- vantage: oq id=OQ-WT2 leaning="Refuse grants from any include_if_found target; the builder reads the local file's own top level only, so a grant always sits in one named file." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([WT-D1](#WT-D1)), reversible: a grant is honored only from the local
+   > file's own top level, and a grant in any `include_if_found` target, from either workspace file, is refused
+   > with a message naming the local file.
 
-3. 💬 <a id="OQ-WT3"></a>**[OQ-WT3](#OQ-WT3): Does yolo probe whether the local file is tracked, and how
+3. ✅ <a id="OQ-WT3"></a>**[OQ-WT3](#OQ-WT3): Does yolo probe whether the local file is tracked, and how
    severe is a hit?**
 
    _Leaning:_ **A warning** in `yolo check` and on the launch, when `git -C <workspace>` reports any
@@ -440,86 +473,119 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    property cannot be kept. Separately, `yolo init` should add the local file's names to `.gitignore`, alongside
    `.yolo/`.
 
-   <!-- vantage: oq id=OQ-WT3 leaning="A warning, never a refusal: git -C <workspace> reports a workspace-config name tracked or not ignored; silent with no repo or no git. And yolo init adds the local names to .gitignore." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([WT-D2](#WT-D2)), reversible: a warning, never a refusal, raised only
+   > when a local file that declares a grant is tracked or not ignored, and `yolo init` adds both local-file names
+   > to `.gitignore`.
 
-4. 💬 <a id="OQ-WT4"></a>**[OQ-WT4](#OQ-WT4): Does the trust hash cover the grant set, or the whole local
+4. ✅ <a id="OQ-WT4"></a>**[OQ-WT4](#OQ-WT4): Does the trust hash cover the grant set, or the whole local
    file?**
 
    _Leaning:_ **The grant set**, resolved on the host. Hashing the whole file would re-ask trust on every package
    edit, doubling the approval gate's prompts. That is the fatigue [OQ-S1](../reference/config-safety.md#oq-s1)
    ruled against.
 
-   <!-- vantage: oq id=OQ-WT4 leaning="The grant set, resolved on the host, keyed on the workspace path; a whole-file hash re-asks on every package edit and doubles the approval gate, the fatigue OQ-S1 ruled against." -->
+   **Answer:**
+   > Decided as an implementation choice ([WT-D3](#WT-D3)), reversible: the grant set, resolved on the host and
+   > keyed on the workspace, so every other edit to the local file is asked about by the config-change gate alone.
+
+5. 💬 <a id="OQ-WT5"></a>**[OQ-WT5](#OQ-WT5): How does the human approve a grant in the local file: in a labeled
+   section of the config-change prompt, or with a separate `yolo trust` command that the launch names when it
+   refuses?** And may `--accept-config-changes` approve it?
+
+   *Restated 2026-09-30.* This was first asked as the direnv shape (refuse and name the verb) against the mise
+   shape (a prompt at launch). Two later rulings put agent-editable workspace state into the config-change prompt
+   rather than a command of its own. [OQ-BB7](boundary-broker.md#OQ-BB7) (2026-09-29) did so for the repositories a
+   broker may reach with the host's credential, in the maintainer's words *"perhaps this is set in a way that is
+   like part of the launch configuration where we confirm config changes. It's just part of that bundle"*. It is
+   built as the approval record's scope part ([BB-D30](boundary-broker.md#BB-D30)).
+   [OQ-EW7](agent-event-watchers.md#OQ-EW7) (B, 2026-09-29) did so for a repository's own sidecars, over a leaning
+   that cited this question's. Neither rules this question, since a sidecar runs inside the jail and neither is a
+   writable host path. So the options are restated in those terms, and the leaning moves to (A).
+
+   - **(A) A labeled section of the config-change prompt.** The prompt that already shows every edit to the local
+     file shows the grant set in a section of its own. The grant set is recorded as another part of the host-side
+     approval record, beside the scope part. A `y` approves it and `N` aborts the launch. With no terminal the
+     launch refuses unless `--accept-config-changes` is passed, and the flag approves the section too, as it
+     approves the scope. There is no new command, and no toll on a human who typed the grant, whose edit to the
+     local file is asked about anyway. Cost: a script or CI launch that passes `--accept-config-changes` admits a
+     writable host path an agent wrote, and nobody reads it.
+   - **(B) Refuse, and name `yolo trust`.** This was the original leaning, and
+     [§4.2](#42-the-trust-record), [§4.4](#44-at-launch) and [§4.6](#46-the-verb) specify it. With a terminal or
+     without, an untrusted grant set refuses the launch and prints the exact command. There is no launch prompt and
+     no launch flag, and `--accept-config-changes` never grants trust. Cost: a new command and record, which the
+     human pays even for a path they typed themselves
+     ([§4.3](#43-the-honest-cost-the-human-pays-the-agents-toll)). A CI setup runs `yolo trust --yes` on the host.
+
+   _Leaning:_ **(A)**, restated 2026-09-30. It is the shape the maintainer chose twice for agent-editable state,
+   and a labeled section gives the gate the differentiation that
+   [§1.4](#14-the-approval-gate-is-already-a-per-workspace-content-keyed-host-side-consent-record) found missing.
+   What it gives up is (B)'s guarantee that a scripted `--accept-config-changes` never admits a writable path.
+   The maintainer accepted that trade for a repository's sidecars. The original leaning's other reason, that a
+   launch prompt is the Safehouse prompt [§9](../research/agent-safehouse.md#9-negative-space--what-not-to-adopt)
+   advised against, no longer separates the two. Under C the committed file refuses grants, so a cloned repository
+   can ask only through a local file it tracks, and [WT-D2](#WT-D2)'s warning names that file at the launch under
+   either option.
+
+   <!-- vantage: oq id=OQ-WT5 leaning="(A), restated 2026-09-30: a labeled section of the config-change prompt, recorded as another part of the host-side approval record; a y or --accept-config-changes approves it, as OQ-BB7 ruled for the broker's repository scope. (B), refuse and name yolo trust with --accept-config-changes never granting, was the original leaning." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
 
-5. 💬 <a id="OQ-WT5"></a>**[OQ-WT5](#OQ-WT5): At launch, an untrusted grant is refused with the verb named (the
-   direnv shape), or prompted for (the mise shape)?** And may `--accept-config-changes` grant trust?
-
-   _Leaning:_ **Refuse and name `yolo trust`**, with a TTY or without. There is no launch flag, and
-   `--accept-config-changes` never grants trust. A launch prompt is the Safehouse prompt that
-   [§9](../research/agent-safehouse.md#9-negative-space--what-not-to-adopt) advised against. A blanket CI flag
-   would re-merge the two consents this design separates.
-
-   <!-- vantage: oq id=OQ-WT5 leaning="Refuse and name yolo trust, TTY or not; no launch prompt, no launch flag, and --accept-config-changes never grants trust." -->
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-6. 💬 <a id="OQ-WT6"></a>**[OQ-WT6](#OQ-WT6): Does `yolo trust` also record the approval baseline?**
+6. ✅ <a id="OQ-WT6"></a>**[OQ-WT6](#OQ-WT6): Does `yolo trust` also record the approval baseline?**
 
    _Leaning:_ **Yes.** It shows the full workspace-config diff beside the grant set, and a yes writes both. The
    same human, on the same host, should not consent to one edit twice. The approval gate still re-asks for any
    later edit.
 
-   <!-- vantage: oq id=OQ-WT6 leaning="Yes: yolo trust shows the full workspace diff beside the grant set and writes both records, as yolo check --accept-config-changes does." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([WT-D4](#WT-D4)), reversible: one edit is consented to once, so
+   > whichever step [OQ-WT5](#OQ-WT5) picks writes the grant record and the approval record together.
 
-7. 💬 <a id="OQ-WT7"></a>**[OQ-WT7](#OQ-WT7): Beyond rw mounts, which of [§6](#6-what-a-trusted-grant-could-unlock)'s
+7. ✅ <a id="OQ-WT7"></a>**[OQ-WT7](#OQ-WT7): Beyond rw mounts, which of [§6](#6-what-a-trusted-grant-could-unlock)'s
    "yes" rows become trust-gated grants?**
 
    _Leaning:_ **Only rw mounts in v1.** Next would be `cache_relocations`, which is the same class of rw host
    mount. Provider `base_url` stays user-scope-only even though trust could admit it, because a steered endpoint
    receives every credential the provider hydrates, and a mistaken trust there costs more than a mistaken mount.
 
-   <!-- vantage: oq id=OQ-WT7 leaning="Only rw context mounts in v1; cache_relocations next (the same class); provider base_url stays user-scope-only because a steered endpoint receives hydrated credentials." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([WT-D5](#WT-D5)), reversible: only the rw context mount in version 1.
+   > Every other key in [§6](#6-what-a-trusted-grant-could-unlock) keeps today's refusal, and moving one is its
+   > own question when someone needs it.
 
-8. 💬 <a id="OQ-WT8"></a>**[OQ-WT8](#OQ-WT8): Does this doc absorb [OQ-AS3](../research/agent-safehouse.md#OQ-AS3), or pair with it?**
+8. ✅ <a id="OQ-WT8"></a>**[OQ-WT8](#OQ-WT8): Does this doc absorb [OQ-AS3](../research/agent-safehouse.md#OQ-AS3), or pair with it?**
 
    _Leaning:_ **Pair.** AS3 stays the question of whether ro `mounts` and `env_sources` leave workspace scope. This
    doc adds a third answer to it: "local file plus trust". AS3 can then rule without this doc being built.
 
-   <!-- vantage: oq id=OQ-WT8 leaning="Pair: OQ-AS3 keeps the ro mounts/env_sources scope question and gains a third answer, local file plus trust, without depending on this doc being built." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([WT-D6](#WT-D6)), reversible: pair. AS3 keeps its question in
+   > `agent-safehouse.md` and gains this doc's third answer.
 
-9. 💬 <a id="OQ-WT9"></a>**[OQ-WT9](#OQ-WT9): In-jail `yolo trust` — refused outright, or allowed for nested
+9. ✅ <a id="OQ-WT9"></a>**[OQ-WT9](#OQ-WT9): In-jail `yolo trust` — refused outright, or allowed for nested
    workspaces?**
 
    _Leaning:_ **Allowed for nested workspaces, and refused for the jail's own**, naming the host. The jail's store
    governs only its own children (P1 and Test 2). A refusal for the jail's own workspace stops an agent believing it
    trusted the outer launch.
 
-   <!-- vantage: oq id=OQ-WT9 leaning="Allowed for nested workspaces against the jail's own store (P1, Test 2); refused for the jail's own workspace, naming the host, so an agent cannot believe it trusted the outer launch." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([WT-D7](#WT-D7)), reversible: from inside a jail, consent for the jail's
+   > own workspace is refused and names the host, and consent for any other workspace is recorded in the jail's own
+   > store.
 
 ## Decision Ledger
 
 | ID | Ruling | Date | Folded into |
 |---|---|---|---|
-| — | _none yet_ | | |
+| <a id="WT-D1"></a>[`WT-D1`](#decision-ledger) | *Implementation decision, answering [OQ-WT2](#OQ-WT2) as leaned.* A grant is honored only from the local file's own top level. A grant in any `include_if_found` target, reached from either workspace file, fails `yolo check` and refuses the launch, and the message names the local file's top level and user config as the places it may go. Reason: `LoadJSONCWithIncludes` resolves a relative include, `..` included, so an include may name a file outside the workspace. The merge records no provenance ([§4.1](#41-where-a-grant-may-be-written)), and a grant that always sits in one named file is the only kind the consent step can show together with its file. Admitting includes later is additive, so nothing refused now is lost | 2026-09-30 | [§4.1](#41-where-a-grant-may-be-written) |
+| <a id="WT-D2"></a>[`WT-D2`](#decision-ledger) | *Implementation decision, answering [OQ-WT3](#OQ-WT3): the leaning, with its trigger narrowed.* A git probe warns and never refuses. In `yolo check` and at launch it warns when a local file that declares a grant exists under a name `LoadWorkspaceConfig` reads (`yolo-jail.local.jsonc` or `yolo-jail.local.json`), and `git -C <workspace>` reports that file tracked or not ignored. It is silent with no repository, no `git` binary, or no grant. `yolo init` appends both local-file names to `.gitignore`, beside `.yolo/`. Reason: [§3.1](#31-option-a--scope-only-grants-only-in-the-local-file)'s table shows the property cannot be kept, so a refusal would claim a guarantee yolo does not have. Read literally, the leaning's trigger, any workspace-config name, would warn about the committed file, which is meant to be tracked. It would also warn about a local file that declares no grant, which carries no authority this design adds ([§1.1](#11-the-local-file-is-workspace-scope-everywhere)) | 2026-09-30 | [§3.1](#31-option-a--scope-only-grants-only-in-the-local-file) |
+| <a id="WT-D3"></a>[`WT-D3`](#decision-ledger) | *Implementation decision, answering [OQ-WT4](#OQ-WT4) as leaned.* The consent record covers the grant set, not the whole local file. It holds the grants with `~` expanded and symlinks resolved on the host, in canonical order, as canonical JSON with its SHA-256, and it is named by the workspace's container name (`runtime.FromWorkspace`), as the approval record is. Reason: the config-change gate already asks about the whole file, so a whole-file hash would ask a second time for every package edit. That repeated prompt is what [OQ-S1](../reference/config-safety.md#oq-s1) says trains the `y` reflex. It holds under either answer to [OQ-WT5](#OQ-WT5); under (A) this record is the approval record's grant part | 2026-09-30 | [§4.2](#42-the-trust-record) |
+| <a id="WT-D4"></a>[`WT-D4`](#decision-ledger) | *Implementation decision, answering [OQ-WT6](#OQ-WT6) as leaned.* One edit is consented to once. If [OQ-WT5](#OQ-WT5) keeps a separate `yolo trust` command (option B), the command shows the grant set beside the full workspace-config diff, and a yes writes both the trust record and the approval record, the second as `yolo check --accept-config-changes` writes it. Under option (A) there is no command, and the one prompt writes the config part and the grant part together, or neither, as [BB-D30](boundary-broker.md#BB-D30) writes the scope part. Reason: the same human on the same host approving one edit twice is the fatigue [OQ-S1](../reference/config-safety.md#oq-s1) names, and two records written by different paths are the drift that [§7](#7-risks)'s last row names | 2026-09-30 | [§4.6](#46-the-verb) |
+| <a id="WT-D5"></a>[`WT-D5`](#decision-ledger) | *Implementation decision, answering [OQ-WT7](#OQ-WT7).* Version 1 admits one grant, the rw context mount. Every other key in [§6](#6-what-a-trusted-grant-could-unlock) keeps its refusal, `cache_relocations` and provider `base_url` included, and moving any of them into the local file is its own question, asked when someone needs it. The leaning's forecast that `cache_relocations` comes next is not decided here. Reason: the rw mount is the design's motivating case. A wider version 1 would move keys out of user scope that nobody has asked to move, and admitting more later breaks no config | 2026-09-30 | [§6](#6-what-a-trusted-grant-could-unlock) |
+| <a id="WT-D6"></a>[`WT-D6`](#decision-ledger) | *Implementation decision, answering [OQ-WT8](#OQ-WT8) as leaned.* This doc pairs with [OQ-AS3](../research/agent-safehouse.md#OQ-AS3) and does not absorb it. AS3 stays in `agent-safehouse.md` as the question of whether ro `mounts` and `env_sources` leave workspace scope. It gains "the local file plus host-side consent" as a third answer, which it can pick without this doc being built. Reason: which document files a question changes nothing a user sees, and `agent-safehouse.md` already records the pairing | 2026-09-30 | [§1.5](#15-the-scope-table-for-the-keys-that-reach-the-host) |
+| <a id="WT-D7"></a>[`WT-D7`](#decision-ledger) | *Implementation decision, answering [OQ-WT9](#OQ-WT9) as leaned, for either answer to [OQ-WT5](#OQ-WT5).* Inside a jail, consent for the jail's own workspace (`jailOwnWorkspace`) is refused and names the host, because no host launch reads the jail's store. Consent for any other workspace is recorded in the jail's own `~/.local/share/yolo-jail` and governs only the launches that jail makes. Under option (B) that is `yolo trust`'s in-jail behavior. Under option (A) the first half already holds: the approval record is host-side, and in-jail `yolo check` disables `--accept-config-changes` as host-only (`internal/cli/check/check.go`). Reason: [P1](trust-paths.md#p1-trust-flows-downward-and-a-parent-controlling-its-child-is-not-a-finding) (trust flows downward) and [Test 2](../reference/gate-placement-principle.md#test-2--the-blast-radius-test-trusted-relative-to-what). A refusal for the jail's own workspace keeps an agent from believing it approved the outer launch | 2026-09-30 | [§4.6](#46-the-verb) |
 
 ## Appendix A: Evidence
 
