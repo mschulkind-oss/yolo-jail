@@ -168,3 +168,112 @@ func TestNixVersionProbeNamesWhatWentWrong(t *testing.T) {
 		})
 	}
 }
+
+// linuxNix is an Exec seam for a Linux nix whose `nix --version` works and whose
+// `nix store info` answers with store. seen records every argv.
+func linuxNix(seen *[][]string, store ExecResult) func([]string, string, []string, time.Duration) ExecResult {
+	return func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		*seen = append(*seen, argv)
+		switch {
+		case slices.Equal(argv, []string{"nix", "--version"}):
+			return ExecResult{Ran: true, RC: 0, Stdout: "nix (Nix) 2.31.2\n"}
+		case slices.Equal(argv, nixCmdArgv("store", "info")):
+			return store
+		}
+		return ExecResult{Ran: false}
+	}
+}
+
+// runLinuxNixSection drives sectionNix as a Linux host with nix on the PATH, and systemctl on it
+// too when systemctl is true.
+func runLinuxNixSection(t *testing.T, store ExecResult, systemctl bool) (*reporter, [][]string, string) {
+	t.Helper()
+	var out bytes.Buffer
+	var seen [][]string
+	o := &Options{IsMacOS: false, Stdout: &out, IsTTYStdout: func() bool { return false }}
+	fillDefaults(o)
+	o.LookPath = func(name string) (string, bool) {
+		return "/usr/bin/" + name, name == "nix" || (systemctl && name == "systemctl")
+	}
+	o.Exec = linuxNix(&seen, store)
+	r := newReporter(&out, false)
+	o.sectionNix(r)
+	return r, seen, out.String()
+}
+
+// findingFor returns the recorded finding whose message is msg.
+func findingFor(r *reporter, msg string) (Finding, bool) {
+	for _, f := range r.findings {
+		if f.Message == msg {
+			return f, true
+		}
+	}
+	return Finding{}, false
+}
+
+// PS-D5 (docs/design/provisioner-sets.md): the daemon connectivity probe runs on every OS where
+// nix is found. It was gated on macOS, so a Linux host whose daemon was down got no line at all
+// before the launch that builds its image through that daemon. The trusted-user verdict and the
+// extra-platforms and builder block stay macOS-only: a Linux daemon answering "Trusted: 0" is
+// connected, and no `nix config show` is asked for.
+func TestTheNixDaemonProbeRunsOffMacOS(t *testing.T) {
+	r, seen, out := runLinuxNixSection(t, ExecResult{Ran: true, RC: 0,
+		Stdout: "Store URL: daemon\nVersion: 2.31.2\nTrusted: 0\n"}, true)
+	if f, ok := findingFor(r, "Nix daemon: connected"); !ok || f.Status != "pass" {
+		t.Errorf("a Linux host with a working daemon must get the connected PASS line:\n%s", out)
+	}
+	if strings.Contains(out, "NOT trusted") {
+		t.Errorf("the trusted-user verdict is macOS-only (it diagnoses the builder offload):\n%s", out)
+	}
+	var storeInfo int
+	for _, argv := range seen {
+		if slices.Equal(argv, nixCmdArgv("store", "info")) {
+			storeInfo++
+		}
+		if slices.Contains(argv, "config") {
+			t.Errorf("the extra-platforms and builder block must stay macOS-only, but ran %v", argv)
+		}
+	}
+	if storeInfo != 1 {
+		t.Errorf("`nix store info` ran %d times on Linux, want once: %v", storeInfo, seen)
+	}
+}
+
+// PS-D5's remedy half: off macOS the timeout and the failure each name the restart for the
+// host's service manager, systemd's where systemctl is on the PATH and a sentence naming the
+// service where it is not (a jail, whose daemon is the host's).
+func TestTheLinuxNixDaemonFaultsNameTheRestart(t *testing.T) {
+	const systemd = "sudo systemctl restart nix-daemon"
+	const hung = "Nix daemon: store operation timed out (daemon may be hung)"
+	cases := []struct {
+		name      string
+		store     ExecResult
+		systemctl bool
+		msg, want string
+	}{
+		{"timeout, systemd", ExecResult{Ran: true, Timeout: true}, true, hung, systemd},
+		{"timeout, no systemctl", ExecResult{Ran: true, Timeout: true}, false, hung,
+			"there is no systemctl here"},
+		{"refused, systemd", ExecResult{Ran: true, RC: 1, Stderr: "error: cannot connect to socket at " +
+			"'/nix/var/nix/daemon-socket/socket': Connection refused\n"},
+			true, "Nix daemon: connection failed", "Connection refused — Restart the Nix daemon: " + systemd},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _, out := runLinuxNixSection(t, tc.store, tc.systemctl)
+			f, ok := findingFor(r, tc.msg)
+			if !ok {
+				t.Fatalf("no %q finding:\n%s", tc.msg, out)
+			}
+			if f.Status != "fail" {
+				t.Errorf("%q graded %s, want fail", tc.msg, f.Status)
+			}
+			if !strings.Contains(f.Note, tc.want) {
+				t.Errorf("the remedy lacks %q: %q", tc.want, f.Note)
+			}
+			if strings.Contains(f.Note, "launchctl") {
+				t.Errorf("a Linux remedy names launchd: %q", f.Note)
+			}
+		})
+	}
+}

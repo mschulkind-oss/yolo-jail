@@ -14,9 +14,18 @@ import (
 // seconds, and a check that times out a working nix reports a false [FAIL].
 const nixVersionTimeout = 15 * time.Second
 
-// sectionNix runs the Nix block: nix version, then (on macOS) the daemon store
-// connectivity check, the extra-platforms footgun warning, and the positive
-// "Linux builder configured" line.
+// sectionNix runs the Nix block: nix version, the daemon store connectivity check, then
+// (on macOS) the extra-platforms footgun warning and the positive "Linux builder configured"
+// line.
+//
+// THE DAEMON CHECK RUNS WHEREVER nix IS FOUND (docs/design/provisioner-sets.md PS-D5). It was
+// macOS-only, on the argument that `check` has no notch-shaped reason to probe a Linux host
+// about to launch a container, and a Linux container launch DOES use the host's daemon: it
+// runs its image build through the host's nix and bind-mounts the daemon socket into the jail
+// when it exists (internal/cli/run/assemble.go), so a hung daemon is a fault `check` can name
+// before a launch trips on it. What stays macOS-only diagnoses the macOS Linux-builder
+// offload: the trusted-user verdict inside the daemon check, and the extra-platforms and
+// builder block below, which would be noise on Linux.
 func (o *Options) sectionNix(r *reporter) {
 	r.sectionHeader("Nix")
 	nixPath, hasNix := o.LookPath("nix")
@@ -37,26 +46,33 @@ func (o *Options) sectionNix(r *reporter) {
 		r.fail("nix not found", "Install Nix: https://nixos.org/download/")
 	}
 
-	if o.IsMacOS && hasNix {
+	if hasNix {
 		o.nixDaemonStoreCheck(r)
-		o.nixExtraPlatformsAndBuilder(r)
+		if o.IsMacOS {
+			o.nixExtraPlatformsAndBuilder(r)
+		}
 	}
 	r.blank()
 }
 
-// nixDaemonStoreCheck runs the `nix store info` daemon-connectivity block.
+// nixDaemonTimeout bounds `nix store info`, the daemon check's budget on every OS.
+const nixDaemonTimeout = 15 * time.Second
+
+// nixDaemonStoreCheck runs the `nix store info` daemon-connectivity block: its timeout and its
+// failure on every OS, each naming the restart for this OS's service manager
+// (nixDaemonRestart), and on macOS alone the trusted-user verdict (PS-D5).
 func (o *Options) nixDaemonStoreCheck(r *reporter) {
-	res := o.Exec(nixCmdArgv("store", "info"), "", nil, 15*time.Second)
+	res := o.Exec(nixCmdArgv("store", "info"), "", nil, nixDaemonTimeout)
 	if res.Timeout {
-		label, ok := storage.DetectNixDaemonLabel()
-		kickstart := "sudo launchctl kickstart -k system/<label>" +
-			" — check ls /Library/LaunchDaemons/ for your *nix-daemon.plist"
-		if ok {
-			kickstart = "sudo launchctl kickstart -k system/" + label
+		if o.IsMacOS {
+			r.fail("Nix daemon: store operation timed out (daemon may be hung)",
+				"This is a known issue with determinate-nixd. "+
+					"Try: "+o.nixDaemonRestart()+" or switch to the vanilla nix-daemon")
+			return
 		}
 		r.fail("Nix daemon: store operation timed out (daemon may be hung)",
-			"This is a known issue with determinate-nixd. "+
-				"Try: "+kickstart+" or switch to the vanilla nix-daemon")
+			"`nix store info` did not answer within "+nixDaemonTimeout.String()+
+				", and a launch builds its image through this daemon. "+o.nixDaemonRestart())
 		return
 	}
 	if !res.Ran {
@@ -65,6 +81,10 @@ func (o *Options) nixDaemonStoreCheck(r *reporter) {
 	}
 	output := res.Stdout + res.Stderr
 	switch {
+	case res.RC == 0 && !o.IsMacOS:
+		// No trusted-user verdict here: it diagnoses the macOS Linux-builder offload, whose
+		// `--builders` line needs a trusted user, and a Linux build runs locally without one.
+		r.ok("Nix daemon: connected")
 	case res.RC == 0 && strings.Contains(output, "Trusted: 1"):
 		r.ok("Nix daemon: connected, user is trusted")
 	case res.RC == 0:
@@ -89,9 +109,37 @@ func (o *Options) nixDaemonStoreCheck(r *reporter) {
 				restart
 		}
 		r.warn("Nix daemon: connected but user is NOT trusted", hint)
-	default:
+	case o.IsMacOS:
 		r.fail("Nix daemon: connection failed", firstLine(strings.TrimSpace(res.Stderr)))
+	default:
+		// Off macOS the usual cause is a daemon that is not running, so the restart rides
+		// along with nix's own first line.
+		hint := firstLine(strings.TrimSpace(res.Stderr))
+		if hint != "" {
+			hint += " — "
+		}
+		r.fail("Nix daemon: connection failed", hint+o.nixDaemonRestart())
 	}
+}
+
+// nixDaemonRestart is the restart for this OS's service manager: launchd's kickstart on macOS
+// (with the daemon's label when it can be found), systemd's restart where `systemctl` is on
+// the PATH, and otherwise a sentence naming the service. A jail takes the last branch, since
+// it has no systemctl and the daemon it reaches is the host's.
+func (o *Options) nixDaemonRestart() string {
+	if o.IsMacOS {
+		label, ok := storage.DetectNixDaemonLabel()
+		if !ok {
+			return "sudo launchctl kickstart -k system/<label>" +
+				" — check ls /Library/LaunchDaemons/ for your *nix-daemon.plist"
+		}
+		return "sudo launchctl kickstart -k system/" + label
+	}
+	if _, ok := o.LookPath("systemctl"); ok {
+		return "Restart the Nix daemon: sudo systemctl restart nix-daemon"
+	}
+	return "Restart the nix-daemon service with the init system that runs it (the host's, " +
+		"when this is a jail); there is no systemctl here"
 }
 
 // nixExtraPlatformsAndBuilder runs the `nix config show` extra-platforms
