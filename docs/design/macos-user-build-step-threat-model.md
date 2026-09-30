@@ -272,7 +272,8 @@ still runs as `_nixbld` unsandboxed.)* ⚠ **Bears on this since 2026-09-24:**
 unsandboxed `_nixbld` builder reachable from the agent directly, and a `--option sandbox true` on
 yolo's own argv would not reach an agent's `nix build`. Only the host daemon's `nix.conf` would.
 
-**The feasibility measurement exists, UNRUN (2026-09-25).** It is a step in
+**The feasibility measurement has RUN four times, none of them VOID, and no package in it was
+built from source** ([what the runs say](#what-the-four-runs-say-2026-09-30)). It is a step in
 [`macos-user.yml`](../../.github/workflows/macos-user.yml), `Q3 — build the macOS floor with the
 nix build sandbox ON (measurement only)`. The step is `continue-on-error` with a 45-minute cap,
 so it can never fail the job. It runs before any launch, because only a derivation the runner
@@ -299,6 +300,53 @@ daemon ignores it from an untrusted user and warns
 **VOID**. The build ran unsandboxed and answers nothing. A summary whose "built here" line says
 nothing was built also answers nothing, because every path was substituted. Neither case answers
 Vector C's half of this question, which lives in the daemon's `nix.conf`.
+
+#### What the four runs say (2026-09-30)
+
+Read from the `Q3:` summaries of every `macos-user.yml` run that carried the step: 36240337031
+(2026-09-26), 36319436117 (2026-09-27), 36437881715 (2026-09-28) and 36575801495 (2026-09-29).
+Each ran on a GitHub-hosted `macos-latest` runner, built
+`.#packages.aarch64-darwin.yoloNoncontainerProfile`, and exited `nix build rc=0`. The four
+summaries are the same in every line that matters:
+
+- **None is VOID.** The runner's `/etc/nix/nix.conf` makes it a trusted user
+  (`trusted-users = root runner`), and no run printed `ignoring the client-specified setting
+  'sandbox'`. So the daemon took `sandbox = true` from the step. That is INFERRED from the
+  missing warning: the step cannot watch the sandbox engage.
+- **One derivation was built on the runner, and it built under the sandbox.** It is the
+  profile itself, `yolo-noncontainer-profile`: the `buildEnv` that links the floor's packages
+  into one tree. Every other path it needed, 79 of them, was substituted from
+  `cache.nixos.org`.
+- **No build failed under the sandbox, and the sandbox policy refused no derivation.**
+
+**So no package is known to assume an unsandboxed darwin build, and these runs could not have
+found one.** A substituted path was built somewhere else, so it says nothing about whether it
+builds under this runner's sandbox. The nothing-was-built rule above does not call these runs
+empty, because one derivation was built, but for the question of packages they are.
+
+What the runs do settle is narrower: **with `cache.nixos.org` reachable, the floor realises with
+the sandbox on.** Nothing a floor build does locally breaks under it, because the only local
+build is the `buildEnv`, and that passed four times.
+
+Still UNMEASURED:
+
+- a floor package built from source on darwin, which happens only when the cache misses;
+- every `packages:` a workspace declares, which the step leaves out by clearing
+  `YOLO_EXTRA_PACKAGES`. That includes
+  [Vector A](#vector-a--poisoned-packages-via-yolo_extra_packages)'s object-form pins, which
+  bypass `flake.lock`.
+  They are the likeliest cache misses, and their builders are the ones the sandbox exists to
+  confine;
+- [Vector C](#vector-c--the-agent-is-itself-a-daemon-client-since-2026-09-24), which no argv yolo
+  composes can reach.
+
+A package list needs builds that cannot substitute, which means building the floor's closure
+from source on the runner. What that costs is unmeasured.
+
+> [!NOTE]
+> **The summary's `attr:` line is noisy, not wrong.** The step captures the `.name` eval with
+> its stderr, so nix's `unpacking … into the Git cache` lines come first and the name
+> (`yolo-noncontainer-profile`) is the last line inside the backticks.
 
 **Answer:**
 > _(empty — fill in when decided)_
