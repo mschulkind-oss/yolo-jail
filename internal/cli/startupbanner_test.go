@@ -73,13 +73,21 @@ func wantStartupBanner(t *testing.T) string {
 
 // sandbox points cwd and $HOME at empty temp trees, so a command that reads
 // config reads the same (absent) config in every subtest and writes nothing into
-// the real workspace.
-func sandbox(t *testing.T) {
+// the real workspace, and returns the two trees.
+//
+// It also blanks the banner hatch (banner.SuppressEnv, YOLO_NO_BANNER), which the
+// invoking shell may export: dispatch reads it with os.Getenv, so a developer who
+// silenced the banner in their own shell would otherwise see every pin comparing
+// stderr against the banner refuse their machine (TestBannerPinsHoldWithTheHatchExported).
+// A test about the hatch sets it again after this.
+func sandbox(t *testing.T) (cwd, home string) {
 	t.Helper()
-	home := t.TempDir()
+	cwd, home = t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Chdir(t.TempDir())
+	t.Setenv(banner.SuppressEnv, "")
+	t.Chdir(cwd)
+	return cwd, home
 }
 
 // The banner reaches stderr through the REAL dispatch, on a command that has
@@ -196,6 +204,28 @@ func TestMachineReadableStdoutIsByteIdenticalThroughDispatch(t *testing.T) {
 				t.Errorf("`yolo %s` stderr = %q, want the banner followed by the command's own "+
 					"stderr %q", tc.name, gotErr, want)
 			}
+		})
+	}
+}
+
+// THE FIXTURES OWN THE HATCH. YOLO_NO_BANNER is the one documented way to silence the banner,
+// so a developer may well export it, and every pin that compares stderr against the banner
+// must still check the code rather than refuse that developer's shell. Each such pin runs
+// again here with the hatch exported, and holds only because sandbox blanks it.
+func TestBannerPinsHoldWithTheHatchExported(t *testing.T) {
+	for _, pin := range []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"ReachesStderrThroughDispatch", TestStartupBannerReachesStderrThroughDispatch},
+		{"EveryRegisteredCommandGetsIt", TestEveryRegisteredCommandGetsTheStartupBanner},
+		{"MachineReadableStdoutIsByteIdentical", TestMachineReadableStdoutIsByteIdenticalThroughDispatch},
+		{"RunDoesNotDoublePrint", TestRunDoesNotDoublePrintTheStartupFields},
+		{"EveryRegisteredCommandAnswersHelp", TestEveryRegisteredCommandAnswersHelp},
+	} {
+		t.Run(pin.name, func(t *testing.T) {
+			t.Setenv(banner.SuppressEnv, "1")
+			pin.run(t)
 		})
 	}
 }

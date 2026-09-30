@@ -56,11 +56,10 @@ func TestEveryRegisteredCommandAnswersHelp(t *testing.T) {
 			for _, flag := range []string{"--help", "-h"} {
 				// A fresh sandbox per probe: cwd and HOME both point at empty temp
 				// trees, so any write a help request performs lands where we can see it
-				// (and not in the user's real workspace or home while the suite runs).
-				cwd, home := t.TempDir(), t.TempDir()
-				t.Setenv("HOME", home)
-				t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-				t.Chdir(cwd)
+				// (and not in the user's real workspace or home while the suite runs),
+				// and the banner hatch is blanked, so the stderr comparison below checks
+				// the code rather than the invoking shell.
+				cwd, home := sandbox(t)
 
 				rc, stdout, stderr := probeHelp(t, sub, flag)
 
