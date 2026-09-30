@@ -16,6 +16,14 @@ its [§7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order) and 
 [§9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user). **Status:**
 ready. Written against `f596a969`, 2026-09-30.
 
+**Built** at `1157cde6`, 2026-09-30 (the design's [§7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order) step 3 entry names the code and the tests).
+Delete this file when the work lands. What the build had to rediscover, which the next plan should
+say: the spawn derives the host-services dir from the container name, not from the plan; the
+package's end-to-end tests need an in-process keeper spawner (`defaultKeeperSpawner`, swapped in
+`TestMain`); the running event must reach the launch before ready, or the relay ends first and the
+housekeeping slot never starts; and the same-cycle CHANGELOG entries of steps 1 and 2 fold into
+step 3's. Nothing here went unused.
+
 **Precedence.** The design wins on behavior, the tree wins on fact, and this file is advice and
 the first thing to be wrong. The terms (keeper, hold process, session lock, liveness lock, lifeline,
 unkept jail, draining, Window A) are the design's
