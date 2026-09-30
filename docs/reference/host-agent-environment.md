@@ -7,6 +7,7 @@ covers:
   - internal/cli/hostapply.go
   - internal/cli/hostapplygate.go
   - internal/hostwrap/
+  - internal/hostpath/
   - internal/cli/check/section_hostwrappers.go
 tags: [host, env, packs, profiles, wrappers]
 summary: "The two channels that deliver a pack's environment to an agent running on the HOST — configuration into the agent's native config surface, environment into the process via `yolo host` — plus the opt-in wrapper directory that makes both reachable from a bare command or an absolute path."
@@ -25,7 +26,10 @@ the `--with-credentials` grant beside it, from 2026-09-27
 the refusal of a profile the in-jail bridge would serve (ES-D18 to ES-D20). The removal of
 `yolo host apply --shell-init` is newer still, ruled 2026-09-27 ([HE-D1](#he-d1)), and is pinned
 by unit tests through `hostMain`; so is the one-row-per-cause shape of the `yolo check` section
-([HE-D2](#he-d2)), pinned by the section's own unit tests.
+([HE-D2](#he-d2)), pinned by the section's own unit tests. Execution flow step 3's `host_path`
+folders and the launch PATH every host check reads are from 2026-09-30
+([host-launch-environment.md's HE-DIR1](../design/host-launch-environment.md#he-dir1)), pinned by
+unit tests through `hostExec`, `checkDepsMain`, `applyHost` and the launch gate.
 
 Inside a jail, injecting environment is trivial: yolo controls the process spawn, so it passes
 `-e KEY=VAL` and PID 1 has the exact environment. On the host it controls nothing — the user
