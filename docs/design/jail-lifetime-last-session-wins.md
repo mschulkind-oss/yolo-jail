@@ -62,7 +62,7 @@ is what it takes over, and [§5](#5-how-terrible-is-it) answers "how terrible is
   managed home every host Codex launch on the machine already shares.
 
 **Reads with:** [`jail-lifetime-last-session-wins-plan.md`](jail-lifetime-last-session-wins-plan.md)
-(the implementation sketch, written for the keeper),
+(the implementation plan for step 3, the keeper at the container backends),
 [`herdr-integration.md` §3.4](../research/herdr-integration.md#34-closing-a-pane-is-a-kill)
 (what closing a pane does), and
 [`central-yolo-watcher.md`](../research/central-yolo-watcher.md) (the sibling exploration of a

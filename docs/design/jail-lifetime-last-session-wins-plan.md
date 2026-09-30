@@ -1,112 +1,145 @@
 ---
-title: "Last session wins: implementation sketch"
-date: 2026-09-29
-status: draft
-tags: [plan, sketch, lifecycle, attach, sessions, keeper]
-summary: "The parking lot for implementation material from jail-lifetime-last-session-wins.md. Not a hand-off; do not build from it while it is stamped SKETCH."
+title: "Last session wins: the keeper at the container backends, implementation plan"
+date: 2026-09-30
+status: accepted
+tags: [plan, lifecycle, attach, sessions, keeper]
+summary: "The build hand-off for step 3 of jail-lifetime-last-session-wins.md: the keeper at podman and Apple Container. The map, what to reuse, the traps, the build order and what ships with it, written against f596a969. The keeper at yolo host and macos-user (§9.9) and the Mac measurements (step 4) are out of scope."
 vantage:
   status-chip: true
 ---
 
-# Last session wins: implementation sketch
+# Last session wins: the keeper at the container backends, implementation plan
 
-**Status:** SKETCH, 2026-09-29. It is incomplete.
-[OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5) to
-[OQ-JL8](jail-lifetime-last-session-wins.md#OQ-JL8), which it waited on, were ruled on
-2026-09-29.
-[OQ-JL1](jail-lifetime-last-session-wins.md#OQ-JL1) was directed on 2026-09-29, and every note
-below assumes its answer: a **keeper**, one small background process per running container jail,
-owns the jail's host services and ends itself
-([§9](jail-lifetime-last-session-wins.md#9-the-keeper-design-2026-09-29)). No terminal holds
-the jail for the others. Step 2 of the design's
-[§7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order) is built (its entry there
-names the code and the tests), and the notes below that it settled say so.
+**Design:** [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md), step 3 of
+its [§7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order) and all of
+[§9](jail-lifetime-last-session-wins.md#9-the-keeper-design-2026-09-29) up to
+[§9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user). **Status:**
+ready. Written against `f596a969`, 2026-09-30.
 
-This is the companion sketch of
-[`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md). **The design wins on
-behavior.** Nothing here is a decision. Every entry is settled-but-boring material, or it names
-the question it waits on. The terms (keeper, hold process, liveness lock, lifeline, Window A) are
-the design's ([§1.1](jail-lifetime-last-session-wins.md#11-terms)), and so is the session lock, the
-host-side shared lock each session holds while it runs
-([§4.2](jail-lifetime-last-session-wins.md#42-the-count-a-host-side-session-lock)).
+**Precedence.** The design wins on behavior, the tree wins on fact, and this file is advice and
+the first thing to be wrong. The terms (keeper, hold process, session lock, liveness lock, lifeline,
+unkept jail, draining, Window A) are the design's
+([§1.1](jail-lifetime-last-session-wins.md#11-terms)).
 
-## Notes parked here
+**Scope.** The container backends only: podman on Linux and macOS, and Apple Container. The keeper
+at `yolo host` and macos-user ([§9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user))
+waits on [OQ-JL9](jail-lifetime-last-session-wins.md#OQ-JL9) and step 5. Step 4's Mac measurements are
+not buildable here.
 
-- **No holding branch.** The direction on [OQ-JL1](jail-lifetime-last-session-wins.md#OQ-JL1)
-  rejected a first terminal that waits. So when the fresh arm's own exec returns, it is an
-  ordinary session's quit: drop the session lock, print the one line if other sessions remain,
-  and exit with the agent's code
-  ([JL-D16](jail-lifetime-last-session-wins.md#JL-D16)). The SIGHUP arm (`onTerminate` today
-  calls `stopJail` first) never calls `stopJail`, for any session, the first included
-  ([JL-D4](jail-lifetime-last-session-wins.md#JL-D4)). An attach's arm already ends only its own
-  session, by hanging it up in the jail
-  ([JL-D52](jail-lifetime-last-session-wins.md#JL-D52)); the first session's is what is left. The
-  launch's arm and an attach's run on the Mac too (`runArmedSession` in
-  [`proxy_other.go`](../../internal/cli/run/proxy_other.go)), unmeasured there.
-- **Provisioning moves to the first session.** `provisionScript` leaves the container's command
-  tail and runs in the first session's exec, where `[ -t 0 ]` still sees the terminal. It runs
-  under an in-jail flock and records an outcome, *done* or *refused*. Every other session waits
-  on that outcome, never on a done marker, and reads a free flock with no outcome as *abandoned*
-  ([JL-D33](jail-lifetime-last-session-wins.md#JL-D33)). Built at step 2 (`sessionGate`): the
-  stage rides pid 1's argv, and the flock and the outcome are in the jail's `/run/yolo/main`.
-- **The keeper's verb.** A hidden subcommand in the daemon group, `yolo internal daemon
-  jail-keeper`, not a new binary (AGENTS.md: *"Host daemons are hidden self-exec subcommands of
-  `yolo` (`yolo internal daemon <name>`)"*). So it needs no `flake.nix` or
-  `stage-source-bundle.sh` entry.
-- **Spawn shape.** `startDetached`
-  ([`scratchremoval.go`](../../internal/cli/run/scratchremoval.go)) is the starting point:
-  Setsid, stdio on `/dev/null`, one inherited fd as fd 3. The progress pipe, the lifeline and the
-  handed launch lock need more inherited fds, so that helper grows an argument, and the keeper
-  marks each one close-on-exec first thing
-  ([JL-D29](jail-lifetime-last-session-wins.md#JL-D29),
-  [JL-D31](jail-lifetime-last-session-wins.md#JL-D31)).
-  - On Linux the launch spawns the keeper by exec of `/proc/self/exe`, which still names the
-    running binary after `just install` has replaced the file at its path, so nothing is opened
-    early. Not `execx.SelfExecArgv`: it re-resolves `os.Executable()`, a path, and the spawn comes
-    after the nix build, which can take minutes. The keeper's own later self-execs, the scratch
-    remover included, are built the same way.
-  - macOS has no such file, so there a keeper of another build refuses the plan by its build
-    stamp ([JL-D5](jail-lifetime-last-session-wins.md#JL-D5),
-    [JL-D20](jail-lifetime-last-session-wins.md#JL-D20)).
-  - Where systemd is present, the keeper moves itself into a transient scope with
-    `StartTransientUnit` before it starts anything. Not `systemd-run --user --scope`, which would
-    stop the keeper being the launch's child.
-- **Lock file location.** It must be host state no jail mounts. It must never go under `cache/`,
-  which every jail mounts read-write. `paths.GlobalStorage()`'s `owners/` directory is the
-  precedent (`ownerPIDDir`, [`lifecycle.go`](../../internal/cli/run/lifecycle.go)). Go opens files
-  `O_CLOEXEC`, so a session's lock is not inherited by the `podman exec` client unless it is put in
-  `ExtraFiles`.
-- **No pending-name trick for the liveness lock.** `servicessession.go`'s pending-name-then-rename
-  does not carry over. The session-lock and liveness-lock files are one per container name and
-  are never renamed over or unlinked
-  ([JL-D28](jail-lifetime-last-session-wins.md#JL-D28)), and nothing acts on a free liveness lock
-  without holding the session lock exclusively or the launch lock
-  ([JL-D18](jail-lifetime-last-session-wins.md#JL-D18)).
-- **`jailSessionCount`.** Drop its `+1` once the main process is the hold process
-  ([`contracttags.go`](../../internal/cli/run/contracttags.go)). Done at step 2,
-  keyed on the jail's `YOLO_JAIL_MAIN`, so a jail launched before keeps its `+1`.
-- **Step 3 undoes one step-2 coupling.** The hold also ends when the first session's process
-  does ([JL-D46](jail-lifetime-last-session-wins.md#JL-D46)), and the fresh launch stops the jail
-  itself when it has not (`awaitJailMainEnd`); the keeper replaces both with its drain.
-- **Detach keys.** Verified on podman 5.8.7 for both `run` and `exec`, and built at step 1
-  ([JL-D54](jail-lifetime-last-session-wins.md#JL-D54)). Apple Container is still to check.
-- **Death pipe (local Linux podman only).** `podman exec --preserve-fds=N` (the list form
-  `--preserve-fd` is documented as crun-only; neither exists on the remote client), with the write end held
-  only by the session launcher. EOF inside the jail means the launcher is gone, and the in-jail
-  side then sends SIGHUP to the session's process group. The research lens measured the EOF on
-  2026-09-29.
-- **Window A and the linger probe.** Both key on the `podman run` client's exit in the
-  foreground. They move to the keeper, or they are retired by name.
-- **The reaper.** It takes the jail's liveness lock and then its session lock, each
-  `LOCK_EX|LOCK_NB`, and holds both across `stopJail` and `stopLoopholes`; the order in which it
-  reads the owner PID and the locks does not matter once it holds them
-  ([JL-D7](jail-lifetime-last-session-wins.md#JL-D7)).
-- **Tests the landing needs.** Each of these has to fail if its call site is deleted:
-  - `TestTeardownChainEmitsShutdownSpans`, re-pointed at the keeper's chain;
-  - a unit test that no session's signal arm calls `stopJail`, the first session's included;
-  - a unit test that the reaper declines a jail whose session lock it cannot take exclusively.
+## Map
 
-  Integration tests: two sessions in one jail, quit the first, and the second still answers while
-  the first terminal has its prompt back. Also `kill -9` of the keeper, followed by an arrival,
-  which is refused, as [OQ-JL7](jail-lifetime-last-session-wins.md#OQ-JL7) ruled
-  ([JL-D13](jail-lifetime-last-session-wins.md#JL-D13)).
+| Path | Change |
+| :--- | :--- |
+| `internal/cli/run/keeperplan.go` | new: the plan (JSON, `0600` in a `0700` dir, read once and removed) and its build stamp |
+| `internal/cli/run/keeperframe.go` | new: the progress pipe's frames, the launch-side relay, the keeper's switchable writer and log |
+| `internal/cli/run/keeperstate.go` | new: the liveness lock, the start record, the keeper's log path, and every probe an arrival, a quit, the reaper and `yolo stop` make of them |
+| `internal/cli/run/keeper.go` | new: `KeeperMain` and the keeper's life: services, the container, ready, the drain, the chain |
+| `internal/cli/run/keeper_linux.go`, `keeper_other.go` | new: `/proc/self/exe` spawn, the kernel's death signal on children, the scope move |
+| `internal/cli/run/keeperspawn.go` | new: the fresh launch's side: disclosure line, spawn, relay until ready, the first session, its quit |
+| `internal/cli/run/run.go` | `runContainer` (`run.go:1099`) splits at the service boundary (`run.go:1688` to `run.go:1945`); the attach decision loops on a drain; `attachExisting` (`run.go:2196`) quits through the shared session quit |
+| `internal/cli/run/jailmain.go` | `awaitJailMainEnd` and `firstSessionStatus` go; `launchSignalArm` stays (both arms use it) |
+| `internal/cli/run/stopreason.go` | the first-session-end records go (`stopreason.go:118` to `:146`); the keeper's reasons join |
+| `internal/cli/run/sessionlock.go` | a take that returns at once when a keeper is draining |
+| `internal/cli/run/lifecycle.go` | the reaper's liveness half (`lifecycle.go:231`), Apple Container included; `clearOwnerPID` becomes a comparison; `noteGoneOwner` goes |
+| `internal/cli/run/contracttags.go` | `restartJailForAttach` (`contracttags.go:515`) waits for the old keeper, holding the launch lock |
+| `internal/cli/run/network.go`, `loopholesruntime.go` | children get the death signal in keeper mode; the fwd dir is removed whole; `stopLoopholes`' probe is bounded (`loopholesruntime.go:587`) |
+| `internal/cli/run/packloopholes.go` | `startLoopholesDisclosed` splits into its disclosure and its start, so the launch can disclose and the keeper start |
+| `internal/cli/run/scratchremoval.go` | the keeper's scratch remover self-execs its own binary, not `execx.SelfExecArgv` (`scratchremoval.go:116`) |
+| `internal/entrypoint/jailmain.go` | the hold no longer follows the first session: `followFirstSession` (`jailmain.go:291`) goes |
+| `internal/internaldaemon/internaldaemon.go`, `internal/cli/internal.go` | the `jail-keeper` member, wired by the CLI |
+| `internal/cli/stop.go` | waits for the keeper and streams it, or runs the chain for an unkept jail; help text |
+| `integration/keeper_test.go` | new; `jailmain_test.go` and `stop_test.go` rewritten to step 3 |
+
+## Reuse before you write
+
+- **The spawn shape:** `startDetached` (`scratchremoval.go`): Setsid, nil stdio, `ExtraFiles`.
+  The keeper's spawn is that plus three descriptors and a `cmd.Wait` the launch keeps.
+- **The lifeline:** `launchservice.Lifeline`'s mechanism, a pipe whose write end only the launch holds.
+- **The relay:** `startJailMain` and `readyRelay` (`jailmain.go`) already relay pid 1 and detect
+  `entrypoint.BootReadyLine`; the keeper calls `startJailMain` with frame writers.
+- **The chain:** `teardownAfterExit` (`run.go:1953`) is the keeper's chain unchanged, after its stop.
+  `stopJail`, `stopLoopholes`, `forgetGoneContainer`, `startScratchRemoval`, `captureConfigOnTerminate`.
+- **The session's arm:** `attachSignalArm` / `hangUpAttachSession` (`sessionhangup.go`). The first
+  session takes it with an id of its own, since every keeper-era jail freezes the session-hangup tag.
+- **Why a session ended:** `noteJailEnded` (`stopreason.go`). The first session's quit is an attach's.
+- **Pack records:** `loadPackTree` + `adoptPackRecords` (`packtree.go`) rebuild the converged
+  loophole set from the staged tree; that is how the keeper resolves its packs (JL-D35).
+- **The call-order tests:** `funcDecl`, `skelCallee`, `callsIn` in the package's tests.
+
+## Traps
+
+- **`workspaceLock.Close` unlocks every duplicate** (`flock.go`). Handing the launch lock to the
+  keeper closes the launch's copy *without* `LOCK_UN`, or the keeper holds nothing.
+- **`internaldaemon` cannot import `run`**: `run`'s tests dispatch through `internaldaemon.Run`
+  (`journalbridge_test.go`'s `TestMain`). The CLI sets the member's entry.
+- **A unit test must never self-exec the keeper**: the test binary would rerun its suite in a detached
+  child (the `errTestBinarySelfExec` guard in `startDetached` is the precedent).
+- **`TestEverySpawnEntryDisclosesHostExecFirst`** fails on any `startLoopholes` caller that does not call
+  `notePackHostExec` first. The keeper cannot disclose; give its start its own pin, never an exemption.
+- **Every loophole's front is a goroutine**: a keeper that exits early takes the jail's credentials
+  with it. `os.Exit` in a keeper path skips the chain; return through `run()`.
+- **Go exits on SIGPIPE to fd 1 or 2** without `signal.Notify`. The keeper's stdio is `/dev/null` and
+  the pipe an `ExtraFiles` descriptor, and it still notifies for SIGPIPE. Never `signal.Ignore`.
+- **Pdeathsig is Linux-only** (`syscall.SysProcAttr` has no field on darwin); keep it in `_linux.go`.
+- **An arrival never waits holding the launch lock**, or the keeper's non-blocking teardown guards
+  back off and leak the host-services dir, the tracking file, the skeleton and the pack tree.
+- **`GOOS=darwin staticcheck` runs in `just lint`**: every new helper needs a caller on both GOOS.
+
+## Build order
+
+1. **The keeper process and its state**, reachable through `yolo internal daemon jail-keeper`, with unit
+   tests of the plan, the frames, the liveness lock and the keeper's life against a fake main process.
+   → `go test ./internal/cli/run -run 'Keeper' ./internal/internaldaemon ./internal/cli`
+2. **The fresh launch spawns it**, the hold stops following the first session, and the first session
+   quits as an ordinary session. The step-2 couplings (JL-D46, JL-D49's launch-wide arm, the first-session
+   records) go in the same commit. → `just test-fast`, then
+   `go test -run 'TestTheMainProcessIsAHold|TestStopEnds|TestQuittingTheFirst' ./integration`
+3. **Arrivals, unkept jails and the attach-skew restart**: JL-D28's wait, JL-D13's refusal, JL-D30's reap
+   on the last quit, JL-D26. → the unit suite, then `go test -run 'Keeper|Orphan' ./integration`
+4. **The reaper's liveness half, `yolo stop`, children that end without the keeper.**
+   → `just test-fast`, `go test -run 'Stop|Orphan|Keeper' ./integration`
+5. **Docs**, gated by `uvx vantage-check@0.7.0` on each changed file.
+
+## Ships with
+
+- **Unit, `internal/cli/run`:** the plan's mode, removal and build-stamp refusal; a frame round trip; the
+  relay's routing (keeper lines to the tees, pid 1's to the raw streams, the events); a second liveness
+  take fails; the keeper drains on the exclusive session lock, records why, stops, runs the chain and
+  frees both locks; a lifeline EOF before ready unwinds; a SIGTERM ends the jail in order; a quit reads
+  last, not last, and unkept; the arrival's drain wait; the unkept refusal; the reaper declines a live
+  keeper's jail and a jail whose session lock it cannot take; `yolo stop` waits for a live keeper.
+- **Call sites (AST):** `runContainer` discloses before it spawns, takes its session lock before it
+  spawns, and hands the first session the session arm; **no session's arm calls `stopJail`, the first
+  session's included**; the keeper's start refuses an undisclosed daemon before it starts one.
+- **Entrypoint:** the hold ends only on SIGTERM, with a first session registered and gone.
+- **Integration:** two sessions, quit the first: it returns at once with the line, the second still
+  runs, and the last quit leaves no container and no keeper; `kill -9` the keeper: the session runs on,
+  an arrival is refused, and the last quit reaps the jail; a hung-up first session ends only itself.
+- **Rewrite, do not repair:** `TestTheHoldFollowsTheFirstSession`,
+  `TestTheJailEndsWithTheFirstSessionEvenWhenTheHoldDoesNotFollow`,
+  `TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec`,
+  `TestAStopRecordIsReplacedByACauseAndNotByTheFirstSessionsEnd`,
+  `TestAnAttachIntoAJailWhoseLauncherIsGoneSaysSo`, and in `integration/jailmain_test.go`
+  `TestAnOrphanSweepSparesAJailWithASessionInIt` and `TestAHangupWhileTheMainProcessLingersStillEndsTheJail`.
+  Each asserts the step-2 shape step 3 replaces.
+- **Docs:** the design's status, [§7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order) step 3, the ledger's Built cells and new rows; `jail-home.md`'s
+  lifecycle table; `perf-logging.md`'s Window A and Ctrl-C rows; `ctrl-z-and-the-tty-proxy.md`;
+  `userguide/guides/troubleshooting.md`'s "My other terminal's agent stopped"; `yolo stop --help`
+  (`stopUsage`); one CHANGELOG `[Unreleased]` entry.
+- **No config key, no new binary**: the keeper is a member of `yolo internal daemon`, so `flake.nix`
+  and `stage-source-bundle.sh` do not change.
+- **Cheap and yours:** frame encoding, the plan's field names, the bound values (each must exist).
+  **Stop and ask:** anything that changes what a session sees beyond
+  [§4.5](jail-lifetime-last-session-wins.md#45-what-the-user-sees).
+
+## Don't
+
+- Don't build the death pipe (`podman exec --preserve-fds`): optional under JL-D4, local podman only.
+- Don't give the keeper a timer to end on (JL-D17), and don't restart a dead keeper (JL-D18).
+- Don't move housekeeping into the keeper (JL-D10).
+- Don't touch the macos-user or `yolo host` arms of `Run`.
+
+## Blockers
+
+None for the container backends. [OQ-JL9](jail-lifetime-last-session-wins.md#OQ-JL9) blocks
+[§9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user) only.
