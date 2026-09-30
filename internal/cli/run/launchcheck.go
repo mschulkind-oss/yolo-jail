@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +15,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
@@ -32,8 +35,9 @@ import (
 //
 // # Who is asked
 //
-// A daemon whose record declares the check, that this launch started or ensured, and whose
-// jail daemon this launch SERVES (loopholes.ServedJailDaemons: the container runs it, or on
+// A daemon whose record declares the check, that this launch started or ensured (for an attach:
+// whose front the running jail's launch published, runAttachLaunchChecks), and whose jail
+// daemon this launch SERVES (loopholes.ServedJailDaemons: the container runs it, or on
 // macos-user it runs in the guest or opens as a doorway outside it), or that declares no jail
 // daemon at all. aws-auth's jail daemon is served only when some agent's provider is on
 // Bedrock (provider-credential-scope.md OQ-CN7 (b)), so a launch with no such agent asks
@@ -246,4 +250,36 @@ func firstNonEmptyLine(s, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+// runAttachLaunchChecks is the launch check for an ATTACH: a new entry into a jail that is
+// already running, whose host services its own launch started and still fronts. Attaching is
+// how a user re-enters a long-lived jail (`yolo -p bedrock -- claude` in a second terminal), and
+// an SSO session that was live at the launch may have lapsed since, so the entry is asked about
+// the same way a launch is. The daemons asked are the enabled loopholes declaring the check
+// whose front the running jail's launch published in its services dir, and the served test is
+// this entry's payload (what its selection runs), exactly as runLaunchChecks applies it.
+//
+// IT ASKS AND NEVER STARTS. An attach runs above the config-change approval gate and never
+// starts, ensures or restarts a service (noteSingletonSettingsDrift's rule), and a front belongs
+// to the process that launched the jail. So a loophole with no published endpoint is not asked:
+// its launch did not start it, or the backend does not run it (Apple Container starts no
+// aws-auth service). An endpoint file left by a launcher that has since died is dialled and
+// fails, which prints the dim "could not ask" line, and that is true: the jail cannot reach the
+// service either.
+func (o *Options) runAttachLaunchChecks(cname, rt string, cfg *jsonx.OrderedMap, payload []loopholes.JailDaemonSpec) {
+	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
+	var running []loopholeDaemon
+	for _, lp := range loopholes.NewHostSet(cfgMap(cfg, "loopholes")).Enabled() {
+		if lp.HostDaemon == nil || !lp.HostDaemon.LaunchCheck ||
+			lp.Transport != loopholes.TransportLoopbackTLS {
+			continue
+		}
+		hostPath := filepath.Join(socketsDir, lp.Name+paths.ServiceEndpointExt)
+		if !fileExists(hostPath) {
+			continue
+		}
+		running = append(running, markLaunchCheck(loopholeDaemon{name: lp.Name, hostPath: hostPath}, lp))
+	}
+	o.runLaunchChecks(rt, running, payload)
 }

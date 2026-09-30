@@ -10,7 +10,8 @@ import (
 // launchcheck.go is the daemon side of the LAUNCH CHECK, a term coined here: the one framed
 // request a launch sends a host daemon whose manifest declares `host_daemon.launch_check`
 // (internal/loopholedecl), right after starting or ensuring it, asking what this launch should
-// warn the human about. The request is
+// warn the human about. An attach to a running jail sends the same request through the front
+// that jail's launch published, and starts nothing. The request is
 //
 //	{"action": "launch-check", "budget_ms": <n>}
 //

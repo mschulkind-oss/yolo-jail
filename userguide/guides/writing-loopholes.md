@@ -230,7 +230,8 @@ program already knows; a program that does not answer in time, or at all, gets a
 so. A `"host"` program started by an older yolo keeps running after the user upgrades, and when
 it answers `unknown action: launch-check` on stderr with a non-zero exit, the launch prints a
 yellow line saying it predates this yolo and naming `yolo host-daemon restart <name>`. The launch
-asks only when the jail uses your loophole's jail program, or when you declare none. `aws-auth` uses it to say that an SSO session has lapsed. The
+asks only when the jail uses your loophole's jail program, or when you declare none, and a new
+agent attaching to a running jail is asked about the same way. `aws-auth` uses it to say that an SSO session has lapsed. The
 [frame protocol](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/loophole-protocol.md#the-launch-check)
 has the details.
 

@@ -2090,9 +2090,13 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// (OQ-CN7 (b)): its launch selected no profile it serves, and an attach starts no daemon, so
 	// the pointer this entry would deliver points at nothing. The attach-skew disposition, as
 	// for any jail that cannot take what an entry delivers: a restart, a refusal, or the hatch.
+	// entryDaemons is what this entry's selection runs in the jail, kept for the launch check
+	// below: it decides which host services this entry's agents reach.
+	var entryDaemons []loopholes.JailDaemonSpec
 	if deliver && !view.unreadable {
+		entryDaemons = o.jailDaemonsFor(cfg, rt, view.staged.packs)
 		if missing := missingProfileServedDaemons(envLines,
-			o.jailDaemonsFor(cfg, rt, view.staged.packs), view.staged.packs); len(missing) > 0 {
+			entryDaemons, view.staged.packs); len(missing) > 0 {
 			switch o.settleAttachSkew(cname, rt, profileDaemonSkew(missing)) {
 			case skewRestarted:
 				return 0, true
@@ -2212,6 +2216,11 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		if rc := o.deliverChannelOnAttach(cname, rt, cfg, view.staged, channel); rc != 0 {
 			return rc, false
 		}
+		// THE LAUNCH CHECK, asked of the services the running jail's launch started, through the
+		// fronts it still owns (runAttachLaunchChecks): a session that lapsed since that launch
+		// is warned about here, before this entry's agent's first request finds out. Only for an
+		// entry that delivers its channel, the one whose agents are handed the pointers.
+		o.runAttachLaunchChecks(cname, rt, cfg, entryDaemons)
 	}
 	// NOTHING TO HEAL HERE ANY MORE, and the absence is worth a note because the
 	// call this replaces was deliberate. An attach used to re-ensure the per-jail

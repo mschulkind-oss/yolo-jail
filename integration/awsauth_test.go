@@ -129,8 +129,10 @@ func awsAuthCredentialMismatches(served map[string]any, want map[string]string) 
 // awsAuthFixture is one prepared launch: the workspace, the launcher options that put the
 // fake `aws` first on PATH, and the fake's argv log.
 type awsAuthFixture struct {
-	dir     string
-	opts    []runOption
+	dir  string
+	opts []runOption
+	// env is opts' launcher environment as KEY=VALUE pairs, for startYoloBackground.
+	env     []string
 	argvLog string
 }
 
@@ -196,13 +198,15 @@ func newAWSAuthFixture(t *testing.T, configure func(bin string) string) awsAuthF
 	if err := os.WriteFile(filepath.Join(bin, "aws"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	env := []string{
+		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"YOLO_NO_AUTO_IMAGE_REAP=1",
+	}
 	return awsAuthFixture{
 		dir:     dir,
 		argvLog: argvLog,
-		opts: []runOption{withEnv(
-			"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
-			"YOLO_NO_AUTO_IMAGE_REAP=1",
-		)},
+		env:     env,
+		opts:    []runOption{withEnv(env...)},
 	}
 }
 
@@ -408,6 +412,59 @@ func TestAWSAuthLapsedSessionIsA4xxNamingTheLogin(t *testing.T) {
 			r.combined())
 	} else if want := "aws sso login --profile " + awsAuthProfile; !strings.Contains(line, want) {
 		t.Errorf("the launch's warning does not carry %q:\n%s", want, line)
+	}
+}
+
+// TestAWSAuthAnAttachWarnsOfALapseToo: attaching is how a user re-enters a running jail, and a
+// session can lapse after that jail's launch. The attach asks the service the jail's launch
+// started, through the front that launch still owns, and prints the same warning a launch does
+// (SSO-D1, amended), before the attached session runs.
+func TestAWSAuthAnAttachWarnsOfALapseToo(t *testing.T) {
+	fx := newAWSAuthFixture(t, func(string) string {
+		return "echo 'Error when retrieving token from sso: Token has expired and refresh failed' >&2; exit 255"
+	})
+	const release = "release-awsauth-attach"
+	first := startYoloBackground(t, "first", fx.dir,
+		`echo FIRST-UP; for _ in $(seq 1 600); do [ -f /workspace/`+release+` ] && break; sleep 0.5; done`,
+		fx.env...)
+	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(fx.dir, release), []byte("go\n"), 0o644) })
+	deadline := time.Now().Add(jailTimeout())
+	for !strings.Contains(first.combined(), "FIRST-UP") {
+		select {
+		case err := <-first.done:
+			t.Fatalf("the first launch exited (%v) before its session ran:\n%s%s", err,
+				first.combined(), awsAuthDaemonLog(t))
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the first session never started within %s:\n%s", jailTimeout(), first.combined())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	awaitLaunchLockReleased(t, fx.dir, first)
+
+	r := runYolo(t, fx.dir, `echo ATTACHED`, fx.opts...)
+	if r.rc != 0 {
+		t.Fatalf("the attach failed: rc %d\n%s", r.rc, r.combined())
+	}
+	if !strings.Contains(r.combined(), "Attaching to existing jail") {
+		t.Fatalf("the second launch did not attach, so this tested nothing:\n%s", r.combined())
+	}
+	if line := awsAuthLaunchWarning(r.combined()); line == "" {
+		t.Errorf("the attach printed no aws-auth launch-check warning for a lapsed session:\n%s%s",
+			r.combined(), awsAuthDaemonLog(t))
+	} else if want := "aws sso login --profile " + awsAuthProfile; !strings.Contains(line, want) {
+		t.Errorf("the attach's warning does not carry %q:\n%s", want, line)
+	}
+	if !strings.Contains(r.stdout, "ATTACHED") {
+		t.Errorf("the attached session did not run after the warning:\n%s", r.combined())
+	}
+
+	_ = os.WriteFile(filepath.Join(fx.dir, release), []byte("go\n"), 0o644)
+	select {
+	case <-first.done:
+	case <-time.After(jailTimeout()):
+		t.Fatalf("the first launch did not exit after release:\n%s", first.combined())
 	}
 }
 

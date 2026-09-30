@@ -456,7 +456,10 @@ a term coined for this: one request a launch sends a host daemon, right after st
 ensuring it, asking what the human should be warned about before the jail starts. A daemon
 opts in with `host_daemon.launch_check: true`, which needs the default `request_end: "framed"`
 and a `loopback-tls` transport, and a daemon that does not declare it is never asked. The launch
-asks only when it serves the loophole's jail daemon, or when the loophole declares none. It dials
+asks only when it serves the loophole's jail daemon, or when the loophole declares none. An
+attach to a running jail asks the same way, through the front that jail's launch published,
+when the attaching entry serves the jail daemon; it starts nothing, and a loophole with no
+published endpoint is not asked. It dials
 the endpoint it just published as a host-side client (`svcendpoint.DialLocal`), so the request
 crosses the front and carries the preamble like a jail's.
 

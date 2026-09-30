@@ -382,3 +382,120 @@ func TestAPerLaunchDaemonThatDoesNotKnowTheCheckNamesNoRestart(t *testing.T) {
 		}
 	}
 }
+
+// attachWithCheckedService stands up a RUNNING jail's host services the way its launch leaves
+// them, through the production launch boundary with a payload that serves nothing (so that
+// launch asks nothing), and then runs an attach's launch check for an entry whose payload is
+// payload, from a second Options as a second yolo process would. It returns what the attach
+// printed. published false skips the launch, leaving no front to find.
+func attachWithCheckedService(t *testing.T, payload []loopholes.JailDaemonSpec, published bool) string {
+	t.Helper()
+	pack := launchCheckPack(t)
+	t.Cleanup(loopholes.SnapshotPackModules())
+	loopholes.SetPackModules(packLoopholeModules([]*packload.Pack{pack}))
+	cname := "yolo-launchcheck-" + strings.ReplaceAll(t.Name(), "/", "-")
+	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
+
+	if published {
+		launcher := &Options{}
+		fillDefaults(launcher)
+		var launchErr bytes.Buffer
+		launcher.Stderr = &launchErr
+		launcher.Stdout = discardBuf()
+		launcher.PathExists = func(string) bool { return false }
+		handles := launcher.startLoopholesDisclosed(cname, "podman", newConfig(),
+			[]*packload.Pack{pack}, nil)
+		t.Cleanup(func() {
+			for _, h := range handles {
+				if h.stop != nil {
+					h.stop()
+				}
+			}
+		})
+		if !startedLoophole(handles, launchCheckFixtureName) {
+			t.Fatalf("the fixture's host service did not start:\n%s", launchErr.String())
+		}
+		if strings.Contains(launchErr.String(), "loophole "+launchCheckFixtureName+":") {
+			t.Fatalf("the launch, which serves no agent of the service, asked it:\n%s",
+				launchErr.String())
+		}
+	}
+
+	var errBuf bytes.Buffer
+	attach := &Options{}
+	fillDefaults(attach)
+	attach.Stderr = &errBuf
+	attach.Stdout = discardBuf()
+	attach.PathExists = func(string) bool { return false }
+	attach.runAttachLaunchChecks(cname, "podman", newConfig(), payload)
+	return errBuf.String()
+}
+
+// TestAnAttachAsksTheRunningJailsServiceToo: a jail launched while the SSO session was live is
+// warned about nothing, and the session then lapses. Attaching is how a user re-enters that
+// jail (`yolo -p bedrock -- claude` in a second terminal), and the service its front reaches is
+// running, so the attach asks it through that front and prints the same warning a launch would,
+// rather than leaving the new agent's first request to find out.
+func TestAnAttachAsksTheRunningJailsServiceToo(t *testing.T) {
+	launchCheckIsolation(t)
+	serveLaunchCheckDaemon(t, awsHandler(t,
+		failedAWS("Error when retrieving token from sso: Token has expired and refresh failed"), nil))
+	got := attachWithCheckedService(t, servedPayload(), true)
+	for _, want := range []string{"loophole " + launchCheckFixtureName +
+		": cannot mint a Bedrock credential for this launch: ", "has expired",
+		"on the HOST run: aws sso login --profile bedrock"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the attach does not say %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestAnAttachWhoseAgentDoesNotReachTheServiceAsksNothing is the fresh launch's rule on an
+// attach: an entry whose selection serves none of the service's agents is not warned about it,
+// nor made to wait for a mint.
+func TestAnAttachWhoseAgentDoesNotReachTheServiceAsksNothing(t *testing.T) {
+	launchCheckIsolation(t)
+	var calls atomic.Int32
+	serveLaunchCheckDaemon(t, awsHandler(t,
+		failedAWS("Error when retrieving token from sso: Token has expired and refresh failed"), &calls))
+	if got := attachWithCheckedService(t, nil, true); strings.Contains(got,
+		"loophole "+launchCheckFixtureName+":") {
+		t.Errorf("an attach that serves no agent of the service printed a launch-check line:\n%s", got)
+	}
+	if calls.Load() != 0 {
+		t.Errorf("`aws` ran %d times for an attach that asked nothing", calls.Load())
+	}
+}
+
+// TestAnAttachFindingNoFrontAsksNothing: an attach starts no service and no front. With none
+// published for the jail (its launch did not start the service, or the backend does not run
+// it), there is nothing to ask and nothing is said.
+func TestAnAttachFindingNoFrontAsksNothing(t *testing.T) {
+	launchCheckIsolation(t)
+	var calls atomic.Int32
+	serveLaunchCheckDaemon(t, awsHandler(t,
+		failedAWS("Error when retrieving token from sso: Token has expired and refresh failed"), &calls))
+	if got := attachWithCheckedService(t, servedPayload(), false); strings.Contains(got,
+		"loophole "+launchCheckFixtureName+":") {
+		t.Errorf("an attach with no published front printed a launch-check line:\n%s", got)
+	}
+	if calls.Load() != 0 {
+		t.Errorf("`aws` ran %d times for an attach with no front to ask through", calls.Load())
+	}
+}
+
+// TestTheAttachArmRunsTheLaunchCheckAndStartsNothing pins the call site the tests above drive
+// around, and that the attach's check only asks: an attach runs above the config-change gate
+// and never starts or restarts a service (noteSingletonSettingsDrift's rule).
+func TestTheAttachArmRunsTheLaunchCheckAndStartsNothing(t *testing.T) {
+	if !callsIn(funcDecl(t, "run.go", "attachExisting"))["runAttachLaunchChecks"] {
+		t.Error("attachExisting no longer calls runAttachLaunchChecks")
+	}
+	calls := callsIn(funcDecl(t, "launchcheck.go", "runAttachLaunchChecks"))
+	for _, starts := range []string{"startLoopholes", "startLoopholesDisclosed",
+		"startHostSingleton", "startExternalService", "EnsureSingleton", "BrokerSpawn"} {
+		if calls[starts] {
+			t.Errorf("the attach's launch check calls %s: an attach must ask, never start", starts)
+		}
+	}
+}

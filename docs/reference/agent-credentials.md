@@ -727,8 +727,12 @@ one still running does not know the question, so the launch warns that it predat
 names `yolo host-daemon restart aws-auth`. The warning is a disclosure, so no flag hides it
 ([`OQ-RO3`](report-tiers.md#why-its-this-way)).
 
-The check cannot see a session that ended after the cached credential was minted: that
-credential still works, and the lapse shows at the next mint, within its hour. `macos-user`
+An attach asks too: a new agent entering a jail that is already running, such as
+`yolo -p bedrock -- claude` in a second terminal, gets the same question and the same warning,
+through the front the jail's own launch published. It starts nothing, so a jail whose launch did
+not start the service is not asked. The check cannot see a session that ended after the cached
+credential was minted: that credential still works, and the lapse shows at the next mint, within
+its hour. `macos-user`
 asks the same way, before the sandboxed command runs. `yolo host` starts no aws-auth service
 and asks nothing ([`host-notch-services.md` HS-D20](../design/host-notch-services.md#HS-D20)).
 The decision is [`SSO-D1`](../design/sso-backed-bedrock.md#SSO-D1).
