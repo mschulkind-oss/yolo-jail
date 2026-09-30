@@ -297,7 +297,9 @@ func flattenModelFacts(obj *jsonx.OrderedMap) *jsonx.OrderedMap {
 // states, since a user's object-form entry can override each of them; the vendor is the
 // one fact it cannot. Restating the pack's own id, as a string or as an object's `id`, is
 // no re-pointing and keeps everything. The comparison is on the id exactly as spelled: core
-// does not interpret an id, so a different spelling is a different id.
+// does not interpret an id, so a different spelling is a different id (the pack's X
+// re-pointed to claude's X[1m] loses the vendor too). That errs the safe way: an id missing
+// its vendor is only translated, where an id carrying a wrong one fails the request.
 func dropRepointedVendors(shipped, user *jsonx.OrderedMap) {
 	userModels := childMap(user, "models")
 	shippedModels := childMap(shipped, "models")
