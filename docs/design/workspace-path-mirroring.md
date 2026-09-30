@@ -315,8 +315,8 @@ the tree is in `flake.nix`'s hermetic image build; `scripts/build-go.sh` — the
 > reports whether `-trimpath` was set, and note that under `-trimpath` it stops reporting the
 > `-ldflags` setting.
 >
-> **Shipped 2026-09-09** (`8ff96e15`): `scripts/build-go.sh` passes `-trimpath`, and
-> `internal/entrypoint/gobuildflags_test.go` pins it against `flake.nix` so the two build paths
+> **Shipped 2026-09-09**: `scripts/build-go.sh` passes `-trimpath`, and `TestBothGoBuildPathsTrimPaths`
+> in `internal/entrypoint/gobuildflags_test.go` pins it against `flake.nix` so the two build paths
 > cannot disagree again.
 
 **MEASURED**, on the mechanism: Go's *compile* action is already path-independent (it runs

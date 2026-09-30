@@ -2,7 +2,7 @@
 
 **Design:** [`program-delivery.md` §6.3](../design/program-delivery.md#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package)
 (ruled [OQ-PD10](../design/program-delivery.md#decision-ledger)) ·
-Written against `839d0745`, 2026-09-03.
+Written 2026-09-03.
 
 **Status:** DECIDED, 2026-09-26 — **owed: slice 6's hand-off
 [H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it), a capture store a
@@ -551,7 +551,7 @@ wrong one to sequence on.
    second implementation of download-then-run. On this backend that launcher exists only in a home
    `yolo internal darwin-bootstrap` has rendered into, and `BuildRunPlan` hard-coded `SandboxHome()`
    in three places. Pointed at the shared home, a capture would provision the machine's real agent
-   home and then capture a delta of it. The extraction is a pure refactor (`48031ef7`); the
+   home and then capture a delta of it. The extraction is a pure refactor (`buildBootstrapEnv`, `sandboxEnvPairs`); the
    invariant that fails if it is undone is `TestCapturePlanRefusesTheSharedHome`.
 
    **(d) `relocatable` needed a second field to be honest, and the contract belongs on the FIELD.**
@@ -587,7 +587,7 @@ wrong one to sequence on.
    nothing about a home; the refusal the next clause cites (`:235-250`) was the right range all
    along. And `macosuser.go:328-377` for `LaunchArgv` was correct until this slice's refactor
    shortened it, so it is now named rather than numbered. (That makes THREE wrong `file:line`
-   citations in this one paragraph, two of them fixed on the same day: `ff4730d8`, 2026-09-04
+   citations in this one paragraph, two of them fixed on the same day: `d26756fb`, 2026-09-04
    09:27, replaced `run.go:188-203` — the config-change approval comment — with `:235-250`,
    and the neighbouring `:156-159` survived that pass untouched. A paragraph this often
    wrong about line numbers is one to cite by SYMBOL.)

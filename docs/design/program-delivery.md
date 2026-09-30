@@ -21,7 +21,7 @@ evergreen agent updates with B2's PATH move and A7's version prune (merge `208a5
 capture slices one to seven (merge `18524ff9`). **Not built:** [§10](#10-what-i-would-build-in-order) steps three and five
 (held by [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)), `macos-user`'s materialize, and
 copilot's installer flip. The MCP/LSP transitive refresh SHIPPED 2026-09-09
-(`bb879e97` + `3def2bc6`), which closed the last gap in step six. Every fact below is labelled **MEASURED** (observed in this development
+(`entrypoint.RefreshServers`, pinned by `TestGeneratedLauncherCallsTheServerRefresh`), which closed the last gap in step six. Every fact below is labelled **MEASURED** (observed in this development
 jail, dated), **READ FROM CODE** (traced but not observed running) or **NOT MEASURED**. Every SHA
 was re-verified as an ancestor of `HEAD` on 2026-09-06 — a rebase had left earlier revisions of
 this doc, and the roadmap, citing SHAs that resolve as objects but are not ancestors.
@@ -1624,7 +1624,7 @@ SHA an ancestor of `HEAD`:*
 | **three** | the ruled scope split — native locks at the declaration's home, gap receipts at user scope | ⏸ **not built — held by [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)** | — |
 | **four** | removal made real — catalog, act, option | ✅ shipped 2026-09-04 (`af46c9b4` the catalog, `3a4f1bbf` the act, `c127f4ad` the CLI, `3ac165e4` the option) | `yolo programs`, `programs.autoprune` |
 | **five** | the ruled enforcement — the receipt is the pin, and it reports before it gates | ⏸ **not built — held by [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)**; mise's half shipped with step one | — |
-| **six** (was seven) | agent dependencies evergreen | ✅ shipped 2026-09-04 (merge `208a5e43`); the MCP/LSP transitive refresh followed 2026-09-09 (`bb879e97` + `3def2bc6`) | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
+| **six** (was seven) | agent dependencies evergreen | ✅ shipped 2026-09-04 (merge `208a5e43`); the MCP/LSP transitive refresh followed 2026-09-09 (`entrypoint.RefreshServers`, pinned by `TestGeneratedLauncherCallsTheServerRefresh`) | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 | **seven** (was six) | the installer capture | ✅ slices one to seven landed 2026-09-04 (merge `18524ff9`); `macos-user` recording half only | [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) |
 | in parallel | the `via` enum tolerance | ✅ paid 2026-08-24 (`0a4d241c`) | [§6.2](#62-pay-the-enum-tolerance-before-the-next-mechanism-arrives) |
 
@@ -1733,7 +1733,7 @@ of [OQ-PD18](#decision-ledger). **What the reversal ended:** the freeze this ord
 carrying on purpose ([§4.1](#41-freeze-an-agent-cli-is-whatever-latest-meant-the-day-that-workspace-first-ran-it)).
 
 > [!NOTE]
-> **The MCP/LSP transitive refresh SHIPPED 2026-09-09** (`bb879e97` + `3def2bc6`), five days behind
+> **The MCP/LSP transitive refresh SHIPPED 2026-09-09** (`entrypoint.RefreshServers`, pinned by `TestGeneratedLauncherCallsTheServerRefresh`), five days behind
 > the agent CLIs and unchanged from the ruling: a server inherits the trigger of the agent that
 > connects to it, and only the bootstrap-installed set is in scope. The throttled step is
 > `internal/entrypoint/serverrefresh.go`, reached from BOTH generated launchers as

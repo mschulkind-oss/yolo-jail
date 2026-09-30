@@ -9,7 +9,7 @@ summary: "Implementation plan for OQ-PD13. Shipped 2026-09-04: codex flipped and
 # Plan: agent CLIs from npm to their vendors' native installers
 
 **Design:** [`program-delivery.md` §3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03),
-ruling **[OQ-PD13](../design/program-delivery.md#decision-ledger)** · Written against `a25e718b`, 2026-09-03.
+ruling **[OQ-PD13](../design/program-delivery.md#decision-ledger)** · Written 2026-09-03.
 
 **Status:** DECIDED, 2026-09-04 — shipped in part: codex flipped and claude's dead
 `autoUpdaterStatus` is gone; **copilot did not flip**, and that is the work left. Re-checked

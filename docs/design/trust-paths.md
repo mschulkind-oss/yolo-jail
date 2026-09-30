@@ -174,7 +174,7 @@ now retired — kept because they remain true of the lockfile and constrain anyt
   commit, and pretending otherwise would invent a pin"*
   (`LockEntry.Commit`'s doc comment, [`lock.go`](../../internal/packsrc/lock.go)), and an embedded pack has no row at all. The
   three packs that declare npm programs — **pi, copilot, opencode** (codex moved to its vendor's
-  installer on 2026-09-04, `dadafbde`) — are all embedded.
+  installer on 2026-09-04, pinned by `TestShippedAgentLaunchersUseTheDeclaredMechanism`) — are all embedded.
 
 ### Where a pin would change the outcome
 

@@ -108,7 +108,7 @@ mechanism doesn't need to reach claude or opencode plugins today.
   write them in that extension's format. An adapter is an ordinary pack. Not verified: that a
   non-pi pack may declare a surface under `~/.pi` without a reservation conflict; the collision
   rules suggest yes.
-- **Git packs fetch at launch** (`9dbbfd04`), so an adapter living in the extension author's own
+- **Git packs fetch at launch** (`packsrc.Store.Refresh`, pinned by `TestLaunchFetchesANeverInstalledGitPack`), so an adapter living in the extension author's own
   repo reaches a user by adding one `packs` entry.
 - **The one adapter yolo already ships.** `packs/pi/derive.lua` writes pi-subagents' `subagents`
   block (`defaultModel`, a strict `modelScope`) in its `openai-codex` branch, added 2026-09-15

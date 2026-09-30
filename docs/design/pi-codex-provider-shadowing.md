@@ -8,7 +8,7 @@ summary: "Adding an openai-responses endpoint to the openai-codex provider allow
 
 # Why a bridge endpoint shadowed Pi's Codex provider — and how ambient keys took over
 
-**Status:** DESIGN, 2026-09-27 — [OQ-3](#OQ-3) is open: how far [OQ-2](#OQ-2)'s rule reaches. The `openai-codex` exclusion is BUILT, 2026-09-26, at `92c20cc6` (pi) and `4ed48212` (omp); codex already excluded it. Measured through the boot render only, by the catalog tests, which compose each agent's `needs` closure since 2026-09-27 ([§6.2](#62-test-composition-alignment)); no live pi or omp has run it. Evidence verified at `c5bab09b`; pi's and claude's codex handling re-verified at `acf810b5`.
+**Status:** DESIGN, 2026-09-27 — [OQ-3](#OQ-3) is open: how far [OQ-2](#OQ-2)'s rule reaches. The `openai-codex` exclusion is BUILT, 2026-09-26, at `92c20cc6` (pi) and `4ed48212` (omp); codex already excluded it. Measured through the boot render only, by the catalog tests, which compose each agent's `needs` closure since 2026-09-27 ([§6.2](#62-test-composition-alignment)); no live pi or omp has run it. Evidence verified at `c5bab09b`; pi's and claude's codex handling re-verified at `4dcebd18`.
 
 > **In short.** A pack-level endpoint added for wire-bridge adaptation caused Pi's derive
 > to generate a `models.json` entry for `openai-codex`, overriding Pi's built-in subscription
