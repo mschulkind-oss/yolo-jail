@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -493,22 +494,21 @@ func executingLine(command string, color bool) string {
 // execBash set the final PATH, echo the command for the
 // exec-into-existing path, source yolo-user-env.sh + activate mise, and exec
 // bash --rcfile ~/.bashrc -c <activated command>. Never returns on success.
-func execBash(e *Env, command string) error {
+//
+// announce is false for a command that prints its own "⚡ Executing" line: the first session's
+// (run.buildSessionCmd's executingBanner). A pre-hold container's own command printed its own
+// too, and is still recognized by the bootstrap it names.
+func execBash(e *Env, command string, announce bool) error {
 	// "PATH" is a literal, so the only two inputs os.Setenv rejects (an empty key, a
 	// key holding "=" or NUL) are unreachable. Nothing to report.
 	_ = os.Setenv("PATH", BootPath(e))
 
 	isNewContainerCmd := strings.Contains(command, "yolo-bootstrap")
-	if command != "bash" && !isNewContainerCmd {
+	if announce && command != "bash" && !isNewContainerCmd {
 		fmt.Fprint(os.Stderr, executingLine(command, !tty.NoColor(os.Getenv)))
 	}
 
-	userEnvFile := filepath.Join(e.Home, ".config", "yolo-user-env.sh")
-	sourceUserEnv := ""
-	if pathExists(userEnvFile) {
-		sourceUserEnv = `. "` + userEnvFile + `" 2>/dev/null; `
-	}
-	activatedCommand := sourceUserEnv + `eval "$(mise env -s bash)" 2>/dev/null; ` + command
+	activatedCommand := activationPrefix(e) + command
 
 	// exec bash --rcfile BASHRC -c activated. syscall.Exec does no PATH search,
 	// so resolve bash on PATH first, then exec with argv[0]="bash".
@@ -518,6 +518,19 @@ func execBash(e *Env, command string) error {
 	}
 	argv := []string{"bash", "--rcfile", e.BashrcPath(), "-c", activatedCommand}
 	return sysExec(bashPath, argv, os.Environ())
+}
+
+// activationPrefix is what every session's shell runs before its command: the frozen user
+// env file, when there is one, then mise's environment. The provisioning stage gets the same
+// prefix (runProvisionStage), as it did when it was the first clause of the container's own
+// command.
+func activationPrefix(e *Env) string {
+	userEnvFile := filepath.Join(e.Home, ".config", "yolo-user-env.sh")
+	sourceUserEnv := ""
+	if pathExists(userEnvFile) {
+		sourceUserEnv = `. "` + userEnvFile + `" 2>/dev/null; `
+	}
+	return sourceUserEnv + `eval "$(mise env -s bash)" 2>/dev/null; `
 }
 
 // ---------------------------------------------------------------------------
@@ -536,10 +549,10 @@ func Main(args []string) error {
 	// gets past it (iopriority.go). What it found is reported once the log is open.
 	ioOutcome := applyIOPriority(os.Args)
 
-	command := "bash"
-	if len(args) > 0 {
-		command = strings.Join(args, " ")
-	}
+	// WHICH OF THREE THINGS THIS INVOCATION IS (jailmain.go): the container's main process, the
+	// jail's first session, or any other session. For a session, command is what its shell runs;
+	// for the main process it is the provisioning stage it records for the first session.
+	mode, command := parseEntryArgs(args)
 
 	// Covers the REFUSAL path (genFailuresError below returns before the exec). The
 	// successful path releases explicitly just above execBash, since a deferred call never
@@ -549,11 +562,50 @@ func Main(args []string) error {
 	defer packload.ReleaseEmbedded()
 
 	e := EnvFromOS()
+
+	// THE MAIN PROCESS SAYS ITS BOOT HAS BEGUN, before the boot, so a session exec'd into the
+	// container meanwhile waits for it rather than finding nothing. A SESSION of a jail whose
+	// main process is a hold waits for that boot and for provisioning BEFORE its own pass
+	// (jailmain.go, JL-D33): the first session takes provisioning, every other waits for its
+	// outcome. Both before the boot log, so a session refused here leaves pid 1's log alone.
+	var gate *sessionGate
+	provisioner := false
+	switch {
+	case mode == modeHold:
+		markBoot(bootBooting)
+	case e.Getenv(JailMainEnv) == JailMainHold:
+		gate = newSessionGate(tty.IsTerminalFile(os.Stdin), os.Stderr)
+		first := mode == modeFirstSession && gate.registerFirst(os.Getpid())
+		if err := gate.awaitBoot(); err != nil {
+			return err
+		}
+		if first {
+			if err := gate.claim(); err != nil {
+				return err
+			}
+			provisioner = true
+		} else {
+			p, err := gate.await()
+			if err != nil {
+				return err
+			}
+			provisioner = p
+		}
+	}
+
 	// Everything the boot says now also lands in <workspace>/.yolo/boot.log, which
 	// outlives the container and is therefore readable after a boot that REFUSED —
 	// the state OQ-R2's flip makes reachable, where there is no jail left to ask.
 	// Never fatal: any failure here yields plain stderr. See bootlog.go.
-	blog := attachBootLog(e, os.Stderr)
+	//
+	// THE FIRST SESSION'S PASS IS THE JAIL'S SECOND, and it goes to the log alone: the main
+	// process's boot printed every one of these lines on this same terminal a moment ago,
+	// relayed by the launcher, and a second copy of each would read as a second boot.
+	bootOut := io.Writer(os.Stderr)
+	if mode == modeFirstSession && gate != nil {
+		bootOut = io.Discard
+	}
+	blog := attachBootLog(e, bootOut)
 	reportIOPriority(e, ioOutcome)
 
 	p := newPerfLog()
@@ -579,6 +631,15 @@ func Main(args []string) error {
 	// A12: abort BEFORE handing control to the agent. Everything above has run, so
 	// this reports every broken generator at once rather than one per restart.
 	if err := genFailuresError(e); err != nil {
+		// A provisioner that cannot reach its stage lets the lock go with no outcome, which a
+		// waiter reads as abandoned; the main process records a refused boot, which refuses
+		// every session that arrives.
+		if provisioner {
+			gate.abandon()
+		}
+		if mode == modeHold {
+			markBoot(bootRefused)
+		}
 		// THE HOLD, and its two phases straddle blog.finish deliberately: the notice
 		// goes out while the log is still open (so a held boot's own instructions are
 		// in boot.log), and the block happens after it is closed (so a hold nobody
@@ -602,7 +663,24 @@ func Main(args []string) error {
 	// is EmbeddedRetireMiseTools, a list of tool-name strings, so no path into it survives
 	// into the shell we are about to become. (The lease fd is close-on-exec besides.)
 	packload.ReleaseEmbedded()
-	return execBash(e, command)
+	// THE MAIN PROCESS HOLDS instead of running a command: it records the stage for the first
+	// session, says the boot is done, and keeps the container up (holdJail).
+	if mode == modeHold {
+		holdJail(command, os.Stderr)
+		return nil
+	}
+	// THE PROVISIONING STAGE, on this session's terminal, after its own pass and before its
+	// command, which is where it ran when it was the container's own first clause. Its status
+	// is the session's when it refused, so `yolo -- …` returns what the stage returned.
+	if provisioner {
+		start := time.Now()
+		rc := gate.provision(func(stage string) int { return runProvisionStage(e, stage) })
+		setEnvBoth(e, ProvisionMillisEnv, strconv.FormatInt(time.Since(start).Milliseconds(), 10))
+		if rc != 0 {
+			return &ExitStatus{Code: rc}
+		}
+	}
+	return execBash(e, command, mode != modeFirstSession)
 }
 
 // genFailuresError turns the collected generator failures into the single error

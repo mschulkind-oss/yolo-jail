@@ -216,8 +216,10 @@ func TestBootPathActuallyWiresTheLog(t *testing.T) {
 	got := string(src)
 
 	for _, want := range []struct{ frag, why string }{
-		{"attachBootLog(e, os.Stderr)",
+		{"attachBootLog(e, bootOut)",
 			"the boot must install the tee; without this the log is never opened"},
+		{"bootOut := io.Writer(os.Stderr)",
+			"every boot but the first session's second pass tees to the terminal"},
 		{"blog.finish(err)",
 			"a REFUSED boot must be recorded — it is the case with no jail left to ask"},
 		{"blog.finish(nil)",
@@ -231,7 +233,7 @@ func TestBootPathActuallyWiresTheLog(t *testing.T) {
 	// Ordering: the close on the success path has to precede the exec, or it never
 	// runs. Proximity is not the property, but "appears before" is necessary.
 	fin := strings.Index(got, "blog.finish(nil)")
-	exec := strings.Index(got, "return execBash(e, command)")
+	exec := strings.Index(got, "return execBash(e, command, ")
 	if fin < 0 || exec < 0 || fin > exec {
 		t.Error("blog.finish(nil) must precede the execBash that replaces this process")
 	}

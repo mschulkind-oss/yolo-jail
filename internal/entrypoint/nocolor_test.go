@@ -56,7 +56,7 @@ func TestExecBashHonorsNoColor(t *testing.T) {
 		e := NewEnv(map[string]string{"JAIL_HOME": t.TempDir()})
 		execd = nil
 		var err error
-		got := captureStderr(t, func() { err = execBash(e, "echo attached") })
+		got := captureStderr(t, func() { err = execBash(e, "echo attached", true) })
 		if err != nil {
 			t.Skipf("execBash could not reach its exec here (%v); it needs bash on the boot PATH", err)
 		}

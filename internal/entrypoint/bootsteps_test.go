@@ -256,7 +256,7 @@ func TestBothBootsRunTheTable(t *testing.T) {
 	}
 	run := callIndex(string(src), "runBootSteps(&bootRun{e: e, target: bootContainer")
 	gate := callIndex(string(src), "if err := genFailuresError(e); err != nil {")
-	execCall := callIndex(string(src), "return execBash(e, command)")
+	execCall := callIndex(string(src), "return execBash(e, command, ")
 	if run < 0 || gate < 0 || execCall < 0 || run > gate || gate > execCall {
 		t.Errorf("Main must run the table, then the refusal gate, then the exec "+
 			"(table=%d, gate=%d, exec=%d)", run, gate, execCall)
