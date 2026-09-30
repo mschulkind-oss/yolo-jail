@@ -5,7 +5,10 @@ credential and answers for it over the protocol every AWS SDK already speaks. Th
 holds a loopback URL and nothing else: no access key, no session token, no refresh
 token, no `~/.aws`.
 
-Design: [`sso-backed-bedrock.md`](../../docs/design/sso-backed-bedrock.md).
+How it behaves:
+[`agent-credentials.md`'s SSO-backed Bedrock section](../../docs/reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth).
+Why: [`sso-backed-bedrock.md`](../../docs/design/sso-backed-bedrock.md), the graduated design
+and its decision ledger.
 
 ```
 host                                          jail
@@ -158,8 +161,12 @@ env file, sourced by its launcher. The processes an agent spawns inherit it, as 
 anything in the agent's environment. **It crosses only where the adapter runs.** The pointer
 names this loophole's jail daemon (`served_by: "aws-auth"`), so a launch that does not run it
 leaves the pointer out and says so: `yolo host`, which runs no jail daemon, and a jail launch
-that has not enabled the loophole. macos-user runs the adapter inside its sandbox, confined like
-the agent, so it delivers the pointer, at a port the launch picks
+that has not enabled the loophole. macos-user runs the adapter too, but outside its sandbox: the
+sandboxed agent shares the Mac's loopback, so the launch opens the adapter itself as a listener
+it owns, on a port it picks, answering only this launch's caller token and stopping when the
+sandboxed command exits
+([`host-notch-services.md` HS-D15](../../docs/design/host-notch-services.md#HS-D15)). So it
+delivers the pointer, at that port
 ([notch convergence §2.4](../../docs/plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)). **Do not "fix" the gate by narrowing it to the pack's own bins**: that
 would break this pack outright, because CLI-less is the case the gate's CLI-less arm exists
 for.
@@ -304,8 +311,12 @@ says so and exits, and the launch reports it.
 > is in daily use against a live `aws sso login`
 > ([the try-out](#trying-it-on-a-real-host), 2026-09-29).
 
-**A podman backend, or macos-user.** On `macos-user` the adapter runs inside the sandbox, under
-its Seatbelt profile, as the sandbox's own user (not yet run on a Mac). Apple Container
+**A podman backend, or macos-user.** On `macos-user` the adapter runs outside the sandbox, on
+the Mac, as a listener the launch owns: started only when some agent's selected provider is
+Bedrock, answering only this launch's caller token, and stopped when the sandboxed command
+exits; the sandbox runs no copy of it
+([`host-notch-services.md` HS-D15](../../docs/design/host-notch-services.md#HS-D15); not yet
+run on a Mac). Apple Container
 (`runtime: "container"`) carries no container→host connection — measured on 1.1.0: the
 handshake completes and nothing crosses — so no loopback-TLS loophole is reachable
 there. That skip is expected to expire with an upstream release rather than stand
