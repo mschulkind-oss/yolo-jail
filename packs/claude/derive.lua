@@ -341,6 +341,130 @@ local function completeRoutedTiers(ctx, p, out)
   return out
 end
 
+-- THE LIST UNDER AN `only` (docs/design/model-lists-and-pickers.md §14.1, MM-D1, MM-D2,
+-- MM-D5). listOnly says a `models` contribution's `only` narrowed the provider's list: the
+-- composed entry carries `models_only` (packload.ModelsOnlyKey). That list is then claude's
+-- exact menu on every path claude reaches the provider by — its own Bedrock client as much as a
+-- routed endpoint — and, while the profile's switch is on, claude's own allowlist refuses
+-- anything off it.
+--
+-- WHAT IS NOT HERE, ON PURPOSE. A list that only ADDS keeps today's rendering: what an `add`
+-- does to an agent's own catalog is OQ-MM1's, unruled. And a routed list no `only` narrowed
+-- writes no allowlist: whether it refuses on a gateway that serves more than it is OQ-MM3's.
+local function listOnly(p)
+  return type(p) == "table" and p.models_only == true
+end
+
+-- listFact reads one fact of an id from the provider's model_options: the alias spelled as
+-- the id first, then any alias naming the id, in sorted order (codexModelList's precedence).
+local function listFact(p, id, fact)
+  local models = type(p) == "table" and type(p.models) == "table" and p.models or {}
+  local opts = type(p) == "table" and type(p.model_options) == "table" and p.model_options or {}
+  local function at(alias)
+    local f = opts[alias]
+    if type(f) == "table" and type(f[fact]) == "string" and f[fact] ~= "" then return f[fact] end
+    return nil
+  end
+  if models[id] == id and at(id) then return at(id) end
+  local aliases = {}
+  for alias, target in pairs(models) do
+    if type(alias) == "string" and target == id then table.insert(aliases, alias) end
+  end
+  table.sort(aliases)
+  for _, alias in ipairs(aliases) do
+    if at(alias) then return at(alias) end
+  end
+  return nil
+end
+
+-- onlyRows is the narrowed list as claude can use it: routedRows, less, on claude's own Bedrock
+-- client, every entry whose `vendor` is not anthropic, since Bedrock's Messages API serves Claude
+-- alone (docs/design/bedrock-plumbing.md OQ-BR9). An entry with no vendor is offered, as a
+-- user's string-form alias always is.
+local function onlyRows(ctx, p)
+  local rows = routedRows(ctx, p)
+  if not nativeBedrock(ctx) then return rows end
+  local kept = {}
+  for _, r in ipairs(rows) do
+    local vendor = listFact(p, r.wire, "vendor")
+    if vendor == nil or vendor == "anthropic" then table.insert(kept, r) end
+  end
+  return kept
+end
+
+-- listDefault is the list's DEFAULT ENTRY for claude (§7.2's rule): the entry the profile's
+-- `model` option names, as an alias or as an id, when claude can use it; else the provider's
+-- `default` alias when claude can use it; else the first entry. nil only for an empty list.
+local function listDefault(ctx, p, rows)
+  local spell = routedSpelling(ctx, p)
+  local byId = {}
+  for _, r in ipairs(rows) do byId[r.id] = byId[r.id] or r end
+  local models = type(p) == "table" and type(p.models) == "table" and p.models or {}
+  local m = type(ctx.profile) == "table" and ctx.profile.model or nil
+  if type(m) == "string" and m ~= "" then
+    local id = models[m]
+    if type(id) ~= "string" then id = m end
+    if byId[spell(id)] then return byId[spell(id)] end
+  end
+  if type(models.default) == "string" and byId[spell(models.default)] then
+    return byId[spell(models.default)]
+  end
+  return rows[1]
+end
+
+-- onlyTierPins pins every tier to a narrowed list's id (MM-D2): a tier's own alias where the
+-- list declares one claude can use, else the default entry.
+local function onlyTierPins(ctx, p, out, rows, default)
+  local spell = routedSpelling(ctx, p)
+  local byId = {}
+  for _, r in ipairs(rows) do byId[r.id] = true end
+  local models = type(p.models) == "table" and p.models or {}
+  local tiers = {}
+  for _, tier in ipairs(claudeTiers) do
+    local id = models[tier[1]]
+    if type(id) == "string" and byId[spell(id)] then tiers[tier[1]] = spell(id) end
+  end
+  pinTiers(out, tiers, rows, default.id)
+end
+
+-- applyOnlyPins is the env derive's half under an `only`: every tier on the list, and the START
+-- pin only on the `pin_model` opt-in while the switch is on, because claude's allowlist (the
+-- settings derive's) then replaces an off-list saved model with Default, which the tier pins
+-- make the list's default (MM-D3). With the switch off no allowlist renders, and what keeps
+-- claude's start valid there is OQ-MM3's to rule, so the start pin the provider branch wrote
+-- is left as it is. A list claude can use none of changes nothing.
+local function applyOnlyPins(ctx, p, out)
+  local rows = onlyRows(ctx, p)
+  if #rows == 0 then return out end
+  local default = listDefault(ctx, p, rows)
+  for _, tier in ipairs(claudeTiers) do
+    local var = "ANTHROPIC_DEFAULT_" .. tier[2] .. "_MODEL"
+    out[var], out[var .. "_NAME"], out[var .. "_DESCRIPTION"] = nil, nil, nil
+  end
+  onlyTierPins(ctx, p, out, rows, default)
+  out.ANTHROPIC_SMALL_FAST_MODEL = out.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  if ctx.enforce_models ~= false then
+    if pinModel(ctx.profile) then
+      out.ANTHROPIC_MODEL = default.id
+      out.CLAUDE_CODE_SUBAGENT_MODEL = default.id
+    else
+      out.ANTHROPIC_MODEL = nil
+      out.CLAUDE_CODE_SUBAGENT_MODEL = nil
+    end
+  end
+  return out
+end
+
+-- listPins is what the env derive's provider branch hands back: the `only` rendering where an
+-- `only` narrowed the list and claude reaches the provider, and otherwise MM-D2's remaining pins
+-- on a routed provider (completeRoutedTiers).
+local function listPins(ctx, p, out)
+  if listOnly(p) and (nativeBedrock(ctx) or routedProvider(ctx, p)) then
+    return applyOnlyPins(ctx, p, out)
+  end
+  return completeRoutedTiers(ctx, p, out)
+end
+
 -- config (~/.claude.json, RMW): the mcpServers managed table — a passthrough of the
 -- servers this launch is eligible for.
 --
@@ -458,8 +582,12 @@ yolo.derive("claude", "settings", function(ctx)
         if e.id ~= default then table.insert(ids, e.id) end
         table.insert(options, { model = e.id, label = e.name or e.id, description = e.description })
       end
-      out.availableModels = ids
-      out.enforceAvailableModels = true
+      -- The allowlist is a REFUSAL, so the profile's switch governs it (MM-D5): with
+      -- enforce_models off the list only shapes the picker.
+      if ctx.enforce_models ~= false then
+        out.availableModels = ids
+        out.enforceAvailableModels = true
+      end
       out.modelPicker = {
         options = options,
         replaceBuiltInOptions = true,
@@ -486,6 +614,39 @@ yolo.derive("claude", "settings", function(ctx)
         options = options,
         replaceBuiltInOptions = true,
       }
+    end
+  end
+  -- UNDER AN `only` (§14.1's "Under an `only`" cells): the narrowed list is claude's exact
+  -- menu whether claude reaches the provider through its own Bedrock client or a routed
+  -- endpoint, and while the profile's switch is on (enforce_models, MM-D5) claude's own
+  -- allowlist refuses what is off it, with the default entry first. On claude's own Bedrock
+  -- client the refusal is claude's alone, client side, with §14.2's four gaps: yolo writes no
+  -- managed settings file, so a repository's .claude/settings.json can add entries or switch
+  -- enforcement off, and a managed source switches it off silently.
+  --
+  -- The native client's tier pins go in this file's `env` block, beside CLAUDE_CODE_USE_BEDROCK,
+  -- the channel a bare `claude` and a host apply both keep (MM-D2, providers.md PV-D8); a routed
+  -- pin never does, since a bare `claude` would send it to Anthropic, so the env derive carries
+  -- those.
+  local selectedP = ctx.providers and ctx.providers[ctx.selected_provider]
+  if ctx.selected_provider ~= "openai-codex" and listOnly(selectedP)
+    and (nativeBedrock(ctx) or routedProvider(ctx, selectedP)) then
+    local rows = onlyRows(ctx, selectedP)
+    if #rows > 0 then
+      local default = listDefault(ctx, selectedP, rows)
+      local options, ids = {}, { default.id }
+      for _, r in ipairs(rows) do
+        table.insert(options, { model = r.id, label = r.name or r.wire, description = r.description })
+        if r.id ~= default.id then table.insert(ids, r.id) end
+      end
+      out.modelPicker = { options = options, replaceBuiltInOptions = true }
+      if ctx.enforce_models ~= false then
+        out.availableModels = ids
+        out.enforceAvailableModels = true
+      end
+      if nativeBedrock(ctx) then
+        onlyTierPins(ctx, selectedP, env, rows, default)
+      end
     end
   end
   return out
@@ -577,8 +738,9 @@ yolo.env("claude", function(ctx)
     -- every time. The allowlist the settings derive writes makes the session valid without it:
     -- an off-list saved model is replaced at startup by Default, which the tier pins above make
     -- the list's default. A profile that wants every session to start on its model says
-    -- `pin_model`.
-    if pinModel(ctx.profile) then
+    -- `pin_model`. With the switch off (enforce_models: false) no allowlist renders, and what
+    -- keeps claude's start valid there is OQ-MM3's to rule, so today's pin stays.
+    if pinModel(ctx.profile) or ctx.enforce_models == false then
       out.ANTHROPIC_MODEL = model
       out.CLAUDE_CODE_SUBAGENT_MODEL = model
     end
@@ -774,6 +936,7 @@ yolo.env("claude", function(ctx)
     out.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku .. suffix
     out.ANTHROPIC_SMALL_FAST_MODEL = haiku .. suffix
   end
-  -- MM-D2's remaining tier pins and every pin's name, on a routed provider (completeRoutedTiers).
-  return completeRoutedTiers(ctx, p, out)
+  -- The list's pins: under an `only` its whole rendering, else MM-D2's remaining tier pins on a
+  -- routed provider (listPins).
+  return listPins(ctx, p, out)
 end)

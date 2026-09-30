@@ -123,8 +123,13 @@ func TestCerebrasPackShipsTheCatalogTheDerivesRead(t *testing.T) {
 		t.Errorf("options.context_window = %q, want the free-tier 64K bound — the "+
 			"conservative window claude's auto-compact should trigger at (WB-D8)", got)
 	}
-	if options.Len() != 2 {
-		t.Errorf("cerebras declares %d options, want exactly model and context_window — "+
+	// pin_model is declared with no default, so a profile over cerebras may opt in to pinning
+	// claude's start model (docs/design/model-lists-and-pickers.md MM-D3).
+	if v, declared := options.Get("pin_model"); !declared || v != nil {
+		t.Errorf("options.pin_model = %v (declared %v), want declared with no default", v, declared)
+	}
+	if options.Len() != 3 {
+		t.Errorf("cerebras declares %d options, want exactly model, context_window and pin_model — "+
 			"api_timeout_ms stays absent with no evidence of 50-minute turns: %v",
 			options.Len(), options.Keys())
 	}

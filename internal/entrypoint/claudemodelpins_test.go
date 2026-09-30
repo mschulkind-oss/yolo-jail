@@ -213,3 +213,144 @@ func TestClaudeOnABridgedProviderShowsTheList(t *testing.T) {
 		}
 	}
 }
+
+// companyModelsPack is a company pack (a pack carrying policy rather than a program,
+// docs/design/model-lists-and-pickers.md §1) whose contributions shape another pack's provider.
+func companyModelsPack(t *testing.T, contributes string) *packload.Pack {
+	t.Helper()
+	dir := t.TempDir()
+	writeHostFile(t, filepath.Join(dir, "pack.json"), `{"name":"company","description":"d","contributes":[`+contributes+`]}`)
+	p, problems := packload.LoadDir(dir, "company")
+	if p == nil || len(problems) != 0 {
+		t.Fatalf("the company fixture did not load: %v", problems)
+	}
+	return p
+}
+
+func pickerIDs(t *testing.T, settings map[string]any) []any {
+	t.Helper()
+	picker, _ := settings["modelPicker"].(map[string]any)
+	if picker["replaceBuiltInOptions"] != true {
+		t.Errorf("modelPicker = %v, want the built-ins replaced", settings["modelPicker"])
+	}
+	options, _ := picker["options"].([]any)
+	var ids []any
+	for _, o := range options {
+		ids = append(ids, o.(map[string]any)["model"])
+	}
+	return ids
+}
+
+// UNDER AN `only` ON A ROUTED PROVIDER (§14.1, claude routed): the narrowed list is the menu,
+// claude's allowlist refuses what is off it while the profile's switch is on, and — the allowlist
+// now keeping the session valid — the start is pinned only on pin_model (MM-D1, MM-D3, MM-D5).
+// With the switch off the list only shapes the menu, and the start pin stays until OQ-MM3 says
+// what replaces it.
+func TestClaudeUnderAnOnlyOnARoutedProvider(t *testing.T) {
+	company := companyModelsPack(t, `{"kind":"models","provider":"zai","only":["glm-5.3","glm-5.3-flash"]}`)
+	packs := append(testPacksForAgent(t, "claude", "zai"), company)
+	off := false
+	for _, tc := range []struct {
+		name            string
+		profiles        map[string]packload.UserProfile
+		profile         string
+		enforced        bool
+		wantStartPinned bool
+	}{
+		{"the shipped profile", nil, "zai", true, false},
+		{"a profile opting in with pin_model", map[string]packload.UserProfile{
+			"zai-pin": {Provider: "zai", Options: map[string]string{"pin_model": "true"}}}, "zai-pin", true, true},
+		{"a profile with enforcement off", map[string]packload.UserProfile{
+			"zai-open": {Provider: "zai", EnforceModels: &off}}, "zai-open", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := renderClaudeModels(t, packs, nil, tc.profiles, tc.profile)
+			if ids := pickerIDs(t, got.settings); !reflect.DeepEqual(ids, []any{"glm-5.3[1m]", "glm-5.3-flash[1m]"}) {
+				t.Errorf("modelPicker ids = %v, want exactly the narrowed list", ids)
+			}
+			available, hasAllowlist := got.settings["availableModels"]
+			switch {
+			case tc.enforced && !reflect.DeepEqual(available, []any{"glm-5.3[1m]", "glm-5.3-flash[1m]"}):
+				t.Errorf("availableModels = %v, want the narrowed list, the default (zai's glm-5.3) first", available)
+			case tc.enforced && got.settings["enforceAvailableModels"] != true:
+				t.Errorf("enforceAvailableModels = %v, want true while the switch is on", got.settings["enforceAvailableModels"])
+			case !tc.enforced && hasAllowlist:
+				t.Errorf("availableModels = %v with enforce_models off, want no refusal", available)
+			}
+			for _, k := range claudeTierVars {
+				if got.env[k] != "glm-5.3[1m]" {
+					t.Errorf("%s = %q, want glm-5.3[1m]", k, got.env[k])
+				}
+			}
+			start, pinned := got.env["ANTHROPIC_MODEL"]
+			if pinned != tc.wantStartPinned || (pinned && start != "glm-5.3[1m]") {
+				t.Errorf("ANTHROPIC_MODEL = %q (set %v), want set %v", start, pinned, tc.wantStartPinned)
+			}
+			if _, inSettings := got.settings["env"].(map[string]any)["ANTHROPIC_DEFAULT_OPUS_MODEL"]; inSettings {
+				t.Error("a routed tier pin was written into settings.json, where a bare claude would send it to Anthropic")
+			}
+		})
+	}
+}
+
+// UNDER AN `only` ON CLAUDE'S OWN BEDROCK CLIENT (§14.1, claude native): the menu is the list's
+// Anthropic entries, since Bedrock's Messages API serves Claude alone; the allowlist refuses the
+// rest; and every tier is pinned in settings.json's `env` block, beside CLAUDE_CODE_USE_BEDROCK,
+// where a bare `claude` keeps it (MM-D2). A company pack adds the models and narrows to them,
+// which is the shape a company ships (OQ-BR12).
+func TestClaudeUnderAnOnlyOnItsOwnBedrockClient(t *testing.T) {
+	company := companyModelsPack(t, `{"kind":"models","provider":"bedrock","add":[
+	    {"id":"global.anthropic.claude-opus-5-5","vendor":"anthropic","name":"Claude Opus 5.5"},
+	    {"id":"global.moonshot.kimi-k3","vendor":"moonshot","name":"Kimi K3"},
+	    {"id":"us.anthropic.claude-sonnet-5","vendor":"anthropic","alias":"sonnet","name":"Claude Sonnet 5"}]},
+	  {"kind":"models","provider":"bedrock","only":["global.anthropic.claude-opus-5-5","global.moonshot.kimi-k3","us.anthropic.claude-sonnet-5"]}`)
+	packs := append(testPacksForAgent(t, "claude"), company)
+	got := renderClaudeModels(t, packs, nil, nil, "bedrock")
+
+	want := []any{"global.anthropic.claude-opus-5-5", "us.anthropic.claude-sonnet-5"}
+	if ids := pickerIDs(t, got.settings); !reflect.DeepEqual(ids, want) {
+		t.Errorf("modelPicker ids = %v, want the list's Anthropic entries %v", ids, want)
+	}
+	if available := got.settings["availableModels"]; !reflect.DeepEqual(available, want) ||
+		got.settings["enforceAvailableModels"] != true {
+		t.Errorf("availableModels = %v (enforce %v), want %v enforced", available, got.settings["enforceAvailableModels"], want)
+	}
+	settingsEnv, _ := got.settings["env"].(map[string]any)
+	if settingsEnv["CLAUDE_CODE_USE_BEDROCK"] != "1" {
+		t.Fatalf("settings env = %v, want claude's own Bedrock client switched on", settingsEnv)
+	}
+	wantTiers := map[string]string{
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":   "global.anthropic.claude-opus-5-5",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-5",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":  "global.anthropic.claude-opus-5-5",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL":  "global.anthropic.claude-opus-5-5",
+	}
+	for k, v := range wantTiers {
+		if settingsEnv[k] != v {
+			t.Errorf("settings env %s = %v, want %s", k, settingsEnv[k], v)
+		}
+		if got.env[k] != v {
+			t.Errorf("process env %s = %q, want %s, the value the settings file carries", k, got.env[k], v)
+		}
+	}
+	if settingsEnv["ANTHROPIC_DEFAULT_SONNET_MODEL_NAME"] != "Claude Sonnet 5" {
+		t.Errorf("settings env sonnet name = %v, want the entry's name", settingsEnv["ANTHROPIC_DEFAULT_SONNET_MODEL_NAME"])
+	}
+	if v, set := got.env["ANTHROPIC_MODEL"]; set {
+		t.Errorf("ANTHROPIC_MODEL = %q, want no start pin: the allowlist keeps the session valid (MM-D3)", v)
+	}
+}
+
+// A LIST THAT ONLY ADDS KEEPS TODAY'S RENDERING on claude's own Bedrock client: what an `add`
+// does to the agent's own catalog is OQ-MM1's, unruled, so no picker, no allowlist and no pins
+// come of it.
+func TestClaudeKeepsItsOwnMenuForAListThatOnlyAdds(t *testing.T) {
+	company := companyModelsPack(t, `{"kind":"models","provider":"bedrock","add":[
+	    {"id":"global.anthropic.claude-opus-5-5","vendor":"anthropic"}]}`)
+	got := renderClaudeModels(t, append(testPacksForAgent(t, "claude"), company), nil, nil, "bedrock")
+	for _, k := range []string{"modelPicker", "availableModels", "enforceAvailableModels"} {
+		if v, present := got.settings[k]; present {
+			t.Errorf("settings %s = %v, want it absent for a list no `only` narrowed (OQ-MM1)", k, v)
+		}
+	}
+}

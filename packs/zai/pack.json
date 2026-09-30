@@ -29,7 +29,8 @@
       "options": {
         "api_timeout_ms": "3000000",
         "context_window": "1000000",
-        "model": "glm-5.3"
+        "model": "glm-5.3",
+        "pin_model": null
       }
     },
     {

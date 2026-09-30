@@ -15,7 +15,8 @@
       "name": "cerebras",
       "options": {
         "context_window": "65536",
-        "model": "default"
+        "model": "default",
+        "pin_model": null
       }
     },
     {

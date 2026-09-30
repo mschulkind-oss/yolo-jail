@@ -127,6 +127,10 @@ func TestLlamacppDeclaresTheOptionsAProfileMayTune(t *testing.T) {
 		// claude's attribution header, off for this server (OQ-BR8 moved it here from a
 		// profile-gated env): claude's derive reads it.
 		"attribution_header": {Defaulted: true, Value: "false"},
+
+		// claude's start-model opt-in (docs/design/model-lists-and-pickers.md MM-D3), declared
+		// with no default so a profile over llama.cpp may set it.
+		"pin_model": {},
 	} {
 		got, ok := opts[name]
 		if !ok {
@@ -137,8 +141,8 @@ func TestLlamacppDeclaresTheOptionsAProfileMayTune(t *testing.T) {
 			t.Errorf("option %q = %+v, want %+v", name, got, want)
 		}
 	}
-	if len(opts) != 11 {
-		t.Errorf("options = %v, want only the eleven a derive reads", opts)
+	if len(opts) != 12 {
+		t.Errorf("options = %v, want only the twelve a derive reads", opts)
 	}
 	// One alias, and `default` is the name every derive falls back to when a profile
 	// states no `model`. The id is what `llama-server --alias` must report.

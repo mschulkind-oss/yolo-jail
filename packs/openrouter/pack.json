@@ -14,7 +14,8 @@
       "kind": "provider",
       "name": "openrouter",
       "options": {
-        "model": null
+        "model": null,
+        "pin_model": null
       }
     },
     {
