@@ -3,7 +3,7 @@ title: "What `yolo host` reads for PATH — the PATH it was started with, plus `
 date: 2026-09-25
 status: in-review
 tags: [design, host, env, path, mise, depcheck, predictability]
-summary: "At `yolo host`, yolo's checks (is a program a pack needs present, and which copy of a program no floor entry covers runs) read the PATH yolo was started with, plus the folders a user-scope `host_path` list adds, by the maintainer's ruling HE-DIR1. The checks look in no other folder, and a launcher with a bare PATH can get a different answer from a terminal. What stays fixed whoever starts yolo is what yolo provides: the host agent floor's copy of each selected pack's agent, and the floor's own Node. The agent is handed that same PATH with the floor's `bin/` after it, and a miss prints one line naming the PATH searched and the `host_path` fix. One question is open: whether yolo keeps looking for API keys in the shell that started it."
+summary: "At `yolo host`, yolo's checks (is a program a pack needs present, and which copy of a program no floor entry covers runs) read the PATH yolo was started with, plus the folders a user-scope `host_path` list adds, by the maintainer's ruling HE-DIR1. The checks look in no other folder, and a launcher with a bare PATH can get a different answer from a terminal. What stays fixed whoever starts yolo is what yolo provides: the host agent floor's copy of each selected pack's agent, and the floor's own Node. The agent is handed that same PATH with the floor's `bin/` after it, and a miss prints one line naming the PATH searched and the `host_path` fix. Nothing waits on a ruling: API keys, a region and the override check's variables keep counting from the shell that started yolo, because the agent is handed that shell (HE-D10, reversible)."
 ---
 
 # What `yolo host` reads for PATH — the PATH it was started with, plus `host_path`, and the floor for the agents yolo provides
@@ -12,7 +12,9 @@ summary: "At `yolo host`, yolo's checks (is a program a pack needs present, and 
 > the host **read the PATH yolo was started with** ([HE-DIR1](#he-dir1)). The doc had read the
 > 2026-09-25 ruling the opposite way and asked [OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9) on that
 > reading, twice. It is restated under HE-DIR1, which retires or answers each of them except
-> [OQ-HE6](#oq-he6), which is open ([§9](#9-open-questions)).
+> [OQ-HE6](#oq-he6), about API keys. That one is answered by the implementation decision
+> [HE-D10](#he-d10), which keeps today's behavior and is reversible. Nothing here waits on a
+> ruling ([§9](#9-open-questions)).
 
 **Status:** DESIGN, 2026-09-25; restated 2026-09-29 under [HE-DIR1](#he-dir1). Nothing is built.
 The code claims were re-read against `303e0367` on 2026-09-29. Besides HE-DIR1 it rests on three
@@ -71,11 +73,11 @@ accepts that: *"it's just not feasible to otherwise know these things."* The fix
 
 **Start at [§0](#0-the-governing-ruling)**, then [§2.2](#22-the-launch-path-and-what-host_path-adds).
 
-**Needs your ruling:** [OQ-HE6](#oq-he6) (API keys in the shell that started yolo). Ruled:
-[HE-DIR1](#he-dir1), [OQ-HE0](#oq-he0) (revised for PATH by HE-DIR1), [OQ-HE10](#oq-he10) (c),
-[OQ-HE11](#oq-he11) (a). Retired or answered by HE-DIR1: [OQ-HE1](#oq-he1), [OQ-HE2](#oq-he2),
-[OQ-HE3](#oq-he3), [OQ-HE4](#oq-he4), [OQ-HE5](#oq-he5), [OQ-HE7](#oq-he7), [OQ-HE8](#oq-he8),
-[OQ-HE9](#oq-he9).
+**Needs your ruling:** none. Ruled: [HE-DIR1](#he-dir1), [OQ-HE0](#oq-he0) (revised for PATH by
+HE-DIR1), [OQ-HE10](#oq-he10) (c), [OQ-HE11](#oq-he11) (a). Retired or answered by HE-DIR1:
+[OQ-HE1](#oq-he1), [OQ-HE2](#oq-he2), [OQ-HE3](#oq-he3), [OQ-HE4](#oq-he4), [OQ-HE5](#oq-he5),
+[OQ-HE7](#oq-he7), [OQ-HE8](#oq-he8), [OQ-HE9](#oq-he9). Answered by the implementation decision
+[HE-D10](#he-d10), reversible: [OQ-HE6](#oq-he6) (API keys in the shell that started yolo).
 
 **Reads with:**
 - [`host-tool-provisioning.md`](host-tool-provisioning.md): the floor, which supplies every agent a
@@ -135,12 +137,13 @@ accepts that: *"it's just not feasible to otherwise know these things."* The fix
   append mise's shims directory to PATH "opportunistically," meaning whenever it exists. That
   still holds. HE-DIR1 names PATH as the source (*"we just get things from [PATH]"*), and a
   folder yolo adds whenever it exists would be a source of yolo's own.
-- **Every other input yolo reads to decide something** still has to be named by config or by a
-  `YOLO_*` variable. Three built checks do read the shell that started yolo today, and each can
-  refuse a launch: the credential pre-flight, the region pre-flight and the
+- **A new input yolo reads to decide something** has to be named by config or by a `YOLO_*`
+  variable. The shell reads already built stay. Three built checks read the shell that started
+  yolo, and each can refuse a launch: the credential pre-flight, the region pre-flight and the
   [OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8) override check
   ([§1.2](#12-ambient-values-yolo-reads-to-decide-something)). The credential gate's delivery
-  reads it too. Whether they keep doing so is [OQ-HE6](#oq-he6).
+  reads the shell too. They keep doing so ([OQ-HE6](#oq-he6), answered by [HE-D10](#he-d10),
+  reversible): the agent is handed that shell, and the check reads what the agent is handed.
 
 **What stays fixed whoever starts yolo**, because yolo provides it:
 
@@ -264,8 +267,9 @@ The 09-25 ruling is about yolo's predictability, so:
 
 - **A decision input must be composed or named.** It comes from config or from a `YOLO_*`
   variable, never from whoever launched yolo. **PATH is the exception, by ruling**
-  ([HE-DIR1](#he-dir1)): yolo cannot otherwise know where a user's programs are. Credentials are
-  undecided ([OQ-HE6](#oq-he6)).
+  ([HE-DIR1](#he-dir1)): yolo cannot otherwise know where a user's programs are. Credentials, a
+  region and the override check's variables are the other exception: at the host the agent is
+  handed the shell, and the check reads what the agent is handed ([HE-D10](#he-d10)).
 - **A carried variable passes through unchanged.** `TERM`, `COLORTERM`, `DISPLAY`,
   `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `SSH_AUTH_SOCK`, `LANG`/`LC_*`
   and `TZ` describe the session the user asked the program to run in. A Waybar-started widget has
@@ -304,8 +308,10 @@ beside the checks:
 
 How the criterion classifies the rest of [§1.2](#12-ambient-values-yolo-reads-to-decide-something):
 
-- **Credentials are a decision input.** They steer `credentialGaps`, and today they are read
-  from the shell that started yolo. Whether that stays is [OQ-HE6](#oq-he6).
+- **Credentials are a decision input**, and so are a region and the variables the override check
+  reads. At the host they keep being read from the shell that started yolo, beside what yolo
+  composes ([OQ-HE6](#oq-he6), answered by [HE-D10](#he-d10)). A check that ignored the shell would
+  refuse launches the agent would be served in.
 - **cwd is an argument of the invocation**, not ambient state. It stays.
 - **HOME stays.** A `HOME` that disagrees with the passwd entry is a deliberate act, and yolo
   honors `$HOME` everywhere through `paths.Home()`. Changing that is out of scope.
@@ -315,7 +321,8 @@ How the criterion classifies the rest of [§1.2](#12-ambient-values-yolo-reads-t
 In the environment-manager closure tiers
 ([`yolo-as-environment-manager.md`](yolo-as-environment-manager.md#the-full-closure)), the ambient
 PATH is an **Undeclared** input at the host notch: it participates and nothing names it. By
-HE-DIR1 it stays there. The folders `host_path` adds are **Declared-impure**: named in the user
+HE-DIR1 it stays there, and by [HE-D10](#he-d10) so do the keys, region and override variables
+the shell exports. The folders `host_path` adds are **Declared-impure**: named in the user
 config, with contents that are machine state.
 
 ### 2.2 The launch PATH, and what `host_path` adds
@@ -616,8 +623,9 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
 
 ## 9. Open questions
 
-One question is open, [OQ-HE6](#oq-he6). Every other question the 2026-09-25 reading raised is
-retired or answered by [HE-DIR1](#he-dir1). Each keeps its anchor and says why in a line.
+No question is open. Every question the 2026-09-25 reading raised is retired or answered by
+[HE-DIR1](#he-dir1), except [OQ-HE6](#oq-he6), which the implementation decision [HE-D10](#he-d10)
+answers. Each keeps its anchor and says why in a line.
 
 ### <a id="oq-he1"></a>✅ [`OQ-HE1`](#oq-he1) — what does an unset `host_path` resolve to once enforced? — **ANSWERED BY HE-DIR1, 2026-09-29**
 
@@ -672,56 +680,42 @@ into the list.
 > **Answer:** Retired by [HE-DIR1](#he-dir1), which makes that PATH the start of every launch PATH.
 > The entry would say what always happens.
 
-### <a id="oq-he6"></a>💬 [`OQ-HE6`](#oq-he6) — does yolo keep looking for API keys in the shell that started it? — **OPEN**
+### <a id="oq-he6"></a>✅ [`OQ-HE6`](#oq-he6) — does yolo keep looking for API keys in the shell that started it? — **ANSWERED BY IMPLEMENTATION DECISION HE-D10, 2026-09-29 (reversible)**
 
-**Setup.** You select the pi and zai packs, and your `~/.bashrc` has `export ZAI_API_KEY=…`, the
-key the zai provider names. You have never listed a key file in `env_sources`, the user-config
-list of files yolo reads keys from. From a terminal, `yolo host -p zai -- pi` starts. A Waybar
-button running the same command never read `.bashrc`, so yolo refuses before pi starts. The
-refusal says `ZAI_API_KEY` is not set, that yolo looked in *"the environment yolo was launched
-from"*, and that the key belongs in one of the places it looked.
+It asked whether `yolo host` should stop counting what the shell that started it exports. From a
+terminal whose `.bashrc` exports `ZAI_API_KEY`, `yolo host -p zai -- claude` starts. A Waybar
+button running the same command never read `.bashrc`, so the credential pre-flight refuses and
+names where it looked. The choices were to keep counting the shell, to stop, or to stop after one
+release of notice.
 
-That is the PATH case over again: whether the launch refuses depends on who started yolo. Today
-yolo reads the shell for keys at both notches.
-
-- At `yolo host`, the refusal check falls back to the process environment
-  (`credentialGaps(os.Getenv)`), and so does the credential gate (`Fallback: os.LookupEnv`).
-- A jail launch's refusal check consults *"the environment yolo was launched from"* the same way
-  (`checkProviderCredentials` in `internal/cli/run/providerpreflight.go`).
-
-A key in the shell reaches the agent under every option below. Only yolo's own check is in
-question.
-
-**Why HE-DIR1 does not settle it.** HE-DIR1 is about PATH, and its reason is PATH's: yolo cannot
-know where a user put a program except from the PATH it was handed. A key has a channel that works
-from every launcher, `env_sources`, so that reason does not carry over by itself. And the
-2026-09-25 ruling, which still governs everything but PATH, points the other way: yolo should not
-depend on the environment it was launched in unless config names the dependence.
-
-**The options.**
-
-- **(A) Keep reading the shell, as HE-DIR1 reads PATH.** Nothing changes. The terminal launch
-  starts. The Waybar launch refuses, naming where yolo looked and saying to put the key in one of
-  those places. A user who wants the widget to work moves the key into an `env_sources` file once.
-  **Cost:** whether a launch refuses depends on who started yolo, the cost HE-DIR1 accepted for
-  PATH.
-- **(B) Stop reading the shell for keys at `yolo host`**, as the 2026-09-25 ruling reads. yolo's
-  check counts only what yolo composes, `env_sources` above all, so the terminal refuses like the
-  widget until the key is in a file `env_sources` lists. **Cost:** every user who exports a key in a shell file moves it once.
-  `yolo host` and a jail launch then disagree about the same key, unless the jail changes too.
-- **(C) (B), with one release of notice first.** Until the switch, a launch that found the key
-  only in the shell still starts, and prints one line naming `env_sources`. **Cost:** (B)'s, later,
-  plus that line on every such launch until then.
-
-**Leaning: (A), for consistency with HE-DIR1.** It is the same shape: yolo picks up what the
-launcher's environment has, a named channel covers a launcher that lacks it, and a miss names where
-yolo looked and the fix. (B) and (C) would make keys the one input yolo refuses to take from its
-launcher while it takes PATH from it, and would split `yolo host` from the jail launch. Under (A)
-nothing is built; [OQ-HE0](#oq-he0)'s ledger row would record credentials beside PATH.
-
-<!-- vantage: oq id=OQ-HE6 leaning="(A) keep reading the shell that started yolo for API keys, as HE-DIR1 reads its PATH. Same shape: pick up what the launcher's environment has, env_sources is the named channel that works from any launcher, and the refusal already names where yolo looked and the fix. It is today's behavior at both notches and needs no build. (B) and (C) would make keys the one input yolo refuses from its launcher while it reads PATH from it, and would split yolo host from the jail launch." -->
-
-> **Answer:**
+> **Answer:** Keep counting it, as today, for keys, for a region and for the override check's
+> variables. It is decided as [HE-D10](#he-d10) rather than asked again, because the rulings and
+> built decisions already in force leave one coherent answer:
+>
+> - **The check has to read what the delivery reads.** The jail's pre-flight states the rule
+>   (`checkProviderCredentials`: *"the check and the delivery cannot disagree"*), and counts the
+>   launch shell for credentials because a derive can relay a credential out of it.
+> - **At `yolo host` the delivery reads the shell twice.** The agent inherits the shell whole
+>   ([CN-D13](provider-credential-scope.md#7-decision-ledger), and the "start from the current
+>   environment" that [§0](#0-the-governing-ruling) says stands). And the credential gate's
+>   `Fallback` answers a key `env_sources` did not hydrate, so a pack's derive composes from it.
+>   With `-p zai`, claude's derive sets `ANTHROPIC_AUTH_TOKEN` from the shell's `ZAI_API_KEY`
+>   ([Appendix A](#appendix-a--evidence)).
+> - **So stopping breaks something either way.** Stop only the check, and yolo refuses a launch
+>   its delivery would serve. Stop the delivery too, and `yolo host -p zai -- claude` loses
+>   `ANTHROPIC_AUTH_TOKEN`. The raw `ZAI_API_KEY` still passes through, but claude does not read
+>   it. That reverses CN-D13 and the host half of [BR-D2](bedrock-plumbing.md#BR-D2). The region
+>   and override checks ([§1.2](#12-ambient-values-yolo-reads-to-decide-something)) would still
+>   read the shell unless they changed too.
+> - **The 2026-09-25 ruling was said about PATH**, in reply to the suggestion to append mise's
+>   shims folder ([§0](#0-the-governing-ruling)). Reading it as governing keys is the same
+>   widening [HE-DIR1](#he-dir1) corrected for PATH. This bullet is the recorder's reading.
+> - **It is HE-DIR1's shape.** yolo picks up the key the launcher's environment has. `env_sources`
+>   is the named channel that works from any launcher, as `host_path` is for PATH. A refusal names
+>   where yolo looked and says to put the key in one of those places.
+>
+> **Reversible.** If keys should stop following the launcher, that reopens this question with
+> CN-D13, BR-D2's host half and the override check in scope. Nothing is built either way.
 
 ### <a id="oq-he7"></a>✅ [`OQ-HE7`](#oq-he7) — does the ruling extend to jail launches' host-side lookups? — **RETIRED BY HE-DIR1, 2026-09-29**
 
@@ -935,8 +929,8 @@ here rather than settled in the body.
 
 | Id | Date | Decision | Why it holds |
 | :--- | :--- | :--- | :--- |
-| <a id="he-dir1"></a>**HE-DIR1** | 2026-09-29 | **Maintainer ruling, revising [OQ-HE0](#oq-he0) for PATH:** *"we can pick up the path if it's there because it's just not feasible to otherwise know these things … I just don't see any way around it. And then I think we just get things from [PATH]."* The recorder's reading: yolo's checks at the host read the PATH yolo was started with, when it has one, plus `host_path` when set; they look in no other folder, and a bare-PATH launcher may get a different answer | The "checks never read the ambient PATH" extension of [OQ-HE0](#oq-he0) was the doc's, never the maintainer's. Under it, [OQ-HE6](#oq-he6) is restated and open; the rest of [OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9) are retired or answered ([§9](#9-open-questions)) |
-| <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) | 2026-09-25 | `yolo host` does not depend on the environment it was launched in unless a `YOLO_*` variable or explicit config names the dependence. This supersedes the opportunistic mise-shims append. **Revised for PATH by [HE-DIR1](#he-dir1)**: the PATH yolo was started with is read | Maintainer ruling ([§0](#0-the-governing-ruling)). It still governs every decision input but PATH; whether it covers credentials, which yolo reads from the shell today, is [OQ-HE6](#oq-he6) |
+| <a id="he-dir1"></a>**HE-DIR1** | 2026-09-29 | **Maintainer ruling, revising [OQ-HE0](#oq-he0) for PATH:** *"we can pick up the path if it's there because it's just not feasible to otherwise know these things … I just don't see any way around it. And then I think we just get things from [PATH]."* The recorder's reading: yolo's checks at the host read the PATH yolo was started with, when it has one, plus `host_path` when set; they look in no other folder, and a bare-PATH launcher may get a different answer | The "checks never read the ambient PATH" extension of [OQ-HE0](#oq-he0) was the doc's, never the maintainer's. Under it, the rest of [OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9) are retired or answered, and [OQ-HE6](#oq-he6) is answered by [HE-D10](#he-d10) ([§9](#9-open-questions)) |
+| <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) | 2026-09-25 | `yolo host` does not depend on the environment it was launched in unless a `YOLO_*` variable or explicit config names the dependence. This supersedes the opportunistic mise-shims append. **Revised for PATH by [HE-DIR1](#he-dir1)**: the PATH yolo was started with is read | Maintainer ruling ([§0](#0-the-governing-ruling)), said in reply to a suggestion about PATH. It still bars a folder or input of yolo's own guessing, and a new decision input needs config or a `YOLO_*` variable. The keys, region and override variables the shell exports keep counting at the host by [HE-D10](#he-d10) |
 | [**OQ-HE10**](#oq-he10) | 2026-09-29 | (c): the child's PATH is the ambient PATH, then `host_path`'s folders (the "composed value", now without a baseline), then the floor's `bin/`, duplicates removed. A bare name of a program a selected pack delivers execs from the floor by path; a path is exec'd as given; any other bare name is looked up on that child PATH | Answered by [OQ-HP7](host-tool-provisioning.md#OQ-HP7) (the agent's commands see the user's own environment) and the maintainer's ruling [HP-DIR4](host-tool-provisioning.md#HP-DIR4) (the floor's copy of a pack's agent runs, from any launcher). Its recorded "checks never read the ambient PATH" is superseded by [HE-DIR1](#he-dir1), and the baseline its option text put in the child's PATH is gone ([HE-D9](#he-d9)) |
 | [**OQ-HE11**](#oq-he11) | 2026-09-29 | (a): a program the floor cannot hold runs from the child's PATH, and the launch says the floor holds no copy and why. The macOS host capture is prioritized | Keeps a Mac user's working `yolo host -- claude` working until [HP-D2](host-tool-provisioning.md#HP-D2) ships; departs from [HP-DIR4](host-tool-provisioning.md#HP-DIR4) only where the floor has nothing to run instead |
 | [**OQ-HE1**](#oq-he1) | 2026-09-29 | Answered by HE-DIR1: an unset `host_path` means the PATH yolo was started with, alone; no baseline and no per-user list | HE-DIR1: *"we just get things from [PATH]"*; either list would be folders yolo adds on its own |
@@ -956,6 +950,7 @@ here rather than settled in the body.
 | <a id="he-d7"></a>**HE-D7** | 2026-09-29 | *Implementation decision:* `yolo check`'s host launch section reads the PATH of the shell it runs in, plus `host_path`, and says so in the section | A check run from a terminal cannot see a widget's PATH, and a green section must not read as a promise about every launcher |
 | <a id="he-d8"></a>**HE-D8** | 2026-09-29 | *Implementation decision under HE-DIR1:* no staging and no migration notice. The design ships whole | With `host_path` unset, every check reads the PATH it reads today, so nothing breaks that a notice would have warned about. The report-first stages existed only for the withdrawn switch |
 | <a id="he-d9"></a>**HE-D9** | 2026-09-29 | *Implementation decision under HE-DIR1 and [OQ-HE10](#oq-he10) (c):* the child's PATH has no per-OS baseline either. It is the launch PATH, then the floor's `bin/`. **The cost, stated:** (c) as asked said the baseline "fills in for a launcher whose PATH lacks it (Waybar)". A bare launcher's child now gets only what its launcher handed yolo, plus `host_path`'s folders. For example, a Mac hotkey launcher's agent no longer finds `/opt/homebrew/bin` unless `host_path` names it | One PATH for the checks and the child ([§2.1](#21-the-criterion--decision-inputs-versus-carried-variables)), so a check never reads missing a tool the agent then finds, or the reverse. The baseline's contents were [OQ-HE1](#oq-he1)'s and [OQ-HE8](#oq-he8)'s open questions and never ruled, so (c) named a list nobody had decided. One `host_path` line fixes the checks and the child at once, and every delivered agent runs from the floor whatever the launcher's PATH holds ([HP-DIR4](host-tool-provisioning.md#HP-DIR4)). Reversible: a baseline for the child alone would reopen [OQ-HE1](#oq-he1) and [OQ-HE8](#oq-he8) for the child |
+| <a id="he-d10"></a>**HE-D10** | 2026-09-29 | *Implementation decision, reversible, answering [OQ-HE6](#oq-he6):* at `yolo host`, the shell that started yolo keeps counting for the three checks that read it today (the credential pre-flight, the region pre-flight and the [OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8) override check) and for the credential gate's delivery. Nothing is built. A refusal names where yolo looked, the launch environment among them | The check reads what the delivery reads (`checkProviderCredentials`: *"the check and the delivery cannot disagree"*), and at the host the delivery is the inherited shell plus what yolo composes ([CN-D13](provider-credential-scope.md#7-decision-ledger), [BR-D2](bedrock-plumbing.md#BR-D2)). Stopping only the check refuses launches the delivery serves. Stopping the delivery too drops `ANTHROPIC_AUTH_TOKEN` for `yolo host -p zai -- claude`. [OQ-HE0](#oq-he0) was said about PATH, so reading it as covering keys is the widening HE-DIR1 corrected (the recorder's reading) |
 
 ## Appendix A — evidence
 
