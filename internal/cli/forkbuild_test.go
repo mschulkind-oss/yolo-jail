@@ -131,6 +131,19 @@ func TestAForkBuildWithoutItsOutputsStoresNothing(t *testing.T) {
 		"an empty delta": nil,
 		"no program": {{Path: ".local", Kind: capture.KindDir, Mode: "0755"},
 			{Path: ".local/share", Kind: capture.KindDir, Mode: "0755"}},
+		// `npm install -g .`'s shape: the program is there, as a link into the checkout the build
+		// ran in, which is deleted when the build ends.
+		"a link into the build's workspace": {
+			{Path: ".local", Kind: capture.KindDir, Mode: "0755"},
+			{Path: ".local/bin", Kind: capture.KindDir, Mode: "0755"},
+			{Path: ".local/bin/probetool", Kind: capture.KindSymlink, Target: "/workspace/src/bin/probetool"},
+		},
+		// The same link written relative, as npm writes it: resolved from the jail's home.
+		"a relative link into the build's workspace": {
+			{Path: ".local", Kind: capture.KindDir, Mode: "0755"},
+			{Path: ".local/bin", Kind: capture.KindDir, Mode: "0755"},
+			{Path: ".local/bin/probetool", Kind: capture.KindSymlink, Target: "../../../../workspace/src/bin/probetool"},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			forkBuildHome(t)

@@ -149,7 +149,12 @@ func buildFork(b forkBuild, mode buildMode, out, errw io.Writer, color bool) (*c
 			return fmt.Sprintf("%s's build left nothing in the program surfaces (%s)", f.Key(),
 				strings.Join(m.Surfaces, ", "))
 		},
-		func(m *capture.Manifest) string { return missingProduces(m, f.Produces) })
+		func(m *capture.Manifest) string {
+			if why := missingProduces(m, f.Produces); why != "" {
+				return why
+			}
+			return linksIntoTheBuild(m)
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -229,6 +234,33 @@ func missingProduces(m *capture.Manifest, produces []string) string {
 	}
 	return "the build exited 0 but left none of " + strings.Join(missing, ", ") +
 		" — the paths its pack declares under `produces`"
+}
+
+// linksIntoTheBuild names a link the build left pointing into its OWN WORKSPACE — the checkout it
+// ran in, which is deleted when the build ends — or "" when there is none. Admitted, such a link is
+// dangling in every jail that materializes the entry: the program is "there" and cannot start.
+//
+// `npm install -g .` is the common cause, and the reason this is a refusal rather than a lint:
+// npm installs a FOLDER as a link to it, so the most natural build line for a Node fork produces
+// exactly this, and the produces check alone passes it (the path exists — as a link). npm writes
+// that link RELATIVE, so a relative target is resolved from where the link sat in the build jail's
+// home (the manifest's Home) before it is compared.
+func linksIntoTheBuild(m *capture.Manifest) string {
+	for _, e := range m.Entries {
+		if e.Kind != capture.KindSymlink {
+			continue
+		}
+		resolved := e.Target
+		if !path.IsAbs(resolved) {
+			resolved = path.Join(m.Home, path.Dir(e.Path), resolved)
+		}
+		if resolved == containerWorkspace || strings.HasPrefix(resolved, containerWorkspace+"/") {
+			return fmt.Sprintf("the build left %s as a link into its own workspace (%s), which is "+
+				"deleted when the build ends — install a copy instead (for an npm package, "+
+				"`npm install -g \"$(npm pack --silent)\"` rather than `npm install -g .`)", e.Path, e.Target)
+		}
+	}
+	return ""
 }
 
 // captureStaged is THE CAPTURE ACT'S MIDDLE, shared by `yolo capture` of an installer and a fork's

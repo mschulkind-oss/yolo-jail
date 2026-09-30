@@ -14,7 +14,7 @@ func goodFork() Contribution {
 	return Contribution{
 		Kind: KindProgram, Bin: "pi", Via: ViaSource, ForkOf: "pi",
 		Source:   "git+https://github.com/you/pi-fork?ref=main",
-		Build:    "npm ci && npm run build && npm install -g .",
+		Build:    `npm ci && npm run build && npm install -g "$(npm pack --silent)"`,
 		Produces: []string{".npm-global/bin/pi", ".npm-global/lib/node_modules/pi-fork"},
 	}
 }
