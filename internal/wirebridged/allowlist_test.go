@@ -256,3 +256,39 @@ func TestTheAdapterRouteRefusesOnlyWhatEverySharerWouldBeRefused(t *testing.T) {
 	}
 	wantLines(t, shared.logs(), "copilot sends models off it, so an off-list model is logged, not refused")
 }
+
+// TestAModelKeySpelledInAnotherCaseIsTheModel (WG-I43): the bridge's own request parser is Go's
+// encoding/json, which matches an object key to a struct field case-insensitively and keeps the
+// last match, so the adapter route translates `{"model":"a","Model":"b"}` with "b". The allowlist
+// must read the body the way that parser does, or a listed "model" beside an off-list "Model"
+// passes the check and the off-list one is what reaches the upstream. So a key equal to "model"
+// under case folding is the model, and a body spelling it twice, in any cases, names it twice.
+func TestAModelKeySpelledInAnotherCaseIsTheModel(t *testing.T) {
+	b := bootNarrowed(t, []string{"claude", "cerebras", "wire-bridge"}, cerebrasOnly, nil,
+		map[string]string{"claude": "cerebras"}, map[string]string{"claude": cerebrasKey}, true)
+	for _, body := range []string{
+		`{"model":"qwen-extra","Model":"qwen-other","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`,
+		`{"MODEL":"qwen-other","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`,
+	} {
+		resp, got := postTo(t, "http://"+b.adapter+"/v1/messages", body, nil)
+		if resp.StatusCode != 400 || b.up.calls() != 0 {
+			var sent []string
+			for _, s := range b.up.bodies {
+				sent = append(sent, string(s))
+			}
+			t.Errorf("adapter route, body %s: %d, upstream received %q, want a 400 and nothing sent: %s",
+				body, resp.StatusCode, sent, got)
+		}
+	}
+
+	v := bootNarrowed(t, []string{"pi", "zai", "wire-bridge"}, zaiOnly, zaiVia("pz"),
+		map[string]string{"pi": "pz"}, map[string]string{"pi": zaiKey}, true)
+	for _, body := range []string{
+		`{"model":"glm-5.3","Model":"glm-5.3-flash","messages":[]}`,
+		`{"Model":"glm-5.3-flash","messages":[]}`,
+	} {
+		if resp, got := postTo(t, "http://"+v.via+"/agent/pi/chat/completions", body, nil); resp.StatusCode != 400 || v.up.calls() != 0 {
+			t.Errorf("via route, body %s: %d, upstream calls %d, want a 400 and none: %s", body, resp.StatusCode, v.up.calls(), got)
+		}
+	}
+}

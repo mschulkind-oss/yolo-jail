@@ -585,7 +585,8 @@ the profile says `false`.
 
 Each refusal names the model, the provider, the list and the setting that turns it off, and a body
 naming `model` twice is refused too, since the bridge reads one and the provider might read the
-other ([WG-I40](../design/wire-bridge-gateway.md#WG-I40), [WG-I43](../design/wire-bridge-gateway.md#WG-I43)).
+other. The key counts in any letter case (`Model`, `MODEL`), as the bridge's own JSON parser
+counts it ([WG-I40](../design/wire-bridge-gateway.md#WG-I40), [WG-I43](../design/wire-bridge-gateway.md#WG-I43)).
 A request that names no model, such as `GET /models`, is not the list's.
 
 **Exempt agents** ([WG-I41](../design/wire-bridge-gateway.md#WG-I41)). A program whose pack

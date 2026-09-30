@@ -133,6 +133,14 @@ func quoteAll(ss []string) []string {
 // requestModel reads a JSON body's top-level "model": its value, whether the key appeared more
 // than once (dup), and whether it appeared at all (named). A body that is not a JSON object names
 // no model here; the upstream refuses it as it always has.
+//
+// THE KEY IS MATCHED AS THE BRIDGE'S OWN PARSER MATCHES IT: case-insensitively. The adapter
+// route's translation decodes the body with encoding/json, which fills a `json:"model"` field
+// from any key equal to "model" under case folding and keeps the last one, so
+// `{"model":"listed","Model":"other"}` is translated with "other". An exact-case read here admitted
+// that body on "listed" and sent "other" upstream. A key in any case is the model, and two such
+// keys are the duplicate WG-I43 refuses, on the via route too, whose upstream's parser may fold
+// case the same way.
 func requestModel(body []byte) (model string, dup, named bool) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
@@ -148,7 +156,7 @@ func requestModel(body []byte) (model string, dup, named bool) {
 		if err := dec.Decode(&v); err != nil {
 			return model, dup, named
 		}
-		if key != "model" {
+		if !strings.EqualFold(key, "model") {
 			continue
 		}
 		if named {
