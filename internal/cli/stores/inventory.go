@@ -284,6 +284,12 @@ var stateReclaimers = map[string]Reclaimer{
 	// next read, not by this sweep.
 	"image-delivery": {Func: "PruneImageDelivery", Detail: "interrupted deliveries past a 1h floor", Trigger: "yolo prune --apply"},
 	"embedded-packs": {Func: "PruneEmbeddedPackTrees", Detail: "other builds' trees, lease-gated; current build kept", Trigger: "yolo prune --apply"},
+	// The host agent floor (paths.HostFloorDir): yolo's own copies of the selected packs' agents,
+	// which `yolo host` runs. Self-bounded in the two ways that matter — an install keeps its
+	// program's current and previous version, and `yolo host apply --assert` removes an entry no
+	// selected pack delivers (hostfloor.Floor.Reconcile) — so prune's reach is only what a killed
+	// install left, lock-gated.
+	"host-floor": {Func: "PruneHostFloor", Detail: "interrupted installs, lock-gated; each program keeps current + previous, deselected ones go at `yolo host apply --assert`", Trigger: "yolo prune --apply"},
 }
 
 // stateStores inventories the direct children of the state dir, one row each.

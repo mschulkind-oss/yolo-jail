@@ -650,6 +650,26 @@ func Run(opts Options) int {
 		totalSaved += hostArchiveBytes
 	}
 
+	// --- Interrupted host agent floor installs ---
+	// The floor (paths.HostFloorDir) is self-bounded — each install keeps its program's current
+	// and previous version, and `yolo host apply --assert` removes what no selected pack
+	// delivers — except for what a KILLED install leaves: a directory with no completion marker,
+	// or a Node download in flight. Lock-gated, so an install running now is never touched.
+	var hostFloorBytes int64
+	var hostFloorItems int
+	{
+		p.line("")
+		p.line("[bold]Interrupted host agent floor installs[/bold]")
+		hostFloorBytes, hostFloorItems = PruneHostFloor(joinPath(gs, hostFloorLeaf), apply)
+		if hostFloorItems > 0 {
+			p.line(fmt.Sprintf("  %s: %s across %s interrupted install(s) in %s/",
+				verb(apply, "would remove", "removed"), FmtBytes(hostFloorBytes), fmtComma(hostFloorItems), hostFloorLeaf))
+		} else {
+			p.line("  [dim]none[/dim]")
+		}
+		totalSaved += hostFloorBytes
+	}
+
 	// --- Retired loophole state generations ---
 	// What a LAUNCH moves aside when a pack that shipped a loophole leaves `packs`
 	// (docs/reference/loophole-system.md#retirement-what-happens-when-a-pack-goes-away).
@@ -1113,6 +1133,7 @@ func Run(opts Options) int {
 				{Name: "image_cache", Bytes: imageCacheBytes, Count: imageCacheFiles, Unit: "tarballs"},
 				{Name: "legacy_build_roots", Bytes: buildRootBytes, Count: buildRootDirs, Unit: "dirs"},
 				{Name: "host_render_archive", Bytes: hostArchiveBytes, Count: hostArchiveGens, Unit: "generations"},
+				{Name: "host_floor_interrupted", Bytes: hostFloorBytes, Count: hostFloorItems, Unit: "installs"},
 				{Name: "retired_loophole_state", Bytes: loopholeStateBytes, Count: loopholeStateGens, Unit: "generations"},
 				{Name: "superseded_captures", Bytes: captureBytes, Count: captureEntries, Unit: "entries"},
 				{Name: "embedded_pack_trees", Bytes: embeddedTreeBytes, Count: embeddedTreeCount, Unit: "trees"},

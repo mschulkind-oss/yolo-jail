@@ -34,3 +34,26 @@ func TestBrokerDirIsListedAsSelfBounded(t *testing.T) {
 		t.Fatalf("broker row %+v", row)
 	}
 }
+
+// The host agent floor is listed with the reclaimer that reaches it — prune's interrupted-install
+// sweep — and the two self-bounds that keep the rest in check, never as a store nothing reclaims.
+func TestHostFloorIsListedWithItsReclaimer(t *testing.T) {
+	o, state := testOptions(t)
+	if err := os.MkdirAll(filepath.Join(state, "host-floor", "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var row *Store
+	for _, s := range stateStores(o, nil) {
+		if s.Key == "state.host-floor" {
+			s := s
+			row = &s
+		}
+	}
+	if row == nil {
+		t.Fatal("no state.host-floor row")
+	}
+	if row.Verdict != VerdictYolo || row.Reclaimer.Func != "PruneHostFloor" ||
+		!strings.Contains(row.Reclaimer.Detail, "yolo host apply --assert") {
+		t.Fatalf("host-floor row %+v", row)
+	}
+}
