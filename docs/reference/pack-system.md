@@ -1143,10 +1143,13 @@ rules are `packdecl.EnvOverride`'s doc comment.
 
 An `env` contribution whose variables point a client at a yolo jail daemon declares that daemon
 as **`served_by`**: the loophole's name for a loophole's `jail_daemon`, or the service's name. The
-variables are then delivered only where that daemon runs, which is a container launch whose
-payload includes it. They are left out, and the launch names them, at `yolo host` and on
-macos-user, which run no jail daemon, and in a container launch that does not run it, such as a
-loophole left disabled. An address nothing serves is a dead pointer, and on a shared loopback it
+variables are then delivered only where that daemon is served: in a container launch whose
+payload includes it, in the macos-user guest or at the doorway that launch opens for it, and at
+`yolo host` at the doorway it opens for its one agent, aws-auth's for an agent on a Bedrock
+provider ([`host-notch-services.md` §4.8](../design/host-notch-services.md#48-yolo-host)). They
+are left out, and the launch names them and why, wherever nothing serves the daemon, such as a
+loophole left disabled or `yolo host env`, which runs no process. An address nothing serves is a
+dead pointer, and on a shared loopback it
 hands the client's request to whoever binds the port first
 ([notch convergence §2.4](../plans/notch-convergence.md#24-the-addresses-those-secrets-protect-are-composed-not-literal)).
 `packs/codex` declares it on `CODEX_REFRESH_TOKEN_URL_OVERRIDE`, and `packs/aws-auth` on its

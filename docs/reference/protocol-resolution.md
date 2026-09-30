@@ -138,7 +138,7 @@ contribution is the only thing that tells the three apart.
 
 **That fact decides the host notch too** (2026-09-27,
 [ES-D18](../design/credential-sources-separation.md#10-decision-ledger), narrowed 2026-09-28 by
-[HS-D5](../design/host-notch-services.md#HS-D5)). The host and macos-user run no jail daemon, so
+[HS-D5](../design/host-notch-services.md#HS-D5)). The host and macos-user run no pack service's jail daemon, so
 they first compose their table with nothing served (`ComposeProvidersAt` with `NothingServed()`,
 the one composition every notch calls with its own served set;
 [notch convergence item 2](../plans/notch-convergence.md#tier-1--the-loopback-services-p3)). A

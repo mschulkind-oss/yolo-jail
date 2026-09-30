@@ -760,7 +760,7 @@ listeners. These are the facts that survive:
 
 ## <a id="at-the-host-notch"></a>The host half — a bridge for one launch
 
-The host and `macos-user` run no jail daemon, so there the bridge runs as its service's **host
+The host and `macos-user` run no pack service's jail daemon, so there the bridge runs as its service's **host
 half**: `packs/wire-bridge` declares `host_daemon` with the argv `yolo internal daemon
 wire-bridge`, and the launch runs it as a **launch-owned service** (a term
 [`host-notch-services.md`](../design/host-notch-services.md#12-terms) coins: a child of one

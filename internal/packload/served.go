@@ -12,9 +12,10 @@ package packload
 // DOORWAYS its launch opens outside the guest, whose jail-daemon form the guest declines
 // (docs/design/host-notch-services.md HS-D15; "doorway" is that ruling's word for the thin
 // adapter an agent's client talks to, which checks the launch's caller token and forwards to the
-// service's host daemon); and the host notch runs none. internal/loopholes' ServedJailDaemons is
-// the one answer to which of a payload's daemons a runtime serves. An address such a daemon
-// serves is SERVED exactly when the daemon is.
+// service's host daemon); and the host notch runs none but the doorways `yolo host --` opens for
+// the one agent it runs (HS-D21, internal/cli/run's hostdoorways.go). internal/loopholes'
+// ServedJailDaemons is the one answer to which of a payload's daemons a runtime serves. An address
+// such a daemon serves is SERVED exactly when the daemon is.
 //
 // WHY ONE PREDICATE. Each notch used to answer "does anything listen there?" its own way. The
 // host composed no adapter address (a WithoutServiceAdaptations option) and cleared every via
@@ -192,8 +193,8 @@ func ServedInJail(names []string) ServedDaemons {
 	return s
 }
 
-// NothingServed is the set a notch that runs no jail daemon serves: the host, before it starts
-// a launch-owned service.
+// NothingServed is the set a notch that runs no jail daemon serves: the host, before it opens a
+// doorway or starts a launch-owned service (marked AtHost there).
 func NothingServed() ServedDaemons { return ServedDaemons{} }
 
 // ServedByLaunch is the set a host or macos-user launch serves once it has decided to start the
