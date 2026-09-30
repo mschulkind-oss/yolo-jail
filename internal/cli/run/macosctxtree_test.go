@@ -340,51 +340,84 @@ func TestMacosUserDryRunStillComposesTheContextTree(t *testing.T) {
 	}
 }
 
-// THE TWO /ctx DECLARATIONS A COPY CANNOT CARRY, and the human's half of them. Both were
-// accepted, validated and then dropped in SILENCE on this backend: the config `mounts` loop
-// and hostMountArgs are the only readers either has, and both sit below the macos-user
-// return, so nothing on this arm mentioned either key. appliedCtxMounts kept the mounts out
-// of the AGENT's briefing while its own parity marker claimed a `Warned` disposition — a
-// disposition is `Warned` only when the launch says so.
+// DP-D15'S FATAL REFUSAL (docs/design/context-mounts.md §4 step 3). The two /ctx
+// declarations this backend cannot deliver were accepted, validated and dropped — first in
+// silence, then behind a warning — and DP-D15 ruled a fatal error better than a mount that
+// is "surprisingly not there with an easily missed warning". Nothing on this backend
+// delivers a context mount yet, so every declared one whose source exists refuses the
+// launch, named, before the handler is reached.
 //
-// ⚠ Run(), for macosctxtree_test.go's own reason and one sharper: the printer is a pure
-// function of the config and a pack list, so a unit test of it passes with the call deleted —
-// and a missing call is EXACTLY the defect, since every other reader of these two keys is
-// below the arm's return.
-func TestMacosUserNamesTheConfigMountsItCannotBind(t *testing.T) {
-	home := ctxLaunchHome(t, `, "mounts": ["~/code/ref-repo", "`+t.TempDir()+`:/ctx/logs"]`)
-	// The source EXISTS, so config validation's own "host path does not exist and will be
-	// skipped" line cannot be what the assertions below are reading.
+// ⚠ Run(), for macosctxtree_test.go's own reason and one sharper: the refusal is a function
+// of the config and a pack list, so a unit test of it passes with the call deleted — and a
+// missing call is EXACTLY the defect, since every other reader of these two keys is below
+// the arm's return.
+
+// runMacosUserExpectingRefusal drives Run() on the macos-user arm and returns its output,
+// failing unless the launch refused WITHOUT reaching the backend handler.
+func runMacosUserExpectingRefusal(t *testing.T, ws string, tweak func(*Options)) string {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	if tweak != nil {
+		tweak(o)
+	}
+	reached := false
+	o.MacosUserRun = func(*jsonx.OrderedMap, string, []string, []string, string, string, macosuser.HomeOverlay,
+		macosuser.HostContext, bool, *jsonx.OrderedMap, []packload.BlockedTool, macosuser.JailDaemons) int {
+		reached = true
+		return 0
+	}
+	rc := Run(*o)
+	out := stdout.String() + stderr.String()
+	if rc == 0 || reached {
+		t.Fatalf("Run() = %d, handler reached = %v: a declared context mount this backend cannot "+
+			"deliver must refuse the launch before the sandbox starts\n%s", rc, reached, out)
+	}
+	return out
+}
+
+func TestMacosUserRefusesADeclaredConfigMount(t *testing.T) {
+	logs := t.TempDir()
+	home := ctxLaunchHome(t, `, "mounts": ["~/code/ref-repo", "`+logs+`:/ctx/logs"]`)
+	// The source EXISTS: an absent one is skipped, not refused (the test below).
 	if err := os.MkdirAll(filepath.Join(home, "code", "ref-repo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
+	out := runMacosUserExpectingRefusal(t, t.TempDir(), nil)
 
 	for _, want := range []string{
-		"`mounts` is not honored on macos-user",
+		"Refusing the macos-user launch",
 		"/ctx/ref-repo", // the bare-path entry, at the destination it would have taken
 		"/ctx/logs",     // the host:container entry, at the one it named
-		"COPY",          // the reason, which is this backend's own and not the AC :ro rule
+		"container runtime",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("the launch never mentioned %q — the user declared a context mount and "+
-				"gets nothing at that path with no reason given:\n%s", want, out)
+			t.Errorf("the refusal never mentioned %q:\n%s", want, out)
 		}
 	}
 	// Not the container path's sentence borrowed: Apple Container refuses a `:ro` bind it
-	// would otherwise make, and this backend makes no bind at all. Asserting the absence
-	// keeps a later "just reuse the existing string" from stating the wrong reason.
+	// would otherwise make, and this backend makes no bind at all.
 	if strings.Contains(out, "read-only (:ro)") {
-		t.Errorf("the macos-user notice borrowed Apple Container's `:ro` reason:\n%s", out)
+		t.Errorf("the macos-user refusal borrowed Apple Container's `:ro` reason:\n%s", out)
 	}
 }
 
-// A PACK `mount` GRANT IS THE SAME DROP, and it is named the same way — the matched half of
-// the pair above. No pack yolo ships declares one, so this drives a fetched (file://) pack,
-// which is also the case where silence costs most: that grant was approved by a human
-// against a sentence about reading their home.
-func TestMacosUserNamesAPackMountGrantItCannotBind(t *testing.T) {
+// Every mode refuses: a read-write element is no more deliverable here than a read-only
+// one, and a --dry-run refuses too, since its plan would describe a launch that cannot run.
+func TestMacosUserRefusesAReadWriteMountAndADryRunToo(t *testing.T) {
+	data := t.TempDir()
+	ctxLaunchHome(t, `, "mounts": [{"host": "`+data+`", "mode": "rw", "at": "/ctx/data"}]`)
+
+	out := runMacosUserExpectingRefusal(t, t.TempDir(), func(o *Options) { o.DryRun = true })
+	if !strings.Contains(out, "/ctx/data (read-write)") {
+		t.Errorf("the refusal did not name the read-write mount:\n%s", out)
+	}
+}
+
+// A PACK `mount` GRANT IS THE SAME DECLARATION, and refuses the same way. No pack yolo ships
+// declares one, so this drives a configured (file://) pack.
+func TestMacosUserRefusesAPackMountGrant(t *testing.T) {
 	home := packHome(t)
 	src := filepath.Join(t.TempDir(), "acme")
 	if err := os.MkdirAll(src, 0o755); err != nil {
@@ -398,29 +431,71 @@ func TestMacosUserNamesAPackMountGrantItCannotBind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
+	out := runMacosUserExpectingRefusal(t, t.TempDir(), nil)
 
-	for _, want := range []string{
-		"pack `mount` grant is not honored on macos-user",
-		"~/datasets/acme",
-		"/ctx/acme",
-	} {
+	for _, want := range []string{"Refusing the macos-user launch", "pack acme", "~/datasets/acme", "/ctx/acme"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("the launch never mentioned %q. The banner on this same arm discloses "+
-				"the grant as a host READ, so without this line the launch's only word on "+
-				"the subject is the one that overclaims:\n%s", want, out)
+			t.Errorf("the refusal never mentioned %q:\n%s", want, out)
 		}
 	}
 }
 
-// THE CONTROL, and it is the difference between a disclosure and the warning OQ-BP-3 says
-// people learn to skip: a launch that declared no context mount says nothing about one.
+// KEYED ON A DELIVERABLE DECLARATION, never on a default (DP-D15's own warning): a source
+// that does not exist would be absent on every backend, so it is skipped with the container
+// backends' line and the launch goes on (CX-D9).
+func TestMacosUserSkipsADeclaredMountWhoseSourceIsAbsent(t *testing.T) {
+	ctxLaunchHome(t, `, "mounts": ["~/no/such/dir"]`)
+
+	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
+	if !strings.Contains(out, "mount path does not exist, skipping") {
+		t.Errorf("an absent mount source was not named as skipped:\n%s", out)
+	}
+	if strings.Contains(out, "Refusing the macos-user launch") {
+		t.Errorf("an absent source refused the launch:\n%s", out)
+	}
+}
+
+// THE BANNER STOPS ANNOUNCING A READ THAT DOES NOT HAPPEN (DP-B2). The banner used to
+// disclose a pack `mount` as a host READ on this backend, where nothing is ever bound. With
+// the grant's source absent the launch proceeds (the test above), and that is the one state
+// in which the banner still prints on this arm with the grant selected — so it is where the
+// contradiction lived and where it is pinned. The container arm keeps the line, which is
+// what makes this the macos-user arm's own filter rather than a lost claim kind.
+func TestMacosUserBannerDoesNotDiscloseAPackMountItDoesNotDeliver(t *testing.T) {
+	home := packHome(t)
+	src := filepath.Join(t.TempDir(), "acme")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHostFileAt(t, filepath.Join(src, "pack.json"),
+		`{"name":"acme","contributes":[{"kind":"mount","host":"datasets/acme","into":"acme"},`+
+			`{"kind":"env","vars":{"ACME_MARKER":"1"}}]}`, 0o644)
+	writeUserPacks(t, home, `["file://`+src+`"]`)
+	// ~/datasets/acme deliberately NOT created.
+
+	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
+
+	// The control: the banner printed, so its silence about the mount is the filter.
+	if !strings.Contains(out, "ACME_MARKER=1") {
+		t.Fatalf("fixture: the pack's env claim is not on the banner, so this test cannot tell "+
+			"a filtered mount line from no banner at all:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "acme:") && strings.Contains(line, "[mount]") {
+			t.Errorf("the macos-user banner still discloses a pack mount this backend never "+
+				"binds:\n%s", line)
+		}
+	}
+}
+
+// THE CONTROL, and it is the difference between a refusal and one nobody can get past: a
+// launch that declared no context mount says nothing about one and reaches the handler.
 func TestMacosUserSaysNothingAboutContextMountsNobodyDeclared(t *testing.T) {
 	ctxLaunchHome(t, "")
 
 	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
 
-	for _, unwanted := range []string{"`mounts` is not honored", "pack `mount` grant"} {
+	for _, unwanted := range []string{"Refusing the macos-user launch", "context mount"} {
 		if strings.Contains(out, unwanted) {
 			t.Errorf("a launch with no `mounts` and no pack grant still printed %q:\n%s",
 				unwanted, out)

@@ -143,12 +143,15 @@ func TestEveryBannerCallSitePassesTheLaunchChannel(t *testing.T) {
 				return true
 			}
 			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "notePackHostAccess" {
+			// notePackHostAccessExcept is the same banner with the kinds a backend delivers
+			// none of left out (the macos-user arm's `mount`, DP-B2); its trailing arguments
+			// are those kinds, so only the first two are this test's business.
+			if !ok || (sel.Sel.Name != "notePackHostAccess" && sel.Sel.Name != "notePackHostAccessExcept") {
 				return true
 			}
 			calls++
-			if len(call.Args) != 2 {
-				t.Errorf("%s calls notePackHostAccess with %d arguments", fn, len(call.Args))
+			if len(call.Args) < 2 || (sel.Sel.Name == "notePackHostAccess" && len(call.Args) != 2) {
+				t.Errorf("%s calls %s with %d arguments", fn, sel.Sel.Name, len(call.Args))
 				return true
 			}
 			if id, ok := call.Args[1].(*ast.Ident); !ok || id.Name != "channel" {

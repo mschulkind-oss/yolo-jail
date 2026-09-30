@@ -204,18 +204,18 @@ func appliedNetMode(rt, netMode string, inContainer bool) string {
 // all — it has no container to mount anything into. Folding it into the `:ro` predicate
 // would have that predicate answer a question nobody asked it (DP-B1 / DP-L7).
 //
-// ⚠ THE NATIVE MARKER BELOW READ `Warned` WHILE NOTHING WARNED, and that is what changed
-// here. Filtering the mounts out tells the AGENT the truth and says nothing to the HUMAN,
-// and a disposition is `Warned` only when the launch SAYS SO — a silent absence is `Dropped`.
-// The human's half is noteMacosUserCtxMountGaps (macosctxtree.go), which is also where the
-// pack `mount` grant with the identical shape is named.
+// ⚠ THE NATIVE MARKER BELOW HAS MOVED TWICE. It read `Warned` while nothing warned; a
+// warning was then built (DP-B1's human half); and since context-mounts.md §4 step 3 the
+// launch REFUSES a declared context mount on this backend (refuseMacosUserCtxMounts,
+// DP-D15's ruling), so a macos-user briefing never has one to leave out — this arm is what
+// keeps that true for a caller that reaches prepare without the refusal.
 //
 // THE APPLE CONTAINER HALF IS NO LONGER HERE. It used to drop every entry below the `:ro`
 // floor; the floor is now applied PER ENTRY upstream (configCtxMounts, packCtxMounts),
 // because a read-write element is not gated by it (context-mounts.md §2.9) and must stay
 // listed on the backend that binds it.
 func (o *Options) appliedCtxMounts(rt string, mounts []jailcontent.ContextMount) []jailcontent.ContextMount {
-	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user binds nothing; noteMacosUserCtxMountGaps is the line (DP-D15)
+	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Refused — macos-user binds nothing, and the launch refuses a declared context mount (refuseMacosUserCtxMounts, DP-D15)
 		return nil
 	}
 	return mounts

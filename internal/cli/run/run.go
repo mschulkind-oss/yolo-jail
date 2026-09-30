@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -370,6 +372,15 @@ func Run(opts Options) (rc int) {
 			o.pr(o.Stdout).print(
 				"[bold red]macos-user runtime handler not wired.[/bold red]  " +
 					"This build cannot launch the native macOS backend.")
+			return 1
+		}
+		// DP-D15'S FATAL REFUSAL, first on this arm (docs/design/context-mounts.md §4 step 3):
+		// a declared context mount this backend cannot deliver ends the launch here, naming
+		// each one, before the approval prompt, a host service or any staging — a refusal
+		// says what to do before the launch asks anything else. A --dry-run refuses too: its
+		// plan would describe a launch that cannot happen. No `mounts` key and no pack
+		// `mount` refuses nothing.
+		if o.refuseMacosUserCtxMounts(cfg, staged.packs) {
 			return 1
 		}
 		// (a bare `yolo` opens an interactive login zsh in the sandbox).
@@ -747,7 +758,13 @@ func Run(opts Options) (rc int) {
 		// not consent"). The container path prints this inside runContainer, below the
 		// return above — the same B-0 shape as pack staging, launch flags and the
 		// channel, and the same fix: the arm prints its own.
-		o.notePackHostAccess(staged.packs, channel)
+		//
+		// WITHOUT THE `mount` CLAIMS (DP-B2): this backend delivers no pack `mount`, so the
+		// banner announcing one as a host READ was a disclosure of a read that does not
+		// happen. A grant whose source exists refused the launch above
+		// (refuseMacosUserCtxMounts); one whose source is absent was skipped there with its
+		// own line. Either way nothing crosses, and the banner now says nothing about it.
+		o.notePackHostAccessExcept(staged.packs, channel, packdecl.KindMount)
 		o.noteMacosUserHostByteGaps(ctxDelivery)
 		// EVERY PROFILED AGENT'S OWN ENV FILE, on this backend too (provider-credential-scope.md
 		// OQ-CN9, ruled 2026-09-28): the container vehicle's writer, into the sidecar directory
@@ -953,11 +970,25 @@ func (o *Options) warnIfNoPacks() {
 // jail receives, as {state} prints resolved, rather than as the template (NC-D46). nil resolves
 // nothing, which only a hand-built test passes.
 func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack, channel *packChannel) {
+	o.notePackHostAccessExcept(loadedPacks, channel)
+}
+
+// notePackHostAccessExcept is notePackHostAccess for a backend that delivers none of the
+// `undelivered` kinds: their claims are left out, because a disclosure of a read that does
+// not happen is worse than silence (DP-B2). macos-user passes packdecl.KindMount — it binds
+// no pack `mount`, and refuses the launch where one would have crossed.
+func (o *Options) notePackHostAccessExcept(loadedPacks []*packload.Pack, channel *packChannel,
+	undelivered ...packdecl.Kind) {
 	served := packload.NothingServed()
 	if channel != nil {
 		served = channel.served
 	}
-	lines := disclosedClaimsServed(loadedPacks, disclosureRead, served)
+	var lines []disclosureLine
+	for _, l := range disclosedClaimsServed(loadedPacks, disclosureRead, served) {
+		if !slices.Contains(undelivered, l.kind) {
+			lines = append(lines, l)
+		}
+	}
 	if len(lines) == 0 {
 		return
 	}

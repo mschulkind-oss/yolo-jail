@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // macosctxtree.go builds the CONTEXT TREE: the host bytes a `/ctx` mount carries on
@@ -53,22 +54,20 @@ import (
 // one — this repo's own yolo-jail.jsonc mounts a growing log directory. Those are DP-D15,
 // ruled separately ("we can't do /ctx by copying, some of these directories are huge").
 //
-// ⚠ ALL THREE ARE NAMED WHEN THEY ARE DROPPED, and this passage said until today that only
-// one was. A directory `host_files` entry reaches this function and comes back in
-// undeliveredDirs for noteMacosUserHostByteGaps to print. Config `mounts` and pack `mount`
-// grants never reach it: their only readers are container-side — the assembler's own
-// `mounts` loop, and hostMountArgs (packhostgrants.go), the sole non-test reader of
-// HonoredMounts — so on this backend both were accepted, validated and dropped in SILENCE.
-// appliedCtxMounts keeps config `mounts` out of the AGENT's briefing, which is a different
-// job from telling the HUMAN, and nothing told the human at all while appliedCtxMounts' own
-// parity marker claimed a `Warned` disposition. noteMacosUserCtxMountGaps below is that
-// warning: the repo already rules this class in the `workspace_readonly` direction — a key
-// that is accepted and does nothing is worse than one that refuses — so the line was built
-// rather than the marker downgraded.
+// ⚠ TWO OF THE THREE NOW REFUSE THE LAUNCH, and the third is still named. Config `mounts`
+// and pack `mount` grants never reach this composer: their readers are container-side (the
+// assembler's `mounts` loop and hostMountArgs, both through ctxmounts.go), so on this
+// backend they were accepted, validated and dropped — first in silence, then behind a
+// warning the maintainer ruled not enough (DP-D15: "a fatal error on setups that don't
+// support it rather than having it be surprisingly not there with an easily missed
+// warning"). refuseMacosUserCtxMounts below is that refusal, run at the top of the
+// macos-user arm. A directory `host_files` entry is not a context mount (context-mounts.md's
+// Defined terms name two: config `mounts` and pack `mount`), and it still reaches this
+// function and comes back in undeliveredDirs for noteMacosUserHostByteGaps to print.
 //
-// STILL A GAP THAT ONE LINE DOES NOT CLOSE: the single-FILE form of a pack `mount` is a copy
-// this tree would scale to perfectly well, so naming it is the honest interim rather than the
-// answer. DP-D15 rules only the directory-shaped delivery out.
+// STILL A GAP THE REFUSAL DOES NOT CLOSE: the single-FILE form of a pack `mount` is a copy
+// this tree would scale to perfectly well, so refusing it is the honest interim rather than
+// the answer (CX-D10). DP-D15 rules only the directory-shaped delivery out.
 //
 // One destination over, noted here because this is where a reader comes looking: a pack
 // `files` contribution lands in the HOME rather than /ctx, so it belongs to the home overlay
@@ -112,11 +111,10 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 	var out macosCtxDelivery
 	tree := filepath.Join(staging, macosCtxTreeLeaf)
 
-	// WHAT NO TREE CAN CARRY, said before one is composed. Every "did not cross" line this
-	// backend prints then lands together on the launch stream: this one here, and the
-	// directory `host_files` line from noteMacosUserHostByteGaps immediately after the
-	// caller gets this delivery back.
-	o.noteMacosUserCtxMountGaps(cfg, packs)
+	// WHAT NO TREE CAN CARRY is not said here any more: a declared context mount (config
+	// `mounts`, a pack `mount`) refuses the launch at the top of the arm
+	// (refuseMacosUserCtxMounts), long before a tree is composed. The directory `host_files`
+	// line is still noteMacosUserHostByteGaps', printed once the caller has this delivery.
 
 	// Rebuilt from scratch every launch, for buildMacosHomeOverlay's reason and one
 	// sharper: a grant the user REVOKED — a pack dropped from `packs`, a `host_files`
@@ -240,77 +238,79 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 	return out, nil
 }
 
-// noteMacosUserCtxMountGaps names the /ctx declarations this backend accepts, validates and
-// then does not deliver: the config `mounts` key and a pack's `mount` grant.
+// refuseMacosUserCtxMounts is DP-D15's FATAL REFUSAL, built (docs/design/context-mounts.md
+// §4 step 3): a macos-user launch that declares a context mount this backend cannot deliver
+// refuses, naming every one, rather than starting a sandbox where the declared /ctx path is
+// "surprisingly not there with an easily missed warning" — the maintainer's words for what
+// the warning this replaces was.
 //
-// WHY IT PRINTS FROM THE COMPOSER instead of joining the note* printers on the arm. The
-// undeliveredDirs indirection above exists because that fact is only settled DURING the
-// composition — the copy loop is what visits the entry — so it has to be carried out to be
-// printed once. These two are settled by the DECLARATION ALONE: no reader on this backend,
-// and no state a composition could change. There is nothing to carry, so the line sits with
-// the reading, in the file that is the authority on what reaches /ctx here. Both audiences
-// still get one source: appliedCtxMounts is the briefing-side projection of this same
-// absence, and it says so.
+// EVERYTHING IS UNDELIVERABLE TODAY. OQ-CX5 narrowed DP-D15 — deliver by link plus Seatbelt
+// where the sandbox uid can reach the source, refuse the rest — but that delivery is §4
+// steps 4–5 and needs Mac hardware to build, so until it lands every declared context mount
+// refuses. Both declarations are covered: a config `mounts` element in either form or mode,
+// and a selected pack's `mount` grant, the single-FILE form included (CX-D10: a copy could
+// carry that one, and nothing copies it yet, so it is as absent as a directory).
 //
-// ONE LINE PER DECLARED KEY, and none for a key the config never mentions — the rule every
-// sibling printer follows, and what keeps this from being the warning OQ-BP-3 says people
-// learn to skip.
+// KEYED ON THE DECLARATION BEING PRESENT, never on a default: a config with no `mounts` and
+// no pack that declares a `mount` refuses nothing, so no ordinary launch can hit this. A
+// declared entry whose SOURCE DOES NOT EXIST is skipped with the container backends' own
+// line and does not refuse (CX-D9): it would be absent on every backend, which is not this
+// backend's deficiency, and it is the case §2.1 keeps a warning for once delivery exists.
 //
-// NO STAT, which is where it differs from the container path's own skip message ("mount path
-// does not exist, skipping"). There the stat picks between two outcomes; here the outcome is
-// identical whether the host path exists or not, so consulting it would make the sentence
-// depend on host state that cannot change the answer.
-func (o *Options) noteMacosUserCtxMountGaps(cfg *jsonx.OrderedMap, packs []*packload.Pack) {
-	out := o.pr(o.Stderr)
-
-	// The reason is shared because it IS one fact, stated once: there is no container, so
-	// there is no bind, and the copy that replaces a bind here (this file) does not scale to
-	// the arbitrary directory a context mount is allowed to name.
-	const why = " A context mount is a read-only BIND into a container and this backend " +
-		"starts none; host bytes arrive here by COPY, which does not scale to an arbitrary " +
-		"directory. Nothing appears at those /ctx paths, and this launch arranges no other " +
-		"route to them: the sandbox runs as its own user, so whether it can read the host " +
-		"path at all is that path's own POSIX permissions rather than something yolo set " +
-		"up. Use a container runtime (`runtime: \"podman\"` or `\"container\"`) for context " +
-		"mounts."
-
-	// Labelled the way the container path's own skip message labels them — the resolved host
-	// path and the /ctx destination — for deviceLabels' reason: what a reader needs from
-	// either surface is which entry of theirs is being talked about.
-	var declared []string
+// The host nvim config is NOT here although DP-D15's row names it: nothing declares it —
+// the container arm binds ~/.config/nvim whenever it exists — so refusing it would refuse
+// every macos-user launch on a machine with an nvim config, the exact trap the row's own
+// "never on a default" warning names.
+//
+// Returns true when the launch must end (the refusal is printed).
+func (o *Options) refuseMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packload.Pack) bool {
+	var undeliverable []string
+	// The merged view, as a validation-only read may be: this decides a REFUSAL, never what
+	// is mounted, so an element's provenance cannot widen anything here.
 	for _, m := range config.ParseMounts(cfg) {
 		src := resolveExpand(m.Host)
-		declared = append(declared, src+" → "+m.DestFor(src))
+		if !fileExists(src) {
+			o.pr(o.Stderr).print("[yellow]Warning: mount path does not exist, skipping: " + src + "[/yellow]")
+			continue
+		}
+		mode := "read-only"
+		if m.RW {
+			mode = "read-write"
+		}
+		undeliverable = append(undeliverable, "`mounts`: "+src+" → "+m.DestFor(src)+" ("+mode+")")
 	}
-	if len(declared) > 0 {
-		out.print("[yellow]Warning: `mounts` is not honored on macos-user[/yellow] — " +
-			strings.Join(declared, ", ") + "." + why)
-	}
-
-	// THE PACK HALF, said the same way rather than left as the other half of a matched pair.
-	// No pack yolo ships declares a `mount`, so this fires only for a pack the user fetched —
-	// and that is the case where silence costs most, because a fetched pack's grant was
-	// approved by a human against a sentence about reading their home.
-	//
-	// ⚠ IT CONTRADICTS A DISCLOSURE THIS ARM ALSO PRINTS: notePackHostAccess classifies a
-	// `mount` as a host READ, so the banner announces bytes that never cross. The banner is
-	// where that gets fixed — a disclosure of a read that does not happen is worse than
-	// silence — and until it does, this is the one of the two lines that is true.
-	var grants []string
 	for _, p := range packs {
 		if p == nil {
 			continue
 		}
 		granted, _ := p.HonoredMounts()
 		for _, mt := range granted {
-			grants = append(grants, "pack "+p.Name+" ~/"+mt.From+
-				" → /ctx/"+strings.TrimPrefix(mt.To, "/"))
+			src := filepath.Join(homeDir(), filepath.FromSlash(mt.From))
+			if !isDir(src) && !isFile(src) {
+				o.pr(o.Stderr).print("[yellow]Warning: pack " + p.Name + " mount source " +
+					"does not exist, skipping: ~/" + mt.From + "[/yellow]")
+				continue
+			}
+			undeliverable = append(undeliverable, "pack "+p.Name+"'s `mount`: ~/"+mt.From+
+				" → "+packload.CtxRoot+"/"+strings.TrimPrefix(mt.To, "/"))
 		}
 	}
-	if len(grants) > 0 {
-		out.print("[yellow]Warning: a pack `mount` grant is not honored on macos-user[/yellow] — " +
-			strings.Join(grants, ", ") + "." + why)
+	if len(undeliverable) == 0 {
+		return false
 	}
+	out := o.pr(o.Stderr)
+	out.print("[bold red]Refusing the macos-user launch: this backend cannot deliver a context " +
+		"mount yet.[/bold red]")
+	for _, u := range undeliverable {
+		out.print("  • " + u)
+	}
+	out.print("A context mount is a bind into a container, and this backend starts none. Its " +
+		"own delivery — a root-owned link named by $" + paths.ContextDirEnv + ", with the " +
+		"Seatbelt profile deciding access — is designed and not built " +
+		"(docs/design/context-mounts.md §3), and a declared mount is refused rather than " +
+		"left absent. Remove the `mounts` entry (or the pack) for this workspace, or use a " +
+		"container runtime (`runtime: \"podman\"` or `\"container\"`).")
+	return true
 }
 
 // copyCtxFile copies one host file into the tree at its /ctx destination, creating the

@@ -241,7 +241,7 @@ func TestHostExecDisclosurePrecedesTheSpawn(t *testing.T) {
 		disclosed = true
 		_, err := os.Lstat(socketsDir)
 		dirExistedAtDisclosure = err == nil
-		return []disclosureLine{{"acme", "loophole acme-proxy RUNS `python3 acme-daemon.py`"}}
+		return []disclosureLine{{pack: "acme", claim: "loophole acme-proxy RUNS `python3 acme-daemon.py`"}}
 	})
 
 	var errBuf bytes.Buffer
