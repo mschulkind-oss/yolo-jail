@@ -69,6 +69,12 @@ func TestHostExecUsesManagedOpenAIAuthLaunch(t *testing.T) {
 // disclosure. The fake stands in for that rewrite; openaiauthhost's own tests pin the rule.
 // Through the real hostExec, so deleting the Argv call site fails this.
 func TestHostExecRunsTheManagedLaunchsArgvRewriteAndSaysSo(t *testing.T) {
+	// A home of its own, as TestHostExecUsesManagedOpenAIAuthLaunch has: hostExec composes from
+	// the user config, so without it this test read the machine's real config and failed in a jail
+	// whose config still carries the retired use_profiles key.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	original := prepareOpenAIAuthHost
 	fake := &fakeManagedHostLaunch{}
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return fake, nil }
