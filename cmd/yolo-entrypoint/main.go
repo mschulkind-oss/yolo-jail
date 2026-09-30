@@ -7,10 +7,11 @@
 // All boot orchestration lives in internal/entrypoint.Main; this file is the
 // thin argv → Main shim.
 //
-// On success Main never returns for a session (it execs bash), and returns nil for the
-// main process once its hold ends. It returns an error when the boot refused or the
-// final exec failed, in which case we exit non-zero: with the status an
-// *entrypoint.ExitStatus carries (provisioning's own), and 1 otherwise.
+// On success Main never returns for a session (it execs bash), and for the main process
+// returns once its hold ends: nil when it followed its first session out, and an
+// *entrypoint.ExitStatus of 128+SIGTERM when a SIGTERM (a stop) ended it. It returns an error
+// when the boot refused or the final exec failed, in which case we exit non-zero: with the
+// status an *entrypoint.ExitStatus carries (provisioning's own), and 1 otherwise.
 package main
 
 import (

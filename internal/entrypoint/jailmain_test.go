@@ -62,8 +62,8 @@ func TestTheHoldDropsHangupsAndInterruptsAndEndsOnSigterm(t *testing.T) {
 	signals := make(chan os.Signal, 3)
 	signals <- syscall.SIGHUP
 	signals <- syscall.SIGINT
-	done := make(chan struct{})
-	go func() { holdUntil(signals, nil); close(done) }()
+	done := make(chan bool, 1)
+	go func() { done <- holdUntil(signals, nil) }()
 	select {
 	case <-done:
 		t.Fatal("the hold ended on SIGHUP or SIGINT")
@@ -71,9 +71,25 @@ func TestTheHoldDropsHangupsAndInterruptsAndEndsOnSigterm(t *testing.T) {
 	}
 	signals <- syscall.SIGTERM
 	select {
-	case <-done:
+	case terminated := <-done:
+		if !terminated {
+			t.Error("the hold ended on SIGTERM without saying a SIGTERM ended it")
+		}
 	case <-time.After(time.Second):
 		t.Fatal("the hold did not end on SIGTERM")
+	}
+}
+
+// TestAHoldThatASigtermEndedExitsWithItsStatus: the main process's status is the one fact the
+// launcher has that tells a jail stopped from outside from a first session killed while its
+// jail ran (run.firstSessionStatus), since the kernel SIGKILLs every session in both cases.
+func TestAHoldThatASigtermEndedExitsWithItsStatus(t *testing.T) {
+	var st *ExitStatus
+	if err := holdExitStatus(true); !errors.As(err, &st) || st.Code != 128+int(syscall.SIGTERM) || st.Message != "" {
+		t.Errorf("a hold a SIGTERM ended returns %v, want a silent exit status of %d", err, 128+int(syscall.SIGTERM))
+	}
+	if err := holdExitStatus(false); err != nil {
+		t.Errorf("a hold that followed its first session out returns %v, want a clean exit", err)
 	}
 }
 
@@ -116,10 +132,13 @@ func TestTheHoldFollowsTheFirstSession(t *testing.T) {
 	}
 
 	signals := make(chan os.Signal)
-	done := make(chan struct{})
-	go func() { holdUntil(signals, gone); close(done) }()
+	done := make(chan bool, 1)
+	go func() { done <- holdUntil(signals, gone) }()
 	select {
-	case <-done:
+	case terminated := <-done:
+		if terminated {
+			t.Error("a hold that followed its first session out says a SIGTERM ended it")
+		}
 	case <-time.After(time.Second):
 		t.Fatal("holdUntil did not return on the first session's end")
 	}
@@ -398,9 +417,9 @@ func TestTheStageRunsWithItsStatusAndTheSessionActivation(t *testing.T) {
 
 // TestMainWiresTheHoldAndTheGateInOrder pins Main's call sites, which no test can execute (the
 // session path ends in an exec that replaces the process): the main process marks its boot
-// before the boot and holds after it; a session of a hold-main jail waits for the boot and
-// takes or waits for provisioning before its own pass; the stage runs after the pass and
-// before the exec. Deleting any of these calls fails here.
+// before the boot and holds after it, and exits with what ended its hold; a session of a
+// hold-main jail waits for the boot and takes or waits for provisioning before its own pass;
+// the stage runs after the pass and before the exec. Deleting any of these calls fails here.
 func TestMainWiresTheHoldAndTheGateInOrder(t *testing.T) {
 	src, err := os.ReadFile("boot.go")
 	if err != nil {
@@ -426,7 +445,7 @@ func TestMainWiresTheHoldAndTheGateInOrder(t *testing.T) {
 		"gate.abandon()",
 		"markBoot(bootRefused)",
 		"blog.finish(nil)",
-		"holdJail(command, os.Stderr)",
+		"return holdExitStatus(holdJail(command, os.Stderr))",
 		"gate.provision(",
 		"return &ExitStatus{Code: rc}",
 		"return execBash(e, command, mode != modeFirstSession)",

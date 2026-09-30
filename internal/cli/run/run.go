@@ -1877,8 +1877,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// The jail ends with this session, as it always has: the main process follows it out,
 		// and the launcher stops it only when it did not (awaitJailMainEnd). The arm is still
 		// live: this is Window A, the main process's client lingering, and a hangup or a
-		// `kill %1` here must still run the teardown.
-		o.awaitJailMainEnd(jm, cname, rt)
+		// `kill %1` here must still run the teardown. Then the launch's status, which a jail
+		// stopped from outside would otherwise report as a SIGKILLed session.
+		launcherStopped := o.awaitJailMainEnd(jm, cname, rt)
+		rc = firstSessionStatus(rc, jm.exitCode, launcherStopped)
 	} else {
 		<-jm.exited
 		rc = jm.exitCode

@@ -665,10 +665,10 @@ func Main(args []string) error {
 	// into the shell we are about to become. (The lease fd is close-on-exec besides.)
 	packload.ReleaseEmbedded()
 	// THE MAIN PROCESS HOLDS instead of running a command: it records the stage for the first
-	// session, says the boot is done, and keeps the container up (holdJail).
+	// session, says the boot is done, and keeps the container up (holdJail). Its status says
+	// whether a SIGTERM ended it (holdExitStatus).
 	if mode == modeHold {
-		holdJail(command, os.Stderr)
-		return nil
+		return holdExitStatus(holdJail(command, os.Stderr))
 	}
 	// THE PROVISIONING STAGE, on this session's terminal, after its own pass and before its
 	// command, which is where it ran when it was the container's own first clause. Its status

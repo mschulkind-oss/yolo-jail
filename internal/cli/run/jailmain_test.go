@@ -179,7 +179,9 @@ func TestTheJailEndsWithTheFirstSessionEvenWhenTheHoldDoesNotFollow(t *testing.T
 		}
 		return ExecResult{Ran: false}
 	}
-	o.awaitJailMainEnd(m, "yolo-ws-1", "podman")
+	if !o.awaitJailMainEnd(m, "yolo-ws-1", "podman") {
+		t.Error("awaitJailMainEnd stopped the jail and did not say so")
+	}
 	if len(stops) != 1 || stops[0] != "yolo-ws-1" {
 		t.Errorf("stops %v, want one stop of the jail the hold did not end", stops)
 	}
@@ -187,9 +189,40 @@ func TestTheJailEndsWithTheFirstSessionEvenWhenTheHoldDoesNotFollow(t *testing.T
 	stops = nil
 	followed := &jailMain{exited: make(chan struct{})}
 	close(followed.exited)
-	o.awaitJailMainEnd(followed, "yolo-ws-1", "podman")
+	if o.awaitJailMainEnd(followed, "yolo-ws-1", "podman") {
+		t.Error("awaitJailMainEnd said it stopped a jail whose main process followed its session out")
+	}
 	if len(stops) != 0 {
 		t.Errorf("a main process that followed its first session out was stopped: %v", stops)
+	}
+}
+
+// TestAJailStoppedFromOutsideReturnsWhatItDidBefore: the kernel SIGKILLs a session whose jail's
+// main process ended, so `yolo stop` leaves the first session's exec at 137, or fails the exec
+// outright when it lands as the exec starts; over a hold that a SIGTERM ended, which this
+// launcher did not send, the launch returns 143 as it did when the session was the main
+// process, and the OOM hint keyed on 137 stays quiet. Every other pairing keeps the session's
+// own status.
+func TestAJailStoppedFromOutsideReturnsWhatItDidBefore(t *testing.T) {
+	const killed, termed = 128 + int(syscall.SIGKILL), 128 + int(syscall.SIGTERM)
+	for _, tc := range []struct {
+		name            string
+		session, main   int
+		launcherStopped bool
+		want            int
+	}{
+		{"stopped from outside", killed, termed, false, termed},
+		{"stopped as the exec started: the runtime's own failure", 255, termed, false, termed},
+		{"stopped from outside after the command succeeded", 0, termed, false, 0},
+		{"killed while its jail ran (the OOM killer): the hold followed it out", killed, 0, false, killed},
+		{"the launcher stopped it after its grace", killed, termed, true, killed},
+		{"the command's own status", 7, 0, false, 7},
+		{"a command that died of SIGTERM itself", termed, 0, false, termed},
+	} {
+		if got := firstSessionStatus(tc.session, tc.main, tc.launcherStopped); got != tc.want {
+			t.Errorf("%s: firstSessionStatus(%d, %d, %v) = %d, want %d",
+				tc.name, tc.session, tc.main, tc.launcherStopped, got, tc.want)
+		}
 	}
 }
 
@@ -326,8 +359,8 @@ func TestADisarmedLaunchSignalArmDoesNothing(t *testing.T) {
 // the hold form carrying this launch's stage; the session lock and the signal arm are taken
 // before the main process starts; the first session is the first-session run, handed the arm,
 // and its command is sessionCmd's; the arm stays armed from the first session's return through
-// the main process's end, and is disarmed after it and before the teardown. Deleting any of
-// them fails here.
+// the main process's end, and is disarmed after it and before the teardown; the launch's status
+// is firstSessionStatus's. Deleting any of them fails here.
 func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) {
 	fd := funcDecl(t, "run.go", "runContainer")
 	pos := map[string]token.Pos{}
@@ -349,7 +382,7 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 		switch name {
 		case "provisionStage", "sessionCmd", "firstSessionExecCmd", "holdSessionLock",
 			"armLaunchSignals", "startJailMain", "awaitReady", "runFirstSession", "detach",
-			"awaitJailMainEnd", "teardownAfterExit":
+			"awaitJailMainEnd", "firstSessionStatus", "teardownAfterExit":
 			firstPos(name, call.Pos())
 		case "disarm":
 			disarms = append(disarms, call.Pos())
@@ -374,7 +407,7 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 	})
 	order := []string{"append HoldMainArg", "provisionStage", "firstSessionExecCmd", "sessionCmd",
 		"holdSessionLock", "armLaunchSignals", "startJailMain", "awaitReady", "runFirstSession",
-		"detach", "awaitJailMainEnd", "teardownAfterExit"}
+		"detach", "awaitJailMainEnd", "firstSessionStatus", "teardownAfterExit"}
 	last := token.NoPos
 	for _, name := range order {
 		p, ok := pos[name]

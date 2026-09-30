@@ -9,6 +9,7 @@ package integration
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ func TestStopEndsTheWorkspaceJail(t *testing.T) {
 	// Hold the jail open via the live /workspace bind, as the concurrency tests do.
 	const releaseName = "release-stop-test"
 	first := startYoloBackground(t, "first", dir,
-		`for _ in $(seq 1 300); do [ -f /workspace/`+releaseName+` ] && break; sleep 0.5; done`)
+		`echo "SESSION-IN-$((40+2))"; for _ in $(seq 1 300); do [ -f /workspace/`+releaseName+` ] && break; sleep 0.5; done`)
 	t.Cleanup(func() {
 		_ = os.WriteFile(filepath.Join(dir, releaseName), []byte("go\n"), 0o644)
 	})
@@ -43,6 +44,8 @@ func TestStopEndsTheWorkspaceJail(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	// And its first session is running its command, so the stop ends a session in progress.
+	awaitOutput(t, first, regexp.MustCompile(`SESSION-IN-42`))
 
 	// The stop: from the workspace, via the host CLI (not inside the jail).
 	r := runYoloCLI(t, dir, "stop")
@@ -54,6 +57,17 @@ func TestStopEndsTheWorkspaceJail(t *testing.T) {
 	}
 	if n := runningContainers(t, cname); n != 0 {
 		t.Errorf("%d containers named %s remain after stop (--rm must sweep it)", n, cname)
+	}
+
+	// The launch that started the jail ends with 128+SIGTERM, as it did while its session was
+	// the container's main process. The kernel SIGKILLs the session when the stopped hold
+	// exits, so a launcher reading its exec alone reports 137, and on a Mac's small Podman
+	// machine then blames the VM's OOM killer for a stop.
+	if rc := first.wait(t, jailTimeout()); rc != 143 {
+		t.Errorf("the stopped jail's launch returned %d, want 143:\n%s", rc, first.combined())
+	}
+	if strings.Contains(first.combined(), "OOM") {
+		t.Errorf("the stopped jail's launch blamed the OOM killer:\n%s", first.combined())
 	}
 
 	// Idempotent: the series' first half never fails on "nothing to stop".

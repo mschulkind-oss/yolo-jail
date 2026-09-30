@@ -15,7 +15,8 @@ package run
 //     so the boot reads on the terminal as it always did (relayUntilReady).
 //  2. THE FIRST SESSION, `<rt> exec -i [-t] <cname> yolo-entrypoint --yolo-first-session
 //     '<command>'`, under the TTY proxy, which takes the terminal (firstSessionExecCmd). Its
-//     exit status is the launch's, as the container's was.
+//     exit status is the launch's, as the container's was, and a jail stopped from outside
+//     still returns what it did (firstSessionStatus).
 //  3. THE END: the main process follows its first session out, and the launcher waits for its
 //     client to exit, stopping the jail itself only when it did not (awaitJailMainEnd). Then
 //     today's teardown chain, unchanged.
@@ -261,21 +262,45 @@ var jailMainEndGrace = 10 * time.Second
 // awaitJailMainEnd ends the jail with this launch's own session, as the launch always has:
 // the hold normally exits by itself within a poll of the first session's end. When it has not
 // within jailMainEndGrace and the container is still running — an exec client that died while
-// its session ran on, or a first session that never registered — the launcher stops it. Then
-// it waits for the client, as the proxy used to wait for it: the client's lingering exit after
-// its container is gone is Window A, and it is measured, not cut short. The launch's signal
-// arm stays live throughout, so a hangup or a `kill %1` in that stretch still runs the
-// teardown.
-func (o *Options) awaitJailMainEnd(m *jailMain, cname, rt string) {
+// its session ran on, or a first session that never registered — the launcher stops it, and
+// says so (stopped). Then it waits for the client, as the proxy used to wait for it: the
+// client's lingering exit after its container is gone is Window A, and it is measured, not cut
+// short. The launch's signal arm stays live throughout, so a hangup or a `kill %1` in that
+// stretch still runs the teardown.
+func (o *Options) awaitJailMainEnd(m *jailMain, cname, rt string) (stopped bool) {
 	select {
 	case <-m.exited:
-		return
+		return false
 	case <-time.After(jailMainEndGrace):
 	}
 	if o.findRunningContainer(cname, rt) != "" {
 		o.stopJail(cname, rt)
+		stopped = true
 	}
 	<-m.exited
+	return stopped
+}
+
+// firstSessionStatus is the launch's exit status from its first session's and its main
+// process's. They differ when the jail is STOPPED FROM OUTSIDE — `yolo stop`, an attach-skew
+// restart in another terminal — where the launch returned 143 while the first session was the
+// container's main process. A pid namespace whose init exits has every other process in it
+// SIGKILLed by the kernel, so the first session's exec now reports 137 however its command
+// meant to end; and a stop that lands as the exec starts fails the exec itself, with the
+// runtime's own status (255 from podman, for a container gone from its database). The hold
+// says which it was: it exits 128+SIGTERM when a SIGTERM, the signal a stop sends, ended it,
+// and 0 when it followed its first session out (entrypoint.holdExitStatus). So a failed
+// session over a hold that a SIGTERM this launcher did not send ended is a stopped jail, and
+// the launch returns 143 as before, which also keeps the macOS OOM hint
+// (maybeWarnAboutOOMKiller, keyed on 137) from blaming the VM for a stop. A session killed
+// while its jail still ran, by the OOM killer or anything else, keeps its 137, since its hold
+// then follows it out with 0.
+func firstSessionStatus(sessionRC, mainRC int, launcherStopped bool) int {
+	sigterm := 128 + int(syscall.SIGTERM)
+	if sessionRC != 0 && mainRC == sigterm && !launcherStopped {
+		return sigterm
+	}
+	return sessionRC
 }
 
 // sessionHandle is the first session's runtime client's half of the launch arm's teardown:

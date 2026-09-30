@@ -237,13 +237,27 @@ func markBoot(state string) { _ = writeMainState(bootStateFile, state) }
 
 // holdJail is the main process's life after a boot that succeeded: record the stage for the
 // first session, say the boot is done (the state file for sessions, BootReadyLine for the
-// launcher), and hold until SIGTERM or the first session's end.
-func holdJail(stage string, stderr io.Writer) {
+// launcher), and hold until SIGTERM or the first session's end. terminated says a SIGTERM
+// ended it, and Main then exits 128+SIGTERM (holdExitStatus).
+func holdJail(stage string, stderr io.Writer) (terminated bool) {
 	announceReady(stage, stderr)
 	signals := make(chan os.Signal, 4)
 	signal.Notify(signals, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(signals)
-	holdUntil(signals, followFirstSession(firstSessionPoll))
+	return holdUntil(signals, followFirstSession(firstSessionPoll))
+}
+
+// holdExitStatus is the main process's end once its hold is over. A hold that a SIGTERM ended
+// exits 128+SIGTERM, the status of a process the signal ended, and one that followed its first
+// session out exits 0. The launcher reads the difference (run.firstSessionStatus): the kernel
+// SIGKILLs every session of a jail whose main process ends, so a first session's exec reports
+// 137 both when the jail was stopped from outside and when the session was killed while the
+// jail ran, and only this status tells a stop from an OOM kill.
+func holdExitStatus(terminated bool) error {
+	if terminated {
+		return &ExitStatus{Code: 128 + int(syscall.SIGTERM)}
+	}
+	return nil
 }
 
 // announceReady records the stage, then the ready state, then prints BootReadyLine: in that
@@ -255,17 +269,17 @@ func announceReady(stage string, stderr io.Writer) {
 	fmt.Fprintln(stderr, BootReadyLine)
 }
 
-// holdUntil blocks until a SIGTERM arrives or firstGone closes. SIGHUP and SIGINT are
-// received and dropped.
-func holdUntil(signals <-chan os.Signal, firstGone <-chan struct{}) {
+// holdUntil blocks until a SIGTERM arrives (terminated) or firstGone closes. SIGHUP and SIGINT
+// are received and dropped.
+func holdUntil(signals <-chan os.Signal, firstGone <-chan struct{}) (terminated bool) {
 	for {
 		select {
 		case s := <-signals:
 			if s == syscall.SIGTERM {
-				return
+				return true
 			}
 		case <-firstGone:
-			return
+			return false
 		}
 	}
 }
