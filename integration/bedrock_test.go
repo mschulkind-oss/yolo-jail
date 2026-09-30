@@ -122,3 +122,26 @@ func TestBedrockBridgeRefusesAnAgentTheBridgeCannotCarry(t *testing.T) {
 		}
 	}
 }
+
+// OPENCODE AND AWS_DEFAULT_REGION, at a real launch (docs/design/bedrock-plumbing.md BR-D18):
+// opencode's Bedrock loader never reads AWS_DEFAULT_REGION and falls back to us-east-1, so a
+// `-p bedrock` launch whose only region is an env_sources AWS_DEFAULT_REGION is refused before
+// the jail starts, naming opencode and the variable it would have ignored.
+func TestBedrockRefusesOpencodeARegionItDoesNotRead(t *testing.T) {
+	requireJail(t)
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["opencode"], "env_sources": [{"AWS_DEFAULT_REGION": "eu-west-1"}]}`)
+
+	r := runCommand(t, dir, append(jailRunArgs(), "-p", "bedrock", "--", "true"))
+	if r.rc == 0 {
+		t.Fatalf("-p bedrock -- opencode with only AWS_DEFAULT_REGION must be refused:\n%s", r.combined())
+	}
+	for _, want := range []string{"Refusing to launch: a selected provider is reached through a region",
+		`selected for opencode: its composed entry sets no "region", and AWS_REGION is not set`,
+		"AWS_DEFAULT_REGION reaches opencode, which does not read it"} {
+		if !strings.Contains(r.combined(), want) {
+			t.Errorf("the refusal must say %q:\n%s", want, r.combined())
+		}
+	}
+}
