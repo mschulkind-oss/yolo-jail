@@ -464,6 +464,71 @@ func TestPiNarrowedListCarriesItsProfilesModelSwitch(t *testing.T) {
 	}
 }
 
+// narrowedPiRender renders pi on provider narrowed by a company pack whose contributes are the
+// given JSON, under the provider's own profile, and returns the render.
+func narrowedPiRender(t *testing.T, provider, contributes string) *pioencodeRender {
+	t.Helper()
+	company := companyModelsPack(t, contributes)
+	packs := append(testPacksForAgent(t, "pi", provider), company)
+	table, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newPioencodeRender(t, mustCompactJSON(t, table))
+	r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
+	r.render(t, `{"pi":"`+provider+`"}`)
+	return r
+}
+
+// piRowIDs is the model ids of provider's models.json row.
+func piRowIDs(t *testing.T, r *pioencodeRender, provider string) []any {
+	t.Helper()
+	rows, _ := r.surface(t, ".pi", "agent", "models.json")["providers"].(map[string]any)
+	row, _ := rows[provider].(map[string]any)
+	models, _ := row["models"].([]any)
+	var ids []any
+	for _, m := range models {
+		ids = append(ids, m.(map[string]any)["id"])
+	}
+	return ids
+}
+
+// A NARROWED LIST REGISTERS THE IDS PI SENDS: on Kilo, pi's models.json row and its selection spell
+// a bare `deepseek-…` id as Kilo's gateway names it, `deepseek/deepseek-…` (normalizeKiloModel), so
+// the registration that replaces the row's list must spell it the same way. Otherwise pi's menu
+// sends the bare id Kilo does not serve, yolo's own default is not on the menu, and with the
+// switch on the refusal turns away the one spelling the row and the selection use (MM-D6, MM-D21).
+func TestPiNarrowedKiloListRegistersTheIdsItsRowSends(t *testing.T) {
+	r := narrowedPiRender(t, "kilo",
+		`{"kind":"models","provider":"kilo","add":[{"id":"deepseek-v4.1-flash","vendor":"deepseek"},`+
+			`{"id":"x-ai/grok-5","vendor":"xai"}]},`+
+			`{"kind":"models","provider":"kilo","only":["deepseek-v4.1-flash","x-ai/grok-5"]}`)
+	lists, _ := r.surface(t, ".pi", "agent", "yolo-model-lists.json")["providers"].(map[string]any)
+	kilo, _ := lists["kilo"].(map[string]any)
+	models, _ := kilo["models"].([]any)
+	var registered []any
+	for _, m := range models {
+		registered = append(registered, m.(map[string]any)["id"])
+	}
+	row := piRowIDs(t, r, "kilo")
+	if len(row) == 0 || !reflect.DeepEqual(registered, row) {
+		t.Errorf("kilo's registered ids = %v, want its models.json row's %v", registered, row)
+	}
+	settings := r.piSettings(t)
+	found := false
+	for _, id := range registered {
+		found = found || id == settings["defaultModel"]
+	}
+	if !found {
+		t.Errorf("pi's selection starts on kilo/%v, which the registered list %v does not hold",
+			settings["defaultModel"], registered)
+	}
+}
+
 // A NARROWED PROVIDER PI CANNOT USE IS NOT REGISTERED: pi refuses a registration for a provider
 // it has no address or credential for ("no authentication method configured"), which would fail
 // the extension's whole load.

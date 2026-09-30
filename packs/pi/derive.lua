@@ -1240,20 +1240,31 @@ yolo.derive("pi", "model-lists", function(ctx)
     local usable = type(prov) == "table" and (viaRow or nativeBedrock or piReachable(prov) ~= nil)
     if name ~= "openai-codex" and usable and prov.models_only == true then
       local piID = nativeBedrock and "amazon-bedrock" or name
-      local rowApi = nil
+      local rowApi, rowUrl = nil, nil
       if viaRow then
-        rowApi = "openai-completions"
+        rowApi, rowUrl = "openai-completions", ctx.via_url
       elseif not nativeBedrock then
-        local _, reachableApi = piReachable(prov)
-        rowApi = reachableApi
+        local reachableUrl, reachableApi = piReachable(prov)
+        rowApi, rowUrl = reachableApi, reachableUrl
+      end
+      -- THE IDS THE ROW SENDS. The registration replaces the models.json row's list, so it must
+      -- spell each id as that row and the selection do: on Kilo a bare `deepseek-…` id is
+      -- `deepseek/deepseek-…` there (normalizeKiloModel, the models derive's own test of the
+      -- provider), and a registration keeping the bare id put an id Kilo does not serve on pi's
+      -- menu, left yolo's own default off it, and had the refusal turn away the spelling the row
+      -- uses. The model_options lookup stays on the declared id.
+      local isKilo = not nativeBedrock and (name == "kilo" or isKiloEndpoint(rowUrl))
+      local function sent(id)
+        if isKilo and id ~= nil then return normalizeKiloModel(id) end
+        return id
       end
       local provOpts = type(prov.options) == "table" and prov.options or {}
       local models = {}
       for _, e in ipairs(codexModelList(prov)) do
         local mopts = type(prov.model_options) == "table" and prov.model_options[e.base or e.id] or nil
         local m = {
-          id = e.id,
-          base = e.base,
+          id = sent(e.id),
+          base = sent(e.base),
           name = e.name,
           contextWindow = e.context_window or tonumber(provOpts.context_window or provOpts.max_context_tokens),
         }
