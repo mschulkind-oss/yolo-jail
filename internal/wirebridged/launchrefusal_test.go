@@ -417,3 +417,51 @@ func valueAt(layer map[string]any, path []string) map[string]any {
 	}
 	return cur
 }
+
+// TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan pins the shipped `bedrock-bridge`
+// profile (docs/design/bedrock-plumbing.md OQ-BR1, ruled 2026-09-29: one profile forces the wire
+// bridge) through the profile resolution a launch runs, then the launch's via gate. The profile
+// ships from packs/bedrock as {provider: bedrock, via: wire-bridge}. The bridge has no upstream
+// for a provider named by region alone yet (docs/design/wire-bridge-gateway.md §8 step 1), so
+// what each agent meets today is pinned too: claude, whose config the via re-points nothing of,
+// is disclosed and starts on its own login; codex, pi, oh-omp and opencode, whose derives point
+// the selected provider at their via URL, are refused, because no request to that prefix can
+// succeed. None of them quietly runs its own Bedrock client instead: the profile asked for the
+// bridge.
+func TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan(t *testing.T) {
+	packs := packload.Embedded()
+	providers, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatalf("composing the shipped providers: %v", err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, ok := resolved["bedrock-bridge"]
+	if !ok || r.Provider != "bedrock" || r.Via != ServiceName || r.ViaBase == "" {
+		t.Fatalf("the shipped bedrock-bridge profile resolves to %+v, want provider bedrock via %s", r, ServiceName)
+	}
+	use := map[string]string{}
+	for _, a := range []string{"claude", "codex", "pi", "oh-omp", "opencode"} {
+		use[a] = "bedrock-bridge"
+	}
+	refusals, notices := ViaRouteGate(packs, providers, use, resolved)
+	joined := strings.Join(notices, "\n")
+	wantAll(t, "claude notice", joined, `profile "bedrock-bridge" (active for claude)`, "no via route carries claude")
+	if len(notices) != 1 {
+		t.Errorf("notices %v, want claude's alone", notices)
+	}
+	var refused []string
+	for _, err := range refusals {
+		refused = append(refused, err.Error())
+	}
+	all := strings.Join(refused, "\n")
+	for _, agent := range []string{"codex", "pi", "oh-omp", "opencode"} {
+		wantAll(t, agent+" refusal", all, "(active for "+agent+")")
+	}
+	if len(refusals) != 4 {
+		t.Errorf("refusals %v, want exactly codex's, pi's, oh-omp's and opencode's", refused)
+	}
+	wantAll(t, "refusal reason", all, "provider bedrock")
+}

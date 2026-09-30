@@ -63,17 +63,27 @@ func TestCodexOnBedrockUsesItsOwnRuntimeClient(t *testing.T) {
 	}
 }
 
-// A PROFILE FORCING THE WIRE BRIDGE writes nothing for codex: the bridge has no upstream for a
-// provider named by region alone, and running codex natively instead would ignore the profile.
-func TestCodexOnABridgedBedrockProfileWritesNothing(t *testing.T) {
+// A PROFILE FORCING THE WIRE BRIDGE puts codex on its via route, never on its own client: the row
+// speaks Responses at codex's via URL with the bridge's caller token, although the provider names
+// no endpoint, because the bridge is what reaches Bedrock there. Running codex natively instead
+// would ignore the profile. (While the bridge has no upstream for a provider named by region
+// alone, the launch refuses this row: wirebridged's TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan.)
+func TestCodexOnABridgedBedrockProfileRidesItsViaRoute(t *testing.T) {
 	providersJSON, wire := bedrockTables(t, "codex", `{"bedrock":{"region":"us-east-1"}}`, bedrockViaProfile, "wire-bridge")
 	cfg := renderCodexConfig(t, providersJSON, `{"codex":"over-bridge"}`, wire)
-	for _, key := range []string{"model_provider", "model"} {
-		if v, ok := cfg[key]; ok {
-			t.Errorf("%s = %v on a bridged profile, want none", key, v)
-		}
+	if cfg["model_provider"] != "bedrock" || cfg["model"] != "us.openai.gpt-6.1-sol" {
+		t.Errorf("selection = %v/%v, want the via row bedrock on the first OpenAI entry", cfg["model_provider"], cfg["model"])
 	}
-	if rows, _ := cfg["model_providers"].(map[string]any); rows["amazon-bedrock-runtime"] != nil || rows["bedrock"] != nil {
-		t.Errorf("a bridged profile wrote a Bedrock row: %v", rows)
+	rows, _ := cfg["model_providers"].(map[string]any)
+	if rows["amazon-bedrock-runtime"] != nil {
+		t.Errorf("a bridged profile wrote the native override: %v", rows["amazon-bedrock-runtime"])
+	}
+	row, _ := rows["bedrock"].(map[string]any)
+	// The row's env_key is the bridge's caller token, which this render (codex's pack alone, no
+	// staged wire-bridge pack) cannot name; a launch's is pinned by the via tests.
+	delete(row, "env_key")
+	want := map[string]any{"name": "bedrock", "base_url": "http://127.0.0.1:8216/agent/codex", "wire_api": "responses"}
+	if !reflect.DeepEqual(row, want) {
+		t.Errorf("model_providers.bedrock = %#v, want the via row %#v", row, want)
 	}
 }

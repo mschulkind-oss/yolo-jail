@@ -312,15 +312,26 @@ end
 -- D4); that the id reaches runtime unchanged is INFERRED from that message, and `codex doctor`
 -- is the check.
 --
--- ONLY the selected provider, and only when codex's own client is the transport: a via profile
--- (`bedrock-bridge`) forces the wire bridge, which has no Bedrock upstream for a provider named
--- by region alone, so it writes nothing rather than quietly running codex natively. codex has
--- one built-in Bedrock provider, so a second Bedrock provider in the table gets no row of its
--- own: two rows cannot share one built-in id.
+-- ONLY the selected provider, and only when codex's own client is the transport. A via profile
+-- (`bedrock-bridge`) forces the wire bridge instead: codex then gets the via row every provider
+-- does, speaking Responses at its via URL (codexViaBedrock), which runtime serves for OpenAI's
+-- models. It is written even though the provider names no endpoint, because the bridge, not
+-- codex, is the one that reaches Bedrock on that route, and it never quietly runs codex
+-- natively instead. While the bridge has no upstream for a provider named by region alone, the
+-- launch refuses that row as a prefix nothing serves (docs/design/wire-bridge-gateway.md WG-I13).
+-- codex has one built-in Bedrock provider, so a second Bedrock provider in the table gets no
+-- native row of its own: two rows cannot share one built-in id.
 local codexBedrockProvider = "amazon-bedrock-runtime"
 
 local function codexNativeBedrock(ctx)
   return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
+end
+
+-- codexViaBedrock: the selected provider is a Bedrock one and codex's profile routes it through a
+-- via service, so its row is the via row whatever endpoints the provider names.
+local function codexViaBedrock(ctx, name)
+  return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") ~= "" and
+    name == ctx.selected_provider
 end
 
 -- codex's Bedrock client drives the Responses API, and the evidence covers OpenAI's models on
@@ -367,6 +378,11 @@ yolo.derive("codex", "config", function(ctx)
       -- credentials, not a custom third-party endpoint with an API key.
       if name ~= "openai-codex" then
         local baseUrl, api = codexReachable(prov)
+        if codexViaBedrock(ctx, name) then
+          -- Reachable through the bridge's Responses pass-through, which is the one route
+          -- the via re-points it to (codexViaBedrock above).
+          baseUrl, api = ctx.via_url, "responses"
+        end
         -- VIA (docs/design/wire-bridge-gateway.md §4.1, WG-I20/WG-I22): when codex's active
         -- profile routes through a service, the SELECTED provider's row points at codex's own
         -- route on it, ctx.via_url, which passes codex's Responses requests through to the
@@ -484,6 +500,16 @@ yolo.derive("codex", "config", function(ctx)
       -- writes the provider alone, and codex resolves its own model.
       local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
       local sel = { model_provider = codexBedrockProvider }
+      local model = callableModel(p, callableModels(p, codexBedrockMakers), ctx.profile, true)
+      if model then
+        sel.model = model
+      end
+      res.selection = sel
+    elseif codexViaBedrock(ctx, ctx.selected_provider) then
+      -- The same provider through the bridge: its via row, on the same OpenAI entries, since
+      -- the route passes codex's Responses requests through unchanged.
+      local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
+      local sel = { model_provider = ctx.selected_provider }
       local model = callableModel(p, callableModels(p, codexBedrockMakers), ctx.profile, true)
       if model then
         sel.model = model

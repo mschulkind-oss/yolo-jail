@@ -53,6 +53,12 @@
       "kind": "profile",
       "name": "bedrock",
       "provider": "bedrock"
+    },
+    {
+      "kind": "profile",
+      "name": "bedrock-bridge",
+      "provider": "bedrock",
+      "via": "wire-bridge"
     }
   ],
   "description": "Amazon Bedrock's bedrock-runtime endpoint as one provider every agent reads, with the models an agent starts on there.",

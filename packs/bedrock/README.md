@@ -124,6 +124,25 @@ Every id above was read from its AWS model card on 2026-09-29, and nothing was c
 Re-read the cards before changing an id: the prefixes each model offers differ per model and
 move ([`model-lists-and-pickers.md` §5.3](../../docs/design/model-lists-and-pickers.md#53-the-prerequisite-verify-before-an-id-ships)).
 
+## `bedrock-bridge`: the same provider through the wire bridge
+
+The pack ships a second profile, `bedrock-bridge`: the same `bedrock` provider with
+`"via": "wire-bridge"`, which sends an agent's traffic through yolo's wire bridge instead of the
+agent's own Bedrock client. It is the one profile that forces the bridge, and it is where
+claude's route to non-Anthropic models goes. A profile of your own forces it the same way with
+`via`.
+
+**It carries no agent yet.** The bridge reaches a Bedrock provider only at an address, and one
+named by a region alone gives it none to reach, so today:
+
+- **claude** runs on its own login, and the launch warns that the profile sends none of its
+  requests through the bridge;
+- **codex, pi, opencode and oh-omp** are refused at launch, because the bridge would serve their
+  route nothing: the refusal names the profile and says to drop its `via`.
+
+No agent quietly falls back to its own Bedrock client, since the profile asked for the bridge.
+Use `-p bedrock` for an agent's own client in the meantime.
+
 ## Why it needs `aws-auth`
 
 [`aws-auth`](../aws-auth/README.md) turns a host `aws sso login` into a narrowed credential a
