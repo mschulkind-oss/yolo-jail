@@ -275,13 +275,17 @@ func unmatchedSupersessions(records []*Loophole, claims []PackSupersession) []st
 		reported[c.Capability] = true
 		msg := fmt.Sprintf("pack %s supersedes capability %s, which NO loophole on this machine serves",
 			pytext.Repr(c.Pack), pytext.Repr(c.Capability))
+		// The did-you-mean's question mark ends its sentence, so the next one opens with no
+		// period of its own.
+		end := "."
 		if suggestion := nearestCapability(c.Capability, served); suggestion != "" {
 			msg += fmt.Sprintf(" — did you mean %s?", pytext.Repr(suggestion))
+			end = ""
 		}
 		if len(served) == 0 {
-			msg += ". No loophole here declares `serves` at all, so nothing can be superseded"
+			msg += end + " No loophole here declares `serves` at all, so nothing can be superseded"
 		} else {
-			msg += fmt.Sprintf(". Served here: [%s]", strings.Join(served, ", "))
+			msg += fmt.Sprintf("%s Served here: [%s]", end, strings.Join(served, ", "))
 		}
 		msg += ". Nothing was superseded, so every loophole keeps running"
 		out = append(out, msg)

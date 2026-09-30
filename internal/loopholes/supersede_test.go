@@ -296,6 +296,34 @@ func TestUnmatchedSupersessionIsReported(t *testing.T) {
 	}
 }
 
+// TestUnmatchedSupersessionSentenceIsPunctuated: the did-you-mean ends its sentence with a
+// question mark, so the served list opens the next one with no period of its own — the
+// sentence as docs/design/reference-mismatch-diagnostics.md §3 quotes it. It used to read
+// "…refresh'?. Served here", and since the launch refuses with this sentence, it is the one
+// a user reads at every refused launch.
+func TestUnmatchedSupersessionSentenceIsPunctuated(t *testing.T) {
+	unsetJail(t)
+	root := modsDir(t)
+	servingLoophole(t, root, "broker-like", []string{"claude-oauth-refresh"})
+	captureWarnings(t)
+
+	typo := PackSupersession{Pack: "claude-bedrock", Capability: "claude-oauth-refersh", Because: "Bedrock"}
+	probs := discoverWith(root, []PackSupersession{typo}).SupersessionProblems()
+	if len(probs) != 1 {
+		t.Fatalf("SupersessionProblems() = %v, want one", probs)
+	}
+	want := "did you mean 'claude-oauth-refresh'? Served here: [claude-oauth-refresh]. Nothing was superseded"
+	if !strings.Contains(probs[0], want) || strings.Contains(probs[0], "?.") {
+		t.Errorf("sentence = %q, want it to contain %q", probs[0], want)
+	}
+	// With no suggestion, the served list still opens its own sentence.
+	far := PackSupersession{Pack: "claude-bedrock", Capability: "something-else-entirely", Because: "Bedrock"}
+	probs = discoverWith(root, []PackSupersession{far}).SupersessionProblems()
+	if len(probs) != 1 || !strings.Contains(probs[0], "serves. Served here: [claude-oauth-refresh]") {
+		t.Errorf("sentence without a suggestion = %v", probs)
+	}
+}
+
 // TestUnmatchedSupersessionWithNothingServed: with no `serves` anywhere, a
 // did-you-mean would be a guess, so the message says what is true instead.
 func TestUnmatchedSupersessionWithNothingServed(t *testing.T) {
