@@ -7,7 +7,12 @@
 # the GitHub release, and uploads archives. The release BODY is that CHANGELOG.md
 # section, extracted from the tag's own tree by scripts/changelog-section.sh and
 # handed to goreleaser as --release-notes (see the goreleaser job); goreleaser's
-# commit-subject changelog is never published.
+# commit-subject changelog is never published. goreleaser's before-hooks
+# (.goreleaser.yaml) also run the pin tool's `stage`, which rebuilds every
+# official pack binary, refuses unless each is the digest the tag pins, and
+# stages the builds that goreleaser uploads beside the archives
+# (docs/design/broker-as-a-pack.md BP-D8, BP-D9). Like the bundle's
+# cross-compile, it runs on the Go the goreleaser job sets up.
 # publish.yml
 # (PyPI wheels + image pushes) runs off the SAME tag push — NOT off the
 # release event: goreleaser creates the release with the workflow-scoped

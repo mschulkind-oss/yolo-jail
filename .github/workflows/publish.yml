@@ -14,10 +14,11 @@
 # concurrency group collapses double-fires.
 #
 # ⚠ Gate: every job here waits on `release-notes`, which refuses a tag whose
-# CHANGELOG.md has no written section for its version. `just release` runs the
-# same check before it creates a tag, so this only fires on a tag pushed by
-# hand, and then it stops PyPI and the image pushes from shipping a version
-# whose GitHub release (release.yml) refused to exist.
+# CHANGELOG.md has no written section for its version, or whose official pack
+# binaries are not the builds its manifests pin. `just release` runs the same
+# checks before it creates a tag, so this only fires on a tag pushed by hand,
+# and then it stops PyPI and the image pushes from shipping a version whose
+# GitHub release (release.yml) refused to exist.
 #
 # PyPI auth is Trusted Publishing (OIDC): pinned to THIS workflow filename +
 # the `pypi` environment — renaming either breaks the publisher config.
@@ -42,6 +43,12 @@ concurrency:
 jobs:
   # The same extractor release.yml uses for the release body, run here only as
   # a gate: its output is discarded, its refusal fails the run.
+  #
+  # And the pin tool's check (docs/design/broker-as-a-pack.md BP-D9): this workflow
+  # runs beside release.yml, not after it, so without its own check PyPI could
+  # ship a yolo whose official pack binaries the release refused to publish. It
+  # rebuilds each one with the release recipe and compares it with the digest the
+  # tag's manifests pin; with no official binary declared it builds nothing.
   release-notes:
     runs-on: ubuntu-latest
     steps:
@@ -53,6 +60,19 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           if ! sh scripts/changelog-section.sh "$version" > /dev/null; then
             echo "::error::${GITHUB_REF_NAME} has no usable CHANGELOG.md section — it was not cut with 'just release'. Nothing is published."
+            exit 1
+          fi
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Require the official pack binaries to be pinned for this tag
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if ! go run ./tools/pack-binaries check "$version"; then
+            echo "::error::${GITHUB_REF_NAME}'s official pack binaries are not the builds its manifests pin — it was not cut with 'just release'. Nothing is published."
             exit 1
           fi
 

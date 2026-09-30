@@ -445,6 +445,16 @@ done: check
     fi
     @echo "All checks passed, working tree clean"
 
+# Each official pack binary is built with the release recipe, and its release url and sha256 are
+# written into its loophole manifest in place (docs/design/broker-as-a-pack.md BP-D9). A release
+# goes: rename the changelog section, run this, commit both, `just release VERSION`. With no
+# official binary declared it says so and writes nothing. The first run downloads the pinned Go
+# toolchain into the module cache.
+#
+# Pin every official pack binary for VERSION (before `just release VERSION`)
+pin-pack-binaries version:
+    go run ./tools/pack-binaries pin "{{version}}"
+
 # Cut a release: refuse unless CHANGELOG.md has a written section for VERSION and the tree is
 # clean, then tag v<VERSION> and push the tag. The tag push is the whole release: release.yml
 # runs goreleaser (archives, the GitHub release, the Homebrew formula) and publish.yml the PyPI
@@ -480,6 +490,16 @@ release version:
         echo "" >&2
         echo "✗ refusing to cut v$v until CHANGELOG.md has a section for it that reads as release" >&2
         echo "  notes. Nothing has been tagged." >&2
+        exit 1
+    fi
+    # Every official pack binary's url and sha256 are committed in the tree the tag names, so
+    # they are checked here, before the tag, by rebuilding each one: the same check the release's
+    # goreleaser run makes before it uploads and publish.yml makes before PyPI (BP-D9). It prints
+    # each disagreement, naming the binary, the platform and both digests.
+    if ! go run ./tools/pack-binaries check "$v"; then
+        echo "" >&2
+        echo "✗ refusing to cut v$v until the official pack binaries are pinned for it: run" >&2
+        echo "  'just pin-pack-binaries $v' and commit the result. Nothing has been tagged." >&2
         exit 1
     fi
     # The tag names HEAD, so HEAD must be a commit other people can already see: a tag pushed

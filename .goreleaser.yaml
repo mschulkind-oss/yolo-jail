@@ -30,6 +30,13 @@ before:
     # MUST stage OUTSIDE dist/: GoReleaser's dist.Pipe wipes dist/ right after
     # the before-hooks, so a bundle under dist/ would be deleted before archiving.
     - scripts/stage-source-bundle.sh bundle/share/yolo-jail
+    # Build every official pack binary with the release recipe, refuse unless each is the
+    # digest the tagged tree pins, and write the verified builds into bundle/pack-binaries as
+    # this release's own files (docs/design/broker-as-a-pack.md BP-D8, BP-D9). A refusal fails
+    # this hook, so nothing is published and the Homebrew job, which needs this run's success,
+    # does not run. OUTSIDE dist/ for the bundle's reason above; with no official binary it
+    # stages nothing, and the globs below match nothing.
+    - go run ./tools/pack-binaries stage {{ .Version }} bundle/pack-binaries
 
 builds:
   - id: yolo
@@ -78,6 +85,18 @@ archives:
 
 checksum:
   name_template: "checksums.txt"
+  # The pack binaries the before-hook staged are listed too, so each official build's digest
+  # can be checked against the release as well as against the manifest that pins it. The
+  # checksum step runs before the upload, which is why these are named here as well as under
+  # `release:` below.
+  extra_files:
+    - glob: ./bundle/pack-binaries/*
+
+# Each official pack binary is uploaded as a bare file beside the archives, named
+# <name>_<version>_<goos>_<goarch> — the url its manifest pins (BP-D8).
+release:
+  extra_files:
+    - glob: ./bundle/pack-binaries/*
 
 # NO `changelog:` BLOCK, on purpose. The release body is the tag's CHANGELOG.md
 # section, which release.yml extracts with scripts/changelog-section.sh and
