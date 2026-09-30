@@ -279,7 +279,10 @@ func TestRefreshFetchTimeoutIsAFailure(t *testing.T) {
 	if err := os.WriteFile(hang, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	f.store.Git, f.store.Timeout = hang, 500*time.Millisecond
+	// 3s, not the 500ms this was: the timeout is also each local rev-parse's budget, and one that
+	// overran under a full parallel `go test ./...` left the ref unclassified, so nothing was
+	// fetched (TestRefreshTimeoutKillsTheTransportHelper states it). The fetch still hangs 30s.
+	f.store.Git, f.store.Timeout = hang, 3*time.Second
 	f.now = f.now.Add(2 * BranchRefreshInterval)
 	start := time.Now()
 	o := f.refresh(t, false, pack)[0]

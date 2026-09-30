@@ -187,6 +187,10 @@ func TestTheMissLineNamesTheProgramThePackThePathAndTheFix(t *testing.T) {
 // TestTheMissLineNamesEachRefusedHostPathEntry: a `host_path` entry the reader refused is named in
 // the miss line with its reason and fix, between the PATH searched and the `host_path` fix, so the
 // line never asks for a folder the user already listed without saying why that entry did not count.
+//
+// THE PROGRAM IS ONE NO MACHINE HAS. The hint clause reads the real hint folders, which include
+// absolute ones such as /opt/homebrew/bin, so with `rg` this failed on every Mac with Homebrew's
+// rg: the line gained "; /opt/homebrew/bin has one." and Linux CI never saw it.
 func TestTheMissLineNamesEachRefusedHostPathEntry(t *testing.T) {
 	home := fakeHome(t)
 	l := New("/usr/bin", nil, nil, home)
@@ -194,11 +198,12 @@ func TestTheMissLineNamesEachRefusedHostPathEntry(t *testing.T) {
 		{Entry: `"$HOME/.cargo/bin"`, Why: `host_path expands no variable, so write it "~/.cargo/bin"`},
 		{Entry: `"~/x"`, Whole: true, Why: `host_path is a list of folders, so write it ["~/x"]`},
 	}
-	want := `rg is not on the PATH yolo searched, /usr/bin, the PATH yolo was started with. ` +
+	const bin = "yolo-test-no-such-tool"
+	want := bin + ` is not on the PATH yolo searched, /usr/bin, the PATH yolo was started with. ` +
 		`host_path's entry "$HOME/.cargo/bin" is ignored: host_path expands no variable, so write it "~/.cargo/bin". ` +
 		`host_path's value "~/x" is ignored: host_path is a list of folders, so write it ["~/x"]. ` +
-		`If rg is installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc.`
-	if got := l.MissLine(Miss{Bin: "rg"}); got != want {
+		`If ` + bin + ` is installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc.`
+	if got := l.MissLine(Miss{Bin: bin}); got != want {
 		t.Errorf("MissLine =\n  %s\nwant\n  %s", got, want)
 	}
 }

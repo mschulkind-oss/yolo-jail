@@ -43,12 +43,11 @@ func isolateBinaryCache(t *testing.T) string {
 }
 
 // cacheBuild puts a build in the cache the way packbin.Fetcher admits one: at its digest, 0555.
+// A build already at that digest is the same build, so it is kept: on a Linux host both sides
+// share one digest, and rewriting the 0555 file is EACCES for any user but root.
 func cacheBuild(t *testing.T, dir, sum, name string) string {
 	t.Helper()
 	p := packbin.Path(dir, sum, name)
-	// On a Linux host the host and jail builds are one digest (sideSums), so a test caches the same
-	// path twice. The file is 0555, and a second write over it fails for every user but root, so
-	// the helper passed only in a jail running as uid 0 and failed on CI.
 	if _, err := os.Stat(p); err == nil {
 		return p
 	}

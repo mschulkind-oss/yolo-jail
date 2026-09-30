@@ -114,9 +114,11 @@ func TestTheCopyProgressFollowsTheCopiersBlobs(t *testing.T) {
 		t.Fatalf("load failed: %s", out.String())
 	}
 	r := report.String()
+	// Each frame ends in its elapsed seconds, which are not matched: under a full parallel
+	// `go test ./...` the fake copier took over a second, and "(0s)" became "(1s)".
 	for _, want := range []string{
-		"\r\x1b[KCopying the image into podman… layer 1 of 2 (26 MB of 2.8 GB) (0s)",
-		"\r\x1b[KCopying the image into podman… layer 2 of 2 (2.8 of 2.8 GB) (0s)",
+		"\r\x1b[KCopying the image into podman… layer 1 of 2 (26 MB of 2.8 GB) (",
+		"\r\x1b[KCopying the image into podman… layer 2 of 2 (2.8 of 2.8 GB) (",
 		"writing the manifest",
 	} {
 		if !strings.Contains(r, want) {
