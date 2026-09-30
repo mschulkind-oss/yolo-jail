@@ -3,14 +3,14 @@ title: "Emptying bundled_loopholes/ — the broker, the identity rule, and the p
 date: 2026-08-15
 status: in-review
 tags: [loopholes, packs, broker, claude, identity, binaries]
-summary: "How the Claude OAuth broker became a contribution of packs/claude and the bundled loophole channel was deleted (built 2026-08-19), the connection-preamble identity rule that replaced the per-jail relay, and the pack-shipped binary capability that was committed to the same sprint and is not built — two rulings on it are still open."
+summary: "How the Claude OAuth broker became a contribution of packs/claude and the bundled loophole channel was deleted (built 2026-08-19), the connection-preamble identity rule that replaced the per-jail relay, and the pack-shipped binary capability that was committed to the same sprint and is not built. Its two questions were settled on 2026-09-30, one as an implementation choice and one by an earlier ruling."
 ---
 
 # Emptying `bundled_loopholes/` — the broker, the identity rule, and the proving ground
 
-**Status:** DESIGN, 2026-09-24 — two rulings are owed, both on the pack-shipped-binary capability. **The broker move is built** (2026-08-19; measured that day, and [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) records what emptying the channel actually required), and **the pack-shipped-binary capability is not**: [OQ-BP1](#decision-ledger) committed it to the same sprint, its release matrix is still owed (re-checked 2026-09-24: no `packs/*/pack.json` or loophole manifest declares a digest-pinned binary), and both open questions are about it. ⚠ **Both open questions were written against a trust model that has since changed**: the fetched-pack approval prompt and every origin refusal were deleted on 2026-09-04 ([`OQ-TP9`](trust-paths.md#decision-ledger)), so [§3.1](#31-what-is-actually-unresolved-here)'s "two gates" and the `InstallerURL` precedent both questions lean on no longer exist in the tree — see the note under each.
+**Status:** DESIGN, 2026-09-24; no ruling owed since 2026-09-30, when [OQ-BP5](#OQ-BP5) was decided as an implementation choice ([BP-D1](#BP-D1)) and [OQ-BP6](#OQ-BP6) was found answered by [`OQ-TP9`](trust-paths.md#decision-ledger). **The broker move is built** (2026-08-19; measured that day, and [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) records what emptying the channel actually required), and **the pack-shipped-binary capability is not**: [OQ-BP1](#decision-ledger) committed it to the same sprint, its release matrix is still owed (re-checked 2026-09-24: no `packs/*/pack.json` or loophole manifest declares a digest-pinned binary), and both of its questions were about it. ⚠ **Both questions were written against a trust model that has since changed**: the fetched-pack approval prompt and every origin refusal were deleted on 2026-09-04 ([`OQ-TP9`](trust-paths.md#decision-ledger)), so [§3.1](#31-what-is-actually-unresolved-here)'s "two gates" and the `InstallerURL` precedent both questions lean on no longer exist in the tree — see the note under each.
 
-**Needs your ruling:** [OQ-BP5](#OQ-BP5), [OQ-BP6](#OQ-BP6) — both on the binary capability, and neither blocks anything shipped.
+**Needs your ruling:** nothing. [OQ-BP5](#OQ-BP5) and [OQ-BP6](#OQ-BP6), both on the binary capability, were settled on 2026-09-30.
 
 All five sequencing steps are in the tree and `bundled_loopholes/` is DELETED — the directory, its `embed.go`, `internal/loopholes/embedfallback.go`, and the `BundledLoopholesDir` / `SourceBundled` / `IncludeBundled` / `loadFromDir` vocabulary that read it. Step 5 landed as one commit: the manifest is now `packs/claude/loopholes/claude-oauth-broker/`, declared by `packs/claude/pack.json` as `{"kind": "loophole", "from": "loopholes/claude-oauth-broker"}` ([OQ-A10](../reference/loophole-system.md#why-its-this-way) — a contribution of the agent pack, not a pack of its own); `loopholes.ReservedLoopholeNames` is **deleted whole**, because the broker was the last name in it; `requires.command_on_path: "claude"` is deleted from the manifest (R3, free under R6); and `run.brokerLoopholeActive` gained the ORIGIN GATE it was allowed to skip only while the record was bundled. Three consequences worth carrying forward are in [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19). Code claims verified against the tree on 2026-08-15 unless dated otherwise.
 
@@ -22,7 +22,7 @@ All five sequencing steps are in the tree and `bundled_loopholes/` is DELETED �
 > 2. **`bundled_loopholes/` has no inhabitants at the end of this work sprint** ([OQ-BP4](#decision-ledger)) — the goal is the channel's retirement, not one fewer entry in it.
 > 3. **Every connection stays raw and yolo prepends its own connection preamble** — default on, `preamble: false` for a dumb pipe ([OQ-BP2](#decision-ledger), [§5.5](#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble)). yolo never parses a daemon's payload. Breaking changes are in scope.
 
-**All open questions that gate implementation are now answered.** What remains open ([OQ-BP5](#OQ-BP5), [OQ-BP6](#OQ-BP6)) belongs to the binary capability and blocks nothing in [§12](#12-host-processes-as-the-proving-ground).
+**All open questions that gate implementation are now answered.** The last two ([OQ-BP5](#OQ-BP5), [OQ-BP6](#OQ-BP6)) belonged to the binary capability, blocked nothing in [§12](#12-host-processes-as-the-proving-ground), and were settled on 2026-09-30.
 
 **Scope note.** That second ruling makes this doc one of three conversions rather than a self-contained change, and the other two are not designed here: `host-processes` needs the same `publishes` change with none of the relay complexity, and `audio` cannot become a pack at all until **[OQ-LP14](../reference/loophole-system.md#oq-lp14)** is answered. [§11](#11-what-no-bundled-loopholes-additionally-requires) states what each needs and what is genuinely blocking; the work belongs to the sprint, not to this document.
 
@@ -167,8 +167,9 @@ So the mechanism should be one schema and **two gates**: shipping a jail-side bi
 > pack, and the launch's host-execution lines printed before any daemon spawns
 > ([`loophole-system.md`](../reference/loophole-system.md#trust-what-is-gated-and-what-is-not)). So
 > today a fetched pack's `host_daemon.cmd` runs on the host with no approval, disclosed. The
-> asymmetry above is still the right thing to design for; what it would be enforced BY is now
-> an open part of [OQ-BP6](#OQ-BP6), not an existing mechanism.
+> asymmetry above is still the right thing to disclose; it is enforced by nothing, and
+> [OQ-BP6](#OQ-BP6)'s answer (2026-09-30) is that a fetched pack's host-side binary is honored
+> and disclosed like its `host_daemon.cmd`, with no new refusal source.
 
 #### And the interim answer for *this* broker
 
@@ -473,7 +474,7 @@ path"; what is added here is that step 5 cannot precede it either.
 - **Not** a general per-jail daemon mechanism. Option F is rejected precisely to avoid inventing one for a single consumer.
 - **Not** a change to the transport. Loopback-TLS stays the only hop; this is about what sits behind the front.
 - **Not** a widening of the pack-shipped subset *for the broker*. This loophole needs no new host-crossing vocabulary. **But the sprint goal does** — retiring the bundled channel means converting `audio` too, and that is blocked on **[OQ-LP14](../reference/loophole-system.md#oq-lp14)** ([§11](#11-what-no-bundled-loopholes-additionally-requires)). The distinction to hold: the broker does not depend on LP14; "no bundled loopholes" does.
-- **Not** a fetched-pack broker. Everything about *this* loophole assumes an **official** pack. [§3.1](#31-what-is-actually-unresolved-here) designs the pack-shipped binary capability in general, but whether a **fetched** pack may ship a *host-side* binary is left open ([OQ-BP6](#OQ-BP6)) and is not needed here.
+- **Not** a fetched-pack broker. Everything about *this* loophole assumes an **official** pack. [§3.1](#31-what-is-actually-unresolved-here) designs the pack-shipped binary capability in general, but whether a **fetched** pack may ship a *host-side* binary is [OQ-BP6](#OQ-BP6)'s, answered 2026-09-30 (yes, disclosed), and is not needed here.
 - **Not** a general artifact-caching or dependency system. [§3.1](#31-what-is-actually-unresolved-here)'s download is one verified file per platform per loophole, fetched at install and keyed by digest — it is not a package manager, and it should not grow into one.
 - **Not** a change to how credentials are merged, harvested or written. That is [`pack-code-separation.md`](../reference/pack-system.md#what-a-pack-is-on-disk) [§5](../reference/pack-system.md#what-a-pack-is-on-disk), decided separately and landing first.
 
@@ -669,10 +670,10 @@ there had to be updated by hand or it would have been the only trace left.
 
 ## Decision Ledger
 
-Four of the six are settled; their rulings live in the body sections named below. Three of the four
-are built; [OQ-BP1](#decision-ledger) is built for the broker move only — its binary half is not
-(see the warning below the table). The two that remain live are in **Open Questions** underneath,
-and neither gates anything that shipped.
+All six are settled: four in the body sections named below, and the last two on 2026-09-30, in
+**Open Questions** underneath. Three of the first four are built; [OQ-BP1](#decision-ledger) is
+built for the broker move only — its binary half is not (see the warning below the table).
+[BP-D1](#BP-D1) is an implementation decision, not a ruling.
 
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
@@ -680,6 +681,8 @@ and neither gates anything that shipped.
 | OQ-BP2 | Every connection stays **raw** and yolo prepends its own connection preamble (`preamble: false` for a dumb pipe). yolo never parses a daemon's payload; the host-derived `jail=` lives in yolo's own connection record | 2026-08-15 | [§5.5](#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble) |
 | OQ-BP3 | Superseded by [OQ-BP4](#decision-ledger) — LP14 is a dependency of the **sprint**, not of this loophole | 2026-08-15 | [§11](#11-what-no-bundled-loopholes-additionally-requires) |
 | OQ-BP4 | **No inhabitants at sprint end** — retire the channel rather than shrink it. Done 2026-08-19: directory, embed and every reader deleted | 2026-08-15 | [§11](#11-what-no-bundled-loopholes-additionally-requires), [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) |
+| <a id="BP-D1"></a>BP-D1 | *Implementation decision*, under [OQ-BP1](#decision-ledger). **A pack ships a binary as a declared download with a mandatory `sha256` (option B), and declares no build step.** yolo fetches it when the pack is installed, as [§3.1](#31-what-is-actually-unresolved-here) says, verifies the digest, and caches the file by digest under its state tree with the exec bit set, which also carries an executable for an embedded pack, whose `embed.FS` files read back `0444`. **Why:** the maintainer asked for per-arch selection and, ideally, dynamic download ([§3.1](#31-what-is-actually-unresolved-here)), which B is, and no pack needs a build. The digest is kept as integrity and reproducibility, the same bytes on every machine and the cache's key, not as a trust gate: [`OQ-TP9`](trust-paths.md#decision-ledger) deleted every origin gate, so the leaning's "origin-gated exactly as `InstallerURL` is" is dropped. If a pack later needs a built binary, it takes the source-build route [`forked-programs-as-packs.md`](forked-programs-as-packs.md) designs for programs, built in a throwaway capture jail, rather than a second build path here. Reversible: a build step can be added through that route without changing B ([OQ-BP5](#OQ-BP5)) | 2026-09-30 | [OQ-BP5](#OQ-BP5) |
+| OQ-BP6 | **Yes: a fetched pack may ship a host-side daemon binary, honored and disclosed like its `host_daemon.cmd`, with no approval and no origin refusal.** Answered by [`OQ-TP9`](trust-paths.md#decision-ledger) (2026-09-04), which deleted the fetched-pack approval prompt and every origin refusal and kept the launch's disclosure. The maintainer's words in that review: *"they're all just as weak. anything can be an installer. we're ultimately extending trust somewhere."* A binary is no sharper than the arbitrary host argv `host_daemon.cmd` already names, and refusing it would be the only origin refusal in the tree | 2026-09-30 | [OQ-BP6](#OQ-BP6) |
 
 > [!WARNING]
 > **[OQ-BP3](#decision-ledger) is superseded, not wrong, and it comes back if the goal shrinks.** The *broker* needs
@@ -702,7 +705,7 @@ Both belong to the **pack-shipped binary capability** ([§3.1](#31-what-is-actua
 on a baked daemon, which an official pack may do. Neither blocks anything in the tree today; both
 block the first pack that wants to ship a binary of its own.
 
-1. 💬 <a id="OQ-BP5"></a>**[OQ-BP5](#OQ-BP5) — download-with-digest only, or also a declared build step?**
+1. ✅ <a id="OQ-BP5"></a>**[OQ-BP5](#OQ-BP5) — download-with-digest only, or also a declared build step?**
 
    The review asks for both as candidates ([§3.1](#31-what-is-actually-unresolved-here)). They are not symmetric: a download can be pinned by `sha256` and therefore satisfies **P4** (a pinned pack pins everything that runs); a build step generally cannot, because builds are not bit-reproducible, so what runs is decided at install time by whatever toolchain the machine happens to have. A build step is also the same risk class as `packdecl.Install.InstallerURL`, which the schema calls *"the sharpest thing a manifest can name"* and which a fetched pack could not introduce until [`OQ-TP9`](trust-paths.md#decision-ledger) deleted the origin rule on 2026-09-04.
 
@@ -710,12 +713,14 @@ block the first pack that wants to ship a binary of its own.
 
    ⚠ **The leaning's precedent no longer exists** (re-checked 2026-09-24): `InstallerURL` is not origin-gated any more — `packload.Pack.HonoredInstalls` refuses nothing since [`OQ-TP9`](trust-paths.md#decision-ledger) — so "origin-gated exactly as `InstallerURL` is" now means "not gated". A build step that should be origin-gated would need a refusal source of its own, and that code's own comment says any new one needs its own design ruling. The download half of the leaning is unaffected. Related: [`forked-programs-as-packs.md`](forked-programs-as-packs.md) designs source builds for `kind: "program"` — built in a throwaway capture jail, never on the host — which is the same "declared build step" question for a different artifact.
 
-   <!-- vantage: oq id=OQ-BP5 leaning="Download-with-digest now; no build step until something needs one that a download cannot serve. A download can be pinned by sha256 and therefore satisfies P4; a build step generally cannot, because what runs is decided at install time by whatever toolchain the machine happens to have. If a build step is added later it should be jail-side only and origin-gated exactly as InstallerURL is, and honest that a built artifact is unpinned." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([BP-D1](#BP-D1)), reversible: download-with-digest
+   > only, and no declared build step. A pack that later needs a built binary takes the
+   > source-build route [`forked-programs-as-packs.md`](forked-programs-as-packs.md) designs,
+   > built in a throwaway capture jail, rather than a second build path. The origin gate the
+   > leaning named is dropped, because [`OQ-TP9`](trust-paths.md#decision-ledger) deleted it.
 
-2. 💬 <a id="OQ-BP6"></a>**[OQ-BP6](#OQ-BP6) — may a *fetched* pack ship a host-side daemon binary?**
+2. ✅ <a id="OQ-BP6"></a>**[OQ-BP6](#OQ-BP6) — may a *fetched* pack ship a host-side daemon binary?**
 
    [§3.1](#31-what-is-actually-unresolved-here)'s two-gate split says a jail-side binary is roughly as sharp as what a pack can already do, while a host-side one is a host-execution grant. This asks whether the second is available to a fetched pack at all, or whether — like `InstallerURL` and `host_files` — it is refused by origin regardless of what the user would approve. Not needed for the broker, which is official; needed before anyone else ships one.
 
@@ -723,7 +728,12 @@ block the first pack that wants to ship a binary of its own.
 
    ⚠ **Two facts under this leaning changed on 2026-09-04, two days after it was verified** ([`OQ-TP9`](trust-paths.md#decision-ledger)): there is no host-execution approval to gate on any more, and there are no origin-refused fields — `reads-host`, `mount` and `InstallerURL` are all honored for a fetched pack. What survives is disclosure: the claim is still enumerated, `yolo pack footprint` shows it, and the launch prints it before the daemon spawns. So a fetched pack's `host_daemon.cmd` runs on the host today with no approval, disclosed, and the halfway-measure argument is *stronger* — refusing the binary would be the only origin refusal in the tree. What is now open is whether that disclosure is enough for a shipped host binary, or whether it is the case that earns a new refusal source. **Not answered by [`OQ-TP9`](trust-paths.md#decision-ledger)**, which ruled on selection and approval rather than on shipped binaries, so this stays open.
 
-   <!-- vantage: oq id=OQ-BP6 leaning="Allow a fetched pack to ship a host-side daemon binary, gated by the existing host-execution approval rather than refused by origin. A fetched pack can already declare a host_daemon.cmd naming an arbitrary host argv, so refusing the declarative binary while permitting the imperative command repeats the halfway-measure shape OQ-LP14 already suffers from. It is a real widening, so answer it deliberately." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Answered by [`OQ-TP9`](trust-paths.md#decision-ledger) (2026-09-04): yes, honored and
+   > disclosed like the pack's `host_daemon.cmd`, with no approval and no origin refusal. TP9
+   > deleted the fetched-pack approval prompt and every origin refusal on the maintainer's review
+   > (*"they're all just as weak. anything can be an installer. we're ultimately extending trust
+   > somewhere."*), and kept the launch's disclosure, so the host-execution lines print before the
+   > daemon spawns and `yolo pack footprint` shows the claim. The 2026-09-29 ruling
+   > [OQ-HP5](host-tool-provisioning.md#OQ-HP5) says the same of installs (*"You've acknowledged
+   > this already. We don't have to ask again"*). No new refusal source is added for a binary.

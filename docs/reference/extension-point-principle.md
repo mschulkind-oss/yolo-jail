@@ -27,12 +27,13 @@ where the authority changes). The first is about *breadth*, the second about *wh
 this one is about *who does the designing*.
 
 **Where the open case lives:** the pack-shipped **binary** capability is this principle's live test
-case — designed as a *general* capability before its first consumer needed it. Two of its questions
-are unruled, and they are unruled in
-[`../design/broker-as-a-pack.md`](../design/broker-as-a-pack.md#open-questions):
-[`OQ-BP5`](../design/broker-as-a-pack.md#OQ-BP5) (is a declared *build step* allowed as well?) and
+case — designed as a *general* capability before its first consumer needed it. Its two questions
+live in [`../design/broker-as-a-pack.md`](../design/broker-as-a-pack.md#open-questions) and were
+settled there on 2026-09-30:
+[`OQ-BP5`](../design/broker-as-a-pack.md#OQ-BP5) (is a declared *build step* allowed as well? No:
+a digest-pinned download only) and
 [`OQ-BP6`](../design/broker-as-a-pack.md#OQ-BP6) (may a *fetched* pack ship a **host-side**
-binary?). Nothing on this page settles either.
+binary? Yes, disclosed). This page settled neither.
 
 ---
 

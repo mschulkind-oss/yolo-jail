@@ -1002,8 +1002,8 @@ retiring `scope: "host"` removes one instance of it rather than the shape.
   hardcoded names.** That is a ruling of its own about *argv assembly* — what the argv
   promises a jail. [`OQ-HD2`](#11-decision-ledger) was the *management-surface* half — what a
   human can type — and deliberately did not decide it.
-- **Whether a fetched pack may ship a host daemon binary** — open as
-  [`OQ-BP6`](broker-as-a-pack.md#OQ-BP6).
+- **Whether a fetched pack may ship a host daemon binary** — that is
+  [`OQ-BP6`](broker-as-a-pack.md#OQ-BP6)'s, answered 2026-09-30: yes, disclosed.
 - **What each loophole does, or whether it should exist.** Nothing here argues three
   credential daemons is too many.
 - **The in-jail halves' design.** The OAuth terminator and the two adapters are jail daemons;
