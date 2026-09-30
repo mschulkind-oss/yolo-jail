@@ -1156,6 +1156,23 @@ yolo.derive("pi", "settings", function(ctx)
   return piSetSettings(ctx, piSettingsFor(ctx), piSettingsFor)
 end)
 
+-- piEnforceFor is the model-list switch (enforce_models, MM-D5) that governs provName's list: the
+-- switch of the active-set entry on that provider, its own profile's, since every entry is live
+-- (docs/design/active-provider-sets.md AP-P1); else the primary's, ctx.enforce_models, on unless
+-- the profile says false. The rule packs/opencode/derive.lua's opencodeEnforceFor reads its
+-- whitelist by, so one profile's switch means the same in both agents. An entrypoint older than
+-- the per-entry field hands nil there, and the list reads the primary's.
+local function piEnforceFor(ctx, provName)
+  if provName ~= ctx.selected_provider and type(ctx.active_set) == "table" then
+    for _, e in ipairs(ctx.active_set) do
+      if e.provider == provName and type(e.enforce_models) == "boolean" then
+        return e.enforce_models
+      end
+    end
+  end
+  return ctx.enforce_models ~= false
+end
+
 -- codex-models (~/.pi/agent/yolo-openai-codex-models.json): the openai-codex model list
 -- packs/pi/extensions/yolo-openai-auth.js registers, as data. The extension cannot read the
 -- declaration itself — it is JavaScript pi loads, not a derive — and this surface is the
@@ -1173,6 +1190,14 @@ end)
 -- pi-dialect fact (cost tiers, thinking levels, compat) from pi's own catalog, looked up
 -- by `base` or `id`. An empty list renders `{}`, and the extension then registers no
 -- models of its own, which leaves pi's built-in openai-codex catalog in place.
+--
+-- AND THE SWITCH (docs/design/model-lists-and-pickers.md MM-D5, MM-D23): `enforce` is the
+-- enforce_models of the profile that governs openai-codex (piEnforceFor, the rule model-lists
+-- below reads), and while it is on the extension's registration also refuses a model outside the
+-- list, as claude's allowlist does on openai-codex. The list is exact whether or not an `only`
+-- narrowed it, since the registration replaces pi's whole openai-codex catalog (ML-D3), so the
+-- refusal does not wait on one. That the subscription login still reaches a listed model through
+-- the refusing wrapper was MEASURED 2026-09-30 on pi 0.99.1 against a mock endpoint (MM-D23).
 yolo.derive("pi", "codex-models", function(ctx)
   local list = codexModelList(ctx.providers and ctx.providers["openai-codex"])
   if #list == 0 then return {} end
@@ -1180,25 +1205,8 @@ yolo.derive("pi", "codex-models", function(ctx)
   for _, e in ipairs(list) do
     table.insert(models, { id = e.id, base = e.base, name = e.name, contextWindow = e.context_window })
   end
-  return { models = models }
+  return { models = models, enforce = piEnforceFor(ctx, "openai-codex") }
 end)
-
--- piEnforceFor is the model-list switch (enforce_models, MM-D5) that governs provName's list: the
--- switch of the active-set entry on that provider, its own profile's, since every entry is live
--- (docs/design/active-provider-sets.md AP-P1); else the primary's, ctx.enforce_models, on unless
--- the profile says false. The rule packs/opencode/derive.lua's opencodeEnforceFor reads its
--- whitelist by, so one profile's switch means the same in both agents. An entrypoint older than
--- the per-entry field hands nil there, and the list reads the primary's.
-local function piEnforceFor(ctx, provName)
-  if provName ~= ctx.selected_provider and type(ctx.active_set) == "table" then
-    for _, e in ipairs(ctx.active_set) do
-      if e.provider == provName and type(e.enforce_models) == "boolean" then
-        return e.enforce_models
-      end
-    end
-  end
-  return ctx.enforce_models ~= false
-end
 
 -- model-lists (~/.pi/agent/yolo-model-lists.json): every provider list a `models` contribution
 -- narrowed with an `only` (packload's `models_only`), keyed by pi's provider id, for

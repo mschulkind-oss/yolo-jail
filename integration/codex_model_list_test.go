@@ -57,6 +57,13 @@ func TestCodexProfileRendersOneModelListForEveryAgent(t *testing.T) {
 	if len(ids) == 0 {
 		t.Fatalf("the pi codex-models file lists no models, so nothing below measures anything: %v", file)
 	}
+	// The codex profile's model-list switch, on by default, travels beside the list, and with it
+	// pi's extension refuses a model outside the list on the subscription, as claude's allowlist
+	// below does (docs/design/model-lists-and-pickers.md MM-D23).
+	if file["enforce"] != true {
+		t.Errorf("the pi codex-models file's enforce = %v, want true: the codex profile does not "+
+			"turn enforce_models off, so pi must refuse a model outside the list", file["enforce"])
+	}
 	first, _ := ids[0].(string)
 
 	claude := decode("claude settings.json", renderedSurface(t, dir, "claude", "settings.json"))

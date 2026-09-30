@@ -172,6 +172,10 @@ function delegateFor(provider, api, pi) {
 // refusal is the message a refused model ends its turn with: what was refused, why, what is
 // allowed, and the two ways out, worded as the wire bridge words its own refusal
 // (internal/wirebridged's allowlist).
+// ⚠ DUPLICATED VERBATIM in yolo-openai-auth.js: pi loads every .js file in its extensions directory
+// as an extension and reports one that exports no factory as a load error, so a shared
+// module would be one more file delivered elsewhere for one sentence.
+// internal/entrypoint's TestPisTwoRefusalsAreWordedAlike fails when the copies differ.
 function refusal(provider, id, listed) {
 	return (
 		`yolo: model "${provider}/${id}" is not on yolo's model list for provider ${provider}, and the ` +

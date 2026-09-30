@@ -1071,7 +1071,11 @@ pack ships, and every agent that can use the provider renders that one list
   at every jail boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets
   no model scope for it, and its sub-agents may use only the listed ids. A listed model pi's
   catalog does not know registers text-only, with no thinking levels, and pi warns once when
-  that happens ([ML-D7](../design/model-lists-and-pickers.md#ML-D7)). On the host,
+  that happens ([ML-D7](../design/model-lists-and-pickers.md#ML-D7)). While the `enforce_models`
+  of the profile that governs `openai-codex` is on, as it is by default and with no profile
+  selected, a model outside the list, typed with `--model` or resumed from a session, ends its
+  turn with an error naming the list and the switch
+  ([MM-D23](../design/model-lists-and-pickers.md#MM-D23)). On the host,
   `yolo host apply` writes the same list into that file, from the provider table it composes at
   user scope ([OQ-HC1](../design/host-computed-layer.md#OQ-HC1), which superseded
   [ML-D8](../design/model-lists-and-pickers.md#ML-D8)).
@@ -1515,8 +1519,10 @@ should show instead is an open question ([OQ-MM1](../design/model-lists-and-pick
 **`enforce_models`** is a profile field, like `via`, that decides whether a narrowed list also
 REFUSES other models. It defaults to on: claude's allowlist (`availableModels` with
 `enforceAvailableModels`), opencode's whitelist and pi's extension then turn away a model outside
-the list, pi's on every provider but `openai-codex`, whose own registration carries no refusal
-yet. Off (`"enforce_models": false`), the list only shapes the menus, and opencode's menu is not narrowed at
+the list. On `openai-codex` claude's allowlist and pi's refusal hold whether or not an `only`
+narrowed the list, since there the list is each one's whole menu for the provider, and pi's
+refusal lives in the registration that also carries the subscription login
+([MM-D23](../design/model-lists-and-pickers.md#MM-D23)). Off (`"enforce_models": false`), the list only shapes the menus, and opencode's menu is not narrowed at
 all, since its whitelist cannot hide without refusing. With the switch off claude's start pin
 returns, on `openai-codex` and under an `only` alike, wherever the profile's `model` or the
 provider's default names a model: no allowlist then keeps an off-list saved model from starting,

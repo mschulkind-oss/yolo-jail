@@ -309,6 +309,12 @@ models it knows, again whenever Codex is updated, so a model your Codex is too o
 out, and yolo says so each time Codex starts; updating Codex brings it back. On any other provider,
 and under `yolo host`, Codex keeps its usual menu.
 
+pi shows the same models for your ChatGPT subscription, and turns away any other one, a model
+typed with `pi --model` or saved in a session you resume included, as Claude Code does there.
+That holds when you launch with no profile too. To use a model yolo does not list there, add it
+to `providers.openai-codex.models` in your config, or launch with a profile that sets
+`"enforce_models": false`.
+
 A model you pick with `/model` stays picked at the next launch on your ChatGPT subscription and on
 a list a pack narrowed with `only` (below), as long as the profile's `enforce_models` is on, which
 it is unless you turn it off. On the other providers Claude Code still starts on the provider's
@@ -335,7 +341,7 @@ agent allows it:
 |---|---|---|
 | Claude Code | exactly the list (on its own Bedrock client, the list's Claude models), below its Default row | refused |
 | opencode | exactly the list | refused |
-| pi | exactly the list | refused, except on your ChatGPT subscription, where a model typed with `--model` still runs |
+| pi | exactly the list | refused |
 | oh-omp | exactly the list | a model typed with `--model` still runs |
 | Codex | on your ChatGPT subscription, exactly the list; on any other provider, its usual menu, starting on the list's default model | not refused |
 | Copilot | its usual menu, starting on the list's default model | not refused; whether it can show the whole list is still being decided |

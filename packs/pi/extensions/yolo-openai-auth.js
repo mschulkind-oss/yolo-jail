@@ -109,19 +109,79 @@ async function brokerLogin(signal) {
 // the same list.
 const CODEX_LIST_FILE = join(homedir(), ".pi", "agent", "yolo-openai-codex-models.json");
 
-// readCodexModelList returns the rendered entries, or [] when the file is missing, is not
-// JSON, or holds no `models` array. [] is never an error: it registers no models of our
-// own, and pi then keeps its built-in openai-codex catalog, so login never depends on it.
+// The pi api every openai-codex model runs on, which this registration names.
+const CODEX_API = "openai-codex-responses";
+
+// readCodexModelList returns the rendered entries and the file's `enforce` flag, or no entries
+// when the file is missing, is not JSON, or holds no `models` array. No entries is never an
+// error: it registers no models of our own, and pi then keeps its built-in openai-codex catalog,
+// so login never depends on the file. `enforce` is the switch of the profile that governs the
+// list (enforce_models, on unless the profile says false; docs/design/model-lists-and-pickers.md
+// MM-D5), which the derive writes beside the list; anything but `true` refuses nothing.
 function readCodexModelList() {
 	let parsed;
 	try {
 		parsed = JSON.parse(readFileSync(CODEX_LIST_FILE, "utf8"));
 	} catch {
-		return [];
+		return { list: [], enforce: false };
 	}
 	const models = parsed?.models;
-	if (!Array.isArray(models)) return [];
-	return models.filter((entry) => typeof entry?.id === "string" && entry.id.length > 0);
+	if (!Array.isArray(models)) return { list: [], enforce: false };
+	return {
+		list: models.filter((entry) => typeof entry?.id === "string" && entry.id.length > 0),
+		enforce: parsed.enforce === true,
+	};
+}
+
+// codexDelegate is the stream pi runs an openai-codex model on when no extension wraps it,
+// rebuilt from what pi exports: its built-in openai-codex provider when that serves this
+// registration's api, else pi's api registry for the api (pi 0.99.1 composeModelProvider's
+// streamWith, which does exactly this for a registration without a streamSimple). It never
+// touches the credential: pi resolves the subscription login into `options` before it calls the
+// wrapper below (MEASURED 2026-09-30 on pi 0.99.1, docs/design/model-lists-and-pickers.md
+// MM-D23). undefined when neither can be found.
+async function codexDelegate() {
+	try {
+		const all = await import("@earendil-works/pi-ai/providers/all");
+		const base =
+			typeof all.builtinProviders === "function"
+				? all.builtinProviders().find((provider) => provider?.id === "openai-codex")
+				: undefined;
+		if (
+			base &&
+			typeof base.streamSimple === "function" &&
+			(base.getModels?.() ?? []).some((model) => model?.api === CODEX_API)
+		) {
+			return (model, context, options) => base.streamSimple(model, context, options);
+		}
+	} catch {
+		// no built-in provider to hand the model to: try pi's api registry
+	}
+	try {
+		const compat = await import("@earendil-works/pi-ai/compat");
+		const registered = typeof compat.getApiProvider === "function" ? compat.getApiProvider(CODEX_API) : undefined;
+		if (registered && typeof registered.streamSimple === "function") {
+			return (model, context, options) => registered.streamSimple(model, context, options);
+		}
+	} catch {
+		// no registry either: the list is registered as the exact menu alone, and says so
+	}
+	return undefined;
+}
+
+// refusal is the message a refused model ends its turn with: what was refused, why, what is
+// allowed, and the two ways out, worded as the wire bridge words its own refusal
+// (internal/wirebridged's allowlist).
+// ⚠ DUPLICATED VERBATIM in yolo-model-lists.js: pi loads every .js file in its extensions directory
+// as an extension and reports one that exports no factory as a load error, so a shared
+// module would be one more file delivered elsewhere for one sentence.
+// internal/entrypoint's TestPisTwoRefusalsAreWordedAlike fails when the copies differ.
+function refusal(provider, id, listed) {
+	return (
+		`yolo: model "${provider}/${id}" is not on yolo's model list for provider ${provider}, and the ` +
+		`profile enforces it (enforce_models is on by default). Allowed: ${listed.join(", ")}. Pick one ` +
+		`of those, or set "enforce_models": false on the profile so the list only shapes pi's menu.`
+	);
 }
 
 // codexCatalog returns a lookup into pi's OWN openai-codex catalog, the source of every
@@ -222,10 +282,26 @@ async function degradedWarning(list, catalog) {
 
 // pi awaits an extension's factory (core/extensions/loader.js), so the catalog import
 // finishes before the registration is read.
+//
+// THE REFUSAL (docs/design/model-lists-and-pickers.md MM-D6, MM-D23). With a list and its
+// `enforce` on, the registration also carries a `streamSimple` that throws yolo's refusal for a
+// model outside the list and hands a listed one to the stream pi would have used without it. pi
+// runs an extension's streamSimple for every model of the registration's `api`, and only after it
+// has resolved the credential into `options`: for this provider the subscription login pi keeps
+// as an oauth credential, refreshed through `refreshToken` below when it is near expiry and turned
+// into the bearer token by `getApiKey` (pi 0.99.1 ModelRuntime.prepareRequest, pi-ai
+// auth/resolve.js). So the login needs no handling here, and the refusal covers pi's `--model`
+// fallback, which copies a listed model and so runs on the same api. Without a list there is
+// nothing to refuse against, and pi's own catalog stays in place. A delegate that cannot be found
+// leaves the exact menu alone, and pi says once that it cannot refuse.
 export default async function registerYoloOpenAIAuth(pi) {
-	const list = readCodexModelList();
+	const { list, enforce } = readCodexModelList();
 	const catalog = list.length > 0 ? await codexCatalog() : { lookup: () => undefined };
 	const lookup = catalog.lookup;
+	const refusing = list.length > 0 && enforce;
+	const delegate = refusing ? await codexDelegate() : undefined;
+	const listed = list.map((entry) => entry.id);
+	const allowed = new Set(listed);
 	pi.registerProvider("openai-codex", {
 		// The provider's display name. pi composes it as this registration's `name`, else
 		// models.json's, else its built-in provider's (provider-composer.js,
@@ -234,7 +310,7 @@ export default async function registerYoloOpenAIAuth(pi) {
 		// provider pi no longer recommends (docs/design/model-lists-and-pickers.md §14.2).
 		name: "OpenAI Codex",
 		baseUrl: "https://chatgpt.com/backend-api",
-		api: "openai-codex-responses",
+		api: CODEX_API,
 		oauth: {
 			name: "OpenAI Codex (yolo shared login)",
 			isSubscription: true,
@@ -243,19 +319,37 @@ export default async function registerYoloOpenAIAuth(pi) {
 			getApiKey: (credentials) => credentials.access,
 		},
 		...(list.length > 0 ? { models: list.map((entry) => codexModelDefinition(entry, lookup)) } : {}),
+		...(delegate
+			? {
+					streamSimple: (model, context, options) => {
+						if (!allowed.has(model?.id)) throw new Error(refusal("openai-codex", model?.id, listed));
+						return delegate(model, context, options);
+					},
+				}
+			: {}),
 	});
 
 	// ONCE PER LOAD, where the user can see it: pi's own notification when there is a UI, else
 	// stderr, which is what pi's extension runner does with its own diagnostics. session_start
 	// fires again on /new and on a resume, and the degradation is the same each time.
-	const warning = list.length > 0 ? await degradedWarning(list, catalog) : undefined;
-	if (warning) {
+	const warnings = [];
+	const degraded = list.length > 0 ? await degradedWarning(list, catalog) : undefined;
+	if (degraded) warnings.push(degraded);
+	if (refusing && !delegate) {
+		warnings.push(
+			"yolo: pi shows exactly yolo's model list for openai-codex, but cannot refuse a model outside it " +
+				"there (pi's own stream for it was not found), so `pi --model` can still run an unlisted one.",
+		);
+	}
+	if (warnings.length > 0) {
 		let told = false;
 		pi.on?.("session_start", (_event, ctx) => {
 			if (told) return;
 			told = true;
-			if (ctx?.hasUI) ctx.ui.notify(warning, "warning");
-			else console.warn(warning);
+			for (const warning of warnings) {
+				if (ctx?.hasUI) ctx.ui.notify(warning, "warning");
+				else console.warn(warning);
+			}
 		});
 	}
 
