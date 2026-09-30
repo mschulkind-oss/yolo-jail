@@ -595,3 +595,33 @@ func TestTheShippedPacksDeclareTheBedrockRegionFile(t *testing.T) {
 		t.Errorf("aws-auth's pointer names region_profile_setting %q, want its loophole's \"profile\"", setting)
 	}
 }
+
+// THE READ IS DISCLOSED (the pack host-read banner, run.disclosedClaims, and `yolo pack
+// footprint`): a provider's `region_file` is a file yolo reads on the host on the pack's word, so
+// it is a review-worthy reads-host claim like a mounted host file, and its sentence says what is
+// read and that only the region crosses — never that the file is mounted, which aws-auth warns
+// must not happen. A configured pack declaring its own for a platform is named the same way.
+func TestARegionFileIsAHostReadInTheFootprint(t *testing.T) {
+	var found *Claim
+	for _, c := range FootprintOf(embeddedNamed(t, "bedrock")[0]).Claims {
+		if c.Kind == "reads-host" && c.Target == ".aws/config" {
+			found = &c
+		}
+	}
+	if found == nil {
+		t.Fatal("packs/bedrock's region_file is not a reads-host claim in its footprint")
+	}
+	if !found.ReviewWorthy {
+		t.Error("a host read is review-worthy, so the launch banner prints it")
+	}
+	got := found.DisclosureSentence()
+	for _, want := range []string{"READS a file from YOUR HOME on this machine", "~/.aws/config",
+		`"region"`, "AWS_CONFIG_FILE", "only that value reaches the agent"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the disclosure must say %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "(read-only)") || strings.Contains(got, "jail:") {
+		t.Errorf("the region file is read by yolo, not mounted into the jail:\n%s", got)
+	}
+}

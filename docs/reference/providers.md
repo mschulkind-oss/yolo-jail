@@ -441,6 +441,11 @@ AWS SDKs claude and codex use read it. Core names no AWS file, section or variab
   ([BR-D22](../design/bedrock-plumbing.md#BR-D22)).
 - **The value.** One DNS label, as a provider's `region` is ([below](#a-region-is-a-host-name-part));
   anything else is not delivered, and the refusal says so.
+- **A disclosed host read.** yolo reads the file on the host on the pack's word, so the
+  declaration is a review-worthy `reads-host` claim: `yolo pack footprint` lists it, and every
+  launch that selects the pack names it under "Pack environment this launch", saying the file is
+  read and not mounted, and that only the region reaches the agent. The last selected pack that
+  declares a `region_file` for a platform is the one read for it.
 - **Delivery and disclosure.** The credential gate appends it to the agent's own environment,
   so it rides the agent's env file in a jail, the session on `macos-user` and the exec'd
   environment at `yolo host` ([BR-D20](../design/bedrock-plumbing.md#BR-D20)); in a jail's env

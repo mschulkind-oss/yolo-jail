@@ -120,7 +120,12 @@ type Footprint struct {
 func (c Claim) DisclosureSentence() string {
 	switch c.Kind {
 	case packdecl.KindReadsHost:
-		// Detail is the constant "read-only host file", folded into the prose.
+		// Detail is the constant "read-only host file", folded into the prose — or, for a
+		// provider's region file, the sentence saying yolo reads it and what crosses, kept
+		// verbatim, since that read mounts nothing (regionFileClaimDetail).
+		if c.Detail != readOnlyHostFileDetail {
+			return "READS a file from YOUR HOME on this machine: " + hostHomePath(c.Target) + " — " + c.Detail
+		}
 		return "READS a file from YOUR HOME on this machine (read-only): " + hostHomePath(c.Target)
 	case packdecl.KindMount:
 		// Detail is "read-only → /ctx/<into>": it carries the destination and the mode,
@@ -181,6 +186,22 @@ func (c Claim) terseLine() string {
 		detail += " " + c.Detail
 	}
 	return string(c.Kind) + " " + detail
+}
+
+// readOnlyHostFileDetail is the Detail of every reads-host claim that mounts the file into the
+// jail read-only: a `reads-host` contribution, a config surface's host layer.
+const readOnlyHostFileDetail = "read-only host file"
+
+// regionFileClaimDetail is a provider's region-file claim's Detail: which key yolo reads there,
+// when, what relocates the file, and that only the value crosses.
+func regionFileClaimDetail(c packdecl.Contribution) string {
+	f := c.RegionFile
+	d := "yolo reads the " + strconv.Quote(f.Key) + " of one profile's section when an agent on platform " +
+		strconv.Quote(c.Platform) + " has no region"
+	if f.PathEnvName != "" {
+		d += " (or the file " + f.PathEnvName + " names where yolo is launched)"
+	}
+	return d + "; only that value reaches the agent"
 }
 
 // hostHomePath renders a HOST-HOME-RELATIVE manifest path with the root it is relative to.
@@ -464,7 +485,7 @@ func FootprintOf(p *Pack) Footprint {
 		// origin gate deleted every declared read happens, so every one is reported, and
 		// the footprint no longer needs to know who shipped the pack.
 		case packdecl.KindReadsHost:
-			add(packdecl.KindReadsHost, c.Host, "read-only host file", true)
+			add(packdecl.KindReadsHost, c.Host, readOnlyHostFileDetail, true)
 		case packdecl.KindMount:
 			add(packdecl.KindMount, c.Host, "read-only → /ctx/"+c.Into, true)
 		case packdecl.KindEnv:
@@ -552,6 +573,14 @@ func FootprintOf(p *Pack) Footprint {
 			// see it without opening the manifest.
 			add(packdecl.KindProvider, c.Name,
 				providerClaimDetail(c.Endpoints, c.Models, c.APIKeyEnvName), false)
+			// A REGION FILE is a host read on the pack's word (regionfill.go,
+			// docs/design/bedrock-plumbing.md BR-DIR1): yolo reads it on this machine, outside
+			// any sandbox, and hands an agent one value from it. So it is claimed and disclosed
+			// as every other host read is, review-worthy, with a Detail saying that it is read
+			// rather than mounted and what crosses (regionFileClaimDetail).
+			if c.RegionFile != nil {
+				add(packdecl.KindReadsHost, c.RegionFile.Path, regionFileClaimDetail(c), true)
+			}
 		case packdecl.KindAdapter:
 			// The target IS the PAIR, with no discriminator, so the generic exclusive loop in
 			// Collisions is the whole cross-pack check: two packs declaring one conversion
@@ -672,7 +701,7 @@ func FootprintOf(p *Pack) Footprint {
 			}
 			add(packdecl.KindConfig, id, detail, false)
 			if hf, ok := SurfaceHostFile(s); ok {
-				add(packdecl.KindReadsHost, hf.From, "read-only host file", true)
+				add(packdecl.KindReadsHost, hf.From, readOnlyHostFileDetail, true)
 			}
 		}
 	}

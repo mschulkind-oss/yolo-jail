@@ -2880,7 +2880,9 @@ the ruling and none changing it:
 
 **Host access is six crossings**: a host file read (a `reads-host` contribution, or a config
 surface's own `readsHost` — one kind of crossing, disclosed identically, declared in two
-places because only one of them can name a file that is not a surface's twin); a `mount`
+places because only one of them can name a file that is not a surface's twin — or a
+provider's `region_file`, which yolo reads on the host for one value and mounts nowhere, and
+which is claimed as `reads-host` with a sentence saying so); a `mount`
 directory or file read;
 `program` via `installer`, a curl-to-shell install URL; `briefing` with `after: "host:…"`,
 prepending the user's own briefing file; a wrapped **plugin's** code-running components; and a
