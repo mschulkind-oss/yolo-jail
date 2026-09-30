@@ -760,6 +760,32 @@ func EmbeddedPacksDirUnder(home string) string {
 	return filepath.Join(GlobalStorageUnder(home), embeddedPacksLeaf)
 }
 
+// hostFloorLeaf is the state-dir child holding the HOST AGENT FLOOR (internal/hostfloor).
+const hostFloorLeaf = "host-floor"
+
+// HostFloorDir returns $HOME/.local/share/yolo-jail/host-floor — the HOST PREFIX
+// (docs/design/host-tool-provisioning.md §3): the directory yolo installs the `program`
+// binaries of the user-scope selected packs into, and that `yolo host -- <agent>` execs them
+// from by absolute path.
+//
+// ⚠ NO JAIL MOUNTS IT, IN ANY MODE, and that is the whole security property. The host
+// executes these files with the user's full authority, so a copy any jail could write would
+// be the injection channel EmbeddedPacksDir names: a file the host runs BECAUSE OF WHERE IT
+// SITS. So it is never under GlobalCache() or GlobalMise() (both mounted read-write in every
+// jail) nor any workspace's .yolo/, and it is created 0700 so the macos-user guest account,
+// another uid, can neither read nor replace anything in it. A test in internal/cli/run pins
+// that no mount source a launch emits is at, under, or an ancestor of it.
+//
+// It is also on NO user PATH: the user's shell never sees it (OQ-HP2), and a host launch
+// appends its bin/ LAST to the agent's PATH (HE-D1).
+func HostFloorDir() string { return HostFloorDirUnder(home()) }
+
+// HostFloorDirUnder is HostFloorDir under an EXPLICIT home — see GlobalStorageUnder for why a
+// caller that has already resolved a home must not re-derive it from $HOME.
+func HostFloorDirUnder(home string) string {
+	return filepath.Join(GlobalStorageUnder(home), hostFloorLeaf)
+}
+
 // imageDeliveryLeaf is the state-dir child an archive delivery works in
 // (internal/image's deltaarchive.go).
 const imageDeliveryLeaf = "image-delivery"
