@@ -491,6 +491,15 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   port forwards and cgroup delegate may be down with it, and that `yolo stop` and a new launch
   bring them back. Quitting the terminal that started a jail still ends the jail and every
   terminal in it.
+- Closing a terminal that joined a running jail, or stopping its `yolo`, now ends the agent that
+  terminal started in the jail. It used to keep running there with no window until the jail
+  stopped. The jail and its other terminals carry on. A jail an earlier yolo started keeps the old
+  behavior.
+- A terminal whose jail ends under it now says why: the terminal that started the jail quit,
+  `yolo stop`, a restart from another terminal, or that nothing recorded a reason, such as an
+  out-of-memory kill.
+- Typing `ctrl-p` then `ctrl-q` in a jail no longer drops you out of the session while its agent
+  keeps running in the background; the keys reach the program you are in.
 - `.yolo/boot.log` now always holds how the jail itself started, however many terminals join it
   afterwards. Each terminal that joined used to replace it with its own start-up, pushing the
   jail's start aside and, once a second terminal had joined, out of the log. A joining

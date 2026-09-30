@@ -38,8 +38,11 @@ host-side shared lock each session holds while it runs
   and exit with the agent's code
   ([JL-D16](jail-lifetime-last-session-wins.md#JL-D16)). The SIGHUP arm (`onTerminate` today
   calls `stopJail` first) never calls `stopJail`, for any session, the first included
-  ([JL-D4](jail-lifetime-last-session-wins.md#JL-D4)). macOS podman and Apple Container have no
-  signal arm ([`proxy_other.go`](../../internal/cli/run/proxy_other.go)), so they need one first.
+  ([JL-D4](jail-lifetime-last-session-wins.md#JL-D4)). An attach's arm already ends only its own
+  session, by hanging it up in the jail
+  ([JL-D52](jail-lifetime-last-session-wins.md#JL-D52)); the first session's is what is left. The
+  launch's arm and an attach's run on the Mac too (`runArmedSession` in
+  [`proxy_other.go`](../../internal/cli/run/proxy_other.go)), unmeasured there.
 - **Provisioning moves to the first session.** `provisionScript` leaves the container's command
   tail and runs in the first session's exec, where `[ -t 0 ]` still sees the terminal. It runs
   under an in-jail flock and records an outcome, *done* or *refused*. Every other session waits
@@ -85,8 +88,8 @@ host-side shared lock each session holds while it runs
 - **Step 3 undoes one step-2 coupling.** The hold also ends when the first session's process
   does ([JL-D46](jail-lifetime-last-session-wins.md#JL-D46)), and the fresh launch stops the jail
   itself when it has not (`awaitJailMainEnd`); the keeper replaces both with its drain.
-- **Detach keys.** Verify that `--detach-keys=""` disables the sequence on podman 5.x for both
-  `run` and `exec` before relying on it. Check Apple Container separately.
+- **Detach keys.** Verified on podman 5.8.7 for both `run` and `exec`, and built at step 1
+  ([JL-D54](jail-lifetime-last-session-wins.md#JL-D54)). Apple Container is still to check.
 - **Death pipe (local Linux podman only).** `podman exec --preserve-fds=N` (the list form
   `--preserve-fd` is documented as crun-only; neither exists on the remote client), with the write end held
   only by the session launcher. EOF inside the jail means the launcher is gone, and the in-jail
