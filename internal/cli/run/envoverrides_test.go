@@ -563,14 +563,14 @@ func userEnvWith(vars map[string]string) *jsonx.OrderedMap {
 // is byte-for-byte what the previous entry left: the first cut refused after writing, so a
 // refused attach had already put the bearer beside the pointer in the live jail.
 func TestAttachRefusesAnOverriddenContribution(t *testing.T) {
-	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth")}
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth"), officialPack(t, "bedrock")}
 	o, cfg, channel, stderr := attachFixture(t, awsAdapterJailEnv,
 		packs, userEnvWith(map[string]string{bearerVar: "sk-bedrock-frozen"}),
 		func(o *Options, cfg *jsonx.OrderedMap) {
 			o.Getenv = shellWith(nil)
 			o.ProfileName = "bedrock"
 			// A jail that runs aws-auth's adapter, so its pointer is delivered at all.
-			served := awsAuthServedConfig(t, []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth")})
+			served := awsAuthServedConfig(t, []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth"), officialPack(t, "bedrock")})
 			v, _ := served.Get("loopholes")
 			cfg.Set("loopholes", v)
 		})
@@ -670,7 +670,7 @@ func overrideOptions(t *testing.T) *Options {
 // awsAuthSelected is the realistic selected set: an agent pack plus aws-auth, which
 // installs no CLI and whose pointer is gated on claude's `bedrock` profile.
 func awsAuthSelected(t *testing.T) []*packload.Pack {
-	return []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth")}
+	return []*packload.Pack{officialPack(t, "claude"), officialPack(t, "aws-auth"), officialPack(t, "bedrock")}
 }
 
 // awsAuthServedConfig is the config of a container launch that RUNS aws-auth's adapter: the

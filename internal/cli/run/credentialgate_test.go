@@ -236,7 +236,7 @@ var awsNames = []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_CONTA
 // models.json half is internal/entrypoint's TestPiModelsJSONCarriesNoMultiRouteCredential,
 // where the render runs.)
 func TestGateDoneCondition1PiOnZaiSeesNoAWS(t *testing.T) {
-	jail, _, disclosed := launchGateJail(t, []string{"claude", "pi", "zai"},
+	jail, _, disclosed := launchGateJail(t, []string{"claude", "bedrock", "pi", "zai"},
 		func(o *Options) { o.ProfileName = "zai" })
 
 	pi := jail.agentEnv("pi")
@@ -265,7 +265,7 @@ func TestGateDoneCondition1PiOnZaiSeesNoAWS(t *testing.T) {
 // claude selecting bedrock itself, which must still hand claude its own flag, so the
 // absences above are the gate and not a flag that stopped existing.
 func TestGateDoneConditions2And3CodexOnBedrock(t *testing.T) {
-	packs := []string{"claude", "codex", "aws-auth"}
+	packs := []string{"claude", "codex", "aws-auth", "bedrock"}
 	jail, _, _ := launchGateJail(t, packs,
 		func(o *Options) { o.UseProfiles = map[string]string{"codex": "bedrock"} })
 

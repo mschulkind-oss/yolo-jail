@@ -650,13 +650,21 @@ func claudePackFixture(t *testing.T) []*packload.Pack {
 	if len(problems) != 0 {
 		t.Fatalf("materializing official packs: %v", problems)
 	}
-	for _, p := range loaded {
-		if p.Name == "claude" {
-			return []*packload.Pack{p}
+	// claude and the pack that ships the Bedrock provider it binds (claude `needs` bedrock):
+	// the fixture's Bedrock tests select it, and it left packs/claude on 2026-09-29
+	// (docs/design/bedrock-plumbing.md OQ-BR9).
+	var out []*packload.Pack
+	for _, name := range []string{"claude", "bedrock"} {
+		for _, p := range loaded {
+			if p.Name == name {
+				out = append(out, p)
+			}
 		}
 	}
-	t.Fatal("official claude pack not found")
-	return nil
+	if len(out) != 2 {
+		t.Fatal("official claude or bedrock pack not found")
+	}
+	return out
 }
 
 // --- Apple Container's pack-tree delivery (issue #44) --------------------------------

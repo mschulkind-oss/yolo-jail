@@ -808,10 +808,11 @@ launch, for the one agent it runs, stopped when that agent exits). The mechanism
 
 ```console
 $ yolo host -p codex -- claude
-yolo host: + aws-auth (needed by claude)
+yolo host: + bedrock (needed by claude)
 yolo host: + openai-auth (needed by claude)
 yolo host: + wire-bridge (needed by claude)
-yolo host: Profile codex: declared: claude; received: aws-auth, claude, openai-auth, wire-bridge
+yolo host: + aws-auth (needed by bedrock)
+yolo host: Profile codex: declared: claude; received: aws-auth, bedrock, claude, openai-auth, wire-bridge
 yolo host: started the "wire-bridge" service (pack "wire-bridge", pid 96868) for claude on 127.0.0.1:36501; it answers only this launch's caller token and stops when claude exits. Its log: ~/.local/share/yolo-jail/logs/launch-service-wire-bridge.log
 ```
 

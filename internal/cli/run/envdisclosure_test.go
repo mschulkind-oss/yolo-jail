@@ -44,7 +44,7 @@ func TestLaunchBannerQualifiesAGatedEnvVariable(t *testing.T) {
 	// An agent whose profile selects what the adapter serves, or the payload leaves the adapter
 	// out (OQ-CN7 (b)); the banner reads aws-auth's declarations alone.
 	o.UseProfiles = map[string]string{"claude": "bedrock"}
-	withAgent := append([]*packload.Pack{officialPack(t, "claude")}, packs...)
+	withAgent := append([]*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock")}, packs...)
 	o.notePackHostAccess(packs, &packChannel{served: o.servedDaemons(o.jailDaemonsFor(cfg, "podman", withAgent))})
 
 	// The caller token stays the TOKEN, never the value: the banner is a launch's stderr, teed

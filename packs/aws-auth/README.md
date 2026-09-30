@@ -41,9 +41,11 @@ workspace `yolo-jail.jsonc` — see [Why every key is user-scope](#why-every-key
 }
 ```
 
-Then `yolo -p bedrock -- claude`. `claude` brings this pack with it (the claude pack
-`needs` `aws-auth`, and the launch prints `+ aws-auth (needed by claude)`), so you never
-list it yourself. Having it selected changes nothing observable on its own: the
+Then `yolo -p bedrock -- claude`. `claude` brings this pack with it: the claude pack
+`needs` the [`bedrock`](../bedrock/README.md) pack, which ships the Bedrock provider and
+`needs` `aws-auth`, and the launch prints `+ bedrock (needed by claude)` and
+`+ aws-auth (needed by bedrock)`. codex, opencode and pi need `bedrock` the same way, so you
+never list either pack yourself. Having it selected changes nothing observable on its own: the
 credential pointer is gated on the selected provider being Bedrock (its `platform` is
 `aws-bedrock`), and the loophole is off until you enable it. Enabling it starts nothing either:
 the in-jail adapter starts only on a launch where some agent's selected provider is Bedrock, and

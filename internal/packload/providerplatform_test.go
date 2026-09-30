@@ -73,12 +73,12 @@ func shippedPack(t *testing.T, name string) *Pack {
 	return nil
 }
 
-// THE SHIPPED DECLARATION: packs/claude's `bedrock` is the provider the ruling is about, so its
+// THE SHIPPED DECLARATION: packs/bedrock's `bedrock` is the provider the ruling is about, so its
 // composed entry says it is Bedrock. Read from the embedded packs, so deleting the field from
-// packs/claude/pack.json fails here.
+// packs/bedrock/pack.json fails here.
 func TestTheShippedBedrockProviderDeclaresItsPlatform(t *testing.T) {
-	claude := shippedPack(t, "claude")
-	if got := entryPlatform(t, compose(t, nil, []*Pack{claude}), "bedrock"); got != "aws-bedrock" {
-		t.Errorf(`packs/claude's bedrock provider must declare "platform": "aws-bedrock", got %q`, got)
+	bedrock := shippedPack(t, "bedrock")
+	if got := entryPlatform(t, compose(t, nil, []*Pack{bedrock}), "bedrock"); got != "aws-bedrock" {
+		t.Errorf(`packs/bedrock's bedrock provider must declare "platform": "aws-bedrock", got %q`, got)
 	}
 }

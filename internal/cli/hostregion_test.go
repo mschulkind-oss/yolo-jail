@@ -27,7 +27,7 @@ func TestHostLaunchRefusesABedrockProfileWithNoRegion(t *testing.T) {
 		t.Fatalf("yolo host -p bedrock -- claude with no region must refuse before the exec: rc=%d reached=%v\n%s",
 			rc, env != nil, errs)
 	}
-	for _, want := range []string{hostRegionVerdict, `pack claude requires a region for provider "bedrock"`,
+	for _, want := range []string{hostRegionVerdict, `pack bedrock requires a region for provider "bedrock"`,
 		"neither AWS_REGION nor AWS_DEFAULT_REGION is set", "the environment yolo was launched from",
 		"launch anyway with YOLO_ALLOW_MISSING_PROVIDERS=1"} {
 		if !strings.Contains(errs, want) {

@@ -23,18 +23,19 @@ import (
 )
 
 // bridgedPacks selects the shipped packs that make the injection fire: claude declares an
-// anthropic-speaking program, wire-bridge declares openai→anthropic at 127.0.0.1:8214.
+// anthropic-speaking program, wire-bridge declares openai→anthropic at 127.0.0.1:8214, and
+// bedrock, which claude needs, ships the provider whose declaration the second test guards.
 func bridgedPacks(t *testing.T) []*Pack {
 	t.Helper()
 	var out []*Pack
 	for _, p := range Embedded() {
 		switch p.Name {
-		case "claude", "wire-bridge":
+		case "claude", "wire-bridge", "bedrock":
 			out = append(out, p)
 		}
 	}
-	if len(out) != 2 {
-		t.Fatalf("selected %d of the two shipped packs this measures", len(out))
+	if len(out) != 3 {
+		t.Fatalf("selected %d of the three shipped packs this measures", len(out))
 	}
 	return out
 }
@@ -134,9 +135,9 @@ func TestComposingTwiceCannotCorruptAPacksDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, ok := first.Get("bedrock") // the claude pack's own shipped provider
+	entry, ok := first.Get("bedrock") // the bedrock pack's own shipped provider
 	if !ok {
-		t.Fatal("the shipped claude pack's bedrock provider left the composed table")
+		t.Fatal("the shipped bedrock pack's bedrock provider left the composed table")
 	}
 	e := asOrdered(t, entry)
 	e.Set("region", "tampered")

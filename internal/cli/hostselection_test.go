@@ -16,9 +16,16 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// claudeAndItsNeeds is what `"packs": ["claude"]` selects at every notch: claude, and the three
-// packs its unconditional `needs` joins.
-var claudeAndItsNeeds = []string{"claude", "aws-auth", "openai-auth", "wire-bridge"}
+// claudeAndItsNeeds is what `"packs": ["claude"]` selects at every notch: claude, the three
+// packs its unconditional `needs` joins, and aws-auth, which bedrock's need joins after them.
+var claudeAndItsNeeds = []string{"claude", "bedrock", "openai-auth", "wire-bridge", "aws-auth"}
+
+// claudeDirectNeeds and bedrockNeeds say which pack's need joins each of them, the pack a
+// cause line names.
+var (
+	claudeDirectNeeds = []string{"bedrock", "openai-auth", "wire-bridge"}
+	bedrockNeeds      = []string{"aws-auth"}
+)
 
 func packNames(packs []*packload.Pack) []string {
 	out := make([]string, 0, len(packs))
@@ -41,10 +48,10 @@ func selectionHome(t *testing.T, cfg string) string {
 	return home
 }
 
-// EVERY HOST VERB'S OWN READER composes the four packs a jail launch stages for `["claude"]`, in
-// the jail's order: the configured pack, then the closure's additions. Each row calls the verb's
-// own function, so a verb that stops calling the one selection function fails its row.
-func TestClaudeAloneSelectsFourPacksAtEveryHostVerb(t *testing.T) {
+// EVERY HOST VERB'S OWN READER composes the packs a jail launch stages for `["claude"]`, in the
+// jail's order: the configured pack, then the closure's additions. Each row calls the verb's own
+// function, so a verb that stops calling the one selection function fails its row.
+func TestClaudeAloneSelectsTheLaunchClosureAtEveryHostVerb(t *testing.T) {
 	selectionHome(t, claudeAlone)
 	fold, _ := loadPromoteFold()
 	inspected, _ := configuredPacksForInspection()
@@ -66,7 +73,7 @@ func TestClaudeAloneSelectsFourPacksAtEveryHostVerb(t *testing.T) {
 		t.Errorf("config promote's fold puts the local pack's slot at %d, want 1: after the "+
 			"configured entries and before the closure's additions", fold.afterConfigured)
 	}
-	// The one host verb that reads the shipped set on top: every one of the four is a candidate.
+	// The one host verb that reads the shipped set on top: every one of them is a candidate.
 	for _, name := range claudeAndItsNeeds {
 		if !slices.Contains(packNames(hostRevertCandidates(&bytes.Buffer{})), name) {
 			t.Errorf("revert does not consider %s", name)
@@ -81,10 +88,12 @@ func TestHostApplyNamesThePacksTheClosureJoined(t *testing.T) {
 	if rc := applyHostSurveyed(&out, &errw, false, false, nil, &hostApplySurvey{}); rc != 0 {
 		t.Fatalf("host apply dry run rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
-	for _, name := range []string{"aws-auth", "openai-auth", "wire-bridge"} {
-		want := "joined — + " + name + " (needed by claude)"
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("host apply must say %q:\n%s", want, out.String())
+	for needy, names := range map[string][]string{"claude": claudeDirectNeeds, "bedrock": bedrockNeeds} {
+		for _, name := range names {
+			want := "joined — + " + name + " (needed by " + needy + ")"
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("host apply must say %q:\n%s", want, out.String())
+			}
 		}
 	}
 }
@@ -97,12 +106,14 @@ func TestHostLaunchAnnouncesThePacksTheClosureJoined(t *testing.T) {
 	if rc := hostMain([]string{"env", "--agent", "claude"}, &out, &envErr, false, nil); rc != 0 {
 		t.Fatalf("yolo host env rc=%d\n%s", rc, envErr.String())
 	}
-	for _, name := range []string{"aws-auth", "openai-auth", "wire-bridge"} {
-		if want := "yolo host: + " + name + " (needed by claude)"; !strings.Contains(errs, want) {
-			t.Errorf("yolo host -- claude must print %q:\n%s", want, errs)
-		}
-		if want := "yolo host env: + " + name + " (needed by claude)"; !strings.Contains(envErr.String(), want) {
-			t.Errorf("yolo host env must print %q:\n%s", want, envErr.String())
+	for needy, names := range map[string][]string{"claude": claudeDirectNeeds, "bedrock": bedrockNeeds} {
+		for _, name := range names {
+			if want := "yolo host: + " + name + " (needed by " + needy + ")"; !strings.Contains(errs, want) {
+				t.Errorf("yolo host -- claude must print %q:\n%s", want, errs)
+			}
+			if want := "yolo host env: + " + name + " (needed by " + needy + ")"; !strings.Contains(envErr.String(), want) {
+				t.Errorf("yolo host env must print %q:\n%s", want, envErr.String())
+			}
 		}
 	}
 	if strings.Contains(out.String(), "needed by") {

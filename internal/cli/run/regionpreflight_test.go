@@ -36,7 +36,7 @@ const regionVerdict = "Refusing to launch: a selected provider is reached throug
 func bedrockOnClaude(t *testing.T, o *Options) []*packload.Pack {
 	t.Helper()
 	o.UseProfiles = map[string]string{"claude": "bedrock"}
-	return []*packload.Pack{officialPack(t, "claude")}
+	return []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock")}
 }
 
 // THE SHARED ENTRY POINT ASKS BOTH QUESTIONS. checkProviderCredentials is what every jail arm
@@ -57,7 +57,7 @@ func TestCheckProviderCredentialsAsksForTheRegion(t *testing.T) {
 			refuse, strings.Join(lines, "\n"))
 	}
 	got := strings.Join(lines, "\n")
-	for _, want := range []string{`pack claude requires a region for provider "bedrock"`,
+	for _, want := range []string{`pack bedrock requires a region for provider "bedrock"`,
 		"neither AWS_REGION nor AWS_DEFAULT_REGION is set",
 		`"providers": {"bedrock": {"region": "<region>"}}`,
 		packload.FromEnvSources + ": none configured", packload.FromPackEnv, packload.FromProfileEnv,
@@ -169,7 +169,7 @@ func TestTheMacosUserLaunchRefusesABedrockProfileWithNoRegion(t *testing.T) {
 // THE ATTACH ARM refuses before it writes the live channel file, so a refused entry leaves the
 // running jail's file as the previous entry wrote it; with a region it delivers.
 func TestAnAttachSelectingBedrockWithNoRegionRefusesBeforeTheWrite(t *testing.T) {
-	packs := []*packload.Pack{officialPack(t, "claude")}
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock")}
 	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, emptyEnv(),
 		func(o *Options, _ *jsonx.OrderedMap) { o.ProfileName = "bedrock" })
 	file := filepath.Join(paths.WorkspaceHomeState(o.Workspace), "yolo-user-env.sh")
@@ -250,7 +250,7 @@ func TestTheRegionIsAskedOfEachAgentOnTheProvider(t *testing.T) {
 	  {"kind":"profile","name":"local","provider":"local"},
 	  {"kind":"env","profile":"local","vars":{"AWS_REGION":"eu-west-9"}}]}`)
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "codex"),
-		officialPack(t, "openai-auth"), local}
+		officialPack(t, "openai-auth"), officialPack(t, "bedrock"), local}
 	o.UseProfiles = map[string]string{"claude": "bedrock", "codex": "local"}
 
 	channel := channelFor(t, o, newConfig(), packs, emptyEnv())

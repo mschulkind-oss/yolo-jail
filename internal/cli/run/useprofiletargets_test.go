@@ -199,17 +199,17 @@ func assembleWithProfilesAssembled(t *testing.T, cfg *jsonx.OrderedMap, packs []
 // — the target bin was "" and the assignment was silently skipped — so `yolo -p dev`
 // looked accepted and selected nothing.
 //
-// The name is packs/claude's own `bedrock` because declaration is MANDATORY now
+// The name is packs/bedrock's own `bedrock` because declaration is MANDATORY now
 // (OQ-CS6): a name nothing declares refuses the launch instead of keying it, which is
-// its own test below. `bedrock` is declared by only ONE of the two selected packs, so
-// this also pins that a profile name is global across the selection rather than
-// per-pack — pi receives a name only claude ships.
+// its own test below. `bedrock` is declared by neither agent pack, only by the provider
+// pack both need, so this also pins that a profile name is global across the selection
+// rather than per-pack — claude and pi each receive a name a pack installing no CLI ships.
 //
 // Asserted on the ASSEMBLED env, not the merge, because the table is the launch's
 // contract with the jail: a merge that changed and an env block that did not follow
 // would pass a test on the merge alone.
 func TestAssembleGlobalProfileReachesEverySelectedPack(t *testing.T) {
-	packs := packsFixture(t, "claude", "pi")
+	packs := packsFixture(t, "claude", "bedrock", "pi")
 	la := assembleWithProfilesAssembled(t, newConfig(), packs, func(o *Options) { o.ProfileName = "bedrock" })
 	got := la.channelEnv(t, "YOLO_USE_PROFILES")
 	if len(got) != 1 {
@@ -228,7 +228,7 @@ func TestAssembleBareProfileKeysEveryBinEvenWithACommand(t *testing.T) {
 	// uniformly — it never keys on the command after `--`. A short option whose
 	// meaning depends on a token further down the argv is the confusion this
 	// deleted; the per-CLI spelling is -p <cli>=<name>.
-	packs := packsFixture(t, "claude", "pi")
+	packs := packsFixture(t, "claude", "bedrock", "pi")
 	la := assembleWithProfilesAssembled(t, newConfig(), packs, func(o *Options) {
 		o.ProfileName = "bedrock"
 		o.Args = []string{"claude"}
@@ -249,7 +249,7 @@ func TestAssembleBareProfileKeysEveryBinEvenWithACommand(t *testing.T) {
 // DELIVERED channel rather than on the merge — a launch that staged cleanly and then
 // carried nothing would be the same silence in a later place.
 func TestAssembleBareProfileReachesTheCLIsWithANonAgentCommand(t *testing.T) {
-	packs := packsFixture(t, "claude", "pi")
+	packs := packsFixture(t, "claude", "bedrock", "pi")
 	la := assembleWithProfilesAssembled(t, newConfig(), packs, func(o *Options) {
 		o.ProfileName = "bedrock"
 		o.Args = []string{"sleep", "60"}
@@ -271,13 +271,13 @@ func TestAssembleBareProfileReachesTheCLIsWithANonAgentCommand(t *testing.T) {
 // RECEIVED it. RECEIVED is every selected pack — the table crosses to the jail whole
 // and every pack's derive sees all of it — and DECLARED is the packs shipping a
 // `profile` variant with that name. `glm` is a name no shipped pack declares, so this
-// pins the undeclared half of the print (packs/claude's own `bedrock` is the declared
+// pins the undeclared half of the print (packs/bedrock's own `bedrock` is the declared
 // one, which is why these tests cannot use it).
 //
 // Driven through the same merge the env block consumes, so the line cannot claim
 // something the table does not carry.
 func TestNoteUseProfilesPrintsDeclaredAndReceived(t *testing.T) {
-	packs := packsFixture(t, "claude", "pi")
+	packs := packsFixture(t, "claude", "bedrock", "pi")
 	var out bytes.Buffer
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stdout = discardBuf()
@@ -290,7 +290,7 @@ func TestNoteUseProfilesPrintsDeclaredAndReceived(t *testing.T) {
 	effective := o.effectiveUseProfiles(cfg, packs)
 	o.noteUseProfiles(effective, packs)
 
-	want := "Profile glm: declared: none; received: claude, pi"
+	want := "Profile glm: declared: none; received: bedrock, claude, pi"
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("launch line %q, want it to contain %q", out.String(), want)
 	}
@@ -305,7 +305,7 @@ func TestNoteUseProfilesPrintsDeclaredAndReceived(t *testing.T) {
 // Two names in play print two lines, so a launch that selected differently for
 // different CLIs says both rather than the winner.
 func TestNoteUseProfilesPrintsOneLinePerName(t *testing.T) {
-	packs := packsFixture(t, "claude", "pi")
+	packs := packsFixture(t, "claude", "bedrock", "pi")
 	var out bytes.Buffer
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stdout = discardBuf()
@@ -318,8 +318,8 @@ func TestNoteUseProfilesPrintsOneLinePerName(t *testing.T) {
 	o.noteUseProfiles(o.effectiveUseProfiles(cfg, packs), packs)
 
 	for _, want := range []string{
-		"Profile bedrock: declared: claude; received: claude, pi",
-		"Profile glm: declared: none; received: claude, pi",
+		"Profile bedrock: declared: bedrock; received: bedrock, claude, pi",
+		"Profile glm: declared: none; received: bedrock, claude, pi",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("launch line missing %q:\n%s", want, out.String())

@@ -78,7 +78,7 @@ var declaredListen = map[string]string{
 
 func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 	// claude's pack ships the `bedrock` provider whose platform the pointer's gate keys on.
-	packs := embeddedNamed(t, "codex", "openai-auth", "aws-auth", "claude")
+	packs := embeddedNamed(t, "codex", "openai-auth", "aws-auth", "bedrock", "claude")
 	profiles := map[string]string{"codex": "bedrock"}
 	providers, resolved, _ := launchSelection(t, packs, nil, nil, profiles)
 	compose := func(served *ServedDaemons) *CredentialScope {
@@ -158,7 +158,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 // The override check asks the same question: a pointer this notch withholds has nothing to be
 // overridden, so a bearer beside it is no refusal there.
 func TestAnOverrideOfAnUnservedPointerIsNoFinding(t *testing.T) {
-	packs := embeddedNamed(t, "claude", "aws-auth")
+	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock")
 	profiles := map[string]string{"claude": "bedrock"}
 	look := func(name string) (string, bool) {
 		if name == "AWS_BEARER_TOKEN_BEDROCK" {

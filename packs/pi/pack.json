@@ -177,6 +177,9 @@
   "name": "pi",
   "needs": [
     {
+      "pack": "bedrock"
+    },
+    {
       "pack": "openai-auth"
     }
   ]

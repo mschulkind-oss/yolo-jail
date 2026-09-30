@@ -24,7 +24,16 @@ const codexRefreshAdapterURL = "http://127.0.0.1:1460/oauth/token"
 
 func TestCodexPackNeedsSharedOpenAIAuthUnconditionally(t *testing.T) {
 	needs := officialPack(t, "codex").Decl.DeclaredNeeds()
-	if len(needs) != 1 || needs[0].Pack != "openai-auth" || len(needs[0].WhenBins) != 0 {
+	found := 0
+	for _, n := range needs {
+		if n.Pack == "openai-auth" {
+			found++
+			if len(n.WhenBins) != 0 {
+				t.Errorf("codex's openai-auth need has when_bins %v, want it unconditional", n.WhenBins)
+			}
+		}
+	}
+	if found != 1 {
 		t.Fatalf("codex needs = %v, want one unconditional openai-auth need — selecting the "+
 			"agent must also select its one refresh owner", needs)
 	}

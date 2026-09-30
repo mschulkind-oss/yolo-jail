@@ -116,8 +116,10 @@ func TestHostStillRunsClaudeOnBedrockWithClaudeAlone(t *testing.T) {
 			t.Errorf("the withheld %s must be named:\n%s", k, errs)
 		}
 	}
-	if !strings.Contains(errs, "+ aws-auth (needed by claude)") {
-		t.Errorf("the pack claude's `needs` joined must be announced (WB-D12):\n%s", errs)
+	for _, want := range []string{"+ bedrock (needed by claude)", "+ aws-auth (needed by bedrock)"} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the packs claude's `needs` closure joined must be announced (WB-D12), %q:\n%s", want, errs)
+		}
 	}
 }
 

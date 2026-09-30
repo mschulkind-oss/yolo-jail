@@ -36,13 +36,16 @@
 // EXECUTABLE its jail-side daemon runs? Its README records what that measured, including
 // the part this file is responsible for: `embed.FS` reports 0444 for every file whatever
 // its mode on disk, so nothing delivered through THIS channel can ever be executable.
-// `zai`, `cerebras`, `openrouter`, `kilo` and `llamacpp` ship neither CLI nor loophole:
-// provider/profile
+// `zai`, `cerebras`, `openrouter`, `kilo`, `llamacpp` and `bedrock` ship neither CLI nor
+// loophole: provider/profile
 // packs. zai was the first pack whose whole content is declarative facts; cerebras was the
 // first to carry a `needs` entry — the wire-bridge it joins when claude or copilot is selected;
 // kilo repeats that shape, while OpenRouter reaches its Anthropic route directly. `llamacpp`
 // is the first whose provider names NO credential variable and NO remote host: a local
-// llama-server, whose Anthropic endpoint is the server's own rather than a bridge's. `guardrails` ships neither either: blocked-tool refusals and install
+// llama-server, whose Anthropic endpoint is the server's own rather than a bridge's. `bedrock`
+// is the first one the AGENT packs need rather than the other way round: every agent pack
+// whose derive binds Amazon Bedrock needs it, so selecting that agent is what brings the
+// provider (docs/design/bedrock-plumbing.md OQ-BR9). `guardrails` ships neither either: blocked-tool refusals and install
 // requirements (9caba669 moved the blocked tools out of core — core blocks nothing by
 // default), the third kind of CLI-less pack. `wire-bridge` is the fourth kind and the
 // first of it: a `kind: "service"` pack, one in-jail daemon and its endpoint file,
@@ -81,5 +84,5 @@ package packs
 
 import "embed"
 
-//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:openrouter all:kilo all:llamacpp all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth all:aws-auth all:hello-daemon all:github
+//go:embed all:claude all:copilot all:opencode all:pi all:codex all:agy all:omp all:zai all:cerebras all:openrouter all:kilo all:llamacpp all:audio all:host-processes all:journal all:cgroup-delegate all:serial all:guardrails all:wire-bridge all:openai-auth all:aws-auth all:bedrock all:hello-daemon all:github
 var FS embed.FS

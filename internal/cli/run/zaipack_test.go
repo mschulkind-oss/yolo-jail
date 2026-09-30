@@ -44,7 +44,7 @@ func officialPack(t *testing.T, name string) *packload.Pack {
 // pack. zai installs no CLI, which is the point — the name reaches the agent through the
 // global -p, not through a bin the pack owns.
 func zaiSelected(t *testing.T) []*packload.Pack {
-	return []*packload.Pack{officialPack(t, "claude"), officialPack(t, "zai")}
+	return []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock"), officialPack(t, "zai")}
 }
 
 // zaiLaunch is assembleWithProviderEnv with the caller able to set the flag the story

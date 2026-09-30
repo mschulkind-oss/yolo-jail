@@ -74,7 +74,7 @@ func shapeKeys(d *AgentDelivery) []string {
 // user profile over the shipped provider, and a user's own Bedrock provider. The profile-served
 // adapter starts for each, since its gate is the pointer's.
 func TestEveryBedrockSelectionGetsEveryBedrockFact(t *testing.T) {
-	packs := embeddedNamed(t, "claude", "aws-auth", "openai-auth", "wire-bridge")
+	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
 	user := userProviders(t, `{"bedrock":{"region":"us-west-2"},
 	  "bedrock-eu":{"platform":"aws-bedrock","region":"eu-west-1"}}`)
 	userProfiles := map[string]UserProfile{
@@ -131,7 +131,7 @@ func TestEveryBedrockSelectionGetsEveryBedrockFact(t *testing.T) {
 // client on — the bridge carries its traffic — yet aws-auth's pointer must still reach claude, for
 // the bridge to sign with. The switch is a transport check, not only "the provider is Bedrock".
 func TestTheBridgedBedrockProfileGetsThePointerButNotTheSwitch(t *testing.T) {
-	packs := embeddedNamed(t, "claude", "aws-auth", "openai-auth", "wire-bridge")
+	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
 	user := userProviders(t, `{"bedrock":{"region":"us-west-2"}}`)
 	userProfiles := map[string]UserProfile{"bedrock-bridge": {Provider: "bedrock", Via: "wire-bridge"}}
 	s := factsFor(t, packs, user, userProfiles, map[string]string{"claude": "bedrock-bridge"})
@@ -154,7 +154,7 @@ func TestTheBridgedBedrockProfileGetsThePointerButNotTheSwitch(t *testing.T) {
 // LLAMACPP'S ATTRIBUTION HEADER is the provider's option now: a user profile over llamacpp gets
 // it, and only claude, the agent that reads the variable, is handed it.
 func TestTheAttributionHeaderFollowsTheLlamacppProvider(t *testing.T) {
-	packs := embeddedNamed(t, "claude", "pi", "llamacpp", "openai-auth", "aws-auth", "wire-bridge")
+	packs := embeddedNamed(t, "claude", "pi", "llamacpp", "openai-auth", "aws-auth", "bedrock", "wire-bridge")
 	userProfiles := map[string]UserProfile{"local": {Provider: "llamacpp"}}
 	s := factsFor(t, packs, nil, userProfiles, map[string]string{"claude": "local", "pi": "local"})
 	if !shapeHas(s.Agent("claude"), "CLAUDE_CODE_ATTRIBUTION_HEADER", "0") {
@@ -177,7 +177,7 @@ func TestTheAttributionHeaderFollowsTheLlamacppProvider(t *testing.T) {
 // name. Its launcher reads the variables from the agent's own env file, so the shape vars are
 // the delivery.
 func TestTheOpenAIPrelaunchFollowsTheSubscriptionProvider(t *testing.T) {
-	packs := embeddedNamed(t, "claude", "pi", "openai-auth", "aws-auth", "wire-bridge")
+	packs := embeddedNamed(t, "claude", "pi", "openai-auth", "aws-auth", "bedrock", "wire-bridge")
 	userProfiles := map[string]UserProfile{"sub": {Provider: "openai-codex"}}
 	for _, profile := range []string{"codex", "sub"} {
 		s := factsFor(t, packs, nil, userProfiles, map[string]string{"claude": profile, "pi": profile})
@@ -202,7 +202,7 @@ func TestTheOpenAIPrelaunchFollowsTheSubscriptionProvider(t *testing.T) {
 // them from claude on `bedrock-eu` and from the shared set alike: claude started in Bedrock
 // mode with no AWS credential, while the docs said such a key reached every process.
 func TestAUserBedrockProviderReceivesTheAWSCredentialsItsPlatformClaims(t *testing.T) {
-	packs := embeddedNamed(t, "claude", "pi", "aws-auth", "openai-auth", "wire-bridge")
+	packs := embeddedNamed(t, "claude", "pi", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
 	awsNames := []string{"AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_BEARER_TOKEN_BEDROCK"}
 	sources := jsonx.NewOrderedMap()
 	for _, k := range awsNames {

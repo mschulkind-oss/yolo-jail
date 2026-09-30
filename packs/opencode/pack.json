@@ -91,5 +91,10 @@
       "kind": "autonomy"
     }
   ],
-  "name": "opencode"
+  "name": "opencode",
+  "needs": [
+    {
+      "pack": "bedrock"
+    }
+  ]
 }

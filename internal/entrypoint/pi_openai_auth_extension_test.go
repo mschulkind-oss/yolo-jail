@@ -34,7 +34,13 @@ func shippedPiPack(t *testing.T) *packload.Pack {
 func TestShippedPiPackDeliversOpenAIAuthExtension(t *testing.T) {
 	p := shippedPiPack(t)
 	needs := p.Decl.DeclaredNeeds()
-	if len(needs) != 1 || needs[0].Pack != "openai-auth" || len(needs[0].WhenBins) != 0 {
+	openaiAuth := 0
+	for _, n := range needs {
+		if n.Pack == "openai-auth" && len(n.WhenBins) == 0 {
+			openaiAuth++
+		}
+	}
+	if openaiAuth != 1 {
 		t.Fatalf("pi needs = %v, want one unconditional openai-auth need", needs)
 	}
 	var found bool

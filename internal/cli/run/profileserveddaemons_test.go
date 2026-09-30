@@ -60,7 +60,7 @@ func awsPayloadNames(t *testing.T, packs []*packload.Pack, tune func(*Options)) 
 // and starts either way.
 func TestTheAWSAdapterStartsOnlyWhenAProfileSelectsWhatItServes(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "codex"),
-		officialPack(t, "openai-auth"), officialPack(t, "aws-auth")}
+		officialPack(t, "openai-auth"), officialPack(t, "aws-auth"), officialPack(t, "bedrock")}
 
 	unselected, said := awsPayloadNames(t, packs, nil)
 	if unselected["aws-auth"] {
@@ -100,7 +100,7 @@ func TestTheAWSAdapterStartsOnlyWhenAProfileSelectsWhatItServes(t *testing.T) {
 // provider and its platform as the gate does; a profile-names-only selection starts neither.
 func TestTheAWSAdapterStartsForEveryBedrockSelection(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "codex"),
-		officialPack(t, "openai-auth"), officialPack(t, "aws-auth")}
+		officialPack(t, "openai-auth"), officialPack(t, "aws-auth"), officialPack(t, "bedrock")}
 	for _, profile := range []string{"bedrock-sso", "eu"} {
 		o := goldenOptions(t.TempDir(), packHome(t))
 		var stderr bytes.Buffer
@@ -168,7 +168,7 @@ func funcDeclIn(t *testing.T, file, name string) *ast.FuncDecl {
 // did not start it, takes the attach-skew disposition instead of handing codex a pointer to
 // nothing; the same attach into a jail that runs it proceeds.
 func TestAnAttachNeedingAnUnstartedAdapterTakesTheSkewDisposition(t *testing.T) {
-	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "codex"), officialPack(t, "aws-auth")}
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "codex"), officialPack(t, "aws-auth"), officialPack(t, "bedrock")}
 	enable := func(o *Options, cfg *jsonx.OrderedMap) {
 		o.UseProfiles = map[string]string{"codex": "bedrock"}
 		v, _ := awsAuthServedConfig(t, packs).Get("loopholes")
@@ -222,7 +222,7 @@ func TestMissingProfileServedDaemonsNeedsTheFrozenEnvironment(t *testing.T) {
 // shell's environments carry no token, so a request from either is refused 401 before the
 // host is asked.
 func TestTheAWSAdapterServesOnlyTheAgentThatSelectedBedrock(t *testing.T) {
-	jail, channel, _ := launchGateJail(t, []string{"claude", "codex", "aws-auth"},
+	jail, channel, _ := launchGateJail(t, []string{"claude", "codex", "aws-auth", "bedrock"},
 		func(o *Options) { o.UseProfiles = map[string]string{"codex": "bedrock"} })
 	tokenEnv := paths.ServiceCallerTokenEnv("aws-auth")
 	minted := channel.callerTokens[tokenEnv]
@@ -295,7 +295,7 @@ func TestTheAWSAdapterServesOnlyTheAgentThatSelectedBedrock(t *testing.T) {
 // token the running adapter refuses. Deleting the record read in runningCallerTokens, or the
 // carry in rekeyChannelForAttach, fails it.
 func TestAnAttachKeepsTheRunningAdaptersScopedToken(t *testing.T) {
-	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "codex"), officialPack(t, "aws-auth")}
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "codex"), officialPack(t, "aws-auth"), officialPack(t, "bedrock")}
 	tokenEnv := paths.ServiceCallerTokenEnv("aws-auth")
 	running := strings.Repeat("5a", 32)
 	wsStateOf := func(o *Options) string { return paths.WorkspaceHomeState(o.Workspace) }

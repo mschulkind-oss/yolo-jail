@@ -64,7 +64,7 @@ func TestTheMacosUserLaunchNamesAUsersOwnBedrockSwitch(t *testing.T) {
 
 // THE ATTACH ARM prints it too, on an entry whose selection does not serve the switch.
 func TestAnAttachNamesAUsersOwnBedrockSwitch(t *testing.T) {
-	packs := []*packload.Pack{officialPack(t, "claude")}
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock")}
 	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, emptyEnv(), nil)
 	writeHostClaudeSettings(t, os.Getenv("HOME"), `{"env": {"CLAUDE_CODE_USE_BEDROCK": "true"}}`)
 	if rc := o.deliverChannelOnAttach("yolo-ws-abcd1234", "podman", cfg,

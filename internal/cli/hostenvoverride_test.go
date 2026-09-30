@@ -121,7 +121,7 @@ func TestHostBearerBesideAWithheldPointerOverridesNothing(t *testing.T) {
 
 // THE PROFILE DISCLOSURE LINE, the jail's (packload.ProfileDisclosures), at both host front doors.
 func TestHostLaunchSaysWhereItsProfileLanded(t *testing.T) {
-	const want = "Profile bedrock: declared: claude; received: aws-auth, claude, openai-auth, wire-bridge"
+	const want = "Profile bedrock: declared: bedrock; received: aws-auth, bedrock, claude, openai-auth, wire-bridge"
 	_, errs := hostGateLaunchWith(t, claudeAlone, nil, []string{"-p", "bedrock"}, "claude")
 	if !strings.Contains(errs, "yolo host: "+want) {
 		t.Errorf("yolo host -p bedrock -- claude must print %q:\n%s", want, errs)

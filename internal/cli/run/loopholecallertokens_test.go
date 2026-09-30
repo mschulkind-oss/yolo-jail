@@ -23,7 +23,7 @@ import (
 func TestTheCredentialAdaptersGetACallerTokenAndTheTerminatorDoesNot(t *testing.T) {
 	packs := []*packload.Pack{
 		officialPack(t, "claude"), officialPack(t, "codex"),
-		officialPack(t, "openai-auth"), officialPack(t, "aws-auth"),
+		officialPack(t, "openai-auth"), officialPack(t, "aws-auth"), officialPack(t, "bedrock"),
 	}
 	enableAWS := func(o *Options, cfg *jsonx.OrderedMap) {
 		// The adapter starts only when an agent's profile selects what it serves (OQ-CN7 (b)).

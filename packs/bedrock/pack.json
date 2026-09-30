@@ -1,0 +1,33 @@
+{
+  "contributes": [
+    {
+      "api_key_env_name": [
+        "AWS_BEARER_TOKEN_BEDROCK",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_PROFILE",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI"
+      ],
+      "kind": "provider",
+      "name": "bedrock",
+      "platform": "aws-bedrock",
+      "region_env_name": [
+        "AWS_REGION",
+        "AWS_DEFAULT_REGION"
+      ]
+    },
+    {
+      "kind": "profile",
+      "name": "bedrock",
+      "provider": "bedrock"
+    }
+  ],
+  "description": "Amazon Bedrock's bedrock-runtime endpoint as one provider every agent reads.",
+  "name": "bedrock",
+  "needs": [
+    {
+      "pack": "aws-auth"
+    }
+  ]
+}

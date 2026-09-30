@@ -82,7 +82,7 @@ func renderClaudeSettings(t *testing.T, names []string, userProviders string,
 	return env
 }
 
-var bedrockPacks = []string{"claude", "aws-auth", "openai-auth", "wire-bridge"}
+var bedrockPacks = []string{"claude", "bedrock", "aws-auth", "openai-auth", "wire-bridge"}
 
 func TestClaudeSettingsSwitchBedrockOnForEveryBedrockSelection(t *testing.T) {
 	const user = `{"bedrock":{"region":"us-west-2"},"bedrock-eu":{"platform":"aws-bedrock","region":"eu-west-1"}}`

@@ -87,7 +87,7 @@ func TestAViaAnswersAtItsServedAddress(t *testing.T) {
 // where that daemon declares none.
 func TestAListenPointerComposesItsDaemonsServedAddress(t *testing.T) {
 	// claude's pack ships the `bedrock` provider whose platform the pointer's gate keys on.
-	packs := embeddedNamed(t, "codex", "openai-auth", "aws-auth", "claude")
+	packs := embeddedNamed(t, "codex", "openai-auth", "aws-auth", "bedrock", "claude")
 	profiles := map[string]string{"codex": "bedrock"}
 	providers, resolved, _ := launchSelection(t, packs, nil, nil, profiles)
 	scope := func(served ServedDaemons) *CredentialScope {

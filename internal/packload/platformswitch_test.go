@@ -26,7 +26,7 @@ func writeSettings(t *testing.T, home, body string) {
 }
 
 func TestAUsersOwnSwitchConflictsOnlyWhenTheSelectionDoesNotServeIt(t *testing.T) {
-	packs := embeddedNamed(t, "claude", "aws-auth", "openai-auth", "wire-bridge")
+	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
 	user := userProviders(t, `{"bedrock-eu":{"platform":"aws-bedrock","region":"eu-west-1"}}`)
 	userProfiles := map[string]UserProfile{"eu": {Provider: "bedrock-eu"},
 		"bedrock-bridge": {Provider: "bedrock", Via: "wire-bridge"}}

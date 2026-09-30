@@ -76,7 +76,7 @@ func awsAndZaiKeys() *jsonx.OrderedMap {
 func TestDeliverChannelScopesCredentialsPerAgent(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
-	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "pi"), officialPack(t, "zai")}
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock"), officialPack(t, "pi"), officialPack(t, "zai")}
 	o.UseProfiles = map[string]string{"pi": "zai"}
 	channel := channelFor(t, o, bareConfig(), packs, awsAndZaiKeys())
 
@@ -114,7 +114,7 @@ func TestDeliverChannelScopesCredentialsPerAgent(t *testing.T) {
 func TestDeliverChannelRevokesADeselectedAgentsFile(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
-	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "pi"), officialPack(t, "zai")}
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock"), officialPack(t, "pi"), officialPack(t, "zai")}
 	ws := t.TempDir()
 
 	o.UseProfiles = map[string]string{"pi": "zai"}
@@ -281,7 +281,7 @@ func permOf(st os.FileInfo) string {
 func TestAppleContainerWritesOwnerOnlyAgentFilesAtTheJailsPath(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
-	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "pi"), officialPack(t, "zai")}
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock"), officialPack(t, "pi"), officialPack(t, "zai")}
 	o.UseProfiles = map[string]string{"pi": "zai"}
 	channel := channelFor(t, o, bareConfig(), packs, awsAndZaiKeys())
 
@@ -350,7 +350,7 @@ func TestAppleContainerWritesOwnerOnlyAgentFilesAtTheJailsPath(t *testing.T) {
 // key in the file pi's launcher keeps sourcing, and the attach's disclosure named a scope
 // the jail did not get. The shared file's in-home copy had the same staleness.
 func TestAppleContainerAttachRevokesADeselectedAgentsFile(t *testing.T) {
-	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "pi"), officialPack(t, "zai")}
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock"), officialPack(t, "pi"), officialPack(t, "zai")}
 	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, awsAndZaiKeys(),
 		func(o *Options, _ *jsonx.OrderedMap) { o.UseProfiles = map[string]string{"pi": "zai"} })
 	ws := paths.WorkspaceHomeState(o.Workspace)

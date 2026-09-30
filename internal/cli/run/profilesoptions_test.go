@@ -129,7 +129,7 @@ func TestComposeRefusesAProfileNameNothingDeclares(t *testing.T) {
 	writeProfilesConfig(t, `{}`)
 	o := goldenOptions("/ws", t.TempDir())
 	o.ProfileName = "dev"
-	_, err := o.composePackChannel(newConfig(), packsFixture(t, "claude", "pi"), emptyEnv())
+	_, err := o.composePackChannel(newConfig(), packsFixture(t, "claude", "bedrock", "pi"), emptyEnv())
 	if err == nil {
 		t.Fatal("a -p name no pack or config entry declares must refuse the launch, not key silently")
 	}

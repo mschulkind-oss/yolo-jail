@@ -598,7 +598,7 @@ func TestAnAttachToAJailLaunchedBeforePerLaunchTreesLeavesItsSharedTreeAlone(t *
 	if trees := packTreesUnder(t, cname); len(trees) != 0 {
 		t.Errorf("the attach left its own staging behind: %v", trees)
 	}
-	for _, want := range []string{"added aws-auth, claude,", "removed journal"} {
+	for _, want := range []string{"added aws-auth, bedrock, claude,", "removed journal"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("the attach did not read the older jail's shared tree as its packs (no %q):\nstderr:\n%s\nstdout:\n%s",
 				want, stderr, stdout)
