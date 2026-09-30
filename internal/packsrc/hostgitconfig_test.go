@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -96,6 +97,81 @@ func TestStoreWorksUnderSafeBareRepositoryExplicit(t *testing.T) {
 		t.Skip("this git does not enforce safe.bareRepository")
 	}
 	exerciseStore(t, env)
+}
+
+// hostileHooks writes into dir a hook for each event a store run can raise (a checkout, a ref
+// update, an index write, an automatic gc), each of which records that it ran in the returned
+// log and exits 1, as a user's broken or repository-specific hook would.
+func hostileHooks(t *testing.T, dir string) (log string) {
+	t.Helper()
+	log = filepath.Join(t.TempDir(), "hooks.log")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"post-checkout", "reference-transaction", "post-index-change",
+		"pre-auto-gc"} {
+		body := "#!/bin/sh\necho \"$0 $PWD $*\" >> '" + log + "'\nexit 1\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return log
+}
+
+// THE STORE RUNS NO HOOK. A hook the user's config reaches the mirror with, from a global
+// core.hooksPath or from an init.templateDir whose hooks `git clone --bare` copies into the
+// mirror, ran inside the store: git runs post-checkout after the checkout into a pack tree and
+// makes its exit status the checkout's, so a user hook exiting non-zero failed every checkout,
+// and a reference-transaction hook can abort a fetch's ref updates. A hook written for the
+// user's own repositories has no business in the store's, and none may run.
+func TestStoreRunsNoHookFromTheUsersConfig(t *testing.T) {
+	t.Run("core.hooksPath", func(t *testing.T) {
+		hooks := filepath.Join(t.TempDir(), "hooks")
+		log := hostileHooks(t, hooks)
+		exerciseStore(t, storeGlobalConfig(t, "[core]\n\thooksPath = "+hooks+"\n"))
+		if data, _ := os.ReadFile(log); len(data) != 0 {
+			t.Errorf("a hook ran in the store:\n%s", data)
+		}
+	})
+	t.Run("init.templateDir", func(t *testing.T) {
+		tpl := t.TempDir()
+		log := hostileHooks(t, filepath.Join(tpl, "hooks"))
+		exerciseStore(t, storeGlobalConfig(t, "[init]\n\ttemplateDir = "+tpl+"\n"))
+		if data, _ := os.ReadFile(log); len(data) != 0 {
+			t.Errorf("a hook ran in the store:\n%s", data)
+		}
+	})
+}
+
+// storeConfigOverrides is every `-c` setting in argv, as key=value.
+func storeConfigOverrides(argv []string) []string {
+	var out []string
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "-c" {
+			out = append(out, argv[i+1])
+			i++
+		}
+	}
+	return out
+}
+
+// EVERY STORE RUN TURNS THE USER'S HOOKS OFF, the clone included, whose new mirror gets the
+// template's hooks.
+func TestGitCmdTurnsHooksOff(t *testing.T) {
+	s := &Store{Dir: t.TempDir(), Env: []string{"PATH=/bin"}}
+	for _, tc := range []struct {
+		dir  string
+		args []string
+	}{
+		{"", withFsck("clone", "--bare", "--filter=blob:none", "u", "m")},
+		{s.Dir, withFsck("--work-tree=/t", "checkout", "--force", "c", "--", ".")},
+		{s.Dir, []string{"update-ref", "--stdin"}},
+	} {
+		argv := s.gitCmd(t.Context(), tc.dir, tc.args...).Args
+		if !slices.Contains(storeConfigOverrides(argv), "core.hooksPath="+os.DevNull) {
+			t.Errorf("git %v runs the user's hooks: argv %q", tc.args, argv)
+		}
+	}
 }
 
 // Every run inside a repository names it with --git-dir, as an absolute path because git

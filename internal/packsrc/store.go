@@ -256,6 +256,20 @@ func gitLabel(args []string) string {
 	return "git"
 }
 
+// storeGitConfig is the `-c` settings every store run carries. Each overrides a setting of the
+// host user's own git config that is about the user's repositories and breaks, or leaks from,
+// a run in the store's. The rest of that config is honored on purpose: its credential helpers
+// and insteadOf rewrites are what a private pack's fetch needs. A `-c` setting reaches the
+// git processes a run starts too (GIT_CONFIG_PARAMETERS), such as a checkout's lazy fetch.
+//
+//   - core.hooksPath=/dev/null: NO HOOK RUNS in the store. A user's hooks reach the mirror
+//     from a global core.hooksPath, or from an init.templateDir whose hooks `git clone --bare`
+//     copies into the new mirror, and core.hooksPath replaces $GIT_DIR/hooks, so this covers
+//     both. Measured with git 2.55: a post-checkout hook exiting 1 made every checkout into a
+//     pack tree fail (git makes that hook's status the checkout's), and a failing
+//     reference-transaction hook aborted the clone.
+var storeGitConfig = []string{"-c", "core.hooksPath=" + os.DevNull}
+
 // gitCmd builds the git command for one store run: the store's git, the environment
 // hygiene, and — when Detached — a new session whose whole process group the budget's
 // cancellation kills. Split from run so the hygiene is testable as a property of the
@@ -268,8 +282,10 @@ func gitLabel(args []string) string {
 // that refuses a discovered bare repository and allows one named by --git-dir or GIT_DIR, so
 // every refresh and resolution failed with "cannot use bare repository". The path is made
 // absolute because git resolves --git-dir against the working directory, which is dir itself.
+//
+// Every run also carries storeGitConfig, ahead of its own arguments.
 func (s *Store) gitCmd(ctx context.Context, dir string, args ...string) *exec.Cmd {
-	var pre []string
+	pre := append([]string{}, storeGitConfig...)
 	if dir != "" {
 		gitDir := dir
 		if abs, err := filepath.Abs(dir); err == nil {
