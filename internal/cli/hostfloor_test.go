@@ -257,3 +257,16 @@ func TestHostLaunchSaysWhatItStartsAndFromWhere(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckReadsTheLaunchsOwnFloor pins the wiring: `yolo check`'s floor rows are read from the
+// construction `yolo host --` installs through, not a second one.
+func TestCheckReadsTheLaunchsOwnFloor(t *testing.T) {
+	floortest.ResolvedTemp(t)
+	opts, ok := checkOptions([]string{"check"}, io.Discard)
+	if !ok || opts.HostFloor == nil {
+		t.Fatalf("checkOptions left HostFloor unwired (ok=%v)", ok)
+	}
+	if f := opts.HostFloor(nil); f.Dir != paths.HostFloorDir() || f.Prefix != "yolo host: " {
+		t.Errorf("check reads floor %+v, not the launch's", f)
+	}
+}

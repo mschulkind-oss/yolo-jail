@@ -32,6 +32,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/banner"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
@@ -168,6 +169,11 @@ type Options struct {
 	NodeGID func(string) (gid int, groupName string, ok bool)
 	// InUserGroups reports whether gid is in the process's supplementary groups. nil => real.
 	InUserGroups func(gid int) bool
+	// HostFloor builds the host agent floor the "Host agent floor" section reads, for the
+	// selection's programs. The CLI wires the launch's own construction (so `yolo check` and
+	// `yolo host --` read one floor); nil => the prefix under this home with the user-scope
+	// `host_floor`, which is all a disposition reads.
+	HostFloor func(progs []hostfloor.Program) *hostfloor.Floor
 
 	// selectedPacks is the SELECTED pack set sectionPacks resolved, handed forward to the
 	// host-wrappers section so it can ask "which programs do these packs install that have

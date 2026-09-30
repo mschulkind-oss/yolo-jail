@@ -260,6 +260,9 @@ func Check(opts Options) int {
 	// --- Host launch wrappers: generated, but is the dir actually on PATH? ---
 	o.sectionHostWrappers(r)
 
+	// --- Host agent floor: yolo's own copies of the selected agents, which `yolo host` runs ---
+	o.sectionHostFloor(r)
+
 	// --- Updates: the last cached update check (never the network) ---
 	o.sectionUpdates(r)
 

@@ -18,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/stores"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -1020,6 +1021,10 @@ func checkOptions(args []string, errw io.Writer) (check.Options, bool) {
 	// Unconditional here, gated at the prompt: orphanCleanupPrompt asks only on a
 	// terminal, so a piped stdin cannot be read as an implicit yes.
 	opts.Stdin = os.Stdin
+	// The host agent floor the launch itself builds, so the floor rows `yolo check` prints are
+	// read from the same construction `yolo host --` installs through (host-tool-provisioning.md
+	// §7). Observe only: the section asks dispositions, never installs.
+	opts.HostFloor = func(progs []hostfloor.Program) *hostfloor.Floor { return newHostFloor(io.Discard, progs) }
 	// Before the sections, one of which is a nix image build: a rejected --format
 	// must not cost minutes. See outputformat.go.
 	format, ok := parseOutputFormat("check", args, errw)
