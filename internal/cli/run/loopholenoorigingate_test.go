@@ -60,9 +60,10 @@ func fetchedLoopholePack(t *testing.T, home string) (sentinel string) {
 	// A daemon whose whole behaviour is observable: it writes the sentinel, then binds
 	// nothing. The readiness wait will fail (nothing is published) and that is fine — the
 	// question is whether the process was STARTED, which the sentinel answers regardless.
+	// It exits NON-ZERO so that failure is decided by its exit (sentinelDaemon says why).
 	manifest := `{"name":"acme-proxy","description":"unapproved","default_enabled":true,` +
 		`"transport":"loopback-tls","lifecycle":"spawned",` +
-		`"host_daemon":{"cmd":["/bin/sh","-c","touch ` + sentinel + `"],"publishes":"socket"},` +
+		`"host_daemon":{"cmd":` + sentinelDaemon(sentinel) + `,"publishes":"socket"},` +
 		`"intercepts":[{"host":"api.acme.test"}],` +
 		`"ca_cert":"ca.crt",` +
 		`"host_bind_mounts":[{"host":"{loophole_dir}/conf","container":"/etc/acme"}],` +
@@ -113,6 +114,28 @@ func fetchedLoopholePack(t *testing.T, home string) (sentinel string) {
 	return sentinel
 }
 
+// sentinelDaemon is the fixture daemon's argv, as manifest JSON: touch the sentinel, then exit
+// non-zero.
+//
+// THE EXIT IS THE SYNCHRONIZATION, and the sentinel check after startLoopholesDisclosed is a
+// single stat because of it. The daemon publishes nothing, so its readiness wait always
+// fails, and on that failure the spawn SIGKILLs the daemon's process group. A daemon that
+// exited 0, or never exited, was therefore killed at the readiness DEADLINE, and whether
+// `sh -c touch` (a fork and two execs) had finished by then was a race. Under the 200ms
+// deadline these tests used to set, a machine where an exec takes a few hundred milliseconds
+// (a loaded laptop, a busy CI runner) lost it, and the test blamed "a reintroduced gate or a
+// broken spawn path" for a daemon that ran. waitServiceReady returns the moment a daemon exits non-zero, and
+// sh exits only after touch has finished, so the sentinel exists before the wait ends.
+func sentinelDaemon(sentinel string) string {
+	return `["/bin/sh","-c","touch ` + sentinel + `; exit 3"]`
+}
+
+// sentinelDaemonBudget is the readiness deadline these tests give the fixture daemon. The
+// wait ends at the daemon's exit, normally within milliseconds, so this bound is spent only
+// when the daemon is slow to exit: it is generous enough for exec latency on any working
+// machine, and it is not the deadline that decides the test.
+const sentinelDaemonBudget = 10 * time.Second
+
 // syncPackStore fetches an address into the store the launch resolves from, without
 // recording any approval. It is `yolo pack install`'s fetch half and nothing else.
 func syncPackStore(t *testing.T, src string) {
@@ -150,7 +173,7 @@ func TestFetchedPackLoopholeSpawnsAndCrossesWithNoApproval(t *testing.T) {
 	o := goldenOptions(t.TempDir(), t.TempDir())
 	o.Stdout = &out
 	o.Stderr = &out
-	o.ServiceReadyTimeout = 200 * time.Millisecond
+	o.ServiceReadyTimeout = sentinelDaemonBudget
 
 	// 0. THE LAUNCH. A refusal here is the deleted gate, back.
 	_, loaded, _, err := o.stagePacks(cname)
@@ -229,7 +252,7 @@ func TestLocalPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
 	sentinel := filepath.Join(t.TempDir(), "daemon-ran")
 	manifest := `{"name":"acme-proxy","description":"approved","default_enabled":true,` +
 		`"transport":"loopback-tls","lifecycle":"spawned",` +
-		`"host_daemon":{"cmd":["/bin/sh","-c","touch ` + sentinel + `"],"publishes":"socket"},` +
+		`"host_daemon":{"cmd":` + sentinelDaemon(sentinel) + `,"publishes":"socket"},` +
 		`"intercepts":[{"host":"api.acme.test"}],` +
 		`"host_bind_mounts":[{"host":"{loophole_dir}/conf","container":"/etc/acme"}]}`
 	if err := os.WriteFile(filepath.Join(mod, "manifest.jsonc"), []byte(manifest), 0o644); err != nil {
@@ -245,7 +268,7 @@ func TestLocalPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
 	o := goldenOptions(t.TempDir(), t.TempDir())
 	o.Stdout = &out
 	o.Stderr = &out
-	o.ServiceReadyTimeout = 200 * time.Millisecond
+	o.ServiceReadyTimeout = sentinelDaemonBudget
 	_, loaded, _, err := o.stagePacks("yolo-test-approved-loophole")
 	if err != nil {
 		t.Fatal(err)
