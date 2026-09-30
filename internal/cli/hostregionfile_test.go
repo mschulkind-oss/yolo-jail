@@ -76,7 +76,7 @@ func TestHostLaunchTakesTheRegionOfTheHostsAWSConfig(t *testing.T) {
 	rc, env, errs = hostGateRunIn(t, claudeAlone, noRegion, []string{"-p", "bedrock"}, "claude",
 		awsConfigIn("[profile team]\nregion = ap-northeast-1\n"))
 	if rc != 1 || env != nil || !strings.Contains(errs,
-		`~/.aws/config (profile "default", since nothing names another): it has no [default] section`) {
+		`~/.aws/config (profile "default", since nothing names another): it has no [profile default] or [default] section`) {
 		t.Errorf("a file giving no region must refuse, naming it: rc=%d\n%s", rc, errs)
 	}
 }

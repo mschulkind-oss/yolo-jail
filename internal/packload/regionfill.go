@@ -17,7 +17,8 @@ package packload
 //
 // WHICH FILE, WHICH SECTION, WHICH KEY are the PACK's facts (packdecl.RegionFile; BR-D21):
 // packs/bedrock declares ~/.aws/config, relocated by AWS_CONFIG_FILE, the `region` key of
-// `[profile NAME]` (or `[default]`), the profile chosen by AWS_PROFILE. Core names no AWS file,
+// `[profile NAME]` (for the default profile `[profile default]`, else `[default]`), the profile
+// chosen by AWS_PROFILE. Core names no AWS file,
 // section or variable here, the OQ-SSO8 rule envoverride.go states.
 //
 // WHICH PROFILE (BR-D21), in the order the credential's own source decides it:
@@ -201,7 +202,11 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 	if l.Profile == "" {
 		l.Profile = f.DefaultProfile
 	}
-	l.Section = f.Section(l.Profile)
+	// THE SECTION: the first of the profile's spellings the file has (RegionFile.Sections). Until
+	// the file is read, and when it has none of them, the last — the default profile's bare
+	// `[default]`, the spelling a user writes — is the one the refusal's remedy names.
+	sections := f.Sections(l.Profile)
+	l.Section = sections[len(sections)-1]
 	// THE FILE, on the machine yolo launches on.
 	l.Home = src.Getenv("HOME")
 	if f.PathEnvName != "" {
@@ -230,10 +235,17 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 		l.Problem = "not read: " + read.err.Error()
 		return l
 	}
-	value, section, key := iniValue(read.data, l.Section, f.Key)
+	var value string
+	var section, key bool
+	for _, sec := range sections {
+		if value, section, key = iniValue(read.data, sec, f.Key); section {
+			l.Section = sec
+			break
+		}
+	}
 	switch {
 	case !section:
-		l.Problem = "it has no [" + l.Section + "] section"
+		l.Problem = "it has no " + sectionList(sections) + " section"
 	case !key || value == "":
 		l.Problem = "[" + l.Section + "] sets no " + quoted(f.Key)
 	case packdecl.RegionProblem("r", value) != "":
@@ -243,6 +255,16 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 		l.Region = value
 	}
 	return l
+}
+
+// sectionList names sections as bracketed headers joined by "or": "[default]", "[profile
+// default] or [default]".
+func sectionList(sections []string) string {
+	out := make([]string, len(sections))
+	for i, s := range sections {
+		out[i] = "[" + s + "]"
+	}
+	return orList(out)
 }
 
 // expandHome expands a leading "~" of p to home, as the SDKs do for a relocated file.

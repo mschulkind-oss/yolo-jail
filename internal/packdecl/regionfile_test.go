@@ -17,8 +17,8 @@ const regionFileProvider = `{"kind":"provider","name":"regional","platform":"clo
     "default_profile":"default","profile_section":"profile {profile}","key":"region"}}`
 
 // The declaration decodes whole onto the provider projection packload's region fill walks, and
-// names each profile's section: the default profile by its bare name, every other through the
-// template.
+// names each profile's sections: every profile through the template, and the default profile by
+// its bare name too, after the template's spelling, which takes priority.
 func TestAProviderMayDeclareItsRegionFile(t *testing.T) {
 	m, problems := Decode([]byte(`{"contributes":[` + regionFileProvider + `]}`))
 	if len(problems) != 0 {
@@ -35,8 +35,11 @@ func TestAProviderMayDeclareItsRegionFile(t *testing.T) {
 	if got := f.Section("dev"); got != "profile dev" {
 		t.Errorf("profile dev's section = %q, want \"profile dev\"", got)
 	}
-	if got := f.Section("default"); got != "default" {
-		t.Errorf("the default profile's section = %q, want its bare name", got)
+	if got := strings.Join(f.Sections("dev"), "|"); got != "profile dev" {
+		t.Errorf("profile dev's sections = %q, want \"profile dev\" alone", got)
+	}
+	if got := strings.Join(f.Sections("default"), "|"); got != "profile default|default" {
+		t.Errorf("the default profile's sections = %q, want the template's spelling, then its bare name", got)
 	}
 }
 

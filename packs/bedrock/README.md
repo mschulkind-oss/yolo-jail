@@ -31,7 +31,9 @@ Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9]
 - **`region_env_name`**: `AWS_REGION` and `AWS_DEFAULT_REGION`, the variables that count as a
   region for every provider of this platform.
 - **`region_file`**: `~/.aws/config` (or the file `AWS_CONFIG_FILE` names in the shell you
-  launch yolo from), the `region` of `[profile NAME]`, or of `[default]`. When an agent gets no
+  launch yolo from), the `region` of `[profile NAME]`; for the `default` profile that of
+  `[profile default]`, else of `[default]`, the order claude's and codex's AWS SDKs read them in.
+  When an agent gets no
   region from the provider or the environment, yolo reads it there for the profile the agent's
   credential comes from, and hands the agent that region as `AWS_REGION`, in a jail and at
   `yolo host` alike. The profile is the one `aws-auth` serves when it serves the agent (its

@@ -29,8 +29,10 @@ type RegionFile struct {
 	// ProfileEnvName names the variable whose value, as delivered to the agent, picks the
 	// profile: AWS_PROFILE. Absent means only a serving loophole's setting or DefaultProfile does.
 	ProfileEnvName string `json:"profile_env_name,omitempty"`
-	// DefaultProfile is the profile read when nothing names one, and the one profile whose
-	// section is its bare name: "default", whose section is `[default]`.
+	// DefaultProfile is the profile read when nothing names one, and the one profile with two
+	// spellings: `profile_section`'s, `[profile default]`, which takes priority, and its bare
+	// name, `[default]`, read only when the file has no section of the first spelling
+	// (Sections).
 	DefaultProfile string `json:"default_profile"`
 	// ProfileSection is every other profile's section header, with `{profile}` standing for the
 	// name: "profile {profile}", so profile "dev" is `[profile dev]`.
@@ -45,12 +47,24 @@ type RegionFile struct {
 // ProfilePlaceholder is the token in RegionFile.ProfileSection that the profile name replaces.
 const ProfilePlaceholder = "{profile}"
 
-// Section is the section header, without brackets, that holds profile's region.
+// Section is the section header, without brackets, that `profile_section` spells for profile:
+// "profile dev" for "dev", and "profile default" for the default profile too.
 func (f RegionFile) Section(profile string) string {
-	if profile == f.DefaultProfile {
-		return f.DefaultProfile
-	}
 	return strings.ReplaceAll(f.ProfileSection, ProfilePlaceholder, profile)
+}
+
+// Sections is every section header, without brackets and in priority order, that may hold
+// profile's settings: the first the file has is the profile's, and the rest are not read. One
+// for most profiles; for the default profile two, `profile_section`'s spelling and then its bare
+// name, since that is how both AWS SDKs the shipped agents use read ~/.aws/config: Claude Code's
+// bundled JavaScript loader lets `[profile default]` replace `[default]`, and the aws-config
+// crate codex links says "profile `[default]` ignored because `[profile default]` was found
+// which takes priority" (docs/design/bedrock-plumbing.md BR-D21).
+func (f RegionFile) Sections(profile string) []string {
+	if profile == f.DefaultProfile {
+		return []string{f.Section(profile), f.DefaultProfile}
+	}
+	return []string{f.Section(profile)}
 }
 
 // regionFileProblems validates a provider's `region_file`, and refuses it on every other kind: a

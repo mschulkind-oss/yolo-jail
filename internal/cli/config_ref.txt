@@ -1435,11 +1435,13 @@
                     the `key` of one profile's section of a file under your home
                     (`path`, relocated by `path_env_name`), the profile being the one the
                     serving loophole's `region_profile_setting` names, else the one
-                    `profile_env_name` delivers, else `default_profile`, whose section
-                    is its bare name while every other profile's is `profile_section`
-                    with {profile} replaced.  yolo reads it on the machine it launches
-                    on and delivers the region in the first variable the agent reads,
-                    at every notch, saying so; packs/bedrock declares ~/.aws/config's
+                    `profile_env_name` delivers, else `default_profile`.  A profile's
+                    section is `profile_section` with {profile} replaced; the default
+                    profile's is that one when the file has it, else its bare name
+                    (`profile default`, then `default`).  yolo reads it on the machine
+                    it launches on and delivers the region in the first variable the
+                    agent reads, at every notch, saying so; packs/bedrock declares
+                    ~/.aws/config's
                     `region`, AWS_CONFIG_FILE and AWS_PROFILE.  Composed UNDER your
                     `providers` entries per field, so overriding one model alias, one
                     region or one URL keeps everything else the pack shipped.  The

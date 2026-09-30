@@ -71,7 +71,7 @@ func TestAJailLaunchDeliversTheRegionOfTheHostsAWSConfig(t *testing.T) {
 	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, emptyEnv()), nil)
 	got := strings.Join(lines, "\n")
 	if !refuse || !strings.Contains(got,
-		`~/.aws/config (profile "default", since nothing names another): it has no [default] section`) {
+		`~/.aws/config (profile "default", since nothing names another): it has no [profile default] or [default] section`) {
 		t.Errorf("a file giving no region must refuse, naming it (refuse=%v):\n%s", refuse, got)
 	}
 }

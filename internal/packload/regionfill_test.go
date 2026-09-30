@@ -182,6 +182,49 @@ func TestTheRegionFillReadsTheProfileTheCredentialComesFrom(t *testing.T) {
 	}
 }
 
+// THE DEFAULT PROFILE'S TWO SPELLINGS: `[profile default]` takes priority over `[default]`, and
+// when it is present `[default]` is not read at all, as both AWS SDKs the shipped agents use read
+// the file (Claude Code's bundled JavaScript loader lets `profile.default` replace `default`; the
+// aws-config crate codex links logs "profile `[default]` ignored because `[profile default]` was
+// found which takes priority"). Reading `[default]` alone handed an agent a region other than
+// the one it would choose itself, and refused a file it reads fine.
+func TestTheRegionFillReadsProfileDefaultBeforeDefault(t *testing.T) {
+	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
+	onBedrock := map[string]string{"claude": "bedrock"}
+	nothing := NothingServed()
+	for _, tc := range []struct {
+		name, body  string
+		env         *jsonx.OrderedMap
+		want        string
+		wantSection string
+		problem     string
+	}{
+		{"both spellings: the prefixed one wins", "[default]\nregion = us-east-1\n\n[profile default]\nregion = eu-west-3\n",
+			nil, "eu-west-3", "profile default", ""},
+		{"the prefixed spelling alone", "[profile default]\nregion = eu-west-3\n", nil, "eu-west-3", "profile default", ""},
+		{"the bare spelling alone", "[default]\nregion = us-east-1\n", nil, "us-east-1", "default", ""},
+		{"AWS_PROFILE=default reads the same way", "[default]\nregion = us-east-1\n\n[profile default]\nregion = eu-west-3\n",
+			hydrated("AWS_PROFILE", "default"), "eu-west-3", "profile default", ""},
+		{"a prefixed section with no region hides the bare one", "[profile default]\nsso_session = portal\n\n[default]\nregion = us-east-1\n",
+			nil, "", "profile default", `[profile default] sets no "region"`},
+		{"neither spelling", "[profile other]\nregion = ca-central-1\n", nil, "", "default",
+			"it has no [profile default] or [default] section"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := regionHome(t, tc.body)
+			s, _ := fillCase{packs: packs, profiles: onBedrock, envSources: tc.env, served: &nothing,
+				src: &RegionFileSource{Getenv: launchEnv(map[string]string{"HOME": home})}}.scope(t)
+			d := s.Agent("claude")
+			if got := shapeValue(d, "AWS_REGION"); got != tc.want {
+				t.Errorf("claude was given AWS_REGION=%q, want %q (%+v)", got, tc.want, d.RegionFile)
+			}
+			if l := d.RegionFile; l == nil || l.Section != tc.wantSection || !strings.Contains(l.Problem, tc.problem) {
+				t.Errorf("the lookup read %+v, want section %q and a problem saying %q", l, tc.wantSection, tc.problem)
+			}
+		})
+	}
+}
+
 // WHEN THE AGENT HAS A REGION, the file is not read for it: the provider's own `region`, and a
 // region variable it reads that reaches it — from env_sources at every notch, and at `yolo host`
 // from the invoking shell it inherits (Inherited). A region only in a jail's launching shell is
@@ -335,7 +378,7 @@ func TestTheRegionPreflightCountsAFilledRegionAndNamesTheFileItRead(t *testing.T
 	facts := ProviderRegionGaps(packs, providers, ask(s), nil, RegionConsulted(nil, FromPackEnv))
 	got := strings.Join(facts, "\n")
 	for _, want := range []string{
-		`    ~/.aws/config (profile "default", since nothing names another): it has no [default] section`,
+		`    ~/.aws/config (profile "default", since nothing names another): it has no [profile default] or [default] section`,
 		`or AWS_REGION=<region> in an env_sources entry, or region = <region> under [default] in ~/.aws/config`,
 		"consulted for a region: each selected provider's composed entry, then " + FromEnvSources +
 			": none configured, " + FromPackEnv + ", then ~/.aws/config [default]",
@@ -411,7 +454,8 @@ func TestTheShippedPacksDeclareTheBedrockRegionFile(t *testing.T) {
 		t.Fatal(`packs/bedrock declares no region_file for "aws-bedrock"`)
 	}
 	if f.Path != ".aws/config" || f.PathEnvName != "AWS_CONFIG_FILE" || f.ProfileEnvName != "AWS_PROFILE" ||
-		f.DefaultProfile != "default" || f.Section("dev") != "profile dev" || f.Section("default") != "default" ||
+		f.DefaultProfile != "default" || f.Section("dev") != "profile dev" ||
+		strings.Join(f.Sections("default"), "|") != "profile default|default" ||
 		f.Key != "region" {
 		t.Errorf("packs/bedrock's region_file is %+v, want AWS's documented ~/.aws/config grammar", *f)
 	}

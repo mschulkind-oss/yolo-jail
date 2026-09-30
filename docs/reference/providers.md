@@ -406,9 +406,10 @@ its first Bedrock request, and claude, opencode and pi silently use `us-east-1`.
 A provider pack may declare, beside `region_env_name`, where its platform's agents keep a
 region the environment does not carry: `region_file`, one key in one profile's section of a
 file under the home directory of the machine yolo launches on. The bedrock pack declares AWS's
-shared config for `aws-bedrock`: the `region` key of `[profile NAME]`, or of `[default]` for the
-profile named `default`, in `~/.aws/config`, which `AWS_CONFIG_FILE` relocates. Core names no
-AWS file, section or variable
+shared config for `aws-bedrock`: the `region` key of `[profile NAME]` in `~/.aws/config`, which
+`AWS_CONFIG_FILE` relocates. The profile named `default` has two spellings, and `[profile
+default]` takes priority: `[default]` is read only in a file with no `[profile default]`, as the
+AWS SDKs claude and codex use read it. Core names no AWS file, section or variable
 ([BR-D21](../design/bedrock-plumbing.md#BR-D21)).
 
 - **When.** Only for an agent on a provider of that platform whose composed entry sets no
