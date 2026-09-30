@@ -220,9 +220,20 @@ end
 -- every entry is enabled, the order is yolo's statement of the set rather than opencode's menu
 -- order, and a provider outside the set is off even when a stored login would reach it.
 --
--- An entry whose row the catalog did not write (rows) is not named: the launch refuses an entry
--- opencode cannot be paired with (refuseUnspeakableSetEntries) before this renders, and a name
--- with no row here would enable opencode's own catalog provider of that id instead.
+-- AN ENTRY ON opencode's OWN FIRST-PARTY PROVIDER IS NAMED BY ITS ID, though the catalog wrote
+-- it no row (opencodeFirstParty): a provider that names no endpoint repoints nothing and means
+-- the agent's first-party API (docs/reference/protocol-resolution.md OQ-PR2), which for opencode
+-- is its own built-in provider of that id, reading the key the gate delivers. The protocol gate
+-- lets such an entry through on purpose (packload.ResolveProtocol), so leaving it out of the
+-- filter would disable opencode's own provider and drop the entry in silence (AP-P2). Its name has
+-- to be opencode's id for that provider (`anthropic`, `openai`): a name opencode has no provider
+-- of enables nothing. Any other entry with no row is not named, since a bare name would enable
+-- opencode's catalog provider of that id in place of the one the entry composed.
+local function opencodeFirstParty(prov)
+  return type(prov) == "table" and prov.platform ~= "aws-bedrock" and
+    (type(prov.endpoints) ~= "table" or next(prov.endpoints) == nil)
+end
+
 local function opencodeSetProviders(ctx, primary, rows)
   local out, seen = { primary }, { [primary] = true }
   if type(ctx.active_set) ~= "table" then
@@ -235,7 +246,9 @@ local function opencodeSetProviders(ctx, primary, rows)
       if id ~= nil and id == bedrockName then
         id = opencodeBedrockProvider
       end
-      if type(id) == "string" and id ~= "" and rows[id] ~= nil and not seen[id] then
+      local named = rows[id] ~= nil or
+        (id == e.provider and opencodeFirstParty(ctx.providers and ctx.providers[id] or nil))
+      if type(id) == "string" and id ~= "" and named and not seen[id] then
         seen[id] = true
         table.insert(out, id)
       end

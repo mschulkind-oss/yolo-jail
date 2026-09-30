@@ -106,6 +106,32 @@ func TestAnOpencodeSetWhosePrimaryHasNoModelWritesNoSelection(t *testing.T) {
 	}
 }
 
+// A LATER ENTRY ON opencode's OWN FIRST-PARTY PROVIDER IS NAMED (AP-P2): a provider that names no
+// endpoint repoints nothing, so it means the agent's first-party API (OQ-PR2), and the protocol gate
+// lets it through. It has no row here, since opencode already has its own provider of that id, and
+// the filter must still name that id: left out, opencode's loader deletes its own `anthropic`
+// provider and the entry is dropped in silence, as it was in [zai, anthropic] while [anthropic, zai]
+// worked.
+func TestAFirstPartyEntryAfterTheFirstIsInOpencodesFilter(t *testing.T) {
+	const firstParty = `{
+  "zai":{"api_key_env_name":"ZAI_API_KEY","models":{"default":"glm-5.3","glm-5.3":"glm-5.3"},
+    "endpoints":{"openai":{"base_url":"https://api.z.ai/api/coding/paas/v4"}}},
+  "anthropic":{"api_key_env_name":"ANTHROPIC_API_KEY"}}`
+	r := newPioencodeRender(t, firstParty)
+	r.wireProfiles(`{"zai":{"provider":"zai"},"anthropic":{"provider":"anthropic"}}`)
+	r.render(t, `{"opencode":["zai","anthropic"]}`)
+	cfg := r.ocConfig(t)
+	if got := strs(cfg["enabled_providers"]); !reflect.DeepEqual(got, []string{"zai", "anthropic"}) {
+		t.Errorf("enabled_providers = %v, want [zai anthropic]: the first-party entry is opencode's own provider of that id", got)
+	}
+	if cfg["model"] != "zai/glm-5.3" {
+		t.Errorf("model = %v, want the primary's zai/glm-5.3", cfg["model"])
+	}
+	if _, row := ocRows(t, cfg)["anthropic"]; row {
+		t.Errorf("a first-party entry got a row of yolo's: %v", ocRows(t, cfg)["anthropic"])
+	}
+}
+
 // A set of one renders byte for byte what the single profile renders (AP-P1): the list spelling
 // and the string spelling are one selection for opencode, as they are for pi.
 func TestAnOpencodeSetOfOneRendersExactlyTheSingleProfile(t *testing.T) {
