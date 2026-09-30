@@ -1,7 +1,8 @@
 // Package awscredadapter speaks the AWS container-credentials protocol on the
 // jail's loopback and forwards every request to yolo's host `aws-auth` credential
-// service. It is the JAIL half of docs/design/sso-backed-bedrock.md; the host half
-// is internal/awsauth (the mint) wrapped by internal/awsauthdaemon (the service).
+// service. It is the JAIL half of the SSO-backed Bedrock channel
+// (docs/reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth); the host
+// half is internal/awsauth (the mint) wrapped by internal/awsauthdaemon (the service).
 //
 // # It is a pass-through, and that is the design rather than an economy
 //

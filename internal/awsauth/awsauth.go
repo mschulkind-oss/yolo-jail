@@ -1,8 +1,9 @@
 // Package awsauth turns a live host `aws sso login` into a short-lived, narrowed
-// credential and answers for it. It is the HOST half of docs/design/sso-backed-bedrock.md
-// — the state, the lock, the mint and the narrowing — with no transport in it: the
-// daemon wrapping it is internal/awsauthdaemon and the jail-side adapter that speaks
-// the container-credentials protocol is internal/awscredadapter.
+// credential and answers for it. It is the HOST half of the SSO-backed Bedrock channel
+// (docs/reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth) — the
+// state, the lock, the mint and the narrowing — with no transport in it: the daemon
+// wrapping it is internal/awsauthdaemon and the jail-side adapter that speaks the
+// container-credentials protocol is internal/awscredadapter.
 //
 // # It shells out to the `aws` CLI, and that is a decision rather than an expedient
 //

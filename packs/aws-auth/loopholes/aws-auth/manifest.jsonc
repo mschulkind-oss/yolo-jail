@@ -2,8 +2,9 @@
 // `aws sso login` into a short-lived, NARROWED credential, and one jail-side adapter
 // that hands it to any AWS SDK over the container-credentials protocol.
 //
-// The design is docs/design/sso-backed-bedrock.md. The host half is
-// internal/awsauth (mint, cache, lock, narrowing) wrapped by internal/awsauthdaemon;
+// How it behaves is docs/reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth;
+// the rulings cited below by id are in docs/design/sso-backed-bedrock.md's Decision Ledger. The
+// host half is internal/awsauth (mint, cache, lock, narrowing) wrapped by internal/awsauthdaemon;
 // the jail half is internal/awscredadapter. Nothing here is per-agent: the protocol
 // is one every AWS SDK already speaks, which is the whole reason this shape was
 // chosen over a per-client credential file.
