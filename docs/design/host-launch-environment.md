@@ -136,9 +136,11 @@ accepts that: *"it's just not feasible to otherwise know these things."* The fix
   still holds. HE-DIR1 names PATH as the source (*"we just get things from [PATH]"*), and a
   folder yolo adds whenever it exists would be a source of yolo's own.
 - **Every other input yolo reads to decide something** still has to be named by config or by a
-  `YOLO_*` variable. One input is undecided: a launch that refuses for a missing credential
-  looks in the shell that started yolo today (`credentialGaps(os.Getenv)`), and whether it
-  keeps doing so is [OQ-HE6](#oq-he6).
+  `YOLO_*` variable. Three built checks do read the shell that started yolo today, and each can
+  refuse a launch: the credential pre-flight, the region pre-flight and the
+  [OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8) override check
+  ([§1.2](#12-ambient-values-yolo-reads-to-decide-something)). The credential gate's delivery
+  reads it too. Whether they keep doing so is [OQ-HE6](#oq-he6).
 
 **What stays fixed whoever starts yolo**, because yolo provides it:
 
@@ -220,7 +222,9 @@ complete ambient environment, with the composed variables overlaid on top.
 | `PATH` (and the whole environ) | `runDepInstallCommand`: `exec.Command("sh", "-c", cmd)` with the inherited environ | Where an accepted install lands, and so whether the re-probe finds it |
 | `PATH` | `hostWrappersStatus`; `yolo check`'s wrapper section (`o.Getenv("PATH")` with `hostwrap.OnPath`/`Precedence`) | Whether the wrap dir is on PATH and ahead of the real binary |
 | `PATH` | `yolo check`'s `Options.LookPath` (default `exec.LookPath`): runtime, nix, loophole, GPU and macOS tool probes; `describe.go`'s `resolvedMechanism`; `commands.go`'s `detectListingRuntime` | Jail-launch readiness, not the host launch. Out of scope: a jail launch keeps finding these on the PATH it was started with ([OQ-HE7](#oq-he7), retired) |
-| Provider credentials | the credential gate's `Fallback` in `composeHostVarsWith` is `os.LookupEnv`; `launch.credentialGaps(os.Getenv)` | Whether a provider resolves, and whether the launch refuses for a credential gap ([OQ-HE6](#oq-he6)) |
+| Provider credentials | `launch.credentialGaps(os.Getenv)` indexes `environ()`, which is `os.Environ()` plus the composed variables, and only then asks that `getenv`, so the shell is read either way. The credential gate's `Fallback` in `composeHostVarsWith` is `os.LookupEnv`: it answers a key `env_sources` did not hydrate, and a pack's derive composes from that answer | Whether the launch refuses for a credential gap, and what the agent is handed: with `-p zai`, claude's derive sets `ANTHROPIC_AUTH_TOKEN` from `ZAI_API_KEY` wherever the gate found it ([OQ-HE6](#oq-he6)) |
+| Provider region | `launch.regionGaps()`, over `environ()` | Whether the launch refuses for a missing region. A region the shell exports counts at `yolo host` by a built decision, [BR-D2](bedrock-plumbing.md#BR-D2) ([OQ-HE6](#oq-he6)) |
+| A variable a selected pack declares it overrides | `launch.envOverrideLines(os.Getenv)`, the [OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8) check: a variable the shell exports counts as delivered, from `packload.FromLaunchEnv` | Whether the launch refuses because something beside a pack's pointer overrides it ([OQ-HE6](#oq-he6)) |
 | `HOME` | `paths.Home()` (`$HOME`, then the passwd entry, then `/`), and `os.UserHomeDir` in `hostApplyGate` | Which config, state and home are used |
 | cwd | `os.Getwd()` in `composeHostLaunch` and `hostEnv` | The workspace `env_sources` resolve against. `hostScopedEnvSources` drops relative entries |
 | stdin TTY | `hostGateCanPrompt` | Whether the gate may prompt |
@@ -973,6 +977,16 @@ working tree on 2026-09-25, and the ones this restatement leans on were re-read 
     `getenv`; the credential gate's `ScopeInput` sets `Fallback: os.LookupEnv`; and the list the
     refusal quotes as consulted ends with `packload.FromLaunchEnv`, *"the environment yolo was
     launched from."*
+  - Read 2026-09-29, for [OQ-HE6](#oq-he6)'s scope: before the credential check, `hostExec` runs
+    `launch.envOverrideLines(os.Getenv)`, the [OQ-SSO8](sso-backed-bedrock.md#OQ-SSO8) check, whose
+    lookup answers `packload.FromLaunchEnv` for any variable that `getenv` finds. After it,
+    `launch.regionGaps()` indexes `environ()`, and its comment says a region exported in the
+    invoking shell *"counts here"*.
+- **The credential gate's delivery** (read 2026-09-29, for [OQ-HE6](#oq-he6)):
+  `CredentialScope.LookupFor` (`internal/packload/credentialscope.go`) answers from `env_sources`,
+  then from `Fallback`, and `hydrateProviders` (`deriveenv.go`) hydrates each provider's `api_key`
+  through it. `packs/claude/derive.lua` sets `ANTHROPIC_AUTH_TOKEN` from that `api_key`, and
+  `packs/zai/pack.json` gives `zai` an `anthropic` endpoint and `api_key_env_name: ZAI_API_KEY`.
   - `hostWrappersStatus` uses `hostwrap.OnPath(os.Getenv("PATH"), …)`.
   - Read 2026-09-29, for [§2.1](#21-the-criterion--decision-inputs-versus-carried-variables)'s
     exec rules and [OQ-HE11](#oq-he11): a host launch keys on the command's base name.
