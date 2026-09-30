@@ -74,6 +74,9 @@ func TestPackAudienceDeliversToOneAgentOnly(t *testing.T) {
 	// One command, four facts. `rg -c` exits non-zero on no match, so the negatives are
 	// spelled as explicit `|| echo`, not as an exit code — a bare `!rg` would make a missing
 	// FILE indistinguishable from absent content, and the codex briefing exists either way.
+	// The markers are read from STDOUT: the launch echoes this whole command to stderr
+	// ("⚡ Executing: bash -lc '…'"), so in the combined output every marker below was present
+	// whatever the files held, and no assertion here could fail.
 	r := runYolo(t, dir, strings.Join([]string{
 		`rg -c CLAUDEONLY /home/agent/.claude/CLAUDE.md && echo BRIEFING_REACHED_CLAUDE`,
 		`rg -c CLAUDEONLY /home/agent/.codex/AGENTS.md || echo BRIEFING_SKIPPED_CODEX`,
@@ -92,7 +95,7 @@ func TestPackAudienceDeliversToOneAgentOnly(t *testing.T) {
 		"SKILL_SKIPPED_CODEX",
 		"CODEX_STILL_BRIEFED",
 	} {
-		if !strings.Contains(r.combined(), want) {
+		if !strings.Contains(r.stdout, want) {
 			t.Errorf("missing %s — an addressed contribution must reach the agent it named and "+
 				"nothing else, at both kinds, while leaving every unaddressed layer alone\n"+
 				"rc %d\nstdout: %s\nstderr: %s", want, r.rc, r.stdout, r.stderr)
