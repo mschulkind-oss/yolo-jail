@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -781,6 +782,10 @@ func (o *Options) sectionRunningJails(r *reporter, detectedRuntime string) {
 		r.blank()
 		if o.orphanCleanupPrompt(r, len(orphans)) {
 			for _, orph := range orphans {
+				// A running jail, whose attached sessions this removal cuts short: each prints why
+				// from the stop record, written before the removal as every stop yolo makes writes
+				// it (run.RecordJailStop, jail-lifetime-last-session-wins.md JL-D53).
+				run.RecordJailStop(orph.name, run.YoloCheckOrphanReason(os.Getpid(), orph.reason))
 				_ = o.Exec([]string{detectedRuntime, "rm", "-f", orph.name}, "", nil, 30*time.Second)
 				cleanupTracking(orph.name)
 				r.line("    " + r.style("Stopped "+orph.name, ansiGreen))

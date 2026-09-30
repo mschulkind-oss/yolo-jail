@@ -14,8 +14,8 @@ package run
 //
 // WHO WRITES IT, AND WHEN. A process about to stop the jail writes it before the stop and
 // replaces whatever was there, since it is the cause: stopJail (the fresh launch's signal arm,
-// an attach-skew restart, the orphan reaper, a hold that did not follow its first session) and
-// `yolo stop` (RecordJailStop). The fresh launch writes one more, the end of its first session,
+// an attach-skew restart, the orphan reaper, a hold that did not follow its first session),
+// `yolo stop` and `yolo check`'s orphan cleanup (RecordJailStop). The fresh launch writes one more, the end of its first session,
 // which ends the jail with no stop of its own (the hold follows it out). That one is a
 // consequence and may itself be the result of a stop another process recorded, so it is written
 // only when nothing was recorded since the session began (recordFirstSessionEnd); and a session
@@ -96,8 +96,8 @@ func (o *Options) recordJailStop(cname, reason string) {
 	writeJailStop(cname, jailStopRecord{At: o.Now(), Reason: reason, PID: o.Getpid()})
 }
 
-// RecordJailStop is recordJailStop for a caller outside the run pipeline: `yolo stop`, before it
-// stops the jail.
+// RecordJailStop is recordJailStop for a caller outside the run pipeline: `yolo stop`, and
+// `yolo check`'s orphan cleanup, before either stops the jail.
 func RecordJailStop(cname, reason string) {
 	writeJailStop(cname, jailStopRecord{At: time.Now(), Reason: reason, PID: os.Getpid()})
 }
@@ -165,6 +165,12 @@ func orphanReapReason(reaper, owner int) string {
 
 // YoloStopReason is why `yolo stop` stops a jail.
 func YoloStopReason(pid int) string { return fmt.Sprintf("`yolo stop` (pid %d) stopped it", pid) }
+
+// YoloCheckOrphanReason is why `yolo check`'s orphan cleanup removes a running jail: why the
+// check found it orphaned ("workspace gone", "stuck in provisioning", …).
+func YoloCheckOrphanReason(pid int, why string) string {
+	return fmt.Sprintf("`yolo check` (pid %d) removed it as an orphaned jail (%s)", pid, why)
+}
 
 // jailEndStatus reports an exec status a jail's end produces: 137, the SIGKILL the kernel sends
 // every process of a pid namespace whose init exits; or the runtime's own failure when the
