@@ -9,6 +9,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // section_hostlaunchpath_test.go pins `yolo check`'s host launch section
@@ -134,5 +135,20 @@ func TestCheckFloorSectionFindsANoFloorEntryProgramInHostPath(t *testing.T) {
 	out, _ := runHostFloorSection(o)
 	if !strings.Contains(out, "(here, "+copyInHostPath+")") {
 		t.Errorf("the floor section did not find the host_path copy:\n%s", out)
+	}
+}
+
+// TestCheckFloorSectionNamesACopyInHostPathAsNotRun: a program the floor delivers, with another
+// copy only in a `host_path` folder — on no PATH this check was started with and at no hint
+// location. The floor section's other-copies list reads the launch PATH, so it names that copy as
+// one `yolo host` does not run. Hand OtherCopies the bare PATH this check was started with, and
+// this fails.
+func TestCheckFloorSectionNamesACopyInHostPathAsNotRun(t *testing.T) {
+	o, _, _, _ := hostFloorCheckFixture(t, `{"host_path": ["~/tools/bin"]}`)
+	copyInHostPath := filepath.Join(paths.Home(), "tools", "bin", "floorcli")
+	writeCheckFile(t, copyInHostPath, "#!/bin/sh\n", 0o755)
+	out, _ := runHostFloorSection(o)
+	if want := "floorcli: also at " + copyInHostPath + " — not run by `yolo host`"; !strings.Contains(out, want) {
+		t.Errorf("the floor section lacks %q:\n%s", want, out)
 	}
 }
