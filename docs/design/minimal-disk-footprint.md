@@ -13,7 +13,8 @@ vantage:
 **Status:** DESIGN, 2026-08-25 — one ruling owed; audited and compacted 2026-09-18, re-checked
 against the tree 2026-09-24. [OQ-DF4](#OQ-DF4) is the last live question and is no longer
 blocked — its measurement was taken 2026-09-15
-([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)).
+([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)),
+and re-taken 2026-09-30, which left one store in it and gave it lettered options.
 Every other ruling is made and built; [§11.1](#111-decision-ledger) has the dates and the commits.
 The one live defect the 2026-09-18 audit found — the P4 `.tmp` exposure — was fixed 2026-09-20
 ([§5](#5-invariants--what-must-not-break)).
@@ -308,6 +309,21 @@ ceiling catches"* — now observable for the first time. The write path does **n
 > residue with a name and a path wants a **reclaimer**. So the data strengthens *policy, not a
 > number* rather than flipping it — and it converts the open question from "what ceiling?" into
 > "sweep these two, or declare them the human's", which is a smaller decision with a testable answer.
+
+> [!NOTE]
+> **Re-measured 2026-09-30, and one of the two names drops out.** `cache/staticcheck` is not
+> residue. It trims itself, as [OQ-BF2](disk-levers-and-backfill.md#OQ-BF2) measured on
+> 2026-09-08: Go's cache evicts an entry unused for five days, and its `trim.txt` was last stamped
+> 2026-09-29 21:51 UTC. It stood at **21,385 MiB**, but only **340 MiB (1.6 %)** of it was older
+> than five days and **7,118 MiB** had been touched within one day, so its size follows how hard
+> the agents are working rather than how long yolo has run. An age purge could take almost none
+> of it, and a ceiling could only evict what is in use. **`mise/` is the one real residual:
+> 3,202 MiB**, against 2.6 GiB on 2026-09-15, which is about **36 MiB a day, 13 GiB a year**.
+> Both were read from this development jail, which binds the host's
+> `~/.local/share/yolo-jail/mise` at `/mise` and its `cache/` at `~/.cache` (checked in
+> `/proc/self/mountinfo`). Sizes are `du --apparent-size`, the measure `yolo stores` uses; the age
+> split is `fd --changed-before 5d` and `--changed-within 1d`, summed with `du -cb`. Go's cache
+> refreshes an entry's modification time when it is used, which is why "touched" is the right word.
 
 **A second finding, and it is a possible DEFECT rather than a policy input.** `cache/uv` holds
 **30.8 GiB** and grew **+270 MiB/d** across a window in which a purge ran — but its reclaimer is
@@ -736,11 +752,26 @@ are [§11.1](#111-decision-ledger) rows.
 
    [§4.1](#41-candidate-invariants-weighed)c adopts a byte ceiling as a *contract* but not as a trigger, which leaves open whether the number is ever written down. **A number** means a user-settable budget — a config key, with validation, an entry in the nested-inheritance table, and a lifetime of being defended — that `yolo check` and `yolo prune` both report against. **A policy** means no configurable number at all: the write path keeps its own bytes bounded and there is nothing to tune. Worth noting how thin the current surface is — `prune.warn_threshold_gb` is the **only** disk-budgeting config key there is, and `internal/prune` does not import `internal/config` at all, deliberately, so `yolo check` is that key's sole consumer and `yolo prune` reads no config whatever (re-verified 2026-09-18).
 
-   **What the measurement says, and why it narrows the question rather than answering it.** Two dated `yolo stores` samples now exist ([OQ-BF9](disk-levers-and-backfill.md#OQ-BF9)'s bounded ledger recorded them). The unreclaimed residual is **≈196 MiB/day ≈ 70 GiB/yr** and it is **not diffuse**: `mise/` and `cache/staticcheck` carry 99 % of it between them. A byte ceiling is the instrument for residue you cannot attribute; residue with a name and a path wants a **reclaimer**. So the live decision has become the smaller one — **sweep those two, or declare them the human's** — and neither answer needs a number.
+   **What the measurement says, and why it narrows the question rather than answering it** (restated 2026-09-30). Two dated `yolo stores` samples ([OQ-BF9](disk-levers-and-backfill.md#OQ-BF9)'s bounded ledger recorded them) put the unreclaimed residual at **≈196 MiB/day ≈ 70 GiB/yr**, and **not diffuse**: `mise/` and `cache/staticcheck` carried 99 % of it between them. A third reading on 2026-09-30 takes one of the two out ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)'s note): `cache/staticcheck` trims itself, so it is a live working set and not residue. What is left is **one named store, `mise/`**, the tool versions every jail on the machine shares, growing about **36 MiB a day (13 GiB a year)** because a version no workspace uses any more is never removed. A byte ceiling is the instrument for residue you cannot attribute; residue with a name and a path wants a **reclaimer**. So the live decision is the smaller one, and only (C) needs a number:
 
-   _Leaning:_ **Policy, not a number.** If the write path bounds itself, the budget is a property of the design rather than a dial, and "minimal" is not a number a user should have to discover. The condition I held this open for — *"a residual that only a ceiling catches"* — is now observable and it turns out to be two named stores, which is the case a ceiling is worst at. I hold it more firmly than I did.
+   - **(A) Policy, and sweep `mise/`.** No budget key. `mise/` joins the offered tier of
+     [`disk-levers-and-backfill.md` §5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping):
+     once 1 GiB of tool versions no jail has used for 30 days piles up, a launch offers to remove
+     them, and a `y` makes it automatic, as the cache age-purge already works. Unbuilt, and it
+     owes a signal that does not exist yet: nothing records which versions a launch used, and a
+     reaper that cannot tell declines rather than sweeping. The cost is a re-download for a
+     workspace that comes back to an old version.
+   - **(B) Policy, and `mise/` is the human's.** No budget key and no reclaimer. `yolo stores`
+     keeps listing it as a store nothing reclaims, and removing old versions stays the user's
+     job. The cost is the growth, about 13 GiB a year at the measured rate.
+   - **(C) A number.** A user-settable budget key that `yolo check` and `yolo prune` both report
+     against, the contract [§4.1](#41-candidate-invariants-weighed)c adopted. The cost is a key to
+     validate, inherit into nested jails and defend, and a ceiling can only evict what the next
+     launch rebuilds or downloads again ([§9](#9-risks) R5).
 
-   <!-- vantage: oq id=OQ-DF4 leaning="Policy, not a number. If the write path bounds itself the budget is a property of the design rather than a dial, and 'minimal' is not a number a user should have to discover. The condition this was held open for - a residual that only a ceiling catches - is now measured and turns out to be two NAMED stores (mise/ and cache/staticcheck, 99% of the ~70 GiB/yr), which is the case a ceiling is worst at. The real decision is smaller: sweep those two, or declare them the human's." -->
+   _Leaning:_ **(A).** Policy, not a number: if the write path bounds itself, the budget is a property of the design rather than a dial, and "minimal" is not a number a user should have to discover. The condition I held this open for — *"a residual that only a ceiling catches"* — is now observable, and it is one named store, which is the case a ceiling is worst at. Between the two policies, (B) is a reclaimer that waits for a human, which is the defect this doc is named for, and the ruling it executes says *"we need to use minimal disk space"* ([§1](#1-the-ruling-and-what-the-bug-actually-is)).
+
+   <!-- vantage: oq id=OQ-DF4 leaning="(A) policy, not a number, and sweep mise/ through the offered cleanup tier. The residual a ceiling was held open for is now one named store: cache/staticcheck trims itself (re-measured 2026-09-30), leaving mise/ at about 13 GiB a year. A ceiling is worst at named residue, and leaving mise/ to the human is the reclamation-that-waits-for-a-human defect this doc is named for." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
