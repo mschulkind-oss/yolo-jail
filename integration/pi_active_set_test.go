@@ -100,3 +100,35 @@ func TestPiRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	requireCataloged(t, models.raw, "providers", "zai", "pi models.json")
 	requireCataloged(t, models.raw, "providers", "amazon-bedrock", "pi models.json")
 }
+
+// THE PROFILE KEY'S LIST FORM (docs/design/active-provider-sets.md AP-D13, on the key PP-D10
+// renamed): `"profile": ["zai", "openrouter"]` in the user config names no agent, so a real
+// launch gives pi the whole list and claude its first entry, and says which agent ignores the
+// rest. Through config resolution, the one fold, the boot render and the launch lines.
+func TestTheProfileKeysListReachesPiWholeAndClaudeFirst(t *testing.T) {
+	requireJail(t)
+	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
+	t.Setenv("OPENROUTER_API_KEY", "integration-probe-not-a-real-key")
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["claude", "pi", "zai", "openrouter"], "profile": ["zai", "openrouter"]}`)
+	r := runCommand(t, dir, append(jailRunArgs(), "--", "true"))
+	if r.rc != 0 {
+		t.Fatalf("the key's list launch failed: rc %d\n%s", r.rc, r.combined())
+	}
+	for _, want := range []string{"Active set for pi: zai, openrouter",
+		"Profile list zai, openrouter (the profile key's list, naming no agent)",
+		"claude takes one profile", "ignores openrouter"} {
+		if !strings.Contains(r.combined(), want) {
+			t.Errorf("the launch must say %q:\n%s", want, r.combined())
+		}
+	}
+	settings := readPioencodeSurface(t, dir, "pi", "agent", "settings.json")
+	if settings.provider != "zai" {
+		t.Errorf("pi's start provider = %s, want the list's first entry, zai", settings.provider)
+	}
+	enabled, _ := settings.raw["enabledModels"].([]any)
+	if len(enabled) == 0 || enabled[len(enabled)-1] != "openrouter/*" {
+		t.Errorf("pi's enabledModels = %v, want the key's whole list, openrouter's run last", enabled)
+	}
+}
