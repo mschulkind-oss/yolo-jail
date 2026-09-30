@@ -141,29 +141,44 @@ type awsAuthFixture struct {
 // fragment needs. See the file header for each step's reason.
 func newAWSAuthFixture(t *testing.T, configure func(bin string) string) awsAuthFixture {
 	t.Helper()
-	// EXCLUSIVE: the fixture owns the machine's aws-auth host singleton and its adapter port
-	// for the test's duration (the file header, and machinelock_test.go).
-	requireJailExclusive(t, "the aws-auth tests own the aws-auth host singleton")
-	if rt := detectRuntime(); rt != "podman" {
-		t.Skipf("aws-auth's chain needs podman, and this runtime is %q: Apple Container is "+
-			"inert for loopback-tls loopholes and macos-user declines the jail-side adapter", rt)
-	}
-
-	dir := writeProject(t, `{}`)
 	// `packs`, `profile` and a loophole's `scope: "user"` settings are all user-scope
 	// only. `unnarrowed` rather than a role: the narrowing arm needs `aws sts assume-role`,
 	// and this test is about the channel, not the narrowing (which has its own unit tests).
 	// The provider's region is there because a `bedrock` launch with none is refused before
 	// the jail starts (OQ-BR6); no request reaches AWS, so its value is never used.
-	packHome(t, `{
-		"packs": ["claude", "aws-auth"],
-		"profile": {"claude": "bedrock"},
+	return newAWSAuthFixtureWith(t, awsAuthUserConfig(`["claude", "aws-auth"]`, "claude"), true, configure)
+}
+
+// awsAuthUserConfig is the fixture's user config: packs, agent on the bedrock profile, a region,
+// and aws-auth enabled un-narrowed for the fixture's profile.
+func awsAuthUserConfig(packs, agent string) string {
+	return `{
+		"packs": ` + packs + `,
+		"profile": {"` + agent + `": "bedrock"},
 		"providers": {"bedrock": {"region": "us-east-1"}},
 		"loopholes": {"aws-auth": {
 			"enabled": true,
-			"settings": {"profile": "`+awsAuthProfile+`", "unnarrowed": true}
+			"settings": {"profile": "` + awsAuthProfile + `", "unnarrowed": true}
 		}}
-	}`)
+	}`
+}
+
+// newAWSAuthFixtureWith is newAWSAuthFixture over a user config of the caller's. podman is
+// whether the launch is a jail's, which needs podman; a `yolo host` launch (below) starts no
+// container.
+func newAWSAuthFixtureWith(t *testing.T, userConfig string, podman bool,
+	configure func(bin string) string) awsAuthFixture {
+	t.Helper()
+	// EXCLUSIVE: the fixture owns the machine's aws-auth host singleton and its adapter port
+	// for the test's duration (the file header, and machinelock_test.go).
+	requireJailExclusive(t, "the aws-auth tests own the aws-auth host singleton")
+	if rt := detectRuntime(); podman && rt != "podman" {
+		t.Skipf("aws-auth's chain needs podman, and this runtime is %q: Apple Container is "+
+			"inert for loopback-tls loopholes and macos-user declines the jail-side adapter", rt)
+	}
+
+	dir := writeProject(t, `{}`)
+	packHome(t, userConfig)
 	macArchivePrivateState(t)
 
 	// Refuse to run beside a live aws-auth daemon: the launch would adopt it (see the
@@ -476,6 +491,88 @@ func awsAuthLaunchWarning(out string) string {
 		}
 	}
 	return ""
+}
+
+// awsAuthHostAgentScript is a stand-in `pi` for `yolo host`: it fetches the pointer it was
+// handed the way an AWS SDK's container provider does (the token verbatim as `Authorization`),
+// once with the token and once without, and prints what it saw. No real pi runs.
+const awsAuthHostAgentScript = `#!/bin/sh
+uri=${AWS_CONTAINER_CREDENTIALS_FULL_URI:-}
+echo "POINTER=$uri"
+echo "REGION=${AWS_REGION:-}"
+[ -n "$uri" ] || exit 3
+tok=${AWS_CONTAINER_AUTHORIZATION_TOKEN:-}
+[ -n "$tok" ] && echo "TOKEN=present"
+echo "STRANGER_HTTP=$(curl -sS -o /dev/null -w '%{http_code}' "$uri")"
+echo "HTTP=$(curl -sS -o "$PWD/awsauth-host-body.json" -w '%{http_code}' -H "Authorization: $tok" "$uri")"
+`
+
+// TestAWSAuthServesAYoloHostAgentThroughItsDoorway is the same chain at `yolo host`, with the
+// real built `yolo` (docs/design/host-notch-services.md HS-D21, §4.8): `yolo host -- pi` on
+// `"profile": {"pi": "bedrock"}` ensures the aws-auth host service (spawned against the fake
+// `aws`), fronts it for this launch, opens the adapter as its own listener on a port it picked,
+// and hands pi the pointer and the token; the stand-in pi gets the fake's credential with the
+// token and a 401 without it, and the region the provider declares reaches it as in a jail.
+//
+// No container starts, so this runs anywhere the suite does, podman or not. And there is no
+// network namespace in the way: the loopback is the machine's, so this proves the wiring and
+// nothing about a jail's reachability (the warning at the top of this file).
+func TestAWSAuthServesAYoloHostAgentThroughItsDoorway(t *testing.T) {
+	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	fx := newAWSAuthFixtureWith(t, awsAuthUserConfig(`["pi"]`, "pi"), false, func(bin string) string {
+		raw, err := json.Marshal(map[string]any{"Version": 1, "AccessKeyId": "ASIAYOLOHOSTDOORWAY",
+			"SecretAccessKey": "yolo-host-secret", "SessionToken": "yolo-host-session-token",
+			"Expiration": expires.Format(time.RFC3339)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := filepath.Join(bin, "process.json")
+		if err := os.WriteFile(body, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return "cat '" + body + "'; exit 0"
+	})
+	if err := os.WriteFile(filepath.Join(filepath.Dir(fx.argvLog), "pi"), []byte(awsAuthHostAgentScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The shell the host agent inherits is this process's: blank what would decide the result
+	// in its place (a developer's own AWS settings, or the jail this suite may run in).
+	opts := append(fx.opts, withEnv("YOLO_VERSION=", "AWS_PROFILE=", "AWS_REGION=", "AWS_DEFAULT_REGION=",
+		"AWS_BEARER_TOKEN_BEDROCK=", "AWS_ACCESS_KEY_ID=", "AWS_SECRET_ACCESS_KEY=",
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI=", "AWS_CONTAINER_AUTHORIZATION_TOKEN="))
+	r := runCommand(t, fx.dir, []string{"host", "--", "pi"}, opts...)
+	if r.rc != 0 {
+		t.Fatalf("yolo host -- pi: rc %d\n%s%s", r.rc, r.combined(), awsAuthDaemonLog(t))
+	}
+	uri := kvLine(r.stdout, "POINTER")
+	if !strings.HasPrefix(uri, "http://127.0.0.1:") || strings.HasPrefix(uri, "http://"+awsAuthAdapterAddr) ||
+		!strings.HasSuffix(uri, "/credentials") {
+		t.Fatalf("pi's AWS_CONTAINER_CREDENTIALS_FULL_URI = %q, want a loopback port this launch "+
+			"picked:\n%s", uri, r.combined())
+	}
+	for _, want := range []string{"TOKEN=present", "STRANGER_HTTP=401", "HTTP=200", "REGION=us-east-1"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("the stand-in pi did not see %s:\n%s%s", want, r.combined(), awsAuthDaemonLog(t))
+		}
+	}
+	for _, want := range []string{`opened the "aws-auth" doorway`, `Profile bedrock: declared by bedrock; pi → provider "bedrock"`} {
+		if !strings.Contains(r.stderr, want) {
+			t.Errorf("the launch must say %q:\n%s", want, r.stderr)
+		}
+	}
+	body, err := os.ReadFile(filepath.Join(fx.dir, "awsauth-host-body.json"))
+	if err != nil {
+		t.Fatalf("reading the body the stand-in pi fetched: %v\n%s", err, r.combined())
+	}
+	var served map[string]any
+	if err := json.Unmarshal(body, &served); err != nil {
+		t.Fatalf("the served body is not JSON: %v (%d bytes, withheld)", err, len(body))
+	}
+	for _, m := range awsAuthCredentialMismatches(served, map[string]string{
+		"AccessKeyId": "ASIAYOLOHOSTDOORWAY", "SecretAccessKey": "yolo-host-secret",
+		"Token": "yolo-host-session-token"}) {
+		t.Error(m)
+	}
 }
 
 // TestAWSAuthCredentialMismatchesNeverEchoTheServedValue pins the helper both end-to-end tests
