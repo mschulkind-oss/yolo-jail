@@ -265,7 +265,7 @@ This block is what the jail can see of your machine's filesystem, and what it ma
 | Row | `podman`/Linux | `podman`/macOS | `container`/macOS | `macos-user`/macOS | Takes effect |
 |---|---|---|---|---|---|
 | `mounts` — host dirs read-only at `/ctx` | works | works — VM must share the source[^vm-share] | works on 1.1.0+; older: `absent, warns`[^acro] | refuses the launch[^mumounts] | fresh launch |
-| `mounts` read-write form — `{"host", "mode": "rw"}`, user config only | works — named on every launch[^rwmount] | works — VM must share the source[^vm-share] | works on any version — never measured on a Mac[^rwmount] | refuses the launch[^mumounts] | fresh launch |
+| `mounts` read-write form — `{"host", "mode": "rw"}`, user config only | works — named on every launch[^rwmount] | works — VM must share the source; never run on a Mac[^vm-share] | works on any version — never measured on a Mac[^rwmount] | refuses the launch[^mumounts] | fresh launch |
 | `workspace_readonly` — lock workspace sub-paths | works — read-only overlay per path | works | works on 1.1.0+; older: **paths stay writable**, warns[^acro] | works — sandbox policy rule, not a mount | fresh launch |
 | … and the `yolo-jail.jsonc` lock it also performs | works | works | works on 1.1.0+; below, lost **silently**[^acro] | **absent, silent** — config stays agent-writable[^mujsonc] | fresh launch |
 | `per_side_paths` — `.venv`/`node_modules` not shared | works — private dir mounted over each path[^leftover] | works | works — unverified on Apple silicon[^achw] | `absent, warns` — host and sandbox share them[^mupsp] | fresh launch |
