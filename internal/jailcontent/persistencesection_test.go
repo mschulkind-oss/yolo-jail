@@ -186,6 +186,97 @@ func TestTheLockSaysWhyOnlyWhereTheHostSeesAnotherPath(t *testing.T) {
 	}
 }
 
+// APPLE CONTAINER'S SECTION SAYS WHAT IS TRUE THERE (docs/design/durable-scratch-space.md §9
+// step 6). It used to be podman's text with two words changed, which told an Apple Container
+// agent that yolo deletes a tmpfs after the jail exits, that `yolo prune` ages out log files
+// it cannot find there, and nothing at all about yolo's own files in a home that has no
+// read-only rest. Each class bullet that differs is pinned whole, in order.
+func TestTheAppleContainerSectionSaysWhatIsTrueThere(t *testing.T) {
+	out := BriefingContent(BriefingInput{Workspace: "/Users/u/p", Mechanism: "container",
+		Persistence: appleContainerShapedMap(), Durable: &DurableDir{Path: durable.ContainerJailPath}})
+	sec := persistenceSectionOf(t, out)
+	order := []string{
+		"- **Per launch** (in RAM): `/tmp`, `/var/tmp`, `/run`. Shared by every terminal attached to this jail. " +
+			"Survives nothing: they are gone when the jail stops, and a restart is a new launch with new, empty ones. " +
+			"Everything you put there uses this jail's memory. A scratchpad a harness hands you under `/tmp` is in " +
+			"this class. Throwaway files only, never a worktree.",
+		"- **Per workspace**: `$YOLO_DURABLE_DIR`, the one place for your work; all of `/home/agent` outside the " +
+			"other classes, writable and kept in this workspace's `.yolo/home` (the agents' and tools' own state and " +
+			"installs: never put your work there); `/workspace/.venv` (this jail's own copies, not the host's). " +
+			"Survives restarts and every new launch of this workspace; another workspace has its own. yolo deletes " +
+			"nothing here but its own files (below).",
+		"- **Every workspace on this machine**: `~/.cache`, `/mise`.",
+		"- **The workspace itself**: `/workspace`, live on the host",
+		"- **Rewritten at each launch**: the briefing and skills files, and a few files yolo keeps in the home " +
+			"itself. A write to one may succeed here, and the next launch replaces it.",
+		"- **Secrets**: nowhere you choose.",
+	}
+	last := -1
+	for _, want := range order {
+		i := strings.Index(sec, want)
+		if i < 0 {
+			t.Errorf("the Apple Container section does not say %q:\n%s", want, sec)
+			continue
+		}
+		if i < last {
+			t.Errorf("%q is out of order:\n%s", want, sec)
+		}
+		last = i
+	}
+	// Podman's clauses, each false here: no remover deletes a tmpfs, the log age-out looks
+	// for podman's dot-stripped overlay names, and this home has no read-only rest.
+	for _, gone := range []string{"(on disk)", "yolo deletes these once the jail exits",
+		"some agents' old log files", "**Read-only**", "A write there fails"} {
+		if strings.Contains(sec, gone) {
+			t.Errorf("the Apple Container section says podman's %q:\n%s", gone, sec)
+		}
+	}
+	// The workspace is at /workspace here and elsewhere on the host, so `--lock` keeps its
+	// reason, as on podman.
+	if !strings.Contains(sec, "git records it under this jail's `/workspace`, a path the host does not have") {
+		t.Errorf("the Apple Container section lost the `--lock` reason:\n%s", sec)
+	}
+}
+
+// The RAM clauses follow the BACKING, not the backend: podman under `ephemeral_storage:
+// "tmpfs"` has a tmpfs /tmp that no remover deletes and that costs the jail memory, and it
+// keeps its read-only home and its own deletion clause.
+func TestAPodmanTmpfsSectionGetsTheRAMClausesAndKeepsItsReadOnlyHome(t *testing.T) {
+	m := podmanShapedMap()
+	m.PerLaunchInRAM = true
+	sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "podman",
+		Persistence: m, Durable: &DurableDir{Path: durable.ContainerJailPath}}))
+	for _, want := range []string{
+		"- **Per launch** (in RAM): `/tmp`, `/run`. Shared by every terminal attached to this jail. Survives " +
+			"nothing: they are gone when the jail stops, and a restart is a new launch with new, empty ones. " +
+			"Everything you put there uses this jail's memory.",
+		"yolo deletes nothing here but some agents' old log files (`yolo prune --apply`).",
+		"- **Read-only**: the rest of `/home/agent`",
+	} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("the podman tmpfs section does not say %q:\n%s", want, sec)
+		}
+	}
+	for _, gone := range []string{"yolo deletes these once the jail exits", "**Rewritten at each launch**"} {
+		if strings.Contains(sec, gone) {
+			t.Errorf("the podman tmpfs section says %q:\n%s", gone, sec)
+		}
+	}
+}
+
+func appleContainerShapedMap() *PersistenceMap {
+	return &PersistenceMap{PerLaunchInRAM: true, Paths: []PersistentPath{
+		{"/workspace", PathProject},
+		{"/workspace/.venv", PathWorkspaceDurable},
+		{"/home/agent", PathWorkspaceDurable},
+		{"/home/agent/.cache", PathMachineDurable},
+		{"/mise", PathMachineDurable},
+		{"/tmp", PathPerLaunch},
+		{"/var/tmp", PathPerLaunch},
+		{"/run", PathPerLaunch},
+	}}
+}
+
 // OQ-DS3: the host notch gets ONE static sentence and no variable.
 func TestTheHostBriefingSaysWhereTmpLivesAndNamesNoVariable(t *testing.T) {
 	out := HostBriefingBase("", false)

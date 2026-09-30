@@ -189,6 +189,40 @@ func TestTheBriefingNamesEveryPathInThePersistenceMap(t *testing.T) {
 			if !strings.Contains(body, "- **Home**: `/home/agent` "+wantHome) {
 				t.Errorf("the %s Home line is not %q:\n%s", rt, wantHome, body)
 			}
+
+			// APPLE CONTAINER GETS ITS OWN WORDING, NOT PODMAN'S (docs/design/durable-scratch-space.md
+			// §9 step 6), from the two facts this backend's map carries: the per-launch set is
+			// tmpfs, which nothing of yolo's deletes and which costs the jail memory, and the
+			// home is one writable per-workspace bind, so there is no read-only rest and yolo's
+			// own files in it are rewritten at each launch instead. Asserted in the file the
+			// production call site writes, so a map that stopped saying either fact fails here.
+			podmanOnly := []string{
+				"(on disk)", "yolo deletes these once the jail exits",
+				"yolo deletes nothing here but some agents' old log files", "- **Read-only**:",
+			}
+			acOnly := []string{
+				"- **Per launch** (in RAM): ",
+				"Survives nothing: they are gone when the jail stops, and a restart is a new launch " +
+					"with new, empty ones. Everything you put there uses this jail's memory.",
+				"all of `/home/agent` outside the other classes, writable and kept in this workspace's `.yolo/home`",
+				"yolo deletes nothing here but its own files (below).",
+				"- **Rewritten at each launch**: the briefing and skills files, and a few files yolo " +
+					"keeps in the home itself. A write to one may succeed here, and the next launch replaces it.",
+			}
+			present, absent := podmanOnly, acOnly
+			if rt == "container" {
+				present, absent = acOnly, podmanOnly
+			}
+			for _, want := range present {
+				if !strings.Contains(section, want) {
+					t.Errorf("the %s section does not say %q:\n%s", rt, want, section)
+				}
+			}
+			for _, gone := range absent {
+				if strings.Contains(section, gone) {
+					t.Errorf("the %s section says %q, which is the other backend's:\n%s", rt, gone, section)
+				}
+			}
 		})
 	}
 }

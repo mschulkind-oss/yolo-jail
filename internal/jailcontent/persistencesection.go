@@ -36,13 +36,20 @@ type DurableDir struct {
 //
 // THE CLEANUP CLAUSES are facts about internal/prune and the scratch remover, not about the
 // map; each is the whole of what yolo deletes in that class: the scratch volumes after the
-// jail exits (run.startScratchRemoval), `yolo prune --apply`'s age-out of a few agents' log
-// dirs in the workspace overlay (prune.agentLogWorkspaceSubdirs), and its age-out of a fixed
-// list of tool caches under ~/.cache (prune.CachePurgeDefaultSubdirs, 30 days by default),
-// with the launch's housekeeping trimming yolo's own image cache there and the boot's store
-// step unlinking DANGLING mise symlinks in /mise (provision.StepPruneStore). All of the
-// machine-tier deletions are of bytes that can be fetched or built again. yolo deletes
-// nothing in the durable dir (OQ-DS2).
+// jail exits (run.startScratchRemoval; nothing, when the map says they are in RAM, since a
+// tmpfs goes with the jail), `yolo prune --apply`'s age-out of a few agents' log dirs in the
+// workspace overlay (prune.agentLogWorkspaceSubdirs; on a whole-home bind, only yolo's own
+// delivered files instead), and its age-out of a fixed list of tool caches under ~/.cache
+// (prune.CachePurgeDefaultSubdirs, 30 days by default), with the launch's housekeeping
+// trimming yolo's own image cache there and the boot's store step unlinking DANGLING mise
+// symlinks in /mise (provision.StepPruneStore). All of the machine-tier deletions are of
+// bytes that can be fetched or built again. yolo deletes nothing in the durable dir (OQ-DS2).
+//
+// THE MAP, NOT THE MECHANISM NAME, PICKS THE WORDING (DS-P1). Apple Container's section differs
+// from podman's in exactly the two facts the map carries — the whole home is one per-workspace
+// bind (HomeIsDurable) and the per-launch set is tmpfs (PerLaunchInRAM) — so those two facts
+// choose its clauses, and podman under `ephemeral_storage: "tmpfs"` gets the RAM clauses too,
+// because they are as true of its tmpfs.
 //
 // THE DURABLE DIR'S LIFETIME IS SAID ONCE, in the lead (DS-D31). Three fresh readers found it
 // said three ways — "yolo never deletes anything there", "lost only if the workspace's `.yolo`
@@ -73,14 +80,24 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 	homeDurable := m.HomeIsDurable(home)
 
 	if perLaunch := m.Of(PathPerLaunch); len(perLaunch) > 0 {
+		// THE BACKING DECIDES TWO CLAUSES, not one word. On disk the set is podman's named
+		// scratch volumes, which the launcher's remover deletes after the jail exits
+		// (run.startScratchRemoval). In RAM — Apple Container always, podman under
+		// `ephemeral_storage: "tmpfs"` — they are tmpfs: nothing of yolo's deletes them, they
+		// are gone when the jail stops, and every byte there is memory the jail's other
+		// processes do not get (docs/design/durable-scratch-space.md §3.5). The podman
+		// sentence said "yolo deletes these once the jail exits" of both (§9 step 6).
 		backing := "on disk"
+		survives := "Survives nothing: a restart is a new launch with new, empty ones, and yolo " +
+			"deletes these once the jail exits."
 		if m.PerLaunchInRAM {
 			backing = "in RAM"
+			survives = "Survives nothing: they are gone when the jail stops, and a restart is a " +
+				"new launch with new, empty ones. Everything you put there uses this jail's memory."
 		}
 		lines = append(lines, "- **Per launch** ("+backing+"): "+joinTilde(perLaunch, home)+". "+
-			"Shared by every terminal attached to this jail. Survives nothing: a restart is a new "+
-			"launch with new, empty ones, and yolo deletes these once the jail exits. A scratchpad "+
-			"a harness hands you under `/tmp` is in this class. Throwaway files only, never a worktree.")
+			"Shared by every terminal attached to this jail. "+survives+" A scratchpad a harness "+
+			"hands you under `/tmp` is in this class. Throwaway files only, never a worktree.")
 	}
 
 	// What the per-workspace home dirs are FOR, because "survives restarts" alone read as an
@@ -104,9 +121,19 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 			outside = append(outside, p)
 		}
 	}
+	// What yolo deletes in this class. On a read-only home it is `yolo prune --apply`'s
+	// age-out of a few agents' log dirs, which it finds at `<ws>/.yolo/home/copilot/logs`
+	// and `gemini/tmp` (prune.agentLogWorkspaceSubdirs): the names podman binds with the
+	// leading dot stripped. A WHOLE-HOME bind (Apple Container) keeps the dots, so that
+	// age-out finds nothing there, and what yolo does delete is its own delivered files —
+	// the pack tree and generated scripts it replaces at each launch — which the
+	// "Rewritten at each launch" bullet below says.
+	deletes := "yolo deletes nothing here but some agents' old log files (`yolo prune --apply`)."
 	switch {
 	case homeDurable:
-		where = append(where, "all of `"+home+"` outside the other classes"+toolsOwn)
+		where = append(where, "all of `"+home+"` outside the other classes, writable and kept in "+
+			"this workspace's `.yolo/home`"+toolsOwn)
+		deletes = "yolo deletes nothing here but its own files (below)."
 	case len(inHome) > 0:
 		where = append(where, "in home, only "+joinTilde(inHome, home)+toolsOwn)
 	}
@@ -115,8 +142,7 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 	}
 	if len(where) > 0 {
 		lines = append(lines, "- **Per workspace**: "+strings.Join(where, "; ")+". Survives "+
-			"restarts and every new launch of this workspace; another workspace has its own. yolo "+
-			"deletes nothing here but some agents' old log files (`yolo prune --apply`).")
+			"restarts and every new launch of this workspace; another workspace has its own. "+deletes)
 	}
 
 	if machine := m.Of(PathMachineDurable); len(machine) > 0 {
@@ -149,6 +175,18 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 		lines = append(lines, "- **Read-only**: the rest of `"+home+"` (apart from a few files "+
 			"yolo keeps there itself), and the briefing and skills files even inside the "+
 			"directories above. A write there fails.")
+	} else {
+		// A WHOLE-HOME BIND HAS NO READ-ONLY REST, and saying nothing left the agent to infer
+		// that yolo's own files there are as durable as the rest. They are not: Apple
+		// Container gets each briefing as a writable COPY into the home (run.acMaterialize),
+		// not a `:ro` bind; its skills are a `:ro` bind of a staging dir every invocation
+		// rebuilds (refreshJailBriefings), and a release before 1.1.0 may ignore that `:ro`
+		// (run.acROBindsFloor); and yolo replaces its generated scripts and pack tree there at
+		// each launch. So a write may succeed or fail, and lasts only until the next launch
+		// either way. Internal paths stay unnamed, as on the read-only home (DS-D15).
+		lines = append(lines, "- **Rewritten at each launch**: the briefing and skills files, and a "+
+			"few files yolo keeps in the home itself. A write to one may succeed here, and the "+
+			"next launch replaces it.")
 	}
 	lines = append(lines,
 		"- **Secrets**: nowhere you choose. Credentials reach this jail through yolo's own "+
