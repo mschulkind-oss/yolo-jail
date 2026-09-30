@@ -145,10 +145,12 @@ the one status `provision.Script` passes through without asking
 ([`provision.go`](../../internal/provision/provision.go)), and the launch stops before the target on
 both backends. That is the same split this doc proposes — install eagerly, refresh lazily — applied
 to a program's interpreter rather than to the program itself, so it is the nearest template for
-where a declared-program install would sit. ⚠ It is a template with two holes, both recorded as open
-questions rather than fixed: a failed `mise install` skips the bootstrap, so no floor is checked
-([`OQ-AR6`](agent-program-runtimes.md#OQ-AR6)), and macos-user runs no stage at all unless
-`mise_tools` asks for one ([`OQ-AR5`](agent-program-runtimes.md#OQ-AR5)).
+where a declared-program install would sit. ⚠ It is a template with two holes, recorded as
+questions rather than fixed and decided 2026-09-30, still unbuilt: a failed `mise install` skips
+the bootstrap, so no floor is checked ([`OQ-AR6`](agent-program-runtimes.md#OQ-AR6), decided as
+[AR-L4](agent-program-runtimes.md#AR-L4)), and macos-user runs no stage at all unless `mise_tools`
+asks for one ([`OQ-AR5`](agent-program-runtimes.md#OQ-AR5), decided as
+[AR-L3](agent-program-runtimes.md#AR-L3)).
 
 ## 4. What this does not license
 

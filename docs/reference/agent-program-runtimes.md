@@ -313,7 +313,9 @@ tests for the refusal before it would prompt.
 ### Where the refusal does not reach
 
 Two cases start a jail the ruling says should not start, and a third starts one whose launcher
-does not yet honor the floor. All three are open questions, held in the design stub:
+does not yet honor the floor. All three are still true of the tree. Their fixes were decided on
+2026-09-30 as implementation choices and are not built; the design stub holds them
+([AR-L3](../design/agent-program-runtimes.md#AR-L3)–[AR-L5](../design/agent-program-runtimes.md#AR-L5)):
 
 - [`OQ-AR5`](../design/agent-program-runtimes.md#OQ-AR5): **macos-user starts no provisioning
   stage without `mise_tools`** (`ProvisionNeeded` in `internal/macosuser`), so a workspace

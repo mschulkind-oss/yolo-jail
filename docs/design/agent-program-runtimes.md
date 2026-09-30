@@ -1,14 +1,15 @@
 ---
-title: "Agent program runtimes — the three questions left open"
+title: "Agent program runtimes — the three gaps left after graduation, decided"
 date: 2026-09-21
-status: in-review
+status: accepted
 tags: [packs, programs, mise, node, provisioning, open-questions]
-summary: "A stub. The Node floor, its resolution, the launcher splice and the refusal graduated to docs/reference/agent-program-runtimes.md; what stays here is the three open questions about where the refusal does not reach (OQ-AR5, OQ-AR6) and the launch whose launcher does not yet honor a floor the stage just met (OQ-AR7)."
+summary: "A stub. The Node floor, its resolution, the launcher splice and the refusal graduated to docs/reference/agent-program-runtimes.md; what stays here is three questions about where the refusal does not reach (OQ-AR5, OQ-AR6) and the launch whose launcher does not yet honor a floor the stage just met (OQ-AR7). All three were decided as implementation choices on 2026-09-30 (AR-L3 to AR-L5); none is built."
 ---
 
-# Agent program runtimes — the three questions left open
+# Agent program runtimes — the three gaps left after graduation, decided
 
-**Status:** DESIGN, 2026-09-26 — three open questions, and none of their fixes is built. The
+**Status:** DECIDED, 2026-09-30 — all three questions were decided as implementation choices
+([AR-L3](#AR-L3)–[AR-L5](#AR-L5)), and none of their fixes is built. The
 settled body of this doc GRADUATED on 2026-09-25 to
 [`../reference/agent-program-runtimes.md`](../reference/agent-program-runtimes.md): the principle,
 the `node_floor` declaration, the resolution order and why resolving is split from installing, the
@@ -16,22 +17,26 @@ launcher's exec prefix, the refusal, what is measured, and the rulings [`OQ-AR1`
 [`AR-L2`](../reference/agent-program-runtimes.md#ar-l2) in its [Why it's this way](../reference/agent-program-runtimes.md#why-its-this-way)
 table. The companion plan, `agent-program-runtimes-plan.md`, was deleted with the graduation.
 
-**Needs your ruling:** [OQ-AR5](#OQ-AR5), [OQ-AR6](#OQ-AR6), [OQ-AR7](#OQ-AR7).
+**Needs your ruling:** nothing. [OQ-AR5](#OQ-AR5), [OQ-AR6](#OQ-AR6) and [OQ-AR7](#OQ-AR7) were
+decided as implementation choices, each inside [`OQ-AR2`](../reference/agent-program-runtimes.md#oq-ar2)
+and [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3)'s rulings, and the
+[Decision Ledger](#decision-ledger) says why.
 
-**This file is what remains: three open questions.** The first two are cases where a jail
+**This file is what remains: three questions, now decided.** The first two are cases where a jail
 starts although [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) says it should not; the
 third is a launch that passes the floor check while its launcher does not yet exec the interpreter
 that met it. They were found while making the refusal real and while reviewing its graduation,
 and were recorded rather than fixed, because each fix changes when the provisioning stage or the
 launcher generation runs. Read the reference first; each question below assumes it. The ids are
 kept because Go comments and
-[`jail-notch-readiness.md`](jail-notch-readiness.md) cite them.
+[`jail-notch-readiness.md`](jail-notch-readiness.md) cite them. The file graduates into the
+reference once the three fixes are built.
 
 ---
 
 ## Open Questions
 
-1. 💬 <a id="OQ-AR5"></a>**[OQ-AR5](#OQ-AR5): macos-user runs no provisioning stage without
+1. ✅ <a id="OQ-AR5"></a>**[OQ-AR5](#OQ-AR5): macos-user runs no provisioning stage without
    `mise_tools`.** That backend starts its stage only when `mise_tools` is non-empty
    (`ProvisionNeeded`, [`provision.go`](../../internal/macosuser/provision.go)), so a workspace
    selecting a floor-declaring pack with no `mise_tools` gets neither the eager install nor the
@@ -47,12 +52,13 @@ kept because Go comments and
    refused with "Available: none" while the floor's `nodejs_24` sat on `PATH`. What stays open is
    only whether a floor starts a stage.
 
-   <!-- vantage: oq id=OQ-AR5 leaning="(b): count in ProvisionNeeded only a floor the resolution cannot meet. (a) charges every launch a privileged stage for a node that is probably already there; (c) leaves OQ-AR3 unkept on one backend. ProvisionNeeded runs on the host before the sandbox exists, so it cannot ask the in-sandbox resolution directly." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([AR-L3](#AR-L3)), reversible: **(b)**. A declared floor
+   > starts the stage unless the host can show a candidate it can read already meets it. macos-user
+   > has no mount namespace, so the host reads the same package-floor paths the sandbox would, and
+   > a host that cannot answer starts the stage, which checks again.
 
-2. 💬 <a id="OQ-AR6"></a>**[OQ-AR6](#OQ-AR6): a failed `mise install` skips the floor check.**
+2. ✅ <a id="OQ-AR6"></a>**[OQ-AR6](#OQ-AR6): a failed `mise install` skips the floor check.**
    The stage's steps are joined with `&&`, so when `mise install` fails (offline, or a broken
    workspace `mise.toml`) the bootstrap never runs, and the launch degrades as any failed stage
    does, with no floor checked at all. Options: **(a)** run the bootstrap whether or not
@@ -63,12 +69,13 @@ kept because Go comments and
    _Leaning:_ **(a)**. The refusal is a claim about the jail, and a workspace's broken `mise.toml`
    should not be the thing that silences it.
 
-   <!-- vantage: oq id=OQ-AR6 leaning="(a): run the bootstrap whether or not mise install succeeded, the stage's status being RefusedStatus if the bootstrap refused and mise install's failure otherwise. A workspace's broken mise.toml should not silence a claim about the jail." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([AR-L4](#AR-L4)), reversible: **(a)**. The bootstrap runs
+   > whether or not `mise install` succeeded, on both backends. The stage exits `RefusedStatus` when
+   > the bootstrap refused, and otherwise with the first failure, so a failed `mise install` still
+   > degrades exactly as it does today.
 
-3. 💬 <a id="OQ-AR7"></a>**[OQ-AR7](#OQ-AR7): a stage-installed interpreter reaches the launcher
+3. ✅ <a id="OQ-AR7"></a>**[OQ-AR7](#OQ-AR7): a stage-installed interpreter reaches the launcher
    one boot late.** The launcher's interpreter is resolved once, at launcher generation, which is
    a boot step that runs before the provisioning stage on both backends. So when the stage
    installs the node a floor needs, the floor check (which asks the resolver again) passes, while
@@ -89,7 +96,19 @@ kept because Go comments and
    nothing, and makes the first launch honor the floor. (c) turns a working install into a
    refusal, and (d) runs the program under the wrong node on exactly the launch that noticed.
 
-   <!-- vantage: oq id=OQ-AR7 leaning="(a): after a floor install, the bootstrap regenerates the launchers of the programs declaring that floor. It keeps resolution at generation, costs nothing when nothing is installed, and makes the first launch honor the floor; (c) refuses a working install and (d) runs the program under the wrong node on the launch that noticed." -->
-
    **Answer:**
-   > _(empty — fill in when decided)_
+   > Decided as an implementation choice ([AR-L5](#AR-L5)), reversible: **(a)**. After a floor
+   > install, the bootstrap regenerates the launchers of the programs that declare that floor,
+   > through a new `yolo internal` verb run where the bootstrap already runs.
+
+## Decision Ledger
+
+Implementation decisions, numbered after the original design's `AR-L1` and
+[`AR-L2`](../reference/agent-program-runtimes.md#ar-l2). The rulings they sit inside are the
+reference's [Why it's this way](../reference/agent-program-runtimes.md#why-its-this-way) rows.
+
+| ID | Ruling / Decision | Date | Settled in | Built? |
+| :--- | :--- | :--- | :--- | :--- |
+| <a id="AR-L3"></a>AR-L3 | *Implementation decision, [OQ-AR5](#OQ-AR5).* **(b): on macos-user, a declared floor starts the provisioning stage unless the host can show it met.** [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3)'s refusal must reach this backend, which rules out (c). The choice between (a) and (b) is cost, which the maintainer would not rank, and (b) costs a stage only where one can change the answer. The leaning's worry, that `ProvisionNeeded` runs on the host before the sandbox exists, turns out not to block it: macos-user is a native process with no mount namespace, and the launch already composes the sandbox's `PATH` host-side (`SandboxPath`). So the host reads the same package-floor nodes the resolution's candidate 1 reads (`packageFloorNodes`: the `PATH` entries outside the sandbox home). **The rule fails toward the stage.** A floor the host finds no readable candidate for, a candidate whose version it cannot read, or any error starts the stage, and the stage checks again and installs or refuses. So a wrong host answer costs one stage and never skips a refusal. [`jail-notch-readiness.md`](jail-notch-readiness.md)'s [JR-D2](jail-notch-readiness.md#JR-D2) gives a missing declared program the same start rule. Reversible: counting every floor, (a), is a one-line change to `ProvisionNeeded` | 2026-09-30 | [OQ-AR5](#OQ-AR5) | — |
+| <a id="AR-L4"></a>AR-L4 | *Implementation decision, [OQ-AR6](#OQ-AR6).* **(a): the bootstrap runs whether or not `mise install` succeeded, on both backends.** The stage exits `provision.RefusedStatus` when the bootstrap refused, and otherwise with the first step's failure. Only the bootstrap stops depending on the steps before it. They stay joined as they are (`provision.Setup` uses `&&`), so on the container a failed `mise install` still skips the venv step, as today. [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) ruled the refusal with no escape hatch, and a workspace's broken `mise.toml` silencing it is an unintended one. The accepted cost is AR3's own: an offline boot whose floor nothing meets refuses, even when `mise install` also failed. Nothing else changes, because a failed `mise install` still writes `PROVISIONING FAILED` and degrades as before. Reversible: rejoin the step with `&&` | 2026-09-30 | [OQ-AR6](#OQ-AR6) | — |
+| <a id="AR-L5"></a>AR-L5 | *Implementation decision, [OQ-AR7](#OQ-AR7).* **(a): after a floor install, the bootstrap regenerates the launchers of the programs declaring that floor**, through a new `yolo internal` verb run where the bootstrap already runs, so it needs no new privilege. Resolution stays at generation, where it is a baked, readable path, and a launch that installs nothing does no extra work. The first launch honors the floor. (b) costs a `--version` exec on every invocation and gives up the baked path. (c) refuses a working install. (d) runs the program under the wrong node on the one launch that knew better. On macos-user the stage runs under `env -i`, so the verb's inputs are baked into the script, as the floor checks already are. `TestAStageInstalledNodeReachesTheLauncherOnlyAtTheNextGeneration` pins today's one-boot lag and changes with the build. Reversible: drop the verb call, and the next boot heals as it does today | 2026-09-30 | [OQ-AR7](#OQ-AR7) | — |
