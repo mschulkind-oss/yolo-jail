@@ -8,6 +8,10 @@ summary: "`yolo host` resolves its target, probes pack dependencies and runs ins
 
 # A host launch that does not depend on who launched it — composing `yolo host`'s PATH
 
+> ⚠ **Read [§0](#0-the-governing-ruling) first.** On 2026-09-29 the maintainer ruled that yolo's checks at the host **read the
+> PATH yolo was started with** ([HE-DIR1](#he-dir1)). This doc's title, summary and [OQ-HE1](#oq-he1) to
+> [OQ-HE9](#oq-he9) were written for the opposite reading and are being restated.
+
 **Status:** DESIGN, 2026-09-25 — a proposal; nothing built. Evidence read against the working tree
 on that date. Two rulings of 2026-09-29 reshaped it. Principle
 [HP-DIR3](host-tool-provisioning.md#HP-DIR3) says that at the host yolo manages the agent's
@@ -67,6 +71,23 @@ criterion that decides what is composed and what passes through; the rest follow
 ---
 
 ## 0. The governing ruling
+
+> ⚠ **Maintainer ruling, 2026-09-29 (evening), which REVISES the one below for PATH:** "I think that you need to go back and review that decision again. I thought we decided that we can pick up the path if it's there because it's just not feasible to otherwise know these things. … I think this is the second time you're bringing this back up, so it needs to be presented in a more prominent location also. I just don't see any way around it. And then I think we just get things from [PATH]." (The last word
+> was dictated; speech-to-text wrote "pet" for PATH.)
+>
+> **So: at `yolo host`, yolo's checks read the PATH yolo was started with, when it has one.** Whether a
+> program a pack needs is present (`rg` for the guardrails pack, a pack's `requires`), and which copy of a
+> program no floor entry covers, are answered from that PATH, as they are today. `host_path`, when set, adds
+> folders to it. Nothing else is guessed. A launcher that passes a bare PATH (a Waybar button, cron, a
+> macOS hotkey launcher) can therefore get a different answer from a terminal, and that is accepted: *"it's
+> just not feasible to otherwise know these things."* What stays fixed regardless of the launcher is what
+> yolo itself provides: the floor's copy of each pack's agent ([HP-DIR4](host-tool-provisioning.md#HP-DIR4))
+> and the floor's own Node.
+>
+> **Why this is here, first:** the doc had extended the 09-25 ruling to *"yolo's own checks never read the
+> ambient PATH"*, which the maintainer never said, and asked a series of questions built on it twice
+> ([OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9)). Each is restated or retired under this ruling
+> ([HE-DIR1](#he-dir1)).
 
 > **Maintainer, 2026-09-25:** *"`yolo host` should be as predictable an environment as possible,
 > so we shouldn't depend on the env it was launched in unless there's a clear `YOLO_…` something
@@ -917,6 +938,7 @@ here rather than settled in the body.
 
 | Id | Date | Decision | Why it holds |
 | :--- | :--- | :--- | :--- |
+| <a id="he-dir1"></a>**HE-DIR1** | 2026-09-29 | **Maintainer ruling, revising [OQ-HE0](#oq-he0) for PATH:** yolo's checks at the host read the PATH yolo was started with, when it has one, plus `host_path` when set; nothing is guessed, and a bare-PATH launcher may get a different answer. *"It's just not feasible to otherwise know these things … I just don't see any way around it."* | The "checks never read the ambient PATH" extension of [OQ-HE0](#oq-he0) was the doc's, never the maintainer's; [OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9) are restated or retired under it |
 | <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) | 2026-09-25 | `yolo host` does not depend on the environment it was launched in unless a `YOLO_*` variable or explicit config names the dependence. This supersedes the opportunistic mise-shims append, and for PATH it overturns "start from the current environment" | Maintainer ruling ([§0](#0-the-governing-ruling)). The same command must give the same verdict from a terminal, Waybar, systemd, cron and an IDE. Since 2026-09-29 it governs yolo's own checks; the child's PATH and a target no selected pack delivers follow [OQ-HE10](#oq-he10) |
 | [**OQ-HE10**](#oq-he10) | 2026-09-29 | (c): the child's PATH is the ambient PATH, then the composed value, then the floor's `bin/`, duplicates removed. A bare name of a program a selected pack delivers execs from the floor by path; a path is exec'd as given; any other bare name is looked up on that child PATH. yolo's own checks never read the ambient PATH | Answered by [OQ-HP7](host-tool-provisioning.md#OQ-HP7) (the agent's commands see the user's own environment) and the maintainer's ruling [HP-DIR4](host-tool-provisioning.md#HP-DIR4) (the floor's copy of a pack's agent runs, from any launcher) |
 | [**OQ-HE11**](#oq-he11) | 2026-09-29 | (a): a program the floor cannot hold runs from the child's PATH, and the launch says the floor holds no copy and why. The macOS host capture is prioritized | Keeps a Mac user's working `yolo host -- claude` working until [HP-D2](host-tool-provisioning.md#HP-D2) ships; departs from [HP-DIR4](host-tool-provisioning.md#HP-DIR4) only where the floor has nothing to run instead |
