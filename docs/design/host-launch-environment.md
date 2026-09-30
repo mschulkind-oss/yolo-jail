@@ -50,7 +50,7 @@ change visible before it breaks anything.
 **Start at [§2.1](#21-the-criterion--decision-inputs-versus-carried-variables).** It holds the
 criterion that decides what is composed and what passes through; the rest follows from it.
 
-**Needs your ruling:** [OQ-HE1](#oq-he1), [OQ-HE2](#oq-he2), [OQ-HE3](#oq-he3), [OQ-HE4](#oq-he4), [OQ-HE5](#oq-he5), [OQ-HE6](#oq-he6), [OQ-HE7](#oq-he7), [OQ-HE8](#oq-he8), [OQ-HE9](#oq-he9), [OQ-HE11](#oq-he11). Ruled: [OQ-HE0](#oq-he0), [OQ-HE10](#oq-he10) (c).
+**Needs your ruling:** [OQ-HE1](#oq-he1), [OQ-HE2](#oq-he2), [OQ-HE3](#oq-he3), [OQ-HE4](#oq-he4), [OQ-HE5](#oq-he5), [OQ-HE6](#oq-he6), [OQ-HE7](#oq-he7), [OQ-HE8](#oq-he8), [OQ-HE9](#oq-he9). Ruled: [OQ-HE0](#oq-he0), [OQ-HE10](#oq-he10) (c), [OQ-HE11](#oq-he11) (a).
 
 **Reads with:**
 - [`host-tool-provisioning.md`](host-tool-provisioning.md): the floor, which supplies every agent a
@@ -835,7 +835,7 @@ ruled (c). The answer settles both.
 >
 > The floor's place last, after the composed value, is [HE-D1](#he-d1).
 
-### <a id="oq-he11"></a>💬 [`OQ-HE11`](#oq-he11) — what runs for a selected pack's program the floor cannot hold? — **OPEN**
+### <a id="oq-he11"></a>✅ [`OQ-HE11`](#oq-he11) — what runs for a selected pack's program the floor cannot hold? — **RULED (a) 2026-09-29**
 
 Raised in review, 2026-09-29. [HP-DIR4](host-tool-provisioning.md#HP-DIR4) says
 `yolo host -- <agent>` runs the floor's copy, and that a copy the user installed is not the one that
@@ -904,9 +904,14 @@ being silent. (b) and (c) break a launch that works today in exchange for a guar
 cannot give on that machine. This is a departure from HP-DIR4's words, which is why it is filed
 here rather than settled in the body.
 
-<!-- vantage: oq id=OQ-HE11 leaning="(a): a selected pack's program the floor cannot hold (configured out of the floor, handed to another provisioner by OQ-PS7's override, unpublished for this OS and architecture, or an installer agent on macOS before the host capture ships) is looked up on the child's PATH like a program no selected pack delivers, and the launch prints one line saying the floor holds no copy and why. It keeps the Mac user's working yolo host -- claude working before HP-D2 ships. It departs from HP-DIR4's 'a copy the user installed is not the one that runs' only where the floor has nothing to run instead." -->
 
 > **Answer:**
+> **Ruled 2026-09-29, as leaned: (a)**, with a direction: *"74 A but let's also prioritize making
+> this work on mac with a real capture. I can get my mac agent on the job."* A selected pack's program
+> the floor cannot hold is looked up on the child's PATH like a program no selected pack delivers, and
+> the launch prints one line saying the floor holds no copy and why. The macOS host capture
+> ([HP-D2](host-tool-provisioning.md#HP-D2)) is prioritized, with its measurement done on the
+> maintainer's Mac, so that on macOS this case shrinks to the configured-out and unpublished ones.
 
 ## 10. Decision Ledger
 
@@ -914,6 +919,7 @@ here rather than settled in the body.
 | :--- | :--- | :--- | :--- |
 | <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) | 2026-09-25 | `yolo host` does not depend on the environment it was launched in unless a `YOLO_*` variable or explicit config names the dependence. This supersedes the opportunistic mise-shims append, and for PATH it overturns "start from the current environment" | Maintainer ruling ([§0](#0-the-governing-ruling)). The same command must give the same verdict from a terminal, Waybar, systemd, cron and an IDE. Since 2026-09-29 it governs yolo's own checks; the child's PATH and a target no selected pack delivers follow [OQ-HE10](#oq-he10) |
 | [**OQ-HE10**](#oq-he10) | 2026-09-29 | (c): the child's PATH is the ambient PATH, then the composed value, then the floor's `bin/`, duplicates removed. A bare name of a program a selected pack delivers execs from the floor by path; a path is exec'd as given; any other bare name is looked up on that child PATH. yolo's own checks never read the ambient PATH | Answered by [OQ-HP7](host-tool-provisioning.md#OQ-HP7) (the agent's commands see the user's own environment) and the maintainer's ruling [HP-DIR4](host-tool-provisioning.md#HP-DIR4) (the floor's copy of a pack's agent runs, from any launcher) |
+| [**OQ-HE11**](#oq-he11) | 2026-09-29 | (a): a program the floor cannot hold runs from the child's PATH, and the launch says the floor holds no copy and why. The macOS host capture is prioritized | Keeps a Mac user's working `yolo host -- claude` working until [HP-D2](host-tool-provisioning.md#HP-D2) ships; departs from [HP-DIR4](host-tool-provisioning.md#HP-DIR4) only where the floor has nothing to run instead |
 | <a id="he-d1"></a>**HE-D1** | 2026-09-29 | *Implementation decision under [OQ-HE10](#oq-he10):* the floor's `bin/` goes last in the child's PATH, after the composed value | HP-DIR4 puts the floor after the user's PATH, and the composed value stands in for the system directories and `host_path` entries the user's PATH would normally hold. The floor holds only agent names, so last means a child's lookup of an agent reaches the floor only where nothing of the user's has one |
 
 ## Appendix A — evidence
