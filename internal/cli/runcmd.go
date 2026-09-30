@@ -56,12 +56,14 @@ Flags:
                      (also --network=<mode>).
   --profile <sel>   Select the active profile for this launch (also -p <sel>,
                      --profile=<sel>, -p=<sel>). Two spellings of the value: a bare
-                     NAME selects it for every agent CLI the selected packs install,
-                     and never the command after ` + "`--`" + `, as at the host;
-                     <cli>=<name> (e.g. claude=zai, comma-separated, repeatable)
-                     selects it for the named CLI only. At the host an arbitrary
-                     command gets a provider's key only from 'yolo host
-                     --with-credentials <provider> -- <cmd>'.
+                     NAME selects it for every agent CLI the selected packs install
+                     that no pair names, and never the command after ` + "`--`" + `, as
+                     at the host; <cli>=<name> (e.g. claude=zai, comma-separated,
+                     repeatable) selects it for the named CLI only. Any -p replaces
+                     the config's 'profile' key for this launch, the persistent
+                     spelling that takes the same forms ('yolo config-ref'). At the
+                     host an arbitrary command gets a provider's key only from
+                     'yolo host --with-credentials <provider> -- <cmd>'.
   A value flag with no value (a trailing -p, '-p --', '--profile=') is refused,
   exit 2, as 'yolo host' refuses it.
   --timing           Report this launch's performance timings, start to shell return:
