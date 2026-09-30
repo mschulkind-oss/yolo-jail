@@ -47,9 +47,9 @@ reference is right.
 > - **[§8](#8-behaviour-this-design-specifies)'s** *"profile configured, no SSO session ever
 >   established → the launch warns"* **was not built at graduation, and was built later the same
 >   day** ([SSO-D1](#SSO-D1)). A launch whose agents reach the adapter asks the service whether
->   their first fetch would be served, and a session that was never established, one that
->   lapsed, a profile the host's `~/.aws/config` lacks, or any other mint failure prints one
->   warning naming the fix; the launch then proceeds.
+>   their first fetch would be served. A session that was never established, one that lapsed,
+>   or a profile the host's `~/.aws/config` lacks prints one warning naming the fix, any other
+>   mint failure one carrying AWS's own words, and the launch then proceeds.
 > - **[§9](#9-non-goals)'s** *"Nothing for `macos-user` in v1"* **no longer holds.** A
 >   `macos-user` launch opens the adapter outside the Seatbelt sandbox, as a listener it owns
 >   ([`host-notch-services.md` HS-D15](host-notch-services.md#HS-D15)). Not yet run on a Mac.
