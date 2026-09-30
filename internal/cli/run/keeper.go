@@ -417,8 +417,8 @@ func (k *keeper) beforeReady() (ready bool, rc int, ended bool) {
 }
 
 // checkPlan refuses a plan this keeper cannot run as the launch disclosed it (JL-D20, JL-D35): one of
-// another build, whose pack tree resolves to another pack set here, or that would start a daemon the
-// launch did not name. It resolves the packs itself, from the launch's staged tree, and points the
+// another build, whose pack tree resolves to another pack set here, that would start a daemon the
+// launch did not name, or that names one this keeper would not start. It resolves the packs itself, from the launch's staged tree, and points the
 // process-wide pack records at them, which is where the loophole set the spawn walks reads.
 func (k *keeper) checkPlan() (*jsonx.OrderedMap, error) {
 	o, p := k.o, k.plan
@@ -444,9 +444,19 @@ func (k *keeper) checkPlan() (*jsonx.OrderedMap, error) {
 		}
 		adoptPackRecords(packs)
 	}
-	for _, name := range o.plannedLoopholeNames(p.Runtime, cfg) {
+	planned := o.plannedLoopholeNames(p.Runtime, cfg)
+	for _, name := range planned {
 		if !slices.Contains(p.Services, name) {
 			return nil, fmt.Errorf("it would start the host service %q, which the launch did not disclose", name)
+		}
+	}
+	// EXACTLY THAT PLAN, the other way round too: a service the launch disclosed and this keeper
+	// would not start is a terminal told something runs that never does, and a keeper whose packs
+	// did not resolve as the launch's did (adoptPackRecords above) would otherwise start a jail
+	// short of every pack's services and say nothing.
+	for _, name := range p.Services {
+		if !slices.Contains(planned, name) {
+			return nil, fmt.Errorf("the launch disclosed the host service %q, which this keeper would not start", name)
 		}
 	}
 	return cfg, nil
