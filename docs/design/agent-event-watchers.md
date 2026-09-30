@@ -3,7 +3,7 @@ title: "Any background process can ring the agent, and yolo carries the ring to 
 date: 2026-09-28
 status: in-review
 tags: [design, sidecars, notify, hooks, claude, pi, codex, opencode, copilot, agy, omp, prompt-injection, credentials, enablement, dotfiles]
-summary: "yolo runs user-declared background processes (sidecars) for the life of a launch and gives them one agent-agnostic doorbell, `yolo notify`, which writes a ping into a ping box; a per-agent deliverer, shipped by that agent's own pack, carries each ping into the session: an asyncRewake hook for Claude, an extension for pi and omp, a plugin for opencode, an extension for copilot, a next-turn hook for codex and agy. The CI watcher is the worked example. Declaring a sidecar never starts it: each machine turns one on with an explicit host command, recorded in machine-local state that a synced dotfile never carries, and a repository's own sidecar also needs acknowledgement against its current declaration. Six questions remain: whether every sidecar is gated, the form of that act, its scope, how a repository's sidecar is acknowledged, whether anything stops two machines acting on one event, and which sessions in one jail a ping wakes."
+summary: "yolo runs user-declared background processes (sidecars) for the life of a launch and gives them one agent-agnostic doorbell, `yolo notify`, which writes a ping into a ping box; a per-agent deliverer, shipped by that agent's own pack, carries each ping into the session: an asyncRewake hook for Claude, an extension for pi and omp, a plugin for opencode, an extension for copilot, a next-turn hook for codex and agy. The CI watcher is the worked example. Declaring a sidecar never starts it: each machine turns one on with an explicit host command, recorded in machine-local state that a synced dotfile never carries, and a repository's own sidecar also needs acknowledgement against its current declaration. A ping wakes one agent session per ping box, the master: the first one launched, unless an agent claims it with the in-jail `yolo notify master --claim`. A keeper owns the ping box and the host-side sidecars at every notch, replacing the lock that passed a sidecar from launch to launch. Two questions remain: whether every declared sidecar is gated, and whether the doorbell (the box and the deliverers) is on in a launch where no sidecar is."
 vantage:
   status-chip: true
 ---
@@ -16,7 +16,13 @@ installed in this jail ([Appendix A](#appendix-a--the-evidence-per-agent)). No a
 started for this doc, so every delivery path is UNMEASURED end to end. **Revised 2026-09-29:**
 declaring a sidecar no longer starts it; enabling one is a per-machine act
 ([§12](#12-enabling-a-sidecar-redesign-2026-09-29)), and the sections before it are updated to
-match.
+match. **Revised again 2026-09-29:** a ping wakes one master session per box
+([§3.6](#36-which-session-a-ping-wakes-the-master), [EW-DIR3](#EW-DIR3)); under
+[OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5)'s ruling a keeper owns the box and the
+host-side sidecars at every notch ([EW-D24](#EW-D24), [EW-D25](#EW-D25), replacing
+[EW-D19](#EW-D19)); and what is still on by default is revisited
+([§12.8](#128-what-is-on-by-default-revisited-2026-09-29)). Its citations were verified against
+`30b65282`.
 
 > **In short.** The watcher is not the product; the doorbell is. yolo should run any process a
 > user declares beside the agent, give it one command, `yolo notify "<text>"`, that works the
@@ -39,15 +45,18 @@ also bound to its current declaration, so a changed one stops until acknowledged
 
 **Cost.** One new contribution kind and one config key, two new `yolo` verbs (`notify` and
 `sidecar`), and a deliverer per agent pack. `yolo host -- <agent>` has to stay resident whenever
-a sidecar is enabled.
+a sidecar is enabled, and a keeper holds the sidecars and the box at every notch
+([`jail-lifetime-last-session-wins.md` §9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user)).
 
 **Start at [§3](#3-the-shape)**, the shape. The per-agent answer is [§2.2](#22-what-each-agent-can-hear).
 
-**Needs your ruling:** nothing open. [OQ-EW10](#OQ-EW10) was ruled 2026-09-29 (A, and the jail's own
-agent may turn on an agent-side sidecar); [OQ-EW9](#OQ-EW9) was directed ([EW-DIR3](#EW-DIR3)) and is
-being designed;
-[OQ-EW5](#OQ-EW5) to [OQ-EW8](#OQ-EW8) were ruled 2026-09-29. The feature stays held until they are
-ruled ([EW-DIR1](#EW-DIR1)). [OQ-EW1](#OQ-EW1), [OQ-EW3](#OQ-EW3) and [OQ-EW4](#OQ-EW4) were ruled
+**Needs your ruling:** [OQ-EW11](#OQ-EW11), whether the doorbell is on where no sidecar is
+([§12.8](#128-what-is-on-by-default-revisited-2026-09-29)). [OQ-EW10](#OQ-EW10) was ruled
+2026-09-29 (A, and the jail's own agent may turn on an agent-side sidecar); [OQ-EW9](#OQ-EW9) was
+directed 2026-09-29 ([EW-DIR3](#EW-DIR3)) and is designed in
+[§3.6](#36-which-session-a-ping-wakes-the-master); [OQ-EW5](#OQ-EW5) to [OQ-EW8](#OQ-EW8) were
+ruled 2026-09-29. The feature stays held until the open one is ruled
+([EW-DIR1](#EW-DIR1)). [OQ-EW1](#OQ-EW1), [OQ-EW3](#OQ-EW3) and [OQ-EW4](#OQ-EW4) were ruled
 2026-09-29, and [OQ-EW2](#OQ-EW2) is superseded by [OQ-EW8](#OQ-EW8) and [OQ-EW9](#OQ-EW9).
 
 **Reads with:** [`host-notch-services.md`](host-notch-services.md#44-lifetime) (the resident
@@ -101,7 +110,11 @@ Every term here is coined in this doc unless it says otherwise.
 | **sidecar** | A background process declared in yolo config or by a pack, which yolo starts with a launch once it is enabled on that machine ([§12](#12-enabling-a-sidecar-redesign-2026-09-29)), and stops when the launch ends | Not a `kind: "service"` ([§3.1](#31-declaring-a-sidecar)), which serves the jail's own loopback and holds no grant; and not agy's own `sidecars` directory ([Appendix A](#a6-agy-129)) |
 | **side** | Where a sidecar runs. `agent`: beside the agent, inside its confinement. `host`: on the host, outside it. At the host notch the two are the same place | Not the notch. The notch is where the agent runs; the side is where the sidecar runs relative to it |
 | **ping** | One short text notice a process hands to yolo for the foreground agent, with a sender label, a time and an id | Not a user turn, and not a command |
-| **ping box** | The store that holds pings until each deliverer has taken them: one per container, and at the host notch and on macos-user one per workspace on the machine ([EW-D19](#EW-D19)). Its format is private to core | Not the Claude inbox socket, and not a queue any agent reads directly |
+| **ping box** | The store that holds pings until the master's deliverer takes them, and the box's session list. One per keeper: one per container jail, and at macos-user and at `yolo host` one per workspace on the machine at that notch ([EW-D24](#EW-D24)). Its format is private to core | Not the Claude inbox socket, and not a queue any agent reads directly |
+| **keeper** | Not coined here: [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md#11-terms) coins it. The one host process that holds a jail's host services, or at macos-user and `yolo host` a workspace's, from its first session to its last | Not a supervisor, and not machine-wide |
+| **agent session** | One running agent process whose deliverer has called one of `yolo notify`'s reader forms: one claude, one pi ([§3.6](#36-which-session-a-ping-wakes-the-master)) | Not a yolo session: a bare `yolo` shell is one yolo session in which several agent sessions can come and go, and a shell with no deliverer is none |
+| **master** | The maintainer's word ([EW-DIR3](#EW-DIR3)): the one agent session per box that a ping reaches. By default the first one launched; an agent can claim it ([§3.6](#36-which-session-a-ping-wakes-the-master)) | Not a session that owns anything: it is only where pings go |
+| **session list** | The box's record of its agent sessions, in the order they first registered, with any claim in force ([§3.6](#36-which-session-a-ping-wakes-the-master)) | Not the keeper's session count, which is one shared lock and knows no session by name |
 | **deliverer** | The per-agent piece that moves pings from the box into one agent's session: a hook, an extension, a plugin or a sidecar of its own | Not a wire-bridge `adapter`, which is a protocol conversion at an address ([`kinds.go`](../../internal/packdecl/kinds.go)) |
 | **tier** | How well a deliverer can reach its agent: **wake** (it starts a turn while the agent is idle), **next turn** (the ping is attached to the next turn the user starts), or **held** (the ping waits in the box and the launch says so) | Not a quality score. A held ping is not lost |
 | **replicator** | Whatever copies config between machines: a git-synced dotfiles repository, GNU Stow, Syncthing, chezmoi. It writes `~/.config` exactly as the user does, and it cannot know which machine the user meant | Not the agent. It is the actor the enablement gate stands against ([§12.2](#122-where-the-record-lives-and-why-there)) |
@@ -278,10 +291,10 @@ joins a container already running for the workspace.
 
 | | side `agent` | side `host` |
 | :--- | :--- | :--- |
-| **Container jail** (podman, Apple Container) | A daemon under `yolo-jaild supervise`, started before the agent, stopped when the container stops. One per container, so an attach adds none. Not started when another launch on this machine already runs it for this workspace ([EW-D19](#EW-D19)) | A child of the launch that creates the container, started after the pre-flights and before the container. An attach starts none of its own and says so. Stopped when that launch ends, which also ends the container. The same one-instance rule ([EW-D19](#EW-D19)) |
-| **`yolo host -- <agent>`** | Same as `host`. A sidecar a workspace declares does not run here ([EW-D18](#EW-D18)) | `yolo host` stays resident as the parent of the sidecars and the agent, in the shape of [`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime): sidecars first, the agent last. Today the host launch execs (`hostExec` in [`host.go`](../../internal/cli/host.go)), so an enabled sidecar is what makes it resident. At most one instance per workspace on the machine: a second `yolo host` in the same workspace starts none, shares the box, and takes the sidecar over when the first exits ([EW-D19](#EW-D19)) |
+| **Container jail** (podman, Apple Container) | A daemon under `yolo-jaild supervise`, started before the agent, stopped when the container stops. One per container, so an attach adds none. Not started when another keeper on this machine already runs it for this workspace ([EW-D25](#EW-D25)) | A child of the jail's keeper, started after the pre-flights and before the container, and stopped when the jail ends. An attach starts none of its own and says so. The same one-instance rule ([EW-D25](#EW-D25)) |
+| **`yolo host -- <agent>`** | Same as `host`. A sidecar a workspace declares does not run here ([EW-D18](#EW-D18)) | A child of the workspace's `yolo host` keeper ([`jail-lifetime-last-session-wins.md` §9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user)), spawned by the first `yolo host` launch in the workspace that has a sidecar to start and ended with the last `yolo host` session there. Sidecars start before the agent. A second `yolo host` in the same workspace joins that keeper: it starts none and shares the box, and nothing passes from launch to launch ([EW-D25](#EW-D25)). A host launch that has a keeper stays resident as its agent's parent instead of exec'ing (`hostExec` in [`host.go`](../../internal/cli/host.go) execs today; [JL-D36](jail-lifetime-last-session-wins.md#JL-D36)) |
 | **`yolo host env`, `yolo host apply`, an agent started without yolo** | Runs no sidecar. The same rule [OQ-HS3](host-notch-services.md#OQ-HS3) ruled for host services: an agent launched outside yolo lacks the feature, and that is accepted | Same |
-| **macos-user** | Waits on how a `jail_daemon` runs there ([OQ-DP8](declaration-parity.md#OQ-DP8)); until then it is not started, and the launch line says it does not run on macos-user yet ([§12.5](#125-what-the-launch-says)). The launch is not refused | A child of the launch, as at the host, with the same one-instance rule ([EW-D19](#EW-D19)), since macos-user has no attach |
+| **macos-user** | Waits on how a `jail_daemon` runs there ([OQ-DP8](declaration-parity.md#OQ-DP8)); until then it is not started, and the launch line says it does not run on macos-user yet ([§12.5](#125-what-the-launch-says)). The launch is not refused. It would run under the guest's supervisor, which runs as the sandbox account, so each session would start its own: a keeper cannot run `sudo` ([`jail-lifetime-last-session-wins.md` §9.9.4](jail-lifetime-last-session-wins.md#994-what-the-keeper-owns-there)) | A child of the workspace's macos-user keeper, as at the host, with the same one-instance rule ([EW-D25](#EW-D25)). Two sandboxes in one workspace are two sessions of that keeper |
 
 The container row changes with
 [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md), whose
@@ -296,13 +309,17 @@ container backend is stopped when the jail ends, not when the launch that create
 does. That is [HD-R1](host-daemon-ownership.md#HD-R1)'s unit: a host daemon *"ends with that
 jail"*. Neither is built.
 
-Whether `yolo host` and macos-user get a keeper too is
-[OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5), still open, and [EW-D19](#EW-D19) is the
-trap that question names. At those notches EW-D19's lock hands one sidecar from launch to launch,
-which is sharing, and is the handoff shape
-[JL-D14](jail-lifetime-last-session-wins.md#JL-D14) rejected for container jails. Under
-[OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5)'s leaning, EW-D19 would be brought under the same
-ownership rule rather than given a second one.
+[OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5) was ruled A on 2026-09-29: a keeper at every
+notch that starts a long-lived host service or sidecar. So `yolo host` and macos-user get one too,
+one per workspace at each notch, designed in
+[`jail-lifetime-last-session-wins.md` §9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user).
+That retires the trap the question named: [EW-D19](#EW-D19)'s lock, which handed one sidecar from
+launch to launch at those notches, is the handoff
+[JL-D14](jail-lifetime-last-session-wins.md#JL-D14) rejected for container jails. Within one
+notch the keeper now owns each sidecar from the workspace's first session there to its last, and
+no lock passes it on. Across notches, where one workspace can have two keepers on one machine, a
+lock between keepers keeps it to one instance ([EW-D25](#EW-D25),
+[§12.7](#127-one-machine-several-launches-or-sessions)).
 
 Common to both sides:
 
@@ -320,9 +337,10 @@ Common to both sides:
 - **Stop.** `SIGTERM`, then `SIGKILL` after 5 seconds on the agent side (the supervisor's grace)
   and 2 seconds on the host side ([`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)'s). A host-side sidecar whose launch died without cleanup
   exits within 5 seconds of noticing; how it notices is the implementer's choice.
-- **Config changes** take effect at the next launch that creates a container, like every other
-  key the jail freezes at boot. So do `yolo sidecar enable` and `disable`, which say so
-  ([§12.3](#123-the-command)).
+- **Config changes** take effect at the next launch that starts a keeper: one that creates a
+  container, like every other key the jail freezes at boot, or the first launch of a workspace at
+  `yolo host` or macos-user while no keeper runs for it there. So do `yolo sidecar enable` and
+  `disable`, which say so ([§12.3](#123-the-command)).
 
 ### 3.3 `yolo notify` and the ping box
 
@@ -336,28 +354,37 @@ are what every deliverer calls. The box format stays private to core.
 | `yolo notify --wait --reader ID` | a hook that blocks, such as Claude's | Blocks until at least one ping is unread by that reader, prints them as one framed message, marks them read and exits 2. Exits 0 at once, printing nothing, if another `--wait` holds that reader's lock, or if there is no box |
 | `yolo notify --follow --reader ID` | an extension or plugin that stays running, such as pi's | Streams each batch of new pings as one JSON line, marking each read as it is written, until its stdin closes |
 | `yolo notify --drain --reader ID [--format F]` | a next-turn hook, such as codex's | Prints every unread ping and marks it read, then exits 0 immediately, printing nothing when there is none. `--format` renders the agent's hook output shape, and each shape is named by the pack that needs it |
-| `yolo notify --pending` | a human, or the agent | Lists the pings still unread by any reader known to the box, and marks nothing |
+| `yolo notify --pending` | a human, or the agent | Lists the pings no master has taken yet, and marks nothing |
+| `yolo notify master [--claim \| --release] [--reader ID]` | an agent, usually because the user asked it to, or a human | Shows the box's agent sessions, oldest first, and which is master and why; `--claim` makes the agent session it runs under the master, and `--release` gives that claim back ([§3.6](#36-which-session-a-ping-wakes-the-master)) |
+
+Every reader form also takes `--agent-pid PID`, the process of the agent its deliverer serves,
+and its first call registers that agent session in the box's session list. A reader form only
+takes pings for the master; any other waits ([§3.6](#36-which-session-a-ping-wakes-the-master)).
 
 The box:
 
-- **Where it lives.** Every container has one, a host directory yolo owns for the launch that
-  creates the container, bind mounted read-write into the jail at one fixed path, so both sides
-  write the same place. At the host notch and on macos-user it is one host directory per
-  workspace on this machine, shared by every launch of that workspace there, and cleared only
-  once no launch is known to hold it ([EW-D19](#EW-D19)). Its exact path is the implementer's.
+- **Where it lives.** Every keeper has one, a host directory the keeper creates when its key
+  starts and removes, session list included, when its key ends ([EW-D24](#EW-D24)). At a
+  container backend it is bind mounted read-write into the jail at one fixed path, so both sides
+  write the same place. At `yolo host` it lives in host state that no jail mounts, never under
+  the workspace's `.yolo/`, which the same workspace's container jail can write: a box there
+  would let that jail put text in front of an unconfined agent. At macos-user it is granted to
+  the sandbox account for writing, since the sandbox's `yolo notify` and deliverers use it, which
+  is unmeasured and unbuilt ([`jail-lifetime-last-session-wins.md` §9.9.10](jail-lifetime-last-session-wins.md#9910-every-feasibility-problem-found),
+  item 4). Its exact path is the implementer's.
 - **A ping** is one file, written to a temporary name and renamed into place, so a reader never
   sees half of one. It carries an id, the time, the `from` label and the text.
 - **Order** is by the time of the write, then by id. Pings that arrive within **2 seconds** of
   each other are delivered as one message.
-- **Readers** each keep a cursor. A reader id is the deliverer's choice, and names an agent and
-  a session (`claude:<session id>`, for example). A new reader starts at the box's creation,
-  so pings rung before the agent started are delivered, capped at the newest **20** with one
+- **Readers.** A reader id is the deliverer's choice, and names an agent and a session
+  (`claude:<session id>`, for example). Each ping is taken once, by the master's reader
+  ([§3.6](#36-which-session-a-ping-wakes-the-master)). A master that arms takes the pings no one
+  has taken, including those rung before any agent started, capped at the newest **20** with one
   line saying how many older ones were left in the box.
-- **Retention.** The box keeps the newest **200** pings. A box ends with its container, or at
-  the host notch with the last launch holding it.
-- **Concurrency.** Writers never coordinate, because each ping is its own file. Whether two
-  readers with different ids each get every ping, or one is woken and the rest are told, is
-  [OQ-EW9](#OQ-EW9). Two readers with one id are serialized by that id's lock.
+- **Retention.** The box keeps the newest **200** pings. A box ends with its keeper.
+- **Concurrency.** Writers never coordinate, because each ping is its own file. Which reader
+  takes a ping is the master rule, and the take is an atomic create in the box, so no ping is
+  taken twice ([EW-D30](#EW-D30)). Two readers with one id are serialized by that id's lock.
 - **Forbidden.** The host side never reads the box, so nothing the jail writes there can reach
   the host. The host side's writer never follows a link it finds in the box, since the jail can
   plant one. It creates each file relative to the box directory, exclusively and without
@@ -372,14 +399,18 @@ settings entry and `files` for a script, exactly as the maintainer's pack alread
 tier, so the launch can say what a sidecar's pings will do ([§3.5](#35-failure-paths)).
 
 - **claude, wake.** The claude pack adds one command hook, `yolo notify --wait --reader
-  claude:<session>`, with `asyncRewake: true` and an explicit `timeout` of **86400** seconds,
+  claude:<session> --agent-pid $PPID`, with `asyncRewake: true` and an explicit `timeout` of **86400** seconds,
   registered on **`SessionStart` and on `Stop`**. `SessionStart` arms it when the session
   opens. Each time the agent finishes a turn, `Stop` re-arms it, and the lock makes the second
   waiter exit at once while the first is still waiting. When a ping lands, the waiter exits 2,
   its output reaches the model as a system reminder, and the model takes a turn, after which
-  `Stop` arms the next waiter. The session id comes from the hook's stdin JSON.
+  `Stop` arms the next waiter. The session id comes from the hook's stdin JSON, and `$PPID` is
+  the claude process that runs the hook's shell, INFERRED, to be measured with the deliverer
+  ([§10](#10-what-i-would-build-in-order) step 3). A waiter that is not the master's keeps
+  waiting, and wakes nothing ([§3.6](#36-which-session-a-ping-wakes-the-master)).
 - **pi, wake.** The pi pack ships `yolo-notify.js` into `~/.pi/agent/extensions/`. On
-  `session_start` it spawns `yolo notify --follow --reader pi:<session>`. For each line it calls
+  `session_start` it spawns `yolo notify --follow --reader pi:<session> --agent-pid <pi's
+  process.pid>`. For each line it calls
   `pi.sendMessage({customType: "yolo-notify", content, display: true}, {triggerTurn: true,
   deliverAs: "followUp"})`, which starts a turn when pi is idle and waits for the current turn
   to end when pi is busy. It uses `sendMessage` rather than `sendUserMessage`, so the ping
@@ -410,6 +441,128 @@ tier, so the launch can say what a sidecar's pings will do ([§3.5](#35-failure-
 | Ringing | The sidecar floods | Past **6 pings per 60 seconds** from one `from` label, later pings stay in the box, undelivered, and the next delivered message says how many were held and names `yolo notify --pending` |
 | Delivery | The agent's pack ships no deliverer, or its tier is **held** | At launch, one disclosure line per enabled sidecar naming what its pings will do with this agent, for example *"ci-watch: pings reach claude immediately"*, *"ci-watch: pings reach codex at your next prompt"*, *"ci-watch: pings wait in the box (bash has no deliverer); `yolo notify --pending` lists them"* |
 | Delivery | A wake deliverer dies without cleanup (the Claude waiter killed, the pi child gone) | Its pings stay unread and are delivered the next time that reader arms: the next `Stop` for Claude, the next `session_start` for pi. None is lost while the launch lives |
+| Delivery | No agent session in the box is alive, or the master exits | Pings wait untaken. The next ping goes to the next-oldest live agent session, and when none is left, the next agent session to register becomes master and takes what waits, under the cap of 20 ([EW-D28](#EW-D28)). `yolo notify --pending` lists them meanwhile |
+
+### 3.6 Which session a ping wakes: the master
+
+The maintainer directed [OQ-EW9](#OQ-EW9) on 2026-09-29 ([EW-DIR3](#EW-DIR3)): *"we need a way
+of saying this is the one that gets it … Otherwise, we need to just like pick the first one
+launched … But we need some inside jail YOLO command where agents can poke and see who is the
+Master and claim it for themselves if they need to, likely on request of the user."* This
+section designs that. Its three words are defined in [§1.2](#12-terms):
+
+- the **master**, the maintainer's word: the one agent session per box that a ping reaches;
+- an **agent session** *(coined here)*: one running agent process whose deliverer has called a
+  reader form, such as one claude or one pi. It is not a yolo session: a bare `yolo` shell is one
+  session of its keeper, in which several agents can come and go, each an agent session of its
+  own, and a shell with no deliverer is none;
+- the **session list** *(coined here)*: the box's record of its agent sessions, in the order they
+  first registered.
+
+| Question | Answer | Decision |
+| :--- | :--- | :--- |
+| Where the list lives | in the box, kept by `yolo notify`'s reader forms; the keeper owns the box, not the list | [EW-D26](#EW-D26) |
+| How a session joins it | its deliverer's first reader call registers the agent's process | [EW-D27](#EW-D27) |
+| The default | the earliest registered agent session still alive | [EW-D28](#EW-D28) |
+| When the master exits | the next-oldest live one takes the next ping; a claim lapses with its session | [EW-D28](#EW-D28) |
+| The in-jail command | `yolo notify master`, with `--claim` and `--release` | [EW-D29](#EW-D29) |
+| Whether a claim needs the user | no prompt; the claim is recorded and shown | [EW-D29](#EW-D29) |
+| What the other sessions see | nothing of the ping | [EW-D30](#EW-D30) |
+| Several claudes, several pis | each is an agent session like any other | [EW-D30](#EW-D30) |
+| Two `yolo host` terminals | one keeper, one box, one master | [EW-D25](#EW-D25) |
+
+**Where the list lives, and why not in the keeper.** Under
+[OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5)'s ruling a keeper owns the box at every
+notch ([EW-D24](#EW-D24)), so it looks like the natural owner of the list too. It is not, for
+three reasons ([EW-D26](#EW-D26)):
+
+1. **Only the jail side sees agent sessions.** A reader id is the deliverer's, and the agents a
+   bare shell starts are invisible to the host. The keeper counts sessions only as one shared
+   lock ([JL-D2](jail-lifetime-last-session-wins.md#JL-D2)) and knows none of them by name.
+2. **The host side never reads the box** ([EW-D8](#EW-D8)). A claim made in the jail could reach
+   a list the keeper held only through a new channel from the jail to the host, with a caller
+   token of its own.
+3. **Nothing would be protected by moving it.** Any process in the jail can already write the box
+   ([§5.1](#51-pinged-text-is-a-prompt-injection-channel)'s warning), so a list outside the box
+   guards nothing the jail cannot already reach.
+
+So the list is files in the box, read and written by the reader forms. The keeper creates the box
+when its key starts and removes it, list included, when its key ends.
+
+**How an agent session joins the list** ([EW-D27](#EW-D27)). Every reader form (`--wait`,
+`--follow`, `--drain`) takes `--agent-pid`: the process of the agent its deliverer serves, which
+the agent's own pack knows how to name ([§3.4](#34-deliverers-per-agent): `$PPID` in claude's
+hook, `process.pid` in pi's extension). The first call from an agent registers it with that pid,
+the process's start time, the reader id, the tier its pack declares, and the time. An agent
+session is alive while a process with that pid and that start time exists, so a reused pid is
+never taken for it. The start time is field 22 of `/proc/<pid>/stat` on Linux, and the kernel's
+process record, read through `sysctl`, on macOS. A later call with the same pid and a new reader
+id, such as after claude's `/clear` or a pi reload, updates the id and keeps its place.
+
+**The default, and when the master exits** ([EW-D28](#EW-D28)).
+
+- **With no claim in force, the master is the earliest registered agent session still alive.**
+  That is *"pick the first one launched"*, read as the first agent to start listening, which is
+  the first launched that can hear a ping at all.
+- **The master is resolved each time a ping is taken, never handed over.** When the master exits,
+  the next ping goes to the next-oldest live session, and nothing runs at the moment of the exit.
+- **A claim lapses with its session**, and then the default applies again: the master does not
+  fall back to whoever claimed before.
+- **A ping rung while no agent session is alive waits untaken.** The next master takes it when it
+  arms, under the box's cap: the newest 20, with a line saying how many older ones were left.
+- **The tier does not decide who is master.** A codex session launched first is master even
+  though its pings wait for the user's next prompt there, and `yolo notify master` shows that tier
+  beside it, so the user can have another session claim.
+
+**The in-jail command** ([EW-D29](#EW-D29)):
+
+```console
+$ yolo notify master                              # the box's agent sessions, oldest first, and which is master and why
+$ yolo notify master --claim                      # make the agent session this runs under the master
+$ yolo notify master --release                    # give that claim back; the first launched is master again
+$ yolo notify master --claim --reader pi:3f2a     # hand it to a named session instead
+```
+
+- **An agent passes nothing.** The command finds the agent session it runs under by walking its
+  own ancestors to the first process the list has registered, since an agent's tool shell is that
+  agent's descendant. On Linux that is `/proc`, in a container and at the host. At macos-user,
+  whether the Seatbelt profile lets a sandboxed process read its ancestors' process records is
+  UNMEASURED, and `--reader` is the fallback. A command run under no registered agent, such as the
+  user's own shell, names one with `--reader`.
+- **It lives under `yolo notify`, not `yolo sidecar`.** The master decides where every ping goes,
+  including one the agent's own shell rings, and `yolo sidecar` is the host-side enablement verb,
+  which refuses in a jail for the jail's own workspace ([EW-D17](#EW-D17)).
+- **The show form prints**, for each live agent session in order: its reader id, agent pid, tier
+  and registration time; which one is master and why (*"first launched"*, or *"claimed by pi:3f2a
+  at 14:05"*); how many pings wait untaken; and the last pings taken, with who took each.
+- **A claim needs no prompt, and it is recorded.** Any process in the jail can already write the
+  box, so a confirmation would stop nothing
+  ([`gate-placement-principle.md`](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it)'s
+  Test 1), and an agent's tool shell has no terminal to answer one. *"Likely on request of the
+  user"* is how an agent will usually come to run it, not a gate on it. The command prints what
+  changed, and the list keeps who claimed, when, and whom the claim displaced.
+- **The briefing names it.** Wherever a box exists, the environment briefing core composes names
+  `yolo notify master` and `--claim`, so an agent the user asks to take the pings over knows the
+  command.
+
+**What the other sessions see** ([EW-D30](#EW-D30)). Nothing of a ping: no wake, and no copy at
+their next turn. *"This is the one that gets it"* is the rule, and a copy marked *"delivered to
+claude"* at the next turn of a second agent in the same checkout is an invitation to act on it,
+which is what option B of [OQ-EW9](#OQ-EW9) warned about. Their deliverers stay armed, so the
+next-oldest one inherits without a restart. `yolo notify --pending` and `yolo notify master` show
+what waits and what was taken, to anyone who asks. Each ping is taken by an atomic create in the
+box, so a master change racing a take gives the ping to one session, never two.
+
+**Several sessions of one agent** are several agent sessions. Two claudes register two reader ids
+with two pids, and the first registered is master. Nothing keys on an agent's name, so two claudes
+and a pi are three candidates alike ([EW-P2](#EW-P2)).
+
+**At `yolo host`**, two `yolo host -- claude` terminals in one workspace are two sessions of one
+keeper ([`jail-lifetime-last-session-wins.md` §9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user)),
+so they share one box and one list, and the first claude to register is master. A container jail
+and a `yolo host` terminal of the same workspace are two keys, with two boxes and two masters. A
+sidecar runs under one keeper at a time ([EW-D25](#EW-D25)), so its pings reach one of those two
+masters.
 
 ## 4. The worked example: the CI watcher
 
@@ -570,7 +723,8 @@ vendor defines; the user's pack holds what only the user knows.**
 | Piece | Home | Why there |
 | :--- | :--- | :--- |
 | The `sidecar` kind, the `sidecars` key and their validation | **core** | A declaration shape every pack and config shares. Two copies would drift |
-| Sidecar lifecycle on both sides, per notch, and the resident host launch | **core** | It is the launch's lifetime, which only the launcher knows ([HD-R1](host-daemon-ownership.md#HD-R1)) |
+| Sidecar lifecycle on both sides, per notch, and the resident host launch | **core** | It is the keeper's lifetime at every notch, which only yolo knows ([HD-R1](host-daemon-ownership.md#HD-R1), [EW-D25](#EW-D25)) |
+| The session list, the master rule and `yolo notify master` | **core** | Which session a ping reaches is one rule for every agent, and the list lives in the box core owns ([EW-D26](#EW-D26)) |
 | `yolo notify`, the box, cursors, caps, framing, the rate limit | **core** | The one agent-agnostic contract. The frame and the caps are security rules, so they live once, where no pack can weaken them |
 | The launch disclosure of each sidecar's tier | **core**, reading each pack's declared tier | Disclosure is core's job at every launch ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)) |
 | Claude's hooks, pi's and omp's extension, opencode's plugin, copilot's extension, codex's and agy's hooks, and each `--format` shape | **each agent's shipped pack** | Only that agent's vendor defines the route, and it changes with their releases. Core does not know what an agent is |
@@ -623,8 +777,8 @@ session-owned watcher by hand.
 - **Remote or cross-machine pings.** The box is local to one machine. Two machines watching one
   project is in scope, but it is handled by enablement and disclosure, not by the box, and no
   cross-machine exclusivity is attempted ([§12.6](#126-two-machines-one-project)).
-- **Waking a session that has exited.** A ping for a dead session waits for the next reader in
-  the same launch, or ends with the launch.
+- **Waking a session that has exited.** A ping no live master took waits for the next master of
+  the same box, or ends with the box's keeper ([§3.6](#36-which-session-a-ping-wakes-the-master)).
 - **Scheduling.** A sidecar that wants cron semantics sleeps in its own loop.
 - **Agents launched outside yolo.** They get no sidecars and no deliverer, as [OQ-HS3](host-notch-services.md#OQ-HS3)
   accepted for host services.
@@ -636,12 +790,17 @@ first slice, not a later step: the `sidecar` kind never lands able to start some
 enabled. The first slice is Claude and pi on a container jail, agent side only, because that is
 where the maintainer works. Steps 1, 3 and 4 wait on no ruling. Step 2 waits on
 [OQ-EW10](#OQ-EW10), [OQ-EW5](#OQ-EW5), [OQ-EW6](#OQ-EW6) and [OQ-EW7](#OQ-EW7), which set which
-sidecars are gated, the act's form, its scope and how a repository's sidecar is acknowledged;
-step 4's session rule waits on [OQ-EW9](#OQ-EW9).
+sidecars are gated, the act's form, its scope and how a repository's sidecar is acknowledged; of
+those only [OQ-EW10](#OQ-EW10) is still open. Step 1 builds the box either way, and only whether
+it exists in a launch where no sidecar starts waits on [OQ-EW11](#OQ-EW11). The master rule ([§3.6](#36-which-session-a-ping-wakes-the-master)) is
+directed and lands with step 1.
 
-1. **`yolo notify` and the box**, with its cursors, caps, framing and rate limit, and the
-   launch-owned mount. Unit tests drive the writer and every reader form, including two readers,
-   a lock contest, a flood and a planted link.
+1. **`yolo notify` and the box**, with its session list and the master rule, its caps, framing
+   and rate limit, `yolo notify master`, and the mount, owned by the launch that creates the
+   container until the keeper lands and by the keeper after ([EW-D24](#EW-D24)). Unit tests drive the writer
+   and every reader form, including two readers of which only the master takes a ping, a master
+   that exits, a claim and its lapse, a reused pid with another start time, a take raced by a
+   claim, a lock contest, a flood and a planted link.
 2. **The `sidecar` kind, the `sidecars` key and enablement, agent side.** The enablement record
    ([EW-D14](#EW-D14), [EW-D15](#EW-D15)) and `yolo sidecar enable`, `disable` and `list` land
    with the kind, and the launch composes into the supervisor's daemon list only the sidecars
@@ -663,15 +822,20 @@ step 4's session rule waits on [OQ-EW9](#OQ-EW9).
 3. **Claude's deliverer**, as a `config-overlay` in the claude pack. A human measures three
    things that no automated test may do here, since tests never start an agent: a wake after an
    hour idle, a ping landing mid-turn, and the maintainer's `Stop` bell still ringing beside it.
-4. **pi's deliverer**, the extension, with the same measurement. Under
-   [OQ-EW9](#OQ-EW9)'s leaning, both deliverers also report when the user last prompted their
-   session.
+4. **pi's deliverer**, the extension, with the same measurement. Both deliverers pass their
+   agent's pid, and a human checks that `yolo notify master --claim`, run from each agent's own
+   tool shell, finds that agent's session.
 5. **The maintainer ports `ci_watch.py`** into his pack ([§4](#4-the-worked-example-the-ci-watcher)),
    with the authorship filter if [OQ-EW8](#OQ-EW8) goes that way, and runs `yolo sidecar enable`
    on the machine that should watch. That is his change, not the repository's.
-6. **The host side**: the resident host launch, `host_env`, the host-side writer, the placement
-   rule ([EW-D20](#EW-D20)), and one instance per workspace per machine across every notch,
-   container launches included ([EW-D19](#EW-D19)). [OQ-EW1](#OQ-EW1) has ruled who may declare it.
+6. **The host side**: `host_env`, the host-side writer, the placement rule
+   ([EW-D20](#EW-D20)), and the sidecars and the box held by the keeper at every notch, with the
+   lock between keepers that keeps one instance per workspace per machine ([EW-D25](#EW-D25)). It
+   rides the keeper's builds: step 3 of
+   [`jail-lifetime-last-session-wins.md` §7](jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order)
+   for container jails, and its step 5 for `yolo host`, whose resident session
+   ([JL-D36](jail-lifetime-last-session-wins.md#JL-D36)) lands with it, and macos-user.
+   [OQ-EW1](#OQ-EW1) has ruled who may declare it.
 7. **codex and agy next-turn hooks; opencode, copilot and omp wake deliverers**, each measured
    by a human before its tier is declared. Then codex's `queue` wake route, once
    [openai/codex#49081](https://github.com/openai/codex/issues/49081) settles.
@@ -708,11 +872,22 @@ step 4's session rule waits on [OQ-EW9](#OQ-EW9).
 10. With the host-side declaration, `GH_TOKEN` is in no file, environment or log in the jail,
     and the launch names the variable without its value.
 11. Stopping the jail stops every sidecar. `yolo host -- claude` with a sidecar enabled leaves
-    no sidecar process behind once claude exits.
-12. Two `yolo host -- claude` terminals in one workspace run one `ci-watch` between them, and
-    when the first exits, the second takes it over, unless `yolo sidecar disable ci-watch` ran
-    in between. A `yolo -- claude` container launch of the same workspace beside them starts
-    no `ci-watch` of its own and says which launch runs it.
+    no sidecar process and no keeper behind once it was the workspace's last `yolo host` session
+    and claude exits.
+12. With the host-side declaration of `ci-watch`, two `yolo host -- claude` terminals in one
+    workspace run one `ci-watch` between them, held by one keeper, and when the first exits, the same `ci-watch` process keeps running for the
+    second: its pid does not change. A `yolo -- claude` container launch of the same workspace
+    beside them starts no `ci-watch` of its own and says which keeper runs it; once both host
+    terminals have quit, that jail's keeper starts `ci-watch`, unless a veto, a
+    `yolo sidecar disable` or a changed declaration since says otherwise ([EW-D25](#EW-D25)).
+13. In one jail, claude launched first and then pi: a ping wakes claude only, and pi's session
+    shows nothing of it. `yolo notify master` in either names claude, *"first launched"*.
+14. Asked by the user in pi, pi runs `yolo notify master --claim`, passing nothing: the next ping
+    wakes pi only, and `yolo notify master` names the claim and its time. When pi exits, the next
+    ping wakes claude again.
+15. Two claudes in one jail: the first registered is master, the second is woken by nothing, and
+    when the first quits the next ping wakes the second.
+16. With every agent session gone, a ping waits; the next agent to start takes it at once.
 
 ## 12. Enabling a sidecar (redesign, 2026-09-29)
 
@@ -868,8 +1043,9 @@ rules:
   machine-wide record, on or off; otherwise off. A machine-wide off record changes the launch
   line from "not enabled" to "off on this machine" ([§12.5](#125-what-the-launch-says)), so a
   machine that should never watch can say so once.
-- **It takes effect at the next launch that creates the container**, or the next `yolo host`
-  launch, and says so. A running jail keeps the sidecars it started with.
+- **It takes effect at the next launch that starts a keeper**: one that creates the container,
+  or the first launch of the workspace at `yolo host` or macos-user while no keeper runs for it
+  there. It says so. A running keeper keeps the sidecars it started with.
 - **A lost record fails safe.** Deleting it, or moving the workspace, which changes the container
   name the record is keyed on (`FromWorkspace` in [`naming.go`](../../internal/runtime/naming.go)),
   leaves the sidecar off, and the next launch says it is not enabled. The name is the path's
@@ -918,16 +1094,19 @@ somebody else's repository and then start this up and get some background watche
   ([§1.2](#12-terms)), so a repository's sidecar would be host code a workspace declared, which
   [OQ-EW1](#OQ-EW1) refuses. `yolo host` does not start it and says why ([EW-D18](#EW-D18)).
 - **Whether acknowledging is that command or a section of the config-change prompt** is
-  [OQ-EW7](#OQ-EW7).
+  [OQ-EW7](#OQ-EW7), ruled B after this section was written: the prompt's own section, whose
+  approval starts them. The bullets above follow the leaning (A), and carrying out B is owed
+  ([§12.8](#128-what-is-on-by-default-revisited-2026-09-29), [EW-D23](#EW-D23)).
 
 ### 12.5 What the launch says
 
-Every fresh launch, meaning one that creates the container or any `yolo host` launch, prints one
-line per declared sidecar, whatever its state. The line is a disclosure, so no flag hides it
+Every fresh launch, meaning one that creates the container or starts a keeper at `yolo host` or
+macos-user, and every `yolo host` launch with no keeper, prints one line per declared sidecar,
+whatever its state. The line is a disclosure, so no flag hides it
 ([OQ-RO3](../reference/report-tiers.md#why-its-this-way)). A sidecar that is not enabled never
 refuses a launch, and under [OQ-EW5](#OQ-EW5)'s leaning never prompts ([EW-D16](#EW-D16)).
-`yolo check` and `yolo sidecar list` report the same states. An attach starts none and names the
-ones running.
+`yolo check` and `yolo sidecar list` report the same states. An attach, or a launch that joins a
+keeper, starts none and names the ones running.
 
 | State | What the launch prints |
 | :--- | :--- |
@@ -942,7 +1121,7 @@ ones running.
 | Vetoed | `sidecar ci-watch (pack matt): off in this workspace ("enabled": false in yolo-jail.jsonc)` |
 | Not at this notch | `sidecar devserver-errors (this workspace's yolo-jail.jsonc): does not run under yolo host, where it would be unconfined` |
 | Not on this backend yet | `sidecar ci-watch (pack matt, agent side): does not run on macos-user yet; not started` |
-| Running under another launch here | `sidecar ci-watch (pack matt, host side): already running for this workspace under another launch on this machine (yolo host, pid 48121); this launch starts none` |
+| Running under another keeper here | `sidecar ci-watch (pack matt, host side): already running for this workspace under another keeper on this machine (the yolo host keeper, pid 48121); this launch starts none, and this launch's keeper starts it once that one ends` |
 
 ### 12.6 Two machines, one project
 
@@ -989,28 +1168,74 @@ What happens when both machines are enabled anyway:
 Per-machine enablement settles which machine runs a watcher. The same duplicate can still arise
 inside one machine, and there a lock is cheap, because everything is on one filesystem.
 
-- **Several launches of one workspace.** A container jail already runs one set of sidecars per
-  container, and an attach starts none ([EW-D10](#EW-D10)). The host notch and macos-user had no
-  such limit: each terminal started its own set and its own box. Nothing stopped a container
-  launch and a `yolo host` launch of the same workspace from each running `ci-watch` on one
-  machine either. Now each sidecar runs at most once per workspace per machine, across every
-  notch. Every launch that starts sidecars, the launch that creates a container included, holds a
-  kernel lock per sidecar it starts, on either side, under `~/.local/share/yolo-jail/locks/`,
-  beside the workspace launch lock (`launchLockPath` in
-  [`flock.go`](../../internal/cli/run/flock.go)). A launch that finds a sidecar's lock held starts
-  none and names the launch holding it ([§12.5](#125-what-the-launch-says)). A second `yolo host`
-  or macos-user launch of the same workspace shares the first one's box and waits on the lock, so
-  when the first exits the kernel hands the lock on and the second starts the sidecar
-  ([EW-D19](#EW-D19)). A container launch does not wait: its supervisor's set is fixed at boot, so
-  a sidecar held elsewhere does not run in that container. **A takeover checks the gate again**:
-  it re-reads the config vetoes and this machine's records, and, where the record holds a hash,
-  compares the declaration it would start with it, so a `yolo sidecar disable`, a new veto or a
-  changed declaration since the waiting launch began starts nothing, and the launch log says why.
-- **Several agent sessions in one jail.** Two agents attached to one jail share its box, the
-  case [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md) is about.
-  Which sessions a ping wakes is [OQ-EW9](#OQ-EW9), which restates [OQ-EW2](#OQ-EW2). Its
-  old leaning, *"a session that does not care ignores one line"*, answered a smaller worry than
-  two sessions that both care and share one checkout.
+- **Several launches of one workspace at one notch.** They share one keeper
+  ([`jail-lifetime-last-session-wins.md` §9.9.3](jail-lifetime-last-session-wins.md#993-one-keeper-per-workspace-per-notch)),
+  and the keeper owns each sidecar it starts from the first session to the last, so nothing is
+  passed on when a session ends ([EW-D25](#EW-D25)). A container jail already ran one set per
+  container, and an attach starts none ([EW-D10](#EW-D10)). At `yolo host` and macos-user a second
+  terminal now joins the workspace's keeper there and shares its sidecars and its box, where
+  before this each terminal would have started its own set and box, and where [EW-D19](#EW-D19)
+  then passed each sidecar from launch to launch by a kernel lock, which is the handoff
+  [JL-D14](jail-lifetime-last-session-wins.md#JL-D14) rejected.
+- **Several notches of one workspace on one machine.** A container jail and a `yolo host`
+  terminal of one workspace, or macos-user and `yolo host` on a Mac, are two keys with two
+  keepers, and nothing else stops each from running `ci-watch`. So one instance per workspace per
+  machine is still kept by a lock, now taken only by keepers: a keeper holds a kernel lock per
+  sidecar it starts, under `~/.local/share/yolo-jail/locks/`, beside the workspace launch lock
+  (`launchLockPath` in [`flock.go`](../../internal/cli/run/flock.go)). A keeper that finds one
+  held starts none, and its launch names the keeper holding it
+  ([§12.5](#125-what-the-launch-says)).
+  - **A keeper that could start the sidecar later waits on that lock**, and starts its own
+    instance once the other key ends: every sidecar at `yolo host`, and every host-side one
+    elsewhere. An agent-side sidecar in a container is not one of them, since its supervisor's
+    set is fixed at boot. This is a start by a second owner after the first has gone, not a
+    handoff: nothing running moves, and each keeper holds what it started for its own key's life.
+  - **A takeover checks the gate again**: it re-reads the config vetoes and this machine's records,
+    and, where the record holds a hash, compares the declaration it would start with it, so a
+    `yolo sidecar disable`, a new veto or a changed declaration since the keeper began starts
+    nothing, and the keeper's log and its sessions' next lines say why.
+  - The two keys keep separate boxes, so the pings reach the master of whichever key runs the
+    sidecar. A box is never shared across notches
+    ([JL-D37](jail-lifetime-last-session-wins.md#JL-D37)).
+- **Several agent sessions in one box.** Two agents attached to one jail, or two terminals of one
+  keeper at `yolo host`, share one box. A ping wakes one of them, the master
+  ([§3.6](#36-which-session-a-ping-wakes-the-master)), as [EW-DIR3](#EW-DIR3) directed on
+  [OQ-EW9](#OQ-EW9). The old leaning of [OQ-EW2](#OQ-EW2), *"a session that does not care ignores
+  one line"*, answered a smaller worry than two sessions that both care and share one checkout.
+
+### 12.8 What is on by default (revisited 2026-09-29)
+
+Directing [OQ-EW9](#OQ-EW9), the maintainer said: *"this makes me question entirely. Even trying
+to enable this by default, because of exactly this"*, "this" being several agent sessions in one
+jail with no way to say which one a ping is for. After the rulings of 2026-09-29, "by default"
+means this:
+
+| What | What turns it on today | Ruled by |
+| :--- | :--- | :--- |
+| A sidecar the user's config or a pack declares | `yolo sidecar enable <name>` at the host, in that workspace, on that machine, or `--all-workspaces` there; nothing else | [OQ-EW5](#OQ-EW5), [OQ-EW6](#OQ-EW6); every such sidecar under [OQ-EW10](#OQ-EW10)'s leaning |
+| A sidecar the workspace's own config declares | approving the config-change diff that shows it, on that machine, or `--accept-config-changes` | [OQ-EW7](#OQ-EW7) (B) |
+| A sidecar the user's own word marks ungated | nothing at all: it would start on every machine the dotfiles reach | only if [OQ-EW10](#OQ-EW10) is ruled B |
+| The ping box, the deliverers, `yolo notify` and the session list | nothing: the box exists in every launch ([§3.1](#31-declaring-a-sidecar)), each agent pack's deliverer is rendered into every session ([§3.4](#34-deliverers-per-agent)), and every agent session registers ([§3.6](#36-which-session-a-ping-wakes-the-master)) | not ruled |
+
+What follows from it:
+
+- **No sidecar is on by default.** The nearest is a repository's own, which one y turns on: the
+  one a fresh workspace with a non-empty config is asked at its first launch
+  ([OQ-S3](../reference/config-safety.md#oq-s3)). That is [OQ-EW7](#OQ-EW7)'s ruling, B.
+  [§12.4](#124-a-sidecar-a-repository-declares) and [EW-D23](#EW-D23) still describe its leaning,
+  a separate command; carrying out B, a sidecar section in the diff whose approval records the
+  hash of what it showed, is owed and is not redesigned here.
+- **What is still on by default is the doorbell itself**, and that is what the maintainer's worry
+  was about. The master answers the worry for every source of pings at once: a ping from a
+  sidecar, a script, an agent's own background task or another session's agent reaches one
+  session per box ([§3.6](#36-which-session-a-ping-wakes-the-master)).
+- **What the master does not change.** Under the design as written, every agent session registers
+  and arms a deliverer in every launch, even where nothing will ever ring, and any process in a
+  jail can wake its master. At `yolo host` the box alone would also give every launch a keeper
+  and keep it resident ([`jail-lifetime-last-session-wins.md` §9.9.8](jail-lifetime-last-session-wins.md#998-a-launch-with-nothing-long-lived)).
+- **So one choice is left, and it is the maintainer's**: whether the doorbell is on where no
+  sidecar is. That is [OQ-EW11](#OQ-EW11). Nothing else still on by default is something the
+  master requirement bears on.
 
 ## 13. Open Questions
 
@@ -1301,9 +1526,11 @@ inside one machine, and there a lock is cheap, because everything is on one file
    > because the branch moved). Consistent with [EW-DIR2](#EW-DIR2): nothing guarantees one
    > watcher across machines.
 
-9. 💬 <a id="OQ-EW9"></a>**[OQ-EW9](#OQ-EW9): In one jail with several agent sessions, which
+9. ✅ <a id="OQ-EW9"></a>**[OQ-EW9](#OQ-EW9): In one jail with several agent sessions, which
    sessions does a ping wake?** This restates [OQ-EW2](#OQ-EW2) after the redesign: enabling a
-   sidecar on a machine settles which machine hears, not which session.
+   sidecar on a machine settles which machine hears, not which session. **Directed 2026-09-29
+   ([EW-DIR3](#EW-DIR3)), and designed in [§3.6](#36-which-session-a-ping-wakes-the-master).
+   The options below are kept as asked; the direction supersedes all three.**
 
    _Setup:_ On the desk, claude and pi are attached to one yolo-jail jail in two terminals,
    working in the same checkout. `ci-watch` reports a failure on main. Both agents have
@@ -1336,6 +1563,15 @@ inside one machine, and there a lock is cheap, because everything is on one file
    is master and lets an agent claim it, usually because the user asked it to; and whether sidecars
    should be on by default is to be reconsidered in that light. The design comes back as new
    questions.
+
+   **Designed 2026-09-29** in [§3.6](#36-which-session-a-ping-wakes-the-master)
+   ([EW-D26](#EW-D26) to [EW-D30](#EW-D30)). The master is an agent session, not a yolo session;
+   the session list lives in the box, kept by the reader forms, because only the jail side sees
+   agent sessions and the host never reads the box; the first registered live one is master, the
+   next-oldest inherits, and `yolo notify master --claim` needs nothing passed and no prompt. The
+   other sessions see nothing of a ping. The default is revisited in
+   [§12.8](#128-what-is-on-by-default-revisited-2026-09-29): no sidecar is on by default, and
+   whether the doorbell is on where no sidecar is, is [OQ-EW11](#OQ-EW11).
 
 10. ✅ <a id="OQ-EW10"></a>**[OQ-EW10](#OQ-EW10): Does every declared sidecar wait for a
     machine's explicit act, or may the config exempt some?** This decides whether a sidecar that
@@ -1383,6 +1619,48 @@ inside one machine, and there a lock is cheap, because everything is on one file
     ([EW-DIR1](#EW-DIR1)), and an agent-side sidecar can hold nothing the agent could not already
     run itself. How the in-jail turn-on records itself per machine is being designed.
 
+11. 💬 <a id="OQ-EW11"></a>**[OQ-EW11](#OQ-EW11): Is the doorbell on in every launch, or only
+    in a launch where a sidecar is on?** This decides whether the part of this feature that is
+    still on by default ([§12.8](#128-what-is-on-by-default-revisited-2026-09-29)) stays on: the
+    ping box, the deliverers and the session list. No sidecar is on by default under any answer.
+
+    _Setup:_ Matt has not enabled `ci-watch` on his laptop. In yolo-jail there he runs
+    `yolo -- claude` in one terminal and `yolo -- pi` in another, and nothing on the laptop is set
+    to ring. As designed, both sessions still register in the jail's box, claude's deliverer waits
+    after every turn, and when pi runs `yolo notify "tests done"` from a background task, claude,
+    the master, is woken by it. On his Mac, every `yolo host -- claude` there also gets a keeper
+    for its box, and stays resident as claude's parent.
+
+    - **A — On in every launch, as designed.** `yolo notify` works from any shell, script or
+      background task in any launch, and the master takes each ping. Matt sees no change from
+      [§3.3](#33-yolo-notify-and-the-ping-box). The cost: the deliverer runs in every Claude
+      session whether anything rings or not, before its behavior over a long idle is measured
+      ([§8](#8-costs-and-risks)); any agent session in a jail can wake another; and every
+      `yolo host` launch gets a keeper and a resident `yolo`.
+    - **B — On only where a sidecar will start.** The box exists in a launch only when at least one
+      sidecar passes its gate for that workspace on that machine, enabled or acknowledged.
+      Elsewhere there is no box: a deliverer finds none and returns at once, as
+      [§3.3](#33-yolo-notify-and-the-ping-box) already specifies; no agent session registers;
+      `yolo notify` exits 3 saying no sidecar is on for this workspace on this machine; and a
+      `yolo host` launch with nothing else to hold execs as today. The cost: an agent's own
+      background task cannot ring its session unless some sidecar is on there. For Claude its own
+      Monitor tool already covers that case ([Appendix A.1](#a1-claude-21284)); for pi nothing does.
+
+    <!-- vantage: oq id=OQ-EW11 leaning="B: turn the doorbell on only where a sidecar will start, since nothing in yolo is active by default, A runs an unmeasured hook in every Claude session and a resident yolo host launch for a box nothing writes, and the use B gives up was never asked for." -->
+
+    _Leaning:_ **B.** Nothing in yolo is active by default: an empty config gives a jail with no
+    agent, and the launch says so (`run.warnIfNoPacks`, [`AGENTS.md`](../../AGENTS.md)). A pays
+    for a deliverer in every Claude session, before its long-idle behavior is measured, and for a
+    keeper and a resident `yolo host` launch, all for a box nothing is set to write. What B gives
+    up, an agent ringing its own session from a background task, is not what the maintainer asked
+    for: he asked for sidecars ([§1.1](#11-why-now)). **The trap:** if an agent ringing its own
+    or another session is a use the maintainer wants in every launch, a long build or a deploy
+    announcing itself, A is right, and the master is what makes A safe with several sessions in
+    one box.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
 ## 14. Decision Ledger
 
 Rulings (2026-09-29) and implementation decisions, taken where a question had one right answer,
@@ -1392,14 +1670,14 @@ recorded so an implementer does not reopen them.
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="EW-D1"></a>[`EW-D1`](#14-decision-ledger) | *Implementation decision.* A sidecar is its own contribution kind, `sidecar`, not a `kind: "service"`: a service holds no grant and has an endpoint, a witness and a caller token; a host-side sidecar holds a credential and has none of those. Agent-side sidecars reuse the supervisor | 2026-09-28 | [§3.1](#31-declaring-a-sidecar) | — |
 | <a id="EW-D2"></a>[`EW-D2`](#14-decision-ledger) | *Implementation decision.* The doorbell is `yolo notify`, a subcommand of the one binary on both sides, not a new `cmd/` binary, so it adds nothing to `shippedBinaries` or the bundle | 2026-09-28 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
-| <a id="EW-D3"></a>[`EW-D3`](#14-decision-ledger) | *Implementation decision.* The box is a launch-owned host directory mounted into the jail, one file per ping, renamed into place. Readers poll once a second and use filesystem notifications only as a speed-up. *Revised 2026-09-29:* at the host notch and on macos-user the box is per workspace on the machine, not per launch ([EW-D19](#EW-D19)) | 2026-09-28 · revised 2026-09-29 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
+| <a id="EW-D3"></a>[`EW-D3`](#14-decision-ledger) | *Implementation decision.* The box is a launch-owned host directory mounted into the jail, one file per ping, renamed into place. Readers poll once a second and use filesystem notifications only as a speed-up. *Revised 2026-09-29:* at the host notch and on macos-user the box is per workspace on the machine, not per launch ([EW-D19](#EW-D19)). *Revised again 2026-09-29:* the box is the keeper's at every notch, and it holds the session list ([EW-D24](#EW-D24), [EW-D26](#EW-D26)) | 2026-09-28 · revised 2026-09-29 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
 | <a id="EW-D4"></a>[`EW-D4`](#14-decision-ledger) | *Implementation decision.* Deliverers never read the box. They call `yolo notify --wait`, `--follow` or `--drain`, so the format stays private to core and one reader implementation serves every agent | 2026-09-28 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
 | <a id="EW-D5"></a>[`EW-D5`](#14-decision-ledger) | *Implementation decision.* Claude's deliverer is an `asyncRewake` command hook on `SessionStart` and `Stop`, one waiter per session by lock, with an explicit 86400-second timeout. Not the inbox socket ([§7](#7-alternatives-considered) option E) and not MCP channels (option D) | 2026-09-28 | [§3.4](#34-deliverers-per-agent) | — |
 | <a id="EW-D6"></a>[`EW-D6`](#14-decision-ledger) | *Implementation decision.* pi's deliverer uses `sendMessage` with `triggerTurn: true` and `deliverAs: "followUp"`, never `sendUserMessage`, so a ping neither interrupts a turn nor arrives as the user | 2026-09-28 | [§3.4](#34-deliverers-per-agent) | — |
 | <a id="EW-D7"></a>[`EW-D7`](#14-decision-ledger) | *Implementation decision.* Every ping is cleaned of control characters, cut to 1024 bytes and 8 lines, framed as an automated notice with no user authority, batched within 2 seconds, and limited to 6 delivered per 60 seconds per sender label, with the excess held and counted | 2026-09-28 | [§5.1](#51-pinged-text-is-a-prompt-injection-channel) | — |
 | <a id="EW-D8"></a>[`EW-D8`](#14-decision-ledger) | *Implementation decision.* The host side never reads the box, and its writer creates each file relative to the box directory, exclusively, following no link | 2026-09-28 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
 | <a id="EW-D9"></a>[`EW-D9`](#14-decision-ledger) | *Implementation decision.* A host-side sidecar gets only `PATH`, `HOME`, the four `YOLO_*` variables and the host variables its `host_env` names. None of their values is written anywhere the jail can read. Names are disclosed, values never | 2026-09-28 | [§5.2](#52-secrets-stay-with-the-sidecar) | — |
-| <a id="EW-D10"></a>[`EW-D10`](#14-decision-ledger) | *Implementation decision.* Host-side sidecars belong to the launch that creates the container; an attach starts none. A sidecar enabled at the host notch makes `yolo host` resident, in [`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)'s shape. *Revised 2026-09-29:* "declared" became "enabled" ([EW-D13](#EW-D13)), and at the host notch and on macos-user one instance per workspace per machine is shared across launches ([EW-D19](#EW-D19)) | 2026-09-28 · revised 2026-09-29 | [§3.2](#32-lifecycle-per-side-and-per-notch) | — |
+| <a id="EW-D10"></a>[`EW-D10`](#14-decision-ledger) | *Implementation decision.* Host-side sidecars belong to the launch that creates the container; an attach starts none. A sidecar enabled at the host notch makes `yolo host` resident, in [`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)'s shape. *Revised 2026-09-29:* "declared" became "enabled" ([EW-D13](#EW-D13)), and at the host notch and on macos-user one instance per workspace per machine is shared across launches ([EW-D19](#EW-D19)). *Revised again 2026-09-29:* host-side sidecars belong to the keeper, not to the launch that creates the container, and at `yolo host` and macos-user to that workspace's keeper there ([EW-D25](#EW-D25)) | 2026-09-28 · revised 2026-09-29 | [§3.2](#32-lifecycle-per-side-and-per-notch) | — |
 | <a id="EW-D11"></a>[`EW-D11`](#14-decision-ledger) | *Implementation decision.* A sidecar never delays or refuses a launch by failing to start. It is retried with the supervisor's backoff and logged. A malformed declaration does refuse | 2026-09-28 | [§3.5](#35-failure-paths) | — |
 | <a id="EW-D12"></a>[`EW-D12`](#14-decision-ledger) | *Implementation decision.* Each agent pack declares its deliverer's tier, and the launch discloses per sidecar what its pings will do with the agent being launched. A tier is declared **wake** only after a human has measured it | 2026-09-28 | [§3.4](#34-deliverers-per-agent) | — |
 | [OQ-EW1](#OQ-EW1) | **Maintainer ruling:** A; only the user's own word declares a host-side sidecar | 2026-09-29 | [§13](#13-open-questions) | pending |
@@ -1411,7 +1689,7 @@ recorded so an implementer does not reopen them.
 | [OQ-EW10](#OQ-EW10) | **Maintainer ruling:** A; every declared sidecar waits for an explicit turn-on and none is exempt. For an agent-side sidecar the jail's own agent may turn it on, which revises [EW-D17](#EW-D17); a host-side sidecar keeps the host-only act | 2026-09-29 | [§13](#13-open-questions) | pending (the in-jail turn-on is being designed) |
 | <a id="EW-DIR1"></a>EW-DIR1 | **Maintainer direction:** the feature is held until enabling a sidecar is an intentional per-machine act that a synced dotfile cannot trigger, and two machines watching one project is designed for ([OQ-EW2](#OQ-EW2)) | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | — |
 | <a id="EW-DIR2"></a>EW-DIR2 | **Maintainer direction,** the second on [OQ-EW2](#OQ-EW2): declaring a watcher's shape is separate from the explicit permission that activates it, and yolo does not try to guarantee a single watcher across machines | 2026-09-29 | [§12.6](#126-two-machines-one-project) | — |
-| <a id="EW-DIR3"></a>EW-DIR3 | **Maintainer direction** on [OQ-EW9](#OQ-EW9): a ping wakes one session per jail, the **master** (the maintainer's word); by default the first session launched; an in-jail `yolo` command shows the master and lets an agent claim it, likely at the user's request; and whether sidecars are on by default is to be reconsidered given this | 2026-09-29 | [§13](#13-open-questions) | designing |
+| <a id="EW-DIR3"></a>EW-DIR3 | **Maintainer direction** on [OQ-EW9](#OQ-EW9): a ping wakes one session per jail, the **master** (the maintainer's word); by default the first session launched; an in-jail `yolo` command shows the master and lets an agent claim it, likely at the user's request; and whether sidecars are on by default is to be reconsidered given this. Designed in [§3.6](#36-which-session-a-ping-wakes-the-master) ([EW-D26](#EW-D26) to [EW-D30](#EW-D30)) and [§12.8](#128-what-is-on-by-default-revisited-2026-09-29), whose question is [OQ-EW11](#OQ-EW11) | 2026-09-29 | [§13](#13-open-questions) | designed, not built |
 | [OQ-EW4](#OQ-EW4) | **Maintainer ruling:** A, inside a gate: *"it starts everywhere you specify the config needs to allow a gated set."* Read as: no second config switch per workspace. Which sidecars the gate covers is [OQ-EW10](#OQ-EW10), and its mechanics are [OQ-EW5](#OQ-EW5) to [OQ-EW7](#OQ-EW7) | 2026-09-29 | [§12.1](#121-declaring-is-not-enabling) | pending |
 | <a id="EW-D13"></a>[`EW-D13`](#14-decision-ledger) | *Implementation decision, under [OQ-EW10](#OQ-EW10)'s leaning (A),* carrying out [OQ-EW4](#OQ-EW4), [EW-DIR1](#EW-DIR1) and [EW-DIR2](#EW-DIR2); it changes if [OQ-EW10](#OQ-EW10) is ruled otherwise. The gated set is every declared sidecar, from every source: none runs on a machine without that machine's enablement record, and no declaration can exempt itself. Config's `enabled` can only veto: `false` at any scope keeps a sidecar off, and `true` at any scope starts nothing, since otherwise the replicator is the trigger. This deliberately differs from loopholes, whose `enabled` switches on from either scope | 2026-09-29 | [§12.1](#121-declaring-is-not-enabling) | — |
 | <a id="EW-D14"></a>[`EW-D14`](#14-decision-ledger) | *Implementation decision.* The enablement record lives under `paths.ApprovalsDir()`, as a part beside the approval record for one workspace and as one machine-wide file whose name no container name can take (every container name begins `yolo-`, `FromResolved` in [`naming.go`](../../internal/runtime/naming.go)). Never under `~/.config/yolo-jail`, never under `cache/`, never mounted into a jail. Under [OQ-EW5](#OQ-EW5)'s leaning (A), only `yolo sidecar enable` and `disable` write it; under every answer, nothing that writes it writes config. It holds, per sidecar, on or off, the name, the declaring source (user config, the local pack, a pack identified by the source address its entry is written with and never by its name, or the workspace), the time, and for a sidecar the workspace or a fetched pack declares a hash of every field of the resolved declaration, plus, for a fetched pack, its locked commit. A record is honored only for a declaration from the same source and, where it holds a hash or a commit, the same ones. A missing record fails safe, and a path that deletes the approval record deletes this part too. *Revised 2026-09-29:* a pack is keyed by source address rather than name, fetched packs are hash-bound, the hash covers every field rather than `cmd`, `side` and `restart`, and a record can say off | 2026-09-29 · revised 2026-09-29 | [§12.2](#122-where-the-record-lives-and-why-there) | — |
@@ -1419,11 +1697,18 @@ recorded so an implementer does not reopen them.
 | <a id="EW-D16"></a>[`EW-D16`](#14-decision-ledger) | *Implementation decision.* A sidecar that is not enabled, not acknowledged, vetoed, off, not allowed at this notch, not yet available on this backend, or running under another launch never refuses a launch. Under [OQ-EW5](#OQ-EW5)'s leaning (A) it also never prompts. Every fresh launch prints one line per declared sidecar naming its state and, where one exists, the command that would start it; `yolo check` and `yolo sidecar list` report the same. The line is a disclosure and no flag hides it | 2026-09-29 | [§12.5](#125-what-the-launch-says) | — |
 | <a id="EW-D17"></a>[`EW-D17`](#14-decision-ledger) | *Implementation decision, under [OQ-EW5](#OQ-EW5)'s leaning (A).* In-jail, `yolo sidecar enable` and `disable` for the jail's own workspace refuse and name the host command, the [OQ-S2](../reference/config-safety.md#oq-s2) precedent. For a nested workspace they write the jail's own store, since inside a jail the jail is the machine. **Revised by [OQ-EW10](#OQ-EW10) (2026-09-29):** for an agent-side sidecar the jail's own agent may turn it on in-jail; the refusal stands for a host-side one | 2026-09-29 | [§12.3](#123-the-command) | — |
 | <a id="EW-D18"></a>[`EW-D18`](#14-decision-ledger) | *Implementation decision,* following from [OQ-EW1](#OQ-EW1). A sidecar the workspace's own config declares does not run under `yolo host`, where the agent side and the host side are one place and it would be host code a workspace declared. It is not started and the launch says why; the launch is not refused | 2026-09-29 | [§12.4](#124-a-sidecar-a-repository-declares) | — |
-| <a id="EW-D19"></a>[`EW-D19`](#14-decision-ledger) | *Implementation decision.* At most one instance of each sidecar runs per workspace per machine, across every notch. Every launch that starts sidecars, the launch that creates a container included, holds a kernel lock per sidecar it starts, on either side, under `~/.local/share/yolo-jail/locks/`, beside the launch lock. A launch that finds one held starts none and names the launch holding it. At the host notch and on macos-user a second launch of the workspace shares the first one's box and waits on the lock, so the kernel hands the sidecar to it when the first exits; a container launch does not wait, since its supervisor's set is fixed at boot. A takeover re-reads the vetoes and the records and checks the declaration's hash before it starts anything. The box at the host notch and on macos-user is per workspace, and it is cleared only once no launch is known to hold it. *Revised 2026-09-29:* the lock first covered only the host notch and macos-user, which left a container launch and a `yolo host` launch each running the sidecar | 2026-09-29 · revised 2026-09-29 | [§12.7](#127-one-machine-several-launches-or-sessions) | — |
+| <a id="EW-D19"></a>[`EW-D19`](#14-decision-ledger) | ***Superseded 2026-09-29 by [EW-D25](#EW-D25)***, under [OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5)'s ruling: within one notch the keeper owns each sidecar, so no lock passes one from launch to launch; the lock between keepers keeps its cross-notch half. Kept as written: *Implementation decision.* At most one instance of each sidecar runs per workspace per machine, across every notch. Every launch that starts sidecars, the launch that creates a container included, holds a kernel lock per sidecar it starts, on either side, under `~/.local/share/yolo-jail/locks/`, beside the launch lock. A launch that finds one held starts none and names the launch holding it. At the host notch and on macos-user a second launch of the workspace shares the first one's box and waits on the lock, so the kernel hands the sidecar to it when the first exits; a container launch does not wait, since its supervisor's set is fixed at boot. A takeover re-reads the vetoes and the records and checks the declaration's hash before it starts anything. The box at the host notch and on macos-user is per workspace, and it is cleared only once no launch is known to hold it. *Revised 2026-09-29:* the lock first covered only the host notch and macos-user, which left a container launch and a `yolo host` launch each running the sidecar | 2026-09-29 · revised 2026-09-29 | [§12.7](#127-one-machine-several-launches-or-sessions) | — |
 | <a id="EW-D20"></a>[`EW-D20`](#14-decision-ledger) | *Implementation decision.* A host-side sidecar obeys the loophole placement rule ([`loophole-system.md`](../reference/loophole-system.md#the-placement-rule)): refused by name, at the spawn, when `{pack_dir}` or its program resolves inside the workspace the launch mounts or the jail home yolo manages, so an agent cannot edit the host code a host-side sidecar runs | 2026-09-29 | [§3.1](#31-declaring-a-sidecar) | — |
 | <a id="EW-D21"></a>[`EW-D21`](#14-decision-ledger) | *Implementation decision,* stated for sidecar authors in the kind's documentation, since yolo cannot see what a script does. A host-side sidecar reads the workspace's git state (`.git/config`, the reflog under `.git/logs/`) as text and never runs host `git` there. It opens only regular files, follows no link and ignores `include` directives, so the agent can neither point it at a host file nor hang it on a FIFO. These are the rules [BB-D19](boundary-broker.md#BB-D19) set for the broker. The worked example follows them | 2026-09-29 | [§4](#4-the-worked-example-the-ci-watcher) | — |
 | <a id="EW-D22"></a>[`EW-D22`](#14-decision-ledger) | *Implementation decision.* `sidecars` has a key-by-key scope table ([§3.1](#31-declaring-a-sidecar)), checked against each config file as written, before the field-by-field merge. A workspace entry under a name that user config, the local pack or a selected pack declares may carry only `enabled`. At any scope, an entry without `cmd` may carry only `enabled`, so changing another field means writing a whole declaration, which then belongs to that scope. Vetoes are read per file, so a workspace `true` never undoes a user `false`. A violation is refused by key name, an error on the host and a warning in-jail, as loopholes' scope violations are, and never reaches a spawn | 2026-09-29 | [§3.1](#31-declaring-a-sidecar) | — |
-| <a id="EW-D23"></a>[`EW-D23`](#14-decision-ledger) | *Implementation decision, under [OQ-EW7](#OQ-EW7)'s leaning (A).* For a hash-bound sidecar, the acknowledging command prints the whole resolved declaration and the file it came from, asks y/N, and records the hash of exactly what it printed; with no terminal it refuses. So a pull or an agent edit landing between the launch line and the command is never acknowledged unseen. The hash covers the declaration, not a script its `cmd` names, and the command says so | 2026-09-29 | [§12.4](#124-a-sidecar-a-repository-declares) | — |
+| <a id="EW-D23"></a>[`EW-D23`](#14-decision-ledger) | ***Held for [OQ-EW7](#OQ-EW7)'s carry-out:*** written under its leaning, and the ruling was B, so the acknowledgement moves into the config-change diff's sidecar section, which must hash exactly what it shows; not yet redesigned ([§12.8](#128-what-is-on-by-default-revisited-2026-09-29)). Kept as written: *Implementation decision, under [OQ-EW7](#OQ-EW7)'s leaning (A).* For a hash-bound sidecar, the acknowledging command prints the whole resolved declaration and the file it came from, asks y/N, and records the hash of exactly what it printed; with no terminal it refuses. So a pull or an agent edit landing between the launch line and the command is never acknowledged unseen. The hash covers the declaration, not a script its `cmd` names, and the command says so | 2026-09-29 | [§12.4](#124-a-sidecar-a-repository-declares) | — |
+| <a id="EW-D24"></a>[`EW-D24`](#14-decision-ledger) | *Implementation decision, under [OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5)'s ruling.* **The ping box is the keeper's at every notch**: one per keeper, which is one per container jail and one per workspace at each of macos-user and `yolo host`, created when the key starts and removed, session list included, when it ends. At a container backend it is bind mounted into the jail; at `yolo host` it lives in host state no jail mounts, never under the workspace's `.yolo/`, which the same workspace's container jail can write; at macos-user the sandbox account is granted write on it (unmeasured and unbuilt). A box never spans two notches ([JL-D37](jail-lifetime-last-session-wins.md#JL-D37)), since a box a more confined notch writes and a less confined agent reads would reverse [EW-D8](#EW-D8). Until the keeper lands at containers, the launch that creates the container owns it, as [EW-D3](#EW-D3) said | 2026-09-29 | [§3.3](#33-yolo-notify-and-the-ping-box) | — |
+| <a id="EW-D25"></a>[`EW-D25`](#14-decision-ledger) | *Implementation decision, replacing [EW-D19](#EW-D19).* **Within one notch, the workspace's keeper owns each sidecar it starts from its key's first session to its last**, so a second launch there joins the keeper, starts none, shares the box, and nothing passes from launch to launch. **Across notches, one instance per workspace per machine is kept by a per-sidecar kernel lock that only keepers take**: a keeper that finds it held starts none and its launch names the holder; one that could start the sidecar later (every sidecar at `yolo host`, every host-side one elsewhere, never an agent-side one in a container, whose supervisor is fixed at boot) waits on the lock and starts its own instance when the other key ends, re-checking the vetoes, the records and the declaration's hash first. Forced by [JL-D14](jail-lifetime-last-session-wins.md#JL-D14): a lock that hands a running jail's sidecar from launch to launch is the handoff rejected for container jails, while a second keeper starting its own instance after the first has gone moves nothing running | 2026-09-29 | [§12.7](#127-one-machine-several-launches-or-sessions) | — |
+| <a id="EW-D26"></a>[`EW-D26`](#14-decision-ledger) | *Implementation decision, carrying out [EW-DIR3](#EW-DIR3).* **The master is an agent session, and the session list lives in the box, kept by `yolo notify`'s reader forms, not by the keeper.** Forced three ways: only the jail side sees agent sessions (a reader id is the deliverer's, and a bare shell's agents are invisible to the host), while the keeper counts sessions only as one shared lock ([JL-D2](jail-lifetime-last-session-wins.md#JL-D2)); the host side never reads the box ([EW-D8](#EW-D8)), so a keeper-held list would need a new jail-to-host channel for a claim; and any jail process can already write the box, so a list outside it protects nothing (Test 1 of [`gate-placement-principle.md`](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it)). The keeper owns the box's lifetime ([EW-D24](#EW-D24)) | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
+| <a id="EW-D27"></a>[`EW-D27`](#14-decision-ledger) | *Implementation decision.* **An agent session registers through its deliverer's first reader call, which passes `--agent-pid`**, and is recorded with that pid, the process's start time (`/proc/<pid>/stat` field 22 on Linux, the kernel's process record through `sysctl` on macOS), its reader id, its tier and the time. It is alive while a process with that pid and start time exists, so a reused pid never passes for it. A later call from the same pid with a new reader id (claude's `/clear`, a pi reload) updates the id and keeps its place. Each agent's pack names how its deliverer finds the pid, since core does not know what an agent is ([EW-P2](#EW-P2)); claude's `$PPID` is INFERRED and measured with its deliverer | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
+| <a id="EW-D28"></a>[`EW-D28`](#14-decision-ledger) | *Implementation decision, reading [EW-DIR3](#EW-DIR3)'s "pick the first one launched".* **With no claim in force the master is the earliest registered agent session still alive, resolved at each take, never handed over.** When it exits, the next ping goes to the next-oldest live one; a claim lapses with its session and the default resumes, never an earlier claimant; a ping rung with no live agent session waits and the next master takes it under the cap of 20. The tier does not decide: a next-turn agent launched first is master, and `yolo notify master` shows its tier so the user can have another claim | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
+| <a id="EW-D29"></a>[`EW-D29`](#14-decision-ledger) | *Implementation decision, carrying out [EW-DIR3](#EW-DIR3)'s in-jail command.* **`yolo notify master` shows the list; `--claim` makes the calling agent session master; `--release` gives the claim back; `--reader ID` names another session.** It lives under `yolo notify`, since the master governs every ping and `yolo sidecar` is the host-side enablement verb that refuses in a jail ([EW-D17](#EW-D17)). The caller passes nothing: the command walks its own ancestors to the first registered agent process, with `--reader` as the fallback where that cannot be read (macos-user's Seatbelt profile, UNMEASURED). **A claim needs no prompt**: a confirmation would stop nothing any jail process cannot already do to the box, and an agent's tool shell has no terminal to answer one; *"likely on request of the user"* is how an agent comes to run it, not a gate. The claim is printed and recorded (who, when, whom it displaced), and the environment briefing names the command wherever a box exists | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
+| <a id="EW-D30"></a>[`EW-D30`](#14-decision-ledger) | *Implementation decision, reading [EW-DIR3](#EW-DIR3)'s "this is the one that gets it".* **Only the master is handed a ping: other sessions get no wake and no copy at their next turn**, since a marked copy in front of a second agent in one checkout invites it to act, which is [OQ-EW9](#OQ-EW9)'s option B risk. Their deliverers stay armed to inherit. Each ping is taken once, by an atomic create in the box, so a claim racing a take gives it to one session, never two. Several sessions of one agent are several agent sessions, and nothing keys on the agent's name ([EW-P2](#EW-P2)) | 2026-09-29 | [§3.6](#36-which-session-a-ping-wakes-the-master) | — |
 
 ## 15. The neighbors
 
@@ -1441,7 +1726,7 @@ recorded so an implementer does not reopen them.
 | [`workspace-config-trust.md`](workspace-config-trust.md) | The iced `yolo trust` design: a host-side record keyed on workspace and content, and a refusal that names the verb, which the acknowledgement follows |
 | [`boundary-broker.md`](boundary-broker.md#BB-D30) | [BB-D30](boundary-broker.md#BB-D30)'s second part of the approval record, and [BB-D19](boundary-broker.md#BB-D19)'s rule that the host reads a workspace's git state as text |
 | [`loophole-system.md`](../reference/loophole-system.md#the-placement-rule) | The placement rule host-side sidecars obey, and R5, which sidecars' `enabled` deliberately does not follow |
-| [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md) | Several sessions in one jail, which [OQ-EW9](#OQ-EW9) is about; the keeper that [OQ-JL1](jail-lifetime-last-session-wins.md#OQ-JL1)'s direction made the owner of a shared jail's host services, which host-side sidecars follow ([§3.2](#32-lifecycle-per-side-and-per-notch)); and [OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5), whose trap is [EW-D19](#EW-D19) |
+| [`jail-lifetime-last-session-wins.md`](jail-lifetime-last-session-wins.md) | Several sessions in one jail, which [OQ-EW9](#OQ-EW9) is about; the keeper that [OQ-JL1](jail-lifetime-last-session-wins.md#OQ-JL1)'s direction made the owner of a shared jail's host services, which host-side sidecars and the box follow ([§3.2](#32-lifecycle-per-side-and-per-notch), [EW-D24](#EW-D24)); and [OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5)'s ruling, whose keeper at `yolo host` and macos-user ([its §9.9](jail-lifetime-last-session-wins.md#99-the-keeper-at-yolo-host-and-macos-user)) replaces [EW-D19](#EW-D19) with [EW-D25](#EW-D25) |
 
 ## Appendix A — the evidence per agent
 
