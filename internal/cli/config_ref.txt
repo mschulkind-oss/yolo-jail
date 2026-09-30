@@ -1427,8 +1427,9 @@
                     below).  `region_env_name` makes a region a LAUNCH REQUIREMENT for
                     every provider of this one's `platform` (which it needs beside it):
                     the variables an agent there reads its region from, so a launch
-                    whose agent is on such a provider with no `region` and none of them
-                    delivered to it is refused, naming both ways to set one.
+                    whose agent is on such a provider with no `region`, none of them
+                    delivered to it and none in its `region_file` is refused, naming
+                    every way to set one.
                     `region_file` (which needs `region_env_name` beside it) says where
                     that platform's agents keep a region the environment does not carry:
                     the `key` of one profile's section of a file under your home
@@ -1642,12 +1643,15 @@
                      ("us-east-1"): the agents build their service's host name from it,
                      so a value with a dot, a slash or a "#" is refused at every scope.
                      For a provider whose platform a selected pack declares region
-                     variables for
-                     (`bedrock`, and any provider of yours with "platform":
-                     "aws-bedrock"), a launch with no `region` here and neither
-                     AWS_REGION nor AWS_DEFAULT_REGION delivered to the agent is REFUSED,
-                     naming both ways to set one; a region in ~/.aws/config is not
-                     counted, since yolo does not read it.
+                     variables for (`bedrock`, and any provider of yours with
+                     "platform": "aws-bedrock"), an agent with no `region` here and none
+                     of the region variables it reads (AWS_REGION or AWS_DEFAULT_REGION;
+                     opencode reads AWS_REGION alone) delivered to it is given the
+                     region its AWS profile has in ~/.aws/config on the machine yolo
+                     launches on, in a jail and at `yolo host` alike, and the launch
+                     says so.  When that file gives none either, the launch is REFUSED,
+                     naming the three ways to set one: this key, a variable in
+                     env_sources, or the profile's `region` in that file.
                      YOLO_ALLOW_MISSING_PROVIDERS=1 launches anyway.
       models         {alias: model id} — the aliases a profile's `model` option names.
                      The agent pack's own derive.lua decides which alias each of the

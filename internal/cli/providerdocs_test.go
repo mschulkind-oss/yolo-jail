@@ -81,3 +81,34 @@ func TestEveryUserProviderKeyIsDocumented(t *testing.T) {
 		}
 	}
 }
+
+// THE REGION FILE COUNTS, in config-ref as in the launch (docs/design/bedrock-plumbing.md
+// BR-DIR1, which revised BR-D5's "yolo does not read it"): the refusal offers the region file
+// as a third way to set a region, so neither the `provider` kind entry nor the user's
+// `providers.<name>.region` row may still say ~/.aws/config is not counted or name only two
+// ways. A review found the region row saying so after the launch had stopped.
+func TestConfigRefSaysTheRegionFileIsCounted(t *testing.T) {
+	flat := strings.Join(strings.Fields(configRefContent), " ")
+	for _, stale := range []string{
+		"is not counted, since yolo does not read it",
+		"yolo does not read it",
+		"naming both ways to set one",
+	} {
+		if strings.Contains(flat, stale) {
+			t.Errorf("config-ref still says %q, which BR-DIR1 made false", stale)
+		}
+	}
+	start := strings.Index(configRefContent, "[bold]providers[/bold] (object)")
+	if start < 0 {
+		t.Fatal("config_ref.txt has no `providers` section")
+	}
+	row := regexp.MustCompile(`(?s)\n      region {2,}(.*?)\n      [a-z_]+ {2,}`).FindStringSubmatch(configRefContent[start:])
+	if row == nil {
+		t.Fatal("config-ref's `providers` section has no `region` row")
+	}
+	if region := strings.Join(strings.Fields(row[1]), " "); !strings.Contains(region,
+		"is given the region its AWS profile has in ~/.aws/config") || !strings.Contains(region, "three ways") {
+		t.Errorf("the `region` row must say the credential profile's region in ~/.aws/config is "+
+			"delivered, and that the refusal names three ways to set one:\n%s", region)
+	}
+}
