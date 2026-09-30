@@ -140,8 +140,11 @@ func tryExclusiveSessionLock(cname string) (*sessionLock, bool) {
 
 // holdSessionLock counts this launch as a session of cname (takeSessionLock) and keeps the
 // hold on o until Run's deferred release. It says so when it cannot, and the launch goes on
-// uncounted: the count decides only whether a reaper may stop the jail, and a launch refused
-// over it would trade a working session for a guard. contended is takeSessionLock's.
+// uncounted rather than refused over it. The count decides when the jail's keeper ends the jail,
+// and whether a reaper may stop it: a fresh launch that goes on uncounted tells its keeper so,
+// which then never drains on the count (keeperPlan.Uncounted, JL-P3), and an uncounted attach is
+// in a jail its keeper may end under it once the counted sessions have left, which the warning
+// says. contended is takeSessionLock's.
 func (o *Options) holdSessionLock(cname string) (contended bool) {
 	if o.sessionLock != nil {
 		return false
@@ -152,8 +155,7 @@ func (o *Options) holdSessionLock(cname string) (contended bool) {
 		return true
 	}
 	if err != nil {
-		o.pr(o.Stderr).printf("[dim]Warning: could not count this session in %s (%s); "+
-			"an orphan sweep may stop the jail under it once its launcher is gone[/dim]",
+		o.pr(o.Stderr).printf("[dim]Warning: could not count this session in %s (%s)[/dim]",
 			cname, err.Error())
 		return contended
 	}

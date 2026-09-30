@@ -76,6 +76,11 @@ type keeperPlan struct {
 	// PerfRecording is the launch's timing recording gate (timingRecording): the keeper records
 	// its own spans, Window A among them, into the same host-perf.log.
 	PerfRecording bool `json:"perf_recording,omitempty"`
+	// Uncounted says the launch could not take its session lock (holdSessionLock warned), so its
+	// first session is in the jail with the count not holding it. The keeper then never drains on
+	// the count, whose zero would not be zero sessions ("could not count" is never zero, JL-P3), and
+	// ends the jail only when its container ends, as when it cannot open the lock itself (JL-D3).
+	Uncounted bool `json:"uncounted,omitempty"`
 }
 
 // keeperBuildStamp is this binary's build, as a plan carries it: the stamped version and commit.

@@ -1787,6 +1787,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// before the first one has begun, and no orphan sweep can find the jail running with nobody
 	// counted in it.
 	o.holdSessionLock(cname)
+	// A FIRST SESSION THE COUNT DOES NOT HOLD (holdSessionLock warned, or found a drain it cannot
+	// be in) makes the count's zero a lie: its keeper is told, and never drains on it (JL-P3).
+	plan.Uncounted = o.sessionLock == nil
+	if plan.Uncounted {
+		out.printf("[yellow]This jail's keeper cannot count this session, so it will not end the jail when "+
+			"its sessions leave; %s ends it.[/yellow]", stopRemedy(rt, cname))
+	}
 
 	// THE KEEPER, handed the plan, the progress pipe, the lifeline and the launch lock (JL-D31),
 	// and from here the owner of the jail's host services and of the jail's life (§9). The whole
@@ -2256,6 +2263,12 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	if o.holdSessionLock(cname) && (o.keeperDrainSeen || o.findRunningContainer(cname, rt) == "") {
 		o.releaseSessionLock()
 		return 0, true
+	}
+	if o.sessionLock == nil {
+		// Uncounted, which only its own terminal can be told: the keeper decides the jail's end on
+		// the count, and cannot see this session in it.
+		o.pr(o.Stderr).print("[yellow]The jail's keeper cannot see this session, so it may end the jail " +
+			"under it once the sessions it counts have left.[/yellow]")
 	}
 	// Going ahead. The host-side readers switch to the jail's own packs, and the skills and
 	// briefing staging the jail binds is refreshed from them, still under the lock: another

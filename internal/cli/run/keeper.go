@@ -489,6 +489,11 @@ func (k *keeper) awaitRunning() {
 // returned channel once it holds it: zero sessions. A lock it cannot open is never zero (JL-D3,
 // JL-P3): the channel is nil, which never fires, and the jail ends only when its container does.
 func (k *keeper) watchSessions() <-chan struct{} {
+	if k.plan.Uncounted {
+		k.sink.logf("keeper: the launch that started %s could not count its first session, so the count cannot say when the last session leaves; this jail ends only when its container does, and %s ends it",
+			k.plan.Cname, stopRemedy(k.plan.Runtime, k.plan.Cname))
+		return nil
+	}
 	f, err := openSessionLock(k.plan.Cname)
 	if err != nil {
 		k.sink.logf("keeper: cannot open the session lock (%v), so this jail ends only when its container does; `yolo stop` ends it", err)
