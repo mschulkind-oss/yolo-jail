@@ -171,3 +171,27 @@ func TestAJailLaunchReadsTheProfileAWSAuthMintsFor(t *testing.T) {
 		t.Errorf("the launch must say which setting chose the profile, %q:\n%s", want, stderr.String())
 	}
 }
+
+// ON AN ATTACH, AS ON THE FRESH LAUNCH (BR-D23): the fill's region is a fallback, so in the agent's
+// env file it yields to a region the container's frozen environment already carries — a
+// `loopholes.<name>.jail_env` AWS_REGION on the argv — exactly as the fresh launch's default
+// does. The attach read that value (bootEnv) as a stale yolo default and wrote a `case` that
+// overrode it, so an attached terminal ran in the file's region and the first in the container's.
+func TestAnAttachKeepsTheContainersRegionOverTheFilledOne(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	writeAWSConfig(t, home, "[default]\nregion = eu-north-1\n")
+	o := retireOptions(t, discardBuf())
+	o.Getenv = shellWith(map[string]string{"HOME": home})
+	packs := bedrockOnClaude(t, o)
+	channel := channelFor(t, o, newConfig(), packs, emptyEnv())
+	fresh := agentEnvFileContent(channel, "claude")
+	if !strings.Contains(fresh, "export AWS_REGION=${AWS_REGION:-'eu-north-1'}") {
+		t.Fatalf("the fresh launch writes the file's region as a default:\n%s", fresh)
+	}
+	channel.bootEnv = map[string]string{"AWS_REGION": "ap-south-1"}
+	if attach := agentEnvFileContent(channel, "claude"); attach != fresh {
+		t.Errorf("an attach must write the filled region as the fresh launch did, not over the "+
+			"container's AWS_REGION:\nfresh:\n%s\nattach:\n%s", fresh, attach)
+	}
+}

@@ -28,8 +28,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // agentEnvStateDir is the per-agent env directory beneath wsState, the bind source.
@@ -212,6 +214,15 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 			continue
 		}
 		inherited := channel.inheritedValues(agent, v.Key)
+		if filledRegion(d, v) {
+			// THE REGION FILL'S VALUE (packload's regionfill.go, docs/design/bedrock-plumbing.md
+			// BR-D23) is a FALLBACK: the gate found no region for this agent anywhere it composes.
+			// So it yields to the container's frozen environment, as the fresh launch's default
+			// does (a `loopholes.<name>.jail_env` region on the argv), rather than reading that
+			// value as a stale yolo default to override on an attach; it still overrides what
+			// another agent's file composes, which an agent started by that one inherits.
+			inherited = channel.inheritedValuesBut(agent, v.Key, false)
+		}
 		if v.Unset {
 			if len(inherited) > 0 {
 				b.WriteString("case \"${" + v.Key + "-}\" in " + casePatterns(inherited) +
@@ -222,6 +233,14 @@ func agentEnvFileContent(channel *packChannel, agent string) string {
 		b.WriteString(exportComposed(v.Key, v.Value, inherited))
 	}
 	return b.String()
+}
+
+// filledRegion reports whether v is the region the gate's region fill appended to d's shape vars
+// (AgentDelivery.RegionFile): the one shape var whose name no other channel of d's sets, since
+// the fill runs only where none does.
+func filledRegion(d *packload.AgentDelivery, v agentenv.Var) bool {
+	l := d.RegionFile
+	return l != nil && l.Region != "" && !v.Unset && v.Key == l.Var && v.Value == l.Region
 }
 
 // exportComposed renders one composed value against the incoming environment
@@ -253,6 +272,12 @@ func casePatterns(values []string) string {
 // shared file or the boot set", answered by value: a value equal to one of these is inherited,
 // and any other is the user's.
 func (c *packChannel) inheritedValues(agent, key string) []string {
+	return c.inheritedValuesBut(agent, key, true)
+}
+
+// inheritedValuesBut is inheritedValues, with the container's frozen environment among the
+// places only when boot is set: the region fill's value leaves it out (filledRegion).
+func (c *packChannel) inheritedValuesBut(agent, key string, boot bool) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(v string) {
@@ -265,7 +290,9 @@ func (c *packChannel) inheritedValues(agent, key string) []string {
 		add(s)
 	}
 	add(mapStr(c.scope.SharedEnvSources(), key))
-	add(c.bootEnv[key])
+	if boot {
+		add(c.bootEnv[key])
+	}
 	for _, other := range c.scope.Agents() {
 		if other == agent {
 			continue

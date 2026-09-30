@@ -444,7 +444,8 @@ AWS SDKs claude and codex use read it. Core names no AWS file, section or variab
 - **Delivery and disclosure.** The credential gate appends it to the agent's own environment,
   so it rides the agent's env file in a jail, the session on `macos-user` and the exec'd
   environment at `yolo host` ([BR-D20](../design/bedrock-plumbing.md#BR-D20)); in a jail's env
-  file it is a default, so a value exported at the agent's own launch wins. Every notch prints
+  file it is a default, so a value exported at the agent's own launch wins, as does one the
+  container's own environment carries, on an attach as on the fresh launch. Every notch prints
   one line: `Region: AWS_REGION=<region> for <agents> on provider "<name>", read from
   <file> [<section>] (profile "<profile>", <what chose it>): the provider sets no region, and no
   region variable reaches <them>` ([BR-D25](../design/bedrock-plumbing.md#BR-D25)). At
