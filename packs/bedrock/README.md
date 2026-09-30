@@ -64,6 +64,7 @@ states (`context_window`, `max_tokens`, `input`), and Claude Opus 5.5 its reason
 | :--- | :--- | :--- |
 | claude | Anthropic models: its Bedrock client drives the Messages API, which serves Claude only | its own Bedrock default. yolo pins a model only when the profile names one, or your config names a `default` alias Claude can call |
 | codex | OpenAI models: its built-in `amazon-bedrock-runtime` client drives the Responses API, which AWS serves for them and not for Anthropic's | GPT-6.1 Sol (US) |
+| opencode | every entry: its built-in `amazon-bedrock` provider sends a cross-Region id to runtime's Converse API, which serves each of them | Claude Opus 5.5 (Global) |
 
 The agents that run their own Bedrock client are listed here as each is bound.
 
@@ -71,6 +72,10 @@ codex's client reads the region from `AWS_REGION` or `AWS_DEFAULT_REGION` itself
 its `aws.region` only for a region you set on the provider. While a codex profile selects
 Bedrock, yolo pins codex's `model_provider`, so `codex login` cannot switch that session to
 another Bedrock login; pick another profile for that.
+
+opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`. yolo writes its `options.region`
+from a region you set on the provider, so set it there, or deliver `AWS_REGION`: with only
+`AWS_DEFAULT_REGION` set, the launch proceeds and opencode uses `us-east-1`.
 
 ### Choosing another model
 

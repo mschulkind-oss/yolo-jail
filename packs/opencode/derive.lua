@@ -135,6 +135,50 @@ local function callableModel(p, list, profile, pick)
   return nil
 end
 
+-- THE NATIVE BEDROCK BINDING (docs/design/bedrock-plumbing.md §6.2, OQ-BR1: `-p bedrock` puts an
+-- agent on Bedrock through its OWN Bedrock client where it has one). opencode has one: the
+-- built-in provider `amazon-bedrock` on @ai-sdk/amazon-bedrock. Every fact below was read from the
+-- strings of the opencode 1.18.32 binary the launcher installs (2026-09-29), never run:
+--
+--   - its custom loader takes the region from `provider["amazon-bedrock"].options.region`, else
+--     `AWS_REGION`, else `"us-east-1"` (AWS_DEFAULT_REGION is not read), and the profile from
+--     `options.profile`, else `AWS_PROFILE`;
+--   - it autoloads only when one credential signal is present: AWS_PROFILE or options.profile,
+--     AWS_ACCESS_KEY_ID, AWS_BEARER_TOKEN_BEDROCK, options.apiKey, AWS_WEB_IDENTITY_TOKEN_FILE,
+--     or the container-credentials variables, which aws-auth's pointer is;
+--   - its getModel sends an id with a cross-Region prefix (`global.`, `us.`, `eu.`, `jp.`,
+--     `apac.`, `au.`) to runtime unchanged, and routes a bare one by region;
+--   - `options.endpoint` or `options.baseURL`, and a provider-level `npm`, override the per-model
+--     routing, dragging bare ids off mantle (the evidence in bedrock-plumbing.md §14), so the row
+--     carries neither.
+--
+-- So the row is `options.region` for a region the provider declares, and the models of the one
+-- list opencode can call (every maker's: its client drives Converse, which serves each shipped
+-- entry), each with its name and limits. Only the selected provider, and only on opencode's own
+-- transport: a via profile (`bedrock-bridge`) gets the ordinary via row instead, which the launch
+-- refuses while the bridge has no upstream for a provider named by region alone.
+local opencodeBedrockProvider = "amazon-bedrock"
+
+local function opencodeNativeBedrock(ctx)
+  return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
+end
+
+-- opencodeBedrockModels is the `models` table of the native row: each entry opencode can call,
+-- keyed by its runtime id, with the display name and the limits the list declares. Facts it does
+-- not declare are opencode's own (its models.dev catalog, for an id that catalog holds).
+local function opencodeBedrockModels(list)
+  local models = {}
+  for _, e in ipairs(list) do
+    local m = { name = e.facts.name or e.id }
+    local context, output = tonumber(e.facts.context_window), tonumber(e.facts.max_tokens)
+    if context or output then
+      m.limit = { context = context, output = output }
+    end
+    models[e.id] = m
+  end
+  return models
+end
+
 yolo.derive("opencode", "config", function(ctx)
   local res = {}
 
@@ -166,6 +210,13 @@ yolo.derive("opencode", "config", function(ctx)
       local viaRow = (ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider)
       if viaRow then
         baseUrl = ctx.via_url
+      end
+      -- A BEDROCK PROVIDER GETS NO GENERIC ROW, even one a user gave an `openai` endpoint: the
+      -- row speaks @ai-sdk/openai-compatible with one key, and Bedrock's credential is the AWS
+      -- chain, which only opencode's own amazon-bedrock client signs with (the native row
+      -- below). A via row still rides the bridge, which signs for it.
+      if baseUrl and not viaRow and type(prov) == "table" and prov.platform == "aws-bedrock" then
+        baseUrl = nil
       end
       if baseUrl then
         local models = {}
@@ -219,6 +270,15 @@ yolo.derive("opencode", "config", function(ctx)
         provOut[name] = entry
       end
     end
+    -- The native Bedrock row (opencodeNativeBedrock above).
+    if opencodeNativeBedrock(ctx) and provOut[opencodeBedrockProvider] == nil then
+      local p = ctx.providers[ctx.selected_provider]
+      local entry = { models = opencodeBedrockModels(callableModels(p, nil)) }
+      if type(p) == "table" and type(p.region) == "string" and p.region ~= "" then
+        entry.options = { region = p.region }
+      end
+      provOut[opencodeBedrockProvider] = entry
+    end
     if next(provOut) ~= nil then
       res.provider = in_full(ctx, provOut)
     end
@@ -266,7 +326,23 @@ yolo.derive("opencode", "config", function(ctx)
   -- as declaring nothing at all.
   if ctx.selected_provider ~= nil and ctx.selected_provider ~= "" then
     local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
-    if providerEndpoint(p) then
+    if opencodeNativeBedrock(ctx) then
+      -- Bedrock through opencode's own client: its built-in provider, on the model the profile
+      -- names among the entries opencode can call, else the list's first. yolo picks here
+      -- because opencode's own default for `amazon-bedrock` is unread
+      -- (docs/design/model-lists-and-pickers.md §4, "yes until measured"), and a session left to
+      -- an unknown default may start on a bare id runtime refuses. The small model is the same
+      -- one: the list states no cheaper tier. enabled_providers follows the selection, as below.
+      local model = callableModel(p, callableModels(p, nil), ctx.profile, true)
+      if model then
+        local qualified = opencodeBedrockProvider .. "/" .. model
+        res.selection = {
+          model = qualified,
+          small_model = qualified,
+          enabled_providers = { opencodeBedrockProvider },
+        }
+      end
+    elseif providerEndpoint(p) then
       local alias = (ctx.profile and ctx.profile.model) or "default"
       local modelID = nil
       if type(p) == "table" and type(p.models) == "table" then
