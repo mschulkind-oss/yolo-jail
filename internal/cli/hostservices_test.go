@@ -26,9 +26,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // testFakeAgentArg makes a child of this test binary the fake agent (TestMain).
@@ -36,17 +38,22 @@ const testFakeAgentArg = "-yolo-cli-test-fake-agent"
 
 // fakeAgentReport is what the fake agent writes to the file YOLO_CLI_TEST_AGENT_DUMP names.
 type fakeAgentReport struct {
-	Env         map[string]string `json:"env"`
-	WithToken   int               `json:"with_token"`
-	WithoutAuth int               `json:"without_auth"`
-	Body        string            `json:"body"`
+	Env map[string]string `json:"env"`
+	// Path is the PATH the agent was handed, and Copy the YOLO_CLI_TEST_AGENT_COPY a launcher
+	// script set on its way to the agent — which copy of it the launch ran.
+	Path        string `json:"path"`
+	Copy        string `json:"copy"`
+	WithToken   int    `json:"with_token"`
+	WithoutAuth int    `json:"without_auth"`
+	Body        string `json:"body"`
 }
 
 // fakeAgentMain is the fake agent: it records the ANTHROPIC_* environment it was handed, sends
 // the bridge one canned request with the token claude would send and one with none, writes the
 // report, and then exits or, in mode "sleep", waits to be killed.
 func fakeAgentMain() int {
-	rep := fakeAgentReport{Env: map[string]string{}}
+	rep := fakeAgentReport{Env: map[string]string{}, Path: os.Getenv("PATH"),
+		Copy: os.Getenv("YOLO_CLI_TEST_AGENT_COPY")}
 	for _, kv := range os.Environ() {
 		if k, v, ok := strings.Cut(kv, "="); ok && strings.HasPrefix(k, "ANTHROPIC_") {
 			rep.Env[k] = v
@@ -149,15 +156,27 @@ type serviceLaunch struct {
 // returns what happened. signals, when non-nil, is the launch's signal channel.
 func runServiceLaunch(t *testing.T, cfg string, flags []string, mode string, signals chan os.Signal) serviceLaunch {
 	t.Helper()
+	return runServiceLaunchWith(t, cfg, flags, mode, signals, nil)
+}
+
+// runServiceLaunchWith is runServiceLaunch with a setup step, run once the test HOME exists and
+// before the launch, handed the fake agent's exec line (fakeAgentExec) for a second copy of it.
+func runServiceLaunchWith(t *testing.T, cfg string, flags []string, mode string, signals chan os.Signal,
+	setup func(agentExec string)) serviceLaunch {
+	t.Helper()
 	hostGateHome(t, cfg, wcShell(nil))
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
+	agentExec := "exec '" + exe + "' " + testFakeAgentArg + " \"$@\"\n"
 	bin := t.TempDir()
-	script := "#!/bin/sh\nexec '" + exe + "' " + testFakeAgentArg + " \"$@\"\n"
+	script := "#!/bin/sh\n" + agentExec
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
+	}
+	if setup != nil {
+		setup(agentExec)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	dump := filepath.Join(t.TempDir(), "agent.json")
@@ -269,6 +288,52 @@ func TestHostCodexClaudeRunsThroughALaunchOwnedBridge(t *testing.T) {
 	starting := strings.Index(l.errs, "yolo host: starting claude (from your PATH, ")
 	if starting < 0 || starting < started {
 		t.Errorf("the launch must say what it starts, after the service lines:\n%s", l.errs)
+	}
+	assertServiceGone(t, l)
+}
+
+// THE FLOOR ON THE LAUNCH-OWNED-SERVICES PATH (HP-DIR4, HE-D1): `yolo host -p codex -- claude` is
+// the main way claude runs through a service, and it must run the floor's copy with the floor's
+// PATH exactly as the exec path does. The floor holds claude from the machine's capture (Linux's
+// recipe; the platform is the test's, so this runs on every host), its copy marks itself on the
+// way to the fake agent, and the agent reports what it was handed: the floor's copy, the caller's
+// PATH first and the floor's bin/ last, and the hand-over line naming the floor's copy — after
+// the service lines. Point the services path at the PATH copy, or hand it launch.environ(), and
+// this fails.
+func TestHostServicesLaunchRunsTheFloorsCopyWithTheFloorsPath(t *testing.T) {
+	upstream, _ := fakeUpstream(t)
+	fakeHostBroker(t)
+	orig := newHostFloor
+	t.Cleanup(func() { newHostFloor = orig })
+	l := runServiceLaunchWith(t, codexConfig(upstream.URL), []string{"-p", "codex"}, "", nil, func(agentExec string) {
+		newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+			f := productionHostFloor(out, progs)
+			f.GOOS = "linux"
+			f.Node.BaseURL = "http://127.0.0.1:1/test-guard-no-node-download"
+			f.Capture = func(bin string) error { return fmt.Errorf("test guard: no `yolo capture %s`", bin) }
+			return f
+		}
+		admitRelocatableCapture(t, "claude", "#!/bin/sh\nexport YOLO_CLI_TEST_AGENT_COPY=floor\n"+agentExec)
+	})
+	if l.rc != 0 {
+		t.Fatalf("rc = %d\n%s", l.rc, l.errs)
+	}
+	if len(l.started) != 1 || l.execed {
+		t.Fatalf("started %d services, exec'd %v; want the bridge and no exec\n%s", len(l.started), l.execed, l.errs)
+	}
+	if l.report.Copy != "floor" {
+		t.Errorf("the agent that ran is not the floor's copy (copy mark %q)\n%s", l.report.Copy, l.errs)
+	}
+	floorBin := filepath.Join(paths.HostFloorDir(), "bin")
+	sep := string(os.PathListSeparator)
+	if want := hostChildPath(os.Getenv("PATH"), floorBin); l.report.Path != want ||
+		!strings.HasSuffix(l.report.Path, sep+floorBin) {
+		t.Errorf("the agent's PATH = %q, want the caller's then the floor's bin/: %q", l.report.Path, want)
+	}
+	started := strings.Index(l.errs, `started the "wire-bridge" service`)
+	starting := strings.Index(l.errs, "yolo host: starting claude (yolo's floor copy, ")
+	if started < 0 || starting < started {
+		t.Errorf("the hand-over line must name the floor's copy, after the service lines:\n%s", l.errs)
 	}
 	assertServiceGone(t, l)
 }
