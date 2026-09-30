@@ -166,7 +166,7 @@ and warns before changing a value you set yourself.
 
 Your own config reaches those files too, as it reaches a jail's. The MCP servers under
 `mcp_servers`, the language servers under `lsp_servers`, the model providers your packs and
-`providers` declare, and the model `use_profiles` selects are written into each agent's settings on
+`providers` declare, and the model your `profile` key selects are written into each agent's settings on
 your machine. Pi, for example, gets the same `openai-codex` model list a jail's pi has. Three
 things stay behind, and the report names each one: an MCP preset, a server whose command is a path
 that exists only inside a jail (such as `/workspace/...`), and a profile that needs a jail's
@@ -218,7 +218,7 @@ Two things to know:
   is named, and yolo asks before dropping anything the first time it writes a list. To keep one,
   add it to your user config under `mcp_servers`, `lsp_servers` or `providers`. That reaches every
   agent. To give it to one agent only, add a `config-overlay` in your local pack.
-- **Your selected model is written once, not forced.** When `use_profiles` picks a profile, yolo
+- **Your selected model is written once, not forced.** When your `profile` key picks a profile, yolo
   writes that profile's provider and model into the agent's settings. If you then pick another
   model in the agent, such as with `/model`, your pick stays. When you remove the selection, yolo
   clears only the values it wrote.

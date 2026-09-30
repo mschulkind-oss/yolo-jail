@@ -32,16 +32,23 @@ Two words do the work:
 
    Never put a key value in a `.jsonc` file.
 
-3. **Select the profile** for one launch with `-p`, or make it the default for an agent with
-   `use_profiles`:
+3. **Select the profile** for one launch with `-p`, or make it your default with the `profile` key
+   in your user config:
 
    ```bash
    yolo -p zai -- claude
    ```
 
    ```jsonc
-   { "use_profiles": { "claude": "zai" } }
+   { "profile": { "claude": "zai" } }
    ```
+
+   The key takes the same three forms as `-p`. `"profile": "zai"` selects zai for every agent,
+   like `-p zai`. `"profile": { "claude": "zai" }` selects it for one agent, like
+   `-p claude=zai`. `"profile": { "*": "zai", "pi": "kilo" }` selects zai for every agent you
+   do not name, like `-p zai -p pi=kilo`. A `-p` on the command line replaces the key for that
+   launch. The key used to be called `use_profiles`; yolo refuses the old name and shows your
+   entries under the new one.
 
 A key reaches only the agents whose profile selects its provider. Another agent, or a plain shell in
 the jail, does not see it, and the launch lists which keys went where. If the selected provider's
@@ -137,7 +144,7 @@ you want in your user config and make profiles for them:
     "router-coding": { "provider": "openrouter", "model": "coding" },
     "kilo-economy":  { "provider": "kilo", "model": "economy" }
   },
-  "use_profiles": { "claude": "router-coding", "pi": "kilo-economy" }
+  "profile": { "claude": "router-coding", "pi": "kilo-economy" }
 }
 ```
 
@@ -151,7 +158,7 @@ it, and it is not a loophole: it runs entirely inside the jail and gives no acce
 
 On your own machine the bridge runs for one command. `yolo host -p codex -- claude` runs Claude
 Code on your ChatGPT subscription: yolo starts the bridge beside `claude`, lets only that `claude`
-use it, and stops it when `claude` exits. A `use_profiles` selection works the same way through
+use it, and stops it when `claude` exits. A selection in the `profile` key works the same way through
 `yolo host -- claude` and the host wrappers. `yolo host env` cannot start the bridge, so it refuses
 such a profile and names the command that works. `yolo host apply` writes no bridge address into
 your files, so a `claude` you start some other way, such as from an IDE that runs the program
@@ -188,7 +195,7 @@ When you run pi with a profile and the pi-subagents extension, a child agent sta
 model as pi and can use only that provider's models: the ones you list in `models`, or any of the
 provider's models when you list none.
 
-Provider addresses, `profiles` and `use_profiles` are read from your user config only. A project's
+Provider addresses, `profiles` and `profile` are read from your user config only. A project's
 `yolo-jail.jsonc` cannot set them, because an agent that can edit its project could otherwise send
 its requests to a server you did not choose. `yolo config-ref` documents every provider field.
 

@@ -241,7 +241,7 @@ naming why, never silence.
 > [!WARNING]
 > **`yolo check` cannot see `-p`.** `check` reads configuration; a `-p <name>` is an argument to a
 > launch that has not happened, and the flag folds in above this. So a clean prediction means "the
-> `use_profiles` selection pairs", never "any launch from this config pairs". Narrowing that needs
+> `profile` key's selection pairs", never "any launch from this config pairs". Narrowing that needs
 > the flag, not a wider census — widening the census here to guess at flags would make the
 > prediction wrong in places the launch is not.
 

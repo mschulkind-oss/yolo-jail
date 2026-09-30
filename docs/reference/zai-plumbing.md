@@ -179,4 +179,4 @@ place the values themselves are stated.
 | Credential variable | `ZAI_API_KEY`, by name only | the pack's `api_key_env_name` |
 | Provider entry keys | `base_url`, `endpoints`, `wire_api`, `api_key_env_name`, `models`, `region`, `capabilities`, `options` | `config.knownProviderKeys`; `yolo config-ref` for the user-facing schema |
 | Profile body | `{name, provider}` and nothing else | `packdecl` (`Contribution.Provider`; `RequiresProvider` is the tombstone) |
-| Selection spellings | `-p <name>` / `-p <cli>=<name>`, and `use_profiles` in user config | [`providers.md`](providers.md#per-agent-delivery) |
+| Selection spellings | `-p <name>` / `-p <cli>=<name>`, and the `profile` key in user config, which mirrors them | [`providers.md`](providers.md#per-agent-delivery) |

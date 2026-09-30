@@ -63,7 +63,8 @@ The adopting-boot failure was reproduced through the same render at `38814ba4`, 
 way, newer than that stamp. UNMEASURED: no live agent session has been watched across a deselect.
 
 **The host notch's grant is newer too** (2026-09-27): the disclosure wording and the
-`use_profiles` key refusal at `yolo host`, described under
+refusal of a selection key naming a command no pack installs at `yolo host` (a `use_profiles`
+key then, a `profile` key since [PP-D10](../design/providers-and-profiles-redesign.md#PP-D10)), described under
 [the credential gate](#the-credential-gate), come from
 [`credential-sources-separation.md`](../design/credential-sources-separation.md) ES-D2 to ES-D5, and
 the remedy's corrections from ES-D10 to ES-D12. The `--with-credentials` grant is from the same
@@ -113,7 +114,7 @@ presence, selection is an explicit act.
 | Lua sandbox: `yolo.derive` / `yolo.env` registrations, derive ctx | `internal/agentcfg/luahook` (`DeriveCtx`, `Derive`) |
 | Selection namespace: edge-triggered apply | `internal/agentcfg` (`SelectionKey`, `ApplySelection`) |
 | Surface render + selection lift | `internal/entrypoint` (`ConfigurePackSurfaces`, prism stateful render) |
-| User config: `providers`, `profiles`, `use_profiles` | `internal/config` (`profiles.go`, `UseProfileCLINames`) |
+| User config: `providers`, `profiles`, `profile` | `internal/config` (`profiles.go`, `profileselection.go`, `UseProfileCLINames`) |
 | The `profile` modifier's two gates, and `env`'s `platform` gate | `internal/packload` (`EnvFold` over a `GateSelection`) for `env`; `internal/packoverlay` (`Collect`) for `config-overlay` |
 | A provider's platform, and the platform switch an agent pack declares | `internal/packdecl` (`Contribution.Platform`, `PlatformSwitch`); `internal/packload` (`SelectionOf`, `PlatformSwitchConflicts`) |
 | Launch-side profile checks, the disclosure line, the credential preflight | `internal/cli/run` (`checkProfileTargets`, `checkProfileDeclarations`, `noteUseProfiles`, `checkProviderCredentials`) |
@@ -426,7 +427,8 @@ rewritten whole by each entry; `writeUserEnvFile` in `internal/cli/run`):
 
 - `YOLO_PROVIDERS` — the composed table, **secret-free** (`api_key_env_name` carries the NAME
   of a variable, never a value).
-- `YOLO_USE_PROFILES` — the effective selection: CLI name → profile name.
+- `YOLO_USE_PROFILES` — the effective selection: CLI name → profile name, the `profile` key and
+  `-p` already folded, so no `"*"` crosses.
 - `YOLO_PROFILES` — the RESOLVED profile table: name → `{provider, <options>}`, the output of
   the one lowering (below). In-jail derives and the host notch read the same resolved shape;
   no user-config parsing happens in-jail.
@@ -541,7 +543,7 @@ Where each answer lands is the vehicle's:
     `eval "$(yolo host env --with-credentials zai)"` puts them in the current shell. No pack's
     env derive runs for a name no pack installs, and a CLI-less pack's gated env (`aws-auth`'s
     pointer) does not fire for it
-    ([`OQ-ES7`](../design/credential-sources-separation.md#OQ-ES7), open). A `use_profiles` key
+    ([`OQ-ES7`](../design/credential-sources-separation.md#OQ-ES7), open). A `profile` key
     naming a command no resolvable pack installs is refused here with the validator's message,
     as `yolo check` and every jail launch refuse it
     ([OQ-NC5](../plans/notch-convergence.md#OQ-NC5), which retired ES-D1;
@@ -594,7 +596,7 @@ Where each answer lands is the vehicle's:
     typed `-p`), never a `-p` that would drop the grant
     ([ES-D22 and ES-D23](../design/credential-sources-separation.md#10-decision-ledger)). An unknown provider
     refuses, naming the composed ones. It combines with `-p`: an agent keeps its profile and
-    also receives the granted keys. Only the typed flag grants. `-p`, `use_profiles`, a
+    also receives the granted keys. Only the typed flag grants. `-p`, the `profile` key, a
     `YOLO_ALLOW_*` variable and config cannot, and a jail launch given the flag refuses as
     host-only ([OQ-ES5](../design/credential-sources-separation.md#OQ-ES5), ruled for the host;
     [ES-D13 to ES-D17](../design/credential-sources-separation.md#10-decision-ledger)).
@@ -701,7 +703,8 @@ table, string, math libraries only; no `os`, no `io`). Two registrations and one
 > boot.
 
 The derive context (`DeriveCtx`) carries: the live tables (`mcp_servers`, `lsp_servers`,
-`providers`, `use_profiles`), `agent` and `surface`, `profile_name` (the profile active at this
+`providers`, and `use_profiles`, the folded CLI-keyed selection, which kept its name when the
+config key became `profile`), `agent` and `surface`, `profile_name` (the profile active at this
 agent's CLI name), `selected_provider` (the provider it resolves to), `selected_platform` (that
 provider's [`platform`](#the-platform-what-service-a-provider-is), read off its row in the table,
 "" when it declares none), `profile` (that profile's
@@ -1073,9 +1076,11 @@ from the same object override the provider-level option, so models of one provid
 The provider entry needs no pre-declaration (that gate is profiles-only).
 
 The user-facing spellings: on the run path `-p <sel>` / `--profile <sel>` take BOTH grammars — a bare
-NAME selects that profile for every selected pack (uniformly, whether or not a command
-follows `--`), and `cli=name` (comma-separated, repeatable) selects for the named CLI only.
-The persistent form is `use_profiles` in user config. Profile names refuse `=` at
+NAME selects that profile for every CLI the selected packs install that no pair names
+(uniformly, whether or not a command follows `--`), and `cli=name` (comma-separated,
+repeatable) selects for the named CLI only, beside a bare name in either order. The persistent
+form is the `profile` key in user config, which mirrors the flag form for form
+([the selection](#declaring-and-selecting-a-profile)). Profile names refuse `=` at
 declaration so the two grammars cannot be ambiguous, and neither flag means startup
 timing — that is `--timing`. (The former third spelling `--pack-profile` is deleted —
 never in a release, and redundant once `-p` carried both grammars.)
@@ -1134,14 +1139,33 @@ checked, naming that pack and its problems, as a jail launch refuses the same co
 [NS-D18](../design/notch-scoped-config-contributions.md#10-decision-ledger)).
 
 The selection itself is a table keyed by **CLI name** — the bin a pack installs — mapping each
-CLI to the profile it runs: `use_profiles` in user config, then `-p` on the command line
-([the flag grammar](#per-agent-delivery)). CLI names are the right key because the namespace is
-already exclusively owned — `program` is sole-owned by bin, so a CLI name resolves to at most
-one pack — and because a pack slug is not what a derive knows itself by. Both `profiles` and
-`use_profiles` are **user-scope-only** ([OQ-CS5](#oq-cs5)): a workspace file travels with the
-repo and is agent-editable, and a profile steers which endpoint and which model an agent talks
-to. The selector's pre-rename spelling, `agent_profiles`, is refused by name with the
-replacement in the message. Every derive receives the **whole** table, so a pack that installs
+CLI to the profile it runs. Two sources fill it: the `profile` key in user config, then `-p` on
+the command line ([the flag grammar](#per-agent-delivery)), and every `-p` form beats every key
+form for each CLI it reaches. The key mirrors the flag form for form
+([PP-D10](../design/providers-and-profiles-redesign.md#PP-D10)):
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc — one of:
+"profile": "bedrock"                                // -p bedrock: every agent
+"profile": { "pi": "codex", "claude": "bedrock" }   // -p pi=codex,claude=bedrock
+"profile": { "*": "bedrock", "pi": "codex" }        // -p bedrock -p pi=codex
+```
+
+`"*"` is every agent the object does not name. Within one source a named CLI keeps its own
+entry, and the default (a bare `-p`, the string form or `"*"`) reaches every other CLI the
+selected packs install, never the command after `--`. A null entry selects no profile for its
+CLI, so `"*"` does not reach it. Both spellings lower to one shape and one fold
+([PP-D11](../design/providers-and-profiles-redesign.md#PP-D11)), so a form cannot mean one
+thing in config and another on the command line. CLI names are the right key because the
+namespace is already exclusively owned — `program` is sole-owned by bin, so a CLI name resolves
+to at most one pack — and because a pack slug is not what a derive knows itself by; `"*"` cannot
+collide with one, since no program is called `*`. Both `profiles` and `profile` are
+**user-scope-only** ([OQ-CS5](#oq-cs5)): a workspace file travels with the repo and is
+agent-editable, and a profile steers which endpoint and which model an agent talks to. The
+selector's earlier spellings, `use_profiles` (shipped in v0.11.0) and `agent_profiles`, are
+refused by name with the replacement in the message, and the `use_profiles` refusal respells
+the user's own entries under the new key; in a jail, where the config is a generated snapshot,
+each is a warning instead. Every derive receives the **whole** table, so a pack that installs
 no CLI — a provider pack — still reads any CLI's selected name.
 
 > [!WARNING]
@@ -1165,7 +1189,7 @@ of straight to the provider ([OQ-WG6](../design/wire-bridge-gateway.md#OQ-WG6)):
 "profiles": {
   "pi-zai": { "provider": "zai", "via": "wire-bridge", "model": "glm-5.3" }
 },
-"use_profiles": { "pi": "pi-zai" }
+"profile": { "pi": "pi-zai" }
 ```
 
 What it does, in order:
@@ -1173,7 +1197,7 @@ What it does, in order:
 1. **The launch adds the pack.** Selecting the profile brings `wire-bridge` into the jail the way
    `needs` does, and says so (`+ wire-bridge (via of profile pi-zai, active for pi)`). A `via`
    naming a pack yolo does not ship, or one that declares no `via_address`, refuses the launch.
-   Only an agent a selected pack installs counts: a `use_profiles` entry for an agent the launch
+   Only an agent a selected pack installs counts: a `profile` entry for an agent the launch
    does not carry adds nothing ([WG-I10](../design/wire-bridge-gateway.md#WG-I10)). `yolo check`,
    config validation and `yolo config promote` resolve the same pack set
    ([WG-I11](../design/wire-bridge-gateway.md#WG-I11)).
@@ -1194,7 +1218,7 @@ URL at all. A derive decides which provider rows ride it: pi, oh-omp and codex k
 `openai-codex` on their own subscription client, and codex writes no row for a provider it
 cannot reach. A via there changes nothing the agent sends
 ([WG-I15](../design/wire-bridge-gateway.md#WG-I15)). `yolo check` predicts every answer for the
-`use_profiles` selection; a `-p` is an argument to a launch that has not happened, so `check`
+`profile` key's selection; a `-p` is an argument to a launch that has not happened, so `check`
 cannot see it.
 
 | What the via does for the agent | Launch | `yolo check` |
@@ -1278,7 +1302,7 @@ second, fragment-shaped kind for it ([OQ-16](#pv-oq-16)).
 Which table the overlay gate reads depends on the notch ([OQ-17](#pv-oq-17)). In a jail it is
 the table the launcher emitted, `YOLO_USE_PROFILES`, which is the render that actually
 happened. At the host notch — `yolo host apply` and `yolo config diff` — it is the **user-scope**
-`use_profiles` alone, because a gated overlay rewrites the user's real config files — and can
+`profile` key alone, because a gated overlay rewrites the user's real config files — and can
 rewrite where an agent sends the credentials the user already holds (`ANTHROPIC_BASE_URL`).
 
 ### Two channels, split by payload type
@@ -1328,7 +1352,7 @@ that can be mistyped is checked against the right set, and each check is fatal:
 
 | Spelling | Checked against | Where |
 | :--- | :--- | :--- |
-| a `use_profiles` **key** | the CLI names every **resolvable** pack installs — selected or not | config validation (`yolo check` and every launch); at the host notch (`yolo host --`, `yolo host env`) the provider and profile section of the same validation over user scope (`config.ValidateProviderSection`), with the launched command's own key refused first, adding the `-p` spelling that is legal (`config.UnknownUseProfileKey`) |
+| a `profile` **key** other than `"*"` | the CLI names every **resolvable** pack installs — selected or not | config validation (`yolo check` and every launch); at the host notch (`yolo host --`, `yolo host env`) the provider and profile section of the same validation over user scope (`config.ValidateProviderSection`), with the launched command's own key refused first, adding the `-p` spelling that is legal (`config.UnknownProfileKey`) |
 | `-p <cli>=<name>` | the same namespace | launch preflight (`checkProfileTargets`) — a flag never reaches config validation |
 | a selected profile **name** | the declared set: selected packs' profiles plus the user's `profiles` | launch preflight, both notches |
 | a `-p`/`--profile` with **no value** (trailing, followed by `--`, or `--profile=`) | nothing: it is refused as "`-p` needs a value", exit 2 | the front door, both notches, through one value-flag reader that `--at`, `--network` and `--with-credentials` share |
@@ -1337,8 +1361,8 @@ The key check answers against the **universe**, not the selection: whether a str
 CLI is a fact about the packs this machine can resolve, while selection only decides whether a
 contribution renders. When the universe cannot be enumerated — a configured pack that does not
 resolve — the key check steps aside; that pack is refused on its own terms, first and louder. A
-**bare** `-p <name>` is not checked against anything but the declared set: on the run path it keys
-the name onto every CLI the selected packs install, never onto the command after `--`, so there is
+**bare** `-p <name>` (and the `profile` key's `"*"` or string form) is not checked against anything but the declared set: on the run path it keys
+the name onto every CLI the selected packs install that no pair names, never onto the command after `--`, so there is
 no CLI name in it to mistype. At the host notch it keys the one command after `--`, whatever it is,
 which is the host's grant for an ad-hoc command ([the host notch](#the-credential-gate)).
 
@@ -1375,7 +1399,7 @@ claude: ~/.claude/settings.json sets CLAUDE_CODE_USE_BEDROCK, which puts claude 
 ```
 
 **A switch yolo wrote is named as yolo's.** `yolo host apply` writes claude's switch into your real
-`~/.claude/settings.json` while claude's host selection (`use_profiles`) is on a Bedrock provider
+`~/.claude/settings.json` while claude's host selection (the `profile` key) is on a Bedrock provider
 ([D8](#pv-d8)), and records the value it wrote at `/env/CLAUDE_CODE_USE_BEDROCK` in the host's
 computed-leaf record, beside the provenance record
 ([HC-D25](../design/host-computed-layer.md#HC-D25)). When the file holds that recorded value, the
@@ -1476,7 +1500,7 @@ older links.
 | <a id="oq-sw1"></a>[OQ-SW1](#oq-sw1) — a selection outranks a host-layer value | *"Just because they're the host files doesn't mean you want them that way in the jail."* An explicit `-p` is a more specific choice than a standing host default, and the hazard [OQ-CS2](#oq-cs2) protects, an in-jail edit, still wins because it differs from the host value ([the override](#a-selection-outranks-a-host-layer-value)). |
 | <a id="oq-cs3"></a>[OQ-CS3](#oq-cs3) — core resolves no model | The derive gets the active profile and the provider entry and picks its own agent's model and fallback; `default` is an ordinary alias, not a core concept. |
 | <a id="oq-cs4"></a>[OQ-CS4](#oq-cs4)/CS7 — provider-declared flat options; core checks the key census only | "Model can't be the only config we'll want"; a validated value set is the enum mistake one layer up. |
-| <a id="oq-cs5"></a>[OQ-CS5](#oq-cs5) — `profiles` and `use_profiles` are user-scope-only | A workspace config is agent-editable and travels with the repo; it cannot steer endpoints. |
+| <a id="oq-cs5"></a>[OQ-CS5](#oq-cs5) — `profiles` and `use_profiles` are user-scope-only | A workspace config is agent-editable and travels with the repo; it cannot steer endpoints. `use_profiles` is the `profile` key since [PP-D10](../design/providers-and-profiles-redesign.md#PP-D10), and the rule holds for it. |
 | <a id="oq-cs6"></a>[OQ-CS6](#oq-cs6) — declaration is mandatory | An undeclared name is diagnosable instead of silently inert; reverses the old free-form ruling deliberately. |
 | <a id="oq-cs8"></a>[OQ-CS8](#oq-cs8) — the agent pack composes the binding in its own derive | Core stops holding an agent→protocol table; each agent declares how a selection reaches it. |
 | <a id="oq-cs9"></a>[OQ-CS9](#oq-cs9) — profiles point at a provider; no `extends` | Provider-declared option defaults already remove the duplication inheritance would fix. |
@@ -1532,7 +1556,7 @@ above explains what each is for; this table is the only place the exact spelling
 | codex's model for `openai-codex` | the profile's `model` option; the first declared `openai-codex` id when the profile names none or names `default` (`gpt-6.1-sol` as shipped); no `model` when the list is empty | `packs/codex/derive.lua` |
 | The `openai-codex` model list | ids `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-luna` in that order, each with a `[1m]` variant at 1,000,000 tokens after it; declared as `models` (alias = id) plus `model_options` facts `order`, `name`, `description`, `context_window`, `long_context_window` | `packs/openai-auth/pack.json` |
 | pi's copy of that list | `~/.pi/agent/yolo-openai-codex-models.json`, the computed surface `pi/codex-models`: `{"models": [{"id", "base", "name", "contextWindow"}, …]}`, read by the openai-auth extension at load. At the host notch it is `{}` under `host_management: assert` and refused under `own` | `packs/pi/pack.json`, `packs/pi/extensions/yolo-openai-auth.js` |
-| User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `use_profiles` (user-scope-only); `agent_profiles` refused by name as the old spelling of `use_profiles` | `internal/config` |
+| User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `profile` (user-scope-only); `use_profiles` and `agent_profiles` refused by name as old spellings of `profile` | `internal/config` |
 | Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#OQ-NC6), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. Since 2026-09-29 also `platform`, which decides which agents a pack's credential pointer reaches ([PP-D7](../design/providers-and-profiles-redesign.md#PP-D7)). `models`, `options`, `region` and `capabilities` still merge from either scope, a `region` only as one DNS label ([a region is a host-name part](#a-region-is-a-host-name-part)). The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`, `validateProviderRegion`) |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |
 | Provider platform | `platform`, one token, open vocabulary; `aws-bedrock` is the one value read today (claude's derive, aws-auth's gate, the region preflight); a derive reads the selected provider's as `ctx.selected_platform` | `packdecl.PlatformProblem`, `luahook` (`selectedPlatform`) |

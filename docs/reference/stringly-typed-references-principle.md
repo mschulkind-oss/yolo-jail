@@ -201,7 +201,7 @@ decides it, so a reader can re-measure rather than trust a tally.
 | Mechanism | The string | Disposition today |
 | :--- | :--- | :--- |
 | Config **key** names | the key itself | **Fatal.** `config.reportUnknownKeys` — this row is the model the rest are measured against. |
-| `use_profiles` | the `<cli>` key | **Fatal** at `check` and at launch, against the installed-CLI universe. `config.validateUseProfiles`; retired spellings refuse by name. |
+| `profile` | the `<cli>` key (every one but `"*"`) | **Fatal** at `check` and at launch, against the installed-CLI universe. `config.validateProfile`; retired spellings (`use_profiles`, `agent_profiles`) refuse by name. |
 | `providers.*.wire_api` | the value | **Fatal**, closed enum (R4). `config.validateWireAPI`. |
 | `providers.*.base_url` | the value | **Fatal** where the URL carries userinfo — a plaintext credential in a git-tracked file. `config.providerURLProblem`. |
 | Contribution `kind` | the value | **Fatal** at load for a known build; **skip + report** across the version boundary. `packdecl.KnownKind` / `packdecl.DecodeTolerant`. |

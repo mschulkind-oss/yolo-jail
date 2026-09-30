@@ -315,7 +315,7 @@ nothing").
 <a id="ba-p1"></a>**P1. The audience namespace is the launcher-command namespace, and there is no
 second one.** The value of `agent` and of every `agents` entry is a **bin**: the binary basename a
 `program` contribution installs, the word a user types after `yolo --`. That is the namespace
-`-p <name> -- <bin>` and `use_profiles.<cli>` already key on. It is never the pack slug. The
+`-p <cli>=<name>` and the `profile` key's `<cli>` entries already key on. It is never the pack slug. The
 fields are *spelled* `agent` and `agents` because users think of a launcher command as an agent,
 and because a config surface already names its owner with `"agent": "pi"`. Singular is the
 identity a destination declares; plural is the audience a contribution names. The validator puts

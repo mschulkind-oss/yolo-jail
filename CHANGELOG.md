@@ -51,12 +51,12 @@ because `.yolo` is a symbolic link, the launch says why and goes on without it. 
 **`yolo host -p codex -- claude` now runs Claude Code on your ChatGPT subscription, as it does in
 a jail.** yolo starts the wire bridge for that one command, lets only that `claude` use it, and
 stops it when `claude` exits. The same goes for other profiles that need the bridge, such as
-`-p cerebras -- claude`, and for a `use_profiles` selection through `yolo host -- claude` and the
-host wrappers. The `macos-user` backend now runs the bridge the same way for each launch that
-needs it, so those profiles work there too instead of being refused. Because the bridge runs only
-for the command that starts it, `yolo host env` refuses such a profile and names the command that
-works, and `yolo host apply` writes no bridge address into your files and says so; a `claude` you
-start some other way runs on its own login. See
+`-p cerebras -- claude`, and for a `profile` selection in your config through
+`yolo host -- claude` and the host wrappers. The `macos-user` backend now runs the bridge the
+same way for each launch that needs it, so those profiles work there too instead of being
+refused. Because the bridge runs only for the command that starts it, `yolo host env` refuses
+such a profile and names the command that works, and `yolo host apply` writes no bridge address
+into your files and says so; a `claude` you start some other way runs on its own login. See
 [the wire bridge](userguide/guides/providers-and-models.md#the-wire-bridge).
 
 **On the `macos-user` backend, AWS Bedrock through `aws-auth` and the ChatGPT-subscription
@@ -130,7 +130,7 @@ so do the servers you add to it later. Without the extension, nothing is written
 
 **`yolo host apply` now writes your MCP servers, LSP servers, providers and selected model into
 your host agents' config, as jails do.** The servers under `mcp_servers` and `lsp_servers`, the
-providers your packs and `providers` declare, and the model `use_profiles` selects reach each
+providers your packs and `providers` declare, and the model your `profile` key selects reach each
 agent's files on your own machine, and so does the automatic apply a wrapped launch runs. Host pi
 now offers the same `openai-codex` models a jail's pi does. As in a jail, yolo writes an agent's
 server and provider lists whole, so an entry you added through the agent itself is dropped unless
@@ -205,6 +205,18 @@ other Codex settings. A background copy a `macos-user` session started, before y
 with `codex agents`, keeps running until the Mac restarts, and each project where Codex ran in a
 jail keeps copies of it that you can delete. See
 [Codex's background copy](userguide/guides/agent-settings.md#codexs-background-copy).
+
+**The profile you select in your config is now the `profile` key, and it takes the same forms
+as `-p`.** Write `"profile": "bedrock"` to run every agent on one profile, the way `-p bedrock`
+does, `"profile": {"pi": "codex"}` to choose for one agent, or
+`"profile": {"*": "bedrock", "pi": "codex"}` to run pi on codex and every agent you do not name
+on bedrock, the way `-p bedrock -p pi=codex` does. A `-p` still replaces your config's choice for
+one launch, in a jail and at `yolo host` alike. The old `use_profiles` key is refused with a
+message that shows your entries under the new name, so a config written for the last release
+stops with the fix in hand instead of starting agents without their profile. On the command line,
+a `-p pi=codex` next to a bare `-p bedrock` now keeps pi on codex, in either order; before, the
+bare name won for every agent. See
+[providers and models](userguide/guides/providers-and-models.md).
 
 **A jail that shares your host's network now says so, at launch and in its briefing.** With
 `network.mode: "host"`, in a jail started from inside another jail, and in every macos-user

@@ -34,7 +34,7 @@ itself is unrepresentable in a manifest — `api_key_env_name` carries a NAME, n
 ZAI_API_KEY=<key>                      # the ONLY secret, spelled once
 ```
 
-Then `yolo -p zai` (or the persistent spelling, `"use_profiles": {"claude": "zai"}`).
+Then `yolo -p zai` (or the persistent spelling, `"profile": "zai"`, in your user config).
 
 ## What lands where
 
@@ -66,7 +66,7 @@ config-overlay — the one that carried claude's endpoint was deleted with `env_
 (2026-09-02, [`zai-plumbing.md`](../../docs/reference/zai-plumbing.md)).
 
 Selecting it — `-p zai` before the `--`, or `-p pi=zai` for one agent, or the
-persistent `"use_profiles": {"pi": "zai"}` — is what makes each agent's derive write its own
+persistent `"profile": {"pi": "zai"}` — is what makes each agent's derive write its own
 selection key (pi's `defaultProvider`/`defaultModel`, opencode's `model`) from the
 provider's `model` option. The Coding Plan catalog contains exactly `glm-4.6`, `glm-5.3`,
 and `glm-5.3-flash`; its default is `glm-5.3`. These are **wire-true IDs**: Pi and
@@ -81,14 +81,14 @@ Your own profile states the option rather than overriding the pack's:
 // ~/.config/yolo-jail/config.jsonc (user scope — the key is refused at workspace scope)
 {
   "profiles": {"zai-flash": {"provider": "zai", "model": "glm-5.3-flash"}},
-  "use_profiles": {"pi": "zai-flash", "opencode": "zai-flash"}
+  "profile": {"pi": "zai-flash", "opencode": "zai-flash"}
 }
 ```
 
 A profile that selects nothing does nothing, and deactivating one does not write the
 agent's surface back — whatever a selection wrote stays until the agent's own choice
 replaces it. Claude is selected by the same spellings (`-p zai`, `-p
-claude=zai`, `"use_profiles": {"claude": "zai"}`) and reads none of those keys — it has no
+claude=zai`, `"profile": {"claude": "zai"}`) and reads none of those keys — it has no
 catalog and no selection key, and the env derive in the table above is its whole delivery —
 but it is not outside the option: its `ANTHROPIC_DEFAULT_OPUS_MODEL` is the same alias
 lookup the other two make.

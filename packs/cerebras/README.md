@@ -52,7 +52,7 @@ alone), so a key that lives only in the invoking environment reaches the agents 
 the daemon — and a bridge that cannot authenticate refuses the launch at the witness
 rather than serve unauthenticated upstream traffic.
 
-Then `yolo -p cerebras` (or the persistent spelling, `"use_profiles": {"pi": "cerebras"}`).
+Then `yolo -p cerebras` (or the persistent spelling, `"profile": "cerebras"`, in your user config).
 
 ## What lands where
 
@@ -78,7 +78,7 @@ agent on cerebras demands nothing, since the key would reach nobody.
 The catalog is presence, not choice: `-p cerebras` puts it in pi's and opencode's
 catalogs, composes copilot's BYOK block, and routes claude at the bridge. Select it
 with `-p cerebras` before the `--`, `-p pi=cerebras` for one agent, or persistently as
-`"use_profiles": {"pi": "cerebras"}`. The provider declares two options, `model` (whose
+`"profile": {"pi": "cerebras"}`. The provider declares two options, `model` (whose
 default is the alias named `default`; a user profile stating `"model": "oss"` selects
 whatever alias you merged in yourself) and `context_window: "65536"` — the free-tier
 figure, so claude's auto-compact triggers at the real window. The model's cap on the

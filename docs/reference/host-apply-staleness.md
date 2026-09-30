@@ -124,7 +124,7 @@ Every refusal names its remedy in the spelling its reader can actually use: the 
   observe posture with the output captured, and reads the survey. A second traversal of the
   written kinds would be a second thing to drift out of step with the apply it describes. The
   same pass composes the derive inputs the apply composes (your providers, `mcp_servers`,
-  `lsp_servers` and `use_profiles`), so the rows a wrapped launch's automatic apply writes are
+  `lsp_servers` and your `profile` selection), so the rows a wrapped launch's automatic apply writes are
   the rows `yolo host apply --assert` writes, and a settled home reads as settled
   ([OQ-HC1](../design/host-computed-layer.md#OQ-HC1),
   [HC-D11](../design/host-computed-layer.md#HC-D11)).

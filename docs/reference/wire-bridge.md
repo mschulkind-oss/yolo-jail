@@ -803,8 +803,8 @@ launch, for the one agent it runs, stopped when that agent exits). The mechanism
   mid-session is named on stderr once and not restarted.
 - **It is said.** Every start prints one line naming the service, its pack, its pid, its
   address and its log. `yolo host env` refuses a bridged profile, naming the `yolo host --`
-  spelling, and `yolo host apply` writes no bridged address and says a bridged `use_profiles`
-  selection takes effect only through `yolo host --` or the wrappers.
+  spelling, and `yolo host apply` writes no bridged address and says a bridged selection in the
+  `profile` key takes effect only through `yolo host --` or the wrappers.
 
 ```console
 $ yolo host -p codex -- claude

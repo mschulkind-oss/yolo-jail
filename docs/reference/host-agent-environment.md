@@ -246,8 +246,9 @@ refused for naming no command, the host verb having no default one.
 1. **Locate the target binary** on the host `PATH`, **skipping yolo-managed directories**.
 2. **Resolve the pack configuration** — the active profile for the launched command, and its
    effective `env` for the active workspace. The profile is a typed `-p`, else the command's
-   `use_profiles` entry. A typed `-p` for a command no selected pack installs is refused, naming
-   `--with-credentials` ([OQ-NC5](../plans/notch-convergence.md#OQ-NC5)), and a `use_profiles`
+   entry in the `profile` key, else its `"*"` (or the key's string form) when a selected pack
+   installs the command. A typed `-p` for a command no selected pack installs is refused, naming
+   `--with-credentials` ([OQ-NC5](../plans/notch-convergence.md#OQ-NC5)), and a `profile`
    key no resolvable pack installs is refused with the validator's message
    ([ES-D5](../design/credential-sources-separation.md#10-decision-ledger)), so no profile
    selects for such a command.
@@ -307,7 +308,7 @@ claude` and `yolo host -p codex -- claude` start the bridge's host half as the l
 child, on a loopback port it picked, answering only that launch's caller token, which claude gets
 as `ANTHROPIC_AUTH_TOKEN`; the launch stays resident and stops the bridge when claude exits,
 by any route. `yolo host env` refuses such a profile, naming the `yolo host --` spelling, and
-`yolo host apply` renders no address for a bridged `use_profiles` selection and says so. A
+`yolo host apply` renders no address for a bridged selection in the `profile` key and says so. A
 bridge the launch cannot start refuses, naming why and `yolo -p claude=<profile> -- claude` as
 the container launch where the profile works. An agent that also speaks the provider's own wire
 runs on it directly

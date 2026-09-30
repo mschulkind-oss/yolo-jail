@@ -39,7 +39,7 @@ endpoint, a writable host folder) must not be settable there. `yolo check` refus
 project config and names the file to move them to:
 
 - `packs`
-- `profiles`, `use_profiles`, `adapters`, and a provider's address (`endpoints.<protocol>.base_url`)
+- `profiles`, `profile`, `adapters`, and a provider's address (`endpoints.<protocol>.base_url`)
 - `agent_updates` and `programs`
 - `cache_relocations`
 - `host_management`, `host_wrappers`, `host_apply_on_launch` and `promotion_target`
