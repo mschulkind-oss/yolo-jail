@@ -220,3 +220,31 @@ func TestHostChildPathIsTheCallersThenTheFloorsDeduplicated(t *testing.T) {
 		t.Errorf("an empty caller PATH gives %q", got)
 	}
 }
+
+// TestHostLaunchSaysWhatItStartsAndFromWhere pins the hand-over line on the exec path, for each
+// origin: the floor's copy, a copy on the caller's PATH, and a target given as a path. It is the
+// LAST line before the exec, so a slow startup after it is visibly the agent's.
+func TestHostLaunchSaysWhatItStartsAndFromWhere(t *testing.T) {
+	_, handInstalled := floorLaunchFixture(t, "")
+	stubBins(t, "plaincmd")
+	got := captureHostExec(t)
+	cases := []struct {
+		cmd  string
+		want string
+	}{
+		{"floorcli", "yolo host: starting floorcli (yolo's floor copy, ~/.local/share/yolo-jail/host-floor/bin/floorcli)"},
+		{"plaincmd", "yolo host: starting plaincmd (from your PATH, "},
+		{handInstalled, "yolo host: starting " + handInstalled + " (as given, " + handInstalled + ")"},
+	}
+	for _, c := range cases {
+		var errw bytes.Buffer
+		*got = execCapture{}
+		if rc := hostExec(nil, []string{c.cmd}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+			t.Fatalf("%s: rc=%d execed=%v\n%s", c.cmd, rc, got.execed, errw.String())
+		}
+		lines := strings.Split(strings.TrimRight(errw.String(), "\n"), "\n")
+		if last := lines[len(lines)-1]; !strings.HasPrefix(last, c.want) {
+			t.Errorf("%s: the last line before the exec is %q, want it to start %q", c.cmd, last, c.want)
+		}
+	}
+}

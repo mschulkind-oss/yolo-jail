@@ -263,6 +263,13 @@ func TestHostCodexClaudeRunsThroughALaunchOwnedBridge(t *testing.T) {
 	if unused := l.started[0].Plan.Moved["127.0.0.1:8214"]; unused == "" || strings.Contains(l.errs, unused) {
 		t.Errorf("the disclosure names %q, a route claude was not pointed at:\n%s", unused, l.errs)
 	}
+	// THE HAND-OVER LINE on the launch-owned-services path: what starts and where it came from,
+	// after the service lines — the last thing yolo says before the agent's own startup.
+	started := strings.Index(l.errs, `started the "wire-bridge" service`)
+	starting := strings.Index(l.errs, "yolo host: starting claude (from your PATH, ")
+	if starting < 0 || starting < started {
+		t.Errorf("the launch must say what it starts, after the service lines:\n%s", l.errs)
+	}
 	assertServiceGone(t, l)
 }
 

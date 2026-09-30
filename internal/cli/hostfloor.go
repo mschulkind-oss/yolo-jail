@@ -172,6 +172,32 @@ func noCopyWhere() string {
 	return "on this machine"
 }
 
+// hostStartingLine is the one line `yolo host` prints just before it hands over to the command:
+// what it starts and where that binary came from. It exists so a slow agent startup is visibly
+// the agent's and not yolo's — and it names the copy, so running the floor's rather than your own
+// (HP-DIR4) is never a surprise. A launch has no quiet mode (OQ-RO3), so it is unconditional.
+func hostStartingLine(cmd0 string, t hostTarget) string {
+	var where string
+	switch t.Origin {
+	case originFloor:
+		where = "yolo's floor copy"
+	case originGiven:
+		where = "as given"
+	default:
+		where = "from your PATH"
+	}
+	return fmt.Sprintf("yolo host: starting %s (%s, %s)", cmd0, where, homeTilde(t.Path))
+}
+
+// homeTilde writes a path under the home as ~/…, for a line a person reads.
+func homeTilde(p string) string {
+	home := paths.Home()
+	if home != "" && home != "/" && strings.HasPrefix(p, home+string(os.PathSeparator)) {
+		return "~" + strings.TrimPrefix(p, home)
+	}
+	return p
+}
+
 // hostChildPath is the PATH a host launch hands its child (OQ-HE10, ruled (c), and HE-D1): the
 // caller's own PATH, then the floor's bin/, duplicates removed with the first kept. The caller's
 // PATH comes first because the commands a host agent runs see the user's own environment, mise

@@ -639,9 +639,15 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 				plan.Service, plan.Pack, r.PID(), launch.agent, strings.Join(plan.AddressesIn(environ), ", "),
 				launch.agent, r.Log)
 		}
+		// WHAT STARTS, AND FROM WHERE, the last line before the hand-over: a slow agent startup
+		// is then visibly the agent's, not yolo's.
+		fmt.Fprintln(errw, hostStartingLine(cmd[0], resolved))
 		return launchservice.RunAgent(target, argv, environ, stdin, out, errw, running,
 			hostServiceSignals, "yolo host: ")
 	}
+	// The same line on the exec path — a managed launch that stays resident included, since it
+	// runs the same target.
+	fmt.Fprintln(errw, hostStartingLine(cmd[0], resolved))
 	if managed != nil {
 		environ = managed.Environ(environ)
 		if rc, handled := managed.Run(target, argv, environ, stdin, out, errw); handled {
