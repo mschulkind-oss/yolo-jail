@@ -204,6 +204,11 @@ design as [FP-D10](forked-programs-as-packs.md#FP-D10) onward.
   pasta host forwarded the host's loopback, either one reaching every service the host binds to
   127.0.0.1. A sealed build now runs on the runtime's own bridge with no forwarding
   ([FP-D13](forked-programs-as-packs.md#FP-D13)).
+- Review, after step 6: the trigger does not sit beside `autoCaptureInstallerPrograms`, as the
+  [Map](#map)'s `run.go` row says. In that slot an attach ran it too, and a running jail bakes its
+  fork decisions at boot, so the attach waited for a build no jail could receive. It is in
+  `runContainer`'s fresh-launch path, below the attach decision
+  ([FP-D14](forked-programs-as-packs.md#FP-D14)).
 
 ## Build order
 

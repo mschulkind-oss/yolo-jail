@@ -836,13 +836,9 @@ func Run(opts Options) (rc int) {
 	sp := o.Perf.Span("launch.auto_capture")
 	o.autoCaptureInstallerPrograms(staged.packs)
 	sp.End()
-	// THE FORK BUILDS, in the same slot and for the same reasons (forkbuild.go; OQ-FP4, eager at
-	// the notch's readiness act): every selected fork this machine holds no build of at its pin
-	// is built now, in a sealed jail of its own, and the jail is handed each fork's store key or
-	// the reason it has none. A hit builds nothing, and no outcome fails this launch (§9).
-	sp = o.Perf.Span("launch.fork_builds")
-	o.forkDelivered = o.forkDeliveriesFor(rt)
-	sp.End()
+	// THE FORK BUILDS are NOT in this slot, though they share its reasons (forkbuild.go): they run
+	// in runContainer's fresh-launch path, below the attach decision, because a jail bakes its
+	// fork decisions at boot and an attach could not deliver a build it waited for (FP-D14).
 	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs, channel, jailDaemons)
 }
 
@@ -1298,6 +1294,18 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// shared staging tree a jail launched before per-launch pack trees bound can go, once the
 	// runtime answers that no container of the name exists (packtree.go).
 	o.retireLegacyPackStaging(cname, rt)
+
+	// THE FORK BUILDS (forkbuild.go; OQ-FP4, eager at the notch's readiness act): every selected
+	// fork this machine holds no build of at its pin is built now, in a sealed jail of its own, and
+	// this jail is handed each fork's store key or the reason it has none. A hit builds nothing, and
+	// no outcome fails this launch (§9). HERE, below every attach site, rather than beside
+	// auto-capture above the dispatch (FP-D14): a running jail read its decisions once at boot, so
+	// a build an attach waited for would reach no jail, and an auto-capture differs in exactly that
+	// a running jail's launchers read the store lazily. Under the launch lock, as the image load
+	// is: a second terminal in this workspace waits for this jail and then attaches to it.
+	sp = o.Perf.Span("launch.fork_builds")
+	o.forkDelivered = o.forkDeliveriesFor(rt)
+	sp.End()
 
 	// Refresh the per-jail skills + AGENTS/CLAUDE staging from this launch's own pack tree. An
 	// attach refreshes from the running jail's tree instead, inside attachExisting, so this

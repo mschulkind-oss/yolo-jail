@@ -780,7 +780,8 @@ build of the same commit holds its lock.
 ([OQ-FP4](../design/forked-programs-as-packs.md#14-decision-ledger),
 [FP-D3](../design/forked-programs-as-packs.md#FP-D3)). A container launch carrying a pinned fork
 looks up the build of that commit in the capture store and, on a miss, builds it before the jail
-starts, saying so. A launch that finds another process building the same commit waits for it, at
+starts, saying so. An attach to a running jail builds nothing, because that jail read its decisions
+when it booted ([FP-D14](../design/forked-programs-as-packs.md#FP-D14)). A launch that finds another process building the same commit waits for it, at
 most 20 minutes (`forkBuildWaitBound`), and then uses its entry. A failed build or an expired wait
 never fails the launch: it is that fork's reason. The launch hands the jail each forked bin's store
 key, or the reason it has none, in `YOLO_FORK_BUILDS`. Neither the lookup nor the build runs in a

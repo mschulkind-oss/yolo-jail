@@ -162,3 +162,33 @@ func TestAMacosUserLaunchSaysItDeliversNoFork(t *testing.T) {
 		t.Errorf("the macos-user launch does not name the undelivered fork:\n%s", out)
 	}
 }
+
+// AN ATTACH BUILDS NOTHING. The jail it enters baked its fork decisions at boot (the launcher
+// reads ForkBuildsEnv once), so a build now could not reach it: it would only hold the attach —
+// up to forkBuildWaitBound behind another launch's build — for bytes the next fresh launch builds
+// anyway. The trigger belongs to the fresh launch, below the attach decision.
+func TestAnAttachTriggersNoForkBuild(t *testing.T) {
+	forkLaunchHome(t, forkPinSource)
+	pinFork(t, strings.Repeat("12", 20))
+	called := false
+	_, printed := fakePodmanLaunch(t, func(o *Options) {
+		cname := yoloruntime.FromWorkspace(o.Workspace)
+		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+			joined := strings.Join(argv, " ")
+			switch {
+			case len(argv) >= 2 && argv[1] == "ps" && strings.Contains(joined, "name=^/"+cname+"$"):
+				return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
+			case len(argv) >= 2 && argv[1] == "inspect":
+				return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"}
+			}
+			return ExecResult{Ran: true, RC: 0}
+		}
+		o.BuildForks = func([]packload.ForkPin, string) map[string]entrypoint.ForkDelivery { called = true; return nil }
+	})
+	if !strings.Contains(printed, "Attaching to existing jail") {
+		t.Fatalf("the fixture did not attach, so the attach path is unexercised:\n%s", printed)
+	}
+	if called {
+		t.Errorf("an attach built a fork its running jail cannot receive:\n%s", printed)
+	}
+}
