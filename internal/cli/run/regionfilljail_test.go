@@ -195,3 +195,34 @@ func TestAnAttachKeepsTheContainersRegionOverTheFilledOne(t *testing.T) {
 			"container's AWS_REGION:\nfresh:\n%s\nattach:\n%s", fresh, attach)
 	}
 }
+
+// OVER THE ACTIVE SET (docs/design/active-provider-sets.md AP-P1): pi on [zai, bedrock] with no
+// region anywhere else is given the host file's region for its Bedrock entry, in its own env file,
+// and a file giving none refuses naming it — the lookup the fill read for that entry crosses to
+// the ask the pre-flight makes for it (checkProviderRegions' RegionFileFor). Cutting the fill to
+// the primary, or the ask's File to the primary's, fails here.
+func TestAJailLaunchDeliversTheRegionOfTheHostsAWSConfigToALaterEntry(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	writeAWSConfig(t, home, "[default]\nregion = eu-north-1\n")
+	o := retireOptions(t, discardBuf())
+	o.Getenv = shellWith(map[string]string{"HOME": home})
+	o.UseProfiles = map[string]string{"pi": "zai,bedrock"}
+	packs := []*packload.Pack{officialPack(t, "pi"), officialPack(t, "zai"), officialPack(t, "bedrock")}
+	keys := userEnvWith(map[string]string{"ZAI_API_KEY": "tok-zai"})
+
+	channel := channelFor(t, o, newConfig(), packs, keys)
+	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channel, nil); refuse || len(lines) != 0 {
+		t.Fatalf("the file's region must satisfy the pre-flight for pi's Bedrock entry:\n%s", strings.Join(lines, "\n"))
+	}
+	if got := agentEnvFileContent(channel, "pi"); !strings.Contains(got, "'eu-north-1'") {
+		t.Errorf("pi's env file must carry the default profile's region for its Bedrock entry:\n%s", got)
+	}
+
+	writeAWSConfig(t, home, "[profile team]\nregion = ap-northeast-1\n")
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, keys), nil)
+	if got := strings.Join(lines, "\n"); !refuse || !strings.Contains(got,
+		`~/.aws/config (profile "default", since nothing names another): it has no [profile default] or [default] section`) {
+		t.Errorf("a file giving no region must refuse pi's Bedrock entry, naming it (refuse=%v):\n%s", refuse, got)
+	}
+}

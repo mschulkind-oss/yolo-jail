@@ -125,3 +125,24 @@ func TestHostRegionFillReadsNoProfileTheAgentDoesNotReceive(t *testing.T) {
 		t.Errorf("the disclosure must name the default profile, %q:\n%s", want, errs)
 	}
 }
+
+// OVER THE ACTIVE SET (docs/design/active-provider-sets.md AP-P1): `yolo host -p pi=zai,bedrock
+// -- pi` gives pi the file's region for its Bedrock entry, and a file giving none refuses, naming
+// it — the lookup the fill read for that entry is the one the host's region ask for it carries
+// (regionGaps' RegionFileFor).
+func TestHostLaunchTakesTheRegionOfTheHostsAWSConfigForALaterEntry(t *testing.T) {
+	const cfg = `{"packs": ["pi", "zai", "bedrock"], "env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`
+	noRegion := map[string]string{"AWS_REGION": ""}
+	rc, env, errs := hostGateRunIn(t, cfg, noRegion, []string{"-p", "pi=zai,bedrock"}, "pi",
+		awsConfigIn(hostAWSConfig))
+	if rc != 0 || env["AWS_REGION"] != "eu-north-1" {
+		t.Fatalf("pi's Bedrock entry must take the default profile's region: rc=%d AWS_REGION=%q\n%s",
+			rc, env["AWS_REGION"], errs)
+	}
+	rc, env, errs = hostGateRunIn(t, cfg, noRegion, []string{"-p", "pi=zai,bedrock"}, "pi",
+		awsConfigIn("[profile team]\nregion = ap-northeast-1\n"))
+	if rc != 1 || env != nil || !strings.Contains(errs,
+		`~/.aws/config (profile "default", since nothing names another): it has no [profile default] or [default] section`) {
+		t.Errorf("a file giving no region must refuse pi's Bedrock entry, naming it: rc=%d\n%s", rc, errs)
+	}
+}

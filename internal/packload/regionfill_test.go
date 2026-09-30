@@ -625,3 +625,43 @@ func TestARegionFileIsAHostReadInTheFootprint(t *testing.T) {
 		t.Errorf("the region file is read by yolo, not mounted into the jail:\n%s", got)
 	}
 }
+
+// OVER THE ACTIVE SET (docs/design/active-provider-sets.md AP-P1): a Bedrock entry after the
+// first reads its region from the file as a primary one does, so pi on [zai, bedrock] with no
+// region set is given the default profile's, and the lookup names the entry it was read for, which
+// is the one the region pre-flight's ask for that provider carries (RegionFileFor).
+func TestTheRegionFillReadsForABedrockEntryAfterTheFirst(t *testing.T) {
+	home := regionHome(t, regionConfig)
+	packs := embeddedNamed(t, "pi", "zai", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
+	nothing := NothingServed()
+	profiles := map[string]string{"pi": "zai"}
+	providers, resolved, _ := launchSelection(t, packs, nil, nil, profiles)
+	s, err := ScopeCredentials(ScopeInput{Packs: packs, Providers: providers, Profiles: profiles,
+		Sets: map[string][]string{"pi": {"zai", "bedrock"}}, Resolved: resolved, Served: &nothing,
+		CallerTokens: awsToken, RegionFiles: &RegionFileSource{Getenv: launchEnv(map[string]string{"HOME": home})}})
+	if err != nil {
+		t.Fatalf("the gate refused: %v", err)
+	}
+	d := s.Agent("pi")
+	if got := shapeValue(d, "AWS_REGION"); got != "us-east-2" {
+		t.Errorf("pi's Bedrock entry must be given the default profile's region, got %q (lookup %+v)",
+			got, d.RegionFile)
+	}
+	if d.RegionFileFor("bedrock") == nil || d.RegionFileFor("zai") != nil {
+		t.Errorf("the lookup must be bedrock's alone: bedrock %+v, zai %+v", d.RegionFileFor("bedrock"),
+			d.RegionFileFor("zai"))
+	}
+	if got := strings.Join(s.RegionLines(), "\n"); !strings.Contains(got, `for pi on provider "bedrock"`) {
+		t.Errorf("the disclosure must name the entry's provider, not the primary's:\n%s", got)
+	}
+	// And a set whose only regional entry sets its own region reads nothing.
+	s, err = ScopeCredentials(ScopeInput{Packs: packs, Providers: providers, Profiles: profiles,
+		Resolved: resolved, Served: &nothing, CallerTokens: awsToken,
+		RegionFiles: &RegionFileSource{Getenv: launchEnv(map[string]string{"HOME": home})}})
+	if err != nil {
+		t.Fatalf("the gate refused: %v", err)
+	}
+	if d := s.Agent("pi"); d.RegionFile != nil {
+		t.Errorf("pi on zai alone needs no region: %+v", d.RegionFile)
+	}
+}
