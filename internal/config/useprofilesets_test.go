@@ -22,6 +22,16 @@ func TestUseProfilesTakesAListForASetCapableAgent(t *testing.T) {
 	}
 }
 
+// An empty string selected nothing before lists existed, and still does: only the list shapes
+// are new, so `"pi": ""` validates clean rather than being refused as a missing name.
+func TestAnEmptyUseProfilesValueStillSelectsNothing(t *testing.T) {
+	useProfileKeysHome(t)
+	errs, _ := ValidateConfig(decode(t, `{"use_profiles": {"pi": ""}}`), t.TempDir(), nil)
+	if len(errs) != 0 {
+		t.Fatalf("an empty use_profiles value must validate clean, as it did before lists: %v", errs)
+	}
+}
+
 func TestUseProfilesRefusesWhatAListCannotMean(t *testing.T) {
 	cases := []struct {
 		name, body, says string

@@ -178,6 +178,22 @@ func TestATypedPairReplacesAConfigListWhole(t *testing.T) {
 	}
 }
 
+// An EMPTY PAIR (`-p pi=`, alone or beside `claude=zai`) crosses as the empty string it always
+// did, the selection of nothing, never as an empty list: the jail reads a string "" as no
+// selection, and a `[]` would be a list value no older jail was ever handed.
+func TestAnEmptyPairCrossesAsTheEmptySelection(t *testing.T) {
+	home := packHome(t)
+	o := goldenOptions(t.TempDir(), home)
+	o.UseProfiles = map[string]string{"pi": "", "claude": "zai"}
+	effective := o.effectiveUseProfiles(bareConfig(), setPacks(t))
+	if v, _ := effective.Get("pi"); v != "" {
+		t.Errorf(`-p pi= crosses as %#v, want the string ""`, v)
+	}
+	if v, _ := effective.Get("claude"); v != "zai" {
+		t.Errorf("-p claude=zai beside it crosses as %#v, want \"zai\"", v)
+	}
+}
+
 // AP-D8: an attach delivering a list needs the profile-sets tag, and a jail launched before it
 // lacks the tag, so the attach takes the restart-or-refuse disposition; a set of one needs none.
 func TestAnAttachDeliveringAListNeedsTheProfileSetsTag(t *testing.T) {
