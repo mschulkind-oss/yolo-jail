@@ -50,8 +50,10 @@ but `opencode` (installed through mise) was not found, because mise reaches PATH
 `mise activate` in an interactive shell's rc file. Under [HP-DIR4](host-tool-provisioning.md#HP-DIR4)
 that launch runs the floor's `opencode`, whatever the widget's PATH holds. What is left is a
 program yolo does not provide, such as a tool a pack lists under `requires` that lives in
-`~/.cargo/bin`. From the widget it reads missing, and the launch now says which PATH it searched
-and what to add ([HE-D2](#he-d2)).
+`~/.cargo/bin`. From the widget it reads missing wherever yolo checks it, and the miss now says
+which PATH it searched and what to add ([HE-D2](#he-d2)). At launch that check is the launch
+gate's, which runs only with `host_apply_on_launch` on (unset, it follows `host_wrappers`);
+`yolo host apply` and `check-deps` always run it.
 
 **The shape.**
 
@@ -532,6 +534,10 @@ Its rules:
 - **Where it prints:** the launch gate's decision text, `yolo host apply`'s dependency refusal,
   `check-deps`, and the exec's exit 127, where it replaces today's *"not found in PATH (searched N
   directories, skipping yolo's own)"*. Once per missing program per run.
+- **At launch, only the gate surveys dependencies.** The gate runs only with
+  `host_apply_on_launch` on, and unset that key follows `host_wrappers`. With it off, a launch
+  checks no `requires` tool, so a missing one prints nothing at launch, as today, and the agent's
+  first call to it fails. The exec's miss for the target prints either way.
 - **It is a disclosure on the launch stream**
   ([`report-tiers.md`](../reference/report-tiers.md#the-launch-stream)), so no flag hides it.
 - **It prints on every miss.** yolo cannot tell a bare launcher from a terminal. From a terminal
@@ -578,7 +584,7 @@ Each test is chosen by the repo's question: **does it fail if I delete the call 
 7. **Grammar.** Relative, `~user/`, `$`- and `:`-containing entries are refused.
    `host_path: []` gives the ambient PATH alone.
 8. **The miss line.** From an ambient PATH of `/usr/bin:/bin`, with a required tool only in a hint
-   location: the gate survey, `yolo host apply`, `check-deps` and the exec's 127 each print the
+   location and `host_apply_on_launch` on: the gate survey, `yolo host apply`, `check-deps` and the exec's 127 each print the
    line naming the searched PATH, the `host_path` key and the hint folder. The hint copy never
    makes the check pass. With PATH unset, the line says yolo was started with no PATH. Deleting
    the call fails it.
