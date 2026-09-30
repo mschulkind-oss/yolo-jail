@@ -78,7 +78,7 @@ func postMessage(t *testing.T, h http.Handler) (*httptest.ResponseRecorder, map[
 
 func signedHandler(env sigv4.Env) http.Handler {
 	return newSignedChatHandler(bedrockBase, wirebridge.ChatOptions{},
-		&bedrockSigner{region: "us-east-1", chain: &sigv4.Chain{Env: env}})
+		&bedrockSigner{region: "us-east-1", chain: &sigv4.Chain{Env: env}}, nil)
 }
 
 // TestBedrockUpstreamRequestsAreSignedOverWhatIsSent is the arm's headline: a request

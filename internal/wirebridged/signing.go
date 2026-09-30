@@ -55,10 +55,15 @@ func hasAWSCredentialSource(env sigv4.Env) bool {
 }
 
 // newSignedChatHandler is newChatHandler for a Bedrock upstream: no bearer key, every
-// request authorized by signer.
-func newSignedChatHandler(upstreamBaseURL string, opts wirebridge.ChatOptions, signer *bedrockSigner) http.Handler {
+// request authorized by signer. anthropicModels are the ids the provider's list declares
+// vendor "anthropic" for (route.AnthropicModels): a request for one of them goes untranslated
+// to runtime's Messages route under the same signer (messages.go), and every other request is
+// translated as before. None leaves the handler translating everything.
+func newSignedChatHandler(upstreamBaseURL string, opts wirebridge.ChatOptions, signer *bedrockSigner,
+	anthropicModels map[string]bool) *bridgeHandler {
 	h := newChatHandler(upstreamBaseURL, "", opts).(*bridgeHandler)
 	h.signer = signer
+	h.messages = newMessagesPassthrough(upstreamBaseURL, anthropicModels, signer)
 	return h
 }
 
@@ -75,12 +80,20 @@ func (e *credentialError) Error() string { return e.message }
 // authorize puts the request's credential on req: a SigV4 signature over body, or a
 // bearer when the chain's only source is AWS_BEARER_TOKEN_BEDROCK. Never both.
 func (s *bedrockSigner) authorize(req *http.Request, body []byte) error {
+	return s.authorizeAs(req, body, "Authorization", "Bearer ")
+}
+
+// authorizeAs is authorize with the bearer's header chosen by the route: a Bedrock API key
+// travels as `Authorization: Bearer <key>` on runtime's OpenAI-compatible routes and as
+// `x-api-key: <key>` on its Anthropic Messages route, each the form AWS documents for that
+// route (messages.go, WG-I31). The signature is the same on every route.
+func (s *bedrockSigner) authorizeAs(req *http.Request, body []byte, bearerHeader, bearerPrefix string) error {
 	resolved, err := s.chain.Resolve(req.Context())
 	if err != nil {
 		return signingFailure(err)
 	}
 	if resolved.Bearer != "" {
-		req.Header.Set("Authorization", "Bearer "+resolved.Bearer)
+		req.Header.Set(bearerHeader, bearerPrefix+resolved.Bearer)
 		return nil
 	}
 	now := time.Now

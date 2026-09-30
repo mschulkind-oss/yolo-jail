@@ -179,11 +179,20 @@ type bridgeHandler struct {
 	// with SigV4, or carries AWS_BEARER_TOKEN_BEDROCK when that is the only source,
 	// and apiKey is unused.
 	signer *bedrockSigner
+	// messages is set for a Bedrock upstream whose list declares an Anthropic model
+	// (messages.go): a request for one of those goes untranslated to runtime's own
+	// Anthropic Messages route under signer, and every other request is translated to
+	// upstreamURL as before (wire-bridge-gateway.md Part 2, routing by model id).
+	messages *messagesPassthrough
 }
 
 func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	// note is the request line's routing suffix: set when the request went untranslated to
+	// the Messages pass-through, so the log says which upstream answered (§7 allows model ids
+	// and routing decisions in the log, never a body).
+	note := ""
 	defer func() {
 		// THE STATUS IS WHAT THE BRIDGE INTENDED, NOT WHAT CLAUDE RECEIVED, and
 		// those diverge whenever a body write fails: the old line logged "200"
@@ -193,13 +202,13 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// relay, the error renderer), so one line covers all of them.
 		if rec.writeErr != nil {
 			logf("%s %s %d %s — RESPONSE DELIVERY FAILED after %d bytes: %v (the status is what "+
-				"the bridge intended to send; the client did not receive it)",
+				"the bridge intended to send; the client did not receive it)%s",
 				r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond),
-				rec.wrote, rec.writeErr)
+				rec.wrote, rec.writeErr, note)
 			return
 		}
-		logf("%s %s %d %s", r.Method, r.URL.Path, rec.status,
-			time.Since(start).Round(time.Millisecond))
+		logf("%s %s %d %s%s", r.Method, r.URL.Path, rec.status,
+			time.Since(start).Round(time.Millisecond), note)
 	}()
 
 	// count_tokens lands here (404, WB-D14), as does every method and path the
@@ -227,9 +236,21 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// the same flag into the openai body (stream passes through per §4), so
 	// the upstream mode always matches the client's.
 	var probe struct {
-		Stream bool `json:"stream"`
+		Stream bool   `json:"stream"`
+		Model  string `json:"model"`
 	}
 	_ = json.Unmarshal(body, &probe) // unparseable JSON fails in TranslateRequest with a better error
+
+	// ROUTING BY MODEL ID (wire-bridge-gateway.md Part 2): on a Bedrock upstream, a model the
+	// provider's list declares Anthropic's is forwarded untranslated to runtime's Messages
+	// route, so cache_control and thinking reach it; the id is looked up, never parsed. Every
+	// other model falls through to the translation below, unchanged.
+	if h.messages != nil {
+		if id, ok := h.messages.claims(probe.Model); ok {
+			h.messages.serve(rec, r, body, probe.Model, id, probe.Stream, &note)
+			return
+		}
+	}
 
 	translated, err := h.translateRequest(body)
 	if err != nil {

@@ -297,10 +297,10 @@ func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, strin
 				"the aws-auth pointer AWS_CONTAINER_CREDENTIALS_FULL_URI, or AWS_BEARER_TOKEN_BEDROCK — "+
 				"in %s", route.ProviderName, route.UpstreamBaseURL, keySources(e, route.Agent))
 		}
-		return newSignedChatHandler(route.UpstreamBaseURL,
-				wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage},
-				&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}}),
-			"SigV4 for bedrock in " + route.SignRegion + ", from " + env.String(), ""
+		h := newSignedChatHandler(route.UpstreamBaseURL,
+			wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage},
+			&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}}, route.AnthropicModels)
+		return h, "SigV4 for bedrock in " + route.SignRegion + ", from " + env.String(), ""
 	}
 	key, keySource := keyFor(e, route.KeyEnvName, route.Agent)
 	if key == "" && route.KeyEnvName != "" {
@@ -363,8 +363,15 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 			what := fmt.Sprintf("provider %q (from its anthropic base_url)", route.ProviderName)
 			ls = append(ls, &listener{addr: route.ListenAddr, what: what,
 				handler: requireAnthropicCaller(token, "the adapter route for "+what, handler)})
-			serving = append(serving, fmt.Sprintf("provider %q: anthropic on {addr} → openai %s (endpoint {endpoint}, credential %s)",
-				route.ProviderName, route.UpstreamBaseURL, credentialDescription(route, keySource)))
+			serving = append(serving, fmt.Sprintf("provider %q: anthropic on {addr} → openai %s (endpoint {endpoint}, credential %s)%s",
+				route.ProviderName, route.UpstreamBaseURL, credentialDescription(route, keySource),
+				messagesServeNote(handler)))
+			if len(route.VendorConflicts) > 0 {
+				logf("provider %q's list names %s under aliases declaring different vendors, so the bridge "+
+					"translates %s as it does any model not declared Anthropic's (wire-bridge-gateway.md WG-I34)",
+					route.ProviderName, strings.Join(route.VendorConflicts, ", "),
+					map[bool]string{true: "it", false: "them"}[len(route.VendorConflicts) == 1])
+			}
 		}
 	}
 	if len(p.via.Routes) > 0 {
@@ -628,6 +635,15 @@ type route struct {
 	// region instead of carrying a bearer key (signing.go; OQ-WG1 keys the decision on
 	// the host). Empty for every other upstream.
 	SignRegion string
+	// AnthropicModels is, for a Bedrock upstream (SignRegion set), every model id the
+	// provider's list declares vendor "anthropic" for (anthropicModelIDs): a request for one
+	// goes untranslated to runtime's own Anthropic Messages route (messages.go;
+	// wire-bridge-gateway.md Part 2). Nil for every other upstream, whose requests are all
+	// translated, and for a Bedrock list declaring no Anthropic model.
+	AnthropicModels map[string]bool
+	// VendorConflicts is every id the list names under aliases declaring different vendors,
+	// which therefore stays translated; the serve log names them (WG-I34).
+	VendorConflicts []string
 }
 
 // streamUsageOption is the provider option that states whether an upstream
@@ -881,7 +897,7 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 				" — the bridge translates exactly anthropic ↔ openai-chat-completions (wire-bridge.md WB-D1)"
 		}
 
-		return route{
+		rt := route{
 			Agent:           agent,
 			ProviderName:    providerName,
 			ListenAddr:      listenAddr,
@@ -892,7 +908,15 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 			KeyEnvName:      packload.KeyEnvName(entry),
 			OmitStreamUsage: resolved[profileName].Options[streamUsageOption] == "false",
 			SignRegion:      bedrockSignRegion(openaiURL),
-		}, ""
+		}
+		if rt.SignRegion != "" {
+			// Part 2 (wire-bridge-gateway.md §3): on a Bedrock upstream the provider's own list
+			// says which models are Anthropic's, and those skip translation. Read from the same
+			// composed entry as the upstream, so the launcher's WillServe and this boot read one
+			// table; it changes no serve-or-idle answer.
+			rt.AnthropicModels, rt.VendorConflicts = anthropicModelIDs(entry)
+		}
+		return rt, ""
 	}
 	return route{}, skip
 }
