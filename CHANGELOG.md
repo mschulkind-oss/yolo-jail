@@ -30,6 +30,18 @@ before it hands over, `yolo host` now prints one line naming what it starts and 
 so a slow start is visibly the agent's. See
 [yolo's own copy of your agents](userguide/guides/confinement.md#yolos-own-copy-of-your-agents).
 
+**A pack can now shape the model list of any provider, so a company can hand its people one
+approved list.** A `models` entry in a pack's `contributes` adds models to a provider's list
+(`add`) or keeps only the ones it names (`only`), for a provider the pack ships or one another
+pack ships. Under an `only`, the list is each agent's model menu for that provider where the agent
+allows it: Claude Code, opencode, pi and oh-omp show exactly the list, and Claude Code and opencode
+also refuse any other model; Codex and Copilot start on the list's default model. A profile's new
+`"enforce_models": false` keeps the menus and drops the refusals, and `"pin_model": "true"` makes
+Claude Code start every session on the profile's model. Your own `providers` entry still has the
+last word, and `yolo check` names a model a pack adds twice or an `only` that names a model
+nothing added. See
+[model menus](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
+
 **Agents can use `gh` in a jail with your own GitHub login, and the jail never holds a GitHub
 token.** Select the new `github` pack and turn its `github-broker` loophole on, and a bare `gh`
 in the jail is sent to a service on your machine that runs your own `gh` for it, only against the
@@ -271,6 +283,11 @@ the agent, naming the ones it looked for and the setting that would deliver one.
 the same in a jail and at `yolo host`. See
 [what the launch checks and prints](docs/reference/providers.md#what-the-launch-checks-and-prints).
 
+- On a provider Claude Code reaches through yolo, such as z.ai, OpenRouter, Kilo, Cerebras or
+  llama.cpp, Claude Code's model menu now lists the provider's models instead of Opus, Sonnet and
+  Haiku, and all four of its model tiers, Fable included, point at the provider's default, so
+  its background requests stay on the provider too.
+
 **yolo turns off Codex's background copy in the sessions it launches; a Codex you run yourself is
 untouched.** Since version 0.157, Codex starts a second copy of itself in the background and the
 `codex` you type talks to it. That copy did not follow the Codex yolo installed, so a jail could
@@ -421,6 +438,15 @@ the agent.
   jail's start aside and, once a second terminal had joined, out of the log. A joining
   terminal's start-up now goes to `.yolo/boot.session.log`, which keeps the one before it as
   `boot.session.log.prev`.
+- On your ChatGPT subscription (`-p codex`), Claude Code no longer goes back to the default
+  model at every launch after you pick another with `/model`, and its Sonnet, Haiku and Fable
+  tiers no longer reach Claude models the subscription does not serve. To start every session on
+  the profile's model again, set `"pin_model": "true"` on the profile.
+- pi 0.99 and later no longer label yolo's ChatGPT subscription login "OpenAI Codex (legacy)".
+- Copilot's yolo footer setting now goes where Copilot 1.0.35 and later keep settings, instead
+  of the file Copilot moved it out of at every start, only for the next launch to put it back.
+- opencode, pi and oh-omp no longer show a model named "default" or "fast" in their menus: a
+  model shows its own name, or its id.
 - Rootless Podman with no storage.conf of your own, as on stock Ubuntu 26.04, no longer fails
   every launch while delivering the image with `mkdir /run/containers: permission denied`. The
   image now goes into the store Podman itself reports, whatever your storage.conf files say, and
