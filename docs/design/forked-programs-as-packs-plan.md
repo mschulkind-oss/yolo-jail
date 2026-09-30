@@ -209,6 +209,12 @@ design as [FP-D10](forked-programs-as-packs.md#FP-D10) onward.
   fork decisions at boot, so the attach waited for a build no jail could receive. It is in
   `runContainer`'s fresh-launch path, below the attach decision
   ([FP-D14](forked-programs-as-packs.md#FP-D14)).
+- Stacking on the keeper, 2026-09-30: the host services moved out of the launch into the
+  keeper, the background process that owns a container jail's life
+  ([`jail-lifetime-last-session-wins.md` §9](jail-lifetime-last-session-wins.md#9-the-keeper-design-2026-09-29)),
+  so the seal's host-service site moved with them. A sealed build still spawns its keeper, which
+  plans no host service under the seal and refuses a sealed plan naming one
+  ([FP-D15](forked-programs-as-packs.md#FP-D15)).
 
 ## Build order
 

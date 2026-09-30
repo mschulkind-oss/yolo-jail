@@ -789,8 +789,11 @@ directories, the host-cache alias and the nix daemon socket. It also withholds t
 the build runs on the runtime's own bridge whatever `network.mode` says, with no host-loopback
 forwarding, so no service the host binds to 127.0.0.1 is in its reach
 ([FP-D13](../design/forked-programs-as-packs.md#FP-D13)). `~/.cache` and `/mise` are private
-directories of the build's workspace. The selection is narrowed to the fork and its configured
-base. A build whose result misses a `produces` path stores nothing, and so does one that leaves a
+directories of the build's workspace. The build jail still has its
+[keeper](../design/jail-lifetime-last-session-wins.md#11-terms), which holds the container and
+nothing else and ends the jail when the build exits
+([FP-D15](../design/forked-programs-as-packs.md#FP-D15)). The selection is narrowed to the fork and
+its configured base. A build whose result misses a `produces` path stores nothing, and so does one that leaves a
 link into its own workspace, which is deleted when the build ends: `npm install -g .` is the common
 cause, npm installing a folder as a link to it, and the refusal names the copy-installing spelling
 (`npm install -g "$(npm pack --silent)"`). An admitted build is
