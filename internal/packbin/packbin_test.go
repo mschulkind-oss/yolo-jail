@@ -153,3 +153,41 @@ func TestPresentWantsAnExecutableRegularFile(t *testing.T) {
 		t.Error("Present accepted a file without an exec bit, a directory or nothing")
 	}
 }
+
+// HTTPS ALL THE WAY, not only at the first hop (broker-as-a-pack.md BP-D4). The manifest's URL
+// is refused unless it is https, but a server may answer it with a redirect, and Go's client
+// follows one to plain http by default: the request for the build would then cross the network
+// in the clear. The redirect is refused before it is followed, so the http server is never
+// asked, and nothing is cached.
+func TestEnsureRefusesARedirectAwayFromHTTPS(t *testing.T) {
+	body := []byte("the build")
+	var plainHits atomic.Int32
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		plainHits.Add(1)
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(plain.Close)
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, plain.URL+"/tool", http.StatusFound)
+	}))
+	t.Cleanup(tlsSrv.Close)
+	dir := t.TempDir()
+
+	_, _, err := Fetcher{Dir: dir, Client: tlsSrv.Client()}.Ensure(context.Background(),
+		Want{Name: "tool", URL: tlsSrv.URL + "/tool", SHA256: digest(body)})
+	if err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("a redirect to http = %v, want a refusal naming https", err)
+	}
+	if plainHits.Load() != 0 {
+		t.Errorf("the plain-http server was asked %d times; the redirect must be refused before it is followed", plainHits.Load())
+	}
+	if got := entries(t, dir); len(got) != 0 {
+		t.Errorf("a refused download left %q in the cache", got)
+	}
+	// And a URL that is not https at all is refused without a request, whoever calls Ensure.
+	if _, _, err := (Fetcher{Dir: dir}).Ensure(context.Background(),
+		Want{Name: "tool", URL: plain.URL + "/tool", SHA256: digest(body)}); err == nil ||
+		!strings.Contains(err.Error(), "https") || plainHits.Load() != 0 {
+		t.Errorf("an http URL = %v (%d requests), want a refusal naming https and none sent", err, plainHits.Load())
+	}
+}

@@ -105,11 +105,33 @@ type Fetcher struct {
 	MaxBytes int64
 }
 
+// maxRedirects is Go's own default bound, restated because setting CheckRedirect replaces it.
+const maxRedirects = 10
+
+// client is the Fetcher's client with HTTPS HELD ACROSS REDIRECTS: the manifest's URL is https
+// (loopholedecl refuses any other), but Go's client follows a redirect to plain http by default,
+// which would send the request for the build over the network in the clear. A copy, so a caller's
+// client is not changed; a CheckRedirect the caller set still runs after this one.
 func (f Fetcher) client() *http.Client {
+	c := http.Client{Timeout: 10 * time.Minute}
 	if f.Client != nil {
-		return f.Client
+		c = *f.Client
 	}
-	return &http.Client{Timeout: 10 * time.Minute}
+	next := c.CheckRedirect
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.URL.Scheme != "https" {
+			return fmt.Errorf("redirected to %s, which is not https — a pack binary is "+
+				"fetched over https only, redirects included", req.URL.Redacted())
+		}
+		if next != nil {
+			return next(req, via)
+		}
+		if len(via) >= maxRedirects {
+			return fmt.Errorf("stopped after %d redirects", maxRedirects)
+		}
+		return nil
+	}
+	return &c
 }
 
 func (f Fetcher) maxBytes() int64 {
@@ -171,6 +193,10 @@ func (f Fetcher) download(ctx context.Context, url string) (file, sum string, er
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", "", err
+	}
+	// The manifest decoder refuses a non-https URL already; this holds the rule for any caller.
+	if req.URL.Scheme != "https" {
+		return "", "", errors.New("not an https URL — a pack binary is fetched over https only")
 	}
 	resp, err := f.client().Do(req)
 	if err != nil {
