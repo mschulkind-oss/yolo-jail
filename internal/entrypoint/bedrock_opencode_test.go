@@ -18,8 +18,6 @@ func TestOpencodeOnBedrockUsesItsOwnClient(t *testing.T) {
 	allModels := map[string]any{
 		"global.anthropic.claude-opus-5-5": map[string]any{"name": "Claude Opus 5.5 (Global)",
 			"limit": map[string]any{"context": float64(1000000), "output": float64(128000)}},
-		"global.openai.gpt-6-sol": map[string]any{"name": "GPT-6 Sol (Global)",
-			"limit": map[string]any{"context": float64(1050000), "output": float64(128000)}},
 		"us.openai.gpt-6.1-sol": map[string]any{"name": "GPT-6.1 Sol (US)",
 			"limit": map[string]any{"context": float64(1000000), "output": float64(131072)}},
 		"global.openai.gpt-6-astra": map[string]any{"name": "GPT-6 Astra (Global)",

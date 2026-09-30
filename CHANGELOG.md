@@ -114,12 +114,12 @@ so. See [what service a provider is](docs/reference/providers.md#the-platform-wh
 configures each agent to use its own Bedrock support, which signs requests with your AWS
 credentials, the `aws-auth` login included, so nothing needs a URL: `yolo -p bedrock -- codex`
 needs only `"packs": ["codex"]` and a region. No request to Bedrock has been measured from any of
-the three yet. One Bedrock provider now carries every agent's models, and yolo ships four of them:
-Claude Opus 5.5, GPT-6 Sol, GPT-6.1 Sol (offered by AWS in its US Regions only) and GPT-6 Astra.
-Each agent is started on a model of a maker its Bedrock support serves, as the list declares the
-maker: codex on GPT-6 Sol, the first OpenAI model and one every Region can call, and opencode and
-pi on Claude Opus 5.5, while Claude Code keeps its own Bedrock default unless you name an Anthropic
-model. In the US, name GPT-6.1 Sol yourself. pi and opencode list these models in their model
+the three yet. One Bedrock provider now carries every agent's models, and yolo ships three of
+them: Claude Opus 5.5, GPT-6.1 Sol and GPT-6 Astra. Each agent is started on a model of a maker
+its Bedrock support serves, as the list declares the maker: codex on GPT-6.1 Sol in every Region,
+and opencode and pi on Claude Opus 5.5, while Claude Code keeps its own Bedrock default unless you
+name an Anthropic model. AWS offers GPT-6.1 Sol in its US Regions only for now, so outside the US
+name another model for codex, such as GPT-6 Astra. pi and opencode list these models in their model
 menus; Claude Code's and codex's menus are not changed yet. Name another model with a profile's
 `model`, or add one under `providers.bedrock.models` with a `vendor` naming its maker, such as
 `{"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}`: opencode and pi can then use it,

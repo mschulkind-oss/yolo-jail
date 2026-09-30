@@ -10,13 +10,14 @@ import (
 // bedrock_codex_test.go pins codex's native Bedrock binding (docs/design/bedrock-plumbing.md
 // §6.2 and §12 step 4; OQ-BR1, ruled 2026-09-29): `-p codex=bedrock` selects codex's own
 // built-in `amazon-bedrock-runtime` client, starts it on the first OpenAI entry of the one
-// Bedrock list, and writes the built-in's override only for a region the provider declares.
+// Bedrock list — GPT-6.1 Sol in every Region, by the maintainer's ruling (BR-D19) — and writes
+// the built-in's override only for a region the provider declares.
 // Driven through the boot render (renderCodexConfig) over the tables codex's real needs closure
 // composes, so it fails if the derive stops binding, if codex stops needing packs/bedrock, or if
 // the list's first OpenAI entry moves.
 
 func TestCodexOnBedrockUsesItsOwnRuntimeClient(t *testing.T) {
-	const sol, astra, opus = "global.openai.gpt-6-sol", "global.openai.gpt-6-astra", "global.anthropic.claude-opus-5-5"
+	const sol, astra, opus = "us.openai.gpt-6.1-sol", "global.openai.gpt-6-astra", "global.anthropic.claude-opus-5-5"
 	for _, tc := range []struct {
 		name      string
 		providers string
@@ -27,7 +28,9 @@ func TestCodexOnBedrockUsesItsOwnRuntimeClient(t *testing.T) {
 	}{
 		{"a region in the environment writes no override", "", nil,
 			`{"codex":"bedrock"}`, sol, nil},
-		{"the provider's region is the built-in's aws.region",
+		// NO REGION DETECTION (BR-D19): a Region outside the US still starts codex on GPT-6.1 Sol,
+		// whose `us.` id AWS offers only there; a user there names another model in a profile.
+		{"the provider's region is the built-in's aws.region, and picks no other model",
 			`{"bedrock":{"region":"eu-west-1"}}`, nil, `{"codex":"bedrock"}`, sol,
 			map[string]any{"aws": map[string]any{"region": "eu-west-1"}}},
 		{"a profile naming another OpenAI entry", "",
@@ -71,7 +74,7 @@ func TestCodexOnBedrockUsesItsOwnRuntimeClient(t *testing.T) {
 func TestCodexOnABridgedBedrockProfileRidesItsViaRoute(t *testing.T) {
 	providersJSON, wire := bedrockTables(t, "codex", `{"bedrock":{"region":"us-east-1"}}`, bedrockViaProfile, "wire-bridge")
 	cfg := renderCodexConfig(t, providersJSON, `{"codex":"over-bridge"}`, wire)
-	if cfg["model_provider"] != "bedrock" || cfg["model"] != "global.openai.gpt-6-sol" {
+	if cfg["model_provider"] != "bedrock" || cfg["model"] != "us.openai.gpt-6.1-sol" {
 		t.Errorf("selection = %v/%v, want the via row bedrock on the first OpenAI entry", cfg["model_provider"], cfg["model"])
 	}
 	rows, _ := cfg["model_providers"].(map[string]any)

@@ -9,6 +9,7 @@ package entrypoint
 
 import (
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -109,37 +110,62 @@ func TestTheShippedBedrockListDeclaresEachEntrysMaker(t *testing.T) {
 	}
 }
 
-// EVERY AGENT'S START MODEL IS ONE EVERY REGION CAN CALL. yolo picks a model only to make a
-// session valid (docs/design/model-lists-and-pickers.md OQ-ML2), and ships no region, so the
-// entry an agent falls back to must be callable from whatever region the user sets: a `global.`
-// cross-Region inference profile. A geography's id (`us.`) is callable only from that
-// geography's source Regions, so leading with GPT-6.1 Sol (`us.` only) started codex on a model
-// AWS refuses from eu-west-1 (docs/design/bedrock-plumbing.md BR-D17). The makers are the binding
-// derives' filters: OpenAI's for codex, every maker's for opencode and pi. (claude's own client
-// picks nothing unless a model is named, BR-D9.)
-func TestEachBedrockAgentStartsOnAModelEveryRegionCanCall(t *testing.T) {
+// EVERY AGENT YOLO STARTS ON AN OPENAI MODEL STARTS ON GPT-6.1 SOL, IN EVERY REGION, AND GPT-6
+// SOL IS NOT SHIPPED. The maintainer's ruling of 2026-09-29 (docs/design/bedrock-plumbing.md
+// BR-D19), superseding BR-D17's global-first pick: *"just 6.1 everywhere. Forget the region
+// specificness."* No derive chooses by Region, so the shipped order alone decides: GPT-6.1 Sol is
+// the first OpenAI entry (codex's start model), and Claude Opus 5.5 the first of all (opencode's
+// and pi's). Read with the earlier menu rule (drop GPT-6 Sol where 6.1 exists), GPT-6 Sol leaves
+// the list, since 6.1 is treated as available everywhere. The whole order is pinned, so a new
+// entry moving a start model fails here; a user who needs another model names it in a profile's
+// `model`. The makers are the binding derives' filters: OpenAI's for codex, every maker's for
+// opencode and pi. (claude's own client picks nothing unless a model is named, BR-D9.) The
+// renders themselves are pinned by each agent's `…OnBedrock…` test.
+func TestEachBedrockAgentStartsOnTheRuledModelInEveryRegion(t *testing.T) {
 	decl := shippedBedrockDeclaration(t)
+	type entry struct {
+		id     string
+		vendor string
+		order  int
+	}
+	var list []entry
+	for alias, id := range decl.Models {
+		facts := decl.ModelOptions[alias]
+		n, _ := strconv.Atoi(facts["order"])
+		list = append(list, entry{id: id, vendor: facts["vendor"], order: n})
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].order < list[j].order })
+	var ids []string
+	for _, e := range list {
+		ids = append(ids, e.id)
+	}
+	want := []string{"global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol", "global.openai.gpt-6-astra"}
+	if strings.Join(ids, " ") != strings.Join(want, " ") {
+		t.Errorf("the shipped Bedrock list, in order, is %v; BR-D19 ships %v", ids, want)
+	}
 	first := func(makers map[string]bool) string {
-		best, bestOrder := "", 0
-		for alias, id := range decl.Models {
-			facts := decl.ModelOptions[alias]
-			if makers != nil && !makers[facts["vendor"]] {
-				continue
-			}
-			n, _ := strconv.Atoi(facts["order"])
-			if best == "" || n < bestOrder {
-				best, bestOrder = id, n
+		for _, e := range list {
+			if makers == nil || makers[e.vendor] {
+				return e.id
 			}
 		}
-		return best
+		return ""
 	}
-	for agent, makers := range map[string]map[string]bool{
-		"codex":           {"openai": true},
-		"opencode and pi": nil,
+	for agent, tc := range map[string]struct {
+		makers map[string]bool
+		want   string
+	}{
+		"codex":           {map[string]bool{"openai": true}, "us.openai.gpt-6.1-sol"},
+		"opencode and pi": {nil, "global.anthropic.claude-opus-5-5"},
 	} {
-		if id := first(makers); !strings.HasPrefix(id, "global.") {
-			t.Errorf("%s starts on %q, which is not a global cross-Region inference profile, so a "+
-				"region outside its geography cannot call it", agent, id)
+		if got := first(tc.makers); got != tc.want {
+			t.Errorf("%s starts on %q, want %q (BR-D19)", agent, got, tc.want)
+		}
+	}
+	for _, id := range ids {
+		if strings.Contains(id, "openai.gpt-6-sol") {
+			t.Errorf("the shipped list carries GPT-6 Sol (%s): BR-D19 treats GPT-6.1 Sol as available "+
+				"everywhere, and the menu rule drops GPT-6 Sol where 6.1 exists", id)
 		}
 	}
 }

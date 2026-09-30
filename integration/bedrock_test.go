@@ -22,9 +22,9 @@ func TestBedrockRendersEachAgentsOwnClient(t *testing.T) {
 	requireJail(t)
 
 	const region = "eu-west-1"
-	// GPT-6 Sol's global id, not GPT-6.1 Sol's US-only one: codex must start on a model eu-west-1
-	// can call (docs/design/bedrock-plumbing.md BR-D17).
-	const opus, sol = "global.anthropic.claude-opus-5-5", "global.openai.gpt-6-sol"
+	// GPT-6.1 Sol in eu-west-1 too: no Region detection, and a user outside the US names another
+	// model in a profile (docs/design/bedrock-plumbing.md BR-D19, superseding BR-D17).
+	const opus, sol = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol"
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["codex", "pi", "opencode"], "providers": {"bedrock": {"region": "`+region+`"}}}`)
 
@@ -76,7 +76,7 @@ func TestBedrockRendersEachAgentsOwnClient(t *testing.T) {
 			entry, _ := m.(map[string]any)
 			ids = append(ids, entry["id"])
 		}
-		if want := []any{opus, sol, "us.openai.gpt-6.1-sol", "global.openai.gpt-6-astra"}; !reflect.DeepEqual(ids, want) {
+		if want := []any{opus, sol, "global.openai.gpt-6-astra"}; !reflect.DeepEqual(ids, want) {
 			t.Errorf("pi's amazon-bedrock models = %v, want %v", ids, want)
 		}
 	})

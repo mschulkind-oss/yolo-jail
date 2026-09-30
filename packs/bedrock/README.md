@@ -49,37 +49,34 @@ decides which model yolo starts them on:
 | Order | Model id | Maker | Name |
 | :--- | :--- | :--- | :--- |
 | 1 | `global.anthropic.claude-opus-5-5` | `anthropic` | Claude Opus 5.5 (Global) |
-| 2 | `global.openai.gpt-6-sol` | `openai` | GPT-6 Sol (Global) |
-| 3 | `us.openai.gpt-6.1-sol` | `openai` | GPT-6.1 Sol (US) |
-| 4 | `global.openai.gpt-6-astra` | `openai` | GPT-6 Astra (Global) |
+| 2 | `us.openai.gpt-6.1-sol` | `openai` | GPT-6.1 Sol (US) |
+| 3 | `global.openai.gpt-6-astra` | `openai` | GPT-6 Astra (Global) |
 
 Each entry also carries the context window, the output cap and the input kinds its AWS page
-states (`context_window`, `max_tokens`, `input`), and Claude Opus 5.5 and GPT-6 Sol their
-reasoning support, which their pages state.
+states (`context_window`, `max_tokens`, `input`), and Claude Opus 5.5 its reasoning support,
+which its page states.
 
 - **These are `bedrock-runtime` ids.** Runtime takes a cross-Region inference profile id,
   `global.` or a geography such as `us.`, where the bare id is the other endpoint family's
   spelling. `global.` routes worldwide with no data-residency constraint.
-- **GPT-6.1 Sol is `us.` only.** AWS offers it on runtime through the US inference profile
-  alone, with no global or in-Region id (read 2026-09-29, its launch day), so a Region outside
-  that profile's source Regions cannot call it.
-- **GPT-6 Sol ships beside it, as `global.`**, because it is the Sol that Bedrock offers
-  outside the US: its runtime ids are `us.openai.gpt-6-sol` and `global.openai.gpt-6-sol`, and
-  its global profile serves every commercial source Region AWS lists, the EU, Asia Pacific and
-  South America among them (read 2026-09-29). That is the maintainer's rule: GPT-6.1 Sol where
-  Bedrock offers it, GPT-6 Sol where it offers only that.
-- **Every agent yolo picks for starts on a `global.` entry.** yolo picks a model only to make a
-  session valid, and it ships no region, so the model it picks has to be one your region can
-  call. That is why GPT-6 Sol comes before GPT-6.1 Sol in the order: codex starts on GPT-6 Sol
-  in every Region, and in the US you can name GPT-6.1 Sol yourself
-  ([below](#choosing-another-model)).
+- **GPT-6.1 Sol is `us.` only, and codex starts on it in every Region.** AWS offers it on
+  runtime through the US inference profile alone, with no global or in-Region id (read
+  2026-09-29, its launch day), so a Region outside that profile's source Regions cannot call it
+  yet. yolo does not choose a model by Region: the maintainer's ruling is GPT-6.1 Sol
+  everywhere, on the expectation that AWS offers it more widely soon
+  ([BR-D19](../../docs/design/bedrock-plumbing.md#BR-D19)). Outside the US, name another model
+  yourself ([below](#choosing-another-model)); GPT-6 Astra is `global.`.
+- **GPT-6 Sol is not shipped.** It shipped beside GPT-6.1 Sol, as the Sol that Bedrock offers
+  outside the US, until the same ruling treated GPT-6.1 Sol as available everywhere. You can
+  still name its id, `global.openai.gpt-6-sol`, in a profile, and yolo passes it through as
+  written.
 
 ### Which agent starts where
 
 | Agent | Makers it takes on Bedrock | Starts on, with no model named |
 | :--- | :--- | :--- |
 | claude | Anthropic models: its Bedrock client drives the Messages API, which serves Claude only | its own Bedrock default. yolo pins a model only when the profile names one, or your config names a `default` alias Claude can call |
-| codex | OpenAI's: its built-in `amazon-bedrock-runtime` client drives the Responses API, which AWS serves for them and not for Anthropic's. The filter is by declared maker, not by what codex could call: another maker's model whose card lists Responses is still skipped until a turn measures it | GPT-6 Sol (Global) |
+| codex | OpenAI's: its built-in `amazon-bedrock-runtime` client drives the Responses API, which AWS serves for them and not for Anthropic's. The filter is by declared maker, not by what codex could call: another maker's model whose card lists Responses is still skipped until a turn measures it | GPT-6.1 Sol (US), in every Region |
 | opencode | every entry: its built-in `amazon-bedrock` provider sends a cross-Region id to runtime's Converse API, which serves each of them | Claude Opus 5.5 (Global) |
 | pi | every entry: its built-in `amazon-bedrock` provider drives Converse | Claude Opus 5.5 (Global) |
 
@@ -132,11 +129,6 @@ Every id above was read from its AWS model card on 2026-09-29, and nothing was c
 - [Claude Opus 5.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html):
   runtime global id `global.anthropic.claude-opus-5-5`; Messages, Converse and Invoke on
   runtime, not Chat Completions or Responses; a 1M-token window, 128K output.
-- [GPT-6 Sol](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-sol.html):
-  runtime ids `us.openai.gpt-6-sol` and `global.openai.gpt-6-sol`, no in-Region id; Responses,
-  Chat Completions and Converse on runtime, not Messages or Invoke; a 1,050,000-token window,
-  128,000 output, text and image input, reasoning effort from `none` to `max`; launched
-  2026-09-22, and Global cross-Region inference from every source Region the page lists.
 - [GPT-6.1 Sol](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-sol.html):
   runtime US geo id `us.openai.gpt-6.1-sol`, no global or in-Region id; Responses, Chat
   Completions, Converse and Invoke on runtime, not Messages; a 1M-token window, 131,072 output.
@@ -145,7 +137,7 @@ Every id above was read from its AWS model card on 2026-09-29, and nothing was c
   Completions and Converse on runtime, not Messages or Invoke; a 1,050,000-token window,
   128,000 output.
 - [Models at a glance](https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards.html):
-  the OpenAI models Bedrock lists, GPT-6 Astra, GPT-6.1 Sol and GPT-6 Sol among them.
+  the OpenAI models Bedrock lists, GPT-6 Astra and GPT-6.1 Sol among them.
 
 Re-read the cards before changing an id: the prefixes each model offers differ per model and
 move ([`model-lists-and-pickers.md` §5.3](../../docs/design/model-lists-and-pickers.md#53-the-prerequisite-verify-before-an-id-ships)).
