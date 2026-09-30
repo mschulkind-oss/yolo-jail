@@ -213,11 +213,36 @@ end
 -- classifier requests pick a model BY TIER, and the Default row resolves by tier whenever that
 -- tier's model is allowed, so on a list claude has no catalog for, an unpinned tier reaches a
 -- model the list does not hold (claude's own Anthropic default, through a route that serves
--- none). Each tier takes the id under its own alias where the provider's `models` map declares
--- one (which further names count, `balanced` and `fast`, is OQ-PSW1's), else `default`, the
--- list's default entry. A tier resolving to the default entry says so in its description,
--- which is what claude's Default row shows. `entries` carries each id's name and description.
-local claudeTiers = { { "opus", "OPUS" }, { "sonnet", "SONNET" }, { "haiku", "HAIKU" }, { "fable", "FABLE" } }
+-- none). Each tier takes the id under one of its own names where the provider's `models` map
+-- declares one (tierAlias), else `default`, the list's default entry. A tier resolving to the
+-- default entry says so in its description, which is what claude's Default row shows. `entries`
+-- carries each id's name and description.
+--
+-- THE TIER NAMES (MM-D17, for OQ-PSW1): each tier reads claude's own name for it, then yolo's
+-- conventional alias for it, the vocabulary OQ-XM2 ruled (docs/research/extension-model-defaults.md):
+-- `frontier` for opus, `balanced` for sonnet and `fast` for haiku. So a provider that declares
+-- only the conventional names, which XM-D2's warning asks every provider for, still pins claude's
+-- Sonnet and Haiku tiers rather than leaving them on its default. claude's own name comes first
+-- and wins where a provider declares both, because whoever wrote `sonnet` wrote it for claude;
+-- the old names stay, so every config written for them keeps working. The fable tier has no
+-- conventional alias. This table is the one place the names are spelled.
+local tierOpus = { names = { "opus", "frontier" }, var = "OPUS" }
+local tierSonnet = { names = { "sonnet", "balanced" }, var = "SONNET" }
+local tierHaiku = { names = { "haiku", "fast" }, var = "HAIKU" }
+local tierFable = { names = { "fable" }, var = "FABLE" }
+local claudeTiers = { tierOpus, tierSonnet, tierHaiku, tierFable }
+
+-- tierAlias is the id a provider's `models` map declares for tier: the first of the tier's names,
+-- in order, that maps to a non-empty id `usable` accepts (nil accepts every id); nil when none
+-- does. A name whose id claude cannot use gives way to the tier's next name (MM-D18).
+local function tierAlias(models, tier, usable)
+  if type(models) ~= "table" then return nil end
+  for _, name in ipairs(tier.names) do
+    local id = models[name]
+    if type(id) == "string" and id ~= "" and (usable == nil or usable(id)) then return id end
+  end
+  return nil
+end
 
 local function pinTiers(out, models, entries, default)
   local byId = {}
@@ -225,11 +250,10 @@ local function pinTiers(out, models, entries, default)
     if byId[e.id] == nil then byId[e.id] = e end
   end
   for _, tier in ipairs(claudeTiers) do
-    local id = type(models) == "table" and models[tier[1]] or nil
-    if type(id) ~= "string" or id == "" then id = default end
+    local id = tierAlias(models, tier) or default
     if id then
       local e = byId[id] or {}
-      local var = "ANTHROPIC_DEFAULT_" .. tier[2] .. "_MODEL"
+      local var = "ANTHROPIC_DEFAULT_" .. tier.var .. "_MODEL"
       out[var] = id
       out[var .. "_NAME"] = e.name
       if e.description then
@@ -324,16 +348,15 @@ local function completeRoutedTiers(ctx, p, out)
   if not routedProvider(ctx, p) or not out.ANTHROPIC_DEFAULT_OPUS_MODEL then return out end
   local spell = routedSpelling(ctx, p)
   if not out.ANTHROPIC_DEFAULT_FABLE_MODEL then
-    local fable = type(p.models) == "table" and p.models.fable or nil
-    out.ANTHROPIC_DEFAULT_FABLE_MODEL = (type(fable) == "string" and fable ~= "" and spell(fable))
-      or out.ANTHROPIC_DEFAULT_OPUS_MODEL
+    local fable = tierAlias(p.models, tierFable)
+    out.ANTHROPIC_DEFAULT_FABLE_MODEL = (fable and spell(fable)) or out.ANTHROPIC_DEFAULT_OPUS_MODEL
   end
   local byId = {}
   for _, r in ipairs(routedRows(ctx, p)) do
     if byId[r.id] == nil then byId[r.id] = r end
   end
   for _, tier in ipairs(claudeTiers) do
-    local var = "ANTHROPIC_DEFAULT_" .. tier[2] .. "_MODEL"
+    local var = "ANTHROPIC_DEFAULT_" .. tier.var .. "_MODEL"
     local e = out[var] and byId[out[var]]
     if e then
       out[var .. "_NAME"] = e.name
@@ -414,17 +437,16 @@ local function listDefault(ctx, p, rows)
   return rows[1]
 end
 
--- onlyTierPins pins every tier to a narrowed list's id (MM-D2): a tier's own alias where the
--- list declares one claude can use, else the default entry.
+-- onlyTierPins pins every tier to a narrowed list's id (MM-D2): the id under one of the tier's
+-- names (tierAlias) where the list declares one claude can use, else the default entry.
 local function onlyTierPins(ctx, p, out, rows, default)
   local spell = routedSpelling(ctx, p)
   local byId = {}
   for _, r in ipairs(rows) do byId[r.id] = true end
-  local models = type(p.models) == "table" and p.models or {}
   local tiers = {}
   for _, tier in ipairs(claudeTiers) do
-    local id = models[tier[1]]
-    if type(id) == "string" and byId[spell(id)] then tiers[tier[1]] = spell(id) end
+    local id = tierAlias(p.models, tier, function(id) return byId[spell(id)] == true end)
+    if id then tiers[tier.names[1]] = spell(id) end
   end
   pinTiers(out, tiers, rows, default.id)
 end
@@ -440,7 +462,7 @@ local function applyOnlyPins(ctx, p, out)
   if #rows == 0 then return out end
   local default = listDefault(ctx, p, rows)
   for _, tier in ipairs(claudeTiers) do
-    local var = "ANTHROPIC_DEFAULT_" .. tier[2] .. "_MODEL"
+    local var = "ANTHROPIC_DEFAULT_" .. tier.var .. "_MODEL"
     out[var], out[var .. "_NAME"], out[var .. "_DESCRIPTION"] = nil, nil, nil
   end
   onlyTierPins(ctx, p, out, rows, default)
@@ -883,8 +905,9 @@ yolo.env("claude", function(ctx)
   -- OPUS takes the alias the active profile's `model` option names (OQ-CS4: what an
   -- option means is the derive's business), falling back to the provider's declared
   -- `default` when the profile carries none (OQ-CS3). SONNET and HAIKU keep their own
-  -- aliases: they are Claude's routing names inside the same provider, not a selection
-  -- surface, and no profile option speaks for them. Declaring them matters even though
+  -- aliases, `sonnet` or `balanced` and `haiku` or `fast` (tierAlias, MM-D17): they are
+  -- Claude's routing names inside the same provider, not a selection surface, and no profile
+  -- option speaks for them. Declaring them matters even though
   -- z.ai translates claude's own tier names server-side (measured 2026-09-04:
   -- claude-sonnet-* serves as glm-5.3-flash — the FAST model), because the aliases pin
   -- each tier to the model the provider actually intends for it.
@@ -914,11 +937,10 @@ yolo.env("claude", function(ctx)
       selected = nil
     end
   end
+  -- A tier's names, claude's own first and then yolo's conventional alias (tierAlias, MM-D17).
   -- The tier aliases a Bedrock provider names are held to the same makers.
-  local function tier(name)
-    local id = m[name]
-    if bedrockCallable and id and not bedrockCallable[id] then return nil end
-    return id
+  local function tier(t)
+    return tierAlias(m, t, function(id) return not bedrockCallable or bedrockCallable[id] == true end)
   end
   if selected then
     if isKilo then
@@ -928,8 +950,8 @@ yolo.env("claude", function(ctx)
     out.ANTHROPIC_DEFAULT_OPUS_MODEL = selected .. suffix
     -- A curated provider can publish real picker IDs instead of Claude-tier aliases.
     -- Keep all tiers on the selected model rather than falling back upstream.
-    local sonnet = tier("sonnet") or selected
-    local haiku = tier("haiku") or selected
+    local sonnet = tier(tierSonnet) or selected
+    local haiku = tier(tierHaiku) or selected
     if isKilo then
       sonnet = normalizeKiloModel(sonnet)
       haiku = normalizeKiloModel(haiku)

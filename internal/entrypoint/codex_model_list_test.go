@@ -281,6 +281,13 @@ func renderCodexConsumers(t *testing.T, user *jsonx.OrderedMap) (codexConsumers,
 // requireConsumersRender asserts every consumer against one expected list.
 func requireConsumersRender(t *testing.T, got codexConsumers, want []codexModel) {
 	t.Helper()
+	requireConsumersRenderTiers(t, got, want, nil)
+}
+
+// requireConsumersRenderTiers is requireConsumersRender for a table that names a tier alias:
+// tiers holds each claude tier variable the alias moves off the default entry, and its id.
+func requireConsumersRenderTiers(t *testing.T, got codexConsumers, want []codexModel, tiers map[string]string) {
+	t.Helper()
 	if len(want) == 0 {
 		t.Fatal("the expected list is empty, so every assertion below would measure nothing")
 	}
@@ -318,6 +325,9 @@ func requireConsumersRender(t *testing.T, got codexConsumers, want []codexModel)
 	}
 	if first.Description != "" {
 		wantEnv["ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION"] = first.Description + " (default)"
+	}
+	for k, v := range tiers {
+		wantEnv[k] = v
 	}
 	for k, v := range wantEnv {
 		if got.claudeEnv[k] != v {
@@ -512,7 +522,10 @@ func TestAnAliasForADeclaredCodexIDChangesNoConsumer(t *testing.T) {
 	if list := expandCodexModels(models, opts); !reflect.DeepEqual(list, want) {
 		t.Fatalf("the Go statement of the rule expands the aliased table to %v, want %v", list, want)
 	}
-	requireConsumersRender(t, got, want)
+	// `fast` is also the haiku tier's conventional alias (MM-D17), so claude's haiku tier follows
+	// it: the one thing that alias is meant to move. The list, its order, its names and every
+	// agent's default stay where the declaration put them.
+	requireConsumersRenderTiers(t, got, want, map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-6-luna"})
 	if ids := runExtensionRegisteredIDs(t, got.piModelsFile); !reflect.DeepEqual(ids, codexIDs(want, "")) {
 		t.Errorf("the pi extension registers %v, want %v", ids, codexIDs(want, ""))
 	}
