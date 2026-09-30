@@ -278,7 +278,8 @@ func TestCheckRefusesAURLForAnotherRelease(t *testing.T) {
 }
 
 // Pin writes values, never builds: a build set that is not BP-D7's is refused before anything
-// is written, naming what to add or drop.
+// is built or written, naming what to add or drop (BP-D11) — so the refusal costs no toolchain
+// download. check builds what it can, since it reports every digest as well.
 func TestPinRefusesAManifestOffTheMatrixAndWritesNothing(t *testing.T) {
 	for name, tc := range map[string]struct {
 		platforms []string
@@ -296,6 +297,10 @@ func TestPinRefusesAManifestOffTheMatrixAndWritesNothing(t *testing.T) {
 				r := runTool(t, root, verb, "0.2.0")
 				if r.code != 1 || !strings.Contains(r.stderr, tc.want) {
 					t.Errorf("%s: exit %d, want 1 naming %q\n%s%s", verb, r.code, tc.want, r.stdout, r.stderr)
+				}
+				if verb == "pin" && (r.fetched || !strings.Contains(r.stderr, "nothing was pinned")) {
+					t.Errorf("pin fetched the toolchain (%v) before refusing a build set it will not "+
+						"pin, or did not say nothing was pinned:\n%s%s", r.fetched, r.stdout, r.stderr)
 				}
 			}
 			if after := readFile(t, root, fixtureManifestPath); after != before {

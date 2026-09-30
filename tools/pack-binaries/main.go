@@ -119,6 +119,11 @@ func run(args []string, stdout, stderr io.Writer, d deps) int {
 			"manifests) — nothing to %s\n", t.read, verb)
 		return 0
 	}
+	// pin writes values, never keys, so a build set it would refuse to write is refused before
+	// the toolchain is fetched or anything is built (BP-D11).
+	if verb == "pin" && t.refusePin() {
+		return 1
+	}
 
 	tmp, err := os.MkdirTemp("", "pack-binaries-")
 	if err != nil {
@@ -301,21 +306,28 @@ func (t *task) report() bool {
 	return len(t.problems) > 0
 }
 
-// pin writes every build's url and sha256. A build set that is not BP-D7's, or a program that
-// cannot be built, is refused before anything is written: pin writes values, never builds.
-func (t *task) pin(stdout io.Writer) int {
+// refusePin reports the census problems pin cannot write its way out of — a build set that is
+// not BP-D7's, or a program that cannot be built — and says whether there was one. A url of
+// the wrong form is not among them: pin rewrites every url.
+func (t *task) refusePin() bool {
 	var blocking []releasematrix.Problem
 	for _, p := range t.problems {
 		if p.Kind != releasematrix.KindURL {
 			blocking = append(blocking, p)
 		}
 	}
-	if len(blocking) > 0 {
-		t.problems = blocking
-		t.report()
-		fmt.Fprintln(t.stderr, "pack-binaries: nothing was pinned")
-		return 1
+	if len(blocking) == 0 {
+		return false
 	}
+	t.problems = blocking
+	t.report()
+	fmt.Fprintln(t.stderr, "pack-binaries: nothing was pinned")
+	return true
+}
+
+// pin writes every build's url and sha256. run has already refused a build set pin cannot
+// write (refusePin), so every declared build was built.
+func (t *task) pin(stdout io.Writer) int {
 	for _, e := range t.official {
 		var pins []buildPin
 		for _, b := range e.Manifest.Binaries {
