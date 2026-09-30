@@ -68,10 +68,11 @@ reasoning support, which their pages state.
   its global profile serves every commercial source Region AWS lists, the EU, Asia Pacific and
   South America among them (read 2026-09-29). That is the maintainer's rule: GPT-6.1 Sol where
   Bedrock offers it, GPT-6 Sol where it offers only that.
-- **Every agent starts on a `global.` entry.** yolo picks a model only to make a session valid,
-  and it ships no region, so the model it picks has to be one your region can call. That is why
-  GPT-6 Sol comes before GPT-6.1 Sol in the order: codex starts on GPT-6 Sol in every Region,
-  and in the US you can name GPT-6.1 Sol yourself ([below](#choosing-another-model)).
+- **Every agent yolo picks for starts on a `global.` entry.** yolo picks a model only to make a
+  session valid, and it ships no region, so the model it picks has to be one your region can
+  call. That is why GPT-6 Sol comes before GPT-6.1 Sol in the order: codex starts on GPT-6 Sol
+  in every Region, and in the US you can name GPT-6.1 Sol yourself
+  ([below](#choosing-another-model)).
 
 ### Which agent starts where
 
@@ -89,9 +90,9 @@ configure them. agy has no way to reach Bedrock at all.
 codex's client reads the region from `AWS_REGION` or `AWS_DEFAULT_REGION` itself, so yolo writes
 its `aws.region` only for a region you set on the provider. That order is INFERRED: the one
 message in codex-cli 0.158.0 naming it is about codex's other Bedrock provider and its bearer
-tokens, and codex was never run. While a codex profile selects
-Bedrock, yolo pins codex's `model_provider`, so `codex login` cannot switch that session to
-another Bedrock login; pick another profile for that.
+tokens, and codex was never run. While a codex profile selects Bedrock, yolo pins codex's
+`model_provider`, so `codex login` cannot switch that session to another Bedrock login; pick
+another profile for that.
 
 opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`. yolo writes its `options.region`
 from a region you set on the provider, so set it there, or deliver `AWS_REGION`: a launch that
