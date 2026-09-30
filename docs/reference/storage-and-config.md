@@ -182,8 +182,11 @@ Also worth knowing by name, because each is a distinct on-disk contract rather t
 cache: `approvals/` (never mounted), `captures/` (the machine-wide install-capture store,
 mounted `:ro` at `/ctx/captures`), `packs/` (the content-addressed pack store),
 `flake-bundle` (a symlink `just install` swaps at the newest staged generation under
-`flake-bundles/<stamp>/`, so a running jail keeps the generation it bound), `locks/`, and `bin/wrap` (the one generated
-directory a *user* is asked to prepend to their own PATH).
+`flake-bundles/<stamp>/`, so a running jail keeps the generation it bound), `locks/`, `bin/wrap` (the one generated
+directory a *user* is asked to prepend to their own PATH), and `host-floor/` (the **host agent
+floor**: yolo's own copies of the selected packs' agents, which `yolo host` runs by path; `0700`,
+on no PATH of the user's, and never mounted into a jail in any mode, because the host executes it
+— [`host-tool-provisioning.md`](../design/host-tool-provisioning.md)).
 
 **`embedded-packs/`** holds the on-disk copy of the packs compiled into the binary: one
 read-only tree per build, named by a content hash of the embedded pack files, populated by

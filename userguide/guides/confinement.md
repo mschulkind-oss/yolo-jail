@@ -53,6 +53,39 @@ On your own machine the agents keep their permission prompts on, and yolo warns 
 setting you made yourself. [Writing your own pack](migrating-to-packs.md#part-2--manage-your-host)
 walks through it.
 
+### yolo's own copy of your agents
+
+`yolo host -- claude` runs **yolo's own copy** of each agent your selected packs install, not
+whichever `claude` happens to be first on the PATH of whatever started it. So the same agent starts
+from your terminal, from a Waybar widget, from cron or from an IDE, even when that launcher's PATH
+has no `~/.local/bin` and no mise. yolo calls these copies the **host agent floor**, and keeps them
+in `~/.local/share/yolo-jail/host-floor`:
+
+- **Where it lives.** One folder yolo owns, readable only by you, that no jail can see. It is on no
+  PATH of yours: your shell and any copy you installed yourself (`~/.local/bin/claude`, Homebrew's)
+  are left alone. `yolo check` lists each agent, and names any other copy it finds as one `yolo host`
+  does not run.
+- **How it gets there.** The first `yolo host -- <agent>` installs the agent it names, saying what it
+  is doing; `yolo host apply --assert` installs every one that is missing. Selecting the pack is the
+  consent: nothing asks. An agent installed with npm (copilot or opencode, for example) runs on the
+  floor's own Node, the official release, checked against its published checksum. An agent with its
+  own installer (claude, for example) comes from the machine's `yolo capture` of that installer, the
+  same copy your jails use, so on Linux the first one may run a capture if the machine has none yet.
+- **Keeping it current.** The floor updates an agent the way a jail does: at most once an hour, when
+  you start it, unless `agent_updates` freezes that pack.
+- **What it cannot hold yet.** On a Mac, yolo has no copy yet of an agent with its own installer;
+  `yolo host` runs the one on your PATH and says so. The same happens on Linux for codex, whose
+  installer puts its program where a capture cannot record it, for any agent whose vendor
+  publishes no build for your machine, and for an installer agent on a machine with no container
+  runtime to capture it with.
+- **Choosing.** Set `"host_floor": false` in your user config for a floor of nothing, or
+  `"host_floor": {"*": true, "claude": false}` to leave one pack out; `yolo host` then runs that
+  agent from your PATH. `yolo host apply --assert` removes the floor's copy of an agent you no
+  longer select.
+
+Just before it hands over, `yolo host` prints one line naming what it starts and where it came from,
+so a slow start is visibly the agent's.
+
 ## Guest (in development)
 
 **Guest** is planned as a middle ground: the agent would run as a separate user account on your

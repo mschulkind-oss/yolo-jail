@@ -8,8 +8,11 @@ summary: "Parking lot for build-level detail behind host-tool-provisioning.md: r
 
 # Host agent floor — implementation sketch
 
-**Status:** SKETCH, 2026-09-25. It is incomplete, and unstable while [OQ-HP1](host-tool-provisioning.md#OQ-HP1)
-through [OQ-HP6](host-tool-provisioning.md#OQ-HP6) are open. Do not build from it.
+**Status:** SKETCH, 2026-09-25, and **superseded by the build of 2026-09-29**: every question it
+waited on is ruled, and what was built — a Go-side provisioner rather than a reused launcher
+template, the `host-floor/` layout, the flock — is recorded as
+[HP-D4](host-tool-provisioning.md#HP-D4) to [HP-D9](host-tool-provisioning.md#HP-D9). Read it as
+history only.
 
 **Precedence:** [`host-tool-provisioning.md`](host-tool-provisioning.md) wins on behavior. This file
 holds settled detail the design doesn't need.

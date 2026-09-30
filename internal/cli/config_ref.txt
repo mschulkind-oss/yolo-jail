@@ -897,9 +897,11 @@
     names, and `yolo host apply --assert` installs every one that is missing,
     printing what it does.  Selecting the pack is the consent; nothing asks.  An
     npm agent runs on the floor's own Node, the official release checked against
-    its published checksum; claude, codex and agy come from the machine's
-    `yolo capture` of their installer (Linux; on macOS yolo has no copy of those
-    three yet, and `yolo host` runs the one on your PATH, saying so).  The floor
+    its published checksum; an agent with its own installer comes from the
+    machine's `yolo capture` of it (Linux).  Where the floor cannot hold an agent
+    -- an installer agent on macOS, codex (its installer puts the program where a
+    capture cannot record it), no build for this machine, no container runtime to
+    capture with -- `yolo host` runs the one on your PATH, saying so.  The floor
     keeps them current the way a jail does, at most once an hour when you start
     one, and `agent_updates` freezes it the same way.
     A pack set to false here has no floor entry: `yolo host` looks for its agent on

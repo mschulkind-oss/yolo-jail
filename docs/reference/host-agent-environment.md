@@ -243,7 +243,13 @@ refused for naming no command, the host verb having no default one.
 
 ### Execution flow
 
-1. **Locate the target binary** on the host `PATH`, **skipping yolo-managed directories**.
+1. **Locate the target binary.** A bare name of a program a selected pack delivers is **yolo's
+   floor copy**, `~/.local/share/yolo-jail/host-floor/bin/<name>`, installed first when it is
+   missing, whatever PATH the caller held
+   ([`host-tool-provisioning.md`](../design/host-tool-provisioning.md), HP-DIR4). A target given
+   as a path is exec'd as given. Anything else, and a selected pack's program the floor cannot hold
+   on this machine (said on one line), is looked up on the child's PATH (step 3), **skipping
+   yolo-managed directories**.
 2. **Resolve the pack configuration** — the active profile for the launched command, and its
    effective `env` for the active workspace. The profile is a typed `-p`, else the command's
    entry in the `profile` key, else its `"*"` (or the key's string form) when a selected pack
@@ -254,10 +260,13 @@ refused for naming no command, the host verb having no default one.
    selects for such a command.
 3. **Compose the process environment** — start from the current environment, hydrate
    `env_sources` (the secret channel), overlay the resolved `env`, then **apply removals**: a
-   `null` is an `unset`, not an empty string. PATH is inherited whole today, so the target and
-   every dependency probe resolve against whatever PATH the caller held; [`host-launch-environment.md`](../design/host-launch-environment.md)
-   proposes composing it instead.
-4. **Exec** the target with that environment.
+   `null` is an `unset`, not an empty string. PATH is overlaid last: the caller's PATH, then the
+   floor's `bin/`, which holds agent names only, so an agent's own commands see the caller's PATH
+   first. A dependency probe answers a program the floor delivers by its floor entry; every other
+   PATH check still reads the caller's PATH, and
+   [`host-launch-environment.md`](../design/host-launch-environment.md) proposes composing it.
+4. **Say what starts** — one line naming the target and where it came from (yolo's floor copy,
+   your PATH, or as given) — and **exec** it with that environment.
 
 > [!WARNING]
 > **Step 1's skip is load-bearing.** It is what lets `<wrap dir>/claude` be

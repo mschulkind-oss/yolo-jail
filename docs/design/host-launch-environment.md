@@ -24,6 +24,17 @@ is handed.
 [OQ-HE11](#oq-he11), raised in review the same day, asks what runs for a selected pack's program
 the floor cannot hold.
 
+**Built 2026-09-29, in part** (with the floor,
+[`host-tool-provisioning.md`](host-tool-provisioning.md#decision-ledger)): §3's three exec rules
+(`resolveHostLaunchTarget` in `internal/cli/hostfloor.go`); the child's PATH as the caller's PATH
+then the floor's `bin/` ([OQ-HE10](#oq-he10) (c), [HE-D1](#he-d1)); a program the floor delivers
+answered by its floor entry in the dependency probe and `check-deps`; and, while
+[OQ-HE11](#oq-he11) is open, its leaning's behavior: a selected pack's program with no floor entry
+is looked up on the child's PATH and the launch says so in one line. **Not built:** the composed
+host PATH itself (`host_path`, the per-OS baseline, `YOLO_HOST_PATH`, §2.2), so nothing sits between
+the caller's PATH and the floor's `bin/` yet, and yolo's other PATH checks still read the ambient
+PATH; and the stage-1 notices of §4.
+
 > **In short.** `yolo host` should make every check against the environment it composes, not
 > the one it inherited. PATH is the input where that fails today. Composing it from a fixed
 > baseline plus a declared list, routing yolo's other PATH checks through that one value, and
