@@ -14,7 +14,7 @@ Apple Container parity job on a self-hosted Mac
 ([`apple-container.yml`](../../.github/workflows/apple-container.yml), since 2026-09-14,
 dispatch-only). A cell a test on either job pins is marked [CI].
 
-**Needs your ruling:** [OQ-MX1](#OQ-MX1) (what replaces `macos-26-intel` before nixpkgs 26.05 lapses — the one item here with a deadline), [OQ-MX2](#OQ-MX2) (whether the three `packages:` tests skip on a builder-less runner). *MX* stands for this matrix; the prefix was coined for these two questions on 2026-09-26.
+**Needs your ruling:** [OQ-MX1](#OQ-MX1) (what replaces `macos-26-intel` before nixpkgs 26.05 lapses — the one item here with a deadline; restated 2026-09-30, because the self-hosted Mac it names as one option now exists). [OQ-MX2](#OQ-MX2) is moot since 2026-09-30: the three `packages:` tests no longer fail on the nightly's runner. *MX* stands for this matrix; the prefix was coined for these two questions on 2026-09-26.
 
 > [!NOTE]
 > **Code citations name a FILE, not a line** (since 2026-09-24). The line numbers this tracker
@@ -69,9 +69,11 @@ and nothing else here does.** Verified against `flake.nix` 2026-08-23.
   plans to retire Intel runner images around late 2027 (`nightly-macos.yml`),
   and macOS 26 (Tahoe) is the last Intel macOS — so **two independent clocks run
   on this runner**, nixpkgs 26.05's security window and GitHub's image retirement.
-- **When 26.05 lapses the choice is binary:** a self-hosted arm64 Mac runner, or
-  dropping the container-backend macOS tests to macos-user only. **A deadline,
-  not a bug — it needs a decision before the end of 2026.**
+- **When 26.05 lapses the podman suite needs a new home:** the self-hosted arm64
+  Mac that already runs the Apple Container job, macos-user-only macOS tests, or
+  riding the frozen 26.05 pin until GitHub retires the image
+  ([OQ-MX1](#OQ-MX1), restated 2026-09-30). **A deadline, not a bug — it needs a
+  decision before the end of 2026.**
 
 > [!WARNING]
 > **The recorded diagnosis for this was exactly backwards for 29 nights.** The
@@ -94,7 +96,7 @@ and nothing else here does.** Verified against `flake.nix` 2026-08-23.
 | **Darwin warmup: SKIPPED** | `warmJail` returns early on `GOOS == "darwin"` — `integration/harness_test.go`, commit `e5b60902` (2026-08-23). A warmup pre-pays a *container start*; on darwin every launch **realises an image** (a loaded image can never match a darwin `nix eval`), so the warmup was a full nix build wearing a warmup's name — **12m0s of waste per night**. The first container test absorbs the one-time cost instead. Linux CI keeps the warmup, where the premise holds and it earns its 1m56s | 2026-08-23 |
 | Image-skew oracle on darwin | **auto-downgraded to `warn`** — a Linux-runner-built image can never match a darwin `nix eval`, so on a Mac you do **not** get the stale-image protection. Check by hand | 2026-08-23 |
 
-- 💬 <a id="OQ-MX2"></a>**[OQ-MX2](#OQ-MX2): Should the three `packages:`-declaring tests SKIP
+- ✅ <a id="OQ-MX2"></a>**[OQ-MX2](#OQ-MX2): Should the three `packages:`-declaring tests SKIP
   rather than fail on a builder-less runner?** `TestExtraPackageLibFarm`,
   `TestExtraPackagesFromMountedStore` and `TestDevPackageLinksRuntimeLib` declare `packages:`,
   which makes them genuinely non-stock, so they build an image, and the nightly's runner has no
@@ -102,6 +104,18 @@ and nothing else here does.** Verified against `flake.nix` 2026-08-23.
   should skip instead. Filed 2026-09-26 from
   [`handoff-mac-unmeasured-claims.md` §4](../plans/handoff-mac-unmeasured-claims.md#4-the-nightly--five-links-all-now-named),
   where it was recorded without an id.
+
+  **Answer:** moot (2026-09-30): the failure it asks about no longer happens. The nightly's
+  `build-image` job realizes the `zbar` and `libsodium.dev` image variants on Linux and pushes
+  them to the project's Cachix, so the Mac substitutes them rather than building
+  (`nightly-macos.yml`, the "non-stock variants" block of the build step). And
+  `TestExtraPackagesFromMountedStore` skips on `GOOS != "linux"` before it launches
+  (`integration/packages_test.go`), since store delivery is Linux-only. MEASURED in the scheduled
+  run of 2026-09-29, `36566584474`: `TestExtraPackageLibFarm` PASS (676.51s),
+  `TestDevPackageLinksRuntimeLib` PASS (431.33s), `TestExtraPackagesFromMountedStore` SKIP
+  (0.00s). That run failed on `TestYoloCheckValidConfig`, which is not one of the three. A cache
+  miss would make the two baked-path tests build and fail again, and that failure is the one
+  worth seeing: a stale or unbuilt image is never a basis for an integration result.
 
 **Still unobserved:** nobody has watched a nightly run *with* the warmup skip in
 place. The expectation is `integration-macos` losing ~12 minutes of wall clock
@@ -284,11 +298,31 @@ is the single collected list, with the open questions attached.
    NEW, added 2026-08-23. See [§0](#0-the-platform-deadline--x86_64-darwin-is-on-a-clock): 26.05 is the last branch supporting
    `x86_64-darwin` and is security-fixed only to the end of 2026, while the
    nightly must stay on an Intel runner because GitHub's Apple Silicon runners
-   cannot nest a VM for Podman Machine. The choice is a **self-hosted arm64 Mac
-   runner** or **macos-user-only macOS tests**. Deadline-driven, not
+   cannot nest a VM for Podman Machine. Deadline-driven, not
    defect-driven — it needs a ruling before the window closes, and it is the only
    item in this list with a date attached. *(The id was minted 2026-09-26 so the question can be
    linked.)*
+
+   **Restated 2026-09-30.** When this was filed the self-hosted option meant standing up a
+   runner. One exists now: the maintainer registered a Mac on 2026-09-14 and it runs
+   [`apple-container.yml`](../../.github/workflows/apple-container.yml), dispatched by a
+   launchd agent on the Mac while it is awake. That workflow's header measured what such a
+   runner gives: coverage shaped like the Mac's uptime, not like a cron. And
+   [`mac-actions-runner.md`](../plans/runbooks/mac-actions-runner.md) records that moving the
+   podman suite there was considered and deferred on 2026-09-14. The options, lettered here
+   for the first time:
+   - **(A)** Move the podman macOS suite onto the self-hosted Mac, dispatched the way the
+     Apple Container job is. Keeps real Podman Machine coverage on arm64. Cost: runs happen
+     only while the Mac is awake, and today's twelve hosted shards become one machine, so a
+     full run takes hours longer.
+   - **(B)** Drop the container-backend macOS tests to macos-user only, which runs on GitHub's
+     hosted `macos-latest`. Cost: podman on macOS loses its only hardware coverage; the
+     argv-level Linux tests remain.
+   - **(C)** Keep the Intel runner on the frozen 26.05 pin after its security window closes,
+     until GitHub retires the image (planned around late 2027). Cost: the flake keeps an
+     unpatched nixpkgs for `x86_64-darwin`, which is also what a real Intel Mac user gets.
+
+   No leaning is recorded here; this is a CI commitment with a date.
 
 ## 6. Cross-refs
 - **[runbooks/mac-ac-container-builder.md](../plans/runbooks/mac-ac-container-builder.md)** — Mac test (zero-sudo) for the gating AC-builder cell.
