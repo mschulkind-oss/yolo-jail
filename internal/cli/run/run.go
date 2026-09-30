@@ -505,7 +505,7 @@ func Run(opts Options) (rc int) {
 			// (servicessession.go). Two sessions of one workspace used to share the dir the
 			// workspace's cname selects, and this deferred teardown, which takes no container
 			// guard, removed it under the other session (OQ-HD10's second run, measured).
-			handles := o.startLoopholesDisclosed(cname, rt, cfg, staged.packs)
+			handles := o.startLoopholesDisclosed(cname, rt, cfg, staged.packs, jailDaemons)
 			defer o.endServicesSession(handles)
 			// THE CREDENTIAL VIEW, opt-in until a Mac measures it (CL-D11): the
 			// workspace's view registered and written now that the broker singleton is up, and
@@ -1609,7 +1609,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// user has to go read." The wrapper also carries the inert-backend report, so a backend
 	// that will start nothing says so instead of looking provisioned (B-0).
 	sp = o.Perf.Span("launch.start_loopholes")
-	hostServices := o.startLoopholesDisclosed(cname, rt, cfg, loadedPacks)
+	hostServices := o.startLoopholesDisclosed(cname, rt, cfg, loadedPacks, jailDaemons)
 	sp.End()
 	// The credential view's registration, after the singleton's ensure made its state dir and
 	// before the container starts, so the jail's first read finds a view

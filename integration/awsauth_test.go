@@ -34,7 +34,9 @@ import (
 //     printed, with `Token` rather than the CLI's `SessionToken`.
 //   - TestAWSAuthLapsedSessionIsA4xxNamingTheLogin — a lapsed session: a 400 whose body
 //     carries the `aws sso login --profile …` command a human runs on the host (OQ-SSO6: a
-//     lapsed session is a MESSAGE, not a request).
+//     lapsed session is a MESSAGE, not a request), and a launch that printed the same command
+//     as one warning before the jail started (the launch check, design SSO-D1). The live
+//     session's launch prints no such warning.
 //
 // > [!WARNING]
 // > READ THIS BEFORE TRUSTING A GREEN RUN HERE, exactly as reachability_test.go's header
@@ -325,6 +327,11 @@ func TestAWSAuthServesTheFourKeysOverTheLoopbackHop(t *testing.T) {
 		t.Fatalf("GET the pointer = HTTP %q, want 200 with a live session\nbody: %s\n%s%s",
 			status, got, r.combined(), awsAuthDaemonLog(t))
 	}
+	// A live session gives the launch nothing to warn about (the negative of the lapsed
+	// test's launch-check assertion).
+	if line := awsAuthLaunchWarning(r.combined()); line != "" {
+		t.Errorf("a live session's launch printed an aws-auth warning:\n%s", line)
+	}
 	var served map[string]any
 	if err := json.Unmarshal(got, &served); err != nil {
 		t.Fatalf("the served body is not JSON: %v (%d bytes, withheld)", err, len(got))
@@ -393,6 +400,25 @@ func TestAWSAuthLapsedSessionIsA4xxNamingTheLogin(t *testing.T) {
 		t.Errorf("the 4xx Message does not carry %q, the one command a human needs:\n%s",
 			want, served.Message)
 	}
+	// AND THE LAUNCH SAID SO FIRST (design §8, SSO-D1): before the jail took the terminal, the
+	// launch asked the service whether its agent's first Bedrock request would be served and
+	// printed the same fix as one warning, then went on to start the jail.
+	if line := awsAuthLaunchWarning(r.combined()); line == "" {
+		t.Errorf("the launch printed no aws-auth launch-check warning for a lapsed session:\n%s",
+			r.combined())
+	} else if want := "aws sso login --profile " + awsAuthProfile; !strings.Contains(line, want) {
+		t.Errorf("the launch's warning does not carry %q:\n%s", want, line)
+	}
+}
+
+// awsAuthLaunchWarning is the launch's aws-auth launch-check warning line in out, or "".
+func awsAuthLaunchWarning(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "loophole aws-auth: cannot mint a Bedrock credential") {
+			return line
+		}
+	}
+	return ""
 }
 
 // TestAWSAuthCredentialMismatchesNeverEchoTheServedValue pins the helper both end-to-end tests

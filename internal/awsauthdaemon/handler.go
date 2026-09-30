@@ -13,6 +13,10 @@ import (
 type HandlerConfig struct {
 	Broker     awsauth.Broker
 	ConfigPath string
+	// Mints is the tracker the launch check shares with the proactive minter
+	// (launchcheck.go), so a launch arriving during the spawn-time mint waits for that one.
+	// nil gets a tracker of the handler's own, which logs nowhere.
+	Mints *mintTracker
 }
 
 // BuildHandler serves the action protocol the jail-side adapter speaks.
@@ -32,6 +36,10 @@ type HandlerConfig struct {
 // profile could point this service at the `admin` one. A request carries an action
 // and nothing that changes what is minted.
 func BuildHandler(config HandlerConfig) hostservice.Handler {
+	mints := config.Mints
+	if mints == nil {
+		mints = newMintTracker(nil)
+	}
 	return func(session *hostservice.Session) {
 		action := field(session, "action")
 		if action == "" {
@@ -58,6 +66,11 @@ func BuildHandler(config HandlerConfig) hostservice.Handler {
 				view["config_form"] = string(form)
 			}
 			_ = session.JSON(view)
+		case hostservice.LaunchCheckAction:
+			// The launch's question (launchcheck.go): will this launch's first Bedrock request
+			// be served, and if not, why? As credential-free as `status`: a warning carries a
+			// classifier Message, never a credential field.
+			_ = session.AnswerLaunchCheck(launchCheck(config.Broker, mints, hostservice.LaunchCheckBudgetOf(session)))
 		default:
 			session.Stderr("unknown action: " + action + "\n")
 			session.Exit(2)

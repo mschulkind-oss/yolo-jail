@@ -100,7 +100,7 @@ func TestSpawnBoundaryAnnouncesHostExecution(t *testing.T) {
 	o.Stderr = &errBuf
 	o.Stdout = &errBuf
 	o.PathExists = func(string) bool { return false }
-	o.startLoopholesDisclosed(cname, "podman", newConfig(), []*packload.Pack{p})
+	o.startLoopholesDisclosed(cname, "podman", newConfig(), []*packload.Pack{p}, nil)
 
 	got := errBuf.String()
 	if !strings.Contains(got, "runs pack code on your machine") {

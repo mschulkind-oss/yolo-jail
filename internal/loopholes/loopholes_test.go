@@ -872,13 +872,17 @@ func TestHostDaemonFieldsSurviveLoad(t *testing.T) {
 	// odd one: its DEFAULT is true, so the only non-zero value is the default, and
 	// declaring it changes nothing — which is fine, the assertion is that it
 	// survives.
+	// `request_end` is the default, "framed", rather than "eof": `launch_check` needs a framed
+	// daemon and the decoder refuses the pair. "framed" is non-zero, so a dropped RequestEnd
+	// still arrives as "" and fails below.
 	declared := map[string]any{
-		"Cmd":        []any{"d", "{socket}"},
-		"Env":        map[string]any{"K": "V"},
-		"Publishes":  "socket",
-		"RequestEnd": "eof",
-		"Preamble":   true,
-		"Scope":      "host",
+		"Cmd":         []any{"d", "{socket}"},
+		"Env":         map[string]any{"K": "V"},
+		"Publishes":   "socket",
+		"RequestEnd":  "framed",
+		"Preamble":    true,
+		"Scope":       "host",
+		"LaunchCheck": true,
 	}
 	typ := reflect.TypeOf(HostDaemon{})
 	for i := 0; i < typ.NumField(); i++ {
@@ -899,12 +903,13 @@ func TestHostDaemonFieldsSurviveLoad(t *testing.T) {
 	writeManifest(t, mod, map[string]any{
 		"name": "survives", "description": "x",
 		"host_daemon": map[string]any{
-			"cmd":         declared["Cmd"],
-			"env":         declared["Env"],
-			"publishes":   declared["Publishes"],
-			"request_end": declared["RequestEnd"],
-			"preamble":    declared["Preamble"],
-			"scope":       declared["Scope"],
+			"cmd":          declared["Cmd"],
+			"env":          declared["Env"],
+			"publishes":    declared["Publishes"],
+			"request_end":  declared["RequestEnd"],
+			"preamble":     declared["Preamble"],
+			"scope":        declared["Scope"],
+			"launch_check": declared["LaunchCheck"],
 		},
 	})
 	lp, err := LoadLoophole(mod)

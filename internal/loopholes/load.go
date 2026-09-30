@@ -234,12 +234,13 @@ func resolve(m *loopholedecl.Manifest, modulePath string) *Loophole {
 		cmd = substituteAll(cmd, loopholedecl.TokenSettings, settingsPath)
 		cmd = substituteAll(cmd, loopholedecl.TokenState, statePath)
 		hostDaemon = &HostDaemon{
-			Cmd:        cmd,
-			Env:        m.HostDaemon.Env,
-			Publishes:  m.HostDaemon.Publishes,
-			RequestEnd: m.HostDaemon.RequestEnd,
-			Preamble:   m.HostDaemon.Preamble,
-			Scope:      m.HostDaemon.Scope,
+			Cmd:         cmd,
+			Env:         m.HostDaemon.Env,
+			Publishes:   m.HostDaemon.Publishes,
+			RequestEnd:  m.HostDaemon.RequestEnd,
+			Preamble:    m.HostDaemon.Preamble,
+			Scope:       m.HostDaemon.Scope,
+			LaunchCheck: m.HostDaemon.LaunchCheck,
 		}
 	}
 

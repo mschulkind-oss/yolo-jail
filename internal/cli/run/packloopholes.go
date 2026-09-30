@@ -601,8 +601,14 @@ func (o *Options) notePackJailCode(packs []*packload.Pack) {
 // and since OQ-TP10 where the JAIL-execution disclosure hangs, for the same reason:
 // everything a user must know before any of this launch's code runs (or before they conclude
 // it did) belongs at one boundary.
+//
+// AND IT IS WHERE THE LAUNCH CHECK IS ASKED (launchcheck.go), once the services are up: the
+// last boundary both arms cross after a spawn and before the jail takes the terminal, so what
+// a started daemon says will fail for this launch prints here or nowhere. payload is the
+// launch's composed jail-daemon payload (jailDaemonsFor), which says whose jail daemon this
+// launch serves.
 func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMap,
-	packs []*packload.Pack) []loopholeDaemon {
+	packs []*packload.Pack, payload []loopholes.JailDaemonSpec) []loopholeDaemon {
 	o.notePackHostExec(packs)
 	// The JAIL half of the same question — pack code that runs, on the other side of the
 	// boundary — and it prints here because this wrapper is the last host-side moment before
@@ -647,5 +653,6 @@ func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMa
 		started = o.startLoopholes(cname, rt, cfg)
 		return true
 	})
+	o.runLaunchChecks(rt, started, payload)
 	return started
 }

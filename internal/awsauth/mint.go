@@ -297,10 +297,15 @@ func classify(profile string, out Output) *MintError {
 	}
 	for _, sig := range missingProfileSignatures {
 		if strings.Contains(haystack, sig) {
+			// The FIX IS NAMED, both ways, because this message is also the launch's warning
+			// (the launch check, internal/awsauthdaemon/launchcheck.go): add the profile on
+			// the host, or point the setting at one that exists.
 			return &MintError{Kind: FailureProfileMissing, Code: "ProfileNotFound",
 				Message: "the AWS profile " + profile + " named by " +
-					settingsScope(SettingProfile) + " is not in the host's ~/.aws/config (aws said: " +
-					detail + ")"}
+					settingsScope(SettingProfile) + " is not in the host's ~/.aws/config — add " +
+					"it there (for an SSO profile: aws configure sso --profile " + profile +
+					"), or set " + settingsScope(SettingProfile) + " to a profile that is " +
+					"(aws said: " + detail + ")"}
 		}
 	}
 	// AWS ANSWERED AND SAID NO. Its own message is forwarded verbatim rather than

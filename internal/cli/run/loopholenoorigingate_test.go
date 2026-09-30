@@ -169,7 +169,7 @@ func TestFetchedPackLoopholeSpawnsAndCrossesWithNoApproval(t *testing.T) {
 	}
 
 	// 1. THE SPAWN, through the one disclosed call site.
-	o.startLoopholesDisclosed(cname, "podman", jsonx.NewOrderedMap(), loaded)
+	o.startLoopholesDisclosed(cname, "podman", jsonx.NewOrderedMap(), loaded, nil)
 	if _, statErr := os.Stat(sentinel); statErr != nil {
 		t.Errorf("the fetched pack's host daemon never ran:\n%s\nNothing gates it any more, "+
 			"so a missing sentinel is either a reintroduced gate or a broken spawn path",
@@ -249,7 +249,7 @@ func TestLocalPackLoopholeReachesTheSpawnAndTheArgv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o.startLoopholesDisclosed("yolo-test-approved-loophole", "podman", jsonx.NewOrderedMap(), loaded)
+	o.startLoopholesDisclosed("yolo-test-approved-loophole", "podman", jsonx.NewOrderedMap(), loaded, nil)
 	if _, statErr := os.Stat(sentinel); statErr != nil {
 		t.Errorf("a local pack loophole's host daemon did not start:\n%s", out.String())
 	}

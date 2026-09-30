@@ -183,6 +183,18 @@ type HostDaemon struct {
 	// entry is a host-wide singleton", which is the one answer no config entry may
 	// ever give.
 	Scope string
+	// LaunchCheck is `launch_check`: the daemon answers the LAUNCH CHECK, a term coined
+	// in internal/hostservice/launchcheck.go for the one framed request a launch sends a
+	// host daemon it has just started or ensured, asking what this launch should be
+	// warned about. The launch prints each warning the daemon returns and proceeds; it
+	// never refuses on one. It asks only when this launch serves the loophole's
+	// jail_daemon, or when the loophole declares none, because a warning about a service
+	// no agent of the launch reaches has nobody to warn. DEFAULTS TO FALSE. It needs
+	// `request_end: "framed"`, since the check is one framed request, and transport
+	// loopback-tls, since the launch sends it through the endpoint it publishes. aws-auth
+	// declares it, so a launch says when its SSO session cannot mint
+	// (docs/design/sso-backed-bedrock.md SSO-D1).
+	LaunchCheck bool
 }
 
 // HostBindMount is one host path made visible in the container. Readonly
@@ -594,6 +606,13 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 	if err != nil {
 		return nil, err
 	}
+	// The launch sends the launch check through the endpoint file it publishes for the
+	// daemon, and only a loopback-tls loophole has one.
+	if hostDaemon != nil && hostDaemon.LaunchCheck && transport != TransportLoopbackTLS {
+		return nil, Errorf("%s: 'host_daemon.launch_check' needs transport %s (got %s) — the "+
+			"launch asks through the endpoint it publishes for the daemon", manifestPath,
+			pytext.Repr(TransportLoopbackTLS), pytext.Repr(transport))
+	}
 	jailDaemon, err := parseJailDaemon(manifestPath, getOrNil(data, keyJailDaemon))
 	if err != nil {
 		return nil, err
@@ -960,6 +979,27 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 		return nil, Errorf("%s: 'host_daemon.request_end' = %s not in %s",
 			manifestPath, pytext.Repr(requestEnd), sortedListRepr(validRequestEnds))
 	}
+	// TYPE-CHECKED like `preamble`, and for the same reason: Truthy("false") is true, so
+	// a quoted `"false"` would ask every launch to send a request the daemon never offered
+	// to answer. Default OFF, since a daemon answers the launch check only if it was
+	// written to.
+	launchCheck := false
+	if lv, ok := m.Get(keyLaunchCheck); ok {
+		b, isBool := lv.(bool)
+		if !isBool {
+			return nil, Errorf("%s: 'host_daemon.launch_check' must be a boolean (got %s)",
+				manifestPath, pytext.Repr(Str(lv)))
+		}
+		launchCheck = b
+	}
+	// The launch check is ONE FRAMED REQUEST (internal/hostservice/launchcheck.go), so a
+	// daemon whose requests end at EOF cannot answer it. Refused here rather than left to
+	// fail at every launch, where the failure would read as a daemon fault.
+	if launchCheck && requestEnd != RequestEndFramed {
+		return nil, Errorf("%s: 'host_daemon.launch_check' needs 'request_end': %s (got %s) — "+
+			"the launch check is one framed request", manifestPath,
+			pytext.Repr(RequestEndFramed), pytext.Repr(requestEnd))
+	}
 	scope := ScopeJail
 	if sv, ok := m.Get(keyScope); ok {
 		scope = Str(sv)
@@ -1007,7 +1047,7 @@ func parseHostDaemon(manifestPath string, raw any) (*HostDaemon, error) {
 	}
 	return &HostDaemon{
 		Cmd: cmd, Env: env, Publishes: publishes, RequestEnd: requestEnd,
-		Preamble: preamble, Scope: scope,
+		Preamble: preamble, Scope: scope, LaunchCheck: launchCheck,
 	}, nil
 }
 

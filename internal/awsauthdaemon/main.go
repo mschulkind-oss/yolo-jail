@@ -130,10 +130,14 @@ func Main(argv []string) int {
 		fmt.Fprintln(os.Stderr, "yolo-aws-auth: watch the state directory:", err)
 		return 1
 	}
+	// ONE TRACKER for the proactive minter and the launch check, so a launch arriving while
+	// the spawn-time mint runs waits for that mint instead of starting another (launchcheck.go).
+	mints := newMintTracker(os.Stderr)
 	if !*noBackground {
-		go runProactive(broker, *refreshInterval, stop, os.Stderr)
+		go runProactive(broker, mints, *refreshInterval, stop)
 	}
-	handler := BuildHandler(HandlerConfig{Broker: broker, ConfigPath: awsauth.DefaultConfigPath()})
+	handler := BuildHandler(HandlerConfig{Broker: broker, ConfigPath: awsauth.DefaultConfigPath(),
+		Mints: mints})
 	if err := serveSockets(handler, *socket, HostSocketPath(*socket), stop, shutdown); err != nil {
 		fmt.Fprintln(os.Stderr, "yolo-aws-auth:", err)
 		return 1
@@ -234,7 +238,12 @@ func reportStartup(w io.Writer, config awsauth.Config, configPath string) {
 // is warm by the time the jail's first request arrives. A failure here is LOGGED AND
 // NOT FATAL: a lapsed session is a runtime state the human fixes with one host-side
 // command, and the message carries that command.
-func runProactive(broker awsauth.Broker, interval time.Duration, stop <-chan struct{}, log io.Writer) {
+//
+// It mints THROUGH mints, the tracker the launch check shares (launchcheck.go): a launch that
+// arrives during this first mint waits for it rather than starting a second, a failure is
+// remembered for the next launch to report, and the tracker writes the failure to its log.
+func runProactive(broker awsauth.Broker, mints *mintTracker, interval time.Duration,
+	stop <-chan struct{}) {
 	if interval <= 0 {
 		interval = broker.TickInterval()
 	}
@@ -245,9 +254,7 @@ func runProactive(broker awsauth.Broker, interval time.Duration, stop <-chan str
 	defer ticker.Stop()
 	for {
 		if broker.RemintDue() {
-			if _, err := broker.Fetch(context.Background(), "proactive"); err != nil && log != nil {
-				fmt.Fprintln(log, "aws-auth: proactive mint failed:", err)
-			}
+			<-mints.begin(broker, "proactive").done
 		}
 		select {
 		case <-stop:

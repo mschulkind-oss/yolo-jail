@@ -252,7 +252,7 @@ func TestHostExecDisclosurePrecedesTheSpawn(t *testing.T) {
 	o.PathExists = func(string) bool { return false } // no cgroup delegate
 	// rt "podman" so startLoopholes runs its real body (Apple Container returns early, which
 	// would still create the dir but is the inert path this test is not about).
-	o.startLoopholesDisclosed(cname, "podman", newConfig(), nil)
+	o.startLoopholesDisclosed(cname, "podman", newConfig(), nil, nil)
 
 	if !disclosed {
 		t.Fatal("startLoopholesDisclosed never ran the host-exec disclosure")
@@ -441,7 +441,7 @@ func TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns(t *testing.T) {
 	// Repointed 2026-09-17 from the retired startOpenAIAuthDisclosed: the ORDERING property
 	// is unchanged and is the point of this test, but the macos-user arm reaches it through
 	// the general boundary now.
-	o.startLoopholesDisclosed(cname, "macos-user", newConfig(), []*packload.Pack{p})
+	o.startLoopholesDisclosed(cname, "macos-user", newConfig(), []*packload.Pack{p}, nil)
 
 	if seen == "" {
 		t.Fatalf("the macos-user spawn path disclosed no host execution; it wrote:\n%s", errBuf.all)
@@ -498,7 +498,7 @@ func TestMacosUserDisclosureNamesEveryPackItNowStarts(t *testing.T) {
 	o.PathExists = func(string) bool { return false }
 
 	o.startLoopholesDisclosed(cname, "macos-user", newConfig(),
-		[]*packload.Pack{broker, other})
+		[]*packload.Pack{broker, other}, nil)
 
 	if !strings.Contains(errBuf.String(), "openai-auth-broker") {
 		t.Errorf("the broker this path starts is not disclosed:\n%s", errBuf.String())
@@ -552,7 +552,7 @@ func TestAppleContainerReportsEveryPackInert(t *testing.T) {
 	o.Stdout = discardBuf()
 	o.PathExists = func(string) bool { return false }
 
-	o.startLoopholesDisclosed(cname, "container", newConfig(), []*packload.Pack{creds, other})
+	o.startLoopholesDisclosed(cname, "container", newConfig(), []*packload.Pack{creds, other}, nil)
 
 	out := errBuf.String()
 	// The EXACT line, built from the same inputs, for each pack — so this cannot pass on a
@@ -718,7 +718,7 @@ func TestRealLoopholePackDisclosesItsDaemonBeforeTheSpawn(t *testing.T) {
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()
 	o.PathExists = func(string) bool { return false }
-	o.startLoopholesDisclosed(cname, "podman", newConfig(), []*packload.Pack{p})
+	o.startLoopholesDisclosed(cname, "podman", newConfig(), []*packload.Pack{p}, nil)
 
 	if seen == "" {
 		t.Fatalf("the real production path never disclosed the daemon argv; wrote:\n%s", errBuf.all)

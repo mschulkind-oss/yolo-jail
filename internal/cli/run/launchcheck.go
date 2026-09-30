@@ -1,0 +1,208 @@
+package run
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"strings"
+	"sync"
+	"time"
+	"unicode"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+)
+
+// launchcheck.go is the LAUNCH half of the launch check: internal/hostservice/launchcheck.go
+// coins the term and states the protocol, and a loophole opts in with
+// `host_daemon.launch_check` (internal/loopholedecl). After the host services start, the launch
+// asks each daemon that declares it what this launch should warn about, and prints the answer.
+//
+// KEYED ON THE DECLARATION, never on a loophole's name, as the un-narrowed disclosure is
+// (loopholesettings.go, docs/design/sso-backed-bedrock.md OQ-SSO10): the launch path renders
+// every loophole with no switch on a tool name (AGENTS.md). Its first declarer is aws-auth,
+// whose daemon answers with the mint failure that would fail the agent's first Bedrock request
+// (design §8, "the launch warns with the `aws sso login` command and proceeds"; SSO-D1).
+//
+// # Who is asked
+//
+// A daemon whose record declares the check, that this launch started or ensured, and whose
+// jail daemon this launch SERVES (loopholes.ServedJailDaemons: the container runs it, or on
+// macos-user it runs in the guest or opens as a doorway outside it), or that declares no jail
+// daemon at all. aws-auth's jail daemon is served only when some agent's provider is on
+// Bedrock (provider-credential-scope.md OQ-CN7 (b)), so a launch with no such agent asks
+// nothing: a warning about a service none of its agents reaches has nobody to warn.
+//
+// # It never refuses, and it is never silent about what it could not do
+//
+// Every warning prints and the launch proceeds (§8: a jail that will not start is worse than a
+// first request that fails clearly). A daemon that could not be asked, or did not answer within
+// the budget, gets one dim line saying so: the check is a disclosure, so its absence must not
+// read as a clean bill. No flag hides either (docs/reference/report-tiers.md, OQ-RO3).
+//
+// # What it costs
+//
+// One loopback TLS dial through the front the launch just published, and one framed request,
+// for each daemon asked, all in parallel. A daemon answering from what it knows (aws-auth with
+// a warm cache) replies in milliseconds. One that has to find out is bounded by
+// hostservice.LaunchCheckBudget, and the launch stops reading launchCheckMargin after that.
+
+// launchCheckMargin is how long past the budget the launch keeps reading: the dial, the TLS
+// handshake and the framing on a loaded host, never the daemon's own work.
+const launchCheckMargin = time.Second
+
+// launchCheckTextMax caps one printed line from a daemon, in runes.
+const launchCheckTextMax = 600
+
+// runLaunchChecks asks every started daemon that is due one (see the file comment) and prints
+// the answers in the order the daemons started.
+func (o *Options) runLaunchChecks(rt string, started []loopholeDaemon, payload []loopholes.JailDaemonSpec) {
+	served := map[string]bool{}
+	for _, s := range loopholes.ServedJailDaemons(rt, payload) {
+		served[s.Name] = true
+	}
+	var due []loopholeDaemon
+	for _, h := range started {
+		if !h.launchCheck || h.hostPath == "" {
+			continue
+		}
+		if h.hasJailDaemon && !served[h.name] {
+			continue
+		}
+		due = append(due, h)
+	}
+	if len(due) == 0 {
+		return
+	}
+	type answer struct {
+		report hostservice.LaunchCheckReport
+		err    error
+	}
+	answers := make([]answer, len(due))
+	budget := hostservice.LaunchCheckBudget
+	o.withStderrProgress("Checking host services", func() bool {
+		var wg sync.WaitGroup
+		for i, h := range due {
+			wg.Add(1)
+			go func(i int, h loopholeDaemon) {
+				defer wg.Done()
+				r, err := askLaunchCheck(h.hostPath, budget)
+				answers[i] = answer{r, err}
+			}(i, h)
+		}
+		wg.Wait()
+		return true
+	})
+	out := o.pr(o.Stderr)
+	for i, h := range due {
+		a := answers[i]
+		if a.err != nil {
+			out.print("[dim]loophole " + h.name + ": could not ask the host service what this " +
+				"launch should know: " + richtext.Escape(launchCheckText(a.err.Error())) + "[/dim]")
+			continue
+		}
+		for _, w := range a.report.Warnings {
+			out.print("[bold yellow]loophole " + h.name + ": " +
+				richtext.Escape(launchCheckText(w)) + "[/bold yellow]")
+		}
+		for _, n := range a.report.Notes {
+			out.print("[dim]loophole " + h.name + ": " + richtext.Escape(launchCheckText(n)) + "[/dim]")
+		}
+	}
+}
+
+// launchCheckText makes a daemon's string safe to print as one terminal line: control
+// characters become spaces, and it is capped at launchCheckTextMax runes. A daemon is host code
+// the launch already runs, but its words still must not move the cursor or forge a second line.
+func launchCheckText(s string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range strings.TrimSpace(s) {
+		if n == launchCheckTextMax {
+			b.WriteString("…")
+			break
+		}
+		if unicode.IsControl(r) {
+			r = ' '
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String()
+}
+
+// askLaunchCheck dials the endpoint file as a host-side client (svcendpoint.DialLocal, the
+// probe shape that authenticates with the 0600 file this process published) and sends one
+// launch-check request. The whole exchange is bounded by budget plus launchCheckMargin.
+func askLaunchCheck(endpointPath string, budget time.Duration) (hostservice.LaunchCheckReport, error) {
+	deadline := time.Now().Add(budget + launchCheckMargin)
+	conn, err := svcendpoint.DialLocal(endpointPath, launchCheckMargin)
+	if err != nil {
+		return hostservice.LaunchCheckReport{}, fmt.Errorf("connect: %w", err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(deadline)
+	return exchangeLaunchCheck(conn, budget)
+}
+
+// exchangeLaunchCheck is the framed conversation on an open connection.
+func exchangeLaunchCheck(conn net.Conn, budget time.Duration) (hostservice.LaunchCheckReport, error) {
+	body, err := json.Marshal(map[string]any{
+		"action":                         hostservice.LaunchCheckAction,
+		hostservice.LaunchCheckBudgetKey: budget.Milliseconds(),
+	})
+	if err != nil {
+		return hostservice.LaunchCheckReport{}, err
+	}
+	if err := frameproto.WriteRequest(conn, body); err != nil {
+		return hostservice.LaunchCheckReport{}, fmt.Errorf("send: %w", err)
+	}
+	var stdout, stderr bytes.Buffer
+	for {
+		frame, err := frameproto.ReadFrame(conn)
+		if err != nil {
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
+				return hostservice.LaunchCheckReport{}, fmt.Errorf("no answer within %s", budget+launchCheckMargin)
+			}
+			return hostservice.LaunchCheckReport{}, fmt.Errorf("read: %w", err)
+		}
+		switch frame.StreamID {
+		case frameproto.StreamStdout:
+			stdout.Write(frame.Payload)
+		case frameproto.StreamStderr:
+			stderr.Write(frame.Payload)
+		case frameproto.StreamExit:
+			rc, err := frameproto.ExitCode(frame.Payload)
+			if err != nil {
+				return hostservice.LaunchCheckReport{}, err
+			}
+			if rc != 0 {
+				// A daemon started by a yolo that predates the launch check answers an unknown
+				// action this way; its stderr names the action it did not know.
+				return hostservice.LaunchCheckReport{}, fmt.Errorf("it exited %d: %s", rc,
+					firstNonEmptyLine(stderr.String(), "no diagnostic"))
+			}
+			var report hostservice.LaunchCheckReport
+			if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &report); err != nil {
+				return hostservice.LaunchCheckReport{}, fmt.Errorf("malformed answer: %w", err)
+			}
+			return report, nil
+		}
+	}
+}
+
+// firstNonEmptyLine is s's first non-blank line, or fallback.
+func firstNonEmptyLine(s, fallback string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return fallback
+}

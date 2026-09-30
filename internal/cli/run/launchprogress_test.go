@@ -219,7 +219,7 @@ func TestTheHostServiceStartIsNarratedAfterItsDisclosures(t *testing.T) {
 	o.Progress = immediate
 	o.PathExists = func(string) bool { return false }
 
-	o.startLoopholesDisclosed(cname, "podman", newConfig(), nil)
+	o.startLoopholesDisclosed(cname, "podman", newConfig(), nil, nil)
 	if !strings.Contains(errBuf.String(), "Starting host services: done (") {
 		t.Errorf("the host-service start was not narrated:\n%s", errBuf.String())
 	}

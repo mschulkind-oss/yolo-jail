@@ -32,6 +32,21 @@ type loopholeDaemon struct {
 	jailPath   string
 	envVarName string
 	stop       func()
+	// launchCheck is the manifest's `host_daemon.launch_check`, and hasJailDaemon whether the
+	// loophole declares a jail_daemon: together they decide whether the launch asks this
+	// daemon the launch check (launchcheck.go). Set by markLaunchCheck.
+	launchCheck   bool
+	hasJailDaemon bool
+}
+
+// markLaunchCheck copies the two facts the launch check reads from lp onto h.
+func markLaunchCheck(h loopholeDaemon, lp *loopholes.Loophole) loopholeDaemon {
+	if lp == nil || lp.HostDaemon == nil {
+		return h
+	}
+	h.launchCheck = lp.HostDaemon.LaunchCheck
+	h.hasJailDaemon = lp.JailDaemon != nil
+	return h
 }
 
 // resolveNetMode returns the container network mode this launch will use, resolved
@@ -301,8 +316,10 @@ func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap
 	// is what puts a config entry's daemon behind the loopback-TLS front.
 	transportOf := map[string]string{}
 	daemonOf := map[string]*loopholes.HostDaemon{}
+	recordOf := map[string]*loopholes.Loophole{}
 	for _, lp := range discovered {
 		transportOf[lp.Name] = lp.Transport
+		recordOf[lp.Name] = lp
 		if lp.HostDaemon != nil {
 			daemonOf[lp.Name] = lp.HostDaemon
 		}
@@ -366,7 +383,7 @@ func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap
 		// declining to start a daemon somebody asked for.
 		if hd := daemonOf[name]; hd != nil && hd.Scope == loopholes.ScopeHost {
 			if h, ok := o.startHostSingleton(name, external[name], socketsDir, advertise, hd); ok {
-				handles = append(handles, h)
+				handles = append(handles, markLaunchCheck(h, recordOf[name]))
 			}
 			continue
 		}
@@ -384,7 +401,7 @@ func (o *Options) startLoopholesMatching(cname, rt string, cfg *jsonx.OrderedMap
 			}
 		}
 		if ok {
-			handles = append(handles, h)
+			handles = append(handles, markLaunchCheck(h, recordOf[name]))
 		}
 	}
 	return handles

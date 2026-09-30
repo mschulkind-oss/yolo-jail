@@ -312,7 +312,7 @@ func TestRunProactiveMintsImmediatelyBeforeTheFirstTick(t *testing.T) {
 	done := make(chan struct{})
 	// An hour-long interval: anything that happens promptly happened BEFORE the
 	// first tick.
-	go func() { defer close(done); runProactive(broker, time.Hour, stop, nil) }()
+	go func() { defer close(done); runProactive(broker, newMintTracker(nil), time.Hour, stop) }()
 	select {
 	case <-minted:
 	case <-time.After(5 * time.Second):
@@ -353,7 +353,7 @@ func TestRunProactiveSurvivesAFailedMint(t *testing.T) {
 	var log strings.Builder
 	stop := make(chan struct{})
 	done := make(chan struct{})
-	go func() { defer close(done); runProactive(broker, 5*time.Millisecond, stop, &log) }()
+	go func() { defer close(done); runProactive(broker, newMintTracker(&log), 5*time.Millisecond, stop) }()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, ok := broker.Current(); ok {
@@ -392,7 +392,7 @@ func TestRunProactiveDefaultsToHalfTheRemintLead(t *testing.T) {
 	// A zero interval falls back to that value rather than to a busy loop.
 	stop := make(chan struct{})
 	done := make(chan struct{})
-	go func() { defer close(done); runProactive(broker, 0, stop, nil) }()
+	go func() { defer close(done); runProactive(broker, newMintTracker(nil), 0, stop) }()
 	time.Sleep(20 * time.Millisecond)
 	close(stop)
 	<-done

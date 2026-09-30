@@ -145,7 +145,7 @@ func TestBothLaunchArmsRegisterTheView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	re := regexp.MustCompile(`(?s)startLoopholesDisclosed\(cname, rt, cfg, [a-zA-Z.]+\)\n.{0,400}?o\.registerClaudeCredentialView\(rt, cname, cfg\)`)
+	re := regexp.MustCompile(`(?s)startLoopholesDisclosed\(cname, rt, cfg, [a-zA-Z.]+, jailDaemons\)\n.{0,400}?o\.registerClaudeCredentialView\(rt, cname, cfg\)`)
 	if n := len(re.FindAllIndex(body, -1)); n != 2 {
 		t.Errorf("run.go registers the credential view after %d of its 2 host-service starts "+
 			"(the container arm and the macos-user arm)", n)

@@ -201,6 +201,11 @@ func TestAMissingProfileIsNotAdvisedToLogIn(t *testing.T) {
 	if !strings.Contains(mintErr.Message, settingsScope(SettingProfile)) {
 		t.Errorf("message does not name the setting that is wrong: %s", mintErr.Message)
 	}
+	// The fix on the other side: this Message is also the launch's warning (the launch
+	// check), so it says how to add the profile, not only that it is missing.
+	if !strings.Contains(mintErr.Message, "aws configure sso --profile bedrock") {
+		t.Errorf("message does not name how to add the profile on the host: %s", mintErr.Message)
+	}
 }
 
 // TestSTSRefusalIsForwardedVerbatim: STS names the thing to fix and nothing here

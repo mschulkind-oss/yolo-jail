@@ -691,6 +691,14 @@ func TestShippedAWSAuthFields(t *testing.T) {
 			"default ON — awsauthdaemon reads the frame through hostservice.ServeFrontedUnix " +
 			"and the jail= on its audit lines is host-asserted only because of it")
 	}
+	// THE LAUNCH CHECK (docs/design/sso-backed-bedrock.md SSO-D1): design §8's "the launch
+	// warns with the `aws sso login` command and proceeds" is this declaration, since the
+	// launch asks only a daemon whose record carries it. Dropping it turns the warning off
+	// with every unit test of the daemon's answer still green.
+	if !m.HostDaemon.LaunchCheck {
+		t.Error("launch_check = false; without it no launch asks this daemon whether its SSO " +
+			"session can mint, and a missing or lapsed one shows only in the service log")
+	}
 	// NO `requires` PROBE FOR `aws`, and the absence is the ruling rather than an
 	// omission: the dependency is real and the probe is the shape that removed the
 	// Claude broker for exactly the user it existed for. The daemon runs

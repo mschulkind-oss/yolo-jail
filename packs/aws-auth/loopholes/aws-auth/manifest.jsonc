@@ -125,6 +125,15 @@
   // exactly the user it existed for, and the rule that replaced it is that a loophole
   // whose program is missing must fail LOUDLY AT SPAWN rather than disappear from
   // `yolo loopholes list`. The daemon runs `aws --version` at spawn and says so.
+  //
+  // `launch_check` is design §8's "profile configured, no SSO session ever established ->
+  // the launch warns with the `aws sso login` command and proceeds", and the lapsed session
+  // beside it (docs/design/sso-backed-bedrock.md SSO-D1). A launch whose agents reach the
+  // adapter below asks the daemon, through the front it just published, whether their first
+  // Bedrock request would be served; the daemon answers from its cache when that is warm, and
+  // otherwise from the mint that request would have made, within the launch's budget
+  // (hostservice.LaunchCheckBudget). Each failure prints as one `loophole aws-auth:` warning in
+  // the classifier's words, and the launch goes on.
   "host_daemon": {
     "cmd": [
       "yolo", "internal", "daemon", "aws-auth",
@@ -133,7 +142,8 @@
       "--settings", "{settings}"
     ],
     "publishes": "socket",
-    "scope": "host"
+    "scope": "host",
+    "launch_check": true
   },
 
   // The jail half: an HTTP endpoint on jail loopback speaking the protocol every AWS

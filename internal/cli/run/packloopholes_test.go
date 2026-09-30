@@ -51,7 +51,7 @@ func TestWrappedPluginCodeIsDisclosedAtTheSpawnBoundary(t *testing.T) {
 	o.Stdout = discardBuf()
 	o.PathExists = func(string) bool { return false }
 
-	o.startLoopholesDisclosed(cname, "podman", newConfig(), []*packload.Pack{p})
+	o.startLoopholesDisclosed(cname, "podman", newConfig(), []*packload.Pack{p}, nil)
 
 	got := errBuf.String()
 	if !strings.Contains(got, "runs code in the jail") {
