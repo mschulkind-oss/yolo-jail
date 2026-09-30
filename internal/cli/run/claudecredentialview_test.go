@@ -140,7 +140,9 @@ func TestRegistrationWritesTheViewAndSaysWhenALogoutIsUndone(t *testing.T) {
 // TestBothLaunchArmsRegisterTheView is the call-site half: the registration above is only a
 // feature if the container arm and the macos-user arm both reach it, right after the host
 // services started (the singleton's ensure creates the state dir it writes into). The container
-// arm's host services are its keeper's (keeper.go), so its registration is there.
+// arm's host services are its keeper's (keeper.go), so its registration is there, inside the one
+// block the seal skips (FP-D15): a sealed fork build's keeper starts no service and registers no
+// view, which TestASealedKeeperStartsNoServiceAndRegistersNoView pins by running one.
 func TestBothLaunchArmsRegisterTheView(t *testing.T) {
 	body, err := os.ReadFile("run.go")
 	if err != nil {
@@ -155,10 +157,10 @@ func TestBothLaunchArmsRegisterTheView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kre := regexp.MustCompile(`(?s)startPlannedLoopholes\(p\.Cname, p\.Runtime, cfg, p\.Payload\)\n.{0,40}?\n\to\.registerClaudeCredentialView\(p\.Runtime, p\.Cname, cfg\)`)
-	if !kre.Match(keeper) {
-		t.Error("the keeper no longer registers the credential view right after it starts the container " +
-			"arm's host services")
+	kre := regexp.MustCompile(`(?s)\n\tif !p\.Sealed \{[^\n]*\n[^{}]{0,200}?startPlannedLoopholes\(p\.Cname, p\.Runtime, cfg, p\.Payload\)\n.{0,40}?\n\t\to\.registerClaudeCredentialView\(p\.Runtime, p\.Cname, cfg\)\n\t\}\n`)
+	if n := len(kre.FindAllIndex(keeper, -1)); n != 1 {
+		t.Errorf("the keeper registers the credential view right after it starts the container arm's host "+
+			"services, both inside the seal's gate, %d times, want once", n)
 	}
 	if !strings.Contains(string(body), "launchEnv.Set(claudeview.SwitchEnv") {
 		t.Error("the macos-user arm no longer hands its bootstrap the resolved switch")

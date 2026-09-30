@@ -221,6 +221,10 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 		o.scratchVolumes = plan.ScratchVolumes
 		o.scratchRemovalOnce = &sync.Once{}
 	}
+	// THE LAUNCH'S SEAL (seal.go, FP-D15): the keeper's Options carry it as the launch's did, so a
+	// gate the keeper runs reads the one flag every other crossing site reads. plannedLoopholeNames is
+	// one: a sealed keeper plans no host service, and so refuses a plan naming one (checkPlan).
+	o.Sealed = plan.Sealed
 	o.keeperMode = true
 	k.o = &o
 	return k
@@ -278,7 +282,7 @@ func (k *keeper) run() int {
 		k.socat = o.startPortForwards(p.Forwards, p.Cname, p.ForwardDir)
 		sp.End()
 	}
-	if !p.Sealed { // the seal starts no loophole and registers no credential view (seal.go)
+	if !p.Sealed { // the seal starts no loophole and registers no credential view (seal.go, FP-D15)
 		sp := o.Perf.Span("launch.start_loopholes")
 		k.handles = o.startPlannedLoopholes(p.Cname, p.Runtime, cfg, p.Payload)
 		sp.End()
@@ -445,6 +449,12 @@ func (k *keeper) checkPlan() (*jsonx.OrderedMap, error) {
 				strings.Join(names, ", "), strings.Join(p.Packs, ", "))
 		}
 		adoptPackRecords(packs)
+	}
+	// A SEALED PLAN HOLDS THE CONTAINER AND NOTHING ELSE (FP-D15): the keeper plans no service for it
+	// (plannedLoopholeNames under the seal), and a forward is a host service's reach (FP-D11).
+	if p.Sealed && len(p.Forwards) > 0 {
+		return nil, fmt.Errorf("it is sealed, and forwards %d host %s into the jail", len(p.Forwards),
+			plural(len(p.Forwards), "port", "ports"))
 	}
 	planned := o.plannedLoopholeNames(p.Runtime, cfg)
 	for _, name := range planned {
@@ -703,7 +713,14 @@ func (k *keeper) unwindUnstarted(rc int) int {
 // carries them in the plan; the keeper refuses to start one that is not among them (checkPlan). One
 // function for both, over the same set the spawn walks (startLoopholesMatching), so they cannot
 // disagree except when the two processes' packs do.
+//
+// NONE UNDER THE SEAL (seal.go, FP-D15), in the launch and in its keeper alike, since both carry the
+// launch's Options.Sealed: a fork's build starts no host service, and a sealed plan naming one is
+// refused rather than started or silently skipped.
 func (o *Options) plannedLoopholeNames(rt string, cfg *jsonx.OrderedMap) []string {
+	if o.Sealed {
+		return nil
+	}
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
 	allow := o.loopholeAllow(rt, cfg)
 	var names []string

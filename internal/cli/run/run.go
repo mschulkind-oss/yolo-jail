@@ -1768,12 +1768,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// disclosure (the design's §9.6 warning).
 	//
 	// NEVER UNDER THE SEAL (seal.go): a fork build starts no loophole and no host service, and
-	// registers no credential view, so the plan names none and the keeper is told it is sealed.
-	var services []string
+	// registers no credential view, so nothing is disclosed, the plan names no service and the keeper
+	// is told it is sealed. A sealed launch still spawns its keeper, which holds only the container,
+	// its records and its teardown (FP-D15). The services come from the one function the keeper
+	// checks the plan with, which plans none under the seal in either process.
 	if !o.Sealed {
 		o.discloseLoopholes(rt, cfg, loadedPacks)
-		services = o.plannedLoopholeNames(rt, cfg)
 	}
+	services := o.plannedLoopholeNames(rt, cfg)
 	var forwards []PortForward
 	if portSocketDir != "" {
 		forwards = o.planPortForwards(forwardHostPorts)

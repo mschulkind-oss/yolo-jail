@@ -19,7 +19,10 @@ package run
 //	                                       profiles: sealedChannel, delivered as empty files
 //	the jail-daemon payload (Run)          none — no loophole or pack service runs in the jail
 //	the broker singleton (runContainer)    not ensured
-//	host loopholes and services            startLoopholesDisclosed is never reached
+//	host loopholes and services (the       none disclosed and none planned (plannedLoopholeNames),
+//	keeper's, keeper.go)                   the plan sealed, and the keeper starts none and
+//	                                       registers no credential view; it still holds the
+//	                                       container, its records and its teardown (FP-D15)
 //	cache_relocations, the host-CAS alias  none: ~/.cache is the build's own
 //	host_files                             none
 //	machine-scope pack dirs                neither made nor bound, nor claude's secure storage

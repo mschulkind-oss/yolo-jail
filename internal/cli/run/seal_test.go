@@ -82,9 +82,14 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
 		t.Fatal(err)
 	}
 	ws = t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
 	bin, rec := t.TempDir(), t.TempDir()
 	argvFile := filepath.Join(rec, "argv")
-	script := "#!/bin/sh\nif [ \"$1\" = run ]; then printf '%s\\n' \"$@\" > '" + argvFile + "'; fi\nexit 3\n"
+	// The fake runtime also notes whether the jail's host-services dir exists as its container
+	// starts: the keeper starts every host service before the container, and its teardown removes
+	// the dir, so that moment is the one a whole launch shows a started service at.
+	script := "#!/bin/sh\nif [ \"$1\" = run ]; then printf '%s\\n' \"$@\" > '" + argvFile + "'; " +
+		"if [ -e '" + hostServiceSocketsDir(cname, false) + "' ]; then : > '" + servicesAtRun(ws) + "'; fi; fi\nexit 3\n"
 	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +115,6 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
 	o.NeverAttach, o.AcceptConfigChanges = true, true
 	o.Sealed = sealed
 	o.Args = []string{"yolo", "internal", "capture-run", "--out=/workspace/out", "--", "true"}
-	cname := yoloruntime.FromWorkspace(ws)
 	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
 	// BOUNDED: the launch runs its keeper (in-process here, inProcessKeeper) and relays it until the
 	// keeper ends, so a keeper that never ends, or a pipe something else still holds, would otherwise
@@ -136,8 +140,16 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
 // sealTestDevice is the device node the seal fixture's config passes through.
 const sealTestDevice = "/dev/sealtest0"
 
+// servicesAtRun is the file the fixture's fake runtime leaves in ws when the jail's host-services
+// dir existed as its container started.
+func servicesAtRun(ws string) string { return filepath.Join(ws, ".sealtest-services-at-run") }
+
 // sealedLaunchBound bounds one fixture launch, which takes well under a second when it works.
 const sealedLaunchBound = 90 * time.Second
+
+// keeperLineHolding is how the fixture launch's keeper line begins, up to what the keeper will hold
+// (keeperLine): the container alone, or the host services and the container.
+const keeperLineHolding = "keeper: yolo internal daemon " + KeeperVerb + " will hold "
 
 // sealedDeviceAllowlist is every --device a sealed launch may hand its jail: the nesting devices
 // every podman jail gets (podmanNestingArgs), never one the config passes through.
@@ -240,8 +252,16 @@ func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 	if strings.Contains(printed, "runs pack code on your machine") {
 		t.Errorf("a sealed launch reached the host-service start:\n%s", printed)
 	}
+	// THE KEEPER STILL RUNS IT (FP-D15), and holds the container alone: its plan names no service,
+	// and it refused none, since the launch ran its runtime above.
+	if !strings.Contains(printed, keeperLineHolding+"this jail's container until") {
+		t.Errorf("a sealed launch's keeper line does not say it holds the container alone:\n%s", printed)
+	}
 	if _, err := os.Stat(hostServiceSocketsDir(cname, false)); !os.IsNotExist(err) {
 		t.Errorf("a sealed launch made the host-services dir (err %v)", err)
+	}
+	if _, err := os.Stat(servicesAtRun(ws)); err == nil {
+		t.Error("a sealed launch's keeper started host services before its container (their dir existed at the run)")
 	}
 }
 
@@ -249,7 +269,16 @@ func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 // hand the jail the crossings the test above says the seal withholds — so a gate removed from any
 // of those sites is a failure there rather than a fixture that never exercised it.
 func TestTheSealFixtureCrossesUnsealed(t *testing.T) {
-	argv, ws, home, _ := sealedLaunch(t, false)
+	argv, ws, home, printed := sealedLaunch(t, false)
+	// The keeper's host services: unsealed, the plan names the claude pack's broker, so a sealed
+	// plan's naming none is the seal's doing.
+	if !strings.Contains(printed, keeperLineHolding+"this jail's host services (") ||
+		!strings.Contains(printed, "the claude-oauth-broker service") {
+		t.Errorf("the unsealed fixture's keeper holds no host service, so that site is unexercised:\n%s", printed)
+	}
+	if _, err := os.Stat(servicesAtRun(ws)); err != nil {
+		t.Errorf("the unsealed fixture's keeper started no host service before its container (%v), so that site is unexercised", err)
+	}
 	srcs := sealedBindSources(argv)
 	var sawHome, sawCache bool
 	for _, src := range srcs {
