@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -67,11 +68,25 @@ func (o *Options) sectionHostFloor(r *reporter) {
 			r.dim(fmt.Sprintf("%s — not in the floor yet (%s): the first `yolo host -- %s`, or `yolo host "+
 				"apply --assert`, installs it", p.Bin(), st.Reason, p.Bin()))
 		case hostfloor.NoEntry:
+			// With no floor entry, the copy on the launch's PATH IS what runs (OQ-HE11's interim),
+			// so it is named as that rather than as a copy `yolo host` does not run. The PATH is
+			// the one this check was started with: a launcher with another PATH may find another
+			// copy, or none.
+			runs := "and the PATH this check was started with has none"
+			for _, d := range filepath.SplitList(pathEnv) {
+				if c := filepath.Join(d, p.Bin()); d != "" && d != floor.BinDir() && isExecutableFile(c) {
+					runs = "here, " + c
+					break
+				}
+			}
 			r.dim(fmt.Sprintf("%s — no floor entry: %s. `yolo host -- %s` runs the one on the PATH it is "+
-				"started with", p.Bin(), st.Reason, p.Bin()))
+				"started with (%s)", p.Bin(), st.Reason, p.Bin(), runs))
 		}
 		if lk := floor.Lock(p.Bin()); lk.Held {
 			r.dim(fmt.Sprintf("%s: an install is running now (pid %d)", p.Bin(), lk.PID))
+		}
+		if st.Disposition == hostfloor.NoEntry {
+			continue
 		}
 		skip := []string{paths.GeneratedBinDir()}
 		for _, other := range floor.OtherCopies(p.Bin(), pathEnv, home, skip) {

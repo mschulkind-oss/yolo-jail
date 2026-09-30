@@ -129,11 +129,16 @@ func TestCheckReportsAProvisionedEntryItsOtherCopiesAndALeftover(t *testing.T) {
 // TestCheckSaysWhyAProgramHasNoFloorEntry: `host_floor` leaves the pack out, read through the
 // section's own default floor (no HostFloor wired), and the row says so and what runs instead.
 func TestCheckSaysWhyAProgramHasNoFloorEntry(t *testing.T) {
-	o, _, _, _ := hostFloorCheckFixture(t, `{"host_floor": {"floorpack": false}}`)
+	o, _, _, hand := hostFloorCheckFixture(t, `{"host_floor": {"floorpack": false}}`)
 	o.HostFloor = nil
 	out, _ := runHostFloorSection(o)
 	if !strings.Contains(out, "floorcli — no floor entry: the user config's `host_floor` leaves pack floorpack out") ||
-		!strings.Contains(out, "runs the one on the PATH") {
+		!strings.Contains(out, "runs the one on the PATH it is started with (here, "+hand+")") {
 		t.Errorf("section:\n%s", out)
+	}
+	// With no floor entry the PATH copy is what runs, so it is not listed as one yolo host does
+	// not run.
+	if strings.Contains(out, "not run by `yolo host`") {
+		t.Errorf("the copy that runs is named as not run:\n%s", out)
 	}
 }
