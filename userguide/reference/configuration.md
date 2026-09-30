@@ -42,7 +42,7 @@ project config and names the file to move them to:
 - `profiles`, `profile`, `adapters`, and a provider's address (`endpoints.<protocol>.base_url`)
 - `agent_updates` and `programs`
 - `cache_relocations`
-- `host_management`, `host_wrappers`, `host_apply_on_launch`, `host_floor` and `promotion_target`
+- `host_management`, `host_wrappers`, `host_apply_on_launch`, `host_floor`, `host_path` and `promotion_target`
 - `perf_logging` and `update_check`
 - a `host_files` entry that names a `source` file on your host
 - a host service's `command`, `env` and `doctor_cmd`, and any loophole setting its pack marks as

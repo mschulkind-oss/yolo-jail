@@ -88,6 +88,49 @@ in `~/.local/share/yolo-jail/host-floor`:
 Just before it hands over, `yolo host` prints one line naming what it starts and where it came from,
 so a slow start is visibly the agent's.
 
+### Where `yolo host` looks for your tools, and `host_path`
+
+Everything yolo does not keep a copy of, `yolo host` looks for on the PATH it was started with: a
+tool a pack needs (`rg` and `fd` for the guardrails pack, anything a pack lists under `requires`),
+an agent yolo keeps no copy of, and any other command you run with `yolo host -- <command>`. yolo
+has no other way to know where you keep your tools. A terminal's PATH usually has them. A Waybar
+button, a cron job or a hotkey launcher often starts yolo with only `/usr/bin:/bin`, so from there a
+tool in `~/.cargo/bin` or behind mise's shims is not found.
+
+`host_path` in your user config lists folders to search after that PATH:
+
+```jsonc
+// ~/.config/yolo-jail/config.jsonc
+{
+  "host_path": ["~/.cargo/bin", "~/.local/share/mise/shims", "/opt/homebrew/bin"]
+}
+```
+
+- **It only adds.** Each folder goes after the PATH yolo was started with, unless that PATH already
+  has it, so nothing your own PATH finds first changes. With no PATH at all, yolo checks these
+  folders alone, and the agent gets the usual system folders ahead of them.
+- **The agent gets them too.** The agent's PATH is the PATH yolo was started with, then these
+  folders, then yolo's own copies of your agents, so the agent's own commands find the same tools.
+- **Nothing else is added.** yolo guesses no folder of its own and runs no mise command. To reach
+  mise's tools from every launcher, list its shims folder, as above.
+- **Only your user config counts.** A project's `yolo-jail.jsonc` cannot set it, since a folder
+  here decides which program `yolo host` runs.
+
+When `yolo host`, `yolo host apply` or `yolo check-deps` cannot find something, it prints one line
+saying which program is missing, which pack needs it, the whole PATH it searched and the
+`host_path` fix:
+
+```text
+yolo host: rg (required by the guardrails pack) is not on this launch's PATH, /usr/bin:/bin, the PATH yolo was started with. If rg is installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.
+```
+
+The last part names a common folder, such as `~/.cargo/bin` or `~/.local/bin`, only when that
+folder really holds the program. It is a hint for your config line: yolo never runs a program it
+found that way, and never counts it as present. `yolo check` has a **Host launch PATH** section that
+shows the PATH it searched, each `host_path` folder, and whether each tool your packs need is
+found. It reads the PATH of the shell you run it in, so a launcher with a different PATH can still
+get a different answer; that launcher's own output then has the line above.
+
 ## Guest (in development)
 
 **Guest** is planned as a middle ground: the agent would run as a separate user account on your

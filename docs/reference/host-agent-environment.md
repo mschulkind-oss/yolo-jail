@@ -61,7 +61,7 @@ which endpoint), [`envsource-relative-paths.md`](envsource-relative-paths.md) (w
 `env_sources` path points at — the secret channel this composition hydrates),
 [`../design/host-render-target.md`](../design/host-render-target.md) (the host as one notch of
 the confinement dial), [`pack-system.md`](pack-system.md) (the contribution model),
-[`host-launch-environment.md`](../design/host-launch-environment.md) (which PATH `yolo host`'s checks and the agent read: the caller's, by ruling [HE-DIR1](../design/host-launch-environment.md#he-dir1), plus a proposed `host_path` list). For the
+[`host-launch-environment.md`](../design/host-launch-environment.md) (which PATH `yolo host`'s checks and the agent read: the caller's, by ruling [HE-DIR1](../design/host-launch-environment.md#he-dir1), then the folders of the user-scope `host_path` list). For the
 `host_wrappers` key and every flag, run `yolo config-ref` and `yolo host --help`.
 
 ---
@@ -262,13 +262,15 @@ refused for naming no command, the host verb having no default one.
    selects for such a command.
 3. **Compose the process environment** — start from the current environment, hydrate
    `env_sources` (the secret channel), overlay the resolved `env`, then **apply removals**: a
-   `null` is an `unset`, not an empty string. PATH is overlaid last: the caller's PATH, then the
-   floor's `bin/`, which holds agent names only, so an agent's own commands see the caller's PATH
-   first. A caller with no PATH at all (`env -i`) gets the system directories the floor's
-   installers run with in its place, so an agent's commands still resolve. A dependency probe answers a program the floor delivers by its floor entry; every other
-   PATH check reads the caller's PATH, which stands by ruling
-   ([HE-DIR1](../design/host-launch-environment.md#he-dir1)); a user-scope `host_path` list after it
-   is designed in [`host-launch-environment.md`](../design/host-launch-environment.md) and not built.
+   `null` is an `unset`, not an empty string. PATH is overlaid last: the caller's PATH, then each
+   folder of the user-scope `host_path` list not already on it, then the floor's `bin/`, which
+   holds agent names only, so an agent's own commands see the caller's PATH first. A caller with no
+   PATH at all (`env -i`) gets the system directories the floor's installers run with in its place,
+   so an agent's commands still resolve. A dependency probe answers a program the floor delivers by
+   its floor entry; every other PATH check reads the **launch PATH** (the caller's PATH, then
+   `host_path`'s folders: [HE-DIR1](../design/host-launch-environment.md#he-dir1)) through one
+   resolver, `internal/hostpath`, and a miss prints one line naming the PATH searched and the
+   `host_path` fix ([`host-launch-environment.md` §4.2](../design/host-launch-environment.md#42-the-diagnostic-for-a-miss)).
 4. **Say what starts** — one line naming the target and where it came from (yolo's floor copy,
    your PATH, or as given) — and **exec** it with that environment.
 

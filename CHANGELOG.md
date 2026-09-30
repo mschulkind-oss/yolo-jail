@@ -30,6 +30,17 @@ before it hands over, `yolo host` now prints one line naming what it starts and 
 so a slow start is visibly the agent's. See
 [yolo's own copy of your agents](userguide/guides/confinement.md#yolos-own-copy-of-your-agents).
 
+**`yolo host` can find your tools from a launcher with a bare PATH, and says where it looked when
+it cannot.** yolo looks for the tools your packs need, and for any command it keeps no copy of, on
+the PATH it was started with, and a Waybar button or a cron job often hands it only `/usr/bin:/bin`.
+A new user-config key, `host_path`, lists folders to search after that PATH, such as `~/.cargo/bin`
+or mise's shims folder, and the agent's own PATH gets them too. When `yolo host`, `yolo host apply`
+or `yolo check-deps` cannot find a program, it now prints one line naming the program, the pack that
+needs it, the whole PATH it searched and the `host_path` entry that fixes it, naming a common folder
+that holds the program when one does. `yolo check` has a new section showing that PATH and whether
+each tool your packs need is on it. See
+[where `yolo host` looks for your tools](userguide/guides/confinement.md#where-yolo-host-looks-for-your-tools-and-host_path).
+
 **A pack can now shape the model list of any provider, so a company can hand its people one
 approved list.** A `models` entry in a pack's `contributes` adds models to a provider's list
 (`add`) or keeps only the ones it names (`only`), for a provider the pack ships or one another

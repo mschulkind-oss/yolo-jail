@@ -913,6 +913,36 @@
       "host_floor": false
       "host_floor": { "*": true, "claude": false }
 
+  [bold]host_path[/bold] (list of folders): Folders `yolo host` searches after the PATH it was
+    started with.  Default: none.
+    At `yolo host`, yolo looks for the programs your packs need (`rg` for the
+    guardrails pack, a pack's `requires`, an agent yolo keeps no copy of) and for
+    the command you name on the PATH it was started with -- it cannot know where
+    you keep your tools any other way.  A terminal's PATH usually has them; a
+    Waybar button, a cron job or a hotkey launcher often hands yolo only
+    /usr/bin:/bin.  Each folder listed here is added AFTER that PATH, in the order
+    written, unless it is already on it, so it fills in for a launcher that lacks
+    it and never changes what your own PATH finds first.  The same folders reach
+    the agent's PATH, before yolo's floor, so the agent's own commands find them
+    too.  With no PATH at all, yolo checks these folders alone, and the agent
+    gets the usual system folders ahead of them.
+    Nothing else is added: yolo guesses no folder of its own, and runs no mise
+    command.  To reach mise's tools from every launcher, list its shims folder.
+    WHEN SOMETHING IS MISSING, yolo prints one line naming the program, the pack
+    that needs it, the whole PATH it searched with this key's part marked, and
+    this key as the fix, naming a common folder such as ~/.cargo/bin when one of
+    them has the program.  That folder is only a hint: yolo never runs or counts
+    a program it found there.  `yolo check` shows the PATH it read, which is the
+    PATH of the shell you ran it in, plus these folders.
+    Each entry is an absolute folder or starts with ~/.  A relative folder, ~user/,
+    and any entry with `$` or `:` in it are refused: yolo expands no variable.
+    A folder that does not exist is kept, and `yolo check` says so.
+    USER SCOPE ONLY.  A folder here decides which program `yolo host` runs, and a
+    workspace config travels with the repo, so a workspace value is a `yolo check`
+    error, and is never read.
+    Example (~/.config/yolo-jail/config.jsonc):
+      "host_path": ["~/.cargo/bin", "~/.local/share/mise/shims", "/opt/homebrew/bin"]
+
   [bold]perf_logging[/bold] (boolean): Record every launch's timings, quietly.  Default FALSE.
     The persistent, SILENT form of `--timing`: every span (probes, image load,
     the child window, the whole shutdown chain) is appended to
