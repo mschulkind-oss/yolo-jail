@@ -8,7 +8,7 @@ summary: "When a host yolo updates, running containers retain their original bin
 
 # Why host-jail version skew breaks running sessions — and how to prevent contract drift
 
-**Status:** DESIGN, 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) is open. **The attach gate is BUILT** for the contracts an attach delivers today, the provider/profile channel and the per-agent env files, together with the CI check that decodes the shipped packs with the last release's reader ([what was built](#what-was-built-2026-09-26), [ledger](#decision-ledger)). **Pack-contract skew on attach is CLOSED** by [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch pack trees, built the same day: an attach writes into no pack tree, so a jail an older yolo launched never reads a newer yolo's packs, and the release-decode allowlist now cites that guard with a test that pins it ([closed](#pack-contract-skew-closed-2026-09-26)). Layer 2 (pack `requires_capabilities`) is not built, and those trees make it unnecessary. MEASURED on a real podman, against a stand-in older jail: a container named for the workspace whose frozen environment an older launch would have left. Without a terminal the attach refused and counted the live sessions (`TestAttachRefusesAJailThatCannotReceiveTheSelection`). At a real pty, answering `y` stopped the jail, and the same launch started a fresh one carrying the tags and ran the command (`TestAttachRestartsAnOlderJailAtATerminal`). The acknowledgment is unit-tested only, and no jail an actual older yolo launched has been attached to. Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
+**Status:** DESIGN, 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) was decided on 2026-09-30 as an implementation choice ([SK-D15](#decision-ledger)). **The attach gate is BUILT** for the contracts an attach delivers today, the provider/profile channel and the per-agent env files, together with the CI check that decodes the shipped packs with the last release's reader ([what was built](#what-was-built-2026-09-26), [ledger](#decision-ledger)). **Pack-contract skew on attach is CLOSED** by [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch pack trees, built the same day: an attach writes into no pack tree, so a jail an older yolo launched never reads a newer yolo's packs, and the release-decode allowlist now cites that guard with a test that pins it ([closed](#pack-contract-skew-closed-2026-09-26)). Layer 2 (pack `requires_capabilities`) is not built, and those trees make it unnecessary. MEASURED on a real podman, against a stand-in older jail: a container named for the workspace whose frozen environment an older launch would have left. Without a terminal the attach refused and counted the live sessions (`TestAttachRefusesAJailThatCannotReceiveTheSelection`). At a real pty, answering `y` stopped the jail, and the same launch started a fresh one carrying the tags and ran the command (`TestAttachRestartsAnOlderJailAtATerminal`). The acknowledgment is unit-tested only, and no jail an actual older yolo launched has been attached to. Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
 
 > **In short.** When an existing container is attached to after a host update, the
 > host re-stages current packs into an immutable prefix whose binaries predate them.
@@ -32,7 +32,7 @@ restart confirmation or an explicit bypass hatch (`YOLO_ALLOW_ATTACH_SKEW=1`).
 **Start at [§3](#3-the-contract-skew-problem-why-attaching-is-not-a-bare-reconnect)** — how staging
 into an immutable prefix creates the gap. The rest falls out of it.
 
-**Needs your ruling:** [OQ-SK4](#OQ-SK4).
+**Needs your ruling:** nothing. [OQ-SK4](#OQ-SK4) was decided as an implementation choice on 2026-09-30.
 
 **Reads with:** [`attach-skew-and-contract-guardrails-plan.md`](attach-skew-and-contract-guardrails-plan.md) (the companion sketch, now a record of what was built where),
 [`agent-footer.md`](agent-footer.md) (the footer contract whose addition triggered this finding),
@@ -333,6 +333,11 @@ The entrypoint injects a persistent skew indicator into:
   the sandbox binaries are outdated.
 - The in-jail footer segment (if footer is supported): `yolo: Google AI · jail (skewed)`.
 
+> [!NOTE]
+> **Decided 2026-09-30 ([OQ-SK4](#OQ-SK4), SK-D15): the briefing only.** The footer segment is
+> dropped, because an old jail's footer runs its own frozen binary and cannot learn a new segment;
+> the host-written briefing is the one channel such a session shows.
+
 ---
 
 ## 6. Non-Goals
@@ -453,7 +458,7 @@ The gate for what an attach delivers today, and a check on what the next release
   way that release's boot does. Every known break is listed with its guard, and an unlisted one
   fails the short suite in CI.
 
-**Not built, and why.** In-session visibility beyond stderr waits on [OQ-SK4](#OQ-SK4). Layer 2's
+**Not built, and why.** In-session visibility beyond stderr is decided ([OQ-SK4](#OQ-SK4), SK-D15) and not built. Layer 2's
 pack `requires_capabilities` would ask each pack contract to be declared twice, and per-launch
 pack trees remove the need, since an attach hands an old jail no new manifest at all.
 
@@ -539,19 +544,25 @@ yolo launched.
    > and [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch trees keep new pack contracts
    > from reaching a running jail at all.
 
-4. 💬 <a id="OQ-SK4"></a>**OQ-SK4: In-Session Visibility Channel.**
+4. ✅ <a id="OQ-SK4"></a>**OQ-SK4: In-Session Visibility Channel.**
    How should an attached agent session be made aware that it is running in a skewed jail
    when skew is tolerated?
 
 
    _Leaning:_ Briefing injection into `AGENTS.md`. It survives TUI screen clears and provides
    ground truth to both the agent and developer.
-   <!-- vantage: oq id=OQ-SK4 leaning="Briefing injection into AGENTS.md. Ensures both human developers inspecting briefings and agents diagnosing tool issues have visible evidence without relying on pre-exec stderr." -->
 
    **Answer:**
-   > _(empty — fill in when decided)_. Live again since [OQ-SK3](#OQ-SK3): an acknowledged
-   > attach is a skewed session. The host-written briefing is the one channel an old jail's
-   > session shows ([findings](#findings-since-filing-2026-09-26)).
+   > Decided as an implementation choice (SK-D15, [ledger](#decision-ledger)), reversible: the
+   > briefing. An attach that proceeds under `YOLO_ALLOW_ATTACH_SKEW` writes a section into the
+   > briefing it already refreshes host-side, naming the version the jail was launched with, the
+   > contract tags it lacks and what this attach withheld. [OQ-SK1](#OQ-SK1) and [OQ-SK3](#OQ-SK3)
+   > ruled that an acknowledged attach proceeds loudly and never rides along silently, so the only
+   > choice left was the channel, and the host-written briefing is the one an old jail's session
+   > shows ([findings](#findings-since-filing-2026-09-26)); an old jail's footer is its own frozen
+   > binary's and cannot learn a new segment. Recorded 2026-09-30.
+   >
+   > Live again since [OQ-SK3](#OQ-SK3): an acknowledged attach is a skewed session.
 
 ## Decision ledger
 
@@ -568,9 +579,10 @@ made to build them, and none changes what they rule.
 | SK-D6 | *Implementation decision.* A restart is the teardown's bounded `stop`, then a wait of up to 15 s for the stopped container's `--rm` removal, then the fresh path's stale removal for a stopped leftover. A container still running refuses the launch with `did not stop` rather than create a second one beside it | 2026-09-26 | ✅ `restartJailForAttach`, pinned by `TestARestartThatCannotStopTheJailRefuses` |
 | SK-D7 | *Implementation decision.* The prompt counts sessions as one plus `inspect --format '{{len .ExecIDs}}'`: the launching session and each live exec. A finished exec leaves `ExecIDs` and a running one stays (measured on podman 5.8.6). Any other answer prints `every session in it` with no number. Apple Container's `ExecIDs` has not been measured, so there the prompt names no number. The environment read on Apple Container was wrong as first built and is [SK-D14](#decision-ledger)'s | 2026-09-26 | ✅ `jailSessionCount`, pinned by `TestAttachSkewPromptsARestartInATerminal` |
 | SK-D8 | *Implementation decision.* The prompt needs a terminal on stdin and on stdout (`o.IsTTYStdin`, `o.IsTTYStdout`, both `internal/tty`). The answer is read by `tty.Confirm`, a new shared reader that `internal/cli`'s `promptYesNo` now calls too. Enter takes the capital letter, yes. End of input is no, because a closed stdin is not a person accepting the default | 2026-09-26 | ✅ the reader, `tty.Confirm`, pinned by `TestConfirmAnswers`; the prompt, `TestAttachSkewPromptsARestartInATerminal`, `TestAttachSkewDeclinedRefuses` and `TestAttachSkewWithoutATerminalRefuses` |
-| SK-D9 | *Implementation decision.* Under the acknowledgment, the host degrades by writing no part of this entry's channel. Writing the shared half alone would strip every scoped credential the jail holds while naming agents as recipients (CN-D18's reasoning). `YOLO_ALLOW_ATTACH_SKEW` counts when set to any non-empty value, as every `YOLO_ALLOW_*` does. The disclosure goes to stderr and nowhere else, since [OQ-SK4](#OQ-SK4) is open | 2026-09-26 | ✅ `TestAttachSkewAcknowledgedProceedsWithoutDelivery` |
+| SK-D9 | *Implementation decision.* Under the acknowledgment, the host degrades by writing no part of this entry's channel. Writing the shared half alone would strip every scoped credential the jail holds while naming agents as recipients (CN-D18's reasoning). `YOLO_ALLOW_ATTACH_SKEW` counts when set to any non-empty value, as every `YOLO_ALLOW_*` does. The disclosure goes to stderr and nowhere else until SK-D15, [OQ-SK4](#OQ-SK4)'s briefing section, is built | 2026-09-26 | ✅ `TestAttachSkewAcknowledgedProceedsWithoutDelivery` |
 | SK-D10 | *Implementation decision.* The prompt and its account go to stdout, as the config-change prompt's do. Refusals and the acknowledgment's disclosure go to stderr, as the credential gate's attach refusals did | 2026-09-26 | ✅ `TestAttachSkewPromptsARestartInATerminal`, `TestAttachSkewWithoutATerminalRefuses` |
 | SK-D11 | *Implementation decision.* The release-decode check lives in `packs/` and runs in the short suite, so the pre-commit gate and CI's `check-go` run it. The baseline is `git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^`, so a release commit is compared with the release before it. The old tree comes from `git archive`, and the probe builds with `GOFLAGS=-mod=vendor GOTOOLCHAIN=local GOPROXY=off`, calling `packload.TolerateSkew` and then `LoadDir`, as every in-jail boot since v0.9.0 has (and, since [SK-D13](#decision-ledger), that boot's surface and overlay passes). HEAD's copies of what it calls are pinned (`TestReleaseDecodeProbeAPIIsStable`). Allowlist entries are keyed by release and carry a guard, plus an optional `pinnedBy` test that must exist. An unlisted break fails, and so does a listed one that no longer occurs. Entries for another release are logged as removable, so the next tag needs no edit. Under GitHub Actions a missing tag fails the check instead of skipping it | 2026-09-26 | ✅ `TestShippedPacksDecodeUnderTheLastRelease` and its allowlist, `knownReleaseBreaks` |
 | SK-D12 | *Implementation decision.* Each v0.10.0 entry's `pinnedBy` names the case a jail a release launched is in: first `TestAnAttachToAJailLaunchedBeforePerLaunchTreesLeavesItsSharedTreeAlone`, whose synthetic tree this build can read, and since [SK-D13](#decision-ledger)'s change `TestAnAttachToAJailTheLastReleaseLaunchedNeverRidesAlong`, which stages the last release's own packs (`git archive <tag> packs`) as the shared tree and so takes the path a real v0.10.0 jail does. The same guard for a jail this tree launched is `TestAnAttachWritesNothingIntoTheRunningJailsPackTree`. The check finds the module root from the package directory `go test` runs it in, not from `git rev-parse --show-toplevel`: inside a git hook, which is where the pre-commit gate runs it, git exports `GIT_DIR` without a work tree, and `--show-toplevel` answers `packs/`, so the first pin cited failed the gate while passing from a shell | 2026-09-26 | ✅ the module root, `lastRelease`; each entry's `pinnedBy`, `pinAttachLeavesAnOlderJailsTree`, checked by `TestShippedPacksDecodeUnderTheLastRelease` |
 | SK-D13 | *Implementation decision.* The release-decode probe runs the three decode passes the release's boot runs, not only the manifest one: `LoadDir` under `TolerateSkew`, then each pack's `SurfacesForReport` under both postures, then `packoverlay.Collect` over the whole set. A surface field or `mode` value the release does not know stops its boot through `genStep` as surely as a manifest break, and the first cut, which ran only `LoadDir`, passed both. An allowlisted break that `encoding/json` refuses (`json: cannot unmarshal`, `json: unknown field`) stops the old reader before the rest of that document, so such an entry carries a `repair` that puts the field back in the shape the release reads, and the probe decodes a repaired copy again until nothing stops it. Without that, claude's `api_key_env_name` entry covered every other break in claude's manifest. HEAD's copies of the functions and fields the probe reads are pinned in `internal/packload` and `internal/packoverlay` (`TestReleaseDecodeProbeAPIIsStable`), `Pack.SkewNotes` included | 2026-09-26 | ✅ the three passes, `releaseDecodeProbe`, and the repair, `repairManifest`, run by `TestShippedPacksDecodeUnderTheLastRelease` |
 | SK-D14 | *Implementation decision.* On Apple Container the attach reads the jail's environment with `container inspect <name>` and no `--format`, from the JSON it answers: `configuration.initProcess.environment`, the payload measured on 2026-09-16 ([`setup-support-gaps.md`](../plans/setup-support-gaps.md) [§5.1](../plans/setup-support-gaps.md#51-what-is-now-measured) row 5), or `config.env`, which `yolo ps` read (`runtime.EnvFromContainerInspectJSON`, which `ps` now shares). The first build sent podman's template to every runtime, so the gate read nothing there and treated every Apple Container jail as current, and an older one received a scoped delivery its launchers never source. Every remedy an attach names on Apple Container is `container stop <name>`, since `yolo stop` says "No jail running" there ([G11](../plans/setup-support-gaps.md)) | 2026-09-26 | ✅ `TestTheContractGateReadsAnAppleContainerJail`, `TestEnvFromContainerInspectJSON` |
+| SK-D15 | *Implementation decision*, under [OQ-SK1](#OQ-SK1) and [OQ-SK3](#OQ-SK3), deciding [OQ-SK4](#OQ-SK4). **An attach that proceeds under `YOLO_ALLOW_ATTACH_SKEW` also discloses the skew in the briefing**: `refreshJailBriefings`, which every attach already runs host-side with inode-preserving writes into the running jail's staging, adds a section naming the version the jail was launched with, the contract tags it lacks, and the variables this attach withheld (SK-D9's list). Each acknowledged attach writes it; an attach that needs no missing tag writes none. **Why:** the rulings make an acknowledged attach loud and never silent, and stderr scrolls away before the agent starts; the briefing survives screen clears and is read by the agent and a human alike. It is the one channel an old jail's session shows, because the host writes it; the footer segment [§5](#5-remediation-what-happens-when-skew-is-detected)'s third part names is not used, since an old jail's footer runs its own frozen binary. A jail whose packs declare no briefing destination has only the stderr line, and the disclosure says so. Reversible: one section in one composer | 2026-09-30 | — |
