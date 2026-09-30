@@ -895,9 +895,9 @@ audiences field (first released in v0.9.0) refuses it, and the boot fails. `just
 release each publish the host `yolo` and the entrypoint together, so only a from-source launch
 (`YOLO_REPO_ROOT`) can pair a newer host with such an entrypoint, and the source-skew gate
 refuses that launch only when the checkout contains the binary's commit. Measured, the line
-widens no window, since those older readers already refuse today's claude and pi manifests for
-other reasons. Whether to accept the window is not ruled
-([DS-D33](../design/durable-scratch-space.md#DS-D33),
+widens no window, since those older readers already refuse every launch that selects claude or pi
+for other reasons: pi's own manifest, and the bedrock pack, which both agents `need`. Whether to
+accept the window is not ruled ([DS-D33](../design/durable-scratch-space.md#DS-D33),
 [OQ-D6](../design/slots-and-contributions.md#OQ-D6)).
 
 **Two content contributions naming one source are refused**, naming both
