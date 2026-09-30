@@ -340,7 +340,7 @@ func TestTheProfileKeysBareListGoesWholeToPiAndFirstToClaude(t *testing.T) {
 				!strings.Contains(got, `"claude":"zai"`) {
 				t.Fatalf("effective table = %s, want pi's whole list and claude's first entry", got)
 			}
-			o.noteUseProfiles(channel, packs)
+			o.noteUseProfiles(channel, packs, nil)
 			for _, want := range []string{"Profile list zai, openrouter (the profile key's list, naming no agent)",
 				"claude takes one profile", "ignores openrouter", "pi takes the whole list",
 				`"profile": {"<agent>": ["zai", "openrouter"]}`} {
