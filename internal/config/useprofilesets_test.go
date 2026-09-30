@@ -37,7 +37,7 @@ func TestUseProfilesRefusesWhatAListCannotMean(t *testing.T) {
 		name, body, says string
 	}{
 		{"a list at a single-provider agent (OQ-AP2)", `{"claude": ["zai", "openrouter"]}`,
-			"config.use_profiles.claude: profiles zai, openrouter are selected for claude, which runs one provider per session"},
+			"config.use_profiles.claude: profiles zai, openrouter are selected for claude, whose pack does not declare provider_sets"},
 		{"an empty list", `{"pi": []}`, "an empty list selects nothing, and nothing has one spelling: null"},
 		{"a name listed twice", `{"pi": ["zai", "zai"]}`, `profile "zai" is listed twice`},
 		{"an entry that is not a name", `{"pi": ["zai", 3]}`, "entry 2 of the list is not a profile name"},
@@ -65,6 +65,26 @@ func TestTheSingleProviderListRefusalNamesTheFix(t *testing.T) {
 		if !strings.Contains(errs[0], want) {
 			t.Errorf("the refusal must name %q:\n%s", want, errs[0])
 		}
+	}
+}
+
+// opencode and oh-omp CAN hold several providers (docs/design/active-provider-sets.md §3); they
+// take one profile only because their packs do not declare provider_sets yet. So their refusal
+// names the declaration, and never says they run one provider per session.
+func TestAListForOpencodeOrOmpIsRefusedForTheDeclaration(t *testing.T) {
+	for _, agent := range []string{"opencode", "oh-omp"} {
+		t.Run(agent, func(t *testing.T) {
+			useProfileKeysHome(t)
+			errs, _ := ValidateConfig(decode(t, `{"use_profiles": {"`+agent+`": ["zai", "openrouter"]}}`),
+				t.TempDir(), nil)
+			if len(errs) != 1 || !strings.Contains(errs[0], "whose pack does not declare provider_sets") {
+				t.Fatalf("errs = %v, want one refusal naming the missing provider_sets", errs)
+			}
+			if strings.Contains(errs[0], "one provider per session") {
+				t.Errorf("the refusal claims %s runs one provider per session, which its format "+
+					"contradicts:\n%s", agent, errs[0])
+			}
+		})
 	}
 }
 

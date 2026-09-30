@@ -76,7 +76,7 @@ func TestProfileSetProblemsRefuseWhatASetCannotMean(t *testing.T) {
 		{"a set of one at a single-provider agent", map[string][]string{"claude": {"zai"}}, ""},
 		{"an agent this launch does not install", map[string][]string{"codex": {"zai", "openrouter"}}, ""},
 		{"a list at a single-provider agent (OQ-AP2)", map[string][]string{"claude": {"zai", "openrouter"}},
-			"which runs one provider per session"},
+			"whose pack does not declare provider_sets, so yolo cannot hand it a list"},
 		{"a name listed twice", map[string][]string{"pi": {"zai", "openrouter", "zai"}}, `"zai" is listed twice`},
 		{"two entries on one provider", map[string][]string{"pi": {"zai", "zai-fast"}},
 			`both resolve to provider "zai"`},
@@ -119,7 +119,7 @@ func TestABareListNarrowsForSingleProviderAgentsAndSaysSo(t *testing.T) {
 		t.Errorf("claude must take the bare list's first entry, got %v", got)
 	}
 	note := BareListNote(list, []string{"pi"}, []string{"codex", "claude"}, false)
-	for _, want := range []string{"claude and codex run one provider per session", "on zai alone",
+	for _, want := range []string{"claude and codex take one profile (their packs do not declare provider_sets)", "on zai alone",
 		"ignore openrouter", "pi takes the whole list"} {
 		if !strings.Contains(note, want) {
 			t.Errorf("the bare-list line must say %q:\n%s", want, note)

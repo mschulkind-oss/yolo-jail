@@ -111,7 +111,7 @@ func TestAListNamedAtASingleProviderAgentRefuses(t *testing.T) {
 	o := goldenOptions(t.TempDir(), home)
 	o.UseProfiles = map[string]string{"claude": "zai,openrouter"}
 	_, err := o.composePackChannel(bareConfig(), setPacks(t), zaiAndRouterKeys())
-	if err == nil || !strings.Contains(err.Error(), "which runs one provider per session") ||
+	if err == nil || !strings.Contains(err.Error(), "whose pack does not declare provider_sets") ||
 		!strings.Contains(err.Error(), "`-p claude=zai`") {
 		t.Fatalf("composePackChannel = %v, want the single-provider refusal naming the fix", err)
 	}
@@ -147,7 +147,7 @@ func TestABareListGoesWholeToPiAndFirstToClaude(t *testing.T) {
 	o.noteUseProfiles(channel, packs, nil)
 	out := stderr.String()
 	for _, want := range []string{"Profile list zai, openrouter (a bare -p, naming no agent)",
-		"claude runs one provider per session", "ignores openrouter", "pi takes the whole list",
+		"claude takes one profile (its pack does not declare provider_sets)", "ignores openrouter", "pi takes the whole list",
 		"Active set for pi: zai, openrouter", "Profile openrouter:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the launch lines must say %q:\n%s", want, out)

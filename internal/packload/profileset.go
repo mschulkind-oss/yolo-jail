@@ -123,7 +123,7 @@ func HoldsProviderSets(packs []*Pack, agent string) bool {
 
 // NarrowBareList is what a BARE list (a `-p a,b` naming no agent) selects for one agent
 // (OQ-AP3, ruled 2026-09-29, option C): the whole list for a set-capable agent, and its first
-// entry for every other, which runs one provider per session. The narrowing is disclosed by the
+// entry for every other, whose pack does not declare provider_sets. The narrowing is disclosed by the
 // caller (BareListNote), so it is never the silent drop AP-P2 forbids: the user asked no agent in
 // particular for the list.
 func NarrowBareList(packs []*Pack, agent string, list []string) []string {
@@ -134,7 +134,10 @@ func NarrowBareList(packs []*Pack, agent string, list []string) []string {
 }
 
 // BareListNote is the one launch line OQ-AP3 rules for a bare list: which agents took it whole
-// and which, running one provider per session, start on its first entry and ignore the rest.
+// and which, taking one profile because their packs do not declare provider_sets, start on its
+// first entry and ignore the rest. It says what yolo can hand an agent, never what the agent can
+// hold: opencode and oh-omp can hold several providers (docs/design/active-provider-sets.md §3)
+// and still take one profile until their packs declare provider_sets.
 // "" when the list has one entry or no agent was narrowed, so a bare list every receiver holds
 // says nothing it has not already said in the profile lines. keyed says where the list was
 // written — the `profile` key's string, list or "*" form (true) or a bare `-p` (false) — so the
@@ -154,9 +157,10 @@ func BareListNote(list, whole, narrowed []string, keyed bool) string {
 		source = "the profile key's list, naming no agent"
 		remedy = `"profile": {"<agent>": [` + strings.Join(quoted, ", ") + `]}`
 	}
-	line := fmt.Sprintf("Profile list %s (%s): %s %s one provider per "+
-		"session, so %s on %s alone and %s %s", strings.Join(list, ", "), source,
-		joinAnd(narrowed), plural(len(narrowed), "runs", "run"),
+	line := fmt.Sprintf("Profile list %s (%s): %s %s one profile (%s "+
+		"not declare provider_sets), so %s on %s alone and %s %s", strings.Join(list, ", "), source,
+		joinAnd(narrowed), plural(len(narrowed), "takes", "take"),
+		plural(len(narrowed), "its pack does", "their packs do"),
 		plural(len(narrowed), "it starts", "each starts"), list[0],
 		plural(len(narrowed), "ignores", "ignore"), joinAnd(list[1:]))
 	if len(whole) > 0 {
@@ -166,14 +170,17 @@ func BareListNote(list, whole, narrowed []string, keyed bool) string {
 }
 
 // SingleProviderSetRefusal is OQ-AP2's refusal (ruled 2026-09-29, option A), the one wording at
-// every notch and in config validation: a list NAMED at an agent that runs one provider per
-// session, naming the agent, why, and the one-entry spellings that work.
+// every notch and in config validation: a list NAMED at an agent whose pack does not declare
+// provider_sets, naming the agent, why, and the one-entry spellings that work. The why is the
+// declaration yolo reads, never a claim about the agent: claude, codex and copilot run one
+// provider per session, but opencode and oh-omp can hold several and are refused only because
+// their packs do not declare it yet (docs/design/active-provider-sets.md §3).
 func SingleProviderSetRefusal(agent string, set []string) string {
-	return fmt.Sprintf("profiles %s are selected for %s, which runs one provider per session "+
-		"(its pack declares no provider_sets), so yolo would start it on %s and drop %s in "+
+	return fmt.Sprintf("profiles %s are selected for %s, whose pack does not declare "+
+		"provider_sets, so yolo cannot hand it a list: it would start %s on %s and drop %s in "+
 		"silence — select one profile for it: `-p %s=%s` for one launch, or "+
-		"`\"profile\": {%q: %q}` in your config", strings.Join(set, ", "), agent, set[0],
-		joinAnd(set[1:]), agent, set[0], agent, set[0])
+		"`\"profile\": {%q: %q}` in your config", strings.Join(set, ", "), agent, agent,
+		set[0], joinAnd(set[1:]), agent, set[0], agent, set[0])
 }
 
 // ProfileSetProblems is every refusal an effective set table earns once its names resolve

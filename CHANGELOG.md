@@ -88,10 +88,11 @@ session starts on the first provider's default model, and a model you pick yours
 A missing key for any listed provider stops the launch and names that provider and its place in
 the list. Until now `-p pi=zai,openrouter` started pi on z.ai alone and dropped the rest without a
 word, and a stray name before any `agent=` was ignored the same way; it now stops the launch.
-Claude Code, Codex and Copilot use one provider per session, so a list named for one of them is
+Only pi takes a list so far: a list named for Claude Code, Codex, Copilot, opencode or oh-omp is
 refused before anything starts, with the one-profile spelling in the message, and a list naming no
 agent, `-p zai,openrouter`, goes whole to pi and its first entry to every other agent, with a line
-saying which agents ignore the rest. The same list works at `yolo host`, in `yolo host env`, on
+saying which agents ignore the rest. Every name in a list must be a profile that exists, including
+the ones an agent ignores, and `-p pi=,claude=zai` still selects nothing for pi. The same list works at `yolo host`, in `yolo host env`, on
 `macos-user` and in the files `yolo host apply` writes. A profile name can no longer contain a
 comma. See
 [several providers in one pi session](userguide/guides/providers-and-models.md#several-providers-in-one-pi-session).

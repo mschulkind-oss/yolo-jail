@@ -543,8 +543,12 @@ Three facts the build settled that the design left open:
 
 Not built, and each is a known gap rather than a silent one:
 
-- **opencode** does not declare `provider_sets` ([§8](#8-what-i-would-build-in-order) step 3), so
-  a list named at it is refused like one named at claude.
+- **opencode and oh-omp** do not declare `provider_sets` ([§8](#8-what-i-would-build-in-order)
+  step 3 for opencode; oh-omp, which writes no selection, needs only its keys, [§4.3](#43-which-agents-take-a-set)),
+  so a list named at either is refused like one named at claude, and a bare list gives each its
+  first entry. Both can hold several providers ([§3](#3-what-each-agent-can-hold)), so the
+  refusal and the bare-list line name the missing declaration ("whose pack does not declare
+  provider_sets, so yolo cannot hand it a list"), never "runs one provider per session".
 - **Several via routes per agent** (step 5), and so a via entry after the first.
 - **The config-overlay `profile` modifier** still gates on the primary alone
   (`packoverlay.Collect` takes the primary table); an `env` gate reads every entry.

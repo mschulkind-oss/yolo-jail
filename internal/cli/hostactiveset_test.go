@@ -64,7 +64,7 @@ func TestHostRefusesAListNamedAtClaude(t *testing.T) {
 	if rc == 0 || env != nil {
 		t.Fatalf("a list named at claude must refuse before the exec (rc=%d)\n%s", rc, errs)
 	}
-	for _, want := range []string{"which runs one provider per session", "`-p claude=zai`"} {
+	for _, want := range []string{"whose pack does not declare provider_sets", "`-p claude=zai`"} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("the refusal must say %q:\n%s", want, errs)
 		}
@@ -81,7 +81,7 @@ func TestHostNarrowsABareListForClaudeAndSaysSo(t *testing.T) {
 	if env["OPENROUTER_API_KEY"] != "" {
 		t.Errorf("claude ignores openrouter, so its key must not reach it: %q", env["OPENROUTER_API_KEY"])
 	}
-	for _, want := range []string{"claude runs one provider per session", "on zai alone", "ignores openrouter"} {
+	for _, want := range []string{"claude takes one profile (its pack does not declare provider_sets)", "on zai alone", "ignores openrouter"} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("the launch must say %q:\n%s", want, errs)
 		}
@@ -140,7 +140,7 @@ func TestHostEnvNarrowsABareListForClaudeAndSaysSo(t *testing.T) {
 	if strings.Contains(out.String(), "OPENROUTER_API_KEY") {
 		t.Errorf("claude ignores openrouter, so its key must not be exported:\n%s", out.String())
 	}
-	for _, want := range []string{"claude runs one provider per session", "ignores openrouter"} {
+	for _, want := range []string{"claude takes one profile", "ignores openrouter"} {
 		if !strings.Contains(errw.String(), want) {
 			t.Errorf("yolo host env must say %q:\n%s", want, errw.String())
 		}

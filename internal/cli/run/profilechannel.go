@@ -202,8 +202,8 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	}
 	// THE ACTIVE SETS' OWN RULES (docs/design/active-provider-sets.md AP-D3, OQ-AP2, AP-D9),
 	// once every name resolves and before anything is composed from them: a name listed twice,
-	// a list at an agent that runs one provider per session, two entries on one provider, a via
-	// entry anywhere but first. The host notch refuses the same table in the same words.
+	// a list at an agent whose pack does not declare provider_sets, two entries on one provider,
+	// a via entry anywhere but first. The host notch refuses the same table in the same words.
 	if problems := packload.ProfileSetProblems(packs, packload.ProfileSets(profiles), resolved); len(problems) > 0 {
 		return nil, fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
 	}

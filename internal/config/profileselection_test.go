@@ -169,7 +169,7 @@ func TestFoldProfilesRecordsWhatABareListNarrowed(t *testing.T) {
 		t.Errorf("whole %v, narrowed %v; want pi whole and claude narrowed, codex taken by its pair",
 			fold.Whole, fold.Narrowed)
 	}
-	for _, want := range []string{"the profile key's list", "claude runs one provider per session",
+	for _, want := range []string{"the profile key's list", "claude takes one profile (its pack does not declare provider_sets)",
 		`"profile": {"<agent>": ["zai", "openrouter"]}`} {
 		if note := fold.BareListNote(true); !strings.Contains(note, want) {
 			t.Errorf("the key's line must say %q:\n%s", want, note)

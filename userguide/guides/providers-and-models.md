@@ -181,15 +181,17 @@ yolo -p pi=zai,openrouter -- pi
 - On the command line a comma continues the list of the agent named before it:
   `-p pi=zai,openrouter,claude=codex` gives pi two providers and Claude Code one. A later
   `-p pi=…` replaces pi's whole list, and a `-p` replaces the list in your config for that launch.
-- **Claude Code, Codex and Copilot use one provider per session**, so a list named for one of them
-  is refused before anything starts, and the message names the one-profile spelling. A list with no
-  agent named, `-p zai,openrouter`, goes whole to pi and its first entry to every other agent, and
-  the launch says which agents ignore the rest.
+- **Only pi takes a list today.** Claude Code, Codex and Copilot use one provider per session, and
+  opencode and oh-omp take one profile until yolo learns to hand them a list, so a list
+  named for any of them is refused before anything starts, and the message names the one-profile
+  spelling. A list with no agent named, `-p zai,openrouter`, goes whole to pi and its first entry
+  to every other agent, and the launch says which agents ignore the rest. Every name in it must
+  still be a profile that exists, including the ones an agent ignores.
 - A profile that routes through the wire bridge (`"via": "wire-bridge"`) can only be listed first.
   Two profiles over the same provider cannot share a list.
 - A profile name cannot contain a comma. The same list works at `yolo host -p pi=zai,openrouter --
   pi`, in `yolo host env --agent pi -p zai,openrouter`, on `macos-user`, and in the files
-  `yolo host apply` writes. opencode does not take a list yet.
+  `yolo host apply` writes.
 
 ## The wire bridge
 
