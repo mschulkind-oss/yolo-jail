@@ -310,6 +310,13 @@ mounts appear under (`/ctx` in a container). On `macos-user`, which cannot deliv
 yet, a `mounts` entry or a pack's `mount` whose folder exists now stops the launch and names itself,
 instead of being skipped behind a warning. See
 [Workspace, mounts, and host files](userguide/reference/settings-per-setup.md#workspace-mounts-and-host-files).
+**`yolo check` warns when a model list names a model no installed agent knows.** Every model in a
+provider's list, the ones yolo ships included, is looked up in your installed agents' own lists of
+models, so a model that has been retired, or is newer than your agent, is named before a session
+starts on it. It is only a warning, and nothing is run to find out: today it reads pi's list, and
+when no agent it can read is installed it says it could not check. A provider on your own
+machine, such as a llama.cpp server, is not checked. See
+[model lists shaped by packs](docs/reference/providers.md#model-lists-shaped-by-packs).
 
 ### Changed
 

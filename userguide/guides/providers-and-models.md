@@ -353,6 +353,13 @@ Your own `providers.<name>.models` always has the last word: a model you add or 
 applies after every pack's list. `yolo check` names a model a pack adds twice, an `only` that names
 a model nothing added, and a list for a provider nothing declares.
 
+`yolo check` also warns about a model in any list, yolo's own included, that no installed agent
+knows. It asks each agent's own list of models, which is current with that agent's version, so a
+warning usually means the model is newer than the agent or has been retired. It is only a warning:
+nothing refuses to start. Today it can read pi's list. When no agent it can read is installed, it
+says it could not check. A provider on your own machine, such as a llama.cpp server, is not
+checked.
+
 ## After a change
 
 Run `yolo check` after editing your config. A new key or a new `-p` choice reaches a running jail

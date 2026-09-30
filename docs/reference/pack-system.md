@@ -656,6 +656,19 @@ is refused before anything starts, because a derive written before sets would ru
 entry and drop the rest in silence ([`providers.md`](providers.md#an-active-set-several-profiles-for-one-agent),
 [AP-D2](../design/active-provider-sets.md#AP-D2)). `packs/pi` declares it.
 
+<a id="model_catalog"></a>`model_catalog` names the files, inside the package an npm `program`
+installs, that hold its agent's own **model catalog**, meaning the model ids the agent knows with
+no network. It is a list of slash-separated globs, one pattern per path segment, relative to the
+installed package's directory (`<npm prefix>/lib/node_modules/<package name>`). Every file one
+matches is read as JSON, and every string an object holds under an `id` key, at any depth, is an
+id that catalog knows. `packs/pi` declares pi-ai's per-provider data files. `yolo check` is the one
+reader: it warns about a model id a provider list names that no installed agent's catalog knows
+([`providers.md`](providers.md#model-lists-shaped-by-packs),
+[MM-D19](../design/model-lists-and-pickers.md#MM-D19)). It reads the files where the agent is
+installed and runs nothing. On `program` with `via: "npm"` alone; `packdecl` refuses an empty list,
+and an entry that is empty, absolute, unclean, escaping, backslashed, a duplicate, or not a valid
+pattern.
+
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. One key names an installer *flavor* rather than

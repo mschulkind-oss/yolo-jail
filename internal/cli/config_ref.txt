@@ -1771,6 +1771,9 @@
                      its Haiku tier, and `frontier` its Opus tier under a pack's `only`
                      list. `sonnet`, `haiku` and `opus` still work, and win when a
                      provider names both.
+                     `yolo check` warns about an id no installed agent's own model
+                     catalog knows, and says when it could read no catalog; it never
+                     refuses one, and no launch asks.
                      A value may be an object instead of an id string: {id, name, vendor,
                      reasoning, input, cost, context_window, max_tokens}, where `id` is
                      the wire model id and the rest are facts an agent's derive reads.

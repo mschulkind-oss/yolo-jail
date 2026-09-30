@@ -1520,6 +1520,19 @@ model chosen with `/model` at every launch
 [OQ-MM3](../design/model-lists-and-pickers.md#OQ-MM3) is ruled. The shipped providers that declare
 options declare `pin_model` too, so a profile over them may set it.
 
+**`yolo check` checks the lists against the agents' own catalogs**
+([MM-D16](../design/model-lists-and-pickers.md#MM-D16)). Every model id a composed provider lists,
+the shipped lists included, is looked up in the **model catalog** of each installed agent: the
+model ids the agent knows with no network, read from the files its pack names in `model_catalog`
+([pack-system.md](pack-system.md#model_catalog)). An id no catalog knows is one warning per
+provider, never a refusal; when no catalog could be read, one skip says the check could not ask
+and why. Nothing is run and no network is reached: in a jail the check reads the jail's npm
+install, at the host yolo's floor copy, so an agent not installed yet is one it could not ask. A
+provider every endpoint of which is on this machine (`localhost`, a loopback address,
+`host.containers.internal`) is left out, since its ids are the ones your own server serves
+([MM-D20](../design/model-lists-and-pickers.md#MM-D20)). Today only pi's pack declares a catalog.
+The other agents keep theirs inside their programs, and no launch makes a model-list network call.
+
 ### The `profile` modifier
 
 Two kinds take `profile: "<name>"`, and each asks a different holder of the name whether it is
