@@ -228,7 +228,7 @@ Neither is a ruling, so reopening them overturns nothing.
 Running today's bridge at the host the way it runs in a jail would be worse than the silent
 no-op. Six facts, each from the tree:
 
-1. **The bridge authenticates no caller.** [WB-D4](../reference/wire-bridge.md#wb-d4): inbound
+1. **The bridge authenticated no caller, until [WB-D18](../reference/wire-bridge.md#wb-d18).** [WB-D4](../reference/wire-bridge.md#wb-d4): inbound
    auth none, because *"The jail is the boundary"*. The handler ignores the inbound
    `Authorization` header ([`handler.go`](../../internal/wirebridged/handler.go)). NC-D2 retires
    that premise, and the bridge's caller auth is built
@@ -317,7 +317,8 @@ sequenceDiagram
 
 - The host runs the one selection function notch-convergence's item 6 builds for every host
   verb ([§4 there](../plans/notch-convergence.md#4-the-ordered-build-list)), with the launched
-  agent's selection table: its `use_profiles` entry, with a typed `-p` folded in. Added packs
+  agent's selection table: its `profile` entry (the key was `use_profiles` until
+  [PP-D10](providers-and-profiles-redesign.md#PP-D10)), with a typed `-p` folded in. Added packs
   print the cause lines a jail launch prints ([WB-D12](../reference/wire-bridge.md#wb-d12)).
 - **It lands after notch-convergence item 2**, which drops an address nothing serves at this
   notch and names it ([NC-D4](../plans/notch-convergence.md#7-decision-ledger)). That is what
@@ -807,7 +808,7 @@ HS-D16 to HS-D20 while building HS-D15 for macos-user, and HS-D21 to HS-D23 whil
 | [`host-daemon-ownership.md`](host-daemon-ownership.md#HD-R1) | [HD-R1](host-daemon-ownership.md#HD-R1), the no-singleton ruling [HS-P2](#HS-P2) reads for the host, and [HD-D1](host-daemon-ownership.md#HD-D1)'s per-session dir on `macos-user` |
 | [`openai-auth-broker.md`](openai-auth-broker.md#OQ-OA6) | [OQ-OA6](openai-auth-broker.md#OQ-OA6), which [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A answers with its route (b) |
 | [`declaration-parity.md`](declaration-parity.md#1-the-principle-and-what-it-does-not-say) | P1, which [HS-P1](#HS-P1) applies, and [OQ-DP8](declaration-parity.md#OQ-DP8) and [OQ-DP9](declaration-parity.md#OQ-DP9), which [§4.7](#47-macos-user) narrows |
-| [`host-computed-layer.md`](host-computed-layer.md#OQ-HC3) | [OQ-HC3](host-computed-layer.md#OQ-HC3), what host apply renders for a `use_profiles` selection |
+| [`host-computed-layer.md`](host-computed-layer.md#OQ-HC3) | [OQ-HC3](host-computed-layer.md#OQ-HC3), what host apply renders for a `profile` selection (then spelled `use_profiles`) |
 | [`wire-bridge-gateway.md`](wire-bridge-gateway.md#WG-I8) | [WG-I8](wire-bridge-gateway.md#WG-I8), which [HS-D1](#HS-D1) revises, and [WG-I12](wire-bridge-gateway.md#WG-I12), which it keeps |
 
 ## Appendix A — the measured runs

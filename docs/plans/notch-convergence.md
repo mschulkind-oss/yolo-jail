@@ -129,8 +129,13 @@ serves:
 
 ### 2.1 What trusts the network namespace today
 
-Every row below is a loopback listener yolo starts. Each one answers whoever reaches it, and each
-one's own code or doc says the network namespace is what protects it.
+> **Since item 1 was built, this is history.** Each of these listeners now checks the launch's caller
+> token: the wire bridge since [WB-D18](../reference/wire-bridge.md#wb-d18), the other four since
+> NC-D13 ([§5](#5-already-merged-and-in-flight), the per-launch caller auth row). The table records what
+> each answered before that, which is why item 1 exists.
+
+Every row below is a loopback listener yolo starts. Each one answered whoever reached it, and each
+one's own code or doc said the network namespace was what protected it.
 
 | Service | Listens on | What an unauthenticated caller gets | The stated premise |
 |---|---|---|---|
