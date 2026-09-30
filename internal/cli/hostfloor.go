@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // hostfloor.go wires the HOST AGENT FLOOR (internal/hostfloor,
@@ -75,6 +76,107 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 // hostFloorBinDir is the floor's bin/, the directory a host launch appends last to its child's
 // PATH (HE-D1).
 func hostFloorBinDir() string { return (&hostfloor.Floor{Dir: paths.HostFloorDir()}).BinDir() }
+
+// floorDeliveredBins is every program of packs the floor holds or can provision on this machine
+// — the programs those packs DELIVER (host-launch-environment.md §0) — with its status, keyed by
+// bin. A dependency probe answers these from the floor rather than from any PATH
+// (host-launch-environment.md §3). It reads the prefix and nothing else, and it is empty in a jail,
+// whose own launchers answer for its programs.
+func floorDeliveredBins(packs []*packload.Pack) map[string]hostfloor.Status {
+	out := map[string]hostfloor.Status{}
+	if config.InJail() {
+		return out
+	}
+	progs := floorPrograms(packs)
+	if len(progs) == 0 {
+		return out
+	}
+	floor := newHostFloor(io.Discard, progs)
+	for _, p := range progs {
+		if st := floor.Status(p); st.Disposition != hostfloor.NoEntry {
+			out[p.Bin()] = st
+		}
+	}
+	return out
+}
+
+// floorDepClause is what a dependency line says about a program the floor answers for.
+func floorDepClause(st hostfloor.Status) string {
+	if st.Disposition == hostfloor.Provisioned {
+		return "yolo's floor copy " + st.Record.Version + " at " + homeTilde(st.Launcher)
+	}
+	return "yolo's floor installs it (`yolo host apply --assert`, or the first `yolo host -- " +
+		st.Program.Bin() + "`)"
+}
+
+// applyHostFloor is `yolo host apply`'s floor stage: every program the selected packs declare,
+// by disposition, and — under --assert — the same provisioning a launch does (Ensure: install what
+// is missing, reinstall what moved, the throttled refresh), then the removal of every entry no
+// selected pack delivers any more (§4, "Deselection"). The dry run says what an --assert would do
+// and changes nothing.
+//
+// complete is whether this run resolved every configured pack: a pack that did not resolve would
+// otherwise look deselected, and its agent would be deleted over a network blip, so removal waits
+// for a run that can see the whole selection.
+//
+// Never reached from the launch gate's apply (hostApplySurvey.floorStage): a launch installs the
+// one agent it starts, and removes nothing.
+func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, write, complete bool,
+	survey *hostApplySurvey) int {
+	if config.InJail() {
+		return 0
+	}
+	progs := floorPrograms(packs)
+	floor := newHostFloor(out, progs)
+	floor.Prefix = "    "
+	rc := 0
+	for _, p := range progs {
+		st := floor.Status(p)
+		switch {
+		case st.Disposition == hostfloor.NoEntry:
+			pr.Printf("  [cyan]%-20s[/cyan] %s: no floor entry — %s; `yolo host -- %s` runs the one on "+
+				"your PATH", "host_floor", p.Bin(), st.Reason, p.Bin())
+			continue
+		case !write && st.Disposition == hostfloor.Provisioned && st.Pending == "":
+			detail(pr, "  [cyan]%-20s[/cyan] %s %s  [dim]%s[/dim]", "host_floor", p.Bin(),
+				st.Record.Version, homeTilde(st.Launcher))
+			continue
+		case !write:
+			why := st.Reason
+			if st.Pending != "" {
+				why = st.Pending
+			}
+			pr.Printf("  [cyan]%-20s[/cyan] %s: would install (%s)  [dim]%s[/dim]", "host_floor",
+				p.Bin(), why, homeTilde(st.Launcher))
+			continue
+		}
+		after, outcome, err := floor.Ensure(context.Background(), p)
+		if err != nil {
+			pr.Printf("  [red]%-20s %s: could not install it: %v[/red]", "host_floor", p.Bin(), err)
+			survey.noteUnattributedFailure()
+			rc = 1
+			continue
+		}
+		line := fmt.Sprintf("  [cyan]%-20s[/cyan] %s %s, %s  [dim]%s[/dim]", "host_floor", p.Bin(),
+			after.Record.Version, outcome, homeTilde(after.Launcher))
+		if outcome == hostfloor.Current {
+			detail(pr, "%s", line)
+		} else {
+			pr.Printf("%s", line)
+		}
+	}
+	if !complete {
+		return rc
+	}
+	for _, r := range floor.Reconcile(progs, write) {
+		verb := "would remove"
+		if write {
+			verb = "removed"
+		}
+		pr.Printf("  [cyan]%-20s[/cyan] %s: %s (%s)", "host_floor", r.Bin, verb, r.Why)
+	}
+	return rc
+}
 
 // floorProgram finds bin among progs.
 func floorProgram(progs []hostfloor.Program, bin string) (hostfloor.Program, bool) {

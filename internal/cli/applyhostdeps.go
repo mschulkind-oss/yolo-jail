@@ -34,6 +34,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -45,6 +46,12 @@ import (
 // order instead of depcheck's sorted-by-bin order.
 type hostDeps struct {
 	byBin map[string]depcheck.Result
+	// floor is the binaries the HOST AGENT FLOOR answers for (host-launch-environment.md §3: "a
+	// program a selected pack delivers is answered by its floor entry, the copy that runs"), with
+	// the entry's status. Each also has a byBin result, Present — the floor supplies it, now or at
+	// the next `yolo host apply --assert` or launch (HP-D3) — so the counts, the gate and the
+	// verdict read it as satisfied, and depLine says which of the two it is.
+	floor map[string]hostfloor.Status
 }
 
 // hostDepState is the three-way answer about one declared dependency, and THREE is the point:
@@ -105,7 +112,13 @@ func isDepKind(k packdecl.Kind) bool {
 // packs that declare no host dep at all.
 func resolveHostDeps(p *packload.Pack) *hostDeps {
 	h := &hostDeps{byBin: map[string]depcheck.Result{}}
-	reqs := packDepRequirements(p)
+	// The floor's programs first, and never through PATH: whether some other copy is on the
+	// caller's PATH says nothing about the one `yolo host` runs (HP-DIR4).
+	h.floor = floorDeliveredBins([]*packload.Pack{p})
+	for bin, st := range h.floor {
+		h.byBin[bin] = depcheck.Result{Bin: bin, Present: true, Path: st.Launcher}
+	}
+	reqs := withoutFloorBins(packDepRequirements(p), h.floor)
 	if len(reqs) == 0 {
 		return h
 	}
@@ -113,6 +126,17 @@ func resolveHostDeps(p *packload.Pack) *hostDeps {
 		h.byBin[r.Bin] = r
 	}
 	return h
+}
+
+// withoutFloorBins drops the requirements the floor answers for.
+func withoutFloorBins(reqs []depcheck.Requirement, floor map[string]hostfloor.Status) []depcheck.Requirement {
+	var out []depcheck.Requirement
+	for _, r := range reqs {
+		if _, ok := floor[r.Bin]; !ok {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // hostDepPreflight is the WHOLE RUN's dep probe: every configured pack's binaries, resolved
@@ -317,6 +341,9 @@ func (h *hostDeps) depLine(c packdecl.Contribution) string {
 		return fmt.Sprintf("  [yellow]%-10s[/yellow] [yellow]?[/yellow] %-16s not probed",
 			label, c.Bin)
 	case depPresent:
+		if st, ok := h.floor[c.Bin]; ok {
+			return fmt.Sprintf("  [dim]%-10s[/dim] [green]✓[/green] %-16s %s", label, r.Bin, floorDepClause(st))
+		}
 		return fmt.Sprintf("  [dim]%-10s[/dim] [green]✓[/green] %-16s present at %s",
 			label, r.Bin, r.Path)
 	case depUnpublished:

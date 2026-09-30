@@ -64,12 +64,21 @@ func withTestFloor(t *testing.T) *floortest.Dist {
 // HP-DIR4 says `yolo host` does not run. extra is appended to the config object.
 func floorLaunchFixture(t *testing.T, extra string) (dist *floortest.Dist, handInstalled string) {
 	t.Helper()
+	dist, _ = floorHostFixture(t, extra)
+	return dist, filepath.Join(stubBins(t, "floorcli"), "floorcli")
+}
+
+// floorHostFixture is floorLaunchFixture without the hand-installed copy: a temp HOME whose user
+// config selects the floorpack fixture (plus extra), the test floor, and the pack's package
+// published. It returns the distribution and the pack's directory.
+func floorHostFixture(t *testing.T, extra string) (dist *floortest.Dist, pack string) {
+	t.Helper()
 	home := floortest.ResolvedTemp(t)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
 	t.Chdir(floortest.ResolvedTemp(t))
-	pack := filepath.Join(floortest.ResolvedTemp(t), "floorpack")
+	pack = filepath.Join(floortest.ResolvedTemp(t), "floorpack")
 	writeFile(t, filepath.Join(pack, "pack.json"), `{"name":"floorpack","contributes":[
 	  {"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}]}`)
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
@@ -79,7 +88,7 @@ func floorLaunchFixture(t *testing.T, extra string) (dist *floortest.Dist, handI
 	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
 	dist = withTestFloor(t)
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
-	return dist, filepath.Join(stubBins(t, "floorcli"), "floorcli")
+	return dist, pack
 }
 
 // execCapture stands in for the exec and records what `yolo host` handed it.

@@ -204,7 +204,8 @@ func applyMain(args []string, out, errw io.Writer, color bool, stdin io.Reader) 
 // real dep state (present/missing + the remedy for the detected manager) without running
 // an install — that stays confirm-gated behind env-manager plan Phase 4.3.
 func applyHost(out, errw io.Writer, color bool, write bool, stdin io.Reader) int {
-	return applyHostSurveyed(out, errw, color, write, stdin, nil)
+	// The verb takes the host agent floor stage; the launch gate's apply never does.
+	return applyHostSurveyed(out, errw, color, write, stdin, &hostApplySurvey{floorStage: true})
 }
 
 // applyHostFormatted is applyHost plus the output-format family (report-tiers.md's machine
@@ -232,7 +233,7 @@ func applyHostFormatted(out, errw io.Writer, color bool, write bool, stdin io.Re
 	if jsonRefusedForPosture(format, write) {
 		return refuseJSONForActingApply(errw)
 	}
-	survey := &hostApplySurvey{}
+	survey := &hostApplySurvey{floorStage: true}
 	rc := applyHostSurveyed(outfmt.Sink(out, format), errw, false, false, nil, survey)
 	return emitHostApplyDoc(out, errw, format, survey, rc)
 }
@@ -358,6 +359,13 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// exists to prevent — and these are EXECUTABLES, at the front of a PATH.
 		if wrc := applyHostWrappers(pr, errw, home, nil, write, survey); wrc != 0 {
 			rc = wrc
+		}
+		// The FLOOR too, for the same reason: with no pack configured, every agent yolo keeps in
+		// its host prefix is one no selected pack delivers, and this is the act that removes it.
+		if survey.floorStage {
+			if frc := applyHostFloor(pr, out, nil, write, true, survey); frc != 0 {
+				rc = frc
+			}
 		}
 		// THE TIER-3 GROUPS, HERE TOO. This branch can retire content, and the remedy contract's rule
 		// is that no default view omits a loss — a branch that cannot currently produce one must
@@ -785,6 +793,14 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	if wrc := applyHostWrappers(pr, errw, home, loaded, write, survey); wrc != 0 {
 		rc = wrc
 		survey.noteUnattributedFailure()
+	}
+	// THE HOST AGENT FLOOR (host-tool-provisioning.md): the same provisioning a launch does, for
+	// every program the selection delivers, and the one place an entry no selected pack delivers
+	// any more is removed. After the surfaces for the wrappers' reason: it writes outside them.
+	if survey.floorStage {
+		if frc := applyHostFloor(pr, out, loaded, write, resolvedAll, survey); frc != 0 {
+			rc = frc
+		}
 	}
 
 	// A destination refused under the broken-link rule was not written, so an --assert that met

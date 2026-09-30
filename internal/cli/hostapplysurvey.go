@@ -161,6 +161,11 @@ type hostApplySurvey struct {
 	failures            []hostFailure
 	unattributedFailure bool
 	loaded              []*packload.Pack
+	// floorStage is whether this run takes the host agent floor stage (applyHostFloor): set by
+	// the verb — `yolo host apply`, `yolo apply --at host` — and never by the launch gate's
+	// apply, because a launch installs the one agent it starts and removes nothing
+	// (host-tool-provisioning.md §4).
+	floorStage bool
 	// unresolvedPacks are the configured packs this run could not resolve, with the resolver's
 	// reason. A BLOCKER that outranks every other: an --assert over them is refused before the
 	// first write (no half states), so the verdict of a dry run that found one is "would refuse".

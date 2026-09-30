@@ -17,10 +17,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -45,13 +47,29 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 		}
 	}
 
-	reqs, unresolved := configuredDepRequirements()
+	reqs, unresolved, floor := configuredDepRequirements()
 	pr := richtext.Printer{W: out, Color: color}
 	// NAMED, NEVER SKIPPED: a pack this probe could not resolve declares deps nobody looked
 	// at, so "nothing missing" would be a claim about binaries it never checked.
 	for _, u := range unresolved {
 		pr.Printf("[red]✗[/red] pack %s could not be resolved, so its deps were not probed: %s",
 			u.Name, u.Reason)
+	}
+	// The floor's programs, each by its floor entry: never missing in the sense this verb exits 1
+	// over, because the floor installs one that is not there yet (HP-D3).
+	floorBins := make([]string, 0, len(floor))
+	for bin := range floor {
+		floorBins = append(floorBins, bin)
+	}
+	sort.Strings(floorBins)
+	for _, bin := range floorBins {
+		pr.Printf("[green]✓[/green] %-16s %s", bin, floorDepClause(floor[bin]))
+	}
+	if len(reqs) == 0 && len(floor) > 0 {
+		if len(unresolved) > 0 {
+			return 1
+		}
+		return 0
 	}
 	if len(reqs) == 0 {
 		fmt.Fprintln(out, "no host-dep hints declared by the resolved packs — nothing to check.")
@@ -127,18 +145,23 @@ func depManifestDir() string {
 // The per-pack adaptation lives in packDepRequirements (applyhostdeps.go) because
 // `yolo host apply` needs the same projection one pack at a time; keeping one adapter is what
 // stops the two commands from disagreeing about what counts as a requirement.
-func configuredDepRequirements() ([]depcheck.Requirement, []unresolvedPack) {
+//
+// The third return is the programs the HOST AGENT FLOOR answers for, left out of the first: their
+// answer is the floor entry — the copy `yolo host` runs — never whatever a PATH holds
+// (host-launch-environment.md §3). Empty in a jail.
+func configuredDepRequirements() ([]depcheck.Requirement, []unresolvedPack, map[string]hostfloor.Status) {
 	// The one selection function (selectHostPacks, notch-convergence item 6): a pack the
 	// selection closure joins is one a launch delivers, so its deps are probed too.
 	sel := selectConfiguredHostPacks()
 	if sel.loadErr != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
+	floor := floorDeliveredBins(sel.packs)
 	var reqs []depcheck.Requirement
 	for _, p := range sel.packs {
-		reqs = append(reqs, packDepRequirements(p)...)
+		reqs = append(reqs, withoutFloorBins(packDepRequirements(p), floor)...)
 	}
-	return reqs, sel.problems()
+	return reqs, sel.problems(), floor
 }
 
 // unresolvedPack is one configured pack that could not be resolved, and the resolver's own
