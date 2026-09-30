@@ -1448,9 +1448,13 @@ config:
 A list an `only` narrowed is each agent's exact menu for that provider wherever the agent allows
 one ([§14.1](../design/model-lists-and-pickers.md#141-the-table)): claude's `modelPicker` (on its
 own Bedrock client, the list's Anthropic models), an extension registration in pi, a `whitelist`
-in opencode and an `enabledModels` scope in oh-omp. codex and copilot start on the list's default
-entry: the profile's `model` when the list holds it, else the `default` alias, else the first
-entry. A list a pack only ADDS to keeps today's rendering beside the agent's own catalog; what it
+in opencode (its own Bedrock client's row included) and an `enabledModels` scope in oh-omp. The
+model yolo names for an agent to start on is the list's default entry, even when the `only`
+dropped the model the profile names: the profile's `model` when the list holds it, else the
+`default` alias, else the first entry. codex and copilot get that start and nothing else yet. The
+one exception is claude with `enforce_models` off, which keeps the start pin it had before the
+`only` (what should replace it is [OQ-MM3](../design/model-lists-and-pickers.md#OQ-MM3)'s). A
+list a pack only ADDS to keeps today's rendering beside the agent's own catalog; what it
 should show instead is an open question ([OQ-MM1](../design/model-lists-and-pickers.md#OQ-MM1)).
 
 **`enforce_models`** is a profile field, like `via`, that decides whether a narrowed list also
