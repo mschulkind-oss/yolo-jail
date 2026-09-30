@@ -455,6 +455,17 @@ func GenerateAgentLaunchers(e *Env) error {
 			case "native":
 				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e), capturesDir(e),
 					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(e, packs, inst.Bin))
+			case packdecl.InstallKindSource:
+				// A FORK's program (docs/design/forked-programs-as-packs.md): built from source
+				// in a capture jail and delivered from the capture store. No launcher yet, and
+				// said so by name: the base's upstream delivery is NOT a fallback, because a
+				// jail that ran the upstream program under the fork's name would be the wrong
+				// program looking like the right one.
+				e.warn(fmt.Sprintf(
+					"yolo-entrypoint: pack %s: no launcher for %q — fork pack %s builds it from "+
+						"source, and this build does not deliver a source-built program into a jail yet",
+					p.Name, inst.Bin, inst.ForkedBy))
+				continue
 			default:
 				// UNREACHABLE from the boot path: LoadJailPacks reads manifests tolerantly,
 				// and DecodeTolerant drops a `program` whose `via` this build does not know

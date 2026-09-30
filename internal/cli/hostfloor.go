@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -354,6 +355,9 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 // the floor's own platform (Floor.GOOS), the one its disposition was decided for.
 func noCopyWhere(goos string, p hostfloor.Program) string {
 	switch {
+	case p.Install.Kind == packdecl.InstallKindSource:
+		// A fork's host copy is not built on any machine yet (hostfloor.noEntryReason).
+		return "built from its fork's source yet"
 	case goos == "darwin" && p.Install.Kind == "native":
 		return "on this Mac yet"
 	case goos == "darwin":

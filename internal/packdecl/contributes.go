@@ -37,13 +37,54 @@ type Contribution struct {
 
 	// --- program (install) / requires (assertion) ---
 	Bin     string   `json:"bin,omitempty"`     // program/requires: the binary name
-	Via     string   `json:"via,omitempty"`     // program: "npm" | "installer"; profile: a service pack name (OQ-WG6)
+	Via     string   `json:"via,omitempty"`     // program: "npm" | "installer" | "source"; profile: a service pack name (OQ-WG6)
 	Package string   `json:"package,omitempty"` // program via npm: the npm package
 	URL     string   `json:"url,omitempty"`     // program via installer: the curl-to-shell URL
 	Flags   []string `json:"flags,omitempty"`   // program: extra install flags
 	// `platforms` is a program field too — WHERE THE VENDOR PUBLISHES A BUILD. It is
 	// declared once, in the service block below, because the two kinds ask one question
 	// of one grammar; read its doc there rather than adding a second spelling here.
+
+	// --- program via source: a FORK (docs/design/forked-programs-as-packs.md) ---
+	// A FORK is a `program` delivered `via: "source"`: a pinned source address and one build
+	// command, built once per platform in a sealed capture jail and delivered from the capture
+	// store (FP-D5). IT CLAIMS NO NAME. The pack ForkOf names keeps the bin, and with it the
+	// program's launch flags, autonomy posture, profiles, briefing and skills; the fork supplies
+	// the bytes (§4.1, FP-D2). The selection rewrites a copy of the base's program with the
+	// fork's delivery (packload.ApplyForks), so every reader of a pack's programs sees one
+	// program per bin, and InstallContributions skips this contribution itself.
+	//
+	// Beside these four a fork may declare `platforms` (where it builds) and `node_floor`, and
+	// every other program field is refused on it: the rest of the program is the base's
+	// (FP-D6, forkProblems).
+
+	// ForkOf is the BASE PACK's name, as the selection names it: a bare name for a pack yolo
+	// ships, the entry's name for a configured one. Required on `via: "source"`, refused
+	// everywhere else. A base yolo ships joins the launch the way an unconditional `needs`
+	// entry does; a base yolo does not ship must be in `packs` itself, because a need may name
+	// only a pack yolo ships (WB-D9).
+	ForkOf string `json:"fork_of,omitempty"`
+	// Source is where the fork's code is: a pack source address, git transports only
+	// (`git+https://host/org/fork?ref=main`, optionally with a `//subdir`). A `file://`
+	// directory is refused, because a directory has no revision to key a build on (§6). The
+	// ref is what `yolo pack install` resolves; the fork lock (forks.lock.json) records the
+	// commit, and the commit, never the ref, is what a build checks out and what a launch
+	// names (FP-D7, OQ-FP6).
+	Source string `json:"source,omitempty"`
+	// Build is ONE command line, run by bash with the checked-out source as its working
+	// directory and the capture jail's home as HOME. A command line rather than a script file,
+	// so it is readable in the manifest (§4 step 1). What it leaves in the program surfaces
+	// (~/.npm-global, ~/.local, ~/go) is the artifact.
+	Build string `json:"build,omitempty"`
+	// Produces lists the home-relative paths the build must leave, each inside a program
+	// surface, and one of them the program itself at `<surface>/bin/<bin>` on PATH
+	// (`.local/bin/<bin>`, `.npm-global/bin/<bin>` or `go/bin/<bin>`). A build whose result
+	// misses one stores nothing: an exit status of 0 with no program is a failed build (§9).
+	Produces []string `json:"produces,omitempty"`
+	// ForkedBy is NOT a manifest field, and no manifest can set it: the fork rewrite
+	// (packload.ApplyForks) sets it on the copy of the BASE's program it rewrites, naming the
+	// fork pack, so a reader of the base's program can say whose bytes it runs.
+	ForkedBy string `json:"-"`
 
 	// Update is the argv that makes the program update ITSELF, with the bin omitted:
 	// `"update": ["install"]` for claude, `["update", "--self"]` for pi. Read only on
@@ -852,6 +893,9 @@ type viaDelivery struct {
 var knownVias = []viaDelivery{
 	{name: "npm", installKind: "npm"},
 	{name: "installer", installKind: "native"},
+	// A FORK (fork.go): three names for one mechanism, `via: "source"` → Install.Kind
+	// "source" → receipt `kind: "build"` (entrypoint.ReceiptKindBuild).
+	{name: ViaSource, installKind: InstallKindSource},
 }
 
 // KnownVia reports whether v names a delivery mechanism this build knows. An empty
@@ -877,9 +921,13 @@ func KnownVias() []string {
 }
 
 // viaList renders the closed set the way the validator's diagnostics name it
-// ("npm or installer"), so the message cannot outlive the vocabulary it quotes.
+// ("npm, installer or source"), so the message cannot outlive the vocabulary it quotes.
 func viaList() string {
-	return strings.Join(KnownVias(), " or ")
+	vias := KnownVias()
+	if len(vias) < 2 {
+		return strings.Join(vias, "")
+	}
+	return strings.Join(vias[:len(vias)-1], ", ") + " or " + vias[len(vias)-1]
 }
 
 // NpmPackageProblem reports why an npm `package` selector is unusable, or "" when its
@@ -986,6 +1034,13 @@ func (m *Manifest) InstallContributions() []Install {
 		if c.Kind != KindProgram {
 			continue
 		}
+		// A FORK INSTALLS NOTHING OF ITS OWN (FP-D5): its program is the base's, and it reaches
+		// every reader through the copy of the base's contribution the selection rewrites
+		// (packload.ApplyForks), which carries no fork_of. Projecting this one as well would
+		// give one bin two programs — two launchers, two footprint owners, two agent names.
+		if c.IsFork() {
+			continue
+		}
 		in := Install{Bin: c.Bin, Flags: c.Flags, NodeFloor: c.NodeFloor}
 		// The KIND comes from the closed via table, never from a case in this switch:
 		// that is the coupling to KnownVia, and it is what stops this projection from
@@ -1029,6 +1084,12 @@ func (m *Manifest) InstallContributions() []Install {
 			// Inside the switch, unlike the verb: only the native launcher prunes, and
 			// validation refuses the field on every other via.
 			in.VersionsDir = c.VersionsDir
+		case ViaSource:
+			// A base program the fork rewrite replaced the delivery of: the fork's address,
+			// recipe and outputs, and the fork pack's name for every line that says whose
+			// bytes these are. Copied, so an Install edited by a consumer cannot reach back.
+			in.Source, in.Build, in.ForkedBy = c.Source, c.Build, c.ForkedBy
+			in.Produces = append([]string(nil), c.Produces...)
 		}
 		out = append(out, in)
 	}
@@ -1099,6 +1160,10 @@ func selfInstallCommand(c Contribution) string {
 			return ""
 		}
 		return InstallerRemedy(c.URL)
+	case ViaSource:
+		// A fork has no command a user could run on the host: it is built in a capture jail
+		// and never on the host (§12), and the host notch's copy is not built yet.
+		return ""
 	}
 	return ""
 }
@@ -1146,7 +1211,10 @@ func (m *Manifest) DepRequirements() []DepRequirement {
 		if c.Kind != KindProgram && c.Kind != KindRequires {
 			continue
 		}
-		if c.Bin == "" {
+		// A fork's bin is its base's, and the base pack's program (rewritten with the fork's
+		// delivery) is the one requirement for it: counted here as well it would be a second
+		// report of one binary, attributed to a pack that installs nothing.
+		if c.Bin == "" || c.IsFork() {
 			continue
 		}
 		d := DepRequirement{Bin: c.Bin, Hints: c.InstallHints, SelfInstall: selfInstallCommand(c)}
@@ -3282,6 +3350,9 @@ func validateContribution(label string, c Contribution) []string {
 		problems = append(problems, refreshProblems(label+".refresh", c.Refresh)...)
 	}
 	problems = append(problems, versionsDirProblems(label, c)...)
+	// fork_of, source, build and produces are a fork's alone (fork.go): refused on every other
+	// kind and every other via, in `update`'s position and for its reason.
+	problems = append(problems, forkFieldPlacementProblems(label, c)...)
 	problems = append(problems, platformsProblems(label, c)...)
 	problems = append(problems, capabilitiesProblems(label, c)...)
 	problems = append(problems, protocolsProblems(label, c)...)
@@ -3426,6 +3497,10 @@ func validateContribution(label string, c Contribution) []string {
 			}
 		case c.Via == "installer":
 			req("url", c.URL)
+		case c.Via == ViaSource:
+			// A FORK: its four fields required, and the program fields that are its base's
+			// refused (fork.go says which, and why).
+			problems = append(problems, forkProblems(label, c)...)
 		}
 	case KindRequires:
 		req("bin", c.Bin)

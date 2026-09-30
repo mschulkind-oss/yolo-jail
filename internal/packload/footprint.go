@@ -144,6 +144,15 @@ func (c Claim) DisclosureSentence() string {
 				"(not on your machine), the first time " + c.Target + " is used: " + url +
 				" — NOT PINNED: whatever that URL serves at that moment is what runs"
 		}
+		// A FORK's claim (forkClaimDetail): the program the jail runs is built from the pack's
+		// named source, so the line says so, says where it runs, and says what it is pinned to.
+		// The commit itself is not a manifest fact — the fork lock holds it — so the launch
+		// names it on a line of its own (OQ-FP6); this one says which act pins it.
+		if build, ok := strings.CutPrefix(c.Detail, forkClaimDetailPrefix); ok {
+			return "RUNS a program built from source, INSIDE THE JAIL (not on your machine), as " +
+				c.Target + ": " + build + " — built in a capture jail that gets no credentials, " +
+				"at the commit `yolo pack install` pinned, never at whatever the ref names today"
+		}
 	case packdecl.KindBriefing:
 		// Detail is "concat after host:<host-home path>", optionally with an audience
 		// suffix (audienceDetail). CutPrefix rather than a search-and-replace so the
@@ -423,6 +432,14 @@ func FootprintOf(p *Pack) Footprint {
 	for _, c := range p.Decl.Contributions() {
 		switch c.Kind {
 		case packdecl.KindProgram:
+			// A FORK claims no name (FP-D5): its target is the bin qualified by the base it
+			// forks, so the exclusive `program` loop keys it apart from the base's own claim
+			// on the bin, and review-worthy, because what the jail runs is built from code the
+			// pack names rather than a registry's or a vendor's release (OQ-FP6).
+			if c.IsFork() {
+				add(packdecl.KindProgram, ForkClaimTarget(c.Bin, c.ForkOf), forkClaimDetail(c), true)
+				continue
+			}
 			detail := c.Via
 			review := false
 			switch c.Via {
@@ -430,6 +447,10 @@ func FootprintOf(p *Pack) Footprint {
 				detail, review = "installer: "+c.URL, true
 			case "npm":
 				detail = "npm: " + c.Package
+			case packdecl.ViaSource:
+				// The BASE's program after the fork rewrite: the name stays this pack's, and
+				// the review-worthy claim is the fork pack's own, above.
+				detail = "source: built by fork pack " + c.ForkedBy
 			}
 			add(packdecl.KindProgram, c.Bin, detail, review)
 		case packdecl.KindIntercept:
@@ -1134,6 +1155,12 @@ func agentNameClaims(packs []*Pack) (map[string][]agentNameClaim, []string) {
 		for _, c := range p.Decl.Contributions() {
 			switch c.Kind {
 			case packdecl.KindProgram:
+				// A fork claims no name: its bin is its base's, and the base keeps the claim
+				// (OQ-FP5). Counted here, base and fork would collide on every fork's own
+				// reason for existing.
+				if c.IsFork() {
+					continue
+				}
 				claim(c.Bin, p.Name, string(c.Kind))
 			case packdecl.KindBriefing, packdecl.KindSkills, packdecl.KindFiles:
 				claim(c.Agent, p.Name, string(c.Kind)+".agent")

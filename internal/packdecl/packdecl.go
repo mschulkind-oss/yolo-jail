@@ -192,7 +192,7 @@ func RetiredHook(name string) string { return retiredHooks[name] }
 
 // Install declares a program the pack wants present in the jail.
 type Install struct {
-	// Kind is "npm" or "native".
+	// Kind is "npm", "native" or "source" (InstallKindSource, a fork's).
 	Kind string `json:"kind"`
 	// Bin is the binary name on PATH, and the lazy-launcher filename.
 	Bin string `json:"bin"`
@@ -258,6 +258,18 @@ type Install struct {
 	// to the installed package's directory. The Contribution field of the same name carries the
 	// grammar and the reasoning; `yolo check` is its one reader (MM-D16).
 	ModelCatalog []string `json:"model_catalog,omitempty"`
+	// Source, Build and Produces are a FORK's delivery (kind == "source"): the pinned source
+	// address, the one build command line, and the home-relative paths the build must leave.
+	// An Install of this kind exists only on a BASE pack's program that the selection's fork
+	// rewrite replaced the delivery of (packload.ApplyForks); a fork pack's own contribution
+	// projects to none. The Contribution fields of the same names carry the grammar.
+	Source   string   `json:"source,omitempty"`
+	Build    string   `json:"build,omitempty"`
+	Produces []string `json:"produces,omitempty"`
+	// ForkedBy names the fork pack whose build this program is, "" for every program that is
+	// not a fork's. Provenance only: every line that says what a source-built program is names
+	// the pack that supplied its bytes, not only the pack that owns its name.
+	ForkedBy string `json:"forked_by,omitempty"`
 }
 
 // Refresh declares a program's PRE-LAUNCH REFRESH — a term coined here (2026-09-25) for the
@@ -549,9 +561,10 @@ func (m *Manifest) retiredFieldProblems() []string {
 // degraded jail; a field it refuses to read is no jail at all. The first is recoverable and
 // the second is not, so the version boundary reads tolerantly.
 //
-// An unknown `via` VALUE on a `program` is the same class one level DOWN, and it is paid
+// An unknown `via` VALUE on a `program` is the same class one level DOWN, and it was paid
 // here ahead of the third delivery mechanism rather than after it (program-delivery.md §6.2,
-// risk R6). `via` is a closed two-value set, so a pack declaring `via: "uv"` staged for an
+// risk R6); the third, a fork's `source`, has since arrived. `via` is a closed set, so a pack
+// declaring `via: "uv"` staged for an
 // older baked entrypoint would be a refused boot — the `tier` shape a fourth time. An EMPTY
 // `via` is NOT skew and stays a hard problem on both paths: a program that names no
 // mechanism installs nothing, which is a defect both ends of the version boundary understand.

@@ -213,7 +213,9 @@ func probeHostDeps(loaded []*packload.Pack, fields render.FieldSet,
 // The Honors half is not decoration: a kind the FieldSet stopped honoring is a tier-1 notch
 // fact named once per run, and it must not also earn a dep line or a blocker.
 func isProbedDep(fields render.FieldSet, c packdecl.Contribution) bool {
-	return isDepKind(c.Kind) && fields.Honors(c.Kind)
+	// A fork's own contribution is not a dependency: its bin is its base's, and the base's
+	// (rewritten) program is the one the host is asked about (packdecl.Contribution.IsFork).
+	return isDepKind(c.Kind) && fields.Honors(c.Kind) && !c.IsFork()
 }
 
 // markInstalled records that a binary this run installed is now present, at path.

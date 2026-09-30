@@ -37,12 +37,11 @@ func TestViaVocabularyIsOneSet(t *testing.T) {
 	probes := append(KnownVias(), "", "uv", "pipx")
 	for _, via := range probes {
 		t.Run("via="+via, func(t *testing.T) {
-			// Both payload fields are populated so a KNOWN via never fails on a missing
-			// required field: the only thing under test here is membership.
-			c := Contribution{
-				Kind: KindProgram, Bin: "x", Via: via,
-				Package: "pkg", URL: "https://example.invalid/i.sh",
-			}
+			// Each via's required payload is populated so a KNOWN via never fails on a missing
+			// field: the only thing under test here is membership. A fork's payload is its
+			// own (fork_of, source, build, produces) and it refuses the other two vias' fields,
+			// so it gets its own probe; every other via gets both npm's and installer's.
+			c, projected := viaProbe(via)
 			known := KnownVia(via)
 
 			accepted := len(validateContribution("contributes[0]", c)) == 0
@@ -61,8 +60,11 @@ func TestViaVocabularyIsOneSet(t *testing.T) {
 			}
 
 			// The projection the jail installs from: a known via renders a delivery kind, an
-			// unknown one renders nothing rather than a mechanism no installer implements.
-			installs := (&Manifest{Contributes: []Contribution{c}}).InstallContributions()
+			// unknown one renders nothing rather than a mechanism no installer implements. A
+			// fork's own contribution projects to nothing by design (it installs through its
+			// base), so the projection is asked of the shape the fork rewrite gives the BASE's
+			// program — `via: "source"` with no fork_of — which is the one a jail installs.
+			installs := (&Manifest{Contributes: []Contribution{projected}}).InstallContributions()
 			if len(installs) != 1 {
 				t.Fatalf("a program contribution must project to exactly one Install, got %+v", installs)
 			}
@@ -81,14 +83,36 @@ func TestViaVocabularyIsOneSet(t *testing.T) {
 // curl-to-shell ones), so dropping either from the vocabulary uninstalls agents.
 func TestKnownViasCoversTheShippedMechanisms(t *testing.T) {
 	got := KnownVias()
-	for _, want := range []string{"npm", "installer"} {
+	for _, want := range []string{"npm", "installer", ViaSource} {
 		if !slices.Contains(got, want) {
 			t.Errorf("KnownVias() = %v, missing %q — every pack declaring it stops installing", got, want)
 		}
 	}
 	// The diagnostics quote the set; a validator naming values it no longer accepts is
 	// the drift in the other direction.
-	if viaList() != "npm or installer" {
+	if viaList() != "npm, installer or source" {
 		t.Errorf("viaList() = %q, want the set as the error messages name it", viaList())
 	}
+}
+
+// viaProbe returns a program contribution declaring via with that via's required fields, and the
+// shape the jail installs from. They differ only for a fork: its manifest contribution carries
+// fork_of (and so installs nothing itself), and the base's program the selection rewrites with
+// the fork's delivery carries none.
+func viaProbe(via string) (declared, projected Contribution) {
+	if via == ViaSource {
+		declared = Contribution{
+			Kind: KindProgram, Bin: "x", Via: via, ForkOf: "base",
+			Source: "git+https://example.invalid/fork?ref=main", Build: "make install",
+			Produces: []string{".local/bin/x"},
+		}
+		projected = declared
+		projected.ForkOf, projected.ForkedBy = "", "fork"
+		return declared, projected
+	}
+	declared = Contribution{
+		Kind: KindProgram, Bin: "x", Via: via,
+		Package: "pkg", URL: "https://example.invalid/i.sh",
+	}
+	return declared, declared
 }

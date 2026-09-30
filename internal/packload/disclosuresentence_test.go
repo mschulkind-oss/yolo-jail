@@ -28,10 +28,14 @@ func TestDisclosureSentenceNamesDirectionAndWhoseMachine(t *testing.T) {
 		{Kind: packdecl.KindProgram, Bin: "acme", Via: "installer", URL: "https://example.com/i.sh"},
 		{Kind: packdecl.KindBriefing, Into: ".claude/CLAUDE.md", After: "host:AGENTS.md"},
 		{Kind: packdecl.KindEnv, Vars: map[string]string{"ACME_HOME": "/opt/acme"}},
+		// A FORK: a program built from a source the pack names (OQ-FP6).
+		{Kind: packdecl.KindProgram, Bin: "pi", Via: packdecl.ViaSource, ForkOf: "pi",
+			Source: "git+https://example.com/pi-fork?ref=main", Build: "make install",
+			Produces: []string{".local/bin/pi"}},
 	}}
 	fp := FootprintOf(&Pack{Name: "acme", Decl: m})
-	if len(fp.Claims) != 5 {
-		t.Fatalf("fixture produced %d claims, want 5: %+v", len(fp.Claims), fp.Claims)
+	if len(fp.Claims) != 6 {
+		t.Fatalf("fixture produced %d claims, want 6: %+v", len(fp.Claims), fp.Claims)
 	}
 	for _, c := range fp.Claims {
 		got := c.DisclosureSentence()
@@ -120,6 +124,13 @@ func TestDisclosureSentenceDistinguishesClaimsThatDiffer(t *testing.T) {
 		{Kind: packdecl.KindProgram, Bin: "a", Via: "installer", URL: "https://x/1.sh"},
 		{Kind: packdecl.KindProgram, Bin: "b", Via: "installer", URL: "https://x/2.sh"},
 		{Kind: packdecl.KindProgram, Bin: "c", Via: "npm", Package: "c"},
+		// Two forks of one base differing only in source, and two only in build.
+		{Kind: packdecl.KindProgram, Bin: "pi", Via: packdecl.ViaSource, ForkOf: "pi",
+			Source: "git+https://x/one?ref=main", Build: "make", Produces: []string{".local/bin/pi"}},
+		{Kind: packdecl.KindProgram, Bin: "pi", Via: packdecl.ViaSource, ForkOf: "pi",
+			Source: "git+https://x/two?ref=main", Build: "make", Produces: []string{".local/bin/pi"}},
+		{Kind: packdecl.KindProgram, Bin: "pi", Via: packdecl.ViaSource, ForkOf: "pi",
+			Source: "git+https://x/two?ref=main", Build: "make all", Produces: []string{".local/bin/pi"}},
 		// Two env vars differing only in value.
 		{Kind: packdecl.KindEnv, Vars: map[string]string{"A": "1"}},
 		{Kind: packdecl.KindEnv, Vars: map[string]string{"B": "1"}},
@@ -190,4 +201,30 @@ func hasAnyPrefix(s string, prefixes ...string) bool {
 		}
 	}
 	return false
+}
+
+// A FORK's line names the source and the build it runs, says the jail and not the user's machine
+// runs it, and says what pins it — the commit the fork lock holds, never the moving ref
+// (OQ-FP6). It reads the Detail FootprintOf's fork arm writes, so this fails if the producer's
+// wording moves and the renderer falls back to the terse line.
+func TestDisclosureSentenceNamesAForksSourceAndPin(t *testing.T) {
+	m := &packdecl.Manifest{Contributes: []packdecl.Contribution{
+		{Kind: packdecl.KindProgram, Bin: "pi", Via: packdecl.ViaSource, ForkOf: "pi",
+			Source: "git+https://example.com/pi-fork?ref=main", Build: "make install",
+			Produces: []string{".local/bin/pi"}},
+	}}
+	fp := FootprintOf(&Pack{Name: "pi-matt", Decl: m})
+	if len(fp.Claims) != 1 || !fp.Claims[0].ReviewWorthy {
+		t.Fatalf("a fork must make one review-worthy claim, got %+v", fp.Claims)
+	}
+	if got := fp.Claims[0].Target; got != "pi (fork of pi)" {
+		t.Errorf("fork claim target = %q, want the bin qualified by its base", got)
+	}
+	got := fp.Claims[0].DisclosureSentence()
+	for _, want := range []string{"RUNS", "INSIDE THE JAIL", "git+https://example.com/pi-fork?ref=main",
+		"make install", "pinned", "pi (fork of pi)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the fork line is missing %q:\n  %s", want, got)
+		}
+	}
 }

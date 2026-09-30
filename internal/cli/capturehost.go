@@ -248,6 +248,13 @@ func resolveCaptureTarget(bin string) (*captureTarget, error) {
 			if in.Bin != bin {
 				continue
 			}
+			if in.Kind == packdecl.InstallKindSource {
+				// A FORK's program: its capture is its BUILD, from the pinned source rather than a
+				// vendor installer (docs/design/forked-programs-as-packs.md). Said by name: filing
+				// it with the npm programs below would tell the user it "names a registry version".
+				return nil, fmt.Errorf("pack %s's %q is built from source by fork pack %s — this "+
+					"build of yolo cannot build a fork yet", p.Name, bin, in.ForkedBy)
+			}
 			if in.Kind != packdeclNativeKind {
 				npmBins = append(npmBins, p.Name)
 				continue

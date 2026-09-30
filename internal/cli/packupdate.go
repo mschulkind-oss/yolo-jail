@@ -176,6 +176,17 @@ func refreshPrograms(e *entrypoint.Env, pr richtext.Printer, errw io.Writer, run
 			if inst.Kind == "" {
 				continue
 			}
+			if inst.Kind == packdecl.InstallKindSource {
+				// A FORK HAS NO UPDATE MODE (docs/design/forked-programs-as-packs.md): what moves
+				// it is its PIN, which `yolo pack update` moves on the host, and the next launch
+				// builds the new revision. Its launcher is not run here, because there is no
+				// vendor updater behind it and nothing for a jail-side refresh to resolve.
+				found++
+				pr.Printf("[dim]%s: built from source by fork pack %s — its pin moves it, not a "+
+					"refresh here (run `yolo pack update` on the host, then launch again)[/dim]",
+					inst.Bin, inst.ForkedBy)
+				continue
+			}
 			found++
 			launcher := filepath.Join(e.LaunchDir(), inst.Bin)
 			if _, err := os.Stat(launcher); err != nil {
@@ -212,6 +223,9 @@ func declaredSource(inst *packdecl.Install) string {
 	}
 	if inst.InstallerURL != "" {
 		return inst.InstallerURL
+	}
+	if inst.Source != "" {
+		return inst.Source
 	}
 	return inst.Kind
 }

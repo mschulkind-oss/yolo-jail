@@ -321,6 +321,12 @@ func (f *Floor) noEntryReason(p Program) string {
 				"and this machine is " + f.GOOS + "/" + f.GOARCH
 		}
 		return ""
+	case packdecl.InstallKindSource:
+		// A FORK (docs/design/forked-programs-as-packs.md): its host copy is the jail build's
+		// entry relocated into the floor (FP-D4), and relocating a source build starts with a
+		// measurement of what the build embeds (the plan's step 7), which is not made yet.
+		return "it is built from source by fork pack " + in.ForkedBy + ", and the floor does " +
+			"not hold a source-built program yet (forked-programs-as-packs.md §11 step 3)"
 	}
 	return fmt.Sprintf("its recipe (via %q) is one this build cannot install", in.Kind)
 }

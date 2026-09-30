@@ -1307,7 +1307,7 @@
     re-pointed tag).
     A pack.json declares effects as a "contributes" list, one entry per effect with a
     "kind" from the closed set:
-      program       a tool on PATH: {bin, via:"npm"|"installer", package|url, flags}
+      program       a tool on PATH: {bin, via:"npm"|"installer"|"source", package|url, flags}
                     yolo INSTALLS it, via a lazy launcher in ~/.yolo/bin/launch (last on
                     PATH, so it never shadows a baked binary).  Sole-owned by `bin`, so a
                     pack may declare SEVERAL programs (different bins) and each gets its
@@ -1336,6 +1336,14 @@
                     counts only those for this agent: opencode's pack lists AWS_REGION
                     for "aws-bedrock", because opencode ignores AWS_DEFAULT_REGION, so a
                     launch delivering opencode only AWS_DEFAULT_REGION is refused.
+                    via:"source" is a FORK: {bin, via:"source", fork_of:"<base pack>",
+                    source:"git+https://…?ref=…", build:"<one command line>",
+                    produces:[home-relative paths, one of them .local/bin/<bin>,
+                    .npm-global/bin/<bin> or go/bin/<bin>]}.  The base pack keeps the
+                    name, its launch flags, posture, profiles, briefing and skills; the
+                    fork supplies only the bytes, and may add `platforms` and
+                    `node_floor` but no other program field.  `source` is a git address
+                    (file:// is refused: a directory has no revision).
       blocked-tool  {bin, message, suggestion, replacement, flags} — refuse a tool
                     inside the jail and print an alternative.  `flags` limits the block
                     to matching argv (absent = always); `replacement` names the binary

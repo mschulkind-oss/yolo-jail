@@ -139,7 +139,10 @@ func addPackDeps(byBin map[string]*launchPathDep, p *packload.Pack, floorAnswers
 		unpublished[d.Bin] = d.UnpublishedReason(runtime.GOOS, runtime.GOARCH)
 	}
 	for _, c := range p.Decl.Contributions() {
-		if (c.Kind != packdecl.KindRequires && c.Kind != packdecl.KindProgram) || c.Bin == "" || floorAnswers[c.Bin] {
+		// A fork's own contribution declares its base's bin and installs nothing itself
+		// (packdecl.Contribution.IsFork): the base's program is the one declarer.
+		if (c.Kind != packdecl.KindRequires && c.Kind != packdecl.KindProgram) || c.Bin == "" ||
+			c.IsFork() || floorAnswers[c.Bin] {
 			continue
 		}
 		d := byBin[c.Bin]

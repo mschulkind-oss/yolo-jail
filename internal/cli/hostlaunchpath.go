@@ -71,7 +71,9 @@ func declarersOf(packs []*packload.Pack) map[string]*depDeclarers {
 			continue
 		}
 		for _, c := range p.Decl.Contributions() {
-			if !isDepKind(c.Kind) || c.Bin == "" {
+			// A fork declares its base's bin and installs nothing itself: the base's program is the
+			// one declarer (packdecl.Contribution.IsFork).
+			if !isDepKind(c.Kind) || c.Bin == "" || c.IsFork() {
 				continue
 			}
 			d := out[c.Bin]
