@@ -29,6 +29,10 @@
 //     its exit from the background too), run onTerminate, SIGKILL the child at its
 //     pid, exit 128+n. A Ctrl-C keypress is not one of these: raw mode delivers it
 //     as a byte, and the byte is forwarded to the jail (proxyLoop states the ruling).
+//     Only while the run is the proxy's: once the child has exited and the proxy has
+//     begun returning, a signal is left to the caller. A caller that runs its own arm
+//     for the whole run (Observer.Arm) gets no arm from the proxy at all, and a Handle
+//     that does the proxy's half of the teardown instead.
 //   - stdin EOF -> stop reading stdin, keep pumping the master until child exit
 //     (the decided semantics).
 //
@@ -45,7 +49,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -191,6 +194,16 @@ type Observer struct {
 	// closed. Whether podman put the pty back in cooked mode on its way out
 	// decides whether a forwarded ^C is data it reads or a SIGINT it may ignore.
 	Pty func(mode func() string)
+	// Arm, when set, says the CALLER runs the SIGINT/SIGHUP/SIGTERM arm for the whole of this
+	// run, so exactly one arm acts on each signal at every instant: the proxy installs none of
+	// its own (it still handles SIGWINCH and SIGCONT), never calls onTerminate, and instead
+	// hands Arm, once, the Handle through which the caller's arm puts the host terminal back
+	// and ends the child. Called on the calling goroutine once the child is started and, on the
+	// pty path, once the host tty is raw, so a Terminate through it always undoes the raw mode.
+	// A caller whose arm fired before Arm ran must call Terminate itself: the handle is the
+	// first moment it can. The fresh launch's arm is one (run.launchSignalArm), which covers
+	// the stretches before and after this run as well.
+	Arm func(Handle)
 }
 
 func (obs Observer) input(n int, key string) {
@@ -242,18 +255,119 @@ func termiosMode(t *unix.Termios) string {
 		" echo=" + onOff(t.Lflag&unix.ECHO != 0)
 }
 
+// session is one proxied child's teardown state, shared by whichever signal arm acts — the
+// proxy's own or a caller's (Observer.Arm) — and by the proxy's own return, so exactly one of
+// them owns the end of the run. Every host-termios write after the start goes through it
+// under mu: the terminate's restore, and the SIGCONT re-raw, which must never land after it.
+type session struct {
+	mu    sync.Mutex
+	state sessionState
+	// restored is closed once a proxy returning on its own has put the host terminal back,
+	// so a terminate that lost the race to it returns only after the terminal is cooked.
+	restored chan struct{}
+	inFd     int
+	cooked   *unix.Termios // nil on the plain path, which has no terminal to put back
+	c        *exec.Cmd
+	hook     StageHook
+}
+
+type sessionState int
+
+const (
+	sessionRunning sessionState = iota
+	sessionTerminating
+	sessionReturning
+)
+
+func newSession(inFd int, cooked *unix.Termios, c *exec.Cmd, hook StageHook) *session {
+	return &session{restored: make(chan struct{}), inFd: inFd, cooked: cooked, c: c, hook: hook}
+}
+
+// terminate is the proxy's half of a signal teardown. It returns true exactly once, to the
+// first arm to ask while the child's run is still the proxy's, having made the rest of the
+// exit reachable from the background (SIGTTOU and SIGTTIN ignored: `kill %1` finds a job the
+// user ^Z'd out of a lingering quit there, and a tty write or read would stop it again) and
+// put the host terminal back in cooked mode when this process still owns it. It returns false,
+// doing nothing, to every later arm, and to one that asks after the proxy began returning on
+// its own: the child has exited and the caller is carrying on, so the signal is not the
+// proxy's to act on any more. That one waits for the proxy's own restore first.
+func (s *session) terminate() bool {
+	s.mu.Lock()
+	switch s.state {
+	case sessionReturning:
+		s.mu.Unlock()
+		<-s.restored
+		return false
+	case sessionTerminating:
+		s.mu.Unlock()
+		return false
+	}
+	s.state = sessionTerminating
+	signal.Ignore(syscall.SIGTTOU, syscall.SIGTTIN)
+	if s.cooked != nil && ownsTerminal(s.inFd) {
+		restoreTerminal(s.inFd, s.cooked)
+	}
+	s.mu.Unlock()
+	if s.cooked != nil {
+		callStage(s.hook, StageTermiosRestored)
+	}
+	return true
+}
+
+// claimReturn is the proxy's own return claiming the end of the run. False means an arm has
+// begun its teardown and owns the exit: the caller must never return then.
+func (s *session) claimReturn() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state == sessionTerminating {
+		return false
+	}
+	s.state = sessionReturning
+	return true
+}
+
+// reRaw puts the host tty back in raw mode after a resume, unless a teardown has begun: the
+// terminal it restored must stay restored.
+func (s *session) reRaw() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state == sessionRunning {
+		setRaw(s.inFd, s.cooked)
+	}
+}
+
+// kill SIGKILLs the child, TARGETED at its pid: a runtime client that outlived its container
+// ignores the SIGTERM a shell sends the job's group (the podman client forwards it to a
+// container that is gone), and an exit would leave it running with nobody waiting on it. An
+// error means it already exited.
+func (s *session) kill() { _ = s.c.Process.Kill() }
+
+// Handle is a running child's half of a caller-owned signal teardown (Observer.Arm). Its
+// methods are safe from any goroutine, and harmless once the run is over.
+type Handle struct{ s *session }
+
+// Terminate prepares the run for the caller's exit: SIGTTOU and SIGTTIN ignored, the host
+// terminal back in cooked mode when this process owns it, and the proxy's own return blocked
+// for good, so the caller's arm alone decides how the process ends. False, having done
+// nothing, when the child already exited and the proxy is returning on its own (it then waits
+// until the proxy has put the terminal back), or when it was already called.
+func (h Handle) Terminate() bool { return h.s.terminate() }
+
+// Kill SIGKILLs the child at its pid.
+func (h Handle) Kill() { h.s.kill() }
+
 // RunWithProxyObserved is RunWithProxy plus an Observer.
 func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate func(), obs Observer) (int, error) {
 	hook := obs.Stage
 	inFd := int(os.Stdin.Fd())
 	if !isatty(inFd) {
-		return runPlain(cmd, onStarted, hook)
+		return runPlain(cmd, onStarted, obs)
 	}
 
 	// Save cooked attrs to restore on suspend/exit.
 	cooked, err := unix.IoctlGetTermios(inFd, unix.TCGETS)
 	if err != nil {
-		return runPlain(cmd, onStarted, hook)
+		return runPlain(cmd, onStarted, obs)
 	}
 
 	master, slave, err := openPty()
@@ -292,20 +406,33 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 
 	restoreCooked := func() { restoreTerminal(inFd, cooked) }
 
+	// The run's teardown state. Whichever arm acts first owns the exit: it kills the child
+	// before it exits the process, and that kill ends proxyLoop on the main goroutine, so
+	// without the claim below the ordinary return path could run — and return an exit code,
+	// and let the caller tear down — before the arm's exit. And a signal that arrives once the
+	// child has exited and the return is under way is not an arm's to act on
+	// (session.terminate).
+	sess := newSession(inFd, cooked, c, hook)
+	callerArms := obs.Arm != nil
+	if callerArms {
+		func() {
+			defer func() { _ = recover() }()
+			obs.Arm(Handle{sess})
+		}()
+	}
+
 	// Signal handlers. Note: we DO NOT Notify SIGTSTP (default disposition must
-	// stop us); we handle WINCH/CONT/INT/HUP/TERM. Ctrl-C arrives as a byte
-	// while the host TTY is raw; proxyLoop raises the targeted SIGINT below.
+	// stop us); we handle WINCH/CONT/INT/HUP/TERM, and INT/HUP/TERM only when no caller
+	// runs that arm itself (Observer.Arm). Ctrl-C arrives as a byte while the host TTY is
+	// raw, and is forwarded (proxyLoop states the ruling).
 	sigCh := make(chan os.Signal, 8)
-	signal.Notify(sigCh, syscall.SIGWINCH, syscall.SIGCONT, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)
+	if callerArms {
+		signal.Notify(sigCh, syscall.SIGWINCH, syscall.SIGCONT)
+	} else {
+		signal.Notify(sigCh, syscall.SIGWINCH, syscall.SIGCONT, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)
+	}
 	defer signal.Stop(sigCh)
 
-	var termOnce sync.Once
-	// terminating is set the moment the terminate arm begins. The arm kills the child
-	// before it exits the process, and that kill ends proxyLoop on the main goroutine, so
-	// without this the ordinary return path could run — and return an exit code, and let
-	// the caller tear down — before the arm's os.Exit. The arm owns the exit once it has
-	// begun; the main goroutine waits for it rather than racing it.
-	var terminating atomic.Bool
 	go func() {
 		for s := range sigCh {
 			switch s {
@@ -320,7 +447,7 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 				if !ownsTerminal(inFd) {
 					continue
 				}
-				setRaw(inFd, cooked) // host TTY was cooked while suspended
+				sess.reRaw() // host TTY was cooked while suspended; never after a teardown began
 				// AND RESIZE. A window resized while we were stopped changed the
 				// host tty behind our back, and the resulting SIGWINCH is only
 				// delivered if one was pending — a resize that happened before the
@@ -329,44 +456,38 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 				// trigger.
 				resyncWinsize(inFd, master, c)
 			case syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM:
-				termOnce.Do(func() {
-					terminating.Store(true)
-					// The terminate arm must reach os.Exit from the background too:
-					// that is where `kill %1` finds a job the user ^Z'd out of a
-					// lingering quit. Any tty write or read on the way out would
-					// raise SIGTTOU/SIGTTIN there and stop us instead, so both are
-					// ignored from here on — and the termios, which is the shell's
-					// while we are in the background, is left alone.
-					signal.Ignore(syscall.SIGTTOU, syscall.SIGTTIN)
-					if ownsTerminal(inFd) {
-						restoreCooked()
-					}
-					callStage(hook, StageTermiosRestored)
-					if onTerminate != nil {
-						onTerminate()
-					}
-					// Then the child, TARGETED at its pid: a runtime client that
-					// outlived its container ignores the SIGTERM a shell sends the
-					// job's group (the podman client forwards it to a container that
-					// is gone), and os.Exit would leave it running with nobody
-					// waiting on it. An error means it already exited.
-					_ = c.Process.Kill()
-					n := int(s.(syscall.Signal))
-					if beforeTerminateExit != nil {
-						beforeTerminateExit()
-					}
-					os.Exit(128 + n)
-				})
+				// The terminate arm must reach os.Exit from the background too: that is
+				// where `kill %1` finds a job the user ^Z'd out of a lingering quit, and
+				// session.terminate ignores SIGTTOU/SIGTTIN and leaves the termios, which is
+				// the shell's while we are in the background, alone. Only the first signal
+				// acts, and none once the return has claimed the run.
+				if !sess.terminate() {
+					continue
+				}
+				if onTerminate != nil {
+					onTerminate()
+				}
+				// Then the child, TARGETED at its pid (session.kill).
+				sess.kill()
+				n := int(s.(syscall.Signal))
+				if beforeTerminateExit != nil {
+					beforeTerminateExit()
+				}
+				os.Exit(128 + n)
 			}
 		}
 	}()
 
 	rc := proxyLoop(inFd, master, c, cooked, obs)
-	if terminating.Load() {
-		select {} // the terminate arm is exiting the process; never race it
+	if !sess.claimReturn() {
+		select {} // an arm is exiting the process; never race it
+	}
+	if afterReturnClaimed != nil {
+		afterReturnClaimed()
 	}
 
 	restoreCooked()
+	close(sess.restored)
 	callStage(hook, StageTermiosRestored)
 	mode.close()
 	unix.Close(master)
@@ -378,11 +499,26 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 // waits for the arm instead of returning. Nil in production.
 var beforeTerminateExit func()
 
-func runPlain(cmd []string, onStarted func(*os.Process), hook StageHook) (int, error) {
+// afterReturnClaimed is a test seam: it runs once the proxy's own return has claimed the end
+// of the run and before it puts the terminal back, so a test can deliver a signal inside that
+// window and prove the arm leaves it alone. Nil in production.
+var afterReturnClaimed func()
+
+// runPlain is the no-terminal spawn. It installs no signal arm; a caller that runs its own
+// (Observer.Arm) is handed the child's Handle, whose Terminate has no terminal to put back.
+func runPlain(cmd []string, onStarted func(*os.Process), obs Observer) (int, error) {
+	hook := obs.Stage
 	c := exec.Command(cmd[0], cmd[1:]...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := c.Start(); err != nil {
 		return 0, err
+	}
+	sess := newSession(-1, nil, c, hook)
+	if obs.Arm != nil {
+		func() {
+			defer func() { _ = recover() }()
+			obs.Arm(Handle{sess})
+		}()
 	}
 	callStage(hook, StageSpawned)
 	if onStarted != nil {
@@ -390,6 +526,10 @@ func runPlain(cmd []string, onStarted func(*os.Process), hook StageHook) (int, e
 	}
 	err := c.Wait()
 	callStage(hook, StageExited)
+	if !sess.claimReturn() {
+		select {} // the caller's arm is exiting the process; never race it
+	}
+	close(sess.restored)
 	return exitCode(err), nil
 }
 
