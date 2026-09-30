@@ -578,8 +578,9 @@ narrowing:
   widens, and it is a bool so that no misspelling can grant.
 
 Then an agent selects the `bedrock` profile: `yolo -p bedrock -- claude`, or
-`-p <agent>=bedrock` for another agent. `packs/claude` `needs` `aws-auth`, so selecting claude
-selects this pack, and selected but unconfigured it changes nothing. The worked config block is
+`-p <agent>=bedrock` for another agent. claude, codex, opencode and pi each `need`
+`packs/bedrock`, which `needs` `aws-auth`, so selecting any of them selects this pack, and
+selected but unconfigured it changes nothing. The worked config block is
 in [the pack README](../../packs/aws-auth/README.md#enabling-it).
 
 The service **refuses to start**, naming the key to write, in six cases:
