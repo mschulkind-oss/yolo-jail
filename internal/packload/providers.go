@@ -445,7 +445,7 @@ func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack, cfg composeOpts) {
 			}
 			addEndpoint(entry, a.To, address, serviceCredentialEnv(a))
 			if fronted {
-				markForVia(entry, a.To, a.Service)
+				markForVia(entry, a.To, a.Pack)
 			}
 			offered[a.To] = true
 		}
@@ -496,9 +496,9 @@ func addEndpoint(entry *jsonx.OrderedMap, protocol, address, credentialEnv strin
 	endpoints.Set(protocol, ep)
 }
 
-// markForVia writes ForViaKey, naming service, on the endpoint adaptEndpoints just composed for
-// protocol: the address is for a profile routing through that service alone.
-func markForVia(entry *jsonx.OrderedMap, protocol, service string) {
+// markForVia writes ForViaKey, naming pack, on the endpoint adaptEndpoints just composed for
+// protocol: the address is for a profile whose `via` names that pack alone.
+func markForVia(entry *jsonx.OrderedMap, protocol, pack string) {
 	v, _ := entry.Get("endpoints")
 	endpoints, _ := v.(*jsonx.OrderedMap)
 	if endpoints == nil {
@@ -506,13 +506,13 @@ func markForVia(entry *jsonx.OrderedMap, protocol, service string) {
 	}
 	if ep, ok := endpoints.Get(protocol); ok {
 		if m, isMap := ep.(*jsonx.OrderedMap); isMap {
-			m.Set(ForViaKey, service)
+			m.Set(ForViaKey, pack)
 		}
 	}
 }
 
-// forViaService is the service an endpoint of entry is marked for (ForViaKey), "" for an
-// endpoint that is the provider's own or an ordinary adapter's.
+// forViaService is the pack an endpoint of entry is marked for (ForViaKey), the value a
+// profile's `via` names, "" for an endpoint that is the provider's own or an ordinary adapter's.
 func forViaService(entry *jsonx.OrderedMap, protocol string) string {
 	v, _ := entry.Get("endpoints")
 	endpoints, _ := v.(*jsonx.OrderedMap)
@@ -524,8 +524,8 @@ func forViaService(entry *jsonx.OrderedMap, protocol string) string {
 	return entryString(m, ForViaKey)
 }
 
-// EndpointsForProfile is entry as an agent on a profile whose via names viaService sees it:
-// entry itself when no endpoint is marked for a via (ForViaKey) other than viaService, and
+// EndpointsForProfile is entry as an agent on a profile whose `via` is viaService (a pack name)
+// sees it: entry itself when no endpoint is marked for a via (ForViaKey) other than viaService, and
 // otherwise a copy without those endpoints, which are no address at all for that agent. A
 // profile with no via passes "", so every marked endpoint goes. Used by the profile line
 // (profileReach), which says where an agent's profile reaches it.

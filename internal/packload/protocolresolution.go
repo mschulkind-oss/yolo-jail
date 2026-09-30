@@ -69,10 +69,10 @@ type Adaptation struct {
 }
 
 // ForViaKey is the key adaptEndpoints writes on an endpoint it composes for a provider that
-// names no From address of its own, through an adaptation's FromPlatforms, with the name of
-// the service that serves it (docs/design/wire-bridge-gateway.md WG-I39). Its meaning: an agent
-// is sent to this address only under a profile that routes through that service (a `via`
-// naming its pack), because an agent with its own client for the provider's platform uses that
+// names no From address of its own, through an adaptation's FromPlatforms, with the name of the
+// adaptation's pack, the value a profile's `via` names (docs/design/wire-bridge-gateway.md
+// WG-I39). Its meaning: an agent is sent to this address only under a profile whose `via` names
+// that pack, because an agent with its own client for the provider's platform uses that
 // client on every other profile. So the address never makes a pairing unspeakable
 // (ResolveProtocol), it is no endpoint at all for a profile without that via
 // (EndpointsForProfile), and the service serves it only for such a profile. A derive reads it

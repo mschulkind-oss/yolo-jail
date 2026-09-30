@@ -348,10 +348,10 @@ compose an upstream for such a provider. `packs/wire-bridge`'s chat-completions 
 region, because a pack cannot know the region
 ([`wire-bridge-gateway.md` WG-I39](../design/wire-bridge-gateway.md#WG-I39)).
 
-The address composed that way is marked on the endpoint, `"for_via": "<service>"`
+The address composed that way is marked on the endpoint, `"for_via": "<pack>"`
 (`packload.ForViaKey`), and the mark changes three answers:
 
-- **It is used only under a profile whose `via` names that service.** An agent with its own
+- **It is used only under a profile whose `via` names that pack.** An agent with its own
   client for the platform keeps that client on every other profile, and the service serves the
   address only for such a profile. The profile line reads the provider without the address for a
   profile with no via (`packload.EndpointsForProfile`).
