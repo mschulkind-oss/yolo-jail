@@ -69,7 +69,7 @@ func (o *Options) refuseUnmatchedSupersessions(packs []*packload.Pack) error {
 // doorway, so a claim there that matches nothing is the same undetectable no-op.
 //
 // repoRoot is asked only once a claim has failed to match, so the happy path runs no git.
-// It prints nothing: SupersessionProblemsFor never warns, and a notch about to refuse must not
+// It warns no claim: SupersessionProblemsFor never does, and a notch about to refuse must not
 // first print the same sentence as a bare warning.
 func UnmatchedSupersessionRefusal(packs []*packload.Pack, repoRoot func() string) []string {
 	problems := loopholes.SupersessionProblemsFor(packLoopholeModules(packs), packSupersessions(packs))

@@ -17,9 +17,10 @@ import (
 //
 // It reads the construction `yolo check` reads (validateSetOf, which ValidateSet calls over
 // the recorded packs), so the launch's refusal and the check's [FAIL] row come from one gate
-// with two inputs, never from two gates. And it prints nothing: Discover is the only place
-// that warns a claim, and a launch that is about to refuse must not first print the same
-// sentence as a bare warning line.
+// with two inputs, never from two gates. And it warns no claim: Discover is the only place
+// that does, and a launch that is about to refuse must not first print the same sentence as a
+// bare warning line. (Its module walk can print one other line, the retired-directory notice,
+// once per process, as every walk does.)
 //
 // The served set is the pack modules' alone, which is complete: every loophole yolo ships is
 // a pack's, and a config-declared loophole carries no `serves` (synthesizeConfigLoopholes;
