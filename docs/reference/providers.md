@@ -1059,7 +1059,13 @@ pack ships, and every agent that can use the provider renders that one list
   listed model. The start model is pinned only when the profile sets `pin_model: "true"`, since
   claude returns to a pinned start at every launch, over a model chosen with `/model`
   ([MM-D3](../design/model-lists-and-pickers.md#MM-D3));
-- **codex** starts on the profile's `model` or the first id;
+- **codex** starts on the profile's `model` or the first id, and its `/model` menu is exactly the
+  list: the launcher writes codex's own catalog entries for the listed ids, in the list's order,
+  to `~/.codex/yolo-model-menu.json` before it execs codex, and hands codex the file with
+  `-c model_catalog_json=…` ([MM-D9](../design/model-lists-and-pickers.md#MM-D9),
+  [MM-D22](../design/model-lists-and-pickers.md#MM-D22)). An id codex's catalog lacks is left
+  out with a warning, and with none left codex keeps its own menu. `yolo host --` runs codex
+  with no launcher, so at the host codex keeps its own menu;
 - **pi**'s extension registers exactly the list for `openai-codex`, read from a file yolo writes
   at every jail boot, with the cost, thinking and image facts taken from pi's own catalog. pi gets
   no model scope for it, and its sub-agents may use only the listed ids. A listed model pi's
@@ -1498,7 +1504,8 @@ own Bedrock client, the list's Anthropic models), an extension registration in p
 in opencode (its own Bedrock client's row included) and an `enabledModels` scope in oh-omp. The
 model yolo names for an agent to start on is the list's default entry, even when the `only`
 dropped the model the profile names: the profile's `model` when the list holds it, else the
-`default` alias, else the first entry. codex and copilot get that start and nothing else yet. The
+`default` alias, else the first entry. codex gets that start, and on `openai-codex` its menu is
+the narrowed list too; copilot gets that start and nothing else. The
 one exception is claude with `enforce_models` off, which keeps the start pin it had before the
 `only` (what should replace it is [OQ-MM3](../design/model-lists-and-pickers.md#OQ-MM3)'s). A
 list a pack only ADDS to keeps today's rendering beside the agent's own catalog; what it

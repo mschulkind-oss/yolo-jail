@@ -302,6 +302,12 @@ models instead of Opus, Sonnet and Haiku, and those three, Fable too, all point 
 models. OpenRouter and Kilo ship no model list, so on them Claude Code keeps its usual menu until
 your own `providers.<name>.models`, or a pack's `add` (below), lists some models.
 
+Codex on your ChatGPT subscription (`yolo -p codex -- codex`) shows the models yolo lists for the
+subscription in its `/model` menu, the ones Claude Code shows there, in the same order, and
+nothing else. yolo builds that menu from Codex's own list of the
+models it knows each time Codex starts, so a model your Codex is too old to know is left out, and
+yolo says so; updating Codex brings it back. On any other provider Codex keeps its usual menu.
+
 A model you pick with `/model` stays picked at the next launch on your ChatGPT subscription and on
 a list a pack narrowed with `only` (below), as long as the profile's `enforce_models` is on, which
 it is unless you turn it off. On the other providers Claude Code still starts on the provider's
@@ -330,7 +336,8 @@ agent allows it:
 | opencode | exactly the list | refused |
 | pi | exactly the list | refused (on OpenRouter, a list mixing models pi talks to in two different ways is shown but not refused, and pi says so) |
 | oh-omp | exactly the list | a model typed with `--model` still runs |
-| Codex, Copilot | the agent's usual menu, starting on the list's default model | not refused yet; a narrowed menu is planned |
+| Codex | on your ChatGPT subscription, exactly the list; on any other provider, its usual menu, starting on the list's default model | not refused |
+| Copilot | its usual menu, starting on the list's default model | not refused; whether it can show the whole list is still being decided |
 
 When an agent reaches the provider through the wire bridge, the bridge refuses any other model
 too, whatever the agent's own menu allows: pi, opencode, oh-omp or codex on a profile with

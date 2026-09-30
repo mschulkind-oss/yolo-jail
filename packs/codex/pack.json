@@ -7,6 +7,30 @@
         "pacman": "openai-codex"
       },
       "kind": "program",
+      "model_menu": {
+        "catalog": [
+          "debug",
+          "models",
+          "--bundled"
+        ],
+        "clear": [
+          "upgrade",
+          "availability_nux"
+        ],
+        "entries": "models",
+        "flag": [
+          "-c",
+          "model_catalog_json={into}"
+        ],
+        "id": "slug",
+        "into": ".codex/yolo-model-menu.json",
+        "list": ".codex/yolo-model-list.json",
+        "name": "display_name",
+        "order": "priority",
+        "set": {
+          "visibility": "list"
+        }
+      },
       "protocols": [
         "openai-responses",
         "openai"
@@ -51,6 +75,14 @@
           "retireOnFirstRender": [
             "yolo-managed-mcp-servers.json"
           ]
+        },
+        {
+          "agent": "codex",
+          "codec": "json",
+          "mode": "computed",
+          "name": "model-list",
+          "notAtHost": "only a jail's codex launcher reads it, to write codex's model menu, and `yolo host --` runs codex with no launcher, so at the host the file would name models nothing reads",
+          "path": "~/.codex/yolo-model-list.json"
         }
       ],
       "kind": "config"

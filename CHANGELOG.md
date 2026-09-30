@@ -58,6 +58,14 @@ last word, and `yolo check` names a model a pack adds twice or an `only` that na
 nothing added. See
 [model menus](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
 
+**Codex on your ChatGPT subscription now offers yolo's model list in its `/model` menu.**
+`yolo -p codex -- codex` shows GPT-6.1 Sol, GPT-6 Astra and GPT-6 Luna, the models Claude Code
+and pi offer there, in that order and nothing else, and a pack's `only` narrows it the same way.
+yolo builds the menu from your Codex's own list of the models it knows, again whenever Codex is
+updated, so a model your Codex is too old to know is left out and yolo says so. On other
+providers, and under `yolo host`, Codex keeps its own menu. See
+[model menus](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
+
 **Agents can use `gh` in a jail with your own GitHub login, and the jail never holds a GitHub
 token.** Select the new `github` pack and turn its `github-broker` loophole on, and a bare `gh`
 in the jail is sent to a service on your machine that runs your own `gh` for it, only against the

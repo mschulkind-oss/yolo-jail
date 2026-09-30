@@ -672,6 +672,27 @@ installed and runs nothing. On `program` with `via: "npm"` alone; `packdecl` ref
 and an entry that is empty, absolute, unclean, escaping, backslashed, a duplicate, or not a valid
 pattern.
 
+<a id="model_menu"></a>`model_menu` is the program's **model menu**, a term coined for this field
+(2026-09-30): a file the launcher writes from the program's own catalog before exec'ing it, and
+hands the program with a flag. It is an object. `catalog` is the program's argv, bin omitted,
+that prints its catalog as one JSON object, offline. `list` is the home-relative file the pack's
+own derive renders with yolo's list, `{"models": [{"id": …, "name": …}]}`. `into` is the
+home-relative menu file, and `flag` is the argv words added ahead of the user's own when a menu
+was written, with `{into}` replaced by that file's absolute path. `entries` and `id` say where the
+catalog keeps its entries and what an entry calls its id. `order`, `name`, `clear` and `set`,
+each optional, name the entry key renumbered in list order, the key that takes the list entry's
+name, the keys deleted, and the keys given a string value. `packs/codex` declares
+`["debug", "models", "--bundled"]` and `["-c", "model_catalog_json={into}"]`, with `slug`,
+`priority`, `display_name`, `upgrade`, `availability_nux` and `visibility`. The launcher runs it
+through `yolo internal model-menu`, only when the list names a model, and rebuilds the file only
+when the program, the list or this declaration changed. An id the catalog lacks is left out with
+a warning; with none left, or no readable catalog, no flag is added and the program keeps its own
+menu. `YOLO_NO_LAUNCH_FLAGS=1` skips it with the launch flags
+([`model-lists-and-pickers.md` MM-D22](../design/model-lists-and-pickers.md#MM-D22)). On
+`program` alone, any `via`. `packdecl` refuses a missing `catalog` or an empty word in it, a
+`list` or `into` that is empty, absolute, unclean or escaping the home, the two at one path, a
+`flag` that never spells `{into}`, a missing `entries` or `id`, and an entry key given two roles.
+
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. One key names an installer *flavor* rather than

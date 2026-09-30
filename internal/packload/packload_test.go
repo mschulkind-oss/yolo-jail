@@ -46,7 +46,7 @@ func TestEmbeddedPackSurfacesDecode(t *testing.T) {
 		}
 		total += len(surfaces)
 	}
-	// The official packs carry 20 surfaces across the agents (opencode's tui is the agent
+	// The official packs carry 21 surfaces across the agents (opencode's tui is the agent
 	// footer's plugin list: docs/design/agent-footer.md; pi's codex-models is the data file
 	// its openai-codex extension registers: docs/design/model-lists-and-pickers.md ML-D3;
 	// pi's model-lists is the data file its model-lists extension registers under an `only`:
@@ -54,10 +54,11 @@ func TestEmbeddedPackSurfacesDecode(t *testing.T) {
 	// `only`, the same doc's MM-D8;
 	// pi's subagents-mcp is the MCP file pi-subagents reads: agent-directory-map.md AM-R2;
 	// copilot's settings is where copilot 1.0.35+ keeps the footer default it would otherwise
-	// move out of config.json: model-lists-and-pickers.md §14.2).
+	// move out of config.json: model-lists-and-pickers.md §14.2; codex's model-list is the
+	// list its launcher writes codex's model menu from: the same doc's MM-D9 and MM-D22).
 	// A drop here means a pack lost a surface in translation.
-	if total != 20 {
-		t.Errorf("official packs declare %d surfaces, want 20", total)
+	if total != 21 {
+		t.Errorf("official packs declare %d surfaces, want 21", total)
 	}
 }
 

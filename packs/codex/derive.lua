@@ -541,3 +541,31 @@ yolo.derive("codex", "config", function(ctx)
 
   return res
 end)
+
+-- model-list (~/.codex/yolo-model-list.json): yolo's list for the provider codex's own catalog
+-- carries, which the codex launcher turns into codex's model menu before it execs codex
+-- (packs/codex/pack.json's `model_menu`; docs/design/model-lists-and-pickers.md MM-D9, MM-D22).
+-- The launcher reads codex's own catalog (`codex debug models --bundled`), keeps its entries for
+-- these ids in this order, and hands codex the file with `-c model_catalog_json=…`, so codex's
+-- /model picker offers exactly the list, each entry with the prompt text codex's catalog holds.
+--
+-- ONLY openai-codex. `--bundled` prints codex's OpenAI catalog whatever provider is selected
+-- (codex 0.159.2, cli/src/main.rs run_debug_models_command, MEASURED 2026-09-30), and its ids are
+-- the subscription's. Bedrock runtime's catalog is built in memory from other slugs
+-- (model-provider/src/amazon_bedrock/runtime_catalog.rs), so a Bedrock list would name ids the
+-- printed catalog lacks and every entry would be left out: MM-D9's measurement for Bedrock did
+-- not hold, and a provider whose ids codex's catalog does not carry keeps `model` alone. The
+-- `[1m]` rows are the other consumers' spelling, and codex's catalog has none.
+--
+-- {} for every other selection is "no menu this launch", and the launcher then adds no flag.
+yolo.derive("codex", "model-list", function(ctx)
+  if ctx.selected_provider ~= "openai-codex" then return {} end
+  local models = {}
+  for _, e in ipairs(codexModelList(ctx.providers and ctx.providers["openai-codex"])) do
+    if e.base == nil then
+      table.insert(models, { id = e.id, name = e.name })
+    end
+  end
+  if #models == 0 then return {} end
+  return { models = models }
+end)
