@@ -301,7 +301,9 @@ in `~/.config/yolo-jail/config.jsonc`; a plain string entry stays read-only, as 
 Mac). A project's own config cannot ask for one: `yolo check` refuses it there, and the launch does
 too. yolo also refuses a read-write folder that is, or contains, your home or one of yolo's own
 folders, or that overlaps the project, and every launch prints a line naming each read-write folder
-and warning that anything on your machine that later reads it reads what the jail wrote. The
+and warning that anything on your machine that later reads it reads what the jail wrote. Two
+mounts that would land at one path in the jail, or on one of yolo's own folders under `/ctx`,
+are now a `yolo check` error that names both and how to move one. The
 agent's briefing now says which of its context mounts are read-only and which read-write, lists a
 pack's mounts too, and names `$YOLO_CONTEXT_DIR`, which every launch now sets to the folder those
 mounts appear under (`/ctx` in a container). On `macos-user`, which cannot deliver a mounted folder
