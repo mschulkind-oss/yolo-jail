@@ -10,6 +10,9 @@
         "dnf": "pi-coding-agent"
       },
       "kind": "program",
+      "model_catalog": [
+        "node_modules/@earendil-works/pi-ai/dist/providers/data/*.json"
+      ],
       "node_floor": "22.19",
       "package": "@earendil-works/pi-coding-agent",
       "protocols": [

@@ -252,6 +252,11 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	for _, w := range modelListNotes(loaded, merged) {
 		r.warn(w, "")
 	}
+	// Whether the ids those lists name are ones an installed agent's own catalog knows
+	// (docs/design/model-lists-and-pickers.md MM-D16): over the same selected set and the same
+	// composition, read from the files each agent's pack declares, so a warning here names an id
+	// the launch would really hand an agent.
+	o.modelCatalogReport(r, loaded, merged)
 
 	// The launch's ENV-OVERRIDE refusal, predicted over the same selected set and for the
 	// same reason it sits in this section rather than in Merged Configuration: both the
