@@ -179,3 +179,38 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 	}
 	return string(out)
 }
+
+// A SECOND MACHINE, GIVEN THE CONFIG AND ITS FORK LOCK: `yolo pack install` makes the pinned commit
+// buildable here — its mirror fetched and the commit checked out into the pack store — and leaves
+// the pin where the lock has it, though the branch has moved on. A launch never fetches (FP-D7), so
+// an install that only read the lock would leave every build on this machine failing its checkout
+// until `yolo pack update`, which builds a different commit than the first machine runs.
+func TestPackInstallMakesAPinnedForkBuildableOnASecondMachine(t *testing.T) {
+	repo, commit := forkRepo(t)
+	head1 := strings.TrimSpace(gitOut(t, repo, "rev-parse", "HEAD"))
+	source := "git+file://" + repo + "?ref=main"
+	forkPinHome(t, source)
+	// The lock arrived with the config; this machine's pack store has never seen the repository.
+	l := &packsrc.ForkLock{}
+	l.Set(packsrc.ForkLockEntry{Key: "forkpack/tool", Source: source, Ref: "main", Commit: head1})
+	if err := l.Save(forkLockPath()); err != nil {
+		t.Fatal(err)
+	}
+	commit("moved on")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("install rc=%d\n%s\n%s", rc, out.String(), errw.String())
+	}
+	if got := pinnedCommit(t); got != head1 {
+		t.Errorf("install moved the pin to %q, want the lock's %q", got, head1)
+	}
+	// Offline from here, as a launch is: the build's checkout reads only the pack store.
+	if err := os.Rename(repo, repo+".gone"); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkOutForkSource(source, head1, filepath.Join(t.TempDir(), "src")); err != nil {
+		t.Errorf("after install the pinned commit cannot be checked out on this machine: %v\n%s\n%s",
+			err, out.String(), errw.String())
+	}
+}

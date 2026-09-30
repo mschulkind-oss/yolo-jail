@@ -58,19 +58,36 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 			for _, f := range forks {
 				keep = append(keep, f.Key())
 				prev, pinned := l.Get(f.Key())
-				if pinned && prev.Source == f.Source && prev.Commit != "" && !repin {
-					lines = append(lines, fmt.Sprintf("[dim]%s unchanged (%s)[/dim]", f.Key(), shortSHA(prev.Commit)))
-					continue
-				}
 				addr, err := packsrc.Parse(f.Source)
 				if err != nil {
 					fmt.Fprintf(errw, "yolo pack: fork %s: %v\n", f.Key(), err)
 					rc = 1
 					continue
 				}
+				if pinned && prev.Source == f.Source && prev.Commit != "" && !repin {
+					// THE PIN STANDS, and install makes it BUILDABLE HERE: a lock that arrived
+					// with the config names a commit this machine's pack store may never have
+					// fetched, and a launch never fetches one (FP-D7).
+					if err := ensureForkCheckout(store, addr, prev.Commit); err != nil {
+						fmt.Fprintf(errw, "yolo pack: fork %s: its pinned commit %s cannot be checked out "+
+							"from %s (%v) — `yolo pack update` pins what %s names now\n",
+							f.Key(), shortSHA(prev.Commit), f.Source, err, addr.Ref)
+						rc = 1
+						continue
+					}
+					lines = append(lines, fmt.Sprintf("[dim]%s unchanged (%s)[/dim]", f.Key(), shortSHA(prev.Commit)))
+					continue
+				}
 				commit, err := forkPinSync(store, addr)
 				if err != nil {
 					fmt.Fprintf(errw, "yolo pack: fork %s: resolving %s: %v\n", f.Key(), f.Source, err)
+					rc = 1
+					continue
+				}
+				// Checked out now, while this act has the network, so the launch that builds it
+				// reads only the pack store.
+				if err := ensureForkCheckout(store, addr, commit); err != nil {
+					fmt.Fprintf(errw, "yolo pack: fork %s: checking out %s: %v\n", f.Key(), shortSHA(commit), err)
 					rc = 1
 					continue
 				}
@@ -106,6 +123,20 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 		return 1
 	}
 	return rc
+}
+
+// ensureForkCheckout makes commit of a checked out in the pack store, the tree a build copies
+// (checkOutForkSource): at once when it already is, and otherwise after a fetch of a's mirror,
+// which this machine may never have made — the lock can arrive with the config from another one.
+func ensureForkCheckout(store *packsrc.Store, a packsrc.Addr, commit string) error {
+	if _, err := forkCheckout(store, a, commit); err == nil {
+		return nil
+	}
+	if _, err := forkPinSync(store, a); err != nil {
+		return err
+	}
+	_, err := forkCheckout(store, a, commit)
+	return err
 }
 
 // forkStatusLines is `yolo pack status`'s fork section: each selected fork's pin, or why it has

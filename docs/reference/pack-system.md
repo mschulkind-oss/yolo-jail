@@ -748,7 +748,10 @@ one program.
 **The pin is `forks.lock.json`**, beside `packs.lock.json` in `~/.config/yolo-jail`, keyed
 `<fork pack>/<bin>` ([FP-D7](../design/forked-programs-as-packs.md#FP-D7)). `yolo pack install` pins
 every selected fork the lock does not already pin for its declared `source`, resolving the ref to a
-commit, and leaves a pinned fork alone when its branch moves. `yolo pack update` re-resolves every
+commit, and leaves a pinned fork alone when its branch moves. For every pin, new or standing, it
+checks the commit out into the pack store, fetching the repository first when this machine has
+never fetched it, so a fork lock that arrived with the config builds the same commit here as on the
+machine that pinned it. `yolo pack update` re-resolves every
 fork. `yolo pack status` lists each pin and fails on a pin made for a source the fork no longer
 declares. A launch only reads the lock: each launch that carries a fork prints the commit it is
 pinned to (`fork <pack>: <bin> (in place of pack <base>'s) is built from <source> at commit <sha>`),

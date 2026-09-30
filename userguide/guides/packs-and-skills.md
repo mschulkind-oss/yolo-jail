@@ -112,7 +112,9 @@ new build replaces the old one whole instead of merging into it. The build must 
 ends, so yolo refuses that build and says why.
 
 - `yolo pack install` pins the fork to the commit its `ref` names today, and `yolo pack update` moves
-  the pin. `yolo pack status` shows the pin and whether it is built.
+  the pin. `yolo pack status` shows the pin and whether it is built. The pin is kept in
+  `~/.config/yolo-jail/forks.lock.json`: on another machine with the same config and that file,
+  `yolo pack install` fetches the same commit, so both machines run the same build.
 - The next launch builds that commit once, on this machine, in a jail of its own that gets none of
   your credentials, host files or services. Every later launch, in any workspace, reuses the build.
   Each launch prints the commit your fork is built at.
