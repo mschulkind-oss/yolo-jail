@@ -16,13 +16,11 @@ package run
 
 import (
 	"path/filepath"
-	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // configCtxMount is one config `mounts` element this launch delivers.
@@ -155,7 +153,7 @@ func (o *Options) packCtxMounts(rt string, packs []*packload.Pack, note func(str
 		granted, _ := p.HonoredMounts()
 		for _, mt := range granted {
 			src := filepath.Join(homeDir(), filepath.FromSlash(mt.From))
-			dest := paths.ContainerContextDir + "/" + strings.TrimPrefix(mt.To, "/")
+			dest := packload.MountCtxPath(mt)
 			dir, file := isDir(src), isFile(src)
 			switch {
 			case !dir && !file:

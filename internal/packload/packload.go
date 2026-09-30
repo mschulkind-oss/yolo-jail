@@ -511,6 +511,15 @@ func CtxPath(pack string, hf packdecl.HostFile) string {
 // CtxRoot is where host-file mounts land in the jail.
 const CtxRoot = "/ctx"
 
+// MountCtxPath is the in-jail path a pack `mount` grant (an entry of HonoredMounts) lands at:
+// /ctx/<into>. THE one spelling, for the three readers that must agree on it — the argv
+// and briefing decider (run.packCtxMounts), the macos-user refusal naming the grant, and the
+// `mounts` duplicate-destination check (config.validateMountDestinations) — so a grant is
+// never bound at one path, briefed at another and collision-checked at a third.
+func MountCtxPath(mt packdecl.HostFile) string {
+	return CtxRoot + "/" + strings.TrimPrefix(mt.To, "/")
+}
+
 // HostFileConflicts reports grants that would collide at the same /ctx destination.
 //
 // Two grants landing on one path would mean one silently shadows the other, and the

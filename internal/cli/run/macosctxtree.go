@@ -292,7 +292,7 @@ func (o *Options) refuseMacosUserCtxMounts(cfg *jsonx.OrderedMap, packs []*packl
 				continue
 			}
 			undeliverable = append(undeliverable, "pack "+p.Name+"'s `mount`: ~/"+mt.From+
-				" → "+packload.CtxRoot+"/"+strings.TrimPrefix(mt.To, "/"))
+				" → "+packload.MountCtxPath(mt))
 		}
 	}
 	if len(undeliverable) == 0 {

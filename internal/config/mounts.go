@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -485,7 +486,7 @@ func validateMountDestinations(config *jsonx.OrderedMap, errs *[]string) {
 				continue // skipped at launch: the pack's content is not on this machine
 			}
 			claims = append(claims, claim{
-				path.Clean(paths.ContainerContextDir + "/" + strings.TrimPrefix(mt.To, "/")),
+				path.Clean(packload.MountCtxPath(mt)),
 				"pack " + p.Name + "'s mount of ~/" + mt.From})
 		}
 	}
