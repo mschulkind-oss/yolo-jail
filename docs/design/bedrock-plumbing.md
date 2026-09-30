@@ -25,7 +25,8 @@ agent can read it.
   [BR-D1](#BR-D1), [BR-D4](#BR-D4) and [BR-D5](#BR-D5) and its config-ref entry), at every notch,
   keyed on the provider's platform and asked of each agent; since [BR-DIR1](#BR-DIR1) (built
   2026-09-29, [BR-D20](#BR-D20) to [BR-D26](#BR-D26)) an agent with no region is first given its
-  credential profile's region from the host's `~/.aws/config`. Build step 2's marker
+  credential profile's region from the host's `~/.aws/config`, corrected the same day by a review
+  in those rows and in [BR-D2](#BR-D2). Build step 2's marker
   ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), `packdecl.PlatformProblem` and
   `ctx.selected_platform`): the `bedrock` provider declares `"platform": "aws-bedrock"`. Step 6's
   D5 half ([OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8)): claude's switch and aws-auth's
