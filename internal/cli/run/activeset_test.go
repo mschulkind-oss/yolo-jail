@@ -162,7 +162,7 @@ func TestATypedPairReplacesAConfigListWhole(t *testing.T) {
 	use := jsonx.NewOrderedMap()
 	use.Set("pi", []any{"zai", "openrouter"})
 	cfg := bareConfig()
-	cfg.Set("use_profiles", use)
+	cfg.Set("profile", use)
 	if got := wireOf(o.effectiveUseProfiles(cfg, setPacks(t))); got != `{"pi":["zai","openrouter"]}` {
 		t.Errorf("the config list = %s, want it carried in order", got)
 	}
@@ -263,16 +263,17 @@ func TestTwoEntriesOnOneRegionalPlatformRefuse(t *testing.T) {
 	}
 }
 
-// An EMPTY PAIR (`-p pi=`, alone or beside `claude=zai`) crosses as the empty string it always
-// did, the selection of nothing, never as an empty list: the jail reads a string "" as no
-// selection, and a `[]` would be a list value no older jail was ever handed.
+// An EMPTY PAIR (`-p pi=`, alone or beside `claude=zai`) crosses as null, the selection of
+// nothing the profile key's null is too (config.FoldProfiles, PP-D11), never as an empty list:
+// the jail reads null as no selection, and a `[]` would be a list value no older jail was ever
+// handed.
 func TestAnEmptyPairCrossesAsTheEmptySelection(t *testing.T) {
 	home := packHome(t)
 	o := goldenOptions(t.TempDir(), home)
 	o.UseProfiles = map[string]string{"pi": "", "claude": "zai"}
 	effective := o.effectiveUseProfiles(bareConfig(), setPacks(t))
-	if v, _ := effective.Get("pi"); v != "" {
-		t.Errorf(`-p pi= crosses as %#v, want the string ""`, v)
+	if v, named := effective.Get("pi"); !named || v != nil {
+		t.Errorf(`-p pi= crosses as %#v (named %v), want null`, v, named)
 	}
 	if v, _ := effective.Get("claude"); v != "zai" {
 		t.Errorf("-p claude=zai beside it crosses as %#v, want \"zai\"", v)
@@ -311,5 +312,62 @@ func TestAnAttachDeliveringAListNeedsTheProfileSetsTag(t *testing.T) {
 		if n.tag == contractProfileSets {
 			t.Error("a set of one crosses as a string and must need no profile-sets tag")
 		}
+	}
+}
+
+// OQ-AP3 ON THE PROFILE KEY (PP-D10's list form): the key's bare list — its list form, or a list
+// under "*" — is a bare -p's list: whole for pi, the first entry for claude, and one launch line
+// naming claude and the key's own per-agent spelling. Through composePackChannel, whose bareNote
+// noteUseProfiles prints; a bare -p beats it, and then nothing is narrowed from the key.
+func TestTheProfileKeysBareListGoesWholeToPiAndFirstToClaude(t *testing.T) {
+	for name, key := range map[string]any{
+		"the list form": []any{"zai", "openrouter"},
+		`"*"`:           func() any { m := jsonx.NewOrderedMap(); m.Set("*", []any{"zai", "openrouter"}); return m }(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := packHome(t)
+			o := goldenOptions(t.TempDir(), home)
+			var stderr bytes.Buffer
+			o.Stderr = &stderr
+			cfg := bareConfig()
+			cfg.Set("profile", key)
+			packs := setPacks(t)
+			channel, err := o.composePackChannel(cfg, packs, zaiAndRouterKeys())
+			if err != nil {
+				t.Fatalf("the key's bare list must compose: %v", err)
+			}
+			if got := wireOf(channel.profiles); !strings.Contains(got, `"pi":["zai","openrouter"]`) ||
+				!strings.Contains(got, `"claude":"zai"`) {
+				t.Fatalf("effective table = %s, want pi's whole list and claude's first entry", got)
+			}
+			o.noteUseProfiles(channel, packs)
+			for _, want := range []string{"Profile list zai, openrouter (the profile key's list, naming no agent)",
+				"claude takes one profile", "ignores openrouter", "pi takes the whole list",
+				`"profile": {"<agent>": ["zai", "openrouter"]}`} {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("the launch lines must say %q:\n%s", want, stderr.String())
+				}
+			}
+			o.ProfileName = "zai"
+			channel, err = o.composePackChannel(cfg, packs, zaiAndRouterKeys())
+			if err != nil || channel.bareNote != "" {
+				t.Errorf("a bare -p replaces the key's list everywhere, so nothing is narrowed: %v %q",
+					err, channel.bareNote)
+			}
+		})
+	}
+}
+
+// AP-D3 for the key's bare list: the entries claude ignores must be declared, as a bare -p's are,
+// even with no set-capable agent selected (checkProfileDeclarations reads the fold's list).
+func TestAnUndeclaredEntryOfTheProfileKeysBareListRefuses(t *testing.T) {
+	home := packHome(t)
+	o := goldenOptions(t.TempDir(), home)
+	cfg := bareConfig()
+	cfg.Set("profile", []any{"zai", "typo"})
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "zai")}
+	_, err := o.composePackChannel(cfg, packs, zaiAndRouterKeys())
+	if err == nil || !strings.Contains(err.Error(), `profile "typo" (entry 2 of the profile key's list zai,typo)`) {
+		t.Fatalf("composePackChannel = %v, want the key's undeclared entry refused", err)
 	}
 }

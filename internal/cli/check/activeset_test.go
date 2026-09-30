@@ -49,7 +49,7 @@ func setSelection(agent string, set ...string) *jsonx.OrderedMap {
 	inner := jsonx.NewOrderedMap()
 	inner.Set(agent, list)
 	merged := jsonx.NewOrderedMap()
-	merged.Set("use_profiles", inner)
+	merged.Set("profile", inner)
 	return merged
 }
 

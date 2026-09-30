@@ -533,7 +533,7 @@ func TestSectionPacksPredictsTheOverrideOfAPlatformGateALaterEntryFires(t *testi
 	selection := jsonx.NewOrderedMap()
 	selection.Set("someagent", []any{"plain", "anyname"})
 	merged := jsonx.NewOrderedMap()
-	merged.Set("use_profiles", selection)
+	merged.Set("profile", selection)
 	var buf bytes.Buffer
 	r := &reporter{w: &buf}
 	(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r,

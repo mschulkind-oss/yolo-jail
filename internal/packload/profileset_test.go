@@ -100,24 +100,18 @@ func TestProfileSetProblemsRefuseWhatASetCannotMean(t *testing.T) {
 	}
 	// The single-provider refusal names the one-entry spellings that work.
 	msg := ProfileSetProblems(packs, nil, map[string][]string{"claude": {"zai", "openrouter"}}, resolved)[0]
-	for _, want := range []string{"`-p claude=zai`", `"use_profiles": {"claude": "zai"}`, "drop openrouter"} {
+	for _, want := range []string{"`-p claude=zai`", `"profile": {"claude": "zai"}`, "drop openrouter"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal must name %q:\n%s", want, msg)
 		}
 	}
 }
 
-// A bare list goes whole to a set-capable agent and its first entry to every other (OQ-AP3), and
-// the one launch line names exactly the agents narrowed and what they ignore.
+// A bare list goes whole to a set-capable agent and its first entry to every other (OQ-AP3,
+// config.FoldProfiles), and the one launch line names exactly the agents narrowed and what they
+// ignore, with the per-agent spelling of the list where it was written.
 func TestABareListNarrowsForSingleProviderAgentsAndSaysSo(t *testing.T) {
-	packs := []*Pack{setPack(t, "pi", true), setPack(t, "claude", false), setPack(t, "codex", false)}
 	list := []string{"zai", "openrouter"}
-	if got := NarrowBareList(packs, "pi", list); strings.Join(got, ",") != "zai,openrouter" {
-		t.Errorf("pi must take the whole bare list, got %v", got)
-	}
-	if got := NarrowBareList(packs, "claude", list); strings.Join(got, ",") != "zai" {
-		t.Errorf("claude must take the bare list's first entry, got %v", got)
-	}
 	note := BareListNote(list, []string{"pi"}, []string{"codex", "claude"}, false)
 	for _, want := range []string{"claude and codex take one profile (their packs do not declare provider_sets)", "on zai alone",
 		"ignore openrouter", "pi takes the whole list"} {
@@ -127,6 +121,18 @@ func TestABareListNarrowsForSingleProviderAgentsAndSaysSo(t *testing.T) {
 	}
 	if note := BareListNote(list, []string{"pi"}, nil, false); note != "" {
 		t.Errorf("no agent narrowed must say nothing, got %q", note)
+	}
+	for keyed, want := range map[bool]string{
+		false: "(a bare -p, naming no agent)",
+		true:  `(the profile key's list, naming no agent)`,
+	} {
+		if note := BareListNote(list, nil, []string{"claude"}, keyed); !strings.Contains(note, want) {
+			t.Errorf("keyed=%v: the line must name its source %q:\n%s", keyed, want, note)
+		}
+	}
+	if note := BareListNote(list, nil, []string{"claude"}, true); !strings.Contains(note,
+		`"profile": {"<agent>": ["zai", "openrouter"]}`) {
+		t.Errorf("the key's line must spell the per-agent list in the key:\n%s", note)
 	}
 }
 

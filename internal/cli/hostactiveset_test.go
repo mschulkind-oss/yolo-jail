@@ -37,12 +37,12 @@ func TestHostRunsPiOnItsWholeSet(t *testing.T) {
 			t.Errorf("the launch must say %q:\n%s", want, errs)
 		}
 	}
-	// The same set from use_profiles, a config list.
+	// The same set from the profile key, a config list.
 	env, _ = hostGateLaunchWith(t, `{"packs": ["claude", "pi", "zai", "openrouter"], `+
-		`"use_profiles": {"pi": ["zai", "openrouter"]}, "env_sources": [`+
+		`"profile": {"pi": ["zai", "openrouter"]}, "env_sources": [`+
 		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`, nil, nil, "pi")
 	if env["ZAI_API_KEY"] != "tok-zai" || env["OPENROUTER_API_KEY"] != "tok-router" {
-		t.Errorf("use_profiles' list must deliver both keys too: ZAI=%q OPENROUTER=%q",
+		t.Errorf("the profile key's list must deliver both keys too: ZAI=%q OPENROUTER=%q",
 			env["ZAI_API_KEY"], env["OPENROUTER_API_KEY"])
 	}
 }
@@ -215,12 +215,12 @@ func TestHostRefusesAnOverrideOfAPointerALaterEntryGates(t *testing.T) {
 	}
 }
 
-// `yolo host apply` renders the use_profiles set into pi's own files (§4.9), through the real
+// `yolo host apply` renders the profile key's set into pi's own files (§4.9), through the real
 // command: the start pair is the primary's and the scoped list spans both providers, and the
 // report names the selection as the set.
 func TestHostApplyRendersPisSet(t *testing.T) {
 	home := hostComputedHome(t, `{"packs":["pi","zai","openrouter"],
-		"use_profiles":{"pi":["zai","openrouter"]}}`)
+		"profile":{"pi":["zai","openrouter"]}}`)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
@@ -243,7 +243,7 @@ func TestHostApplyRendersPisSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(c.summary(), "profile selection (use_profiles): pi → zai,openrouter") {
+	if !strings.Contains(c.summary(), "profile selection (the profile key): pi → zai,openrouter") {
 		t.Errorf("the detail line must name pi's whole set: %s", c.summary())
 	}
 }
@@ -255,13 +255,13 @@ func TestHostApplyRendersPisSet(t *testing.T) {
 func TestHostApplyLeavesOutASetItCannotRender(t *testing.T) {
 	home := hostComputedHome(t, `{"packs":["pi","zai"],
 		"profiles":{"zai-fast":{"provider":"zai"}},
-		"use_profiles":{"pi":["zai","zai-fast"]}}`)
+		"profile":{"pi":["zai","zai-fast"]}}`)
 	var out, errw bytes.Buffer
 	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
 		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
 	}
 	report := out.String() + errw.String()
-	for _, want := range []string{"use_profiles pi → zai, zai-fast is not applied at the host",
+	for _, want := range []string{"profile pi → zai, zai-fast is not applied at the host",
 		`both resolve to provider "zai"`} {
 		if !strings.Contains(report, want) {
 			t.Errorf("the apply must say %q:\n%s", want, report)
@@ -285,5 +285,49 @@ func TestHostRefusesASetMissingAnEntrysKey(t *testing.T) {
 	}
 	if !strings.Contains(errs, "profile openrouter is entry 2 of pi's profiles (zai, openrouter)") {
 		t.Errorf("the refusal must name openrouter's position in pi's set:\n%s", errs)
+	}
+}
+
+// OQ-AP3 ON THE PROFILE KEY at the host (PP-D10's list form): the key's bare list — its list
+// form, or a list under "*" — reaches claude as its first entry alone and says so with the
+// key's own spelling of a per-agent list, while pi takes it whole. Through hostGateLaunchWith, so
+// cutting the note from profileLines or the fold's narrowing from composeHostVarsWith fails it.
+func TestHostNarrowsTheProfileKeysBareListForClaudeAndSaysSo(t *testing.T) {
+	for _, key := range []string{`["zai", "openrouter"]`, `{"*": ["zai", "openrouter"]}`} {
+		cfg := `{"packs": ["claude", "pi", "zai", "openrouter"], "profile": ` + key + `, ` +
+			`"env_sources": [{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`
+		env, errs := hostGateLaunchWith(t, cfg, nil, nil, "claude")
+		if env["ZAI_API_KEY"] != "tok-zai" || env["OPENROUTER_API_KEY"] != "" {
+			t.Errorf("%s: claude must run on zai alone: ZAI=%q OPENROUTER=%q", key,
+				env["ZAI_API_KEY"], env["OPENROUTER_API_KEY"])
+		}
+		for _, want := range []string{"(the profile key's list, naming no agent)", "on zai alone",
+			"ignores openrouter", `"profile": {"<agent>": ["zai", "openrouter"]}`} {
+			if !strings.Contains(errs, want) {
+				t.Errorf("%s: the launch must say %q:\n%s", key, want, errs)
+			}
+		}
+		env, errs = hostGateLaunchWith(t, cfg, nil, nil, "pi")
+		if env["ZAI_API_KEY"] != "tok-zai" || env["OPENROUTER_API_KEY"] != "tok-router" {
+			t.Errorf("%s: pi takes the key's list whole: ZAI=%q OPENROUTER=%q", key,
+				env["ZAI_API_KEY"], env["OPENROUTER_API_KEY"])
+		}
+		if strings.Contains(errs, "naming no agent") {
+			t.Errorf("%s: pi narrowed nothing, so nothing is said:\n%s", key, errs)
+		}
+	}
+}
+
+// AP-D3 for the key's bare list at the host: the entries claude ignores must be declared, as
+// they are for a bare -p.
+func TestHostRefusesAnUndeclaredEntryOfTheProfileKeysBareList(t *testing.T) {
+	const cfg = `{"packs": ["claude", "zai"], "profile": ["zai", "typo"], ` +
+		`"env_sources": [{"ZAI_API_KEY": "tok-zai"}]}`
+	rc, env, errs := hostGateRun(t, cfg, nil, nil, "claude")
+	if rc == 0 || env != nil {
+		t.Fatalf("the key's list with an undeclared entry must refuse before the exec (rc=%d)\n%s", rc, errs)
+	}
+	if !strings.Contains(errs, `profile "typo" (entry 2 of the profile key's list zai,typo)`) {
+		t.Errorf("yolo host must name the ignored entry nothing declares:\n%s", errs)
 	}
 }
