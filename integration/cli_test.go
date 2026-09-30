@@ -129,6 +129,11 @@ func TestYoloInit(t *testing.T) {
 // among the causes. A [FAIL] naming ANOTHER container is therefore logged and set aside; every
 // other [FAIL], and any non-zero exit a foreign row does not account for, still fails the test
 // exactly as before (foreignJailFails states the split).
+//
+// Since 2026-09-29 the section itself no longer fails another workspace's jail for a file it
+// did not publish: that is a [SKIP] now (TestGitHubBrokerRecordsTheScopeBesideAnotherWorkspacesJail).
+// What can still fail about another jail is a file it DID publish, or its whole host-services
+// directory going while the runtime still lists it — a jail of another run being torn down.
 func TestYoloCheckValidConfig(t *testing.T) {
 	requireJail(t)
 	dir := tempProject(t)
@@ -147,9 +152,18 @@ func TestYoloCheckValidConfig(t *testing.T) {
 	}
 }
 
-// foreignJailFailRe matches a per-jail [FAIL] row of the liveness section and captures the
-// container it is about: `  [FAIL] loophole <name> @ <container>: <what>`.
-var foreignJailFailRe = regexp.MustCompile(`^\s*\[FAIL\] loophole \S+ @ (\S+?):`)
+// foreignJailFailRes match the liveness section's two per-jail [FAIL] rows and capture the
+// container each is about: a loophole's row, `  [FAIL] loophole <name> @ <container>: <what>`,
+// and the one row a jail gets when its whole host-services directory is gone,
+// `  [FAIL] <container>: host-services directory missing (<names>)`.
+//
+// The second is a foreign row for the same reason as the first: `yolo check` in this workspace
+// still grades that directory on every running jail, and another run's jail being torn down
+// removes it while the runtime still lists the container.
+var foreignJailFailRes = []*regexp.Regexp{
+	regexp.MustCompile(`^\s*\[FAIL\] loophole \S+ @ (\S+?):`),
+	regexp.MustCompile(`^\s*\[FAIL\] (yolo-\S+?): host-services directory missing\b`),
+}
 
 // foreignJailFails splits a `yolo check` report's [FAIL] rows into the ones about ownJail or
 // about no jail at all (own), and the ones naming some OTHER container (foreign).
@@ -158,13 +172,23 @@ func foreignJailFails(report, ownJail string) (own, foreign []string) {
 		if !strings.Contains(line, "[FAIL]") {
 			continue
 		}
-		if m := foreignJailFailRe.FindStringSubmatch(line); m != nil && m[1] != ownJail {
+		if jail := failRowJail(line); jail != "" && jail != ownJail {
 			foreign = append(foreign, strings.TrimSpace(line))
 			continue
 		}
 		own = append(own, strings.TrimSpace(line))
 	}
 	return own, foreign
+}
+
+// failRowJail is the container a per-jail [FAIL] row names, or "" for any other row.
+func failRowJail(line string) string {
+	for _, re := range foreignJailFailRes {
+		if m := re.FindStringSubmatch(line); m != nil {
+			return m[1]
+		}
+	}
+	return ""
 }
 
 // TestYoloCheckInvalidConfigFails confirms `yolo check --no-build` fails fast on a
@@ -239,15 +263,19 @@ func TestForeignJailFailsSplitsByContainer(t *testing.T) {
 		"  [PASS] Merged config is semantically valid",
 		"  [FAIL] loophole claude-oauth-broker @ yolo-002-aaaa: broker endpoint missing",
 		"  [FAIL] loophole openai-auth-broker @ yolo-002-mine: no endpoint published",
+		"  [FAIL] yolo-002-cccc: host-services directory missing (github-broker, openai-auth-broker)",
+		"  [FAIL] yolo-002-mine: host-services directory missing (github-broker)",
 		"  [FAIL] loophole claude-oauth-broker: daemon unreachable (pid=7, socket missing, not accepting)",
 		"  [FAIL] config.network.mode: bad value",
 		"  [WARN] loophole x @ yolo-002-bbbb: something",
+		"  [SKIP] loophole github-broker @ yolo-002-dddd: not graded from this workspace (another workspace's jail)",
 	}, "\n")
 	own, foreign := foreignJailFails(report, "yolo-002-mine")
-	if len(foreign) != 1 || !strings.Contains(foreign[0], "yolo-002-aaaa") {
-		t.Errorf("foreign = %q, want only the other container's row", foreign)
+	if len(foreign) != 2 || !strings.Contains(foreign[0], "yolo-002-aaaa") ||
+		!strings.Contains(foreign[1], "yolo-002-cccc") {
+		t.Errorf("foreign = %q, want only the other containers' rows, the directory row included", foreign)
 	}
-	if len(own) != 3 {
-		t.Errorf("own = %q, want this jail's row and both machine-level rows", own)
+	if len(own) != 4 {
+		t.Errorf("own = %q, want this jail's two rows and both machine-level rows", own)
 	}
 }
