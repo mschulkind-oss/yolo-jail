@@ -18,8 +18,8 @@ package packload
 // WHICH FILE, WHICH SECTION, WHICH KEY are the PACK's facts (packdecl.RegionFile; BR-D21):
 // packs/bedrock declares ~/.aws/config, relocated by AWS_CONFIG_FILE, the `region` key of
 // `[profile NAME]` (for the default profile `[profile default]`, else `[default]`), the profile
-// chosen by AWS_PROFILE. Core names no AWS file,
-// section or variable here, the OQ-SSO8 rule envoverride.go states.
+// chosen by AWS_PROFILE. Core names no AWS file, section or variable here, the OQ-SSO8 rule
+// envoverride.go states.
 //
 // WHICH PROFILE (BR-D21), in the order the credential's own source decides it:
 //  1. a serving loophole's setting, when an `env` contribution declaring
@@ -192,16 +192,12 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 		}
 		return "", false
 	}
-	// A REGION ALREADY THERE: any of the platform's region variables reaching the agent, read or
-	// not. One it reads is its region. One it does not read (AWS_DEFAULT_REGION for opencode,
-	// BR-D18) is still a region the user chose for this launch, so the file's, which may differ,
-	// is not put in its place; the pre-flight refuses, naming the variable that reached it unread.
-	for _, v := range req.vars {
-		if _, ok := reaches(v); ok {
-			return nil
-		}
-	}
-	for _, v := range vars {
+	// A REGION ALREADY THERE: any region variable reaching the agent, the platform's or its own,
+	// read or not. One it reads is its region. One it does not read (AWS_DEFAULT_REGION for
+	// opencode, BR-D18) is still a region the user chose for this launch, so the file's, which may
+	// differ, is not put in its place; the pre-flight refuses, naming the variable unread.
+	regionVars := append(slices.Clone(req.vars), vars...)
+	for _, v := range regionVars {
 		if _, ok := reaches(v); ok {
 			return nil
 		}
@@ -211,7 +207,7 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 	// A REGION LEFT WHERE YOLO WAS LAUNCHED, which this launch does not deliver (a jail's shell,
 	// BR-D2): the region the user chose, which the file's may not be, so the file is not read.
 	if src.Stranded != nil {
-		for _, v := range append(slices.Clone(req.vars), vars...) {
+		for _, v := range regionVars {
 			if src.Stranded(v) {
 				l.stranded = v
 				l.Problem = v + ", set in the environment yolo was launched from, names the " +
