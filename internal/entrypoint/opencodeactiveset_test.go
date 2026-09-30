@@ -80,6 +80,30 @@ func TestOpencodesFirstEntryDecidesItsStartModel(t *testing.T) {
 	}
 }
 
+// A PRIMARY THAT RESOLVES NO MODEL WRITES NO SELECTION (AP-D15): enabled_providers rides the
+// selection, so a set whose first entry declares no models (openrouter and kilo ship none) writes
+// neither `model` nor the filter, as that one profile alone does, rather than narrowing the
+// providers under a start model yolo did not choose. Both rows are still written.
+func TestAnOpencodeSetWhosePrimaryHasNoModelWritesNoSelection(t *testing.T) {
+	const noModels = `{
+  "open":{"api_key_env_name":"OPEN_API_KEY","endpoints":{"openai":{"base_url":"https://open.example/v1"}}},
+  "zai":{"api_key_env_name":"ZAI_API_KEY","models":{"default":"glm-5.3","glm-5.3":"glm-5.3"},
+    "endpoints":{"openai":{"base_url":"https://api.z.ai/api/coding/paas/v4"}}}}`
+	r := newPioencodeRender(t, noModels)
+	r.wireProfiles(`{"open":{"provider":"open"},"zai":{"provider":"zai"}}`)
+	r.render(t, `{"opencode":["open","zai"]}`)
+	cfg := r.ocConfig(t)
+	for _, key := range []string{"model", "small_model", "enabled_providers"} {
+		if v, ok := cfg[key]; ok {
+			t.Errorf("opencode.json %s = %v, want none: the primary resolves no model", key, v)
+		}
+	}
+	rows := ocRows(t, cfg)
+	if rows["open"] == nil || rows["zai"] == nil {
+		t.Errorf("both entries' rows must still be written: %v", rows)
+	}
+}
+
 // A set of one renders byte for byte what the single profile renders (AP-P1): the list spelling
 // and the string spelling are one selection for opencode, as they are for pi.
 func TestAnOpencodeSetOfOneRendersExactlyTheSingleProfile(t *testing.T) {
