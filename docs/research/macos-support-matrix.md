@@ -322,7 +322,15 @@ is the single collected list, with the open questions attached.
      until GitHub retires the image (planned around late 2027). Cost: the flake keeps an
      unpatched nixpkgs for `x86_64-darwin`, which is also what a real Intel Mac user gets.
 
-   No leaning is recorded here; this is a CI commitment with a date.
+   <!-- vantage: oq id=OQ-MX1 leaning="(A): move the podman macOS suite onto the self-hosted Mac that already runs the Apple Container job. Podman stays a supported Mac runtime on Apple Silicon for features Apple Container lacks, and uptime-shaped coverage is the trade already accepted there. (B) is the fallback if a full run on one machine is too slow." -->
+
+   _Leaning:_ **(A).** The runner exists and already carries one Mac backend. Podman stays a
+   supported Mac runtime on Apple Silicon too, for the shared Claude login and published ports
+   Apple Container lacks ([`macos.md`](../../userguide/guides/macos.md#choosing-a-runtime)), so
+   its hardware coverage is worth keeping, and coverage shaped like the Mac's uptime is the trade
+   already accepted for Apple Container. (B) is the cheap fallback if a full run on one machine
+   proves too slow. (C) keeps covering Intel Macs, where the guide sends Intel users, but only
+   postpones the choice to late 2027.
 
 ## 6. Cross-refs
 - **[runbooks/mac-ac-container-builder.md](../plans/runbooks/mac-ac-container-builder.md)** — Mac test (zero-sudo) for the gating AC-builder cell.
