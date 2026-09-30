@@ -354,3 +354,24 @@ func TestClaudeKeepsItsOwnMenuForAListThatOnlyAdds(t *testing.T) {
 		}
 	}
 }
+
+// THE SWITCH GOVERNS openai-codex's REFUSAL TOO (MM-D5: "one switch decides every refusal"):
+// with enforce_models off the declared list only shapes the picker, and, no allowlist keeping
+// the session valid, the start pin stays (OQ-MM3 is what would replace it).
+func TestClaudeOnTheCodexListWithEnforcementOff(t *testing.T) {
+	off := false
+	got := renderClaudeModels(t, testPacksForAgent(t, "claude"), nil, map[string]packload.UserProfile{
+		"codex-open": {Provider: "openai-codex", EnforceModels: &off},
+	}, "codex-open")
+	for _, k := range []string{"availableModels", "enforceAvailableModels"} {
+		if v, present := got.settings[k]; present {
+			t.Errorf("settings %s = %v, want no refusal with enforce_models off", k, v)
+		}
+	}
+	if ids := pickerIDs(t, got.settings); len(ids) == 0 {
+		t.Error("the picker went with the refusal; the list must still shape the menu")
+	}
+	if got.env["ANTHROPIC_MODEL"] != "gpt-6.1-sol" {
+		t.Errorf("ANTHROPIC_MODEL = %q, want the start pinned while nothing refuses", got.env["ANTHROPIC_MODEL"])
+	}
+}
