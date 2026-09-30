@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -72,6 +73,21 @@ func mustProviders(t *testing.T, raw string) *jsonx.OrderedMap {
 	m, ok := v.(*jsonx.OrderedMap)
 	if !ok {
 		t.Fatalf("providers fixture is not an object: %T", v)
+	}
+	return m
+}
+
+// selecting is a use-profiles table as it crosses, decoded: agent → profile name, in sorted
+// agent order. WillServe takes the table in this shape and lowers it itself.
+func selecting(pairs map[string]string) *jsonx.OrderedMap {
+	agents := make([]string, 0, len(pairs))
+	for agent := range pairs {
+		agents = append(agents, agent)
+	}
+	sort.Strings(agents)
+	m := jsonx.NewOrderedMap()
+	for _, agent := range agents {
+		m.Set(agent, pairs[agent])
 	}
 	return m
 }
@@ -452,7 +468,7 @@ func TestWillServeTruthTable(t *testing.T) {
 	}
 	for _, tc := range serving {
 		t.Run("serves: "+tc.name, func(t *testing.T) {
-			if !WillServe(tc.providers, tc.useProfiles, resolved) {
+			if !WillServe(tc.providers, selecting(tc.useProfiles), resolved) {
 				t.Errorf("WillServe = false, want true for %s", tc.name)
 			}
 		})
@@ -475,7 +491,7 @@ func TestWillServeTruthTable(t *testing.T) {
 	}
 	for _, tc := range idle {
 		t.Run("idles: "+tc.name, func(t *testing.T) {
-			if WillServe(tc.providers, tc.useProfiles, resolved) {
+			if WillServe(tc.providers, selecting(tc.useProfiles), resolved) {
 				t.Errorf("WillServe = true, want false for %s", tc.name)
 			}
 		})
@@ -503,8 +519,7 @@ func TestWillServeAndTheBootResolutionAreOneDecision(t *testing.T) {
 		env := routeEnv(tc.providers, tc.profiles, tc.useProfiles)
 		_, idle := resolveRoute(env)
 		want := idle == ""
-		if got := WillServe(mustProviders(t, tc.providers), useProfilesTable(env.LoadUseProfiles()),
-			env.LoadProfiles()); got != want {
+		if got := WillServe(mustProviders(t, tc.providers), env.LoadUseProfiles(), env.LoadProfiles()); got != want {
 			t.Errorf("case %d: WillServe = %v, boot resolution says serve=%v (idle %q) — "+
 				"the decision has split in two", i, got, want, idle)
 		}
@@ -521,6 +536,26 @@ func TestAnActiveSetsListRoutesItsPrimary(t *testing.T) {
 	}
 	if _, idle := resolveRoute(env); idle != "" {
 		t.Errorf("a list whose primary is bridged must serve, idled: %s", idle)
+	}
+}
+
+// WillServe reads an active set's list as the boot does, as its primary, because it lowers the
+// decoded table itself rather than take one a caller lowered: a set whose primary is bridged
+// serves, and one whose later entry alone is bridged does not, the route being the primary's.
+func TestWillServeReadsAnActiveSetsPrimary(t *testing.T) {
+	providers := mustProviders(t, bridgedProviders)
+	resolved := map[string]packload.ResolvedProfile{
+		"cerebras-fast": {Provider: "cerebras"}, "other": {Provider: "other"},
+	}
+	primary := jsonx.NewOrderedMap()
+	primary.Set("pi", []any{"cerebras-fast", "other"})
+	if !WillServe(providers, primary, resolved) {
+		t.Error("WillServe = false for a set whose primary routes at the bridge")
+	}
+	later := jsonx.NewOrderedMap()
+	later.Set("pi", []any{"other", "cerebras-fast"})
+	if WillServe(providers, later, resolved) {
+		t.Error("WillServe = true for a set whose only bridged entry is not its primary")
 	}
 }
 

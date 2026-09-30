@@ -179,14 +179,14 @@ func TestADeclaredRegionComposesTheUpstreamAtBoot(t *testing.T) {
 // for it: WillServe answers false, and the launch registers no witness for an idle bridge.
 func TestTheAdapterAddressServesOnlyAViaProfile(t *testing.T) {
 	providers, resolved := shippedBridgeTables(t, "")
-	if WillServe(providers, map[string]string{"claude": "bedrock"}, resolved) {
+	if WillServe(providers, selecting(map[string]string{"claude": "bedrock"}), resolved) {
 		t.Error("the bridge would serve claude on -p bedrock, which uses claude's own Bedrock client")
 	}
 	if _, why := routeFor(providers, map[string]string{"claude": "bedrock"}, resolved); !strings.Contains(why,
 		"claude uses its own client") {
 		t.Errorf("idle reason %q, want it to say claude uses its own client", why)
 	}
-	if !WillServe(providers, map[string]string{"claude": "bedrock-bridge"}, resolved) {
+	if !WillServe(providers, selecting(map[string]string{"claude": "bedrock-bridge"}), resolved) {
 		t.Error("the bridge would not serve claude's everything profile")
 	}
 }

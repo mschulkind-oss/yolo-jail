@@ -174,7 +174,7 @@ func (p plan) idleReason() string {
 
 // resolvePlan is the boot read of the whole decision.
 func resolvePlan(e *entrypoint.Env) plan {
-	return planFor(e.LoadProviders(), useProfilesTable(e.LoadUseProfiles()), e.LoadProfiles())
+	return planFor(e.LoadProviders(), bootUseProfiles(e), e.LoadProfiles())
 }
 
 // planFor is the pure core both call sites share (WillServe, the daemon's boot).
@@ -353,7 +353,7 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 	var serving []string
 	// PART 5'S ALLOWLIST (allowlist.go, WG-I40): from the same tables the plan was read from, and
 	// the pack tree for which agents send models off the list.
-	allow := allowlistsFor(p, e.LoadProviders(), useProfilesTable(e.LoadUseProfiles()), e.LoadProfiles(), e)
+	allow := allowlistsFor(p, e.LoadProviders(), bootUseProfiles(e), e.LoadProfiles(), e)
 	if p.adapter != nil {
 		// The region first, when it is the served agent's (WG-I38), so the serve line names the
 		// upstream the route dials and not an address still to be composed.
@@ -701,26 +701,29 @@ func credentialDescription(route route, source string) string {
 // launcher wants only the yes/no, and both answers come out of routeFor so the
 // two call sites cannot decide differently (wire-bridge.md §5's WARNING).
 func resolveRoute(e *entrypoint.Env) (route, string) {
-	return routeFor(e.LoadProviders(), useProfilesTable(e.LoadUseProfiles()), e.LoadProfiles())
+	return routeFor(e.LoadProviders(), bootUseProfiles(e), e.LoadProfiles())
 }
 
-// useProfilesTable lowers YOLO_USE_PROFILES' decoded map to the plain
-// agent→profile table the decision reads. A non-string value decodes to "" —
-// the same "no profile active here" answer LoadUseProfiles' malformed-input
-// path gives, so a corrupt entry idles the bridge instead of guessing.
+// useProfilesTable lowers a decoded use-profiles table to the plain agent→profile table the
+// decision reads: YOLO_USE_PROFILES as the daemon decodes it (LoadUseProfiles), and the table the
+// launcher composed before serializing it there. It is THE one lowering, and WillServe calls it
+// rather than take a table already lowered, so neither call site can lower on its own. The
+// launcher once did: its copy read a list as no selection while this one read the list's first
+// entry, so a set whose first entry routed at the bridge started a bridge that served while the
+// launcher registered no witness and no readiness wait for it.
 //
-// AND IT SAYS SO. The dropped value used to leave the daemon idling with
-// `<agent>'s active profile  resolves to no provider` — an empty profile name in
-// the middle of a sentence, which reads like a bug in the message rather than
-// like malformed input in the channel. logOnce, not logf: resolveRoute is
-// re-evaluated every poll tick for the daemon's whole idle lifetime, and the fact
-// does not change while the channel does not.
+// Every key is kept. A value that selects nothing (a null, "", a malformed value) lowers to "",
+// the "no profile active here" answer LoadUseProfiles' malformed-input path gives, so a corrupt
+// entry idles the bridge instead of guessing.
 //
 // AN ACTIVE SET's value is a list (docs/design/active-provider-sets.md), and it reads as its
 // first entry, the PRIMARY: an agent has one via route, whose upstream is the provider its
 // primary resolves to, which is why a via entry may sit in a set only first (AP-D9,
 // packload.ProfileSetProblems). The lowering is packload.ProfileSetValue's, so the bridge and
 // every other reader agree about which entry is first.
+//
+// Pure, because the launcher runs it on the host: the daemon's report of a malformed entry is
+// bootUseProfiles'.
 func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 	out := map[string]string{}
 	if m == nil {
@@ -728,18 +731,42 @@ func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 	}
 	for _, k := range m.Keys() {
 		v, _ := m.Get(k)
-		s, isString := v.(string)
-		if set, isSet := packload.ProfileSetValue(v); isSet {
-			s, isString = set[0], true
+		name := ""
+		if set, ok := packload.ProfileSetValue(v); ok {
+			name = set[0]
 		}
-		if !isString && v != nil {
+		out[k] = name
+	}
+	return out
+}
+
+// bootUseProfiles is the daemon's read of YOLO_USE_PROFILES: useProfilesTable over the decoded
+// table, after naming each entry that lowers to "" because its value is not a selection at all.
+//
+// AND IT SAYS SO. The dropped value used to leave the daemon idling with
+// `<agent>'s active profile  resolves to no provider` — an empty profile name in
+// the middle of a sentence, which reads like a bug in the message rather than
+// like malformed input in the channel. logOnce, not logf: resolveRoute is
+// re-evaluated every poll tick for the daemon's whole idle lifetime, and the fact
+// does not change while the channel does not. A null and "" select nothing by
+// the table's own convention, so neither is reported.
+func bootUseProfiles(e *entrypoint.Env) map[string]string {
+	m := e.LoadUseProfiles()
+	if m != nil {
+		for _, k := range m.Keys() {
+			v, _ := m.Get(k)
+			if _, isString := v.(string); isString || v == nil {
+				continue
+			}
+			if _, isSet := packload.ProfileSetValue(v); isSet {
+				continue
+			}
 			logOnce("use-profiles-nonstring:"+k, "YOLO_USE_PROFILES entry %q is a %T, not a "+
 				"profile name; reading it as \"no profile active for %s\" rather than guessing — "+
 				"the bridge will idle unless another agent's selection routes here", k, v, k)
 		}
-		out[k] = s
 	}
-	return out
+	return useProfilesTable(m)
 }
 
 // WillServe is THE serve-or-idle decision (wire-bridge.md §5's WARNING): one
@@ -755,10 +782,12 @@ func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
 // through the yolo-user-env.sh channel section — YOLO_PROVIDERS, YOLO_USE_PROFILES,
 // YOLO_PROFILES, hydrated into the entrypoint's env before this daemon is spawned —
 // so a launch whose channel and whose emission were built from different tables
-// could not answer differently even in principle.
-func WillServe(providers *jsonx.OrderedMap, useProfiles map[string]string,
+// could not answer differently even in principle. The use-profiles table is taken
+// DECODED, as it crosses, and lowered here by the boot's own useProfilesTable, so
+// no caller lowers it on its own.
+func WillServe(providers, useProfiles *jsonx.OrderedMap,
 	resolved map[string]packload.ResolvedProfile) bool {
-	return planFor(providers, useProfiles, resolved).serves()
+	return planFor(providers, useProfilesTable(useProfiles), resolved).serves()
 }
 
 // routeFor is the pure core of the decision, and the only place it is made:

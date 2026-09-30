@@ -112,10 +112,10 @@ func TestViaServesCodexResponsesUnderItsPrefix(t *testing.T) {
 func TestWillServeForACodexResponsesRouteAlone(t *testing.T) {
 	providers := mustProviders(t, viaResponsesProviders)
 	resolved := viaResponsesResolved("http://127.0.0.1:8216")
-	if !WillServe(providers, map[string]string{"codex": "pr"}, resolved) {
+	if !WillServe(providers, selecting(map[string]string{"codex": "pr"}), resolved) {
 		t.Error("WillServe = false for a jail whose only route is codex's Responses route")
 	}
-	if WillServe(providers, map[string]string{"codex": "psub"}, resolved) {
+	if WillServe(providers, selecting(map[string]string{"codex": "psub"}), resolved) {
 		t.Error("WillServe = true for a via profile on the ChatGPT subscription, which no via route serves")
 	}
 }

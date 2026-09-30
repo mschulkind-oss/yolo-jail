@@ -170,8 +170,10 @@ func serviceEndpointEnvArgs(in *assembleInput, o *Options) []string {
 		return nil
 	}
 	channel := in.envChannel(o)
-	if !wirebridged.WillServe(channel.providers, useProfilesTable(channel.profiles),
-		channel.resolvedProfiles) {
+	// The use-profiles table goes in as composed, never lowered here: WillServe lowers it with
+	// the daemon's own lowering, which reads an active set's list as its first entry, so the
+	// two ends cannot read one selection differently.
+	if !wirebridged.WillServe(channel.providers, channel.profiles, channel.resolvedProfiles) {
 		return nil
 	}
 	return []string{
@@ -179,23 +181,6 @@ func serviceEndpointEnvArgs(in *assembleInput, o *Options) []string {
 			paths.JailHostServicesDir + "/" + bridge.Endpoint,
 		"-e", paths.JailDaemonReadyNamesEnv + "=" + bridge.Name,
 	}
-}
-
-// useProfilesTable lowers the composed use-profiles table to the plain
-// agent→profile map WillServe reads. A non-string value lowers to "": the same
-// "no profile active here" answer the in-jail loader gives a malformed entry,
-// so the two ends lower a corrupt table the same way.
-func useProfilesTable(m *jsonx.OrderedMap) map[string]string {
-	out := map[string]string{}
-	if m == nil {
-		return out
-	}
-	for _, k := range m.Keys() {
-		v, _ := m.Get(k)
-		s, _ := v.(string)
-		out[k] = s
-	}
-	return out
 }
 
 // withoutUnselectedProfileDaemons drops from specs every PROFILE-SERVED daemon (a jail daemon

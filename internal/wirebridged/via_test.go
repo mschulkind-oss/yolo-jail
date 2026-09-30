@@ -106,10 +106,10 @@ func TestViaRoutesForNamesWhatItSkips(t *testing.T) {
 // jail whose only route is a via route must say yes (and a jail with none, no).
 func TestWillServeForAViaRouteAlone(t *testing.T) {
 	providers := mustProviders(t, viaProviders)
-	if !WillServe(providers, map[string]string{"pi": "pz"}, viaResolved("http://127.0.0.1:8216")) {
+	if !WillServe(providers, selecting(map[string]string{"pi": "pz"}), viaResolved("http://127.0.0.1:8216")) {
 		t.Error("WillServe = false for a jail whose only route is pi's via route")
 	}
-	if WillServe(providers, map[string]string{"pi": "native"}, viaResolved("http://127.0.0.1:8216")) {
+	if WillServe(providers, selecting(map[string]string{"pi": "native"}), viaResolved("http://127.0.0.1:8216")) {
 		t.Error("WillServe = true for a jail with no via profile and no adapter route")
 	}
 }

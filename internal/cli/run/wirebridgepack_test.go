@@ -14,8 +14,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
 )
 
 // bridgedLaunch is the acceptance story's pack set: claude and cerebras
@@ -103,6 +105,66 @@ func TestBridgeStagedButUnroutedIdlesAndEmitsNothing(t *testing.T) {
 	if v := la.channelEnv(t, "ANTHROPIC_BASE_URL"); len(v) != 1 ||
 		v[0] != "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic" {
 		t.Errorf("claude riding zai must keep z.ai's own route: %q", v)
+	}
+}
+
+// TestAnActiveSetWhosePrimaryRoutesAtTheBridgeRegistersIt: an ACTIVE SET (the ordered list of
+// profiles one agent runs on, docs/design/active-provider-sets.md) crosses YOLO_USE_PROFILES as a
+// JSON list, and the daemon reads a list as its first entry, the PRIMARY (AP-D9: an agent has one
+// route, resolved from its primary). The witness registration must read the same entry. It used to
+// read a list as no selection at all, so a launch whose only bridged selection was a set's primary
+// started a bridge that served while registering neither the endpoint the witness checks nor the
+// readiness wait.
+//
+// Only a set-capable agent (one whose pack declares provider_sets: pi, opencode) carries a list.
+// claude's bare list is narrowed to its first entry before it crosses (config.FoldProfiles,
+// OQ-AP3), and a named list for claude is refused (packload.ProfileSetProblems, AP-D2), so claude
+// always crossed as a string the old reading took. Each row keeps every OTHER agent's selection
+// off the bridge, so the set's primary is the one fact that decides.
+func TestAnActiveSetWhosePrimaryRoutesAtTheBridgeRegistersIt(t *testing.T) {
+	cases := []struct {
+		name     string
+		packs    []string
+		profiles map[string]string
+	}{
+		{"pi's via primary", []string{"pi", "openai-auth", "bedrock", "zai", "wire-bridge"},
+			map[string]string{"pi": "bedrock-bridge,zai"}},
+		{"opencode's via primary", []string{"opencode", "openai-auth", "bedrock", "zai", "wire-bridge"},
+			map[string]string{"opencode": "bedrock-bridge,zai"}},
+		{"pi's bridged primary beside claude on zai",
+			[]string{"claude", "pi", "cerebras", "zai", "wire-bridge", "bedrock", "openai-auth"},
+			map[string]string{"claude": "zai", "pi": "cerebras,zai"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var packs []*packload.Pack
+			for _, name := range tc.packs {
+				packs = append(packs, officialPack(t, name))
+			}
+			cfg := bareConfig()
+			withBedrockRegion(cfg)
+			la := zaiLaunchAssembled(t, packs, cfg,
+				userEnvWith(map[string]string{"ZAI_API_KEY": "tok-9", "CEREBRAS_API_KEY": "csk-test"}),
+				func(o *Options) { o.UseProfiles = tc.profiles })
+
+			if v := la.channelEnv(t, "YOLO_USE_PROFILES"); len(v) != 1 || !strings.Contains(v[0], `",`) {
+				t.Fatalf("fixture: the channel must carry the set as a list, or this checks nothing: %q", v)
+			}
+			// The daemon's half, over exactly the tables that crossed: it serves this launch.
+			crossed := entrypoint.NewEnv(la.in.envChannel(la.o).wireTableValues())
+			if !wirebridged.WillServe(crossed.LoadProviders(), crossed.LoadUseProfiles(), crossed.LoadProfiles()) {
+				t.Fatal("fixture: the bridge, reading what crossed, idles, so the registration below has nothing to agree with")
+			}
+			if v := envArgValues(la.argv, "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 1 ||
+				v[0] != "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT=/run/yolo-services/wire-bridge.endpoint" {
+				t.Errorf("a set whose primary routes at the bridge must register its endpoint with "+
+					"the witness: %q", v)
+			}
+			if v := envArgValues(la.argv, paths.JailDaemonReadyNamesEnv); len(v) != 1 ||
+				v[0] != paths.JailDaemonReadyNamesEnv+"=wire-bridge" {
+				t.Errorf("a set whose primary routes at the bridge must wait for its readiness: %q", v)
+			}
+		})
 	}
 }
 
