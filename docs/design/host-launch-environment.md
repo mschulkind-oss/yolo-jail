@@ -696,8 +696,8 @@ depend on the environment it was launched in unless config names the dependence.
   **Cost:** whether a launch refuses depends on who started yolo, the cost HE-DIR1 accepted for
   PATH.
 - **(B) Stop reading the shell for keys at `yolo host`**, as the 2026-09-25 ruling reads. yolo's
-  check counts `env_sources` only, so the terminal refuses like the widget until the key is in a
-  file `env_sources` lists. **Cost:** every user who exports a key in a shell file moves it once.
+  check counts only what yolo composes, `env_sources` above all, so the terminal refuses like the
+  widget until the key is in a file `env_sources` lists. **Cost:** every user who exports a key in a shell file moves it once.
   `yolo host` and a jail launch then disagree about the same key, unless the jail changes too.
 - **(C) (B), with one release of notice first.** Until the switch, a launch that found the key
   only in the shell still starts, and prints one line naming `env_sources`. **Cost:** (B)'s, later,
@@ -724,9 +724,9 @@ were started with.
 > does today. Nothing here extends the 2026-09-25 ruling to a jail launch's other reads either: that
 > ruling names `yolo host`. So the jail indicator's reads of `TMUX` and kitty's variables, and the
 > herdr label built the same way
-> ([`herdr-integration.md`](../research/herdr-integration.md#43-option-2-the-launcher-tells-herdr-what-is-inside)), are governed by no ruling
-> in this doc. If a jail launch should stop reading its launcher's environment, that is a new
-> question for a jail-launch design.
+> ([`herdr-integration.md`](../research/herdr-integration.md#43-option-2-the-launcher-tells-herdr-what-is-inside)),
+> are governed by no ruling in this doc. If a jail launch should stop reading its launcher's
+> environment, that is a new question for a jail-launch design.
 
 ### <a id="oq-he8"></a>✅ [`OQ-HE8`](#oq-he8) — the macOS baseline, and whether Homebrew is in it — **RETIRED BY HE-DIR1, 2026-09-29**
 
@@ -934,7 +934,7 @@ here rather than settled in the body.
 | <a id="he-d5"></a>**HE-D5** | 2026-09-29 | *Implementation decision:* one resolver computes the launch PATH once per process; every host PATH check goes through its lookup, which skips `yoloManagedDirs()` as the exec's does | Two readers of PATH can disagree, and a check that did not skip the wrap dir would read a wrapper as the program it wraps |
 | <a id="he-d6"></a>**HE-D6** | 2026-09-29 | *Implementation decision:* an install the dependency gate runs gets `PATH` set to the launch PATH, and the re-probe reads the same value | The re-probe then asks the PATH the installer ran with, so an install that lands in a `host_path` folder is found |
 | <a id="he-d7"></a>**HE-D7** | 2026-09-29 | *Implementation decision:* `yolo check`'s host launch section reads the PATH of the shell it runs in, plus `host_path`, and says so in the section | A check run from a terminal cannot see a widget's PATH, and a green section must not read as a promise about every launcher |
-| <a id="he-d8"></a>**HE-D8** | 2026-09-29 | *Implementation decision under HE-DIR1:* no staging and no migration notice. The design ships whole | With `host_path` unset, every check reads the PATH it reads today, so nothing to warn about ever breaks. The report-first stages existed only for the withdrawn switch |
+| <a id="he-d8"></a>**HE-D8** | 2026-09-29 | *Implementation decision under HE-DIR1:* no staging and no migration notice. The design ships whole | With `host_path` unset, every check reads the PATH it reads today, so nothing breaks that a notice would have warned about. The report-first stages existed only for the withdrawn switch |
 
 ## Appendix A — evidence
 
