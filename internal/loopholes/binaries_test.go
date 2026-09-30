@@ -241,6 +241,21 @@ func TestTheDoctorDoesNotRunAnUnfetchedBuild(t *testing.T) {
 	}
 }
 
+// `yolo loopholes status` grades a loophole whose build is not fetched `inactive`: its
+// self-check did not run, and `no-check` would say it declares none. Deleting the
+// BinariesFetched case in doctorState fails this.
+func TestLoopholesStatusGradesAnUnfetchedBuildInactive(t *testing.T) {
+	_, _, md := loadTool(t, bothBuilds())
+	set := approvedSetFrom(md)
+	results := set.RunDoctorChecks(set.Enabled(), 0)
+	if len(results) != 1 {
+		t.Fatalf("results = %+v", results)
+	}
+	if got := doctorState(set, results[0]); got != "inactive" {
+		t.Errorf("doctorState = %q, want inactive", got)
+	}
+}
+
 // Inside a jail a HOST reference is the host's business: the jail's own cache not holding it
 // does not make the loophole read as off, for `requires`' reason (presence decides in a jail).
 func TestInAJailAHostBuildIsTheHostsBusiness(t *testing.T) {

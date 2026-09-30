@@ -402,8 +402,10 @@ func doctorState(set Set, r DoctorResult) string {
 		return "unapproved"
 	// `platforms` before the `requires` probe, as in Active(): RequirementsMet() folds in
 	// neither, so without this a loophole this machine cannot run fell through to its
-	// doctor_cmd's exit code and was graded `ok` or `fail` as if it were live here.
-	case !r.Loophole.SupportedHere(), !r.Loophole.RequirementsMet():
+	// doctor_cmd's exit code and was graded `ok` or `fail` as if it were live here. A
+	// downloaded binary not fetched yet is the same answer (binaries.go): its self-check was
+	// not run, and `no-check` would say the loophole declares none.
+	case !r.Loophole.SupportedHere(), !r.Loophole.BinariesFetched(), !r.Loophole.RequirementsMet():
 		return "inactive"
 	case r.RC != nil && *r.RC == 0:
 		return "ok"
