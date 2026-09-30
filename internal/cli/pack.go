@@ -187,7 +187,12 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
   yolo pack install           fetch every configured git pack NOW — tags and commit pins
                               included — write the lockfile and prune entries for packs
                               that left the config. Optional: a launch fetches a missing
-                              pack itself. It NEVER asks a registry what the latest version is
+                              pack itself. It NEVER asks a registry what the latest version is.
+                              It also downloads every program a selected pack's loophole
+                              declares under "binaries" for this machine, checks each against
+                              its pinned sha256, and caches it with its execute bit set. That
+                              one is NOT optional: a launch never downloads a program, and
+                              leaves a loophole whose program is missing off, saying so
   yolo pack update            install, PLUS the only act that resolves a new version for a
                               pack's npm-declared program. Run it inside the jail — that is
                               where an agent CLI is installed
@@ -1544,6 +1549,12 @@ func packInstall(out, errw io.Writer, color bool) int {
 	}
 	for _, gone := range pruned {
 		pr.Printf("[dim]%s removed from config — dropped from the lockfile[/dim]", gone)
+	}
+	// THE BINARIES the selected packs' loopholes declare, after the fetched packs are in the
+	// store so their manifests are readable: install is the one step that downloads them, and a
+	// launch only reads the cache (packbinaries.go).
+	if n := installPackBinaries(pr, errw); n != 0 {
+		rc = n
 	}
 	if len(entries) == 0 {
 		pr.Printf("[dim]No packs configured.[/dim]")
