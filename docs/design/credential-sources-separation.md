@@ -3,7 +3,7 @@ title: "Should credentials leave env_sources?"
 date: 2026-09-27
 status: in-review
 tags: [providers, profiles, credentials, env-sources, notches, cli]
-summary: "A key listed in env_sources is withheld from `yolo host -- bash`, and the filing proposed a separate credential_sources key. Measured against the built credential gate: the surprise happens only for a claimed name that env_sources supplies, the host remedy (`yolo host -p <profile> -- <cmd>`) is already built but undocumented, and the split would revisit OQ-CN1. Five implementation decisions, now built, make the host remedy findable. OQ-ES5's host half is ruled (2026-09-27): an explicit `yolo host --with-credentials <provider…|all>` grant, keys only, host only. Four questions stay open: the split itself, OQ-ES5's jail half, shared generic names such as AWS_PROFILE, and aws-auth's pointer under a typed -p."
+summary: "A key listed in env_sources is withheld from `yolo host -- bash`, and the filing proposed a separate credential_sources key. Measured against the built credential gate: the surprise happens only for a claimed name that env_sources supplies, the host remedy (`yolo host -p <profile> -- <cmd>`) is already built but undocumented, and the split would revisit OQ-CN1. Five implementation decisions, now built, make the host remedy findable. OQ-ES5's host half is ruled (2026-09-27): an explicit `yolo host --with-credentials <provider…|all>` grant, keys only, host only. Two questions stay open: OQ-ES5's jail half, and shared generic names such as AWS_PROFILE. The split itself (OQ-ES1) is answered no by OQ-ES5's own ruling, and aws-auth's pointer under a typed -p (OQ-ES7) is moot, since -p reaches agent CLIs only."
 vantage:
   status-chip: true
 ---
@@ -25,8 +25,11 @@ by the maintainer later the same day**: an explicit `yolo host --with-credential
 ([§5.1](#51-the-explicit-grant---with-credentials-built), ES-D13 to ES-D17). The same day,
 [ES-D18](#10-decision-ledger) stopped `yolo host` composing the in-jail wire bridge's adapter
 address, which ES-D10 had found it pointing claude at. A review the same day found gaps in that
-work, fixed as the ledger's [ES-D19](#10-decision-ledger) onward. Its jail half, and
-[OQ-ES1](#OQ-ES1), [OQ-ES6](#OQ-ES6) and [OQ-ES7](#OQ-ES7), are still open. **ES-D1 is retired**
+work, fixed as the ledger's [ES-D19](#10-decision-ledger) onward. Its jail half and
+[OQ-ES6](#OQ-ES6) are still open. Triaged 2026-09-30: [OQ-ES1](#OQ-ES1) is answered no by
+[OQ-ES5](#OQ-ES5)'s own ruling, which keeps `env_sources` the one store, so
+[OQ-ES2](#OQ-ES2) and [OQ-ES4](#OQ-ES4) are moot, as each said they would be. [OQ-ES7](#OQ-ES7)
+is moot since [OQ-NC5](../plans/notch-convergence.md#OQ-NC5). **ES-D1 is retired**
 (2026-09-28): [notch-convergence OQ-NC5](../plans/notch-convergence.md#OQ-NC5) ruled that a bare
 `-p` reaches agent CLIs only at every notch, so `yolo host -p <profile> -- <cmd>` for a command no
 selected pack installs is refused, naming `--with-credentials`, which is now an ad-hoc command's
@@ -54,10 +57,8 @@ fires on `AWS_PROFILE` for every claude-pack user.
 [§5](#5-the-host-half-is-built-what-shipping-it-takes), and for the ruled multi-provider grant,
 [§5.1](#51-the-explicit-grant---with-credentials-built).
 
-**Needs your ruling:** [OQ-ES1](#OQ-ES1), [OQ-ES5](#OQ-ES5)'s jail half (its host half is
-ruled), [OQ-ES6](#OQ-ES6), [OQ-ES7](#OQ-ES7).
-Ruling [OQ-ES1](#OQ-ES1) revisits [OQ-CN1](provider-credential-scope.md#OQ-CN1);
-[OQ-ES6](#OQ-ES6) asks for an exception to [OQ-BR4](provider-credential-scope.md#OQ-BR4).
+**Needs your ruling:** [OQ-ES5](#OQ-ES5)'s jail half (its host half is ruled), and
+[OQ-ES6](#OQ-ES6), which asks for an exception to [OQ-BR4](provider-credential-scope.md#OQ-BR4).
 
 **Reads with:** [`credential-sources-separation-plan.md`](credential-sources-separation-plan.md)
 (the sketch; its host section is ready), [`provider-credential-scope.md`](provider-credential-scope.md)
@@ -198,7 +199,8 @@ The host also has two narrower facts:
   `gateFiresFor` fires only for a basename that a selected pack installs
   ([CN-D4](provider-credential-scope.md#7-decision-ledger)). So `yolo host -p bedrock -- bash`
   receives the static AWS pair, but not aws-auth's `AWS_CONTAINER_CREDENTIALS_FULL_URI`
-  (measured). [OQ-ES7](#OQ-ES7) asks whether that should change.
+  (measured). [OQ-ES7](#OQ-ES7) asked whether that should change. It is moot: since
+  [OQ-NC5](../plans/notch-convergence.md#OQ-NC5), a typed `-p` for such a command is refused.
 
 To put the key in the current shell instead, `eval "$(yolo host env --agent bash -p zai)"` prints
 `export ZAI_API_KEY=…`, with the disclosure on stderr (`hostEnv`, `hostEnvDelta`). `--agent`
@@ -443,7 +445,7 @@ works:
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **A. `credential_sources`, with a refusal in `env_sources`** (the filing's proposal) | Open, as [OQ-ES1](#OQ-ES1). I lean against it: it revisits [OQ-CN1](provider-credential-scope.md#OQ-CN1) and [CN-D6](provider-credential-scope.md#7-decision-ledger) and still needs their claim |
+| **A. `credential_sources`, with a refusal in `env_sources`** (the filing's proposal) | **Rejected** ([OQ-ES1](#OQ-ES1), answered 2026-09-30 by [OQ-ES5](#OQ-ES5)'s ruling, which keeps `env_sources` the one store). It would also have revisited [OQ-CN1](provider-credential-scope.md#OQ-CN1) and [CN-D6](provider-credential-scope.md#7-decision-ledger) and still needed their claim |
 | **B. `yolo host -p <profile> -- <cmd>` for any command** | **Built.** ES-D1 to ES-D5 pin it and make it findable |
 | **C. `--all-credentials` for one invocation** | Rejected as a flag of its own. At the host, the maintainer's [OQ-ES5](#OQ-ES5) ruling makes the same grant a VALUE of the one explicit flag, `--with-credentials all`, for a command that needs every provider's key: the usage-bar case |
 | **C′. `--with-credentials <provider…>`, an explicit grant naming providers** | **Ruled for the host, 2026-09-27** ([OQ-ES5](#OQ-ES5)). The jail and macos-user half is still open |
@@ -474,9 +476,7 @@ works:
 
 ## 9. Open Questions
 
-1. 💬 <a id="OQ-ES1"></a>**OQ-ES1: Should credentials move out of `env_sources` into a key of their own?**
-
-   <!-- vantage: oq id=OQ-ES1 leaning="No. OQ-CN1 and CN-D6 hold: routing a credential needs the provider's claim on its name whichever key holds it, so a second key adds a file and a migration without removing that classification, and it cannot route a name no provider claims. Keep one env_sources channel and make the existing remedy findable with ES-D1 to ES-D4." -->
+1. ✅ <a id="OQ-ES1"></a>**OQ-ES1: Should credentials move out of `env_sources` into a key of their own?**
 
    This was filed as question 1, and ruling it **revisits a ruling you made.**
    [OQ-CN1](provider-credential-scope.md#OQ-CN1) put the key-to-provider fact on the provider
@@ -493,10 +493,19 @@ works:
    filing's own leaning was also to keep `env_sources` unified.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Answered by [OQ-ES5](#OQ-ES5)'s host ruling (2026-09-27): no. Credentials stay in
+   > `env_sources`.** The solution the maintainer approved there (*"I like the rest of the
+   > solution a lot"*) keeps `env_sources` the one store, with no split. Their reason calls it the
+   > credential store in so many words: *"this is the credential store and it needs to be able to
+   > be shared because I don't want to put it in multiple places."* The surprise that filed this
+   > question is met by the disclosure and its remedies instead. Each withheld line names a remedy
+   > (ES-D2, and for an ad-hoc command the grant, [NC-D62](../plans/notch-convergence.md#NC-D62)),
+   > and `--with-credentials` is the explicit grant. [OQ-ES2](#OQ-ES2) and [OQ-ES4](#OQ-ES4) are
+   > moot, as each said it would be on a no.
 
-2. 🔒 <a id="OQ-ES2"></a>**OQ-ES2: Under a split, what happens to a claimed name found in `env_sources`?**
-   This was filed as question 2. It is blocked on [OQ-ES1](#OQ-ES1), and **moot if that rules no.**
+2. ✅ <a id="OQ-ES2"></a>**OQ-ES2: Under a split, what happens to a claimed name found in `env_sources`?**
+   **Moot (2026-09-30):** [OQ-ES1](#OQ-ES1) is answered no, so there is no split. This was filed
+   as question 2, blocked on [OQ-ES1](#OQ-ES1) and moot if that ruled no.
    The filed leaning was a hard refusal, and it is the worst of the options:
    - it refuses the channel the gate was built to serve;
    - whether it fires depends on which packs are selected;
@@ -512,9 +521,10 @@ works:
    [OQ-ES3 and ES-D1 to ES-D5](#10-decision-ledger). What it leaves open is
    [OQ-ES5](#OQ-ES5) and [OQ-ES7](#OQ-ES7).
 
-4. 🔒 <a id="OQ-ES4"></a>**OQ-ES4: Under a split, at which config scope may `credential_sources` appear?**
-   This was filed as question 4. It is blocked on [OQ-ES1](#OQ-ES1), and **moot if that rules
-   no.** The filed leaning, "both scopes, matching `env_sources`", misreads the host. `yolo host` reads user
+4. ✅ <a id="OQ-ES4"></a>**OQ-ES4: Under a split, at which config scope may `credential_sources` appear?**
+   **Moot (2026-09-30):** [OQ-ES1](#OQ-ES1) is answered no, so there is no `credential_sources`.
+   This was filed as question 4, blocked on [OQ-ES1](#OQ-ES1) and moot if that ruled no. The
+   filed leaning, "both scopes, matching `env_sources`", misreads the host. `yolo host` reads user
    scope only, whatever the key (`composeHostLaunch`), so a workspace `credential_sources` would
    feed jails only. A credential in a workspace file is also readable by every jail process,
    whichever key lists it. That is outside the gate by
@@ -526,7 +536,7 @@ works:
 5. 💬 <a id="OQ-ES5"></a>**OQ-ES5: An explicit grant for a command `-p` cannot reach?** — **the host half RULED
    2026-09-27; the jail half open**
 
-   <!-- vantage: oq id=OQ-ES5 leaning="Host half ruled 2026-09-27: yolo host --with-credentials <provider[,provider...]|all> -- <cmd>, keys only, disclosed on every run, implied by nothing else. Open: the jail half (a jail or macos-user shell) — the same flag at every notch, or the hand-sourced per-agent file as the fallback." -->
+   <!-- vantage: oq id=OQ-ES5 leaning="Jail half, (A): the same --with-credentials flag at every notch. In a jail or a macos-user jail it hands the one launched command the named providers' claimed env_sources values, keys only, carried in that entry's exec environment, disclosed on every entry and never in config, as the host ruling has it, by the parity direction ('host is supposed to act like everywhere else'). (B) keeps it host-only, with the hand-sourced per-agent file as the jail's only route." -->
 
    This case had no mechanism when it was filed:
    - a jail shell (`-p bash=zai` is refused);
@@ -584,6 +594,34 @@ works:
    > whether it is this flag, is not ruled. The `--all-credentials` rejection above is overtaken
    > for the host by `all` as a value of the one explicit flag ([§7](#7-alternatives-considered)).
 
+   > [!NOTE]
+   > **The jail half, restated 2026-09-30 in letters (the options above were numbered).** The case
+   > left is a shell in a jail, or in a macos-user jail, that needs a provider's key no agent in
+   > that launch selected. `-p` cannot carry it: since
+   > [OQ-NC5](../plans/notch-convergence.md#OQ-NC5) a `-p` reaches agent CLIs only, at every
+   > notch, and a jail never keyed the `--` command anyway. So this flag is the only candidate
+   > grant, and the choice is whether it works in a jail at all.
+   > [Notch-convergence item 12](../plans/notch-convergence.md#4-the-ordered-build-list) is gated
+   > on it.
+   >
+   > - **(A) The same flag at every notch** (was (ii)). `yolo --with-credentials zai -- bash`
+   >   hands that one launched command the named providers' claimed `env_sources` values, keys
+   >   only, as at the host. It rides only that entry's exec environment, it is disclosed on every
+   >   entry (including that what the command starts inherits it), and it is never expressible in
+   >   config: the four properties listed above. The jail keys the grant by the launched basename,
+   >   as notch-convergence's row A5 proposes. It is that plan's thesis, in the maintainer's words
+   >   *"host is supposed to act like everywhere else"*
+   >   ([§1](../plans/notch-convergence.md#1-the-thesis)). **Cost:** a key no agent asked for
+   >   enters the jail when the user types the flag, and an agent started from that shell
+   >   inherits it.
+   > - **(B) Host only, as built** (was (i)). A jail launch keeps refusing the flag, naming that it
+   >   is host-only, and the documented route is `. ~/.config/yolo-agent-env/<agent>.sh`. That
+   >   works only when some agent in the launch selected the provider. **Cost:** no jail shell can
+   >   get a key its agents did not select, and one flag works at one notch and is refused at the
+   >   others.
+   >
+   > _Leaning, restated:_ (A), because it takes the ruled host flag into the jail unchanged.
+
 6. 💬 <a id="OQ-ES6"></a>**OQ-ES6: May a user share a claimed generic name, such as `AWS_PROFILE`, with every process?**
 
    <!-- vantage: oq id=OQ-ES6 leaning="Yes, by a user-scope, per-name acknowledgment that shares that one claimed name with every process and is disclosed on every launch: a deliberate user exception to OQ-BR4 that only the user file can express, since a workspace config is agent-editable." -->
@@ -610,9 +648,7 @@ works:
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 <a id="OQ-ES7"></a>**OQ-ES7: Does a typed host `-p` hand an ad-hoc command a CLI-less pack's gated env?**
-
-   <!-- vantage: oq id=OQ-ES7 leaning="Yes, for a typed host -p only: the named command receives that profile's CLI-less gated env (aws-auth's pointer) as an agent that selected it would, so an SSO-backed Bedrock profile is not half-delivered; nothing else receives it, so OQ-BR4 holds. Restate CN-D4 and gateFiresFor's comment for that case." -->
+7. ✅ <a id="OQ-ES7"></a>**OQ-ES7: Does a typed host `-p` hand an ad-hoc command a CLI-less pack's gated env?**
 
    Today `yolo host -p bedrock -- bash` receives the static AWS pair but not aws-auth's
    `AWS_CONTAINER_CREDENTIALS_FULL_URI`. `gateFiresFor` does not fire for a basename that no
@@ -628,7 +664,15 @@ works:
    [OQ-BR4](provider-credential-scope.md#OQ-BR4) requires.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Moot since [OQ-NC5](../plans/notch-convergence.md#OQ-NC5) (ruled 2026-09-28).** A typed
+   > `-p` now reaches agent CLIs only, at every notch. So `yolo host -p bedrock -- bash` is
+   > refused, naming `yolo host --with-credentials bedrock -- bash`
+   > ([NC-D62](../plans/notch-convergence.md#NC-D62)), and the case this question asked about can
+   > no longer be written. The grant that replaced it carries keys only, by
+   > [OQ-ES5](#OQ-ES5)'s ruling (*"keys only, with no profile routing and no shape variables"*).
+   > A grant-only process runs no derive and fires no gated env (ES-D13), so it never carried a
+   > CLI-less pack's pointer either. Whether it should would be a new question about the grant.
+   > It is not this one.
 
 ## 10. Decision Ledger
 
@@ -636,6 +680,9 @@ works:
 | :--- | :--- | :--- | :--- | :--- |
 | OQ-ES5 | **The host half, ruled by the maintainer.** `yolo host --with-credentials <provider[,provider...]\|all> -- <cmd>`, and the same flag on `yolo host env`, hands one command the named providers' claimed `env_sources` values: keys only, no profile routing and no shape variables. `all` is every composed provider that claims a value. Disclosed on every run, names only. An unknown provider refuses, naming the known ones; a named provider with no value is reported. It combines with `-p`. Nothing else implies it. HOST ONLY: a jail launch given it refuses, naming that it is host-only. `env_sources` stays the one store. The jail half is open | 2026-09-27 | [OQ-ES5](#OQ-ES5) | ✅ 2026-09-27, as ES-D13 to ES-D17 |
 | OQ-ES3 | *Answered by the tree, not ruled.* Filed as question 3: "how should an arbitrary command request provider credentials?" At the host, `yolo host -p <profile> -- <cmd>` already delivers that profile's claimed `env_sources` values to any command and discloses it as `<cmd> only`. ES-D1 to ES-D5 finish it. The jail and multi-provider half is [OQ-ES5](#OQ-ES5); the CLI-less half is [OQ-ES7](#OQ-ES7) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ behavior at `8da7840d`; pinned `595f9022` |
+| OQ-ES1 | **Answered by [OQ-ES5](#OQ-ES5)'s host ruling:** no split. `env_sources` stays the one credential store. The maintainer: *"this is the credential store and it needs to be able to be shared because I don't want to put it in multiple places"*, approving a solution that kept the one store (*"I like the rest of the solution a lot"*). The filed surprise is met by the disclosure's remedies and the explicit grant | 2026-09-30 | [OQ-ES1](#OQ-ES1) | ✅ nothing to build: `env_sources` is already the one store |
+| [OQ-ES2](#OQ-ES2), [OQ-ES4](#OQ-ES4) | **Moot** by [OQ-ES1](#OQ-ES1)'s no, as each said on filing: with no split, there is no claimed-name refusal to design and no `credential_sources` scope | 2026-09-30 | [OQ-ES2](#OQ-ES2), [OQ-ES4](#OQ-ES4) | — |
+| OQ-ES7 | **Moot since [OQ-NC5](../plans/notch-convergence.md#OQ-NC5)** (2026-09-28): a typed host `-p` for a command no selected pack installs is refused, naming `--with-credentials` ([NC-D62](../plans/notch-convergence.md#NC-D62)), so it can no longer hand an ad-hoc command anything. The grant is keys only by [OQ-ES5](#OQ-ES5)'s ruling and fires no gated env (ES-D13) | 2026-09-30 | [OQ-ES7](#OQ-ES7) | — |
 | ES-D1 | *Implementation decision.* The typed host `-p` is the grant for any command, pinned through `hostMain` with a non-agent basename. The cells fail if the agent loop checks installation or the basename keying goes. The notches differ on purpose: the jail's `-p` never keys the `--` command. *Retired 2026-09-28 by [OQ-NC5](../plans/notch-convergence.md#OQ-NC5):* a bare `-p` reaches agent CLIs only at every notch, and a host `-p` for a command no selected pack installs is refused, naming `--with-credentials` ([NC-D62](../plans/notch-convergence.md#NC-D62)) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `595f9022`; retired as NC-D62 |
 | ES-D2 | *Implementation decision.* At the host, a "withheld" line names `yolo host -p <profile> -- <cmd>`, using a declared profile that resolves to the claimant, or says to declare one. The jail's line is unchanged until [OQ-ES5](#OQ-ES5). *Amended 2026-09-27 by ES-D23:* on a run given `--with-credentials`, the line names that run with its grant widened instead. *Amended 2026-09-28 by [NC-D62](../plans/notch-convergence.md#NC-D62):* for an ad-hoc command the line names the grant, `yolo host --with-credentials <provider> -- <cmd>`, and the `-p` arm is an agent's only | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `hostComposition.credentialRemedy`, pinned by `TestHostGrantWithheldLineNamesTheGrantRemedy` and `TestHostEnvWithheldLineNamesTheGrantRemedy` |
 | ES-D3 | *Implementation decision.* `hostUsage`, providers.md's host-notch bullet and host-agent-environment.md describe `-p` as applying to any wrapped command. *Amended 2026-09-28 by [NC-D62](../plans/notch-convergence.md#NC-D62):* they describe `-p` as reaching agent CLIs only, and `--with-credentials` as an ad-hoc command's grant | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `hostUsage`, pinned by `TestHostHelpDescribesProfileAsReachingAgentCLIsOnly` (help), and `internal/cli/config_ref.txt` (config-ref); providers.md and host-agent-environment.md 2026-09-27 |
