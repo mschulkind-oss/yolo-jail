@@ -42,11 +42,12 @@ func runCaptureRun(args []string) int {
 			home = strings.TrimPrefix(a, "--home=")
 		case a == "--scan-content-refs":
 			// The FULL absolute-reference scan — every regular file in the delta read
-			// looking for the capture HOME in its bytes. Passed by the macos-user host
-			// act and nobody else: that backend captures into a throwaway staging home
-			// whose path is not the home a materialize will use, so an unrecorded
-			// reference lands as a dead path. See capture.Options.ScanContentRefs for
-			// what it costs and why the container backends do not pay it.
+			// looking for the capture HOME in its bytes. Passed by both host acts: the
+			// macos-user one captures into a throwaway staging home whose path is not the
+			// home a materialize will use, and the container one's entry is materialized
+			// by the host agent floor into the floor's own prefix, not only into the
+			// /home/agent it was captured in (captureJailArgv). An unrecorded reference
+			// lands as a dead path. See capture.Options.ScanContentRefs for what it costs.
 			scanContentRefs = true
 		case strings.HasPrefix(a, "--surface-root="):
 			// The SECOND path to the capture surfaces — see capture.Options.SurfaceRoot.

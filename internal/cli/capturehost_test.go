@@ -370,6 +370,9 @@ func TestCaptureJailArgvReachesTheSurfacesThroughTheWorkspaceBind(t *testing.T) 
 	wantRoot := "--surface-root=" + paths.WorkspaceHomeState(containerWorkspace)
 	for _, want := range []string{
 		"yolo", "internal", "capture-run", wantOut, wantRoot,
+		// The full reference scan: without it the entry may only be materialized into the jail
+		// home it was captured in, and the host agent floor could never use it (OQ-HP3).
+		"--scan-content-refs",
 		"--", "env", entrypoint.InstallOnlyEnv + "=1", "probetool",
 	} {
 		if !containsArg(argv, want) {

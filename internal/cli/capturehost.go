@@ -292,11 +292,20 @@ const packdeclNativeKind = "native"
 // `env` rather than a shell: the driver runs the argv verbatim with exec, so one more argv
 // word is a smaller contract than a quoted `bash -c` string, and the variable is visible in
 // `ps` and in the driver's own error messages.
+//
+// --scan-content-refs: THE FULL REFERENCE SCAN, on the container backends too. A jail
+// materializes the entry into the /home/agent it was captured in, which needs no scan; the host
+// agent floor materializes the SAME entry into its own prefix on the host
+// (docs/design/host-tool-provisioning.md OQ-HP3, "one package inside and outside"), a different
+// home, which capture.Materialize allows only for a manifest whose full scan found every
+// reference it would have to rewrite. The scan reads the delta once, at capture time — an act
+// that already downloads and installs the whole thing.
 func captureJailArgv(bin string) []string {
 	return []string{
 		"yolo", "internal", "capture-run",
 		"--out=" + path.Join(containerWorkspace, captureOutLeaf),
 		"--surface-root=" + paths.WorkspaceHomeState(containerWorkspace),
+		"--scan-content-refs",
 		"--", "env", entrypoint.InstallOnlyEnv + "=1", bin,
 	}
 }
