@@ -426,8 +426,16 @@ AWS SDKs claude and codex use read it. Core names no AWS file, section or variab
   aws-auth mints for); otherwise the pack's `profile_env_name` (`AWS_PROFILE`) as the agent
   receives it; otherwise the `default_profile`. Only that profile's own section is read, so an
   `[sso-session]` block's `sso_region`, the SSO portal's region, never is.
+- **Left in the launching shell, in a jail.** The shell yolo was launched from reaches no
+  jail's agent ([BR-D2](../design/bedrock-plumbing.md#BR-D2)), so a region variable or an
+  `AWS_PROFILE` other than `default` set only there is a choice this launch does not carry. The
+  file is not read in its place, since the default profile's region may not be the one meant, and
+  the launch is refused, naming the variable and, for a profile, offering to deliver it through
+  `env_sources`. A profile aws-auth serves decides before the shell's `AWS_PROFILE` does. At
+  `yolo host` the shell is the agent's, so both count there.
 - **Where the file is.** `path_env_name` (`AWS_CONFIG_FILE`) in the environment yolo was
-  launched from, with a leading `~` expanded, else `path` under that environment's `HOME`
+  launched from, with a leading `~` expanded, else `path` under that environment's `HOME`, which
+  is where the host's own config is
   ([BR-D24](../design/bedrock-plumbing.md#BR-D24)). It is read in Go, in AWS's documented INI
   format, with no `aws` process on the launch path
   ([BR-D22](../design/bedrock-plumbing.md#BR-D22)).

@@ -190,8 +190,12 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []Regio
 		if ask.File != nil {
 			if fact := ask.File.refusalFact(); !slices.Contains(gap.files, fact) {
 				gap.files = append(gap.files, fact)
-				gap.remedies = append(gap.remedies, ask.File.remedy())
-				gap.consulted = append(gap.consulted, ask.File.fileLabel()+" ["+ask.File.Section+"]")
+				if r := ask.File.remedy(); r != "" {
+					gap.remedies = append(gap.remedies, r)
+				}
+				if ask.File.stranded == "" {
+					gap.consulted = append(gap.consulted, ask.File.fileLabel()+" ["+ask.File.Section+"]")
+				}
 			}
 		}
 	}

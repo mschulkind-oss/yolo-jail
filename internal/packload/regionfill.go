@@ -50,6 +50,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -71,6 +72,13 @@ type RegionFileSource struct {
 	// name an env_sources null removes from it; and nil in a jail, where no backend forwards
 	// that shell (BR-D2).
 	Inherited func(string) (string, bool)
+	// Stranded reports whether a variable is set, non-empty, in the environment yolo was
+	// launched from, asked only of one that reaches the agent by no channel: in a jail, whose
+	// agent no backend hands that shell (BR-D2), a region variable or the profile variable left
+	// there is a choice the user made for this launch that it does not carry, and the fill does
+	// not replace it with the file's answer for another profile — the launch is refused, naming
+	// it. Nil at `yolo host`, where that shell is Inherited.
+	Stranded func(string) bool
 	// Setting answers a loophole's configured setting, "" when none is set (LoopholeSettingIn).
 	Setting func(loophole, key string) string
 }
@@ -94,6 +102,10 @@ type RegionFileLookup struct {
 	Key         string
 	// Problem is why the file gave no region, "" when it gave one.
 	Problem string
+	// stranded is the variable, set where yolo was launched and delivered to the agent by no
+	// channel, that kept the file from being read (RegionFileSource.Stranded), "" when none did;
+	// strandedProfile is the profile it names when it is the profile variable.
+	stranded, strandedProfile string
 }
 
 // LoopholeSettingIn answers a loophole's setting from cfg's `loopholes.<name>.settings`, the
@@ -196,6 +208,18 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 	}
 	f := req.file
 	l := &RegionFileLookup{Var: vars[0], Key: f.Key}
+	// A REGION LEFT WHERE YOLO WAS LAUNCHED, which this launch does not deliver (a jail's shell,
+	// BR-D2): the region the user chose, which the file's may not be, so the file is not read.
+	if src.Stranded != nil {
+		for _, v := range append(slices.Clone(req.vars), vars...) {
+			if src.Stranded(v) {
+				l.stranded = v
+				l.Problem = v + ", set in the environment yolo was launched from, names the " +
+					"region you chose, which the file's may not be"
+				break
+			}
+		}
+	}
 	// THE PROFILE, in the order the credential's source decides it.
 	for _, e := range d.Fold {
 		if e.RegionProfileSetting == "" || e.ServedBy == "" || src.Setting == nil {
@@ -209,6 +233,15 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 	if l.Profile == "" && f.ProfileEnvName != "" {
 		if p, ok := reaches(f.ProfileEnvName); ok {
 			l.Profile, l.ProfileFrom = strings.TrimSpace(p), f.ProfileEnvName
+		} else if p := strings.TrimSpace(src.Getenv(f.ProfileEnvName)); l.stranded == "" &&
+			src.Stranded != nil && src.Stranded(f.ProfileEnvName) && p != "" && p != f.DefaultProfile {
+			// A PROFILE LEFT THERE: the agent's credential may come from it, and this launch
+			// hands the agent no such profile, so the default profile's region may not be its.
+			// Naming the default profile itself changes nothing, so it reads on.
+			l.Profile, l.stranded, l.strandedProfile = p, f.ProfileEnvName, p
+			l.Problem = f.ProfileEnvName + "=" + p + " is set in the environment yolo was launched " +
+				"from, which this launch does not deliver, so which profile the agent's credential " +
+				"comes from is not known"
 		}
 	}
 	if l.Profile == "" {
@@ -226,13 +259,19 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 			l.File = expandHome(p, l.Home)
 		}
 	}
-	if l.File == "" {
-		if l.Home == "" {
-			l.File = "~/" + f.Path
-			l.Problem = "not read: the environment yolo was launched from names no home directory"
-			return l
-		}
+	if l.File == "" && l.Home != "" {
 		l.File = filepath.Join(l.Home, filepath.FromSlash(f.Path))
+	}
+	if l.stranded != "" {
+		if l.File == "" {
+			l.File = "~/" + f.Path
+		}
+		return l
+	}
+	if l.File == "" {
+		l.File = "~/" + f.Path
+		l.Problem = "not read: the environment yolo was launched from names no home directory"
+		return l
 	}
 	read, cached := files[l.File]
 	if !cached {
@@ -360,6 +399,9 @@ func (l *RegionFileLookup) profileClause() string {
 // refusalFact is the lookup's line under a region refusal: what the file gave, and why that is
 // no region.
 func (l *RegionFileLookup) refusalFact() string {
+	if l.stranded != "" {
+		return "    " + l.fileLabel() + " was not read: " + l.Problem
+	}
 	why := l.Problem
 	if why == "" {
 		// Delivered, and still no region reached the agent: something after the gate removed it
@@ -369,8 +411,18 @@ func (l *RegionFileLookup) refusalFact() string {
 	return "    " + l.fileLabel() + " (" + l.profileClause() + "): " + why
 }
 
-// remedy is the file's way to set a region, for the refusal's "set one" line.
+// remedy is the file's way to set a region, for the refusal's "set one" line: its key under the
+// profile's section, or, when a profile left where yolo was launched kept it unread, delivering
+// that profile so its section is read. "" when a region left there did, since the env_sources
+// remedy beside it already says how to deliver one, and editing the file would change nothing.
 func (l *RegionFileLookup) remedy() string {
+	switch {
+	case l.strandedProfile != "":
+		return l.stranded + "=" + l.strandedProfile + " in an env_sources entry, so [" + l.Section +
+			"]'s " + l.Key + " is read"
+	case l.stranded != "":
+		return ""
+	}
 	return l.Key + " = <region> under [" + l.Section + "] in " + l.fileLabel()
 }
 

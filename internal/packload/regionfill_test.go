@@ -228,16 +228,22 @@ func TestTheRegionFillReadsProfileDefaultBeforeDefault(t *testing.T) {
 // WHEN THE AGENT HAS A REGION, the file is not read for it: the provider's own `region`, and a
 // region variable it reads that reaches it — from env_sources at every notch, and at `yolo host`
 // from the invoking shell it inherits (Inherited). A region only in a jail's launching shell is
-// no region of the agent's, so the file still fills it.
+// no region of the agent's, and not one the file may replace either (Stranded): the file is not
+// read, and the lookup says why, for the refusal.
 func TestTheRegionFillFillsOnlyAnAgentWithNoRegion(t *testing.T) {
 	home := regionHome(t, regionConfig)
 	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
 	onBedrock := map[string]string{"claude": "bedrock"}
 	nothing := NothingServed()
+	launch := map[string]string{"HOME": home, "AWS_REGION": "us-west-2"}
 	src := func(inherited map[string]string) *RegionFileSource {
-		s := &RegionFileSource{Getenv: launchEnv(map[string]string{"HOME": home, "AWS_REGION": "us-west-2"})}
+		s := &RegionFileSource{Getenv: launchEnv(launch)}
 		if inherited != nil {
+			// `yolo host`: the invoking shell is the agent's.
 			s.Inherited = func(name string) (string, bool) { v, ok := inherited[name]; return v, ok }
+		} else {
+			// A jail: the launching shell is no channel of the agent's.
+			s.Stranded = func(name string) bool { return launch[name] != "" }
 		}
 		return s
 	}
@@ -253,7 +259,7 @@ func TestTheRegionFillFillsOnlyAnAgentWithNoRegion(t *testing.T) {
 		{"AWS_DEFAULT_REGION from env_sources, which claude reads", "", hydrated("AWS_DEFAULT_REGION", "eu-central-1"), nil, "", false},
 		{"AWS_REGION in the shell the agent inherits", "", nil, map[string]string{"AWS_REGION": "eu-north-1"}, "", false},
 		{"an empty AWS_REGION in that shell is no region", "", nil, map[string]string{"AWS_REGION": ""}, "us-east-2", true},
-		{"a region only in a jail's launching shell", "", nil, nil, "us-east-2", true},
+		{"a region only in a jail's launching shell", "", nil, nil, "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _ := fillCase{packs: packs, user: tc.user, profiles: onBedrock, envSources: tc.env,
@@ -264,6 +270,62 @@ func TestTheRegionFillFillsOnlyAnAgentWithNoRegion(t *testing.T) {
 			}
 			if filled := d.RegionFile != nil; filled != tc.filled {
 				t.Errorf("the file was consulted = %v, want %v (%+v)", filled, tc.filled, d.RegionFile)
+			}
+		})
+	}
+}
+
+// THE LAUNCH SHELL'S CHOICE, IN A JAIL (Stranded; BR-D2 kept): a region variable or AWS_PROFILE
+// set where yolo was launched, which the jail's agent never receives, keeps the file unread —
+// the default profile's region would silently replace the region or profile the user named —
+// and the lookup says so for the refusal, offering to deliver the profile. AWS_PROFILE=default
+// names the profile read anyway, and a profile aws-auth serves decides before the shell's does.
+func TestTheRegionFillLeavesTheLaunchShellsChoiceToTheRefusal(t *testing.T) {
+	home := regionHome(t, regionConfig)
+	packs := embeddedNamed(t, "claude", "aws-auth", "bedrock", "openai-auth", "wire-bridge")
+	onBedrock := map[string]string{"claude": "bedrock"}
+	nothing := NothingServed()
+	jailServed := ServedInJail([]string{"aws-auth", "wire-bridge"}).WithListen(declaredListen)
+	for _, tc := range []struct {
+		name    string
+		launch  map[string]string
+		served  *ServedDaemons
+		setting string
+		want    string // AWS_REGION claude receives
+		problem string
+		remedy  string
+	}{
+		{"AWS_REGION", map[string]string{"AWS_REGION": "ap-south-1"}, &nothing, "", "",
+			"AWS_REGION, set in the environment yolo was launched from, names the region you chose", ""},
+		{"AWS_DEFAULT_REGION", map[string]string{"AWS_DEFAULT_REGION": "ap-south-1"}, &nothing, "", "",
+			"AWS_DEFAULT_REGION, set in the environment yolo was launched from", ""},
+		{"AWS_PROFILE", map[string]string{"AWS_PROFILE": "other"}, &nothing, "", "",
+			"AWS_PROFILE=other is set in the environment yolo was launched from, which this launch does not deliver",
+			"AWS_PROFILE=other in an env_sources entry, so [profile other]'s region is read"},
+		{"AWS_PROFILE naming the default profile", map[string]string{"AWS_PROFILE": "default"}, &nothing, "",
+			"us-east-2", "", ""},
+		{"AWS_PROFILE under a profile aws-auth serves", map[string]string{"AWS_PROFILE": "other"}, &jailServed,
+			"team-sso", "eu-west-1", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			launch := map[string]string{"HOME": home}
+			for k, v := range tc.launch {
+				launch[k] = v
+			}
+			s, _ := fillCase{packs: packs, profiles: onBedrock, served: tc.served,
+				src: &RegionFileSource{Getenv: launchEnv(launch), Setting: awsAuthSetting(tc.setting),
+					Stranded: func(name string) bool { return launch[name] != "" }}}.scope(t)
+			d := s.Agent("claude")
+			if got := shapeValue(d, "AWS_REGION"); got != tc.want {
+				t.Errorf("claude was given AWS_REGION=%q, want %q (%+v)", got, tc.want, d.RegionFile)
+			}
+			l := d.RegionFile
+			if l == nil {
+				t.Fatal("the fill must have looked for claude")
+			}
+			if !strings.Contains(l.Problem, tc.problem) || tc.problem != "" && l.remedy() != tc.remedy {
+				t.Errorf("the lookup is %+v (remedy %q), want a problem saying %q and remedy %q", l,
+					l.remedy(), tc.problem, tc.remedy)
 			}
 		})
 	}
