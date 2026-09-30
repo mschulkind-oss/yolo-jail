@@ -294,6 +294,21 @@ happens, which workspaces came back and which did not — including a launch ref
 jail existed, which nothing recorded before. See
 [Podman readiness after a reboot](docs/design/podman-reboot-readiness.md).
 
+**A folder outside the project can now be mounted read-write, from your user config.** Write it as
+an object in `mounts`, such as `{"host": "~/scratch/datasets", "at": "/ctx/data", "mode": "rw"}`,
+in `~/.config/yolo-jail/config.jsonc`; a plain string entry stays read-only, as does any entry with
+`"mode": "ro"`. It is bound on podman, and on Apple Container at any version (not yet tried on a
+Mac). A project's own config cannot ask for one: `yolo check` refuses it there, and the launch does
+too. yolo also refuses a read-write folder that is, or contains, your home or one of yolo's own
+folders, or that overlaps the project, and every launch prints a line naming each read-write folder
+and warning that anything on your machine that later reads it reads what the jail wrote. The
+agent's briefing now says which of its context mounts are read-only and which read-write, lists a
+pack's mounts too, and names `$YOLO_CONTEXT_DIR`, which every launch now sets to the folder those
+mounts appear under (`/ctx` in a container). On `macos-user`, which cannot deliver a mounted folder
+yet, a `mounts` entry or a pack's `mount` whose folder exists now stops the launch and names itself,
+instead of being skipped behind a warning. See
+[Workspace, mounts, and host files](userguide/reference/settings-per-setup.md#workspace-mounts-and-host-files).
+
 ### Changed
 
 - GPT-6.1 Sol replaces GPT-6 Sol for every agent on the ChatGPT subscription (`-p codex`): it is the default and the first entry in the model menus, and GPT-6 Sol is no longer listed. If you had picked GPT-6 Sol yourself, pick a model again.

@@ -152,7 +152,9 @@ conditional sections that appear only when their data exists. Emission order, fr
 9. **Blocked Tools** — conditional, from the blocked-tool config merged with what packs
    contribute.
 10. **Additional Context Mounts** — conditional, and filtered to the mounts the backend will
-   actually bind.
+   actually bind (`run.briefedCtxMounts`): config `mounts` entries and pack `mount` grants, each
+   labelled read-only or read-write, a grant with its pack, under a line naming what
+   `$YOLO_CONTEXT_DIR` is on this backend.
 11. **Limitations**, **Packages & Resource Limits**, **Skills** — the three standing
     sections. On a backend with no container the middle one is **Packages**: it offers no
     resource cap and says outright that `resources` is not enforced there.

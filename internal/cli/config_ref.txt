@@ -12,7 +12,7 @@
   `cd ~/code/sysadmin && yolo` makes ~/code/sysadmin *be* /workspace — the same
   files, not a copy, with no sync step in either direction.  It does NOT appear
   under /ctx/, and it must NOT be listed in `mounts`: that key is for paths
-  OUTSIDE the workspace, and it is read-only.
+  OUTSIDE the workspace, and it is read-only unless an entry says otherwise.
   It is literally the cwd — there is no `--workspace` flag and no walk up the
   tree looking for yolo-jail.jsonc.  Launch from a subdirectory and THAT
   subdirectory is the whole workspace, with its own config and its own jail.
@@ -444,27 +444,59 @@
       ".secrets/claude.env"
     ]
 
-  [bold]mounts[/bold] (array of strings): Extra host paths mounted read-only.
+  [bold]mounts[/bold] (array of strings and objects): Extra host paths, read-only unless you ask.
     [bold]For paths OUTSIDE the workspace only.[/bold]  The workspace itself is
     already /workspace, read-write and live (see the top of this reference) —
-    listing it here gets you a second, read-only view of a tree you can already
-    write, under a name nobody expects.
-    Simple path → mounted at /ctx/<basename>
-    "host:container" → custom container path
-    Example: ["/path/to/repo", "~/lib:/ctx/lib"]
-    [bold]Read-only is the ONLY mode[/bold], not a default: every entry gets
-    :ro appended.  There is no writable form of a `mounts` entry — for a
-    writable host dir see `cache_relocations` (caches only), or put the path
-    in the workspace.
-    [bold yellow]Do NOT write a docker-style ":ro" suffix.[/bold yellow]  The
-    split takes the last colon followed by "/", so "~/x:/ctx/x:ro" parses as
-    ONE host path literally named "~/x:/ctx/x:ro".  It does not exist, so the
-    mount is silently SKIPPED with a warning — and `yolo check` only warns
-    too, so a config that mounts nothing looks accepted.
+    listing it here gets you a second view of a tree you can already write,
+    under a name nobody expects.
+    Every entry lands under the [bold]context dir[/bold], /ctx on podman and Apple
+    Container, which every launch names to the jail as $YOLO_CONTEXT_DIR (it
+    exists, possibly empty, whether or not you declared a mount).
+    [bold]String entries are READ-ONLY, always[/bold] — every one gets :ro appended:
+      Simple path → mounted at /ctx/<basename>
+      "host:container" → custom container path
+      Example: ["/path/to/repo", "~/lib:/ctx/lib"]
+    [bold]Object entries[/bold] carry a mode, and are the only way to write a
+    read-write mount:
+      {"host": "~/scratch/datasets", "at": "/ctx/data", "mode": "rw"}
+      {"host": "~/notes", "mode": "ro"}
+    `mode` is REQUIRED ("ro" or "rw") — there is no default, so a writable
+    mount is never one you did not write.  `at` is optional (default
+    /ctx/<basename>); a read-write mount must land UNDER /ctx/, where it can
+    shadow nothing of the home or a composed surface.
+    [bold yellow]Do NOT write a docker-style ":ro" or ":rw" suffix.[/bold yellow]  ":rw" is a
+    `yolo check` error naming the object form.  ":ro" is worse: the split
+    takes the last colon followed by "/", so "~/x:/ctx/x:ro" parses as ONE
+    host path literally named "~/x:/ctx/x:ro".  It does not exist, so the
+    mount is SKIPPED with a warning — and `yolo check` only warns too, so a
+    config that mounts nothing looks accepted.
+    [bold yellow]A read-write mount is user-scope only[/bold yellow] — write it in
+    ~/.config/yolo-jail/config.jsonc (or a --user-layer).  In yolo-jail.jsonc,
+    yolo-jail.local.jsonc or anything they include it is a `yolo check` error
+    and the launch refuses: a workspace config is agent-editable, so it cannot
+    grant a read-write host mount.  Read-only entries may sit at either scope.
+    A read-write source is also REFUSED when it is, or contains, your home,
+    ~/.config/yolo-jail or ~/.local/share/yolo-jail, sits inside either yolo
+    directory, or overlaps the workspace in either direction (a second
+    writable path to it would bypass `workspace_readonly`).  Directories like
+    ~/.ssh are not on any list: a mount you wrote in your own config is your
+    own authority, and the launch names it every time.
+    [bold]Every launch prints one line per read-write mount[/bold] — the host path, the
+    jail path, and that anything on this machine which later reads that
+    directory reads what the jail wrote there, a planted symlink included.
+    YOLO_NO_BANNER does not hide it.  On a ROOTFUL podman the line adds that
+    files the jail's root creates there are owned by root on the host (on a
+    rootless one they are yours; a file written by a non-root user inside the
+    jail lands as a subuid you remove with `podman unshare`).  yolo never
+    creates, chowns or relabels a mount source, and there is no locking: two
+    jails, or a jail and you, writing one directory get last-writer-wins,
+    like two programs on the host.
+    Two mounts at one jail path — a pack `mount` at /ctx/<into> included —
+    are a `yolo check` error.
     <basename> is the basename AFTER symlink resolution.  A link whose name
     differs from its target's mounts under the TARGET's name: "~/code/sysadmin"
     lands at /ctx/sysadmin-config if that is where the link points.  Use the
-    explicit "host:/ctx/name" form when you want to pin the name.
+    explicit "host:/ctx/name" form (or `at`) when you want to pin the name.
     [bold]Host paths are resolved on the HOST, at launch.[/bold]  An IN-JAIL
     `yolo check` resolves "~" against the JAIL's home, so it warns "host path
     does not exist and will be skipped" for every entry an agent adds from
@@ -472,13 +504,18 @@
     failure[/bold] — only a host `yolo check` can judge these paths.  For the
     same reason `mounts` is dropped from the in-jail user-config snapshot and
     is not inherited by a nested jail.
-    Runtime support: podman, and Apple Container ("container") from version
-    1.1.0.  Below that it accepted :ro and ignored it, so rather than hand out a
-    writable context mount yolo SKIPS every `mounts` entry and says so — and it
-    skips for the same reason when it cannot read `container --version` at all,
-    because the safe error is the one that costs a mount rather than the one
-    that costs the guarantee.  Use YOLO_RUNTIME=podman for read-only context
-    mounts on an older `container`.  "macos-user" has no bind mounts at all.
+    Runtime support: podman, and Apple Container ("container").  A read-only
+    entry needs Apple Container 1.1.0 or later: below that it accepted :ro
+    and ignored it, so rather than hand out a writable context mount yolo
+    SKIPS every read-only entry and says so — and it skips for the same
+    reason when it cannot read `container --version` at all, because the
+    safe error is the one that costs a mount rather than the one that costs
+    the guarantee.  A read-write entry is bound on every Apple Container
+    version: it needs nothing :ro provides.  "macos-user" delivers no context
+    mount yet, and a launch that declares one whose source exists REFUSES,
+    naming each entry and the remedy (a container runtime, or drop the entry
+    for that workspace); an entry whose source does not exist is skipped with
+    a warning, as on every backend.
 
   [bold]cache_relocations[/bold] (object): Put a jail cache subdir on other storage.
     Keys are cache SUBDIR NAMES, not paths — a single path segment, no "/",

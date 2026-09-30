@@ -7,8 +7,9 @@ package run
 //   - a BARE host path lands at /ctx/<basename>, and the basename comes from the
 //     SYMLINK-RESOLVED path — so ~/code/sysadmin behind a symlink does NOT land
 //     at /ctx/sysadmin;
-//   - :ro is not an option, it is the ONLY mode — there is no writable form of a
-//     `mounts` entry;
+//   - for a STRING entry :ro is not an option, it is the only mode — the one
+//     writable form is an object element with "mode": "rw", from the user scope
+//     alone (ctxmountsrw_test.go);
 //   - a docker-style ":ro" SUFFIX is not parsed as a mode. It is swallowed into
 //     the host path, which then does not exist, and the mount is SKIPPED with a
 //     warning. `yolo check` only warns too, so the config looks accepted.
@@ -98,8 +99,8 @@ func TestCtxMountBarePathGetsCtxBasenameAndRO(t *testing.T) {
 }
 
 // TestCtxMountExplicitDestIsStillReadOnly: the "host:/dest" form picks the
-// destination and NOTHING else. There is no writable form of a mounts entry, so
-// :ro is appended either way.
+// destination and NOTHING else. A string entry has no writable form, so :ro is
+// appended either way.
 func TestCtxMountExplicitDestIsStillReadOnly(t *testing.T) {
 	dir := t.TempDir()
 

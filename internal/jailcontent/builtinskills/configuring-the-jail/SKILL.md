@@ -155,14 +155,19 @@ taken **after symlink resolution**, so if `~/code/sysadmin` is a link to
 explicit `"~/code/sysadmin:/ctx/sysadmin"` form whenever you care about the name
 — which is any time you are about to tell someone the path.
 
-### 3. `mounts` is read-only, and `:ro` is NOT a suffix you write
+### 3. A string `mounts` entry is read-only, and `:ro` is NOT a suffix you write
 
-Read-only is the only mode there is; every entry gets `:ro` appended for you.
-There is no writable form. And a docker-style third field **silently breaks the
-mount**: `"~/x:/ctx/x:ro"` parses as one host path literally named
+Every string entry gets `:ro` appended for you. The one writable form is an
+object with a required mode — `{"host": "~/scratch", "at": "/ctx/scratch",
+"mode": "rw"}` — and it is **user-scope only**: in `yolo-jail.jsonc` (or the
+local file) it is a `yolo check` error and the launch refuses, so an agent
+cannot grant itself one. Ask the human to put it in
+`~/.config/yolo-jail/config.jsonc`. A docker-style third field **silently breaks
+the mount**: `"~/x:/ctx/x:ro"` parses as one host path literally named
 `~/x:/ctx/x:ro`, which does not exist, so the entry is skipped with a warning.
 `yolo check` only *warns* about it too — so the config looks accepted and mounts
-nothing. Two fields maximum.
+nothing. `":rw"` is refused outright. Two fields maximum. Wherever the backend
+puts context mounts, `$YOLO_CONTEXT_DIR` names the directory.
 
 ### 4. An in-jail `yolo check` CANNOT judge a `mounts` path
 

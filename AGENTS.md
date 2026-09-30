@@ -371,9 +371,12 @@ live, so edits are visible on the host instantly — there is no sync step.
   CREATION chokepoint and returns the breach as its error, and the walk STOPS at a boundary directory. There
   is deliberately no `YOLO_ALLOW_*`. ⚠ One path-based exemption exists, `paths.scopeExempt`, naming the
   `yolo capture` scratch store and nothing else.
-- **ONE host directory is bind-mounted WRITABLE into the jail, and it is the only one.** A recognised
-  **content-addressed** host cache is aliased at the path the jail's own copy of the tool already uses, so it
-  stops existing twice (`internal/hostcas`, [`hostcasalias.go`](internal/cli/run/hostcasalias.go);
+- **Exactly ONE host-TOOL-owned directory is bind-mounted WRITABLE into the jail, and the gate is
+  content addressing.** Every other writable host bind is the workspace itself or one the user named in
+  a trusted config source — `cache_relocations`, and a read-write `mounts` element, user scope only
+  (`config.LoadRWMounts`, [`context-mounts.md` §2.8](docs/design/context-mounts.md#28-the-agentsmd-invariant-restated))
+  — and each is disclosed. A recognised **content-addressed** host cache is aliased at the path the
+  jail's own copy of the tool already uses, so it stops existing twice (`internal/hostcas`, [`hostcasalias.go`](internal/cli/run/hostcasalias.go);
   [`OQ-BF10`](docs/design/disk-levers-and-backfill.md#OQ-BF10)). Today that set is pants' `lmdb_store`
   alone. **The gate is CONTENT ADDRESSING, and the reason is injection rather than size**: a path-keyed cache
   lets a jail write content the host tool later reads *because of where it sits*, the jail choosing both key

@@ -87,9 +87,9 @@ container rm <name>
   (**silent**), so a build that writes large temporary files counts against the memory cap.
 - `cache_relocations` is skipped with a warning.
 
-**Folders from your Mac.** `mounts`, `workspace_readonly` and folder sources in `host_files` need
-Apple Container 1.1.0 or later (`container --version`); below that each is skipped with a warning
-rather than made writable.
+**Folders from your Mac.** Read-only `mounts`, `workspace_readonly` and folder sources in
+`host_files` need Apple Container 1.1.0 or later (`container --version`); below that each is skipped
+with a warning rather than made writable. A read-write `mounts` entry works on any version.
 
 **Not available:** USB devices, GPUs, `/dev/kvm`, containers inside the jail, and `nix` inside the
 jail.
@@ -218,7 +218,9 @@ What you give up:
   requests that carry that launch's token, which any program in its sandbox can read, and stop
   when it exits. The Claude login's in-jail half needs a container, and
   the launch names it on one `Declined:` line.
-- **No `mounts`** and no folder sources in `host_files`; single files in `host_files` work.
+- **No `mounts`** and no folder sources in `host_files`; single files in `host_files` work. A
+  `mounts` entry, or a pack's `mount`, whose folder exists stops the launch and names itself,
+  rather than leaving the jail without it; use a container setup for those workspaces.
 - **No `per_side_paths`**: a `.venv` or `node_modules` in the project is shared between your Mac and
   the sandbox.
 - **No `cache_relocations`, `resources`, devices or GPU settings.** Each is named at launch.

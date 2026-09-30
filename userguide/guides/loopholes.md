@@ -10,7 +10,7 @@ ways in, then covers **loopholes**, the one kind that runs something on your hos
 | What | How you allow it | Guide |
 |---|---|---|
 | Your project | Always: it is mounted read-write at `/workspace` | [Getting Started](../getting-started.md#launch) |
-| Other folders, read-only | `mounts` | [Configuration](../reference/configuration.md) |
+| Other folders, read-only (or read-write from your user config) | `mounts` | [Configuration](../reference/configuration.md) |
 | Single host files, such as a dotfile | `host_files`, in your user config | [Settings per setup](../reference/settings-per-setup.md#workspace-mounts-and-host-files) |
 | Services on your host's network | `network.forward_host_ports`, or `host.containers.internal` | [Networking](networking.md) |
 | USB devices, GPUs, `/dev/kvm` | `devices`, `gpu`, `kvm` (Linux only) | [Devices and GPUs](devices-and-gpus.md) |

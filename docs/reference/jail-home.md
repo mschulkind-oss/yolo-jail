@@ -241,8 +241,11 @@ config reach — which is the whole of their scope story.
   writable path, which `HostFileEntry.StagingFor` sorts into three cases (below). Scope is
   **per entry**: a `source`-bearing entry is user-config-only, a source-less one is legal at
   any scope.
-- **`mounts`** — each `host[:container]` pair bound `:ro`, defaulting to `/ctx/<basename>`.
-  Nothing to do with the home.
+- **`mounts`** — each string `host[:container]` pair bound `:ro`, defaulting to `/ctx/<basename>`;
+  an object element `{"host", "at", "mode"}` with `"mode": "rw"`, read from the user scope only
+  (`config.LoadRWMounts`), is bound with no mode suffix and disclosed on every launch
+  (`run.configCtxMounts`, [`context-mounts.md` §2](../design/context-mounts.md#2-read-write-context-mounts)). Every container
+  launch carries `YOLO_CONTEXT_DIR=/ctx`. Nothing to do with the home.
 
 Where a `host_files` destination lands decides whether the composed write can succeed at
 all:

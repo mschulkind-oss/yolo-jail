@@ -31,7 +31,7 @@ yolo check
 
 Most keys work in either file. Put personal defaults in your user config and what the project needs
 in `yolo-jail.jsonc`: its `packages`, `mise_tools`, MCP and language servers, `resources`, ports,
-devices, and read-only `mounts`.
+devices, and read-only `mounts`. A read-write `mounts` entry goes in your user config.
 
 Some keys work **only in your user config**. The project folder is writable from inside the jail,
 so a key that could grant an agent more (new skills, a program on your host, a different model
@@ -72,7 +72,7 @@ A typical project config:
     "ports": ["3000:3000"],                      // open the dev server from your host
     "forward_host_ports": [5432]                 // reach the host's Postgres from the jail
   },
-  "mounts": ["~/code/shared-lib"],               // read-only, under /ctx in the jail
+  "mounts": ["~/code/shared-lib"],               // read-only, under /ctx ($YOLO_CONTEXT_DIR) in the jail
   "resources": { "memory": "8g", "cpus": 4 }
 }
 ```
