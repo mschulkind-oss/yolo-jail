@@ -1076,8 +1076,9 @@ whitelist a generic row takes (`TestOpencodeWhitelistsANarrowedListOnItsOwnBedro
 tier under the allowlist, as §14.2 read it; that pi's shipped bundle resolves the catalog import
 in `yolo-model-lists.js`, the same UNMEASURED question [ML-D3](#ML-D3)'s extension has; that pi
 0.99 shows "OpenAI Codex" for the registration's `name`; that oh-omp 0.15.3 reads the scope from
-`config.yml` beside the settings it writes there itself; and that copilot keeps the footer
-default in `settings.json` rather than moving it again.
+`config.yml` beside the settings it writes there itself; that copilot keeps the footer
+default in `settings.json` rather than moving it again; and that opencode's `whitelist` narrows
+its built-in `amazon-bedrock` catalog as the §14.1 research read it doing for a gateway it ships.
 
 ---
 
