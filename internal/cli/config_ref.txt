@@ -1221,6 +1221,12 @@
                     (true, 1, yes, on) and the agent's selected provider is not of that
                     platform, the launch prints one line naming the key and both fixes,
                     and says so when the key is one `yolo host apply` wrote.
+                    Also takes `platform_regions`: [{platform, region_env_name:[NAME...]}]
+                    — the region variables this program reads on that platform, where it
+                    reads fewer than the platform's providers list.  The region check then
+                    counts only those for this agent: opencode's pack lists AWS_REGION
+                    for "aws-bedrock", because opencode ignores AWS_DEFAULT_REGION, so a
+                    launch delivering opencode only AWS_DEFAULT_REGION is refused.
       blocked-tool  {bin, message, suggestion, replacement, flags} — refuse a tool
                     inside the jail and print an alternative.  `flags` limits the block
                     to matching argv (absent = always); `replacement` names the binary

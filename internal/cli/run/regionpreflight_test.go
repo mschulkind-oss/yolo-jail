@@ -275,3 +275,47 @@ func TestTheRegionIsAskedOfEachAgentOnTheProvider(t *testing.T) {
 		t.Errorf("control: a region on claude's provider satisfies it:\n%s", strings.Join(lines, "\n"))
 	}
 }
+
+// OPENCODE IS ASKED ONLY FOR AWS_REGION (BR-D18): its Bedrock loader never reads
+// AWS_DEFAULT_REGION and falls back to us-east-1, so an env_sources AWS_DEFAULT_REGION that
+// satisfies claude beside it is no region for opencode, and the launch is refused naming
+// opencode alone and the variable that reached it unread. Through the shared entry point every
+// jail arm calls, over the shipped packs, so it fails if packs/opencode stops declaring its
+// variables or the pre-flight stops asking each agent for its own.
+func TestOpencodeOnBedrockIsNotGivenARegionItDoesNotRead(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	o := retireOptions(t, discardBuf())
+	o.Getenv = shellWith(nil)
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "opencode"),
+		officialPack(t, "openai-auth"), officialPack(t, "bedrock")}
+	o.UseProfiles = map[string]string{"claude": "bedrock", "opencode": "bedrock"}
+
+	env := userEnvWith(map[string]string{"AWS_DEFAULT_REGION": "eu-west-1"})
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, env), nil)
+	got := strings.Join(lines, "\n")
+	if !refuse || !strings.Contains(got, `requires a region for provider "bedrock" (platform "aws-bedrock"), selected for opencode:`) {
+		t.Fatalf("opencode given only AWS_DEFAULT_REGION must be refused (refuse=%v):\n%s", refuse, got)
+	}
+	for _, want := range []string{"AWS_REGION is not set in what this launch delivers to opencode",
+		`AWS_DEFAULT_REGION reaches opencode, which does not read it: pack opencode says opencode reads its region on "aws-bedrock" from AWS_REGION alone`,
+		"AWS_REGION=<region> in an env_sources entry"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal must say %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "selected for claude") || strings.Contains(got, "claude and opencode") {
+		t.Errorf("claude reads AWS_DEFAULT_REGION and must not be named:\n%s", got)
+	}
+
+	env = userEnvWith(map[string]string{"AWS_REGION": "eu-west-1"})
+	if lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, env), nil); refuse {
+		t.Errorf("control: AWS_REGION satisfies opencode and claude:\n%s", strings.Join(lines, "\n"))
+	}
+	cfg := newConfig()
+	withBedrockRegion(cfg)
+	if lines, refuse := o.checkProviderCredentials(cfg, packs, channelFor(t, o, cfg, packs, emptyEnv()), nil); refuse {
+		t.Errorf("control: the provider's region satisfies opencode, whose derive writes it as options.region:\n%s",
+			strings.Join(lines, "\n"))
+	}
+}

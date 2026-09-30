@@ -260,3 +260,67 @@ func TestAUserBedrockProviderIsRequiredARegionLikeTheShippedOne(t *testing.T) {
 		t.Errorf("a user Bedrock provider must be required a region from the bedrock pack's variables:\n%s", got)
 	}
 }
+
+// A PROGRAM THAT READS FEWER OF THE PLATFORM'S VARIABLES is asked about its own (BR-D18): an agent
+// whose pack declares `platform_regions` for the platform counts only those, so a variable only
+// the platform lists, delivered to it, is no region for it; and the refusal says that variable
+// reached it unread. An agent beside it that declares nothing is asked about every variable.
+func TestAProgramIsAskedOnlyForTheRegionVariablesItReads(t *testing.T) {
+	agent := &Pack{Name: "narrow", Decl: declFrom(t, `{"contributes":[{"kind":"program","bin":"narrow",
+	  "package":"narrow","via":"npm","platform_regions":[{"platform":"cloud","region_env_name":["AWS_REGION"]}]}]}`)}
+	packs := []*Pack{regionalPack(t), agent}
+	table := compose(t, nil, packs)
+	defaultOnly := lookupOf(map[string]string{"AWS_DEFAULT_REGION": "eu-west-1"})
+
+	facts := ProviderRegionGaps(packs, table, []RegionAsk{
+		{Agent: "narrow", Provider: "regional", Lookup: defaultOnly},
+		{Agent: "claude", Provider: "regional", Lookup: defaultOnly},
+	}, nil, nil)
+	got := strings.Join(facts, "\n")
+	for _, want := range []string{
+		`pack cloudy requires a region for provider "regional" (platform "cloud"), selected for narrow: ` +
+			`its composed entry sets no "region", and AWS_REGION is not set in what this launch delivers to narrow`,
+		`AWS_DEFAULT_REGION reaches narrow, which does not read it: pack narrow says narrow reads its region on "cloud" from AWS_REGION alone`,
+		"AWS_REGION=<region> in an env_sources entry",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the facts must say %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "selected for claude") || strings.Contains(got, "narrow and claude") {
+		t.Errorf("claude reads AWS_DEFAULT_REGION, so it has a region and must not be named:\n%s", got)
+	}
+
+	// Its own variable satisfies it, and so does the provider's region.
+	if facts := ProviderRegionGaps(packs, table, []RegionAsk{{Agent: "narrow", Provider: "regional",
+		Lookup: lookupOf(map[string]string{"AWS_REGION": "eu-west-1"})}}, nil, nil); facts != nil {
+		t.Errorf("AWS_REGION delivered to narrow satisfies it:\n%s", strings.Join(facts, "\n"))
+	}
+	withRegion := compose(t, userProviders(t, `{"regional":{"region":"eu-west-1"}}`), packs)
+	if facts := ProviderRegionGaps(packs, withRegion, []RegionAsk{{Agent: "narrow", Provider: "regional",
+		Lookup: defaultOnly}}, nil, nil); facts != nil {
+		t.Errorf("the provider's region satisfies narrow:\n%s", strings.Join(facts, "\n"))
+	}
+	// A platform the program lists nothing for is asked about every variable.
+	other := &Pack{Name: "narrow", Decl: declFrom(t, `{"contributes":[{"kind":"program","bin":"narrow",
+	  "package":"narrow","via":"npm","platform_regions":[{"platform":"elsewhere","region_env_name":["X"]}]}]}`)}
+	if facts := ProviderRegionGaps([]*Pack{regionalPack(t), other}, table, []RegionAsk{{Agent: "narrow",
+		Provider: "regional", Lookup: defaultOnly}}, nil, nil); facts != nil {
+		t.Errorf("a list for another platform must not narrow this one:\n%s", strings.Join(facts, "\n"))
+	}
+}
+
+// THE SHIPPED DECLARATION: packs/opencode says opencode reads AWS_REGION alone on aws-bedrock,
+// since opencode 1.18.32's Bedrock loader never reads AWS_DEFAULT_REGION and falls back to
+// us-east-1. Read from the embedded packs, so deleting the declaration fails here.
+func TestTheShippedOpencodeReadsOnlyAWSRegionOnBedrock(t *testing.T) {
+	opencode := shippedPack(t, "opencode")
+	if got := strings.Join(opencode.Decl.RegionEnvNamesFor("opencode", "aws-bedrock"), ","); got != "AWS_REGION" {
+		t.Errorf("packs/opencode's region variables on aws-bedrock = %q, want AWS_REGION", got)
+	}
+	for _, agent := range []string{"claude", "codex", "pi"} {
+		if got := shippedPack(t, agent).Decl.RegionEnvNamesFor(agent, "aws-bedrock"); got != nil {
+			t.Errorf("packs/%s narrows aws-bedrock's region variables to %v; its client reads both", agent, got)
+		}
+	}
+}

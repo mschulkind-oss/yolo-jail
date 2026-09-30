@@ -87,8 +87,9 @@ Bedrock, yolo pins codex's `model_provider`, so `codex login` cannot switch that
 another Bedrock login; pick another profile for that.
 
 opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`. yolo writes its `options.region`
-from a region you set on the provider, so set it there, or deliver `AWS_REGION`: with only
-`AWS_DEFAULT_REGION` set, the launch proceeds and opencode uses `us-east-1`.
+from a region you set on the provider, so set it there, or deliver `AWS_REGION`: a launch that
+gives opencode only `AWS_DEFAULT_REGION` is refused, since opencode would otherwise use
+`us-east-1`.
 
 pi lists the models under its own `amazon-bedrock` provider. An id pi's own catalog also holds
 takes the facts this list declares in place of pi's (its cost and thinking levels among them),

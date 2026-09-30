@@ -8,6 +8,14 @@
       },
       "kind": "program",
       "package": "opencode-ai",
+      "platform_regions": [
+        {
+          "platform": "aws-bedrock",
+          "region_env_name": [
+            "AWS_REGION"
+          ]
+        }
+      ],
       "protocols": [
         "openai"
       ],

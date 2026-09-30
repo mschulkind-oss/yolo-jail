@@ -599,6 +599,19 @@ type Contribution struct {
 	// says where its agent's switch lives, and core reads it there. ON `program` ALONE: the
 	// switch is a fact about that binary's own configuration.
 	PlatformSwitches []PlatformSwitch `json:"platform_switches,omitempty"`
+	// PlatformRegions say which of a platform's region variables THIS program reads, where it
+	// reads fewer than the platform's providers list under `region_env_name`: packs/opencode
+	// declares that opencode reads AWS_REGION on "aws-bedrock" and not AWS_DEFAULT_REGION,
+	// which opencode 1.18.32's Bedrock loader never consults (it falls back to "us-east-1"
+	// instead). The region pre-flight then asks this program for a region among its own list
+	// alone, so a launch that delivers opencode only AWS_DEFAULT_REGION is refused rather than
+	// sent to a region nobody chose (packload.ProviderRegionGaps; docs/design/bedrock-plumbing.md
+	// BR-D18). See PlatformRegion.
+	//
+	// A PACK FACT for the reason `platform_switches` is one: which variable a binary reads is a
+	// fact about that binary, and core names no variable. ON `program` ALONE. A platform the
+	// program lists nothing for is asked about every variable its providers list.
+	PlatformRegions []PlatformRegion `json:"platform_regions,omitempty"`
 
 	// --- adapter (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1) ---
 	// Adapts is the protocol PAIR this contribution converts, and Address is where the
@@ -3071,6 +3084,7 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, capabilitiesProblems(label, c)...)
 	problems = append(problems, protocolsProblems(label, c)...)
 	problems = append(problems, platformSwitchProblems(label, c)...)
+	problems = append(problems, platformRegionProblems(label, c)...)
 	problems = append(problems, envOverrideProblems(label, c)...)
 	// `adapts` and `address` are the adapter's whole body, refused elsewhere in `profile`'s
 	// position and for its reason: on any other kind they are read by no consumer, so

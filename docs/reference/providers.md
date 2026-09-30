@@ -7,6 +7,7 @@ covers:
   - internal/packdecl/envnames.go
   - internal/packdecl/platform.go
   - internal/packdecl/region.go
+  - internal/packdecl/platformregion.go
   - internal/packload/regionpreflight.go
   - internal/packload/platformswitch.go
   - internal/packload/credentialscope.go
@@ -295,8 +296,10 @@ a key while Bedrock's is the AWS chain ([BR-D10](../design/bedrock-plumbing.md#B
 | opencode | built-in `amazon-bedrock` | `provider["amazon-bedrock"]` with the list's models and `options.region` only for a provider-declared region, no `npm` and no endpoint; `model` and `small_model` `amazon-bedrock/<id>`, `enabled_providers` naming it |
 | pi | built-in `amazon-bedrock` on Converse | `providers["amazon-bedrock"].models` in models.json with each entry's facts and no `baseUrl`, `api` or `apiKey`; `defaultProvider`/`defaultModel`, `enabledModels` and pi-subagents' policy over the list; `AWS_REGION` from the provider's `region` in pi's environment |
 
-⚠ opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`, so with only the latter delivered and
-no `region` on the provider, the launch proceeds and opencode uses `us-east-1`. ⚠ A pi row replaces
+opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`, and falls back to `us-east-1`, so its
+pack says so under `platform_regions` and [the region preflight](#the-region-preflight) counts
+`AWS_REGION` alone for it: with only `AWS_DEFAULT_REGION` delivered and no `region` on the
+provider, an opencode launch is refused ([BR-D18](../design/bedrock-plumbing.md#BR-D18)). ⚠ A pi row replaces
 pi's own catalog entry of the same id, so pi takes the list's facts for it and loses its own cost
 and thinking levels.
 
@@ -372,7 +375,12 @@ its first Bedrock request, and claude, opencode and pi silently use `us-east-1`.
   the `env_sources` the credential gate delivers to it, a selected pack's shared `kind: "env"`,
   its own gated env and provider environment, and, on a container, the argv's `-e` pairs, which
   every process inherits. A value only another agent receives does not count
-  ([BR-D4](../design/bedrock-plumbing.md#BR-D4)). It is never the shell yolo was launched from,
+  ([BR-D4](../design/bedrock-plumbing.md#BR-D4)). Nor does a variable the agent does not read:
+  an agent's own pack may list, under its program's `platform_regions`, the variables that
+  agent reads on a platform, and the preflight then counts only those for it. packs/opencode
+  lists `AWS_REGION` for `aws-bedrock`, so `AWS_DEFAULT_REGION` alone is no region for opencode,
+  and the refusal says it reached opencode unread
+  ([BR-D18](../design/bedrock-plumbing.md#BR-D18)). It is never the shell yolo was launched from,
   which no backend forwards; a region found only there is named in the refusal as not
   delivered. At `yolo host --` the exec'd environment includes that shell, so it counts
   ([BR-D2](../design/bedrock-plumbing.md#BR-D2)). A region in `~/.aws/config` is not counted,
@@ -1530,7 +1538,7 @@ above explains what each is for; this table is the only place the exact spelling
 | Makers each Bedrock client calls | claude `anthropic`; codex `openai`; opencode and pi every maker | `packs/{claude,codex,opencode,pi}/derive.lua` (`callableModels`) |
 | Bedrock built-in provider ids | codex `amazon-bedrock-runtime`; opencode `amazon-bedrock`; pi `amazon-bedrock` | `packs/{codex,opencode,pi}/derive.lua` |
 | The bridge-forcing Bedrock profile | `bedrock-bridge` = `{provider: bedrock, via: wire-bridge}` | `packs/bedrock/pack.json` |
-| Region requirement | a provider's `region_env_name` beside its `platform` (pack manifests only), a requirement of every provider of that platform; the bedrock pack's `bedrock` declares `AWS_REGION`, `AWS_DEFAULT_REGION` for `aws-bedrock` | `packs/bedrock/pack.json`, `packload.ProviderRegionGaps` |
+| Region requirement | a provider's `region_env_name` beside its `platform` (pack manifests only), a requirement of every provider of that platform; the bedrock pack's `bedrock` declares `AWS_REGION`, `AWS_DEFAULT_REGION` for `aws-bedrock`; a program's `platform_regions` narrows the list for that agent alone, and packs/opencode's lists `AWS_REGION` | `packs/bedrock/pack.json`, `packload.ProviderRegionGaps` |
 | Kinds that take the `profile` modifier | `env`, `config-overlay` — refused on every other kind; no shipped pack uses it | `packdecl` `validateContribution` |
 | Kinds that take the `platform` gate | `env` — one gate per contribution, `profile` or `platform`; `platform` on `provider` is the declaration | `packdecl` `validateContribution` |
 | Platform switches | a `program`'s `platform_switches` `[{platform, surface, pointer}]`; claude's: `aws-bedrock`, `claude/settings`, `/env/CLAUDE_CODE_USE_BEDROCK`; on when `true`, `1`, `yes` or `on` | `packs/claude/pack.json`, `packload.PlatformSwitchConflicts` |

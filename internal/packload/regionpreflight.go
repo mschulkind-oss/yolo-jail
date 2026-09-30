@@ -41,6 +41,13 @@ package packload
 // each notch hands one RegionAsk per agent whose profile selects a provider, with a lookup
 // answering for that agent alone, and the refusal names the agents that receive no region.
 //
+// AND IN THE VARIABLES THAT AGENT READS. A program may read fewer of the platform's variables
+// than its providers list, and its pack says so under `platform_regions` (agentRegionVars):
+// opencode 1.18.32 reads AWS_REGION and never AWS_DEFAULT_REGION, falling back to us-east-1, so
+// counting AWS_DEFAULT_REGION for it let exactly the launch this pre-flight exists to stop go
+// through. Such an agent is asked about its own list, and a platform variable that reached it
+// unread is named in the refusal (docs/design/bedrock-plumbing.md BR-D18).
+//
 // SCOPED LIKE THE CREDENTIAL PRE-FLIGHT: a provider no agent's profile selects is no
 // requirement, and an entry the composed table does not hold (the user's `null`) is nobody's.
 
@@ -127,8 +134,9 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []Regio
 		return nil
 	}
 	reqs := regionRequirements(packs)
-	// missing is, per provider, the agents on it that receive no region.
-	missing := map[string][]string{}
+	// missing is, per provider, the gaps on it: the agents that receive no region, grouped by
+	// the variables they read, since a program may read fewer than its platform lists.
+	missing := map[string][]*regionGap{}
 	for _, ask := range asks {
 		entry := providerEntry(providers, ask.Provider)
 		if entry == nil {
@@ -136,7 +144,8 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []Regio
 		}
 		// THE PLATFORM, off the composed entry: pack default under user override, so a user
 		// provider that says it is "aws-bedrock" meets the requirement the shipped one does.
-		req, ok := reqs[entryString(entry, "platform")]
+		platform := entryString(entry, "platform")
+		req, ok := reqs[platform]
 		if !ok || entryString(entry, "region") != "" {
 			continue
 		}
@@ -144,34 +153,49 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []Regio
 		if lookup == nil {
 			lookup = func(string) (string, bool) { return "", false }
 		}
-		if anySet(req.vars, lookup) {
+		vars, narrowedBy := agentRegionVars(packs, ask.Agent, platform, req.vars)
+		if anySet(vars, lookup) {
 			continue
 		}
-		if !slices.Contains(missing[ask.Provider], ask.Agent) {
-			missing[ask.Provider] = append(missing[ask.Provider], ask.Agent)
+		gap := gapFor(missing, ask.Provider, vars)
+		if slices.Contains(gap.agents, ask.Agent) {
+			continue
+		}
+		gap.agents = append(gap.agents, ask.Agent)
+		// A variable the platform lists and this agent does not read, delivered to it anyway:
+		// the one form of this mistake the user can see, since the value is in their config.
+		for _, v := range req.vars {
+			if slices.Contains(vars, v) {
+				continue
+			}
+			if val, ok := lookup(v); ok && val != "" {
+				gap.unread = append(gap.unread, "    "+v+" reaches "+ask.Agent+", which does not read it: "+
+					"pack "+narrowedBy+" says "+ask.Agent+" reads its region on "+quoted(platform)+
+					" from "+orList(vars)+" alone")
+			}
 		}
 	}
 	var facts []string
 	for _, name := range providers.Keys() {
-		agents := missing[name]
-		if len(agents) == 0 {
-			continue
-		}
-		sort.Strings(agents)
 		platform := entryString(providerEntry(providers, name), "platform")
 		req := reqs[platform]
-		facts = append(facts, "  • pack "+req.pack+" requires a region for provider "+quoted(name)+
-			" (platform "+quoted(platform)+"), selected for "+andList(agents)+": its composed "+
-			"entry sets no \"region\", and "+noneSetPhrase(req.vars)+" in what this launch "+
-			"delivers to "+andList(agents))
-		for _, v := range req.vars {
-			if stranded != nil && stranded(v) {
-				facts = append(facts, "    "+v+" is set in the environment yolo was launched from, "+
-					"which this launch does not deliver to the agent")
+		for _, gap := range missing[name] {
+			agents := slices.Clone(gap.agents)
+			sort.Strings(agents)
+			facts = append(facts, "  • pack "+req.pack+" requires a region for provider "+quoted(name)+
+				" (platform "+quoted(platform)+"), selected for "+andList(agents)+": its composed "+
+				"entry sets no \"region\", and "+noneSetPhrase(gap.vars)+" in what this launch "+
+				"delivers to "+andList(agents))
+			facts = append(facts, gap.unread...)
+			for _, v := range gap.vars {
+				if stranded != nil && stranded(v) {
+					facts = append(facts, "    "+v+" is set in the environment yolo was launched from, "+
+						"which this launch does not deliver to the agent")
+				}
 			}
+			facts = append(facts, fmt.Sprintf("    set one: \"providers\": {%q: {\"region\": \"<region>\"}} "+
+				"in your yolo config, or %s=<region> in an env_sources entry", name, gap.vars[0]))
 		}
-		facts = append(facts, fmt.Sprintf("    set one: \"providers\": {%q: {\"region\": \"<region>\"}} "+
-			"in your yolo config, or %s=<region> in an env_sources entry", name, req.vars[0]))
 	}
 	if len(facts) == 0 {
 		return nil
@@ -181,6 +205,57 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []Regio
 		where += ", then " + strings.Join(consulted, ", ")
 	}
 	return append(facts, "  consulted for a region: "+where)
+}
+
+// regionGap is one refusal fact of the region pre-flight: the agents on one provider that
+// receive none of the variables they read, those variables, and the lines naming a variable
+// the platform lists that reached one of them unread.
+type regionGap struct {
+	vars   []string
+	agents []string
+	unread []string
+}
+
+// gapFor returns provider's gap for agents reading vars, adding one in first-seen order.
+func gapFor(missing map[string][]*regionGap, provider string, vars []string) *regionGap {
+	for _, g := range missing[provider] {
+		if slices.Equal(g.vars, vars) {
+			return g
+		}
+	}
+	g := &regionGap{vars: vars}
+	missing[provider] = append(missing[provider], g)
+	return g
+}
+
+// agentRegionVars is the region variables agent reads on platform: the list the program's own
+// pack declares under `platform_regions` for it (packdecl.Contribution.PlatformRegions), and the
+// pack that declared it, or else the platform's own list and "". Found by BIN OWNERSHIP, the rule
+// AgentEnv finds an agent's env producer by: the selected pack that installs the agent's CLI is
+// the one that can say which variables that CLI reads. opencode's is the shipped case: its
+// Bedrock loader reads AWS_REGION and never AWS_DEFAULT_REGION, falling back to us-east-1, so
+// counting the latter for it let a launch through to a region nobody chose (BR-D18).
+func agentRegionVars(packs []*Pack, agent, platform string, platformVars []string) ([]string, string) {
+	owner := binOwner(packs, agent)
+	if owner == nil || owner.Decl == nil {
+		return platformVars, ""
+	}
+	if own := owner.Decl.RegionEnvNamesFor(agent, platform); len(own) > 0 {
+		return own, owner.Name
+	}
+	return platformVars, ""
+}
+
+// orList joins names as alternatives in English: "a", "a or b", "a, b or c".
+func orList(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	default:
+		return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
+	}
 }
 
 // RegionConsulted is the region pre-flight's consulted list for a notch: the env_sources

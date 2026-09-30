@@ -229,8 +229,9 @@ one.** An agent needs a region to reach Bedrock, and yolo used to start it witho
 then failed at its first request, and Claude Code, opencode and pi quietly used `us-east-1`. Set
 `"providers": {"bedrock": {"region": "…"}}` in your config or `AWS_REGION` in an `env_sources`
 entry. Each agent on Bedrock must receive a region itself, so a region only another agent gets
-does not count for it, and a Bedrock provider you declare yourself with
-`"platform": "aws-bedrock"` is checked the same way. In a jail, an `AWS_REGION` exported only in
+does not count for it, and neither does one the agent ignores: opencode reads `AWS_REGION` and
+not `AWS_DEFAULT_REGION`, so it is refused with only the latter. A Bedrock provider you declare
+yourself with `"platform": "aws-bedrock"` is checked the same way. In a jail, an `AWS_REGION` exported only in
 your own shell does not count, because it never reaches the jail, and the refusal says when it
 saw one there. `yolo host -p bedrock -- claude` counts your shell's value, since the agent
 inherits it. A region in `~/.aws/config` does not count anywhere, because yolo does not read that

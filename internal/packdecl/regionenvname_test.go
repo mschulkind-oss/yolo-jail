@@ -89,3 +89,48 @@ func TestAProviderRegionIsOneDNSLabel(t *testing.T) {
 		t.Errorf("control: a region is legal: %v", problems)
 	}
 }
+
+// A PROGRAM MAY SAY WHICH OF A PLATFORM'S REGION VARIABLES IT READS (`platform_regions`): opencode
+// 1.18.32 reads AWS_REGION and not AWS_DEFAULT_REGION, so the region pre-flight must not count the
+// latter for it. The list decodes onto the program's projection a launch reads
+// (RegionEnvNamesFor), per platform; a platform the program lists nothing for answers nil.
+func TestAProgramMayNarrowAPlatformsRegionVariables(t *testing.T) {
+	m, problems := Decode([]byte(`{"contributes":[{"kind":"program","bin":"agent","package":"agent",` +
+		`"via":"npm","platform_regions":[{"platform":"aws-bedrock","region_env_name":["AWS_REGION"]}]}]}`))
+	if len(problems) != 0 {
+		t.Fatalf("a program's platform_regions is legal: %v", problems)
+	}
+	if got := strings.Join(m.RegionEnvNamesFor("agent", "aws-bedrock"), ","); got != "AWS_REGION" {
+		t.Errorf("RegionEnvNamesFor(agent, aws-bedrock) = %q, want AWS_REGION", got)
+	}
+	if got := m.RegionEnvNamesFor("agent", "other"); got != nil {
+		t.Errorf("a platform the program lists nothing for must answer nil, got %v", got)
+	}
+	if got := m.RegionEnvNamesFor("someone-else", "aws-bedrock"); got != nil {
+		t.Errorf("a bin the manifest does not install must answer nil, got %v", got)
+	}
+}
+
+func TestAProgramsRegionVariablesAreValidated(t *testing.T) {
+	program := func(body string) string {
+		return `{"contributes":[{"kind":"program","bin":"agent","package":"agent","via":"npm","platform_regions":` + body + `}]}`
+	}
+	for name, tc := range map[string]struct{ manifest, want string }{
+		"no platform":      {program(`[{"region_env_name":["AWS_REGION"]}]`), `needs the "platform"`},
+		"a spaced one":     {program(`[{"platform":"aws bedrock","region_env_name":["AWS_REGION"]}]`), "carries whitespace"},
+		"no variables":     {program(`[{"platform":"aws-bedrock"}]`), "names no variable"},
+		"a bad name":       {program(`[{"platform":"aws-bedrock","region_env_name":["NOT-A-NAME"]}]`), "invalid env var name"},
+		"a platform twice": {program(`[{"platform":"p","region_env_name":["A"]},{"platform":"p","region_env_name":["B"]}]`), "listed twice"},
+		"on another kind": {`{"contributes":[{"kind":"env","vars":{"A":"b"},` +
+			`"platform_regions":[{"platform":"p","region_env_name":["A"]}]}]}`, `does not take "platform_regions"`},
+		"region_env_name on a program": {`{"contributes":[{"kind":"program","bin":"agent","package":"agent","via":"npm",` +
+			`"region_env_name":["AWS_REGION"]}]}`, `does not take "region_env_name"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, problems := Decode([]byte(tc.manifest))
+			if got := strings.Join(problems, "\n"); !strings.Contains(got, tc.want) {
+				t.Errorf("want a refusal saying %q, got:\n%s", tc.want, got)
+			}
+		})
+	}
+}
