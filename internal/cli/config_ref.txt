@@ -1769,7 +1769,8 @@
     A list of one is the plain name.  An empty list is refused (null means "none"), as is a
     name listed twice, two entries on one provider, two on one regional platform (two
     Bedrock providers share the agent's one AWS_REGION), and a via profile anywhere but
-    first.  Every name must be declared, the entries an agent ignores included.
+    first.  Every name must be declared, the entries a bare list's narrowed agents ignore
+    included.
     On the command line a comma continues one agent's list: `-p pi=zai,openrouter` (a
     later `-p pi=…` replaces the whole list, as a `-p` pair replaces the key's).  A profile
     name may not contain a comma, and in this key a list is a JSON array, never a comma
