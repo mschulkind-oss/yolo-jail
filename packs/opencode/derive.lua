@@ -300,6 +300,24 @@ yolo.derive("opencode", "config", function(ctx)
         elseif isLocalEndpoint(baseUrl) then
           entry.options.apiKey = "local"
         end
+        -- UNDER AN `only` (docs/design/model-lists-and-pickers.md §14.1, MM-D7): the list a
+        -- `models` contribution narrowed (packload's `models_only`) is opencode's menu for this
+        -- provider. opencode starts a config provider from its catalog entry of the same id, so
+        -- the rows above add beside that catalog and cannot narrow it; `whitelist` is the one
+        -- lever, and it also refuses every other model ("Model not found"), so it renders only
+        -- while the profile's switch is on (enforce_models, MM-D5). Off, the menu is not
+        -- narrowed. opencode orders the menu itself, newest first, and yolo fakes no
+        -- release_date to reorder it.
+        --
+        -- NOT for a list no `only` narrowed: what a list that only adds does to opencode's own
+        -- catalog is OQ-MM1's, and whether a list refuses on a gateway serving more than it is
+        -- OQ-MM3's, both unruled; such a row stays as it was.
+        if prov.models_only == true and ctx.enforce_models ~= false and next(models) ~= nil then
+          local ids = {}
+          for id in pairs(models) do table.insert(ids, id) end
+          table.sort(ids)
+          entry.whitelist = ids
+        end
         provOut[name] = entry
       end
     end
