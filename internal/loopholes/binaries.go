@@ -131,7 +131,8 @@ func (l *Loophole) jailBinarySource(n BinaryNeed) string {
 // INSIDE A JAIL, presence decides, as it does for bind mounts (inJailActive): a jail daemon's
 // build counts when the outer launch mounted it at its container path, whether or not this
 // jail's own cache holds a copy — a nested launch binds that copy on (jailBinarySource) — and a
-// host reference is the host's business, not this jail's.
+// host reference is the host's business, not this jail's. That last answer is the REPORT's; a
+// nested launch's spawn asks hostBinariesUnready too, since it execs host daemons from here.
 func (l *Loophole) BinariesFetched() bool {
 	_, missing := l.UnfetchedBinaryReason()
 	return !missing
@@ -156,7 +157,10 @@ func (l *Loophole) UnfetchedBinaryReason() (string, bool) {
 
 // hostBinariesUnready is why a HOST reference's build cannot run here, or ("", false): the
 // doctor's gate, since doctor_cmd is a host field and runs from `yolo check` and `yolo
-// loopholes status` whatever the loophole's state.
+// loopholes status` whatever the loophole's state, and the SPAWN's (manifestHostDaemonSpecs,
+// BrokeredToStart). Out of a jail Active() already implies it; inside one it does not, because
+// BinariesFetched leaves a host build to the host while a nested launch execs its host daemons
+// from this jail's own cache.
 func (l *Loophole) hostBinariesUnready() (string, bool) {
 	for _, n := range l.BinaryNeeds() {
 		if n.Jail {

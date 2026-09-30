@@ -329,3 +329,53 @@ func TestInAJailAHostBuildIsTheHostsBusiness(t *testing.T) {
 		t.Errorf("in a jail, an uncached HOST build made the loophole read as off: %s", r)
 	}
 }
+
+// A NESTED LAUNCH runs its host daemons in THIS jail, so the rule above (a host build is the
+// host's business) cannot also decide the spawn: the argv names this jail's cache, and a build
+// it lacks is a file this jail does not have. The spawn list leaves the daemon out and says why,
+// as the doctor does (BP-D6), and admits it once the build is here. Deleting the
+// hostBinariesUnready gate in manifestHostDaemonSpecs fails this.
+func TestANestedLaunchStartsNoHostDaemonWhoseBuildItLacks(t *testing.T) {
+	_, cache, md := loadHostTool(t)
+	t.Setenv("YOLO_VERSION", "test")
+	said := captureWarnings(t)
+	set := approvedSetFrom(md)
+	if specs := set.ManifestHostDaemonSpecs(set.Enabled()); specs.Len() != 0 {
+		got, _ := jsonxDump(specs)
+		t.Fatalf("a nested launch would spawn a host build its own cache lacks: %s", got)
+	}
+	if joined := strings.Join(*said, "\n"); !strings.Contains(joined, "hosttool") ||
+		!strings.Contains(joined, "yolo pack install") {
+		t.Errorf("the daemon left out was not explained, naming the loophole and the fix: %q", *said)
+	}
+	cacheBuild(t, cache, sumHost, "toold")
+	if specs := set.ManifestHostDaemonSpecs(set.Enabled()); specs.Len() != 1 {
+		t.Error("with the build in this jail's cache, the nested launch still leaves the daemon out")
+	}
+}
+
+// The brokered half of the same rule: a scope file is written for exactly the brokers that will
+// start (brokered.go), so a broker whose host build a nested launch lacks is not one of them.
+// Deleting the hostBinariesUnready gate in BrokeredToStart fails this.
+func TestANestedLaunchCountsNoBrokerWhoseBuildItLacks(t *testing.T) {
+	unsetJail(t)
+	cache := isolateBinaryCache(t)
+	md := modsDir(t)
+	mod := mkdir(t, filepath.Join(md, "gb"))
+	writeManifest(t, mod, map[string]any{
+		"name": "gb", "description": "a broker that runs toold", "transport": "loopback-tls",
+		"binaries": map[string]any{"toold": builds(map[string]string{hostPlatform: sumHost})},
+		"host_daemon": map[string]any{"cmd": []any{"{binary:toold}", "{repository_scope}"},
+			"publishes": "socket"},
+		"brokered": map[string]any{"source": "gbsrc", "remote_host": "github.com"},
+	})
+	t.Setenv("YOLO_VERSION", "test")
+	set := approvedSetFrom(md)
+	if got := set.BrokeredToStart(nil); len(got) != 0 {
+		t.Fatalf("a nested launch counts a broker whose host build its cache lacks: %v", got[0].Name)
+	}
+	cacheBuild(t, cache, sumHost, "toold")
+	if got := set.BrokeredToStart(nil); len(got) != 1 {
+		t.Error("with the build in this jail's cache, the broker is still not counted")
+	}
+}

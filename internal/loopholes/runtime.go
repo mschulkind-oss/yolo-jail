@@ -561,6 +561,15 @@ func manifestHostDaemonSpecs(loopholes []*Loophole, gate *Set) *jsonx.OrderedMap
 		if !gateAdmitsCrossing(m, gate, "ManifestHostDaemonSpecs") {
 			continue
 		}
+		// A daemon whose argv names a downloaded build this machine lacks is not spawned,
+		// and the launch says why (binaries.go). Out of a jail Active() has already refused
+		// it; INSIDE one, Active() leaves a host build to the host (BinariesFetched), but a
+		// nested launch runs its host daemons HERE, from this jail's own cache, so this is
+		// where an argv naming a file the jail does not have would otherwise be exec'd.
+		if why, unready := m.hostBinariesUnready(); unready {
+			warnf("loophole %s: not starting its host daemon: %s", m.Name, why)
+			continue
+		}
 		spec := jsonx.NewOrderedMap()
 		spec.Set("command", toAnySlice(m.HostDaemon.Cmd))
 		spec.Set("description", m.Description)

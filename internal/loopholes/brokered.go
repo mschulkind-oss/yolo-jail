@@ -22,6 +22,11 @@ func (s Set) BrokeredToStart(allow func(name string) bool) []*Loophole {
 		if !lp.Active() || !s.MayRunHostCode(lp) {
 			continue
 		}
+		// A broker whose host build is missing here is one the spawn leaves out
+		// (manifestHostDaemonSpecs, the same gate), so it is not one that will start.
+		if _, unready := lp.hostBinariesUnready(); unready {
+			continue
+		}
 		out = append(out, lp)
 	}
 	return out

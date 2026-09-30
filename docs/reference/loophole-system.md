@@ -420,7 +420,10 @@ one. What each missing piece produces:
   can be installed.
 - **A declared build not fetched**: the loophole is inactive (`BinariesFetched`), and the launch's
   inert report, `yolo loopholes list` and `yolo check` all say to run `yolo pack install`. A
-  `doctor_cmd` whose build is missing is not run, and says why.
+  `doctor_cmd` whose build is missing is not run, and says why. Inside a jail a host build is
+  the host's business in what the jail reports, but a nested launch runs its host daemons in
+  the jail, from the jail's own cache, so it starts none whose build that cache lacks and warns
+  naming the loophole.
 - **A digest mismatch** at install: refused, both digests named, nothing cached, and a cached
   copy that stopped matching is fetched again rather than used.
 
