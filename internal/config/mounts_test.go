@@ -250,6 +250,12 @@ func TestTheReadWriteRefusalSet(t *testing.T) {
 		{"a directory containing the home", func(h mountsHost) string { return filepath.Dir(h.home) }, "CONTAINS your home directory"},
 		{"yolo's state dir", func(h mountsHost) string { return filepath.Join(h.home, ".local", "share", "yolo-jail") }, "yolo's own state directory"},
 		{"the approvals dir", func(h mountsHost) string { return paths.ApprovalsDir() }, "is INSIDE yolo's own state directory"},
+		// The capture-store exemption is a WORKSPACE's (a `yolo capture` jail works in its own
+		// scratch tree there); a writable mount of the store is every other workspace's
+		// installers, rewritable from one jail — the cross-jail injection capturesArgs refuses
+		// to hand out even on a backend that cannot honor :ro.
+		{"the capture store's entries", func(h mountsHost) string { return filepath.Join(paths.CapturesDir(), "entries") }, "is INSIDE yolo's own state directory"},
+		{"a capture staging dir", func(h mountsHost) string { return filepath.Join(paths.CapturesDir(), "staging", "x") }, "is INSIDE yolo's own state directory"},
 		{"yolo's user config dir", func(h mountsHost) string { return filepath.Join(h.home, ".config", "yolo-jail") }, "yolo's user config directory"},
 		{"the workspace itself", func(h mountsHost) string { return h.ws }, "is inside the workspace"},
 		{"a directory inside the workspace", func(h mountsHost) string { return filepath.Join(h.ws, "sub") }, "is inside the workspace"},

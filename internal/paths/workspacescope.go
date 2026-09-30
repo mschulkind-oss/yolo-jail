@@ -104,8 +104,8 @@ func (b *ScopeBreach) What() string {
 // WhatFor is What with the subject named by the caller: the same collision said about a
 // path that is not a workspace. Its second caller is a read-write `mounts` source
 // (config.rwMountRefusal, docs/design/context-mounts.md §2.3 clause 1), which runs THIS
-// predicate over the source rather than a copy of it — one spelling of the boundary, so
-// the capture-store exemption cannot fall out of one of two.
+// rule over the source rather than a copy of it (WritableSourceScopeBreach) — one spelling
+// of the boundary, with the workspace-only capture-store exemption the one parameter.
 func (b *ScopeBreach) WhatFor(subject string) string {
 	switch b.Relation {
 	case ScopeIsRoot:
@@ -131,6 +131,23 @@ func (b *ScopeBreach) Error() string {
 // The three roots are derived from ONE home — home(), which every path helper in this
 // package resolves through — so they cannot disagree about which home this is.
 func WorkspaceScopeBreach(workspace string) *ScopeBreach {
+	return scopeBreach(workspace, true)
+}
+
+// WritableSourceScopeBreach is the SAME rule for a host path a jail would WRITE through a
+// mount rather than work in as its workspace — a read-write `mounts` source
+// (config.rwMountRefusal, docs/design/context-mounts.md §2.3 clause 1) — with one difference:
+// no capture-store exemption. That exemption is a WORKSPACE's (scopeExempt: `yolo capture`
+// launches a jail on its own scratch tree there); a writable mount of the store is every
+// other workspace's captured installers, rewritable from one jail, which is the cross-jail
+// injection the capture mount itself is refused to prevent. One rule body, a parameter for
+// the one exemption, so the two callers cannot drift apart on anything else.
+func WritableSourceScopeBreach(source string) *ScopeBreach {
+	return scopeBreach(source, false)
+}
+
+// scopeBreach is WorkspaceScopeBreach's rule; exemptCaptures applies scopeExempt.
+func scopeBreach(workspace string, exemptCaptures bool) *ScopeBreach {
 	ws := resolveScopePath(workspace)
 	roots := []struct {
 		path string
@@ -161,7 +178,7 @@ func WorkspaceScopeBreach(workspace string) *ScopeBreach {
 		if r.kind == RootHome || !scopeUnderOrEqual(ws, r.path) {
 			continue
 		}
-		if scopeExempt(ws) {
+		if exemptCaptures && scopeExempt(ws) {
 			continue
 		}
 		return &ScopeBreach{Workspace: ws, Root: r.path, Kind: r.kind, Relation: ScopeInsideRoot}

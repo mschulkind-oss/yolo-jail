@@ -283,9 +283,12 @@ var rwBoundaryConsequence = map[paths.ScopeRootKind]string{
 //
 //  1. The credential-boundary predicate, SHARED rather than copied: the source is or
 //     contains the home, ~/.config/yolo-jail or ~/.local/share/yolo-jail, or sits inside
-//     either yolo directory. A second spelling is how the capture-store exemption would
-//     fall out of one of the two. It is also what keeps boundary-broker.md BB-D34's
-//     premise true — no mount can write the approval record — now that a mount can write.
+//     either yolo directory. paths.WritableSourceScopeBreach is WorkspaceScopeBreach's own
+//     rule body without the one exemption that is a workspace's alone — the capture store,
+//     where `yolo capture` works in a scratch tree, and which a writable mount would open to
+//     every other workspace's installers (CX-D16). It is also what keeps boundary-broker.md
+//     BB-D34's premise true — no mount can write the approval record — now that a mount can
+//     write.
 //  2. Overlap with the workspace in either direction. Inside it, the mount is a second
 //     name for bytes the jail already writes at /workspace; containing it, it is a second
 //     writable path to the workspace that bypasses workspace_readonly, the overlay that
@@ -298,7 +301,7 @@ var rwBoundaryConsequence = map[paths.ScopeRootKind]string{
 // ~/.ssh, ~/.aws and the like are deliberately NOT named (CX-D2): whoever gets an element
 // past the trust predicate already holds the host user's authority.
 func rwMountRefusal(source, workspace string) string {
-	if b := paths.WorkspaceScopeBreach(source); b != nil {
+	if b := paths.WritableSourceScopeBreach(source); b != nil {
 		msg := b.WhatFor("the read-write source")
 		if why := rwBoundaryConsequence[b.Kind]; why != "" {
 			msg += ": " + why
