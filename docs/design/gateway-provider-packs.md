@@ -11,7 +11,7 @@ vantage:
 # Gateway packs expose stable endpoints while users curate selectable models
 
 **Status:** DESIGN, 2026-09-26 — one question is open, [OQ-GP4](#OQ-GP4): whether the Kilo
-special-casing in the pi and claude derives stays. Everything else was BUILT on 2026-09-15 and
+special-casing in the pi and claude derives stays (restated 2026-09-30 with lettered options). Everything else was BUILT on 2026-09-15 and
 re-checked against the tree 2026-09-24 — MEASURED: the two
 manifests, the codex credential-field fix and the per-agent projections are pinned by
 `internal/entrypoint/providerderive_test.go`. UNMEASURED: no live OpenRouter or Kilo run — no
@@ -185,9 +185,31 @@ the config, the existing behavior is unchanged.
    doc amends its rulings to describe what ships, or the derives lose behaviour a Kilo user may
    now rely on.
 
+   **Restated 2026-09-30, against the derives at `927bb54d`.** One fact above is narrower than
+   the code. pi supplies the 1M-token context window only for a `deepseek/` id on Kilo, but
+   claude's derive sets `CLAUDE_CODE_MAX_CONTEXT_TOKENS` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to
+   `1048576` for **every** Kilo launch whose profile and provider declare no window, whatever the
+   model. So claude on a smaller Kilo model believes it has 1M tokens and compacts too late. The
+   literal-id fallback sits closer to a later ruling than it did: [OQ-ML2](model-lists-and-pickers.md#OQ-ML2)
+   (2026-09-29) says yolo never steers a valid choice the user's config makes, and a profile
+   naming an exact id is such a choice. The options, lettered here for the first time:
+
+   - **(A)** Split it (the leaning below). Keep the literal-id fallback for every provider and
+     amend [§3](#3-failure-and-safety-rules) to say so. Keep the `deepseek-` rewrite only with a
+     provenance comment naming Kilo's catalog and a date, or drop it. Move the context window into
+     the user's curated map as a per-model `context_window`, so neither derive assumes one. Cost:
+     a Kilo user on a 1M model writes the window once, or claude and pi fall back to their own
+     defaults.
+   - **(B)** Keep everything as shipped, and amend [§3](#3-failure-and-safety-rules) and
+     [OQ-GP2](#decision-ledger) to describe it, with provenance comments. Cost: claude keeps
+     assuming 1M for every Kilo model, and gateway policy stays hard-coded in two derives.
+   - **(C)** Remove all of it and restore [§3](#3-failure-and-safety-rules) as written. Cost: a
+     profile naming an exact id selects nothing, a bare `deepseek-` id is sent to Kilo as typed,
+     and every window must be declared.
+
    <!-- vantage: oq id=OQ-GP4 leaning="Split it. Keep the literal-id fallback, since a profile naming an exact id is a user's explicit choice, and amend §3 to say so for every provider. Move the context window out of the derives and into the user's curated map, which per-model facts (b16fa0aa) now make possible. Keep the deepseek- rewrite only with a provenance comment naming Kilo's catalog and the date, or drop it." -->
 
-   _Leaning:_ **Split it.** Keep the literal-id fallback — a profile naming an exact id is the
+   _Leaning:_ **(A), split it.** Keep the literal-id fallback — a profile naming an exact id is the
    user's explicit choice — and amend [§3](#3-failure-and-safety-rules) to say so for every
    provider. Move the context window out of the derives into the curated map, which per-model
    facts now allow. Keep the `deepseek-` rewrite only with a provenance comment naming Kilo's
