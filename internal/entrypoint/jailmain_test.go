@@ -192,7 +192,7 @@ func TestTheFirstSessionProvisionsAndEveryOtherWaitsForTheOutcome(t *testing.T) 
 	withJailMainDir(t)
 	announceReady("the stage", &bytes.Buffer{})
 	first := newSessionGate(true, &bytes.Buffer{})
-	if err := first.claim(); err != nil {
+	if p, err := first.claim(); err != nil || !p {
 		t.Fatal(err)
 	}
 
@@ -235,7 +235,7 @@ func TestARefusedProvisioningRefusesEveryWaiterWithItsStatus(t *testing.T) {
 	withJailMainDir(t)
 	announceReady("stage", &bytes.Buffer{})
 	first := newSessionGate(true, &bytes.Buffer{})
-	if err := first.claim(); err != nil {
+	if p, err := first.claim(); err != nil || !p {
 		t.Fatal(err)
 	}
 	if rc := first.provision(func(string) int { return 78 }); rc != 78 {
@@ -255,7 +255,7 @@ func TestAnAbandonedRunIsRerunOnATerminalAndRefusedWithout(t *testing.T) {
 	withJailMainDir(t)
 	announceReady("stage", &bytes.Buffer{})
 	first := newSessionGate(true, &bytes.Buffer{})
-	if err := first.claim(); err != nil {
+	if p, err := first.claim(); err != nil || !p {
 		t.Fatal(err)
 	}
 	first.abandon() // the first session died mid-run
@@ -303,13 +303,59 @@ func TestAFirstSessionThatNeverArrivesIsTreatedAsAbandoned(t *testing.T) {
 	}
 }
 
+// TestALateFirstSessionActsOnATakenOverRunInsteadOfRunningItAgain: a waiter gave up on a first
+// session that had not arrived and ran the stage itself. The first session that does arrive
+// waits for that run while it holds the lock, then acts on its outcome: done lets it through
+// without running the stage a second time, and a refusal refuses it with the stage's status.
+func TestALateFirstSessionActsOnATakenOverRunInsteadOfRunningItAgain(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rc   int
+	}{{"done", 0}, {"refused", 78}} {
+		t.Run(tc.name, func(t *testing.T) {
+			withJailMainDir(t)
+			announceReady("stage", &bytes.Buffer{})
+			takeover := newSessionGate(true, &bytes.Buffer{})
+			if p, err := takeover.claim(); err != nil || !p {
+				t.Fatalf("the takeover could not claim a free run: %v", err)
+			}
+			type res struct {
+				provisioner bool
+				err         error
+			}
+			got := make(chan res, 1)
+			go func() {
+				p, err := newSessionGate(true, &bytes.Buffer{}).claim()
+				got <- res{p, err}
+			}()
+			select {
+			case r := <-got:
+				t.Fatalf("the late first session went ahead while the takeover held the run: %+v", r)
+			case <-time.After(60 * time.Millisecond):
+			}
+			takeover.provision(func(string) int { return tc.rc })
+			r := <-got
+			if r.provisioner {
+				t.Fatal("the late first session would run the stage a second time")
+			}
+			var st *ExitStatus
+			if tc.rc == 0 && r.err != nil {
+				t.Errorf("after done the late first session was refused: %v", r.err)
+			}
+			if tc.rc != 0 && (!errors.As(r.err, &st) || st.Code != tc.rc) {
+				t.Errorf("after a refusal the late first session got %v, want exit %d", r.err, tc.rc)
+			}
+		})
+	}
+}
+
 // TestAnEmptyStageIsDoneWithoutRunning: a launch that handed pid 1 no stage has nothing to
 // provision, and the outcome is still recorded for the waiters.
 func TestAnEmptyStageIsDoneWithoutRunning(t *testing.T) {
 	withJailMainDir(t)
 	announceReady("", &bytes.Buffer{})
 	g := newSessionGate(true, &bytes.Buffer{})
-	if err := g.claim(); err != nil {
+	if p, err := g.claim(); err != nil || !p {
 		t.Fatal(err)
 	}
 	if rc := g.provision(func(string) int { t.Error("ran an empty stage"); return 1 }); rc != 0 {

@@ -366,22 +366,47 @@ func (g *sessionGate) openLock() (*os.File, error) {
 	return os.OpenFile(mainStatePath(provisionLockFile), os.O_RDWR|os.O_CREATE, 0o644)
 }
 
-// claim is the first session's side: take the provisioning lock and record the claim.
-func (g *sessionGate) claim() error {
+// claim is the first session's side: take the provisioning lock and record the claim, and
+// return provisioner=true holding it. The lock is normally free: nothing else takes it until a
+// waiter gives up on a first session that never arrived (claimWaitLimit) and runs the stage
+// itself. A first session that arrives after all then waits for that run, within
+// provisionWaitLimit, and acts on its outcome as any waiter does instead of running the stage
+// a second time.
+func (g *sessionGate) claim() (provisioner bool, err error) {
 	f, err := g.openLock()
 	if err != nil {
-		return fmt.Errorf("open the provisioning lock: %w", err)
+		return false, fmt.Errorf("open the provisioning lock: %w", err)
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	start := time.Now()
+	for {
+		lerr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if lerr == nil {
+			break
+		}
+		if !errors.Is(lerr, syscall.EWOULDBLOCK) && !errors.Is(lerr, syscall.EAGAIN) {
+			_ = f.Close()
+			return false, fmt.Errorf("take the provisioning lock: %w", lerr)
+		}
+		waited := time.Since(start)
+		if waited >= provisionWaitLimit {
+			_ = f.Close()
+			return false, &ExitStatus{Code: 1, Message: fmt.Sprintf("this jail's provisioning "+
+				"has not finished after %s; its log is /workspace/.yolo/startup.log", provisionWaitLimit)}
+		}
+		g.notice("provision", waited, "waiting for this jail's provisioning, which another session took over…")
+		time.Sleep(sessionPoll)
+	}
+	if done, err := outcomeVerdict(); done || err != nil {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		_ = f.Close()
-		return fmt.Errorf("take the provisioning lock: %w", err)
+		return false, err
 	}
 	g.lock = f
 	if err := writeMainState(provisionClaimFile, strconv.Itoa(os.Getpid())); err != nil {
 		g.abandon()
-		return fmt.Errorf("record the provisioning claim: %w", err)
+		return false, fmt.Errorf("record the provisioning claim: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // await is every other session's side. It returns once provisioning is done, refuses on a

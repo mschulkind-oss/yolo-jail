@@ -580,10 +580,11 @@ func Main(args []string) error {
 			return err
 		}
 		if first {
-			if err := gate.claim(); err != nil {
+			p, err := gate.claim()
+			if err != nil {
 				return err
 			}
-			provisioner = true
+			provisioner = p
 		} else {
 			p, err := gate.await()
 			if err != nil {
