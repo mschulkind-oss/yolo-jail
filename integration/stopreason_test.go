@@ -18,11 +18,18 @@ import (
 )
 
 // TestAnAttachWhoseJailEndedSaysWhy: a second terminal is attached when the jail ends, first because
-// `yolo stop` stopped it, then because a stop from outside yolo did. Each time the attach returns
-// 137, the status of a process the jail's end killed, and says what ended it, or that nothing
-// recorded why. (The session that started the jail quitting ends nothing any more:
+// `yolo stop` stopped it, then because a stop from outside yolo did. Each time the attach returns a
+// status a jail's end gives an exec, and says what ended it, or that nothing recorded why. (The
+// session that started the jail quitting ends nothing any more:
 // TestQuittingTheFirstSessionLeavesTheOthersRunning.)
+//
+// That status is the runtime's, and JL-D53 names three: 137, the kernel's SIGKILL of a pid
+// namespace whose init exited, and podman's 125 or 255 when the container is gone by the time the
+// exec asks for its session's status ("no container with ID … found in database"). Which one a stop
+// gives is a race inside podman, so the test accepts the set internal/cli/run's jailEndStatus reads;
+// what it pins is the line each session prints.
 func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
+	jailEnded := func(rc int) bool { return rc == 137 || rc == 125 || rc == 255 }
 	requireJail(t)
 	const release = "release-first"
 	start := func(t *testing.T, dir string) (first, attach *bgRun) {
@@ -50,8 +57,8 @@ func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 		if stop := runYoloCLI(t, dir, "stop"); stop.rc != 0 {
 			t.Logf("yolo stop returned %d:\n%s", stop.rc, stop.combined())
 		}
-		if rc := attach.wait(t, jailTimeout()); rc != 137 {
-			t.Errorf("the attached session ended rc %d, want 137 from its jail's end:\n%s", rc, attach.combined())
+		if rc := attach.wait(t, jailTimeout()); !jailEnded(rc) {
+			t.Errorf("the attached session ended rc %d, want 137, 125 or 255 from its jail's end:\n%s", rc, attach.combined())
 		}
 		if !strings.Contains(attach.combined(), "This session ended because its jail stopped: `yolo stop` (pid ") {
 			t.Errorf("the attached session was not told that yolo stop ended its jail:\n%s", attach.combined())
@@ -75,16 +82,16 @@ func TestAnAttachWhoseJailEndedSaysWhy(t *testing.T) {
 		if out, err := exec.CommandContext(ctx, rt, "stop", "-t", "5", cname).CombinedOutput(); err != nil {
 			t.Logf("%s stop: %v\n%s", rt, err, out)
 		}
-		if rc := attach.wait(t, jailTimeout()); rc != 137 {
-			t.Errorf("the attached session ended rc %d, want 137 from its jail's end:\n%s", rc, attach.combined())
+		if rc := attach.wait(t, jailTimeout()); !jailEnded(rc) {
+			t.Errorf("the attached session ended rc %d, want 137, 125 or 255 from its jail's end:\n%s", rc, attach.combined())
 		}
 		got := attach.combined()
 		if !strings.Contains(got, "This session ended because its jail stopped, and nothing recorded why") {
 			t.Errorf("the attached session was not told that nothing recorded why its jail ended:\n%s", got)
 		}
 		// Nothing recorded a stop, so the first session keeps its exec's status (JL-D59).
-		if rc := first.wait(t, jailTimeout()); rc != 137 {
-			t.Errorf("the first session ended rc %d, want 137 from its jail's end:\n%s", rc, first.combined())
+		if rc := first.wait(t, jailTimeout()); !jailEnded(rc) {
+			t.Errorf("the first session ended rc %d, want 137, 125 or 255 from its jail's end:\n%s", rc, first.combined())
 		}
 		if !strings.Contains(first.combined(), "nothing recorded why") {
 			t.Errorf("the first session was not told its jail ended:\n%s", first.combined())
