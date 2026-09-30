@@ -682,7 +682,7 @@ func TestTheLastSessionWaitsForTheKeeperAndStreamsIt(t *testing.T) {
 	var errBuf bytes.Buffer
 	o.Stderr = &errBuf
 	o.streamKeeperTeardown(cname, from)
-	for _, want := range []string{"That was the last session in yolo-stream", "ending the jail", "keeper: done"} {
+	for _, want := range []string{"ending the jail", "keeper: done"} {
 		if !strings.Contains(errBuf.String(), want) {
 			t.Errorf("the stream lacks %q:\n%s", want, errBuf.String())
 		}

@@ -127,7 +127,7 @@ func TestQuittingTheFirstSessionLeavesTheOthersRunning(t *testing.T) {
 	if !strings.Contains(second.combined(), "SECOND-OUT-42") {
 		t.Errorf("the second session did not finish its command:\n%s", second.combined())
 	}
-	if !strings.Contains(second.combined(), "That was the last session in "+cname) {
+	if !strings.Contains(second.combined(), "keeper: the last session of "+cname+" left; ending the jail") {
 		t.Errorf("the last quit did not stream the keeper's teardown:\n%s", second.combined())
 	}
 	if n := runningContainers(t, cname); n != 0 {

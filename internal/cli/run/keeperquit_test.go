@@ -52,7 +52,7 @@ func TestTheLastSessionsQuitStreamsItsKeepersTeardown(t *testing.T) {
 	if rc := o.endSession(cname, "podman", 0, time.Now(), 0, true); rc != 0 {
 		t.Errorf("rc %d", rc)
 	}
-	if !strings.Contains(errBuf.String(), "That was the last session in "+cname) || !strings.Contains(errBuf.String(), "keeper: done") {
+	if !strings.Contains(errBuf.String(), "keeper: done") {
 		t.Errorf("the last quit did not stream the teardown:\n%s", errBuf.String())
 	}
 	if probeKeeper(cname) != keeperGone {

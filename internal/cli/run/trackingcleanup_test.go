@@ -349,8 +349,8 @@ func TestEveryEndHandsTheSkeletonOn(t *testing.T) {
 		}
 		return true
 	})
-	if unwinds != 2 {
-		t.Errorf("runContainer hands in.homeSkeleton to %d unwindUnspawned calls, want 2 (the plan's and the spawn's failures)", unwinds)
+	if unwinds != 3 {
+		t.Errorf("runContainer hands in.homeSkeleton to %d unwindUnspawned calls, want 3 (the plan's failure, the spawn's, and a keeper that died before it started)", unwinds)
 	}
 	sawPlan := false
 	ast.Inspect(funcDecl(t, "keeperspawn.go", "keeperPlanFor"), func(n ast.Node) bool {

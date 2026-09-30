@@ -334,7 +334,6 @@ func (o *Options) printKeeperRecords(cname string, logFrom int64) {
 // (JL-D34).
 func (o *Options) streamKeeperTeardown(cname string, logFrom int64) {
 	out := o.pr(terminalOnly(o.Stderr))
-	out.printf("[dim]That was the last session in %s; its keeper is ending the jail.[/dim]", cname)
 	stop := make(chan struct{})
 	var once sync.Once
 	end := func() { once.Do(func() { close(stop) }) }
@@ -547,4 +546,17 @@ func (o *Options) finishStop(cname, rt string, logFrom int64) int {
 	out.printf("[dim]The jail's keeper was gone; ending its host-side state too.[/dim]")
 	o.reapUnkept(cname, rt, false)
 	return 0
+}
+
+// WaitForKeeper blocks until no keeper holds the workspace's jail, or timeout passes. A keeper
+// outlives the launch that spawned it: when that launch's session was the last and was killed
+// rather than quit, nothing waits for the teardown the keeper then runs, which writes into the
+// workspace (the config capture, launch.log) and the machine's state. Its caller is the
+// integration suite, which must not delete a workspace a keeper is still tearing down.
+func WaitForKeeper(workspace string, timeout time.Duration) error {
+	cname := yoloruntime.FromWorkspace(workspace)
+	if waitForKeeper(cname, keeperLogSize(cname), timeout, nil, nil) {
+		return nil
+	}
+	return fmt.Errorf("the keeper of %s is still running after %s", cname, timeout)
 }

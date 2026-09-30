@@ -25,7 +25,10 @@ import (
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// The flag spelling: report on stderr, spans in the file, jail-tagged.
+// The flag spelling: report on stderr, spans in the file, jail-tagged. The shutdown chain is the
+// jail's keeper's since step 3 of docs/design/jail-lifetime-last-session-wins.md (JL-D62): its
+// spans are in the keeper's own run block of the same file, and the launch's table carries the
+// last session's wait for it, session.keeper_teardown.
 func TestTimingReportSpansShutdown(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, tempProjectConfig)
@@ -38,7 +41,7 @@ func TestTimingReportSpansShutdown(t *testing.T) {
 	for _, want := range []string{
 		"--- Host-side timing (rc 0) ---",
 		"launch.run_with_proxy",
-		"shutdown.stop_loopholes",
+		"session.keeper_teardown",
 		"Total:",
 		"host file:",
 	} {
@@ -58,6 +61,7 @@ func TestTimingReportSpansShutdown(t *testing.T) {
 	for _, want := range []string{
 		"start  launch.run_with_proxy",
 		"mark   child.exited",
+		"end    keeper.stop_jail",
 		"end    shutdown.stop_loopholes",
 	} {
 		if !strings.Contains(log, want) {

@@ -25,6 +25,15 @@ package integration
 // detached, and it outlives the launch by design, running under the test's temp HOME
 // (homedaemons_test.go has the inventory). So the same cleanup also stops the daemons that
 // run under the launch's HOME, and waits for them to exit, before that HOME is removed.
+//
+// THE THIRD IS THE JAIL'S KEEPER (docs/design/jail-lifetime-last-session-wins.md §9). A fresh
+// launch spawns it detached, and it ends the jail once the last session is gone. A session that
+// quits waits for that teardown, but one this suite kills (a background run's cancel, at its
+// cleanup) does not, and the keeper then tears the jail down after the test: its config capture
+// and launch.log lines land in the workspace while the test's RemoveAll walks it (measured on
+// TestAttachDeliversTheSelectedProfile, whose first session is cancelled). So the cleanup waits
+// for the workspace's keeper first, before the daemons its teardown still talks to are stopped
+// and before the scratch remover that teardown starts is waited for.
 
 import (
 	"go/ast"
@@ -66,6 +75,9 @@ func awaitDetachedWriters(t *testing.T, dir, home string) {
 	t.Helper()
 	sweep := home != "" && hostHome != "" && home != hostHome
 	t.Cleanup(func() {
+		if err := run.WaitForKeeper(dir, detachedWriterWait); err != nil {
+			t.Errorf("%v: its teardown would land in the middle of this test's temp-dir cleanup", err)
+		}
 		if sweep {
 			stopped, err := stopHomeHostDaemons(home)
 			if len(stopped) > 0 {

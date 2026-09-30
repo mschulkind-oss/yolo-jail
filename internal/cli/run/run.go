@@ -1803,8 +1803,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// alone, which closes the lifeline and so has the keeper unwind; from ready on it is the
 	// session's arm, retargeted rather than replaced, so no signal falls between two arms.
 	arm := armLaunchSignals(o.keeperPreReadyTeardown(kp, cname, rt))
+	keeperStarted := false
 	ready := relayKeeper(kp.progress, o.Stdout, o.Stderr, os.Stdout, os.Stderr, keeperEvents{
-		started: func(pid int) { o.pr(o.Stderr).printf("[dim]keeper: started, pid %d[/dim]", pid) },
+		started: func(pid int) {
+			keeperStarted = true
+			o.pr(o.Stderr).printf("[dim]keeper: started, pid %d[/dim]", pid)
+		},
 		spawned: func() {
 			o.Perf.Mark("jail_main.spawned")
 			// The launch's fate is known: its runtime is spawned (launchrecord.go).
@@ -1828,6 +1832,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 			select {} // the signal arm is ending this launch; never race it
 		}
 		kp.closeLifeline()
+		// A keeper that died before it even said it started said nothing else either: its own
+		// stderr is /dev/null, so this line is the only account of it.
+		if !keeperStarted && kp.exitCode != 0 {
+			out.printf("[bold red]This jail's keeper ended (status %d) before it started; its log: %s[/bold red]",
+				kp.exitCode, keeperLogPath(cname))
+			o.unwindUnspawned(cname, rt, packStaging, in.homeSkeleton)
+		}
 		o.emitTimingReport(kp.exitCode, cname, rt)
 		return kp.exitCode
 	}
