@@ -347,8 +347,9 @@ Three limits the rulings leave:
 
 [OQ-FT13](#OQ-FT13) set the marker only after checking every other reader on that backend. The marker reaches
 only processes started from the session env file: the provisioning stage, the agent, and any `yolo` either one
-runs. None of the `yolo internal` verbs a session runs by itself reads it: `node-floor-satisfied`, `refresh-servers`,
-`capture-materialize` and `openai-auth-client` (READ). Each reader that changes moves a `yolo` in the sandbox from
+runs. None of the `yolo internal` verbs a session runs by itself reads it: `node-floor-satisfied`,
+`node-floor-launchers`, `no-terminal`, `refresh-servers`, `capture-materialize` and `openai-auth-client` (READ; the
+second and third were added 2026-09-30). Each reader that changes moves a `yolo` in the sandbox from
 the host's answer to a jail's. The sandbox runs as its own account, with `HOME` set to that account's home, so the
 host's answer was about that account, never about yours. Each row is READ, and each effect is UNVERIFIED on a Mac.
 
