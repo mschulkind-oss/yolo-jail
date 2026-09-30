@@ -2352,16 +2352,22 @@ branches in the same order, which is what stops the gate and the explanation fro
 > it ever bites.
 
 > [!WARNING]
-> **A supersession matching no `serves` is REPORTED, loudly — not refused.** The structure is
-> refused at load on both decoders (an empty `capability`, a missing `because`, a duplicate, a
-> control character: all version-invariant). The MATCH cannot be, for three reasons: the claim
-> is decodable long before the loopholes are (`pack lint` and the in-jail entrypoint have no
-> loophole set and cannot get one — the loopholes → config → packload cycle); a pack
-> superseding a capability served only by a newer manifest would brick every jail on a
-> pre-`just load` image; and the failure direction of a warning is safe, because an unmatched
-> claim leaves the loophole running while a refusal would take down `yolo loopholes list` —
-> the command a user runs to find out what happened. The message is most of the value: *"no
-> loophole serves `claude-oauth-refersh` — did you mean `claude-oauth-refresh`?"* is a fix.
+> **A supersession matching no `serves` REFUSES THE LAUNCH, and the commands you diagnose it
+> with only report it.** The structure is refused at load on both decoders (an empty
+> `capability`, a missing `because`, a duplicate, a control character: all version-invariant).
+> The MATCH needs the loophole set, which `pack lint` and the in-jail entrypoint do not have and
+> cannot get (the loopholes → config → packload cycle), so it is decided where the set exists:
+> the host side of a launch refuses it among the pack pre-flights, over the packs it just staged,
+> and `yolo check` fails the same row. `yolo loopholes list` and `status` only warn, so the
+> commands a user runs to find out what happened keep working. When the host `yolo` is provably
+> older than the source tree it builds from, the refusal says so and names `just install`: a
+> capability only a newer shipped pack serves is skew, not a typo. The message is most of the
+> value: *"pack 'claude-bedrock' supersedes capability 'claude-oauth-refersh', which NO loophole
+> on this machine serves — did you mean 'claude-oauth-refresh'?"* is a fix. `yolo host` does not
+> refuse it: that notch runs a loophole only as a doorway a profile asks for. The design is
+> [`reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md),
+> [§7](../design/reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) steps 4
+> and 5.
 
 There is deliberately **no yolo-owned registry of capability names**: core does not know what
 an agent is, and a central registry would rebuild the registry the pack system exists to

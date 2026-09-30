@@ -115,12 +115,17 @@ Same failure class, opposite dispositions, and the discriminator is *who can act
 
 ### The departure that produced R5
 
-`loopholes.unmatchedSupersessions` documents its own divergence from the capability design's
+`loopholes.unmatchedSupersessions` documented its own divergence from the capability design's
 "refused at load" wording, and the divergence is where R5 came from. Its premise — *"the namespace
 is closed by the loopholes present, so this is decidable"* — is true of the SET, but the set is a
 fact about one machine at one moment, and a refusal keyed on it is refusable by circumstance.
+**The departure is closed** (2026-09-30): the match is refused at the host launch, graded
+`[FAIL]` by `yolo check` and reported by `yolo loopholes list`, which is R5's remedy as written
+([`reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md),
+[§7](../design/reference-mismatch-diagnostics.md#7-sequencing-by-user-visible-payoff) steps 4
+and 5). The argument below is kept because it is how R5 was derived.
 
-Of the three reasons the comment gives, **one survives as stated, and it argues for relocation
+Of the three reasons the comment gave, **one survives as stated, and it argues for relocation
 rather than downgrade:**
 
 1. **"The claim is decodable long before the loopholes are"** — `pack.json` is validated by
@@ -141,9 +146,10 @@ rather than downgrade:**
 > **Do not read the departure as licensing a warning wherever skew is possible.** The half of that
 > comment worth keeping is its distinction — structural validity (decidable from the declaration
 > alone, version-invariant) versus matching against a runtime-assembled set. The structural half
-> **is** refused at load, in `packdecl`, where it is version-invariant; the match half is reported.
-> R5 keeps that split and moves the match half to a gate that can hold it. The remedy the comment
-> drew from the distinction was weaker than the one this repo already had.
+> **is** refused at load, in `packdecl`, where it is version-invariant; the match half was
+> reported. R5 keeps that split and moves the match half to a gate that can hold it, which is what
+> shipped. The remedy the comment drew from the distinction was weaker than the one this repo
+> already had.
 
 > [!WARNING]
 > **Relocating a check must KEEP ITS SENTENCE.** `unmatchedSupersessions`' message is the best
@@ -205,17 +211,18 @@ decides it, so a reader can re-measure rather than trust a tally.
 | `providers.*.wire_api` | the value | **Fatal**, closed enum (R4). `config.validateWireAPI`. |
 | `providers.*.base_url` | the value | **Fatal** where the URL carries userinfo — a plaintext credential in a git-tracked file. `config.providerURLProblem`. |
 | Contribution `kind` | the value | **Fatal** at load for a known build; **skip + report** across the version boundary. `packdecl.KnownKind` / `packdecl.DecodeTolerant`. |
-| `supersedes.capability` | the capability name | **Structurally** fatal at load in `packdecl`; the **match** is reported, not refused (`loopholes.unmatchedSupersessions`, surfaced by `SupersessionProblems`). |
+| `supersedes.capability` | the capability name | **Structurally** fatal at load in `packdecl`; the **match** is **fatal** at the host launch, a pack pre-flight over the staged set (`run.refuseUnmatchedSupersessions`), a `[FAIL]` in `yolo check`, and reported by `yolo loopholes list`/`status`. One sentence at all three (`loopholes.unmatchedSupersessions`, surfaced by `SupersessionProblems`), plus a skew clause when `version.SourceSkew` proves one. |
 | `env_sources` | file paths | **Warn + skip**, and correctly so. `config.ResolveEnvSourcesFull`. |
 
 > [!IMPORTANT]
-> **The supersession match is the one mechanism that departs from R1–R5, and it is a known
-> departure, not an oversight.** Where the refusal should land is unruled — it is
-> [`../design/reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md)'s
-> [`OQ-RM2`](../design/reference-mismatch-diagnostics.md#OQ-RM2) (refuse the launch, or refuse the
-> pack?), and that doc is the design of record. Do not
-> "fix" it by relocating the check before that question is answered, and do not read the table above
-> as a to-do list.
+> **The supersession match departed from R1–R5 until 2026-09-30, and no longer does.** It was
+> reported, not refused, while where its refusal should land was
+> [`OQ-RM2`](../design/reference-mismatch-diagnostics.md#OQ-RM2) (refuse the launch, or refuse
+> the pack?). [`OQ-TP6`](../design/trust-paths.md#decision-ledger) answered it (refuse the
+> launch), and
+> [`reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md) moved the
+> check to the host launch with its sentence intact. Do not read the table above as a to-do list:
+> each row is a disposition, and `env_sources`' is right as it stands.
 
 The asymmetry worth internalising is what the table shows in one glance: **field names live in a
 closed namespace and were enforced from the start; references to *components* were not.** Mistype a
