@@ -379,8 +379,14 @@ parent of both processes (`launchservice.RunAgent`). This is [OQ-HS3](#OQ-HS3)'s
    The agent sees connection errors and applies its own retry, the bridge's stated policy
    (*"its retry loop IS the retry policy"*, [`handler.go`](../../internal/wirebridged/handler.go)).
 6. **Concurrency:** two host launches get two services, two ports and two secrets, and share
-   nothing but the OpenAI broker, which already serializes refreshes
-   ([`openai-auth-broker.md`](openai-auth-broker.md)).
+   the OpenAI broker, which already serializes refreshes
+   ([`openai-auth-broker.md`](openai-auth-broker.md)). The managed Codex refresh adapter is the
+   exception to "two secrets": every `yolo host -- codex` on the machine runs on one managed Codex
+   home, so its live launches share one caller token, counted by a lock of the home's own
+   ([NC-D18](../plans/notch-convergence.md#NC-D18)). Under
+   [OQ-JL5](jail-lifetime-last-session-wins.md#OQ-JL5)'s ruling, what a workspace's host sessions
+   share moves to a keeper, and whether these per-launch services do is
+   [OQ-JL9](jail-lifetime-last-session-wins.md#OQ-JL9).
 
 ### 4.5 Failure paths
 

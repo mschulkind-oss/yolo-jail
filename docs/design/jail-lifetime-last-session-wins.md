@@ -47,7 +47,8 @@ is what it takes over, and [§5](#5-how-terrible-is-it) answers "how terrible is
 [OQ-JL6](#OQ-JL6), [OQ-JL7](#OQ-JL7) and [OQ-JL8](#OQ-JL8) A, all 2026-09-29):
 
 - [OQ-JL9](#OQ-JL9): at `yolo host`, does the keeper also hold what one launch starts for its own
-  agent (the bridge's host half, the Codex refresh adapter), which no other launch uses.
+  agent: the bridge's host half, which no other launch uses, and the Codex refresh adapter, whose
+  managed home every host Codex launch on the machine already shares.
 
 **Reads with:** [`jail-lifetime-last-session-wins-plan.md`](jail-lifetime-last-session-wins-plan.md)
 (the implementation sketch, written for the keeper),
@@ -244,13 +245,16 @@ keeper can call these unchanged:
 | podman on macOS (machine) | yes | **yes** | the same causes. The launcher also has **no signal arm at all**: [`proxy_other.go`](../../internal/cli/run/proxy_other.go) ignores `onTerminate`, so a window close skips teardown entirely |
 | Apple Container | yes | **yes** | rows 1 to 3, and no signal arm. The owner-PID reaper is a no-op here (row 5 does not apply), so an orphan is never reaped |
 | macos-user | **no** | not for a running agent; an agent started later can meet it ([§9.9.1](#991-where-the-re-entry-problem-is-real)) | *"This backend has no attach — every macos-user invocation is a fresh sandbox"* (the macos-user arm of `Run`, [`run.go`](../../internal/cli/run/run.go)). Since [HD-D1](host-daemon-ownership.md#HD-D1), each session also has its own host-services dir ([`servicessession.go`](../../internal/cli/run/servicessession.go)) |
-| `yolo host` | no | no | each launch owns its services as its own children ([OQ-HS3](host-notch-services.md#OQ-HS3)) |
+| `yolo host` | no | not today: the one case, the Codex adapter's shared home, was fixed by a shared token ([§9.9.1](#991-where-the-re-entry-problem-is-real)) | each launch owns its services as its own children ([OQ-HS3](host-notch-services.md#OQ-HS3)), but every `yolo host -- codex` on the machine runs on one managed Codex home ([NC-D18](../plans/notch-convergence.md#NC-D18)) |
 
 So "last one wins" means making the container backends behave the way the other two notches
 already do: no session's end takes another session's services with it. That holds at those two
-notches for the agent a session runs, and not for everything. At macos-user a second session
-rewrites the workspace's per-agent env files with its own listeners, which end with it, and at
-both notches the sidecar design shares a sidecar, a ping box and a master per workspace. That is
+notches only in part. At macos-user a second session rewrites the workspace's per-agent env files
+and Codex's `auth.json` with its own listeners and tokens, which end with it. At `yolo host` it
+holds because of a fix made for one case: every host Codex launch on the machine shares one
+managed Codex home, and a shared caller token with a lock of its own keeps one launch from
+breaking another's refreshes ([NC-D18](../plans/notch-convergence.md#NC-D18)). And at both notches
+the sidecar design shares a sidecar, a ping box and a master per workspace. That is
 why [OQ-JL5](#OQ-JL5) gives them a keeper too ([§9.9.1](#991-where-the-re-entry-problem-is-real)).
 
 ### 2.3 Four defects found on the way
@@ -334,9 +338,12 @@ Setsid fronted daemons are orphaned by a SIGKILL there too, INFERRED. SOURCED ot
 [`host.go`](../../internal/cli/host.go)), so no yolo process remains. When a launch-owned service
 or the managed Codex adapter is needed, it stays resident as their parent
 (`launchservice.RunAgent`, [`agent.go`](../../internal/launchservice/agent.go)): Setpgid
-children with a lifeline, stopped when the agent exits. Two host launches share nothing but
-the host-wide brokers ([`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime),
-item 6). SOURCED.
+children with a lifeline, stopped when the agent exits. Two host launches share the host-wide
+brokers, and every `yolo host -- codex` on the machine, in any workspace, also shares one managed
+Codex home (`host-agents/<pack>` under the machine-wide store, `prepare` in
+[`host.go`](../../internal/openaiauthhost/host.go)): its `auth.json`, one caller token, and a
+shared lock that counts the home's live launches (`sharedCallerToken`,
+[NC-D18](../plans/notch-convergence.md#NC-D18)). SOURCED.
 
 ---
 
@@ -771,7 +778,7 @@ sibling doc's subject ([`central-yolo-watcher.md`](../research/central-yolo-watc
    [§9.9.1](#991-where-the-re-entry-problem-is-real) on its own. At `yolo host` it has something
    to hold only once [`agent-event-watchers.md`](agent-event-watchers.md)'s host-side sidecars
    or ping box land (its [§10](agent-event-watchers.md#10-what-i-would-build-in-order) step 6),
-   unless [OQ-JL9](#OQ-JL9) is ruled B. The resident host session ([JL-D36](#JL-D36)) lands with
+   unless [OQ-JL9](#OQ-JL9) is ruled B or C. The resident host session ([JL-D36](#JL-D36)) lands with
    it, and never before: a host launch with no keeper keeps exec'ing.
 
 ---
@@ -1275,7 +1282,7 @@ Every problem found is listed in [§9.9.10](#9910-every-feasibility-problem-foun
 
 | Question | Short answer | Where |
 |---|---|---|
-| Is the maintainer's re-entry problem real there? | at macos-user yes, today; at `yolo host` only for what the sidecar design shares | [§9.9.1](#991-where-the-re-entry-problem-is-real) |
+| Is the maintainer's re-entry problem real there? | yes at both: at macos-user today, and at `yolo host` for the Codex adapter, where a shared token already fixes it; there the bridge alone shares nothing | [§9.9.1](#991-where-the-re-entry-problem-is-real) |
 | What a session is | one invocation whose `yolo` process stays up for its command's life and holds the session lock | [§9.9.2](#992-what-a-session-is-there-and-why-yolo-host-stays-resident) |
 | Which sessions share a keeper | those of one workspace at one notch | [§9.9.3](#993-one-keeper-per-workspace-per-notch) |
 | What it owns | at macos-user everything the launch starts outside the sandbox; at `yolo host` the sidecars and the ping box | [§9.9.4](#994-what-the-keeper-owns-there) |
@@ -1308,14 +1315,26 @@ answer differs by what is shared:
   listener and token, and when the second session quits, that agent's pointer names a closed
   port. SOURCED for the files; the failure is INFERRED, since macos-user has not run on a Mac.
   That is the container defect in another form: one session's end takes something another uses.
-- **At `yolo host` it is wrong for the launch's own services.** Each host launch starts its own
-  bridge host half or Codex refresh adapter, on its own port and token, and nothing another
-  launch reads names them: the host composes each launch's environment in-process,
+- **At `yolo host` it is right too, and it has been met twice already.** Only the bridge's host
+  half is the launch's alone: its port and secret go into that launch's agent in-process,
   `yolo host apply` renders no per-launch address, and `yolo host env` refuses a bridged profile
-  ([`host-notch-services.md` §4.6](host-notch-services.md#46-every-front-door)). Two host
-  launches *"share nothing but the OpenAI broker"*
-  ([its §4.4](host-notch-services.md#44-lifetime), item 6). SOURCED. Quitting one host terminal
-  takes nothing from another today.
+  ([`host-notch-services.md` §4.6](host-notch-services.md#46-every-front-door)). The managed
+  Codex refresh adapter is not. Each launch listens on a port of its own, but every
+  `yolo host -- codex` on the machine, in any workspace, runs on one managed `CODEX_HOME`, keyed
+  on the codex pack in the machine-wide store (`prepare` in
+  [`host.go`](../../internal/openaiauthhost/host.go)), so on one `auth.json`, which Codex rereads
+  before every refresh. When each launch bound a caller token of its own into that file, the
+  newest replaced the others', whose adapters then refused their own Codex: *"two host sessions
+  at once, which worked before item 1, broke"* ([NC-D18](../plans/notch-convergence.md#NC-D18)).
+  The fix shares one token among the home's live launches, counted by a shared lock on the home's
+  `.yolo-live.lock` (`sharedCallerToken`). Codex's own background server was the same problem
+  again: a setsid'd copy of Codex that *"inherits the environment of the launch that STARTED it,
+  so it keeps posting refreshes to that first launch's closed port"*
+  ([`codexdaemon.go`](../../internal/openaiauthhost/codexdaemon.go)).
+  [OQ-CDX1](../research/codex-background-service.md#OQ-CDX1) turned it off wherever yolo launches
+  Codex, giving up `codex queue`. SOURCED. So re-entry at `yolo host` did bring *"the same
+  problems"*, and each was patched on its own. The patch for Codex is scoped to the machine, not
+  to a workspace.
 - **At both notches it is right for what the sidecar design shares.** One sidecar instance per
   workspace ([EW-D19](agent-event-watchers.md#EW-D19)), one ping box per workspace, and one
   master per box ([EW-DIR3](agent-event-watchers.md#EW-DIR3)) are used by every session of the
@@ -1323,9 +1342,10 @@ answer differs by what is shared:
   migration [JL-D14](#JL-D14) rejected for container jails.
 
 So the keeper is needed at macos-user for everything its launches start outside the sandbox, and
-at both notches for the sidecar feature. Whether the services a `yolo host` launch starts for its
-own agent go into the keeper as well, with no re-entry problem to solve, is
-[OQ-JL9](#OQ-JL9).
+at both notches for the sidecar feature. At `yolo host`, what the Codex adapter shares belongs to
+the machine, not to a workspace, so a per-workspace keeper cannot simply take it over
+([§9.9.10](#9910-every-feasibility-problem-found) row 8). Whether it and the bridge move into the
+keeper, and how, is [OQ-JL9](#OQ-JL9).
 
 #### 9.9.2 What a session is there, and why yolo host stays resident
 
@@ -1452,8 +1472,10 @@ inherited descriptor above 2, no lifeline could cross it to end what it started.
 
 **At `yolo host`, the sidecars and the ping box.** Every sidecar is host side there. What a
 launch starts for its own agent (the bridge's host half, the managed Codex refresh adapter, and
-the AWS doorway once built, [HS-D20](host-notch-services.md#HS-D20)) stays the launch's own under
-[OQ-JL9](#OQ-JL9)'s leaning, and moves into the keeper under its B.
+the AWS doorway once built, [HS-D20](host-notch-services.md#HS-D20)) is
+[OQ-JL9](#OQ-JL9)'s: under its leaning, A, it stays the launch's own, and the managed Codex home
+keeps NC-D18's machine-wide token and lock; under B the keeper holds each launch's services; under
+C it holds the Codex adapter over a Codex home made per workspace.
 
 **The caller tokens of what a keeper holds are the keeper's, not a session's.** The fresh launch
 mints them into the plan, as at a container backend ([JL-D20](#JL-D20)), and every session of the
@@ -1602,7 +1624,8 @@ starts it"*. From now on it reads this way ([JL-D43](#JL-D43)):
   [HD-R1](host-daemon-ownership.md#HD-R1)'s unit ([JL-P4](#JL-P4)). At macos-user and `yolo host`
   it is the sessions of one workspace at that notch.
 - **For what a session keeps, it reads literally**: macos-user's sandbox-account processes, and,
-  under [OQ-JL9](#OQ-JL9)'s leaning, a `yolo host` launch's own services.
+  under [OQ-JL9](#OQ-JL9)'s leaning, a `yolo host` launch's own services, whose Codex adapter keeps
+  the managed home's machine-wide token ([NC-D18](../plans/notch-convergence.md#NC-D18)).
 - **What HS3 rejected stays rejected.** Nothing outlives the key's last session. `yolo host apply`
   still renders no per-launch address, and `yolo host env` still refuses a bridged profile, since
   it is no session and nothing would hold the lock for its output. The tokens are minted per
@@ -1611,8 +1634,9 @@ starts it"*. From now on it reads this way ([JL-D43](#JL-D43)):
 - **[`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)'s steps move to the keeper
   for what it holds.** Order and readiness are unchanged. "The agent exits" becomes "the key's
   last session exits". "The launch dies without cleanup" becomes "the keeper dies", with the same
-  lifeline. And item 6's *"two host launches … share nothing"* becomes, at macos-user, two
-  sessions sharing one keeper's services.
+  lifeline. Item 6's *"two host launches … share nothing but the OpenAI broker"* was already
+  untrue of the Codex adapter's home after NC-D18, and it becomes, at macos-user, two sessions
+  sharing one keeper's services.
 
 #### 9.9.10 Every feasibility problem found
 
@@ -1625,9 +1649,10 @@ starts it"*. From now on it reads this way ([JL-D43](#JL-D43)):
 | 5 | macOS has no `/proc/self/exe` and no systemd | [§9.8](#98-per-notch-podman-apple-container-macos-user-yolo-host) | the build-stamp refusal ([JL-D20](#JL-D20)) and Setsid alone, as for podman on macOS |
 | 6 | macos-user's session env file is described as per session but keyed per workspace (`SandboxEnvFile(cname, …)`, `<stateDir>/env/<cname>.env`), and each session removes it at its end. `RunMacosUser` releases the workspace lock before the sandbox reads it, so a second session writing it in that gap would hand the first sandbox the second's environment, which is scoped to another launched agent | [`envfile.go`](../../internal/macosuser/envfile.go), and `RunMacosUser`'s deferred removal and its `release()` before `RunWithProxy`; SOURCED; the race INFERRED | the file stays the session's, so the keeper does not fix it; a per-session name would, and it is recorded here as found |
 | 7 | A `yolo host` launch from the home directory has no workspace to keep sidecar state in | `paths.WorkspaceScopeBreach` | no key and no keeper there ([§9.9.3](#993-one-keeper-per-workspace-per-notch)) |
+| 8 | State shared across workspaces cannot be owned by a per-workspace keeper. Every `yolo host -- codex` on the machine runs on one managed Codex home keyed on the pack, whose `auth.json` carries one caller token that its live launches share. Two workspaces' keepers, each minting a token into that file, would bring NC-D18's breakage back | `prepare` and `sharedCallerToken` in [`host.go`](../../internal/openaiauthhost/host.go), [NC-D18](../plans/notch-convergence.md#NC-D18); SOURCED | under [OQ-JL9](#OQ-JL9)'s A and B the home keeps NC-D18's machine-wide token and lock; its C makes the home per workspace, the scope `.codex` has in a jail and at macos-user. The host-wide brokers stay outside every keeper, as [HD-R1](host-daemon-ownership.md#HD-R1)'s build leaves them |
 
 None of these blocks the ruling, and none is an exception to it. Each is a limit on what a keeper
-can hold at that notch, stated with its reason (1, 2, 5 and 7), work the design owes (4), or a
+can hold at that notch, stated with its reason (1, 2, 5, 7 and 8), work the design owes (4), or a
 defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
 
 ---
@@ -1730,10 +1755,15 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
    JL-D43). The feasibility read above was half right: an inherited lock descriptor does survive
    the exec, but it was measured to miscount a session both ways, so a `yolo host` launch that has
    a keeper stays resident instead ([§9.9.2](#992-what-a-session-is-there-and-why-yolo-host-stays-resident)).
-   On *"tell me if this is wrong"*: re-entry does bring the same problem at macos-user today,
-   through the workspace's per-agent env files, and at both notches for the sidecar feature; it
-   does not for the services a `yolo host` launch starts for its own agent, and whether those go
-   into the keeper anyway is [OQ-JL9](#OQ-JL9) ([§9.9.1](#991-where-the-re-entry-problem-is-real)).
+   On *"tell me if this is wrong"*: it is right. Re-entry brings the same problem at macos-user
+   today, through the workspace's per-agent env files and Codex's `auth.json`, and at both notches
+   for the sidecar feature. At `yolo host` it has already been met twice: two host Codex sessions
+   broke each other's refreshes until [NC-D18](../plans/notch-convergence.md#NC-D18) gave them one
+   shared token, and Codex's own background server outlived its launch until
+   [OQ-CDX1](../research/codex-background-service.md#OQ-CDX1) turned it off. Only the bridge's host
+   half shares nothing. Whether the keeper takes over the host's per-launch services, whose Codex
+   state belongs to the machine rather than the workspace, is [OQ-JL9](#OQ-JL9)
+   ([§9.9.1](#991-where-the-re-entry-problem-is-real)).
    [EW-D19](agent-event-watchers.md#EW-D19) is replaced by
    [EW-D25](agent-event-watchers.md#EW-D25).
 
@@ -1880,52 +1910,67 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
    carry on.
 
 6. 💬 <a id="OQ-JL9"></a>**[OQ-JL9](#OQ-JL9): At `yolo host`, does the keeper also hold what one
-   launch starts for its own agent?**
+   launch starts for its own agent?** *Re-asked 2026-09-29.* The first draft said nothing another
+   host launch reads names these services; that is untrue of the Codex refresh adapter.
 
-   **The setup.** On his Mac, in yolo-jail, with `ci-watch` enabled there, Matt runs
-   `yolo host -p codex -- claude` in one terminal and `yolo host -- codex` in another. The first
-   needs the bridge's host half, and the second the Codex refresh adapter; each is started for
-   that one agent, on a port and a caller token of that launch's own. Under
-   [OQ-JL5](#OQ-JL5)'s ruling the workspace's `yolo host` keeper holds `ci-watch` and the ping
-   box, which both terminals share ([§9.9.4](#994-what-the-keeper-owns-there)). **Why it is a
-   question:** the ruling's reading names *"the brokers' doorways, aws-auth"* among what the
-   keeper owns, with no backend carved out, and its reason was that re-entry otherwise brings
-   *"all the same problems"*. For these two services it does not: nothing another host launch
-   reads names them, so quitting one terminal takes nothing from the other today
-   ([§9.9.1](#991-where-the-re-entry-problem-is-real)). Keeping them out of the keeper follows the
-   rule the keeper was built on, and still narrows the reading, so it is the maintainer's call.
+   **The setup.** On his Mac, with `ci-watch` enabled in yolo-jail, Matt runs
+   `yolo host -p codex -- claude` in one yolo-jail terminal and `yolo host -- codex` in another,
+   and a third `yolo host -- codex` in his dotfiles repository. The yolo-jail keeper at `yolo host`
+   holds `ci-watch` and the ping box, which both yolo-jail terminals share
+   ([§9.9.4](#994-what-the-keeper-owns-there)). Each launch also starts something for its own
+   agent, and the two kinds differ in what they share:
 
-   - **A. They stay the launch's own, as today.** Each terminal starts what its agent needs,
-     answering its own token, and stops it when its agent exits
-     ([`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)). Matt sees each
-     terminal's `started the "wire-bridge" service …` line as today, and the keeper line names
-     only `ci-watch` and the box. The keeper holds what the sessions of the workspace share, at
-     every notch.
-   - **B. The keeper holds them too, still one per launch.** Each launch prints its service
-     lines, then hands them to the keeper as an addition to its plan; the keeper starts each,
-     answering that launch's token, and stops it when that launch's session ends. Matt sees one
-     keeper in `ps` holding every host service of the workspace at `yolo host`. The cost is out of
-     sight: the keeper, which counts sessions only in aggregate ([JL-D2](#JL-D2)), gets a
-     lifeline from each session to know when that one ends; and the one plan the launch disclosed
-     ([JL-D20](#JL-D20)) becomes a plan plus additions, a second path from a disclosure to a start.
-   - **C. The keeper holds them, shared.** One bridge and one adapter per workspace, and one token
-     handed to every host session there. A second launch whose agent or profile needs something
-     else gets a restart prompt that would end the first terminal's session, or an addition as in
-     B; and [NC-D3](../plans/notch-convergence.md#7-decision-ledger)'s per-launch caller secret
-     becomes a per-workspace one.
+   - **The bridge's host half**, which the first terminal's claude needs, is that launch's alone.
+     Its port and secret go into that claude's environment and into no file another launch reads
+     ([§9.9.1](#991-where-the-re-entry-problem-is-real)).
+   - **The Codex refresh adapter** listens on a port of each launch's own, but all three Codex
+     sessions, in both workspaces, run on one managed Codex home in yolo's machine-wide state, so on
+     one `auth.json`, which Codex rereads before every refresh. Re-entry already broke it once: each
+     launch wrote a caller token of its own there, the newest replaced the others, and their
+     refreshes failed. Since [NC-D18](../plans/notch-convergence.md#NC-D18) the home's live launches
+     share one token, counted by a lock of the home's own. Codex's own background server was the
+     same problem again, and [OQ-CDX1](../research/codex-background-service.md#OQ-CDX1) turned it
+     off.
 
-   <!-- vantage: oq id=OQ-JL9 leaning="A: nothing another host launch reads names these services, so they have no re-entry problem; the keeper holds what a workspace's sessions share at every notch, and B adds a per-session lifeline and a second disclosure-to-start path for the same behavior Matt sees today." -->
+   **Why it is a question:** the ruling's reading names *"the brokers' doorways"* among what a
+   keeper owns, with no backend carved out. The bridge has nothing to share. What the Codex adapter
+   shares belongs to the machine, while a keeper belongs to one workspace: two workspaces' keepers,
+   each writing a token into the one `auth.json`, would bring NC-D18's breakage back
+   ([§9.9.10](#9910-every-feasibility-problem-found) row 8). So the keeper either leaves the adapter
+   alone, or the managed Codex home has to change what it is.
 
-   _Leaning:_ **A.** The keeper exists to hold what a workspace's sessions share, and that rule
-   puts every container host service, everything macos-user starts outside its sandbox, and the
-   sidecar feature at every notch in it. These two services are shared by no one: the host renders
-   no per-launch address into any file ([OQ-HS3](host-notch-services.md#OQ-HS3)), so A keeps
-   [OQ-HS3](host-notch-services.md#OQ-HS3) and [NC-D3](../plans/notch-convergence.md#7-decision-ledger) literal for them, and B builds a per-session lifeline and a second plan path
-   for the behavior Matt already has. **The trap:** if "one ownership model" means one owner
-   process for every host service at every notch, so that `ps` answers "what serves this
-   workspace" in one line, B is the answer. And if a host launch ever writes a per-launch address
-   into a file another session reads, as macos-user's per-agent env files do, A's premise breaks
-   for that service and it moves into the keeper.
+   - **A. They stay the launch's own, as today.** Each terminal starts what its agent needs and
+     stops it when its agent exits ([`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)),
+     and the Codex home keeps NC-D18's shared token and lock. Matt sees each terminal's service line
+     as today, and the keeper line names only `ci-watch` and the box. The cost: two things count
+     sessions at `yolo host`, the keeper per workspace and NC-D18's lock per machine.
+   - **B. The keeper holds them, still one per launch.** Each launch prints its service lines and
+     hands its services to the keeper as an addition to its plan; the keeper starts each, and stops
+     it when that launch's session ends. Matt sees one keeper in `ps` holding every host service of
+     the workspace. The cost: a lifeline from each session to the keeper, a second path from a
+     disclosure to a start (the plan plus additions, against [JL-D20](#JL-D20)'s one plan), and the
+     Codex token still follows NC-D18's machine-wide lock, since the home is still shared across
+     workspaces. The processes move and the ownership does not.
+   - **C. The keeper holds the Codex adapter, over a Codex home made per workspace, and the bridge
+     stays the launch's own.** A workspace's host Codex sessions share one adapter and one token the
+     keeper mints, as a jail's sessions do, and NC-D18's lock retires for them. Matt sees the Codex
+     adapter on the keeper's line. The cost: Codex's sessions and history at `yolo host` split per
+     workspace, as they already are in a jail and at macos-user, where `.codex` is a per-workspace
+     `state` dir ([`packs/codex/pack.json`](../../packs/codex/pack.json)); today's machine-wide home
+     is left behind or moved once; every `yolo host -- codex` gets a keeper; and one started from
+     the home directory, which has no key ([§9.9.3](#993-one-keeper-per-workspace-per-notch)),
+     still needs a home and a lock of its own.
+
+   <!-- vantage: oq id=OQ-JL9 leaning="A: the keeper holds what a workspace's sessions share, at the scope they share it; the bridge is shared by no one, and the Codex home is shared by the whole machine, where NC-D18 already counts it; B moves processes without moving ownership, and C splits Codex's history per workspace to retire one count and still leaves the home-directory launch its own." -->
+
+   _Leaning:_ **A.** The keeper holds what a workspace's sessions share, at the scope they share
+   it: every container host service, everything macos-user starts outside its sandbox, and the
+   sidecar feature at every notch. The bridge is shared by no one. The Codex home is shared by the
+   whole machine, and NC-D18 already counts it at that scope, built and correct. B moves processes
+   without moving the ownership. C retires one count by splitting Codex's history per workspace,
+   and still leaves the home-directory launch its own. **The trap:** if "one ownership model"
+   means one owner per workspace for every host service, C is the answer, and Codex at `yolo host`
+   then keeps its history per workspace, as it does in a jail.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1987,7 +2032,7 @@ what it rests on. A row that depends on a question still open says so.
 | <a id="JL-D40"></a>JL-D40 | *Implementation decision.* **At every notch the last session waits for the keeper's teardown and streams it, within [JL-D34](#JL-D34)'s bound, and the keeper ends on its lifeline's EOF or a failed start before ready, or on its exclusive take of the session lock after.** Outside a container only [JL-D11](#JL-D11)'s second reason applies, since `captureConfigOnTerminate` runs only in the container arm: a teardown printed after the prompt is off the terminal ([OQ-RO3](../reference/report-tiers.md#why-its-this-way)). The wait is bounded by the existing stop graces, 2 s for a launch-owned child and 5 s for a fronted daemon. `yolo stop` stays the container notch's verb; `kill <pid>` ends a keeper at the other two in order ([JL-D24](#JL-D24)) | 2026-09-29 | [§9.9.6](#996-what-the-first-terminal-sees-and-how-the-keeper-ends) | — |
 | <a id="JL-D41"></a>JL-D41 | *Implementation decision.* **At macos-user and `yolo host` the fresh launch prints [JL-D21](#JL-D21)'s keeper line before the spawn, naming the notch, and a joining launch prints one line naming the keeper it joined, followed by the service, doorway and sidecar disclosures marked as held by it.** A joining terminal is served by host code it did not start, and a launch has no quiet mode ([OQ-RO3](../reference/report-tiers.md#why-its-this-way)) | 2026-09-29 | [§9.9.7](#997-what-it-discloses) | — |
 | <a id="JL-D42"></a>JL-D42 | *Implementation decision, answering "when a launch has nothing long-lived to own".* **No keeper is spawned when a launch's plan holds nothing that outlives the launch's own process or is shared by its key's sessions**: no front, fronted daemon, doorway, launch-owned service, sidecar or ping box. Such a launch runs as today, `yolo host` exec'ing, and takes no session lock; a keeper a later launch spawns neither counts nor serves it. Not a backend carve-out: the same rule gives every container launch a keeper, since its plan holds the container. A keeper with nothing to hold would be a spawn, a `ps` line and a disclosure for nothing. Whether a ping box alone counts follows [OQ-EW11](agent-event-watchers.md#OQ-EW11): under its leaning a box never comes without a sidecar | 2026-09-29 | [§9.9.8](#998-a-launch-with-nothing-long-lived) | — |
-| <a id="JL-D43"></a>JL-D43 | *Implementation decision,* the reading [OQ-JL5](#OQ-JL5)'s setup said it decides. **[OQ-HS3](host-notch-services.md#OQ-HS3)'s "launch" is the key's life for what a keeper holds, and the launch itself for what a session keeps.** At a container backend the key's life is the jail, [HD-R1](host-daemon-ownership.md#HD-R1)'s unit; at macos-user and `yolo host` it is one workspace's sessions at that notch. What HS3 rejected stays rejected: nothing outlives the key's last session, `yolo host apply` renders no per-launch address, `yolo host env` still refuses a bridged profile, and tokens are minted per keeper | 2026-09-29 | [§9.9.9](#999-what-changes-for-a-host-services-lifetime) | — |
+| <a id="JL-D43"></a>JL-D43 | *Implementation decision,* the reading [OQ-JL5](#OQ-JL5)'s setup said it decides. **[OQ-HS3](host-notch-services.md#OQ-HS3)'s "launch" is the key's life for what a keeper holds, and the launch itself for what a session keeps.** At a container backend the key's life is the jail, [HD-R1](host-daemon-ownership.md#HD-R1)'s unit; at macos-user and `yolo host` it is one workspace's sessions at that notch. What HS3 rejected stays rejected: nothing outlives the key's last session, `yolo host apply` renders no per-launch address, `yolo host env` still refuses a bridged profile, and tokens are minted per keeper. The managed Codex home at `yolo host` is not a keeper's under [OQ-JL9](#OQ-JL9)'s leaning, and its token stays the machine's live launches', as [NC-D18](../plans/notch-convergence.md#NC-D18) has it | 2026-09-29 | [§9.9.9](#999-what-changes-for-a-host-services-lifetime) | — |
 
 ---
 
