@@ -63,7 +63,22 @@ A value you set yourself wins over the one a profile sets. `ANTHROPIC_MODEL=my-m
 
 Two more come with the agent packs, with no extra pack to add:
 
-- **`bedrock`**, in the `claude` pack: Claude Code on AWS Bedrock. With the `aws-auth` loophole on,
+- **`bedrock`**, in the `bedrock` pack, which the `claude`, `codex`, `opencode` and `pi` packs
+  bring in: AWS Bedrock, for each of those agents through its own Bedrock support. Claude Code
+  uses Anthropic's models there; codex uses OpenAI's; opencode and pi use any model on the list.
+  yolo ships three: Claude Opus 5.5, GPT-6.1 Sol (US Regions only, which is where AWS offers it)
+  and GPT-6 Astra. codex starts on GPT-6.1 Sol, opencode and pi on Claude Opus 5.5, and Claude
+  Code on its own Bedrock default, unless your profile names a model:
+
+  ```jsonc
+  "profiles": { "astra": { "provider": "bedrock", "model": "global.openai.gpt-6-astra" } }
+  ```
+
+  Add a model with its maker, so each agent offers it only if it can use it:
+  `"providers": {"bedrock": {"models": {"kimi": {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}}}}`.
+  Copilot and oh-omp cannot use Bedrock yet.
+
+  With the `aws-auth` loophole on,
   it uses your host's `aws sso login`, narrowed to one role before it reaches the jail. The
   credential service inside the jail runs only when an agent is on a Bedrock provider, and only
   that agent can use it. See [Host Access and Loopholes](loopholes.md#the-loopholes-yolo-ships).
@@ -90,10 +105,11 @@ Two more come with the agent packs, with no extra pack to add:
   on `bedrock`, and no other process. If you list your own `api_key_env_name` on the provider,
   only those variables are kept for its agents.
 
-  Claude Code cannot reach Bedrock through the wire bridge yet. In a jail, a profile that adds
-  `"via": "wire-bridge"` to a Bedrock provider turns Claude Code's own Bedrock client off, so
-  Claude Code runs on its own login, and the launch warns. At `yolo host`, which has no bridge,
-  the same profile uses Claude Code's own Bedrock client.
+  No agent can reach Bedrock through the wire bridge yet. The `bedrock-bridge` profile, and any
+  profile that adds `"via": "wire-bridge"` to a Bedrock provider, is where that will work: in a
+  jail today it turns each agent's own Bedrock client off, so Claude Code runs on its own login
+  and the launch warns, while codex, opencode, pi and oh-omp are refused. Use `bedrock` meanwhile.
+  At `yolo host`, which has no bridge, such a profile uses each agent's own Bedrock client.
 
   If your own `~/.claude/settings.json` turns Bedrock on (`"env": {"CLAUDE_CODE_USE_BEDROCK":
   "1"}`) while claude's profile is not a Bedrock one, the launch says so in one line, naming the

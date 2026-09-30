@@ -89,6 +89,21 @@ Code cannot reach Bedrock through the wire bridge yet, so in a jail a profile th
 "wire-bridge"` to a Bedrock provider leaves Claude Code on its own login, and the launch now says
 so. See [what service a provider is](docs/reference/providers.md#the-platform-what-service-a-provider-is).
 
+**`-p bedrock` now runs codex, opencode and pi on AWS Bedrock, not only Claude Code.** Each agent
+uses its own Bedrock support, so it signs with your AWS credentials, the `aws-auth` login
+included, and nothing needs a URL: `yolo -p bedrock -- codex` works with `"packs": ["codex"]` and a
+region. One Bedrock provider now carries every agent's models, and yolo ships three of them:
+Claude Opus 5.5, GPT-6.1 Sol (offered by AWS in its US Regions only) and GPT-6 Astra. Each agent
+is offered the ones it can use, Anthropic's for Claude Code and OpenAI's for codex, and starts on
+the first of those, while Claude Code keeps its own Bedrock default unless you name a model. Name
+another with a profile's `model`, or add one under `providers.bedrock.models` with a `vendor`
+naming its maker, such as `{"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}`, so only the
+agents that can use it offer it. A `bedrock-bridge` profile ships too, for sending an agent
+through the wire bridge instead; the bridge cannot reach Bedrock by region alone yet, so today it
+runs Claude Code on its own login with a warning and refuses codex, opencode, pi and oh-omp.
+Copilot and oh-omp have no Bedrock route yet. See
+[the shipped Bedrock provider](docs/reference/providers.md#the-shipped-bedrock-provider).
+
 **A launch now tells you when your own Claude settings turn Bedrock on but no Bedrock provider is
 selected.** With `"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}` in `~/.claude/settings.json`, Claude
 Code runs in Bedrock mode whatever yolo selects, and yolo then hands it no AWS credentials. The

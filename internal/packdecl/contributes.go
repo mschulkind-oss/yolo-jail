@@ -487,7 +487,7 @@ type Contribution struct {
 	// it. The ruling refuses a launch of "the selected Bedrock provider" with no region, and
 	// OQ-BR2 (ruled 2026-09-29) says how core recognizes one: by the provider's `platform`,
 	// never by its name, so that a provider a user defines gets the same behavior as the
-	// shipped one. So the requirement keys on the platform: packs/claude's `bedrock` declares
+	// shipped one. So the requirement keys on the platform: packs/bedrock's `bedrock` declares
 	// these variables for "aws-bedrock", and a user's own `providers.bedrock-eu` with
 	// "platform": "aws-bedrock" is required a region from the same variables without
 	// restating them. Core names no AWS variable (the OQ-SSO8 rule envoverride.go states), which

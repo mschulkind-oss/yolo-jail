@@ -27,14 +27,25 @@ agent can read it.
   declares `"platform": "aws-bedrock"`. Step 6's D5 half
   ([OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), `f9832934`): claude's switch and
   aws-auth's pointer key on that platform, and a user's own Bedrock provider co-claims the AWS
-  credential names (`156870a7`, [PP-D9](providers-and-profiles-redesign.md#PP-D9)). Nothing else
-  of this design: the everything profile has no route yet, so a claude profile over `bedrock` with
-  a `via` runs claude on its own login, which the launch discloses (`f6424f4a`,
-  [PP-D4](providers-and-profiles-redesign.md#PP-D4)). The credential half,
-  [`sso-backed-bedrock.md`](sso-backed-bedrock.md), is built.
+  credential names (`156870a7`, [PP-D9](providers-and-profiles-redesign.md#PP-D9)). The credential
+  half, [`sso-backed-bedrock.md`](sso-backed-bedrock.md), is built.
+- BUILT 2026-09-29, build step 2 ([OQ-BR9](#OQ-BR9), [OQ-BR1](#OQ-BR1); [§12](#12-what-i-would-build-in-order)
+  steps 3 to 5 and 8.2): the provider moved into its own pack, `packs/bedrock`, which claude,
+  codex, opencode and pi need, with one model list of every maker, each entry naming its
+  `vendor` ([BR-D6](#BR-D6) to [BR-D8](#BR-D8)); codex, opencode and pi are bound to their own
+  Bedrock clients, and claude's picks only Anthropic entries ([BR-D9](#BR-D9) to
+  [BR-D14](#BR-D14)); and `bedrock-bridge` ships ([BR-D16](#BR-D16)). What is not built: the
+  bridge still has no upstream for a provider named by region alone
+  ([`wire-bridge-gateway.md` §8](wire-bridge-gateway.md#8-build-order), step 1), so
+  `bedrock-bridge` carries no agent yet, copilot and oh-omp get no Bedrock path, and a claude
+  profile over `bedrock` with a `via` runs claude on its own login, which the launch discloses
+  (`f6424f4a`, [PP-D4](providers-and-profiles-redesign.md#PP-D4)).
 - MEASURED: yolo's code at `f491d192` and `5e8e64f6` (2026-09-24). The codex, opencode and pi
   Bedrock clients were read statically from their shipped artifacts and never run
   ([§14](#14-evidence-and-how-to-re-check-it)).
+- MEASURED 2026-09-29, for step 2: the codex-cli 0.158.0, opencode 1.18.32 and pi 0.99.1 Bedrock
+  clients, read statically from the copies the launcher installed and never run; every shipped
+  model id, read from its AWS model card ([`packs/bedrock/README.md`](../../packs/bedrock/README.md#sources)).
 - UNMEASURED: no request has reached Bedrock from any agent, through the bridge, or with any of
   the three credentials.
 
@@ -44,7 +55,8 @@ So at `yolo host`, where that file is claude's own, should yolo count the region
 `AWS_PROFILE` there? Until you rule, the refusal says "yolo does not read it" and the hatch is the
 way through ([BR-D5](#BR-D5)). [OQ-BR9](#OQ-BR9) and [OQ-BR1](#OQ-BR1) were ruled 2026-09-29:
 one `bedrock` pack pulls in every model family, and `-p bedrock` uses each agent's own Bedrock
-client, with `bedrock-bridge` forcing the wire bridge.
+client, with `bedrock-bridge` forcing the wire bridge. Both are built, except the bridge's own
+Bedrock upstream ([BR-D16](#BR-D16)).
 
 ## The Bedrock and provider design set
 
@@ -56,7 +68,7 @@ names what is open there.
 | Order | Doc | Its one question | Ruled |
 | :--- | :--- | :--- | :--- |
 | 1 | [`providers.md`](../reference/providers.md#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote) | what happens to the model id yolo wrote when you drop a profile ([OQ-PSW2](../reference/providers.md#oq-psw2), [OQ-PSW4](../reference/providers.md#oq-psw4)) | 2026-09-25 |
-| 2 | this doc | one Bedrock provider, and what you type ([OQ-BR9](#OQ-BR9) with [OQ-BR1](#OQ-BR1)) | 2026-09-29 |
+| 2 | this doc | one Bedrock provider, and what you type ([OQ-BR9](#OQ-BR9) with [OQ-BR1](#OQ-BR1)) | 2026-09-29, built |
 | 3 | [`provider-credential-scope.md`](provider-credential-scope.md) | which credentials and env a profile lets through to which agent ([OQ-CN6](provider-credential-scope.md#OQ-CN6) with [OQ-CN2](provider-credential-scope.md#OQ-CN2) first) | 2026-09-26 |
 | 4 | [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) | what a provider and a profile should mean ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), then [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), then the PP questions) | [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2), [OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8): 2026-09-29, built; the PP questions open |
 | 5 | [`model-lists-and-pickers.md`](model-lists-and-pickers.md) | which models each picker shows, and which yolo picks ([OQ-ML2](model-lists-and-pickers.md#OQ-ML2) first) | — |
@@ -80,8 +92,8 @@ Whether yolo should keep both concepts is
 1. **One endpoint family, `bedrock-runtime`** ([DIR-BR3](#DIR-BR3)). Mantle, AWS's other
    OpenAI-compatible endpoint, is not shipped, so no name has to say which one.
 2. **One provider, `bedrock`, holding every model family.** Each model entry declares its maker
-   (its `vendor`). This holds if [OQ-BR9](#OQ-BR9) rules its leaning. Otherwise
-   [§6.1](#61-the-provider-shape-one-bedrock-provider-or-two)'s two-provider split ships.
+   (its `vendor`). [OQ-BR9](#OQ-BR9) ruled it on 2026-09-29, and it is built: `packs/bedrock`
+   ships it ([BR-D6](#BR-D6)).
 3. **Two transports, and this is the real axis.**
    - The **native client** is the agent's own built-in Bedrock code talking to AWS. yolo supplies
      a region and a model id, never a URL. codex (OpenAI models only), opencode and pi (every
@@ -103,21 +115,20 @@ Whether yolo should keep both concepts is
    pi likewise gets a native route and a bridge route ([OQ-BR5](#OQ-BR5)).
 
 Each cell below names the transport, then the models it can call. The names are
-[OQ-BR1](#OQ-BR1)'s leaning; under [OQ-BR9](#OQ-BR9) B, codex, opencode and pi type
-`-p bedrock-gpt` instead ([§6.1](#61-the-provider-shape-one-bedrock-provider-or-two)).
+[OQ-BR1](#OQ-BR1)'s ruling (2026-09-29), and the last column says what is built.
 
 | Agent | You type `-p bedrock` | You type `-p bedrock-bridge` | Delivered by |
 | :--- | :--- | :--- | :--- |
-| **claude** | native (`CLAUDE_CODE_USE_BEDROCK=1`): **Anthropic models only**, because Messages serves Claude only ([§2](#2-what-bedrock-is--sourced-from-awss-pages)). Shipped today | the everything profile: the bridge, **every model**, Anthropic ids passed untranslated ([OQ-BR11](#OQ-BR11)) | native: shipped; everything: [`wire-bridge-gateway.md`](wire-bridge-gateway.md) |
-| **codex** | native (`amazon-bedrock-runtime`, Responses): **OpenAI models only**, since the evidence covers GPT alone; widened when done-condition 5 measures another family | nothing yet. The bridge's one Responses route serves claude's `openai-codex` subscription profile; a Responses pass-through for codex comes later ([OQ-WG5](wire-bridge-gateway.md#OQ-WG5)) | [§6.2](#62-what-each-derive-emits) |
-| **opencode** | native (`amazon-bedrock`, routed per model): **every model** | nothing, unless [OQ-WG5](wire-bridge-gateway.md#OQ-WG5) adds a profile | [§6.2](#62-what-each-derive-emits) |
-| **pi** | native (`amazon-bedrock` on Converse): **every model**; pi-ai 0.87.1's 165 Bedrock ids are all Converse | the bridge's sign-only chat-completions route, **every model** ([OQ-BR5](#OQ-BR5)) | native [§6.2](#62-what-each-derive-emits); bridge [`wire-bridge-gateway.md`](wire-bridge-gateway.md) |
-| **copilot** | no native client, so the bridge: **every model** | the same | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) |
-| **oh-omp** | the bridge's [sign-only route](wire-bridge-gateway.md#4-part-3--the-sign-only-openai-chat-completions-route-ruled); its own client speaks mantle (SOURCED, not installed). Models unverified | the same | [`wire-bridge-gateway.md`](wire-bridge-gateway.md); unverified |
+| **claude** | native (`CLAUDE_CODE_USE_BEDROCK=1`): **Anthropic models only**, because Messages serves Claude only ([§2](#2-what-bedrock-is--sourced-from-awss-pages)). Shipped | the everything profile: the bridge, **every model**, Anthropic ids passed untranslated ([OQ-BR11](#OQ-BR11)) | native: built, its model filtered to Anthropic entries ([BR-D9](#BR-D9)); everything: [`wire-bridge-gateway.md`](wire-bridge-gateway.md), unbuilt, so claude runs on its own login and is warned ([BR-D16](#BR-D16)) |
+| **codex** | native (`amazon-bedrock-runtime`, Responses): **OpenAI models only**, since the evidence covers GPT alone and Anthropic's cards list no Responses API; widened when done-condition 5 measures another family | its via row, Responses at its via URL ([WG-I20](wire-bridge-gateway.md#WG-I20)), which the launch refuses while the bridge has no Bedrock upstream | native: built ([BR-D12](#BR-D12)); bridge: [BR-D16](#BR-D16) |
+| **opencode** | native (`amazon-bedrock`, routed per model): **every model** | its via row, refused the same way | native: built ([BR-D13](#BR-D13)) |
+| **pi** | native (`amazon-bedrock` on Converse): **every model**; pi-ai 0.87.1's 165 Bedrock ids are all Converse | the bridge's sign-only chat-completions route, **every model** ([OQ-BR5](#OQ-BR5)), refused the same way until it has an upstream | native: built ([BR-D14](#BR-D14)); bridge [`wire-bridge-gateway.md`](wire-bridge-gateway.md) |
+| **copilot** | no native client, so the bridge: **every model** | the same | unbuilt: the bridge cannot reach a provider named by region alone, so `-p bedrock` configures nothing and copilot does not need the pack ([BR-D15](#BR-D15)) |
+| **oh-omp** | the bridge's [sign-only route](wire-bridge-gateway.md#4-part-3--the-sign-only-openai-chat-completions-route-ruled); its own client speaks mantle (SOURCED, not installed). Models unverified | the same | unbuilt, as copilot's; under `bedrock-bridge` refused like pi |
 | **agy** | nothing: its transport is a closed enum | nothing | nobody; it is the one hole ([§4](#4-what-each-agent-can-actually-do)) |
 
 "Every model" means every entry of the provider's list; which models each filter takes is by the
-entry's declared vendor ([§6.1](#61-the-provider-shape-one-bedrock-provider-or-two)).
+entry's declared vendor ([§6.1](#61-the-provider-shape-one-bedrock-provider-or-two), [BR-D11](#BR-D11)).
 
 **Reads with** [`providers.md`](../reference/providers.md) (catalog, selection, derives,
 `wire_api`), [`protocol-resolution.md`](../reference/protocol-resolution.md) (why an endpoint-less
@@ -220,6 +231,8 @@ Only the parts of the built provider system that Bedrock lands on. MEASURED at `
   declares that platform and routes through no via service; `packs/aws-auth` gates its
   credential pointer on the platform, not on the profile name `bedrock`
   ([OQ-BR8](providers-and-profiles-redesign.md#OQ-BR8), [PP-D2 to PP-D4](providers-and-profiles-redesign.md#PP-D2)).
+  ⚠ **Changed again 2026-09-29, by build step 2**: the provider and its profile left packs/claude
+  for `packs/bedrock`, which lists models ([BR-D6](#BR-D6), [BR-D15](#BR-D15)).
 - **Only the claude derive reads `region`**, mapping `p.region` to `AWS_REGION`. The `Region`
   field's comment in `internal/packdecl/contributes.go` reads *"Region is the region a regional
   provider is reached through — Bedrock's address half"*.
@@ -236,7 +249,8 @@ Only the parts of the built provider system that Bedrock lands on. MEASURED at `
   ([`wire-bridge-gateway.md`](wire-bridge-gateway.md)).
 
 **So:** claude on Bedrock is wired but unmeasured. claude and copilot reach Bedrock's other models
-through the bridge with an API key. codex, opencode and pi cannot see Bedrock at all.
+through the bridge with an API key. codex, opencode and pi cannot see Bedrock at all. (The state
+on 2026-09-24. Build step 2 bound all three, [BR-D12](#BR-D12) to [BR-D14](#BR-D14).)
 
 ---
 
@@ -325,6 +339,13 @@ https://bedrock-runtime.{region}.amazonaws.com/openai/v1`, beside `aws.region`. 
 
 ### 6.1 The provider shape: one `bedrock` provider, or two
 
+> [!NOTE]
+> **Built 2026-09-29 as A** ([OQ-BR9](#OQ-BR9)'s ruling). The shipped file differs from the
+> snippet below in two ways: it declares no `options` (declaring any turns on the profile-option
+> census and would refuse user profiles that pass today, the reason [ML-D1](model-lists-and-pickers.md#ML-D1)
+> gives), and each model's facts ride `model_options`, `vendor` among them ([BR-D6](#BR-D6)).
+> The file is [`packs/bedrock/pack.json`](../../packs/bedrock/pack.json).
+
 **Under [OQ-BR9](#OQ-BR9)'s leaning (A), one runtime provider holds every model family.** It keeps
 the name `bedrock` and moves out of packs/claude into a new `bedrock` pack, which packs/claude
 `needs` (as it needs `openai-auth`). It must move, because a provider every agent reads needs an
@@ -365,7 +386,7 @@ credential gate withholds by; a list of several points an agent at none of them,
 still serves all three credentials ([§6.4](#64-the-credential-three-are-supported)). The
 snippet was corrected on 2026-09-29, when it paired a shipped region with the refusal's field.
 
-**What ships if [OQ-BR9](#OQ-BR9) goes B.** claude's `bedrock` stays in packs/claude with
+**What would have shipped had [OQ-BR9](#OQ-BR9) gone B** (it went A). claude's `bedrock` stays in packs/claude with
 Anthropic ids. A new `bedrock` pack ships a provider `bedrock-openai` with
 `global.openai.gpt-5.6-*` ids for codex, pi and opencode, selected by the profile `bedrock-gpt`.
 The reason: one `default` alias cannot name an Anthropic id for claude and a GPT id for codex. The
@@ -399,6 +420,18 @@ in [§14](#14-evidence-and-how-to-re-check-it).
 
 Selection keys ride the reserved `selection` namespace, unchanged: they are written on activation
 and never on absence, and an interactive `/model` still stands.
+
+> [!NOTE]
+> **As built, 2026-09-29, where it differs from the table.** codex's override carries `aws.region`
+> only for a region the provider declares, and no `aws.profile`: codex reads `AWS_REGION`,
+> `AWS_DEFAULT_REGION` and `AWS_PROFILE` itself, and the provider declares no `aws_profile`
+> option ([BR-D12](#BR-D12)). opencode's row likewise writes `options.region` only from the
+> provider and no `options.profile` ([BR-D13](#BR-D13)). pi's `models` lists every entry of the
+> list, not only ids pi's catalog lacks, since a derive cannot read pi's catalog, and pi's own
+> region comes from `AWS_REGION`, which pi's env derive sets from the provider's `region`
+> ([BR-D14](#BR-D14)). claude's env pins a model only when the profile or a user `default` names
+> an Anthropic entry ([BR-D9](#BR-D9)). pi's, opencode's and codex's facts were re-read at the
+> versions the launcher installed on 2026-09-29: pi 0.99.1, opencode 1.18.32, codex-cli 0.158.0.
 
 ### 6.3 A hand-written API-key provider (documentation only)
 
@@ -590,16 +623,22 @@ Written for the implementer. Anything not here and not an open question is their
   ([`providers.md`](../reference/providers.md#the-region-preflight)). ⚠ One gap the ruling
   leaves: it counts `AWS_DEFAULT_REGION` alone as a region, and opencode 1.18.32 reads only
   `options.region` and `AWS_REGION` ([§14](#14-evidence-and-how-to-re-check-it)). So with only
-  `AWS_DEFAULT_REGION` set, the launch proceeds and opencode still uses `us-east-1`, until its
-  binding (step 5 of [§12](#12-what-i-would-build-in-order)) writes a region into
-  `options.region`.
+  `AWS_DEFAULT_REGION` set, the launch proceeds and opencode still uses `us-east-1`. Its binding
+  (step 5 of [§12](#12-what-i-would-build-in-order), built 2026-09-29) writes `options.region`
+  only from the provider's own `region`, since a derive cannot read an environment value, so the
+  gap stays for a region only `AWS_DEFAULT_REGION` delivers ([BR-D13](#BR-D13)).
 - **An empty `models` map, or a missing alias:** emit the catalog row and omit the model key. The
   agent resolves its own model.
 - **A profile for an agent with no path** writes nothing and warns nothing, like any unreachable
-  provider today. That covers agy; oh-omp until its support is read; copilot until the bridge
-  serves a Bedrock provider; and codex and opencode under a bridge-forcing profile
-  ([OQ-BR1](#OQ-BR1)).
+  provider today. That covers agy; oh-omp until its support is read; and copilot until the bridge
+  serves a Bedrock provider. As built, none of the three needs `packs/bedrock`, so in a jail of
+  them alone `-p bedrock` is refused as undeclared ([BR-D15](#BR-D15)). *(Amended 2026-09-29:
+  this bullet also listed codex and opencode under a bridge-forcing profile. As built they write
+  their via rows, and the launch refuses them until the bridge has a Bedrock upstream,
+  [BR-D16](#BR-D16).)*
 - **Two Bedrock-marked providers** are two catalog rows, and only the selected one gets a selection.
+  *(Superseded 2026-09-29 by [BR-D10](#BR-D10): each agent has one built-in Bedrock provider, so
+  only the selected one gets a row.)*
 
 **Failure paths.**
 - **Credential absent.** The native provider declares no `api_key_env_name`, so the preflight
@@ -710,15 +749,14 @@ R6 to R11 moved with the bridge, model-list and search designs.
 2. ~~**Rule [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)**, whose marker the native derives
    key on~~: ruled and built 2026-09-29 (`96da82bb`), the provider field `platform`, which a derive
    reads as `ctx.selected_platform`.
-3. **The `bedrock` pack**: the runtime provider, its profile, and a README on why runtime is the
-   one family. It changes nothing observable until step 4. Its entries follow the built-in pack
-   ([OQ-BR3](model-lists-and-pickers.md#OQ-BR3)). Its provider declares `"platform":
-   "aws-bedrock"` and `region_env_name`, or neither claude's switch, aws-auth's pointer nor the
-   region refusal follows the provider into the new pack ([BR-D1](#BR-D1),
-   [PP-D2](providers-and-profiles-redesign.md#PP-D2)).
-4. **The codex binding**: the pin, `aws.region` and the selection, which `codex doctor` verifies
-   cheaply.
-5. **The opencode and pi native bindings**, each with a provenance comment naming the version read.
+3. ~~**The `bedrock` pack**~~: built 2026-09-29 ([BR-D6](#BR-D6), [BR-D7](#BR-D7),
+   [BR-D15](#BR-D15)). The runtime provider, its two profiles, the model list and a README that
+   dates each id's source. Its provider declares `"platform": "aws-bedrock"` and
+   `region_env_name`, so claude's switch, aws-auth's pointer and the region refusal followed the
+   provider into the new pack ([BR-D1](#BR-D1), [PP-D2](providers-and-profiles-redesign.md#PP-D2)).
+4. ~~**The codex binding**~~: built 2026-09-29 ([BR-D12](#BR-D12)); `codex doctor` has not run it.
+5. ~~**The opencode and pi native bindings**~~: built 2026-09-29 ([BR-D13](#BR-D13),
+   [BR-D14](#BR-D14)), each with a provenance comment naming the version read.
 6. **Close the gate leaks**, per [`provider-credential-scope.md`](provider-credential-scope.md) and
    [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md). The D2 half is
    BUILT (2026-09-26, the credential gate); the D5 half is BUILT too (2026-09-29, `f9832934`,
@@ -726,7 +764,8 @@ R6 to R11 moved with the bridge, model-list and search designs.
 7. **The hand-written API-key provider and mantle recipes** in the user guide, with P1 stated where users hit it.
 8. **The direction**, once [OQ-BR9](#OQ-BR9) rules:
    1. the signer ([`wire-bridge-gateway.md`](wire-bridge-gateway.md));
-   2. **the shared provider with per-entry `vendor` and the derive filters**, here;
+   2. ~~**the shared provider with per-entry `vendor` and the derive filters**~~, built
+      2026-09-29 ([BR-D6](#BR-D6) to [BR-D11](#BR-D11));
    3. claude's everything profile and pi's bridge route ([`wire-bridge-gateway.md`](wire-bridge-gateway.md));
    4. lists and pickers ([`model-lists-and-pickers.md`](model-lists-and-pickers.md)).
 9. **Search**: [`bedrock-web-search.md`](bedrock-web-search.md).
@@ -858,8 +897,8 @@ R6 to R11 moved with the bridge, model-list and search designs.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| [OQ-BR9](#OQ-BR9) | **Maintainer ruling:** one provider for every model family, packaging free, one `bedrock` pack pulling all of it in | 2026-09-29 | [§6.1](#61-the-provider-shape-one-bedrock-provider-or-two) | pending |
-| [OQ-BR1](#OQ-BR1) | **Maintainer ruling:** `-p bedrock` everywhere, native client by default, `bedrock-bridge` or a user profile's `via` forces the bridge | 2026-09-29 | [§12](#12-what-i-would-build-in-order) | pending |
+| [OQ-BR9](#OQ-BR9) | **Maintainer ruling:** one provider for every model family, packaging free, one `bedrock` pack pulling all of it in | 2026-09-29 | [§6.1](#61-the-provider-shape-one-bedrock-provider-or-two) | ✅ 2026-09-29: `packs/bedrock`, needed by claude, codex, opencode and pi, the six credential names kept, no region, each agent's fallback its first callable entry ([BR-D6](#BR-D6) to [BR-D11](#BR-D11), [BR-D15](#BR-D15)). Pinned by `TestEveryBedrockAgentAloneGetsTheBedrockProfile` and `TestOnlyTheBindingAgentsNeedBedrock` |
+| [OQ-BR1](#OQ-BR1) | **Maintainer ruling:** `-p bedrock` everywhere, native client by default, `bedrock-bridge` or a user profile's `via` forces the bridge | 2026-09-29 | [§12](#12-what-i-would-build-in-order) | ✅ 2026-09-29 for the native half: codex, opencode and pi on their own clients, claude's filtered ([BR-D9](#BR-D9) to [BR-D14](#BR-D14)); `bedrock-bridge` ships but carries no agent until the bridge has a Bedrock upstream, and copilot and oh-omp have no path yet ([BR-D16](#BR-D16)) |
 | <a id="DIR-BR1"></a>DIR-BR1 | **Every agent reaches every Bedrock model its transport can carry, and every picker shows a current list an org can shape with one pack.** Given as a direction in review: *"Claude should be able to use all of those models with basically no change."* | 2026-09-24 | [§6.5](#65-every-bedrock-model-in-every-agent--the-direction) | — |
 | <a id="DIR-BR2"></a>DIR-BR2 | **The whole matrix**: every agent, every model its transport carries, every supported credential with SSO included, and every model one pick in the agent's menu. *"We need to support single sign on through all of the methods so I can use any model… So we got to support everything everywhere, the whole matrix."* agy is the one hole | 2026-09-24 | [§6.7](#67-the-whole-matrix--every-agent-every-model-every-credential) | — |
 | [OQ-BR11](#OQ-BR11) | **Both claude profiles: native and everything.** *"if you only do native or the rest, then you'll never be able to switch between Claude and, say, OpenAI in one Claude session, which I think we'll want. So I guess just both options."* The bridge routes by model id: Anthropic ids pass untranslated to runtime's Messages, and the rest are translated. It amends the bridge's one-upstream rule. The leaning (two profiles, no routing) was overruled | 2026-09-24 | [Where the split ended up](#where-the-split-ended-up); routing in [`wire-bridge-gateway.md`](wire-bridge-gateway.md) | — |
@@ -872,6 +911,17 @@ R6 to R11 moved with the bridge, model-list and search designs.
 | <a id="BR-D3"></a>BR-D3 | *Implementation decision.* **The refusal is the provider pre-flight's second half and honors its hatch**, `YOLO_ALLOW_MISSING_PROVIDERS=1`, as a loud continuation. It runs wherever the credential half runs, so no arm can ask one question without the other. The one launch that may need the hatch is an agent that does read a region the refusal cannot count, such as an `~/.aws/config` one | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | ✅ `59d06f13` |
 | <a id="BR-D4"></a>BR-D4 | *Implementation decision, from the review.* **The region is asked of each agent on the provider.** The first build answered "is a region delivered" through the launch-wide lookup, which counts a value reaching any process; since the credential gate, delivery is per agent, so claude on `bedrock` and codex on a profile whose gated env gives codex alone `AWS_REGION` passed, and claude started with none. `ProviderRegionGaps` takes one ask per agent whose profile selects a provider, each answered from what reaches that agent (the env_sources the gate delivers to it, the shared pack env, its own gated env and shape vars, `CredentialScope.DeliveredTo`, and on a container the argv's `-e` pairs), and the refusal names the agents that receive none | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | ✅ `901207dc` |
 | <a id="BR-D5"></a>BR-D5 | *Implementation decision, from the review.* **The refusal says an `~/.aws/config` region is not counted because yolo does not read it**, not that an agent reading it is "unproven": Claude Code's resolver reads `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the shared-config region for the active `AWS_PROFILE` (through the AWS SDK's `loadConfig` with `NODE_REGION_CONFIG_FILE_OPTIONS`), then falls back to `"us-east-1"`. The reviewer read it in 2.1.284; re-read statically in 2.1.285 on 2026-09-29 (`grep -a readAwsSharedConfigRegion` on the installed binary), never run. The premise is corrected to name claude beside opencode and pi. Whether the host notch should count that region is put back to the maintainer ([OQ-BR6](#OQ-BR6)); until then the hatch covers it | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | ✅ `41947c1f` |
+| <a id="BR-D6"></a>BR-D6 | *Implementation decision.* **A model's vendor is a `model_options` fact on a pack's provider, and a key of a user's object-form model entry.** The ruled `models` contribution kind ([OQ-BR12](model-lists-and-pickers.md#OQ-BR12)) is unbuilt, and `model_options` is the per-model fact channel the `openai-codex` list already uses ([ML-D1](model-lists-and-pickers.md#ML-D1)), so the one declaration needed no new schema. A user writes `{"id": …, "vendor": …}` under `providers.<name>.models`, lowered to the same flat key. Both layers check only the shape, one lowercase token (`packdecl.ValidModelVendor`); core interprets no value, and an entry with no vendor is offered to every agent | 2026-09-29 | [§6.1](#61-the-provider-shape-one-bedrock-provider-or-two) | ✅ `packs/bedrock/pack.json`, `config.validateModelEntry`, `packload.flattenModelFacts`; pinned by `TestComposeProvidersLowersAUserModelsVendor` and `TestAProviderModelVendorIsShapeChecked` |
+| <a id="BR-D7"></a>BR-D7 | *Implementation decision.* **Three ids ship, each read from its AWS model card on 2026-09-29, and none is a `default` alias.** Claude Opus 5.5 (`global.`), GPT-6.1 Sol (`us.`, the only runtime id AWS offers for it) and GPT-6 Astra (`global.`), ordered in that sequence by the `order` fact. GPT-6 Sol ships nowhere: AWS publishes no page for it and lists no such model, so the maintainer's rule (GPT-6.1 Sol where Bedrock offers it, GPT-6 Sol only where it offers nothing newer) leaves nothing to ship outside the US geography. A `default` alias would steer claude's own Bedrock client, which [OQ-ML2](model-lists-and-pickers.md#OQ-ML2) forbids, so each agent's default is its first callable entry. The sources are dated in the pack README | 2026-09-29 | [§5.3 of model-lists](model-lists-and-pickers.md#53-the-prerequisite-verify-before-an-id-ships) | ✅ pinned by `TestTheShippedBedrockListDeclaresEachEntrysMaker` |
+| <a id="BR-D8"></a>BR-D8 | *Implementation decision.* **One Lua helper decides, for one agent, which entries it can call and which it starts on**, copied verbatim into the four binding derives because a derive cannot load another file. `callableModels` orders the entries by `order` and keeps those whose vendor the agent's client serves, or that name none. `callableModel` takes the profile's `model` when it names such an entry (as an alias or an id) or an id the provider does not list at all, which passes through as the user wrote it; else the provider's `default` alias when callable; else, for an agent yolo must pick for, the first callable entry. A profile naming a listed entry the agent cannot call is skipped, never sent | 2026-09-29 | [§6.1](#61-the-provider-shape-one-bedrock-provider-or-two) | ✅ pinned identical by `TestBedrockModelListHelperIsIdenticalInEveryDerive` |
+| <a id="BR-D9"></a>BR-D9 | *Implementation decision.* **claude on its own Bedrock client pins a model only when the profile or a user `default` alias names an Anthropic entry**, and otherwise none. Claude Code starts on an Anthropic model of its own there, which is a valid session, and [OQ-ML2](model-lists-and-pickers.md#OQ-ML2) rules that yolo does not steer one. A profile over a Bedrock provider with a `via` and no anthropic endpoint pins no model either, since claude runs on its own login there. The native client ignores an anthropic endpoint on the provider, which can only be the bridge's | 2026-09-29 | [§6.2](#62-what-each-derive-emits) | ✅ `packs/claude/derive.lua`; pinned by `TestClaudeOnBedrockStartsOnlyOnAnAnthropicModel` |
+| <a id="BR-D10"></a>BR-D10 | *Implementation decision.* **A native row is written only for the selected Bedrock provider, only on the agent's own transport, and a Bedrock provider never gets a generic row.** Each agent has one built-in Bedrock provider id, so two Bedrock providers cannot both have one; the credential gate withholds the AWS credentials from an agent that did not select the provider anyway; and a generic row carries one key, while Bedrock's credential is the AWS chain only the agent's own client signs with. This supersedes [§8](#8-behaviour-this-design-fixes)'s "two Bedrock-marked providers are two catalog rows" | 2026-09-29 | [§8](#8-behaviour-this-design-fixes) | ✅ the codex, opencode and pi derives |
+| <a id="BR-D11"></a>BR-D11 | *Implementation decision.* **Which makers each client calls:** claude Anthropic's (Messages serves Claude only); codex OpenAI's (it drives Responses, and the Claude Opus 5.5 card lists no Responses API on runtime); opencode and pi every maker's (both drive Converse, which each shipped entry's card lists) | 2026-09-29 | [the per-agent table](#where-the-split-ended-up) | ✅ the four derives |
+| <a id="BR-D12"></a>BR-D12 | *Implementation decision.* **codex's binding is `model_provider = "amazon-bedrock-runtime"`, the model, and an override carrying `aws.region` only for a region the provider declares.** Read from the codex-cli 0.158.0 binary's strings: the built-in id, the runtime URL composed from the region, the region order (the override, `AWS_REGION`, `AWS_DEFAULT_REGION`) and the seven-field override guard. No `aws.profile`: `AWS_PROFILE` reaches codex's credential chain directly. That runtime takes the id unchanged is INFERRED from the fallback-metadata message (trap D4) | 2026-09-29 | [§6.2](#62-what-each-derive-emits) | ✅ `packs/codex/derive.lua`; pinned by `TestCodexOnBedrockUsesItsOwnRuntimeClient` |
+| <a id="BR-D13"></a>BR-D13 | *Implementation decision.* **opencode's binding is `provider["amazon-bedrock"]` with the list's models and `options.region` only from the provider**, no `npm`, no endpoint, and the selection `amazon-bedrock/<id>` with `enabled_providers` naming it. Read from the opencode 1.18.32 binary's strings. ⚠ opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`, so [§8](#8-behaviour-this-design-fixes)'s gap stays for a region that only the latter delivers: the derive cannot see an environment value to copy | 2026-09-29 | [§6.2](#62-what-each-derive-emits) | ✅ `packs/opencode/derive.lua`; pinned by `TestOpencodeOnBedrockUsesItsOwnClient` |
+| <a id="BR-D14"></a>BR-D14 | *Implementation decision.* **pi's binding lists every entry under its built-in `amazon-bedrock`, with `models` alone, and hands pi a provider-declared region as `AWS_REGION`.** Read from pi 0.99.1's installed sources: a models-only row keeps each model on pi's Converse client, taking `api` and base URL from pi's own catalog, and pi reads its region from the environment. [§6.2](#62-what-each-derive-emits)'s "adds only ids the built-in lacks" is not buildable, since a derive cannot read pi's catalog, so a row replaces pi's entry of the same id and carries the window, output cap, inputs and reasoning the list declares; pi's cost and thinking levels for that id are lost. The scope and pi-subagents' policy are the list, the start model first | 2026-09-29 | [§6.2](#62-what-each-derive-emits) | ✅ `packs/pi/derive.lua`; pinned by `TestPiOnBedrockUsesItsOwnConverseClient` and `TestPiOnBedrockReceivesTheProvidersRegion` |
+| <a id="BR-D15"></a>BR-D15 | *Implementation decision.* **The agent packs that bind Bedrock need `packs/bedrock`, and it needs `aws-auth`.** claude, codex, opencode and pi; the aws-auth need moved from packs/claude to the pack that ships the provider it serves. copilot, oh-omp and agy do not need it: none has a Bedrock client, and the bridge has none to offer them, so a `-p bedrock` there is refused as a profile the launch does not declare rather than accepted to configure nothing. The need is pinned to the derives: a pack whose derive keys on `aws-bedrock` needs the pack, and one that does not, does not | 2026-09-29 | [§6.1](#61-the-provider-shape-one-bedrock-provider-or-two) | ✅ pinned by `TestOnlyTheBindingAgentsNeedBedrock` and `TestBedrockNeedsAWSAuth` |
+| <a id="BR-D16"></a>BR-D16 | *Implementation decision.* **`bedrock-bridge` ships as `{provider: bedrock, via: wire-bridge}`, and under it no agent runs its own Bedrock client.** codex gets its via row (Responses at its via URL), as pi, opencode and oh-omp already do. The bridge has no upstream for a provider named by region alone ([`wire-bridge-gateway.md` §8](wire-bridge-gateway.md#8-build-order), step 1), so the launch's via gate ([WG-I13](wire-bridge-gateway.md#WG-I13), [WG-I15](wire-bridge-gateway.md#WG-I15)) refuses codex, pi, opencode and oh-omp and warns claude, which starts on its own login. Falling back to the native client was rejected: the profile asked for the bridge, and the gate's "the via has no effect" would then have been false for codex | 2026-09-29 | [OQ-BR1](#OQ-BR1) | ✅ pinned by `TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan` and the per-agent `…OnABridgedBedrockProfile…` tests |
 | [OQ-BR10](#OQ-BR10) | Moved to [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-BR10): the bridge signs its own requests | 2026-09-24 | there | — |
 | [OQ-BR16](#OQ-BR16) | Moved to [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-BR16): the everything profile carries the subscription | 2026-09-24 | there | — |
 | [OQ-BR17](#OQ-BR17) | Moved to [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-BR17): opt-in per-model failover | 2026-09-24 | there | — |

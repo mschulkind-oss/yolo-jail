@@ -67,9 +67,10 @@ family, `bedrock-runtime` ([DIR-BR3](bedrock-plumbing.md#DIR-BR3)). On it:
 
 The **everything profile** is a term coined in [`bedrock-plumbing.md`](bedrock-plumbing.md). It
 is a claude profile that points claude at the bridge, so that one session can switch between
-Anthropic models and every other Bedrock model. Its name is still
-[OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s to decide, and how many providers back these profiles is
-[OQ-BR9](bedrock-plumbing.md#OQ-BR9)'s. What a provider and a profile should mean at all is
+Anthropic models and every other Bedrock model. [OQ-BR1](bedrock-plumbing.md#OQ-BR1) named it
+`bedrock-bridge`, and [OQ-BR9](bedrock-plumbing.md#OQ-BR9) put one provider, `bedrock`, behind
+both profiles (ruled and shipped 2026-09-29; the route itself is unbuilt, [WG-I26](#WG-I26)).
+What a provider and a profile should mean at all is
 [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md)'s question.
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md) (the bridge as built),
@@ -307,7 +308,7 @@ own `openai` endpoint with zai's key. The chain, one link per [OQ-WG7](#OQ-WG7) 
 | Bringing the pack in (c) | an active via profile adds the pack its `via` names, like a live need, and prints a cause line (`+ wire-bridge (via of profile pi-zai, active for pi)`) | `packload.Selection.Close`, which runs `packload.ResolveVias`, called from `stagePacks` through `run.Options.launchSelection` ([WG-I11](#WG-I11)) |
 | Resolution | the resolved profile carries `Via` and `ViaBase` (the `via_address`, empty when the pack is not in the launch) and crosses in `YOLO_PROFILES` | `packload.ResolveProfiles`, `packload.ProfilesWireTable`; `entrypoint.Env.LoadProfiles` |
 | Each agent's URL (d) | `ctx.via_url` = `<via_address>/agent/<agent>`, set only for the agent whose active profile has via | `packload.ViaURLFor`; `entrypoint.surfaceSelectionFor`; `luahook.DeriveCtx.ViaURL` |
-| The derives | pi, oh-omp and opencode write `ctx.via_url` as the SELECTED provider's base URL, speaking chat-completions there; codex writes it as that provider's `base_url`, speaking Responses, with no `env_key` ([WG-I22](#WG-I22)); every other provider row is untouched | `packs/pi/derive.lua`, `packs/omp/derive.lua`, `packs/opencode/derive.lua`, `packs/codex/derive.lua` |
+| The derives | pi, oh-omp and opencode write `ctx.via_url` as the SELECTED provider's base URL, speaking chat-completions there; codex writes it as that provider's `base_url`, speaking Responses, with no `env_key` ([WG-I22](#WG-I22)), for a provider it can reach or, since 2026-09-29, a Bedrock one ([WG-I26](#WG-I26)); every other provider row is untouched | `packs/pi/derive.lua`, `packs/omp/derive.lua`, `packs/opencode/derive.lua`, `packs/codex/derive.lua` |
 | The routes (a, b) | one listener on the via address serves `/agent/<name>/` per via agent; the adapter routes keep their own ports, so claude's URL and route do not move | `wirebridged.viaRoutesFor`, `wirebridged.planFor`, `wirebridged.servePlan` |
 | The pass-through | the body and the query cross unchanged; the upstream is the provider's chat-completions or Responses base, whichever the request's path names ([WG-I20](#WG-I20)), plus the path remainder, escaped ([WG-I23](#WG-I23)); SSE is copied chunk by chunk and flushed; a stream the upstream cuts short aborts the agent's connection, and only the wait for headers is bounded ([WG-I24](#WG-I24)); errors are OpenAI-shaped | `wirebridged.viaUpstreams`, `wirebridged.viaWireSplit`, `wirebridged.passthroughHandler` |
 | Credentials (e) | per upstream: the provider's `api_key_env_name` from the key channel, or the SigV4 chain when the upstream is an exact `bedrock-runtime` host. An upstream with no credential idles with a 503 naming what it needs, and the others serve | `wirebridged.viaHandlerFor`, `wirebridged.viaUpstreamHandler`, `wirebridged.bedrockSignRegion` |
@@ -559,7 +560,10 @@ concurrent track's:
 - Part 5's allowlist, which waits on [OQ-BR12](model-lists-and-pickers.md#OQ-BR12)'s `only`.
 - The Converse pass-through route, pi's: it waits on [OQ-WG8](#OQ-WG8).
 - A Bedrock provider named by region alone has no `openai` endpoint until the region-composed URL
-  lands ([§8](#8-build-order), step 1), so it gets no via route.
+  lands ([§8](#8-build-order), step 1), so it gets no via route. Since 2026-09-29 that is also why
+  the shipped `bedrock-bridge` profile ([`bedrock-plumbing.md` BR-D16](bedrock-plumbing.md#BR-D16))
+  carries no agent: codex, pi, opencode and oh-omp point at their via URLs and are refused
+  ([WG-I13](#WG-I13)), and claude is warned and starts on its own login ([WG-I26](#WG-I26)).
 - A via agent whose derive speaks a wire its provider does not declare is served, and each request
   is refused with [WG-I20](#WG-I20)'s 404. pi, oh-omp and opencode speak chat-completions on the
   via route, so selecting a Responses-only provider (such as `openrouter`) for one of them lands
@@ -1077,6 +1081,7 @@ Three earlier non-licenses are reopened here by name:
 | WG-I23 | **A via route forwards only a canonical path (no `.`, `..` or empty segment, no decoded `?` or `#`), and forwards it escaped; any other gets a 404.** An implementation decision, closing a bypass of WG-I20 | 2026-09-26 | [WG-I23](#WG-I23) | 2026-09-26: `wirebridged.canonicalViaTail`, `passthroughHandler.do` |
 | WG-I24 | **A stream the upstream cuts short aborts the agent's connection and is logged; only the wait for response headers is bounded.** An implementation decision | 2026-09-26 | [WG-I24](#WG-I24) | 2026-09-26: `passthroughHandler.ServeHTTP`, `wirebridged.viaHeaderTimeout` |
 | WG-I25 | **Part 2, routing by model id, is released for build: pass Anthropic ids untranslated to runtime's Messages route, built with or right after the `bedrock-bridge` profile.** Until then a Claude model on that profile is translated, losing `cache_control` and `thinking`. Whether runtime streams Anthropic SSE or AWS's binary event-stream is the builder's first measurement, not a choice. An implementation decision: the behavior is [OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s, and [OQ-BR9](bedrock-plumbing.md#OQ-BR9), [OQ-BR12](model-lists-and-pickers.md#OQ-BR12) and [OQ-BR13](model-lists-and-pickers.md#OQ-BR13) have ruled or been directed | 2026-09-29 | [§8](#8-build-order) step 2 | — |
+| <a id="WG-I26"></a>WG-I26 | **codex's via row covers a Bedrock provider that names no endpoint**: under a profile with a `via`, the selected provider of platform `aws-bedrock` gets codex's via row (Responses at its via URL, the first OpenAI entry of the list), as pi's, opencode's and oh-omp's derives already give every selected provider, rather than no row. The bridge, not codex, reaches Bedrock on that route, and a row the route cannot serve is the launch's to refuse ([WG-I13](#WG-I13)) rather than the derive's to hide: with no row, WG-I15 disclosed "the via has no effect", which was false, since without the via codex runs its own Bedrock client ([`bedrock-plumbing.md` BR-D16](bedrock-plumbing.md#BR-D16)). Until the region-composed URL lands ([§8](#8-build-order), step 1), the shipped `bedrock-bridge` therefore refuses codex, pi, opencode and oh-omp and warns claude. An implementation decision | 2026-09-29 | [§4.1](#41-how-it-is-built) | 2026-09-29: `packs/codex/derive.lua` (`codexViaBedrock`); pinned by `TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan` and `TestCodexOnABridgedBedrockProfileRidesItsViaRoute` |
 | OQ-WG2 | **All-traffic mode is a property of the profile**, opt-in and off by default; one active profile per agent decides how it reaches the world | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG3 | **One list** (the picker's effective list after an `only`), **and a separate enforcement switch** on the profile, **default on**; off means the list only shapes pickers | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG4 | **A path prefix per agent on the one listen port**, written by each derive; an unknown prefix is refused; a port per agent only for an agent measured to drop a base URL's path (delegated, decided in review) | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |

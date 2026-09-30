@@ -64,7 +64,10 @@ reference is right.
 - **Ruled:** six questions on 2026-09-17 and [`OQ-SSO7`](#13-decision-ledger) (the three
   supported credentials) on 2026-09-24 — all in [§13](#13-decision-ledger).
 - **Built 2026-09-25:** the consumers' `needs` (`packs/claude` needs `aws-auth`) and the
-  launch-side disclosure of an un-narrowed session ([OQ-SSO10](#OQ-SSO10)).
+  launch-side disclosure of an un-narrowed session ([OQ-SSO10](#OQ-SSO10)). ⚠ **Moved 2026-09-29**: the
+  need is `packs/bedrock`'s now, the pack that ships the provider it serves, and claude, codex,
+  opencode and pi reach it through their own need on that pack
+  ([`bedrock-plumbing.md` BR-D15](bedrock-plumbing.md#BR-D15)).
 - **Tried on a live login, 2026-09-29:** step 5's done-conditions 1 and 4 are met, 4 through
   the maintainer's four-hourly logout and login on the host
   ([§11](#11-evidence-and-how-to-re-check-it)).

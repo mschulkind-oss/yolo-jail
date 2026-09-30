@@ -207,7 +207,9 @@ done-conditions 1 and 4 wanted the live login in the
   `TestSettingDiscloseRefusals`, `TestWriteLoopholeSettingsDisclosesATrueWideningKey` (red
   when the print call is deleted), `TestShippedAWSAuthDisclosesUnnarrowed` (red when the
   manifest's `disclose` is removed).
-- **The consumers' `needs`.** `packs/claude` needs `aws-auth` unconditionally, as it needs
+- **The consumers' `needs`.** *(Moved 2026-09-29: `packs/bedrock` needs `aws-auth` now, and the
+  agents that bind Bedrock need `packs/bedrock`; `TestBedrockNeedsAWSAuth` replaced the test
+  named below, [`bedrock-plumbing.md` BR-D15](bedrock-plumbing.md#BR-D15).)* `packs/claude` needs `aws-auth` unconditionally, as it needs
   `openai-auth`: the `bedrock` profile is claude's, and selecting the pack changes nothing
   until that profile opens the pointer's gate and the loophole is enabled (it ships
   `default_enabled: false`). `TestClaudeNeedsAWSAuth` runs the real closure over the shipped

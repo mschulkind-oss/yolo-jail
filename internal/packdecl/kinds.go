@@ -170,7 +170,7 @@ const (
 	// approval `pack install` can grant.
 	//
 	// Exclusive by (pack, name) — the claim target carries BOTH, deliberately, because
-	// unlike a provider name a profile name is NOT globally owned: `bedrock` in packs/claude
+	// unlike a provider name a profile name is NOT globally owned: `bedrock` in packs/bedrock
 	// and `bedrock` in packs/pi are unrelated declarations that happen to share a selector
 	// value, and neither can touch the other's surfaces (providers.md#declaring-and-selecting-a-profile). Within one pack the same
 	// name twice is a load error (validateProfileNames), which is what makes the key

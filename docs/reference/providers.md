@@ -83,6 +83,14 @@ switch in the user's own Claude settings that no Bedrock provider serves is name
 ONLY: each is pinned through the credential gate and the shipped derives, and each launch arm's
 call site through the code a launch runs. UNMEASURED: no launch was run and no agent started.
 
+**One Bedrock provider for every agent is newer still** (2026-09-29, later that day):
+[the shipped Bedrock provider](#the-shipped-bedrock-provider) moved into its own pack with a
+model list of every maker, and codex, opencode and pi are bound to their own Bedrock clients
+([`OQ-BR9`](../design/bedrock-plumbing.md#OQ-BR9), [`OQ-BR1`](../design/bedrock-plumbing.md#OQ-BR1)).
+MEASURED BY TESTS ONLY: each binding through the boot render, and claude's through the assembled
+launch channel. The agents' Bedrock clients were read from their installed builds and never
+run. UNMEASURED: no request has reached Bedrock.
+
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
 credential, and which knobs ("options") a profile may tune. Providers compose into ONE table
@@ -215,12 +223,15 @@ token, no whitespace), and a value nothing reads changes nothing.
 
 It is how a derive recognizes a service without matching a provider's NAME, so a provider you
 declare gets the behavior the shipped one does. It composes into the entry as a field like any
-other, and a derive reads the selected provider's as `ctx.selected_platform`. Three readers key
+other, and a derive reads the selected provider's as `ctx.selected_platform`. These readers key
 on `aws-bedrock` today:
 
 - **claude's derive** turns on Claude Code's own Bedrock client (`CLAUDE_CODE_USE_BEDROCK=1`, in
   its env and in `claude/settings`) when claude's selected provider declares it and its profile
   routes through no via service ([the worked example](#two-channels-split-by-payload-type));
+- **codex's, opencode's and pi's derives** bind their agents' own Bedrock clients on the same
+  two conditions, and give a via profile over such a provider their via rows instead
+  ([the shipped Bedrock provider](#the-shipped-bedrock-provider));
 - **aws-auth's credentials pointer** is an `env` contribution with a `platform` gate
   ([the `profile` modifier](#the-profile-modifier)), so it reaches each agent on a Bedrock
   provider, whatever its profile is named;
@@ -228,7 +239,7 @@ on `aws-bedrock` today:
   region variables for ([the region preflight](#the-region-preflight)).
 
 So `"providers": {"bedrock-eu": {"platform": "aws-bedrock", "region": "eu-west-1"}}` with a profile
-over it, or a profile `bedrock-sso` over the shipped `bedrock`, gets all three, as `-p bedrock`
+over it, or a profile `bedrock-sso` over the shipped `bedrock`, gets all of them, as `-p bedrock`
 does. **The credential claims follow the platform too**
 ([PP-D9](../design/providers-and-profiles-redesign.md#PP-D9)): a provider that declares a
 `platform` and no `api_key_env_name` of its own claims every variable a provider of the same
@@ -239,6 +250,62 @@ while `bedrock` still claimed all six, so the gate withheld them from every proc
 `bedrock-eu` included. A provider that lists its own `api_key_env_name` claims exactly that list
 and inherits nothing. ⚠ `platform` is not `platforms` (on `program` and `service`), which lists
 the host OS/arch pairs a build exists for.
+
+### The shipped Bedrock provider
+
+One provider, `bedrock`, is Amazon Bedrock's `bedrock-runtime` endpoint for every agent, and it
+lives in its own pack, [`packs/bedrock`](../../packs/bedrock/README.md), which installs no program
+([`OQ-BR9`](../design/bedrock-plumbing.md#OQ-BR9), ruled 2026-09-29). Every agent pack whose
+derive binds Bedrock `needs` that pack, so `"packs": ["codex"]` alone carries `-p bedrock`:
+claude, codex, opencode and pi. The pack in turn needs `aws-auth`. copilot, oh-omp and agy need
+neither, having no Bedrock client of their own, so a `-p bedrock` in a jail of them alone is
+refused as a profile nothing declares.
+
+- **The provider** declares `"platform": "aws-bedrock"`, `region_env_name` `AWS_REGION` and
+  `AWS_DEFAULT_REGION`, the six AWS credential names under `api_key_env_name`, no endpoint, no
+  region and no `options`. A region is the user's to set ([the region preflight](#the-region-preflight)).
+- **The model list** is one list of every maker's models, each entry keyed by its runtime id and
+  naming its maker as `vendor` in `model_options`, beside `order`, `name`, `context_window`,
+  `max_tokens` and `input`. *Vendor* is the model's maker, a term coined in
+  [`bedrock-plumbing.md`](../design/bedrock-plumbing.md#61-the-provider-shape-one-bedrock-provider-or-two):
+  one lowercase token, read by derives and interpreted by no core code, never parsed from the id.
+  A user's object-form entry takes `vendor` too
+  (`"kimi": {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}`), and an entry with no
+  vendor is offered to every agent. The list names no `default` alias.
+- **Which entries an agent is offered** is decided by its own derive, from the makers its client
+  serves: claude's Bedrock client Anthropic's (Messages serves Claude only), codex's OpenAI's
+  (it drives Responses), opencode's and pi's every maker's (Converse).
+- **Which model an agent starts on**: the profile's `model` when it names an entry that agent can
+  call, as an alias or an id, or an id the provider does not list, which is passed through; else
+  the provider's `default` alias when that agent can call it; else the first entry it can call,
+  in `order`. A listed entry the agent cannot call is skipped, never sent. claude's own client is
+  the exception: with nothing named, yolo pins no model, because Claude Code starts on an
+  Anthropic model of its own, a valid session yolo does not steer
+  ([`OQ-ML2`](../design/model-lists-and-pickers.md#OQ-ML2)).
+
+Each agent's binding, written only for the selected Bedrock provider and only on the agent's own
+transport. A Bedrock provider never gets an agent's generic catalog row, whose one credential is
+a key while Bedrock's is the AWS chain ([BR-D10](../design/bedrock-plumbing.md#BR-D10)):
+
+| Agent | Client | What the derive writes |
+| :--- | :--- | :--- |
+| claude | `CLAUDE_CODE_USE_BEDROCK` | the switch, `AWS_REGION` from the provider's `region`, and a model only as above |
+| codex | built-in `amazon-bedrock-runtime` | `model_provider = "amazon-bedrock-runtime"`, `model`, and `[model_providers.amazon-bedrock-runtime.aws] region` only for a provider-declared region; no other field, since codex refuses them |
+| opencode | built-in `amazon-bedrock` | `provider["amazon-bedrock"]` with the list's models and `options.region` only for a provider-declared region, no `npm` and no endpoint; `model` and `small_model` `amazon-bedrock/<id>`, `enabled_providers` naming it |
+| pi | built-in `amazon-bedrock` on Converse | `providers["amazon-bedrock"].models` in models.json with each entry's facts and no `baseUrl`, `api` or `apiKey`; `defaultProvider`/`defaultModel`, `enabledModels` and pi-subagents' policy over the list; `AWS_REGION` from the provider's `region` in pi's environment |
+
+⚠ opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`, so with only the latter delivered and
+no `region` on the provider, the launch proceeds and opencode uses `us-east-1`. ⚠ A pi row replaces
+pi's own catalog entry of the same id, so pi takes the list's facts for it and loses its own cost
+and thinking levels.
+
+**`bedrock-bridge`** is the pack's second profile, `{provider: bedrock, via: wire-bridge}`, the
+one shipped way to force the wire bridge ([`OQ-BR1`](../design/bedrock-plumbing.md#OQ-BR1)).
+Under it no agent runs its own Bedrock client: codex, opencode, pi and oh-omp get their via rows
+([routing a profile through the bridge](#routing-a-profile-through-the-bridge-via)). The bridge
+has no upstream for a provider named by region alone yet, so the launch refuses those four and
+warns claude, which starts on its own login
+([BR-D16](../design/bedrock-plumbing.md#BR-D16), [WG-I26](../design/wire-bridge-gateway.md#WG-I26)).
 
 ## The credential preflight
 
@@ -292,7 +359,7 @@ its first Bedrock request, and claude, opencode and pi silently use `us-east-1`.
   selected pack says is reached through a region
   ([the platform](#the-platform-what-service-a-provider-is)). A pack says so by declaring
   `region_env_name` beside `platform` on a provider it ships: the variables an agent on that
-  platform reads its region from. packdecl refuses the field without a `platform`. The claude
+  platform reads its region from. packdecl refuses the field without a `platform`. The bedrock
   pack's `bedrock` declares `AWS_REGION` and `AWS_DEFAULT_REGION` for `aws-bedrock`, so a
   provider you declare yourself with `"platform": "aws-bedrock"` is required a region from the
   same two variables, with nothing restated ([BR-D1](../design/bedrock-plumbing.md#BR-D1)). A
@@ -403,7 +470,7 @@ A profile's credentials and gated env reach **only the agent that selected it**
 | A gated `kind: "env"` contribution | the pack's own agent when its selection satisfies the gate; for a pack that installs no CLI (`aws-auth`), every agent whose selection does. A `platform` gate is satisfied by the selected provider's platform, a `profile` gate by the profile's name ([the `profile` modifier](#the-profile-modifier)) |
 | An env derive's output (the shape vars) | its own agent, and the derive's copy of the table carries the `api_key` of that agent's provider only |
 
-`packs/claude`'s `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
+`packs/bedrock`'s `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
 `AWS_CONTAINER_CREDENTIALS_FULL_URI`, so an AWS pair hydrated for one agent's Bedrock profile no
 longer reaches pi's Bedrock support (or any shell) unless pi selected Bedrock. A provider with
@@ -876,7 +943,10 @@ What each agent actually receives, from one composed table and one selection:
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
 | omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
 | copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |
-| claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: the address and credential for the provider's `anthropic` endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` — a dummy token on a routed launch that has no key, so claude never falls back to the user's own subscription login), `AWS_REGION` from the provider's `region`, one model id per claude tier resolved from the provider's aliases (the selected one from the profile's `model` option), and knobs composed from provider options (the context window, request and stream timeouts). Claude's `[1m]` suffix is appended to every model id when the `context_window` option is at least one million — it is Claude Code's client syntax for the context-1m beta, stripped before the wire — and non-essential traffic is disabled on any routed launch. The exact variable set is the derive's, in `packs/claude/derive.lua` |
+| claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: the address and credential for the provider's `anthropic` endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` — a dummy token on a routed launch that has no key, so claude never falls back to the user's own subscription login), `AWS_REGION` from the provider's `region`, one model id per claude tier resolved from the provider's aliases (the selected one from the profile's `model` option; on a Bedrock provider only from its Anthropic entries, and none unless named, [the shipped Bedrock provider](#the-shipped-bedrock-provider)), and knobs composed from provider options (the context window, request and stream timeouts). Claude's `[1m]` suffix is appended to every model id when the `context_window` option is at least one million — it is Claude Code's client syntax for the context-1m beta, stripped before the wire — and non-essential traffic is disabled on any routed launch. The exact variable set is the derive's, in `packs/claude/derive.lua` |
+
+A Bedrock provider is the exception for codex, opencode and pi: it gets no row of this table's
+shape, but the agent's built-in Bedrock provider ([the shipped Bedrock provider](#the-shipped-bedrock-provider)).
 
 The spellings are facts about each agent, source-verified and carried as provenance comments
 in the derives (pi 0.84.4's settings-manager keys and its ten-id api registry; opencode's
@@ -1194,14 +1264,16 @@ rides the agent's config surface, reached by the agent derive or by a gated `con
 through the env derive or a gated `env`, and reaches only a process yolo launches: `yolo --`,
 `yolo host --`, or the host wrapper.
 
-`packs/claude`'s `bedrock` is the worked example, and it uses both channels ([D8](#pv-d8)). The
-profile names the `bedrock` provider, which the pack ships with no endpoint, so it is never a
+claude on `bedrock` is the worked example, and it uses both channels ([D8](#pv-d8)). The profile
+names the `bedrock` provider, which `packs/bedrock` ships with no endpoint, so it is never a
 credential requirement, with `"platform": "aws-bedrock"`, and with a `region_env_name`, so a
-region is ([the region preflight](#the-region-preflight)). Its region and model ids come from the
-user's `providers.bedrock` entry. claude's settings derive puts `CLAUDE_CODE_USE_BEDROCK` into the
-`env` block of `claude/settings`, so a bare `claude` outside yolo still runs in Bedrock mode;
-claude's env derive sets the same variable for a yolo-launched process, beside `AWS_REGION` and
-the model ids it composes from the provider entry; and `packs/aws-auth` contributes its
+region is ([the region preflight](#the-region-preflight)). Its region comes from the user's
+`providers.bedrock` entry or the environment, and its model list is the pack's
+([the shipped Bedrock provider](#the-shipped-bedrock-provider)). claude's settings derive puts
+`CLAUDE_CODE_USE_BEDROCK` into the `env` block of `claude/settings`, so a bare `claude` outside
+yolo still runs in Bedrock mode; claude's env derive sets the same variable for a yolo-launched
+process, beside `AWS_REGION` and any model id the profile names among the Anthropic entries; and
+`packs/aws-auth` contributes its
 credentials pointer on a `platform` gate. All three key on the provider's platform, not on the
 profile's name, so a profile of your own over `bedrock`, or a Bedrock provider of your own, gets
 the same ([`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8)). The switch also needs
@@ -1416,7 +1488,7 @@ Verified at `7ad8358c`, except the deselection rows for the boot log and the id-
 surfaces with a host layer, verified at `38814ba4`, and the rows the `openai-codex` model list
 touched (the clear's log line, codex's `openai-codex` default, the list and pi's copy of it),
 verified at `2a34a176`, except the host half of pi's copy, verified at `f3da48dc`, and the
-tier-alias and pi-subagents rows, verified at `58fc65ce`, and the rows the provider-keyed gates added (the platform, the shipped Bedrock provider, the region requirement, both gates, the platform switches and llamacpp's attribution header), verified at `f93937dd`. The prose
+tier-alias and pi-subagents rows, verified at `58fc65ce`, and the rows the provider-keyed gates added (the platform, the shipped Bedrock provider, the region requirement, both gates, the platform switches and llamacpp's attribution header), verified at `f93937dd`, and the Bedrock rows the one-provider build rewrote or added (the shipped Bedrock provider, its model list, the vendor, the makers, the built-in ids, `bedrock-bridge`, the region requirement, pi-subagents'), verified 2026-09-29 against the tree that shipped `packs/bedrock`'s model list. The prose
 above explains what each is for; this table is the only place the exact spellings are stated.
 
 | Value | Setting | Defined in |
@@ -1437,15 +1509,20 @@ above explains what each is for; this table is the only place the exact spelling
 | Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#OQ-NC6), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. Since 2026-09-29 also `platform`, which decides which agents a pack's credential pointer reaches ([PP-D7](../design/providers-and-profiles-redesign.md#PP-D7)). `models`, `options`, `region` and `capabilities` still merge from either scope. The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`) |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |
 | Provider platform | `platform`, one token, open vocabulary; `aws-bedrock` is the one value read today (claude's derive, aws-auth's gate, the region preflight); a derive reads the selected provider's as `ctx.selected_platform` | `packdecl.PlatformProblem`, `luahook` (`selectedPlatform`) |
-| The shipped Bedrock provider | `bedrock` in the claude pack: `"platform": "aws-bedrock"`, no endpoints, no models, no region, the six AWS credential names under `api_key_env_name` | `packs/claude/pack.json` |
-| Region requirement | a provider's `region_env_name` beside its `platform` (pack manifests only), a requirement of every provider of that platform; the claude pack's `bedrock` declares `AWS_REGION`, `AWS_DEFAULT_REGION` for `aws-bedrock` | `packs/claude/pack.json`, `packload.ProviderRegionGaps` |
+| The shipped Bedrock provider | `bedrock` in the bedrock pack: `"platform": "aws-bedrock"`, no endpoints, no region, no options, the six AWS credential names under `api_key_env_name`; needed by claude, codex, opencode and pi, and needing aws-auth | `packs/bedrock/pack.json`, each agent pack's `needs` |
+| The Bedrock model list | `global.anthropic.claude-opus-5-5` (vendor `anthropic`, order 1), `us.openai.gpt-6.1-sol` (`openai`, 2), `global.openai.gpt-6-astra` (`openai`, 3); each keyed by its id, with `name`, `context_window`, `max_tokens` and `input` (and `reasoning` for Opus) in `model_options`; no `default` alias. Read from each AWS model card on 2026-09-29 | `packs/bedrock/pack.json`, `packs/bedrock/README.md` |
+| Model vendor | `vendor`, one lowercase token (`[a-z0-9][a-z0-9._-]*`), in a pack's `model_options.<alias>` or a user's object-form `models.<alias>`; an entry with none is offered to every agent | `packdecl.ValidModelVendor`, `config.validateModelEntry`, `packload.flattenModelFacts` |
+| Makers each Bedrock client calls | claude `anthropic`; codex `openai`; opencode and pi every maker | `packs/{claude,codex,opencode,pi}/derive.lua` (`callableModels`) |
+| Bedrock built-in provider ids | codex `amazon-bedrock-runtime`; opencode `amazon-bedrock`; pi `amazon-bedrock` | `packs/{codex,opencode,pi}/derive.lua` |
+| The bridge-forcing Bedrock profile | `bedrock-bridge` = `{provider: bedrock, via: wire-bridge}` | `packs/bedrock/pack.json` |
+| Region requirement | a provider's `region_env_name` beside its `platform` (pack manifests only), a requirement of every provider of that platform; the bedrock pack's `bedrock` declares `AWS_REGION`, `AWS_DEFAULT_REGION` for `aws-bedrock` | `packs/bedrock/pack.json`, `packload.ProviderRegionGaps` |
 | Kinds that take the `profile` modifier | `env`, `config-overlay` — refused on every other kind; no shipped pack uses it | `packdecl` `validateContribution` |
 | Kinds that take the `platform` gate | `env` — one gate per contribution, `profile` or `platform`; `platform` on `provider` is the declaration | `packdecl` `validateContribution` |
 | Platform switches | a `program`'s `platform_switches` `[{platform, surface, pointer}]`; claude's: `aws-bedrock`, `claude/settings`, `/env/CLAUDE_CODE_USE_BEDROCK`; on when `true`, `1`, `yes` or `on` | `packs/claude/pack.json`, `packload.PlatformSwitchConflicts` |
 | Profile flag grammar | `-p` / `--profile`: a bare name, or `cli=name` (comma-separated, repeatable), on every notch; at `yolo host` / `yolo host env` a pair may name only the one command composed | `internal/cli` (`parseProfileValue`; `applyProfileValue` on the run path, `hostProfileFor` at the host) |
 | Profile disclosure line | `Profile <name>: declared: <packs or none>; received: <every selected pack>` | `run.noteUseProfiles` |
 | Conventional tier aliases | `default`, `fast`, `balanced`, `frontier`; a missing one warns at boot as `pack derive for <agent>: provider "<name>" declares no "<alias>" model alias …`, and only when a derive asks `yolo.model_for` for it | `luahook.ConventionalModelAliases`, `luahook.MissingTierAliasNote` |
-| pi-subagents' block | `subagents.defaultProvider`, `subagents.defaultModel` (`<provider>/<id>`, deleted when no default resolves), `subagents.modelScope` `{enforce: true, strict: true, allow}` (the configured ids, or `<provider>/*`), in `~/.pi/agent/settings.json` whenever a pi profile selects `openai-codex` or a provider pi can reach | `packs/pi/derive.lua` (`piSubagents`) |
+| pi-subagents' block | `subagents.defaultProvider`, `subagents.defaultModel` (`<provider>/<id>`, deleted when no default resolves), `subagents.modelScope` `{enforce: true, strict: true, allow}` (the configured ids, or `<provider>/*`), in `~/.pi/agent/settings.json` whenever a pi profile selects `openai-codex`, a provider pi can reach, or a Bedrock provider on pi's own client (then `amazon-bedrock`) | `packs/pi/derive.lua` (`piSubagents`) |
 | zai model IDs | `glm-4.6`, `glm-5.3`, `glm-5.3-flash`; the default is `glm-5.3`. These are wire-true IDs; Claude alone appends `[1m]` when `context_window` ≥ 1000000. | `packs/zai/pack.json` |
 | zai Coding Plan OpenAI endpoint | `https://api.z.ai/api/coding/paas/v4` (`openai-chat-completions`) | `packs/zai/pack.json` |
 | zai provider options | `model: glm-5.3`, `context_window: 1000000`, `api_timeout_ms: 3000000` | `packs/zai/pack.json` |
