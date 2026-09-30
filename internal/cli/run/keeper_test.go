@@ -28,12 +28,25 @@ import (
 // keeper on a goroutine of this process, with duplicates of the three descriptors a real spawn would
 // hand a child, and with the launching Options' fakes, so a test of a whole launch drives a whole
 // keeper with the same runtime.
+//
+// EACH DUPLICATE IS CLOSE-ON-EXEC, as KeeperMain's first act makes a real keeper's (JL-D29). dup(2)
+// clears the flag, and Go's exec closes nothing it was not told to, so without it every process this
+// keeper starts would inherit the progress pipe's write end: a real host daemon (a whole launch's
+// keeper starts the brokers) outlives the keeper holding it, the launch's relay never reads the
+// pipe's end, and the launch hangs (TestTheSealFixtureCrossesUnsealed did, for the package's whole
+// timeout). The dup and the flag are one step under syscall.ForkLock, so no fork between them can
+// take the descriptor either.
 func inProcessKeeper(launch *Options, planPath string, progress, lifeline, lock *os.File) (func() int, error) {
 	dup := func(f *os.File) (*os.File, error) {
 		if f == nil {
 			return nil, nil
 		}
+		syscall.ForkLock.RLock()
 		fd, err := syscall.Dup(int(f.Fd()))
+		if err == nil {
+			syscall.CloseOnExec(fd)
+		}
+		syscall.ForkLock.RUnlock()
 		if err != nil {
 			return nil, err
 		}

@@ -89,8 +89,10 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+":/bin:/usr/bin")
-	var stdout, stderr bytes.Buffer
-	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	o := dispatchOptions(t, ws, "podman", new(bytes.Buffer), new(bytes.Buffer), nil)
+	// Locked, since a launch past its bound is still writing them when the failure reads them.
+	var stdout, stderr lockedBuffer
+	o.Stdout, o.Stderr = &stdout, &stderr
 	repo, _ := o.RepoRoot()
 	// The host has a nix daemon, a device node the config passes through and /dev/kvm, so each of
 	// those crossings is one an unsealed launch makes (TestTheSealFixtureCrossesUnsealed).
@@ -110,7 +112,20 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
 	o.Args = []string{"yolo", "internal", "capture-run", "--out=/workspace/out", "--", "true"}
 	cname := yoloruntime.FromWorkspace(ws)
 	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
-	Run(*o)
+	// BOUNDED: the launch runs its keeper (in-process here, inProcessKeeper) and relays it until the
+	// keeper ends, so a keeper that never ends, or a pipe something else still holds, would otherwise
+	// hold this test for the package's whole timeout, as it once did.
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		Run(*o)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(sealedLaunchBound):
+		t.Fatalf("the launch (sealed=%v) had not returned after %s\nstdout:\n%s\nstderr:\n%s",
+			sealed, sealedLaunchBound, stdout.String(), stderr.String())
+	}
 	raw, err := os.ReadFile(argvFile)
 	if err != nil {
 		t.Fatalf("the sealed launch never ran its runtime (%v)\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
@@ -120,6 +135,9 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
 
 // sealTestDevice is the device node the seal fixture's config passes through.
 const sealTestDevice = "/dev/sealtest0"
+
+// sealedLaunchBound bounds one fixture launch, which takes well under a second when it works.
+const sealedLaunchBound = 90 * time.Second
 
 // sealedDeviceAllowlist is every --device a sealed launch may hand its jail: the nesting devices
 // every podman jail gets (podmanNestingArgs), never one the config passes through.
