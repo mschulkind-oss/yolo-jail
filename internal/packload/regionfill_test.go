@@ -533,17 +533,32 @@ func TestTheRegionFillDisclosesTheRegionTheFileAndTheProfile(t *testing.T) {
 // reads it — collapsed header whitespace, full-line comments, case-insensitive keys, the last
 // setting winning, CRLF endings, and a nested sub-setting's lines never read as the section's own.
 func TestIniValueReadsTheSharedConfigFormat(t *testing.T) {
-	data := []byte(regionConfig + "\r\n[profile crlf]\r\nregion = us-gov-west-1\r\n")
+	data := []byte(regionConfig + "\r\n[profile crlf]\r\nregion = us-gov-west-1\r\n" +
+		// Inline comments, which Claude Code's bundled loader and codex's aws-config both strip
+		// after whitespace, and quoted profile names, which Claude Code's loader and botocore
+		// both unquote (the review found each refused as "not a region" or "no section").
+		"[profile inline]\nregion = us-east-1 # prod\n" +
+		"[profile inline-semi]\nregion = us-west-2 ; note\n" +
+		"[profile no-space]\nregion = eu-west-1#x\n" +
+		"[profile \"quoted\"]\nregion = ap-south-1\n" +
+		"[profile 'single']\nregion = ap-east-1\n" +
+		"[profile commented] # a header comment\nregion = me-south-1\n")
 	for _, tc := range []struct {
 		section, want string
 		section2, key bool
 	}{
 		{"default", "us-east-2", true, true},
-		{"profile team-sso", "eu-west-1", true, true},   // `[profile  team-sso]`, `REGION`
-		{"profile other", "ca-west-1", true, true},      // the later setting wins
-		{"profile nested", "", true, false},             // only `s3`'s sub-setting names a region
-		{"profile crlf", "us-gov-west-1", true, true},   // CRLF endings
-		{"sso-session portal", "sa-east-1", true, true}, // readable only by naming the section
+		{"profile team-sso", "eu-west-1", true, true},    // `[profile  team-sso]`, `REGION`
+		{"profile other", "ca-west-1", true, true},       // the later setting wins
+		{"profile nested", "", true, false},              // only `s3`'s sub-setting names a region
+		{"profile crlf", "us-gov-west-1", true, true},    // CRLF endings
+		{"sso-session portal", "sa-east-1", true, true},  // readable only by naming the section
+		{"profile inline", "us-east-1", true, true},      // `# prod` after whitespace is a comment
+		{"profile inline-semi", "us-west-2", true, true}, // so is `; note`
+		{"profile no-space", "eu-west-1#x", true, true},  // with no whitespace before it, it is not
+		{"profile quoted", "ap-south-1", true, true},     // `[profile "quoted"]`
+		{"profile single", "ap-east-1", true, true},      // `[profile 'single']`
+		{"profile commented", "me-south-1", true, true},  // a comment after the header
 		{"profile absent", "", false, false},
 	} {
 		v, section, key := iniValue(data, tc.section, "region")

@@ -334,11 +334,15 @@ func expandHome(p, home string) string {
 
 // iniValue reads key in section of an INI-format file: whether the section exists, whether it
 // sets the key, and the value, the last setting winning. Section headers are `[name]`, their
-// inner whitespace runs collapsed so `[profile  dev]` is `[profile dev]`; a line whose first
-// non-blank character is `#` or `;` is a comment; key names compare case-insensitively. A line
-// indented past the key before it is that key's continuation or sub-setting (AWS's nested
-// `s3 =` block), never a key of the section, which is how configparser, the reader botocore
-// uses, reads it.
+// inner whitespace runs collapsed so `[profile  dev]` is `[profile dev]`, and a quoted name
+// unquoted, so `[profile "dev"]` is too; a line whose first non-blank character is `#` or `;` is
+// a comment, and so is the rest of a line from a `#` or `;` that follows whitespace, as Claude
+// Code's bundled AWS loader and codex's aws-config crate both read it; key names compare
+// case-insensitively. A line indented past the key before it is that key's continuation or
+// sub-setting (AWS's nested `s3 =` block), never a key of the section, which is how
+// configparser, the reader botocore uses, reads it. Where the readers differ, this reads as the
+// most lenient of them does, since a region it reads is delivered only after RegionProblem
+// accepts it, and one it misses refuses a launch the agent could have made.
 func iniValue(data []byte, section, key string) (value string, sectionFound, keyFound bool) {
 	in := false
 	keyIndent := -1
@@ -348,10 +352,11 @@ func iniValue(data []byte, section, key string) (value string, sectionFound, key
 		if line == "" || line[0] == '#' || line[0] == ';' {
 			continue
 		}
+		line = stripInlineComment(line)
 		if line[0] == '[' {
 			in, keyIndent = false, -1
 			if end := strings.IndexByte(line, ']'); end > 0 {
-				if strings.Join(strings.Fields(line[1:end]), " ") == section {
+				if sectionName(line[1:end]) == section {
 					in, sectionFound = true, true
 				}
 			}
@@ -374,6 +379,29 @@ func iniValue(data []byte, section, key string) (value string, sectionFound, key
 		}
 	}
 	return value, sectionFound, keyFound
+}
+
+// stripInlineComment is line up to a `#` or `;` that follows whitespace, trimmed: an inline
+// comment, as the AWS SDKs read one. A `#` with no whitespace before it is part of the value.
+func stripInlineComment(line string) string {
+	for i := 1; i < len(line); i++ {
+		if (line[i] == '#' || line[i] == ';') && (line[i-1] == ' ' || line[i-1] == '\t') {
+			return strings.TrimSpace(line[:i])
+		}
+	}
+	return line
+}
+
+// sectionName is a header's name as a section is compared: whitespace runs collapsed, and the
+// last word unquoted when single or double quotes enclose it (`profile "dev"` is `profile dev`).
+func sectionName(header string) string {
+	fields := strings.Fields(header)
+	if n := len(fields); n >= 2 {
+		if last := fields[n-1]; len(last) >= 2 && (last[0] == '"' || last[0] == '\'') && last[len(last)-1] == last[0] {
+			fields[n-1] = last[1 : len(last)-1]
+		}
+	}
+	return strings.Join(fields, " ")
 }
 
 // fileLabel is a lookup's file for a line: `~/`-relative under the home it was resolved in.
