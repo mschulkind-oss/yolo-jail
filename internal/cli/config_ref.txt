@@ -1768,8 +1768,9 @@
                      A convention, not a requirement: when a pack asks for one this
                      provider does not name, the launch warns and proceeds.
                      claude pins its tiers from them: `balanced` its Sonnet tier, `fast`
-                     its Haiku tier, and `frontier` its Opus tier under a pack's `only`
-                     list. `sonnet`, `haiku` and `opus` still work, and win when a
+                     its Haiku tier, and `frontier` its Opus tier on the ChatGPT
+                     subscription's list (`openai-codex`) and on a list a pack's `only`
+                     narrowed. `sonnet`, `haiku` and `opus` still work, and win when a
                      provider names both.
                      `yolo check` warns about an id no installed agent's own model
                      catalog knows, and says when it could read no catalog; it never
