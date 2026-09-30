@@ -327,7 +327,7 @@ func (f *Floor) installNpm(ctx context.Context, p Program, dir string) (*Record,
 	if err := os.MkdirAll(f.npmCache(), 0o700); err != nil {
 		return nil, err
 	}
-	prefix := filepath.Join(dir, "npm")
+	prefix := npmPrefix(dir)
 	name, version := packdecl.SplitNpmSpec(p.Install.Package)
 	argv := []string{filepath.Join(nodeBin, "npm"), "install", "-g", "--prefer-online"}
 	argv = append(argv, p.Install.Flags...)
@@ -349,6 +349,24 @@ func (f *Floor) installNpm(ctx context.Context, p Program, dir string) (*Record,
 		rec.Exec = []string{entry}
 	}
 	return rec, nil
+}
+
+// npmPrefix is the npm prefix an npm program's install directory holds: `npm install -g` runs
+// with it (installNpm), and Record.NpmPackageDir reads the installed package under it.
+func npmPrefix(dir string) string { return filepath.Join(dir, "npm") }
+
+// NpmPackageDir is where the npm package pkg (a spec, its version selector ignored) sits inside
+// this record's install, "" for a record npm did not install. `yolo check` reads a program's
+// declared model catalog there (packdecl.Contribution.ModelCatalog).
+func (r *Record) NpmPackageDir(pkg string) string {
+	if r == nil || r.Via != "npm" || r.Dir == "" {
+		return ""
+	}
+	name, _ := packdecl.SplitNpmSpec(pkg)
+	if name == "" {
+		return ""
+	}
+	return filepath.Join(npmPrefix(r.Dir), "lib", "node_modules", filepath.FromSlash(name))
 }
 
 // npmPackageVersion reads what npm put on disk, "" when it cannot tell — never a sentinel a
