@@ -43,7 +43,7 @@ premise is retired.
 **Start at [§2](#2-security-first-the-boundary-that-is-not-one)**, the only part that is urgent, then
 [§4](#4-the-ordered-build-list).
 
-**Needs your ruling:** nothing. [OQ-NC2](#OQ-NC2), reopened for a fix without hosts-file interception, was found answered on 2026-09-30 by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): the credential view deletes the terminator at every notch. Also ruled 2026-09-28: [OQ-NC3](#OQ-NC3) (keep autonomy, disclosed) and [OQ-NC10](#OQ-NC10) (retire the unread variable). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
+**Needs your ruling:** [OQ-NC12](#OQ-NC12) and [OQ-NC13](#OQ-NC13), filed 2026-09-30 because item 16's gate, [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8), is built and decided less than the item needs ([NC-D68](#NC-D68)). [OQ-NC2](#OQ-NC2), reopened for a fix without hosts-file interception, was found answered on 2026-09-30 by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): the credential view deletes the terminator at every notch. Also ruled 2026-09-28: [OQ-NC3](#OQ-NC3) (keep autonomy, disclosed) and [OQ-NC10](#OQ-NC10) (retire the unread variable). Ruled 2026-09-28: [OQ-NC1](#OQ-NC1) (run services at every notch), [OQ-NC6](#OQ-NC6) (credential-routing provider fields are user-scope only), [OQ-NC7](#OQ-NC7) (host claude keeps its own login for now), and by parity [OQ-NC4](#OQ-NC4), [OQ-NC5](#OQ-NC5), [OQ-NC8](#OQ-NC8), [OQ-NC9](#OQ-NC9), [OQ-NC11](#OQ-NC11).
 
 **Reads with:** [`wire-bridge.md`](../reference/wire-bridge.md#wb-d4) (WB-D4, the premise
 [§2](#2-security-first-the-boundary-that-is-not-one) retires),
@@ -119,12 +119,16 @@ serves:
 - **It does not build the guest notch.** Every "one composer" here takes the notch as an input, so
   guest becomes one more value when env-manager Phase 7 lands.
 - **It does not re-rule questions other docs own.** Where the right merge depends on one, the item
-  is gated on that question by link: [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8),
-  [`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9),
-  [`OQ-ES5`](../design/credential-sources-separation.md#OQ-ES5)'s jail half,
-  [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3), [`OQ-HC1`](../design/host-computed-layer.md#OQ-HC1),
+  is gated on that question by link: [`OQ-ES5`](../design/credential-sources-separation.md#OQ-ES5)'s
+  jail half, [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3),
+  [`OQ-HC1`](../design/host-computed-layer.md#OQ-HC1),
   [`OQ-HC3`](../design/host-computed-layer.md#OQ-HC3) and
-  [`OQ-CO15`](../design/config-ownership-and-promotion.md#oq-co15).
+  [`OQ-CO15`](../design/config-ownership-and-promotion.md#oq-co15). Two more,
+  [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8) and
+  [`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9), were ruled and built on 2026-09-28:
+  the second built item 17 ([NC-D67](#NC-D67)), and the first decided part of item 16, whose rest
+  is [OQ-NC12](#OQ-NC12) and [OQ-NC13](#OQ-NC13) ([NC-D68](#NC-D68)). Those two ask only what it
+  left open, and re-rule nothing.
 
 ## 2. Security first: the boundary that is not one
 
@@ -276,8 +280,8 @@ line numbers are left out on purpose, because they drift.
 |---|---|---|---|---|---|---|---|
 | C1 | Provider composition | `run.composedProviders`, with every adapter | `composedHostProviders`: `WithoutServiceAdaptations`, then `ViaInert` | `run.composedProviders`: it composes `:8214` to `:8216`, which nothing serves | For one declaration: a container works, the host refuses an adapter but silently drops a `via`, and macos-user launches against dead addresses | One composition helper that takes "this notch runs pack services" as an input. `yolo check` asks it for the configured runtime | — for the helper; [OQ-NC1](#OQ-NC1) for the value at a service-less notch. ✅ Both named options are gone (item 2), and a launch-owned service's addresses compose through the same helper (item 3, [NC-D65](#NC-D65)) |
 | C2 | Literal jail-daemon addresses in pack env | served | delivered, and served by nothing (MEASURED) | delivered; the daemons are declined | Dead pointers, and credential injection by whoever binds the port first | The address becomes a fact of the serving daemon, composed per notch. Unserved means dropped and named | — ([§2.4](#24-the-addresses-those-secrets-protect-are-composed-not-literal)) |
-| C3 | Env precedence | `agentEnvFileContent`: `env_sources` in default form is lowest, and the shape is last | `composeHostVarsGranting`: fold, then `env_sources`, then shape, then removals | `launchEnv`: `env_sources` last; tombstones skipped | One key gets three winners | One ordered composition in packload, which each vehicle serializes | [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8) picks the order |
-| C4 | Delivery vehicle | per-agent files | one exec | per launch, by basename | An agent started from a macos-user shell gets none of its profile | macos-user writes the per-agent files | [`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9) |
+| C3 | Env precedence | `agentEnvFileContent`: since [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8) every line defers to the launcher's incoming environment (CN-D21), so the user's value wins, then the file's first line: `env_sources`, then the gated env, then the shape (re-read 2026-09-30) | `composeHostVarsGranting`: fold, then `env_sources`, then shape, then removals, all applied over the shell | `launchEnv`: `env_sources` last; tombstones skipped. Since item 17, every other agent reads the per-agent file | One key gets three winners (MEASURED 2026-09-30, [OQ-NC12](#OQ-NC12)) | One ordered composition in packload, which each vehicle serializes | [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8), ✅ built `cef51809`, decided the user's value in the per-agent file only. The rest is [OQ-NC12](#OQ-NC12) and [OQ-NC13](#OQ-NC13) ([NC-D68](#NC-D68)) |
+| C4 | Delivery vehicle | per-agent files | one exec | per launch, by basename, and since item 17 the per-agent files too | An agent started from a macos-user shell gets none of its profile. ✅ Closed by item 17 | macos-user writes the per-agent files | [`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9), ✅ ruled and built `949d9430` (CN-D24; [NC-D67](#NC-D67)) |
 | C5 | Workspace scope of credential inputs | `env_sources` and `providers.*.api_key_env_name` merge in from the workspace | user scope only | as jail | A repo file can make `GH_TOKEN` zai-claimed and send it to z.ai | One scope reader for credential-bearing keys | [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3), [OQ-NC6](#OQ-NC6). ✅ The provider half built `c7a3482b`: every credential-routing provider field is refused at workspace scope ([NC-D63](#NC-D63)). `env_sources` waits on [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3) |
 | C6 | OpenAI prelaunch | declarative: `YOLO_AUTH_PRELAUNCH_<BIN>_*` read by the `agentAuthPrelaunchShellFn` launcher block, with no login without a TTY | `openaiauthhost.prepare` switches on the names `codex` and `pi`, and logs in regardless of profile or TTY | shim as jail | MEASURED: `yolo host -p zai -- pi </dev/null` reached the broker's browser login | The host reads the same declarative values from its composition. One Go prelaunch, logging in only at a TTY. The managed `CODEX_HOME` is keyed on the declaring pack | — ([OQ-OA3](../design/openai-auth-broker.md#8-decision-ledger) covers codex's managed home only) |
 | C7 | Refusal and disclosure renderers | `checkProviderCredentials` has its own verdict line; `Disclosure()` gives no remedies | `credentialScopeLines` → `DisclosureWith(notes)`, and no verdict line | as jail | One refusal, two wordings | Both move next to `ProviderCredentialGaps` in packload. The jail passes `DisclosureNotes` | — |
@@ -364,8 +368,8 @@ after it, except where its **After** cell says otherwise.
 
 | # | Item | Closes | Kind | After | Done when |
 |---|---|---|---|---|---|
-| 16 | One ordered env composition, serialized by every vehicle | C3 | **behavior-changing, gated** on [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8) | 13 | One key has one winner at every vehicle |
-| 17 | Per-agent env files on macos-user | C4 | **behavior-changing, gated** on [`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9) | 16 | — |
+| 16 | One ordered env composition, serialized by every vehicle | C3 | **behavior-changing, gated** on [OQ-NC12](#OQ-NC12) (which of yolo's own values wins) and [OQ-NC13](#OQ-NC13) (whether the host keeps the shell's value). Its first gate, [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8), is ruled and built (`cef51809`, CN-D21), and decided one relation for one vehicle: the user's value beats yolo's in the per-agent file. That build also changed the file's own order ([NC-D68](#NC-D68)) | 13 | One key has one winner at every vehicle. **Not met:** three winners, measured in [OQ-NC12](#OQ-NC12) |
+| 17 | Per-agent env files on macos-user | C4 | **behavior-changing, ruled** ([`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9), yes). ✅ **Built** `949d9430` (CN-D24), by the credential-scope work and ahead of item 16: it reuses the container vehicle's writer, so it needed nothing from 16, and 16 will move both backends' files at once ([NC-D67](#NC-D67)). Verified by a unit test through `Run` to the backend's handler seam, not on a Mac | 16 (not needed, [NC-D67](#NC-D67)) | An agent started from a bare `yolo`'s login shell on macos-user reads its profile's values from its own file. Met, by `TestMacosUserBareLaunchWritesEveryProfiledAgentsEnvFile` |
 | 18 | One scope reader for credential-bearing keys | C5 | **behavior-changing.** ✅ The [OQ-NC6](#OQ-NC6) half built `c7a3482b` ([NC-D63](#NC-D63)): `validateProviderCredentialScope` reads the workspace file for every credential-routing provider field. The `env_sources` half is gated on [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3) | — | — |
 
 ### Tier 6 — render
@@ -713,6 +717,96 @@ is reported verified only against a real rootless host or CI, with
     > **Built** `45c53ed1` ([NC-D52](#NC-D52) to [NC-D56](#NC-D56)). [S5](BACKLOG.md#S5) is marked
     > answered by this ruling, and its launch-warning option is superseded.
 
+12. 💬 <a id="OQ-NC12"></a>**OQ-NC12: When two of yolo's own sources set one variable, which wins?**
+    Three sources can set the same name for one agent: the pack env fold, an `env_sources` value
+    the agent's provider claims, and the agent's shape variables (what its pack's env derive
+    emits; [the terms](../design/provider-credential-scope.md#words-this-doc-uses)). The fold has
+    one winner inside itself at every vehicle (`packload.EnvFold`, pinned by
+    `hostfoldparity_test.go`). Between the three, the vehicles disagree. MEASURED 2026-09-30 by a
+    scratch test over one fixture pack, which gates `K1` on a profile, has its derive emit `K1`
+    and the claimed `ZAI_API_KEY`, and hydrates `ZAI_API_KEY` from `env_sources`. Each cell names
+    the one that wins:
+
+    | Vehicle | Gated env against the shape var | Claimed `env_sources` against the shape var | The user's value against yolo's |
+    | :--- | :--- | :--- | :--- |
+    | Per-agent file (container backends, and macos-user since item 17) | gated env | `env_sources` | the user's ([`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8)) |
+    | macos-user session env (the program `yolo -- <cmd>` starts) | shape var | `env_sources` | does not arise: the invoking shell's variables do not cross (`env -i` with a closed list) |
+    | Host exec (`yolo host --`) | shape var | shape var | yolo's ([OQ-NC13](#OQ-NC13)) |
+
+    - **The per-agent file's order is new.** Before CN-D21 its composed lines were plain-form
+      (CN-D9), so the shape var won both columns there, as it does at the host. CN-D21 made every
+      line defer to a value already set, so the file's first line now wins. CN-D21's ledger row
+      records that as a consequence found on 2026-09-30.
+    - **macos-user gives two answers.** The program a launch starts gets the session env and then
+      sources its own file, whose lines keep what the session set, so `yolo -- claude` gets the
+      shape var's `K1` and a claude started from the login shell gets the gated env's. INFERRED
+      from the two measured vehicles and the file's grammar, not run through a sandbox launcher.
+    - **Shipped packs do not reach the first two columns alone.** No shipped derive assigns a name
+      a shipped provider claims or a shipped pack gates (a grep of `packs/*/derive.lua` for
+      literal assignments, 2026-09-30, which misses a name a derive computes). A user's own pack
+      or provider does.
+
+    No ruling picks this order. [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8) decided
+    the user's value against yolo's, and [pv-oq-8](../reference/providers.md#pv-oq-8) a pack's
+    gated env against its own static env. This decides the first half of item 16.
+
+    - **A — The shape var, then `env_sources`, then the fold.** The most specific source wins: the
+      derive composes for this agent's selected profile, `env_sources` is the user's standing file
+      for every process, and the fold is each pack's default. It is the host's order, and the
+      per-agent file's before CN-D21.
+    - **B — `env_sources`, then the shape var, then the fold.** A dotenv entry counts as the user's
+      own value and beats the profile, as the macos-user session env's comment already argues
+      ("a user's own dotenv entry still beats every channel value"). Cost: a dotenv line naming a
+      variable the profile sets, such as `ANTHROPIC_BASE_URL`, defeats the profile with no notice.
+    - **C — The per-agent file's order today:** `env_sources`, then the fold, then the shape var,
+      with the other two vehicles moved to it. It is what a jail does, but only as a side effect
+      of CN-D21, and it lets a pack's default beat the profile.
+
+    Under each option a removal ranks with its source, except an `env_sources` null. That is the
+    only removal a user writes, and it keeps beating every assignment, as it does at the host.
+
+    <!-- vantage: oq id=OQ-NC12 leaning="A: the shape var, then env_sources, then the pack env fold, at every vehicle; the most specific source wins, and a user who wants a dotenv value to beat a profile has the per-command spelling OQ-CN8 makes win." -->
+
+    _Leaning:_ A. A profile is chosen per agent or per launch, so its derive's value is the more
+    specific intent, the reasoning pv-oq-8 applies inside the fold. The case B protects, a value
+    meant to beat a profile, already has a spelling that wins: the per-command value
+    [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8) keeps.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
+13. 💬 <a id="OQ-NC13"></a>**OQ-NC13: Does the host keep a value the user's shell already has, as a
+    jail does?** [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8) was asked
+    about, and built for, the per-agent file. The host exec applies its composition over the
+    shell it inherits ([the execution flow](../reference/host-agent-environment.md#execution-flow),
+    step 3). So for claude on a profile whose derive sets `ANTHROPIC_MODEL`, an
+    `export ANTHROPIC_MODEL=x` keeps x for claude in a jail and loses it to the profile under
+    `yolo host -- claude`. `TestComposeHostEnvOrdering` pins a profile's `AWS_REGION` over the
+    shell's, and the scratch test above measured a shape var over an exported value. The jail tells
+    a value yolo left from the user's own by comparing it with what yolo wrote or froze into the
+    container this entry (CN-D21). The host writes no file to compare with, so a value an earlier
+    `eval "$(yolo host env)"` exported looks exactly like one the user typed. This decides the
+    second half of item 16.
+
+    - **A — Keep composing over the shell, and say so.** A notch difference with its reason
+      stated (P4): the host cannot tell a value an earlier `eval` left from one the user typed.
+      The providers reference and the user guide name it.
+    - **B — The shell's value wins, and `yolo host env` records what it exported.** The script
+      also exports a record of the names and values it set. A later host launch treats a value
+      matching the record as yolo's and replaces it, as a jail replaces its shared file's value.
+      That is the jail's rule whole, including its "a stale inherited value cannot win" half.
+    - **C — The shell's value wins, with no record.** A value from an old `eval` then beats a
+      changed profile until the user runs the `eval` again.
+
+    <!-- vantage: oq id=OQ-NC13 leaning="B: the shell's value wins at the host too, and yolo host env records what it exported so a stale value it left is replaced, which is the jail's rule whole at the host." -->
+
+    _Leaning:_ B. It is the jail's rule at the host, which "host is supposed to act like everywhere
+    else" asks for. The record is the one thing the host lacks to apply the rule's second half. A
+    keeps the two notches apart for no gain a user sees, and C drops half of the ruling.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
 ## 7. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
@@ -789,3 +883,5 @@ is reported verified only against a real rootless host or CI, with
 | <a id="NC-D66"></a>NC-D66 | *Implementation decision, correcting [NC-D16](#NC-D16) for macos-user.* Since [OQ-DP8](../design/declaration-parity.md#OQ-DP8) and [OQ-DP9](../design/declaration-parity.md#OQ-DP9) macos-user RUNS jail daemons, in its Seatbelt guest, so it is no longer a notch that serves none. `packload.ServedAtRuntime` is gone: `loopholes.JailDaemonsRunIn` is the one split of a payload into what a runtime runs, and the launch's `servedDaemons` and `yolo check`'s `predictedServed` both build `packload.ServedInJail` from it. On macos-user it declines an intercepting loophole's daemon, a pack service's (its host half runs instead, [NC-D65](#NC-D65), joined through `ServedDaemons.Plus`) and an argv naming the container's loophole mount. Consequences: codex's `CODEX_REFRESH_TOKEN_URL_OVERRIDE` and aws-auth's `bedrock` pointer are delivered on macos-user, no longer withheld; and macos-user now picks served addresses ([NC-D42](#NC-D42)), because it shares the Mac's loopback, for the daemons it runs only | 2026-09-28 | [§2.4](#24-the-addresses-those-secrets-protect-are-composed-not-literal) | ✅ `068f8fe2` |
 | <a id="NC-D65"></a>NC-D65 | *Implementation decision, item 3, as [OQ-NC1](#OQ-NC1) A ruled.* The host launch (`yolo host --`, which the wrappers exec) and the macos-user launch run a selected pack service's `host_daemon` as a launch-owned child, through one runner, `internal/launchservice`, so there is one host-side supervisor and not one per notch; it is not `yolo-jaild supervise`, whose restart policy and inherited readiness pipe a per-launch child must not have ([`HS-D8`](../design/host-notch-services.md#HS-D8)). The trigger is the credential gate's own `UnservedAdapterError` ([`HS-D6`](../design/host-notch-services.md#HS-D6)), the address a port the launch picked, the credential this plan's per-launch caller token (NC-D3), and the inputs one `0600` file ([`HS-D7`](../design/host-notch-services.md#HS-D7)). `WithoutServiceAdaptations` and `ViaInert` were already gone (item 2); the host's bridge refusal remains only for a service that cannot run ([`HS-D5`](../design/host-notch-services.md#HS-D5)). `yolo host env` refuses a bridged profile and `yolo host apply` renders no address for it, as [`OQ-HS3`](../design/host-notch-services.md#OQ-HS3) rules. A via stays inert at both notches | 2026-09-28 | [§4](#4-the-ordered-build-list), item 3 | ✅ the mechanism, `TestStartWaitsForReadinessAndStopEndsTheService` and `TestTheHostHalfServesFromItsInputAndPublishesNoFile`; the host launch, `TestHostCodexClaudeRunsThroughALaunchOwnedBridge`; macos-user, `TestTheMacosUserArmStartsTheServiceAndStopsItAfterTheCommand` |
 | <a id="NC-D64"></a>NC-D64 | *Implementation decision, item 10, row A4, as [OQ-NC10](#OQ-NC10) ruled.* `acceptConfigChangesEnv` and every description of the variable as a grant are deleted: `yolo host --help`, `yolo config-ref`'s disposition table and wrapper paragraph, and host-apply-staleness P4, P5, its flow chart, dispositions, [OQ-HS10](../reference/host-apply-staleness.md#why-its-this-way) row and current values. The refusal of `--accept-config-changes` at the host keeps its jail-launch-flag wording and adds one line: a host launch has nothing to approve, and the first-apply MCP loss is asked at a terminal by `yolo host apply --assert`. A test sets the retired variable and proves the gate still refuses the first-apply loss off a terminal. No CHANGELOG line: nothing read the variable, so no launch behaves differently | 2026-09-28 | [§4](#4-the-ordered-build-list), item 10 | ✅ `a1812373` |
+| <a id="NC-D67"></a>NC-D67 | *Decision, reconciling item 17 with [`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9) on 2026-09-30.* Item 17 is **built**, by the credential-scope work at `949d9430` (CN-D24), and counts here as built although its **After** cell named item 16, which is not. The macos-user arm writes the files through the container vehicle's own writer (`writeMacosUserAgentEnvFiles` over `writeAgentEnvFiles`, called from `run.Run`'s macos-user arm), so it needed nothing item 16 builds, and item 16's order, once built, moves both backends' files at once. Its done-when, left blank while it was gated, is the ruling's own words. `TestMacosUserBareLaunchWritesEveryProfiledAgentsEnvFile` pins it through `Run` to the backend's handler seam: with the arm's call deleted it fails (tried 2026-09-30). Not run on a Mac: CN-D24 names what that leaves unmeasured | 2026-09-30 | [§4](#4-the-ordered-build-list), item 17 | ✅ `949d9430` |
+| <a id="NC-D68"></a>NC-D68 | *Decision, reconciling item 16 with [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8) on 2026-09-30.* Item 16 **stays gated**. Row C3 named that question as the one that "picks the order", but the ruling decided one relation for one vehicle: the user's explicit value beats yolo's in the per-agent file, the launcher-sourced one. It decided neither the order among yolo's own sources, which the three vehicles answer three ways ([OQ-NC12](#OQ-NC12)'s table, MEASURED by a scratch test), nor whether the host exec, which composes over the shell, honors the user's value at all ([OQ-NC13](#OQ-NC13)). Both are filed here, because C3 is this plan's row and [`provider-credential-scope.md`](../design/provider-credential-scope.md) is built with nothing open. Found while measuring: CN-D21's grammar changed the per-agent file's own order as a side effect. Its lines defer to a value already set, so the first line now wins, and a claimed `env_sources` value and a gated env value beat the shape var there, where before the shape var won, as it still does at the host. Recorded, not changed: no ruling says which order is right, and that is [OQ-NC12](#OQ-NC12). No code moves in this row | 2026-09-30 | [§4](#4-the-ordered-build-list), item 16 | — |

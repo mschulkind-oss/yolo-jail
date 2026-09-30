@@ -59,7 +59,9 @@ key is empty, the launch stops and says which variable is missing. This holds on
 `macos-user`, an agent you start from the sandbox's shell gets its own profile's settings too.
 
 A value you set yourself wins over the one a profile sets. `ANTHROPIC_MODEL=my-model claude`, or an
-`export` in the jail's shell before you start the agent, keeps your value for that run.
+`export` in the jail's shell before you start the agent, keeps your value for that run. On your own
+machine it does not: `yolo host -- claude` replaces a value your shell exports with the
+profile's.
 
 ## The providers yolo ships
 

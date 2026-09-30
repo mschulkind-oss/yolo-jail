@@ -746,7 +746,12 @@ Two consequences to know:
   claude`, or `export ANTHROPIC_BASE_URL=…` before it, keeps your value. The profile's value
   still replaces an empty one and one yolo itself set elsewhere (the shared file, the
   container's frozen environment, another agent's file), so a stale inherited value does not
-  win. A derive's tombstone removes only such a value, too. The menu half of
+  win. A derive's tombstone removes only such a value, too. This is the per-agent file's rule.
+  The host notch applies its composition over the shell it inherits, so there a profile's
+  composed value replaces one your shell exports; whether the host should keep yours is
+  [OQ-NC13](../plans/notch-convergence.md#OQ-NC13), and which of yolo's own sources wins when two
+  set one variable, which the vehicles answer differently today, is
+  [OQ-NC12](../plans/notch-convergence.md#OQ-NC12). The menu half of
 [`OQ-CN4`](../design/provider-credential-scope.md#OQ-CN4) is each agent's own key:
 opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model,
 or every provider of its [active set](#an-active-set-several-profiles-for-one-agent), the primary
