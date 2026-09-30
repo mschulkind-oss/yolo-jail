@@ -16,7 +16,7 @@ maintainer on 2026-09-29, and the design it produced is [§9](#9-the-keeper-desi
 designs the keeper at `yolo host` and macos-user; one question remains. Every citation, and the
 keeper research with its measurements, was verified against `232e4dcd`. The citations the review
 of 2026-09-29 added (JL-D28 to JL-D35) were verified against `d3c6970a`, and [§9.9](#99-the-keeper-at-yolo-host-and-macos-user)'s citations and
-measurements (JL-D36 to JL-D43) against `30b65282`. A review of §9.9 the same day corrected its
+measurements (JL-D36 to JL-D43) against `30b65282`. A review of [§9.9](#99-the-keeper-at-yolo-host-and-macos-user) the same day corrected its
 `yolo host` re-entry answer, which re-asks [OQ-JL9](#OQ-JL9), and added JL-D44 and JL-D45; those
 citations were verified against `303e0367`.
 
