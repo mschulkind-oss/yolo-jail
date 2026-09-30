@@ -952,3 +952,23 @@ func TestOnlyABedrockRouteCarriesAnthropicModels(t *testing.T) {
 		t.Errorf("the pass-through on a FIPS host = %+v, want its Messages route on that host", m)
 	}
 }
+
+// TestTheMessagesRouteKeepsAProxysPathPrefix: a provider whose platform says Bedrock is signed at
+// any https address (WG-I37), a corporate proxy among the ruling's cases, and a proxy that mirrors
+// runtime under a path prefix serves Messages under the same prefix it serves /openai/v1 under.
+// So the Messages route is composed where the base's own /openai/v1 was, and only a base that
+// does not end in runtime's OpenAI path falls back to the host's root.
+func TestTheMessagesRouteKeepsAProxysPathPrefix(t *testing.T) {
+	signer := &bedrockSigner{chain: &sigv4.Chain{}}
+	for base, want := range map[string]string{
+		bedrockBase: "https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1/messages",
+		"https://gw.corp.example/aws/bedrock/openai/v1":  "https://gw.corp.example/aws/bedrock/anthropic/v1/messages",
+		"https://gw.corp.example/aws/bedrock/openai/v1/": "https://gw.corp.example/aws/bedrock/anthropic/v1/messages",
+		"https://gw.corp.example/v1":                     "https://gw.corp.example/anthropic/v1/messages",
+	} {
+		m := newMessagesPassthrough(base, map[string]bool{opusID: true}, signer)
+		if m == nil || m.url != want {
+			t.Errorf("the Messages route for %s = %+v, want %s", base, m, want)
+		}
+	}
+}

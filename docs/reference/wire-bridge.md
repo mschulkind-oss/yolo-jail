@@ -335,8 +335,10 @@ reads the provider's model list at boot, and each request's `model` picks one of
 ([`wire-bridge-gateway.md` §3.1](../design/wire-bridge-gateway.md#31-how-it-is-built)):
 
 - **A model the list declares `"vendor": "anthropic"` for** is forwarded untranslated to
-  `/anthropic/v1/messages` on the upstream's host, Bedrock's own Anthropic Messages route
-  (`https://bedrock-runtime.<region>.amazonaws.com/anthropic/v1/messages` on runtime's own host). The body crosses as the agent sent it, so `cache_control`, `thinking`,
+  `/anthropic/v1/messages` where the upstream's own `/openai/v1` is, Bedrock's own Anthropic
+  Messages route (`https://bedrock-runtime.<region>.amazonaws.com/anthropic/v1/messages` on
+  runtime's own host). A proxy that serves runtime under a path prefix keeps it, and an upstream
+  whose address does not end in `/openai/v1` gets the route at its host's root. The body crosses as the agent sent it, so `cache_control`, `thinking`,
   `metadata`, tools and every other field reach Claude unchanged. The agent's `anthropic-version`
   (`2023-06-01` when it sends none) and `anthropic-beta` headers go with it, and its caller token
   never does. The answer, streamed as Anthropic server-sent events or not, is relayed byte for

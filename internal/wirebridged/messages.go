@@ -62,17 +62,26 @@ const (
 	oneMillionSuffix = "[1m]"
 )
 
-// bedrockMessagesURL is bedrock-runtime's Messages route on the host of a Bedrock upstream
-// base URL, "" for a URL with no https host. It is asked only of a route that signs
-// (newMessagesPassthrough needs its signer), so the pass-through exists exactly where the
-// route is already a Bedrock one: at runtime's own host, or, for a provider whose platform
-// says it is Bedrock (bedrockSigning, WG-I37), at the host its address names.
+// bedrockMessagesURL is bedrock-runtime's Messages route beside a Bedrock upstream base URL, ""
+// for a URL with no https host. It is asked only of a route that signs (newMessagesPassthrough
+// needs its signer), so the pass-through exists exactly where the route is already a Bedrock
+// one: at runtime's own host, or, for a provider whose platform says it is Bedrock
+// (bedrockSigning, WG-I37), at the address it names.
+//
+// WHERE THE BASE'S OWN /openai/v1 WAS: runtime serves both routes from its root, and a proxy
+// that mirrors runtime under a path prefix (a corporate gateway's `/aws/bedrock/openai/v1`)
+// serves Messages under the same prefix, so the prefix is kept. A base that does not end in
+// runtime's OpenAI path says nothing about where Messages lives, and gets the host's root.
 func bedrockMessagesURL(upstreamBaseURL string) string {
 	u, err := url.Parse(upstreamBaseURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
 		return ""
 	}
-	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: bedrockMessagesPath}).String()
+	prefix := ""
+	if p := strings.TrimSuffix(u.Path, "/"); strings.HasSuffix(p, runtimeOpenAIPath) {
+		prefix = strings.TrimSuffix(p, runtimeOpenAIPath)
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: prefix + bedrockMessagesPath}).String()
 }
 
 // anthropicModelIDs reads, off one composed provider entry, every model id its list declares

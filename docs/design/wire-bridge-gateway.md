@@ -456,8 +456,9 @@ concurrent build numbered its own from WG-I26 on ([WG-I26](#WG-I26)):
   2026-09-30 ([§2.2](#22-how-the-bedrock-upstream-is-chosen-built-2026-09-30), [WG-I39](#WG-I39)):
   the bridge composes runtime's URL from the region, and the Messages route sits on the same host.
   The shipped list declares Claude Opus 5.5's vendor, so it goes untranslated. A provider of the
-  Bedrock platform at an address of its own gets its Messages route on that address's host
-  ([WG-I37](#WG-I37)).
+  Bedrock platform at an address of its own gets its Messages route where that address's
+  `/openai/v1` is, keeping a proxy's path prefix, and at the host's root for an address that
+  does not end in `/openai/v1` ([WG-I37](#WG-I37); `TestTheMessagesRouteKeepsAProxysPathPrefix`).
 - **The `anthropic-beta` values claude sends are forwarded as sent**, and nobody knows which of
   them runtime accepts. On `ANTHROPIC_BASE_URL`, claude sends the betas it sends the first-party
   API, and a value runtime rejects fails the request with a 400, which the bridge relays
