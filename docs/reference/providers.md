@@ -8,7 +8,9 @@ covers:
   - internal/packdecl/platform.go
   - internal/packdecl/region.go
   - internal/packdecl/platformregion.go
+  - internal/packdecl/regionfile.go
   - internal/packload/regionpreflight.go
+  - internal/packload/regionfill.go
   - internal/packload/platformswitch.go
   - internal/packload/credentialscope.go
   - internal/cli/run/agentenvfiles.go
@@ -265,8 +267,10 @@ neither, having no Bedrock client of their own, so a `-p bedrock` in a jail of t
 refused as a profile nothing declares.
 
 - **The provider** declares `"platform": "aws-bedrock"`, `region_env_name` `AWS_REGION` and
-  `AWS_DEFAULT_REGION`, the six AWS credential names under `api_key_env_name`, no endpoint, no
-  region and no `options`. A region is the user's to set ([the region preflight](#the-region-preflight)).
+  `AWS_DEFAULT_REGION`, a `region_file` naming `~/.aws/config`, the six AWS credential names
+  under `api_key_env_name`, no endpoint, no region and no `options`. A region is the user's to
+  set, on the provider, in the environment or in the profile's section of `~/.aws/config`
+  ([the region preflight](#the-region-preflight), [the region file](#the-region-file)).
 - **The model list** is one list of every maker's models, each entry keyed by its runtime id and
   naming its maker as `vendor` in `model_options`, beside `order`, `name`, `context_window`,
   `max_tokens` and `input`. *Vendor* is the model's maker, a term coined in
@@ -388,14 +392,54 @@ its first Bedrock request, and claude, opencode and pi silently use `us-east-1`.
   ([BR-D18](../design/bedrock-plumbing.md#BR-D18)). It is never the shell yolo was launched from,
   which no backend forwards; a region found only there is named in the refusal as not
   delivered. At `yolo host --` the exec'd environment includes that shell, so it counts
-  ([BR-D2](../design/bedrock-plumbing.md#BR-D2)). A region in `~/.aws/config` is not counted,
-  because yolo does not read it, and the refusal says so. ⚠ Claude Code does read it (its
-  resolver takes `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the shared-config region, then
-  `us-east-1`; read from the 2.1.285 binary, never run), so at `yolo host`, where that file is
-  claude's own, a profile that names a region there is refused although claude would find it.
-  Whether to count it there is open with the maintainer; the hatch below is the way through.
+  ([BR-D2](../design/bedrock-plumbing.md#BR-D2)).
+- **The region file.** An agent that none of the above gives a region is given the one its
+  platform's region file holds, before the preflight asks, in a jail and at `yolo host` alike
+  ([BR-DIR1](../design/bedrock-plumbing.md#BR-DIR1); see [the region file](#the-region-file)).
+  The preflight then counts it as a delivered variable. When the file gives none, the refusal
+  names the file, the profile and why, and offers the file as a third way to set a region.
 - **Scope.** As the credential preflight's: a provider nobody selects, and an entry a `null`
   dropped, demand nothing.
+
+### The region file
+
+A provider pack may declare, beside `region_env_name`, where its platform's agents keep a
+region the environment does not carry: `region_file`, one key in one profile's section of a
+file under the home directory of the machine yolo launches on. The bedrock pack declares AWS's
+shared config for `aws-bedrock`: the `region` key of `[profile NAME]`, or of `[default]` for the
+profile named `default`, in `~/.aws/config`, which `AWS_CONFIG_FILE` relocates. Core names no
+AWS file, section or variable
+([BR-D21](../design/bedrock-plumbing.md#BR-D21)).
+
+- **When.** Only for an agent on a provider of that platform whose composed entry sets no
+  `region` and to which none of the region variables that agent reads reaches (at `yolo host`,
+  counting the invoking shell it inherits). The region is delivered in the first variable the
+  agent reads: `AWS_REGION` for every shipped agent, so opencode, which ignores
+  `AWS_DEFAULT_REGION`, is given `AWS_REGION` when it receives only the other
+  ([BR-D23](../design/bedrock-plumbing.md#BR-D23)).
+- **Which profile.** The one the agent's credential comes from
+  ([BR-D21](../design/bedrock-plumbing.md#BR-D21)): when an `env` contribution declaring
+  `region_profile_setting` reaches the agent, the setting it names of the loophole it is
+  `served_by` (aws-auth's pointer names `loopholes.aws-auth.settings.profile`, the profile
+  aws-auth mints for); otherwise the pack's `profile_env_name` (`AWS_PROFILE`) as the agent
+  receives it; otherwise the `default_profile`. Only that profile's own section is read, so an
+  `[sso-session]` block's `sso_region`, the SSO portal's region, never is.
+- **Where the file is.** `path_env_name` (`AWS_CONFIG_FILE`) in the environment yolo was
+  launched from, with a leading `~` expanded, else `path` under that environment's `HOME`
+  ([BR-D24](../design/bedrock-plumbing.md#BR-D24)). It is read in Go, in AWS's documented INI
+  format, with no `aws` process on the launch path
+  ([BR-D22](../design/bedrock-plumbing.md#BR-D22)).
+- **The value.** One DNS label, as a provider's `region` is ([below](#a-region-is-a-host-name-part));
+  anything else is not delivered, and the refusal says so.
+- **Delivery and disclosure.** The credential gate appends it to the agent's own environment,
+  so it rides the agent's env file in a jail, the session on `macos-user` and the exec'd
+  environment at `yolo host` ([BR-D20](../design/bedrock-plumbing.md#BR-D20)); in a jail's env
+  file it is a default, so a value exported at the agent's own launch wins. Every notch prints
+  one line: `Region: AWS_REGION=<region> for <agents> on provider "<name>", read from
+  <file> [<section>] (profile "<profile>", <what chose it>): the provider sets no region, and no
+  region variable reaches <them>` ([BR-D25](../design/bedrock-plumbing.md#BR-D25)). At
+  `yolo host` the agent could read the file itself, and is given it anyway, so the refusal and
+  the line are the same at every notch ([BR-D26](../design/bedrock-plumbing.md#BR-D26)).
 
 ### A region is a host-name part
 
@@ -412,7 +456,8 @@ serve which model, is AWS's to change. The rule is `packdecl.RegionProblem`, rea
 `config.validateProviderRegion` and the manifest validator.
 
 The refusal names the pack, the provider and its platform, the agents on it that receive no
-region, both ways to set a region and every channel consulted.
+region, the region file and profile it read and why they gave none, every way to set a region
+and every channel consulted.
 It honors the credential preflight's hatch, `YOLO_ALLOW_MISSING_PROVIDERS=1`
 ([BR-D3](../design/bedrock-plumbing.md#BR-D3)), and runs wherever that preflight runs: the jail
 launcher's `checkProviderCredentials` asks both, so the fresh launch, the attach and every
@@ -1319,7 +1364,8 @@ claude on `bedrock` is the worked example, and it uses both channels ([D8](#pv-d
 names the `bedrock` provider, which `packs/bedrock` ships with no endpoint, so it is never a
 credential requirement, with `"platform": "aws-bedrock"`, and with a `region_env_name`, so a
 region is ([the region preflight](#the-region-preflight)). Its region comes from the user's
-`providers.bedrock` entry or the environment, and its model list is the pack's
+`providers.bedrock` entry, the environment or the host's `~/.aws/config`
+([the region file](#the-region-file)), and its model list is the pack's
 ([the shipped Bedrock provider](#the-shipped-bedrock-provider)). claude's settings derive puts
 `CLAUDE_CODE_USE_BEDROCK` into the `env` block of `claude/settings`, so a bare `claude` outside
 yolo still runs in Bedrock mode; claude's env derive sets the same variable for a yolo-launched
@@ -1575,6 +1621,7 @@ above explains what each is for; this table is the only place the exact spelling
 | Bedrock built-in provider ids | codex `amazon-bedrock-runtime`; opencode `amazon-bedrock`; pi `amazon-bedrock` | `packs/{codex,opencode,pi}/derive.lua` |
 | The bridge-forcing Bedrock profile | `bedrock-bridge` = `{provider: bedrock, via: wire-bridge}` | `packs/bedrock/pack.json` |
 | Region requirement | a provider's `region_env_name` beside its `platform` (pack manifests only), a requirement of every provider of that platform; the bedrock pack's `bedrock` declares `AWS_REGION`, `AWS_DEFAULT_REGION` for `aws-bedrock`; a program's `platform_regions` narrows the list for that agent alone, and packs/opencode's lists `AWS_REGION` | `packs/bedrock/pack.json`, `packload.ProviderRegionGaps` |
+| Region file | a provider's `region_file` `{path, path_env_name, profile_env_name, default_profile, profile_section, key}` beside `region_env_name` (pack manifests only); the bedrock pack's: `.aws/config`, `AWS_CONFIG_FILE`, `AWS_PROFILE`, `default`, `profile {profile}`, `region`; an `env` contribution's `region_profile_setting` beside `served_by` and a `platform` gate, and aws-auth's pointer's is `profile`; delivered in the agent's first region variable, disclosed as `Region: …` | `packs/bedrock/pack.json`, `packs/aws-auth/pack.json`, `packload` (`regionfill.go`) |
 | Kinds that take the `profile` modifier | `env`, `config-overlay` — refused on every other kind; no shipped pack uses it | `packdecl` `validateContribution` |
 | Kinds that take the `platform` gate | `env` — one gate per contribution, `profile` or `platform`; `platform` on `provider` is the declaration | `packdecl` `validateContribution` |
 | Platform switches | a `program`'s `platform_switches` `[{platform, surface, pointer}]`; claude's: `aws-bedrock`, `claude/settings`, `/env/CLAUDE_CODE_USE_BEDROCK`; on when `true`, `1`, `yes` or `on` | `packs/claude/pack.json`, `packload.PlatformSwitchConflicts` |

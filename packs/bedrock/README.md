@@ -26,10 +26,21 @@ Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9]
   platform gets the same behavior.
 - **No endpoint and no region.** Each agent's own Bedrock client composes its URL from a region,
   and yolo ships none: set one as `"providers": {"bedrock": {"region": "us-east-1"}}` in your
-  user config, or as `AWS_REGION` in an `env_sources` entry. A launch that can see neither is
-  refused and says so.
+  user config, as `AWS_REGION` in an `env_sources` entry, or as the `region` of your AWS profile
+  in `~/.aws/config`. A launch that finds none of the three is refused and says where it looked.
 - **`region_env_name`**: `AWS_REGION` and `AWS_DEFAULT_REGION`, the variables that count as a
   region for every provider of this platform.
+- **`region_file`**: `~/.aws/config` (or the file `AWS_CONFIG_FILE` names in the shell you
+  launch yolo from), the `region` of `[profile NAME]`, or of `[default]`. When an agent gets no
+  region from the provider or the environment, yolo reads it there for the profile the agent's
+  credential comes from, and hands the agent that region as `AWS_REGION`, in a jail and at
+  `yolo host` alike. The profile is the one `aws-auth` serves when it serves the agent (its
+  `profile` setting), else the `AWS_PROFILE` the agent receives, else `default`. The launch
+  prints one line naming the region, the file and the profile:
+
+  ```
+  Region: AWS_REGION=eu-west-1 for codex on provider "bedrock", read from ~/.aws/config [profile my-sso] (profile "my-sso", the one loopholes.aws-auth.settings.profile names for the credential): the provider sets no region, and no region variable reaches it
+  ```
 - **The six AWS credential variables** under `api_key_env_name`: `AWS_BEARER_TOKEN_BEDROCK`,
   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
   `AWS_CONTAINER_CREDENTIALS_FULL_URI`. yolo delivers each only to an agent whose profile selects
@@ -92,9 +103,10 @@ tokens, and codex was never run. While a codex profile selects Bedrock, yolo pin
 another profile for that.
 
 opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`. yolo writes its `options.region`
-from a region you set on the provider, so set it there, or deliver `AWS_REGION`: a launch that
-gives opencode only `AWS_DEFAULT_REGION` is refused, since opencode would otherwise use
-`us-east-1`.
+from a region you set on the provider, so set it there, deliver `AWS_REGION`, or name one in
+your AWS profile, which yolo hands opencode as `AWS_REGION`: a launch that gives opencode only
+`AWS_DEFAULT_REGION`, with no region in the profile either, is refused, since opencode would
+otherwise use `us-east-1`.
 
 pi lists the models under its own `amazon-bedrock` provider. An id pi's own catalog also holds
 takes the facts this list declares in place of pi's (its cost and thinking levels among them),

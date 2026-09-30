@@ -64,7 +64,7 @@ does ([`OQ-BR8`](../../docs/design/providers-and-profiles-redesign.md#OQ-BR8)).
 
 | Setting | What it does |
 |---|---|
-| `profile` | the AWS profile the service resolves — the one you `aws sso login --profile`. Absent: the daemon refuses at spawn and names this key |
+| `profile` | the AWS profile the service resolves — the one you `aws sso login --profile`. Absent: the daemon refuses at spawn and names this key. Its `region` in `~/.aws/config` is also the region an agent this service serves is given when nothing else names one ([the bedrock pack](../bedrock/README.md#what-the-provider-declares)) |
 | `role_arn` | a role to assume before serving, so the jail holds that role's permissions rather than your whole permission set |
 | `session_policy` | an inline IAM session policy attached to that AssumeRole, narrowing **inside** Bedrock. Needs `role_arn` |
 | `unnarrowed` | serve the permission set as-is. The one widening, and it has to be asked for by name |

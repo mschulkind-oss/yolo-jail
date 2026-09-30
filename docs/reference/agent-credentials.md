@@ -606,8 +606,11 @@ The service **refuses to start**, naming the key to write, in six cases:
   `network.mode: "host"` puts the adapter's port on the host's loopback, and a nested jail
   shares its parent's
   ([notch convergence §2.3](../plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)).
-- **The region**, from the Bedrock provider entry, as for any Bedrock profile. The credential
-  service never supplies one, and the protocol has no field for it.
+- **The region**, as for any Bedrock profile: from the Bedrock provider entry or the
+  environment, else the `region` of the profile this service mints for (its `profile` setting),
+  which the launch reads from the host's `~/.aws/config`
+  ([the region file](providers.md#the-region-file)). The credential service itself never
+  supplies one, and the protocol has no field for it.
 - **The endpoint file** for the adapter's own hop to the host, mode `0600`, as for
   [every host-service loophole](#host-service-loopholes).
 

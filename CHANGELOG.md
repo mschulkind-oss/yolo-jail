@@ -264,19 +264,22 @@ the agents on `bedrock`: another agent, or a plain shell, is refused. Attaching 
 than hand the agent an address nothing answers. See
 [the `aws-auth` pack](packs/aws-auth/README.md).
 
-**A `bedrock` launch with no AWS region is now refused before it starts, and says where to set
-one.** An agent needs a region to reach Bedrock, and yolo used to start it without one: codex
-then failed at its first request, and Claude Code, opencode and pi quietly used `us-east-1`. Set
-`"providers": {"bedrock": {"region": "…"}}` in your config or `AWS_REGION` in an `env_sources`
-entry. Each agent on Bedrock must receive a region itself, so a region only another agent gets
-does not count for it, and neither does one the agent ignores: opencode reads `AWS_REGION` and
-not `AWS_DEFAULT_REGION`, so it is refused with only the latter. A Bedrock provider you declare
-yourself with `"platform": "aws-bedrock"` is checked the same way. In a jail, an `AWS_REGION` exported only in
-your own shell does not count, because it never reaches the jail, and the refusal says when it
-saw one there. `yolo host -p bedrock -- claude` counts your shell's value, since the agent
-inherits it. A region in `~/.aws/config` does not count anywhere, because yolo does not read that
-file, though Claude Code does: at `yolo host`, set the region in your config or launch with
-`YOLO_ALLOW_MISSING_PROVIDERS=1`. See
+**A `bedrock` launch now takes its AWS region from your AWS profile, and with no region anywhere
+is refused before it starts, saying where to set one.** An agent needs a region to reach Bedrock,
+and yolo used to start it without one: codex then failed at its first request, and Claude Code,
+opencode and pi quietly used `us-east-1`. Set `"providers": {"bedrock": {"region": "…"}}` in your
+config, `AWS_REGION` in an `env_sources` entry, or a `region` in your profile's section of
+`~/.aws/config` (or the file `AWS_CONFIG_FILE` names). yolo reads that file on your machine for
+the profile your credential comes from, the one `aws-auth` serves, else your `AWS_PROFILE`, else
+`default`, and hands the agent its region, in a jail and at `yolo host` alike, with one line at
+launch naming the region, the file and the profile. Each agent on Bedrock must receive a region
+itself, so a region only another agent gets does not count for it, and neither does one the agent
+ignores: opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`, so with only the latter it is
+given your profile's region, or refused when your profile names none. A Bedrock provider you
+declare yourself with `"platform": "aws-bedrock"` is checked the same way. In a jail, an
+`AWS_REGION` exported only in your own shell does not count, because it never reaches the jail,
+and the refusal says when it saw one there. `yolo host -p bedrock -- claude` counts your shell's
+value, since the agent inherits it. See
 [the region preflight](docs/reference/providers.md#the-region-preflight).
 
 **Two packs shipping a skill of the same name now stop a jail launch with a message, as they do

@@ -63,6 +63,15 @@ func TestHostLaunchTakesTheRegionOfTheHostsAWSConfig(t *testing.T) {
 			rc, env["AWS_REGION"], errs)
 	}
 
+	// AN ENV_SOURCES NULL removing AWS_REGION removes the filled one too (BR-D26's one gap), and
+	// the refusal says the file's region was delivered and then removed.
+	rc, env, errs = hostGateRunIn(t, `{"packs": ["claude"], "env_sources": [{"AWS_REGION": null}]}`, noRegion,
+		[]string{"-p", "bedrock"}, "claude", awsConfigIn(hostAWSConfig))
+	if rc != 1 || env != nil || !strings.Contains(errs,
+		`gave "eu-north-1", delivered as AWS_REGION, which this launch then removed`) {
+		t.Errorf("a null removing AWS_REGION must refuse, naming the removed file region: rc=%d\n%s", rc, errs)
+	}
+
 	// A FILE WITH NO REGION FOR THE PROFILE is the refusal, naming the file and the profile.
 	rc, env, errs = hostGateRunIn(t, claudeAlone, noRegion, []string{"-p", "bedrock"}, "claude",
 		awsConfigIn("[profile team]\nregion = ap-northeast-1\n"))
