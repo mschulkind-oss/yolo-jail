@@ -18,7 +18,7 @@ key sequence detaches a session's client, and a session whose jail ends under it
 process, every session by exec, provisioning's recorded outcome, and the session lock the orphan
 reaper honors. Step 3, 2026-09-30, at the container backends: the keeper, so quitting the first
 agent no longer ends the others, and the first terminal gets its prompt back
-([JL-D55](#JL-D55) to [JL-D63](#JL-D63) ledger how; verified against `1157cde6`; the review
+([JL-D55](#JL-D55) to [JL-D63](#JL-D63) ledger how; verified against `cb9401c7`; the review
 of 2026-09-30 fixed what [JL-D64](#JL-D64) to [JL-D69](#JL-D69) record). The keeper at
 `yolo host` and macos-user (step 5) waits on [OQ-JL9](#OQ-JL9), and step 4's Mac runs are owed.
 [OQ-JL1](#OQ-JL1) was
