@@ -226,8 +226,41 @@ func TestHostChildPathIsTheCallersThenTheFloorsDeduplicated(t *testing.T) {
 	if want := strings.Join([]string{"/a", "/b", "/floor/bin"}, sep); got != want {
 		t.Errorf("hostChildPath = %q, want %q", got, want)
 	}
-	if got := hostChildPath("", "/floor/bin"); got != "/floor/bin" {
-		t.Errorf("an empty caller PATH gives %q", got)
+	// A caller with no PATH: the system baseline stands in for it, ahead of the floor's bin/, so
+	// the agent's own commands still resolve.
+	baseline := strings.Join(append(hostfloor.BaselinePath(), "/floor/bin"), sep)
+	for _, empty := range []string{"", sep, sep + sep} {
+		if got := hostChildPath(empty, "/floor/bin"); got != baseline {
+			t.Errorf("caller PATH %q gives %q, want the baseline then the floor: %q", empty, got, baseline)
+		}
+	}
+}
+
+// TestAHostLaunchWithNoPATHHandsItsChildTheBaseline pins the same at the call site: a launcher
+// that passes no PATH at all (`env -i yolo host -- floorcli`) still runs the floor's copy, and the
+// child's PATH is the system baseline and then the floor's bin/ — not the floor's bin/ alone.
+func TestAHostLaunchWithNoPATHHandsItsChildTheBaseline(t *testing.T) {
+	floorHostFixture(t, "")
+	baseline := hostfloor.BaselinePath()
+	if len(baseline) == 0 {
+		t.Skip("no baseline system directory exists on this machine")
+	}
+	got := captureHostExec(t)
+	t.Setenv("PATH", "")
+	if err := os.Unsetenv("PATH"); err != nil {
+		t.Fatal(err)
+	}
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+		t.Fatalf("with no PATH: rc=%d execed=%v\n%s", rc, got.execed, errw.String())
+	}
+	floorBin := filepath.Join(paths.HostFloorDir(), "bin")
+	if got.target != filepath.Join(floorBin, "floorcli") {
+		t.Errorf("exec'd %s, want the floor's copy", got.target)
+	}
+	want := strings.Join(append(baseline, floorBin), string(os.PathListSeparator))
+	if childPath := envValue(got.env, "PATH"); childPath != want {
+		t.Errorf("child PATH = %q, want the baseline then the floor's bin/: %q", childPath, want)
 	}
 }
 

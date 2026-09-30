@@ -36,10 +36,11 @@ import (
 // half-written install directory. Stdin is /dev/null, so an installer can neither prompt nor
 // hang on one.
 
-// baselinePath is the fixed system PATH an installer runs with after the floor's Node: the
+// BaselinePath is the fixed system PATH an installer runs with after the floor's Node — and what a
+// host launch hands its child when the caller passed no PATH at all (internal/cli hostChildPath): the
 // directories a login shell on Linux or macOS always has, and NixOS's fixed profile directories
 // when present. Filtered by existence at call time.
-func baselinePath() []string {
+func BaselinePath() []string {
 	dirs := []string{"/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin",
 		"/run/wrappers/bin", "/run/current-system/sw/bin"}
 	if u, err := user.Current(); err == nil && u.Username != "" {
@@ -83,7 +84,7 @@ func (f *Floor) installerEnv(first string, set ...string) []string {
 		}
 		out = append(out, kv)
 	}
-	path := baselinePath()
+	path := BaselinePath()
 	if first != "" {
 		path = append([]string{first}, path...)
 	}

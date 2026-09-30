@@ -348,10 +348,19 @@ func homeTilde(p string) string {
 // included (OQ-HP7); the floor's bin/ comes last because it holds agent names only, so it supplies
 // one only where nothing of the user's has it. (The composed host PATH of host_path and the
 // per-OS baseline, which belongs between the two, is not built yet.)
+//
+// A caller that passed NO PATH (`env -i`) gets the system baseline (hostfloor.BaselinePath) in
+// its place, ahead of the floor's bin/. Handing that child the floor's bin/ alone would leave every
+// command the agent runs by name — git, sh — unfound, where before the floor a child with no PATH
+// at least had libc's default search path (/bin:/usr/bin).
 func hostChildPath(ambient, floorBin string) string {
+	callers := strings.Split(ambient, string(os.PathListSeparator))
+	if strings.Trim(ambient, string(os.PathListSeparator)) == "" {
+		callers = hostfloor.BaselinePath()
+	}
 	var out []string
 	seen := map[string]bool{}
-	for _, d := range append(strings.Split(ambient, string(os.PathListSeparator)), floorBin) {
+	for _, d := range append(callers, floorBin) {
 		if d == "" || seen[d] {
 			continue
 		}
