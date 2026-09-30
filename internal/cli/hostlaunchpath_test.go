@@ -105,7 +105,9 @@ func TestEveryHostCheckReadsHostPath(t *testing.T) {
 		t.Errorf("the gate reported a tool host_path holds:\n%s", got)
 	}
 
-	// Without host_path, the tool only in a hint folder.
+	// Without host_path, the tool only in a hint folder — and in the DEFAULT view: the miss line is
+	// a disclosure no verbosity decides.
+	t.Setenv(paths.VerboseEnv, "")
 	if err := os.Remove(inHostPath); err != nil {
 		t.Fatal(err)
 	}
