@@ -383,9 +383,10 @@ order.)*
    applies (`packload.ResolveNeeds`), so a correct claim on a capability only a needs-pulled pack
    serves was graded as matching nothing; they apply it now, and
    `TestLazyResolversApplyTheNeedsClosure` (`internal/cli/run`) fails without it.
-2. **Selection-key validation.** *(Written as `pack_profiles`; the key is `use_profiles` since
-   `43d24e9e`.)* **SHIPPED** — `86a56f6b` (key-namespace check), `5124dee3` (shape-check survives an
-   unresolvable pack); live at `validateUseProfiles` (`internal/config/validate.go`, whose message
+2. **Selection-key validation.** *(Written as `pack_profiles`; the key was `use_profiles` from
+   `43d24e9e`, and is `profile` since [PP-D10](providers-and-profiles-redesign.md#PP-D10).)*
+   **SHIPPED** — `86a56f6b` (key-namespace check), `5124dee3` (shape-check survives an
+   unresolvable pack); live at `validateProfile` (`internal/config/validate.go`, whose message
    is `unknownProfileCLIMessage`) with the CLI-flag preflight at `checkProfileTargets`
    (`internal/cli/run/packs.go`), pinned by
    `internal/config/useprofilekeys_test.go`. One deviation from [§4.1](#41-a-profile-set-for-a-pack-that-does-not-exist)'s proposed message: the shipped
