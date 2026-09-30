@@ -399,6 +399,14 @@ yolo.derive("opencode", "config", function(ctx)
       if type(p) == "table" and type(p.models) == "table" then
         if p.models[alias] then
           modelID = p.models[alias]
+        elseif p.models_only == true then
+          -- UNDER AN `only` the list's DEFAULT ENTRY answers (docs/design/model-lists-and-
+          -- pickers.md §7.2): the profile's model when the list holds it (above), else the
+          -- `default` alias, else the list's first entry in its order (callableModels'). An only
+          -- that dropped the profile's model must still start opencode on the list, and the
+          -- menu follow the selection, as copilot, codex, claude and oh-omp do under one.
+          local first = callableModels(p, nil)[1]
+          modelID = p.models.default or (first and first.id)
         elseif alias == "default" then
           local count
           -- The VALUES are the model ids (the keys are the aliases); see the catalog

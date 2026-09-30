@@ -1072,6 +1072,14 @@ local function piSettingsFor(ctx)
         end
       end
     end
+    -- UNDER AN `only` the list's DEFAULT ENTRY answers (docs/design/model-lists-and-pickers.md
+    -- §7.2): the profile's model, else the `default` alias (both above), else the list's first
+    -- entry in its order (callableModels'). With no enabledModels under an only, defaultModel
+    -- is what starts pi on the list when the only dropped the profile's model.
+    if not sel.defaultModel and p.models_only == true then
+      local first = callableModels(p, nil)[1]
+      sel.defaultModel = first and first.id
+    end
   end
   if not sel.defaultModel and isKilo and (type(p.models) ~= "table" or next(p.models) == nil) and alias ~= "default" then
     sel.defaultModel = alias

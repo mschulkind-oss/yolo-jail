@@ -136,7 +136,13 @@ func TestCodexSelectsANarrowedListsDefault(t *testing.T) {
 // the profiles (zai's own and the user's).
 func zaiNarrowed(t *testing.T, agent string, user map[string]packload.UserProfile) (providers, profiles string) {
 	t.Helper()
-	company := companyModelsPack(t, `{"kind":"models","provider":"zai","only":["glm-5.3","glm-5.3-flash"]}`)
+	return zaiNarrowedTo(t, agent, user, `["glm-5.3","glm-5.3-flash"]`)
+}
+
+// zaiNarrowedTo is zaiNarrowed with the `only` list the company pack keeps, as a JSON array.
+func zaiNarrowedTo(t *testing.T, agent string, user map[string]packload.UserProfile, only string) (providers, profiles string) {
+	t.Helper()
+	company := companyModelsPack(t, `{"kind":"models","provider":"zai","only":`+only+`}`)
 	packs := append(testPacksForAgent(t, agent, "zai"), company)
 	table, err := packload.ComposeProviders(nil, packs)
 	if err != nil {
@@ -188,6 +194,61 @@ func TestOpencodeWhitelistsANarrowedList(t *testing.T) {
 				t.Errorf("provider.zai.whitelist = %v with enforce_models off, want none: it refuses too", whitelist)
 			}
 		})
+	}
+}
+
+// OPENCODE STARTS ON A NARROWED LIST'S DEFAULT ENTRY (§7.2) when the only dropped the profile's
+// model: the profile's `model` when the list holds it, else the `default` alias, else the list's
+// first entry. zai declares `model: glm-5.3` and no `default` alias, so narrowed to glm-4.6 and
+// glm-5.3-flash its default entry is glm-4.6, the first by id. Without the rule the derive
+// resolved nothing and wrote neither `model` nor `enabled_providers`, so opencode started on its
+// own persisted choice and its menu no longer followed the selection (OQ-CN4).
+func TestOpencodeStartsOnANarrowedListsDefault(t *testing.T) {
+	providers, profiles := zaiNarrowedTo(t, "opencode", nil, `["glm-4.6","glm-5.3-flash"]`)
+	r := newPioencodeRender(t, providers)
+	r.wireProfiles(profiles)
+	r.render(t, `{"opencode":"zai"}`)
+	cfg := r.ocConfig(t)
+	if cfg["model"] != "zai/glm-4.6" || cfg["small_model"] != "zai/glm-4.6" {
+		t.Errorf("opencode model/small_model = %v/%v, want zai/glm-4.6 for both, the narrowed list's first entry",
+			cfg["model"], cfg["small_model"])
+	}
+	if got, want := cfg["enabled_providers"], []any{"zai"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("enabled_providers = %v, want %v: the menu follows the selection", got, want)
+	}
+}
+
+// PI STARTS ON A NARROWED LIST'S DEFAULT ENTRY too, by the same rule: with no enabledModels under
+// an only, a defaultModel is the one thing that decides pi's start, and without it pi started on
+// its own saved or built-in choice.
+func TestPiStartsOnANarrowedListsDefault(t *testing.T) {
+	providers, profiles := zaiNarrowedTo(t, "pi", nil, `["glm-4.6","glm-5.3-flash"]`)
+	r := newPioencodeRender(t, providers)
+	r.wireProfiles(profiles)
+	r.render(t, `{"pi":"zai"}`)
+	settings := r.piSettings(t)
+	if settings["defaultProvider"] != "zai" || settings["defaultModel"] != "glm-4.6" {
+		t.Errorf("pi selection = %v/%v, want zai/glm-4.6, the narrowed list's first entry",
+			settings["defaultProvider"], settings["defaultModel"])
+	}
+	if scope, present := settings["enabledModels"]; present {
+		t.Errorf("pi enabledModels = %v, want none: the registration is the exact list", scope)
+	}
+}
+
+// THE `default` ALIAS OUTRANKS THE FIRST ENTRY: a narrowed list that keeps its `default` starts
+// both agents there, not on the entry that sorts first.
+func TestOpencodeAndPiPreferANarrowedListsDefaultAlias(t *testing.T) {
+	providers := `{"gw":{"endpoints":{"openai":{"base_url":"https://gw.example/v1","wire_api":"openai-chat-completions"}},
+	  "api_key_env_name":"GW_KEY","models":{"default":"b-2","a-1":"a-1","b-2":"b-2"},"models_only":true}}`
+	r := newPioencodeRender(t, providers)
+	r.wireProfiles(`{"gw":{"provider":"gw","model":"gone-9"}}`)
+	r.render(t, `{"opencode":"gw","pi":"gw"}`)
+	if got := r.ocConfig(t)["model"]; got != "gw/b-2" {
+		t.Errorf("opencode model = %v, want gw/b-2, the narrowed list's default alias", got)
+	}
+	if got := r.piSettings(t)["defaultModel"]; got != "b-2" {
+		t.Errorf("pi defaultModel = %v, want b-2, the narrowed list's default alias", got)
 	}
 }
 
