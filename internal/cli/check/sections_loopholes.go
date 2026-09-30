@@ -175,6 +175,16 @@ func (o *Options) checkLoopholes(r *reporter) {
 		// a [FAIL] for something the user's own pack selection switched off), with the
 		// broker's daemon-liveness block under it.
 		if reason, inert := inertReason(lp); inert {
+			// The one inactive answer with a fix the user runs: a downloaded binary not
+			// fetched yet (docs/design/broker-as-a-pack.md BP-D5). A launch never
+			// fetches, so this loophole the user switched on stays off until they do;
+			// that is a warning, where an unsupported platform is a fact to note.
+			if why, unfetched := lp.UnfetchedBinaryReason(); unfetched && why == reason {
+				r.warn("loophole "+lp.Name+": inactive ("+reason+")",
+					"Run `yolo pack install` on this machine; a launch never downloads a "+
+						"loophole's program.")
+				continue
+			}
 			r.ok("loophole " + lp.Name + ": inactive (" + reason + ")")
 			continue
 		}
