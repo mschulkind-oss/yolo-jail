@@ -1,9 +1,32 @@
 package packload
 
-// forks.go is the pack-set half of the fork route (docs/design/forked-programs-as-packs.md):
-// how a fork — a `program` delivered `via: "source"` — appears in a footprint.
+// forks.go is the pack-set half of the fork route (docs/design/forked-programs-as-packs.md): which
+// forks a selection carries, the REWRITE that gives each fork's base its delivery, and how a fork
+// appears in a footprint.
+//
+// # Why a rewrite, and why at the selection
+//
+// A fork claims no name (OQ-FP5): the base pack keeps its bin, and the fork supplies the bytes.
+// So every reader that asks "how is `pi` delivered?" must hear the fork's answer, and there are
+// many of them, each reading one pack's programs at a time — the launcher generator, the catalog,
+// the host floor, `yolo capture`, the dep probe (FP-D5). Teaching each one a fork arm would leave
+// the next reader added without one, delivering the base's UPSTREAM program under the fork's name.
+// Rewriting a COPY of the base's program where the selected set is final means none of them has to
+// know a fork exists: they read the base's program, and it carries the fork's delivery.
+//
+// Where the set is final is two places, and both call ApplyForks: the one selection function
+// (config.SelectPacks), which every host verb and the launch read, and the in-jail loader
+// (entrypoint's loadPackRoot), which reads the staged tree the launch delivered. The staged tree
+// holds the base's pack.json unchanged, so the jail repeats the rewrite rather than trusting a
+// rewritten file.
 
-import "github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+)
 
 // forkClaimDetailPrefix opens a fork claim's Detail; Claim.DisclosureSentence keys its sentence
 // on it, as it keys an installer's on "installer: ".
@@ -23,4 +46,206 @@ func ForkClaimTarget(bin, base string) string {
 // so two forks that differ in either render as two lines.
 func forkClaimDetail(c packdecl.Contribution) string {
 	return forkClaimDetailPrefix + c.Source + ", built by `" + c.Build + "`"
+}
+
+// Fork is one fork a pack set carries: the fork pack's own `via: "source"` contribution, read off
+// its manifest (not off the rewritten base, which is where a reader of the PROGRAM looks).
+type Fork struct {
+	// Pack is the fork pack's name.
+	Pack string
+	// Base is the pack whose program it forks (`fork_of`).
+	Base string
+	// Bin is the program's bin, which is the base's.
+	Bin string
+	// Source, Build and Produces are the fork's delivery, verbatim from its manifest.
+	Source, Build string
+	Produces      []string
+	// Platforms is where the fork builds (`platforms`), nil for everywhere.
+	Platforms []string
+}
+
+// Key is the fork's identity in the fork lock and everywhere a fork is named by one string:
+// "<fork pack>/<bin>" (FP-D7). A pack may fork several programs, each its own key.
+func (f Fork) Key() string { return f.Pack + "/" + f.Bin }
+
+// Forks lists every fork the packs carry, in pack order and then declaration order.
+func Forks(packs []*Pack) []Fork {
+	var out []Fork
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, c := range p.Decl.Contributions() {
+			if !c.IsFork() {
+				continue
+			}
+			out = append(out, Fork{
+				Pack: p.Name, Base: c.ForkOf, Bin: c.Bin, Source: c.Source, Build: c.Build,
+				Produces:  append([]string(nil), c.Produces...),
+				Platforms: append([]string(nil), c.Platforms...),
+			})
+		}
+	}
+	return out
+}
+
+// forkBases is the distinct base pack names p's forks name, in declaration order: the packs a
+// fork brings into the launch the way an unconditional `needs` entry does (ResolveNeeds).
+func forkBases(p *Pack) []string {
+	if p == nil || p.Decl == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range p.Decl.Contributions() {
+		if c.IsFork() && !seen[c.ForkOf] {
+			seen[c.ForkOf] = true
+			out = append(out, c.ForkOf)
+		}
+	}
+	return out
+}
+
+// ApplyForks returns packs with every fork applied: each base pack a fork names is replaced, at
+// its own position, by a COPY whose program of the fork's bin carries the fork's delivery
+// (forkedProgram). Every other pack, the fork packs included, is returned as it came. The input is
+// never modified — an embedded pack is one shared value per process (packload.Embedded), so an
+// in-place rewrite would leak the fork into every later selection in the same process.
+//
+// It refuses, naming each, the shapes FP-D5 lists: a fork whose base is not in the set, a base
+// that declares no program by the fork's bin, a pack forking itself, and two forks of one program
+// — the last as the launch refuses two owners of one agent name. A refusal returns no packs,
+// because every caller treats it as "this selection cannot run", as a refused closure.
+func ApplyForks(packs []*Pack) ([]*Pack, error) {
+	forks := Forks(packs)
+	if len(forks) == 0 {
+		return packs, nil
+	}
+	index := map[string]int{}
+	for i, p := range packs {
+		if p != nil {
+			if _, seen := index[p.Name]; !seen {
+				index[p.Name] = i
+			}
+		}
+	}
+	out := append([]*Pack(nil), packs...)
+	copied := map[int]bool{}
+	claimed := map[string]string{}
+	var problems []string
+	for _, f := range forks {
+		if f.Base == f.Pack {
+			problems = append(problems, fmt.Sprintf("pack %s forks itself — `fork_of` names the pack "+
+				"whose program it builds, which is another pack", f.Pack))
+			continue
+		}
+		i, ok := index[f.Base]
+		if !ok {
+			problems = append(problems, fmt.Sprintf("pack %s forks pack %s's %q, and %s is not in "+
+				"this selection — a pack yolo ships joins by itself, and any other base must be in "+
+				"your config's packs list by that name", f.Pack, f.Base, f.Bin, f.Base))
+			continue
+		}
+		key := f.Base + "/" + f.Bin
+		if prev, dup := claimed[key]; dup {
+			problems = append(problems, fmt.Sprintf("packs %s and %s both fork pack %s's %q — one "+
+				"program can run one fork's build; drop one of them from packs", prev, f.Pack, f.Base, f.Bin))
+			continue
+		}
+		base := out[i]
+		at := baseProgram(base, f.Bin)
+		if at < 0 {
+			problems = append(problems, fmt.Sprintf("pack %s forks pack %s's %q, and %s declares no "+
+				"program %q — a fork supplies the bytes of a program its base installs",
+				f.Pack, f.Base, f.Bin, f.Base, f.Bin))
+			continue
+		}
+		claimed[key] = f.Pack
+		if !copied[i] {
+			base = copyPackDecl(base)
+			out[i] = base
+			copied[i] = true
+		}
+		fork := forkContributionOf(packs, f)
+		base.Decl.Contributes[at] = forkedProgram(base.Decl.Contributes[at], fork, f.Pack)
+	}
+	if len(problems) > 0 {
+		sort.Strings(problems)
+		return nil, fmt.Errorf("%s", strings.Join(problems, "; "))
+	}
+	return out, nil
+}
+
+// baseProgram is the index of p's own program contribution for bin (never a fork's), or -1.
+func baseProgram(p *Pack, bin string) int {
+	if p == nil || p.Decl == nil {
+		return -1
+	}
+	for i, c := range p.Decl.Contributes {
+		if c.Kind == packdecl.KindProgram && c.Bin == bin && !c.IsFork() {
+			return i
+		}
+	}
+	return -1
+}
+
+// forkContributionOf finds f's own contribution again, for the fields Fork does not carry.
+func forkContributionOf(packs []*Pack, f Fork) packdecl.Contribution {
+	for _, p := range packs {
+		if p == nil || p.Name != f.Pack || p.Decl == nil {
+			continue
+		}
+		for _, c := range p.Decl.Contributions() {
+			if c.IsFork() && c.Bin == f.Bin && c.ForkOf == f.Base {
+				return c
+			}
+		}
+	}
+	return packdecl.Contribution{}
+}
+
+// copyPackDecl copies a pack deep enough to rewrite its contribution list: the Pack, its manifest,
+// and the list itself. The contributions' own slices and maps are shared, and nothing here writes
+// into them — forkedProgram assigns fields of a copied value.
+func copyPackDecl(p *Pack) *Pack {
+	cp := *p
+	decl := *p.Decl
+	decl.Contributes = append([]packdecl.Contribution(nil), p.Decl.Contributes...)
+	cp.Decl = &decl
+	return &cp
+}
+
+// forkedProgram is FP-D6, one field at a time: the base's program with the fork's delivery.
+//
+// THE FORK'S (each absent unless the fork sets it, and packdecl refuses all but two on a fork):
+// `via`, `package`, `url`, `flags`, `update`, `versions_dir`, `install_hints`, `platforms` and
+// `model_catalog`, plus the fork's own `source`, `build` and `produces`. Those say how the bytes
+// ARRIVE. An inherited `update` would let the launcher's hourly self-update replace the pinned
+// build with the vendor's release; an inherited install hint would tell `yolo host check-deps` to
+// install the upstream program; an inherited `model_catalog` names files inside an npm package a
+// fork does not install.
+//
+// THE BASE'S: `refresh`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
+// `platform_regions` and `unlisted_background_models`. Those say what the program DOES once it is
+// there, which a fork of it still does. `node_floor` is the base's unless the fork declares its
+// own: the floor a fork's entrypoint needs is the fork's to raise.
+//
+// `fork_of` is left off the copy, so the rewritten program installs (InstallContributions) and
+// claims its name (the base's own claim), and ForkedBy names the fork pack for provenance.
+func forkedProgram(base, fork packdecl.Contribution, forkPack string) packdecl.Contribution {
+	out := base
+	out.Via = packdecl.ViaSource
+	out.Package, out.URL, out.VersionsDir = "", "", ""
+	out.Flags, out.Update, out.InstallHints, out.ModelCatalog = nil, nil, nil, nil
+	out.Platforms = append([]string(nil), fork.Platforms...)
+	if len(out.Platforms) == 0 {
+		out.Platforms = nil
+	}
+	if fork.NodeFloor != "" {
+		out.NodeFloor = fork.NodeFloor
+	}
+	out.Source, out.Build = fork.Source, fork.Build
+	out.Produces = append([]string(nil), fork.Produces...)
+	out.ForkOf, out.ForkedBy = "", forkPack
+	return out
 }

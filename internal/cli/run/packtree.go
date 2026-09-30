@@ -175,7 +175,11 @@ func loadPackTree(root string) ([]*packload.Pack, error) {
 		return nil, err
 	}
 	if !recorded {
-		return loadUnrecordedPackTree(root)
+		out, err := loadUnrecordedPackTree(root)
+		if err != nil {
+			return nil, err
+		}
+		return packload.ApplyForks(out)
 	}
 	var out []*packload.Pack
 	for _, e := range rec {
@@ -185,7 +189,9 @@ func loadPackTree(root string) ([]*packload.Pack, error) {
 		}
 		out = append(out, p)
 	}
-	return out, nil
+	// The fork rewrite the jail's own loader runs over this tree (packload.ApplyForks), so a
+	// host-side reader of a running jail's packs sees the programs that jail was given.
+	return packload.ApplyForks(out)
 }
 
 // loadUnrecordedPackTree reads a tree that carries no record: the shared staging a launch before

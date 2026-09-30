@@ -90,6 +90,26 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 // binary staged (DeclaredNodeFloorsAt, macos-user's stage decision) reads it strictly, as the
 // staging did, and must not turn tolerance on for the rest of the host process.
 func loadPackRoot(e *Env, root string) ([]*packload.Pack, error) {
+	packs, err := loadPackRootAsStaged(e, root)
+	if err != nil {
+		return nil, err
+	}
+	// THE FORK REWRITE, the host's own (packload.ApplyForks; forked-programs-as-packs.md FP-D5).
+	// The staged tree holds the base pack's pack.json as its author wrote it, so every reader here
+	// would otherwise see the base's UPSTREAM delivery for a program a fork builds — and install
+	// it under the fork's name. The host refused any selection this can refuse before it staged,
+	// so a refusal here means the tree is not the one the host checked: fatal, as a manifest the
+	// host parsed and this side cannot is (A12).
+	packs, err = packload.ApplyForks(packs)
+	if err != nil {
+		return nil, fmt.Errorf("pack root %s: %w", root, err)
+	}
+	return packs, nil
+}
+
+// loadPackRootAsStaged is loadPackRoot without the fork rewrite: every pack exactly as its
+// manifest reads.
+func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 	// THE ORDER IS THE LAUNCH'S, read from the tree's record (packload.ReadPackTreeRecord): the
 	// one precedence order every notch composes in (docs/plans/notch-convergence.md OQ-NC4, ruled
 	// A), config order, then the closure's additions, then the local pack last. Later wins for a

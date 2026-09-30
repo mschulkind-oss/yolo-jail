@@ -106,6 +106,26 @@ func ResolveNeeds(selected []*Pack, embedded func(name string) (*Pack, bool)) (
 				causes = append(causes, needCause(target.Name, p.Name, bin))
 				grew = true
 			}
+			// A FORK BRINGS ITS BASE, the way an unconditional need does
+			// (docs/design/forked-programs-as-packs.md FP-D2, FP-D5): the base keeps the name and
+			// every contribution, so a fork without it would have nothing to supply bytes to. Only
+			// a base yolo ships joins — a need may add only an embedded pack (WB-D9) — and a base
+			// that is neither shipped nor selected is ApplyForks' refusal, which names the fix. A
+			// fork is not a need, so it adds no edge to the cycle check below.
+			for _, base := range forkBases(p) {
+				if _, have := set[base]; have {
+					continue
+				}
+				target, ok := embedded(base)
+				if !ok {
+					continue
+				}
+				set[target.Name] = target
+				queue = append(queue, target)
+				added = append(added, target)
+				causes = append(causes, "+ "+target.Name+" (forked by "+p.Name+")")
+				grew = true
+			}
 		}
 	}
 

@@ -66,7 +66,9 @@ type PackSelection struct {
 	// Unresolved are the entries (and additions) that did not resolve. Empty under FailFast.
 	Unresolved []UnresolvedPackEntry
 	// ClosureErr is the closure's refusal: a need or via naming a pack yolo does not ship, a
-	// via naming a pack that serves none, a needs cycle. Under FailFast it is also the error
+	// via naming a pack that serves none, a needs cycle — or the fork rewrite's (a fork whose base
+	// is absent or declares no such program, two forks of one program; packload.ApplyForks).
+	// Under FailFast it is also the error
 	// SelectPacks returns, so a caller can tell it from a resolution failure.
 	ClosureErr error
 	// implicit marks the Configured packs an Implicit entry resolved to (the conventional local
@@ -160,7 +162,38 @@ func SelectPacks(entries []PackEntry, spec PackSelectSpec) (PackSelection, error
 		sel.Added = append(sel.Added, joined)
 		sel.Causes = append(sel.Causes, causes[i])
 	}
+	// THE FORK REWRITE, once the set is final (docs/design/forked-programs-as-packs.md FP-D5):
+	// every base a selected fork names is replaced by a copy whose program carries the fork's
+	// delivery, so every reader of the selection sees one program per bin. A refusal is the
+	// closure's kind of error — this selection cannot run — and is reported as one.
+	if err := sel.applyForks(); err != nil {
+		sel.ClosureErr = err
+		if spec.FailFast {
+			return sel, err
+		}
+	}
 	return sel, nil
+}
+
+// applyForks runs packload.ApplyForks over the whole selection and puts each rewritten base back
+// where it was — in Configured or Added, and marked implicit if its original was — so the
+// precedence order Packs computes is unchanged by the rewrite.
+func (s *PackSelection) applyForks() error {
+	all := append(append([]*packload.Pack{}, s.Configured...), s.Added...)
+	rewritten, err := packload.ApplyForks(all)
+	if err != nil {
+		return err
+	}
+	for i := range s.Configured {
+		orig, next := s.Configured[i], rewritten[i]
+		if orig != next && s.implicit[orig] {
+			delete(s.implicit, orig)
+			s.implicit[next] = true
+		}
+		s.Configured[i] = next
+	}
+	copy(s.Added, rewritten[len(s.Configured):])
+	return nil
 }
 
 // embeddedPackLookup is the closure's universe: the embedded official packs by name, from the
