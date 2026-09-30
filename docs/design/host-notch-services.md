@@ -256,9 +256,12 @@ no-op. Six facts, each from the tree:
    concurrent host launches would collide.
 6. **The precedent has half the answer.** The managed host Codex adapter binds `127.0.0.1:0` per
    launch and closes it when codex exits (`openaiauthhost.Prepare`, `Launch.Run` in
-   [`host.go`](../../internal/openaiauthhost/host.go)). It authenticates no caller;
+   [`host.go`](../../internal/openaiauthhost/host.go)). It authenticated no caller, and
    notch-convergence MEASURED a stranger getting both tokens from it on 2026-09-27
-   ([§2.1 there](../plans/notch-convergence.md#21-what-trusts-the-network-namespace-today)).
+   ([§2.1 there](../plans/notch-convergence.md#21-what-trusts-the-network-namespace-today)). Its
+   caller auth is built too: since [NC-D13](../plans/notch-convergence.md#NC-D13) a refresh
+   marker without the launch's caller token is refused `401` before the broker is asked
+   (`TestTheHostCodexAdapterServesOnlyTheMarkerItWrote`).
 
 So a host bridge on 8215 would hand the ChatGPT subscription to anything that reaches the host's
 loopback, and a process that bound 8215 first would receive claude's Claude login bearer.
