@@ -364,7 +364,10 @@ func TestSlotRunsEveryAutomaticClass(t *testing.T) {
 // per-deletion guard to the reaper that deletes, so every deletion in the pass happens under
 // the shared lock with its recheck. A class that went back to the unguarded reaper would
 // delete with no lock at all now that the pass no longer holds one — every guard unit test
-// green.
+// green. A text match cannot see the arguments a call passes (a nil guard, an empty tracking
+// directory), so the classes whose calls span lines are pinned by behavior as well:
+// TestTheSmallClassesDeleteThroughTheGuardAndRecheckTracking and
+// TestTheImageTarClassDeletesThroughTheGuardAndRechecks.
 func TestEveryClassDeletesUnderTheGuard(t *testing.T) {
 	src := ""
 	for _, f := range []string{"housekeeping.go", "autoreapimages.go"} {
@@ -476,5 +479,149 @@ func TestTheImageTarSlotAlsoReapsInterruptedDeliveries(t *testing.T) {
 	o.reapImageTars("podman", nil)
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Error("the housekeeping slot left an interrupted image delivery in place")
+	}
+}
+
+// recordingGuard is a prune.Guard that brackets each deletion with no lock at all and counts
+// it, running before(n) ahead of deletion n's recheck: a stand-in for what a launch changes
+// while that deletion waits for the shared lock.
+type recordingGuard struct {
+	calls  int
+	before func(n int)
+}
+
+func (g *recordingGuard) guard() prune.Guard {
+	return func(recheck func() bool, del func()) bool {
+		g.calls++
+		if g.before != nil {
+			g.before(g.calls)
+		}
+		if recheck != nil && !recheck() {
+			return false
+		}
+		del()
+		return true
+	}
+}
+
+// ageDirs sets each path's mtime to at.
+func ageDirs(t *testing.T, at time.Time, dirs ...string) {
+	t.Helper()
+	for _, d := range dirs {
+		if err := os.Chtimes(d, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// OQ-PR2's wiring, by BEHAVIOR rather than by source text: the small classes hand the slot's
+// guard to the reapers that delete, so every agent-staging and retired-loophole deletion goes
+// through it, and the staging class passes the tracking directory its recheck reads. A launch
+// that starts tracking an orphan while its deletion waits for the lock keeps it. A nil guard
+// (every deletion unbracketed) or an empty tracking directory (the recheck's tracking half
+// off) fails here.
+func TestTheSmallClassesDeleteThroughTheGuardAndRecheckTracking(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	o := &Options{}
+	fillDefaults(o)
+	o.Now = time.Now
+	o.Workspace = t.TempDir()
+	o.Getenv = func(string) string { return "" }
+	o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		if len(argv) > 2 && argv[1] == "ps" && argv[2] == "-a" {
+			return ExecResult{Ran: true, RC: 0} // podman answers: no containers at all
+		}
+		return ExecResult{Ran: false}
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	orphanA := filepath.Join(paths.AgentsDir(), "yolo-orphan-a")
+	orphanB := filepath.Join(paths.AgentsDir(), "yolo-orphan-b")
+	archive := filepath.Join(paths.GlobalStorage(), "state", prune.RetiredLoopholeStateDir)
+	var gens []string
+	for _, stamp := range []string{"20260901-000000", "20260902-000000", "20260903-000000",
+		"20260904-000000", "20260905-000000"} {
+		gens = append(gens, filepath.Join(archive, stamp))
+	}
+	for _, d := range append([]string{orphanA, orphanB}, gens...) {
+		if err := os.MkdirAll(filepath.Join(d, "x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ageDirs(t, old, orphanA, orphanB)
+	g := &recordingGuard{before: func(n int) {
+		if n == 1 { // the first deletion, yolo-orphan-a's (the listing is sorted): a launch tracks it meanwhile
+			if err := os.MkdirAll(paths.ContainerDir(), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(paths.ContainerDir(), "yolo-orphan-a"), []byte("{}"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}}
+	o.reapSmallAutomaticClasses("podman", "yolo-launching", g.guard())
+
+	if g.calls != 4 {
+		t.Errorf("%d deletions went through the guard, want 4 (two staging dirs, two generations)", g.calls)
+	}
+	if _, err := os.Stat(orphanA); err != nil {
+		t.Errorf("a staging dir a launch started tracking while its deletion waited was removed: the "+
+			"recheck did not read the tracking directory (%v)", err)
+	}
+	if _, err := os.Stat(orphanB); !os.IsNotExist(err) {
+		t.Errorf("the untracked orphan was kept (%v)", err)
+	}
+	for i, gen := range gens {
+		_, err := os.Stat(gen)
+		if gone := os.IsNotExist(err); gone != (i < 2) {
+			t.Errorf("generation %s: removed=%v, want the two oldest removed and the newest %d kept",
+				filepath.Base(gen), gone, hostArchiveKeepInSlot)
+		}
+	}
+}
+
+// The image-tar class, the same way: each tar and each interrupted delivery is deleted
+// through the guard, and a tar a launch rewrote while its deletion waited is kept.
+func TestTheImageTarClassDeletesThroughTheGuardAndRechecks(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	o := &Options{}
+	fillDefaults(o)
+	o.Now = time.Now
+	o.Workspace = t.TempDir()
+	o.Getenv = func(string) string { return "" }
+	images := filepath.Join(paths.GlobalStorage(), "cache", "images")
+	if err := os.MkdirAll(images, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	older, newer := filepath.Join(images, "older.tar"), filepath.Join(images, "newer.tar")
+	for _, p := range []string{older, newer} {
+		if err := os.WriteFile(p, []byte("tar"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ageDirs(t, time.Now().Add(-3*time.Hour), older)
+	ageDirs(t, time.Now().Add(-2*time.Hour), newer)
+	delivery := filepath.Join(paths.ImageDeliveryDir(), "k-1"+image.DeliveryWorkSuffix)
+	if err := os.MkdirAll(filepath.Join(delivery, "layout"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ageDirs(t, time.Now().Add(-48*time.Hour), filepath.Join(delivery, "layout"), delivery)
+	g := &recordingGuard{before: func(n int) {
+		if n == 1 { // newest first: a launch rewrites newer.tar while its deletion waits
+			now := time.Now()
+			_ = os.Chtimes(newer, now, now)
+		}
+	}}
+	o.reapImageTars("podman", g.guard())
+
+	if g.calls != 3 {
+		t.Errorf("%d deletions went through the guard, want 3 (two tars, one delivery)", g.calls)
+	}
+	if _, err := os.Stat(newer); err != nil {
+		t.Errorf("a tar rewritten while its deletion waited was removed (%v)", err)
+	}
+	for _, p := range []string{older, delivery} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s was kept (%v)", filepath.Base(p), err)
+		}
 	}
 }
