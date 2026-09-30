@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: a3922298
+verified_commit: 158e269e
 covers:
   - internal/svcendpoint/
   - internal/loopholedecl/enums.go
@@ -17,7 +17,7 @@ summary: "How a jail reaches a host loophole daemon: `loopback-tls`, a TCP conne
 
 # The loophole transport — `loopback-tls`
 
-**Status:** CURRENT as of 2026-09-09, verified against `a3922298`.
+**Status:** CURRENT as of 2026-09-09, verified against `158e269e`.
 
 A jail reaches a host loophole daemon over **`loopback-tls`**: a TCP connection to
 `127.0.0.1` that behaves like an owner-only Unix socket. It is the framework's only real
@@ -346,7 +346,7 @@ restrict, peer credentials only verify, and restriction is the half a boundary n
 
 ## Current values
 
-Verified at `a3922298`. The prose above explains what each of these is for; this table is
+Verified at `158e269e`. The prose above explains what each of these is for; this table is
 the only place the values themselves are stated.
 
 | Value | Setting | Defined in |

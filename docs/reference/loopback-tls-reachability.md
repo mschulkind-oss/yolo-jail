@@ -14,7 +14,7 @@ summary: "How a jail reaches a host daemon: yolo's daemons bind the host's loopb
 # Loopback-TLS reachability — how a jail reaches a host daemon
 
 **Status:** CURRENT. The component table and [Current values](#current-values) were re-verified
-against `f491d192` on 2026-09-24; the prose was last verified in full against `38873c0d`, 2026-09-09.
+against `f491d192` on 2026-09-24; the prose was last verified in full against `40915b60`, 2026-09-09.
 
 yolo's host daemons bind the **host's loopback** and advertise `host.containers.internal` — on
 the assumption that the container runtime forwards that name to the host's loopback. **It does

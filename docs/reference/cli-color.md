@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-27
-verified_commit: 9990882a
+verified_commit: f937d0fd
 covers:
   - internal/richtext/
   - internal/tty/
@@ -11,7 +11,7 @@ summary: "How a yolo command decides whether its output carries ANSI color. Mess
 
 # Terminal color — rich markup, one gate, one probe
 
-**Status:** CURRENT as of 2026-09-27, verified against `9990882a`.
+**Status:** CURRENT as of 2026-09-27, verified against `f937d0fd`.
 
 Every human-facing yolo command writes its messages once, in **rich markup**, and hands them to
 one shared renderer. The renderer turns the markup into ANSI escapes or deletes it, depending on a
@@ -213,7 +213,7 @@ is recorded as observed on a terminal.
 
 ## Current values
 
-Verified at `9990882a`. The prose above explains what each of these is for; this table is the only
+Verified at `f937d0fd`. The prose above explains what each of these is for; this table is the only
 place the values themselves are stated.
 
 | Value | Setting | Defined in |

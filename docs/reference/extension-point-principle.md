@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 356bcec8
+verified_commit: 4385c81a
 covers:
   - internal/packdecl/contributes.go
   - internal/entrypoint/shims.go
@@ -12,7 +12,7 @@ tags: [principle, extension-points, packs, manifest, yagni]
 
 # Principle: the framework author designs the extension point, not the first extender
 
-**Status:** PRINCIPLE, current as of 2026-09-09, verified against `356bcec8`.
+**Status:** PRINCIPLE, current as of 2026-09-09, verified against `4385c81a`.
 
 **Audience:** anyone adding a mechanism that someone outside this repo will build on — a pack
 manifest field, a loophole manifest field, a contribution kind, a config key, a hook name. Read this

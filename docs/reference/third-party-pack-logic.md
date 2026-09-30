@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 356bcec8
+verified_commit: 4385c81a
 covers:
   - internal/agentcfg/luahook/
   - internal/packdecl/contributes.go
@@ -13,7 +13,7 @@ tags: [packs, third-party, logic, protocol, trust, nix]
 
 # Third-party pack logic — how a pack ships computation
 
-**Status:** CURRENT as of 2026-09-09, verified against `356bcec8`.
+**Status:** CURRENT as of 2026-09-09, verified against `4385c81a`.
 
 A pack can ship **one** kind of computation: a sandboxed Lua producer in the
 [`derive` slot](pack-system.md#the-derive-slot). That is the whole of pack-supplied logic — there is

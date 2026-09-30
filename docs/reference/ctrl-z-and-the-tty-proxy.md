@@ -12,7 +12,7 @@ tags: [tty, pty, signals, ctrl-z, proxy, teardown]
 
 # Ctrl-Z and the TTY proxy — why a launch runs under a pty of its own
 
-**Status:** CURRENT as of 2026-09-10, verified against `41dde711`.
+**Status:** CURRENT as of 2026-09-10, verified against `39b7b7a7`.
 
 Every `yolo -- <cmd>` launch on Linux runs under an **in-process TTY proxy**: a pty pair the CLI
 owns, with the container runtime's stdio on the slave side and the host terminal on the master
@@ -290,7 +290,7 @@ pty semantics differ, so treat a proxy behavior there as unverified rather than 
 
 ## Current values
 
-Verified at `41dde711`. The prose above explains what each of these is for; this table is the only
+Verified at `39b7b7a7`. The prose above explains what each of these is for; this table is the only
 place the values themselves are stated.
 
 | Value | Setting | Defined in |

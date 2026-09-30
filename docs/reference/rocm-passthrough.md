@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 41dde711
+verified_commit: b3c60ee9
 covers:
   - internal/cli/run/helpers.go
   - internal/cli/run/hostprobes.go
@@ -14,7 +14,7 @@ tags: [gpu, amd, rocm, devices, podman, passthrough]
 
 # AMD ROCm passthrough — how an AMD GPU reaches a jail
 
-**Status:** CURRENT as of 2026-09-09, verified against `41dde711`.
+**Status:** CURRENT as of 2026-09-09, verified against `b3c60ee9`.
 
 yolo passes an AMD GPU into a jail by **raw device-node passthrough** — the kernel fusion driver
 node plus one or more DRI render nodes, with podman told to preserve the host's supplementary
@@ -218,7 +218,7 @@ without SELinux.
 
 ## Current values
 
-Verified at `41dde711`. The prose above explains what each of these is for; this table is the only
+Verified at `b3c60ee9`. The prose above explains what each of these is for; this table is the only
 place the values themselves are stated.
 
 | Value | Setting | Defined in |

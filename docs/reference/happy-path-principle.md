@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 356bcec8
+verified_commit: 4385c81a
 covers:
   - internal/config/validate.go
   - internal/config/confinement.go
@@ -12,7 +12,7 @@ tags: [principle, support-matrix, backends, builders, docs]
 
 # Principle: fill the matrix, don't support every tool
 
-**Status:** PRINCIPLE, current as of 2026-09-09, verified against `356bcec8`.
+**Status:** PRINCIPLE, current as of 2026-09-09, verified against `4385c81a`.
 
 **Audience:** anyone adding a setup path, a runtime, a builder, an installer, or a "how do I do X on
 platform Y" answer to yolo-jail. Read this before adding a second way to do something.

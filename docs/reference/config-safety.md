@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 38873c0d
+verified_commit: 40915b60
 covers:
   - internal/config/snapshot.go
   - internal/config/assembled.go
@@ -13,7 +13,7 @@ summary: "How an agent's config edit reaches a jail: a host-side approval snapsh
 
 # Config-change approval — the gate on agent-editable config
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`.
+**Status:** CURRENT as of 2026-09-09, verified against `40915b60`.
 
 An agent inside a jail can edit `yolo-jail.jsonc` — `/workspace` is bind-mounted read-write,
 and asking for a package is ordinary work. **A human must approve that edit before a jail
@@ -292,7 +292,7 @@ from code comments and sibling docs, and this appendix is where they resolve.
 
 ## Current values
 
-Verified at `38873c0d`. The prose above explains what each of these is for; this table is the
+Verified at `40915b60`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 38873c0d
+verified_commit: 40915b60
 covers:
   - internal/cgd/
   - internal/cli/run/cgddaemon_linux.go
@@ -14,7 +14,7 @@ summary: "The privilege-separation model: all host-privileged code is concentrat
 
 # The security shim — where the trust boundary is
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`.
+**Status:** CURRENT as of 2026-09-09, verified against `40915b60`.
 
 yolo's security model borrows from two long-standing examples of privilege separation.
 **xscreensaver**: only a tiny, auditable piece of code runs privileged (lock/unlock), while all
@@ -301,7 +301,7 @@ can only affect the container environment.
 
 ## Current values
 
-Verified at `38873c0d`. The prose above explains what each of these is for; this table is the
+Verified at `40915b60`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

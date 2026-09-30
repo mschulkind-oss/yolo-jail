@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 356bcec8
+verified_commit: 4385c81a
 covers:
   - internal/config/validate.go
   - internal/config/envsources.go
@@ -14,7 +14,7 @@ tags: [principle, validation, packs, config, diagnostics]
 
 # Principle: stringly-typed references fail closed — at a point that can decide, and an actor who can act
 
-**Status:** PRINCIPLE, current as of 2026-09-09, verified against `356bcec8`.
+**Status:** PRINCIPLE, current as of 2026-09-09, verified against `4385c81a`.
 
 **Audience:** anyone designing a manifest field, configuration key, or cross-component reference
 where one component names another by string — pack slugs, profile tags, capability identifiers,

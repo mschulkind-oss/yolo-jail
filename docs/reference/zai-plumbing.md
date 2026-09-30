@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 41dde711
+verified_commit: b3c60ee9
 covers:
   - packs/zai/
   - packs/codex/derive.lua
@@ -14,7 +14,7 @@ tags: [providers, profiles, zai, resolution, endpoints]
 
 # The zai pack — one provider, every agent, as a worked example
 
-**Status:** CURRENT as of 2026-09-09, verified against `41dde711`.
+**Status:** CURRENT as of 2026-09-09, verified against `b3c60ee9`.
 
 `packs/zai` is the **first real consumer** of the provider/profile pair: a pack whose whole content
 is declarative facts about one service, so that a user's own config shrinks to an API key. Selecting
@@ -170,7 +170,7 @@ code comments cite them, and this appendix is where they resolve.
 
 ## Current values
 
-Verified at `41dde711`. The prose above explains what each of these is for; this table is the only
+Verified at `b3c60ee9`. The prose above explains what each of these is for; this table is the only
 place the values themselves are stated.
 
 | Value | Setting | Defined in |

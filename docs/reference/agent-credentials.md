@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-20
-verified_commit: bd0e4142
+verified_commit: d8bf06a0
 covers:
   - internal/cli/run/assemble.go
   - internal/cli/run/assemble_parts.go
@@ -33,8 +33,8 @@ tags: [credentials, security, boundary, env_sources, host_files, broker, oauth, 
 
 # Agent credentials — what crosses the jail boundary, and how
 
-**Status:** CURRENT as of 2026-09-20, verified against `bd0e4142`. The
-[gemini-paths paragraph](#agys-paths-under-gemini) alone was re-checked against `9990882a` on
+**Status:** CURRENT as of 2026-09-20, verified against `d8bf06a0`. The
+[gemini-paths paragraph](#agys-paths-under-gemini) alone was re-checked against `f937d0fd` on
 2026-09-27. The [SSO-backed Bedrock section](#sso-backed-bedrock-credentials-aws-auth) and the
 `aws-auth` rows in the tables below were written against `fe24347c` on 2026-09-29, when
 [`sso-backed-bedrock.md`](../design/sso-backed-bedrock.md) graduated into them; the launch

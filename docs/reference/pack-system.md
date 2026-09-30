@@ -53,13 +53,13 @@ runs three launches of one workspace: pi with a `file://` pack's list contributi
 append standing in for `pi install`, then the contributing pack dropped. UNMEASURED: no real
 `pi install` has been observed against a list path. The
 [dropped-pack retirement section](#retiring-a-dropped-packs-host-output) and its four
-*pack drop* rulings were folded in on 2026-09-26 and verified against `1912f8f8`. UNMEASURED: no
+*pack drop* rulings were folded in on 2026-09-26 and verified against `ba80c719`. UNMEASURED: no
 real `yolo host apply` over a dropped pack is recorded; the behavior is pinned by unit tests that
 drive the apply into throwaway homes (`applyhostprune_test.go`, `applyhostoverlaykeys_test.go`,
 `provenanceretire_test.go`). The *open rulings* and *pack batch* rows of the
 [appendix](#why-its-this-way), the [lint questions](#pack-lint-questions), the
 [S4 warning](#skills-fanout-s4) and the [host-side dependency rule](#host-side-staging-then-jail-side-render)
-were folded in on 2026-09-26 and verified against `38814ba4`. MEASURED for the *pack batch*
+were folded in on 2026-09-26 and verified against `ca86d945`. MEASURED for the *pack batch*
 rows: each defect they record was found by running the host lifecycle (apply, re-apply, drop)
 with a real binary in a temporary home, on 2026-08-04. The [`autonomy` section](#autonomy) and
 the posture-list lines of the [`config-list` section](#adding-entries-to-an-array-config-list)
@@ -2777,8 +2777,10 @@ longer waits for the other launch's staging.
 
 #### <a id="oq-pk2"></a>✅ [`OQ-PK2`](#oq-pk2) — does a running jail keep the pack tree it booted with?
 
-**Ruled (c), 2026-09-26, and built the same day (`cd4ad152`):** one immutable pack tree per
-launch, plus a notice on attach. Chosen with the attach-skew stopgap
+**Ruled (c), 2026-09-26, and built the same day:** one immutable pack tree per
+launch, plus a notice on attach (`newPackTree` and `noteBootedPackSetDiffers`, pinned by
+`TestASecondLaunchNeverTouchesTheFirstLaunchsTree` and
+`TestAnAttachWritesNothingIntoTheRunningJailsPackTree`). Chosen with the attach-skew stopgap
 ([`attach-skew-and-contract-guardrails.md`](../design/attach-skew-and-contract-guardrails.md#findings-since-filing-2026-09-26)):
 an attach that re-stages hands a running jail pack contracts its binaries may not read, and
 per-launch trees close that class. The options as they stood: an attach re-staged the tree a

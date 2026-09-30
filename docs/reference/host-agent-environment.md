@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 38873c0d
+verified_commit: 40915b60
 covers:
   - internal/cli/host.go
   - internal/cli/hostapply.go
@@ -14,7 +14,7 @@ summary: "The two channels that deliver a pack's environment to an agent running
 
 # Delivering environment to host agents — two channels and a wrapper directory
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`. The credential disclosure's
+**Status:** CURRENT as of 2026-09-09, verified against `40915b60`. The credential disclosure's
 remedies for an ad-hoc command (execution flow step 2, and the paragraph after it) are newer, from
 2026-09-27 ([ES-D2 to ES-D5](../design/credential-sources-separation.md#10-decision-ledger), with
 the remedy's corrections in ES-D10 to ES-D12), and are pinned by unit tests through `hostMain`;
@@ -438,7 +438,7 @@ line, pasted by the user. yolo offers no writer for it ([HE-D1](#he-d1)).
 
 ## Current values
 
-Verified at `38873c0d`, and the opt-in and verb rows re-verified 2026-09-22. The prose above
+Verified at `40915b60`, and the opt-in and verb rows re-verified 2026-09-22. The prose above
 explains what each of these is for; this table is the only place the values themselves are stated.
 
 | Value | Setting | Defined in |

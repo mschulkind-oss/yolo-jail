@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 356bcec8
+verified_commit: 4385c81a
 covers:
   - internal/agentcfg/
   - internal/macosuser/seatbelt.go
@@ -12,7 +12,7 @@ tags: [charter, boundaries, architecture, separability, packs]
 
 # What yolo is — the boundaries
 
-**Status:** CURRENT as of 2026-09-09, verified against `356bcec8`.
+**Status:** CURRENT as of 2026-09-09, verified against `4385c81a`.
 
 yolo describes the environment an agent works in — its tools, its config, its skills, its
 credentials — reproducibly, declaratively, per workspace. **Confinement is one attribute of that

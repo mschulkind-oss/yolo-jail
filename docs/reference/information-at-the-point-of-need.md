@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 356bcec8
+verified_commit: 4385c81a
 covers:
   - packs/guardrails/
   - internal/cli/run/backendlimits.go
@@ -11,7 +11,7 @@ tags: [principle, briefings, packs, ux, diagnostics]
 
 # Give information where it is needed, not where it is easy to put
 
-**Status:** PRINCIPLE, current as of 2026-09-09, verified against `356bcec8`.
+**Status:** PRINCIPLE, current as of 2026-09-09, verified against `4385c81a`.
 
 **Audience:** anyone about to add a paragraph to a briefing, an `AGENTS.md`, or any other text an
 agent reads before it starts work. Read this before writing prose *about* a mechanism.

@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 38873c0d
+verified_commit: 40915b60
 covers:
   - internal/config/envsources.go
   - internal/config/load.go
@@ -13,7 +13,7 @@ summary: "A relative `env_sources` file entry resolves beside the file that decl
 
 # Where a relative `env_sources` path resolves
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`.
+**Status:** CURRENT as of 2026-09-09, verified against `40915b60`.
 
 An `env_sources` entry is either a **string** — a dotenv file to read — or an **object** of
 inline variables, where `null` spells an unset. A string beginning with neither `/` nor `~` is
@@ -118,7 +118,7 @@ move at all, which is what makes the rule cheap.
 
 ## Current values
 
-Verified at `38873c0d`.
+Verified at `40915b60`.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |

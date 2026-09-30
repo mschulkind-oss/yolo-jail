@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: d8cf1cf8
+verified_commit: d14bdab7
 covers:
   - internal/macosuser/
   - internal/darwinpkg/
@@ -13,7 +13,7 @@ summary: "The standing macOS direction: runtime, builder and packages are three 
 
 # The macOS direction — three axes, one composed product
 
-**Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`.
+**Status:** CURRENT as of 2026-09-09, verified against `d14bdab7`.
 
 yolo ships **two** macOS paths and they are not competing backends: `macos-user` is the fast
 native one, and an Apple Container cell is the fallback for what native darwin cannot cover.
@@ -176,7 +176,7 @@ fallback cell — but it is not the answer to the stated problem.
 
 ## Current values
 
-Verified at `d8cf1cf8`. The prose above explains what each of these is for; this table is the
+Verified at `d14bdab7`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

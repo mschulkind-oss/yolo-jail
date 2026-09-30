@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: d8cf1cf8
+verified_commit: d14bdab7
 covers:
   - flake.nix
   - internal/cli/check/section_nixld.go
@@ -12,7 +12,7 @@ summary: "Why an FHS binary in this image could not find libstdc++ without LD_LI
 
 # Dynamic linking for FHS binaries — nix-ld, the `/lib` farm, and `LD_LIBRARY_PATH`
 
-**Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`.
+**Status:** CURRENT as of 2026-09-09, verified against `d14bdab7`.
 
 The jail image is a pure-nix filesystem, so a stock FHS binary — anything mise or npm
 downloads, anything with `#!/usr/bin/env node` behind it — has an ELF interpreter path
@@ -194,7 +194,7 @@ the afternoon again.
 
 ## Current values
 
-Verified at `d8cf1cf8`. The prose above explains what each of these is for; this table is the
+Verified at `d14bdab7`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

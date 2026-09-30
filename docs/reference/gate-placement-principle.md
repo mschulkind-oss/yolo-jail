@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 356bcec8
+verified_commit: 4385c81a
 covers:
   - internal/packsrc/lock.go
   - internal/packload/hostaccessgates_test.go
@@ -14,7 +14,7 @@ tags: [principle, gates, trust, scope, security]
 
 # Principle: put the gate where the authority changes
 
-**Status:** PRINCIPLE, current as of 2026-09-09, verified against `356bcec8`.
+**Status:** PRINCIPLE, current as of 2026-09-09, verified against `4385c81a`.
 
 **Audience:** anyone adding a confirmation prompt, an approval record, a scope restriction, a
 signature check, or any other gate — and anyone deciding that an existing one is missing. Read this

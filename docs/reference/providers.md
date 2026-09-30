@@ -58,10 +58,10 @@ line, the per-agent spellings by spot check against the derives. UNMEASURED: Bed
 **The deselection rule is newer than that stamp.** [Deselection](#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote),
 [the host-layer override](#a-selection-outranks-a-host-layer-value) and
 [codex's `openai-codex` selection](#selecting-openai-codex-for-codex) came from the provider-switching design
-(`provider-switching.md`, graduated 2026-09-26), and they were verified against `38814ba4` on 2026-09-26.
+(`provider-switching.md`, graduated 2026-09-26), and they were verified against `ca86d945` on 2026-09-26.
 The rest of the doc keeps its `7ad8358c` stamp. MEASURED: the clear, its boot-log record and
 the host-layer override are pinned through the boot render by unit tests in `internal/entrypoint`.
-The adopting-boot failure was reproduced through the same render at `38814ba4`, and the fix that
+The adopting-boot failure was reproduced through the same render at `ca86d945`, and the fix that
 [the clear on an adopting boot](#a-clear-holds-on-an-adopting-boot-too) describes is pinned the same
 way, newer than that stamp. UNMEASURED: no live agent session has been watched across a deselect.
 
@@ -936,7 +936,7 @@ captured overlay before narrowing it, on every boot (`dropSelectionCleared`):
   capture between boots left a stale value for it. The key then falls through to the host layer or
   the agent's default, never to that capture.
 
-The failure this closes was reproduced through the boot render at `38814ba4` (pi, a selection
+The failure this closes was reproduced through the boot render at `ca86d945` (pi, a selection
 written, `last_render` deleted, then two deselects: both keys survived both). Both ways a boot
 adopts, sidecar absent and sidecar undecodable, are now pinned through the same render
 (`selectionadoptclear_test.go`).
@@ -1808,7 +1808,7 @@ row says what replaced it.
 ## Current values
 
 Verified at `7ad8358c`, except the deselection rows for the boot log and the id-writing
-surfaces with a host layer, verified at `38814ba4`, and the rows the `openai-codex` model list
+surfaces with a host layer, verified at `ca86d945`, and the rows the `openai-codex` model list
 touched (the clear's log line, codex's `openai-codex` default, the list and pi's copy of it),
 verified at `2a34a176`, except the host half of pi's copy, verified at `f3da48dc`, and the
 tier-alias and pi-subagents rows, verified at `58fc65ce`, and the rows the provider-keyed gates added (the platform, the shipped Bedrock provider, the region requirement, both gates, the platform switches and llamacpp's attribution header), verified 2026-09-29 against the tree that shipped the platform switch, and the Bedrock rows the one-provider build rewrote or added (the shipped Bedrock provider, its model list, the vendor, the makers, the built-in ids, `bedrock-bridge`, the region requirement, pi-subagents'), verified 2026-09-29 against the tree that shipped `packs/bedrock`'s model list. The prose

@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 38873c0d
+verified_commit: 40915b60
 covers:
   - internal/cli/run/mounts.go
   - internal/macosuser/seatbelt.go
@@ -13,7 +13,7 @@ summary: "The live workspace bind is bidirectional: a jail session can write fil
 
 # Host execution from the workspace
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`.
+**Status:** CURRENT as of 2026-09-09, verified against `40915b60`.
 
 `/workspace` is a live bind of a host directory, and it is the product. The consequence nobody
 writes down is that it points **both ways**: a jail session writes a file there, and some *host*
@@ -357,7 +357,7 @@ also cost either a workflow change or a behaviour yolo cannot enforce.
 
 ## Current values
 
-Verified at `38873c0d`. The prose above explains what each of these is for; this table is the
+Verified at `40915b60`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

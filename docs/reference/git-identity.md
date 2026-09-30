@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 38873c0d
+verified_commit: 40915b60
 covers:
   - internal/cli/run/assemble_parts.go
   - internal/entrypoint/identity.go
@@ -13,7 +13,7 @@ summary: "The jail's git identity is a two-key allowlist — user.name and user.
 
 # git identity in the jail
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`.
+**Status:** CURRENT as of 2026-09-09, verified against `40915b60`.
 
 An agent committing in a jail needs to be the right author, and needs nothing else from the
 host's git configuration. So identity is a **forward of an enumerated two-key allowlist** —
@@ -176,7 +176,7 @@ Two things close most of that gap:
 
 ## Current values
 
-Verified at `38873c0d`. The prose above explains what each of these is for; this table is the
+Verified at `40915b60`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

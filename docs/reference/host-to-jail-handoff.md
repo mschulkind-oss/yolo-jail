@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: d8cf1cf8
+verified_commit: d14bdab7
 covers:
   - internal/cli/run/prepare.go
   - internal/cli/briefing.txt
@@ -13,7 +13,7 @@ summary: "How a task crosses from a host agent into a fresh jail: a durable comm
 
 # The host→jail handoff — carrying one task across the boundary
 
-**Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`.
+**Status:** CURRENT as of 2026-09-09, verified against `d14bdab7`.
 
 A host agent sets up a jail, gathers the context the jail cannot see, and has to carry that
 context *and the task* across the boundary. The **handoff** is that carrier: a durable,
@@ -186,7 +186,7 @@ them.
 
 ## Current values
 
-Verified at `d8cf1cf8`. The prose above explains what each of these is for; this table is the
+Verified at `d14bdab7`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

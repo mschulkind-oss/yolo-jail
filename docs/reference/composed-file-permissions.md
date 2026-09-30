@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 38873c0d
+verified_commit: 40915b60
 covers:
   - internal/config/hostfiles.go
   - internal/config/writablehome.go
@@ -16,10 +16,10 @@ summary: "Which files the composition engine produces are read-only, which are r
 
 # Composed-file postures — what the prism makes read-only, and what it must not
 
-**Status:** CURRENT as of 2026-09-09, verified against `38873c0d`. The
+**Status:** CURRENT as of 2026-09-09, verified against `40915b60`. The
 [`host_files` mechanism section](#how-a-host_files-entry-becomes-a-surface), its five rulings and
 its Current values rows were folded in on 2026-09-26 from the retired `host_files` planning doc
-and verified against `1912f8f8`; so was the Apple Container single-file correction under
+and verified against `ba80c719`; so was the Apple Container single-file correction under
 [why `0o444` is not a posture](#why-0o444-is-not-a-posture). MEASURED: every mode was run end to
 end in a nested jail when `host_files` was built (2026-07-25), and real-container tests drive the
 source-less half (`integration/hostfiles_test.go`). The source-bearing half is covered by unit
@@ -435,7 +435,7 @@ Class-2 guidance depends on this, and the boundary is sharper than it looks:
 
 ## Current values
 
-Verified at `38873c0d`. The prose above explains what each of these is for; this table is the
+Verified at `40915b60`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

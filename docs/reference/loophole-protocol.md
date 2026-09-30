@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: a3922298
+verified_commit: 158e269e
 covers:
   - internal/frameproto/
   - internal/hostservice/
@@ -16,7 +16,7 @@ summary: "The frame protocol v1 spoken between a jail-side client and a host-sid
 
 # The loophole frame protocol — v1
 
-**Status:** CURRENT as of 2026-09-09, verified against `a3922298`.
+**Status:** CURRENT as of 2026-09-09, verified against `158e269e`.
 
 A **loophole daemon** runs on the host and answers requests from inside a jail. The
 protocol it speaks is one length-prefixed JSON request in, then stream-tagged frames
@@ -491,7 +491,7 @@ The first daemon to declare it is `aws-auth`
 
 ## Current values
 
-Verified at `a3922298`, but for the launch-check row, added with the launch check on
+Verified at `158e269e`, but for the launch-check row, added with the launch check on
 2026-09-29. The prose above explains what each of these is for; this table is the only place
 the values themselves are stated.
 

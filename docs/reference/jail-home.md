@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: d8cf1cf8
+verified_commit: d14bdab7
 covers:
   - internal/cli/run/assemble.go
   - internal/cli/run/assemble_parts.go
@@ -32,7 +32,7 @@ summary: "How /home/agent is composed: a per-jail read-only skeleton, per-worksp
 
 # The jail home — how `/home/agent` is composed
 
-**Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`. The home root was
+**Status:** CURRENT as of 2026-09-09, verified against `d14bdab7`. The home root was
 rewritten 2026-09-25 for the per-jail skeleton, the machine store, name reservation and the
 Apple Container seed ([`base-home-legacy-state.md`](../design/base-home-legacy-state.md)),
 against the working tree of that build; the rest was not re-verified then. The rule for host
@@ -1010,7 +1010,7 @@ credential link above still resolves. See
 
 ## Current values
 
-Verified at `d8cf1cf8`; the home-root rows were updated 2026-09-25 with the skeleton. The
+Verified at `d14bdab7`; the home-root rows were updated 2026-09-25 with the skeleton. The
 prose above explains what each of these is for; this table is the only place the values
 themselves are stated.
 

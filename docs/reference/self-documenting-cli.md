@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 356bcec8
+verified_commit: 4385c81a
 covers:
   - internal/cli/help.go
   - internal/cli/subhelp.go
@@ -16,7 +16,7 @@ tags: [standard, cli, help, json, discoverability, agents]
 
 # Standard: the CLI is its own manual
 
-**Status:** CURRENT as of 2026-09-09, verified against `356bcec8`.
+**Status:** CURRENT as of 2026-09-09, verified against `4385c81a`.
 
 **Audience:** anyone adding a `yolo` subcommand, a flag, a state-reporting surface, or a new
 subsystem an agent has to operate (loopholes, builders, composed config, …). Read this before

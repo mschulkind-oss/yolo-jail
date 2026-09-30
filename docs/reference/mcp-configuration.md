@@ -29,7 +29,7 @@ UNMEASURED: no `claude` session has been started against the generated LSP plugi
 about Claude's plugin loader were read statically from its bundle, and by the no-agent-tests
 rule a live check is a human's ([Claude's LSP route](#lsp-claudes-route-is-a-generated-plugin)).
 The [derive-boundary section](#what-the-derive-boundary-removes) was re-checked against
-`38814ba4` on 2026-09-26, when the capability-delivery rule's own note folded into it.
+`ca86d945` on 2026-09-26, when the capability-delivery rule's own note folded into it.
 UNMEASURED: no launch with a `provides` server configured is recorded. The rule's acceptance
 cells drive the boot loop over the shipped packs in unit tests, not in a launched jail.
 
@@ -572,7 +572,7 @@ are stated.
 | Bootstrap-installed MCP packages | gated on the same preset declaration that builds the table | `Env.LoadMCPPresetNames` |
 | MCP entry key the capability filter reads, then strips | `provides` | `luahook.eligibleMCPServers`, `withoutProvidesKey` |
 | Where a source's capabilities are declared | `providers.<name>.capabilities` for a selected provider (a pack default under the user's override); `capabilities` on a `kind: "program"` contribution for an agent's built-in login | `packdecl.Contribution.Capabilities`, `packdecl.Manifest.NativeCapabilities`; resolved by `luahook.sourceCapabilities` |
-| Where capability-driven delivery is pinned | the acceptance cells, each driving `ConfigurePackSurfaces` over the shipped packs and the launcher's composed wire tables | `internal/entrypoint/capabilitymcp_test.go` (re-checked at `38814ba4`) |
+| Where capability-driven delivery is pinned | the acceptance cells, each driving `ConfigurePackSurfaces` over the shipped packs and the launcher's composed wire tables | `internal/entrypoint/capabilitymcp_test.go` (re-checked at `ca86d945`) |
 | LSP plugin directory name | `yolo-lsp` | `jailcontent.LSPPluginDir` |
 | LSP plugin manifest path | `<skills destination>/yolo-lsp/.claude-plugin/plugin.json` | `jailcontent.writeLSPPlugin` |
 | Ownership marker | `x-yolo-managed-by: "yolo-jail"` | `jailcontent.yoloPluginManagedBy`, `hostskills.yoloManagedMarker` |

@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-18
-verified_commit: 7da7b153
+verified_commit: 46175153
 covers:
   - packs/cerebras/
   - packs/copilot/derive.lua

@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: d8cf1cf8
+verified_commit: d14bdab7
 covers:
   - internal/macosuser/
   - internal/darwinpkg/
@@ -15,7 +15,7 @@ summary: "The macos-user backend as built: nix materializing packages: natively 
 
 # macos-user — native nix, and the surface a container would have given you
 
-**Status:** CURRENT as of 2026-09-09, verified against `d8cf1cf8`.
+**Status:** CURRENT as of 2026-09-09, verified against `d14bdab7`.
 
 `macos-user` runs the agent as a **real macOS process** — the hidden `_yolojail` account,
 confined by an Apple Seatbelt profile — with **no container, no VM and no OCI image**. nix's
@@ -627,7 +627,7 @@ venv-precreate script is Linux-absolute.
 
 ## Current values
 
-Verified at `d8cf1cf8`. The prose above explains what each of these is for; this table is the
+Verified at `d14bdab7`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |

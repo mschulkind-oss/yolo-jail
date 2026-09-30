@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-09-09
-verified_commit: 41dde711
+verified_commit: b3c60ee9
 covers:
   - internal/cli/run/assemble.go
   - internal/cli/run/mounts.go
@@ -16,7 +16,7 @@ tags: [mise, storage, venv, state, boundary, migration]
 
 # Host↔jail state separation — the split mise store, the neutral path, and per-side venvs
 
-**Status:** CURRENT as of 2026-09-09, verified against `41dde711`.
+**Status:** CURRENT as of 2026-09-09, verified against `b3c60ee9`.
 
 Host and jail keep their **runtime state** fully separate. A jail never shares the host's mise
 store and never shares a workspace `.venv`; the only thing crossing the boundary is the workspace
@@ -261,7 +261,7 @@ Rulings a future change would otherwise undo, kept with their original IDs.
 
 ## Current values
 
-Verified at `41dde711`. The prose above explains what each of these is for; this table is the only
+Verified at `b3c60ee9`. The prose above explains what each of these is for; this table is the only
 place the values themselves are stated.
 
 | Value | Setting | Defined in |
