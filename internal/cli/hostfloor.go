@@ -225,7 +225,7 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 			verb = "removed"
 		}
 		pr.Printf("  [cyan]%-20s[/cyan] %s: %s (%s)", "host_floor", r.Bin, verb, r.Why)
-		note(hostApplyDocFloorEntry{Bin: r.Bin, Disposition: "leftover", Action: verb, Reason: r.Why})
+		note(hostApplyDocFloorEntry{Bin: r.Bin, Disposition: "deselected", Action: verb, Reason: r.Why})
 	}
 	return rc
 }
@@ -271,12 +271,13 @@ type hostTarget struct {
 //     is a selected pack's program the floor cannot hold on this machine, with one line saying
 //     so, which keeps today's behavior while OQ-HE11 is open.
 //
-// That lookup skips the floor's own bin/, which the child's PATH ends with (HE-D1). Every name in it is a floor entry, and one a selected
-// pack delivers never reaches the lookup (it runs by path), so a hit there could only be a
-// LEFTOVER: an entry a deselected pack — or one `host_floor` now leaves out — left behind until
-// the next `yolo host apply --assert` removes it (§4, "Deselection"). yolo host runs its floor copy
-// of what a selected pack delivers and of nothing else (HP-DIR4), so a leftover is never run, in
-// either case, and a launch that finds nothing else says what the leftover is and what removes it.
+// That lookup skips the floor's own bin/, which the child's PATH ends with (HE-D1). Every name in
+// bin/ is a floor entry, and one a selected pack delivers never reaches the lookup (it runs by
+// path), so a hit there could only be a DESELECTED ENTRY: one a deselected pack — or one
+// `host_floor` now leaves out — left behind until the next `yolo host apply --assert` removes it
+// (§4, "Deselection"). yolo host runs its floor copy of what a selected pack delivers and of
+// nothing else (HP-DIR4), so a deselected entry is never run, in either case, and a launch that
+// finds nothing else says what it is and what removes it.
 //
 // The second return is the exit code of a launch this refuses (127: the program is not
 // available), 0 otherwise. In a jail there is no floor: the jail's own launchers are on PATH.
@@ -318,7 +319,8 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0, childPath string, err
 		fmt.Fprintf(errw, "yolo host: yolo has no copy of %s %s (%s); looking for it on your PATH\n",
 			cmd0, noCopyWhere(floor.GOOS, prog), st.Reason)
 		// The same lookup as any other name's, the floor's own bin/ skipped: an entry left there
-		// from before `host_floor` left the pack out is a leftover, not what "no copy" may run.
+		// from before `host_floor` left the pack out is a deselected entry, not what "no copy" may
+		// run.
 		return onPath()
 	case err != nil:
 		fmt.Fprintf(errw, "yolo host: could not install %s into yolo's floor: %v\n", cmd0, err)

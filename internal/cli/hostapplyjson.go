@@ -93,7 +93,8 @@ type hostApplyDocFloorEntry struct {
 	// Pack is the selected pack that declares it; absent for an entry no selected pack does.
 	Pack string `json:"pack,omitempty"`
 	// Disposition is the floor entry disposition ("provisioned", "missing", "no floor entry"), or
-	// "leftover" for an entry the floor no longer keeps.
+	// "deselected" for an entry the floor no longer keeps (its pack deselected, or `host_floor` now
+	// leaving it out), which an --assert removes.
 	Disposition string `json:"disposition"`
 	// Action is what an --assert would do: "none", "would install", or "would remove".
 	Action string `json:"action"`

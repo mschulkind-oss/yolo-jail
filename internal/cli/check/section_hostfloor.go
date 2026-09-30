@@ -81,7 +81,7 @@ func (o *Options) sectionHostFloor(r *reporter) {
 			}
 			r.dim(fmt.Sprintf("%s — no floor entry: %s. `yolo host -- %s` runs the one on the PATH it is "+
 				"started with (%s)", p.Bin(), st.Reason, p.Bin(), runs))
-			// A copy the floor installed before it stopped holding this program is a leftover,
+			// A copy the floor installed before it stopped holding this program is a deselected entry,
 			// which yolo host never runs (the launch's lookup skips the floor's bin/).
 			if _, left := records[p.Bin()]; left {
 				r.dim(fmt.Sprintf("%s: yolo's floor still holds a copy it no longer keeps, which `yolo host` "+

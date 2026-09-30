@@ -142,14 +142,14 @@ func TestCheckSaysWhyAProgramHasNoFloorEntry(t *testing.T) {
 		t.Errorf("the copy that runs is named as not run:\n%s", out)
 	}
 	if strings.Contains(out, "still holds a copy") {
-		t.Errorf("a leftover was reported with nothing in the floor:\n%s", out)
+		t.Errorf("a deselected entry was reported with nothing in the floor:\n%s", out)
 	}
 }
 
-// TestCheckNamesALeftoverOfAProgramWithNoFloorEntry: the floor installed floorcli, then
+// TestCheckNamesADeselectedEntryOfAProgramWithNoFloorEntry: the floor installed floorcli, then
 // `host_floor` left its pack out. The row says there is no floor entry, and one more line says the
-// copy still in the prefix is a leftover `yolo host` does not run, and what removes it.
-func TestCheckNamesALeftoverOfAProgramWithNoFloorEntry(t *testing.T) {
+// copy still in the prefix is a deselected entry `yolo host` does not run, and what removes it.
+func TestCheckNamesADeselectedEntryOfAProgramWithNoFloorEntry(t *testing.T) {
 	o, floor, _, _ := hostFloorCheckFixture(t, `{}`)
 	prog := hostfloor.Program{Pack: "floorpack", Install: o.selectedPacks[0].Decl.InstallContributions()[0]}
 	if _, _, err := floor.Ensure(context.Background(), prog); err != nil {

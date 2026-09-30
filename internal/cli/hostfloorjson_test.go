@@ -28,7 +28,7 @@ func TestHostApplyJSONCarriesTheFloorStage(t *testing.T) {
 	}
 	writeFile(t, paths.UserConfigPath(), `{"packs":[]}`)
 	doc, raw, _ = hostApplyJSON(t, "--format", "json")
-	if len(doc.HostFloor) != 1 || doc.HostFloor[0].Action != "would remove" || doc.HostFloor[0].Disposition != "leftover" {
+	if len(doc.HostFloor) != 1 || doc.HostFloor[0].Action != "would remove" || doc.HostFloor[0].Disposition != "deselected" {
 		t.Fatalf("host_floor after deselection = %+v, want floorcli to remove:\n%s", doc.HostFloor, raw)
 	}
 }
