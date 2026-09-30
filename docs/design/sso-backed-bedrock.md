@@ -61,8 +61,9 @@ reference is right.
   pointer — declared by the pack under `overridden_by` and evaluated by core with no AWS
   variable in it ([OQ-SSO8](#OQ-SSO8)). A `~/.aws` grant beside the pointer is a WARNING rather
   than a refusal, since a `~/.aws` holding no credentials does not override it (ruled and built
-  2026-09-25).
-  [The plan's status](sso-backed-bedrock-plan.md) is the one place that tracks what landed.
+  2026-09-25). What landed, step by step, is in [§12](#12-what-i-would-build-in-order); the
+  implementation plan that tracked it was deleted on 2026-09-29 once spent, and
+  `git log --follow -- docs/design/sso-backed-bedrock-plan.md` recovers it.
 - **Ruled:** six questions on 2026-09-17 and [`OQ-SSO7`](#13-decision-ledger) (the three
   supported credentials) on 2026-09-24 — all in [§13](#13-decision-ledger).
 - **Built 2026-09-25:** the consumers' `needs` (`packs/claude` needs `aws-auth`) and the
@@ -130,8 +131,6 @@ enumeration this adds to, and the boundary rules it must not break),
 built),
 [`boundary-broker.md`](boundary-broker.md) (where the human-approval tier this design
 deliberately does not build would live),
-[`sso-backed-bedrock-plan.md`](sso-backed-bedrock-plan.md) (the implementation plan — promoted
-against the tree 2026-09-17; the hand-off, and the first thing to be wrong),
 [`wire-bridge-gateway.md`](wire-bridge-gateway.md) (the wire bridge as the jail's model gateway:
 its [DIR-WG1](wire-bridge-gateway.md#decision-ledger) reopens [§9](#9-non-goals)'s "not a
 gateway, not a proxy, not a model router" for the bridge, not for this credential service, and
@@ -1072,6 +1071,33 @@ Also not covered: a cold-cache fetch against the one-second budget (R1; only war
 seen), the legacy SSO form, the session-policy and un-narrowed arms, `macos-user`, and Apple
 Container.
 
+**What a real host has still not settled, carried over from the implementation plan when it was
+deleted (2026-09-29).** The plan kept a list of what no unit test can stand in for; these are its
+items the try-out left open, with what each needs.
+
+- **`--self-check` against a live login.** The daemon has minted from a live login every day
+  through the real `aws` argv and output shapes, which is the serving path. A
+  `yolo internal daemon aws-auth --self-check --settings <file>` run was not recorded.
+- **The lapsed-session signatures.** The classifier matches stderr fragments written from AWS
+  CLI v2's documented and widely reported wordings, each with a fixture, and no real expiry has
+  been matched against them (done-condition 6). A miss is safe, since it falls through to
+  `MintFailed` and forwards AWS's own words; a false positive advises a login that was not the
+  problem. So a correction ADDS a fragment and never loosens one. The one real-CLI match so far
+  is the missing profile, classified `ProfileNotFound` (the 2026-09-23 span above).
+- **The config-form reader on real files.** The `sso-session` form was read from the
+  maintainer's real `~/.aws/config`. The legacy form was not, and nor was a real file with
+  `[services]` blocks, `credential_process` profiles or nested includes, which the fixtures do
+  not cover.
+- **The narrowing arms.** The role arm (N3) was shown denying S3 and EC2. A credential minted
+  with a session policy (N2) has not been shown denied, and the un-narrowed arm has not run
+  against a live login.
+- **The hop, and what a nested jail cannot prove.** The transport over a real host-loopback hop
+  is settled twice: in CI with a fake `aws` on rootless podman on both architectures
+  (2026-09-25, `ci.yml` run 36167524940), and live on the maintainer's rootless host. A nested
+  jail proves only the wiring, since podman-in-podman forces `--net=host` and the two loopbacks
+  are one ([`loopback-tls-reachability.md`](../reference/loopback-tls-reachability.md#a-nested-jail-is-structurally-blind-to-this)).
+  A new host's report should carry `podman info --format '{{.Host.RootlessNetworkCmd}}'`.
+
 **Claude Code specifics — [code.claude.com/docs/en/amazon-bedrock](https://code.claude.com/docs/en/amazon-bedrock), read 2026-09-17.**
 *"Claude Code uses the default AWS SDK credential chain."* It caches resolved credentials
 until five minutes before expiry (one hour when they carry none), times each chain resolve out
@@ -1186,7 +1212,9 @@ delays nothing. It only sharpens step 2.
    [the SSO-backed Bedrock section](../reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth),
    with rows in that doc's backend table, current values and *Why it's this way* table. This doc
    is GRADUATED and kept whole rather than cut to a stub, because its sections and `OQ-SSO` ids
-   are cited from other docs and from Go comments.
+   are cited from other docs and from Go comments. The implementation plan was deleted the same
+   day, as its own last step asked; what it still listed as unsettled moved to
+   [§11](#11-evidence-and-how-to-re-check-it).
 
 ---
 
@@ -1412,8 +1440,9 @@ Bedrock credential comes from. Two terms both use:
    as API-key-only. Ruled 2026-09-25.
 
 3. ✅ <a id="OQ-SSO10"></a>**OQ-SSO10: How does the launch disclose an un-narrowed
-   `aws-auth`, with no switch on the loophole's name?** Filed 2026-09-25 from the plan's
-   [Blocker 6](sso-backed-bedrock-plan.md#blockers), which had no id. Stakes:
+   `aws-auth`, with no switch on the loophole's name?** Filed 2026-09-25 from the
+   implementation plan's Blocker 6, which had no id (the plan is deleted; `git log --follow`
+   recovers it). Stakes:
    [`OQ-SSO1`](#13-decision-ledger) ruled that an explicit `unnarrowed` setting "is disclosed at
    every launch", and today it is disclosed at two of three places — the daemon's spawn log and
    the `--self-check` `NOTE:` — never at the launch. The daemon is a host singleton, so its spawn

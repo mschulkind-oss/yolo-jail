@@ -52,7 +52,8 @@ func TestBedrockNeedsAWSAuth(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("packs/bedrock declares no need on aws-auth (needs = %+v) — "+
-			"docs/design/sso-backed-bedrock-plan.md step 5", bedrock.Decl.DeclaredNeeds())
+			"docs/design/bedrock-plumbing.md BR-D15, which moved sso-backed-bedrock.md §12 step 5 "+
+			"here", bedrock.Decl.DeclaredNeeds())
 	}
 }
 

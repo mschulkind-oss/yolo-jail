@@ -1339,11 +1339,15 @@ claude on its own login with a pointer nothing uses, and the launch says so
 `env` block before its first API call ([OQ-4](#pv-oq-4)).
 
 > [!NOTE]
-> **UNMEASURED: Bedrock mode itself.** [OQ-4](#pv-oq-4) was measured with `ANTHROPIC_BASE_URL`
-> as the witness variable — a controlled listener run showed a settings-only value producing
-> traffic identical to the process-env control. `CLAUDE_CODE_USE_BEDROCK` rides the same mechanism, but
-> the re-test with real AWS credentials that was to confirm it before the Go path was deleted
-> has no record of having run, and nothing has yet run Bedrock against a live `aws sso login`.
+> **MEASURED 2026-09-29: Bedrock mode on real credentials. UNMEASURED: the settings-only
+> path.** In the live-login try-out a jail's claude ran in Bedrock mode on credentials `aws-auth`
+> served from a live `aws sso login`
+> ([`sso-backed-bedrock.md` §11](../design/sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it)).
+> That claude, like every yolo-launched one, had `CLAUDE_CODE_USE_BEDROCK` in its process env as
+> well as in the settings file. [OQ-4](#pv-oq-4) was measured with `ANTHROPIC_BASE_URL` as the
+> witness variable — a controlled listener run showed a settings-only value producing traffic
+> identical to the process-env control — and `CLAUDE_CODE_USE_BEDROCK` rides the same mechanism,
+> but a settings-only Bedrock run on real credentials, a bare `claude` outside yolo, has no record.
 
 ### What the launch checks and prints
 

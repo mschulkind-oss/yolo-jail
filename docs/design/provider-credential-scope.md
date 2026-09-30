@@ -290,7 +290,7 @@ because an env value has no surface naming an agent; that missing binding is [OQ
 (`9fc4879d`) ships one contribution,
 `{"kind":"env","profile":"bedrock","vars":{"AWS_CONTAINER_CREDENTIALS_FULL_URI":…}}`, and
 `packs/claude` ships the profile `bedrock` without yet `need`ing aws-auth (step 5 of
-[`sso-backed-bedrock-plan.md`](sso-backed-bedrock-plan.md)), so a user selects both, as
+[`sso-backed-bedrock.md` §12](sso-backed-bedrock.md#12-what-i-would-build-in-order)), so a user selects both, as
 [the pack README](../../packs/aws-auth/README.md) shows. aws-auth installs no agent, so it always
 takes the wide pass: selecting `bedrock` for claude points **every** AWS SDK in the jail at the
 credential adapter. INFERRED from the rule: narrowing the gate to a pack's own agents would break
@@ -669,8 +669,8 @@ reaches two agents.
 
 Done 2026-09-25: [`providers.md`](../reference/providers.md#the-profile-modifier)'s wide-pass
 WARNING, [`packs/aws-auth/README.md`](../../packs/aws-auth/README.md)'s jail-wide pointer note
-and [`sso-backed-bedrock-plan.md`](sso-backed-bedrock-plan.md)'s links cited the
-[OQ-BR4](#OQ-BR4) ruling.
+and the SSO-backed Bedrock implementation plan's links cited the [OQ-BR4](#OQ-BR4) ruling
+(that plan was deleted on 2026-09-29, spent).
 
 Done 2026-09-26, with the build: [`providers.md`](../reference/providers.md#the-credential-gate)
 gained the credential gate's section and lost the wide-pass WARNING, and its pre-flight, crossing
@@ -682,8 +682,9 @@ and derive sections describe the narrowed behavior;
 neighbors; `packs/aws-auth`, `packs/cerebras` and `packs/wire-bridge`'s READMEs, and the user
 guide's configuration and settings-per-setup pages, say who receives a key;
 [`bedrock-plumbing.md`](bedrock-plumbing.md)'s build step 6 marks its D2 half built, and
-[`sso-backed-bedrock-plan.md`](sso-backed-bedrock-plan.md)'s profile-gated-env note names the
-per-agent rule. None is owed.
+the SSO-backed Bedrock implementation plan's profile-gated-env note named the per-agent rule,
+which [`agent-credentials.md`](../reference/agent-credentials.md#what-crosses-into-the-jail)
+states since that plan was deleted (2026-09-29). None is owed.
 
 Done 2026-09-26, with the review fixes: [`providers.md`](../reference/providers.md#the-credential-gate)
 states the Apple Container arm, the flagless carrier, the pre-gate attach rule, the
