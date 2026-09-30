@@ -90,4 +90,23 @@ func TestCodexProfileRendersOneModelListForEveryAgent(t *testing.T) {
 	if strings.Contains(config, "[model_providers.openai-codex]") {
 		t.Errorf("codex config.toml catalogs openai-codex, which codex implements natively:\n%s", config)
 	}
+
+	// codex's model menu is written from this list by its launcher before codex starts
+	// (docs/design/model-lists-and-pickers.md MM-D9, MM-D22), so the launch must render it: the
+	// same ids, bases only, since codex's own catalog has no [1m] spelling.
+	list := decode("the codex model-list file", renderedSurface(t, dir, "codex", "yolo-model-list.json"))
+	listed, _ := list["models"].([]any)
+	var codexIDs, bases []any
+	for _, raw := range listed {
+		e, _ := raw.(map[string]any)
+		codexIDs = append(codexIDs, e["id"])
+	}
+	for _, raw := range entries {
+		if e, _ := raw.(map[string]any); e["base"] == nil {
+			bases = append(bases, e["id"])
+		}
+	}
+	if !reflect.DeepEqual(codexIDs, bases) {
+		t.Errorf("codex's model list = %v, want the subscription's ids %v, bases only", codexIDs, bases)
+	}
 }
