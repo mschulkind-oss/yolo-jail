@@ -147,6 +147,30 @@ func TestHostEnvNarrowsABareListForClaudeAndSaysSo(t *testing.T) {
 	}
 }
 
+// THE REGION PRE-FLIGHT AT THE HOST asks every entry of the set (AP-P1): pi on [zai, bedrock]
+// with no region anywhere refuses naming bedrock and pi, where reading the primary alone sees zai
+// and asks nothing (regionGaps). With the provider's region set, pi runs and its environment
+// carries that region as AWS_REGION, relayed by pi's derive for its second entry.
+func TestHostAsksTheRegionOfALaterEntry(t *testing.T) {
+	const cfg = `{"packs": ["pi", "zai", "bedrock"], "env_sources": [` +
+		`{"ZAI_API_KEY": "tok-zai", "AWS_PROFILE": "work"}]}`
+	rc, env, errs := hostGateRun(t, cfg, map[string]string{"AWS_REGION": ""}, []string{"-p", "pi=zai,bedrock"}, "pi")
+	if rc == 0 || env != nil {
+		t.Fatalf("pi's second entry on bedrock with no region must refuse (rc=%d)\n%s", rc, errs)
+	}
+	if !strings.Contains(errs, `requires a region for provider "bedrock" (platform "aws-bedrock"), selected for pi`) {
+		t.Errorf("the refusal must name bedrock and pi:\n%s", errs)
+	}
+
+	const withRegion = `{"packs": ["pi", "zai", "bedrock"], "providers": {"bedrock": {"region": "eu-west-7"}},
+	  "env_sources": [{"ZAI_API_KEY": "tok-zai", "AWS_PROFILE": "work"}]}`
+	env, errs = hostGateLaunchWith(t, withRegion, map[string]string{"AWS_REGION": ""},
+		[]string{"-p", "pi=zai,bedrock"}, "pi")
+	if env["AWS_REGION"] != "eu-west-7" {
+		t.Errorf("pi on [zai, bedrock] must receive the provider's region: AWS_REGION = %q\n%s", env["AWS_REGION"], errs)
+	}
+}
+
 // `yolo host apply` renders the use_profiles set into pi's own files (§4.9), through the real
 // command: the start pair is the primary's and the scoped list spans both providers, and the
 // report names the selection as the set.

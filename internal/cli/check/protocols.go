@@ -117,7 +117,7 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served
 	// entry after the primary pairing as the primary does, the launch's refusals predicted in
 	// its words.
 	sets := packload.ProfileSets(config.ConfigProfileSets(merged, packs))
-	for _, problem := range packload.ProfileSetProblems(packs, sets, resolved) {
+	for _, problem := range packload.ProfileSetProblems(packs, providers, sets, resolved) {
 		errs = append(errs, "This launch will be REFUSED: packs: "+problem)
 	}
 	for _, refusal := range packload.SetEntryPairingRefusals(packs, providers, resolved, sets, unserved) {

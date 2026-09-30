@@ -188,7 +188,9 @@ yolo -p pi=zai,openrouter -- pi
   to every other agent, and the launch says which agents ignore the rest. Every name in it must
   still be a profile that exists, including the ones an agent ignores.
 - A profile that routes through the wire bridge (`"via": "wire-bridge"`) can only be listed first.
-  Two profiles over the same provider cannot share a list.
+  Two profiles over the same provider cannot share a list, and neither can two Bedrock providers,
+  since pi reads one AWS region. One Bedrock profile can sit anywhere in pi's list
+  (`-p pi=zai,bedrock`), and pi reaches it through its own Bedrock client either way.
 - A profile name cannot contain a comma. The same list works at `yolo host -p pi=zai,openrouter --
   pi`, in `yolo host env --agent pi -p zai,openrouter`, on `macos-user`, and in the files
   `yolo host apply` writes.

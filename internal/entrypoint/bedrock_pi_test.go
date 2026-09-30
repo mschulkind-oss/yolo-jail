@@ -2,6 +2,8 @@ package entrypoint
 
 import (
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -128,5 +130,44 @@ func TestPiOnABridgedBedrockProfileGetsNoNativeRow(t *testing.T) {
 	}
 	if s := r.piSettings(t); s["defaultProvider"] == "amazon-bedrock" {
 		t.Errorf("a bridged profile selected the native provider: %v", s)
+	}
+}
+
+// A BEDROCK ENTRY ANYWHERE IN pi's ACTIVE SET is bound to pi's own client (docs/design/active-
+// provider-sets.md AP-P1: every entry is live, not only the primary). pi on [zai, bedrock] starts
+// on zai, and its models.json carries the native amazon-bedrock row too, so a switch to a Bedrock
+// model reaches one pi can call; its scoped list runs zai's models then Bedrock's. Before the set
+// learned the native row (piNativeBedrockEntry), a Bedrock entry after the first named
+// amazon-bedrock ids in enabledModels with no row behind them.
+func TestPiOnASetWithBedrockSecondCatalogsItNatively(t *testing.T) {
+	const opus = "global.anthropic.claude-opus-5-5"
+	providersJSON, wire := bedrockTables(t, "pi", `{"bedrock":{"region":"eu-west-1"}}`, nil, "zai")
+	r := newPioencodeRender(t, providersJSON)
+	r.wireProfiles(wire)
+	r.render(t, `{"pi":["zai","bedrock"]}`)
+
+	rows, _ := r.piModels(t)["providers"].(map[string]any)
+	if rows["zai"] == nil {
+		t.Errorf("the primary's row is missing: %v", rows)
+	}
+	native, _ := rows["amazon-bedrock"].(map[string]any)
+	if native == nil {
+		t.Fatalf("no amazon-bedrock row in models.json for pi's second entry: %v", rows)
+	}
+	for _, key := range []string{"baseUrl", "api", "apiKey"} {
+		if v, ok := native[key]; ok {
+			t.Errorf("the native row carries %s = %v; it must leave pi's built-in Converse client in place", key, v)
+		}
+	}
+	s := r.piSettings(t)
+	if s["defaultProvider"] != "zai" {
+		t.Errorf("a fresh session starts on the primary: defaultProvider = %v", s["defaultProvider"])
+	}
+	enabled := strs(s["enabledModels"])
+	if len(enabled) == 0 || !strings.HasPrefix(enabled[0], "zai/") {
+		t.Errorf("the scoped list must lead with the primary's run: %v", enabled)
+	}
+	if !slices.Contains(enabled, "amazon-bedrock/"+opus) {
+		t.Errorf("the scoped list must carry the Bedrock entry's models under amazon-bedrock: %v", enabled)
 	}
 }

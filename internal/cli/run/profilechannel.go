@@ -204,7 +204,7 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	// once every name resolves and before anything is composed from them: a name listed twice,
 	// a list at an agent whose pack does not declare provider_sets, two entries on one provider,
 	// a via entry anywhere but first. The host notch refuses the same table in the same words.
-	if problems := packload.ProfileSetProblems(packs, packload.ProfileSets(profiles), resolved); len(problems) > 0 {
+	if problems := packload.ProfileSetProblems(packs, providers, packload.ProfileSets(profiles), resolved); len(problems) > 0 {
 		return nil, fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
 	}
 	// A via this notch does not serve is cleared, so its agent keeps its own client, and named

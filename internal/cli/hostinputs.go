@@ -181,7 +181,7 @@ func hostSetOmission(packs []*packload.Pack, providers *jsonx.OrderedMap,
 	if len(set) < 2 {
 		return ""
 	}
-	if problems := packload.ProfileSetProblems(packs, map[string][]string{agent: set}, resolved); len(problems) > 0 {
+	if problems := packload.ProfileSetProblems(packs, providers, map[string][]string{agent: set}, resolved); len(problems) > 0 {
 		return problems[0]
 	}
 	for i, name := range set {

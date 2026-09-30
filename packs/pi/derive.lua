@@ -529,6 +529,26 @@ local function piNativeBedrock(ctx)
   return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
 end
 
+-- piNativeBedrockEntry is the provider name of the ACTIVE SET entry pi reaches through its own
+-- Bedrock client, or nil (docs/design/active-provider-sets.md AP-P1: every entry is live, not
+-- only the primary). The primary when piNativeBedrock holds; else the first later entry on the
+-- aws-bedrock platform, which carries no via (a via entry may sit only first, AP-D9). A set names
+-- each platform once (AP-D12), so there is at most one: pi has ONE amazon-bedrock provider, one
+-- AWS_REGION and one AWS credential chain.
+local function piNativeBedrockEntry(ctx)
+  if piNativeBedrock(ctx) then
+    return ctx.selected_provider
+  end
+  if type(ctx.active_set) == "table" then
+    for i, e in ipairs(ctx.active_set) do
+      if i > 1 and e.platform == "aws-bedrock" then
+        return e.provider
+      end
+    end
+  end
+  return nil
+end
+
 -- models: the catalog. Returning {} writes no row and leaves the surface's declared default,
 -- `{"providers": {}}` (packs/pi/pack.json; docs/design/host-computed-layer.md HC-D1), because
 -- pi 0.87.1's ModelsConfigSchema requires `providers` and reports a file without it as a
@@ -696,16 +716,19 @@ yolo.derive("pi", "models", function(ctx)
   -- apiKey, so each model stays on pi's own Converse client and pi resolves the AWS credential.
   -- Each model carries the facts the list declares for it, read by the same piModelFacts every
   -- other row uses. A list with nothing in it writes no row: pi's `models` must be a non-empty
-  -- array or the whole file is discarded (see the `models` note above).
-  if piNativeBedrock(ctx) and providers[piBedrockProvider] == nil then
-    local p = ctx.providers[ctx.selected_provider]
+  -- array or the whole file is discarded (see the `models` note above). The row is the set's
+  -- Bedrock entry's wherever it sits (piNativeBedrockEntry), so pi on [zai, bedrock] can switch
+  -- to a Bedrock model its own catalog lacks.
+  local bedrockName = piNativeBedrockEntry(ctx)
+  if bedrockName and providers[piBedrockProvider] == nil then
+    local p = ctx.providers[bedrockName]
     local modelList = {}
     for _, e in ipairs(callableModels(p, nil)) do
       local m = { id = e.id, name = e.facts.name or e.id }
       local cw, maxTokens = tonumber(e.facts.context_window), tonumber(e.facts.max_tokens)
       if cw then m.contextWindow = cw end
       if maxTokens then m.maxTokens = maxTokens end
-      local facts = piModelFacts(e.facts, p, ctx, ctx.selected_provider)
+      local facts = piModelFacts(e.facts, p, ctx, bedrockName)
       if facts then
         for k, v in pairs(facts) do m[k] = v end
       end
@@ -1172,8 +1195,11 @@ end
 
 yolo.env("pi", function(ctx)
   local env = {}
-  if piNativeBedrock(ctx) then
-    local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
+  -- The set's Bedrock entry wherever it sits (piNativeBedrockEntry): the region pre-flight counts
+  -- a provider's `region` as delivered because this derive relays it, for a later entry too.
+  local bedrockName = piNativeBedrockEntry(ctx)
+  if bedrockName then
+    local p = ctx.providers and ctx.providers[bedrockName] or nil
     if type(p) == "table" and type(p.region) == "string" and p.region ~= "" then
       env.AWS_REGION = p.region
     end

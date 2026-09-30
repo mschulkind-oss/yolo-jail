@@ -198,11 +198,19 @@ func SingleProviderSetRefusal(agent string, set []string) string {
 //     narrowed it (NarrowBareList), so a list left at such an agent was named at it.
 //   - Two entries resolving to ONE provider are refused, naming both: one provider has one
 //     catalog row and one key, so two option sets for it mean nothing once a session switches.
+//   - Two entries on ONE REGIONAL PLATFORM are refused, naming both (AP-D12): a platform some
+//     pack says is reached through a region (a provider declaring `platform` and
+//     `region_env_name`, regionRequirements) is read from variables of the agent's process, and
+//     a process has one AWS_REGION, so two Bedrock providers in one set would share one region
+//     and one credential chain. providers is the composed table the entries' platforms are read
+//     off; nil asks nothing of platforms.
 //   - A via entry anywhere but first is refused (AP-D9, this build's narrowing of AP-D7's "at
 //     most one per set"): an agent has ONE via route, whose upstream is the provider its
 //     primary resolves to, so a via entry must be the primary to be routed at all. Being first
 //     also makes it the only one, which is AP-D7's limit.
-func ProfileSetProblems(packs []*Pack, sets map[string][]string, resolved map[string]ResolvedProfile) []string {
+func ProfileSetProblems(packs []*Pack, providers *jsonx.OrderedMap, sets map[string][]string,
+	resolved map[string]ResolvedProfile) []string {
+	regional := regionRequirements(packs)
 	agents := make([]string, 0, len(sets))
 	for agent := range sets {
 		agents = append(agents, agent)
@@ -245,6 +253,27 @@ func ProfileSetProblems(packs []*Pack, sets map[string][]string, resolved map[st
 				continue
 			}
 			byProvider[provider] = name
+		}
+		byPlatform := map[string]string{}
+		for _, name := range set {
+			provider := ProviderFor(resolved, name)
+			platform := entryString(providerEntry(providers, provider), "platform")
+			req, isRegional := regional[platform]
+			if provider == "" || !isRegional {
+				continue
+			}
+			first, twice := byPlatform[platform]
+			if twice && ProviderFor(resolved, first) != provider {
+				problems = append(problems, fmt.Sprintf("profiles %q and %q in %s's profiles are "+
+					"both on platform %q, which pack %s says is reached through a region: %s's "+
+					"process carries one %s and one credential chain for it, so a set names that "+
+					"platform once: keep one of them", first, name, agent, platform, req.pack, agent,
+					orList(req.vars)))
+				continue
+			}
+			if !twice {
+				byPlatform[platform] = name
+			}
 		}
 		for i, name := range set {
 			if i == 0 {

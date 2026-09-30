@@ -86,7 +86,7 @@ func TestProfileSetProblemsRefuseWhatASetCannotMean(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			problems := ProfileSetProblems(packs, tc.sets, resolved)
+			problems := ProfileSetProblems(packs, nil, tc.sets, resolved)
 			if tc.says == "" {
 				if len(problems) != 0 {
 					t.Errorf("refused %v: %v", tc.sets, problems)
@@ -99,7 +99,7 @@ func TestProfileSetProblemsRefuseWhatASetCannotMean(t *testing.T) {
 		})
 	}
 	// The single-provider refusal names the one-entry spellings that work.
-	msg := ProfileSetProblems(packs, map[string][]string{"claude": {"zai", "openrouter"}}, resolved)[0]
+	msg := ProfileSetProblems(packs, nil, map[string][]string{"claude": {"zai", "openrouter"}}, resolved)[0]
 	for _, want := range []string{"`-p claude=zai`", `"use_profiles": {"claude": "zai"}`, "drop openrouter"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal must name %q:\n%s", want, msg)

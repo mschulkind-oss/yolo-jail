@@ -325,3 +325,38 @@ func TestOpencodeOnBedrockIsNotGivenARegionItDoesNotRead(t *testing.T) {
 			strings.Join(lines, "\n"))
 	}
 }
+
+// A REGIONAL PROVIDER ANYWHERE IN AN ACTIVE SET is asked for its region (docs/design/active-
+// provider-sets.md AP-P1): pi on [zai, bedrock], the Bedrock entry second, with no region on the
+// provider and none delivered, is refused naming bedrock and pi, where reading the primary alone
+// sees zai and asks nothing. With the provider's region set the pre-flight passes, and pi's own
+// environment carries it as AWS_REGION: the region pre-flight counts a provider's `region` as
+// delivered because the agent's derive relays it, so pi's derive must relay it for a later entry
+// too (packs/pi/derive.lua, piNativeBedrockEntry), or the check would pass a pi started on no
+// region.
+func TestTheRegionIsAskedOfALaterEntryOfPisSet(t *testing.T) {
+	home := retireHome(t)
+	writeUserPacks(t, home, `[]`)
+	o := retireOptions(t, discardBuf())
+	o.Getenv = shellWith(nil)
+	packs := []*packload.Pack{officialPack(t, "pi"), officialPack(t, "zai"), officialPack(t, "bedrock")}
+	o.UseProfiles = map[string]string{"pi": "zai,bedrock"}
+	env := userEnvWith(map[string]string{"ZAI_API_KEY": "tok-zai"})
+
+	lines, refuse := o.checkProviderCredentials(newConfig(), packs, channelFor(t, o, newConfig(), packs, env), nil)
+	got := strings.Join(lines, "\n")
+	if !refuse || !strings.Contains(got, `requires a region for provider "bedrock" (platform "aws-bedrock"), selected for pi`) {
+		t.Fatalf("pi's second entry on bedrock with no region must refuse (refuse=%v):\n%s", refuse, got)
+	}
+
+	cfg := newConfig()
+	withBedrockRegion(cfg)
+	channel := channelFor(t, o, cfg, packs, env)
+	lines, _ = o.checkProviderCredentials(cfg, packs, channel, nil)
+	if got := strings.Join(lines, "\n"); strings.Contains(got, "requires a region") {
+		t.Errorf("a region on the provider satisfies the pre-flight for pi's second entry:\n%s", got)
+	}
+	if v, _ := channel.scope.DeliveredTo("pi", "AWS_REGION"); v != testBedrockRegion {
+		t.Errorf("pi on [zai, bedrock] must receive the provider's region as AWS_REGION, got %q", v)
+	}
+}

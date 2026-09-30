@@ -1275,7 +1275,9 @@ the plain name, byte for byte, so no existing config moves.
   (`checkProfileDeclarations` in a jail, `hostBareTailUndeclared` at `yolo host` and
   `yolo host env`).
 - **What a set refuses** (`packload.ProfileSetProblems`, at every notch and predicted by
-  `yolo check`): a name listed twice; two entries resolving to one provider; a via profile
+  `yolo check`): a name listed twice; two entries resolving to one provider; two entries on one
+  regional platform, such as two Bedrock providers, since the agent's process holds one
+  `AWS_REGION` ([AP-D12](../design/active-provider-sets.md#AP-D12)); a via profile
   anywhere but first ([AP-D9](../design/active-provider-sets.md#AP-D9)), since an agent has one
   via route and its upstream is the primary's provider; and, at the protocol gate, any entry the
   agent cannot be paired with, named by position. Every entry must be declared.

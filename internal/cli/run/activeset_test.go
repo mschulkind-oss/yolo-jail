@@ -213,6 +213,32 @@ func TestAnUndeclaredEntryOfABareListRefusesWithNoSetCapableAgent(t *testing.T) 
 	}
 }
 
+// AP-D12: two entries on ONE REGIONAL PLATFORM refuse, naming both. pi on [bedrock, bedrock-eu]
+// (a second provider of platform aws-bedrock) would read one AWS_REGION and one credential chain
+// for both, and pi binds the platform to its one amazon-bedrock provider. Through the
+// composition, which asks it beside the set's other rules.
+func TestTwoEntriesOnOneRegionalPlatformRefuse(t *testing.T) {
+	home := packHome(t)
+	o := goldenOptions(t.TempDir(), home)
+	eu := inlinePack(t, "bedrock-eu", `{"name":"bedrock-eu","contributes":[
+	  {"kind":"provider","name":"bedrock-eu","platform":"aws-bedrock","region":"eu-west-1",
+	   "models":{"m":"m"}},
+	  {"kind":"profile","name":"bedrock-eu","provider":"bedrock-eu"}]}`)
+	packs := []*packload.Pack{officialPack(t, "pi"), officialPack(t, "bedrock"), eu}
+	o.UseProfiles = map[string]string{"pi": "bedrock,bedrock-eu"}
+	_, err := o.composePackChannel(bareConfig(), packs, zaiAndRouterKeys())
+	if err == nil || !strings.Contains(err.Error(),
+		`profiles "bedrock" and "bedrock-eu" in pi's profiles are both on platform "aws-bedrock"`) {
+		t.Fatalf("composePackChannel = %v, want the one-platform refusal naming both entries", err)
+	}
+	// One of them composes.
+	o.UseProfiles = map[string]string{"pi": "bedrock-eu"}
+	if _, err := o.composePackChannel(bareConfig(), packs, zaiAndRouterKeys()); err != nil &&
+		strings.Contains(err.Error(), "both on platform") {
+		t.Errorf("a set of one names its platform once: %v", err)
+	}
+}
+
 // An EMPTY PAIR (`-p pi=`, alone or beside `claude=zai`) crosses as the empty string it always
 // did, the selection of nothing, never as an empty list: the jail reads a string "" as no
 // selection, and a `[]` would be a list value no older jail was ever handed.

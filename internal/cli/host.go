@@ -1814,7 +1814,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 			}
 		}
 		// The set's own rules (AP-D3, OQ-AP2, AP-D9), in the words every notch uses.
-		if problems := packload.ProfileSetProblems(packs, setTable, resolvedProfiles); len(problems) > 0 {
+		if problems := packload.ProfileSetProblems(packs, providers, setTable, resolvedProfiles); len(problems) > 0 {
 			c.err = fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
 			return c
 		}
