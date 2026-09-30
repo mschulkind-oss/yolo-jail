@@ -48,12 +48,13 @@ var sealedEnvAllowlist = map[string]bool{
 func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed string) {
 	t.Helper()
 	home = packHome(t)
-	for _, d := range []string{"notes", ".config/nvim", ".claude", "bigdisk/hf"} {
+	for _, d := range []string{"notes", ".config/nvim", ".config/git", ".claude", "bigdisk/hf"} {
 		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for rel, body := range map[string]string{
+		".config/git/ignore":    "sealtest-host-ignore-pattern\n",
 		".npmrc":                "//registry.example/:_authToken=npm-secret-token\n",
 		".claude/CLAUDE.md":     "the user's own house rules\n",
 		".claude/settings.json": `{"env": {"SEALTEST_IN_SETTINGS": "settings-secret"}}`,
@@ -181,6 +182,14 @@ func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 			t.Errorf("a sealed launch binds the host's nix store writable: %s", v)
 		}
 	}
+	// The git identity is a name and an address (FP-D11); the host's global gitignore is a file of
+	// the user's home, so it neither crosses nor is named by the composed config.
+	if _, ok := sealedBindSources(argv)["/home/agent/.config/git/ignore"]; ok {
+		t.Error("a sealed launch binds the host's global gitignore")
+	}
+	if body, _ := os.ReadFile(filepath.Join(paths.WorkspaceHomeState(ws), "yolo-gitconfig")); strings.Contains(string(body), "excludesFile") {
+		t.Errorf("a sealed launch's git config names the host's gitignore:\n%s", body)
+	}
 	// No host layer crossed, and the jail is told so rather than that the user has none.
 	if v, _ := envValue(argv, packload.HostLayerEnvVar); v != packload.HostLayersUnsupportedWire() {
 		t.Errorf("a sealed launch reports %s=%q, want the no-host-layer report", packload.HostLayerEnvVar, v)
@@ -234,6 +243,9 @@ func TestTheSealFixtureCrossesUnsealed(t *testing.T) {
 	}
 	if !sawCache {
 		t.Errorf("the unsealed fixture does not bind the machine cache: %v", srcs)
+	}
+	if _, ok := srcs["/home/agent/.config/git/ignore"]; !ok {
+		t.Errorf("the unsealed fixture does not bind the host's gitignore, so that site is unexercised: %v", srcs)
 	}
 	if _, ok := srcs[hostNixSocket]; !ok {
 		t.Errorf("the unsealed fixture does not bind the nix daemon socket, so that site is unexercised: %v", srcs)

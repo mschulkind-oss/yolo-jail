@@ -321,7 +321,9 @@ func (o *Options) gitIdentityMountArgs(rt, wsState string, mountTargets map[stri
 	} else {
 		excludesPath = filepath.Join(homeDir(), ".config", "git", "ignore")
 	}
-	haveIgnore := isFile(excludesPath)
+	// NOT UNDER THE SEAL (seal.go, FP-D11): the git identity a fork build keeps is a name and an
+	// address, and the global gitignore is a file of the user's home, as a host briefing is.
+	haveIgnore := isFile(excludesPath) && !o.Sealed
 
 	if name == "" && email == "" && !haveIgnore {
 		return nil

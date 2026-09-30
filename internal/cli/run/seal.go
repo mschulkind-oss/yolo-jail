@@ -31,6 +31,8 @@ package run
 //	                                       namespace, which is itself a jail's
 //	`mounts`, pack `mount`, reads-host     none, the surfaces' host layers included
 //	the host briefing prepend              none
+//	the host's global gitignore            not bound, nor named by the composed git config
+//	                                       (gitIdentityMountArgs); the identity stays
 //	the nix daemon socket                  not bound; the store stays mounted read-only when
 //	                                       store-delivered packages need it
 //	devices, GPU, KVM                      none
