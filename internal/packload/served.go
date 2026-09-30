@@ -104,10 +104,13 @@ func (s ServedDaemons) notServedWhy(daemon string) string {
 	}
 	switch {
 	case s.host:
-		return "which this launch does not open: at the host a jail daemon runs only as the " +
-			"credential doorway `yolo host --` opens for an agent whose selected provider it " +
-			"serves (docs/design/host-notch-services.md HS-D15), and nothing this launch " +
-			"selects asks for this one"
+		// Every daemon a host launch's selection asks for carries the launch's own reason
+		// (run.PlanHostDoorways), so what reaches this clause is a daemon whose pointer is not
+		// gated on the agent's selection, the Codex refresh adapter's: no selection opens it.
+		return "which `yolo host --` opens for no selection: at the host a jail daemon runs " +
+			"only as a doorway opened for the one agent a launch runs, and only when every " +
+			"pointer to it is gated on that agent's selected profile or provider, which this " +
+			"one's is not (docs/design/host-notch-services.md HS-D15, HS-D22)"
 	case s.runs:
 		return "which this launch does not run (its loophole is disabled, or its pack is not selected)"
 	default:

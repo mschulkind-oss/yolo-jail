@@ -565,7 +565,7 @@ func reportFailedSpawn(deps Deps, exited func() bool) {
 	}
 	richtext.Printer{W: deps.Out, Color: deps.Color}.Print(
 		"[yellow]Warning: " + singletonSubject(deps) + " " + reason +
-			" — every in-jail client of it will fail until it does. Expected " +
+			" — every client of it will fail until it does. Expected " +
 			deps.SocketPath + "; see " + deps.LogPath + "[/yellow]")
 }
 

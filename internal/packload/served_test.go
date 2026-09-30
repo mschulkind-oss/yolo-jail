@@ -150,14 +150,16 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 
 	// THE HOST NOTCH (AtHost, host-notch-services.md HS-D21) opens a jail daemon's doorway, so
 	// what it withholds is worded as a doorway this launch did not open, never as a daemon only a
-	// jail runs, and a launch that knows why (WithNotServedWhy) says that instead. A daemon it
-	// serves keeps its pointer, at the address it settled, beside a Plus of the services it runs.
+	// jail runs, and a launch that knows why (WithNotServedWhy) says that instead. With no reason
+	// given, the clause is HS-D22's: no selection opens a doorway whose pointer is not gated on
+	// the agent's selection, the Codex refresh adapter's. A daemon it serves keeps its pointer, at
+	// the address it settled, beside a Plus of the services it runs.
 	host := NothingServed().AtHost().WithNotServedWhy(map[string]string{
 		"aws-auth": "which this launch does not open, because loophole \"aws-auth\" is disabled"})
 	s = compose(&host)
 	l := strings.Join(UnservedLines(s, nil, nil), "\n")
 	for _, want := range []string{`loophole "aws-auth" is disabled`,
-		`"openai-auth-broker" jail daemon, which this launch does not open: at the host`} {
+		`"openai-auth-broker" jail daemon, which ` + "`yolo host --`" + ` opens for no selection`, "HS-D22"} {
 		if !strings.Contains(l, want) {
 			t.Errorf("the host's disclosure does not say %q:\n%s", want, l)
 		}
@@ -174,7 +176,7 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 			"and not the refresh URL", fold)
 	}
 	if l := strings.Join(UnservedLines(s, nil, nil), "\n"); strings.Contains(l, awsURI) ||
-		!strings.Contains(l, refresh) || !strings.Contains(l, "which this launch does not open") {
+		!strings.Contains(l, refresh) || !strings.Contains(l, "opens for no selection") {
 		t.Errorf("the host's disclosure beside a served doorway = %s", l)
 	}
 

@@ -163,6 +163,10 @@ type Options struct {
 	// arm's deferred endServicesSession. nil on every other backend, before the spawn, and after
 	// the teardown.
 	servicesSession *servicesSession
+	// reachSubject is who a host service's failure leaves unable to reach it, in the warnings
+	// that say so (unreachableBy): "" for a jail launch, which says "the jail", and the agent's
+	// name for a `yolo host` launch opening a doorway (HostDoorways.Start), which runs no jail.
+	reachSubject string
 	// launchLockWaited records that taking launchLock meant waiting for another launch of
 	// this workspace to finish its window — so a jail found running afterwards is the one
 	// THAT launch started, and the attach says so.

@@ -223,6 +223,15 @@ func (o *Options) loopholeAllow(rt string, cfg *jsonx.OrderedMap) func(string) b
 	return allow
 }
 
+// unreachableBy is who a host service's failure leaves unable to reach it: the jail, or at a
+// `yolo host` launch the agent it runs (reachSubject).
+func (o *Options) unreachableBy() string {
+	if o.reachSubject != "" {
+		return o.reachSubject
+	}
+	return "the jail"
+}
+
 // startLoopholesMatching is the shared lifecycle for backends that can carry only a
 // subset of host services. Apple Container admits the OpenAI credential endpoint file,
 // while macos-user starts that same one service without activating unrelated loopholes.
@@ -1021,7 +1030,7 @@ func (o *Options) startHostSingleton(
 	if !socketConnectable(daemonPath, time.Second) {
 		o.pr(o.Stdout).print("[yellow]Warning: the host-wide daemon for '" + name +
 			"' is not accepting connections at " + daemonPath +
-			" — the jail cannot reach it. See " + deps.LogPath + "[/yellow]")
+			" — " + o.unreachableBy() + " cannot reach it. See " + deps.LogPath + "[/yellow]")
 		return loopholeDaemon{}, false
 	}
 	frontStop := make(chan struct{})
@@ -1036,7 +1045,7 @@ func (o *Options) startHostSingleton(
 		// (or was just ensured for everyone, not for us), and our front failing to
 		// publish says nothing about whether another jail's is fine.
 		o.pr(o.Stdout).print("[yellow]Warning: the front for host-wide service '" + name +
-			"' " + failure + " — the jail cannot reach it. See " +
+			"' " + failure + " — " + o.unreachableBy() + " cannot reach it. See " +
 			deps.LogPath + "[/yellow]")
 		return loopholeDaemon{}, false
 	}
@@ -1227,7 +1236,7 @@ func (o *Options) startExternalService(
 		// silent until the agent hits it, so say so here and name the log that
 		// has the reason (the same shape startHostSingleton's two warnings take).
 		o.pr(o.Stdout).print("[yellow]Warning: host service '" + name + "' " + failure +
-			" — the jail cannot reach it. Expected " + awaited +
+			" — " + o.unreachableBy() + " cannot reach it. Expected " + awaited +
 			"; see " + logPath + "[/yellow]")
 		return loopholeDaemon{}, false
 	}
@@ -1290,7 +1299,7 @@ func (o *Options) startExternalService(
 			// and `failure` is what distinguishes a front that could not BIND from
 			// one that simply never published inside the deadline.
 			o.pr(o.Stdout).print("[yellow]Warning: the front for host service '" + name +
-				"' " + failure + " — the jail cannot reach it. See " +
+				"' " + failure + " — " + o.unreachableBy() + " cannot reach it. See " +
 				logPath + "[/yellow]")
 			return loopholeDaemon{}, false
 		}

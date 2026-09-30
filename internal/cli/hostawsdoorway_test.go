@@ -516,6 +516,53 @@ func TestHostEnvNamesTheLaunchThatOpensTheDoorway(t *testing.T) {
 	}
 }
 
+// A HOST SERVICE THAT DOES NOT START IS WORDED FOR THE HOST. The doorway still opens and answers
+// each request with the reason (HS-D19), so the launch goes ahead; what it and the doorway say
+// must name the agent this launch runs, not a jail there is none of, and must not ask whether a
+// loophole is enabled that is. The settings name a profile and no narrowing, which the aws-auth
+// service refuses at spawn (its own tests pin that refusal), so no `aws` decides the result.
+func TestHostWordsAFailedDoorwayServiceForTheHost(t *testing.T) {
+	cfg := `{"packs": ["pi"], "profile": {"pi": "bedrock"}, "providers": {"bedrock": {"region": "eu-west-1"}}, ` +
+		`"loopholes": {"aws-auth": {"enabled": true, "settings": {"profile": "` + doorwayProfile + `"}}}}`
+	l := runDoorwayLaunch(t, cfg, nil, nil, "pi")
+	if l.rc != 0 || len(l.started) != 1 {
+		t.Fatalf("rc = %d, started %d: a doorway whose service refused still opens and answers "+
+			"with the reason\n%s", l.rc, len(l.started), l.errs)
+	}
+	for _, not := range []string{"in-jail", "the jail cannot reach it"} {
+		if strings.Contains(l.errs, not) {
+			t.Errorf("a host launch's service failure says %q:\n%s", not, l.errs)
+		}
+	}
+	if want := "pi cannot reach it"; !strings.Contains(l.errs, want) {
+		t.Errorf("the failure must say %q:\n%s", want, l.errs)
+	}
+	msg, _ := l.report.Body["Message"].(string)
+	if strings.Contains(msg, "this jail") || strings.Contains(msg, "is the `aws-auth` loophole enabled") ||
+		!strings.Contains(msg, "did not start") {
+		t.Errorf("the doorway's answer must say its host service did not start, with no jail and "+
+			"no question about an enabled loophole: %q", msg)
+	}
+}
+
+// THE CODEX REFRESH POINTER'S CLAUSE AT THE HOST says no selection opens its doorway there
+// (HS-D22): its pointer reaches every agent whatever it selects, so the old clause's "nothing this
+// launch selects asks for this one", which implied some selection would, is gone.
+func TestHostSaysNoSelectionOpensAnUngatedDoorway(t *testing.T) {
+	l := runDoorwayLaunch(t, `{"packs": ["pi", "codex"]}`, nil, nil, "pi")
+	if l.rc != 0 {
+		t.Fatalf("rc = %d\n%s", l.rc, l.errs)
+	}
+	for _, want := range []string{"CODEX_REFRESH_TOKEN_URL_OVERRIDE", "opens for no selection", "HS-D22"} {
+		if !strings.Contains(l.errs, want) {
+			t.Errorf("the withheld Codex pointer's line must say %q:\n%s", want, l.errs)
+		}
+	}
+	if strings.Contains(l.errs, "nothing this launch selects asks for this one") {
+		t.Errorf("the line still implies a selection would open the Codex doorway:\n%s", l.errs)
+	}
+}
+
 // A DOORWAY THAT DOES NOT START REFUSES THE LAUNCH before the agent runs (§4.5), and the front
 // the launch opened for it closes: its session dir is gone.
 func TestHostRefusesWhenTheDoorwayCannotStart(t *testing.T) {

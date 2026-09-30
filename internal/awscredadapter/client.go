@@ -64,8 +64,9 @@ type Answer struct {
 // returns what the service said. Stderr frames are forwarded as they arrive.
 func Request(endpointPath string, request any, stderr io.Writer) (Answer, error) {
 	if endpointPath == "" {
-		return Answer{}, fmt.Errorf("%s is not set: this jail has no aws-auth front to ask "+
-			"(is the `aws-auth` loophole enabled for this launch?)", EndpointEnv)
+		return Answer{}, fmt.Errorf("%s is not set: this launch gave the adapter no aws-auth "+
+			"front to ask, because the aws-auth host service did not start or the `aws-auth` "+
+			"loophole is not active for this launch (the launch's output said which)", EndpointEnv)
 	}
 	conn, err := svcendpoint.Dial(endpointPath, dialTimeout)
 	if err != nil {

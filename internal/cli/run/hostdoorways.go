@@ -218,7 +218,7 @@ func notOpenedWhy(set loopholes.Set, refused []launchservice.RefusedDoorway, nam
 	opens bool, launch string) string {
 	lp, ok := set.Lookup(name)
 	if !ok {
-		return ""
+		return "which this launch does not open: no selected pack's loophole declares it"
 	}
 	if !lp.Enabled {
 		return fmt.Sprintf("which this launch does not open, because loophole %q is disabled: "+
@@ -245,7 +245,7 @@ func notOpenedWhy(set loopholes.Set, refused []launchservice.RefusedDoorway, nam
 		return "which only a launch that runs the agent opens, for as long as that agent " +
 			"runs, and this command runs none: " + launch + " opens it for that command"
 	}
-	return ""
+	return "which this launch does not open: its loophole composes no doorway at the host"
 }
 
 // Plans is every doorway this launch opens, in order.
@@ -299,7 +299,8 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 	if d == nil || len(d.plans) == 0 {
 		return nil, stop, nil, nil
 	}
-	o := &Options{Stdout: stderr, Stderr: stderr, Workspace: workspace, IsMacOS: paths.IsMacOS}
+	o := &Options{Stdout: stderr, Stderr: stderr, Workspace: workspace, IsMacOS: paths.IsMacOS,
+		reachSubject: agent}
 	fillDefaults(o)
 	// THE EXEC DISCLOSURE BEFORE THE SPAWN (§4.3 G4: the read/exec banners are the trust
 	// boundary, and a launch has no quiet mode), for the packs whose host code this start runs:
