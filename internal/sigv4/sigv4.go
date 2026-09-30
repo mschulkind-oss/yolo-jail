@@ -10,9 +10,11 @@
 // change to canonicalization must keep green.
 //
 // Three things live here and nowhere else: the signing algorithm (Sign), the host
-// patterns that decide WHETHER a request is signed (BedrockRuntimeRegion,
-// AgentCoreGatewayRegion — OQ-WG1 ruled that the decision keys on the upstream host),
-// and the credential chain the bridge resolves lazily (Chain, credentials.go).
+// patterns that decide WHETHER a request to a provider declaring no Bedrock platform is
+// signed (BedrockRuntimeRegion, AgentCoreGatewayRegion — OQ-WG1 ruled that the decision keys
+// on the upstream host, and its follow-up keys a provider that declares the platform on that),
+// and the credential chain the bridge resolves lazily (Chain, credentials.go), with the
+// region variables beside it (RegionVars).
 //
 // A credential never reaches a log, an error or a panic from this package:
 // Credentials formats as a redaction, and no error string carries a key, a secret or

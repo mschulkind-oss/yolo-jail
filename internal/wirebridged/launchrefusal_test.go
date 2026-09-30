@@ -300,13 +300,33 @@ func TestShippedSubscriptionViaRefusesOnlyTheAgentItRepoints(t *testing.T) {
 	wantNone(t, "native agents' notices", joined, "(active for opencode)")
 }
 
-// TestShippedClaudeOnABridgedBedrockProfileIsDisclosed: claude prefers `anthropic`, which no via
-// route carries, and its config never points it at its via URL, so a profile over `bedrock` with a
-// via (the everything profile's shape, OQ-BR11) carries none of claude's requests, while that via
-// turns claude's own Bedrock client off (PP-D4). The launch used to say nothing, and claude started
-// on its own login. It is disclosed now, naming claude's own Bedrock switch, and never refused.
-func TestShippedClaudeOnABridgedBedrockProfileIsDisclosed(t *testing.T) {
+// TestShippedClaudeOnABridgedBedrockProfileRidesTheAdapterRoute: claude prefers `anthropic`, which
+// no via route carries, so a profile over `bedrock` with a via (the everything profile's shape,
+// OQ-BR11) reaches claude through the adapter route instead: the shipped `bedrock` names a region
+// and no address, the wire bridge's chat-completions adapter fronts its platform (from_platforms),
+// and the anthropic address it composes is claude's under the via (WG-I39). The daemon, booted from
+// the same tables, serves that route, so nothing is disclosed. Before the region-composed upstream
+// no route carried claude and the launch disclosed it (PP-D4), which the next test keeps for a
+// provider the bridge still cannot carry.
+func TestShippedClaudeOnABridgedBedrockProfileRidesTheAdapterRoute(t *testing.T) {
 	refusals, notices := shippedGate(t, "bedrock", "claude")
+	if len(refusals) != 0 || len(notices) != 0 {
+		t.Fatalf("refusals %v notices %v, want neither: the adapter route carries claude", refusals, notices)
+	}
+}
+
+// TestShippedClaudeOnAViaNoRouteCarriesIsDisclosed: a via over a provider whose anthropic address is
+// its own carries none of claude's requests, and the launch says so (PP-D4), naming claude's own
+// Bedrock switch when the provider is Bedrock, and never refusing.
+func TestShippedClaudeOnAViaNoRouteCarriesIsDisclosed(t *testing.T) {
+	packs := packload.Embedded()
+	providers, err := packload.ComposeProviders(mustProviders(t, `{"corp-bedrock":{"platform":"aws-bedrock",
+		"endpoints":{"anthropic":{"base_url":"https://bedrock-gw.corp.example/anthropic"}}}}`), packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved := map[string]packload.ResolvedProfile{"v": {Provider: "corp-bedrock", Via: ServiceName, ViaBase: gateBase}}
+	refusals, notices := ViaRouteGate(packs, providers, map[string]string{"claude": "v"}, resolved)
 	if len(refusals) != 0 || len(notices) != 1 {
 		t.Fatalf("refusals %v notices %v, want one notice", refusals, notices)
 	}
@@ -314,7 +334,7 @@ func TestShippedClaudeOnABridgedBedrockProfileIsDisclosed(t *testing.T) {
 		"no via route carries claude", `it speaks "anthropic"`,
 		"does not point it at its via URL, http://127.0.0.1:8216/agent/claude",
 		"the via sends none of claude's requests through wire-bridge",
-		`claude reaches a provider of platform "aws-bedrock", such as "bedrock", only through its own client`,
+		`claude reaches a provider of platform "aws-bedrock", such as "corp-bedrock", only through its own client`,
 		"CLAUDE_CODE_USE_BEDROCK in claude/settings", `Remove "via" from profile "v"`)
 	// On a provider of no platform the notice names no switch.
 	_, notices = shippedGate(t, "zai", "claude")
@@ -420,14 +440,15 @@ func valueAt(layer map[string]any, path []string) map[string]any {
 
 // TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan pins the shipped `bedrock-bridge`
 // profile (docs/design/bedrock-plumbing.md OQ-BR1, ruled 2026-09-29: one profile forces the wire
-// bridge) through the profile resolution a launch runs, then the launch's via gate. The profile
-// ships from packs/bedrock as {provider: bedrock, via: wire-bridge}. The bridge has no upstream
-// for a provider named by region alone yet (docs/design/wire-bridge-gateway.md §8 step 1), so
-// what each agent meets today is pinned too: claude, whose config the via re-points nothing of,
-// is disclosed and starts on its own login; codex, pi, oh-omp and opencode, whose derives point
-// the selected provider at their via URL, are refused, because no request to that prefix can
-// succeed. None of them quietly runs its own Bedrock client instead: the profile asked for the
-// bridge.
+// bridge) through the profile resolution a launch runs, then the launch's via gate and the
+// daemon's own plan over the same tables. The profile ships from packs/bedrock as
+// {provider: bedrock, via: wire-bridge}, and the provider names a region and no address, so
+// the bridge composes runtime's URL from the region (docs/design/wire-bridge-gateway.md §8 step
+// 1, WG-I39). Every agent is carried: codex, pi, oh-omp and opencode on their via routes, whose
+// one upstream is runtime's own OpenAI-compatible base, and claude on the adapter route, whose
+// anthropic address the adapter composed for the via. None is refused, none is disclosed, and
+// none quietly runs its own Bedrock client instead: the profile asked for the bridge. Before the
+// region-composed upstream, the four were refused and claude was disclosed.
 func TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan(t *testing.T) {
 	packs := packload.Embedded()
 	providers, err := packload.ComposeProviders(nil, packs)
@@ -447,21 +468,25 @@ func TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan(t *testing.T) {
 		use[a] = "bedrock-bridge"
 	}
 	refusals, notices := ViaRouteGate(packs, providers, use, resolved)
-	joined := strings.Join(notices, "\n")
-	wantAll(t, "claude notice", joined, `profile "bedrock-bridge" (active for claude)`, "no via route carries claude")
-	if len(notices) != 1 {
-		t.Errorf("notices %v, want claude's alone", notices)
+	if len(refusals) != 0 || len(notices) != 0 {
+		t.Errorf("refusals %v notices %v, want neither: the bridge carries every agent", refusals, notices)
 	}
-	var refused []string
-	for _, err := range refusals {
-		refused = append(refused, err.Error())
+	plan := planFor(providers, use, resolved)
+	if plan.adapter == nil || plan.adapter.ProviderName != "bedrock" || !plan.adapter.RegionalUpstream ||
+		!plan.adapter.RegionFromEnv || plan.adapter.UpstreamBaseURL != "" {
+		t.Errorf("adapter route %+v (idle: %s), want bedrock's, region-composed at boot from the served agent's region",
+			plan.adapter, plan.adapterWhy)
 	}
-	all := strings.Join(refused, "\n")
+	served := map[string]bool{}
+	for _, r := range plan.via.Routes {
+		served[r.Agent] = true
+		if !r.Chat.Regional || r.Chat != r.Responses || !r.Chat.RegionFromEnv {
+			t.Errorf("%s's via route %+v, want one region-composed upstream for both wires", r.Agent, r)
+		}
+	}
 	for _, agent := range []string{"codex", "pi", "oh-omp", "opencode"} {
-		wantAll(t, agent+" refusal", all, "(active for "+agent+")")
+		if !served[agent] {
+			t.Errorf("no via route for %s (skipped: %v)", agent, plan.via.Skipped)
+		}
 	}
-	if len(refusals) != 4 {
-		t.Errorf("refusals %v, want exactly codex's, pi's, oh-omp's and opencode's", refused)
-	}
-	wantAll(t, "refusal reason", all, "provider bedrock")
 }

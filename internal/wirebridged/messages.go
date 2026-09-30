@@ -63,14 +63,13 @@ const (
 )
 
 // bedrockMessagesURL is bedrock-runtime's Messages route on the host of a Bedrock upstream
-// base URL, "" for any URL the signer would not sign (bedrockSignRegion's rule), so the
-// pass-through exists exactly where the route is already a Bedrock one.
+// base URL, "" for a URL with no https host. It is asked only of a route that signs
+// (newMessagesPassthrough needs its signer), so the pass-through exists exactly where the
+// route is already a Bedrock one: at runtime's own host, or, for a provider whose platform
+// says it is Bedrock (bedrockSigning, WG-I37), at the host its address names.
 func bedrockMessagesURL(upstreamBaseURL string) string {
-	if bedrockSignRegion(upstreamBaseURL) == "" {
-		return ""
-	}
 	u, err := url.Parse(upstreamBaseURL)
-	if err != nil {
+	if err != nil || u.Scheme != "https" || u.Host == "" {
 		return ""
 	}
 	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: bedrockMessagesPath}).String()
@@ -156,8 +155,8 @@ type messagesPassthrough struct {
 }
 
 // newMessagesPassthrough is the pass-through for a Bedrock upstream whose list declares at
-// least one Anthropic id, or nil: no Anthropic id, or an upstream that is not bedrock-runtime,
-// leaves the route translating every request, as it did before Part 2.
+// least one Anthropic id, or nil: no Anthropic id, or a route with no signer (one that is not
+// Bedrock's), leaves the route translating every request, as it did before Part 2.
 func newMessagesPassthrough(upstreamBaseURL string, models map[string]bool, signer *bedrockSigner) *messagesPassthrough {
 	u := bedrockMessagesURL(upstreamBaseURL)
 	if u == "" || len(models) == 0 || signer == nil {

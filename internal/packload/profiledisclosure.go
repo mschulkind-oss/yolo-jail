@@ -186,7 +186,9 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 			"for %s, so it reaches nothing for %s: give the profile a `provider`", quoted, agent, agent))
 		return r
 	}
-	entry := providerEntry(in.Providers, r.Provider)
+	// The provider as this profile sees it: an address composed for a via profile
+	// (ForViaKey) is none for a profile that routes through no such via.
+	entry := EndpointsForProfile(providerEntry(in.Providers, r.Provider), in.Resolved[profile].Via)
 	if entry == nil {
 		r.Warnings = append(r.Warnings, fmt.Sprintf("Warning: profile %s selects provider %q for "+
 			"%s, and this launch's provider table does not hold it, so it reaches nothing for %s: "+

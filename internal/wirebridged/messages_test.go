@@ -931,8 +931,24 @@ func TestOnlyABedrockRouteCarriesAnthropicModels(t *testing.T) {
 			t.Errorf("%s: carries the Anthropic model = %v, want %v", upstream, got, want)
 		}
 	}
-	if newMessagesPassthrough("https://api.cerebras.ai/v1", map[string]bool{opusID: true},
-		&bedrockSigner{chain: &sigv4.Chain{}}) != nil {
-		t.Errorf("a non-Bedrock upstream got a Messages pass-through")
+	if newMessagesPassthrough(bedrockBase, map[string]bool{opusID: true}, nil) != nil {
+		t.Errorf("a route with no signer got a Messages pass-through")
+	}
+	// A PROVIDER WHOSE PLATFORM SAYS BEDROCK is one at any https address (WG-I37): its Messages
+	// route is composed on the host its own address names, a FIPS endpoint here.
+	const fips = "https://bedrock-runtime-fips.us-east-1.amazonaws.com/openai/v1"
+	providers := fmt.Sprintf(`{"b":{"platform":"aws-bedrock","region":"us-east-1","endpoints":{
+		"anthropic":{"base_url":"http://127.0.0.1:8214","wire_api":"anthropic"},
+		"openai":{"base_url":%q,"wire_api":"openai-chat-completions"}},
+		"models":{"o":%q},"model_options":{"o":{"vendor":"anthropic"}}}}`, fips, opusID)
+	r, idle := resolveRoute(entrypoint.NewEnv(map[string]string{
+		"YOLO_PROVIDERS": providers, "YOLO_PROFILES": `{"bp":{"provider":"b"}}`, "YOLO_USE_PROFILES": `{"claude":"bp"}`,
+	}))
+	if idle != "" || r.SignRegion != "us-east-1" || !r.AnthropicModels[opusID] {
+		t.Fatalf("the Bedrock-platform route at a FIPS host: %+v (idle %q), want it signed and carrying opus", r, idle)
+	}
+	m := newMessagesPassthrough(r.UpstreamBaseURL, r.AnthropicModels, &bedrockSigner{chain: &sigv4.Chain{}})
+	if m == nil || m.url != "https://bedrock-runtime-fips.us-east-1.amazonaws.com/anthropic/v1/messages" {
+		t.Errorf("the pass-through on a FIPS host = %+v, want its Messages route on that host", m)
 	}
 }

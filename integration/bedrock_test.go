@@ -103,25 +103,37 @@ func TestBedrockRendersEachAgentsOwnClient(t *testing.T) {
 	})
 }
 
-// THE SHIPPED bedrock-bridge PROFILE, at a real launch: pi on it is refused before the jail starts,
-// because the wire bridge has no upstream for a provider named by region alone
-// (docs/design/bedrock-plumbing.md BR-D16), and the refusal names the profile and its way out.
-func TestBedrockBridgeRefusesAnAgentTheBridgeCannotCarry(t *testing.T) {
+// THE SHIPPED bedrock-bridge PROFILE, at a real launch: pi on it starts, and the wire bridge
+// carries pi's requests to bedrock-runtime's own URL, composed from the provider's region, since
+// the provider names no address (docs/design/wire-bridge-gateway.md §8 step 1, WG-I39). Before
+// that build this launch was refused. No request leaves the jail: no AWS credential is delivered,
+// so pi's route answers with a 503 that names the upstream it composed and the credential
+// sources it needs, which shows the composed URL without calling AWS.
+func TestBedrockBridgeCarriesPiToRuntimeInItsRegion(t *testing.T) {
 	requireJail(t)
 
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["pi"], "providers": {"bedrock": {"region": "us-east-1"}}}`)
 
-	r := runCommand(t, dir, append(jailRunArgs(), "-p", "bedrock-bridge", "--", "true"))
-	if r.rc == 0 {
-		t.Fatalf("-p bedrock-bridge -- pi must be refused while the bridge cannot reach Bedrock:\n%s", r.combined())
+	script := `set -u
+code=$(curl -sS -o /workspace/bedrock-bridge-pi.json -w '%{http_code}' \
+  http://127.0.0.1:8216/agent/pi/chat/completions -H 'content-type: application/json' \
+  -H "authorization: Bearer $YOLO_SERVICE_WIRE_BRIDGE_TOKEN" -d '{"model":"m","messages":[]}')
+echo "CODE=$code"`
+	r := runCommand(t, dir, append(jailRunArgs(), "-p", "bedrock-bridge", "--", "bash", "-lc", script))
+	if r.rc != 0 {
+		t.Fatalf("-p bedrock-bridge -- pi must start now that the bridge composes Bedrock's URL:\n%s", r.combined())
 	}
-	for _, want := range []string{`profile "bedrock-bridge" (active for pi)`,
-		"provider bedrock (via for pi) declares no chat-completions or Responses endpoint",
-		`remove "via" from profile "bedrock-bridge"`} {
-		if !strings.Contains(r.combined(), want) {
-			t.Errorf("the refusal must say %q:\n%s", want, r.combined())
-		}
+	if strings.Contains(r.combined(), `remove "via" from profile "bedrock-bridge"`) {
+		t.Errorf("the launch still names the via as a problem:\n%s", r.combined())
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "bedrock-bridge-pi.json"))
+	if err != nil {
+		t.Fatalf("pi's request to its via route wrote nothing (%v):\n%s", err, r.combined())
+	}
+	if !strings.Contains(r.stdout, "CODE=503") ||
+		!strings.Contains(string(body), "goes to Bedrock (https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1)") {
+		t.Errorf("pi's via route must answer 503 naming runtime's URL composed from us-east-1: %s\n%s", body, r.combined())
 	}
 }
 

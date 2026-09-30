@@ -46,3 +46,24 @@ func TestAgentCoreGatewayRegion(t *testing.T) {
 		}
 	}
 }
+
+// TestARegionIsARegionAndComposesRuntimesHost pins the one check that stands between a region
+// the bridge reads from the environment and the host it dials: only a region's shape composes
+// a host, so a value holding a hostname, a path, a port or a query names nothing.
+func TestARegionIsARegionAndComposesRuntimesHost(t *testing.T) {
+	for _, region := range []string{"us-east-1", "eu-central-1", "us-gov-west-1", "ap-southeast-2", "cn-north-1"} {
+		host := BedrockRuntimeHost(region)
+		if got, ok := BedrockRuntimeRegion(host); !ok || got != region {
+			t.Errorf("BedrockRuntimeHost(%q) = %q, which BedrockRuntimeRegion reads as %q, %v", region, host, got, ok)
+		}
+	}
+	for _, bad := range []string{"", "US-EAST-1", "us-east", "useast1", "us-east-1.evil.example", "evil.example/",
+		"us-east-1:443", "us-east-1/x", "us-east-1?x", " us-east-1", "us-east-1\n", "bedrock-runtime.us-east-1.amazonaws.com"} {
+		if ValidRegion(bad) || BedrockRuntimeHost(bad) != "" {
+			t.Errorf("%q passed as a region (host %q)", bad, BedrockRuntimeHost(bad))
+		}
+	}
+	if len(RegionVars) != 2 || RegionVars[0] != "AWS_REGION" || RegionVars[1] != "AWS_DEFAULT_REGION" {
+		t.Errorf("RegionVars = %v, want the SDK's order, AWS_REGION then AWS_DEFAULT_REGION", RegionVars)
+	}
+}

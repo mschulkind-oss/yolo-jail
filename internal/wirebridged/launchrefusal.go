@@ -136,11 +136,11 @@ func ViaRouteGate(packs []*packload.Pack, providers *jsonx.OrderedMap,
 		missing := ""
 		switch wire {
 		case wireAPIChatCompletions:
-			if route.Chat.BaseURL == "" {
+			if !route.Chat.served() {
 				missing = "chat-completions"
 			}
 		case wireAPIResponses:
-			if route.Responses.BaseURL == "" {
+			if !route.Responses.served() {
 				missing = "Responses"
 			}
 		}
@@ -182,6 +182,14 @@ func unroutedViaNotice(packs []*packload.Pack, providers *jsonx.OrderedMap, useP
 	if alone := viaRoutesFor(providers, map[string]string{agent: profile}, resolved); len(alone.Routes) == 0 &&
 		len(alone.Skipped) == 0 {
 		return "" // not a via route of this service at all
+	}
+	// THE ADAPTER ROUTE CARRIES IT: the provider's anthropic endpoint is this service's, and the
+	// daemon, booted from these same tables, serves a route there for this agent's profile —
+	// claude's everything profile over a Bedrock provider named by region alone (WG-I39), whose
+	// anthropic address the adapter composed for a via profile. The via does send the agent's
+	// requests through the service, so there is nothing to disclose.
+	if _, why := routeFor(providers, map[string]string{agent: profile}, resolved); why == "" {
+		return ""
 	}
 	pointers, err := packload.DerivedViaPointers(packs, providers, useProfiles, resolved, agent)
 	if err != nil || len(pointers) > 0 {

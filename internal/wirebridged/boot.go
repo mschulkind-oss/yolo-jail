@@ -285,10 +285,17 @@ func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, strin
 		return NewCodexResponsesHandler(route.UpstreamBaseURL, endpoint),
 			"OpenAI credential service access-token views", ""
 	}
-	if route.SignRegion != "" {
-		// A Bedrock upstream: the credential chain is snapshotted from the key channel
-		// now and resolved lazily per request (signing.go). A jail with no source at
-		// all idles, as a missing key does: the bridge never serves unauthenticated.
+	if route.bedrock() {
+		// A Bedrock upstream: the region, when the tables did not give it, and the credential
+		// chain are read from the served agent's key channel now, and the chain is resolved
+		// lazily per request (signing.go). A jail with no region or no source at all idles, as
+		// a missing key does: the bridge never serves unauthenticated, nor signs for a region
+		// nobody chose.
+		route, why := route.resolveRegion(func(name string) (string, string) { return keyFor(e, name, route.Agent) },
+			keySources(e, route.Agent))
+		if why != "" {
+			return nil, "", why
+		}
 		env := sigv4.EnvFrom(func(name string) string {
 			v, _ := keyFor(e, name, route.Agent)
 			return v
@@ -302,7 +309,7 @@ func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, strin
 		h := newSignedChatHandler(route.UpstreamBaseURL,
 			wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage},
 			&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}}, route.AnthropicModels)
-		return h, "SigV4 for bedrock in " + route.SignRegion + ", from " + env.String(), ""
+		return h, signingDescription(route.SignRegion, route.RegionSource) + ", from " + env.String(), ""
 	}
 	key, keySource := keyFor(e, route.KeyEnvName, route.Agent)
 	if key == "" && route.KeyEnvName != "" {
@@ -345,15 +352,19 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 	var ls []*listener
 	var serving []string
 	if p.adapter != nil {
-		route := *p.adapter
+		// The region first, when it is the served agent's (WG-I38), so the serve line names the
+		// upstream the route dials and not an address still to be composed.
+		route, _ := p.adapter.resolveRegion(func(name string) (string, string) {
+			return keyFor(e, name, p.adapter.Agent)
+		}, keySources(e, p.adapter.Agent))
 		handler, keySource, why := adapterHandler(route, e)
 		switch {
 		case why != "" && len(p.via.Routes) == 0:
 			logf("idling: %s", why)
 			if route.CodexAccessToken {
 				signalNotReady(ServiceName, "Codex upstream credential endpoint is unavailable")
-			} else if route.SignRegion != "" {
-				signalNotReady(ServiceName, "Bedrock upstream has no credential source")
+			} else if route.bedrock() {
+				signalNotReady(ServiceName, "Bedrock upstream cannot be served: "+why)
 			} else {
 				signalNotReady(ServiceName, "provider credential is unavailable")
 			}
@@ -632,11 +643,22 @@ type route struct {
 	// by the same rule: only the JSON spelling "false" turns it off, and an
 	// absent or unrecognized value keeps the default, which asks for usage.
 	OmitStreamUsage bool
-	// SignRegion is set when the upstream's host is bedrock-runtime.<region>.amazonaws.com
-	// (sigv4.BedrockRuntimeRegion): the route signs every request with SigV4 for that
-	// region instead of carrying a bearer key (signing.go; OQ-WG1 keys the decision on
-	// the host). Empty for every other upstream.
+	// SignRegion is the region the route signs every request for with SigV4, instead of
+	// carrying a bearer key (signing.go), when bedrockSigning says the upstream is Bedrock's
+	// (WG-I37): the runtime host's region, else the provider's own `region`, else, once the
+	// boot has read it (resolveRegion), the served agent's. Empty for every other upstream.
 	SignRegion string
+	// RegionFromEnv is set for a Bedrock route whose region the tables do not give: the boot
+	// reads it from the served agent's key channel (envRegion, WG-I38) and fills SignRegion,
+	// or idles saying there is none.
+	RegionFromEnv bool
+	// RegionalUpstream is set when the provider names no OpenAI address and the upstream is
+	// bedrock-runtime's own, composed from the region (regionalBedrock, WG-I39):
+	// UpstreamBaseURL is runtime's /openai/v1 in SignRegion, filled at boot when the region
+	// is the served agent's.
+	RegionalUpstream bool
+	// RegionSource is where the boot read an environment region from, for the serve line.
+	RegionSource string
 	// AnthropicModels is, for a Bedrock upstream (SignRegion set), every model id the
 	// provider's list declares vendor "anthropic" for (anthropicModelIDs): a request for one
 	// goes untranslated to runtime's own Anthropic Messages route (messages.go;
@@ -648,13 +670,17 @@ type route struct {
 	VendorConflicts []string
 }
 
+// bedrock reports whether the route signs for Bedrock: its region is known, or the boot reads
+// it (RegionFromEnv).
+func (r route) bedrock() bool { return r.SignRegion != "" || r.RegionFromEnv }
+
 // streamUsageOption is the provider option that states whether an upstream
 // accepts stream_options.include_usage (packs/llamacpp/README.md, "The compat
 // facts").
 const streamUsageOption = "supports_usage_in_streaming"
 
 func credentialDescription(route route, source string) string {
-	if route.CodexAccessToken || route.SignRegion != "" {
+	if route.CodexAccessToken || route.bedrock() {
 		return source
 	}
 	if route.KeyEnvName == "" {
@@ -887,31 +913,60 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 			continue
 		}
 
-		openaiURL := endpointBaseURL(entry, "openai")
-		if openaiURL == "" {
-			// A provider ROUTED AT the bridge with no upstream is a broken route,
-			// not a skipped candidate: report it the moment it is seen.
-			return route{}, "provider " + providerName +
-				" declares no openai endpoint — the bridge has no upstream to serve (wire-bridge.md §3.4)"
-		}
-		if wireAPI := endpointField(entry, "openai", "wire_api"); wireAPI != "" && wireAPI != "openai-chat-completions" {
-			return route{}, "provider " + providerName + "'s openai endpoint speaks wire_api " + wireAPI +
-				" — the bridge translates exactly anthropic ↔ openai-chat-completions (wire-bridge.md WB-D1)"
+		// AN ADDRESS COMPOSED FOR A VIA PROFILE (packload.ForViaKey, WG-I39) is the bridge's for an
+		// agent whose profile routes through this service, and nobody else's: the provider names
+		// no address of its own, and every other profile keeps an agent on its own client (claude
+		// on `-p bedrock`). Serving it for such a candidate would stand up a route nobody sends to,
+		// and one that must still find a credential and a region the agent's own client may take
+		// from somewhere the bridge does not read.
+		if forViaEndpoint(entry, "anthropic") && resolved[profileName].Via != ServiceName {
+			skip = "provider " + providerName + "'s anthropic endpoint is the bridge's for a profile " +
+				"that routes through " + ServiceName + " (via), and " + agent + "'s profile " + profileName +
+				" does not, so " + agent + " uses its own client"
+			continue
 		}
 
 		rt := route{
-			Agent:           agent,
-			ProviderName:    providerName,
-			ListenAddr:      listenAddr,
-			UpstreamBaseURL: openaiURL,
+			Agent:        agent,
+			ProviderName: providerName,
+			ListenAddr:   listenAddr,
 			// The ONE variable the provider points at (packload.KeyEnvName): a provider
 			// listing several credential variables (OQ-CN1) points at none, and a Bedrock
 			// upstream signs from the AWS names instead (SignRegion).
 			KeyEnvName:      packload.KeyEnvName(entry),
 			OmitStreamUsage: resolved[profileName].Options[streamUsageOption] == "false",
-			SignRegion:      bedrockSignRegion(openaiURL),
 		}
-		if rt.SignRegion != "" {
+		openaiURL := endpointBaseURL(entry, "openai")
+		switch {
+		case openaiURL == "" && regionalBedrock(entry):
+			// A BEDROCK PROVIDER NAMED BY REGION ALONE (WG-I39): the upstream is runtime's own
+			// OpenAI-compatible route, composed from the provider's region or, at boot, the
+			// served agent's (§2.1: "never shipped as a literal. A pack cannot know the region").
+			sign := entryRegionSigning(entry)
+			if sign.Refusal != "" {
+				return route{}, "provider " + providerName + " is Bedrock and names no address, and " + sign.Refusal
+			}
+			rt.RegionalUpstream, rt.SignRegion, rt.RegionFromEnv = true, sign.Region, sign.FromEnv
+			if sign.Region != "" {
+				rt.UpstreamBaseURL = runtimeBaseURL(sign.Region)
+			}
+		case openaiURL == "":
+			// A provider ROUTED AT the bridge with no upstream is a broken route,
+			// not a skipped candidate: report it the moment it is seen.
+			return route{}, "provider " + providerName +
+				" declares no openai endpoint — the bridge has no upstream to serve (wire-bridge.md §3.4)"
+		default:
+			if wireAPI := endpointField(entry, "openai", "wire_api"); wireAPI != "" && wireAPI != "openai-chat-completions" {
+				return route{}, "provider " + providerName + "'s openai endpoint speaks wire_api " + wireAPI +
+					" — the bridge translates exactly anthropic ↔ openai-chat-completions (wire-bridge.md WB-D1)"
+			}
+			sign := bedrockSigning(entry, openaiURL)
+			if sign.Refusal != "" {
+				return route{}, "provider " + providerName + "'s openai endpoint cannot be signed: " + sign.Refusal
+			}
+			rt.UpstreamBaseURL, rt.SignRegion, rt.RegionFromEnv = openaiURL, sign.Region, sign.FromEnv
+		}
+		if rt.bedrock() {
 			// Part 2 (wire-bridge-gateway.md §3): on a Bedrock upstream the provider's own list
 			// says which models are Anthropic's, and those skip translation. Read from the same
 			// composed entry as the upstream, so the launcher's WillServe and this boot read one

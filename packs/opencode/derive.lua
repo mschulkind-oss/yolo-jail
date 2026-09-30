@@ -156,8 +156,8 @@ end
 -- list opencode can call (every maker's: its client drives Converse, which serves each shipped
 -- entry), each with its name and limits. Only the active set's Bedrock entry
 -- (opencodeNativeBedrockEntry below), and only on opencode's own transport: a via profile
--- (`bedrock-bridge`) gets the ordinary via row instead, which the launch refuses while the bridge
--- has no upstream for a provider named by region alone.
+-- (`bedrock-bridge`) gets the ordinary via row instead, whose upstream the bridge composes from
+-- the region (docs/design/wire-bridge-gateway.md WG-I39).
 local opencodeBedrockProvider = "amazon-bedrock"
 
 local function opencodeNativeBedrock(ctx)

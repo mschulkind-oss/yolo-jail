@@ -842,6 +842,10 @@ func TestBridgedRoutesAreMarked(t *testing.T) {
 		for _, prov := range providers {
 			v, _ := composed.Get(prov.Name)
 			entry, _ := v.(*jsonx.OrderedMap)
+			// The provider as profile "mine" sees it: that profile routes through no via, so an
+			// address the adapter composed for a via profile (bedrock's anthropic one,
+			// packload.ForViaKey) is none of this route's.
+			entry = packload.EndpointsForProfile(entry, "")
 			res, err := packload.ResolveProtocol(agent.bin, spoken, prov.Name, entry, nil)
 			if err != nil {
 				continue // the agent cannot use this provider at all: nothing to mark

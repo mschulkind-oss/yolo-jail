@@ -62,7 +62,22 @@ type Adaptation struct {
 	// contribution is the only thing that tells the three apart"). A notch that runs no pack
 	// service cannot serve the first kind (ServiceAdaptations).
 	Service string
+	// FromPlatforms are the provider platforms whose providers this adaptation fronts though
+	// they name no From endpoint (packdecl.AdapterPair.FromPlatforms): Service reaches such a
+	// provider itself, and the address it gets is marked ForViaKey (adaptEndpoints).
+	FromPlatforms []string
 }
+
+// ForViaKey is the key adaptEndpoints writes on an endpoint it composes for a provider that
+// names no From address of its own, through an adaptation's FromPlatforms, with the name of
+// the service that serves it (docs/design/wire-bridge-gateway.md WG-I39). Its meaning: an agent
+// is sent to this address only under a profile that routes through that service (a `via`
+// naming its pack), because an agent with its own client for the provider's platform uses that
+// client on every other profile. So the address never makes a pairing unspeakable
+// (ResolveProtocol), it is no endpoint at all for a profile without that via
+// (EndpointsForProfile), and the service serves it only for such a profile. A derive reads it
+// off the endpoint as `for_via` (packs/copilot/derive.lua).
+const ForViaKey = "for_via"
 
 // AdapterKey is the SOLE-OWNED IDENTITY of an adaptation, spelled as one string: the pair,
 // and nothing about the pack that declared it.
@@ -357,7 +372,7 @@ func Adaptations(packs []*Pack) []Adaptation {
 				continue
 			}
 			all = append(all, Adaptation{Pack: p.Name, From: a.From, To: a.To, Address: a.Address,
-				Service: service})
+				Service: service, FromPlatforms: a.FromPlatforms})
 		}
 	}
 	holds := laterWins(len(all), func(i int) string { return AdapterKey(all[i].From, all[i].To) })
@@ -431,6 +446,20 @@ func ResolveProtocol(agent string, spoken []string, providerName string,
 		if offered[p] {
 			return ProtocolResolution{Protocol: p, Direct: true}, nil
 		}
+	}
+	// AN ADDRESS COMPOSED FOR A VIA PROFILE REPOINTS NOTHING for an agent that cannot speak it
+	// (ForViaKey, docs/design/wire-bridge-gateway.md WG-I39): the provider names no endpoint of
+	// its own, so an agent with its own client for the provider's platform is exactly as it
+	// was with none, and codex on `-p bedrock` beside claude is not refused over an anthropic
+	// address only claude's everything profile uses.
+	own := false
+	for p := range offered {
+		if forViaService(entry, p) == "" {
+			own = true
+		}
+	}
+	if !own {
+		return ProtocolResolution{}, nil
 	}
 	return ProtocolResolution{}, unspeakableProvider(agent, spoken, providerName, offered, elsewhere)
 }

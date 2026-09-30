@@ -2,6 +2,7 @@ package run
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -99,9 +100,9 @@ func TestClaudeOnBedrockStartsOnlyOnAnAnthropicModel(t *testing.T) {
 //     under the native profile no ANTHROPIC_BASE_URL (and no bridge caller token) is written;
 //   - a tier alias the user names on the provider is held to the makers claude can call, so a
 //     `sonnet` naming an OpenAI id leaves that tier on the pinned Anthropic model;
-//   - a profile routed through the bridge, on a provider with no anthropic endpoint to carry
-//     claude, runs claude on its own login, so the profile's model (an OpenAI id here) is not
-//     handed to it.
+//   - a profile routed through the bridge, on a provider named by region alone, routes claude at
+//     the bridge's adapter route, whose address the launch composed for the via, with the
+//     profile's model (an OpenAI id here) on every tier, and never its own Bedrock client.
 func TestClaudeOnBedrockTakesNothingItsOwnClientCannotUse(t *testing.T) {
 	const opus = "global.anthropic.claude-opus-5-5"
 	const sol = "us.openai.gpt-6.1-sol"
@@ -144,11 +145,24 @@ func TestClaudeOnBedrockTakesNothingItsOwnClientCannotUse(t *testing.T) {
 		}
 	})
 
-	t.Run("a bridged profile's model is not handed to claude on its own login", func(t *testing.T) {
+	// THE EVERYTHING PROFILE ON A PROVIDER NAMED BY REGION ALONE (docs/design/wire-bridge-gateway.md
+	// WG-I39): the wire bridge's chat-completions adapter fronts the aws-bedrock platform, so the
+	// launch composes the bridge's anthropic address onto `bedrock` for the via, and claude is
+	// routed at it with the bridge's caller token, every tier on the profile's model (an OpenAI id,
+	// which the bridge translates), and never its own Bedrock client. Before the region-composed
+	// upstream no address carried claude, and it ran on its own login with none of these.
+	t.Run("a bridged profile routes claude at the bridge's adapter route", func(t *testing.T) {
 		la := assembleWithPacksAssembled(t, bedrockRegionOnly(nil), packs,
 			withProfile(`{"bedrock": {"provider": "bedrock", "via": "wire-bridge", "model": "`+sol+`"}}`))
-		if got := la.channelEnv(t, claudeModelKeys...); len(got) != 0 {
-			t.Errorf("claude on its own login was handed a Bedrock model: %q", got)
+		if got := la.channelEnv(t, "ANTHROPIC_BASE_URL"); !slices.Equal(got, []string{"ANTHROPIC_BASE_URL=http://127.0.0.1:8214"}) {
+			t.Errorf("claude on the everything profile is not routed at the adapter address: %q", got)
+		}
+		if got := la.channelEnv(t, "ANTHROPIC_AUTH_TOKEN"); len(got) != 1 || got[0] == "ANTHROPIC_AUTH_TOKEN=" {
+			t.Errorf("claude on the everything profile sends no caller token: %q", got)
+		}
+		got := la.channelEnv(t, "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL")
+		if len(got) != 3 || slices.ContainsFunc(got, func(s string) bool { return !strings.HasSuffix(s, "="+sol) }) {
+			t.Errorf("claude's tiers on the everything profile = %q, want each pinned to the profile's %s", got, sol)
 		}
 		if sw := la.channelEnv(t, "CLAUDE_CODE_USE_BEDROCK"); len(sw) != 0 {
 			t.Errorf("a bridged profile must not switch claude to its own Bedrock client: %q", sw)

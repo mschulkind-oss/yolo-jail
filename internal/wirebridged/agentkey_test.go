@@ -66,7 +66,7 @@ func TestAViaRouteReadsItsAgentsOwnKey(t *testing.T) {
 	t.Setenv("ZAI_API_KEY", "")
 	writeAgentKey(t, home, "pi", "export ZAI_API_KEY=${ZAI_API_KEY:-'from-pi'}")
 	rt := viaRoute{Agent: "pi", ProviderName: "zai", KeyEnvName: "ZAI_API_KEY"}
-	up := newViaUpstream("https://api.z.ai/api/paas/v4")
+	up, _ := newViaUpstream(nil, "https://api.z.ai/api/paas/v4")
 	if h, line := viaUpstreamHandler(rt, up, home); isIdleVia(h) {
 		t.Errorf("the via route for pi idled although pi's own file holds its key: %s", line)
 	}
@@ -96,7 +96,7 @@ func TestABedrockRouteSignsWithTheServedAgentsOwnPair(t *testing.T) {
 		"export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-'secret-claude'}"
 	adapter := route{Agent: "claude", ProviderName: "bedrock", UpstreamBaseURL: upstream, SignRegion: "us-east-1"}
 	via := viaRoute{Agent: "claude", ProviderName: "bedrock"}
-	up := newViaUpstream(upstream)
+	up, _ := newViaUpstream(nil, upstream)
 	if up.SignRegion == "" {
 		t.Fatalf("fixture: %s must read as a Bedrock host", upstream)
 	}

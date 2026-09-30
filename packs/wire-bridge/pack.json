@@ -3,6 +3,9 @@
     {
       "adapts": {
         "from": "openai",
+        "from_platforms": [
+          "aws-bedrock"
+        ],
         "to": "anthropic"
       },
       "address": "http://127.0.0.1:8214",

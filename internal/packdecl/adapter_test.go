@@ -116,7 +116,7 @@ func TestAdaptersAccessor(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("Adapters() = %#v, want two", got)
 	}
-	if got[0] != (AdapterContribution{From: "openai", To: "anthropic", Address: "http://127.0.0.1:1"}) {
+	if g := got[0]; g.From != "openai" || g.To != "anthropic" || g.Address != "http://127.0.0.1:1" || g.FromPlatforms != nil {
 		t.Errorf("Adapters()[0] = %#v", got[0])
 	}
 	if got[1].From != "openai-responses" || got[1].Address != "http://127.0.0.1:2" {

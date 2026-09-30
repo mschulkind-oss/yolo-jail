@@ -251,11 +251,13 @@ end
 --   - THE TRANSPORT IS CLAUDE'S OWN: its profile routes through no via service
 --     (ctx.via_url, the wire bridge). The everything profile reaches the same provider through
 --     the bridge (OQ-BR11, OQ-BR1's `bedrock-bridge`), so it must NOT turn claude's native client
---     on; aws-auth's credential pointer still reaches it, keyed on the platform alone. ⚠ No via
---     route carries claude yet (it speaks anthropic, the via route the OpenAI wires, and the
---     bridge has no Bedrock upstream for claude), so today such a profile leaves claude on its
---     own login with a pointer nothing uses; the launch's via-route gate says so
---     (wirebridged.unroutedViaNotice). This split is the shape the bridged route will need.
+--     on; aws-auth's credential pointer still reaches it, keyed on the platform alone. claude is
+--     then routed at the provider's anthropic endpoint (routedProvider below), which for the
+--     shipped `bedrock`, named by region alone, is the wire bridge's adapter address, composed
+--     for the via (docs/design/wire-bridge-gateway.md WG-I39); the bridge reaches runtime in the
+--     region claude was handed. A Bedrock provider whose anthropic address is its own carries
+--     none of claude's requests through the bridge, and the launch's via-route gate says so
+--     (wirebridged.unroutedViaNotice).
 local function nativeBedrock(ctx)
   return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
 end

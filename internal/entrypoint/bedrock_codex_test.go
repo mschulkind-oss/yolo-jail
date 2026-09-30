@@ -69,8 +69,8 @@ func TestCodexOnBedrockUsesItsOwnRuntimeClient(t *testing.T) {
 // A PROFILE FORCING THE WIRE BRIDGE puts codex on its via route, never on its own client: the row
 // speaks Responses at codex's via URL with the bridge's caller token, although the provider names
 // no endpoint, because the bridge is what reaches Bedrock there. Running codex natively instead
-// would ignore the profile. (While the bridge has no upstream for a provider named by region
-// alone, the launch refuses this row: wirebridged's TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan.)
+// would ignore the profile. (The bridge composes that route's upstream from the region, and serves
+// it: wirebridged's TestTheShippedBedrockBridgeProfileMeetsEachAgentAsItCan.)
 func TestCodexOnABridgedBedrockProfileRidesItsViaRoute(t *testing.T) {
 	providersJSON, wire := bedrockTables(t, "codex", `{"bedrock":{"region":"us-east-1"}}`, bedrockViaProfile, "wire-bridge")
 	cfg := renderCodexConfig(t, providersJSON, `{"codex":"over-bridge"}`, wire)

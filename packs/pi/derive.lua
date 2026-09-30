@@ -551,8 +551,8 @@ end
 --
 -- The models are every entry of the list (Converse serves each shipped maker's), the session
 -- starts on the list's first or the one a profile names, and only the selected provider, on pi's
--- own transport, is bound: a via profile (`bedrock-bridge`) gets the ordinary via row, which the
--- launch refuses while the bridge has no upstream for a provider named by region alone.
+-- own transport, is bound: a via profile (`bedrock-bridge`) gets the ordinary via row, whose
+-- upstream the bridge composes from the region (docs/design/wire-bridge-gateway.md WG-I39).
 local piBedrockProvider = "amazon-bedrock"
 
 local function piNativeBedrock(ctx)

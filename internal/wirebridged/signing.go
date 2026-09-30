@@ -1,12 +1,11 @@
 package wirebridged
 
 // signing.go is the bridge's Bedrock arm (docs/design/wire-bridge-gateway.md, Part 1):
-// an upstream whose host is bedrock-runtime.<region>.amazonaws.com gets every request
-// signed with SigV4 (internal/sigv4) instead of carrying the boot-read bearer key. The
-// decision keys on the upstream HOST (OQ-WG1, ruled 2026-09-25) and nothing else, so a
-// provider pointed anywhere else is never signed, and a Bedrock provider reached at an
-// address the pattern does not name (a FIPS or VPC endpoint) is sent unsigned and
-// fails with AWS's own error until OQ-BR2's marker lets the signer key on the provider.
+// an upstream the provider row says is Bedrock gets every request signed with SigV4
+// (internal/sigv4) instead of carrying the boot-read bearer key. WHICH upstream that is,
+// and for which region, is bedrockroute.go's decision (bedrockSigning, WG-I37 and WG-I38):
+// the provider's `platform` marker first, the runtime host for a provider that declares
+// no Bedrock platform.
 //
 // The credential is resolved LAZILY, on the first request, because aws-auth's adapter
 // may come up after the bridge; the chain (static key pair, the aws-auth pointer,
@@ -36,7 +35,8 @@ type bedrockSigner struct {
 
 // bedrockSignRegion is the region to sign for when the upstream base URL's host is
 // bedrock-runtime.<region>.amazonaws.com, "" otherwise (and for any URL that does not
-// parse, which is then never signed).
+// parse, which is then never signed): the host rule, which decides alone for a provider
+// that declares no Bedrock platform (bedrockSigning).
 func bedrockSignRegion(upstreamBaseURL string) string {
 	u, err := url.Parse(upstreamBaseURL)
 	if err != nil || u.Scheme != "https" {

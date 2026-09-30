@@ -319,8 +319,9 @@ end
 -- does, speaking Responses at its via URL (codexViaBedrock), which runtime serves for OpenAI's
 -- models. It is written even though the provider names no endpoint, because the bridge, not
 -- codex, is the one that reaches Bedrock on that route, and it never quietly runs codex
--- natively instead. While the bridge has no upstream for a provider named by region alone, the
--- launch refuses that row as a prefix nothing serves (docs/design/wire-bridge-gateway.md WG-I13).
+-- natively instead. The bridge composes that route's upstream from the region, runtime's own
+-- /openai/v1, which codex's Responses reach at /responses (docs/design/wire-bridge-gateway.md
+-- WG-I39).
 -- codex has one built-in Bedrock provider, so a second Bedrock provider in the table gets no
 -- native row of its own: two rows cannot share one built-in id.
 local codexBedrockProvider = "amazon-bedrock-runtime"

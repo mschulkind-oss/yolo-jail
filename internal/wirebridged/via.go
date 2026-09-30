@@ -57,18 +57,45 @@ type viaRoute struct {
 	Responses viaUpstream
 }
 
-// viaUpstream is one upstream base URL and, for an exact bedrock-runtime host, the
-// region its requests are signed for (sigv4.BedrockRuntimeRegion; "" means a bearer).
+// viaUpstream is one upstream base URL and, for a Bedrock one (bedrockSigning, WG-I37), the
+// region its requests are signed for ("" and no RegionFromEnv means a bearer).
 type viaUpstream struct {
 	BaseURL    string
 	SignRegion string
+	// RegionFromEnv: the upstream is Bedrock's and its region is the served agent's, read at
+	// boot from the key channel (envRegion, WG-I38).
+	RegionFromEnv bool
+	// Regional: the provider names no address and the upstream is bedrock-runtime's own
+	// OpenAI-compatible base in the region (regionalBedrock, WG-I39), so BaseURL is empty until
+	// the boot knows the region when that is the served agent's.
+	Regional bool
 }
 
-func newViaUpstream(base string) viaUpstream {
+// served reports whether the route has this upstream at all.
+func (u viaUpstream) served() bool { return u.BaseURL != "" || u.Regional }
+
+// bedrock reports whether the upstream is signed for Bedrock.
+func (u viaUpstream) bedrock() bool { return u.SignRegion != "" || u.RegionFromEnv }
+
+// newViaUpstream is provider entry's upstream at base: signed when bedrockSigning says so, with
+// why when the provider says it is Bedrock and cannot be signed there.
+func newViaUpstream(entry *jsonx.OrderedMap, base string) (viaUpstream, string) {
 	if base == "" {
-		return viaUpstream{}
+		return viaUpstream{}, ""
 	}
-	return viaUpstream{BaseURL: base, SignRegion: bedrockSignRegion(base)}
+	sign := bedrockSigning(entry, base)
+	return viaUpstream{BaseURL: base, SignRegion: sign.Region, RegionFromEnv: sign.FromEnv}, sign.Refusal
+}
+
+// regionalViaUpstream is a region-named Bedrock provider's one upstream (regionalBedrock):
+// runtime's own base, which serves chat-completions and Responses alike.
+func regionalViaUpstream(entry *jsonx.OrderedMap) (viaUpstream, string) {
+	sign := entryRegionSigning(entry)
+	up := viaUpstream{Regional: true, SignRegion: sign.Region, RegionFromEnv: sign.FromEnv}
+	if sign.Region != "" {
+		up.BaseURL = runtimeBaseURL(sign.Region)
+	}
+	return up, sign.Refusal
 }
 
 // viaPlan is every via route this boot serves, on one listen address.
@@ -144,25 +171,45 @@ func viaRoutesFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 				") is not in the composed table (YOLO_PROVIDERS)")
 			continue
 		}
+		rt := viaRoute{Agent: agent, ProviderName: r.Provider, KeyEnvName: packload.KeyEnvName(entry)}
 		chat, responses := viaUpstreams(entry)
-		if chat == "" && responses == "" {
+		var chatWhy, respWhy string
+		switch {
+		case chat == "" && responses == "" && regionalBedrock(entry):
+			// A BEDROCK PROVIDER NAMED BY REGION ALONE (WG-I39): runtime's own OpenAI-compatible
+			// base carries both wires, so one upstream serves pi's chat-completions and codex's
+			// Responses alike.
+			rt.Chat, chatWhy = regionalViaUpstream(entry)
+			rt.Responses = rt.Chat
+		case chat == "" && responses == "":
 			plan.Skipped = append(plan.Skipped, "provider "+r.Provider+" (via for "+agent+
 				") declares no chat-completions or Responses endpoint — the via route passes "+
 				"those two wires through, so it has no upstream")
 			continue
+		default:
+			rt.Chat, chatWhy = newViaUpstream(entry, chat)
+			rt.Responses, respWhy = newViaUpstream(entry, responses)
 		}
-		plan.Routes = append(plan.Routes, viaRoute{
-			Agent:        agent,
-			ProviderName: r.Provider,
-			KeyEnvName:   packload.KeyEnvName(entry),
-			Chat:         newViaUpstream(chat),
-			Responses:    newViaUpstream(responses),
-		})
+		if why := firstNonEmpty(chatWhy, respWhy); why != "" {
+			plan.Skipped = append(plan.Skipped, "provider "+r.Provider+" (via for "+agent+
+				") cannot be served: "+why)
+			continue
+		}
+		plan.Routes = append(plan.Routes, rt)
 	}
 	if len(plan.Routes) == 0 {
 		plan.ListenAddr = ""
 	}
 	return plan
+}
+
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // subscriptionProvider is the one provider a via route never serves (WG-I21).
@@ -539,17 +586,17 @@ func viaHandlerFor(plan viaPlan, home string) (http.Handler, []string) {
 	var lines []string
 	for _, rt := range plan.Routes {
 		split := viaWireSplit{agent: rt.Agent, provider: rt.ProviderName}
-		if rt.Chat.BaseURL != "" && rt.Chat == rt.Responses {
+		if rt.Chat.served() && rt.Chat == rt.Responses {
 			h, line := viaUpstreamHandler(rt, rt.Chat, home)
 			split.chat, split.responses = h, h
 			lines = append(lines, "/agent/"+rt.Agent+"/ chat-completions and Responses "+line)
 		} else {
-			if rt.Chat.BaseURL != "" {
+			if rt.Chat.served() {
 				h, line := viaUpstreamHandler(rt, rt.Chat, home)
 				split.chat = h
 				lines = append(lines, "/agent/"+rt.Agent+"/ chat-completions "+line)
 			}
-			if rt.Responses.BaseURL != "" {
+			if rt.Responses.served() {
 				h, line := viaUpstreamHandler(rt, rt.Responses, home)
 				split.responses = h
 				lines = append(lines, "/agent/"+rt.Agent+"/ Responses "+line)
@@ -564,22 +611,39 @@ func viaHandlerFor(plan viaPlan, home string) (http.Handler, []string) {
 // a Bedrock host, the provider's key otherwise — or the idle handler naming what is
 // missing, and the serve-log description of either.
 func viaUpstreamHandler(rt viaRoute, up viaUpstream, home string) (http.Handler, string) {
-	if up.SignRegion != "" {
+	if up.bedrock() {
+		region, regionSource := up.SignRegion, ""
+		if region == "" {
+			// The served agent's region (WG-I38), from the key channel its credential comes from.
+			var why string
+			region, regionSource, why = envRegion(func(name string) (string, string) {
+				return resolveKey(name, home, rt.Agent)
+			})
+			if why != "" {
+				reason := "the via route for " + rt.Agent + " goes to Bedrock (provider " + rt.ProviderName +
+					"), and " + why + " in " + keyChannelDescription(home, rt.Agent) + " or the daemon's environment"
+				return idleViaHandler{reason: reason}, "idle: " + reason
+			}
+		}
+		base := up.BaseURL
+		if up.Regional && base == "" {
+			base = runtimeBaseURL(region)
+		}
 		env := sigv4.EnvFrom(func(name string) string {
 			v, _ := resolveKey(name, home, rt.Agent)
 			return v
 		})
 		if !hasAWSCredentialSource(env) {
-			reason := "the via route for " + rt.Agent + " goes to Bedrock (" + up.BaseURL +
+			reason := "the via route for " + rt.Agent + " goes to Bedrock (" + base +
 				"), and none of its credential sources is set — AWS_ACCESS_KEY_ID + " +
 				"AWS_SECRET_ACCESS_KEY, the aws-auth pointer AWS_CONTAINER_CREDENTIALS_FULL_URI, " +
 				"or AWS_BEARER_TOKEN_BEDROCK"
 			return idleViaHandler{reason: reason}, "idle: " + reason
 		}
-		return newPassthroughHandler(rt.Agent, up.BaseURL, "",
-				&bedrockSigner{region: up.SignRegion, chain: &sigv4.Chain{Env: env}}),
-			"→ " + up.BaseURL + " (provider " + rt.ProviderName + ", SigV4 for bedrock in " +
-				up.SignRegion + ", from " + env.String() + ")"
+		return newPassthroughHandler(rt.Agent, base, "",
+				&bedrockSigner{region: region, chain: &sigv4.Chain{Env: env}}),
+			"→ " + base + " (provider " + rt.ProviderName + ", " + signingDescription(region, regionSource) +
+				", from " + env.String() + ")"
 	}
 	key, source := resolveKey(rt.KeyEnvName, home, rt.Agent)
 	if key == "" && rt.KeyEnvName != "" {

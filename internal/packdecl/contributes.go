@@ -1517,6 +1517,22 @@ type AdapterPair struct {
 	// To is the protocol the adapter itself serves at Address: an agent speaking this can
 	// be pointed there.
 	To string `json:"to"`
+	// FromPlatforms are provider PLATFORMS (a provider's `platform`, OQ-BR2's marker) whose
+	// providers the adapter fronts though they name no `from` endpoint: the service the
+	// declaring pack contributes reaches such a provider itself, composing the upstream from
+	// the provider's own facts. packs/wire-bridge's `openai -> anthropic` adapter declares
+	// "aws-bedrock": the wire bridge reaches Bedrock runtime's OpenAI-compatible route at an
+	// address it composes from the provider's region, because a pack cannot know the region
+	// (docs/design/wire-bridge-gateway.md §2.1, WG-I39). The address composed onto such a
+	// provider is marked for a profile that routes through that service alone (a `via`
+	// naming its pack), because an agent with its own client for the platform uses that
+	// client on every other profile.
+	//
+	// ONLY BESIDE A SERVICE: a remote gateway or a proxy the user runs cannot compose an
+	// upstream for a provider that names none, so adapterProblems refuses the list on a pack
+	// that contributes no `service`. An open vocabulary like `platform` itself: a platform the
+	// service does not reach composes an address it idles on, saying why.
+	FromPlatforms []string `json:"from_platforms,omitempty"`
 }
 
 // AdapterContribution is one protocol conversion a pack declares: the pair and the address.
@@ -1527,6 +1543,9 @@ type AdapterPair struct {
 // refuse — it can see the siblings, which an accessor cannot.
 type AdapterContribution struct {
 	From, To, Address string
+	// FromPlatforms is AdapterPair.FromPlatforms: the platforms whose providers count as
+	// offering From.
+	FromPlatforms []string
 }
 
 // Adapters returns every protocol conversion the pack declares, in declaration order.
@@ -1538,6 +1557,7 @@ func (m *Manifest) Adapters() []AdapterContribution {
 		}
 		out = append(out, AdapterContribution{
 			From: c.Adapts.From, To: c.Adapts.To, Address: c.Address,
+			FromPlatforms: c.Adapts.FromPlatforms,
 		})
 	}
 	return out
@@ -2600,9 +2620,24 @@ func (m *Manifest) validateDuplicateContentSources() []string {
 func (m *Manifest) validateAdapterPairs() []string {
 	var problems []string
 	seen := map[string]int{}
+	hasService := false
+	for _, c := range m.Contributes {
+		if c.Kind == KindService {
+			hasService = true
+		}
+	}
 	for i, c := range m.Contributes {
 		if c.Kind != KindAdapter || c.Adapts == nil || c.Adapts.From == "" || c.Adapts.To == "" {
 			continue
+		}
+		// A PLATFORM THE ADAPTER FRONTS IS REACHED BY THE PACK'S OWN SERVICE, which composes an
+		// upstream for a provider that names none (AdapterPair.FromPlatforms). A pack whose
+		// adapter names a remote gateway or a proxy the user runs has no daemon to compose one.
+		if len(c.Adapts.FromPlatforms) > 0 && !hasService {
+			problems = append(problems, fmt.Sprintf(
+				"contributes[%d]: adapts.from_platforms needs a `service` in the same pack — a provider "+
+					"of those platforms names no %s address, so only the pack's own daemon can reach it, "+
+					"and this pack runs none", i, c.Adapts.From))
 		}
 		key := c.Adapts.From + " -> " + c.Adapts.To
 		if first, dup := seen[key]; dup {
@@ -3690,6 +3725,15 @@ func validateContribution(label string, c Contribution) []string {
 					"%s: adapts.from and adapts.to are both %q — an adaptation between one "+
 						"protocol and itself converts nothing, and it would claim the pair a real "+
 						"one needs", label, c.Adapts.From))
+			}
+			if c.Adapts.FromPlatforms != nil && len(c.Adapts.FromPlatforms) == 0 {
+				problems = append(problems, label+": adapts.from_platforms is an empty list, which fronts "+
+					"no platform — omit the key instead")
+			}
+			for i, p := range c.Adapts.FromPlatforms {
+				if msg := PlatformProblem(fmt.Sprintf("%s.adapts.from_platforms[%d]", label, i), p); msg != "" {
+					problems = append(problems, msg)
+				}
 			}
 		}
 		req("address", c.Address)

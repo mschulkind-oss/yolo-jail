@@ -107,6 +107,13 @@ yolo.env("copilot", function(ctx)
   -- ep is the endpoint copilot is sent to, when it came from `endpoints`: the one whose own
   -- credential, if it names one, is the one copilot sends (below).
   local ep
+  -- AN ADDRESS COMPOSED FOR A VIA PROFILE (`for_via`, docs/design/wire-bridge-gateway.md WG-I39)
+  -- is copilot's only under a profile that routes through that service: the shipped `bedrock`
+  -- names a region and no address, and the wire bridge fronts it for `bedrock-bridge`. copilot has
+  -- no Bedrock client of its own, so on any other profile over such a provider it composes
+  -- nothing, as before, and the launch's profile line says the profile reaches nothing for it.
+  local viaOnly = p.endpoints and type(p.endpoints.anthropic) == "table" and p.endpoints.anthropic.for_via
+  if viaOnly and (ctx.via_url or "") == "" then return {} end
   if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url then
     -- zai is the worked example: its anthropic route is the richer surface (claude's
     -- own channel), and `anthropic` is copilot's first-class spelling for it (D-3).
@@ -151,6 +158,14 @@ yolo.env("copilot", function(ctx)
   -- Still one model: copilot's environment-variable setup carries one, and the whole list is
   -- providers.json's to show, after the measurements MM-D10 names.
   if not model and p.models_only == true then
+    model = m.default or narrowedFirst(p)
+  end
+  -- THROUGH THE BRIDGE TO A PROVIDER OF SEVERAL MAKERS (viaOnly above: the shipped `bedrock`, whose
+  -- list names no `default`, docs/design/model-lists-and-pickers.md ML-D9) copilot still needs one
+  -- model, since BYOK refuses to start without one, and the bridge carries every maker on the list
+  -- (translating all but Anthropic's). OQ-ML2's rule picks it: the provider's declared default,
+  -- else the first model it lists.
+  if not model and viaOnly then
     model = m.default or narrowedFirst(p)
   end
   if not model then return {} end

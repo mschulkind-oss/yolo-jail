@@ -416,11 +416,17 @@ func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack, cfg composeOpts) {
 			continue
 		}
 		offered := providerProtocols(entry)
-		if len(offered) == 0 {
-			continue
-		}
+		platform := entryString(entry, "platform")
 		for _, a := range adapters {
-			if !wanted[a.To] || offered[a.To] || !offered[a.From] {
+			// A PROVIDER OF A PLATFORM THE ADAPTATION FRONTS offers its From by what it is, not
+			// by an address (docs/design/wire-bridge-gateway.md WG-I39): the shipped `bedrock`
+			// names a region and no endpoint, because a pack cannot know the region, and the wire
+			// bridge composes runtime's URL from it. The address it gets here is marked for a
+			// profile routing through the adaptation's service (ForViaKey), since every agent
+			// with its own client for the platform keeps that client on any other profile.
+			fronted := !offered[a.From] && platform != "" && a.Service != "" &&
+				slices.Contains(a.FromPlatforms, platform)
+			if !wanted[a.To] || offered[a.To] || (!offered[a.From] && !fronted) {
 				continue
 			}
 			// THE USER'S ADDRESS WINS, and it is the only field of an adaptation they may
@@ -438,6 +444,9 @@ func adaptEndpoints(table *jsonx.OrderedMap, packs []*Pack, cfg composeOpts) {
 				address = cfg.served.ServedURL(address)
 			}
 			addEndpoint(entry, a.To, address, serviceCredentialEnv(a))
+			if fronted {
+				markForVia(entry, a.To, a.Service)
+			}
 			offered[a.To] = true
 		}
 	}
@@ -485,6 +494,77 @@ func addEndpoint(entry *jsonx.OrderedMap, protocol, address, credentialEnv strin
 		ep.Set("api_key_env_name", credentialEnv)
 	}
 	endpoints.Set(protocol, ep)
+}
+
+// markForVia writes ForViaKey, naming service, on the endpoint adaptEndpoints just composed for
+// protocol: the address is for a profile routing through that service alone.
+func markForVia(entry *jsonx.OrderedMap, protocol, service string) {
+	v, _ := entry.Get("endpoints")
+	endpoints, _ := v.(*jsonx.OrderedMap)
+	if endpoints == nil {
+		return
+	}
+	if ep, ok := endpoints.Get(protocol); ok {
+		if m, isMap := ep.(*jsonx.OrderedMap); isMap {
+			m.Set(ForViaKey, service)
+		}
+	}
+}
+
+// forViaService is the service an endpoint of entry is marked for (ForViaKey), "" for an
+// endpoint that is the provider's own or an ordinary adapter's.
+func forViaService(entry *jsonx.OrderedMap, protocol string) string {
+	v, _ := entry.Get("endpoints")
+	endpoints, _ := v.(*jsonx.OrderedMap)
+	if endpoints == nil {
+		return ""
+	}
+	ep, _ := endpoints.Get(protocol)
+	m, _ := ep.(*jsonx.OrderedMap)
+	return entryString(m, ForViaKey)
+}
+
+// EndpointsForProfile is entry as an agent on a profile whose via names viaService sees it:
+// entry itself when no endpoint is marked for a via (ForViaKey) other than viaService, and
+// otherwise a copy without those endpoints, which are no address at all for that agent. A
+// profile with no via passes "", so every marked endpoint goes. Used by the profile line
+// (profileReach), which says where an agent's profile reaches it.
+func EndpointsForProfile(entry *jsonx.OrderedMap, viaService string) *jsonx.OrderedMap {
+	if entry == nil {
+		return nil
+	}
+	v, _ := entry.Get("endpoints")
+	endpoints, _ := v.(*jsonx.OrderedMap)
+	if endpoints == nil {
+		return entry
+	}
+	var drop []string
+	for _, proto := range endpoints.Keys() {
+		if s := forViaService(entry, proto); s != "" && s != viaService {
+			drop = append(drop, proto)
+		}
+	}
+	if len(drop) == 0 {
+		return entry
+	}
+	out := jsonx.NewOrderedMap()
+	for _, k := range entry.Keys() {
+		val, _ := entry.Get(k)
+		out.Set(k, val)
+	}
+	kept := jsonx.NewOrderedMap()
+	for _, proto := range endpoints.Keys() {
+		if !slices.Contains(drop, proto) {
+			val, _ := endpoints.Get(proto)
+			kept.Set(proto, val)
+		}
+	}
+	if len(kept.Keys()) == 0 {
+		out.Delete("endpoints")
+	} else {
+		out.Set("endpoints", kept)
+	}
+	return out
 }
 
 // spokenProtocols is the union of every protocol the selected packs' programs declare —
