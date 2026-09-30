@@ -83,6 +83,46 @@ later depends on the `ref`:
 The launch says so whenever a pack arrives or moves, for example
 `Updated pack team: main 1a2b3c4d → 5d6e7f80`.
 
+### Run your own fork of a program
+
+If you maintain a fork of an agent or tool that a pack installs, a small pack of your own can make
+every jail run your fork instead. The pack names the program it forks, where your fork's code is,
+and one command that builds it:
+
+```json
+{
+  "name": "pi-mine",
+  "contributes": [
+    { "kind": "program", "bin": "pi", "via": "source", "fork_of": "pi",
+      "source": "git+https://github.com/you/pi-fork?ref=main",
+      "build": "npm ci && npm run build && npm install -g \"$(npm pack --silent)\"",
+      "produces": [".npm-global/bin/pi", ".npm-global/lib/node_modules/pi-fork"] }
+  ]
+}
+```
+
+Select your pack (`"packs": ["~/code/pi-mine"]`). The pack it forks joins by itself when yolo ships
+it, and must be in `packs` too when it does not. The original pack keeps everything else it provides,
+such as settings, skills and launch flags. Your pack only replaces the program.
+
+`produces` lists what the build leaves in the jail's home. One entry must be the program itself
+under `.local/bin`, `.npm-global/bin` or `go/bin`. List the folder it installs into as well, so a
+new build replaces the old one whole instead of merging into it. The build must install a copy:
+`npm install -g .` installs a link back to the build's own folder, which is gone once the build
+ends, so yolo refuses that build and says why.
+
+- `yolo pack install` pins the fork to the commit its `ref` names today, and `yolo pack update` moves
+  the pin. `yolo pack status` shows the pin and whether it is built.
+- The next launch builds that commit once, on this machine, in a jail of its own that gets none of
+  your credentials, host files or services. Every later launch, in any workspace, reuses the build.
+  Each launch prints the commit your fork is built at.
+- If the build fails, the jail starts without that program, and running it says why. yolo never
+  falls back to the original program under your fork's name.
+- `yolo capture <program>` rebuilds it on demand, for example after an image update.
+
+This works on podman and on Apple Container 1.1.0 or later. On `macos-user`, and on older Apple
+Container, the fork's program is not delivered yet, and the launch says so.
+
 ## Check a pack before you trust it
 
 A pack can read files from your home, install programs, and ship a loophole that runs a program on

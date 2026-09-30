@@ -10,8 +10,9 @@ vantage:
 
 # Forked programs as packs — implementation plan
 
-**Status:** DECIDED, 2026-09-30 — promoted against the tree at `4c3d6a85`, ready to build, and
-nothing is built. The
+**Status:** DECIDED, 2026-09-30 — promoted against the tree at `4c3d6a85`. Steps 1–6, the jail
+notch, were built on 2026-09-30. Step 7, the host notch, stopped at its measurement, which needs
+what the building jail could not do: [Step 7 needs](#step-7-needs) records exactly what. The
 implementation choices this promotion made are
 [FP-D4](forked-programs-as-packs.md#FP-D4)–[FP-D9](forked-programs-as-packs.md#FP-D9) in the
 design's ledger, and this file assumes them.
@@ -170,6 +171,35 @@ when its production call site is deleted (AGENTS.md, Testing).
   path. Shared, an installer capture of `claude` and a build of a `claude`
   fork refuse each other.
 
+## What building corrected
+
+Building steps 1–6 found these wrong or incomplete. The choices it made are ledgered in the
+design as [FP-D10](forked-programs-as-packs.md#FP-D10) onward.
+
+- Step 1: the fork's claim targets `<bin> (fork of <base>)`, not `<bin> (fork, <pack>)`. The
+  reviewer is told which program the fork replaces, and the target still sits outside the
+  exclusive loop.
+- Step 2: [FP-D6](forked-programs-as-packs.md#FP-D6) names neither `model_catalog`,
+  `capabilities`, `platform_regions` nor `unlisted_background_models`, and lets both the base and
+  the fork declare `node_floor` ([FP-D10](forked-programs-as-packs.md#FP-D10)).
+- Step 4: the seal reaches more crossing sites than FP-D9 lists: ports and forwards, devices, the
+  nvim config, the user config copy, the host-services mount, the host briefing and the store-prune
+  grant ([FP-D11](forked-programs-as-packs.md#FP-D11)).
+- Step 5: the lock moved into a package of its own, `internal/pidlock`, with the bounded wait;
+  `hostfloor/lock.go` now wraps it. `runCaptureJail` keeps its name, which AST tests pin, and gains
+  the argv and the seal as parameters. `yolo capture` of a fork with no pin refuses, printing the
+  launch's pin line and the command that pins it.
+- Step 6: the catalog's `go/bin` reader takes the selected packs (`catalogGoBinOrphans(e, packs)`),
+  to count a fork's `go/bin` output as delivered. The pin line is not printed in a capture or build
+  jail (`noteForkPins` returns when `CapturesDir()` is ""), because the build jail's own run
+  pipeline repeated the line its launch had printed. The source launcher takes a `node_floor` the
+  way the npm launcher does, including the floor-pending record.
+- Step 6: the build line step 1's examples used, `npm install -g .`, leaves the program as a link
+  into the build's workspace, which is deleted when the build ends. Such a build now stores nothing
+  ([FP-D12](forked-programs-as-packs.md#FP-D12)). The examples in the pack reference, the user
+  guide and the `packdecl` test use `npm install -g "$(npm pack --silent)"` instead, and the two
+  docs list the package's directory in `produces`.
+
 ## Build order
 
 Steps 1–6 are the jail notch, [§11](forked-programs-as-packs.md#11-sequencing) steps 1–2; step 7 is
@@ -208,6 +238,41 @@ release, and the changelog line waits for step 6.
    build the motivating fork through step 6, then read its `capture-manifest.json` (`relocatable`,
    `notRelocatable`) and search the tree for `/nix/store` and `/lib`, which the scan does not
    report. Then the `hostfloor` arms. → `go test -short ./internal/hostfloor ./internal/cli`
+
+## Step 7 needs
+<a id="step-7-needs"></a>
+
+Stopped 2026-09-30, after step 6, because the measurement that starts step 7 needs three things
+the building jail did not have:
+
+1. **The motivating fork's address.** The design's motivating case is "a forked `pi`"
+   ([§3](forked-programs-as-packs.md#3-why-this-is-not-an-agent-feature)), and no file in this
+   repository names that fork's repository, a ref, its `build` line or its `produces`. The
+   measurement needs a fork pack a maintainer actually uses: `source` (`git+https://…?ref=<branch or tag>`), `build`, and
+   `produces`, including the package's directory under `.npm-global/lib/node_modules`.
+2. **A network fetch.** `yolo pack install` fetches that repository into the pack store's mirror to
+   pin it, and a Node fork's build (`npm ci`) fetches its dependencies from the npm registry.
+3. **A real build.** A sealed capture jail on a host with podman. From inside a jail that is a
+   nested launch, and it writes the machine's capture store under the home.
+
+With those, on a Linux host with podman:
+
+1. Select the fork pack, then run `yolo pack install` and `yolo capture pi`. The last line names the
+   entry's root, under `~/.local/share/yolo-jail/captures/entries/`.
+2. Read that entry's `capture-manifest.json`: `relocatable`, and every reason under
+   `notRelocatable`.
+3. Search the entry's `tree/` for `/nix/store` and `/lib` (`rg -l -a -F /nix/store tree`), which
+   the reference scan does not report ([FP-D4](forked-programs-as-packs.md#FP-D4)'s warning).
+   Native addons under `node_modules` (`*.node`) are where either would appear.
+4. If the tree references the image's own paths, stop and ask, as [Ships with](#ships-with) says:
+   FP-D4's host notch cannot ship as written.
+5. If it does not, build the `hostfloor` arms: `declared`, `via`, `describeRecipe`, `install` and
+   `newerThan` in `internal/hostfloor` gain a source arm that materializes the pinned build's entry
+   into the floor through the relocating materialize (a moved pin is `Pending`, and no refresh poll
+   runs); `noEntryReason`'s source arm, which today refuses by name, becomes the not-relocatable
+   reason naming the jail's home; `noCopyWhere` in `cli/hostfloor.go` follows; and
+   [`host-tool-provisioning.md`](host-tool-provisioning.md)'s floor table gains the source-built
+   row. The tests are [Ships with](#ships-with)'s step 7.
 
 ## Ships with
 
@@ -314,7 +379,8 @@ selection refusals [FP-D5](forked-programs-as-packs.md#FP-D5) names are the only
 
 ## Blockers
 
-None for steps 1–7. Past them, [§11](forked-programs-as-packs.md#11-sequencing) step 4
+None for steps 1–6. Step 7 waits on its measurement ([Step 7 needs](#step-7-needs)). Past it,
+[§11](forked-programs-as-packs.md#11-sequencing) step 4
 (`macos-user`) waits on hand-off H4, a ruling
 [`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)
 holds, and on the macOS host capture ([HP-D2](host-tool-provisioning.md#HP-D2)); step 5 (`guest`)

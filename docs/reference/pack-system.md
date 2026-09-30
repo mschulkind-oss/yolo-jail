@@ -701,7 +701,7 @@ fork OF a base pack and claims no name of its own:
 ```json
 { "kind": "program", "bin": "pi", "via": "source", "fork_of": "pi",
   "source": "git+https://github.com/you/pi-fork?ref=main",
-  "build": "npm ci && npm run build && npm install -g .",
+  "build": "npm ci && npm run build && npm install -g \"$(npm pack --silent)\"",
   "produces": [".npm-global/bin/pi", ".npm-global/lib/node_modules/pi-fork"] }
 ```
 
@@ -714,7 +714,10 @@ fork OF a base pack and claims no name of its own:
 - **`build`** is one command line, run by bash in the checked-out source.
 - **`produces`** lists the home-relative paths the build must leave, each inside a program surface
   (`.npm-global`, `.local`, `go`, or codex's `.codex/packages/standalone`). One of them must be the
-  program itself at `.local/bin/<bin>`, `.npm-global/bin/<bin>` or `go/bin/<bin>`.
+  program itself at `.local/bin/<bin>`, `.npm-global/bin/<bin>` or `go/bin/<bin>`. The jail's
+  launcher deletes every listed path before it puts a different build in place, and materializing
+  merges into a directory that is already there, so listing the directory the build installs into
+  is what makes a new pin replace the old build whole.
 
 Beside those four, a fork may declare `platforms` (where it builds) and `node_floor`. `packdecl`
 refuses every other program field on a fork by name, because each belongs to the base
@@ -760,12 +763,39 @@ crossing of the host into the jail: `env_sources`, pack `env`, provider credenti
 `mounts`, pack `mount` and reads-host layers, loopholes and host services, machine-scope pack
 directories, the host-cache alias and the nix daemon socket. `~/.cache` and `/mise` are private
 directories of the build's workspace. The selection is narrowed to the fork and its configured
-base. A build whose result misses a `produces` path stores nothing, and an admitted build is
+base. A build whose result misses a `produces` path stores nothing, and so does one that leaves a
+link into its own workspace, which is deleted when the build ends: `npm install -g .` is the common
+cause, npm installing a folder as a link to it, and the refusal names the copy-installing spelling
+(`npm install -g "$(npm pack --silent)"`). An admitted build is
 recorded under a `kind: "build"` receipt carrying the commit, the recipe hash and the jail's image
 identity ([FP-D8](../design/forked-programs-as-packs.md#FP-D8)). Selection keys a fork's entry on
 its bin, platform and source address, so an installer capture never answers for a fork or the
 reverse. `yolo capture <bin>` of a forked program is the explicit rebuild, and refuses while another
 build of the same commit holds its lock.
+
+**A launch delivers the fork in place of its base's program**
+([OQ-FP4](../design/forked-programs-as-packs.md#14-decision-ledger),
+[FP-D3](../design/forked-programs-as-packs.md#FP-D3)). A container launch carrying a pinned fork
+looks up the build of that commit in the capture store and, on a miss, builds it before the jail
+starts, saying so. A launch that finds another process building the same commit waits for it, at
+most 20 minutes (`forkBuildWaitBound`), and then uses its entry. A failed build or an expired wait
+never fails the launch: it is that fork's reason. The launch hands the jail each forked bin's store
+key, or the reason it has none, in `YOLO_FORK_BUILDS`. Neither the lookup nor the build runs in a
+capture or build jail, so a build cannot start a build.
+
+In the jail the forked bin's launcher is a **source launcher**
+([`forklauncher.go`](../../internal/entrypoint/forklauncher.go)). Its first run deletes the
+`produces` paths, materializes the key from the mounted store
+(`yolo internal capture-materialize --key`), and records the key; every later run execs the
+program, and a launch handing it a new key replaces the build. With no key it prints the reason and
+exits 1. It never installs the base's package in its place, never runs an older build still in the
+home, and has no update step: `yolo pack update` in the jail says the pin moves it. A fork's
+`node_floor`, or its base's, joins the launcher's exec prefix as an npm launcher's does.
+
+Two backends deliver no fork yet. A `macos-user` launch carrying one says that its program is not
+delivered there and names hand-off H4
+([FP-D3](../design/forked-programs-as-packs.md#FP-D3)). Apple Container below its read-only floor
+mounts no capture store, so the launch builds nothing and each fork's launcher says why.
 
 #### `requires`
 

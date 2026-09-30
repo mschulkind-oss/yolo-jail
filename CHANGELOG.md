@@ -330,6 +330,20 @@ program. A machine with no build gets a line saying the loophole does nothing th
 `yolo pack footprint` shows each build's address and checksum. See
 [A program your pack downloads](userguide/guides/writing-loopholes.md#a-program-your-pack-downloads).
 
+**Your jails can run your own fork of an agent or tool that a pack installs, built from your
+repository.** A small pack of your own names the program it forks, your fork's git address and one
+command that builds it, and the original pack keeps everything else it provides: settings, skills
+and launch flags. `yolo pack install` pins the fork to the commit its ref names today,
+`yolo pack update` moves the pin, and `yolo pack status` shows the pin and whether it is built. The
+first launch after a new pin builds that commit once on your machine, in a jail of its own that
+gets none of your credentials, host files or services, and every later launch in any workspace
+reuses the build; each launch prints the commit your fork is built at. A failed build leaves the
+jail without that program and says why when you run it, never the original program under your
+fork's name, and `yolo capture <program>` rebuilds it on demand. This works on podman and on Apple
+Container 1.1.0 or later; on `macos-user` and older Apple Container the launch says the fork is not
+delivered yet. See
+[Run your own fork of a program](userguide/guides/packs-and-skills.md#run-your-own-fork-of-a-program).
+
 ### Changed
 
 **A jail now lives while any terminal in it does.** Quitting the agent in the terminal that
