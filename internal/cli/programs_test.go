@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 // programs_test.go covers `yolo programs` — the on-demand spelling of the boot's two
@@ -21,6 +23,10 @@ import (
 // points every path variable the command reads at it, and returns the home.
 func programsJail(t *testing.T) string {
 	t.Helper()
+	// The command reads this tree through entrypoint.LoadJailPacks, which switches the process
+	// to the tolerant decoder; the restore keeps every later test on the strict one
+	// (TestJailTreeFixturesRestoreTheStrictDecoder).
+	t.Cleanup(packload.OverrideSkewTolerance(false))
 	home := t.TempDir()
 	packRoot := t.TempDir()
 	packDir := filepath.Join(packRoot, "toolpack")

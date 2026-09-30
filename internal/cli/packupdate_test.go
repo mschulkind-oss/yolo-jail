@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -27,16 +28,19 @@ import (
 // entrypoint.LoadJailPacks, which calls packload.TolerateSkew() — a process-wide switch to
 // the version-tolerant manifest decoder. That is correct where the refresh runs (in-jail,
 // reading a tree a possibly-different-aged host CLI staged), and it is why the refresh is
-// gated on YOLO_PACK_ROOT rather than run unconditionally. In this binary it means a test
-// ordered after one of these sees tolerant decoding; no internal/cli test depends on the
-// strict behaviour today, but a future one asserting "an unknown manifest field is refused"
-// would need to stop relying on process order.
+// gated on YOLO_PACK_ROOT rather than run unconditionally. In this binary it would mean every
+// test after one of these reads manifests tolerantly, and the malformed-pack pins in this
+// package depend on the strict decoder, so each fixture reaching the refresh restores it
+// (packload.OverrideSkewTolerance). TestJailTreeFixturesRestoreTheStrictDecoder holds that.
 
 // stageNpmPackRoot writes one pack tree carrying the given manifest, plus a launcher dir
 // holding an inert executable for each named bin. Returns the Env a refresh would read —
 // a jail Env, i.e. one with YOLO_PACK_ROOT set.
 func stageNpmPackRoot(t *testing.T, manifest string, launchers ...string) *entrypoint.Env {
 	t.Helper()
+	// The refresh reads this tree through entrypoint.LoadJailPacks, which switches the process
+	// to the tolerant decoder; the restore keeps every later test on the strict one.
+	t.Cleanup(packload.OverrideSkewTolerance(false))
 	home := t.TempDir()
 	packRoot := t.TempDir()
 	packDir := filepath.Join(packRoot, "acme")
@@ -57,6 +61,47 @@ func stageNpmPackRoot(t *testing.T, manifest string, launchers ...string) *entry
 		}
 	}
 	return e
+}
+
+// THE JAIL-TREE FIXTURES LEAVE THE STRICT DECODER IN FORCE. Each fixture that stages a tree a
+// command reads through entrypoint.LoadJailPacks flips the process to the tolerant decoder,
+// and a test after it in this binary then reads an undecodable or duplicated manifest as a
+// clean one: under `go test -count=2` every malformed-pack pin in this package failed on its
+// second run. So after each such fixture, a manifest with a field this build does not know
+// must still be a manifest problem.
+func TestJailTreeFixturesRestoreTheStrictDecoder(t *testing.T) {
+	strict := func(t *testing.T, after string) {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "pack.json"),
+			[]byte(`{"name":"probe","no_such_field":true}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, probs := packload.LoadDir(dir, "probe"); len(probs) == 0 {
+			t.Errorf("after %s, a manifest naming an unknown field loads with no problem: "+
+				"the tolerant decoder was left on for every later test", after)
+		}
+	}
+	strict(t, "nothing (the control)")
+	t.Run("stageNpmPackRoot", func(t *testing.T) {
+		e := stageNpmPackRoot(t, `{"name":"acme","contributes":[`+
+			`{"kind":"program","bin":"npmtool","via":"npm","package":"npmtool"}]}`, "npmtool")
+		var out, errw bytes.Buffer
+		if rc := refreshPrograms(e, richtext.Printer{W: &out}, &errw,
+			func(string, string) error { return nil }); rc != 0 {
+			t.Fatalf("refresh rc = %d: %s", rc, errw.String())
+		}
+	})
+	strict(t, "a refresh over stageNpmPackRoot's tree")
+	t.Run("UpdateReachesTheLauncherInUpdateMode", TestUpdateReachesTheLauncherInUpdateMode)
+	strict(t, "TestUpdateReachesTheLauncherInUpdateMode")
+	t.Run("programsJail", func(t *testing.T) {
+		programsJail(t)
+		if rc, _, errw := runPrograms2(t, "ls"); rc != 0 {
+			t.Fatalf("programs ls rc = %d: %s", rc, errw)
+		}
+	})
+	strict(t, "`yolo programs ls` over programsJail's tree")
 }
 
 // TestInstallAndUpdateAreDifferentActs is the ruling at the dispatch: update refreshes an
@@ -118,6 +163,9 @@ func TestInstallAndUpdateAreDifferentActs(t *testing.T) {
 // the `install` half re-asserts the ruling's split at the production wiring rather than over
 // a stub.
 func TestUpdateReachesTheLauncherInUpdateMode(t *testing.T) {
+	// `pack update` reads the tree below through entrypoint.LoadJailPacks (stageNpmPackRoot's
+	// reason).
+	t.Cleanup(packload.OverrideSkewTolerance(false))
 	home := t.TempDir()
 	packRoot := t.TempDir()
 	packDir := filepath.Join(packRoot, "acme")
