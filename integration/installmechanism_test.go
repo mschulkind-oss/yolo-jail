@@ -136,9 +136,16 @@ func TestInstallerProgramRunsThePacksOwnScript(t *testing.T) {
 	pack := t.TempDir()
 	// The launcher's contract: an installer's job is to leave an executable at
 	// $HOME/.local/bin/<bin>, which is the REAL_BIN the launcher then execs.
+	//
+	// It also records how it was run, for PS-D1 (docs/design/provisioner-sets.md): the
+	// launcher starts it through the jail's own `yolo internal no-terminal`, so it leads a
+	// session of its own (no controlling terminal: its session id is its pid) and reads a
+	// /dev/null stdin. The unit tier routes a stub yolo; this is the jail's real one.
 	installer := `#!/bin/bash
 set -euo pipefail
 mkdir -p "$HOME/.local/bin"
+printf 'stdin=%s session-leader=%s\n' "$(readlink /proc/$$/fd/0)" \
+  "$([ "$(cut -d' ' -f6 /proc/$$/stat)" = "$$" ] && echo yes || echo no)" > "$HOME/.local/installer-run"
 cat > "$HOME/.local/bin/` + bin + `" <<'TOOL'
 #!/bin/bash
 echo "` + sentinel + `"
@@ -178,6 +185,8 @@ chmod +x "$HOME/.local/bin/` + bin + `"
 		`command -v ` + bin,
 		`echo "=== RUN ==="`,
 		bin,
+		`echo "=== HOW ==="`,
+		`cat "$HOME/.local/installer-run"`,
 	}, "; ")
 
 	r := runYolo(t, dir, script)
@@ -187,7 +196,16 @@ chmod +x "$HOME/.local/bin/` + bin + `"
 	if got := strings.TrimSpace(section(r.stdout, "=== RESOLVE ===", "=== RUN ===")); !strings.Contains(got, ".yolo/bin/launch") {
 		t.Errorf("%s resolved to %q, want a path under ~/.yolo/bin/launch", bin, got)
 	}
-	if got := section(r.stdout, "=== RUN ===", ""); !strings.Contains(got, sentinel) {
+	if got := section(r.stdout, "=== RUN ===", "=== HOW ==="); !strings.Contains(got, sentinel) {
 		t.Errorf("the installed program did not run: %q", got)
+	}
+	how := section(r.stdout, "=== HOW ===", "")
+	if !strings.Contains(how, "stdin=/dev/null") || !strings.Contains(how, "session-leader=yes") {
+		t.Errorf("the installer must run in a session of its own with a /dev/null stdin "+
+			"(PS-D1), got %q\nstderr: %s", how, r.stderr)
+	}
+	if strings.Contains(r.stdout+r.stderr, "cannot detach") {
+		t.Errorf("the jail's own yolo lacked the no-terminal verb, so the launcher fell back:\n%s%s",
+			r.stdout, r.stderr)
 	}
 }
