@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // viaAgentPack writes a local pack whose agent prefers the `openai` protocol (the
@@ -70,6 +72,28 @@ func TestSectionPacksListsThePackAViaProfileAdds(t *testing.T) {
 	}
 	if !strings.Contains(out, "+ wire-bridge (via of profile pv, active for someagent)") {
 		t.Errorf("check must list the pack the via profile adds, as the launch does:\n%s", out)
+	}
+}
+
+// TestSectionPacksListsThePackAViaProfileAddsThroughTheKeysDefault: the string form and "*"
+// select the via profile for someagent, the CLI the pack installs, so the closure joins
+// wire-bridge as it does for the named entry. The closure folds the key over the set it is
+// handed; folded over none, the default reaches no agent and the addition is silently missing.
+func TestSectionPacksListsThePackAViaProfileAddsThroughTheKeysDefault(t *testing.T) {
+	pack := viaAgentPack(t, `{"openai": {"base_url": "https://up.example/v1"}}`)
+	packsFixture(t, `{"packs": ["file://`+pack+`"],
+	  "profiles": {"pv": {"provider": "upstream", "via": "wire-bridge"}}}`)
+	star := jsonx.NewOrderedMap()
+	star.Set("*", "pv")
+	for name, value := range map[string]any{"string form": "pv", "\"*\"": star} {
+		merged := jsonx.NewOrderedMap()
+		merged.Set("profile", value)
+		var buf bytes.Buffer
+		r := &reporter{w: &buf}
+		(&Options{}).sectionPacks(r, merged)
+		if out := buf.String(); !strings.Contains(out, "+ wire-bridge (via of profile pv, active for someagent)") {
+			t.Errorf("%s: check must list the pack the via profile adds, as the launch does:\n%s", name, out)
+		}
 	}
 }
 

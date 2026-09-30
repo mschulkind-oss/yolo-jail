@@ -163,3 +163,27 @@ func TestEveryHostRenderRefusesTheRetiredUseProfilesKey(t *testing.T) {
 		})
 	}
 }
+
+// THE HOST LAUNCH'S SELECTION CLOSURE folds the key over the set it is handed
+// (hostLaunchSelection): a via profile selected through the string form or "*" joins its
+// service's pack at a host launch exactly as the named entry does, and says so. Handing that
+// fold no packs leaves the default reaching no agent, so the via pack silently drops out of the
+// host launch's set while the named twin still joins it.
+func TestHostLaunchClosureJoinsTheViaOfTheProfileKeysDefault(t *testing.T) {
+	const want = "yolo host env: + wire-bridge (via of profile bedrock-bridge, active for pi)"
+	for name, sel := range map[string]string{
+		"string form": `"bedrock-bridge"`,
+		"\"*\"":       `{"*": "bedrock-bridge"}`,
+		"named":       `{"pi": "bedrock-bridge"}`,
+	} {
+		hostGateHome(t, `{"packs": ["pi", "bedrock"], "profile": `+sel+`}`, nil)
+		var out, errw bytes.Buffer
+		if rc := hostMain([]string{"env", "--agent", "pi"}, &out, &errw, false, nil); rc != 0 {
+			t.Fatalf("%s: yolo host env --agent pi rc=%d\n%s", name, rc, errw.String())
+		}
+		if !strings.Contains(errw.String(), want) {
+			t.Errorf("%s: the host launch's selection must join the via's pack and say %q:\n%s",
+				name, want, errw.String())
+		}
+	}
+}

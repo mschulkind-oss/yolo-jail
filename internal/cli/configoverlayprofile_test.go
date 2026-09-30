@@ -115,6 +115,42 @@ func TestApplyHostSkipsGatedOverlayWhenProfileNotSelected(t *testing.T) {
 	}
 }
 
+// THE KEY'S DEFAULT GATES AT BOTH HOST RENDER CALL SITES: `yolo host apply --assert` and `yolo
+// config render --at host` hand overlayGateProfiles the packs they render, so "*" (or the string
+// form) reaches acme, the CLI the owner pack installs, and the gated overlay folds. Handed no
+// packs, the default reaches no agent and the overlay is skipped in silence while the named
+// entry still folds it.
+func TestHostRendersFoldAGatedOverlayThroughTheProfileKeysDefault(t *testing.T) {
+	for name, sel := range map[string]string{"string form": `"zai"`, "\"*\"": `{"*":"zai"}`} {
+		packs := map[string]string{"acme": acmeAgentOwnerPackJSON, "acme-zai": acmeGatedPackJSON}
+		t.Run(name+"/yolo host apply --assert", func(t *testing.T) {
+			gatedFixture(t, sel, packs)
+			var out, errw bytes.Buffer
+			if rc := applyHost(&out, &errw, false, true, nil); rc != 0 {
+				t.Fatalf("host apply --assert rc=%d\n%s\n%s", rc, out.String(), errw.String())
+			}
+			data, err := os.ReadFile(filepath.Join(fixtureHome(t), ".acme", "settings.json"))
+			if err != nil {
+				t.Fatalf("read the rendered surface: %v", err)
+			}
+			if !strings.Contains(string(data), "zai-dark") {
+				t.Errorf("the key's default did not gate the overlay in at host apply:\n%s", data)
+			}
+		})
+		t.Run(name+"/yolo config render --at host", func(t *testing.T) {
+			gatedFixture(t, sel, packs)
+			t.Chdir(t.TempDir())
+			rc, out, errs := runConfigVerb(t, "render", "acme/settings", "--at", "host")
+			if rc != 0 {
+				t.Fatalf("config render --at host rc=%d\n%s%s", rc, out, errs)
+			}
+			if !strings.Contains(out, "zai-dark") {
+				t.Errorf("the key's default did not gate the overlay into the host preview:\n%s%s", out, errs)
+			}
+		})
+	}
+}
+
 // overlayGateProfiles' two branches, pinned apart: the jail half decodes the very table
 // the boot render gated on (YOLO_USE_PROFILES), the host half lowers the USER config's
 // profile and nothing else — the boundary UserScopeConfig states and the tests

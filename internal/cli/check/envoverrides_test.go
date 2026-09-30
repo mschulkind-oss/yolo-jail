@@ -199,6 +199,29 @@ func TestSectionPacksPredictsTheOverrideRefusal(t *testing.T) {
 	}
 }
 
+// THE KEY'S DEFAULT PREDICTS THE SAME REFUSAL (PP-D10): the string form and "*" select the
+// gating profile for someagent, the CLI the pack installs, as the named entry does, because the
+// prediction folds the key over the packs it grades. Folded over no packs, the default reaches
+// no agent, the contribution looks undelivered, and `check` passes a config the launch refuses.
+func TestSectionPacksPredictsTheOverrideRefusalThroughTheProfileKeysDefault(t *testing.T) {
+	pack := overriddenPack(t, "someagent", "gatedprofile")
+	packsFixture(t, `{"packs": ["file://`+pack+`"]}`)
+	star := jsonx.NewOrderedMap()
+	star.Set("*", "gatedprofile")
+	for name, value := range map[string]any{"string form": "gatedprofile", "\"*\"": star} {
+		merged := jsonx.NewOrderedMap()
+		merged.Set("profile", value)
+		var buf bytes.Buffer
+		r := &reporter{w: &buf}
+		(&Options{Workspace: t.TempDir(), Getenv: func(string) string { return "" }}).sectionPacks(r,
+			withEnvSources(merged, map[string]string{widgetToken: "frozen-token-value"}))
+		if r.failed == 0 || !strings.Contains(buf.String(), widgetPointer) {
+			t.Errorf("%s: the key's default delivers the contribution beside its override, so "+
+				"`check` must FAIL naming %s:\n%s", name, widgetPointer, buf.String())
+		}
+	}
+}
+
 // The same pack with NO profile selected delivers no contribution, so there is nothing to
 // override — and nothing to print, not even a PASS line. It matches the launch, which
 // never announces a gate it did not trip.
