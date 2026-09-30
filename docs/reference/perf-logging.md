@@ -128,10 +128,14 @@ intended.
   process exits. No yolo code runs there, so no span can cover it; it can only be
   *attributed* after the fact, and is entered as a Record. Coined in the design
   this reference replaces (2026-09-06). Since the container's main process became
-  a hold, that child is the **main process's client**, which a fresh launch starts
-  outside the TTY proxy (`startJailMain`), and its exit is the `jail_main.exited`
-  mark; the proxy's child is the first session's `podman exec`, which returns
-  before the container dies. It has two halves, recorded separately
+  a hold, that child is the **main process's client** (`startJailMain`), and its exit
+  is the `jail_main.exited` mark; the proxy's child is a session's `podman exec`, which
+  returns before the container dies. Since the jail's [keeper](../design/jail-lifetime-last-session-wins.md#9-the-keeper-design-2026-09-29) (a
+  background process per running jail, spawned by the fresh launch) starts that client,
+  Window A is the keeper's: it is recorded in the keeper's own run block of the same
+  `host-perf.log`, no terminal waits through it, and the keeper's chain never waits for the
+  client either, killing one still alive when its chain is done (the
+  `shutdown.window_a_cut.keeper` mark). It has two halves, recorded separately
   since 2026-09-24:
   - **podman's teardown** — from the `died` event to podman's last teardown event
     (`remove` for a `--rm` container): conmon's exit file, the cleanup process,
@@ -289,14 +293,15 @@ and the members that carry meaning:
 | :--- | :--- | :--- |
 | `probes.done` (mark) | the end of the repo-root / storage / config / runtime probes | the first line of every launch after the header |
 | `runtime.ready` | the podman readiness gate inside runtime selection, with a `runtime.ready.attempt` note per attempt | written on a refused launch too; see [the podman readiness wait](#the-podman-readiness-wait) |
-| `launch.*` | every host-side step from staging to the child window: auto-capture, orphan reaping, briefing refresh, the workspace lock, the jail prefix, the image load, workspace state, argv assembly, port forwarding, loophole start, and `launch.run_with_proxy` — the whole child window under one span: on a fresh launch, the main process's spawn and boot, the first session's exec, and the main process's client's exit | `launch.auto_capture` was added after the first real run put most of a two-minute launch in an unspanned installer capture: **a span table's holes are only visible on a real launch** |
+| `launch.*` | every host-side step from staging to the child window: auto-capture, orphan reaping, briefing refresh, the workspace lock, the jail prefix, the image load, workspace state, argv assembly, `launch.await_previous_keeper` (a wait for the keeper still ending the last jail), and `launch.run_with_proxy` — the whole child window under one span: on a fresh launch, the keeper's spawn, the boot it relays and the first session's exec. Port forwarding and loophole start are the keeper's own spans, in its run block | `launch.auto_capture` was added after the first real run put most of a two-minute launch in an unspanned installer capture: **a span table's holes are only visible on a real launch** |
 | `image.*` | inside `launch.auto_load_image`: the nix build, the stream load, the tar materialize | split because one span over four unrelated things measured minutes on a real host with no way to say which; the fixes for a slow build and a slow stream have nothing in common |
 | `assemble.*` | the two argv-assembly steps that run subprocesses: the host-loopback probe and the host git identity | |
 | `child.*` (marks) | the tty proxy's own transitions: `spawned`, `exited`, `drain_done`, `termios_restored` | `child.exited` → `child.drain_done` bounds the proxy-drain hypothesis; a path that skips a stage (a non-tty stdin, the non-Linux fallback) simply never reports it. On a fresh launch the proxy's child is the first session's `exec` |
-| `jail_main.*` (marks) | a fresh launch's main-process client: `spawned`, `exited` | `jail_main.exited` is where Window A ends; from `spawned` the boot is relayed to the terminal, so slow-span notices wait, as they do while the proxy's child has it |
-| `housekeeping.slot` | the post-launch housekeeping slot, on the proxy's `onStarted` goroutine | runs *concurrently with the child*, so it overlaps `launch.run_with_proxy` by design |
-| `shutdown.*` | the normal-exit teardown chain | see [The shutdown path](#the-shutdown-path) |
-| `terminate.*` | the signal arm's teardown chain | the same steps under a different family, so the report says which arm ran |
+| `jail_main.*` (marks) | the main-process client, which the keeper starts: `spawned`, `exited`, in the keeper's block; the fresh launch marks `jail_main.spawned` in its own when the keeper says so | `jail_main.exited` is where Window A ends; from `spawned` the boot is relayed to the terminal, so slow-span notices wait, as they do while the proxy's child has it |
+| `housekeeping.slot` | the post-launch housekeeping slot, on a goroutine the fresh launch starts once its keeper says the container is running | runs *concurrently with the child*, so it overlaps `launch.run_with_proxy` by design |
+| `shutdown.*` | the keeper's teardown chain, after its stop (`keeper.stop_jail`), in the keeper's block | see [The shutdown path](#the-shutdown-path) |
+| `session.*` | a session's quit: `session.after_quit`, its look at what it left, and `session.keeper_teardown`, the last session's wait for its keeper | a slow `session.keeper_teardown` is the keeper's chain; its lines are in the keeper's log |
+| `terminate.*` | a session's signal arm: `terminate.signal`, and an attach's or a first session's hangup of its own processes (`terminate.hangup_session`) | never a stop: a jail ends only by its keeper, `yolo stop` or the runtime |
 | `attach.exec` | the attach arm's child window (a second session into a running jail) | almost no teardown of its own: if the symptom reproduces here the delay is inside the runtime's `exec` |
 | `stop.*` | `yolo stop`'s inspect and stop | |
 
@@ -304,6 +309,14 @@ and the members that carry meaning:
 
 What happens between "the agent's process exited" and "the shell prompt
 returns", and which line in the record covers each step.
+
+> [!NOTE]
+> **Since the keeper, the chain is the keeper's.** A session's exec returning is only its own
+> end (the proxy's `child.*` marks), and the prompt comes back then when other sessions remain.
+> The container stops when the last session has gone: the keeper stops it (`keeper.stop_jail`),
+> and everything from PID 1's exit down is recorded in the keeper's run block of the same file.
+> The last session waits for that teardown and streams it from the keeper's log
+> (`session.keeper_teardown`), so its prompt returns once the chain is done, as before.
 
 ```mermaid
 flowchart TD
@@ -326,26 +339,28 @@ flowchart TD
 
 **The normal arm.** The proxy loop sees the child exit, drains whatever the pty
 master still holds, restores the host terminal, and returns; `launch.run_with_proxy`
-ends there. `teardownAfterExit` then runs the `shutdown.*` chain in the order
-drawn. Every step in it is bounded except one: the container-liveness check
-inside `stopLoopholes` runs the runtime's `ps` with no timeout, which is why it is
-recorded as a **mark** placed immediately before the call — if the runtime hangs
-there, that mark is the last line in the file, and the dangling record names
-where the prompt went to die.
+ends there. When that was the last session, the keeper then stops the container and
+`teardownAfterExit` runs the `shutdown.*` chain in the order drawn. Every step in it is
+bounded, the container-liveness check inside `stopLoopholes` included since the keeper
+(`trackingProbeTimeout`, 10 s): it is still recorded as a **mark** placed immediately before
+the call, so if the runtime hangs there, that mark is the last line in the file until the
+bound, and the dangling record names where the teardown went to die.
 
-**The signal arm.** On SIGHUP (window close) or SIGTERM, the tty proxy's signal
-goroutine restores cooked termios, runs `onTerminate`, and exits the process with
-`128 + signal`. `onTerminate` begins with the `terminate.signal` mark and the
-probe's final sample, while a lingering client may still be alive
-([The terminate arm](#the-terminate-arm-and-a-killed-launcher)).
+**The signal arm.** On SIGHUP (window close) or SIGTERM, a session's signal goroutine
+restores cooked termios, runs its teardown, and exits the process with `128 + signal`. The
+teardown begins with the `terminate.signal` mark, and it ends that session alone: an attach's,
+and a fresh launch's once its jail is ready, hangs up the session's own processes in the jail
+(`terminate.hangup_session`) and never stops the jail.
 
 **A fresh launch has one arm for its whole child window**, its own (`launchSignalArm`,
-[`jailmain.go`](../../internal/cli/run/jailmain.go)). It is installed before the main process
-starts and kept until that process's client has exited, so the boot, the first session's exec
-and the wait after it (where the fresh launch's Window A now falls) are one arm's. The proxy
-runs the first session with no arm of its own and hands this one the handle it needs to put the
-terminal back and kill the exec client (`ttyproxy.Observer.Arm`); the chain it runs, and its
-order, are the proxy's arm's. The attach arm keeps the proxy's own.
+[`jailmain.go`](../../internal/cli/run/jailmain.go)). It is installed after the keeper's spawn
+and kept until the first session has returned. Until the jail is ready its teardown closes the
+keeper's lifeline, which has the keeper unwind what it started, relays that unwind for up to
+20 s, prints the report and restores the terminal; at ready it is retargeted to the session's
+own teardown, so no signal falls between two arms. The proxy runs the first session with no arm
+of its own and hands this one the handle it needs to put the terminal back and kill the exec
+client (`ttyproxy.Observer.Arm`). The KEEPER's own SIGTERM or SIGINT, which only a `kill`, a
+shutdown or a logout sends it, ends the jail in order: its stop, its chain, its exit.
 
 > [!IMPORTANT]
 > **Ctrl-C no longer reaches this arm, as of 2026-09-19.** The host TTY is raw, so ^C arrives
@@ -359,15 +374,13 @@ order, are the proxy's arm's. The attach arm keeps the proxy's own.
 > ⚠ This is about a jail that is RUNNING. Everything the launch prints before the proxy
 > takes the terminal — the pack disclosures, the config-change prompt, the banner — is still
 > on a cooked TTY, so Ctrl-C there still aborts the launch, which is what the rulings that
-> rest on *"the user can still Ctrl-C"* actually depend on. So is everything after a fresh
-> launch's first session has returned: while the main process's client lingers, the terminal
-> is the shell's again, and Ctrl-C there is a SIGINT that runs the chain below, rc 130. `onTerminate` runs the `terminate.*` chain: stop the jail
-(the runtime's own graceful stop, bounded), clean up port forwarding, release the
-lock, stop the loopholes, capture config — and then prints the report as its
-**last statement**. Both arms run on this path: the terminate arm's stop is what
-makes the child exit, which unblocks the normal arm mid-teardown. That
-interleaving is ordinary, not a fault, and it is why the report is guarded to print
-once per `Run` — one table and one Window A query, not two.
+> rest on *"the user can still Ctrl-C"* actually depend on. So is a keeper's boot relay: a
+> Ctrl-C there ends the launch, and its keeper unwinds. After a session has returned, the
+> terminal is the shell's again, and a Ctrl-C during the last session's streamed teardown
+> stops the stream and leaves the keeper to finish.
+
+The report is guarded to print once per `Run`, one table and one Window A query, since a
+signal arm and the normal path can both reach it.
 
 **The attach arm.** A second session into a running jail spans `attach.exec`
 around the runtime's `exec`, gets the same `child.*` marks, runs only the OOM
@@ -381,9 +394,10 @@ down and reports nothing. A fresh launch is the exception: its own arm covers it
 on every path, a non-tty stdin and the non-Linux fallback included.
 
 > [!WARNING]
-> **In `onTerminate`, the report is the last statement, and nothing may follow it.**
-> The proxy calls `os.Exit` the instant the closure returns; a statement placed after
-> the report never runs, and a report moved into a `defer` never prints. On the
+> **In a signal arm's teardown, the report is the last output, and nothing may follow it.**
+> The arm calls `os.Exit` the instant the teardown returns; a statement placed after the
+> report and the terminal's restore never runs, and a report moved into a `defer` never
+> prints (`keeperPreReadyTeardown` prints it before its `restoreTerminal`). On the
 > normal arm the report prints inside `Run`, after the teardown chain and before
 > `Run` returns — which is what keeps it ahead of the caller's deferred
 > terminal-title restore, so it never interleaves with the returning shell prompt.
@@ -538,8 +552,8 @@ and `$XDG_RUNTIME_DIR/libpod/tmp/exits` for a rootless one, unless
 directory**. That is one goroutine parked in the Go netpoller, with no thread, no
 process and no timer. It fires on the rename into place (`IN_MOVED_TO`, since
 conmon writes a temp file first) or a direct close-after-write. The watch is
-armed from `onStarted`, with the short id the lock-release wait already read from
-`podman ps -q`, so arming costs no extra podman call. The directory is found
+armed by the keeper once it sees the container running (`awaitRunning`), with the short id that
+wait already read from `podman ps -q`, so arming costs no extra podman call. The directory is found
 defensively (`lingerprobe.DetectExitDir`): the `containers.conf` override first,
 then the rootful or rootless defaults, then podman's own fallbacks, and the first
 that exists wins. None existing is recorded as a token, never a guess. Two
@@ -659,13 +673,12 @@ session's typing never reaches the file.
 ### The terminate arm and a killed launcher
 
 > [!NOTE]
-> **A fresh launch's linger is no longer inside the proxy.** Its lingering client is the main
-> process's, which it waits for after the first session's exec, and the proxy with it, has
-> returned. The terminal is cooked there, so ^Z is the shell's ordinary job stop, with no
-> `child.suspended` mark; `kill %1` reaches the launch's own arm, which ignores SIGTTOU and
-> SIGTTIN on its way out as the proxy's does; and `kill -9 %1` leaves that client, which leads a
-> process group of its own, to exit by itself once its container has. What follows is an
-> attach's linger, and a fresh launch's before the main process became a hold.
+> **A fresh launch's linger is the keeper's now.** Its lingering client is the main process's,
+> the keeper's child, which no terminal holds and nothing waits for: the keeper's chain goes on
+> once the container is gone, and a client still alive at its end is killed. A SIGTERM to the
+> keeper takes the probe's final sample (tagged `final (keeper signalled)`) before its stop, the
+> step that can itself hang. What follows is an attach's linger, and a fresh launch's before the
+> keeper.
 
 ^Z works during a linger because the proxy's own loop is still running, and it is
 marked now: `child.suspended`, then `child.resumed` on `fg`. What happens next:
@@ -813,11 +826,12 @@ stderr report still work, and a jail is never refused over its timing log.
 | When | What the system does |
 | :--- | :--- |
 | The log file cannot be created or opened | one warning, then a silent sink; the launch proceeds and the report still prints |
-| The runtime hangs in the unbounded liveness check | `shutdown.container_check` is the last line in the file — the dangling record names the step |
+| The runtime hangs in the liveness check | `shutdown.container_check` is the last line in the keeper's block until the check's 10 s bound — the dangling record names the step |
 | Any other step hangs | its `start` line is in the file with no `end`; `tail` the file |
 | `podman events` times out, fails, or holds no `die` | one dim reason line beneath the table; the table is unaffected |
-| SIGHUP / SIGTERM to the launcher (or an explicit `kill -INT`) | `terminate.*` spans reach the file before the process exits; the report prints from inside the signal arm at `128 + signal`, so rc 130 for an explicit SIGINT |
-| **Ctrl-C at the keyboard** | nothing while a session runs — it is forwarded to the jail (see the signal arm above), so the launcher never terminates and no report is produced. After a fresh launch's first session has returned, while the main process's client lingers, the terminal is cooked and it is a SIGINT: the `terminate.*` chain, rc 130 |
+| SIGHUP / SIGTERM to a session's launcher (or an explicit `kill -INT`) | `terminate.*` spans reach the file before the process exits: the session's hangup of its own processes; the jail runs on for its other sessions. The launch's rc is `128 + signal`, so 130 for an explicit SIGINT |
+| **Ctrl-C at the keyboard** | nothing while a session runs — it is forwarded to the jail (see the signal arm above), so the launcher never terminates and no report is produced. During the last session's streamed teardown it stops the stream; the keeper finishes |
+| SIGTERM to the keeper | its final sample, `keeper.stop_jail` and the `shutdown.*` chain in its block; every session prints the recorded reason |
 | Both teardown arms run (the ordinary signal-path interleaving) | one report, one Window A query — the once-guard |
 | A persistent opt-in with no flag | the file is written — Window A included; one dim line names it; no table and no in-container block |
 | The events query fails on a launch that prints nothing | the failure class reaches the file as a `shutdown.window_a_unattributed.<token>` mark; the prose reason has no reader and is dropped |
@@ -825,9 +839,10 @@ stderr report still work, and a jail is never refused over its timing log.
 | No teardown event, or one after the client's exit | the total alone, and a `shutdown.window_a_unsplit.<token>` mark |
 | The probe could not be armed, or never saw the exit file | a `shutdown.window_a_unsampled.<token>` mark; the stderr line says `not sampled: <why>` |
 | The client is SIGKILLed with the launcher (^Z, `kill -9 %1`) | every sample up to that moment is in the file; nothing after |
-| SIGTERM/SIGHUP while the client lingers (including `kill %1` on a stopped job) | a tagged final sample, then Window A cut at `terminate.signal`, marked `shutdown.window_a_cut.signal` |
+| SIGTERM/SIGHUP while an attach's client lingers (including `kill %1` on a stopped job) | a tagged final sample, then Window A cut at `terminate.signal`, marked `shutdown.window_a_cut.signal` |
+| The keeper's chain ends while the main process's client is still alive | the client is killed, and `shutdown.window_a_cut.keeper` marks it |
 | A `/proc` file the probe cannot read | that field renders `?`; the sample is still written |
-| Non-tty stdin or a non-Linux host | `child.spawned` / `child.exited` only; no drain or termios marks; no signal arm on an attach, while a fresh launch's own arm still runs the `terminate.*` chain |
+| Non-tty stdin or a non-Linux host | `child.spawned` / `child.exited` only; no drain or termios marks; a session's arm still runs its teardown |
 | `macos-user` backend | the collector records the host-side spans up to the backend dispatch and nothing after; no report and no quiet line — see [Known gaps](#known-gaps) |
 | A refused launch (the live-overlay guard) | no collector, no file, no directory |
 

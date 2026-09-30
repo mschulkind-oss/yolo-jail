@@ -45,15 +45,25 @@ older image.
 **"No packs are configured, so this jail has no coding agent".** Add an agent pack to your user
 config; see [Choose an agent](../getting-started.md#choose-an-agent).
 
-**My other terminal's agent stopped when I quit the first one.** A jail lives with the terminal
-that started it: quitting that terminal's agent, or closing its window, ends the jail and every
-terminal that joined it, and each of those terminals says so when its agent ends. Start the
-long-running agent first, or start both from the jail's own shell (a bare `yolo`). Closing a
-terminal that joined a jail ends only that terminal's agent, and the jail runs on for the others. A terminal that started a jail and was killed outright, with `kill -9`,
-leaves its agent running in the jail with no window, and the jail with it; the next `yolo` no
-longer cleans that jail up while another terminal is still in it. A terminal that joins it then
-is warned that the jail's logins through yolo, port forwards and cgroup delegate may be down, and
-`yolo stop` followed by `yolo` brings them back.
+**My other terminal's agent stopped when I quit the first one.** It no longer does: a jail lives
+while any terminal in it does. Quitting an agent, or closing its terminal, ends that terminal's
+agent and nothing else, whichever terminal started the jail; the terminal says the jail stays up
+for the others, and `yolo -- <agent>` there joins them again. The last terminal to quit ends the
+jail and shows it shutting down. A terminal that says its jail stopped names why: `yolo stop`, a
+restart from another terminal, or nothing recorded, which is an out-of-memory kill, a crash or a
+`podman stop` from outside yolo.
+
+**"Refusing to enter … its keeper … is gone".** Each running jail has a small background process,
+`yolo internal daemon jail-keeper`, which every launch names and which holds the jail's logins
+through yolo, port forwards and cgroup delegate. When it was killed, the terminals already in the
+jail keep running without those services, and a new one is refused. Run `yolo stop`, then `yolo`,
+to start the jail fresh; or let its terminals finish, and the last one to quit cleans the jail up.
+Its log is `~/.local/share/yolo-jail/logs/jail-keeper-<jail name>.log`.
+
+**"The previous jail of this workspace is still shutting down".** A launch right after the last
+terminal quit, or after `yolo stop`, waits for that jail's keeper to finish before it starts a new
+one. If the wait runs out, the message names the keeper's pid and log; `kill <pid>` ends it in
+order.
 
 ## After a config change
 

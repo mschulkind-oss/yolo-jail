@@ -185,10 +185,12 @@ each one is a place a plausible "cleanup" reintroduces the wedge.
   Ctrl-C exits 130; the other two exit `128+n`. This is the terminal-close and explicit-cancel
   path, and it is why teardown is the proxy's job. It acts only while the run is the proxy's:
   once the child has exited and the proxy has begun returning, a signal is left to its caller,
-  which is carrying on with its own teardown. And a fresh launch's first session runs with no
-  arm of the proxy's at all (`Observer.Arm`): the launch's own arm covers the whole launch, the
-  boot before the session and the wait for the main process after it included, and the proxy
-  hands it a handle that restores the terminal and kills the child, in the order above.
+  which is carrying on with its own teardown. And a session run through `runArmedSession` (a
+  fresh launch's first session, and an attach's) has no arm of the proxy's at all
+  (`Observer.Arm`): the launch's own arm covers it, the fresh launch's the boot its keeper relays
+  before the session too, and the proxy hands it a handle that restores the terminal and kills
+  the child, in the order above. That arm's teardown ends the session alone, never the jail,
+  which only its keeper stops.
 - **stdin EOF stops reading stdin and keeps pumping the master until the child exits.** Decided
   semantics, not an accident: the output after an EOF is still wanted.
 

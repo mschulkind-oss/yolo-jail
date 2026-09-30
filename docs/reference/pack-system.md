@@ -2745,7 +2745,7 @@ another launch reads, so pack staging needs neither the lock nor the sync.
 
 | Arm | Opens | Released |
 | :--- | :--- | :--- |
-| podman, Apple Container: fresh launch | top of `runContainer` | once the container is running (`onStarted`) |
+| podman, Apple Container: fresh launch | top of `runContainer` | handed to the jail's keeper at its spawn, which releases it once the container is running (`awaitRunning`, keeper.go) |
 | podman, Apple Container: attach | top of `runContainer` | once the contract gate has passed and the skills and briefing staging is refreshed, before the exec |
 | macos-user | before `refreshJailBriefings` | by the orchestrator, before the agent |
 | any other return | | `Run`'s deferred release |

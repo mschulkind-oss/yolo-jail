@@ -332,6 +332,20 @@ program. A machine with no build gets a line saying the loophole does nothing th
 
 ### Changed
 
+**A jail now lives while any terminal in it does.** Quitting the agent in the terminal that
+started a jail, closing that terminal, or killing its `yolo` no longer ends the agents in the
+project's other terminals. That terminal gets its prompt back as soon as its own agent ends, says
+the jail stays up for the others, and `yolo -- <agent>` typed there again joins them. The jail
+ends when its last terminal quits, and that terminal shows the jail shutting down until it is
+done; Ctrl-C stops showing it and leaves the shutdown to finish. `yolo stop` still ends every
+terminal at once, and now returns only once the shutdown is done. What makes this work is a small
+background process, `yolo internal daemon jail-keeper`, one per running jail: every launch names
+it, it holds the jail's logins through yolo, port forwards and cgroup delegate, and it ends with
+the jail. If it is killed, the terminals already in the jail carry on without those services, a
+new terminal is refused and pointed at `yolo stop`, and the last terminal to quit cleans the jail
+up. This is podman and Apple Container; a macos-user sandbox never shared a jail between terminals.
+See [troubleshooting](userguide/guides/troubleshooting.md#installing-and-launching).
+
 - Re-entering a jail with `YOLO_ALLOW_ATTACH_SKEW=1` now also tells the agent, in its briefing,
   which yolo the jail was started with and which settings of the profile you selected did not
   reach it, so the agent can explain a missing login instead of guessing. On Apple Container the
@@ -475,11 +489,6 @@ project's `region` with a dot or a slash in it could have sent your prompts and 
 credential to a server of its choosing. See
 [settings per setup](userguide/reference/settings-per-setup.md).
 
-**Ctrl-C now ends a slow quit.** When you quit the terminal that started a jail and yolo is still
-waiting for the jail to finish shutting down, Ctrl-C ends the wait, cleans up after the jail as
-closing the window does, and exits with status 130. While your agent runs, Ctrl-C still goes to
-the agent.
-
 **A pack whose `supersedes` names a capability no loophole serves now stops the launch.** Such a
 claim turns nothing off, so the loophole it was meant to retire kept running, and the launch only
 printed a warning. The launch now refuses, in a jail and under `yolo host` alike, with the same
@@ -517,19 +526,14 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   says so, instead of starting a second jail beside the running one.
 - A second terminal in a jail is no longer ended by the next `yolo` you run, in any project,
   after the terminal that started the jail was killed outright, for example by `kill -9` or the
-  out-of-memory killer. yolo counts every terminal running in a jail, and it cleans up a jail
-  left behind by a dead terminal only once no terminal is left in it. A terminal that joins such
-  a jail is told that the yolo which started it is gone, that the jail's logins through yolo,
-  port forwards and cgroup delegate may be down with it, and that `yolo stop` and a new launch
-  bring them back. Quitting the terminal that started a jail still ends the jail and every
-  terminal in it.
-- Closing a terminal that joined a running jail, or stopping its `yolo`, now ends the agent that
-  terminal started in the jail. It used to keep running there with no window until the jail
-  stopped. The jail and its other terminals carry on. A jail an earlier yolo started keeps the old
-  behavior.
-- A terminal whose jail ends under it now says why: the terminal that started the jail quit,
-  `yolo stop`, a restart from another terminal, or that nothing recorded a reason, such as an
-  out-of-memory kill.
+  out-of-memory killer. yolo counts every terminal running in a jail, and cleans up a jail left
+  behind only once no terminal is left in it.
+- Closing a terminal in a running jail, or stopping its `yolo`, now ends the agent that terminal
+  started in the jail, the terminal that started the jail included. It used to keep running there
+  with no window until the jail stopped. The jail and its other terminals carry on. A jail an
+  earlier yolo started keeps the old behavior.
+- A terminal whose jail ends under it now says why: `yolo stop`, a restart from another terminal,
+  or that nothing recorded a reason, such as an out-of-memory kill.
 - Typing `ctrl-p` then `ctrl-q` in a podman jail no longer drops you out of the session while its
   agent keeps running in the background; the keys reach the program you are in.
 - `.yolo/boot.log` now always holds how the jail itself started, however many terminals join it
