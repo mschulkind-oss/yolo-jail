@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
 func renderOpencodeSet(t *testing.T, use string) *pioencodeRender {
@@ -212,5 +214,59 @@ func TestEachOpencodeSetEntryKeepsItsOwnModelSwitch(t *testing.T) {
 	router, _ := rows["router"].(map[string]any)
 	if w, ok := router["whitelist"]; ok {
 		t.Errorf("router's own profile turned enforcement off, but its row carries whitelist %v", w)
+	}
+}
+
+// A BEDROCK ENTRY AFTER THE FIRST KEEPS ITS OWN SWITCH ON opencode's OWN BEDROCK ROW (AP-D16 on the
+// native row, MM-D7): under an `only` narrowing bedrock, the amazon-bedrock row's refusing
+// `whitelist` follows the switch of the set's Bedrock entry, never the primary's. Each case sets
+// the two switches apart, so reading the primary's for the native row, as the generic rows did
+// before sets, flips the answer in both.
+func TestABedrockEntryAfterTheFirstKeepsItsOwnModelSwitch(t *testing.T) {
+	const opus, sol = "global.anthropic.claude-opus-5-5", "us.openai.gpt-6.1-sol"
+	company := companyModelsPack(t, `{"kind":"models","provider":"bedrock","only":["`+sol+`","`+opus+`"]}`)
+	packs := append(testPacksForAgent(t, "opencode", "zai"), company)
+	off := false
+	for _, tc := range []struct {
+		name     string
+		user     map[string]packload.UserProfile
+		set      string
+		enforced bool
+	}{
+		{"the entry's switch off, the primary's on",
+			map[string]packload.UserProfile{"bedrock-open": {Provider: "bedrock", EnforceModels: &off}},
+			`["zai","bedrock-open"]`, false},
+		{"the entry's switch on, the primary's off",
+			map[string]packload.UserProfile{"zai-open": {Provider: "zai", EnforceModels: &off}},
+			`["zai-open","bedrock"]`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			table, err := packload.ComposeProviders(nil, packs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := packload.ResolveProfiles(packs, tc.user, table)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := newPioencodeRender(t, mustCompactJSON(t, table))
+			r.wireProfiles(mustCompactJSON(t, packload.ProfilesWireTable(resolved)))
+			r.render(t, `{"opencode":`+tc.set+`}`)
+			cfg := r.ocConfig(t)
+			native, _ := ocRows(t, cfg)["amazon-bedrock"].(map[string]any)
+			if native == nil {
+				t.Fatalf("no amazon-bedrock row for the set's second entry: %v", cfg["provider"])
+			}
+			whitelist, has := native["whitelist"]
+			switch {
+			case tc.enforced && !reflect.DeepEqual(whitelist, []any{opus, sol}):
+				t.Errorf("amazon-bedrock whitelist = %v, want the narrowed ids: the Bedrock entry's own switch is on", whitelist)
+			case !tc.enforced && has:
+				t.Errorf("amazon-bedrock whitelist = %v, want none: the Bedrock entry's own switch is off", whitelist)
+			}
+			if got := strs(cfg["enabled_providers"]); len(got) != 2 || got[1] != "amazon-bedrock" {
+				t.Errorf("enabled_providers = %v, want the primary then amazon-bedrock", got)
+			}
+		})
 	}
 }
