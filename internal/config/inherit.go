@@ -327,8 +327,9 @@ var inheritCensus = map[string]keyDisposition{
 	// an ordinary unknown key (config.go's rule comment).
 	"agent_profiles": {reason: "RETIRED — renamed to use_profiles (briefly pack_profiles, never in a release), and that to profile; emitting it would re-trigger the retirement error"},
 	// `use_profiles` joined them on 2026-09-29, renamed to `profile` to mirror -p/--profile
-	// (docs/design/providers-and-profiles-redesign.md PP-D10). It shipped in v0.11.0, so a
-	// snapshot an older launcher wrote carries it, and the in-jail validator warns on it.
+	// (docs/design/providers-and-profiles-redesign.md PP-D10). It shipped in every release
+	// from v0.9.0 through v0.11.0, so a snapshot an older launcher wrote carries it, and the
+	// in-jail validator warns on it.
 	"use_profiles": {reason: "RETIRED — renamed to profile, which mirrors -p/--profile; emitting it would re-trigger the retirement error"},
 }
 

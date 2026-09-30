@@ -34,8 +34,9 @@ const ProfileKey = "profile"
 // is named by the program its pack installs and no program is called `*`.
 const ProfileEveryAgent = "*"
 
-// retiredUseProfilesKey is the key `profile` replaced on 2026-09-29. It shipped in v0.11.0, so
-// it keeps a by-name refusal (validateUseProfilesRetired) rather than becoming an unknown key.
+// retiredUseProfilesKey is the key `profile` replaced on 2026-09-29. It shipped in every release
+// from v0.9.0 through v0.11.0, so it keeps a by-name refusal (validateUseProfilesRetired) rather
+// than becoming an unknown key.
 const retiredUseProfilesKey = "use_profiles"
 
 // ProfileSelection is one source's profile selection, in the shape both of its spellings lower

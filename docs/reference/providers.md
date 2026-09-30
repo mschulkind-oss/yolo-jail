@@ -1162,11 +1162,11 @@ to at most one pack — and because a pack slug is not what a derive knows itsel
 collide with one, since no program is called `*`. Both `profiles` and `profile` are
 **user-scope-only** ([OQ-CS5](#oq-cs5)): a workspace file travels with the repo and is
 agent-editable, and a profile steers which endpoint and which model an agent talks to. The
-selector's earlier spellings, `use_profiles` (shipped in v0.11.0) and `agent_profiles`, are
-refused by name with the replacement in the message, and the `use_profiles` refusal respells
-the user's own entries under the new key; in a jail, where the config is a generated snapshot,
-each is a warning instead. Every derive receives the **whole** table, so a pack that installs
-no CLI — a provider pack — still reads any CLI's selected name.
+selector's earlier spellings, `use_profiles` (in every release from v0.9.0 through v0.11.0) and
+`agent_profiles`, are refused by name with the replacement in the message, and the
+`use_profiles` refusal respells the user's own entries under the new key; in a jail, where the
+config is a generated snapshot, each is a warning instead. Every derive receives the **whole**
+table, so a pack that installs no CLI — a provider pack — still reads any CLI's selected name.
 
 > [!WARNING]
 > **`autonomy` and `profile` are two kinds on purpose; do not merge them** ([OQ-1](#pv-oq-1)).

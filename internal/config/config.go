@@ -81,8 +81,8 @@ var knownTopLevelConfigKeys = set(
 	// the two things the key holds). `pack_profiles` never shipped in a release, which is why
 	// it earns no census entry of its own — see knownProviderKeys below for the rule.
 	// `agent_profiles` KEEPS its entry: that spelling is written into every host-generated
-	// jail snapshot in existence. `use_profiles` shipped in v0.11.0 and was renamed to
-	// `profile` on 2026-09-29, mirroring -p/--profile (docs/design/
+	// jail snapshot in existence. `use_profiles` shipped in every release from v0.9.0 through
+	// v0.11.0 and was renamed to `profile` on 2026-09-29, mirroring -p/--profile (docs/design/
 	// providers-and-profiles-redesign.md PP-D10), so it keeps an entry for the same reason.
 	// Listed so the retirement message is the only error, per the convention above.
 	"agent_profiles", "use_profiles",
