@@ -231,8 +231,10 @@ no-op. Six facts, each from the tree:
 1. **The bridge authenticates no caller.** [WB-D4](../reference/wire-bridge.md#wb-d4): inbound
    auth none, because *"The jail is the boundary"*. The handler ignores the inbound
    `Authorization` header ([`handler.go`](../../internal/wirebridged/handler.go)). NC-D2 retires
-   that premise, and the bridge's caller auth is in flight
-   ([notch-convergence §5](../plans/notch-convergence.md#5-already-merged-and-in-flight)).
+   that premise, and the bridge's caller auth is built
+   ([notch-convergence §5](../plans/notch-convergence.md#5-already-merged-and-in-flight)): since
+   [WB-D18](../reference/wire-bridge.md#wb-d18) a request without the launch's caller token is
+   refused `401` (`TestTheBridgeRefusesEveryCallerWithoutThisLaunchsToken`).
 2. **Claude sends its subscription bearer to any base URL** when neither
    `ANTHROPIC_AUTH_TOKEN` nor `ANTHROPIC_API_KEY` is set (measured 2026-09-02,
    [`agent-auth-modes.md` §8.1](agent-auth-modes.md#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url)).
@@ -421,7 +423,7 @@ parent of both processes (`launchservice.RunAgent`). This is [OQ-HS3](#OQ-HS3)'s
 | `yolo host env` | refuses a bridged profile, naming the `yolo host -p <p> -- <agent>` spelling: an env script cannot own a service's lifetime ([OQ-HS3](#OQ-HS3)). For the same reason it opens no credential doorway: it exports no pointer at one and names the launch that opens it ([HS-D21](#HS-D21)) |
 | `yolo host apply` | renders no bridged address, since a per-launch address cannot sit in a file, and says a bridged `use_profiles` selection takes effect only through `yolo host --` or the wrappers ([OQ-HS3](#OQ-HS3), [OQ-HC3](host-computed-layer.md#OQ-HC3)) |
 | a direct launch (an IDE, cron, a shell with no wrappers) | gets only the rendered files, so it runs on the login. claude's host status line reads the config's selection ([OQ-FT6](agent-footer.md#OQ-FT6)). At `1baf1fd4` it says `codex (bridge) · host` there (row 3 of [§2](#2-what-the-host-does-today-measured)); FT-D1 leaves a selection the host refuses out of it, so it names the login. Once the host composes a bridged selection, the line would name the bridge again while a direct launch runs on its login. That is [`agent-footer.md`](agent-footer.md)'s to settle |
-| a container jail | the caller secret, by NC-D2 (the bridge part is in flight) |
+| a container jail | the caller secret, by NC-D2 (the bridge part is built, [WB-D18](../reference/wire-bridge.md#wb-d18)) |
 | a `macos-user` jail | [§4.7](#47-macos-user) |
 
 ### 4.7 macos-user
@@ -628,8 +630,10 @@ test of the bridge's Codex route against a stub upstream
 (`TestWireBridgeTranslatesClaudeCodexToResponses`, ES-D29). Before it, unit tests covered that route (`TestResponsesNonStreamRoundTrip` in
 [`handler_test.go`](../../internal/wirebridged/handler_test.go)) and no integration test did.
 
-1. **The caller secret in the jail's bridge**, notch-convergence item 1. Ruled (NC-D2) and in
-   flight.
+1. **The caller secret in the jail's bridge**, notch-convergence item 1. Ruled (NC-D2) and built
+   ([WB-D18](../reference/wire-bridge.md#wb-d18)). ✅
+   `TestTheBridgeRefusesEveryCallerWithoutThisLaunchsToken` and
+   `TestTheCallerTokenIsNeverForwardedUpstream`.
 2. **Served addresses**, notch-convergence item 2, so no notch hands on a pointer nothing serves.
 3. **[HS-D1](#HS-D1), the selection closure at the host**, notch-convergence item 6, after
    step 2.
