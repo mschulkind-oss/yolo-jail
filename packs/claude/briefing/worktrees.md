@@ -7,8 +7,9 @@ link, because Claude Code then refuses to make a worktree.
 
 A worktree you make yourself with `git worktree add` is not one of these, and Claude Code's
 cleanup keeps it until you remove it. Put it where the user or the project says; failing that,
-where the storage guidance above says, which in a yolo jail is
-`$YOLO_DURABLE_DIR/worktrees/<task>`.
+where the storage guidance above says. In a yolo jail where `$YOLO_DURABLE_DIR` is set, that is
+`$YOLO_DURABLE_DIR/worktrees/<task>`; where that guidance says there is no durable directory,
+ask the user.
 
 If `git status` lists `.claude/worktrees/`, this repository does not ignore it: never `git add`
 it, and tell the user, since the fix is a line in their `.gitignore`.

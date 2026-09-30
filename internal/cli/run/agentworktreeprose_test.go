@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -31,8 +32,9 @@ func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 		"link, because Claude Code then refuses to make a worktree.\n\n" +
 		"A worktree you make yourself with `git worktree add` is not one of these, and Claude Code's\n" +
 		"cleanup keeps it until you remove it. Put it where the user or the project says; failing that,\n" +
-		"where the storage guidance above says, which in a yolo jail is\n" +
-		"`$YOLO_DURABLE_DIR/worktrees/<task>`.\n\n" +
+		"where the storage guidance above says. In a yolo jail where `$YOLO_DURABLE_DIR` is set, that is\n" +
+		"`$YOLO_DURABLE_DIR/worktrees/<task>`; where that guidance says there is no durable directory,\n" +
+		"ask the user.\n\n" +
 		"If `git status` lists `.claude/worktrees/`, this repository does not ignore it: never `git add`\n" +
 		"it, and tell the user, since the fix is a line in their `.gitignore`.\n"
 	const piProse = "## Where pi's workflow tools put worktrees\n\n" +
@@ -47,8 +49,9 @@ func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 		"setting to change. They survive a restart. Unless the repository ignores `.pi/worktrees/`,\n" +
 		"`git status` lists it: never `git add` it.\n\n" +
 		"Neither place is a pattern for a worktree you make yourself. Put that where the user or the\n" +
-		"project says; failing that, where the storage guidance above says, which in a yolo jail is\n" +
-		"`$YOLO_DURABLE_DIR/worktrees/<task>`.\n"
+		"project says; failing that, where the storage guidance above says. In a yolo jail where\n" +
+		"`$YOLO_DURABLE_DIR` is set, that is `$YOLO_DURABLE_DIR/worktrees/<task>`; where that guidance\n" +
+		"says there is no durable directory, ask the user.\n"
 	const claudeDest, piDest, codexDest = ".claude/CLAUDE.md", ".pi/agent/AGENTS.md", ".codex/AGENTS.md"
 
 	// THE JAIL: the production staging (stagePacks reads each pack's prose, packBriefingProses)
@@ -128,6 +131,51 @@ func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 		}
 	}
 
+	// A LAUNCH WITH NO DURABLE DIR (docs/design/durable-scratch-space.md §5.1's degenerate
+	// inputs, §5.6): `.yolo` a link, so ensureDurableDir exports nothing and core's section
+	// says there is none. The pack prose is static and follows that section, so it must not
+	// send the agent to `$YOLO_DURABLE_DIR/…` unconditionally: with the variable unset that
+	// is `/worktrees/<task>`, on a read-only root. Each sentence naming a path under the
+	// variable says it holds where the variable is set, and the prose says what to do where
+	// the section above says there is none, in that section's own words. Both container
+	// backends, whose sections differ.
+	for _, rt := range []string{"podman", "container"} {
+		wsNone := t.TempDir()
+		if err := os.Symlink(t.TempDir(), filepath.Join(wsNone, ".yolo")); err != nil {
+			t.Fatal(err)
+		}
+		oNone := goldenOptions(wsNone, home)
+		oNone.Stdout, oNone.Stderr = discardBuf(), discardBuf()
+		if d := oNone.ensureDurableDir(rt, cfg); d.Path != "" || d.Unavailable == "" {
+			t.Fatalf("%s: a linked .yolo still got a durable dir: %+v", rt, d)
+		}
+		stagingNone, err := oNone.refreshJailBriefings("yolo-ws-abcd1234", cfg, rt,
+			stagedPacks{packs: packs, briefings: proses}, ioprio.Normal)
+		if err != nil {
+			t.Fatalf("%s refreshJailBriefings: %v", rt, err)
+		}
+		for dest, want := range map[string]string{claudeDest: claudeProse, piDest: piProse} {
+			raw, err := os.ReadFile(filepath.Join(stagingNone, briefingStagingName(dest)))
+			if err != nil {
+				t.Fatalf("%s: no %s briefing written: %v", rt, dest, err)
+			}
+			body := string(raw)
+			if !strings.Contains(body, "**No durable directory this launch**") {
+				t.Errorf("%s %s: core's section does not say there is no durable dir:\n%s", rt, dest, body)
+			}
+			if !strings.HasSuffix(body, want) {
+				t.Errorf("%s %s does not end with its own agent's worktree prose:\n%s", rt, dest, body)
+			}
+			for _, s := range unconditionedDurablePaths(want) {
+				t.Errorf("%s %s sends the agent under the unset variable with no condition: %q", rt, dest, s)
+			}
+			if !strings.Contains(strings.Join(strings.Fields(want), " "),
+				"where that guidance says there is no durable directory, ask the user") {
+				t.Errorf("%s %s: the prose says nothing for the launch whose section says there is no durable dir:\n%s", rt, dest, want)
+			}
+		}
+	}
+
 	// The files the packs ship are the text pinned above, so the pin is of what ships.
 	for file, want := range map[string]string{"claude/briefing/worktrees.md": claudeProse, "pi/briefing/worktrees.md": piProse} {
 		got, err := officialpacks.FS.ReadFile(file)
@@ -135,4 +183,17 @@ func TestEachAgentPackShipsItsOwnWorktreeProseToItsOwnAgent(t *testing.T) {
 			t.Errorf("packs/%s is not the pinned prose (err %v):\n%s", file, err, got)
 		}
 	}
+}
+
+// unconditionedDurablePaths is each sentence of prose that names a path under
+// $YOLO_DURABLE_DIR without saying, in that sentence, that it holds where the variable is set.
+func unconditionedDurablePaths(prose string) []string {
+	under, cond := "`$"+durable.EnvVar+"/", "`$"+durable.EnvVar+"` is set"
+	var bad []string
+	for _, s := range strings.SplitAfter(strings.Join(strings.Fields(prose), " "), ". ") {
+		if strings.Contains(s, under) && !strings.Contains(s, cond) {
+			bad = append(bad, s)
+		}
+	}
+	return bad
 }

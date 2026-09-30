@@ -13,5 +13,6 @@ setting to change. They survive a restart. Unless the repository ignores `.pi/wo
 `git status` lists it: never `git add` it.
 
 Neither place is a pattern for a worktree you make yourself. Put that where the user or the
-project says; failing that, where the storage guidance above says, which in a yolo jail is
-`$YOLO_DURABLE_DIR/worktrees/<task>`.
+project says; failing that, where the storage guidance above says. In a yolo jail where
+`$YOLO_DURABLE_DIR` is set, that is `$YOLO_DURABLE_DIR/worktrees/<task>`; where that guidance
+says there is no durable directory, ask the user.
