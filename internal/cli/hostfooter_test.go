@@ -289,3 +289,19 @@ func TestHostFooterTablesKeepAComposedList(t *testing.T) {
 		t.Errorf("host footer profile = %q, want pi's list", got)
 	}
 }
+
+// And a list whose first entry the host cannot pair is left out, as that name alone is: pi
+// speaks no anthropic wire, so its list opening on an anthropic-only provider names nothing.
+func TestHostFooterTablesLeaveOutAListWhoseFirstEntryTheHostRefuses(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs": ["claude", "pi", "zai"],
+		  "providers": {"anth": {"endpoints": {"anthropic": {"base_url": "https://anth.example.test"}}}},
+		  "profiles": {"anth": {"provider": "anth"}},
+		  "profile": {"pi": ["anth", "zai"], "claude": "zai"}}`)
+	if got := hostFooterTables().UseProfiles; got != `{"claude": "zai"}` {
+		t.Errorf("host footer profile = %q, want claude's alone: pi's list opens on a provider pi cannot speak", got)
+	}
+}
