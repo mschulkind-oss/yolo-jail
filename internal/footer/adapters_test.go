@@ -255,7 +255,7 @@ const copilotScript = ".copilot/yolo/footer.sh"
 func copilotAdapter(t *testing.T) (command string, script []byte) {
 	t.Helper()
 	p := packNamed(t, shippedPacks(t), "copilot")
-	sl := statusLineDefault(t, surfaceOf(t, p, "copilot", "config"))
+	sl := statusLineDefault(t, surfaceOf(t, p, "copilot", "settings"))
 	command, _ = sl["command"].(string)
 	src := ""
 	for _, c := range p.Decl.Contributions() {
@@ -287,12 +287,12 @@ func homeWithCopilotScript(t *testing.T, body []byte) string {
 	return home
 }
 
-// TestCopilotAdapter is build step 5: copilot's config default names a pack-shipped script
+// TestCopilotAdapter is build step 5: copilot's settings.json default names a pack-shipped script
 // by a path that never changes, the copilot pack delivers that script at that path, and the
 // script runs the renderer. No experimental flag is set (OQ-FT7).
 func TestCopilotAdapter(t *testing.T) {
 	p := packNamed(t, shippedPacks(t), "copilot")
-	s := surfaceOf(t, p, "copilot", "config")
+	s := surfaceOf(t, p, "copilot", "settings")
 	sl := statusLineDefault(t, s)
 	if got := keys(sl); got != "command,type" {
 		t.Errorf("copilot statusLine default keys = %s, want command,type", got)
@@ -830,7 +830,7 @@ func TestBridgedRoutesAreMarked(t *testing.T) {
 		expectBridged bool
 	}{
 		{"claude", "claude", statusLine("claude", "settings", t.TempDir()), true},
-		{"copilot", "copilot", statusLine("copilot", "config", copilotHome), true},
+		{"copilot", "copilot", statusLine("copilot", "settings", copilotHome), true},
 		{"pi", "pi", extension(extensionAdapters[0]), false},
 		{"oh-omp", "omp", extension(extensionAdapters[1]), true},
 	} {
