@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	runtimepkg "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // hostfloor.go wires the HOST AGENT FLOOR (internal/hostfloor,
@@ -67,10 +69,36 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			}
 			return nil
 		},
+		// A capture boots a jail, so a machine whose runtime is not installed cannot make one —
+		// and an installer program with no capture in the store then has no floor entry here,
+		// rather than an install bound to fail. The capture act itself finds the runtime on PATH,
+		// so this asks the same question it will.
+		CaptureUnavailable: func() string {
+			rt := captureRuntime()
+			if _, err := exec.LookPath(rt); err != nil {
+				return "no container runtime (" + rt + ") is on PATH to run `yolo capture` with"
+			}
+			return ""
+		},
 		Home:   paths.Home(),
 		Out:    out,
 		Prefix: "yolo host: ",
 	}
+}
+
+// captureRuntime is the runtime a `yolo capture` would boot its jail with: YOLO_RUNTIME, then the
+// user config's `runtime`, then the platform default — run's precedence without its probe.
+func captureRuntime() string {
+	cfgRT := ""
+	if v, ok := config.UserScopeConfigOrEmpty().Get("runtime"); ok {
+		if s, ok := v.(string); ok {
+			cfgRT = s
+		}
+	}
+	return runtimepkg.ResolveRuntime(os.Getenv("YOLO_RUNTIME"), cfgRT, paths.IsMacOS, func(bin string) bool {
+		_, err := exec.LookPath(bin)
+		return err == nil
+	})
 }
 
 // hostFloorBinDir is the floor's bin/, the directory a host launch appends last to its child's

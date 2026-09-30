@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -268,5 +269,33 @@ func TestCheckReadsTheLaunchsOwnFloor(t *testing.T) {
 	}
 	if f := opts.HostFloor(nil); f.Dir != paths.HostFloorDir() || f.Prefix != "yolo host: " {
 		t.Errorf("check reads floor %+v, not the launch's", f)
+	}
+}
+
+// TestTheProductionFloorKnowsWhenThisMachineCannotCapture pins newHostFloor's CaptureUnavailable
+// wiring: with no capture in the store and no container runtime on PATH, claude has no floor
+// entry here (so a launch looks for it on PATH) rather than an install that would boot a jail it
+// cannot boot. A runtime on PATH makes it an install the floor can do. Status only: no capture
+// runs in this test.
+func TestTheProductionFloorKnowsWhenThisMachineCannotCapture(t *testing.T) {
+	home := floortest.ResolvedTemp(t)
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_RUNTIME", "podman")
+	claude := hostfloor.Program{Pack: "claude", Install: packdecl.Install{Kind: "native", Bin: "claude",
+		InstallerURL: "https://example.invalid/install.sh"}}
+	empty := floortest.ResolvedTemp(t)
+	t.Setenv("PATH", empty)
+	f := productionHostFloor(io.Discard, []hostfloor.Program{claude})
+	f.GOOS = "linux"
+	if st := f.Status(claude); st.Disposition != hostfloor.NoEntry || !strings.Contains(st.Reason, "podman") {
+		t.Fatalf("with no runtime: %s (%s), want no floor entry naming podman", st.Disposition, st.Reason)
+	}
+	writeFile(t, filepath.Join(empty, "podman"), "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(empty, "podman"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.Status(claude); st.Disposition != hostfloor.Missing {
+		t.Errorf("with podman on PATH: %s (%s), want missing — the floor can capture it", st.Disposition, st.Reason)
 	}
 }

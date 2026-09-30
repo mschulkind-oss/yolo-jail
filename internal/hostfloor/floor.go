@@ -173,6 +173,12 @@ type Floor struct {
 	ResolveCapture func(bin string) (*capture.Entry, error)
 	// Capture runs `yolo capture <bin>`, filling the store. nil => this host cannot capture.
 	Capture func(bin string) error
+	// CaptureUnavailable says why this machine cannot run Capture right now ("" when it can):
+	// a capture boots a jail, so a host with no container runtime cannot make one. Asked only
+	// for an installer program that is neither provisioned nor in the store, which then has no
+	// floor entry HERE rather than an install bound to fail (a selected pack delivers a program
+	// the floor "holds, or can provision", host-launch-environment.md §0). nil => it can.
+	CaptureUnavailable func() string
 	// Environ is the environment the installers are derived from (installerEnv strips the
 	// parts that would steer where an install lands). nil => os.Environ().
 	Environ []string
@@ -320,8 +326,9 @@ func (f *Floor) noEntryReason(p Program) string {
 	return fmt.Sprintf("its recipe (via %q) is one this build cannot install", in.Kind)
 }
 
-// Status reports p's disposition. It reads the prefix and nothing else — no network, no PATH,
-// no process — so `yolo check` and the launch gate can ask it freely.
+// Status reports p's disposition. It reads the prefix — and, for an installer program the prefix
+// does not hold, the capture store and whether a capture could run — and nothing else: no
+// network, no install, so `yolo check` and the launch gate can ask it freely.
 func (f *Floor) Status(p Program) Status {
 	st := Status{Program: p, Launcher: f.Launcher(p.Bin())}
 	if why := f.noEntryReason(p); why != "" {
@@ -334,11 +341,11 @@ func (f *Floor) Status(p Program) Status {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			st.Reason = "its record is unreadable (" + err.Error() + ")"
 		}
-		return st
+		return f.provisionable(st)
 	}
 	if !usable(rec, st.Launcher) {
 		st.Disposition, st.Reason = Missing, "its installed files are gone"
-		return st
+		return f.provisionable(st)
 	}
 	st.Disposition, st.Record = Provisioned, rec
 	switch {
@@ -350,6 +357,32 @@ func (f *Floor) Status(p Program) Status {
 	case p.Install.Kind == "npm" && !packdecl.SatisfiesNodeFloor(rec.Node, p.Install.NodeFloor):
 		st.Pending = "it runs on Node " + rec.Node + ", below the pack's node_floor " +
 			p.Install.NodeFloor
+	}
+	return st
+}
+
+// provisionable turns a Missing installer program into NoEntry when this machine can neither
+// materialize it (the store has no entry for it) nor capture one (no container runtime): the
+// floor cannot provision it HERE, so a launch looks for it on PATH (OQ-HE11) instead of failing an
+// install. It reads the store offline, never the network. A provisioned entry never comes through
+// here: the floor already holds it, whatever the store says now.
+func (f *Floor) provisionable(st Status) Status {
+	if st.Program.Install.Kind != "native" || f.ResolveCapture == nil {
+		return st
+	}
+	if _, err := f.ResolveCapture(st.Program.Bin()); err == nil {
+		return st
+	}
+	why := ""
+	switch {
+	case f.Capture == nil:
+		why = "this machine cannot run `yolo capture`"
+	case f.CaptureUnavailable != nil:
+		why = f.CaptureUnavailable()
+	}
+	if why != "" {
+		st.Disposition = NoEntry
+		st.Reason = "there is no capture of " + st.Program.Bin() + " on this machine, and " + why
 	}
 	return st
 }

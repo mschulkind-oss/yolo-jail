@@ -356,15 +356,39 @@ func TestACaptureRecordedForTheJailHomeOnlyIsRecapturedOnce(t *testing.T) {
 	}
 }
 
-// TestNoCaptureAndNoWayToMakeOneIsAFailedInstallNotAPanic.
-func TestNoCaptureAndNoWayToMakeOneIsAFailedInstallNotAPanic(t *testing.T) {
+// TestAnInstallerProgramThisMachineCanNeitherMaterializeNorCaptureHasNoFloorEntry: no capture in
+// the store and no container runtime to make one means the floor cannot provision it HERE — no
+// floor entry, with the reason, so a launch looks on PATH (OQ-HE11) instead of failing an install.
+// A provisioned copy stays provisioned whatever the store says afterwards.
+func TestAnInstallerProgramThisMachineCanNeitherMaterializeNorCaptureHasNoFloorEntry(t *testing.T) {
 	w := newWorld(t)
 	w.floor.GOOS = "linux"
 	cs := newCaptureStore(t)
 	w.floor.ResolveCapture = cs.resolve
-	_, _, err := w.floor.Ensure(context.Background(), installerProgram("claude", "claude"))
-	if err == nil || !strings.Contains(err.Error(), "cannot run `yolo capture`") {
-		t.Fatalf("Ensure = %v", err)
+	w.floor.Capture = func(string) error { t.Fatal("a capture ran on a machine that cannot"); return nil }
+	w.floor.CaptureUnavailable = func() string { return "no container runtime (podman) is on PATH" }
+	claude := installerProgram("claude", "claude")
+	st := w.floor.Status(claude)
+	if st.Disposition != NoEntry || !strings.Contains(st.Reason, "no capture of claude") ||
+		!strings.Contains(st.Reason, "podman") {
+		t.Fatalf("Status = %s (%s)", st.Disposition, st.Reason)
+	}
+	if _, _, err := w.floor.Ensure(context.Background(), claude); !errors.Is(err, ErrNoEntry) {
+		t.Errorf("Ensure = %v, want ErrNoEntry", err)
+	}
+	// With nothing able to capture at all (no Capture), the same answer.
+	w.floor.Capture, w.floor.CaptureUnavailable = nil, nil
+	if st := w.floor.Status(claude); st.Disposition != NoEntry {
+		t.Errorf("with no capture act: %s", st.Disposition)
+	}
+	// Once provisioned, the store emptying does not take it away.
+	cs.add("claude", "2.1.267", true)
+	if _, _, err := w.floor.Ensure(context.Background(), claude); err != nil {
+		t.Fatal(err)
+	}
+	delete(cs.byBin, "claude")
+	if st := w.floor.Status(claude); st.Disposition != Provisioned {
+		t.Errorf("a provisioned entry became %s when the store lost its entry", st.Disposition)
 	}
 }
 
