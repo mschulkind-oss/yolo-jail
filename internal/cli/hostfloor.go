@@ -278,7 +278,7 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0, childPath string, err
 		// OQ-HE11 is open: keep today's behavior — the launch's PATH — and say, once, that the
 		// copy about to run is not yolo's.
 		fmt.Fprintf(errw, "yolo host: yolo has no copy of %s %s (%s); looking for it on your PATH\n",
-			cmd0, noCopyWhere(), st.Reason)
+			cmd0, noCopyWhere(prog), st.Reason)
 		// The floor's own bin/ is skipped: an entry left there from before `host_floor` left
 		// the pack out is not what "no copy" may run.
 		target, err := hostwrap.LookPathSkipping(childPath, cmd0, append(yoloManagedDirs(), floor.BinDir()))
@@ -294,10 +294,14 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0, childPath string, err
 	return hostTarget{Path: st.Launcher, Origin: originFloor}, 0
 }
 
-// noCopyWhere names the machine the no-copy line is about.
-func noCopyWhere() string {
-	if runtime.GOOS == "darwin" {
+// noCopyWhere names the machine the no-copy line is about — and says "yet" for the one case that
+// is a matter of time: an installer agent on a Mac, until the host capture (HP-D2) ships.
+func noCopyWhere(p hostfloor.Program) string {
+	switch {
+	case runtime.GOOS == "darwin" && p.Install.Kind == "native":
 		return "on this Mac yet"
+	case runtime.GOOS == "darwin":
+		return "on this Mac"
 	}
 	return "on this machine"
 }
