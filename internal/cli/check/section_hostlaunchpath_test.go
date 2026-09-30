@@ -132,6 +132,19 @@ func TestCheckHostLaunchPathGivesAProgramWithNoBuildHereTheMissLine(t *testing.T
 	}
 }
 
+// TestCheckHostLaunchPathNamesARefusedHostPathEntry: an entry validation refuses reaches no PATH, so
+// the section names it as never searched, with the fix — even with nothing else to report — and
+// resolves nothing in it. Drop the section's refused-entry line, and this fails.
+func TestCheckHostLaunchPathNamesARefusedHostPathEntry(t *testing.T) {
+	o, _, _ := launchPathCheckFixture(t, `{"host_path": ["$HOME/.cargo/bin"]}`,
+		`{"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}`)
+	out, _ := runLaunchPathSection(o)
+	if want := `host_path: "$HOME/.cargo/bin" is ignored, so no lookup searches it: host_path expands no ` +
+		`variable, so write it "~/.cargo/bin"`; !strings.Contains(out, want) {
+		t.Errorf("section lacks %q:\n%s", want, out)
+	}
+}
+
 // TestCheckHostLaunchPathIsSilentWithNothingToSay: no host_path and no dependency the floor does not
 // answer for is no section at all — and a jail has none either.
 func TestCheckHostLaunchPathIsSilentWithNothingToSay(t *testing.T) {

@@ -43,6 +43,51 @@ func TestHostPathFoldersIsTheUserConfigsListAndNothingElse(t *testing.T) {
 	}
 }
 
+// TestHostPathRefusalsNamesEveryPartTheReaderLeavesOut: each entry HostPathFolders drops is named as
+// written, with a short reason and, for a `$HOME/` spelling or a bare string, the fix; an accepted
+// entry is not. A workspace value is never read here either. The miss line prints these, so an entry
+// dropped from this list would vanish in silence again.
+func TestHostPathRefusalsNamesEveryPartTheReaderLeavesOut(t *testing.T) {
+	userCfg := hostFloorHome(t)
+	ws := t.TempDir()
+	t.Chdir(ws)
+	write(t, filepath.Join(ws, WorkspaceConfigName), `{"host_path": ["relative/from/the/workspace"]}`)
+	if got := HostPathRefusals(); len(got) != 0 {
+		t.Errorf("with no user config = %v, want none; a workspace value must never be read", got)
+	}
+	write(t, userCfg, `{"host_path": ["~/.cargo/bin", "$HOME/.cargo/bin", "${HOME}/go/bin", "$X/bin",
+	  "relative/bin", "~other/bin", "/a:/b", "", "~", 7]}`)
+	want := []HostPathRefusal{
+		{Entry: `"$HOME/.cargo/bin"`, Why: `host_path expands no variable, so write it "~/.cargo/bin"`},
+		{Entry: `"${HOME}/go/bin"`, Why: `host_path expands no variable, so write it "~/go/bin"`},
+		{Entry: `"$X/bin"`, Why: "host_path expands no variable"},
+		{Entry: `"relative/bin"`, Why: `it is relative; write it absolute, or starting with "~/"`},
+		{Entry: `"~other/bin"`, Why: `"~user/" is not expanded; write the folder as an absolute path`},
+		{Entry: `"/a:/b"`, Why: `a ":" separates PATH folders, so write each folder as its own entry`},
+		{Entry: `""`, Why: "it names no folder"},
+		{Entry: `"~"`, Why: `it names no folder under your home; write "~/<folder>"`},
+		{Entry: `7`, Why: "it is not a folder name"},
+	}
+	got := HostPathRefusals()
+	if len(got) != len(want) {
+		t.Fatalf("HostPathRefusals =\n  %v\nwant\n  %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("refusal %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	write(t, userCfg, `{"host_path": "~/.cargo/bin"}`)
+	if got, want := HostPathRefusals(), (HostPathRefusal{Entry: `"~/.cargo/bin"`, Whole: true,
+		Why: `host_path is a list of folders, so write it ["~/.cargo/bin"]`}); len(got) != 1 || got[0] != want {
+		t.Errorf("a bare string = %+v, want %+v", got, want)
+	}
+	write(t, userCfg, `{"host_path": ["~/.cargo/bin", "/opt/homebrew/bin"]}`)
+	if got := HostPathRefusals(); len(got) != 0 {
+		t.Errorf("an accepted list = %+v, want no refusal", got)
+	}
+}
+
 // TestValidateHostPathRefusesEachBadEntryAndAWorkspaceValue goes through ValidateConfig: each of
 // the grammar's refusals is named with its entry, a list of good folders passes, a non-list is a
 // type error, and a workspace spelling is refused by name with the file it belongs in.

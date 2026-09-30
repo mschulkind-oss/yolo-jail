@@ -189,6 +189,35 @@ func TestAProgramWithNoBuildHereStillPrintsTheMissLine(t *testing.T) {
 	}
 }
 
+// TestARefusedHostPathEntryIsNamedInTheMissLine: a `host_path` entry validation refuses reaches no
+// PATH, and no host verb validates the config first, so a miss in the folder the user meant must say
+// the entry is why — or the line tells them to add the folder they already listed. check-deps and the
+// exec both name it, with the fix. Drop the refused entries from the resolver, or from the line, and
+// this fails.
+func TestARefusedHostPathEntryIsNamedInTheMissLine(t *testing.T) {
+	home, pathDir := launchPathFixture(t, `,"host_path":["$HOME/.cargo/bin","~/tools/bin"]`, hpTool)
+	putExe(t, filepath.Join(home, ".cargo", "bin"), "yolo-hp-tool")
+	ignored := `. host_path's entry "$HOME/.cargo/bin" is ignored: host_path expands no variable, so write it ` +
+		`"~/.cargo/bin". If yolo-hp-tool is installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc; ` +
+		`~/.cargo/bin has one.`
+	if rc, report := runCheckDepsT(t); rc != 1 || !strings.Contains(report, "is not on the PATH yolo searched, "+pathDir+
+		", the PATH yolo was started with, then host_path's ~/tools/bin"+ignored) {
+		t.Errorf("check-deps rc=%d does not name the refused entry:\n%s", rc, report)
+	}
+
+	orig := prepareOpenAIAuthHost
+	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
+	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+	captureHostExec(t)
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"yolo-hp-tool"}, io.Discard, &errw, nil); rc != 127 {
+		t.Fatalf("rc=%d, want 127\n%s", rc, errw.String())
+	}
+	if !strings.Contains(errw.String(), ignored) {
+		t.Errorf("the exec's miss line does not name the refused entry:\n%s", errw.String())
+	}
+}
+
 // readFileT reads path or fails the test.
 func readFileT(t *testing.T, path string) string {
 	t.Helper()

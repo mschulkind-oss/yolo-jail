@@ -936,7 +936,8 @@
     PATH of the shell you ran it in, plus these folders.
     Each entry is an absolute folder or starts with ~/.  A relative folder, ~user/,
     and any entry with `$` or `:` in it are refused: yolo expands no variable.
-    A folder that does not exist is kept, and `yolo check` says so.
+    A refused entry is ignored, and the line above and `yolo check` name it, with
+    the fix.  A folder that does not exist is kept, and `yolo check` says so.
     USER SCOPE ONLY.  A folder here decides which program `yolo host` runs, and a
     workspace config travels with the repo, so a workspace value is a `yolo check`
     error, and is never read.

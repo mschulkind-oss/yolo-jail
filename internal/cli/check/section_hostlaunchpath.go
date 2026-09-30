@@ -36,7 +36,7 @@ func (o *Options) sectionHostLaunchPath(r *reporter) {
 	}
 	lp := hostpath.Resolve(o.Getenv("PATH"))
 	deps := o.launchPathDeps()
-	if len(lp.Declared()) == 0 && len(deps) == 0 {
+	if len(lp.Declared()) == 0 && len(lp.Refused()) == 0 && len(deps) == 0 {
 		return
 	}
 
@@ -65,6 +65,11 @@ func (o *Options) sectionHostLaunchPath(r *reporter) {
 		default:
 			r.dim(fmt.Sprintf("host_path: %s, searched after the PATH this check was started with", shown))
 		}
+	}
+	// An entry the reader leaves out is never searched, by this check or by a launch; validation
+	// above reports it as an error, and this says what it costs here.
+	for _, rf := range lp.Refused() {
+		r.dim(fmt.Sprintf("host_path: %s is ignored, so no lookup searches it: %s", rf.Entry, rf.Why))
 	}
 
 	for _, d := range deps {

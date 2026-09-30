@@ -115,6 +115,9 @@ tool in `~/.cargo/bin` or behind mise's shims is not found.
   mise's tools from every launcher, list its shims folder, as above.
 - **Only your user config counts.** A project's `yolo-jail.jsonc` cannot set it, since a folder
   here decides which program `yolo host` runs.
+- **Write each folder absolute, or starting with `~/`.** yolo expands no variable, so an entry such
+  as `$HOME/.cargo/bin` is ignored. When a program is not found, the line yolo prints (below) names
+  an ignored entry and how to write it, and so does `yolo check`.
 
 When `yolo host`, `yolo host apply` or `yolo check-deps` cannot find something, it prints one line
 saying which program is missing, which pack needs it, the whole PATH it searched and the

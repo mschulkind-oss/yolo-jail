@@ -34,8 +34,9 @@
 // # When a lookup misses
 //
 // MissLine is the MISS LINE (§4.2, HE-D2): one line naming the program, the pack that requires it,
-// the whole PATH searched with `host_path`'s part marked, and `host_path` as the fix — naming a
-// hint folder only when one really holds the program. A hint folder never resolves anything.
+// the whole PATH searched with `host_path`'s part marked, any `host_path` entry the reader refused,
+// and `host_path` as the fix — naming a hint folder only when one really holds the program. A hint
+// folder never resolves anything.
 package hostpath
 
 import (
@@ -63,6 +64,9 @@ type Launch struct {
 	added []string
 	// declared is `host_path` as read, expanded, in written order: what `yolo check` reports.
 	declared []string
+	// refused is each part of `host_path` the reader left out, which a miss line names: no host verb
+	// validates the config first, so an entry that reaches no PATH would otherwise vanish in silence.
+	refused []config.HostPathRefusal
 	// skip is the folders every lookup skips (ManagedDirs).
 	skip []string
 	// home is the home a folder under which is written ~/…, and the hint folders' base.
@@ -84,7 +88,9 @@ func Resolve(ambient string) *Launch {
 		l.jail = true
 		return l
 	}
-	return New(ambient, config.HostPathFolders(), ManagedDirs(), paths.Home())
+	l := New(ambient, config.HostPathFolders(), ManagedDirs(), paths.Home())
+	l.refused = config.HostPathRefusals()
+	return l
 }
 
 // ManagedDirs are the folders a host PATH lookup skips: yolo's whole generated tree, so the wrap
@@ -163,6 +169,12 @@ func (l *Launch) Added() []string { return append([]string(nil), l.added...) }
 
 // Declared is `host_path` as written, expanded, whether or not a folder was already on the PATH.
 func (l *Launch) Declared() []string { return append([]string(nil), l.declared...) }
+
+// Refused is each part of `host_path` the reader left out, and why: an entry validation refuses,
+// which reaches no PATH.
+func (l *Launch) Refused() []config.HostPathRefusal {
+	return append([]config.HostPathRefusal(nil), l.refused...)
+}
 
 // InJail reports whether this is a jail's passthrough.
 func (l *Launch) InJail() bool { return l.jail }
@@ -313,6 +325,15 @@ func (l *Launch) MissLine(m Miss) string {
 	fmt.Fprintf(&b, " is not on %s, %s", where, l.Searched())
 	if skipped := l.Skipped(m.Skipping...); len(skipped) > 0 {
 		fmt.Fprintf(&b, " (skipping yolo's own %s)", strings.Join(l.tildeAll(skipped), ", "))
+	}
+	// An entry the reader left out is named, with its fix: it is why a folder the user listed is not
+	// in the PATH above, and without it the fix below would ask them to add what they already wrote.
+	for _, r := range l.refused {
+		what := "entry"
+		if r.Whole {
+			what = "value"
+		}
+		fmt.Fprintf(&b, ". host_path's %s %s is ignored: %s", what, r.Entry, r.Why)
 	}
 	fmt.Fprintf(&b, `. If %s is installed, add its folder to "host_path" in %s`, m.Bin,
 		l.tilde(paths.UserConfigPath()))
