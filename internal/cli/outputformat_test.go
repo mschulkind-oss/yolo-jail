@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -106,6 +107,14 @@ func TestStateReportingCommandsEmitParseableJSON(t *testing.T) {
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", home+"/.config")
 			t.Chdir(cwd)
+			// A stand-in runtime that lists no containers: `ps` asks the machine's podman, and
+			// a jail another process starts or stops between this test's two calls made the
+			// two documents differ (seen while other suites ran in the same podman).
+			stubRuntime := t.TempDir()
+			if err := os.WriteFile(filepath.Join(stubRuntime, "podman"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", stubRuntime+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 			stdout, _ := captureDispatch(t, append(tc.argv, "--format", "json"))
 
