@@ -6,7 +6,7 @@ package jailcontent
 // networking reads the first.
 //
 // These pin the RENDER only. Which value arrives in AppliedNetMode, which limits reach
-// Resources and which mounts survive into MountDescriptions are decisions of the run
+// Resources and which mounts survive into ContextMounts are decisions of the run
 // pipeline, and a test at this level cannot fail when that threading is deleted — those
 // live in internal/cli/run/briefingapplied_test.go, which drives the real
 // refreshJailBriefings and the real argv from one config.
@@ -122,12 +122,12 @@ func TestBriefingStatesBackendDefaultResourceLimits(t *testing.T) {
 }
 
 // A backend that refused every context mount leaves no section behind. The caller filters
-// MountDescriptions to what was actually bound; the renderer's contract is that an empty
-// list produces no heading, rather than an "Additional Context Mounts (read-only)" section
+// ContextMounts to what was actually bound; the renderer's contract is that an empty
+// list produces no heading, rather than an "Additional Context Mounts" section
 // naming /ctx paths that do not exist in the jail.
 func TestBriefingOmitsTheMountsSectionWhenNoneWereBound(t *testing.T) {
 	bound := BriefingContent(BriefingInput{
-		Workspace: "/w", MountDescriptions: []string{"/home/me/sysadmin:/ctx/sysadmin"},
+		Workspace: "/w", ContextMounts: []ContextMount{{Path: "/ctx/sysadmin", Host: "/home/me/sysadmin"}},
 	})
 	if !strings.Contains(bound, "## Additional Context Mounts") || !strings.Contains(bound, "/ctx/sysadmin") {
 		t.Errorf("a bound mount must be listed:\n%s", bound)

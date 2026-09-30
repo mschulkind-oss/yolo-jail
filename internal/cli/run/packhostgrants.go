@@ -180,33 +180,21 @@ const acCtxDirRel = ".yolo-ctx"
 // `host_files` materialize into .yolo-ctx because their reader is the ENTRYPOINT,
 // which YOLO_CTX_ROOT can redirect. This grant's reader is the AGENT, following the
 // /ctx path its own briefing names, so there is nowhere else to put it.
+//
+// WHICH grants are delivered, and every skip line, is packCtxMounts' decision
+// (ctxmounts.go), shared with the briefing so the agent is told of exactly the /ctx paths
+// this argv binds — pack mounts are listed there too now (context-mounts.md §3.8).
 func (o *Options) hostMountArgs(in *assembleInput) []string {
 	var args []string
-	for _, p := range in.packs {
-		granted, _ := p.HonoredMounts()
-		for _, mt := range granted {
-			src := filepath.Join(homeDir(), filepath.FromSlash(mt.From))
-			dest := "/ctx/" + strings.TrimPrefix(mt.To, "/")
-			if reason := o.roBindsUnsupported(in.rt); reason != "" && (isDir(src) || isFile(src)) {
-				o.pr(o.Stdout).print("[yellow]Skipping pack " + p.Name + " mount ~/" +
-					mt.From + " → " + dest + ": " + reason + "[/yellow]")
-				continue
-			}
-			switch {
-			case isDir(src):
-				args = append(args, "-v", src+":"+dest+":ro")
-			case isFile(src):
-				args = append(args, ROFileMountArg(
-					src, dest, in.wsState,
-					"ctx-"+strings.ReplaceAll(strings.TrimPrefix(dest, "/ctx/"), "/", "-"),
-					in.mountTargets, nil)...)
-			default:
-				// Absent source: skip. The pack's content simply is not present; a
-				// missing bind source would otherwise abort the container start.
-				o.pr(o.Stdout).print("[yellow]Warning: pack " + p.Name + " mount source " +
-					"does not exist, skipping: ~/" + mt.From + "[/yellow]")
-			}
+	for _, m := range o.packCtxMounts(in.rt, in.packs, o.pr(o.Stdout).print) {
+		if !m.file {
+			args = append(args, "-v", m.source+":"+m.dest+":ro")
+			continue
 		}
+		args = append(args, ROFileMountArg(
+			m.source, m.dest, in.wsState,
+			"ctx-"+strings.ReplaceAll(strings.TrimPrefix(m.dest, "/ctx/"), "/", "-"),
+			in.mountTargets, nil)...)
 	}
 	return args
 }

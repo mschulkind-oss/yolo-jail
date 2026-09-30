@@ -174,7 +174,7 @@ func TestBriefingNetModeHostIsNotTheHostNotch(t *testing.T) {
 func TestTheHostNotchBaseIsTheHeaderAlone(t *testing.T) {
 	out := BriefingContent(BriefingInput{Workspace: "/w", Confinement: "host",
 		BlockedTools: []BlockedTool{{Name: "grep"}}, Loopholes: []Loophole{{Name: "l", Desc: "d"}},
-		MountDescriptions: []string{"/a:/ctx/a"}})
+		ContextMounts: []ContextMount{{Path: "/ctx/a", Host: "/a"}}})
 	if want := strings.Join(confinementHeader("host", "", false), "\n") + "\n"; out != want {
 		t.Errorf("host base:\n got %q\nwant %q", out, want)
 	}
@@ -314,10 +314,10 @@ func TestBriefingUnknownNotchFailsClosedWhateverTheMechanism(t *testing.T) {
 // describing it now appear and disappear together.
 func TestBriefingDescribesCtxOnlyWhenSomethingIsMounted(t *testing.T) {
 	with := BriefingContent(BriefingInput{
-		Workspace: "/w", MountDescriptions: []string{"/host/logs:/ctx/logs"},
+		Workspace: "/w", ContextMounts: []ContextMount{{Path: "/ctx/logs", Host: "/host/logs"}},
 	})
-	if !strings.Contains(with, "context mounts under `/ctx/` are read-only") {
-		t.Errorf("a jail WITH context mounts must still be told they are read-only:\n%s", with)
+	if !strings.Contains(with, "context mounts under `$YOLO_CONTEXT_DIR` are read-only unless marked read-write") {
+		t.Errorf("a jail WITH context mounts must still be told they are read-only unless marked:\n%s", with)
 	}
 	without := BriefingContent(BriefingInput{Workspace: "/w"})
 	if strings.Contains(without, "/ctx/") {

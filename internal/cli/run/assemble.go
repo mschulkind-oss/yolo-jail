@@ -324,26 +324,20 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	normalizedBlocked := config.NormalizeBlockedToolsWith(cfgMap(cfg, "security"), packload.BlockedTools(in.packs))
 	blockedConfigJSON := jsonDumps(normalizedBlocked)
 
-	// --- Extra mounts (config.mounts → -v host:container:ro) ---
+	// --- Extra mounts (config.mounts → -v host:container[:ro]) ---
+	//
+	// configCtxMounts is the one reading of the key (ctxmounts.go): read-only elements from
+	// the merged config, read-write ones from the user scope alone, each skip said here. A
+	// read-write element gets no mode suffix and its disclosure line, EVERY launch — printed
+	// where the bind is emitted, so no path emits the one without the other
+	// (docs/design/context-mounts.md §2.4).
 	var mountArgs []string
-	ctxMountsUnsafe := o.roBindsUnsupported(rt)
-	for _, mountAny := range cfgList(cfg, "mounts") {
-		mount, ok := mountAny.(string)
-		if !ok {
-			continue
+	rootful := o.rootfulPodmanHost(rt)
+	for _, m := range o.configCtxMounts(rt, cfg, out.print) {
+		mountArgs = append(mountArgs, "-v", m.bindArg())
+		if m.rw {
+			out.print(rwMountDisclosure(m, rootful))
 		}
-		hostPath, containerPath := splitMountSpec(mount)
-		hostPath = resolveExpand(hostPath)
-		if !fileExists(hostPath) {
-			out.print("[yellow]Warning: mount path does not exist, skipping: " + hostPath + "[/yellow]")
-			continue
-		}
-		if ctxMountsUnsafe != "" {
-			out.print("[yellow]Skipping mount " + hostPath + " → " + containerPath + ": " +
-				ctxMountsUnsafe + "[/yellow]")
-			continue
-		}
-		mountArgs = append(mountArgs, "-v", hostPath+":"+containerPath+":ro")
 	}
 
 	// --- run_flags ---
@@ -1344,18 +1338,6 @@ func pyStrCoerce(v any) string {
 	}
 	s, _ := jsonx.DumpsCompact(v)
 	return s
-}
-
-// splitMountSpec runs the "host:container" split: the LAST colon that precedes
-// an absolute container path (starts with /). Plain host-only paths get
-// /ctx/<resolved-name>.
-func splitMountSpec(mount string) (hostPath, containerPath string) {
-	idx := strings.LastIndex(mount, ":")
-	if idx > 0 && idx+1 < len(mount) && mount[idx+1] == '/' {
-		return mount[:idx], mount[idx+1:]
-	}
-	resolved := resolveExpand(mount)
-	return mount, "/ctx/" + filepath.Base(resolved)
 }
 
 func resolveExpand(p string) string {

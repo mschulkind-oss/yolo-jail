@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -189,15 +190,13 @@ func appliedNetMode(rt, netMode string, inContainer bool) string {
 	return netMode
 }
 
-// appliedCtxMounts filters config `mounts` descriptions down to the ones the backend
+// appliedCtxMounts filters the briefing's context mounts down to the ones the backend
 // will actually bind.
 //
 // §6 names only network and resources, but a briefing section headed "Additional Context
-// Mounts (read-only)" listing mounts the backend REFUSED is the same defect with a
-// different key: the assembler drops every one of them on Apple Container (roBindsUnsupported,
-// and it prints why), and the agent was then handed a list of /ctx paths that do not exist.
-// The rule is not restated here — this is roBindsUnsupported's briefing-side projection,
-// which is the whole point of that predicate having a home.
+// Mounts" listing mounts the backend REFUSED is the same defect with a different key: the
+// assembler dropped every read-only one on an old Apple Container (roBindsUnsupported, and
+// it prints why), and the agent was then handed a list of /ctx paths that do not exist.
 //
 // The macos-user arm is the SECOND backend that binds none of them, and it gets its own
 // clause rather than joining roBindsUnsupported because the two facts are different: Apple
@@ -209,17 +208,17 @@ func appliedNetMode(rt, netMode string, inContainer bool) string {
 // here. Filtering the mounts out tells the AGENT the truth and says nothing to the HUMAN,
 // and a disposition is `Warned` only when the launch SAYS SO — a silent absence is `Dropped`.
 // The human's half is noteMacosUserCtxMountGaps (macosctxtree.go), which is also where the
-// pack `mount` grant with the identical shape is named. Built rather than the marker
-// downgraded, because the repo rules this class the other way: a key that is accepted and
-// does nothing is worse than one that refuses (the `workspace_readonly` ruling).
-func (o *Options) appliedCtxMounts(rt string, descriptions []string) []string {
-	if o.roBindsUnsupported(rt) != "" {
-		return nil
-	}
+// pack `mount` grant with the identical shape is named.
+//
+// THE APPLE CONTAINER HALF IS NO LONGER HERE. It used to drop every entry below the `:ro`
+// floor; the floor is now applied PER ENTRY upstream (configCtxMounts, packCtxMounts),
+// because a read-write element is not gated by it (context-mounts.md §2.9) and must stay
+// listed on the backend that binds it.
+func (o *Options) appliedCtxMounts(rt string, mounts []jailcontent.ContextMount) []jailcontent.ContextMount {
 	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Warned — macos-user binds nothing; noteMacosUserCtxMountGaps is the line (DP-D15)
 		return nil
 	}
-	return descriptions
+	return mounts
 }
 
 // limitSource says where an applied resource limit's value came from. It exists so the

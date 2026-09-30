@@ -278,13 +278,9 @@ func (o *Options) noteMacosUserCtxMountGaps(cfg *jsonx.OrderedMap, packs []*pack
 	// path and the /ctx destination — for deviceLabels' reason: what a reader needs from
 	// either surface is which entry of theirs is being talked about.
 	var declared []string
-	for _, mAny := range cfgList(cfg, "mounts") {
-		mount, ok := mAny.(string)
-		if !ok {
-			continue
-		}
-		hostPath, containerPath := splitMountSpec(mount)
-		declared = append(declared, resolveExpand(hostPath)+" → "+containerPath)
+	for _, m := range config.ParseMounts(cfg) {
+		src := resolveExpand(m.Host)
+		declared = append(declared, src+" → "+m.DestFor(src))
 	}
 	if len(declared) > 0 {
 		out.print("[yellow]Warning: `mounts` is not honored on macos-user[/yellow] — " +

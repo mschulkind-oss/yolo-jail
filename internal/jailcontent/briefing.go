@@ -39,14 +39,36 @@ type Loophole struct {
 	Desc string
 }
 
+// ContextMount is one entry of the "Additional Context Mounts" section: a context mount
+// (docs/design/context-mounts.md, Defined terms) this launch actually BOUND.
+//
+// A struct, where it used to be a "host:container" string: a string cannot carry a mode,
+// and its reader split on the FIRST colon, which is the wrong half of the split the string
+// was built with (§3.8).
+type ContextMount struct {
+	// Path is the jail path the agent opens, expanded for this backend.
+	Path string
+	// Host is the resolved host source.
+	Host string
+	// ReadWrite is true for a read-write config `mounts` element.
+	ReadWrite bool
+	// Pack names the pack whose `mount` grant this is; "" for a config `mounts` element.
+	Pack string
+}
+
 // BriefingInput carries everything the jail-managed briefing content depends
 // on. Workspace is the host workspace path (rendered verbatim);
 // ProvisioningFailed is true when the last boot's .yolo/startup.log contained
 // "PROVISIONING FAILED" (the caller reads the log — see ReadProvisioningFailed).
 type BriefingInput struct {
-	Workspace         string
-	BlockedTools      []BlockedTool
-	MountDescriptions []string
+	Workspace    string
+	BlockedTools []BlockedTool
+	// ContextMounts are the context mounts this launch bound, config elements and pack
+	// grants alike; empty on a backend that binds none (run.appliedCtxMounts).
+	ContextMounts []ContextMount
+	// ContextDir is what $YOLO_CONTEXT_DIR names on this backend (paths.ContextDirEnv);
+	// empty means the container answer, /ctx.
+	ContextDir string
 	// NetMode is the CONFIGURED network mode (`network.mode`, or the --network flag).
 	// AppliedNetMode is the mode the launch actually ran under, which is not always the
 	// same one: podman-in-podman is forced to host networking whatever the config says,
@@ -711,14 +733,35 @@ func BriefingContent(in BriefingInput) string {
 		lines = append(lines, "")
 	}
 
-	if len(in.MountDescriptions) > 0 {
-		lines = append(lines, "## Additional Context Mounts (read-only)", "")
-		for _, m := range in.MountDescriptions {
-			hostPath, containerPath := m, m
-			if i := strings.Index(m, ":"); i >= 0 {
-				hostPath, containerPath = m[:i], m[i+1:]
+	// THE MODE IS PER ENTRY, where the heading used to say "(read-only)" for all of them:
+	// a read-write config element is the host's own directory, and an agent told it was a
+	// read-only view would treat a write there as scratch (docs/design/context-mounts.md
+	// §3.8). The path printed is the one the agent opens on THIS backend, and the context
+	// dir's variable is named so pack prose spelling `$YOLO_CONTEXT_DIR/<rel>` resolves.
+	if len(in.ContextMounts) > 0 {
+		ctxDir := in.ContextDir
+		if ctxDir == "" {
+			ctxDir = paths.ContainerContextDir
+		}
+		lines = append(lines, "## Additional Context Mounts", "",
+			"Host directories mounted into this jail. `$"+paths.ContextDirEnv+"` is `"+ctxDir+"` here.",
+			"")
+		anyRW := false
+		for _, m := range in.ContextMounts {
+			mode := "read-only"
+			if m.ReadWrite {
+				mode, anyRW = "read-write", true
 			}
-			lines = append(lines, "- `"+containerPath+"` (from host `"+hostPath+"`)")
+			entry := "- `" + m.Path + "` (" + mode + "; host `" + m.Host + "`"
+			if m.Pack != "" {
+				entry += "; from pack `" + m.Pack + "`"
+			}
+			lines = append(lines, entry+")")
+		}
+		if anyRW {
+			lines = append(lines, "",
+				"A read-write mount is the host's own directory, not a copy: what you write there",
+				"is what the host reads.")
 		}
 		lines = append(lines, "")
 	}
@@ -730,8 +773,9 @@ func BriefingContent(in BriefingInput) string {
 	// describes the same thing, so the two have to appear and disappear together. Fixing one
 	// and not the other is how the first fix was found to be half a fix.
 	noSudoLine := "- No sudo/root."
-	if len(in.MountDescriptions) > 0 {
-		noSudoLine = "- No sudo/root; context mounts under `/ctx/` are read-only."
+	if len(in.ContextMounts) > 0 {
+		noSudoLine = "- No sudo/root; context mounts under `$" + paths.ContextDirEnv +
+			"` are read-only unless marked read-write."
 	}
 	lines = append(lines,
 		"## Limitations",

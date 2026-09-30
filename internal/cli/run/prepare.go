@@ -72,23 +72,15 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	blocked := blockedToolRecords(config.NormalizeBlockedToolsWith(cfgMap(cfg, "security"),
 		packload.BlockedTools(staged.packs)))
 
-	// mount_descriptions for existing config.mounts, filtered to the ones the backend
-	// will actually bind: Apple Container refuses every one of them (roBindsUnsupported),
-	// and a section headed "Additional Context Mounts (read-only)" naming /ctx paths that
-	// were never mounted is the same lie as a network mode that was never applied.
-	var mountDescriptions []string
-	for _, mAny := range cfgList(cfg, "mounts") {
-		mount, ok := mAny.(string)
-		if !ok {
-			continue
-		}
-		hostPath, containerPath := splitMountSpec(mount)
-		resolved := resolveExpand(hostPath)
-		if fileExists(resolved) {
-			mountDescriptions = append(mountDescriptions, resolved+":"+containerPath)
-		}
+	// The context mounts this launch BINDS — config elements with their mode, and every pack
+	// `mount` grant with its pack — through the SAME decider the argv uses (ctxmounts.go), so
+	// an Apple Container skip, a missing source or a backend that binds nothing leaves the
+	// agent no /ctx path that does not exist. ctxDir is what $YOLO_CONTEXT_DIR names here.
+	ctxMounts := o.briefedCtxMounts(rt, cfg, staged.packs)
+	ctxDir := paths.ContainerContextDir
+	if rt == "macos-user" { // parity: NotApplicable — the context dir's value per backend, not a capability (CX-D4)
+		ctxDir = macosuser.StagedCtxRoot(cname, "")
 	}
-	mountDescriptions = o.appliedCtxMounts(rt, mountDescriptions)
 
 	// ACTIVE loopholes (name, description) — census site 1, through the converged set.
 	//
@@ -157,7 +149,8 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	in := jailcontent.BriefingInput{
 		Workspace:          o.Workspace,
 		BlockedTools:       blocked,
-		MountDescriptions:  mountDescriptions,
+		ContextMounts:      ctxMounts,
+		ContextDir:         ctxDir,
 		NetMode:            netMode,
 		AppliedNetMode:     appliedNet,
 		PublishPorts:       publishPorts,
