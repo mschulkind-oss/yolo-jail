@@ -255,6 +255,28 @@ func (o *Options) reapOrphanedJails(rt string) {
 	}
 }
 
+// noteGoneOwner is what an attach says about a jail whose recorded owner is dead. The orphan
+// sweep keeps such a jail while a session is in it (reapOrphanedJails), so an entry can now
+// find one, and its host services were the dead launcher's: the fronts and the cgroup delegate
+// died with it, whatever it left running is unowned, and nothing restarts them ("a jail whose
+// launcher is gone is relaunched, not attached-and-repaired", attachExisting). The entry still
+// goes ahead, since stopping would end the other session, but it says what it is entering and
+// the one remedy. Silent when no owner is recorded or it cannot be read, and when it is alive.
+func (o *Options) noteGoneOwner(cname, rt string) {
+	raw, err := os.ReadFile(ownerPIDFile(cname))
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || o.PIDAlive(pid) {
+		return
+	}
+	o.pr(o.Stderr).printf("[yellow]Warning: the yolo that started this jail (pid %d) is gone, so the "+
+		"host services it ran for the jail may be down: yolo's credential services, port forwards "+
+		"and the cgroup delegate. %s, then a launch, restores them, and ends every session in the "+
+		"jail.[/yellow]", pid, stopRemedy(rt, cname))
+}
+
 // maybeWarnAboutOOMKiller: on macOS+podman exit 137 with a Podman Machine under
 // the recommended memory floor, print the
 // OOM hint. A single `podman machine inspect` probe.

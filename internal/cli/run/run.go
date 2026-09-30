@@ -2301,6 +2301,9 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	}
 	// The launch's fate is known: it attaches (launchrecord.go).
 	o.recordLaunchOutcome(launchAttached, -1)
+	// A jail whose launcher is gone, which the orphan sweep now keeps while a session is in it:
+	// what this entry is walking into, and the one remedy (noteGoneOwner).
+	o.noteGoneOwner(cname, rt)
 	// What this attach did NOT deliver: the configured packs, when they differ from the ones
 	// the jail booted with (OQ-PK2 (c)'s notice).
 	o.noteBootedPackSetDiffers(rt, cname, view)

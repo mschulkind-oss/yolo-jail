@@ -161,6 +161,46 @@ func TestTheSessionCountLeavesOutAHoldMainProcess(t *testing.T) {
 	}
 }
 
+// TestAnAttachIntoAJailWhoseLauncherIsGoneSaysSo: the orphan sweep keeps a jail with a session
+// in it, so an attach can enter one whose owner is dead, whose host services went with it. The
+// attach says so and names the remedy; with the owner alive, or none recorded, it says nothing.
+func TestAnAttachIntoAJailWhoseLauncherIsGoneSaysSo(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		owner string
+		alive bool
+		warn  bool
+	}{
+		{"dead owner", "4242", false, true},
+		{"live owner", "4242", true, false},
+		{"no owner recorded", "", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSkewAttach(t, false, false, "", map[string]string{AllowAttachSkewEnv: "1"})
+			s.o.PIDAlive = func(int) bool { return tc.alive }
+			if tc.owner != "" {
+				if err := os.MkdirAll(ownerPIDDir(), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(ownerPIDFile("yolo-ws-abcd1234"), []byte(tc.owner+"\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if rc, restarted := s.attach(); rc != 0 || restarted {
+				t.Fatalf("rc=%d restarted=%v\n%s", rc, restarted, s.stderr.String())
+			}
+			s.o.releaseSessionLock()
+			got := strings.Contains(s.stderr.String(), "the yolo that started this jail (pid 4242) is gone")
+			if got != tc.warn {
+				t.Errorf("warned=%v, want %v:\n%s", got, tc.warn, s.stderr.String())
+			}
+			if tc.warn && !strings.Contains(s.stderr.String(), "'yolo stop' from this workspace, then a launch") {
+				t.Errorf("the warning does not name the remedy:\n%s", s.stderr.String())
+			}
+		})
+	}
+}
+
 // TestAnAttachIsCountedBeforeItsExec: the attach arm holds the jail's session lock by the time
 // it execs, taken while the launch lock was still held, and a restart-free attach keeps it.
 func TestAnAttachIsCountedBeforeItsExec(t *testing.T) {

@@ -119,6 +119,16 @@ func TestAnOrphanSweepSparesAJailWithASessionInIt(t *testing.T) {
 		t.Fatalf("the jail with a session in it is not running after the sweep (%d containers)", n)
 	}
 
+	// An entry into the kept jail is told that its launcher, and with it its host services, is
+	// gone, and how to get them back.
+	entry := runYolo(t, dir, "echo ENTERED-$((40+2))")
+	if entry.rc != 0 || !strings.Contains(entry.stdout, "ENTERED-42") {
+		t.Fatalf("an entry into the kept jail failed: rc %d\n%s", entry.rc, entry.combined())
+	}
+	if !strings.Contains(entry.stderr, "the yolo that started this jail (pid ") {
+		t.Errorf("the entry did not say the jail's launcher is gone:\n%s", entry.combined())
+	}
+
 	writeRelease(t, dir, releaseAttach)
 	if rc := attach.wait(t, jailTimeout()); rc != 0 {
 		t.Errorf("the attached session ended rc %d:\n%s", rc, attach.combined())

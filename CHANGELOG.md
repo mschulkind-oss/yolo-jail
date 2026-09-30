@@ -392,8 +392,11 @@ credential to a server of its choosing. See
 - A second terminal in a jail is no longer ended by the next `yolo` you run, in any project,
   after the terminal that started the jail was killed outright, for example by `kill -9` or the
   out-of-memory killer. yolo counts every terminal running in a jail, and it cleans up a jail
-  left behind by a dead terminal only once no terminal is left in it. Quitting the terminal that
-  started a jail still ends the jail and every terminal in it.
+  left behind by a dead terminal only once no terminal is left in it. A terminal that joins such
+  a jail is told that the yolo which started it is gone, that the jail's logins through yolo,
+  port forwards and cgroup delegate may be down with it, and that `yolo stop` and a new launch
+  bring them back. Quitting the terminal that started a jail still ends the jail and every
+  terminal in it.
 - Rootless Podman with no storage.conf of your own, as on stock Ubuntu 26.04, no longer fails
   every launch while delivering the image with `mkdir /run/containers: permission denied`. The
   image now goes into the store Podman itself reports, whatever your storage.conf files say, and
