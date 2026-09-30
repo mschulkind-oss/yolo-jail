@@ -1158,15 +1158,6 @@ func (c *hostComposition) grantLines() []string {
 	return lines
 }
 
-// selectedProviders is the provider this launch's agent selected, as the narrowed
-// pre-flight reads it (OQ-CN3) — none when the composition refused before the gate.
-func (c *hostComposition) selectedProviders() []string {
-	if c.scope == nil {
-		return nil
-	}
-	return c.scope.SelectedProviders()
-}
-
 // credentialScopeLines is the gate's disclosure for this launch, nil when nothing the user
 // configured was scoped. It is packload's wording, the jail notch's lines, plus what only this
 // notch can say (docs/design/credential-sources-separation.md): a withheld line names the typed
