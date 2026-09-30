@@ -114,7 +114,7 @@ write it.
 | Limits are bounded | CPU as a percentage bounded by the machine's own core count; a memory floor that prevents OOM-kill loops; a bounded PID range |
 | Requests are bounded | One line per request, read with a hard byte cap |
 | The protocol is tiny | Three operations: `create_and_join`, `destroy`, `status` — anything else is `unknown` |
-| The daemon dies with the container | It runs as a goroutine of the launching process, stopped on teardown |
+| The daemon dies with the container | It runs as a goroutine of the jail's keeper, the process a container launch spawns to hold the jail's host services, and stops at the jail's teardown or with the keeper |
 
 **It is a pack now, not built-in.** The daemon ships as a loophole of the `cgroup-delegate` pack
 and is off unless that pack is selected; it used to be a Go function the run pipeline called with

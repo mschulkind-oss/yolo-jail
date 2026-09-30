@@ -309,8 +309,10 @@ It bundles two jobs.
    token. What the job needs is that the lock be taken **host-side**, where every backend agrees
    on the inode; it does not need the daemon to be a singleton. Because Claude Code refreshes *itself* and will never voluntarily take yolo's lock, an
    in-jail TLS terminator intercepts the refresh host (via an `--add-host` mapping to loopback)
-   and routes the call through a loopback-TLS front — a goroutine in the launching `yolo run`,
-   splicing to the singleton's socket — to the daemon under its flock.
+   and routes the call through a loopback-TLS front — a goroutine in the jail's keeper, the process
+   the launching `yolo run` spawns to hold a container jail's host services for its life
+   ([`jail-home.md`](jail-home.md)), splicing to the singleton's socket — to the daemon under its
+   flock.
 
 **Selecting the `claude` pack is the dependency.** The broker is a *contribution* of
 `packs/claude`, not a pack of its own, because the dependency is structural. It is the only
