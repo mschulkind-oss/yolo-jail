@@ -78,6 +78,9 @@ func TestMain(m *testing.M) {
 			"depInstallRun in your test if the install itself is what you are exercising", cmd)
 	}
 	disarmTheHostFloor()
+	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
+	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
+	testsupport.ArmGitConfigTripwire()
 	releaseStagedTree := isolateTheStagedTree()
 	// `yolo host-daemon`, `yolo broker` and host launches ensure real host singletons;
 	// they get a private directory, not the machine-wide /tmp/yolo-<name>.* (testsupport).

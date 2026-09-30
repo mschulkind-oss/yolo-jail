@@ -18,6 +18,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -143,11 +144,11 @@ func hostSkewRepo(t *testing.T) (root, installed, head string) {
 	root = t.TempDir()
 	git := func(args ...string) string {
 		t.Helper()
-		full := append([]string{"-c", "user.email=test@example.com", "-c", "user.name=test",
-			"-c", "commit.gpgsign=false"}, args...)
+		full := append([]string{"-c", "user.email=test@example.com", "-c", "user.name=test"}, args...)
 		cmd := exec.Command("git", full...)
 		cmd.Dir = root
-		cmd.Env = packsrc.CleanGitEnv(os.Environ())
+		// The machine's git configuration is not the fixture's (HermeticGitEnv).
+		cmd.Env = testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ()))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)

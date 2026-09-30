@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // hostgitconfig_test.go pins the store against the host user's own git configuration. The
@@ -18,7 +20,8 @@ import (
 // run the store makes.
 //
 // Only the store's git reads the config (through Store.Env). The fixture's own git (gitRepo,
-// gitIn) does not, so what these tests measure is the store's behavior alone.
+// gitIn, fsmonitorWatching) reads none (testsupport.HermeticGitEnv), so what these tests
+// measure is the store's behavior alone.
 
 // storeGlobalConfig writes a global git config holding body and returns an environment for
 // Store.Env that makes the store's git read it, the way it reads a user's ~/.gitconfig.
@@ -151,7 +154,7 @@ func fsmonitorWatching(t *testing.T, gitDir, worktree string) bool {
 	git := func(args ...string) error {
 		cmd := exec.Command("git", append([]string{"--git-dir=" + gitDir, "--work-tree=" + worktree}, args...)...)
 		cmd.Dir = worktree
-		cmd.Env = CleanGitEnv(os.Environ())
+		cmd.Env = testsupport.HermeticGitEnv(CleanGitEnv(os.Environ()))
 		return cmd.Run()
 	}
 	if git("fsmonitor--daemon", "status") != nil {

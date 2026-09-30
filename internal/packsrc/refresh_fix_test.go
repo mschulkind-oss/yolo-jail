@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // refresh_fix_test.go pins the review round on the launch-time refresh: the timeout really
@@ -255,7 +257,7 @@ func mirrorHolds(t *testing.T, mirror, oid string) bool {
 	t.Helper()
 	cmd := exec.Command("git", "cat-file", "-e", oid)
 	cmd.Dir = mirror
-	cmd.Env = append(CleanGitEnv(os.Environ()), "GIT_NO_LAZY_FETCH=1")
+	cmd.Env = append(testsupport.HermeticGitEnv(CleanGitEnv(os.Environ())), "GIT_NO_LAZY_FETCH=1")
 	err := cmd.Run()
 	var exit *exec.ExitError
 	if err != nil && !errors.As(err, &exit) {

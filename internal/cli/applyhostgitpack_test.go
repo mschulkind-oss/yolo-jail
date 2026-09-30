@@ -31,6 +31,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // gitPackHome makes a temp home whose config selects `claude` plus the git pack at src under
@@ -91,7 +92,7 @@ func gitPackRepoWith(t *testing.T, files map[string]string) string {
 		cmd.Dir = dir
 		// CleanGitEnv for gitPackRepo's reason: hook-exported git state would redirect this
 		// helper onto the committer's index.
-		cmd.Env = append(packsrc.CleanGitEnv(os.Environ()), "GIT_AUTHOR_NAME=t",
+		cmd.Env = append(testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ())), "GIT_AUTHOR_NAME=t",
 			"GIT_AUTHOR_EMAIL=t@e", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)

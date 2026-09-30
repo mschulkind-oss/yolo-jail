@@ -34,10 +34,22 @@ func TestMain(m *testing.M) {
 	// runner starts `podman info` on whatever PATH the test process has. A test that reaches
 	// the gate says what podman answers (Options.PodmanReadiness, answeringPodman).
 	defaultPodmanAttempt = refusingPodmanAttempt
+	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
+	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
+	testsupport.ArmGitConfigTripwire()
 	release := testsupport.IsolateHostSingletons()
 	code := m.Run()
 	release()
 	os.Exit(code)
+}
+
+// TestGitConfigTripwireIsArmedHere pins TestMain's testsupport.ArmGitConfigTripwire call:
+// without it a fixture that reads the machine's git configuration passes again on every
+// machine that does not sign its commits.
+func TestGitConfigTripwireIsArmedHere(t *testing.T) {
+	if !testsupport.GitConfigTripwireArmed() {
+		t.Fatal("the git configuration tripwire is not armed; this package's TestMain must call testsupport.ArmGitConfigTripwire")
+	}
 }
 
 // TestHostSingletonsAreIsolatedHere pins the TestMain call above: without it this

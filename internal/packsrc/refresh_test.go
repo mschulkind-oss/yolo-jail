@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // refresh_test.go pins the launch-time refresh (refresh.go) against REAL git repositories:
@@ -21,7 +23,7 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(CleanGitEnv(os.Environ()),
+	cmd.Env = append(testsupport.HermeticGitEnv(CleanGitEnv(os.Environ())),
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
 	out, err := cmd.CombinedOutput()

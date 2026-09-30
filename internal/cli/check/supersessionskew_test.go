@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -21,13 +22,13 @@ func olderYoloRepo(t *testing.T) (root, installed, head string) {
 	root = t.TempDir()
 	git := func(args ...string) string {
 		t.Helper()
-		full := append([]string{"-c", "user.email=test@example.com", "-c", "user.name=test",
-			"-c", "commit.gpgsign=false"}, args...)
+		full := append([]string{"-c", "user.email=test@example.com", "-c", "user.name=test"}, args...)
 		cmd := exec.Command("git", full...)
 		cmd.Dir = root
 		// Never the committer's repository: a hook exports GIT_DIR and friends
-		// (packsrc.CleanGitEnv's doc has the measurement).
-		cmd.Env = packsrc.CleanGitEnv(os.Environ())
+		// (packsrc.CleanGitEnv's doc has the measurement). Never the machine's git
+		// configuration either, whose commit signing fails the commit (HermeticGitEnv).
+		cmd.Env = testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ()))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)

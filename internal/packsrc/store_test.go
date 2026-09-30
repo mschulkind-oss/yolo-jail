@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // noStagedTree is the "this is an ordinary host" environment: no YOLO_PACK_ROOT, so
@@ -53,7 +55,7 @@ func gitRepo(t *testing.T, files map[string]string) string {
 		cmd.Dir = dir
 		// CleanGitEnv first: hook-exported git state is ABSOLUTE from a linked
 		// worktree and would redirect this helper onto the committer's repo.
-		cmd.Env = append(CleanGitEnv(os.Environ()),
+		cmd.Env = append(testsupport.HermeticGitEnv(CleanGitEnv(os.Environ())),
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
 		if out, err := cmd.CombinedOutput(); err != nil {
