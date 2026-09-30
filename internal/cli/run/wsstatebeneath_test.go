@@ -11,11 +11,21 @@ import (
 // hostFileBody stands in for a host file the jail wants overwritten, such as the user's shell rc.
 const hostFileBody = "export IMPORTANT=1\n"
 
-// outsideFile is a host file outside every workspace overlay, holding hostFileBody.
+// outsideFile is a host file outside every workspace overlay, holding hostFileBody, with mode
+// exactly 0o644.
+//
+// THE MODE IS SET, NOT ASKED FOR. WriteFile's 0o644 is filtered by the process umask, so under
+// a stricter one (077, or a CIS-hardened 027) the file started at 0o600 or 0o640, and a test
+// asserting it is still 0o644 after a write through a link failed on a correct product. Under
+// 077 that check was also vacuous: 0o600 is what the user-env file's chmod through the link
+// would have produced, so the defect it looks for was invisible.
 func outsideFile(t *testing.T) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "zshrc")
 	if err := os.WriteFile(p, []byte(hostFileBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return p
