@@ -889,6 +889,16 @@ if command -v just >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
         git init -q -b main .
         cp "$root/Justfile" Justfile
         cp "$script" scripts/changelog-section.sh
+        # The recipe also runs the pack binaries' pin check, `go run ./tools/pack-binaries
+        # check <version>`, which needs this module and a Go toolchain; the scratch repo has
+        # neither. A stub `go` stands in, answering with $PIN_CHECK_EXIT and recording each
+        # call, so the cases below reach the gates they are about, and case 3 pins the check's
+        # own refusal. The tool is tested in tools/pack-binaries.
+        mkdir -p "$rr/bin"
+        printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s/go-calls"\nexit "${PIN_CHECK_EXIT:-0}"\n' \
+            "$rr" >"$rr/bin/go"
+        chmod +x "$rr/bin/go"
+        export PATH="$rr/bin:$PATH"
         cat >CHANGELOG.md <<'EOF'
 # Changelog
 
@@ -944,8 +954,25 @@ EOF
         git tag -d v0.11.1 >/dev/null 2>&1 || true
         git push -q origin --delete v0.11.1 >/dev/null 2>&1 || true
 
-        # 3. On origin's main: tagged, and the tag is on origin.
+        # 3. On origin's main, with pack binaries whose pins the tree does not rebuild: the
+        # pin check refuses, says nothing was tagged, and no tag reaches origin.
         git push -q origin main
+        : >"$rr/go-calls"
+        if PIN_CHECK_EXIT=1 just release 0.11.1 >"$rr/out" 2>&1; then
+            echo "UNGATED-pins"
+        elif git ls-remote --tags origin | grep -q 'v0.11.1' || git tag -l | grep -q 'v0.11.1'; then
+            echo "TAGGED-pins"
+        elif ! grep -qx 'run ./tools/pack-binaries check 0.11.1' "$rr/go-calls"; then
+            echo "UNASKED-pins"
+        elif ! grep -q 'Nothing has been tagged' "$rr/out"; then
+            echo "UNSAID-pins"
+        else
+            echo "ok-pins"
+        fi
+        git tag -d v0.11.1 >/dev/null 2>&1 || true
+        git push -q origin --delete v0.11.1 >/dev/null 2>&1 || true
+
+        # 4. On origin's main: tagged, and the tag is on origin.
         if just release 0.11.1 >"$rr/out" 2>&1 \
             && git ls-remote --tags origin | grep -q 'refs/tags/v0.11.1'; then
             echo "ok-origin"
@@ -953,7 +980,7 @@ EOF
             echo "REFUSED-origin"
         fi
     ) >"$tmp/release-results" 2>"$tmp/release-err"
-    for _case in nosection other stale origin; do
+    for _case in nosection other stale pins origin; do
         if grep -qx "ok-$_case" "$tmp/release-results"; then
             pass=$((pass + 1))
         else
