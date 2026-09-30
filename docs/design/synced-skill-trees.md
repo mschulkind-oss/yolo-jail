@@ -14,11 +14,11 @@ vantage:
 DELETED most of this design. ✅ **All three of [§12](#12-what-i-would-build-in-order)'s steps are BUILT
 2026-09-22**: the fence, the notice, and the recovery's REPORT half (which is all R1 asked to ship —
 the *offer* to put a tree back is deliberately not built, per [§7](#7-homes-that-are-already-wrong)).
-One question remains
-([OQ-ST5](#OQ-ST5), which belongs to the config-ownership axis rather than this one, and is
-unblocked since [`CO13`](config-ownership-and-promotion.md#13-decision-ledger) was built on
-2026-09-25;
-[OQ-ST2](#OQ-ST2) was ruled and is now built). [OQ-ST1](#OQ-ST1) and [OQ-ST4](#OQ-ST4) DISSOLVED
+No question remains. [OQ-ST5](#OQ-ST5), which belongs to the config-ownership axis rather than
+this one, was decided on 2026-09-30 as the implementation decision [ST5](#ST5): the drop the tree
+already does once [`CO13`](config-ownership-and-promotion.md#13-decision-ledger) was built, with
+the adoption archive as the way back.
+[OQ-ST2](#OQ-ST2) was ruled and is now built. [OQ-ST1](#OQ-ST1) and [OQ-ST4](#OQ-ST4) DISSOLVED
 with the snapshot and the drift report; [§4.3](#43-what-was-deleted-with-the-snapshot-and-why)
 records what went and why. The fence — the fix for the measured data loss — is untouched and
 was always separable.
@@ -49,10 +49,11 @@ probably nobody and a mechanism nobody needs is a standing obligation.
 **Start at [§3](#3-what-yolo-does-with-it-today)** — the measured loss is what every rule here
 rests on, and [§4.1](#41-the-fence--the-part-that-is-not-optional)'s fence is what now stops it.
 
-**Needs your ruling:** [OQ-ST5](#OQ-ST5) only — and it belongs to the config-ownership axis
-rather than this one, so it should be ruled beside
-[`CO13`](config-ownership-and-promotion.md#13-decision-ledger). `CO13` was built on 2026-09-25,
-so [OQ-ST5](#OQ-ST5) is no longer waiting on anything but the ruling. ST1 and ST4 dissolved with the
+**Needs your ruling:** nothing. [OQ-ST5](#OQ-ST5), the last question, was decided on 2026-09-30
+as an implementation choice ([ST5](#ST5)), because once
+[`CO13`](config-ownership-and-promotion.md#13-decision-ledger) was built only one of its three
+answers was coherent. The choice left that a user can feel is which tables are declared in full,
+and that is [`OQ-CO16`](config-ownership-and-promotion.md#oq-co16)'s. ST1 and ST4 dissolved with the
 snapshot; ST2 and ST3 were ruled 2026-09-20. ⚠ **P3's justification was corrected the same day**:
 it is mode-dependent and fails at `host_management: none`, so the principle now rests on the
 host-read boundary instead.
@@ -756,7 +757,8 @@ Once a derive's assertion is recorded leaf by leaf, the drop narrows to it — y
 are regenerated, everything else under the key is residue that survives, and
 [§8.3](#83-how-to-check-your-own-case-before-the-first-apply)'s pre-flight stops being
 load-bearing because nothing is silently at stake. What that record does **not** settle on its own
-is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-ST5).
+is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-ST5) (decided
+2026-09-30 as [ST5](#ST5)).
 
 > [!IMPORTANT]
 > **"Once the record exists" is half past tense as of 2026-09-20, and the sentence it disproves
@@ -772,8 +774,9 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
 > ⚠ **Unblocked 2026-09-25**: the record exists now (`ctx.in_full`), and a table its derive does
 > not declare in full claims only the leaves it names, at the jail's `stateful` adoption and at
 > the host's table probe
-> ([what shipped](config-ownership-and-promotion.md#built-2026-09-25--what-shipped)). What is
-> left is [OQ-ST5](#OQ-ST5)'s ruling for a table that IS declared in full.
+> ([what shipped](config-ownership-and-promotion.md#built-2026-09-25--what-shipped)). A table
+> that IS declared in full is [OQ-ST5](#OQ-ST5)'s, decided 2026-09-30 as [ST5](#ST5): a leaf its
+> derive did not write is dropped at adoption, and the adoption archive holds the file it came from.
 
 ### 8.6 What is not covered, and what stays lost
 
@@ -858,8 +861,8 @@ is what should happen to a leaf yolo has never asserted, which is [OQ-ST5](#OQ-S
   works that row's hazard through as this design's second specimen and does not build it. The two
   are separable in both directions — the fence ships without a leaf-level record, and the record
   ships without a fence — and they are in one doc because they are the same missing thing at two
-  granularities, not because either waits on the other. The ruling [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
-  does add here is [OQ-ST5](#OQ-ST5).
+  granularities, not because either waits on the other. The question [§8](#8-a-worked-migration-state-already-in-a-file-yolo-is-about-to-own)
+  does add here is [OQ-ST5](#OQ-ST5), decided as [ST5](#ST5).
 
 ## 12. What I would build, in order
 
@@ -933,7 +936,7 @@ once the signal exists.
 
    ⚠ It gates nothing either way — [§12](#12-what-i-would-build-in-order) step 1 ships without it.
 
-2. 💬 <a id="OQ-ST5"></a> **OQ-ST5: When yolo regenerates a table, what happens to the keys inside it that yolo did not write?**
+2. ✅ <a id="OQ-ST5"></a> **OQ-ST5: When yolo regenerates a table, what happens to the keys inside it that yolo did not write?**
 
    *Rewritten 2026-09-20 to stand alone. It had accreted three corrections and read as a diff
    against its own earlier self.*
@@ -969,9 +972,7 @@ once the signal exists.
    **in full**, is a key the derive did not write **(a) preserved**, **(b) refused**, or
    **(c) dropped reversibly**?
 
-   <!-- vantage: oq id=OQ-ST5 leaning="(a) preserve, but weaker than it was: the empty-table case already took the part of (a) that was free, so what remains is the genuinely contested half." -->
-
-   _Leaning:_ **(a), and weaker than it looks.** The empty-table case already took the part of
+   _Leaning (as filed, before `CO13` was built):_ **(a), and weaker than it looks.** The empty-table case already took the part of
    (a) that was free, so what is left is precisely the contested half — a table the derive claims
    to own completely, with a user key in it. (b) is the honest alternative and this leaning is
    not strong.
@@ -982,7 +983,22 @@ once the signal exists.
    beside `CO13` rather than in this doc.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Decided as an implementation choice ([ST5](#ST5)), reversible: (c), dropped reversibly,
+   > which is what the tree already does.** A key in a table its derive declares in full is
+   > dropped at a first-migration adoption, at both notches, and the one archive at adoption
+   > ([`OQ-CO7`](config-ownership-and-promotion.md#633-what-survives-as-a-guard), built as
+   > `entrypoint.archiveAdoption`) keeps the file it came from. At the host, the first apply
+   > that makes a table yolo's also confirms before it drops an entry
+   > ([`HC-D8`](host-computed-layer.md#HC-D8)). **(a) is out** because a first migration has no
+   > record of what an earlier yolo wrote, so a key this run's derive did not write is as likely
+   > yolo's own stale entry as the user's. Keeping it resurrects a removed MCP server, the
+   > failure `ctx.in_full` was built to stop, and makes the declaration do nothing at adoption.
+   > **(b) is out** for the same reason: it would refuse a first migration over yolo's own
+   > leftovers. What a user can feel is which tables are declared in full, and every declared
+   > table follows one criterion, a key set that tracks a live table
+   > ([what shipped](config-ownership-and-promotion.md#built-2026-09-25--what-shipped)). The one
+   > class where that criterion is contested, the provider catalogs, is
+   > [`OQ-CO16`](config-ownership-and-promotion.md#oq-co16)'s.
 
 
 ## 15. Decision ledger
@@ -993,6 +1009,7 @@ once the signal exists.
 | <a id="OQ-ST2"></a>**ST2** | ✅ **BUILT 2026-09-22. Pack-declared, per P2** — a `skills` contribution takes `reserved`, a list of bare child names, and `packs/claude` declares `["synced"]`. Core knows no vendor's directory name: hardcoding `synced` is how core learns what an agent is, one string at a time, which is the coupling `internal/hostskills`' tier comment already refuses. The fence precedes the manifest probe that let `synced` through, and adoption itself; it applies at every posture and reports a NON-EMPTY reserved child only. ⚠ It follows the two ownership skips, so an already-adopted home is [§7](#7-homes-that-are-already-wrong)'s `ReservedInLocalPack` case, not the fence's. ⚠ The sub-question — may a USER add reserved children in their own config? — is still **not ruled**, and gated nothing | 2026-09-20 · built 2026-09-22 | [§12](#12-what-i-would-build-in-order) step 1 | ✅ `Contribution.Reserved`, `Destination.IsReserved`, the fence in `hostskills.Adoptions`, and `packs/claude`'s declaration — each half pinned by a test proven to fail without it |
 | <a id="OQ-ST3"></a>**ST3** | **The sync root IS announced, at the host notch only** — the apply, which is where yolo is about to take the folder over. Not at launch: the launch stream discloses what yolo DID to a jail, "there is content elsewhere you did not ask for" is not that, and by [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) a line added there is permanent | 2026-09-20 | [§4.2](#42-the-notice--what-replaces-the-transition) | ✅ 2026-09-22, as [the notice](#ST-N) |
 | <a id="OQ-ST4"></a>**ST4** | ~~Does drift ever do more than report?~~ **DISSOLVED.** There is no drift report — yolo holds no copy, so there is nothing to compare against | 2026-09-20 | [§4.3](#43-what-was-deleted-with-the-snapshot-and-why) | n/a |
+| <a id="ST5"></a>**ST5** | *Implementation decision* (2026-09-30), answering [OQ-ST5](#OQ-ST5). **In a table its derive declares in full (`ctx.in_full`), a key the derive did not write is dropped at a first-migration adoption, and the adoption archive is the way back** — option (c), which is the tree's behavior since [`CO13`](config-ownership-and-promotion.md#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided) was built. Why: on a first migration nothing records what an earlier yolo wrote, so that key is as likely yolo's own stale output as the user's. (a) would keep a removed MCP server and make the declaration inert at adoption; (b) would refuse over yolo's own leftovers. What a user can feel is which tables are declared, and the contested class, the provider catalogs, is [`OQ-CO16`](config-ownership-and-promotion.md#oq-co16)'s. Recorded here because the question was filed here; it belongs to the config-ownership axis | 2026-09-30 | [OQ-ST5](#OQ-ST5) | ✅ nothing to build: `dropComputedTables` takes a declared table whole and `entrypoint.archiveAdoption` copies the file first |
 | <a id="ST-N"></a>**The notice** | ✅ **BUILT 2026-09-22.** Its own action (`ActionReserved`), printed in the DEFAULT view beside a refusal rather than as detail-on-demand — [§4.2](#42-the-notice--what-replaces-the-transition) asks for a line "emitted where a user is already looking", and a fence discovered only under `--verbose` reads later as yolo having lost the user's skills. Tiered as a run fact, not a loss: nothing left a directory. States all three things — the fact, `claude plugin list` to look, and `yolo pack --help` to use the content instead. ⚠ Keyed on CONTENT, not existence: a bucket is minted from the user's IDENTITY and is empty until something syncs, so an existence test would fire for every user with the feature on and nothing synced — dot-skipping applies BESIDE the buckets and never inside one, since a synced plugin is exactly a `.claude-plugin/` dir | 2026-09-20 · built 2026-09-22 | [§4.2](#42-the-notice--what-replaces-the-transition) | ✅ pinned through a real apply, not just its helper |
 | <a id="ST-N2"></a>**The notice, compressed** | *Implementation decision* (2026-09-28), on the maintainer's report that the host apply output was "very confusing": the notice is **one line** — the path, what the tree is, and "yolo leaves it alone" — and it prints in the default view only when the tree is **new or changed**, under `--verbose` otherwise. *What the tree is* comes from the pack (`reserved_notes`, so core still names no vendor, per [ST2](#OQ-ST2)); `packs/claude` says "skills Claude Code syncs from your claude.ai account". "New or changed" is a per-path `treedigest` an `--assert` records in `host-reserved-trees.json` beside the host skills record; it decides only whether the line is news, never what is written. This supersedes [§4.2](#42-the-notice--what-replaces-the-transition)'s three-part notice: its "how to look" pointed at `claude plugin list`, which does not show this tree ([§2.4](#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)), and its "what to do instead" belongs in the manual. [ST-N](#ST-N)'s default-view placement stands for a tree the user has not been told about | 2026-09-28 | [§4.2](#42-the-notice--what-replaces-the-transition) | ✅ `applyhostskillsreserved_test.go` |
 | <a id="ST-R"></a>**The recovery** | ✅ **REPORT HALF BUILT 2026-09-22** (`hostskills.ReservedInLocalPack`), which is what R1 asked for. A local-pack skills entry whose NAME is a reserved child can only have got there by a previous apply adopting it, so finding the name finds the defect. It names the destination the tree was taken out of, says it came from a PREVIOUS apply, and claims to have fixed nothing. ⚠ **The offer to put it back is NOT built, deliberately** — by then the copies may have diverged, and a user who never re-authenticated or whose org turned Skills off holds the only copy there is; those users are indistinguishable from here | 2026-09-20 · report built 2026-09-22 | [§7](#7-homes-that-are-already-wrong) | ✅ report only; the offer is not |
