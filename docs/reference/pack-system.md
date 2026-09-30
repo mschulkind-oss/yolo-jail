@@ -647,6 +647,14 @@ refused. [`protocol-resolution.md`](protocol-resolution.md) is what reads it.
 than the workspace pin's, and a floor nothing satisfies refuses the launch.
 [`agent-program-runtimes.md`](agent-program-runtimes.md) is what reads it.
 
+`provider_sets` (`true`) declares that the agent this program installs **holds several providers
+in one session**: its pack's derives read the whole active set (`ctx.active_set`), so a
+`use_profiles` list or a `-p <bin>=a,b` list of more than one profile may select for its bin. On
+`program` alone. A program that declares nothing is single-provider, and a list named at its bin
+is refused before anything starts, because a derive written before sets would run the first
+entry and drop the rest in silence ([`providers.md`](providers.md#an-active-set-several-profiles-for-one-agent),
+[AP-D2](../design/active-provider-sets.md#AP-D2)). `packs/pi` declares it.
+
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. One key names an installer *flavor* rather than

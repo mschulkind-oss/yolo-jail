@@ -1735,12 +1735,16 @@
     until a launch selects it (the `profile` key, or `-p <name>` before the `--`).
     Example: {"zai-fast": {"provider": "zai", "model": "fast"}}
 
-  [bold]profile[/bold] (string or object): The profile each agent runs — the persistent
-    spelling of `-p`/`--profile`, form for form:
+  [bold]profile[/bold] (string, list or object): The profile each agent runs — the
+    persistent spelling of `-p`/`--profile`, form for form:
       "profile": "bedrock"                             every agent: -p bedrock
       "profile": {"pi": "codex", "claude": "bedrock"}  per agent: -p pi=codex,claude=bedrock
       "profile": {"*": "bedrock", "pi": "codex"}       "*" is every agent not named:
                                                        -p bedrock -p pi=codex
+      "profile": {"pi": ["zai", "openrouter"]}         a list for one agent:
+                                                       -p pi=zai,openrouter
+      "profile": ["zai", "openrouter"]                 a list for every agent:
+                                                       -p zai,openrouter
     An object key is the BINARY a pack installs (`claude`, `pi`, `codex`) and NOT a pack
     or agent name; an unknown key is fatal, naming what is installed.  "*" names no
     CLI, so it cannot collide with one.  The string form and "*" reach every CLI the
@@ -1753,6 +1757,23 @@
     PRECEDENCE: every `-p` beats this key, form for form — a bare `-p <name>` replaces
     the key's selection for every CLI it reaches, named entries included, and
     `-p <cli>=<name>` replaces that CLI's.
+    A value may also be a LIST of profile names, the agent's ACTIVE SET: every listed
+    provider is live in one session (its models in the picker, its key delivered to that
+    agent alone), and the FIRST entry is where a fresh session starts.  Only an agent whose
+    pack declares `provider_sets` holds one (pi today); a list NAMED at any other agent is
+    REFUSED, naming the one-profile spelling: claude, codex and copilot run one provider per
+    session, and opencode and oh-omp take one profile until their packs declare it.  A
+    list naming no agent — the list form, a list under "*", or a bare `-p zai,openrouter` —
+    goes whole to every agent that holds a set and its first entry to every other, and the
+    launch names the agents that ignore the rest.
+    A list of one is the plain name.  An empty list is refused (null means "none"), as is a
+    name listed twice, two entries on one provider, two on one regional platform (two
+    Bedrock providers share the agent's one AWS_REGION), and a via profile anywhere but
+    first.  Every name must be declared, the entries an agent ignores included.
+    On the command line a comma continues one agent's list: `-p pi=zai,openrouter` (a
+    later `-p pi=…` replaces the whole list, as a `-p` pair replaces the key's).  A profile
+    name may not contain a comma, and in this key a list is a JSON array, never a comma
+    string.
     USER-SCOPE ONLY, like `profiles`: this key is read from the merged config, so a
     workspace spelling would TAKE EFFECT rather than sit inert — it is REFUSED there
     for the same reason `profiles` is (OQ-CS5).
@@ -1780,6 +1801,7 @@
     `yolo host -- <agent>` or the host wrappers, which start it, and `yolo host env`
     refuses it.  An agent started any other way runs without it.
     Example: {"*": "bedrock", "pi": "zai-fast", "codex": null}
+    Example: {"pi": ["zai", "openrouter"]}
 
   [bold]required_capabilities[/bold] (array of strings): Named capabilities this
     environment DECLARES it needs, e.g. ["web_search"].  Validated as a string list

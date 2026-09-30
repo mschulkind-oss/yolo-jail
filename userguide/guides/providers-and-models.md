@@ -157,6 +157,40 @@ you want in your user config and make profiles for them:
 }
 ```
 
+## Several providers in one pi session
+
+pi can use more than one provider at once and switch between them with `/model`. List the profiles
+for pi, separated by commas on the command line or as a list in your config:
+
+```bash
+yolo -p pi=zai,openrouter -- pi
+```
+
+```jsonc
+{ "use_profiles": { "pi": ["zai", "openrouter"] } }
+```
+
+- **The first entry is where a new session starts**: pi opens on z.ai's default model here. A model
+  you pick yourself, on any listed provider, stays picked on the next launch.
+- **Every listed provider is live**: pi's `/model` list shows each provider's models, the first
+  entry's first, and pi receives every listed provider's key, while other agents and a plain shell
+  receive none of them. Child agents started by pi-subagents may use any listed provider and no
+  other.
+- **Every listed provider needs its key.** If one is missing, the launch stops and names that
+  provider and its place in the list; it never starts pi on the rest.
+- On the command line a comma continues the list of the agent named before it:
+  `-p pi=zai,openrouter,claude=codex` gives pi two providers and Claude Code one. A later
+  `-p pi=…` replaces pi's whole list, and a `-p` replaces the list in your config for that launch.
+- **Claude Code, Codex and Copilot use one provider per session**, so a list named for one of them
+  is refused before anything starts, and the message names the one-profile spelling. A list with no
+  agent named, `-p zai,openrouter`, goes whole to pi and its first entry to every other agent, and
+  the launch says which agents ignore the rest.
+- A profile that routes through the wire bridge (`"via": "wire-bridge"`) can only be listed first.
+  Two profiles over the same provider cannot share a list.
+- A profile name cannot contain a comma. The same list works at `yolo host -p pi=zai,openrouter --
+  pi`, in `yolo host env --agent pi -p zai,openrouter`, on `macos-user`, and in the files
+  `yolo host apply` writes. opencode does not take a list yet.
+
 ## The wire bridge
 
 Agents and providers speak different request formats, and not every pair matches. Claude Code, for

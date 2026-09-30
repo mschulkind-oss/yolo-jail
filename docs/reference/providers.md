@@ -13,6 +13,7 @@ covers:
   - internal/packload/regionfill.go
   - internal/packload/platformswitch.go
   - internal/packload/credentialscope.go
+  - internal/packload/profileset.go
   - internal/cli/run/agentenvfiles.go
   - internal/entrypoint/agentenv.go
   - internal/packload/providers.go
@@ -95,6 +96,12 @@ model list of every maker, and codex, opencode and pi are bound to their own Bed
 MEASURED BY TESTS ONLY: each binding through the boot render, and claude's through the assembled
 launch channel. The agents' Bedrock clients were read from their installed builds and never
 run. UNMEASURED: no request has reached Bedrock.
+
+**Active sets came the same day** (2026-09-29): an agent may run on an ordered list of profiles
+([an active set](#an-active-set-several-profiles-for-one-agent),
+[`active-provider-sets.md`](../design/active-provider-sets.md), OQ-AP1 to OQ-AP3). MEASURED BY
+TESTS ONLY: the grammar, every refusal, the gate's delivery and pi's render are pinned through
+each notch's call site. UNMEASURED: no launch was run and no pi session switched providers.
 
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
@@ -340,6 +347,12 @@ has no deliverable credential. A composed entry carrying at least one endpoint
 - A profile's `provider` creates no requirement of its own: a provider the table does not hold
   reaches no derive, so there is no delivery to demand a key for.
 
+Every entry of an [active set](#an-active-set-several-profiles-for-one-agent) is selected, so
+each entry's key is demanded, and a missing one refuses the whole launch: yolo never starts an
+agent on the entries that have keys. The fact names the entry's position ("profile openrouter is
+entry 2 of pi's profiles (zai, openrouter)"; `packload.ProviderCredentialGapsIn`, which both
+notches call). The region pre-flight asks each entry too.
+
 The refusal names the provider, the pack that shipped it (or the user config, when only the
 user's entry put it there), the variable, and **every channel consulted** — the `env_sources`
 entries and the invoking environment. That last line exists because `env_sources` fails open (a
@@ -488,8 +501,10 @@ rewritten whole by each entry; `writeUserEnvFile` in `internal/cli/run`):
 
 - `YOLO_PROVIDERS` — the composed table, **secret-free** (`api_key_env_name` carries the NAME
   of a variable, never a value).
-- `YOLO_USE_PROFILES` — the effective selection: CLI name → profile name, the `profile` key and
-  `-p` already folded, so no `"*"` crosses.
+- `YOLO_USE_PROFILES` — the effective selection: CLI name → profile name, or a list of them for
+  an agent holding an [active set](#an-active-set-several-profiles-for-one-agent) of more than
+  one (a list of one crosses as the plain name), the `profile` key and `-p` already folded, so
+  no `"*"` crosses.
 - `YOLO_PROFILES` — the RESOLVED profile table: name → `{provider, <options>}`, the output of
   the one lowering (below). In-jail derives and the host notch read the same resolved shape;
   no user-config parsing happens in-jail.
@@ -555,10 +570,10 @@ A profile's credentials and gated env reach **only the agent that selected it**
 
 | Value | Who receives it |
 | :--- | :--- |
-| An `env_sources` value whose name a composed provider **claims** (lists in its `api_key_env_name`, or, for a provider that lists none and declares a `platform`, a same-platform provider lists: [the platform](#the-platform-what-service-a-provider-is)) | each agent whose selected profile resolves to a claiming provider; no other process, a bare shell included |
+| An `env_sources` value whose name a composed provider **claims** (lists in its `api_key_env_name`, or, for a provider that lists none and declares a `platform`, a same-platform provider lists: [the platform](#the-platform-what-service-a-provider-is)) | each agent whose selected profile — any entry of its [active set](#an-active-set-several-profiles-for-one-agent) — resolves to a claiming provider; no other process, a bare shell included. The disclosure names a set's keys in set order |
 | An `env_sources` value no provider claims (`GH_TOKEN`, anything else) | every process, as before |
-| A gated `kind: "env"` contribution | the pack's own agent when its selection satisfies the gate; for a pack that installs no CLI (`aws-auth`), every agent whose selection does. A `platform` gate is satisfied by the selected provider's platform, a `profile` gate by the profile's name ([the `profile` modifier](#the-profile-modifier)) |
-| An env derive's output (the shape vars) | its own agent, and the derive's copy of the table carries the `api_key` of that agent's provider only |
+| A gated `kind: "env"` contribution | the pack's own agent when its selection satisfies the gate; for a pack that installs no CLI (`aws-auth`), every agent whose selection does. A `platform` gate is satisfied by the selected provider's platform, a `profile` gate by the profile's name ([the `profile` modifier](#the-profile-modifier)), either one by any entry of an active set |
+| An env derive's output (the shape vars) | its own agent, and the derive's copy of the table carries the `api_key` of that agent's provider only, or of each provider in its active set |
 
 `packs/bedrock`'s `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
@@ -1030,7 +1045,7 @@ What each agent actually receives, from one composed table and one selection:
 | Agent | Catalog | Selection |
 | :--- | :--- | :--- |
 | codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML); never a row for `openai-codex` | top-level `model_provider` + `model`; `model` alone for `openai-codex` ([above](#selecting-openai-codex-for-codex)) |
-| pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax); never a row for `openai-codex`, whose models the extension registers from [the declared list](#the-openai-codex-model-list) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first), which is not written for `openai-codex`. Also, for every provider, pi-subagents' `subagents` block: `defaultModel` as `<provider>/<id>` (the same model), and `modelScope` `{enforce, strict, allow}` over the provider's configured ids, or `<provider>/*` when it configures none, so a child agent never crosses providers ([XM-D3](../research/extension-model-defaults.md#XM-D3), [XM-D4](../research/extension-model-defaults.md#XM-D4)) |
+| pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax); never a row for `openai-codex`, whose models the extension registers from [the declared list](#the-openai-codex-model-list) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first), which is not written for `openai-codex`. Also, for every provider, pi-subagents' `subagents` block: `defaultModel` as `<provider>/<id>` (the same model), and `modelScope` `{enforce, strict, allow}` over the provider's configured ids, or `<provider>/*` when it configures none, so a child agent never crosses providers ([XM-D3](../research/extension-model-defaults.md#XM-D3), [XM-D4](../research/extension-model-defaults.md#XM-D4)). For an [active set](#an-active-set-several-profiles-for-one-agent) the pair stays the primary's, `enabledModels` is each entry's run in set order, each led by its own default (an `openai-codex` entry adds its declared base ids, never a `[1m]` variant, since `enabledModels` are minimatch patterns), and `modelScope.allow` is the union, so a child may use any listed provider and none other; each entry's profile options reach its own catalog row, and the OpenAI login pre-launches when any entry is `openai-codex` |
 | opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` |
 | omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
 | copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |
@@ -1229,6 +1244,52 @@ selector's earlier spellings, `use_profiles` (in every release from v0.9.0 throu
 config is a generated snapshot, each is a warning instead. Every derive receives the **whole**
 table, so a pack that installs no CLI — a provider pack — still reads any CLI's selected name.
 
+### An active set: several profiles for one agent
+
+An agent's `use_profiles` value may be a **list** of profile names, its **active set** (a term
+[`active-provider-sets.md`](../design/active-provider-sets.md) coins: the ordered list of profiles
+one agent runs on for one launch; [OQ-AP1](../design/active-provider-sets.md#OQ-AP1), ruled
+2026-09-29). Every listed provider is live for that agent in one session, and the **first
+entry**, the set's primary, is where a fresh session starts when yolo has to pick. A list of one is
+the plain name, byte for byte, so no existing config moves.
+
+- **Spelling.** In config, `"use_profiles": {"pi": ["zai", "openrouter"]}`. On the command line a
+  comma continues the list of the CLI named before it: `-p pi=zai,openrouter,claude=codex`. A
+  later pair for a CLI replaces its whole list, and a typed pair replaces the config's list for
+  the launch ([AP-D4](../design/active-provider-sets.md#AP-D4)). A bare element before any pair
+  (`-p zai,pi=openrouter`) and an empty entry are refused as misuse, exit 2; until this build the
+  first was dropped in silence, so `-p pi=zai,openrouter` started pi on zai alone. A profile name
+  may not contain `,`, refused in both schemas where `=` is.
+- **Who may hold one.** An agent whose pack declares `provider_sets` on the program that installs
+  it (`packdecl.Contribution.ProviderSets`): pi today. A list named at any other agent (claude,
+  codex, copilot) is refused before anything starts, naming the one-profile spelling
+  ([OQ-AP2](../design/active-provider-sets.md#OQ-AP2)), by config validation for a
+  `use_profiles` list, by `checkProfileTargets` for a typed pair, and again after resolution by
+  `packload.ProfileSetProblems`. A **bare** list (`-p zai,openrouter`) goes whole to every
+  set-capable agent and its first entry to every other, and the launch prints one line naming
+  those agents and the entries they ignore ([OQ-AP3](../design/active-provider-sets.md#OQ-AP3);
+  `packload.NarrowBareList`, `packload.BareListNote`).
+- **What a set refuses** (`packload.ProfileSetProblems`, at every notch and predicted by
+  `yolo check`): a name listed twice; two entries resolving to one provider; a via profile
+  anywhere but first ([AP-D9](../design/active-provider-sets.md#AP-D9)), since an agent has one
+  via route and its upstream is the primary's provider; and, at the protocol gate, any entry the
+  agent cannot be paired with, named by position. Every entry must be declared.
+- **What the derive sees.** `ctx.selected_provider` and `ctx.profile` are the primary, as ever, so
+  a derive written before sets reads a set of one unchanged. `ctx.active_set` lists every entry in
+  order, each with `profile_name`, `provider`, `platform` and `profile`, and
+  `yolo.model_for(alias, provider)` answers for any entry of the set and nil outside it.
+- **Every notch.** The jail's channel carries the list in `YOLO_USE_PROFILES`, and an attach
+  delivering one needs the `profile-sets` contract tag, so a jail an older yolo launched takes the
+  restart-or-refuse disposition ([AP-D8](../design/active-provider-sets.md#AP-D8)). macos-user
+  composes the same channel. `yolo host -- <agent>` and `yolo host env --agent <agent>` take the
+  same `-p` and `use_profiles`, and `yolo host apply` renders the `use_profiles` set into the
+  agent's own files, leaving out a whole set it cannot render.
+
+The launch names each set of more than one in order ("Active set for pi: zai, openrouter"), beside
+the per-name profile lines. What pi renders from a set is in [per-agent
+delivery](#per-agent-delivery). The config-overlay `profile` modifier still gates on the primary
+alone, and opencode does not yet declare `provider_sets`.
+
 > [!WARNING]
 > **`autonomy` and `profile` are two kinds on purpose; do not merge them** ([OQ-1](#pv-oq-1)).
 > Their bodies once looked alike, but their selectors have different authorities. The
@@ -1422,6 +1483,7 @@ that can be mistyped is checked against the right set, and each check is fatal:
 | `-p <cli>=<name>` | the same namespace | launch preflight (`checkProfileTargets`) — a flag never reaches config validation |
 | a selected profile **name** | the declared set: selected packs' profiles plus the user's `profiles` | launch preflight, both notches |
 | a `-p`/`--profile` with **no value** (trailing, followed by `--`, or `--profile=`) | nothing: it is refused as "`-p` needs a value", exit 2 | the front door, both notches, through one value-flag reader that `--at`, `--network` and `--with-credentials` share |
+| a **list** (`-p pi=a,b`, a `use_profiles` array) | the grammar (no element before a pair, no empty entry: exit 2), then whether the CLI holds a set and [the set's own rules](#an-active-set-several-profiles-for-one-agent) | the front door's parser; config validation and `checkProfileTargets` for the CLI; `packload.ProfileSetProblems` after resolution, at both notches and in `yolo check` |
 
 The key check answers against the **universe**, not the selection: whether a string names a real
 CLI is a fact about the packs this machine can resolve, while selection only decides whether a
