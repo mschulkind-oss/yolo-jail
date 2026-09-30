@@ -89,7 +89,10 @@ func ProfileSets(m *jsonx.OrderedMap) map[string][]string {
 // for a set of one, so a launch whose every set has one entry writes the table it always wrote
 // and needs no new contract tag (AP-D8), and an array for more.
 func ProfileSetWire(set []string) any {
-	if len(set) == 1 {
+	switch len(set) {
+	case 0:
+		return "" // `-p <cli>=`, the selection of nothing it always was
+	case 1:
 		return set[0]
 	}
 	out := make([]any, len(set))

@@ -497,7 +497,16 @@ func (o *Options) checkProfileTargets() error {
 	// the flag and the agent, and the config validator refuses the same list in use_profiles on
 	// the same terms. The selected agents' lists are asked again after resolution, with the
 	// set's other rules (ProfileSetProblems).
-	capable, capableKnown := config.SetCapableCLINames()
+	// Asked only when some pair carries a list: the namespace walk resolves every configured
+	// pack, and a launch whose pairs each name one profile has nothing here to refuse.
+	var capable map[string]bool
+	capableKnown := false
+	for _, cli := range clis {
+		if strings.Contains(o.UseProfiles[cli], ",") {
+			capable, capableKnown = config.SetCapableCLINames()
+			break
+		}
+	}
 	for _, cli := range clis {
 		if !installed[cli] {
 			problems = append(problems, fmt.Sprintf("-p %s=%s: no pack installs a "+
