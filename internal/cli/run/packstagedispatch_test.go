@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -40,7 +41,11 @@ import (
 func dispatchOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr *bytes.Buffer, execRec *[][]string) *Options {
 	t.Helper()
 	reapTestSpawnedOpenAIBroker(t)
-	repoRoot := t.TempDir()
+	// RESOLVED where it is minted, as jailPrefixSource resolves the flake bundle it binds: a
+	// fixture that fakes bin/linux-<arch>/yolo-entrypoint's existence gets that bin dir back as
+	// spelled but the root resolved, and on darwin, whose t.TempDir() is under a /var symlink, the
+	// two would then name different trees.
+	repoRoot := floortest.ResolvedTemp(t)
 	// A launch these options drive past the jail's start leaves its housekeeping slot running:
 	// wait for it before the HOME and repo root made so far are removed, and before the next test
 	// sets its own HOME (TestNoLaunchTestOutlivesItsHousekeepingSlot).

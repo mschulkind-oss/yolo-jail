@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -81,7 +82,9 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
 	if err := os.WriteFile(filepath.Join(dir, "config.jsonc"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ws = t.TempDir()
+	// Resolved like packHome's home and dispatchOptions' repo root: every -v source is compared
+	// against it, and on darwin t.TempDir() is under a /var symlink the launch may resolve.
+	ws = floortest.ResolvedTemp(t)
 	cname := yoloruntime.FromWorkspace(ws)
 	bin, rec := t.TempDir(), t.TempDir()
 	argvFile := filepath.Join(rec, "argv")

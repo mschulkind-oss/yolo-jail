@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 )
 
 // TestOnlySelectedEmbeddedPacksAreStaged: the MOUNT is the filter.
@@ -107,9 +109,13 @@ func TestDroppingAPackUnstagesIt(t *testing.T) {
 // These are UNIT tests: nothing here launches a container, so the image cache is not in
 // play and a plain temp HOME is safe (the integration suite's packHome re-links the real
 // store for exactly that reason, which does not apply here).
+//
+// RESOLVED where it is minted: on darwin t.TempDir() sits under /var/folders, a symlink to
+// /private/var/folders, and a launch resolves some home paths (a `mounts` source, for one), so a
+// comparison against the literal home would pass on Linux and fail on a Mac.
 func packHome(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
+	home := floortest.ResolvedTemp(t)
 	t.Setenv("HOME", home)
 	return home
 }
