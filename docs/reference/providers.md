@@ -1457,7 +1457,10 @@ should show instead is an open question ([OQ-MM1](../design/model-lists-and-pick
 REFUSES other models. It defaults to on: claude's allowlist (`availableModels` with
 `enforceAvailableModels`) and opencode's whitelist then turn away a model outside the list. Off
 (`"enforce_models": false`), the list only shapes the menus, and opencode's menu is not narrowed at
-all, since its whitelist cannot hide without refusing. On `openai-codex` the switch governs
+all, since its whitelist cannot hide without refusing. With the switch off claude's start pin
+returns, on `openai-codex` and under an `only` alike, wherever the profile's `model` or the
+provider's default names a model: no allowlist then keeps an off-list saved model from starting,
+so a `/model` choice lasts one session. On `openai-codex` the switch governs
 claude's allowlist too. On claude's own Bedrock client the refusal is claude's alone, client side,
 with [the four gaps](../design/model-lists-and-pickers.md#142-what-each-row-rests-on) that come
 with it, so a repository's `.claude/settings.json` can widen or switch it off. pi and oh-omp do

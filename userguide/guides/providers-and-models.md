@@ -264,12 +264,16 @@ its requests to a server you did not choose. `yolo config-ref` documents every p
 
 ## Model menus, and a company's model list
 
-When Claude Code reaches a provider through yolo (z.ai, OpenRouter, Kilo, Cerebras, llama.cpp,
-your ChatGPT subscription, or one of your own), its model menu lists that provider's models
-instead of Opus, Sonnet and Haiku, and those three, Fable too, all point at the provider's models.
+When Claude Code reaches a provider through yolo that lists its models (z.ai, Cerebras,
+llama.cpp, your ChatGPT subscription, or one of your own), its model menu lists that provider's
+models instead of Opus, Sonnet and Haiku, and those three, Fable too, all point at the provider's
+models. OpenRouter and Kilo ship no model list, so on them Claude Code keeps its usual menu until
+your own `providers.<name>.models`, or a pack's `add` (below), lists some models.
+
 A model you pick with `/model` stays picked at the next launch on your ChatGPT subscription and on
-a list a pack narrowed with `only` (below); on the other providers Claude Code still starts on the
-provider's default model each time.
+a list a pack narrowed with `only` (below), as long as the profile's `enforce_models` is on, which
+it is unless you turn it off. On the other providers Claude Code still starts on the provider's
+default model each time.
 
 A pack can shape a provider's model list, even one another pack ships. That lets a company hand
 its people one list of the models it has approved, instead of everyone copying the list into
@@ -298,7 +302,9 @@ agent allows it:
 
 To keep the menus but stop the refusals, set `"enforce_models": false` on the profile:
 `"profiles": {"zai-open": {"provider": "zai", "enforce_models": false}}`. opencode then shows its
-full menu again, because it cannot narrow a menu without refusing.
+full menu again, because it cannot narrow a menu without refusing. Claude Code also goes back to
+starting every session on the profile's model, as it does on the other providers, so a model you
+pick with `/model` lasts only for that session.
 
 To have Claude Code start every session on the profile's model, even after you pick another with
 `/model`, set `"pin_model": "true"` on the profile.

@@ -36,8 +36,9 @@ approved list.** A `models` entry in a pack's `contributes` adds models to a pro
 pack ships. Under an `only`, the list is each agent's model menu for that provider where the agent
 allows it: Claude Code, opencode, pi and oh-omp show exactly the list, and Claude Code and opencode
 also refuse any other model; Codex and Copilot start on the list's default model. A profile's new
-`"enforce_models": false` keeps the menus and drops the refusals, and `"pin_model": "true"` makes
-Claude Code start every session on the profile's model. Your own `providers` entry still has the
+`"enforce_models": false` drops the refusals; opencode then shows its full menu, and Claude Code
+starts each session on the profile's model again. `"pin_model": "true"` makes Claude Code start
+every session on the profile's model with the refusals on too. Your own `providers` entry still has the
 last word, and `yolo check` names a model a pack adds twice or an `only` that names a model
 nothing added. See
 [model menus](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
@@ -283,10 +284,11 @@ the agent, naming the ones it looked for and the setting that would deliver one.
 the same in a jail and at `yolo host`. See
 [what the launch checks and prints](docs/reference/providers.md#what-the-launch-checks-and-prints).
 
-- On a provider Claude Code reaches through yolo, such as z.ai, OpenRouter, Kilo, Cerebras or
-  llama.cpp, Claude Code's model menu now lists the provider's models instead of Opus, Sonnet and
-  Haiku, and all four of its model tiers, Fable included, point at the provider's default, so
-  its background requests stay on the provider too.
+- On a provider Claude Code reaches through yolo that lists its models, such as z.ai, Cerebras
+  or llama.cpp, Claude Code's model menu now lists the provider's models instead of Opus, Sonnet
+  and Haiku, and all four of its model tiers, Fable included, point at the provider's default, so
+  its background requests stay on the provider too. OpenRouter and Kilo ship no model list, so
+  their menu changes once your own config, or a pack, lists models for them.
 
 **yolo turns off Codex's background copy in the sessions it launches; a Codex you run yourself is
 untouched.** Since version 0.157, Codex starts a second copy of itself in the background and the
