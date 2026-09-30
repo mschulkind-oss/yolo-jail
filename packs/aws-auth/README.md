@@ -222,7 +222,10 @@ loophole aws-auth: cannot mint a Bedrock credential for this launch: the AWS SSO
 ```
 
 A profile your host's `~/.aws/config` does not have gets the same line saying how to add it or
-which setting to change, and anything else AWS refuses gets AWS's own words. On a warm cache
+which setting to change, and anything else AWS refuses gets AWS's own words. Where the fix can be
+a setting, the line ends differently: a fix outside yolo is still picked up with no relaunch, but
+the service reads `loopholes.aws-auth.settings` only when it starts, so a changed setting takes
+effect when the next launch of a new jail restarts it. On a warm cache
 the question costs no `aws` call; on a cold one the service makes the mint the agent's first
 request would have made, and the launch waits for it only briefly. No flag hides the line. A
 session that ends after the cached credential was minted shows at the next mint instead,

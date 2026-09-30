@@ -130,7 +130,8 @@ func launchCheck(broker awsauth.Broker, mints *mintTracker, budget time.Duration
 // mintWarning is the one warning line for a failed mint. The Message is the classifier's, the
 // same words the jail's 4xx and `yolo check` carry, so the fix it names (`aws sso login
 // --profile X` for a lapsed or never-established session, the config for a missing profile) is
-// stated once, in awsauth.
+// stated once, in awsauth. What follows it says how that fix reaches the running service
+// (fixPickup).
 func mintWarning(err error) string {
 	var mintErr *awsauth.MintError
 	what := err.Error()
@@ -139,5 +140,25 @@ func mintWarning(err error) string {
 	}
 	what = strings.TrimRight(strings.TrimSpace(what), ".")
 	return "cannot mint a Bedrock credential for this launch: " + what + ". The launch " +
-		"continues; Bedrock requests fail until that is fixed, and then work with no relaunch"
+		"continues; Bedrock requests fail until that is fixed" + fixPickup(mintErr)
+}
+
+// fixPickup is the end of a mint warning: when a fix reaches the jail that is already running.
+//
+// Every mint shells out afresh, so a fix made outside yolo (a login, the host's ~/.aws/config,
+// the `aws` CLI installed, a role's policy in AWS, the network) is found by the next mint, with
+// no relaunch. A change to loopholes.aws-auth.settings is not: this daemon reads its settings
+// once, at spawn (prepare), and what restarts it on a settings change is a launch
+// (broker.EnsureSingleton's settings-drift restart; an attach reports the drift and restarts
+// nothing). So "no relaunch" is promised outright only for the failures whose every named fix is
+// outside yolo: a session to log in to, and a CLI to install. Every other failure, including one
+// this package did not classify, can be fixed by a setting, and gets both halves.
+func fixPickup(mintErr *awsauth.MintError) string {
+	if mintErr != nil && (mintErr.Kind == awsauth.FailureLoginRequired ||
+		mintErr.Kind == awsauth.FailureCLIMissing) {
+		return ", and then work with no relaunch"
+	}
+	return ". A fix made outside yolo is picked up with no relaunch; a change to " +
+		awsauth.SettingsScope + ", which the service reads only when it starts, takes effect " +
+		"when the next launch of a new jail restarts it"
 }

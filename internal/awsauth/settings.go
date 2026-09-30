@@ -52,9 +52,12 @@ const (
 	SettingUnnarrowed = "unnarrowed"
 )
 
+// SettingsScope is the config path the keys above live under, as a human edits it.
+const SettingsScope = "loopholes.aws-auth.settings"
+
 // settingsScope is how a refusal spells a key for the human: the full config path
 // they would edit.
-func settingsScope(key string) string { return "loopholes.aws-auth.settings." + key }
+func settingsScope(key string) string { return SettingsScope + "." + key }
 
 // Settings is the flat file `{settings}` names, decoded. Every declared key is
 // present in that file (loopholedecl guarantees totality), so absence here means

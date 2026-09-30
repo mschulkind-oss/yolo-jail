@@ -441,8 +441,9 @@ credential to a server of its choosing. See
 - A Bedrock launch through `aws-auth` now warns you before the jail starts when your AWS login
   cannot give it credentials: you never ran `aws sso login` for the configured profile, the
   session has expired, or the profile is not in your AWS config. The warning names the problem
-  and the command or setting that fixes it, and the jail starts as before, picking up the fix
-  with no relaunch. Until now only the service's log, `yolo check` and the agent's first failed
+  and the command or setting that fixes it, and the jail starts as before. A login or another
+  fix made outside yolo reaches the running jail with no relaunch; a changed setting takes
+  effect when you next launch a new jail. Until now only the service's log, `yolo check` and the agent's first failed
   request said so. The service keeps running when you upgrade yolo, and the one an earlier yolo
   started cannot answer the question, so the launch says that instead and names
   `yolo host-daemon restart aws-auth`. See

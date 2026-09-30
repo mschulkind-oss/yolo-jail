@@ -715,7 +715,11 @@ that fetch. The launch waits for the answer only as long as a short budget
 mint a Bedrock credential for this launch: …`, in the same words as the `4xx` and `yolo check`:
 `aws sso login --profile <profile>` for a session that lapsed or was never established, and how
 to add the profile or point the setting at another for a profile the host's `~/.aws/config` does
-not have. The jail then starts as it would have. A mint still running when the budget runs out is
+not have. The line ends by saying when the fix reaches the running jail. A fix outside yolo does
+with no relaunch, since every mint runs `aws` afresh; that is all a lapsed session or a missing
+CLI can need. The service reads `loopholes.aws-auth.settings` only when it starts, and a launch
+of a new jail is what restarts it on a change, so a line whose fix can be a setting says both.
+The jail then starts as it would have. A mint still running when the budget runs out is
 reported by the previous attempt's failure and its age, or, when there is none, by a dim line
 saying the launch could not tell. A service that cannot be asked gets a dim line too, but for one
 started by an older yolo: nothing restarts the host-wide service when yolo is upgraded, and the

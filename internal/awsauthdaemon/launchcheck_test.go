@@ -94,6 +94,55 @@ func TestTheLaunchCheckWarnsForEveryFailureClass(t *testing.T) {
 	}
 }
 
+// TestTheLaunchCheckSaysHowEachFixReachesTheRunningService: a fix on the host's AWS side (a
+// login, the profile added to ~/.aws/config, the CLI installed) is found by the next mint, so
+// the running jail recovers with no relaunch. A change to loopholes.aws-auth.settings is not:
+// the daemon reads its settings only when it starts, and only a launch restarts it on a
+// settings change. So the promise of "no relaunch" is made unconditionally only where every fix
+// the Message names is on the AWS side, and a warning that names a setting says when a setting
+// takes effect.
+func TestTheLaunchCheckSaysHowEachFixReachesTheRunningService(t *testing.T) {
+	const awsSideOnly = "and then work with no relaunch"
+	for _, tc := range []struct {
+		name       string
+		out        awsauth.Output
+		settingFix bool
+	}{
+		{"lapsed session", failing("Token has expired and refresh failed"), false},
+		{"never established", failing("Error loading SSO Token: Token does not exist"), false},
+		{"aws CLI gone", awsauth.Output{Spawned: false, Code: -1, Stderr: "not found"}, false},
+		{"profile missing", failing("The config profile (bedrock) could not be found"), true},
+		{"rejected by STS", failing("An error occurred (AccessDenied) when calling AssumeRole"), true},
+		{"static keys, no session token", awsauth.Output{Spawned: true,
+			Stdout: `{"Version":1,"AccessKeyId":"AKIA1","SecretAccessKey":"zzsecretzz"}`}, true},
+		{"unclassified", awsauth.Output{Spawned: true, Code: 1, Stderr: "Could not connect"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			broker := testHandlerBroker(t, unnarrowed("bedrock"), cannedRunner(tc.out, nil))
+			report := askCheck(t, serveHandler(t, HandlerConfig{Broker: broker}), time.Second)
+			if len(report.Warnings) != 1 {
+				t.Fatalf("report = %+v, want exactly one warning", report)
+			}
+			w := report.Warnings[0]
+			if !tc.settingFix {
+				if !strings.Contains(w, awsSideOnly) {
+					t.Errorf("an AWS-side fix is not promised to work with no relaunch:\n%s", w)
+				}
+				return
+			}
+			if strings.Contains(w, awsSideOnly) {
+				t.Errorf("a warning whose fix can be a setting promises no relaunch outright:\n%s", w)
+			}
+			for _, want := range []string{"picked up with no relaunch",
+				"a change to loopholes.aws-auth.settings", "next launch"} {
+				if !strings.Contains(w, want) {
+					t.Errorf("warning lacks %q:\n%s", want, w)
+				}
+			}
+		})
+	}
+}
+
 // TestTheLaunchCheckIsSilentOnAHealthyMintAndWarmsTheCache: a cold cache that mints cleanly
 // says nothing, and the mint the check made is the one the agent's first request is then served
 // from, so the launch paid for work that request would otherwise have done inside the SDK's
