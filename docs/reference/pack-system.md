@@ -742,6 +742,16 @@ base yolo does not ship must be in `packs` by name. The selection refuses a fork
 absent, a base that declares no program by the fork's bin, a pack forking itself, and two forks of
 one program.
 
+**The pin is `forks.lock.json`**, beside `packs.lock.json` in `~/.config/yolo-jail`, keyed
+`<fork pack>/<bin>` ([FP-D7](../design/forked-programs-as-packs.md#FP-D7)). `yolo pack install` pins
+every selected fork the lock does not already pin for its declared `source`, resolving the ref to a
+commit, and leaves a pinned fork alone when its branch moves. `yolo pack update` re-resolves every
+fork. `yolo pack status` lists each pin and fails on a pin made for a source the fork no longer
+declares. A launch only reads the lock: each launch that carries a fork prints the commit it is
+pinned to (`fork <pack>: <bin> (in place of pack <base>'s) is built from <source> at commit <sha>`),
+or why it has none and the command that pins it. A fork's source never goes through the launch's
+hourly pack refresh.
+
 #### `requires`
 
 A binary that must **already exist**. Asserts presence and installs nothing — no launcher,

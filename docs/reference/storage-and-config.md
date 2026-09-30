@@ -439,6 +439,8 @@ the only place the values themselves are stated.
 | Workspace state dir | `<workspace>/.yolo/` | `paths.WorkspaceStateDir` |
 | Workspace home overlays | `<workspace>/.yolo/home/` | `paths.WorkspaceHomeState` |
 | User config | `~/.config/yolo-jail/config.jsonc` | `paths.UserConfigPath` |
+| Pack lock | `~/.config/yolo-jail/packs.lock.json` | `packsrc.LockPath` |
+| Fork lock: each fork's pinned commit, written only by `yolo pack install` and `update` | `~/.config/yolo-jail/forks.lock.json` | `packsrc.ForkLockPath` |
 | Workspace config, and its local sibling | `yolo-jail.jsonc`, `yolo-jail.local.jsonc` | `internal/config/load.go` |
 | Per-launch merged config | `<workspace>/.yolo/config-assembled.json` | `config.WorkspaceAssembledConfigPath` |
 | Frozen drift baseline | `<workspace>/.yolo/config-boot.json` | `config.WorkspaceConfigBootPath` |
