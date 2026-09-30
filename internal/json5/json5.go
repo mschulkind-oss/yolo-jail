@@ -33,7 +33,12 @@ import (
 // error. Trailing non-whitespace/comment data after the top-level value is an
 // error (matching pyjson5.loads, which consumes the whole document).
 func Decode(data []byte) (any, error) {
-	p := &parser{s: string(data)}
+	return (&parser{s: string(data)}).document()
+}
+
+// document parses the whole input as one value, surrounded by nothing but whitespace and
+// comments.
+func (p *parser) document() (any, error) {
 	p.skipWS()
 	if p.wsErr != nil {
 		return nil, p.wsErr
@@ -56,6 +61,18 @@ type parser struct {
 	s     string
 	pos   int
 	wsErr error // set by skipWS on an unterminated block comment
+
+	// at, when set, is told where every object member's value sat once it is parsed: the
+	// path of steps from the top-level value down to it, and the byte range [start, end) of
+	// its text. Locate sets it; Decode leaves it nil, and then path stays empty.
+	at   func(path []pathStep, start, end int)
+	path []pathStep
+}
+
+// pathStep is one step of the path at reports: an object key, or an array element.
+type pathStep struct {
+	key   string
+	index bool
 }
 
 func (p *parser) errf(format string, args ...any) error {
@@ -176,9 +193,17 @@ func (p *parser) parseObject() (any, error) {
 		}
 		p.pos++ // consume :
 		p.skipWS()
+		start := p.pos
+		if p.at != nil {
+			p.path = append(p.path, pathStep{key: key})
+		}
 		val, err := p.parseValue()
 		if err != nil {
 			return nil, err
+		}
+		if p.at != nil {
+			p.at(p.path, start, p.pos)
+			p.path = p.path[:len(p.path)-1]
 		}
 		m.Set(key, val)
 		p.skipWS()
@@ -212,9 +237,15 @@ func (p *parser) parseArray() (any, error) {
 	}
 	for {
 		p.skipWS()
+		if p.at != nil {
+			p.path = append(p.path, pathStep{index: true})
+		}
 		val, err := p.parseValue()
 		if err != nil {
 			return nil, err
+		}
+		if p.at != nil {
+			p.path = p.path[:len(p.path)-1]
 		}
 		arr = append(arr, val)
 		p.skipWS()
