@@ -2,8 +2,8 @@
 title: "Bedrock from an SSO login, without handing over the account"
 date: 2026-09-17
 status: accepted
-tags: [aws, bedrock, sso, credentials, loopholes, packs, boundary]
-summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach. Least privilege and transparent refresh turn out to be independent problems: narrowing happens host-side before the credential crosses, and refresh happens only when what crosses is a pointer rather than a value. Measured: all four shipped agents already implement the pull channel this needs, and all four read a static key pair before it. A bearer or a static key pair beside the pointer is refused at launch, and a ~/.aws grant is warned about, by a declaration in the pack, not by core (OQ-SSO8, built); the minted-bearer arm is retired (OQ-SSO9)."
+tags: [aws, bedrock, sso, credentials, loopholes, packs, boundary, graduated]
+summary: "GRADUATED 2026-09-29 into docs/reference/agent-credentials.md, whose SSO-backed Bedrock section now states the delivered behavior. This file stays whole as the argument: how a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach, why narrowing and refresh are independent problems, the evidence, and the Decision Ledger the reference links for its reasoning. The live-login try-out happened 2026-09-29 (the maintainer's jails, daily, on a Linux host); the re-login after a portal session ends is still unobserved."
 ---
 
 # Bedrock from an SSO login, without handing over the account
@@ -12,16 +12,44 @@ summary: "How a host-side `aws sso login` becomes Bedrock access inside a jail w
 human's own access is an `aws sso login` on the host, and how does the jail end up holding no
 more than Bedrock out of it — and still keep working after the human logs in again?
 
-**Status:** DECIDED, 2026-09-25 — [OQ-SSO1–10](#13-decision-ledger) are all ruled
-([OQ-SSO10](#OQ-SSO10), the launch-side disclosure, on 2026-09-25, and BUILT the same day);
-everything but the fold into the reference docs is BUILT, and [OQ-SSO8](#OQ-SSO8)'s pack-declared refusal is BUILT
-([§12](#12-what-i-would-build-in-order) step 6). **MEASURED:** the refusal's code, and the AWS
-credential chain order in the shipped claude, codex, opencode and pi
-([§11](#11-evidence-and-how-to-re-check-it)). **UNMEASURED:** nothing here has run against a live
-`aws sso login` ([the pack README](../../packs/aws-auth/README.md)). Repo claims verified against
-`d4c0e7e3`, those the 2026-09-25 questions add against `ee8154f2`, and step 6's against the
-working tree it landed from (2026-09-25); vendor claims carry their dates in
-[§11](#11-evidence-and-how-to-re-check-it).
+**Status:** GRADUATED, 2026-09-29 — the delivered behavior is described in
+[`agent-credentials.md`'s SSO-backed Bedrock section](../reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth),
+which is now the authority for what a user configures, what crosses into the jail, the
+narrowing, the [OQ-SSO8](#OQ-SSO8) refusals and the un-narrowed disclosure. This file stays
+whole, as the argument: the reference links its [Decision Ledger](#13-decision-ledger) for the
+reasoning, and other docs and Go comments cite its sections and `OQ-SSO` ids. All ten questions
+are ruled and every step of [§12](#12-what-i-would-build-in-order) is built, step 7 having been
+deleted by [OQ-SSO9](#OQ-SSO9). **MEASURED:** the refusal's code, the AWS credential chain order
+in the shipped claude, codex, opencode and pi, and, on 2026-09-29, the live-login try-out: the
+service in daily use in the maintainer's jails against a live `aws sso login` on a Linux host,
+which meets [§8](#8-behaviour-this-design-specifies)'s done-conditions 1, 2 and 5
+([§11](#11-evidence-and-how-to-re-check-it)). **UNMEASURED:** done-condition 4, the headline
+(a running jail picking up a re-login after the portal session ends), and conditions 6 and 7;
+`macos-user`, which has not run on a Mac. Repo claims verified against `d4c0e7e3`, those the
+2026-09-25 questions add against `ee8154f2`, and step 6's against the working tree it landed from
+(2026-09-25); vendor claims carry their dates in [§11](#11-evidence-and-how-to-re-check-it). The
+body below was not re-verified in the graduation, so where it and the reference disagree, the
+reference is right.
+
+> [!IMPORTANT]
+> **Where the tree moved past this body**, found while writing the reference (2026-09-29, at
+> `fe24347c`). The body is left as written; read these as corrections to it.
+>
+> - **[§5](#5-the-recommended-shape)'s 2026-09-28 note** names `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`.
+>   The pack sets `AWS_CONTAINER_AUTHORIZATION_TOKEN` to the caller token instead, exported only
+>   in the env file of each agent whose profile is `bedrock`
+>   ([`OQ-CN7`](provider-credential-scope.md#OQ-CN7)), and the adapter starts only on a launch
+>   where some agent's profile is `bedrock`.
+> - **[§7](#7-refresh--what-happens-when-you-log-in-again)'s example body** shows
+>   `Code: ExpiredSSOSession`. The code the service sends is `ExpiredToken`; the message names
+>   `aws sso login --profile …` as that section says.
+> - **[§8](#8-behaviour-this-design-specifies)'s** *"profile configured, no SSO session ever
+>   established → the launch warns"* **is not built.** The launch does not check for a session.
+>   A missing or lapsed one, or a profile the host's `~/.aws/config` lacks, shows in the service
+>   log, in `yolo check`'s self-check and in the agent's first fetch.
+> - **[§9](#9-non-goals)'s** *"Nothing for `macos-user` in v1"* **no longer holds.** A
+>   `macos-user` launch opens the adapter outside the Seatbelt sandbox, as a listener it owns
+>   ([`host-notch-services.md` HS-D15](host-notch-services.md#HS-D15)). Not yet run on a Mac.
 
 **Where things stand.**
 
@@ -35,11 +63,12 @@ working tree it landed from (2026-09-25); vendor claims carry their dates in
 - **Ruled:** six questions on 2026-09-17 and [`OQ-SSO7`](#13-decision-ledger) (the three
   supported credentials) on 2026-09-24 — all in [§13](#13-decision-ledger).
 - **Built 2026-09-25:** the consumers' `needs` (`packs/claude` needs `aws-auth`) and the
-  launch-side disclosure of an un-narrowed session ([OQ-SSO10](#OQ-SSO10)); step 5's
-  done-conditions 1 and 4 still want a live login.
-- **Not built:** the fold into the reference docs ([§12](#12-what-i-would-build-in-order)
-  step 8), which waits on that live-login try-out. The minted-bearer arm (option D)
-  is retired ([OQ-SSO9](#OQ-SSO9)).
+  launch-side disclosure of an un-narrowed session ([OQ-SSO10](#OQ-SSO10)).
+- **Tried on a live login, 2026-09-29:** step 5's done-condition 1 is met; done-condition 4 has
+  not happened yet, because no portal session ended during the observation
+  ([§11](#11-evidence-and-how-to-re-check-it)).
+- **Built 2026-09-29:** the fold into the reference docs ([§12](#12-what-i-would-build-in-order)
+  step 8). The minted-bearer arm (option D) is retired ([OQ-SSO9](#OQ-SSO9)).
 - **Ruled 2026-09-25:** the two questions the [`bedrock-plumbing.md`](bedrock-plumbing.md)
   review handed here. [OQ-SSO8](#OQ-SSO8): a bearer or a static key pair delivered beside
   `aws-auth`'s pointer is a fatal refusal, declared by the pack rather than hardcoded in core,
@@ -847,6 +876,9 @@ provider already owns is how the Bedrock region got confusing in the first place
 7. The same jail with `-- codex`, `-- pi` and `-- opencode` each completes a turn on the same
    channel, with no per-agent code written for any of them.
 
+Which of the seven the 2026-09-29 live-login try-out met, and which it did not, is recorded in
+[§11](#11-evidence-and-how-to-re-check-it) (*the live-login try-out*).
+
 ---
 
 ## 9. Non-goals
@@ -981,6 +1013,53 @@ Bedrock* for SigV4 on `bedrock-runtime`; *Bedrock API key permissions* for the
 `CallWithBearerToken` deny. No page read names IAM Identity Center as a generator source. The
 yolo-side facts are [`bedrock-plumbing.md`](bedrock-plumbing.md)'s, measured there at `f491d192`.
 
+**Added 2026-09-29 — the live-login try-out.** The maintainer uses `aws-auth` every day, in many
+of their jails, against a live `aws sso login` on their Linux host, which runs rootless podman. What
+follows was read on 2026-09-29 from the host's yolo logs, through this jail's read-only context
+mount, and from inside one of those jails. The profile, the account and the role are not recorded
+here: it is the maintainer's own SSO profile, narrowed to a Bedrock-only role.
+
+- **The service log** (`host-service-aws-auth.log`) shows, at each of its three starts since
+  2026-09-28, the `sso-session` token-provider form (*"the access token refreshes itself, so a
+  human logs in again only when the portal session ends"*) and the role arm: `AssumeRole` with
+  no additional session policy, N3 in [§6](#6-narrowing--shape-scoped-and-policy-scoped)'s
+  ladder. Across those runs it answered hundreds of requests and recorded no failed mint.
+- **The host's crossings log** shows hundreds of accepted crossings into `aws-auth` from about a
+  dozen jails. The two it rejected were incomplete handshakes.
+- **An earlier span, 2026-09-23 to 2026-09-28,** named a profile the host's `~/.aws/config` did
+  not have. Every pre-mint in it failed, and the real CLI's error was classified
+  `ProfileNotFound` rather than as a lapsed session, which is the first real-CLI evidence for the
+  classifier. Nothing at launch reports this (the drift note under the status line).
+- **Inside one of the jails,** a claude session ran in Bedrock mode (`CLAUDE_CODE_USE_BEDROCK=1`),
+  its turns completing through this channel. Its environment named
+  `AWS_CONTAINER_CREDENTIALS_FULL_URI`, `AWS_CONTAINER_AUTHORIZATION_TOKEN`, `AWS_REGION` and
+  `YOLO_SERVICE_AWS_AUTH_ENDPOINT`, and none of `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+  `AWS_SESSION_TOKEN` or `AWS_BEARER_TOKEN_BEDROCK`; `ls ~/.aws` failed; the launcher had set
+  `YOLO_HOST_LOOPBACK=requested`. A `GET` with the caller token as `Authorization` returned `200`
+  with exactly the four keys, all non-empty strings, `Expiration` 46 minutes out, in about 2 ms.
+  Without the token it returned `401`. Only the key names and the expiry were printed.
+
+```console
+$ curl -s -H "Authorization: $AWS_CONTAINER_AUTHORIZATION_TOKEN" "$AWS_CONTAINER_CREDENTIALS_FULL_URI" | jq -r 'keys[], .Expiration'
+```
+
+What that settles, against [§8](#8-behaviour-this-design-specifies)'s seven done-conditions.
+[§12](#12-what-i-would-build-in-order) step 5 owes conditions 1 and 4: 1 is met and 4 is not.
+
+| # | Done-condition | Verdict |
+| :--- | :--- | :--- |
+| 1 | a claude turn on Bedrock; the pointer and the region, and no secret, in the environment; `ls ~/.aws` fails | **MET**, MEASURED. The environment also carries the caller token, yolo's per-launch secret for the adapter rather than an AWS credential |
+| 2 | a `curl` of the pointer returns the four keys, `Expiration` under an hour out | **MET**, MEASURED, with the caller token sent as `Authorization`. The bare `curl` the condition spells gets `401` since the caller token (2026-09-28) |
+| 3 | idle past that expiry, the next turn succeeds with no human action | **Met in use; INFERRED, not isolated.** A role-chained credential lives at most an hour, so a day of use is many re-mints with no human action, and the log records no failed mint since the first of those 2026-09-28 starts. No single turn was timed across an expiry |
+| 4 | the session lapses, `aws sso login` on the host, and the running jail's next turn succeeds | **NOT OBSERVED.** No portal session ended during the observation |
+| 5 | `aws s3 ls` from inside the jail is denied | **MET**, MEASURED 2026-09-29, on the role arm (N3). From a jail on the channel, with the served credential, S3 `ListBuckets` (the call `aws s3 ls` makes) was refused `AccessDenied`, and EC2 `DescribeInstances`, sent as a hand-signed request, returned HTTP 403 `UnauthorizedOperation`, with `DryRun=true` too; both refusals name the assumed role and say that no identity-based policy allows the action. The same credential's Bedrock `ListFoundationModels` succeeded, so the refusals are the narrowing's, not a broken credential. The CLI was `uvx --from awscli aws`, the image baking none |
+| 6 | with the session lapsed, the error names `aws sso login --profile X` | **NOT OBSERVED live.** CI's `TestAWSAuthLapsedSessionIsA4xxNamingTheLogin` covers it with a fake `aws`, so the real CLI's expiry wording is still unmatched against the classifier |
+| 7 | codex, pi and opencode each complete a turn | **NOT OBSERVED** |
+
+Also not covered: a cold-cache fetch against the one-second budget (R1; only warm fetches were
+seen), the legacy SSO form, the session-policy and un-narrowed arms, `macos-user`, and Apple
+Container.
+
 **Claude Code specifics — [code.claude.com/docs/en/amazon-bedrock](https://code.claude.com/docs/en/amazon-bedrock), read 2026-09-17.**
 *"Claude Code uses the default AWS SDK credential chain."* It caches resolved credentials
 until five minutes before expiry (one hour when they carry none), times each chain resolve out
@@ -1077,6 +1156,9 @@ delays nothing. It only sharpens step 2.
    pack's ([`OQ-SSO6`](#13-decision-ledger)). Selecting the pack changes nothing observable
    until step 5.
 5. **`needs` on the consumers**, and done-conditions 1 and 4 — the headline, measured.
+   **BUILT 2026-09-25.** Tried on a live login 2026-09-29: done-condition 1 is MEASURED, and 4
+   is not yet observed, because no portal session ended during the observation
+   ([§11](#11-evidence-and-how-to-re-check-it)).
 6. **The conflict refusals, declared by the pack** ([OQ-SSO8](#OQ-SSO8)). **BUILT 2026-09-25.**
    First built for the bearer alone, in core (`internal/awschain`, since deleted); now
    `aws-auth`'s pointer carries an `overridden_by` declaration naming the bearer, the static pair
@@ -1088,7 +1170,11 @@ delays nothing. It only sharpens step 2.
    and never refuses ([OQ-SSO8](#OQ-SSO8)).
 7. ~~The N1 arm~~ — **deleted**: option D is retired ([OQ-SSO9](#OQ-SSO9)).
 8. **Fold into [`agent-credentials.md`](../reference/agent-credentials.md)** as a new delivery
-   channel and retire this doc via `system-doc`.
+   channel and retire this doc via `system-doc`. **BUILT 2026-09-29**, as
+   [the SSO-backed Bedrock section](../reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth),
+   with rows in that doc's backend table, current values and *Why it's this way* table. This doc
+   is GRADUATED and kept whole rather than cut to a stub, because its sections and `OQ-SSO` ids
+   are cited from other docs and from Go comments.
 
 ---
 

@@ -218,6 +218,17 @@ doc exists to prevent.
 
 ## Trying it on a real host
 
+**Tried on 2026-09-29.** The maintainer uses this pack every day, in many of their jails,
+against a live `aws sso login` on a Linux host with rootless podman, serving their own SSO
+profile narrowed to a Bedrock-only role. That covers step 3 below: claude works on Bedrock
+through the pointer, and the jail holds no AWS secret and no `~/.aws`. It also covers the
+real `aws` calls step 1 exercises, and the `sso-session` config form step 2 asks about. Step 4,
+the narrowing shown by a denied call, was run the same day: S3 and EC2 calls were refused and
+Bedrock answered. Step 5, a running jail picking up a re-login after the session lapses, has
+not been run. What was and was not observed is in
+[the design's evidence](../../docs/design/sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it).
+The steps stay here for anyone trying it on another host.
+
 About 20–30 minutes on a Linux host with rootless podman, AWS CLI v2, a working
 `aws sso login --profile <p>`, and a current host yolo (`just install`). Nothing below
 prints a secret; paste each step's output back. `<p>` is your profile and `<arn>` a
@@ -266,7 +277,8 @@ says so and exits, and the launch reports it.
 > credential service was, so the adapter answered every request with a
 > `ServiceUnreachable` 4xx. If you see that error, update yolo. A podman launch now
 > sets `YOLO_SERVICE_AWS_AUTH_ENDPOINT` whenever this loophole is enabled. The pack
-> has not yet been run against a live `aws sso login`.
+> is in daily use against a live `aws sso login`
+> ([the try-out](#trying-it-on-a-real-host), 2026-09-29).
 
 **A podman backend, or macos-user.** On `macos-user` the adapter runs inside the sandbox, under
 its Seatbelt profile, as the sandbox's own user (not yet run on a Mac). Apple Container

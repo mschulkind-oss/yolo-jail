@@ -2,23 +2,25 @@
 title: "Plan: Bedrock from a host SSO login"
 date: 2026-09-17
 status: accepted
-tags: [aws, bedrock, sso, credentials, loopholes, packs, implementation]
-summary: "Build hand-off for sso-backed-bedrock.md, written against the tree: the files that change, the openai-auth machinery to copy, the traps, the eight-step order, and which steps a nested jail can and cannot verify."
+tags: [aws, bedrock, sso, credentials, loopholes, packs, implementation, graduated]
+summary: "Build hand-off for sso-backed-bedrock.md, now spent: every step is built (step 7 deleted), the live-login try-out happened 2026-09-29, and the design graduated into docs/reference/agent-credentials.md. What is left here is build residue and the record of what a real host has and has not settled; deleting this file, which step 8 asks for, is owed."
 ---
 
 # Plan: Bedrock from a host SSO login
 
-**Status:** DECIDED, 2026-09-24 — steps **1–4, 6 and 6a are built** (`internal/awsauth`,
-`internal/awsauthdaemon`, `internal/awscredadapter`, `packs/aws-auth`; step 6's exclusivity
-refusal and `~/.aws` grant conflict landed 2026-09-18, and step 6a moved both into the pack's
-manifest and added the static key pair on 2026-09-25, then made the `~/.aws` grant a warning the
-same day), and [Blockers](#blockers) 7 — the missing endpoint variable — was **fixed 2026-09-20**
-(`62e553a8`), so the chain is wired end to end in code. `integration/awsauth_test.go`, the
-end-to-end transport test [Ships with](#ships-with) names, is written (2026-09-25) and has not
-yet run; steps 5 and 8 are not built, step 7 is deleted, and nothing has run on a real host. Ruled 2026-09-17, when
-nothing was built; a sketch before that, and a **hand-off** promoted against the tree at
-`6ded2789`. See [Progress](#progress) for what landed and what a real host still has to
-settle.
+**Status:** GRADUATED, 2026-09-29 — every build step is built, step 7 having been deleted, and
+the design it served graduated to
+[`agent-credentials.md`'s SSO-backed Bedrock section](../reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth).
+Step 8 landed 2026-09-29. **MEASURED:** the live-login try-out, 2026-09-29: the service in daily
+use in the maintainer's jails against a live `aws sso login` on a Linux host with rootless
+podman, which meets step 5's done-condition 1
+([Progress](#progress)); and `integration/awsauth_test.go`, which passed in CI on rootless podman on
+both arches on 2026-09-25. **UNMEASURED:** step 5's done-condition 4, the re-login after a
+portal session ends, and the other items in
+[What a real host still has to settle](#what-a-real-host-still-has-to-settle) that are not marked
+settled. **Owed:** deleting this file, as step 8 and [Don't](#dont) ask, once its inbound links
+are repointed; this change did not delete it. Ruled 2026-09-17, when nothing was built; a sketch
+before that, and a **hand-off** promoted against the tree at `6ded2789`.
 
 **Scope, per [`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger) (ruled 2026-09-24).** yolo
 supports three Bedrock credentials — a bearer (`AWS_BEARER_TOKEN_BEDROCK`), a static access key
@@ -62,8 +64,9 @@ followed, and the commit says so. This file is advice, and the first thing to be
 | `internal/cli/run/envoverrides.go` | **BUILT** — the pre-flight (step 6 as `awschannels.go`, generalized by 6a), beside `providerpreflight.go`, at all THREE of its call sites; it prints an uncertain finding as a warning and returns only the refusal |
 | `internal/cli/check/envoverrides.go` | **BUILT** — the same refusal PREDICTED, calling `packload.EnvOverrideFindings` rather than restating it (`protocols.go`'s precedent, not `capabilities.go`'s): one FAIL per certain finding and one WARN per uncertain one, each with its detail as the note |
 | `internal/config/validate_loopholes.go` | the `~/.aws`-grant conflict built here in step 6 is **DELETED** by 6a; the grant is now the pack declaration's `host_file` entry, refused by the pre-flight above |
-| `packs/claude/pack.json` | `needs: [{"pack": "aws-auth"}]` (step 5) |
-| `integration/awsauth_test.go` | **WRITTEN** 2026-09-25, not yet run — the end-to-end transport test ([Ships with](#ships-with)) |
+| `packs/claude/pack.json` | **BUILT** 2026-09-25 — `needs: [{"pack": "aws-auth"}]` (step 5) |
+| `integration/awsauth_test.go` | **BUILT** 2026-09-25, and passed in CI on rootless podman, both arches, the same day — the end-to-end transport test ([Ships with](#ships-with)) |
+| `docs/reference/agent-credentials.md` | **BUILT** 2026-09-29 (step 8) — the SSO-backed Bedrock section, a backend-table row, current values and *Why it's this way* rows |
 
 No new `cmd/` binary, so `flake.nix`'s `shippedBinaries` and `scripts/stage-source-bundle.sh` are
 untouched; `packs/` is already in the `goSrc` fileset.
@@ -163,20 +166,36 @@ Report a real-host result with `podman info --format '{{.Host.RootlessNetworkCmd
 | 2 | **BUILT** — the narrowing setting, inside step 1's settings file: absent → refuse at spawn naming the key; un-narrowed by name → serve, plus the disclosure line. Two of its three call sites exist (spawn log, `--self-check` `NOTE:`); the LAUNCH line is a call to `Narrowing.DisclosureLine` from `writeLoopholeSettings` | unit cases: absent, N2 role + policy, un-narrowed by name | unit |
 | 3 | **BUILT**, and reachable since [Blockers](#blockers) 7's fix (`62e553a8`) — `internal/awscredadapter` + the `yolo-jaild` row; the manifest; `packs/embed.go`; the census rows | `yolo pack lint packs/aws-auth`; in a nested jail selecting the pack, `curl -s $AWS_CONTAINER_CREDENTIALS_FULL_URI` returns the four keys, or the 4xx `Code`/`Message` with no session | nested proves the transport is **wired**; that the jail reaches the front is **real rootless host** only |
 | 4 | **BUILT** — `packs/aws-auth/pack.json` (the gated `env` pointer) and README | `yolo pack footprint packs/aws-auth`: one env key, one loophole, no host grant | unit |
-| 5 | **BUILT 2026-09-25** ([Progress](#progress)) — `needs` on `packs/claude`, with [`OQ-SSO10`](sso-backed-bedrock.md#OQ-SSO10)'s launch disclosure; done-conditions 1 and 4 remain | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch ([the try-out](../../packs/aws-auth/README.md#trying-it-on-a-real-host)) | **real rootless host** (an SSO login, a browser, the forwarding hop) |
+| 5 | **BUILT 2026-09-25** ([Progress](#progress)) — `needs` on `packs/claude`, with [`OQ-SSO10`](sso-backed-bedrock.md#OQ-SSO10)'s launch disclosure. Done-condition 1 MEASURED on a live login 2026-09-29; done-condition 4 not yet observed | a claude turn on Bedrock; lapse, `aws sso login`, next turn succeeds with no relaunch ([the try-out](../../packs/aws-auth/README.md#trying-it-on-a-real-host)) | **real rootless host** (an SSO login, a browser, the forwarding hop) |
 | 6 | **BUILT** ([Progress](#progress)) — exclusivity refusal (the pointer **and** `AWS_BEARER_TOKEN_BEDROCK` both delivered), at the launch's three arms and predicted by `yolo check`; the `~/.aws`-grant conflict in `internal/config`, so `yolo check` and launch both refuse. Both moved into the pack by 6a | each of the three call sites deleted in turn, one named test red for each (measured, not assumed); `just check-ci` **and** `env -u YOLO_VERSION go test -short ./...` | unit |
 | 6a | **BUILT** 2026-09-25 ([Progress](#progress)) — step 6's two refusals moved out of core into `aws-auth`'s manifest, per [`OQ-SSO8`](sso-backed-bedrock.md#OQ-SSO8): the pack declares which delivered variables override its pointer (the bearer; both halves of the static pair, unless `AWS_PROFILE` is also delivered) and the `~/.aws` grant that may disable it, declared `certain: false` so it warns rather than refuses; core refuses (or warns) generically and names no AWS variable. The chain order of claude, codex and opencode was measured first — all environment-first ([design §11](sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it)) — so the pair ships | a manifest declaring a made-up variable is refused beside its contribution with no core change (`TestEnvOverrideRefusesAMadeUpVariable`, `TestSectionPacksPredictsTheOverrideRefusal`); a lone `AWS_ACCESS_KEY_ID` and the pair plus `AWS_PROFILE` both launch (`TestEnvOverrideLetsTheNonOverridingShapesThrough`); a bearer or pair only in the invoking shell launches (`TestEnvOverrideIgnoresTheShellYoloWasLaunchedFrom`); a directory grant counts only where the backend binds it (`TestEnvOverrideCountsADirectoryGrantOnlyWhereItIsBound`); an uncertain entry warns and launches (`TestEnvOverrideCertaintyDecidesTheSeverity`, `TestEnvOverrideWarnsOnTheMacosUserLaunch`, `TestSectionPacksWarnsForAnUncertainOverride`); the package is gone | unit; the call-site deletions of step 6, repeated in a private copy — each named test red |
 | 7 | ~~N1 arm~~ — **deleted**: option D is retired ([`OQ-SSO9`](sso-backed-bedrock.md#OQ-SSO9), 2026-09-25). A user who wants the N1 narrowing mints the key on the host with AWS's generator and delivers it as a bearer | — | — |
-| 8 | Fold into [`agent-credentials.md`](../reference/agent-credentials.md); retire the design via `system-doc`; delete this file | `uvx vantage-check docs/` clean | — |
+| 8 | **BUILT 2026-09-29** — folded into [`agent-credentials.md`](../reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth); the design is GRADUATED and kept whole, because other docs and Go comments cite its sections and `OQ-SSO` ids. Deleting this file is still owed | `uvx vantage-check` clean on every file touched | — |
 
 **Expensive if late:** step 2 inside step 1 (a widening default retrofitted breaks working
 setups — the design says so); the census rows in step 3 (every later `just test-fast` is red).
 
 ## Progress
 
+**The live-login try-out, and step 8, 2026-09-29.** The maintainer uses `aws-auth` every day, in
+many of their jails, against a live `aws sso login` on their Linux host, serving their own SSO profile
+narrowed to a Bedrock-only role. The host's service log shows the `sso-session` token-provider
+form and every credential minted with `AssumeRole` and no additional session policy, and the
+host's crossings log shows hundreds of accepted crossings from about a dozen jails. From inside
+one of those jails, a claude session in Bedrock mode had the pointer, the caller token and the
+region and no AWS secret in its environment, had no `~/.aws`, and got the four keys (expiring
+within the hour) from a `GET` carrying the caller token, and `401` without it. The design's
+[§11](sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it) records each of the seven
+done-conditions against this. For step 5 the answer is that **done-condition 1 is met and
+done-condition 4 is not**: no portal session ended during the observation, so a running jail
+picking up a re-login is still unobserved. Step 8 folded the delivered behavior into
+[`agent-credentials.md`](../reference/agent-credentials.md#sso-backed-bedrock-credentials-aws-auth)
+and graduated the design. This file was not deleted; that is owed.
+
 **Step 5 and [`OQ-SSO10`](sso-backed-bedrock.md#OQ-SSO10), 2026-09-25**, are built; step 5's
-done-conditions 1 and 4 still want the live login in the
-[README's try-out](../../packs/aws-auth/README.md#trying-it-on-a-real-host).
+done-conditions 1 and 4 wanted the live login in the
+[README's try-out](../../packs/aws-auth/README.md#trying-it-on-a-real-host), which ran on
+2026-09-29 (the entry above).
 - **The disclosure.** A bool settings declaration may carry a `disclose` sentence
   (`loopholedecl.Setting.Disclose`, refused on any other type and when empty, in both
   decoders). The launch prints `loophole <name>: <sentence>` on stderr whenever the resolved
@@ -487,30 +506,44 @@ literally would have produced a body an SDK rejects, or wrong advice.
 ### What a real host still has to settle
 
 Steps 1 and 2 are unit-only by construction. These are the measurements no unit test in this
-repo can stand in for:
+repo can stand in for. The 2026-09-29 try-out ([Progress](#progress)) settled some of them;
+each item says which.
 
 1. **The dispatch row**, then `yolo internal daemon aws-auth --self-check --settings <file>`
    against a live `aws sso login`. This is the first thing that exercises `ExecRunner`, the
    real `aws` argv, and the real output shapes — everything upstream of the seam is fixture
-   JSON written from AWS's documented formats, never from a recorded invocation.
+   JSON written from AWS's documented formats, never from a recorded invocation. *Settled
+   2026-09-29 for the serving path: the daemon has minted from a live login every day through
+   `ExecRunner`, the real argv and the real output shapes. A `--self-check` run was not
+   recorded.*
 2. **The lapsed-session signatures.** `classify` matches stderr fragments AWS CLI v2 emits.
    They are written from the documented and widely-reported wordings and each has a fixture,
    but a miss falls through to `MintFailed` (safe: AWS's own words are forwarded) and only a
    real expiry on a real host proves the set is complete. A false positive is the one thing
    the set is written to avoid, so the direction of any correction should be to ADD a
-   fragment, never to loosen one.
+   fragment, never to loosen one. *Not settled: no session lapsed during the try-out. One
+   neighboring signature was checked: a real CLI's "profile could not be found" error, from a
+   misconfigured profile before 2026-09-28, was classified `ProfileNotFound` rather than as a
+   lapsed session.*
 3. **Both SSO config forms**, read from a real `~/.aws/config`. The fixtures cover the legacy
    and `sso-session` forms and the bare `[default]` section; what they cannot cover is a
    real-world file with `[services]` blocks, `credential_process` profiles and nested
-   includes.
+   includes. *Settled 2026-09-29 for the `sso-session` form, which the service read from the
+   maintainer's real config. The legacy form is not.*
 4. **The narrowing, demonstrated rather than asserted** — done-condition 5, which needs an
    `aws s3 ls` denied from inside a jail holding an N2 credential. ⚠ Not
    `sts:GetCallerIdentity`, for the reason
-   [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies) states.
-5. Everything step 5 already owed a real rootless host.
+   [§8](sso-backed-bedrock.md#8-behaviour-this-design-specifies) states. *Settled 2026-09-29 for the
+   role arm the try-out runs (N3: `AssumeRole`, no session policy): from a jail on the channel,
+   S3 `ListBuckets` (what `aws s3 ls` calls) and EC2 `DescribeInstances` were refused while
+   Bedrock answered ([the verdicts](sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it)).
+   An N2 credential has not been shown denied.*
+5. Everything step 5 already owed a real rootless host. *Half settled: done-condition 1 is met,
+   done-condition 4 is not.*
 6. **The transport, end to end, over a REAL host-loopback hop.** *Settled in CI 2026-09-25 with a
-   fake `aws`: rootless podman, both arches (`ci.yml` run 36167524940). A live login over the
-   same hop is still item 1's.* A nested jail proved the
+   fake `aws`: rootless podman, both arches (`ci.yml` run 36167524940). Settled with a live login
+   2026-09-29, on the maintainer's rootless host, where the launcher reported
+   `YOLO_HOST_LOOPBACK=requested`.* A nested jail proved the
    wiring — the manifest spawns, the daemon binds, the front publishes, the supervisor starts
    the adapter and a `curl` inside the jail gets a body — with a FAKE `aws` on the launcher's
    PATH, because no real SSO login exists in a jail. What it cannot prove is the hop itself:
@@ -531,7 +564,8 @@ repo can stand in for:
   `TestOpenAIAuthAssemblyPreparesOnlySafeStateMount`, and `TestNoBrokerTokenEnvEmitted`'s shape:
   no `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` or
   `AWS_BEARER_TOKEN_BEDROCK` in the assembled argv, the settings file, or the render sidecar.
-- **Integration** `integration/awsauth_test.go` — **WRITTEN 2026-09-25, not yet run.**
+- **Integration** `integration/awsauth_test.go` — **WRITTEN 2026-09-25, and passed in CI the
+  same day** ([Progress](#progress)).
   `packHome` writes the isolated user config (`packs: ["claude", "aws-auth"]`,
   `use_profiles: {"claude": "bedrock"}`, and `loopholes.aws-auth` enabled with
   `profile` and `unnarrowed` settings). `macArchivePrivateState` gives the launch a private
@@ -562,7 +596,8 @@ repo can stand in for:
   option A refused in prose, R6, R7, and that the request shape is
   [`boundary-broker.md`](boundary-broker.md)'s ([`OQ-SSO6`](sso-backed-bedrock.md#13-decision-ledger)).
 - **Verification environment:** the image bakes no `aws` CLI, so done-condition 5 (`aws s3 ls`
-  denied from inside the jail) needs `packages: ["awscli2"]` in the verification workspace.
+  denied from inside the jail) needs `packages: ["awscli2"]` in the verification workspace, or `uvx --from awscli aws`,
+  which is how it was run on 2026-09-29.
 - **Norms:** `just format` per commit; `just check-ci` once before landing (there is no pre-commit hook);
   `uvx vantage-check` on every doc touched.
 

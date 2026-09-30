@@ -20,16 +20,25 @@ covers:
   - internal/openauthclient/
   - internal/openaiauthadapter/
   - internal/macosuser/seatbelt.go
+  - internal/awsauth/
+  - internal/awsauthdaemon/
+  - internal/awscredadapter/
+  - internal/packdecl/envoverride.go
+  - internal/packload/envoverride.go
   - packs/claude/loopholes/claude-oauth-broker/
   - packs/openai-auth/
-tags: [credentials, security, boundary, env_sources, host_files, broker, oauth]
+  - packs/aws-auth/
+tags: [credentials, security, boundary, env_sources, host_files, broker, oauth, aws, bedrock, sso]
 ---
 
 # Agent credentials — what crosses the jail boundary, and how
 
 **Status:** CURRENT as of 2026-09-20, verified against `bd0e4142`. The
 [gemini-paths paragraph](#agys-paths-under-gemini) alone was re-checked against `9990882a` on
-2026-09-27; nothing else in the doc was.
+2026-09-27. The [SSO-backed Bedrock section](#sso-backed-bedrock-credentials-aws-auth) and the
+`aws-auth` rows in the tables below were written against `fe24347c` on 2026-09-29, when
+[`sso-backed-bedrock.md`](../design/sso-backed-bedrock.md) graduated into them. Nothing else in
+the doc was re-checked.
 
 yolo-jail's credential story is **structural, not a policy one**: host credentials are
 *physically absent* from the jail, and the only credentials an agent can reach are ones a human
@@ -48,6 +57,8 @@ enumeration of those channels and of what each one does and does not carry.
 | Git identity — the two-key allowlist | `internal/cli/run` (`composeGitconfig`), `internal/entrypoint` (`identity.go`) |
 | The Claude OAuth broker daemon and its flock | `internal/broker`, `internal/oauthbroker` (`RefreshLockPath`) |
 | The OpenAI credential service and agent views | `internal/openaiauth`, `internal/openaiauthdaemon`, `internal/openauthclient`, `internal/openaiauthadapter` |
+| The AWS credential service and its jail adapter | `internal/awsauth` (mint, cache, lock, narrowing), `internal/awsauthdaemon`, `internal/awscredadapter`; the pack is `packs/aws-auth` |
+| The pack-declared override rule the AWS pointer uses | `internal/packdecl` (`EnvOverride`), `internal/packload` (`EnvOverrideFindings`) |
 | The shared-credentials symlink | `internal/entrypoint` (`linkThroughShared`, applied through the `shared_credentials` hook) |
 | The jail-facing hop for a host daemon | `internal/svcendpoint` (`ServeFrontWithOptions`) |
 | The `macos-user` Seatbelt profile | `internal/macosuser` (`seatbelt.go`) |
@@ -530,6 +541,204 @@ in that home is stopped once, when no other launch of it is live
 > reaching it, and the agent pack dependency alone creates no second credential path. See
 > [the backend table](#per-backend-differences) for what each backend actually delivers.
 
+### SSO-backed Bedrock credentials (`aws-auth`)
+
+The `aws-auth` pack turns a human's `aws sso login` on the host into Bedrock access inside a
+jail, without the jail holding the SSO session or anything else the login can reach. A host
+service, one per machine, mints a short-lived AWS credential from the live session and
+**narrows** it, which here means making it smaller than what the login can do, before it leaves
+the host. An adapter inside the jail hands that credential to the agent's AWS SDK when the SDK
+asks. What crosses the boundary is a **pointer**, a URL naming the adapter, and the credential
+is fetched behind it at use time. That is what lets a re-login on the host reach a jail that is
+already running: nothing in the jail was fixed at launch, so nothing needs a relaunch. This
+section states the behavior; the reasoning behind each rule is in
+[the design's decision ledger](../design/sso-backed-bedrock.md#13-decision-ledger).
+
+The pointer speaks the **container-credentials protocol**, the AWS SDKs' own way for a
+container to get credentials, built for ECS task roles. The SDK sends one HTTP `GET` to the URL
+in `AWS_CONTAINER_CREDENTIALS_FULL_URI`, with the value of `AWS_CONTAINER_AUTHORIZATION_TOKEN`
+as its `Authorization` header, and reads back a JSON body of four strings: an access key id, a
+secret, a session token and an expiry. It accepts plain `http` only to a loopback address, or to
+ECS's own link-local ones. Every AWS SDK the shipped agents carry implements it, so no agent
+needs code of its own, and the wire bridge's SigV4 signer reads the same pointer
+([`wire-bridge-gateway.md` OQ-BR10](../design/wire-bridge-gateway.md#OQ-BR10)).
+
+#### What a user configures
+
+Everything goes in the **user** config. Each setting is declared `scope: "user"` and a
+workspace value is refused, because a workspace `yolo-jail.jsonc` is a file the jail's own agent
+can rewrite. A user enables the loophole, which ships off, and gives it a profile and a
+narrowing:
+
+- `profile` is the host AWS profile the service resolves: the one `aws sso login --profile`
+  logs in.
+- `role_arn` is a role the service assumes before serving, optionally with `session_policy`,
+  an inline IAM policy attached to that `AssumeRole`.
+- `unnarrowed: true` serves the profile's permission set as it is. It is the one setting that
+  widens, and it is a bool so that no misspelling can grant.
+
+Then an agent selects the `bedrock` profile: `yolo -p bedrock -- claude`, or
+`-p <agent>=bedrock` for another agent. `packs/claude` `needs` `aws-auth`, so selecting claude
+selects this pack, and selected but unconfigured it changes nothing. The worked config block is
+in [the pack README](../../packs/aws-auth/README.md#enabling-it).
+
+The service **refuses to start**, naming the key to write, in six cases:
+
+- no `profile` is set;
+- neither `role_arn` nor `unnarrowed` is set, because absence never means un-narrowed;
+- `session_policy` is set without `role_arn`: an inline policy is an argument to `AssumeRole`,
+  so there is nothing to attach it to;
+- `unnarrowed` is set beside `role_arn`: choosing either would silently discard the other;
+- `session_policy` is not a JSON policy document;
+- the host cannot run the `aws` CLI. The manifest has no `requires.command_on_path` probe for
+  it, for the reason [the Claude broker's section](#the-claude-oauth-broker) gives: a loophole
+  whose program is missing fails loudly at spawn rather than disappearing.
+
+#### What crosses into the jail
+
+- **The pointer and the caller token**, exported only in the env file of each agent whose
+  selected profile is `bedrock`, and in no other process's environment, a bare shell's included
+  ([`OQ-CN7`](../design/provider-credential-scope.md#OQ-CN7)). The **caller token** is a secret
+  the launcher mints for each launch, and the adapter answers `401` to a request that does not
+  carry it. It exists because the loopback is not always the jail's own: a jail on
+  `network.mode: "host"` puts the adapter's port on the host's loopback, and a nested jail
+  shares its parent's
+  ([notch convergence §2.3](../plans/notch-convergence.md#23-the-fix-every-service-authenticates-its-caller-at-every-notch)).
+- **The region**, from the Bedrock provider entry, as for any Bedrock profile. The credential
+  service never supplies one, and the protocol has no field for it.
+- **The endpoint file** for the adapter's own hop to the host, mode `0600`, as for
+  [every host-service loophole](#host-service-loopholes).
+
+Nothing else crosses: no access key, secret or session token in any file or variable, no SSO
+access or refresh token, no `~/.aws`, and not the service's minted-credential cache, whose state
+directory crosses only an inert marker file.
+
+The adapter starts only on a launch where some agent's profile is `bedrock`, and the pointer
+crosses only where the adapter runs. `yolo host` runs no jail daemon, so it leaves the pointer
+out and says so. The adapter holds nothing across a request: it checks the caller token,
+forwards through the authenticated front to the host service, and passes the answer back. The
+host service answers from its cache. It mints ahead of need and re-mints well before expiry,
+because the SDK gives each fetch about a second, and the SDK re-fetches shortly before expiry on
+its own, so the credential's short life is invisible to the agent.
+
+> [!WARNING]
+> **Inside the jail the caller token is not a boundary.** It sits in the selecting agent's env
+> file, which any process running as the jail's user can read, and anything that reads it can
+> `GET` the same credential. So the narrowing is the only defense inside the jail, which is why
+> the service will not start without one.
+
+#### The narrowing
+
+The service serves one of three arms, chosen by the settings:
+
+| Settings | What the service does | What the jail's credential can do |
+| :--- | :--- | :--- |
+| `role_arn` | `AssumeRole` from the SSO session, with no additional session policy | what that role's own policy allows |
+| `role_arn` and `session_policy` | the same `AssumeRole`, with the inline policy attached | the intersection of the role's policy and the session policy, which can narrow inside Bedrock to named actions |
+| `unnarrowed: true` | no `AssumeRole`: the profile's own credentials, as the `aws` CLI resolves them | whatever the profile's permission set grants |
+
+An SSO session is already a role session, so both `AssumeRole` arms are **role chaining**, and
+STS caps a chained session at one hour whatever the role's own maximum says. The re-minting
+above makes that cap cost nothing. The cache is keyed by profile, so one service serves several
+AWS identities. Each entry records the arm that minted it, so an entry minted under a different
+narrowing is a miss rather than a wider credential served.
+
+**An un-narrowed service is disclosed at every launch.** The `unnarrowed` setting declares a
+`disclose` sentence, and the launch prints it on stderr as `loophole aws-auth: …` whenever the
+resolved value is true. The launch prints any bool setting's `disclose` sentence the same way,
+and knows no loophole's name. The service also prints its own disclosure when it starts, and its
+self-check, which `yolo check` runs, reports it as a `NOTE` rather than a pass. No flag hides the
+launch line ([`OQ-RO3`](report-tiers.md#why-its-this-way)).
+
+#### What refuses the launch, and what only warns
+
+Three things delivered beside the pointer make an AWS SDK ignore it while every turn still
+succeeds, because the SDK's credential chain reads them first. The pack declares all three under
+`overridden_by` on the pointer's `env` contribution, and core evaluates the declaration for any
+pack without naming an AWS variable (`packload.EnvOverrideFindings`; the schema is
+`internal/packdecl`'s `EnvOverride`).
+
+| Delivered beside the pointer | Result | Why |
+| :--- | :--- | :--- |
+| `AWS_BEARER_TOKEN_BEDROCK` | **refused** | every client measured prefers the bearer to the credential chain |
+| both `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, unless `AWS_PROFILE` is also delivered | **refused** | the chain's environment provider answers before the container-credentials provider in claude, codex, opencode and pi |
+| a `host_files` entry that renders anything under `~/.aws` | **warning** | it overrides the pointer only when it holds credentials for the profile the SDK resolves, and a path cannot say whether it does |
+
+A refusal stops a fresh launch before the jail starts, and an attach before it rewrites the
+running jail's environment file. It names both sides and says to drop one. There is no escape
+hatch, because proceeding would be proceeding into the wrong credential. The warning prints on
+every such launch, cannot be switched off, and lets the launch continue. `yolo check` predicts
+all three, as two FAILs and a WARN.
+
+The rule counts only what reaches the jail:
+
+- The declaration is evaluated only while the pointer is delivered, which takes an agent on the
+  `bedrock` profile.
+- A variable counts when it is delivered into the jail, through `env_sources` or a pack. One
+  exported only in the shell `yolo` was run from does not count, since no backend forwards that
+  shell.
+- A directory grant counts only on a backend that delivers directories.
+- One half of the key pair alone is not refused, since it answers nothing. The pair beside
+  `AWS_PROFILE` is let through because the JavaScript SDKs then skip the environment provider.
+  codex's does not, so for codex that combination is a false negative, which the ruling accepts
+  rather than risk a false positive.
+
+#### When the SSO session lapses
+
+The service never runs a login, because starting a session is a browser flow and belongs to the
+human. Inside a live session it keeps the SSO access token fresh the way every AWS client on the
+machine does, by shelling out to `aws configure export-credentials`, and it re-reads the host's
+SSO cache on every mint. So a lapse runs like this:
+
+1. The portal session ends. A credential already served keeps working until its own expiry, so
+   the lapse is felt up to an hour late.
+2. The next mint fails, and the agent's next fetch gets a `4xx` whose message names
+   `aws sso login --profile <profile>` verbatim. Every failure the adapter returns is a `4xx`,
+   a transport fault included, because a `4xx` is the one class whose message the SDK puts on
+   the error it raises. That turn fails.
+3. The human runs that login on the host. The next fetch succeeds, in the jail that is already
+   running, with no relaunch.
+
+The launch does not check for a live session. A missing or lapsed session, or a profile the
+host's `~/.aws/config` does not have, shows in the service's log, in `yolo check`'s self-check,
+and in the agent's first fetch.
+
+The SSO config form sets how often a human acts, not how long a jail lasts. A profile in the
+`sso-session` token-provider form refreshes its own access token, so a login is needed only when
+the portal session ends. The legacy profile-only form has no refresh token, so it needs a login
+each time its fixed session ends. Both are served, and the service names the form it resolved
+when it starts and in its self-check.
+
+#### Where it runs
+
+On podman, as described above. On `macos-user`, whose sandboxed agent shares the Mac's
+loopback, the launch opens the adapter outside the Seatbelt sandbox, as a listener it owns on a
+port it picks, which the pointer names
+([`host-notch-services.md` HS-D15](../design/host-notch-services.md#HS-D15)). Apple Container
+starts no host service but the OpenAI one, so none of this runs there.
+[The backend table](#per-backend-differences) has the row.
+
+#### What has been watched running
+
+**MEASURED on 2026-09-29**, on a Linux host with rootless podman, where the launcher reported
+`YOLO_HOST_LOOPBACK=requested`. The service is in daily use across many of the maintainer's
+jails, serving the maintainer's own SSO profile, narrowed to a Bedrock-only role. Its log shows
+the `sso-session` form and every credential minted with `AssumeRole` and no additional session
+policy, which is the first arm above. The host's crossings log shows hundreds of accepted
+crossings from about a dozen jails. Inside one of those jails, claude ran in Bedrock mode. Its
+environment carried the pointer, the caller token and the region, and no AWS key, session token
+or bearer, and `~/.aws` did not exist. A `GET` with the caller token returned the four keys,
+expiring within the hour, in a few milliseconds, which is a cache read. Without the token it
+returned `401`. From the same jail, with the served credential, S3 `ListBuckets` was refused
+`AccessDenied` and EC2 `DescribeInstances` returned HTTP 403 `UnauthorizedOperation`, both naming
+the assumed Bedrock-only role, while Bedrock's `ListFoundationModels` succeeded. CI also runs the transport over a real loopback hop, on rootless podman on both
+architectures, with a fake `aws` (`integration/awsauth_test.go`).
+
+**UNMEASURED:** a running jail picking up a re-login after the portal session ends (no session
+ended during the observation); the lapse message produced by a real expiry; the legacy SSO form; the session-policy and un-narrowed arms
+against a live login; codex, opencode and pi on this channel; and `macos-user`, which has not run
+on a Mac.
+
 ### Git-identity composition
 
 Git identity is a **two-key allowlist** — `user.name` and `user.email`, plus an in-jail
@@ -558,8 +767,11 @@ port. A service declared directly in the workspace config still gets a `<name>.s
 `YOLO_SERVICE_<NAME>_SOCKET`, because its daemon is a program yolo did not write.
 
 Either way **the agent calls the service and never sees the raw credential.** That is the
-sanctioned way to give a jail scoped access to a credential without handing it over. The wire
-format and the reachability requirements are [`loophole-transport.md`](loophole-transport.md)'s.
+sanctioned way to give a jail scoped access to a credential without handing it over. The one
+deliberate exception is [`aws-auth`](#sso-backed-bedrock-credentials-aws-auth): its agent does
+hold an AWS credential, but only a short-lived, narrowed one fetched on demand, while the SSO
+session it is minted from stays on the host. The wire format and the reachability requirements
+are [`loophole-transport.md`](loophole-transport.md)'s.
 
 ## Where each agent's credentials live
 
@@ -632,6 +844,7 @@ fully open.
 | Claude shared credentials | shared bind + relative symlink | shared bind **nested inside** the whole-home bind, then the same relative symlink — one mount per declared shared dir (2026-08-24; before that the single bind put the creds in the per-workspace home) | free — one real credentials file in the shared home |
 | claude-oauth-broker | active when the `claude` pack is selected | **skipped whole** — no singleton is ensured on this backend, the host-service start admits only the OpenAI service, and the container args drop the loophole for its `intercepts` (which need `--add-host`) | **host half runs, jail half does not.** ⚠ This cell said "the arm returns before any broker ensure", which stopped being true when the arm's lifecycle was generalised: the singleton is ensured and a per-jail front publishes `claude-oauth-broker.endpoint` (measured, unit, 2026-09-18). Nothing uses it — the TLS terminator that would route a refresh through it is a `jail_daemon`, this backend runs none, and the interception would need an `--add-host` it cannot emit either. So refreshes are still not serialized, and the launch now declines the terminator by name |
 | OpenAI subscription credentials | canonical host-service state; Codex and Pi get workspace views | the **one** service this backend starts, endpoint file mounted — and measured unreachable from the guest, so the agent sees "OpenAI login is required" ([G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog)). The launch **names the cause** as of 2026-09-18: this was the one pack the inert report was withheld for, so the single service this backend starts was the single one it said nothing about. The endpoint variable and the mount are still emitted — the measurement is per BACKEND, so withholding one service's pointer would patch a per-service hole in a per-backend fact | host daemon started like every other, and a launch that cannot start it is the one that is **refused**; the endpoint path rides the sandbox env instead of a mount. Its jail-side refresh adapter does **not** run, so a session works until its first token refresh |
+| AWS SSO credentials (`aws-auth`) | host singleton; adapter in the jail; pointer and caller token in the env file of the agent on `bedrock`. MEASURED, in daily use (2026-09-29) | not started: this backend starts no host service but the OpenAI one | host singleton; the adapter opens outside the Seatbelt sandbox as a listener the launch owns, on the Mac's loopback the agent shares, and the pointer names its port. UNMEASURED: not run on a Mac |
 | Host-service loopholes | endpoint file + `YOLO_SERVICE_*_ENDPOINT` | only the OpenAI credential service starts; its endpoint file crosses in the host-services dir bind, gated on the loophole being active and its pack cleared to run host code. Every other pack host daemon is skipped and each one is reported inert | **every host daemon starts**, through the same spawn boundary and the same exec disclosure the container path uses; each endpoint's path rides the sandbox env with a per-file ACL grant instead of a mount. ⚠ "the same one service and nothing else" is retracted (2026-09-18) — it described the arm before the generalisation. The inert report here is the PLATFORM axis only. The `jail_daemon` half runs for nothing and is declined by name |
 | Per-workspace cred isolation | per-workspace `.yolo/home` overlay | one whole-home bind per workspace, but the claude dir is shared across workspaces there | **one shared home for all sessions** |
 | Isolation boundary | userns (Linux) / VM (macOS) + read-only root | VM + read-only root | Unix user + Seatbelt — weaker, deliberately |
@@ -675,8 +888,9 @@ The sharper question than "what can a live session reach."
   jail. The one cloud integration it ships is the opt-in [`aws-auth`](../../packs/aws-auth/README.md)
   pack, off until you enable it in your user config: a host-side service turns your host
   `aws sso login` into a short-lived AWS credential, narrowed to a role or session policy you
-  configure, and serves it to the jail's AWS SDKs over a loopback URL. The SSO session and
-  `~/.aws` stay on the host. For anything else, such as another cloud or a static key, a
+  configure, and serves it to the jail's AWS SDKs over a loopback URL
+  ([how](#sso-backed-bedrock-credentials-aws-auth)). The SSO session and `~/.aws` stay on the
+  host. For anything else, such as another cloud or a static key, a
   jail-local key arriving through `env_sources` is the whole mechanism, and its blast radius is
   whatever that key is scoped to.
 - **Not a promise that a raw secret stays out of the agent's process.** A host-service loophole
@@ -695,6 +909,12 @@ Rulings a future change would otherwise undo, kept with their original IDs.
 | **P1 (broker)** — concurrent consumers must be serialized by a host-wide flock | Anthropic mints single-use refresh tokens. This is a property of the upstream service, not of yolo's architecture, so no refactor retires it. |
 | **`env_sources` over the settings `env` block, as shipped** | The `env` block is the right long-term target — it is the one channel that renders at *both* the jail and host notches — but nothing shipped uses it for a secret today, and a doc that said otherwise was measured wrong against a live jail. State the mechanism that runs. |
 | **MCP `${VAR}` is passed through verbatim** | An interpolated secret entered the file without passing through any provenance layer, and sourced config content from process env at render time. Resolution one step later, by the consumer, loses nothing. |
+| **[OQ-SSO1](../design/sso-backed-bedrock.md#13-decision-ledger), [OQ-SSO10](../design/sso-backed-bedrock.md#OQ-SSO10)**: `aws-auth` requires a narrowing, serves un-narrowed only when asked by name, and discloses that at every launch through a declared `disclose` sentence | Any process in the jail can read the served credential, so the narrowing is the only defense there. A default that widened could not be tightened later without breaking working setups. The service is a singleton, so its own spawn line prints once and then serves every later launch in silence; and a launch that tested the loophole's name would be a switch on a tool name in the one loop that renders every pack. |
+| **[OQ-SSO2](../design/sso-backed-bedrock.md#13-decision-ledger)**: one `aws-auth` service per machine, its cache keyed by profile | The mint is the slow step and a fetch has about a second, so a warm shared cache is what keeps fetches inside the budget. Keying by profile keeps a distinct AWS identity per jail without a second daemon. |
+| **[OQ-SSO4](../design/sso-backed-bedrock.md#13-decision-ledger)**: the profile, role and session policy are user-scope settings only | The workspace config is writable from inside the jail, so a workspace value would let the agent choose its own profile or swap the narrowing for one of its own. |
+| **[OQ-SSO3](../design/sso-backed-bedrock.md#13-decision-ledger), [OQ-SSO6](../design/sso-backed-bedrock.md#13-decision-ledger)**: the service refreshes inside a live session and never runs a login; a lapsed session is a message, not a request | Refreshing is what every AWS client on the machine already does against the same cache. Starting a session is a browser flow and the human's. A jail able to trigger a host login would be half an approval mechanism, which belongs to [`boundary-broker.md`](../design/boundary-broker.md) rather than to a credential pack. |
+| **[OQ-SSO8](../design/sso-backed-bedrock.md#OQ-SSO8)**: the override rule is declared by the pack, fatal only when the override is certain, and never a false positive | Core names no AWS variable, so the next pack with the same shape needs no core change. A certain override is a silent wrong answer, so it refuses with no hatch. A possible one is only a warning, because refusing a working jail is worse than a false negative. |
+| **[OQ-SSO9](../design/sso-backed-bedrock.md#OQ-SSO9)**: yolo mints no Bedrock API key | A bearer minted from the narrowed, role-chained session would die within an hour of launch, and every shipped agent reaches Bedrock with a chain credential, natively or through the signing wire bridge. A user who wants a bearer mints it on the host and delivers it through `env_sources`. |
 
 ## Current values
 
@@ -728,8 +948,14 @@ $ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
 | OpenAI credential daemon | `yolo internal daemon openai-auth-broker`, `scope: "host"` | `internal/openaiauthdaemon`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
 | OpenAI jail endpoint | `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT` | `internal/openauthclient` |
 | AWS credential daemon | `yolo internal daemon aws-auth`, `scope: "host"` | `internal/awsauthdaemon`; `packs/aws-auth/loopholes/aws-auth/manifest.jsonc` |
+| AWS settings keys | `loopholes.aws-auth.settings.profile`, `.role_arn`, `.session_policy` (strings) and `.unnarrowed` (bool, default `false`), every one `scope: "user"`; the loophole ships `default_enabled: false` | `packs/aws-auth/loopholes/aws-auth/manifest.jsonc`; `internal/awsauth` (`settings.go`) |
+| AWS pointer | `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://{listen}/credentials` and `AWS_CONTAINER_AUTHORIZATION_TOKEN={caller_token}`, gated on the `bedrock` profile, `served_by: "aws-auth"` | `packs/aws-auth/pack.json` |
+| AWS mint timing | re-mint below **10 min** of remaining life (twice the SDK's five-minute window), a pre-mint tick at half that; `AssumeRole` asks **3600 s**, the role-chaining ceiling, as session name `yolo-jail` | `internal/awsauth` (`RemintLead`, `Broker.TickInterval`, `MintDuration`, `SessionName`) |
+| AWS lapse answer | a `4xx` with `Code: ExpiredToken` and a message naming `aws sso login --profile <profile>`; a profile missing from `~/.aws/config` answers `ProfileNotFound` instead | `internal/awsauth` (`loginRequired`, `mint.go`) |
+| AWS caller refusal | `401`, `Code: CallerUnauthenticated` | `internal/awscredadapter` (`handler.go`) |
+| AWS service log | `~/.local/share/yolo-jail/logs/host-service-aws-auth.log` on the host: the profile, the narrowing and the SSO form at start, then each failed pre-mint | `internal/awsauthdaemon` (`reportStartup`, `runProactive`) |
 | AWS canonical state | `<loophole state>/credentials.json`, mode `0600` in a `0700` directory | `internal/awsauth` (`state.go`) |
-| AWS jail endpoint | `YOLO_SERVICE_AWS_AUTH_ENDPOINT`, read by the in-jail adapter, which listens on `127.0.0.1:1461` (its `jail_daemon.listen`), or on a port the launch picked when the jail shares its launcher's network namespace. Emitted by any launch where the loophole is active and its pack may run host code, like every other `scope: "host"` loophole's — `hostServicesMountArgs` derives the set from the manifests rather than naming services one by one, which it did until 2026-09-20 (two names, and this one was the third, so the adapter answered `ServiceUnreachable` for every request while the launch reported a healthy jail). ⚠ Not on Apple Container, which starts no host service but the OpenAI one | `internal/awscredadapter` (`EndpointEnv`); `internal/cli/run/assemble_parts.go` |
+| AWS jail endpoint | `YOLO_SERVICE_AWS_AUTH_ENDPOINT`, read by the in-jail adapter, which listens on `127.0.0.1:1461` (its `jail_daemon.listen`), or on a port the launch picked when the jail shares its launcher's network namespace. Emitted by any launch where the loophole is active and its pack may run host code, like every other `scope: "host"` loophole's — `hostServicesMountArgs` derives the set from the manifests rather than naming services one by one, which it did until 2026-09-20 (two names, and this one was the third, so the adapter answered `ServiceUnreachable` for every request while the launch reported a healthy jail). On `macos-user` the launch runs the adapter outside the sandbox instead, through `jail_daemon.host_cmd`. ⚠ Not on Apple Container, which starts no host service but the OpenAI one | `internal/awscredadapter` (`EndpointEnv`); `internal/cli/run/assemble_parts.go` |
 | Codex refresh adapter | `http://{listen}/oauth/token`: `127.0.0.1:1460` on a jail with its own network namespace, a port the launch picked on one sharing its launcher's (`network.mode: "host"`, or nested) | `internal/openaiauthadapter`; the pointer in `packs/codex/pack.json`, the port as `jail_daemon.listen` in `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
 | Git identity keys carried | `user.name`, `user.email`, plus an in-jail `core.excludesFile` | `internal/cli/run` (`composeGitconfig`), `internal/entrypoint/identity.go` |
 | `macos-user` identity replay vars | `YOLO_GIT_NAME`, `YOLO_GIT_EMAIL` only — `YOLO_GLOBAL_GITIGNORE` is read by the entrypoint and **set by nothing**, so the global gitignore does not replay on this backend | `internal/macosuser` (`MacosSandboxEnv`), `internal/entrypoint/identity.go` |
