@@ -412,6 +412,15 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 	if probs := packload.AgentAudienceProblems(loaded); len(probs) > 0 {
 		return nil, nil, fmt.Errorf("packs: %s", strings.Join(probs, "\npacks: "))
 	}
+	// A `supersedes` claim that matches no capability any loophole of this set serves
+	// (refuseUnmatchedSupersessions; docs/design/reference-mismatch-diagnostics.md §7 step 4).
+	// FATAL for the reason the audience check above is: a claim that retires nothing is
+	// indistinguishable from one that worked. And BEFORE the ninth, deliberately: checkViaRoutes
+	// composes the jail-daemon payload through NewHostSet, whose discovery warns this same
+	// sentence to stderr, so a later refusal would print the finding twice.
+	if err := o.refuseUnmatchedSupersessions(loaded); err != nil {
+		return nil, nil, err
+	}
 	// THE NINTH: a via profile its service will serve no route for (checkViaRoutes). After
 	// the closure, because the via's service pack is what makes the agent's via URL real.
 	if err := o.checkViaRoutes(loaded); err != nil {

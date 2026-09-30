@@ -178,10 +178,10 @@ func (r *reporter) hostFact(msg, whereToCheck string) {
 // `check` never reaches that emission site, because its loopholes section walks
 // through ValidateSet, which deliberately bypasses Discover (ValidateLoopholes' doc
 // comment says why). So that half is graded in the loopholes section instead
-// (checkLoopholes, from Set.SupersessionProblems), onto r.warn directly rather than
+// (checkLoopholes, from Set.SupersessionProblems), onto r.fail directly rather than
 // through here: it is a finding about the resolved loophole set, not a config
-// loader's. Relocating the MATCH to the launch path, where it could refuse, is §7
-// step 4, which needs OQ-RM2 ruled first.
+// loader's, and since §7 step 4 the launch REFUSES it, so check's row is the
+// prediction of that refusal (RM-D1) rather than a warning.
 //
 // GRADING DOES NOT CHANGE THE EXIT CODE. Check() returns 1 on r.failed alone (its
 // three gates at check.go), and r.warned is read only by summaryFailWarn and

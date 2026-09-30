@@ -428,6 +428,15 @@ waiting for the jail to finish shutting down, Ctrl-C ends the wait, cleans up af
 closing the window does, and exits with status 130. While your agent runs, Ctrl-C still goes to
 the agent.
 
+**A pack whose `supersedes` names a capability no loophole serves now stops the launch.** Such a
+claim turns nothing off, so the loophole it was meant to retire kept running, and the launch only
+printed a warning. The launch now refuses with the same sentence, which names the capability, the
+closest one a loophole does serve and every capability served here, and says to fix the claim or
+remove the pack. `yolo check` fails that row instead of warning about it. When the `yolo` you ran
+is older than the source tree it builds from, the refusal says so and names `just install`.
+`yolo loopholes list` and `yolo loopholes status` still only warn, so they keep working while you
+fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabilities-and-supersession).
+
 ### Fixed
 
 - An agent's own install script can no longer stop and wait for an answer: in a jail, on its first

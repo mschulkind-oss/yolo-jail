@@ -71,11 +71,20 @@ func (o *Options) checkLoopholes(r *reporter) {
 	// BEFORE the "no loopholes installed" return, because a claim on a machine that serves
 	// no capability at all is the case where it most certainly did nothing.
 	//
-	// A [WARN], never a [FAIL]: an unmatched claim leaves every loophole running, which is
-	// the status quo, and whether `check` should refuse a reference it had to resolve is
-	// OQ-RM1, unruled. Grading does not touch the exit code (see configWarn).
-	for _, problem := range set.SupersessionProblems() {
-		r.warn("pack supersession matched no served capability", problem)
+	// A [FAIL], so `check` exits non-zero: the launch REFUSES an unmatched claim
+	// (run.refuseUnmatchedSupersessions, §7 step 4), and a preflight predicts the launch's
+	// disposition (RM-D1, which decided OQ-RM1). It was a [WARN] while the launch only warned.
+	// The prediction reads the launch's own gate, not a copy: ValidateSet and the launch's
+	// SupersessionProblemsFor are one construction (validateSetOf) over two inputs, the
+	// recorded packs here and the staged ones there. The note carries what the refusal
+	// carries under the sentence — the remedy and, only when version.SourceSkew proves it,
+	// the skew clause (RM-D2) — computed once and only when a claim failed to match.
+	if problems := set.SupersessionProblems(); len(problems) > 0 {
+		fix := "The launch refuses this. " + strings.Join(
+			loopholes.UnmatchedSupersessionFix(o.skewRepoRoot()), "\n")
+		for _, problem := range problems {
+			r.fail("pack supersession matched no served capability", problem+"\n"+fix)
+		}
 	}
 	if len(entries) == 0 {
 		r.ok(fmt.Sprintf("No loopholes installed (install one as a pack; %s is "+
@@ -695,6 +704,20 @@ const hostSideProbeCaveat = "the probes above are HOST-SIDE: they dial 127.0.0.1
 	"where these daemons bind, so a green means the daemon answers — never that a JAIL " +
 	"can reach it. Only the in-jail probe that runs at jail startup can say that " +
 	"(docs/reference/loopback-tls-reachability.md §7)."
+
+// skewRepoRoot is the repo root the supersession row's skew clause compares against: the one
+// the launch would resolve, or "" when none resolves, which version.SourceSkew answers with no
+// skew. Asked only once a claim has failed to match.
+func (o *Options) skewRepoRoot() string {
+	if o.RepoRoot == nil {
+		return ""
+	}
+	res, ok := o.RepoRoot()
+	if !ok {
+		return ""
+	}
+	return res.Root
+}
 
 // firstLine returns the first line of s, or "" when s is empty.
 func firstLine(s string) string {

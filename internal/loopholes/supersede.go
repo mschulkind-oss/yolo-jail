@@ -223,27 +223,30 @@ func applySupersessions(records []*Loophole, claims []PackSupersession) {
 // it names the unmatched string, suggests the nearest served one, and lists what IS
 // served — "superseded nothing" would be useless.
 //
-// REPORTED, NOT REFUSED, and this is a deliberate departure from §5's wording ("a
-// supersession matching no served capability is REFUSED AT LOAD"). §5's premise is
-// that "the namespace is closed by the loopholes present, so this is decidable" —
-// true of the SET, but the set is a fact about one machine at one moment, and a
-// refusal keyed on it is refusable by circumstance:
+// REFUSED AT THE LAUNCH, NOT AT LOAD, and reported everywhere else
+// (docs/design/reference-mismatch-diagnostics.md §7 step 4; OQ-RM2, answered by
+// docs/design/trust-paths.md's OQ-TP6: a refused claim refuses the launch). §5's
+// wording was "a supersession matching no served capability is REFUSED AT LOAD", on
+// the premise that "the namespace is closed by the loopholes present, so this is
+// decidable". That is true of the SET, and the set exists at one place only. So each
+// surface gets the disposition it can act on, and this function's sentences are the
+// same at all of them:
 //
-//   - the claim is decodable long before the loopholes are. `pack.json` is validated
-//     by `yolo pack lint` and by the in-jail entrypoint, neither of which has the
-//     bundled+pack+user+config loophole set in hand (and the entrypoint cannot get
-//     it: this package's whole cycle argument);
-//   - it is the `tier` incident's shape a fourth time. A pack superseding a
-//     capability served only by a NEWER bundled manifest would brick every jail on a
-//     pre-`just load` image — a manifest yolo SHIPS, with no route to recovery;
-//   - the failure direction of a warning is SAFE. An unmatched claim leaves the
-//     loophole running, which is the status quo. A refusal would take down `yolo
-//     loopholes list` — the very command a user runs to find out what happened — over
-//     a pack's typo.
-//
-// So the structural half of §5 IS refused at load, in packdecl, where it is
-// version-invariant (an empty `capability`, a missing `because`, a duplicate), and
-// the match half is reported here, loudly, with the fix in the sentence.
+//   - `yolo pack lint` and the in-jail entrypoint decode the claim long before the
+//     loopholes, and neither has the loophole set in hand (the entrypoint cannot get
+//     it: this package's whole cycle argument). The STRUCTURAL half is refused there,
+//     in packdecl, where it is version-invariant (an empty `capability`, a missing
+//     `because`, a duplicate). The match is not checked there at all.
+//   - The host LAUNCH holds the complete set, so it REFUSES the match
+//     (internal/cli/run's refuseUnmatchedSupersessions, through SupersessionProblemsFor),
+//     and `yolo check` grades it [FAIL] as the prediction of that refusal.
+//   - A newer pack's capability that an older yolo's packs do not serve — the `tier`
+//     incident's shape — is not an exemption but a MESSAGE: the refusal adds a skew
+//     clause naming `just install` whenever version.SourceSkew can prove the host yolo
+//     is older than its source (UnmatchedSupersessionFix).
+//   - `yolo loopholes list` and `status` only REPORT, through Discover's warning: a
+//     refusal there would take down the very commands a user runs to find out what
+//     happened, over a pack's typo.
 func unmatchedSupersessions(records []*Loophole, claims []PackSupersession) []string {
 	if len(claims) == 0 {
 		return nil

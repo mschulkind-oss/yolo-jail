@@ -1190,11 +1190,13 @@ func recordSupersessions(t *testing.T, claims ...loopholes.PackSupersession) {
 }
 
 // TestCheckLoopholesGradesAnUnmatchedSupersession is the LOOPHOLE HALF of
-// docs/design/reference-mismatch-diagnostics.md §7 step 1: a `supersedes` claim that
-// matches no served capability used to reach nobody from `yolo check`. The did-you-mean
-// was written to stderr by Discover's warnf, and this section never calls Discover — it
-// walks through ValidateSet — so the best mismatch diagnostic in the tree was neither
-// printed nor counted by the command a user runs to find out what is wrong.
+// docs/design/reference-mismatch-diagnostics.md §7 step 1, graded at step 4's severity: a
+// `supersedes` claim that matches no served capability used to reach nobody from `yolo
+// check`. The did-you-mean was written to stderr by Discover's warnf, and this section
+// never calls Discover — it walks through ValidateSet — so the best mismatch diagnostic in
+// the tree was neither printed nor counted by the command a user runs to find out what is
+// wrong. Since the launch refuses the claim (step 4), the row is a [FAIL], so `check` exits
+// non-zero on a config the next launch refuses (RM-D1).
 //
 // It asserts the COUNT as well as the words, because an ungraded line under a summary
 // that does not count it is the defect §3 measured. And it asserts that a claim which
@@ -1202,8 +1204,8 @@ func recordSupersessions(t *testing.T, claims ...loopholes.PackSupersession) {
 // supersedes correctly.
 //
 // ⚠ THE CALL SITE IS WHAT THIS PINS: Set.SupersessionProblems has had its own tests in
-// internal/loopholes since it was written, and no production caller. Delete the call in
-// checkLoopholes and this goes red; the callee's tests stay green.
+// internal/loopholes since it was written. Delete the call in checkLoopholes and this goes
+// red; the callee's tests stay green.
 func TestCheckLoopholesGradesAnUnmatchedSupersession(t *testing.T) {
 	moduleRoot := isolatedModuleDir(t)
 	writeLoopholeManifest(t, moduleRoot, "acme-broker",
@@ -1221,28 +1223,36 @@ func TestCheckLoopholesGradesAnUnmatchedSupersession(t *testing.T) {
 	r, out := runCheckLoopholes(t, t.TempDir())
 
 	for _, want := range []string{
-		"[WARN]",
-		"acme-oauth-refersh", // the unmatched string
-		"did you mean",       // the fix
-		"acme-bedrock",       // who claimed it
-		"keeps running",      // what actually happened
+		"[FAIL]",
+		"acme-oauth-refersh",       // the unmatched string
+		"did you mean",             // the fix
+		"acme-bedrock",             // who claimed it
+		"keeps running",            // what the set does with it
+		"The launch refuses this.", // what the next launch does with it
+		loopholes.UnmatchedSupersessionRemedy,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the unmatched supersession did not reach a graded row with %q:\n%s", want, out)
 		}
 	}
-	// Exactly one warning: the typo. The claim that matched did what its author meant, so
+	// Exactly one failure: the typo. The claim that matched did what its author meant, so
 	// it is not a mismatch and must not be reported as one.
-	if r.warned != 1 {
-		t.Errorf("warned=%d, want 1 (the unmatched claim only):\n%s", r.warned, out)
+	if r.failed != 1 {
+		t.Errorf("failed=%d, want 1 (the unmatched claim only):\n%s", r.failed, out)
 	}
 	if strings.Contains(out, "acme-pulse supersedes") || strings.Contains(out, "'acme-pulse' supersedes") {
 		t.Errorf("a supersession that MATCHED was reported as a problem:\n%s", out)
 	}
-	// Grading counts it; it refuses nothing (OQ-RM1 is unruled, and step 1 needed no ruling
-	// precisely because it does not touch the exit code).
-	if r.failed != 0 {
-		t.Errorf("failed=%d — an unmatched supersession is a [WARN], never a [FAIL]:\n%s", r.failed, out)
+	// A [FAIL], never a [WARN]: the launch refuses this claim, and a prediction of a refusal
+	// that exits 0 is the defect RM-D1 closes.
+	if r.warned != 0 {
+		t.Errorf("warned=%d — an unmatched supersession the launch refuses is a [FAIL], not a "+
+			"[WARN]:\n%s", r.warned, out)
+	}
+	// And no skew clause, because nothing here can prove skew: the clause is a finding, never
+	// a guess (RM-D2).
+	if strings.Contains(out, "older than the source tree") {
+		t.Errorf("the row names skew no comparison proved:\n%s", out)
 	}
 }
 
@@ -1257,10 +1267,10 @@ func TestCheckLoopholesGradesASupersessionWithNothingInstalled(t *testing.T) {
 
 	r, out := runCheckLoopholes(t, t.TempDir())
 
-	if r.warned != 1 || !strings.Contains(out, "acme-oauth-refresh") ||
+	if r.failed != 1 || !strings.Contains(out, "acme-oauth-refresh") ||
 		!strings.Contains(out, "declares `serves` at all") {
-		t.Errorf("a supersession on a machine with no loopholes was not graded (warned=%d):\n%s",
-			r.warned, out)
+		t.Errorf("a supersession on a machine with no loopholes was not graded (failed=%d):\n%s",
+			r.failed, out)
 	}
 }
 

@@ -626,9 +626,11 @@ func NewSet(opts DiscoverOptions) Set {
 // PURE: it recomputes from the records and the claims rather than caching what
 // Discover warned about, so a caller may ask more than once without a duplicate
 // line. Discover itself warns each problem to stderr as it applies the claims; this
-// is the value-shaped seam for a surface that wants to render them — `yolo check`'s
-// loophole section grades each one as a [WARN] row, because it walks through
-// ValidateSet and never reaches Discover's stderr line.
+// is the value-shaped seam for the two surfaces that ENFORCE them
+// (docs/design/reference-mismatch-diagnostics.md RM-D1): the launch refuses on it
+// (SupersessionProblemsFor, from its staged packs) and `yolo check`'s loophole section
+// grades each one as a [FAIL] row, both through validateSetOf, which never reaches
+// Discover's stderr line.
 func (s Set) SupersessionProblems() []string {
 	return unmatchedSupersessions(s.all, s.supersessions)
 }
@@ -787,10 +789,13 @@ func Discover(opts DiscoverOptions) []*Loophole {
 	// loophole still carries, and one a caller asking for the include-disabled view
 	// (`yolo loopholes list`) has to be able to see the consequence of.
 	//
-	// An unmatched claim is WARNED rather than refused; unmatchedSupersessions says at
-	// length why "refused at load" cannot hold for the match half. Warning here rather
-	// than at each consumer follows loadModuleDirs's precedent: discovery is the one place
-	// that knows a declaration did nothing.
+	// An unmatched claim is WARNED here and refused elsewhere. Discovery cannot refuse:
+	// it has no error channel, and it backs `yolo loopholes list` and `status`, the
+	// commands a user runs to find out what happened. The launch refuses the claim where
+	// its pack set becomes complete, before anything else discovers, and `yolo check`
+	// grades it [FAIL] (unmatchedSupersessions has the split). What is left here is the
+	// report for the surfaces that only describe the set, following loadModuleDirs's
+	// precedent: discovery is the one place that knows a declaration did nothing.
 	all := make([]*Loophole, 0, len(order)+len(inline))
 	for _, name := range order {
 		all = append(all, byName[name])
@@ -839,7 +844,12 @@ type ValidateEntry struct {
 // gate cannot be carried in the return value — a ValidateEntry is a manifest, not a set —
 // so callers that go on to EXECUTE a doctor_cmd must route through
 // SetOf(...).DoctorCandidates or ValidateSet below.
-func ValidateLoopholes() []ValidateEntry {
+func ValidateLoopholes() []ValidateEntry { return validateModules(PackModules()) }
+
+// validateModules is ValidateLoopholes over an explicit module list: the recorded one for
+// `yolo check`, and a launch's own staged one for the supersession gate the launch refuses
+// on (SupersessionProblemsFor), so the two walk with one loader.
+func validateModules(mods []PackModule) []ValidateEntry {
 	// Same reason Discover warns: this walker backs `yolo check`, which is the command
 	// a user runs when a loophole stopped working — precisely the symptom the retired
 	// directory now produces. `yolo check` also renders the notice through its own
@@ -860,7 +870,7 @@ func ValidateLoopholes() []ValidateEntry {
 	// the report/gate disagreement the whole subset was factored to avoid. A subset
 	// violation therefore lands in Err, where this function already puts a broken source —
 	// which is also the only surface that names it before the user launches.
-	for _, mod := range PackModules() {
+	for _, mod := range mods {
 		if fi, err := os.Stat(mod.Dir); err != nil || !fi.IsDir() {
 			out = append(out, ValidateEntry{Path: mod.Dir, Loophole: nil,
 				Err: "pack-contributed loophole module dir is missing or not a directory"})
@@ -885,7 +895,17 @@ func ValidateLoopholes() []ValidateEntry {
 // carry. Returning the pair from one function is what stops `yolo check` from having to
 // re-derive either.
 func ValidateSet() ([]ValidateEntry, Set) {
-	entries := ValidateLoopholes()
+	return validateSetOf(PackModules(), PackSupersessions())
+}
+
+// validateSetOf is ValidateSet over explicit inputs, and THE construction the supersession
+// gate reads at both of its enforcing surfaces: `yolo check`, through ValidateSet over the
+// recorded packs, and the launch, through SupersessionProblemsFor over the packs it staged.
+// So the preflight shares the gate it predicts rather than copying it
+// (docs/design/reference-mismatch-diagnostics.md RM-D1). It prints nothing about a claim:
+// only Discover warns one, and a caller reading this decides the finding's disposition.
+func validateSetOf(mods []PackModule, claims []PackSupersession) ([]ValidateEntry, Set) {
+	entries := validateModules(mods)
 	var loaded []*Loophole
 	for _, e := range entries {
 		if e.Loophole != nil && e.Err == "" {
@@ -897,7 +917,6 @@ func ValidateSet() ([]ValidateEntry, Set) {
 	// be applied HERE too or `yolo check` would be the one census site that reports a
 	// superseded loophole as live. Same claims, same function — the convergence Set
 	// exists for is only real if every construction path runs it.
-	claims := PackSupersessions()
 	applySupersessions(loaded, claims)
-	return entries, Set{all: loaded, supersessions: claims, gate: gateOf(PackModules())}
+	return entries, Set{all: loaded, supersessions: claims, gate: gateOf(mods)}
 }
