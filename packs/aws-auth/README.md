@@ -206,7 +206,23 @@ refresh."* The service says which form it resolved at startup and in `yolo check
 
 ## When the session lapses
 
-The jail's next credential fetch gets a 4xx whose message contains, verbatim:
+**The launch tells you first.** A launch where some agent's provider is Bedrock asks the
+service whether that agent's first credential fetch would be served. When it would not, the
+launch prints one line before the jail starts, and then starts it anyway:
+
+```
+loophole aws-auth: cannot mint a Bedrock credential for this launch: the AWS SSO session for profile "<your profile>" has expired or was never established — on the HOST run: aws sso login --profile <your profile> (aws said: …). The launch continues; Bedrock requests fail until that is fixed, and then work with no relaunch
+```
+
+A profile your host's `~/.aws/config` does not have gets the same line saying how to add it or
+which setting to change, and anything else AWS refuses gets AWS's own words. On a warm cache
+the question costs no `aws` call; on a cold one the service makes the mint the agent's first
+request would have made, and the launch waits for it only briefly. No flag hides the line. A
+session that ends after the cached credential was minted shows at the next mint instead,
+within the hour, since that credential keeps working until then.
+
+Inside the jail, the next credential fetch after a lapse gets a 4xx whose message contains,
+verbatim:
 
 ```
 aws sso login --profile <your profile>

@@ -45,9 +45,11 @@ reference is right.
 >   `Code: ExpiredSSOSession`. The code the service sends is `ExpiredToken`; the message names
 >   `aws sso login --profile …` as that section says.
 > - **[§8](#8-behaviour-this-design-specifies)'s** *"profile configured, no SSO session ever
->   established → the launch warns"* **is not built.** The launch does not check for a session.
->   A missing or lapsed one, or a profile the host's `~/.aws/config` lacks, shows in the service
->   log, in `yolo check`'s self-check and in the agent's first fetch.
+>   established → the launch warns"* **was not built at graduation, and was built later the same
+>   day** ([SSO-D1](#SSO-D1)). A launch whose agents reach the adapter asks the service whether
+>   their first fetch would be served, and a session that was never established, one that
+>   lapsed, a profile the host's `~/.aws/config` lacks, or any other mint failure prints one
+>   warning naming the fix; the launch then proceeds.
 > - **[§9](#9-non-goals)'s** *"Nothing for `macos-user` in v1"* **no longer holds.** A
 >   `macos-user` launch opens the adapter outside the Seatbelt sandbox, as a listener it owns
 >   ([`host-notch-services.md` HS-D15](host-notch-services.md#HS-D15)). Not yet run on a Mac.
@@ -73,6 +75,8 @@ reference is right.
   ([§11](#11-evidence-and-how-to-re-check-it)).
 - **Built 2026-09-29:** the fold into the reference docs ([§12](#12-what-i-would-build-in-order)
   step 8). The minted-bearer arm (option D) is retired ([OQ-SSO9](#OQ-SSO9)).
+- **Built 2026-09-29, after the fold:** [§8](#8-behaviour-this-design-specifies)'s launch warning
+  for a missing or lapsed session, through a declared launch check ([SSO-D1](#SSO-D1)).
 - **Ruled 2026-09-25:** the two questions the [`bedrock-plumbing.md`](bedrock-plumbing.md)
   review handed here. [OQ-SSO8](#OQ-SSO8): a bearer or a static key pair delivered beside
   `aws-auth`'s pointer is a fatal refusal, declared by the pack rather than hardcoded in core,
@@ -741,6 +745,9 @@ Written for the implementer. Anything not here and not an open question is their
   and a jail that will not start is worse than a first request that fails clearly.
 - SSO session present but expired at launch → identical to the above. Expiry is a runtime
   state, not a configuration error.
+- **Both bullets above are built** ([SSO-D1](#SSO-D1), 2026-09-29), with one limit: a session
+  that ends while a credential minted before the end is still cached is not seen until the next
+  mint, since that credential still works until it expires.
 - A profile that is not an SSO profile (static keys, `credential_process`) → served the same
   way. The service resolves a profile; how that profile gets its credentials is AWS's problem.
   Say so, so nobody adds an SSO-only check. ⚠ This is a **host** profile the daemon reads, and
@@ -1033,7 +1040,8 @@ here: it is the maintainer's own SSO profile, narrowed to a Bedrock-only role.
 - **An earlier span, 2026-09-23 to 2026-09-28,** named a profile the host's `~/.aws/config` did
   not have. Every pre-mint in it failed, and the real CLI's error was classified
   `ProfileNotFound` rather than as a lapsed session, which is the first real-CLI evidence for the
-  classifier. Nothing at launch reports this (the drift note under the status line).
+  classifier. Nothing at launch reported it then; since [SSO-D1](#SSO-D1) a launch prints that
+  `ProfileNotFound` message as a warning.
 - **Inside one of the jails,** a claude session ran in Bedrock mode (`CLAUDE_CODE_USE_BEDROCK=1`),
   its turns completing through this channel. Its environment named
   `AWS_CONTAINER_CREDENTIALS_FULL_URI`, `AWS_CONTAINER_AUTHORIZATION_TOKEN`, `AWS_REGION` and
@@ -1450,3 +1458,4 @@ Bedrock credential comes from. Two terms both use:
 | OQ-SSO8 | **Refuse, fatal, no hatch**, when a bearer or both halves of the static key pair are delivered beside `aws-auth`'s pointer. The maintainer's conditions: the rule is **declared by the pack**, and core hardcodes no AWS variable (the existing bearer refusal moves out of `internal/awschain`); fatal whenever the configured auth will certainly be overridden; **never a false positive**, false negatives accepted. A second ruling the same day, on the `~/.aws` grant: an override that only MAY happen is a **warning**, never a refusal | 2026-09-25 | [OQ-SSO8](#OQ-SSO8) | 2026-09-25: `overridden_by` in `packs/aws-auth/pack.json`, evaluated by `packload.EnvOverrideFindings`; `internal/awschain` deleted. Review fixes the same day: only what reaches the jail counts, and directory grants count per backend. Also 2026-09-25, on the last false positive: an entry may be `certain: false`, which warns instead of refusing, and the `~/.aws` entry is declared so |
 | OQ-SSO9 | **Retire option D**: yolo mints no Bedrock API key. The signing wire bridge covers every shipped agent; the gateway route is documented as API-key-only | 2026-09-25 | [OQ-SSO9](#OQ-SSO9) | — |
 | OQ-SSO10 | **The launch discloses an un-narrowed session through a `disclose` sentence on a bool settings declaration**, printed by `writeLoopholeSettings` whenever the resolved value is true; `packs/aws-auth` declares it on `unnarrowed`. No switch on the loophole's name | 2026-09-25 | [OQ-SSO10](#OQ-SSO10) | — |
+| <a id="SSO-D1"></a>SSO-D1 | *Implementation decision, on [§8](#8-behaviour-this-design-specifies)'s degenerate inputs.* **The launch asks the running service whether its agents' first fetch would be served, and prints the answer.** A new manifest key, `host_daemon.launch_check`, declares that a daemon answers the **launch check** (a term coined here): one framed `launch-check` request the launch sends through the front it just published, after starting or ensuring the daemon, and only when it serves the loophole's jail daemon, which for aws-auth means some agent's provider is Bedrock ([OQ-CN7](provider-credential-scope.md#OQ-CN7) (b)). The daemon answers from its cache when that is warm, running no `aws`; when it is cold it runs, or joins, the one mint the agent's first fetch would otherwise make inside the SDK's one-second budget (R1), and waits for it within a 2 s budget; past that it reports the previous mint's failure with its age, or a note that it could not tell. Each failure is one warning in the classifier's `Message`, the words the `4xx` and `yolo check` already use, which names `aws sso login --profile X` for a lapsed or never-established session and now names how to fix a profile missing from `~/.aws/config`. It never refuses. Rejected: reading the SSO token cache from the launcher, a second classifier that cannot tell an assumable role from a lapsed session; a fresh `aws` call from the launcher at every launch, a CLI start even on a warm cache; and a test of the loophole's name, for [OQ-SSO10](#OQ-SSO10)'s reason. Covers container jails and `macos-user`, whose arms share the one spawn boundary; `yolo host` starts no aws-auth service ([`host-notch-services.md` HS-D20](host-notch-services.md#HS-D20)), and an attach starts none and asks nothing | 2026-09-29 | [§8](#8-behaviour-this-design-specifies) | 2026-09-29: the manifest key, the daemon's answer and the launch's question, pinned through the spawn boundary on podman and `macos-user`, and end to end with a fake `aws` by `TestAWSAuthLapsedSessionIsA4xxNamingTheLogin` |

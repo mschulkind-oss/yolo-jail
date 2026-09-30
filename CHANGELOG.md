@@ -438,6 +438,13 @@ credential to a server of its choosing. See
   names the pi you are running, for example `Your pi (0.85.1) predates these models`, and says
   that `pi update` fixes it. If yolo cannot read pi's version, the warning says your pi may
   predate them. Before, it named only the missing models.
+- A Bedrock launch through `aws-auth` now warns you before the jail starts when your AWS login
+  cannot give it credentials: you never ran `aws sso login` for the configured profile, the
+  session has expired, or the profile is not in your AWS config. The warning names the problem
+  and the command or setting that fixes it, and the jail starts as before, picking up the fix
+  with no relaunch. Until now only the service's log, `yolo check` and the agent's first failed
+  request said so. See
+  [when the SSO session lapses](docs/reference/agent-credentials.md#when-the-sso-session-lapses).
 
 ## [0.11.0] - 2026-09-28
 

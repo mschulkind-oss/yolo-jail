@@ -449,10 +449,43 @@ Get one wrong and a conforming-looking daemon dies with a misleading symptom.
   of what it advertised — which step 2 gives you for free, and any deviation from step 2
   takes away.
 
+## The launch check
+
+**Built 2026-09-29**, after the rest of this document was last verified. The **launch check** is
+a term coined for this: one request a launch sends a host daemon, right after starting or
+ensuring it, asking what the human should be warned about before the jail starts. A daemon
+opts in with `host_daemon.launch_check: true`, which needs the default `request_end: "framed"`
+and a `loopback-tls` transport, and a daemon that does not declare it is never asked. The launch
+asks only when it serves the loophole's jail daemon, or when the loophole declares none. It dials
+the endpoint it just published as a host-side client (`svcendpoint.DialLocal`), so the request
+crosses the front and carries the preamble like a jail's.
+
+The request is an ordinary [request](#request), `<n>` being the budget in milliseconds:
+
+```text
+{"action": "launch-check", "budget_ms": <n>}
+```
+
+The answer is one JSON object on stdout, exit `0`, either list absent when empty:
+
+```json
+{"warnings": ["…"], "notes": ["…"]}
+```
+
+The launch prints each warning as a yellow `loophole <name>: <text>` line and each note as a dim
+one, with control characters replaced and style markup escaped, and then proceeds: a launch check
+never refuses a launch, and no flag hides what it prints. `budget_ms` is how long the launch
+waits for the answer. The daemon answers within it, from what it already knows when that is
+enough, and clamps it to a cap whoever sends it. A non-zero exit, a malformed answer or no answer
+within the budget plus a short margin prints one dim line saying the daemon could not be asked.
+The first daemon to declare it is `aws-auth`
+([`agent-credentials.md`](agent-credentials.md#when-the-sso-session-lapses)).
+
 ## Current values
 
-Verified at `a3922298`. The prose above explains what each of these is for; this table is
-the only place the values themselves are stated.
+Verified at `a3922298`, but for the launch-check row, added with the launch check on
+2026-09-29. The prose above explains what each of these is for; this table is the only place
+the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
@@ -470,6 +503,7 @@ the only place the values themselves are stated.
 | Jail-side services directory | `/run/yolo-services` | `paths.JailHostServicesDir` |
 | TLS server name the client verifies | `yolo-host-service` | `internal/svcendpoint/cert.go` |
 | Tier-1 log cap / archived generations | 4 MiB active, exactly one archive | `crossaudit.MaxBytes`, `crossaudit.ArchiveSuffix` |
+| Launch check action / budget / daemon cap / launch's read margin | `launch-check`, 2 s, 5 s, 1 s | `hostservice.LaunchCheckAction`, `LaunchCheckBudget`, `LaunchCheckBudgetCap`; `internal/cli/run` (`launchCheckMargin`) |
 
 ## Why it's this way
 

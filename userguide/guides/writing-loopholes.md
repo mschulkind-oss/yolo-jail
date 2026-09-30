@@ -105,7 +105,8 @@ replacing the file. To remove the loophole, delete its folder and its two entrie
     "publishes": "socket",        // required in a pack: write it every time
     "request_end": "framed",      // or "eof"; default "framed"
     "preamble": true,             // default true
-    "scope": "jail"               // or "host" (one per machine); default "jail"
+    "scope": "jail",              // or "host" (one per machine); default "jail"
+    "launch_check": false         // answers the launch's check, below; default false
   },
   "jail_daemon": {                // optional; a program run INSIDE the jail
     "cmd": ["{jail_loophole_dir}/my-agent", "--listen", "{listen}"],
@@ -219,6 +220,17 @@ Three keys shape the connection:
   jail. `"host"` runs one copy for the whole machine, shared by every jail, and it keeps running
   when a jail exits. Use `"host"` when a second copy would be a bug, such as a program holding a
   single-use login. Check on it with `yolo loopholes status`.
+
+**`launch_check: true`** lets your program warn the user before their jail starts. Right after
+starting your program, or finding it already running, the launch sends it one request,
+`{"action": "launch-check", "budget_ms": <n>}`, and your program answers
+`{"warnings": [...], "notes": [...]}`: each warning prints as a yellow line naming your loophole,
+each note as a dim one, and then the jail starts anyway. Answer within the budget, from what your
+program already knows; a program that does not answer in time, or at all, gets a dim line saying
+so. The launch asks only when the jail uses your loophole's jail program, or when you declare
+none. `aws-auth` uses it to say that an SSO session has lapsed. The
+[frame protocol](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/loophole-protocol.md#the-launch-check)
+has the details.
 
 **Where the program lives matters.** yolo refuses a host program, or a loophole folder, inside the
 project being launched or inside the jail's home, because an agent in the jail could rewrite it

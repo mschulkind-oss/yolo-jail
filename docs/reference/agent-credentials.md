@@ -37,8 +37,9 @@ tags: [credentials, security, boundary, env_sources, host_files, broker, oauth, 
 [gemini-paths paragraph](#agys-paths-under-gemini) alone was re-checked against `9990882a` on
 2026-09-27. The [SSO-backed Bedrock section](#sso-backed-bedrock-credentials-aws-auth) and the
 `aws-auth` rows in the tables below were written against `fe24347c` on 2026-09-29, when
-[`sso-backed-bedrock.md`](../design/sso-backed-bedrock.md) graduated into them. Nothing else in
-the doc was re-checked.
+[`sso-backed-bedrock.md`](../design/sso-backed-bedrock.md) graduated into them; the launch
+warning in that section, and its rows, were added the same day with the change that built it
+([SSO-D1](../design/sso-backed-bedrock.md#SSO-D1)). Nothing else in the doc was re-checked.
 
 yolo-jail's credential story is **structural, not a policy one**: host credentials are
 *physically absent* from the jail, and the only credentials an agent can reach are ones a human
@@ -700,9 +701,31 @@ SSO cache on every mint. So a lapse runs like this:
 3. The human runs that login on the host. The next fetch succeeds, in the jail that is already
    running, with no relaunch.
 
-The launch does not check for a live session. A missing or lapsed session, or a profile the
-host's `~/.aws/config` does not have, shows in the service's log, in `yolo check`'s self-check,
-and in the agent's first fetch.
+**The launch warns first, and proceeds.** A launch where some agent's profile is `bedrock` asks
+the service, once it has started or found it, whether that agent's first fetch would be served.
+The question is the **launch check**, a term coined for this feature: one request a launch sends
+to a host daemon whose manifest declares `host_daemon.launch_check`, through the front the launch
+just published for it ([the protocol](loophole-protocol.md#the-launch-check)). The service
+answers from its cache when that is warm, which is every launch but the first after a spawn, a
+settings change or a lapse, and runs no `aws` for it. When the cache is cold it mints now, or
+waits for the mint it already has running. That is the mint the agent's first fetch would
+otherwise make inside the SDK's budget of about a second, so a success also warms the cache for
+that fetch. The launch waits for the answer only as long as a short budget
+([current values](#current-values)). A failed mint prints one line, `loophole aws-auth: cannot
+mint a Bedrock credential for this launch: …`, in the same words as the `4xx` and `yolo check`:
+`aws sso login --profile <profile>` for a session that lapsed or was never established, and how
+to add the profile or point the setting at another for a profile the host's `~/.aws/config` does
+not have. The jail then starts as it would have. A mint still running when the budget runs out is
+reported by the previous attempt's failure and its age, or, when there is none, by a dim line
+saying the launch could not tell. A service that cannot be asked, such as one started by an older
+yolo, gets a dim line too. The warning is a disclosure, so no flag hides it
+([`OQ-RO3`](report-tiers.md#why-its-this-way)).
+
+The check cannot see a session that ended after the cached credential was minted: that
+credential still works, and the lapse shows at the next mint, within its hour. `macos-user`
+asks the same way, before the sandboxed command runs. `yolo host` starts no aws-auth service
+and asks nothing ([`host-notch-services.md` HS-D20](../design/host-notch-services.md#HS-D20)).
+The decision is [`SSO-D1`](../design/sso-backed-bedrock.md#SSO-D1).
 
 The SSO config form sets how often a human acts, not how long a jail lasts. A profile in the
 `sso-session` token-provider form refreshes its own access token, so a login is needed only when
@@ -740,7 +763,8 @@ ten hours, with the service never restarting, kept working across at least two o
 a running jail picks up a new login with no relaunch.
 
 **UNMEASURED:** a turn during a real lapse (the logout-to-login gap there is short), and the lapse
-message a real expiry produces; the legacy SSO form; the session-policy and un-narrowed arms
+message a real expiry produces, and the launch warning printing it (CI checks both with a fake
+`aws`); the legacy SSO form; the session-policy and un-narrowed arms
 against a live login; codex, opencode and pi on this channel; and `macos-user`, which has not run
 on a Mac.
 
@@ -915,6 +939,7 @@ Rulings a future change would otherwise undo, kept with their original IDs.
 | **`env_sources` over the settings `env` block, as shipped** | The `env` block is the right long-term target — it is the one channel that renders at *both* the jail and host notches — but nothing shipped uses it for a secret today, and a doc that said otherwise was measured wrong against a live jail. State the mechanism that runs. |
 | **MCP `${VAR}` is passed through verbatim** | An interpolated secret entered the file without passing through any provenance layer, and sourced config content from process env at render time. Resolution one step later, by the consumer, loses nothing. |
 | **[OQ-SSO1](../design/sso-backed-bedrock.md#13-decision-ledger), [OQ-SSO10](../design/sso-backed-bedrock.md#OQ-SSO10)**: `aws-auth` requires a narrowing, serves un-narrowed only when asked by name, and discloses that at every launch through a declared `disclose` sentence | Any process in the jail can read the served credential, so the narrowing is the only defense there. A default that widened could not be tightened later without breaking working setups. The service is a singleton, so its own spawn line prints once and then serves every later launch in silence; and a launch that tested the loophole's name would be a switch on a tool name in the one loop that renders every pack. |
+| **[§8](../design/sso-backed-bedrock.md#8-behaviour-this-design-specifies), [SSO-D1](../design/sso-backed-bedrock.md#SSO-D1)**: a session that is missing, lapsed or for a profile the host lacks is a launch WARNING, never a refusal, asked through a declared `launch_check` | The human may be about to log in, and a jail that will not start is worse than a first request that fails clearly. The launch asks the daemon rather than probing AWS itself so the words are the one classifier's, and it asks by declaration because a test of the loophole's name would be a switch on a tool name in the loop that renders every pack. |
 | **[OQ-SSO2](../design/sso-backed-bedrock.md#13-decision-ledger)**: one `aws-auth` service per machine, its cache keyed by profile | The mint is the slow step and a fetch has about a second, so a warm shared cache is what keeps fetches inside the budget. Keying by profile keeps a distinct AWS identity per jail without a second daemon. |
 | **[OQ-SSO4](../design/sso-backed-bedrock.md#13-decision-ledger)**: the profile, role and session policy are user-scope settings only | The workspace config is writable from inside the jail, so a workspace value would let the agent choose its own profile or swap the narrowing for one of its own. |
 | **[OQ-SSO3](../design/sso-backed-bedrock.md#13-decision-ledger), [OQ-SSO6](../design/sso-backed-bedrock.md#13-decision-ledger)**: the service refreshes inside a live session and never runs a login; a lapsed session is a message, not a request | Refreshing is what every AWS client on the machine already does against the same cache. Starting a session is a browser flow and the human's. A jail able to trigger a host login would be half an approval mechanism, which belongs to [`boundary-broker.md`](../design/boundary-broker.md) rather than to a credential pack. |
@@ -958,7 +983,8 @@ $ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
 | AWS mint timing | re-mint below **10 min** of remaining life (twice the SDK's five-minute window), a pre-mint tick at half that; `AssumeRole` asks **3600 s**, the role-chaining ceiling, as session name `yolo-jail` | `internal/awsauth` (`RemintLead`, `Broker.TickInterval`, `MintDuration`, `SessionName`) |
 | AWS lapse answer | a `4xx` with `Code: ExpiredToken` and a message naming `aws sso login --profile <profile>`; a profile missing from `~/.aws/config` answers `ProfileNotFound` instead | `internal/awsauth` (`loginRequired`, `mint.go`) |
 | AWS caller refusal | `401`, `Code: CallerUnauthenticated` | `internal/awscredadapter` (`handler.go`) |
-| AWS service log | `~/.local/share/yolo-jail/logs/host-service-aws-auth.log` on the host: the profile, the narrowing and the SSO form at start, then each failed pre-mint | `internal/awsauthdaemon` (`reportStartup`, `runProactive`) |
+| AWS service log | `~/.local/share/yolo-jail/logs/host-service-aws-auth.log` on the host: the profile, the narrowing and the SSO form at start, then each failed mint the pre-mint ticker or a launch check ran | `internal/awsauthdaemon` (`reportStartup`, `mintTracker`) |
+| AWS launch check | declared as `host_daemon.launch_check: true`; asked by a launch that serves the adapter; answered from the cache, or from the mint a cold cache needs, within a **2 s** budget the daemon clamps to at most **5 s**, the launch reading **1 s** past it; a failure prints `loophole aws-auth: cannot mint a Bedrock credential for this launch: …` | `packs/aws-auth/loopholes/aws-auth/manifest.jsonc`; `internal/hostservice` (`LaunchCheckBudget`, `LaunchCheckBudgetCap`), `internal/awsauthdaemon` (`launchcheck.go`), `internal/cli/run` (`launchcheck.go`, `launchCheckMargin`) |
 | AWS canonical state | `<loophole state>/credentials.json`, mode `0600` in a `0700` directory | `internal/awsauth` (`state.go`) |
 | AWS jail endpoint | `YOLO_SERVICE_AWS_AUTH_ENDPOINT`, read by the in-jail adapter, which listens on `127.0.0.1:1461` (its `jail_daemon.listen`), or on a port the launch picked when the jail shares its launcher's network namespace. Emitted by any launch where the loophole is active and its pack may run host code, like every other `scope: "host"` loophole's — `hostServicesMountArgs` derives the set from the manifests rather than naming services one by one, which it did until 2026-09-20 (two names, and this one was the third, so the adapter answered `ServiceUnreachable` for every request while the launch reported a healthy jail). On `macos-user` the launch runs the adapter outside the sandbox instead, through `jail_daemon.host_cmd`. ⚠ Not on Apple Container, which starts no host service but the OpenAI one | `internal/awscredadapter` (`EndpointEnv`); `internal/cli/run/assemble_parts.go` |
 | Codex refresh adapter | `http://{listen}/oauth/token`: `127.0.0.1:1460` on a jail with its own network namespace, a port the launch picked on one sharing its launcher's (`network.mode: "host"`, or nested) | `internal/openaiauthadapter`; the pointer in `packs/codex/pack.json`, the port as `jail_daemon.listen` in `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
