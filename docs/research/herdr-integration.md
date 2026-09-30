@@ -897,25 +897,27 @@ fi
   the container's argv, and that the label's argv goes through a seam like `tmuxCmd`.
 - The kitty fix of [HR-D5](#HR-D5) rides along.
 
-**No ruling stands in its way.** The predictability ruling, in
-[`host-launch-environment.md`](../design/host-launch-environment.md), governs `yolo host`.
-[OQ-HE7](../design/host-launch-environment.md#oq-he7), which asked whether to extend it to a jail
-launch's host-side lookups, was retired on 2026-09-29 by
-[HE-DIR1](../design/host-launch-environment.md#he-dir1), under which `yolo host`'s own checks read
-the PATH it was started with. Its answer extends nothing to a jail launch's other reads either.
-The change adds nothing the agent sees.
+**No ruling decides whether a jail launch may do this, and [OQ-HR1](#OQ-HR1) carries it.** The
+predictability ruling, in [`host-launch-environment.md`](../design/host-launch-environment.md),
+governs `yolo host`. [OQ-HE7](../design/host-launch-environment.md#oq-he7) asked whether to extend
+it to a jail launch's host-side PATH lookups: podman, nix and the macOS tools. It was retired on
+2026-09-29 by [HE-DIR1](../design/host-launch-environment.md#he-dir1), so a jail launch keeps
+finding those on the PATH it was started with. That settles PATH lookups and nothing else. Nobody
+has asked whether a jail launch may decide from its launcher's session variables, or run a program
+one of them names. So ruling [OQ-HR1](#OQ-HR1) (A) or (B) also rules it, for the herdr arm. The
+change adds nothing the agent sees.
 
 - **This is not output styling.** The exemption in
   [`host-launch-environment.md` §2.1](../design/host-launch-environment.md#21-the-criterion--decision-inputs-versus-carried-variables)
   covers *"Output styling (`NO_COLOR`, color detection)"*. Option 2 reads `HERDR_ENV` to decide
   whether to run a host program, and the program is the one the ambient `HERDR_BIN_PATH` names.
   That is a decision input: which program to run.
-- **The precedent is exact.** The tmux arm already reads `TMUX` to decide to act, and runs
-  `tmux` from the ambient `PATH` (`tmuxCmd` in [`terminal.go`](../../internal/cli/terminal.go)).
-  The kitty arm does the same with `KITTY_PID` and `kitten`. With
-  [OQ-HE7](../design/host-launch-environment.md#oq-he7) retired, no ruling constrains those arms,
-  and the herdr arm stands with them. If a jail launch should stop reading its launcher's
-  environment, that is a new question for all three.
+- **The precedent is exact, and it is built, not ruled.** The tmux arm already reads `TMUX` to
+  decide to act, and runs `tmux` from the ambient `PATH` (`tmuxCmd` in
+  [`terminal.go`](../../internal/cli/terminal.go)). The kitty arm does the same with `KITTY_PID`
+  and `kitten`. No ruling covers those arms either. The herdr arm differs in one respect: under
+  Option 2 it runs the program the ambient `HERDR_BIN_PATH` names, where the other two look a
+  name up on `PATH`. The narrower variant below removes that difference.
 - **A narrower variant** resolves `herdr` by name on `PATH`, rather than executing
   `$HERDR_BIN_PATH` blindly. That narrows the decision input to whether and where to label,
   from `HERDR_ENV` and `HERDR_PANE_ID`.
@@ -1035,7 +1037,10 @@ Each of these has one sensible answer, so none is asked.
    twenty minutes. The fix is two small behaviors in the launcher
    ([§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside)). It is a question because
    [`AGENTS.md`](../../AGENTS.md#packs-and-what-core-does-not-know) says core does not know what an
-   agent is, and herdr is a named third-party program.
+   agent is, and herdr is a named third-party program. A or B also decides a point no other ruling
+   covers: that a jail launch decides from its launcher's `HERDR_ENV` and runs a host program, as
+   the tmux and kitty arms already do from `TMUX` and `KITTY_PID`
+   ([§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside)). C does not.
 
    - **A. In core, beside the tmux and kitty indicators.** *You see:* every herdr pane running
      `yolo -- <agent>` shows that agent's status and "🔒 JAIL &lt;project&gt;", with no config.

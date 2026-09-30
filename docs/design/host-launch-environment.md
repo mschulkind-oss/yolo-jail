@@ -752,8 +752,11 @@ were started with.
 > ruling names `yolo host`. So the jail indicator's reads of `TMUX` and kitty's variables, and the
 > herdr label built the same way
 > ([`herdr-integration.md`](../research/herdr-integration.md#43-option-2-the-launcher-tells-herdr-what-is-inside)),
-> are governed by no ruling in this doc. If a jail launch should stop reading its launcher's
-> environment, that is a new question for a jail-launch design.
+> are governed by no ruling in this doc. This retirement settles PATH lookups only. For the herdr
+> label, whether a jail launch may decide from its launcher's session variables is carried by
+> [OQ-HR1](../research/herdr-integration.md#OQ-HR1): ruling it (A) or (B) accepts it. The tmux and
+> kitty arms are built with no ruling. A question about them, if one is wanted, belongs to a
+> jail-launch design.
 
 ### <a id="oq-he8"></a>✅ [`OQ-HE8`](#oq-he8) — the macOS baseline, and whether Homebrew is in it — **RETIRED BY HE-DIR1, 2026-09-29**
 
