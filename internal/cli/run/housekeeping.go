@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -184,6 +185,12 @@ func openLockFile(path string) (*os.File, bool) {
 	}
 	return f, true
 }
+
+// housekeepingSlots is every housekeeping slot this process has running. A launch never waits on
+// it: the slot dies at the launch's exit, restartable by design. A test that drives a launch past the
+// jail's start waits on it before its cleanup ends (dispatchOptions), because the slot reads HOME as
+// it goes and, outliving its test, writes its stamps under the next test's HOME.
+var housekeepingSlots sync.WaitGroup
 
 // runHousekeeping is the slot's body: every automatic class, in one place, as one
 // pass, after the container is up, each deletion under the shared lock.

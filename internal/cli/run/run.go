@@ -1904,7 +1904,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// lock is released and the container is visible, so a reap can never be looking at this
 		// launch's image before its container exists, and on its own goroutine, so nothing here
 		// delays the jail. It dies at this launch's exit, restartable by design.
-		running: func() { go safeRun(func() { o.runHousekeeping(rt, reclaimConsent, cname) }) },
+		running: func() {
+			housekeepingSlots.Go(func() { safeRun(func() { o.runHousekeeping(rt, reclaimConsent, cname) }) })
+		},
 	})
 	_ = kp.progress.Close()
 	if !ready {

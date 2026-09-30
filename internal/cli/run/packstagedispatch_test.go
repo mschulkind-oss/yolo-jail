@@ -41,6 +41,10 @@ func dispatchOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 	t.Helper()
 	reapTestSpawnedOpenAIBroker(t)
 	repoRoot := t.TempDir()
+	// A launch these options drive past the jail's start leaves its housekeeping slot running:
+	// wait for it before the HOME and repo root made so far are removed, and before the next test
+	// sets its own HOME (TestNoLaunchTestOutlivesItsHousekeepingSlot).
+	t.Cleanup(housekeepingSlots.Wait)
 	o := &Options{
 		Workspace: workspace,
 		Network:   "bridge",
