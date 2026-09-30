@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -71,7 +72,9 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
   "host_files": ["~/.npmrc"],
   "mounts": ["~/notes"],
   "cache_relocations": {"huggingface": "~/bigdisk/hf"},
-  "network": {"forward_host_ports": [5432], "ports": ["8080:8080"]}
+  "network": {"forward_host_ports": [5432], "ports": ["8080:8080"]},
+  "devices": ["` + sealTestDevice + `"],
+  "kvm": true
 }
 `
 	if err := os.WriteFile(filepath.Join(dir, "config.jsonc"), []byte(cfg), 0o644); err != nil {
@@ -88,7 +91,16 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
 	repo, _ := o.RepoRoot()
-	o.PathExists = func(p string) bool { return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint") }
+	// The host has a nix daemon, a device node the config passes through and /dev/kvm, so each of
+	// those crossings is one an unsealed launch makes (TestTheSealFixtureCrossesUnsealed).
+	o.PathExists = func(p string) bool {
+		switch p {
+		case filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint"), hostNixSocket, hostNixStore,
+			sealTestDevice, "/dev/kvm":
+			return true
+		}
+		return false
+	}
 	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true, RC: 0} }
 	o.autoLoad = func(image.AutoLoadOptions) image.LoadResult { return image.LoadResult{OK: true, Ref: goldenImageRef} }
 	o.CapturesDir = func() string { return "" }
@@ -104,6 +116,13 @@ func sealedLaunch(t *testing.T, sealed bool) (argv []string, ws, home, printed s
 	}
 	return strings.Split(strings.TrimRight(string(raw), "\n"), "\n"), ws, home, stdout.String() + stderr.String()
 }
+
+// sealTestDevice is the device node the seal fixture's config passes through.
+const sealTestDevice = "/dev/sealtest0"
+
+// sealedDeviceAllowlist is every --device a sealed launch may hand its jail: the nesting devices
+// every podman jail gets (podmanNestingArgs), never one the config passes through.
+var sealedDeviceAllowlist = map[string]bool{"/dev/fuse": true, "/dev/net/tun": true}
 
 // pairs collects the values of every occurrence of flag in argv.
 func argvValues(argv []string, flag string) []string {
@@ -150,8 +169,26 @@ func TestASealedLaunchHandsTheJailNoCrossing(t *testing.T) {
 		switch {
 		case !strings.HasPrefix(src, "/"): // a named per-launch scratch volume
 		case sealWithin(ws, src), sealWithin(filepath.Join(paths.AgentsDir(), cname), src), repo != "" && sealWithin(repo, src):
+		case src == hostNixStore && dest == hostNixStore:
+			// FP-D11 keeps the host's store, read-only, for store-delivered packages: toolchain.
 		default:
 			t.Errorf("a sealed launch binds the host's %s at %s", src, dest)
+		}
+	}
+	// The nix store stays, and only read-only: never the daemon socket that builds into it.
+	for _, v := range argvValues(argv, "-v") {
+		if strings.HasPrefix(v, hostNixStore+":") && !strings.HasSuffix(v, ":ro") {
+			t.Errorf("a sealed launch binds the host's nix store writable: %s", v)
+		}
+	}
+	// No host layer crossed, and the jail is told so rather than that the user has none.
+	if v, _ := envValue(argv, packload.HostLayerEnvVar); v != packload.HostLayersUnsupportedWire() {
+		t.Errorf("a sealed launch reports %s=%q, want the no-host-layer report", packload.HostLayerEnvVar, v)
+	}
+	// --device: nothing but the nesting devices every jail gets.
+	for _, dev := range argvValues(argv, "--device") {
+		if !sealedDeviceAllowlist[dev] {
+			t.Errorf("a sealed launch passes the host's device %s through", dev)
 		}
 	}
 	// ~/.cache and /mise are the build's own.
@@ -197,6 +234,14 @@ func TestTheSealFixtureCrossesUnsealed(t *testing.T) {
 	}
 	if !sawCache {
 		t.Errorf("the unsealed fixture does not bind the machine cache: %v", srcs)
+	}
+	if _, ok := srcs[hostNixSocket]; !ok {
+		t.Errorf("the unsealed fixture does not bind the nix daemon socket, so that site is unexercised: %v", srcs)
+	}
+	for _, dev := range []string{sealTestDevice, "/dev/kvm"} {
+		if !slices.Contains(argvValues(argv, "--device"), dev) {
+			t.Errorf("the unsealed fixture does not pass %s through, so that site is unexercised", dev)
+		}
 	}
 	if !slices.Contains(argv, "-p") {
 		t.Error("the unsealed fixture publishes no port, so the publish site is unexercised")
