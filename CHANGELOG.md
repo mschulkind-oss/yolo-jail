@@ -89,20 +89,27 @@ Code cannot reach Bedrock through the wire bridge yet, so in a jail a profile th
 "wire-bridge"` to a Bedrock provider leaves Claude Code on its own login, and the launch now says
 so. See [what service a provider is](docs/reference/providers.md#the-platform-what-service-a-provider-is).
 
-**`-p bedrock` now runs codex, opencode and pi on AWS Bedrock, not only Claude Code.** Each agent
-uses its own Bedrock support, so it signs with your AWS credentials, the `aws-auth` login
-included, and nothing needs a URL: `yolo -p bedrock -- codex` works with `"packs": ["codex"]` and a
-region. One Bedrock provider now carries every agent's models, and yolo ships four of them:
+**`-p bedrock` now sets up codex, opencode and pi for AWS Bedrock, not only Claude Code.** yolo
+configures each agent to use its own Bedrock support, which signs requests with your AWS
+credentials, the `aws-auth` login included, so nothing needs a URL: `yolo -p bedrock -- codex`
+needs only `"packs": ["codex"]` and a region. No request to Bedrock has been measured from any of
+the three yet. One Bedrock provider now carries every agent's models, and yolo ships four of them:
 Claude Opus 5.5, GPT-6 Sol, GPT-6.1 Sol (offered by AWS in its US Regions only) and GPT-6 Astra.
-codex starts on GPT-6 Sol, which every Region can call; in the US, name GPT-6.1 Sol yourself. Each agent
-is offered the ones it can use, Anthropic's for Claude Code and OpenAI's for codex, and starts on
-the first of those, while Claude Code keeps its own Bedrock default unless you name a model. Name
-another with a profile's `model`, or add one under `providers.bedrock.models` with a `vendor`
-naming its maker, such as `{"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}`, so only the
-agents that can use it offer it. A `bedrock-bridge` profile ships too, for sending an agent
-through the wire bridge instead; the bridge cannot reach Bedrock by region alone yet, so today it
-runs Claude Code on its own login with a warning and refuses codex, opencode, pi and oh-omp.
-Copilot and oh-omp have no Bedrock route yet. See
+Each agent is started on a model of a maker its Bedrock support serves, as the list declares the
+maker: codex on GPT-6 Sol, the first OpenAI model and one every Region can call, and opencode and
+pi on Claude Opus 5.5, while Claude Code keeps its own Bedrock default unless you name an Anthropic
+model. In the US, name GPT-6.1 Sol yourself. pi and opencode list these models in their model
+menus; Claude Code's and codex's menus are not changed yet. Name another model with a profile's
+`model`, or add one under `providers.bedrock.models` with a `vendor` naming its maker, such as
+`{"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}`: opencode and pi can then use it,
+and Claude Code and codex skip it, since codex takes only OpenAI's models. With codex, opencode or
+pi selected, the AWS keys in your `env_sources` now reach only the agents whose profile selects a
+Bedrock provider, as they already did with Claude Code, so a shell or the `aws` command in the jail
+no longer sees them; on your host, `yolo host --with-credentials bedrock -- aws …` hands them to
+one command. A `bedrock-bridge` profile ships too, for sending an agent through the wire bridge
+instead; the bridge cannot reach Bedrock by region alone yet, so today it runs Claude Code on its
+own login with a warning and refuses codex, opencode, pi and oh-omp. Copilot and oh-omp have no
+Bedrock route yet. See
 [the shipped Bedrock provider](docs/reference/providers.md#the-shipped-bedrock-provider).
 
 **A launch now tells you when your own Claude settings turn Bedrock on but no Bedrock provider is

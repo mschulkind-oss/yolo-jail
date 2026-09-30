@@ -9,8 +9,9 @@ that can put its agent on Bedrock `needs` it, so selecting that agent brings it 
 { "packs": ["codex"] }
 ```
 
-`yolo -p bedrock -- codex` then runs codex on Bedrock through its own Bedrock client, with
-nothing else listed but a region. The launch prints `+ bedrock (needed by codex)` and
+`yolo -p bedrock -- codex` then configures codex to reach Bedrock through its own Bedrock
+client, with nothing else listed but a region. No request to Bedrock has been measured from any
+agent yet: what each client sends was read from its shipped code, never run. The launch prints `+ bedrock (needed by codex)` and
 `+ aws-auth (needed by bedrock)`.
 
 Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9](../../docs/design/bedrock-plumbing.md#OQ-BR9),
@@ -38,8 +39,12 @@ Design: [`bedrock-plumbing.md`](../../docs/design/bedrock-plumbing.md) ([OQ-BR9]
 ## The models it ships
 
 One provider holds every maker's models. Each entry names its maker as `vendor`, and yolo never
-guesses the maker from the id. Each agent is offered only the entries its own Bedrock client
-can call, and it starts on the first of those in the order below, unless you name a model:
+guesses the maker from the id. Each agent picks among the entries whose maker its own Bedrock
+client is known to serve (the table below), and starts on the first of those in the order below,
+unless you name a model. pi and opencode also list those entries in their model menus; claude's
+and codex's menus are not shaped yet
+([OQ-BR13](../../docs/design/model-lists-and-pickers.md#OQ-BR13)), so for them the list only
+decides which model yolo starts them on:
 
 | Order | Model id | Maker | Name |
 | :--- | :--- | :--- | :--- |
@@ -70,10 +75,10 @@ reasoning support, which their pages state.
 
 ### Which agent starts where
 
-| Agent | Can call on Bedrock | Starts on, with no model named |
+| Agent | Makers it takes on Bedrock | Starts on, with no model named |
 | :--- | :--- | :--- |
 | claude | Anthropic models: its Bedrock client drives the Messages API, which serves Claude only | its own Bedrock default. yolo pins a model only when the profile names one, or your config names a `default` alias Claude can call |
-| codex | OpenAI models: its built-in `amazon-bedrock-runtime` client drives the Responses API, which AWS serves for them and not for Anthropic's | GPT-6 Sol (Global) |
+| codex | OpenAI's: its built-in `amazon-bedrock-runtime` client drives the Responses API, which AWS serves for them and not for Anthropic's. The filter is by declared maker, not by what codex could call: another maker's model whose card lists Responses is still skipped until a turn measures it | GPT-6 Sol (Global) |
 | opencode | every entry: its built-in `amazon-bedrock` provider sends a cross-Region id to runtime's Converse API, which serves each of them | Claude Opus 5.5 (Global) |
 | pi | every entry: its built-in `amazon-bedrock` provider drives Converse | Claude Opus 5.5 (Global) |
 
@@ -82,7 +87,9 @@ wire bridge, which cannot yet reach a provider named by a region alone; `-p bedr
 configure them. agy has no way to reach Bedrock at all.
 
 codex's client reads the region from `AWS_REGION` or `AWS_DEFAULT_REGION` itself, so yolo writes
-its `aws.region` only for a region you set on the provider. While a codex profile selects
+its `aws.region` only for a region you set on the provider. That order is INFERRED: the one
+message in codex-cli 0.158.0 naming it is about codex's other Bedrock provider and its bearer
+tokens, and codex was never run. While a codex profile selects
 Bedrock, yolo pins codex's `model_provider`, so `codex login` cannot switch that session to
 another Bedrock login; pick another profile for that.
 
@@ -106,14 +113,16 @@ skipped, never sent; an id the provider does not list is passed through as you w
 "profiles": { "astra": { "provider": "bedrock", "model": "global.openai.gpt-6-astra" } }
 ```
 
-Add a model by its maker, so each agent is offered it only if it can call it:
+Add a model with its maker, so each agent's maker filter applies to it: here opencode and pi can
+use it, and claude and codex skip it (codex's filter takes OpenAI's makers only, although Kimi
+K3's card lists the Responses API codex drives):
 
 ```jsonc
 "providers": { "bedrock": { "models": {
   "kimi": { "id": "global.moonshotai.kimi-k3", "vendor": "moonshotai" } } } }
 ```
 
-A model you add with no `vendor` (a plain `"alias": "id"`) is offered to every agent.
+A model you add with no `vendor` (a plain `"alias": "id"`) passes every agent's filter.
 
 ### Sources
 

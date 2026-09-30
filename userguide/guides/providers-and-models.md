@@ -75,9 +75,11 @@ Two more come with the agent packs, with no extra pack to add:
   "profiles": { "astra": { "provider": "bedrock", "model": "global.openai.gpt-6-astra" } }
   ```
 
-  Add a model with its maker, so each agent offers it only if it can use it:
+  Add a model with its maker, so it reaches only the agents that take that maker (opencode and
+  pi take every maker, Claude Code Anthropic's and codex OpenAI's):
   `"providers": {"bedrock": {"models": {"kimi": {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}}}}`.
-  Copilot and oh-omp cannot use Bedrock yet.
+  Copilot and oh-omp cannot use Bedrock yet. codex, opencode and pi on Bedrock have not yet been
+  tested against a real AWS account.
 
   With the `aws-auth` loophole on,
   it uses your host's `aws sso login`, narrowed to one role before it reaches the jail. The

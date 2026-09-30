@@ -306,6 +306,8 @@ end
 --     `name`, `wire_api` and `env_key` never appear on it;
 --   - the region order: "`model_providers.amazon-bedrock.aws.region`, `AWS_REGION`, or
 --     `AWS_DEFAULT_REGION`", so a region only the environment carries needs no row at all.
+--     ⚠ INFERRED for this provider: that message names the mantle provider's key
+--     (`amazon-bedrock`) and bearer-token auth, and no string read names runtime's own order.
 --
 -- The model is a runtime id from the provider's list (P3: one spelling per entry), sent as
 -- `model`. An id codex's own catalog does not hold runs on "fallback model metadata" (trap

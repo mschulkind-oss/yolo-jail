@@ -274,9 +274,13 @@ refused as a profile nothing declares.
   A user's object-form entry takes `vendor` too
   (`"kimi": {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}`), and an entry with no
   vendor is offered to every agent. The list names no `default` alias.
-- **Which entries an agent is offered** is decided by its own derive, from the makers its client
-  serves: claude's Bedrock client Anthropic's (Messages serves Claude only), codex's OpenAI's
-  (it drives Responses), opencode's and pi's every maker's (Converse).
+- **Which entries an agent picks among** is decided by its own derive, from the makers, as each
+  entry declares them, that its client is known to serve: claude's Bedrock client Anthropic's
+  (Messages serves Claude only), codex's OpenAI's (it drives Responses), opencode's and pi's
+  every maker's (Converse). The filter is by declared maker, not by what the client could call:
+  codex skips another maker's model whose AWS page lists Responses, until a turn measures one.
+  pi and opencode list the entries in their model menus; claude's and codex's menus are not
+  shaped yet ([OQ-BR13](../design/model-lists-and-pickers.md#OQ-BR13)).
 - **Which model an agent starts on**: the profile's `model` when it names an entry that agent can
   call, as an alias or an id, or an id the provider does not list, which is passed through; else
   the provider's `default` alias when that agent can call it; else the first entry it can call,
@@ -1511,7 +1515,7 @@ Verified at `7ad8358c`, except the deselection rows for the boot log and the id-
 surfaces with a host layer, verified at `38814ba4`, and the rows the `openai-codex` model list
 touched (the clear's log line, codex's `openai-codex` default, the list and pi's copy of it),
 verified at `2a34a176`, except the host half of pi's copy, verified at `f3da48dc`, and the
-tier-alias and pi-subagents rows, verified at `58fc65ce`, and the rows the provider-keyed gates added (the platform, the shipped Bedrock provider, the region requirement, both gates, the platform switches and llamacpp's attribution header), verified at `f93937dd`, and the Bedrock rows the one-provider build rewrote or added (the shipped Bedrock provider, its model list, the vendor, the makers, the built-in ids, `bedrock-bridge`, the region requirement, pi-subagents'), verified 2026-09-29 against the tree that shipped `packs/bedrock`'s model list. The prose
+tier-alias and pi-subagents rows, verified at `58fc65ce`, and the rows the provider-keyed gates added (the platform, the shipped Bedrock provider, the region requirement, both gates, the platform switches and llamacpp's attribution header), verified 2026-09-29 against the tree that shipped the platform switch, and the Bedrock rows the one-provider build rewrote or added (the shipped Bedrock provider, its model list, the vendor, the makers, the built-in ids, `bedrock-bridge`, the region requirement, pi-subagents'), verified 2026-09-29 against the tree that shipped `packs/bedrock`'s model list. The prose
 above explains what each is for; this table is the only place the exact spellings are stated.
 
 | Value | Setting | Defined in |
