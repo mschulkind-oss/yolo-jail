@@ -332,3 +332,36 @@ func TestHostCodexMenuFollowsTheLaunchsListAndLeadsThePacksFlags(t *testing.T) {
 		t.Errorf("the launch warned about an id the only dropped:\n%s", l.errs)
 	}
 }
+
+// THE CATALOG RUN GETS THE LAUNCH'S ENVIRONMENT (MM-D28 (2)): codex is asked for its catalog in
+// the environment the launch composed for codex itself — the pack's env and the child's PATH, the
+// floor's bin/ on it — not in yolo host's own, so a codex that needs either to start prints its
+// catalog here as it will run. The stub records what its catalog run saw.
+func TestHostCodexReadsItsCatalogInTheEnvironmentTheLaunchComposed(t *testing.T) {
+	home := hostGateHome(t, codexOnTheSubscription, nil)
+	// Absent from yolo host's own environment, so only the composed one can carry it.
+	t.Setenv("CODEX_NON_INTERACTIVE", "")
+	os.Unsetenv("CODEX_NON_INTERACTIVE")
+	seen := filepath.Join(home, "catalog.env")
+	writeFile(t, filepath.Join(home, "stub-bin", "codex"), "#!/bin/sh\nif [ \"$*\" = 'debug models --bundled' ]; then "+
+		"printf 'CODEX_NON_INTERACTIVE=%s\\nPATH=%s\\n' \"$CODEX_NON_INTERACTIVE\" \"$PATH\" > '"+seen+"'; "+
+		"cat '"+filepath.Join(home, "catalog.json")+"'; exit 0; fi\nexit 0\n")
+	if err := os.Chmod(filepath.Join(home, "stub-bin", "codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := runHostMenu(t, home, "", nil, nil, "exec")
+	if menuPathIn(l.argv) == "" {
+		t.Fatalf("no menu: codex got %q\n%s", l.argv, l.errs)
+	}
+	raw, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatalf("the catalog run recorded nothing: %v\n%s", err, l.errs)
+	}
+	got := string(raw)
+	if !strings.Contains(got, "CODEX_NON_INTERACTIVE=1\n") {
+		t.Errorf("the catalog run lacked the codex pack's env, so it ran in yolo host's own environment:\n%s", got)
+	}
+	if !strings.Contains(got, hostFloorBinDir()) {
+		t.Errorf("the catalog run's PATH lacks the floor's bin/ %s, the child's PATH:\n%s", hostFloorBinDir(), got)
+	}
+}

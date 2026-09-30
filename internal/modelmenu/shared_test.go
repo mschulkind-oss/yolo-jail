@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 
@@ -228,5 +229,43 @@ func TestHeldKeepsItsLockAcrossTheExec(t *testing.T) {
 	}
 	if err := h.Close(); err != nil {
 		t.Errorf("a second Close = %v, want nil", err)
+	}
+}
+
+// TWO FIRST LAUNCHES AT ONCE READ THE CATALOG ONCE (MM-D28 (6)): the decision lock is held across
+// the catalog run, so the second launch waits for the first and reuses the menu it wrote. The
+// same lock is what keeps a writer from collecting a menu between another launch's build and its
+// shared lock; this pins that the build takes it.
+func TestWriteInSerializesTwoFirstLaunchesOnTheDecisionLock(t *testing.T) {
+	f := newFixture(t, `{}`, catalog, 0)
+	slow := "#!/bin/bash\necho \"$*\" >> '" + f.runs + "'\nsleep 0.4\n" +
+		"cat '" + filepath.Join(f.home, "catalog.json") + "'\n"
+	if err := os.WriteFile(f.program, []byte(slow), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	var wg sync.WaitGroup
+	held := make([]*Held, 2)
+	errs := make([]bytes.Buffer, 2)
+	for i := range held {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			held[i] = f.request(ListEntry{ID: "gpt-6.1-sol"}).WriteIn(dir, &errs[i])
+		}()
+	}
+	wg.Wait()
+	for i, h := range held {
+		if h == nil {
+			t.Fatalf("launch %d: no menu:\n%s", i+1, errs[i].String())
+		}
+		defer h.Close()
+	}
+	if held[0].Path != held[1].Path {
+		t.Errorf("two launches of one list hold %s and %s, want one menu", held[0].Path, held[1].Path)
+	}
+	if n := f.runCount(t); n != 1 {
+		t.Errorf("two first launches at once ran the program %d times, want once: the second must wait "+
+			"on the decision lock and reuse the first's menu", n)
 	}
 }
