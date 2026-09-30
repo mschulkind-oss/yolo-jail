@@ -127,7 +127,14 @@ and Claude Code and codex skip it, since codex takes only OpenAI's models. With 
 pi selected, the AWS keys in your `env_sources` now reach only the agents whose profile selects a
 Bedrock provider, as they already did with Claude Code, so a shell or the `aws` command in the jail
 no longer sees them; on your host, `yolo host --with-credentials bedrock -- aws …` hands them to
-one command. A `bedrock-bridge` profile ships too, for sending an agent through the wire bridge
+one command. The `aws-auth` login now reaches agents run with `yolo host` too: with the loophole
+on, `yolo host -- pi` on a Bedrock profile, and claude, codex and opencode the same way, runs the
+credential helper for that one command on your machine's own network, gives it to that agent
+alone, and stops it when the agent exits, where before the host held it back and pi started with
+no API key. An `AWS_PROFILE` you already use still comes first, so an agent you already run on
+Bedrock with your own AWS settings keeps working, and a launch that also finds a Bedrock bearer,
+or an AWS key pair without `AWS_PROFILE`, in your shell stops and says why, as a jail launch does.
+With the loophole off, the launch says which setting turns it on. A `bedrock-bridge` profile ships too, for sending an agent through the wire bridge
 instead; the bridge cannot reach Bedrock by region alone yet, so today it runs Claude Code on its
 own login with a warning and refuses codex, opencode, pi and oh-omp. Copilot and oh-omp have no
 Bedrock route yet. See
@@ -211,6 +218,16 @@ jail existed, which nothing recorded before. See
 ### Changed
 
 - GPT-6.1 Sol replaces GPT-6 Sol for every agent on the ChatGPT subscription (`-p codex`): it is the default and the first entry in the model menus, and GPT-6 Sol is no longer listed. If you had picked GPT-6 Sol yourself, pick a model again.
+
+**The launch's profile line now says what your selection reached for each agent.** Instead of
+listing every selected pack as having received the profile, `Profile bedrock: …` names the packs
+that declare it and, for each agent you selected it for, the provider it resolved to and how that
+agent reaches it, such as `pi → provider "bedrock", through pi's own "aws-bedrock" client`. A
+warning follows when the profile configures nothing for an agent, as `-p bedrock` does for
+copilot, which has no Bedrock support of its own, and when no credential for the provider reaches
+the agent, naming the ones it looked for and the setting that would deliver one. The line reads
+the same in a jail and at `yolo host`. See
+[what the launch checks and prints](docs/reference/providers.md#what-the-launch-checks-and-prints).
 
 **yolo turns off Codex's background copy in the sessions it launches; a Codex you run yourself is
 untouched.** Since version 0.157, Codex starts a second copy of itself in the background and the
