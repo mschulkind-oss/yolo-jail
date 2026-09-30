@@ -3,14 +3,14 @@ title: "Emptying bundled_loopholes/ — the broker, the identity rule, and the p
 date: 2026-08-15
 status: in-review
 tags: [loopholes, packs, broker, claude, identity, binaries]
-summary: "How the Claude OAuth broker became a contribution of packs/claude and the bundled loophole channel was deleted (built 2026-08-19), the connection-preamble identity rule that replaced the per-jail relay, and the pack-shipped binary capability that was committed to the same sprint: its mechanism, a digest-pinned download cached with its exec bit, was built on 2026-09-30, and the release matrix that would feed it is not. Its two questions were settled on 2026-09-30, one as an implementation choice and one by an earlier ruling."
+summary: "How the Claude OAuth broker became a contribution of packs/claude and the bundled loophole channel was deleted (built 2026-08-19), the connection-preamble identity rule that replaced the per-jail relay, and the pack-shipped binary capability that was committed to the same sprint: its mechanism, a digest-pinned download cached with its exec bit, was built on 2026-09-30, and its release matrix is decided as a plan and not built: the four platforms yolo ships to, the tag's own GitHub release, and a reproducible build whose digest is committed before the tag. One question is open, what main pins between releases."
 ---
 
 # Emptying `bundled_loopholes/` — the broker, the identity rule, and the proving ground
 
-**Status:** DESIGN, 2026-09-24; no ruling owed since 2026-09-30, when [OQ-BP5](#OQ-BP5) was decided as an implementation choice ([BP-D1](#BP-D1)) and [OQ-BP6](#OQ-BP6) was found answered by [`OQ-TP9`](trust-paths.md#decision-ledger). **The broker move is built** (2026-08-19; measured that day, and [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) records what emptying the channel actually required), and **the pack-shipped-binary capability is built as a mechanism and not as a release** (2026-09-30, [BP-D1](#BP-D1) to [BP-D6](#BP-D6); [§3.1](#31-what-is-actually-unresolved-here)'s *Built* note says what): a loophole manifest declares a program's builds under `binaries`, `yolo pack install` fetches and verifies them, and the launch runs them from the cache. [OQ-BP1](#decision-ledger) committed the capability to the same sprint, and its **release matrix is still owed and unruled**, so it is left to a follow-up: which platforms yolo's own release builds for an official pack's binary, and how each build's digest reaches that pack's embedded manifest. No shipped manifest declares a binary yet (re-checked 2026-09-30). Both of its questions were about the capability. ⚠ **Both questions were written against a trust model that has since changed**: the fetched-pack approval prompt and every origin refusal were deleted on 2026-09-04 ([`OQ-TP9`](trust-paths.md#decision-ledger)), so [§3.1](#31-what-is-actually-unresolved-here)'s "two gates" and the `InstallerURL` precedent both questions lean on no longer exist in the tree — see the note under each.
+**Status:** DESIGN, 2026-09-30: one ruling owed, [OQ-BP7](#OQ-BP7). **The broker move is built** (2026-08-19; measured that day, and [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) records what emptying the channel actually required), and **the pack-shipped-binary capability is built as a mechanism and not as a release** (2026-09-30, [BP-D1](#BP-D1) to [BP-D6](#BP-D6); [§3.1](#31-what-is-actually-unresolved-here)'s *Built* note says what): a loophole manifest declares a program's builds under `binaries`, `yolo pack install` fetches and verifies them, and the launch runs them from the cache. The **release matrix** [OQ-BP1](#decision-ledger) put on the critical path is decided and not built ([§14](#14-the-release-matrix), [BP-D7](#BP-D7) to [BP-D9](#BP-D9)): which platforms yolo's own release builds for an official pack's binary, where it publishes them, and how each digest reaches the manifest embedded in the same release. No shipped manifest declares a binary yet (re-checked 2026-09-30), and a short-suite test now fails if one does before the release can build it. ⚠ **[OQ-BP5](#OQ-BP5) and [OQ-BP6](#OQ-BP6) were written against a trust model that has since changed**: the fetched-pack approval prompt and every origin refusal were deleted on 2026-09-04 ([`OQ-TP9`](trust-paths.md#decision-ledger)), so [§3.1](#31-what-is-actually-unresolved-here)'s "two gates" and the `InstallerURL` precedent both questions lean on no longer exist in the tree — see the note under each. Both were settled on 2026-09-30.
 
-**Needs your ruling:** nothing. [OQ-BP5](#OQ-BP5) and [OQ-BP6](#OQ-BP6), both on the binary capability, were settled on 2026-09-30.
+**Needs your ruling:** [OQ-BP7](#OQ-BP7), what main's tree pins for an official binary between two releases. It blocks one step of [§14.4](#144-the-plan-in-order)'s plan, the last.
 
 All five sequencing steps are in the tree and `bundled_loopholes/` is DELETED — the directory, its `embed.go`, `internal/loopholes/embedfallback.go`, and the `BundledLoopholesDir` / `SourceBundled` / `IncludeBundled` / `loadFromDir` vocabulary that read it. Step 5 landed as one commit: the manifest is now `packs/claude/loopholes/claude-oauth-broker/`, declared by `packs/claude/pack.json` as `{"kind": "loophole", "from": "loopholes/claude-oauth-broker"}` ([OQ-A10](../reference/loophole-system.md#why-its-this-way) — a contribution of the agent pack, not a pack of its own); `loopholes.ReservedLoopholeNames` is **deleted whole**, because the broker was the last name in it; `requires.command_on_path: "claude"` is deleted from the manifest (R3, free under R6); and `run.brokerLoopholeActive` gained the ORIGIN GATE it was allowed to skip only while the record was bundled. Three consequences worth carrying forward are in [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19). Code claims verified against the tree on 2026-08-15 unless dated otherwise.
 
@@ -22,7 +22,7 @@ All five sequencing steps are in the tree and `bundled_loopholes/` is DELETED �
 > 2. **`bundled_loopholes/` has no inhabitants at the end of this work sprint** ([OQ-BP4](#decision-ledger)) — the goal is the channel's retirement, not one fewer entry in it.
 > 3. **Every connection stays raw and yolo prepends its own connection preamble** — default on, `preamble: false` for a dumb pipe ([OQ-BP2](#decision-ledger), [§5.5](#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble)). yolo never parses a daemon's payload. Breaking changes are in scope.
 
-**All open questions that gate implementation are now answered.** The last two ([OQ-BP5](#OQ-BP5), [OQ-BP6](#OQ-BP6)) belonged to the binary capability, blocked nothing in [§12](#12-host-processes-as-the-proving-ground), and were settled on 2026-09-30.
+**One open question is left, and it gates one plan step.** [OQ-BP5](#OQ-BP5) and [OQ-BP6](#OQ-BP6) belonged to the binary capability, blocked nothing in [§12](#12-host-processes-as-the-proving-ground), and were settled on 2026-09-30. [OQ-BP7](#OQ-BP7) belongs to the release matrix and blocks only step 7 of [§14.4](#144-the-plan-in-order); steps 1 to 6 are the same under every answer.
 
 **Scope note.** That second ruling makes this doc one of three conversions rather than a self-contained change, and the other two are not designed here: `host-processes` needs the same `publishes` change with none of the relay complexity, and `audio` cannot become a pack at all until **[OQ-LP14](../reference/loophole-system.md#oq-lp14)** is answered. [§11](#11-what-no-bundled-loopholes-additionally-requires) states what each needs and what is genuinely blocking; the work belongs to the sprint, not to this document.
 
@@ -161,7 +161,8 @@ That also answers *when* the fetch happens: at **`pack install`**, never at laun
 > is not fetched keeps the loophole off, and the launch says to run `yolo pack install`. A real
 > podman jail running the mounted build is pinned by `TestAJailRunsAPackBinaryItDownloaded`
 > (`integration/packbinary_test.go`); a real ELF under nix-ld, and every backend but podman on
-> Linux, are not. The release matrix is not built: no shipped pack declares a binary yet.
+> Linux, are not. The release matrix that would build an official pack's binary is decided in
+> [§14](#14-the-release-matrix) and not built, and no shipped pack declares a binary yet.
 
 **Why the build step is a different question.** A build is arbitrary code execution, so it lands in the sharpest existing category rather than a new one, and the precedent is already in the schema: `packdecl.Install.InstallerURL` is *"a curl-piped installer … the sharpest thing a manifest can name: a URL whose contents run as a shell script"*, honored — when this was written — only under the origin rule: **a fetched pack could not introduce one**. ⚠ **That rule is gone**: [`OQ-TP9`](trust-paths.md#decision-ledger) deleted every origin refusal on 2026-09-04, and `packload.Pack.HonoredInstalls` now refuses nothing. The `InstallerURL` field's own doc comment in `packdecl.go` says the same: it is *"NOT gated on the pack's origin"*, and disclosure is what is left (checked 2026-09-25; this sentence used to say the comment still said otherwise). A build step is that, plus the loss of P4: builds are not bit-reproducible in general, so there is no digest to pin and no way to say what will run. My read is that B covers the real need and C should wait for a case B cannot serve. It is [OQ-BP5](#OQ-BP5) because the comment explicitly asks for it and because "both" is a coherent answer.
 
@@ -508,7 +509,7 @@ path"; what is added here is that step 5 cannot precede it either.
 | Deleting the relay loses the bounded-drain behaviour that makes a dial failure a clean EOF | It is not lost — `front.go`'s splice already distinguishes the case and marks `CrossingUnreachable`; the drain semantics must be **pinned by a test** before the relay is deleted, not after |
 | A fronted broker socket is reachable by something on the host that the host-only relay socket excluded | The socket path stays where it is (`/tmp`, host-only, 0600); the front is an additional listener, not a relocation |
 | The unexercised jail-binary path ([§3](#3-blocker-1-re-examined--the-jail-side-binary-is-already-expressible)) turns out to have a real defect once something uses it | Prove it with a throwaway pack shipping a two-line binary **before** committing to the broker move — it is the cheapest possible test of P1 |
-| `platforms` forces the pack to enumerate arches yolo's own release does not build | Now on the critical path, since the two ship together ([OQ-BP1](#decision-ledger)): the release process must produce the matrix the manifest declares, or `platforms` must narrow to what it actually builds. Declaring more than you build is the failure mode — it turns "unsupported here" into "supported, missing" |
+| `platforms` forces the pack to enumerate arches yolo's own release does not build | Now on the critical path, since the two ship together ([OQ-BP1](#decision-ledger)): the release process must produce the matrix the manifest declares, or `platforms` must narrow to what it actually builds. Declaring more than you build is the failure mode — it turns "unsupported here" into "supported, missing". [BP-D7](#BP-D7) makes an official binary's builds exactly the release's platforms that its `platforms` admits, read from the release's own config by a census test ([§14.4](#144-the-plan-in-order), step 2); until that test exists, `TestNoShippedManifestDeclaresABinaryYet` refuses any official `binaries` at all |
 | **Shipping both at once means the sprint fails together** — a stalled binary capability holds a finished broker move hostage | Keep them separable *in the tree* even though they land in one sprint: the broker's manifest works on a baked daemon, so the binary work can slip to a follow-up commit without reverting anything. The ruling is about the sprint's end state, not about coupling the commits |
 | A declared download turns `pack install` into a network-dependent step that can fail | Fetch at install only, never at launch ([§3.1](#31-what-is-actually-unresolved-here)), so a failure lands where the user is already waiting on the network — and a verified artifact is cached by digest, so a reinstall of the same pin is offline |
 | A digest mismatch is treated as a transient error and retried past | It is an **integrity failure**, not a fetch failure: refuse the install, name both digests, and do not fall back to the cached copy — the whole point of P4 is that the bytes are the pin |
@@ -543,7 +544,7 @@ What the experiment did NOT carry: a real ELF (the pack ships a `#!/bin/sh` prog
 
 **Sixth — and it landed FIRST, on 2026-08-18, because it is independent of all five:** gate `brokerEnsure` and `ensureBrokerRelay` on the loophole record ([OQ-A11](../reference/loophole-system.md#why-its-this-way)). Until then the singleton ran on every launch for every user with no lookup at all, while the jail was wired to it only when the loophole was Active. Doing it early matters for a reason the ruling names: after the move, a jail that does not select `packs: ["claude"]` has no broker in any surface, and yolo spawning the singleton anyway would be a daemon none of its own surfaces name.
 
-**And the binary capability ([§3.1](#31-what-is-actually-unresolved-here)) runs alongside, not after** — *its mechanism is built (2026-09-30, [BP-D1](#BP-D1) to [BP-D6](#BP-D6)); the release matrix below is the part still owed* — [OQ-BP1](#decision-ledger) was ruled *ship both at once*, overruling my "adopt it later". Its own order is unchanged: selection convention, then download-with-digest, then the two gates. What the ruling changes is that it must be *finished* in this sprint rather than queued behind a working broker, so its slowest piece — the release matrix producing per-platform artifacts — should start early rather than last. The one thing I would preserve from the rejected sequencing is **separability in the tree**: the broker's manifest is correct on a baked daemon, so the two can land as independent commits inside one sprint without either blocking the other's review.
+**And the binary capability ([§3.1](#31-what-is-actually-unresolved-here)) runs alongside, not after** — *its mechanism is built (2026-09-30, [BP-D1](#BP-D1) to [BP-D6](#BP-D6)); the release matrix is decided in [§14](#14-the-release-matrix) and not built* — [OQ-BP1](#decision-ledger) was ruled *ship both at once*, overruling my "adopt it later". Its own order is unchanged: selection convention, then download-with-digest, then the two gates. What the ruling changes is that it must be *finished* in this sprint rather than queued behind a working broker, so its slowest piece — the release matrix producing per-platform artifacts — should start early rather than last. The one thing I would preserve from the rejected sequencing is **separability in the tree**: the broker's manifest is correct on a baked daemon, so the two can land as independent commits inside one sprint without either blocking the other's review.
 
 ---
 
@@ -686,27 +687,216 @@ there had to be updated by hand or it would have been the only trace left.
 
 ---
 
+## 14. The release matrix
+
+The **release matrix** is what yolo's own release does for the binaries official packs declare:
+which platforms it builds each one for, where it publishes the files, and how each file's
+`sha256` gets into the manifest the same release embeds. [OQ-BP1](#decision-ledger) put it on the
+critical path, and it is the part of the binary capability that [BP-D1](#BP-D1) to
+[BP-D6](#BP-D6) left out.
+
+Each of its three parts has one answer once you look at what the release already does, so each
+is an implementation decision: [BP-D7](#BP-D7) (platforms), [BP-D8](#BP-D8) (publication) and
+[BP-D9](#BP-D9) (the digest). What main's tree pins between two releases is a call about what a
+build from source promises, filed as [OQ-BP7](#OQ-BP7).
+
+**Nothing here is built, and nothing has to be yet.** No official pack declares `binaries`
+(re-checked 2026-09-30), `TestNoShippedManifestDeclaresABinaryYet`
+([`releasematrix_test.go`](../../internal/loopholedecl/releasematrix_test.go)) fails the short
+suite the moment one does, and [§14.4](#144-the-plan-in-order) says what has to land with the
+first. The matrix covers programs yolo builds. An official pack that pins a program someone else
+releases declares that upstream's builds and narrows `platforms` to them, and none of this
+applies to it.
+
+### 14.1 What the release already fixes
+
+Verified 2026-09-30 at `f596a969`.
+
+| The release today | Where | What it settles |
+| :--- | :--- | :--- |
+| `yolo` is built for `linux` and `darwin`, each on `amd64` and `arm64`, with cgo off, on one `ubuntu-latest` runner. The PyPI wheels cover the same four pairs | [`.goreleaser.yaml`](../../.goreleaser.yaml) `builds`; `platformKeys` in [`build-wheels`](../../tools/build-wheels/main.go) | the host platforms |
+| The bundle cross-compiles the jail's binaries for `linux/amd64` and `linux/arm64` | [`stage-source-bundle.sh`](../../scripts/stage-source-bundle.sh) | the jail platforms |
+| goreleaser uploads each platform's archive and `checksums.txt` to the tag's GitHub release. An asset URL there redirects over https to `release-assets.githubusercontent.com` (measured with `curl -I` on v0.11.0's `checksums.txt`) | [`release.yml`](../../.github/workflows/release.yml), the `goreleaser` job | where the files go |
+| The Homebrew formula builds `yolo` from the tag's source tarball, and is pushed only after goreleaser succeeds | `release.yml`, the `update-homebrew` job | the digest has to be in the tagged tree |
+| goreleaser refuses to release from a dirty tree | `release.yml`, beside the notes extraction | nothing may rewrite a manifest at release time |
+| `just release` refuses a version whose changelog section [`changelog-section.sh`](../../scripts/changelog-section.sh) rejects, and both workflows run that script again | the `release` recipe in [`Justfile`](../../Justfile); both workflows | the shape of the gate |
+| PyPI publishes off the same tag push, gated only by that changelog check, and not ordered after `release.yml` | [`publish.yml`](../../.github/workflows/publish.yml) | a window, named below |
+| [`build-go.sh`](../../scripts/build-go.sh) stamps the version and the commit with `-X`, Go stamps VCS facts by default, and the release's Go is whatever `setup-go` reads from [`go.mod`](../../go.mod) (`go 1.26.0`, no `toolchain` line) | those files | why the build recipe is its own |
+
+### 14.2 What was measured
+
+On 2026-09-30, in this jail, with go1.26.7:
+
+- **The checkout's path and the build cache do not move the bytes.** `yolo-ps` and `yolo-serial`
+  were each built twice, once from the checkout and once from a `git archive` copy at another
+  path, with separate build caches, using `-trimpath -buildvcs=false`, cgo off and no `-ldflags`.
+  All eight pairs, over `linux/amd64`, `linux/arm64`, `darwin/amd64` and `darwin/arm64`, were
+  byte-identical. The `darwin/arm64` builds carry the ad-hoc code signature Go's linker writes
+  (an `LC_CODE_SIGNATURE` load command), inside those identical bytes.
+- **Go's default VCS stamp does move them.** With `-buildvcs` left at its default, the checkout's
+  build embeds `vcs.revision`, the commit, and the pair differs.
+- **The toolchain is in the bytes** (`go version -m` prints `go1.26.7`). Go's own distribution of
+  that version, fetched as the `golang.org/toolchain` module that `GOTOOLCHAIN` downloads, built
+  the same bytes as the jail's mise-installed `go1.26.7`, on `linux/amd64` and `darwin/arm64`.
+- **A manifest edit moves only a program that links the packs embed.** After an edit to an
+  embedded loophole manifest, `yolo-ps` built the same bytes and `yolo-jaild` did not. Today
+  `yolo`, `yolo-entrypoint` and `yolo-jaild` link the embed; `yolo-ps`, `yolo-serial`,
+  `yolo-journalctl` and `yolo-cglimit` do not.
+- **Unmeasured:** the same build on two machines, the maintainer's and a GitHub runner. The rebuild
+  the release runs before it uploads anything ([§14.4](#144-the-plan-in-order), step 5) is the
+  instrument. When it disagrees, the release is refused rather than published wrong.
+
+### 14.3 What the release builds, where it puts it, and how the digest gets in
+
+**Platforms** ([BP-D7](#BP-D7)). Each official binary has a build for exactly the platforms it
+runs on among those the release ships `yolo` to, no more and no fewer:
+
+- a `{binary:<name>}` reference gets one build for each `<goos>/<goarch>` of goreleaser's `yolo`
+  build that the loophole's `platforms` admits;
+- a `{jail_binary:<name>}` reference gets `linux/<arch>` for each architecture among those;
+- nothing gets a `darwin` jail build, which the macos-user guest would decline
+  ([BP-D6](#BP-D6)), or a build for a platform the release does not ship `yolo` to.
+
+The program is Go from this module, built with cgo off, from `cmd/<name>`, where `<name>` is its
+`binaries` key.
+
+**Publication** ([BP-D8](#BP-D8)). The files go on the tag's own GitHub release, beside the
+archives, one bare executable per build, each listed in `checksums.txt`:
+
+```text
+https://github.com/mschulkind-oss/yolo-jail/releases/download/v<version>/<name>_<version>_<goos>_<goarch>
+```
+
+Every release uploads every official build, whether its digest moved or not, so a version's
+manifests name files on that version's release and no other.
+
+**The digest** ([BP-D9](#BP-D9)). Each build's `url` and `sha256` are committed in the tree the
+tag names. The **pin tool** *(coined here: the one program that builds every official build,
+writes its `url` and `sha256` into the manifest, and checks them)* writes them before the tag.
+Three gates rebuild and compare: `just release` before the tag, the release's goreleaser run
+before it uploads, and `publish.yml` before PyPI. Every one of those builds uses one recipe:
+
+- **the toolchain**: Go's own distribution of one pinned version, fetched as the
+  `golang.org/toolchain` module, never whatever `go` is on the machine's PATH;
+- **the flags**: `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, `-mod=vendor`, and no
+  `-ldflags`, so nothing is stamped;
+- **the environment**: `GOENV=off`, no `GOFLAGS` and no `GOEXPERIMENT`, and each architecture
+  level at Go's default (`GOAMD64=v1`, `GOARM64=v8.0`), since a level changes the code the
+  compiler emits.
+
+A program whose imports reach the packs embed (`github.com/mschulkind-oss/yolo-jail/packs`) is
+refused, naming the import: it would carry its own digest, and no build of it could match.
+
+**What this costs:**
+
+- **An upgrade can leave a loophole off until `yolo pack install`.** A launch never fetches
+  ([BP-D5](#BP-D5)), so a release that moved a digest leaves that loophole inactive on every
+  upgraded machine, and the launch names the command. Because nothing is stamped, a digest
+  moves only when the program's own inputs do: its source, a package it imports, `vendor/`, or
+  the pinned toolchain.
+- **A refusal in CI spends the tag**, as a changelog refusal does. A tag is never moved, so the
+  fix is the next version.
+- **`just release` builds every official build**, and fetches the pinned toolchain the first
+  time (the `linux/amd64` module zip is 71.7 MB, measured).
+- **PyPI can be ahead of the files.** `publish.yml` runs beside `release.yml`, not after it, so
+  for the minutes between PyPI publishing and goreleaser uploading, a pip-installed `yolo` of that
+  version fails `yolo pack install` on a missing file, and succeeds when run again afterwards.
+  Ordering PyPI after the release, through `workflow_run` as
+  [`tap-install.yml`](../../.github/workflows/tap-install.yml) waits for it, would close the
+  window; this plan leaves it open.
+
+### 14.4 The plan, in order
+
+Steps 1 to 6 land together, in the change that adds the first official `binaries` entry or
+before it. Landed before it, they run over no binaries, so the pin tool's own tests carry a
+fixture manifest. Step 7 waits on [OQ-BP7](#OQ-BP7).
+
+1. **The pin tool**, a Go program under `tools/`, named by its builder. For every loophole
+   manifest in the packs embed that declares `binaries`, it derives each binary's platforms
+   ([BP-D7](#BP-D7)) and builds each one from `./cmd/<name>` with
+   [§14.3](#143-what-the-release-builds-where-it-puts-it-and-how-the-digest-gets-in)'s recipe.
+   The toolchain version is one constant in the tool, at or above `go.mod`'s `go` line, fetched
+   through the module proxy and checked against the checksum database as `GOTOOLCHAIN` does, so
+   moving it is a commit that re-pins every build. Three verbs:
+
+   - `pin <version>` writes each build's `url` (in [BP-D8](#BP-D8)'s form, for `<version>`) and
+     `sha256` into the manifest, editing those two string values in place so the file's comments
+     survive;
+   - `check <version>` builds and compares, writes nothing, and refuses on every disagreement it
+     finds: a digest (naming the binary, the platform and both digests), a URL that does not name
+     `<version>`, a platform outside [BP-D7](#BP-D7)'s set or missing from it, a program that
+     links the packs embed, and a `binaries` key with no `cmd/<name>`;
+   - `stage <version> <dir>` runs `check`, then writes each verified build into `<dir>` under its
+     file name from [BP-D8](#BP-D8).
+
+2. **The census test**, in the short suite, over the same manifests, rebuilding nothing: each
+   binary's platforms are exactly [BP-D7](#BP-D7)'s set, read from `.goreleaser.yaml` rather
+   than copied; each `url` has [BP-D8](#BP-D8)'s form; each program is at `cmd/<name>` and does
+   not link the packs embed. It replaces `TestNoShippedManifestDeclaresABinaryYet`.
+3. **The program's place in the tree.** Each `cmd/<name>` joins `shipSetExemptCmds` in
+   [`shippedclients_test.go`](../../internal/entrypoint/shippedclients_test.go), beside
+   `goprobe`, because it is downloaded and never mounted, and gets the root `.gitignore` line
+   `rootbinaryignore_test.go` requires of every `cmd/` directory. The flake's source build and
+   the bundle's cross-compile both compile every `cmd/` directory and copy only the shipped set
+   into the prefix, so the program costs each of them one more compile and reaches no jail that
+   way.
+4. **Two recipes.** `just pin-pack-binaries <version>` runs `pin`, and `just release` runs
+   `check <version>` after its changelog gate, refusing with "Nothing has been tagged." A
+   release then goes: rename the changelog section, pin, commit both, `just release`.
+5. **`release.yml`.** A goreleaser before-hook runs `stage <version>` into a git-ignored
+   directory outside `dist/`, which goreleaser empties after the hooks (the reason the bundle
+   stages under `bundle/`). goreleaser uploads what it staged as extra release files and lists
+   them in `checksums.txt`. A refusal fails the hook, so nothing is published, and the Homebrew
+   job, which needs goreleaser's success, does not run.
+6. **`publish.yml`.** Its `release-notes` gate runs `check <version>` too, so PyPI never ships a
+   `yolo` whose pins the release refused.
+7. **What main pins between releases**, blocked on [OQ-BP7](#OQ-BP7):
+
+   - **A** adds nothing.
+   - **B** adds a digest-only `check` to `just check-ci`, in which a URL may name any earlier
+     release, and a seeding step to `just install` and to the integration harness: build this
+     machine's builds with the recipe and, where a digest equals the pin, admit the file to the
+     cache through `internal/packbin`'s verified rename, saying which builds it seeded.
+   - **C** adds B's steps, and a job on every push to main that uploads each new build to a
+     standing prerelease under a name carrying its digest.
+
+**What done looks like**, checkable by a person:
+
+- a release of a tree carrying one official binary shows one bare file per build beside the
+  archives, each in `checksums.txt`, each matching the manifest the tag holds;
+- a Homebrew-installed and a pip-installed `yolo` of that version fetch the same bytes on
+  `yolo pack install`;
+- editing the program after pinning makes `just release` refuse before tagging, naming the
+  binary, the platform and both digests;
+- declaring a platform outside the matrix fails `just check-ci`.
+
+---
+
 ## Decision Ledger
 
-All six are settled: four in the body sections named below, and the last two on 2026-09-30, in
-**Open Questions** underneath. Three of the first four are built; [OQ-BP1](#decision-ledger) is
-built for the broker move, and its binary half is built as a mechanism without its release
-matrix (see the warning below the table). [BP-D1](#BP-D1) to [BP-D6](#BP-D6) are implementation
-decisions, not rulings; BP-D2 to BP-D6 were made while building BP-D1 on 2026-09-30.
+Four rulings are settled in the body sections named below, and [OQ-BP5](#OQ-BP5) (as
+[BP-D1](#BP-D1)) and [OQ-BP6](#OQ-BP6) on 2026-09-30, in **Open Questions** underneath, where
+[OQ-BP7](#OQ-BP7) is still open. [BP-D1](#BP-D1) to [BP-D9](#BP-D9) are implementation decisions,
+not rulings: BP-D2 to BP-D6 were made while building BP-D1 on 2026-09-30, and BP-D7 to BP-D9
+settle the release matrix the same day, unbuilt ([§14](#14-the-release-matrix)). The `Built`
+column was read from the tree on 2026-09-30.
 
-| ID | Ruling / Decision | Date | Settled in |
-| :--- | :--- | :--- | :--- |
-| OQ-BP1 | Broker move and the pack-shipped binary capability ship **together**, as separate commits inside one sprint — overruling my "baked daemon first". Puts the release matrix on the critical path | 2026-08-15 | [§3.1](#31-what-is-actually-unresolved-here), [§9](#9-risks), [§10](#10-sequencing) |
-| OQ-BP2 | Every connection stays **raw** and yolo prepends its own connection preamble (`preamble: false` for a dumb pipe). yolo never parses a daemon's payload; the host-derived `jail=` lives in yolo's own connection record | 2026-08-15 | [§5.5](#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble) |
-| OQ-BP3 | Superseded by [OQ-BP4](#decision-ledger) — LP14 is a dependency of the **sprint**, not of this loophole | 2026-08-15 | [§11](#11-what-no-bundled-loopholes-additionally-requires) |
-| OQ-BP4 | **No inhabitants at sprint end** — retire the channel rather than shrink it. Done 2026-08-19: directory, embed and every reader deleted | 2026-08-15 | [§11](#11-what-no-bundled-loopholes-additionally-requires), [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) |
-| <a id="BP-D1"></a>BP-D1 | *Implementation decision*, under [OQ-BP1](#decision-ledger). **A pack ships a binary as a declared download with a mandatory `sha256` (option B), and declares no build step.** yolo fetches it when the pack is installed, as [§3.1](#31-what-is-actually-unresolved-here) says, verifies the digest, and caches the file by digest under its state tree with the exec bit set, which also carries an executable for an embedded pack, whose `embed.FS` files read back `0444`. **Why:** the maintainer asked for per-arch selection and, ideally, dynamic download ([§3.1](#31-what-is-actually-unresolved-here)), which B is, and no pack needs a build. The digest is kept as integrity and reproducibility, the same bytes on every machine and the cache's key, not as a trust gate: [`OQ-TP9`](trust-paths.md#decision-ledger) deleted every origin gate, so the leaning's "origin-gated exactly as `InstallerURL` is" is dropped. If a pack later needs a built binary, it takes the source-build route [`forked-programs-as-packs.md`](forked-programs-as-packs.md) designs for programs, built in a throwaway capture jail, rather than a second build path here. Reversible: a build step can be added through that route without changing B ([OQ-BP5](#OQ-BP5)) | 2026-09-30 | [OQ-BP5](#OQ-BP5) |
-| <a id="BP-D2"></a>BP-D2 | *Implementation decision*, under [BP-D1](#BP-D1). **The download is declared in the LOOPHOLE manifest, as `binaries`, and named by two tokens: `{binary:<name>}` in `host_daemon.cmd` and `doctor_cmd`, `{jail_binary:<name>}` in `jail_daemon.cmd`.** Each token is refused in the other half and in every other field, must name a declared binary, and every declared binary must be named by one. **Why:** the argv that runs the program is in that manifest, so the leaf decoder can refuse a reference to nothing and a download nothing runs, and [§8](#8-non-goals--what-this-does-not-license) already scopes the download to "one verified file per platform per loophole". Two tokens for the module dir's reason (one token with two resolutions), and more so here, because host and jail differ in platform as well as in path. Reversible: a `pack.json` declaration can be added beside it if a binary is ever wanted outside a loophole | 2026-09-30 | [§3.1](#31-what-is-actually-unresolved-here) |
-| <a id="BP-D3"></a>BP-D3 | *Implementation decision*, under [BP-D1](#BP-D1). **Each reference takes the build for where it runs: this machine's `<goos>/<goarch>` for `{binary:}`, `linux/<goarch>` for `{jail_binary:}`. A build's platform key names both halves.** A binary with no build for where it runs makes the loophole unsupported on the **platform** axis, saying nothing can be installed, as [§3.1](#31-what-is-actually-unresolved-here)'s selection paragraph asks. **Why:** a compiled file runs on one architecture, and the jail image is Linux on this machine's architecture whatever the host OS is (`internal/cli/run/jailprefix.go` applies the same rule to yolo's own binaries) | 2026-09-30 | [§3.1](#31-what-is-actually-unresolved-here) |
-| <a id="BP-D4"></a>BP-D4 | *Implementation decision*, under [BP-D1](#BP-D1). **The cache is `~/.local/share/yolo-jail/pack-binaries/<sha256>/<name>`, each file mode `0555` and admitted only by renaming a verified download into place. A jail receives each build as ONE read-only file bind at `/etc/yolo-jail/loophole-binaries/<loophole>/<name>`.** A download must be https, redirects included (Go's client follows one to plain http unless told not to), carry no credentials in its URL, and stop at 512 MiB; a mismatch names both digests and caches nothing. **Why:** keyed by digest as BP-D1 says, with the declared name kept so a program reading its own argv[0] sees it; outside `cache/` and every jail mount because a host daemon's build runs from there with the user's authority (`paths.HostFloorDir`'s rule); a file bind, not the directory, so a jail sees only what its daemon runs; a root of its own because a file mount inside the module dir's read-only bind has no mountpoint to land on. The size bound exists because the digest can be checked only after the last byte | 2026-09-30 | [§3.1](#31-what-is-actually-unresolved-here), [§9](#9-risks) |
-| <a id="BP-D5"></a>BP-D5 | *Implementation decision*, under [BP-D1](#BP-D1). **`yolo pack install` is the only fetch** (and `yolo pack update`, which runs it). It walks every selected pack, embedded ones included, and fetches each build this machine needs whatever the loophole's switch says; a loophole whose `platforms` leaves this machine out needs none, and install says so. A launch never fetches: a build not in the cache keeps the loophole inactive, and the launch's inert report, `yolo loopholes list` and `yolo check` name `yolo pack install`. A reinstall re-hashes the cached copy and fetches again when it no longer matches, never using it. **Why:** [§3.1](#31-what-is-actually-unresolved-here) ("at `pack install`, never at launch") and [§9](#9-risks)'s offline argument; an embedded pack is the case BP-D1 exists for and has no fetch step of its own, so install has to cover it. The cost, named: a pack newly selected, or a fetched pack a launch fetched for the first time, runs its loophole only after `yolo pack install`, where every other part of such a pack arrives with the launch. Reversible | 2026-09-30 | [§3.1](#31-what-is-actually-unresolved-here), [§9](#9-risks) |
-| <a id="BP-D6"></a>BP-D6 | *Implementation decision*, under [BP-D1](#BP-D1). **Where a build cannot run, the part that would run it says so instead:** the macos-user guest declines a jail daemon whose argv names a jail binary's container path, as it declines `{jail_loophole_dir}` ([`OQ-DP8`](declaration-parity.md#OQ-DP8) leaves the argv as declared), while a host binary runs there; a `doctor_cmd` whose build is missing reports "not run" with the reason; inside a jail, a jail build counts once the outer launch mounted it, a nested launch binds that mounted copy on when its own cache lacks the build, and a host build is the host's business, as `requires` is answered there, in what the jail reports; a nested launch, which runs its host daemons in the jail from the jail's own cache, starts none whose build that cache lacks and says so, as the doctor does. Apple Container needs nothing new: every pack loophole is inert there already. **Why:** each is the existing rule for the thing next to it, applied to the new path, so no surface runs an argv naming a file it does not have | 2026-09-30 | [§3.1](#31-what-is-actually-unresolved-here) |
-| OQ-BP6 | **Yes: a fetched pack may ship a host-side daemon binary, honored and disclosed like its `host_daemon.cmd`, with no approval and no origin refusal.** Answered by [`OQ-TP9`](trust-paths.md#decision-ledger) (2026-09-04), which deleted the fetched-pack approval prompt and every origin refusal and kept the launch's disclosure. The maintainer's words in that review: *"they're all just as weak. anything can be an installer. we're ultimately extending trust somewhere."* A binary is no sharper than the arbitrary host argv `host_daemon.cmd` already names, and refusing it would be the only origin refusal in the tree | 2026-09-30 | [OQ-BP6](#OQ-BP6) |
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| OQ-BP1 | Broker move and the pack-shipped binary capability ship **together**, as separate commits inside one sprint — overruling my "baked daemon first". Puts the release matrix on the critical path | 2026-08-15 | [§3.1](#31-what-is-actually-unresolved-here), [§9](#9-risks), [§10](#10-sequencing) | Partly: the broker move and the binary mechanism are; the release matrix ([BP-D7](#BP-D7) to [BP-D9](#BP-D9)) is not |
+| OQ-BP2 | Every connection stays **raw** and yolo prepends its own connection preamble (`preamble: false` for a dumb pipe). yolo never parses a daemon's payload; the host-derived `jail=` lives in yolo's own connection record | 2026-08-15 | [§5.5](#55-ruled--every-connection-is-raw-yolo-prepends-a-connection-preamble) | ✅ |
+| OQ-BP3 | Superseded by [OQ-BP4](#decision-ledger) — LP14 is a dependency of the **sprint**, not of this loophole | 2026-08-15 | [§11](#11-what-no-bundled-loopholes-additionally-requires) | Superseded; nothing to build |
+| OQ-BP4 | **No inhabitants at sprint end** — retire the channel rather than shrink it. Done 2026-08-19: directory, embed and every reader deleted | 2026-08-15 | [§11](#11-what-no-bundled-loopholes-additionally-requires), [§13](#13-what-empty-the-channel-actually-required--measured-2026-08-19) | ✅ |
+| <a id="BP-D1"></a>BP-D1 | *Implementation decision*, under [OQ-BP1](#decision-ledger). **A pack ships a binary as a declared download with a mandatory `sha256` (option B), and declares no build step.** yolo fetches it when the pack is installed, as [§3.1](#31-what-is-actually-unresolved-here) says, verifies the digest, and caches the file by digest under its state tree with the exec bit set, which also carries an executable for an embedded pack, whose `embed.FS` files read back `0444`. **Why:** the maintainer asked for per-arch selection and, ideally, dynamic download ([§3.1](#31-what-is-actually-unresolved-here)), which B is, and no pack needs a build. The digest is kept as integrity and reproducibility, the same bytes on every machine and the cache's key, not as a trust gate: [`OQ-TP9`](trust-paths.md#decision-ledger) deleted every origin gate, so the leaning's "origin-gated exactly as `InstallerURL` is" is dropped. If a pack later needs a built binary, it takes the source-build route [`forked-programs-as-packs.md`](forked-programs-as-packs.md) designs for programs, built in a throwaway capture jail, rather than a second build path here. Reversible: a build step can be added through that route without changing B ([OQ-BP5](#OQ-BP5)) | 2026-09-30 | [OQ-BP5](#OQ-BP5) | ✅ |
+| <a id="BP-D2"></a>BP-D2 | *Implementation decision*, under [BP-D1](#BP-D1). **The download is declared in the LOOPHOLE manifest, as `binaries`, and named by two tokens: `{binary:<name>}` in `host_daemon.cmd` and `doctor_cmd`, `{jail_binary:<name>}` in `jail_daemon.cmd`.** Each token is refused in the other half and in every other field, must name a declared binary, and every declared binary must be named by one. **Why:** the argv that runs the program is in that manifest, so the leaf decoder can refuse a reference to nothing and a download nothing runs, and [§8](#8-non-goals--what-this-does-not-license) already scopes the download to "one verified file per platform per loophole". Two tokens for the module dir's reason (one token with two resolutions), and more so here, because host and jail differ in platform as well as in path. Reversible: a `pack.json` declaration can be added beside it if a binary is ever wanted outside a loophole | 2026-09-30 | [§3.1](#31-what-is-actually-unresolved-here) | ✅ |
+| <a id="BP-D3"></a>BP-D3 | *Implementation decision*, under [BP-D1](#BP-D1). **Each reference takes the build for where it runs: this machine's `<goos>/<goarch>` for `{binary:}`, `linux/<goarch>` for `{jail_binary:}`. A build's platform key names both halves.** A binary with no build for where it runs makes the loophole unsupported on the **platform** axis, saying nothing can be installed, as [§3.1](#31-what-is-actually-unresolved-here)'s selection paragraph asks. **Why:** a compiled file runs on one architecture, and the jail image is Linux on this machine's architecture whatever the host OS is (`internal/cli/run/jailprefix.go` applies the same rule to yolo's own binaries) | 2026-09-30 | [§3.1](#31-what-is-actually-unresolved-here) | ✅ |
+| <a id="BP-D4"></a>BP-D4 | *Implementation decision*, under [BP-D1](#BP-D1). **The cache is `~/.local/share/yolo-jail/pack-binaries/<sha256>/<name>`, each file mode `0555` and admitted only by renaming a verified download into place. A jail receives each build as ONE read-only file bind at `/etc/yolo-jail/loophole-binaries/<loophole>/<name>`.** A download must be https, redirects included (Go's client follows one to plain http unless told not to), carry no credentials in its URL, and stop at 512 MiB; a mismatch names both digests and caches nothing. **Why:** keyed by digest as BP-D1 says, with the declared name kept so a program reading its own argv[0] sees it; outside `cache/` and every jail mount because a host daemon's build runs from there with the user's authority (`paths.HostFloorDir`'s rule); a file bind, not the directory, so a jail sees only what its daemon runs; a root of its own because a file mount inside the module dir's read-only bind has no mountpoint to land on. The size bound exists because the digest can be checked only after the last byte | 2026-09-30 | [§3.1](#31-what-is-actually-unresolved-here), [§9](#9-risks) | ✅ |
+| <a id="BP-D5"></a>BP-D5 | *Implementation decision*, under [BP-D1](#BP-D1). **`yolo pack install` is the only fetch** (and `yolo pack update`, which runs it). It walks every selected pack, embedded ones included, and fetches each build this machine needs whatever the loophole's switch says; a loophole whose `platforms` leaves this machine out needs none, and install says so. A launch never fetches: a build not in the cache keeps the loophole inactive, and the launch's inert report, `yolo loopholes list` and `yolo check` name `yolo pack install`. A reinstall re-hashes the cached copy and fetches again when it no longer matches, never using it. **Why:** [§3.1](#31-what-is-actually-unresolved-here) ("at `pack install`, never at launch") and [§9](#9-risks)'s offline argument; an embedded pack is the case BP-D1 exists for and has no fetch step of its own, so install has to cover it. The cost, named: a pack newly selected, or a fetched pack a launch fetched for the first time, runs its loophole only after `yolo pack install`, where every other part of such a pack arrives with the launch. Reversible | 2026-09-30 | [§3.1](#31-what-is-actually-unresolved-here), [§9](#9-risks) | ✅ |
+| <a id="BP-D6"></a>BP-D6 | *Implementation decision*, under [BP-D1](#BP-D1). **Where a build cannot run, the part that would run it says so instead:** the macos-user guest declines a jail daemon whose argv names a jail binary's container path, as it declines `{jail_loophole_dir}` ([`OQ-DP8`](declaration-parity.md#OQ-DP8) leaves the argv as declared), while a host binary runs there; a `doctor_cmd` whose build is missing reports "not run" with the reason; inside a jail, a jail build counts once the outer launch mounted it, a nested launch binds that mounted copy on when its own cache lacks the build, and a host build is the host's business, as `requires` is answered there, in what the jail reports; a nested launch, which runs its host daemons in the jail from the jail's own cache, starts none whose build that cache lacks and says so, as the doctor does. Apple Container needs nothing new: every pack loophole is inert there already. **Why:** each is the existing rule for the thing next to it, applied to the new path, so no surface runs an argv naming a file it does not have | 2026-09-30 | [§3.1](#31-what-is-actually-unresolved-here) | ✅ |
+| OQ-BP6 | **Yes: a fetched pack may ship a host-side daemon binary, honored and disclosed like its `host_daemon.cmd`, with no approval and no origin refusal.** Answered by [`OQ-TP9`](trust-paths.md#decision-ledger) (2026-09-04), which deleted the fetched-pack approval prompt and every origin refusal and kept the launch's disclosure. The maintainer's words in that review: *"they're all just as weak. anything can be an installer. we're ultimately extending trust somewhere."* A binary is no sharper than the arbitrary host argv `host_daemon.cmd` already names, and refusing it would be the only origin refusal in the tree | 2026-09-30 | [OQ-BP6](#OQ-BP6) | ✅ Adds no code |
+| <a id="BP-D7"></a>BP-D7 | *Implementation decision*, under [OQ-BP1](#decision-ledger). **An official binary has a build for exactly the platforms it runs on among those the release ships `yolo` to:** a host reference gets one for each `<goos>/<goarch>` of goreleaser's `yolo` build that its loophole's `platforms` admits (`linux` and `darwin`, each on `amd64` and `arm64`, today), a jail reference gets `linux/<arch>` for each of those architectures, and nothing gets a `darwin` jail build. The program is Go from this module, cgo off, at `cmd/<name>` for the `binaries` key `<name>`. **Why:** a host build runs where the host `yolo` runs, and those four platforms are the only ones any channel ships `yolo` to (the archives, the wheels, the source-built formula), so one more would be fetched by nobody and one fewer would leave an official loophole unsupported where yolo itself works. The jail is Linux on the machine's architecture ([BP-D3](#BP-D3)), the pair the bundle already builds, and the macos-user guest declines the jail token ([BP-D6](#BP-D6)). *Exactly* makes [§9](#9-risks)'s failure mode unrepresentable, and reading the set from `.goreleaser.yaml` makes a platform the release drops fail the census instead of leaving a stale build. Pure Go because the release cross-compiles every platform on one Linux runner, where cgo for `darwin` cannot build; a program that needs more takes [BP-D1](#BP-D1)'s source-build route or an upstream's own release. `cmd/<name>` because every binary the release builds is named for its `cmd/` directory, and `build-go.sh` already builds a named subset. Reversible | 2026-09-30 | [§14.3](#143-what-the-release-builds-where-it-puts-it-and-how-the-digest-gets-in) | — |
+| <a id="BP-D8"></a>BP-D8 | *Implementation decision*, under [OQ-BP1](#decision-ledger). **Each official build is published on the tag's own GitHub release as a bare executable named `<name>_<version>_<goos>_<goarch>`, at `https://github.com/mschulkind-oss/yolo-jail/releases/download/v<version>/<file>`, and listed in `checksums.txt`. Every release uploads every official build, moved or not.** **Why:** the tag's release is the one place the release already publishes plain files over https, which is all `yolo pack install` reads; GHCR holds OCI images and Cachix holds nix store paths. Bare, because `internal/packbin` caches the bytes it downloads as the program and has no unpack step. The name follows the archives' `yolo-jail_<version>_<os>_<arch>`. Uploading an unchanged build again keeps each version self-contained, so a release deleted later breaks only its own installs. The asset URL redirects over https (measured, [§14.1](#141-what-the-release-already-fixes)), which [BP-D4](#BP-D4)'s redirect rule requires, and an asset re-uploaded under the same URL is refused by its digest (P4, [§3.1](#31-what-is-actually-unresolved-here)). Reversible | 2026-09-30 | [§14.3](#143-what-the-release-builds-where-it-puts-it-and-how-the-digest-gets-in) | — |
+| <a id="BP-D9"></a>BP-D9 | *Implementation decision*, under [OQ-BP1](#decision-ledger). **Each build's `url` and `sha256` are committed in the tagged tree, written before the tag by the pin tool, and checked by rebuilding at `just release`, in the release's goreleaser run before it uploads, and in `publish.yml`'s gate. Every build uses one recipe: Go's own distribution of one pinned version, cgo off, `-trimpath -buildvcs=false -mod=vendor`, no `-ldflags`, `GOENV=off` and Go's default architecture levels. A program that links the packs embed is refused.** **Why:** the Homebrew formula builds `yolo` from the tag's source tarball, so the manifest a Homebrew `yolo` embeds is the tag's, and goreleaser refuses a dirty tree, so digests written at release time would give the archives and Homebrew different manifests. The digest has to be in the tagged tree, so the bytes have to be known before the tag, which a reproducible build of that tree gives ([§14.2](#142-what-was-measured)). Each recipe item removes one cause of drift: the VCS stamp and a commit stamp embed the commit that holds the digest, so no build could match; a version stamp would move every digest on every release, and so turn every upgraded machine's loophole off until `yolo pack install`; the toolchain's version is in the bytes, and nothing ties the maintainer's Go to the runner's; an architecture level changes the code emitted. A program that links the packs embed carries its own digest. The three gates are the changelog gate's shape: the same check refuses locally before the tag and again in CI. Rejected: pinning the build an earlier release published, which ships every change to the program one release late, and needs a release with nothing to pin before the first. Reversible | 2026-09-30 | [§14.3](#143-what-the-release-builds-where-it-puts-it-and-how-the-digest-gets-in) | — |
 
 > [!WARNING]
 > **[OQ-BP3](#decision-ledger) is superseded, not wrong, and it comes back if the goal shrinks.** The *broker* needs
@@ -719,19 +909,20 @@ decisions, not rulings; BP-D2 to BP-D6 were made while building BP-D1 on 2026-09
 > sprint as the move; what actually shipped on 2026-08-19 was the move, on baked daemons, which
 > [§3.1](#31-what-is-actually-unresolved-here)'s design explicitly permits for an official pack. The mechanism followed on 2026-09-30
 > ([BP-D1](#BP-D1) to [BP-D6](#BP-D6)). The release matrix that [OQ-BP1](#decision-ledger) put on the
-> critical path is still owed, and nothing here rules it: which platforms yolo's own release builds
-> for an official pack's binary, where the builds are published, and how each digest reaches the
-> manifest embedded in the same release. A `binaries` entry declaring more builds than the release
-> produces is this ruling's named failure mode ([§9](#9-risks)): `yolo pack install` then fails on the
-> missing asset instead of the loophole reading as unsupported.
+> critical path is decided ([BP-D7](#BP-D7) to [BP-D9](#BP-D9)) and not built, so no official pack
+> can ship a binary yet. A `binaries` entry declaring builds the release does not produce is this
+> ruling's named failure mode ([§9](#9-risks)): `yolo pack install` then fails on the missing file
+> instead of the loophole reading as unsupported. `TestNoShippedManifestDeclaresABinaryYet` refuses
+> any official `binaries` entry until [§14.4](#144-the-plan-in-order)'s census test replaces it.
 
 ---
 
 ## Open Questions
 
-Both belong to the **pack-shipped binary capability** ([§3.1](#31-what-is-actually-unresolved-here)), not to the broker: the broker shipped
-on a baked daemon, which an official pack may do. Neither blocks anything in the tree today; both
-block the first pack that wants to ship a binary of its own.
+All three belong to the **pack-shipped binary capability** ([§3.1](#31-what-is-actually-unresolved-here)), not to the broker: the broker shipped
+on a baked daemon, which an official pack may do. The first two are settled. [OQ-BP7](#OQ-BP7), on
+its release matrix ([§14](#14-the-release-matrix)), is open, and blocks one step of that plan and
+nothing in the tree.
 
 1. ✅ <a id="OQ-BP5"></a>**[OQ-BP5](#OQ-BP5) — download-with-digest only, or also a declared build step?**
 
@@ -765,3 +956,43 @@ block the first pack that wants to ship a binary of its own.
    > daemon spawns and `yolo pack footprint` shows the claim. The 2026-09-29 ruling
    > [OQ-HP5](host-tool-provisioning.md#OQ-HP5) says the same of installs (*"You've acknowledged
    > this already. We don't have to ask again"*). No new refusal source is added for a binary.
+
+3. 💬 <a id="OQ-BP7"></a>**[OQ-BP7](#OQ-BP7) — between two releases, does main pin the last release's build of an official binary, or its own?**
+
+   Say `packs/claude`'s in-jail terminator becomes a downloaded program, `cmd/oauth-terminator`,
+   pinned by v0.12.0. On main you change how it talks to the host broker, both halves in one
+   commit, run `just install`, and start a jail. Everything else in that jail comes from your tree:
+   the bundle's binaries are cross-compiled from it, and a launch refuses a host `yolo` built from
+   an older tree than the flake it mounts ([`srcskew.go`](../../internal/version/srcskew.go)). The
+   terminator would not come from your tree. If pins move only when a release is cut, the manifest
+   your `yolo` embeds still names v0.12.0's build, and the jail runs the old terminator against the
+   new broker. This decides what a build from source promises about an official binary, and it
+   blocks step 7 of [§14.4](#144-the-plan-in-order) and nothing else.
+
+   - **A — The last release's build.** Pins move only at `just release`, and nothing is added
+     between releases. Every build of main installs, but a from-source jail runs the last released
+     program until the next release, and a change to it can be tried only through a pack configured
+     by path. It allows, for these programs alone, the skew `SourceSkew` refuses for every other
+     binary yolo puts in a jail.
+   - **B — The tree's own build, checked on every change.** `just check-ci` rebuilds every official
+     build and refuses a digest the tree no longer reproduces, naming the pin command. `just install`
+     builds the same bytes and seeds the cache with them, so a from-source jail runs the tree's
+     program with no download. The URLs still name the last release until `just release`, so any
+     other build of main fails `yolo pack install` for a changed program, with the integrity error
+     naming both digests. Cost: a pin commit for every change that reaches a program's imports (its
+     source, an internal package it uses, a vendor bump, the toolchain constant), and `just check-ci`
+     cross-compiling every official build.
+   - **C — The tree's own build, published on every push.** B, plus a CI job that uploads each new
+     build to a standing prerelease under a name carrying its digest, so every build of main
+     installs. Cost: a second publication channel, carrying programs no release vouched for, written
+     by CI on every push to main.
+
+   <!-- vantage: oq id=OQ-BP7 leaning="B: main pins its own build, kept current by a check-ci rebuild and seeded into the cache by just install, so a from-source jail runs the tree's program as it runs every other binary yolo puts in a jail, and nothing is published outside a release." -->
+
+   _Leaning:_ **B.** It keeps the rule that a build from source runs the tree, which `SourceSkew`
+   enforces for every other binary yolo puts in a jail, and it keeps publication at the release. A
+   lets the one kind of program that shares a contract with the tree's host `yolo` lag it with
+   nothing saying so; C publishes code no release vouched for.
+
+   **Answer:**
+   > _(empty — fill in when decided)_

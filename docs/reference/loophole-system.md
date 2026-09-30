@@ -433,6 +433,13 @@ file carries the exec bit the pack's tree could not. The `macos-user` guest decl
 daemon whose argv names a jail binary, as it declines `{jail_loophole_dir}`: that path exists
 only in a container. A host binary runs there as it does anywhere.
 
+**No pack yolo ships declares `binaries` yet**, because yolo's own release does not build one:
+which platforms it will build, where it will publish them and how each digest gets into the
+embedded manifest are decided and not built
+([`broker-as-a-pack.md` §14](../design/broker-as-a-pack.md#14-the-release-matrix)).
+`TestNoShippedManifestDeclaresABinaryYet` (`internal/loopholedecl`) fails the short suite if an
+embedded manifest declares one first, since its URLs would name files no release publishes.
+
 > [!WARNING]
 > **A yolo older than the key reads a manifest with `binaries` tolerantly**: it skips the key
 > with a skew note, and the tokens reach the daemon literally, so the spawn fails naming the
