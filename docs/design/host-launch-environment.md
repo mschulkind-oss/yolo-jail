@@ -276,7 +276,8 @@ The 09-25 ruling is about yolo's predictability, so:
   checked by its floor entry, the copy that runs.
 - **The child's PATH is the launch PATH, then the floor's `bin/`**, with duplicates removed and
   the first occurrence kept ([OQ-HE10](#oq-he10), ruled (c); the floor's place last is
-  [HE-D1](#he-d1)). The commands a host agent runs see the user's own environment
+  [HE-D1](#he-d1), and there is no baseline, [HE-D9](#he-d9)). The commands a host agent runs see
+  the user's own environment
   ([OQ-HP7](host-tool-provisioning.md#OQ-HP7)).
 
 So a check and the agent search the same folders. The only difference is the floor's `bin/`,
@@ -753,6 +754,16 @@ composed host PATH.
 
 ### <a id="oq-he10"></a>✅ [`OQ-HE10`](#oq-he10) — is the composed value the child's whole PATH, or its prefix? — **RULED (c) 2026-09-29**
 
+> ⚠ **Read with [HE-DIR1](#he-dir1).** This question was asked, and answered, under the reading
+> HE-DIR1 withdrew. Below, the text says twice that yolo's checks never read the ambient PATH. They
+> do read it, by HE-DIR1. It also describes a switch of the checks to the composed host PATH, and
+> that switch is withdrawn too. The order (c) ruled stands: the caller's PATH first. What changes is
+> what came after it. The "composed value" was a per-OS baseline plus `host_path`, and the baseline
+> is gone ([OQ-HE1](#oq-he1), [OQ-HE8](#oq-he8)). So the child's PATH is the launch PATH, then the
+> floor's `bin/` ([§2.2](#22-the-launch-path-and-what-host_path-adds)). The one thing (c)'s text
+> promised that the child no longer gets is the baseline filling in for a bare launcher. That
+> consequence is its own decision, [HE-D9](#he-d9).
+
 Raised by the maintainer in review, 2026-09-25. yolo can't require a particular outside PATH to run
 at all, and what it provides has to be there whoever launched it. Yet a tool the user put on PATH in
 their shell rc should reach a host agent "just the same as it is outside".
@@ -768,7 +779,8 @@ the user's PATH, with the floor after it. A child PATH built only from the basel
 `host_path` would have yolo choosing the workspace's runtime. For example, it would drop the user's
 mise-selected `node` from the `npm test` the agent runs. So the caller's PATH has to reach the
 child. What yolo checks (whether a dependency is present) can still avoid the ambient PATH, so
-[OQ-HE0](#oq-he0) is untouched. Which binary is exec'd is in the answer below.
+[OQ-HE0](#oq-he0) is untouched. *(Withdrawn by [HE-DIR1](#he-dir1): the checks read the ambient
+PATH.)* Which binary is exec'd is in the answer below.
 
 **The remaining question.** Once the composed host PATH is enforced, which comes first in the
 child's PATH: yolo's composed entries, or the caller's own PATH? Terms:
@@ -780,7 +792,7 @@ child's PATH: yolo's composed entries, or the caller's own PATH? Terms:
 - The *floor* is the [host agent floor](host-tool-provisioning.md#defined-terms): the selected
   packs' programs, installed into yolo's own prefix.
 
-**Setup.** After the switch, with `host_path` unset, a user's terminal PATH is
+**Setup.** After the switch *(withdrawn by [HE-DIR1](#he-dir1))*, with `host_path` unset, a user's terminal PATH is
 `~/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin`. The workspace's `mise.toml` pins node 22,
 and `/usr/bin/node` is 18. From that terminal they run `yolo host -- opencode`, and opencode runs
 `npm test`.
@@ -793,7 +805,8 @@ composed PATH first, the caller's shell after it, for the agent.
 
 **(c) Ambient first.** The child's PATH is the ambient PATH followed by the composed value, with
 duplicates removed. `npm test` finds the mise shim and node 22, exactly as in the terminal, and the
-baseline fills in for a launcher whose PATH lacks it (Waybar). This doc first rejected (c) because
+baseline fills in for a launcher whose PATH lacks it (Waybar). *(There is no baseline now:
+[HE-D9](#he-d9).)* This doc first rejected (c) because
 an npm CLI's own `node` would resolve against the caller's PATH, which is the incident one process
 down. HP-DIR2 item 2 now answers that for a delivered agent (one yolo runs from the floor): it
 starts on the floor's own node, by absolute path, with mise stripped. A target no selected pack
@@ -813,7 +826,8 @@ ruled (c). The answer settles both.
 > ambient PATH, then the composed value, then the floor's `bin/`, with duplicates removed and the
 > first occurrence kept. yolo's own checks still never read the ambient PATH (a program a
 > selected pack delivers by its floor entry, everything else by the composed value), so
-> [OQ-HE0](#oq-he0) holds.
+> [OQ-HE0](#oq-he0) holds. *(That sentence was the recorder's, and [HE-DIR1](#he-dir1) withdrew
+> it: the checks read the ambient PATH. The warning under this heading says what stands.)*
 >
 > - **The child.** [OQ-HP7](host-tool-provisioning.md#OQ-HP7) ruled that the commands a host
 >   agent runs see the user's own shell environment, *"exactly as the user would run them."* (c)
@@ -830,12 +844,9 @@ ruled (c). The answer settles both.
 >
 > The floor's place last, after the composed value, is [HE-D1](#he-d1).
 >
-> **Superseded in part by [HE-DIR1](#he-dir1) (recorder's note, 2026-09-29):** the order (c)
-> stands. What changed is the rest of the paragraph, which was the recorder's reading, not the
-> maintainer's words. yolo's checks *do* read the ambient PATH, and the "composed value" is
-> `host_path`'s folders alone, since the baseline is withdrawn. So the child's PATH is the launch
-> PATH, then the floor's `bin/` ([§2.2](#22-the-launch-path-and-what-host_path-adds)), and
-> [OQ-HE5](#oq-he5) is retired.
+> **Superseded in part by [HE-DIR1](#he-dir1) (recorder's note, 2026-09-29):** see the warning
+> under this heading. The order (c) stands; the checks read the ambient PATH; the baseline is gone
+> from the child's PATH as from the checks ([HE-D9](#he-d9)); and [OQ-HE5](#oq-he5) is retired.
 
 ### <a id="oq-he11"></a>✅ [`OQ-HE11`](#oq-he11) — what runs for a selected pack's program the floor cannot hold? — **RULED (a) 2026-09-29**
 
@@ -922,7 +933,7 @@ here rather than settled in the body.
 | :--- | :--- | :--- | :--- |
 | <a id="he-dir1"></a>**HE-DIR1** | 2026-09-29 | **Maintainer ruling, revising [OQ-HE0](#oq-he0) for PATH:** *"we can pick up the path if it's there because it's just not feasible to otherwise know these things … I just don't see any way around it. And then I think we just get things from [PATH]."* The recorder's reading: yolo's checks at the host read the PATH yolo was started with, when it has one, plus `host_path` when set; they look in no other folder, and a bare-PATH launcher may get a different answer | The "checks never read the ambient PATH" extension of [OQ-HE0](#oq-he0) was the doc's, never the maintainer's. Under it, [OQ-HE6](#oq-he6) is restated and open; the rest of [OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9) are retired or answered ([§9](#9-open-questions)) |
 | <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) | 2026-09-25 | `yolo host` does not depend on the environment it was launched in unless a `YOLO_*` variable or explicit config names the dependence. This supersedes the opportunistic mise-shims append. **Revised for PATH by [HE-DIR1](#he-dir1)**: the PATH yolo was started with is read | Maintainer ruling ([§0](#0-the-governing-ruling)). It still governs every decision input but PATH; whether it covers credentials, which yolo reads from the shell today, is [OQ-HE6](#oq-he6) |
-| [**OQ-HE10**](#oq-he10) | 2026-09-29 | (c): the child's PATH is the ambient PATH, then `host_path`'s folders (the "composed value", now without a baseline), then the floor's `bin/`, duplicates removed. A bare name of a program a selected pack delivers execs from the floor by path; a path is exec'd as given; any other bare name is looked up on that child PATH | Answered by [OQ-HP7](host-tool-provisioning.md#OQ-HP7) (the agent's commands see the user's own environment) and the maintainer's ruling [HP-DIR4](host-tool-provisioning.md#HP-DIR4) (the floor's copy of a pack's agent runs, from any launcher). Its recorded "checks never read the ambient PATH" is superseded by [HE-DIR1](#he-dir1) |
+| [**OQ-HE10**](#oq-he10) | 2026-09-29 | (c): the child's PATH is the ambient PATH, then `host_path`'s folders (the "composed value", now without a baseline), then the floor's `bin/`, duplicates removed. A bare name of a program a selected pack delivers execs from the floor by path; a path is exec'd as given; any other bare name is looked up on that child PATH | Answered by [OQ-HP7](host-tool-provisioning.md#OQ-HP7) (the agent's commands see the user's own environment) and the maintainer's ruling [HP-DIR4](host-tool-provisioning.md#HP-DIR4) (the floor's copy of a pack's agent runs, from any launcher). Its recorded "checks never read the ambient PATH" is superseded by [HE-DIR1](#he-dir1), and the baseline its option text put in the child's PATH is gone ([HE-D9](#he-d9)) |
 | [**OQ-HE11**](#oq-he11) | 2026-09-29 | (a): a program the floor cannot hold runs from the child's PATH, and the launch says the floor holds no copy and why. The macOS host capture is prioritized | Keeps a Mac user's working `yolo host -- claude` working until [HP-D2](host-tool-provisioning.md#HP-D2) ships; departs from [HP-DIR4](host-tool-provisioning.md#HP-DIR4) only where the floor has nothing to run instead |
 | [**OQ-HE1**](#oq-he1) | 2026-09-29 | Answered by HE-DIR1: an unset `host_path` means the PATH yolo was started with, alone; no baseline and no per-user list | HE-DIR1: *"we just get things from [PATH]"*; either list would be folders yolo adds on its own |
 | [**OQ-HE2**](#oq-he2) | 2026-09-29 | Answered by HE-DIR1: no pack declares a folder | A launch's folders come from the ambient PATH and `host_path` only |
@@ -940,6 +951,7 @@ here rather than settled in the body.
 | <a id="he-d6"></a>**HE-D6** | 2026-09-29 | *Implementation decision:* an install the dependency gate runs gets `PATH` set to the launch PATH, and the re-probe reads the same value | The re-probe then asks the PATH the installer ran with, so an install that lands in a `host_path` folder is found |
 | <a id="he-d7"></a>**HE-D7** | 2026-09-29 | *Implementation decision:* `yolo check`'s host launch section reads the PATH of the shell it runs in, plus `host_path`, and says so in the section | A check run from a terminal cannot see a widget's PATH, and a green section must not read as a promise about every launcher |
 | <a id="he-d8"></a>**HE-D8** | 2026-09-29 | *Implementation decision under HE-DIR1:* no staging and no migration notice. The design ships whole | With `host_path` unset, every check reads the PATH it reads today, so nothing breaks that a notice would have warned about. The report-first stages existed only for the withdrawn switch |
+| <a id="he-d9"></a>**HE-D9** | 2026-09-29 | *Implementation decision under HE-DIR1 and [OQ-HE10](#oq-he10) (c):* the child's PATH has no per-OS baseline either. It is the launch PATH, then the floor's `bin/`. **The cost, stated:** (c) as asked said the baseline "fills in for a launcher whose PATH lacks it (Waybar)". A bare launcher's child now gets only what its launcher handed yolo, plus `host_path`'s folders. For example, a Mac hotkey launcher's agent no longer finds `/opt/homebrew/bin` unless `host_path` names it | One PATH for the checks and the child ([§2.1](#21-the-criterion--decision-inputs-versus-carried-variables)), so a check never reads missing a tool the agent then finds, or the reverse. The baseline's contents were [OQ-HE1](#oq-he1)'s and [OQ-HE8](#oq-he8)'s open questions and never ruled, so (c) named a list nobody had decided. One `host_path` line fixes the checks and the child at once, and every delivered agent runs from the floor whatever the launcher's PATH holds ([HP-DIR4](host-tool-provisioning.md#HP-DIR4)). Reversible: a baseline for the child alone would reopen [OQ-HE1](#oq-he1) and [OQ-HE8](#oq-he8) for the child |
 
 ## Appendix A — evidence
 
