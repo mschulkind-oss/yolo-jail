@@ -259,6 +259,10 @@ type surfaceSelection struct {
 	// service's caller token (packload.ViaAPIKeyEnvNameFor) — ctx.via_api_key_env_name; ""
 	// exactly when ViaURL is.
 	ViaAPIKeyEnvName string
+	// ModelsNotEnforced is the active profile's model-list enforcement switch turned off
+	// (packload.ModelsEnforced) — ctx.enforce_models, negated; false, the default, when no
+	// profile is active.
+	ModelsNotEnforced bool
 }
 
 // surfaceSelectionFor resolves one surface's selection: packload.ProviderFor — the ONE
@@ -298,6 +302,7 @@ func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.Re
 		NativeCapabilities: packload.NativeCapabilities(packs, s.Agent),
 		ViaURL:             packload.ViaURLFor(resolved[profile], s.Agent),
 		ViaAPIKeyEnvName:   packload.ViaAPIKeyEnvNameFor(packs, resolved[profile], s.Agent),
+		ModelsNotEnforced:  !packload.ModelsEnforced(resolved[profile]),
 	}
 }
 
@@ -340,6 +345,7 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 		NativeCapabilities: sel.NativeCapabilities,
 		ViaURL:             sel.ViaURL,
 		ViaAPIKeyEnvName:   sel.ViaAPIKeyEnvName,
+		ModelsNotEnforced:  sel.ModelsNotEnforced,
 		Tables:             tables,
 		UnknownAPI:         func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
 		// A helper's warn-don't-refuse note (yolo.model_for's missing tier alias), keyed by

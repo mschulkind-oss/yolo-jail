@@ -757,6 +757,11 @@ type Contribution struct {
 	// It names an entry of the composed `providers` table, resolved at launch — not a
 	// credential and not a host read, which is why the kind makes no host-access claim.
 	Provider string `json:"provider,omitempty"`
+	// EnforceModels is a profile's model-list enforcement switch (ProfileContribution's), a
+	// profile FIELD like `via` rather than a provider option: it decides whether a narrowed
+	// list refuses, which is a fact about the selection, not a knob the provider declares.
+	// Absent means on. `profile` only; refused on every other kind.
+	EnforceModels *bool `json:"enforce_models,omitempty"`
 	// RequiresProvider is a TOMBSTONE for the name the field carried before OQ-PT8:
 	// decodable, so a manifest written against the old shape gets the migration named
 	// (retiredFieldProblems) instead of the strict decoder's bare `json: unknown field`.
@@ -1302,6 +1307,11 @@ type ProfileContribution struct {
 	// one, so a ProfileContribution in memory always carries a selection. It is what the
 	// lowering reads and what ResolveProfiles resolves the option map against.
 	Provider string
+	// EnforceModels is the profile's model-list ENFORCEMENT SWITCH
+	// (docs/design/model-lists-and-pickers.md MM-D5, OQ-WG3's switch): nil or true means on,
+	// the default. On, every refusal yolo installs for a narrowed list refuses a model
+	// outside it; off, the list only shapes the agents' menus.
+	EnforceModels *bool
 }
 
 // Profiles returns every profile the pack declares, in declaration order — which is the
@@ -1317,7 +1327,8 @@ func (m *Manifest) Profiles() []ProfileContribution {
 		if c.Kind != KindProfile {
 			continue
 		}
-		out = append(out, ProfileContribution{Name: c.Name, Provider: c.Provider, Via: c.Via})
+		out = append(out, ProfileContribution{Name: c.Name, Provider: c.Provider, Via: c.Via,
+			EnforceModels: c.EnforceModels})
 	}
 	return out
 }
@@ -1334,7 +1345,8 @@ func (m *Manifest) ProfileFor(name string) *ProfileContribution {
 		if c.Kind != KindProfile || c.Name != name {
 			continue
 		}
-		return &ProfileContribution{Name: c.Name, Provider: c.Provider, Via: c.Via}
+		return &ProfileContribution{Name: c.Name, Provider: c.Provider, Via: c.Via,
+			EnforceModels: c.EnforceModels}
 	}
 	return nil
 }

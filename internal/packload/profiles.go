@@ -27,6 +27,7 @@ package packload
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -55,6 +56,10 @@ type UserProfile struct {
 	// for the agent's own client. It is a profile FIELD, not an option — the config layer
 	// lifts it out of the entry before the options are read.
 	Via string
+
+	// EnforceModels is the profile's `enforce_models`, nil when it states none (MM-D5).
+	// Another profile FIELD the config layer lifts out, for via's reason.
+	EnforceModels *bool
 }
 
 // ResolvedProfile is one profile after resolution: the provider it selects and the full
@@ -73,6 +78,18 @@ type ResolvedProfile struct {
 	// there the agent keeps its own client. A derive never reads this; it reads the
 	// per-agent URL built from it (ViaURLFor).
 	ViaBase string
+	// EnforceModels is the profile's model-list enforcement switch, nil for the default, on
+	// (docs/design/model-lists-and-pickers.md MM-D5); the user's value wins over the
+	// pack-shipped one. Read it through ModelsEnforced.
+	EnforceModels *bool
+}
+
+// ModelsEnforced reports whether r's switch is on: every refusal yolo installs for a list a
+// `models` contribution narrowed refuses a model outside it (claude's allowlist, opencode's
+// whitelist). Off, the list only shapes the agents' menus. On unless the profile says false,
+// OQ-WG3's ruling ("let's have it even default on enforced").
+func ModelsEnforced(r ResolvedProfile) bool {
+	return r.EnforceModels == nil || *r.EnforceModels
 }
 
 // ViaURLFor is the per-agent URL a via profile puts its agent on (OQ-WG4/WG7 (d)):
@@ -244,7 +261,12 @@ func ResolveProfiles(packs []*Pack, user map[string]UserProfile,
 		if via != "" {
 			viaBase, _ = ViaServiceAddress(packs, via)
 		}
-		out[name] = ResolvedProfile{Provider: provider, Options: opts, Via: via, ViaBase: viaBase}
+		enforce := packProf.EnforceModels
+		if fromUser && userProf.EnforceModels != nil {
+			enforce = userProf.EnforceModels
+		}
+		out[name] = ResolvedProfile{Provider: provider, Options: opts, Via: via, ViaBase: viaBase,
+			EnforceModels: enforce}
 	}
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("profiles: %s", strings.Join(problems, "\nprofiles: "))
@@ -397,6 +419,9 @@ func UndeclaredProfileMessage(name string, declared []string) string {
 const (
 	WireViaKey     = "_via"
 	WireViaBaseKey = "_via_base"
+	// WireEnforceModelsKey carries a profile's enforce_models, as "true" or "false", only
+	// when the profile states one; absent is the default, on.
+	WireEnforceModelsKey = "_enforce_models"
 )
 
 // ProfilesWireTable renders the resolved table as the object that travels in
@@ -426,6 +451,11 @@ func ProfilesWireTable(resolved map[string]ResolvedProfile) *jsonx.OrderedMap {
 			if r.ViaBase != "" {
 				entry.Set(WireViaBaseKey, r.ViaBase)
 			}
+		}
+		// The switch rides a reserved key for via's reason; an older entrypoint reads it as one
+		// more option no derive asks for, and its derives see the default, on.
+		if r.EnforceModels != nil {
+			entry.Set(WireEnforceModelsKey, strconv.FormatBool(*r.EnforceModels))
 		}
 		out.Set(name, entry)
 	}

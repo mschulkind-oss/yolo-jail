@@ -133,6 +133,10 @@ func decodeModelEntries(raw json.RawMessage) ([]ModelEntry, error) {
 // modelsProblems validates the `only` field on every kind (it is this kind's alone) and, on
 // a `models` contribution, the whole body.
 func modelsProblems(label string, c Contribution) []string {
+	if c.EnforceModels != nil && c.Kind != KindProfile {
+		return []string{fmt.Sprintf("%s: kind %q does not take \"enforce_models\" — it is a "+
+			"profile's switch for whether a narrowed model list refuses other models", label, c.Kind)}
+	}
 	if c.Kind != KindModels {
 		if len(c.Only) > 0 {
 			return []string{fmt.Sprintf("%s: kind %q does not take \"only\" — it is the ids a "+

@@ -115,6 +115,12 @@ func (e *Env) LoadProfiles() map[string]packload.ResolvedProfile {
 			case packload.WireViaBaseKey:
 				p.ViaBase = s
 				continue
+			case packload.WireEnforceModelsKey:
+				// Anything but "false" is the default, on: a value this build cannot read must
+				// not switch a refusal off.
+				enforce := s != "false"
+				p.EnforceModels = &enforce
+				continue
 			}
 			p.Options[key] = s
 		}

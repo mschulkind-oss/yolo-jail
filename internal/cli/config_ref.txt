@@ -1742,6 +1742,11 @@
       provider       REQUIRED — what the name selects.  An entry without one is
                      refused: a profile is a selection, so the name declares nothing
                      by itself.
+      enforce_models true (the default) or false — a profile FIELD, not an option.
+                     Where a pack's `models` contribution narrowed the provider's list
+                     with an `only`, on means every agent that can refuse a model
+                     outside the list does (claude's allowlist, opencode's whitelist);
+                     off means the list only shapes the agents' menus.
       (any other key)  an OPTION VALUE, and it must be a string.  The option name must
                      be one the resolved provider's `options` declares; what the value
                      MEANS is the agent pack's derive.lua's business (for the shipped

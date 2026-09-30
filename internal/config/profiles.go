@@ -139,8 +139,23 @@ func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 	}
 	options := map[string]string{}
 	via := ""
+	var enforce *bool
 	for _, key := range m.Keys() {
 		if key == "provider" {
+			continue
+		}
+		if key == "enforce_models" {
+			// `enforce_models` is a profile FIELD, not a provider option, like `via`: whether
+			// a narrowed model list refuses other models (docs/design/model-lists-and-pickers.md
+			// MM-D5). A boolean; absent means on.
+			v, _ := m.Get(key)
+			b, isBool := v.(bool)
+			if !isBool {
+				return packload.UserProfile{}, path + ".enforce_models: expected true or false — " +
+					"whether the agents refuse a model outside a list a `models` contribution " +
+					"narrowed (on by default)"
+			}
+			enforce = &b
 			continue
 		}
 		if key == "via" {
@@ -165,7 +180,7 @@ func checkProfileEntry(name string, raw any) (packload.UserProfile, string) {
 		}
 		options[key] = s
 	}
-	return packload.UserProfile{Provider: provider, Options: options, Via: via}, ""
+	return packload.UserProfile{Provider: provider, Options: options, Via: via, EnforceModels: enforce}, ""
 }
 
 // validateProfiles reports `profiles` problems, and it is the reason a malformed entry

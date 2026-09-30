@@ -108,6 +108,14 @@ type DeriveCtx struct {
 	// spelling its agent expands (`${NAME}`, `{env:NAME}`, an env_key).
 	ViaAPIKeyEnvName string
 
+	// ModelsNotEnforced is the active profile's model-list enforcement switch turned OFF
+	// (enforce_models: false; docs/design/model-lists-and-pickers.md MM-D5), exposed as
+	// ctx.enforce_models, its negation. The zero value is the default, on, so a caller that
+	// resolves no profile, or a build that predates the switch, hands a derive the default.
+	// On, a derive renders the refusals its agent offers for a list a `models` contribution
+	// narrowed (claude's allowlist, opencode's whitelist); off, the list only shapes menus.
+	ModelsNotEnforced bool
+
 	// Tables are the live config tables a derive may read, keyed by source name
 	// (manifest.SourceMCPServers / SourceLSPServers). Exposed read-only as
 	// ctx.<name>. Absent source => an empty table (a jail with no MCP configured
@@ -573,6 +581,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 	L.SetField(t, "profile_name", lua.LString(ctx.ProfileName))
 	L.SetField(t, "via_url", lua.LString(ctx.ViaURL))
 	L.SetField(t, "via_api_key_env_name", lua.LString(ctx.ViaAPIKeyEnvName))
+	L.SetField(t, "enforce_models", lua.LBool(!ctx.ModelsNotEnforced))
 	// ctx.profile, always a table. Keys are sorted because a Go map has no order and a
 	// derive that iterates it must not see a different order between runs.
 	profile := L.NewTable()

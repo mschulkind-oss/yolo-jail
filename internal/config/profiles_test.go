@@ -270,3 +270,27 @@ func TestAProfileViaIsAFieldNotAnOption(t *testing.T) {
 		t.Errorf("problems %v, want the via refusal", problems)
 	}
 }
+
+// `enforce_models` is a profile FIELD too (docs/design/model-lists-and-pickers.md MM-D5):
+// lifted out before options are read, so a provider's option census never sees it, and a
+// boolean — a string "false" would read as on to anyone skimming, and is refused.
+func TestAProfileEnforceModelsIsABooleanField(t *testing.T) {
+	got, problems := checkProfiles(decode(t, `{"pz": {"provider": "zai", "enforce_models": false, "model": "glm"}}`))
+	if len(problems) != 0 {
+		t.Fatalf("problems: %v", problems)
+	}
+	p := got["pz"]
+	if p.EnforceModels == nil || *p.EnforceModels || p.Options["model"] != "glm" {
+		t.Errorf("entry = %+v, want enforce_models lifted as false and model kept", p)
+	}
+	if _, leaked := p.Options["enforce_models"]; leaked {
+		t.Errorf("enforce_models leaked into options: %v", p.Options)
+	}
+	if got, _ := checkProfiles(decode(t, `{"pz": {"provider": "zai"}}`)); got["pz"].EnforceModels != nil {
+		t.Errorf("a profile that says nothing lowered enforce_models = %v, want nil (the default)", *got["pz"].EnforceModels)
+	}
+	_, problems = checkProfiles(decode(t, `{"pz": {"provider": "zai", "enforce_models": "false"}}`))
+	if !strings.Contains(strings.Join(problems, "\n"), "pz.enforce_models: expected true or false") {
+		t.Errorf("problems %v, want the enforce_models refusal", problems)
+	}
+}

@@ -81,6 +81,8 @@ func TestModelsRefusals(t *testing.T) {
 		{"only on another kind", `{"kind": "env", "vars": {"A": "1"}, "only": ["m"]}`, `does not take "only"`},
 		{"add on another kind", `{"kind": "env", "vars": {"A": "1"}, "add": [{"id": "m", "vendor": "v"}]}`,
 			`does not take "add"`},
+		{"enforce_models off a profile", `{"kind": "models", "provider": "p", "only": ["m"], "enforce_models": false}`,
+			`does not take "enforce_models"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, problems := decodeModelsEntry(t, tc.entry)

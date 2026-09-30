@@ -158,6 +158,9 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		ActiveSet:        ActiveSetFor(cfg.setOr(profile), cfg.resolved),
 		ViaURL:           ViaURLFor(cfg.resolved[profile], agent),
 		ViaAPIKeyEnvName: ViaAPIKeyEnvNameFor(packs, cfg.resolved[profile], agent),
+		// The profile's model-list enforcement switch (MM-D5), the same answer the surface
+		// path hands its derives (entrypoint.surfaceSelectionFor).
+		ModelsNotEnforced: !ModelsEnforced(cfg.resolved[profile]),
 		// The built-in source's capabilities, resolved the same way the surface path
 		// resolves them (surfaceSelectionFor) — `owner` is by construction the pack bin
 		// ownership would find. It changes nothing HERE, because this ctx carries no
