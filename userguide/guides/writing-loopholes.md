@@ -72,7 +72,7 @@ replacing the file. To remove the loophole, delete its folder and its two entrie
 └── loopholes/<name>/
     ├── manifest.jsonc         # required
     ├── ca.crt                 # optional; a certificate the jail trusts
-    ├── <your program>         # optional; what runs on the host
+    ├── <your program>         # optional; what runs on the host (or a download, below)
     └── README.md              # optional; for people using it
 ```
 
@@ -124,6 +124,9 @@ replacing the file. To remove the loophole, delete its folder and its two entrie
     "file_exists": ".config/pulse/cookie"   // relative to your home
   },
   "platforms": ["linux", "darwin/arm64"],  // optional; omit for every platform
+  "binaries": {                   // optional; programs downloaded for it, below
+    "my-agent": {"linux/amd64": {"url": "https://…", "sha256": "…"}}
+  },
   "settings": {}                  // optional; config keys of its own, below
 }
 ```
@@ -167,6 +170,8 @@ another in the jail, so there is a placeholder for each:
 | `{listen}` | the jail address from `jail_daemon.listen` | `jail_daemon.cmd`, and `env` values |
 | `{settings}` | a file holding the user's settings for this loophole | `host_daemon.cmd`, `doctor_cmd` |
 | `{repository_scope}` | a file holding the repositories this launch approved, for a `brokered` loophole | `host_daemon.cmd` |
+| `{binary:<name>}` | the downloaded program `<name>`, built for your machine | `host_daemon.cmd`, `doctor_cmd` |
+| `{jail_binary:<name>}` | the downloaded program `<name>`, built for the jail, at `/etc/yolo-jail/loophole-binaries/<loophole>/<name>` | `jail_daemon.cmd` |
 
 Each is refused where it would mean the wrong thing, such as a host path in the jail's command.
 
@@ -271,6 +276,45 @@ were not there: it runs inside the sandbox, unless the sandbox cannot run it as 
 that names `{jail_loophole_dir}`, like the example above, is one of those, because that folder
 exists only inside a container; the launch then says the helper runs nowhere.
 
+### A program your pack downloads
+
+A program you ship in the loophole's folder works when the pack is selected by its path. It does
+not work for a pack yolo ships inside itself, whose files cannot be executable. Either way, a
+compiled program needs one build per machine. So a loophole can name its program as a
+**download** instead: one build per platform, each with an `https` address and the file's
+`sha256`, which is required.
+
+```jsonc
+"binaries": {
+  "my-agent": {
+    "linux/amd64": {"url": "https://example.com/releases/v1/my-agent-linux-amd64",
+                    "sha256": "<64 hex digits, as sha256sum prints them>"},
+    "linux/arm64": {"url": "https://example.com/releases/v1/my-agent-linux-arm64",
+                    "sha256": "…"}
+  }
+},
+"jail_daemon": {"cmd": ["{jail_binary:my-agent}", "--listen", "{listen}"], "listen": "127.0.0.1:1470"}
+```
+
+- **The platform** is an OS and an architecture, both, spelled the way Go spells them. A program
+  the jail runs needs a `linux/<architecture>` build: the jail is Linux on your machine's own
+  architecture, a Mac included. A program your machine runs needs a build for your machine, such
+  as `darwin/arm64`.
+- **Name it where it runs**: `{jail_binary:<name>}` in `jail_daemon.cmd`, `{binary:<name>}` in
+  `host_daemon.cmd` or `doctor_cmd`. Each name must be declared, and each declared program must
+  be named somewhere.
+- **`yolo pack install` downloads it**, checks it against the `sha256`, and keeps it with its
+  execute bit set. A launch never downloads one: until you run install, the launch says the
+  loophole is waiting for its program and names the command. A file whose `sha256` does not match
+  is refused, and install fails.
+- **On a machine with no build**, the loophole does nothing and the launch says so, listing the
+  platforms you do build for.
+- **On `macos-user`**, a jail program named this way does not run, because the sandbox has no
+  copy of the jail's file. A host program does.
+
+The address and the `sha256` show in `yolo pack footprint`, so a user can check what they would
+run. Pin the `sha256` of each release, and publish a new address when the file changes.
+
 ### Intercepting a website
 
 `intercepts` sends the jail's TLS connections for the hostnames you list to your host daemon
@@ -363,7 +407,7 @@ ran.
 |---|---|
 | Podman, on Linux or a Mac | Everything |
 | Apple Container | Nothing reaches the host yet: the jail cannot connect to a host program |
-| `macos-user` | Host daemons run. Jail daemons run inside the sandbox, except one whose `cmd` names `{jail_loophole_dir}` and one that intercepts a website; yolo's own credential helpers run outside it (`host_cmd`) |
+| `macos-user` | Host daemons run. Jail daemons run inside the sandbox, except one whose `cmd` names `{jail_loophole_dir}` or `{jail_binary:<name>}` and one that intercepts a website; yolo's own credential helpers run outside it (`host_cmd`) |
 
 In each case the launch names the loopholes that do nothing and says why.
 [What works on each setup](../reference/settings-per-setup.md#the-loopholes-host-services-a-jail-can-use)
@@ -374,6 +418,7 @@ has the detail.
 ```bash
 yolo pack lint <folder>          # check a pack you are writing, loopholes included
 yolo pack footprint <folder>     # what it touches on the host
+yolo pack install                # download the programs your selected packs declare
 yolo loopholes list              # every loophole, and whether each is active
 yolo loopholes status            # run each loophole's doctor_cmd
 yolo loopholes enable <name>     # prints the config line to add; changes nothing itself

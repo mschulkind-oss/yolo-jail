@@ -6,6 +6,8 @@ covers:
   - internal/loopholes/
   - internal/loopholedecl/
   - internal/packload/loopholesource.go
+  - internal/packbin/
+  - internal/cli/packbinaries.go
   - internal/packload/hostaccess.go
   - internal/packstage/loopholeowners.go
   - internal/cli/run/packloopholes.go
@@ -169,12 +171,13 @@ exemptions was the point of the work rather than tidying after it.
 | `Active` | `Enabled` **and** the machine can run it |
 | `Honored` | `Active` **and** this record came from a resolved pack set |
 
-`Active` is four gates — `Enabled`, then `!Superseded()` (a selected pack says the job no
+`Active` is five gates — `Enabled`, then `!Superseded()` (a selected pack says the job no
 longer needs doing: a field read over `serves` / `supersedes`, decided once at discovery, whose
 mechanism is [`pack-system.md`](pack-system.md#capabilities-and-supersession)), then
-`SupportedHere()` (the
-`platforms` declaration), then `RequirementsMet()` (the `requires` probes, and the only
-gate that touches the world). **The order is load-bearing and `InactiveReason` repeats
+`SupportedHere()` (the `platforms` declaration, and every [downloaded
+binary](#a-program-the-loophole-downloads) having a build for where it runs), then
+`BinariesFetched()` (every such build is in the cache), then `RequirementsMet()` (the
+`requires` probes). **The order is load-bearing and `InactiveReason` repeats
 it**: cheapest and most categorical first, so no gate does work in service of a message a
 later one would have replaced — and supersession before every machine fact, because an
 unexplained disappearance must say *which* pack turned it off, not report a missing binary
@@ -384,6 +387,54 @@ author hears about it.
 > no claim target today and widening the refusal to fields with no consumer rejects
 > manifests for no reason.
 
+### A program the loophole downloads
+
+A pack's own tree can carry an executable only when the pack is configured by path: an
+**embedded** pack's files read back `0444`, whatever their mode in the repository. So a loophole
+that ships a compiled program declares it as a **download** instead, under `binaries`, one build
+per `<goos>/<goarch>` with an https `url` and a **mandatory** `sha256`
+([`broker-as-a-pack.md`](../design/broker-as-a-pack.md#BP-D1), BP-D1 to BP-D6). The manifest pins
+the bytes and the pack's commit pins the manifest, so a pinned pack pins everything that runs.
+
+Two tokens name a binary, for the module dir's reason and one more: host and jail differ in
+**platform** as well as in path.
+
+| Token | Legal in | Resolves to |
+| :--- | :--- | :--- |
+| `{binary:<name>}` | `host_daemon.cmd`, `doctor_cmd` | the cached build for this machine's `<goos>/<goarch>` |
+| `{jail_binary:<name>}` | `jail_daemon.cmd` | `/etc/yolo-jail/loophole-binaries/<loophole>/<name>`, where the launch mounts the `linux/<arch>` build read-only from the cache |
+
+Each is refused in the other half, naming the fix, and in every other field, where nothing
+substitutes it. A token must name a declared binary, and a declared binary must be named by a
+token, since one nothing runs would be downloaded for nothing.
+
+**Only `yolo pack install` fetches**, for every selected pack, embedded ones included, and
+whatever the loophole's switch says. It verifies each build against its digest and admits it
+by rename into `~/.local/share/yolo-jail/pack-binaries/<sha256>/<name>`, mode `0555`, a
+directory no jail mounts: a host daemon's build runs from there with the user's authority. A
+**launch never fetches**, so an offline launch of a pack whose builds are cached is an ordinary
+one. What each missing piece produces:
+
+- **No build declared** for where a token runs: the loophole is unsupported on the platform axis
+  ([Where a loophole does nothing](#where-a-loophole-does-nothing)), and the message says nothing
+  can be installed.
+- **A declared build not fetched**: the loophole is inactive (`BinariesFetched`), and the launch's
+  inert report, `yolo loopholes list` and `yolo check` all say to run `yolo pack install`. A
+  `doctor_cmd` whose build is missing is not run, and says why.
+- **A digest mismatch** at install: refused, both digests named, nothing cached, and a cached
+  copy that stopped matching is fetched again rather than used.
+
+The jail receives each build as **one read-only file bind**, never the cache directory, and the
+file carries the exec bit the pack's tree could not. The `macos-user` guest declines a jail
+daemon whose argv names a jail binary, as it declines `{jail_loophole_dir}`: that path exists
+only in a container. A host binary runs there as it does anywhere.
+
+> [!WARNING]
+> **A yolo older than the key reads a manifest with `binaries` tolerantly**: it skips the key
+> with a skew note, and the tokens reach the daemon literally, so the spawn fails naming the
+> token. Only a fetched pack can be newer than the binary reading it; an embedded pack rides in
+> the binary that reads it.
+
 ## The pack-shipped subset
 
 A *distributed* manifest is held to a narrower vocabulary than one yolo ships itself — and
@@ -564,6 +615,7 @@ non-obvious foldings:
 | a bind that looks like a **socket** | one per bind, host IPC | its own class, because `:ro` is no boundary for a socket |
 | every other bind | one per bind | carries the socket caveat verbatim |
 | each device node | one per node | not weaker than a writable bind, and the path rules do not reach a device node — which is precisely why it needs a claim |
+| each build of a [downloaded binary](#a-program-the-loophole-downloads) | one per build, carrying the URL, the pinning digest, and where it runs | the bytes are not in the pack's tree, so no other line says what runs; every build is claimed, not only this machine's, so the line reads the same everywhere. A host build's execution is the base claim's, whose argv names the token |
 | a manifest yolo **cannot read** | one claim, **fail-closed**, treated as host execution | an unreadable declaration is not "no claims" — that is the empty set, and a manifest this build cannot parse may well declare a daemon |
 
 **A refused declaration** (absent directory, name collision) yields **no** module and so no
@@ -773,15 +825,20 @@ one), never by pack selection; see
 
 ## Where a loophole does nothing
 
-Two axes make a loophole inert, and they share **one** mechanism and **one** message rendering,
-deliberately: platform and backend both answer *this loophole does nothing here, and here is
-why*, and two half-messages for one user-visible situation is how a whole backend once looked
+Three axes make a loophole inert, and they share **one** mechanism and **one** message rendering,
+deliberately: platform, backend and binary all answer *this loophole does nothing here, and here
+is why*, and two half-messages for one user-visible situation is how a whole backend once looked
 provisioned while configuring nothing.
 
 - **Platform** — the `platforms` declaration, evaluated as a pure function of the target pair.
   The report applies the **user's** `loopholes.<name>.enabled` before it asks, so a Linux-only
   loophole a user switched on on a Mac is named at launch with the platforms it supports, and
-  one the user switched off is not reported at all (`loopholes.ApplyConfigEnabled`).
+  one the user switched off is not reported at all (`loopholes.ApplyConfigEnabled`). A
+  [downloaded binary](#a-program-the-loophole-downloads) with no build for where it runs is this
+  axis too: nothing is missing and nothing can be installed.
+- **Binary** — a downloaded binary whose build is declared for this machine and not fetched yet
+  (`loopholes.BinaryInertNotes`). The line names the binary and `yolo pack install`, the one
+  command that fixes it, since a launch never downloads.
 - **Backend** — Apple Container (`container`), which carries no container-to-host connection:
   a loopback-bound listener is never reached from the jail, and a wider bind completes a
   handshake that carries nothing (measured on `container` 1.1.0). The launch there skips every
@@ -861,6 +918,10 @@ only place the values themselves are stated.
 | Sources, in precedence order | `pack` < `config` | `loopholes.SourcePack`, `SourceConfig` |
 | Retired discovery directory (named only by the migration notice) | `~/.local/share/yolo-jail/loopholes/` | `loopholes.RetiredUserLoopholesDir` |
 | Module-dir mount point in the jail | `/etc/yolo-jail/loopholes/<name>` | `loopholedecl.JailLoopholeDir` |
+| Binary tokens (added 2026-09-30) | `{binary:<name>}` (host), `{jail_binary:<name>}` (container) | `loopholedecl.TokenBinary`, `TokenJailBinary`; substituted in `internal/loopholes/load.go` |
+| A jail binary's mount point (added 2026-09-30) | `/etc/yolo-jail/loophole-binaries/<loophole>/<name>` | `loopholedecl.JailBinaryPath` |
+| The downloaded-binary cache, and a build's mode (added 2026-09-30) | `<global storage>/pack-binaries/<sha256>/<name>`, `0555` | `paths.PackBinariesDir`, `packbin.Path` |
+| The most one download may be (added 2026-09-30) | 512 MiB | `packbin.DefaultMaxBytes` |
 | Per-loophole state dir | `<global storage>/state/<name>` | `loopholes.StateDirFor` |
 | Retired-state generations kept | 3 | `hostArchiveKeep` in `internal/prune/prunecmd.go`, mirrored by the post-launch slot's `hostArchiveKeepInSlot`; the sweeper is `prune.PruneRetiredLoopholeState` |
 | Retired top-level config keys (now refusals naming their replacements) | `host_processes`, `journal`, `agents` | `internal/config/validate.go` |

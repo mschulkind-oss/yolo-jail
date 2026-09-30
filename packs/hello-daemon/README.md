@@ -1,7 +1,7 @@
 # `hello-daemon` — the pack-shipped-jail-binary experiment
 
 An **experiment**, not a feature. It is
-[`broker-as-a-pack.md`](../../docs/design/broker-as-a-pack.md) §10's second sequencing
+[`broker-as-a-pack.md`](../../docs/design/broker-as-a-pack.md) [§10](../../docs/design/broker-as-a-pack.md#10-sequencing)'s second sequencing
 step, quoted whole:
 
 > **Second, prove P1 cheaply** — a throwaway local pack whose `jail_daemon.cmd` is
@@ -9,7 +9,7 @@ step, quoted whole:
 > This is an afternoon, and it converts "the mechanism appears to exist" into "the
 > mechanism works".
 
-§3's inventory says every clause a pack-shipped jail binary needs is already built —
+[§3](../../docs/design/broker-as-a-pack.md#3-blocker-1-re-examined--the-jail-side-binary-is-already-expressible)'s inventory says every clause a pack-shipped jail binary needs is already built —
 the module dir is bind-mounted `:ro` **without `noexec`**, `{jail_loophole_dir}` is
 legal in `jail_daemon.cmd`, the pack-shipped subset never constrained `jail_daemon`,
 and `yolo-jaild supervise` spawns the argv with no per-loophole code — and then says
@@ -52,9 +52,18 @@ error, sleeps, doubles a `1s→30s` backoff and retries **for the life of the ja
 nothing is ever written to it. So the observable symptom of shipping a jail binary the
 wrong way is an empty log file and no process, forever, with no diagnostic anywhere.
 
+**The embedded route has an answer now, and it is not this tree** (2026-09-30,
+[`broker-as-a-pack.md`](../../docs/design/broker-as-a-pack.md) BP-D1). A pack that must
+work when selected by bare name declares its program as a DOWNLOAD in the loophole's
+manifest — `binaries`, one build per platform with a mandatory `sha256` — and names it
+`{jail_binary:<name>}` in `jail_daemon.cmd`. `yolo pack install` fetches and verifies each
+build and caches it with its exec bit, and the launch mounts that file into the jail, so
+the bit never has to survive `embed.FS`. This pack keeps its checked-in script because a
+throwaway has no release to download from.
+
 ## Why it ships a script and not an ELF binary
 
-§10 says "statically linked two-line binary". This ships a two-line `#!/bin/sh`
+[§10](../../docs/design/broker-as-a-pack.md#10-sequencing) says "statically linked two-line binary". This ships a two-line `#!/bin/sh`
 program instead, and the substitution is deliberate.
 
 Every property the experiment is about is **identical** for the two: a file the pack
@@ -66,12 +75,12 @@ still finds the gap above rather than dodging it.
 What a committed ELF would have cost is the reason not to: `packs/` is inside
 [`flake.nix`](../../flake.nix)'s `goSrc` fileset **and** inside
 [`packs/embed.go`](../embed.go), so the blob would ride in every `yolo` binary and every
-hermetic image build — once per platform, under §3.1's `bin/<goos>-<goarch>/`
+hermetic image build — once per platform, under [§3.1](../../docs/design/broker-as-a-pack.md#31-what-is-actually-unresolved-here)'s `bin/<goos>-<goarch>/`
 convention — forever, for a throwaway. And it would not have worked anyway: the embed
 channel would have stripped its exec bit just the same.
 
 **What the script therefore leaves unproven is the ELF half**: that a non-nix,
-dynamically-linked binary finds its interpreter through `nix-ld` inside the jail. §3
+dynamically-linked binary finds its interpreter through `nix-ld` inside the jail. [§3](../../docs/design/broker-as-a-pack.md#3-blocker-1-re-examined--the-jail-side-binary-is-already-expressible)
 claims that from `nix-ld`'s shipped behaviour; this pack does not test it. A
 *statically* linked binary needs no interpreter and should need nothing beyond what is
 measured here.

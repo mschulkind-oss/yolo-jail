@@ -334,7 +334,10 @@ reader: links are followed only while they stay inside the workspace, and one th
 skipped and named, never read ([the workspace layer](agent-briefings.md#the-workspace-layer)).
 
 A pack **ships its tools**: a file carrying the exec bit stages executable, so a skill can
-deliver the script it tells an agent to run.
+deliver the script it tells an agent to run. That holds for a pack configured by path; an
+**embedded** pack's files read back `0444` whatever their mode in the repository, so a program
+an embedded pack's loophole runs is declared as a download instead
+([a program the loophole downloads](loophole-system.md#a-program-the-loophole-downloads)).
 
 > [!WARNING]
 > **Do not re-add an `allow_exec` gate on the exec bit.** It read as a trust boundary and

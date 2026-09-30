@@ -310,6 +310,7 @@ mounts appear under (`/ctx` in a container). On `macos-user`, which cannot deliv
 yet, a `mounts` entry or a pack's `mount` whose folder exists now stops the launch and names itself,
 instead of being skipped behind a warning. See
 [Workspace, mounts, and host files](userguide/reference/settings-per-setup.md#workspace-mounts-and-host-files).
+
 **`yolo check` warns when a model list names a model no installed agent knows.** Every model in a
 provider's list, the ones yolo ships included, is looked up in your installed agents' own lists of
 models, so a model that has been retired, or is newer than your agent, is named before a session
@@ -317,6 +318,17 @@ starts on it. It is only a warning, and nothing is run to find out: today it rea
 when no agent it can read is installed it says it could not check. A provider on your own
 machine, such as a llama.cpp server, is not checked. See
 [model lists shaped by packs](docs/reference/providers.md#model-lists-shaped-by-packs).
+
+**A pack's loophole can ship a compiled program as a download, pinned by its checksum.** A new
+`binaries` key in a loophole's manifest lists a build of the program for each platform, with an
+https address and the file's required `sha256`, and the manifest names it as `{binary:<name>}`
+for a program your machine runs or `{jail_binary:<name>}` for one the jail runs. This works for a
+pack yolo ships too, whose own files cannot be executable. `yolo pack install` downloads each build
+your machine needs, refuses a file whose checksum does not match, and keeps the rest ready to run;
+a launch never downloads one, and until you run install it says the loophole is waiting for its
+program. A machine with no build gets a line saying the loophole does nothing there, and
+`yolo pack footprint` shows each build's address and checksum. See
+[A program your pack downloads](userguide/guides/writing-loopholes.md#a-program-your-pack-downloads).
 
 ### Changed
 
