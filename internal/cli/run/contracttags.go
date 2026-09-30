@@ -354,13 +354,19 @@ type attachSkew struct {
 	// keeps, when set, extends the acknowledgment's "the channel is withheld whole" with what
 	// else the jail keeps as its last entry left it.
 	keeps string
+	// The same account unrendered, for the briefing an acknowledged attach refreshes
+	// (attachskewbriefing.go, SK-D15): the contract tags the jail lacks, and every other
+	// difference as one plain sentence. lines carries both, worded for stderr.
+	missing     []contractNeed
+	differences []string
 }
 
 // contractSkew words missing contract tags for the disposition.
 func (o *Options) contractSkew(baked string, missing []contractNeed) attachSkew {
 	return attachSkew{
-		jail:  "was launched by an older yolo and cannot receive what this entry delivers",
-		lines: o.attachSkewLines(baked, missing),
+		jail:    "was launched by an older yolo and cannot receive what this entry delivers",
+		lines:   o.attachSkewLines(baked, missing),
+		missing: missing,
 	}
 }
 

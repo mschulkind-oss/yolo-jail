@@ -187,6 +187,9 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// precondition did not execute.
 		BackendLimits: backendLimits(rt, staged.packs, cfg),
 		Handoff:       handoff,
+		// An attach that went ahead under the attach-skew acknowledgment, and only that: what the
+		// jail could not take, for the session this attach starts (SK-D15). Nil otherwise.
+		AttachSkew: o.attachSkewNotice,
 		// The predicate that emits the nix daemon + store mounts (assemble.go, a
 		// container-only path), so the briefing's "your nix links are not GC roots" line
 		// appears exactly where the jail's nix reaches the host daemon from another mount

@@ -157,6 +157,11 @@ type BriefingInput struct {
 	// a launch that carries it nowhere leaves it fresh.
 	Handoff string
 
+	// AttachSkew is set by an attach that proceeded under YOLO_ALLOW_ATTACH_SKEW into a jail
+	// that could not receive what it delivers (attachskewsection.go, SK-D15). Nil, the case for
+	// every fresh launch and every other attach, renders no section.
+	AttachSkew *AttachSkew
+
 	// HostNix is true when the launch mounted the host's nix daemon socket and store, so
 	// `nix` here runs with NIX_REMOTE=daemon. It is the SAME predicate that emits those
 	// mounts (run.hostNixMounted), so the line it gates appears exactly where the hazard
@@ -581,6 +586,9 @@ func BriefingContent(in BriefingInput) string {
 
 	lines := append([]string{}, confinementHeader(in.Confinement, in.Mechanism, in.IsMacOS)...)
 	lines = append(lines, provisioningFailed...)
+	// An acknowledged attach's account of the jail it entered, beside provisioning's: both say the
+	// environment is not what it should be, and both are absent in the common case.
+	lines = append(lines, attachSkewSection(in.AttachSkew)...)
 	// The handoff, if one was handed over for this launch: a one-time transition task,
 	// surfaced once (the run pipeline consumes the pointer once this briefing is written,
 	// so it never returns as a stale task). Prominent — it is what the agent is here to do.

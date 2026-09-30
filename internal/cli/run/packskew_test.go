@@ -178,9 +178,18 @@ func TestAnAttachWhoseJailLacksTheSelectedPackTakesTheDisposition(t *testing.T) 
 				if strings.Contains(r.stdout, "Restart jail now") {
 					t.Errorf("the acknowledgment asked:\n%s", r.stdout)
 				}
-				for _, want := range []string{AllowAttachSkewEnv + " is set", "launched without zai", "delivers nothing"} {
+				for _, want := range []string{AllowAttachSkewEnv + " is set", "launched without zai", "delivers nothing",
+					"The jail's briefing names this difference as well"} {
 					if !strings.Contains(r.stderr, want) {
 						t.Errorf("the acknowledgment's disclosure does not say %q:\n%s", want, r.stderr)
+					}
+				}
+				// And the briefing the jail's own claude pack gets names it for the session (SK-D15).
+				body := claudeBriefingOf(t, cname)
+				for _, want := range []string{skewSectionHeading, "launched without zai",
+					"- Added to your config since it launched: zai."} {
+					if !strings.Contains(body, want) {
+						t.Errorf("the refreshed briefing does not say %q:\n%s", want, body)
 					}
 				}
 			case "declined":
@@ -266,7 +275,8 @@ func TestAnAttachToAJailWhoseTreeWillNotLoadTakesTheDisposition(t *testing.T) {
 				if r.rc != 0 || !r.execed {
 					t.Fatalf("the acknowledgment must proceed: rc=%d execed=%v\n%s", r.rc, r.execed, r.stderr)
 				}
-				for _, want := range []string{"delivers nothing", "skills and briefing are not refreshed"} {
+				for _, want := range []string{"delivers nothing", "skills and briefing are not refreshed",
+					"No briefing records this difference: the jail's packs could not be read"} {
 					if !strings.Contains(r.stderr, want) {
 						t.Errorf("the acknowledgment's disclosure does not say %q:\n%s", want, r.stderr)
 					}

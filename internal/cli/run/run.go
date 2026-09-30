@@ -2217,14 +2217,20 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// its place: those are what OQ-PK2 (c) keeps from a running jail.
 	view, packSkew := o.runningJailPackView(cname, rt, cfg, staged, channel, targetCmd)
 	deliver := true
+	// THE SKEW THIS ENTRY ACKNOWLEDGED, when it went ahead under AllowAttachSkewEnv: the briefing
+	// this attach refreshes names it for the session it starts (SK-D15). At most one: the first
+	// acknowledgment withholds the whole channel, and nothing after it asks again.
+	var acked *attachSkew
 	if packSkew != nil {
-		switch o.settleAttachSkew(cname, rt, o.packSkew(baked, packSkew)) {
+		skew := o.packSkew(baked, packSkew)
+		switch o.settleAttachSkew(cname, rt, skew) {
 		case skewRestarted:
 			return 0, true
 		case skewAcknowledged:
 			// The same degradation as a missing contract: nothing of this entry's channel is
 			// written. The command still carries the jail's own launch flags, where its packs
 			// could be read.
+			acked = &skew
 			deliver = false
 			if !view.unreadable {
 				view.targetCmd = o.injectLaunchFlagsForAttach(view.staged.packs, o.Args, targetCmd)
@@ -2246,10 +2252,12 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		entryDaemons = o.jailDaemonsFor(cfg, rt, view.staged.packs)
 		if missing := missingProfileServedDaemons(envLines,
 			entryDaemons, view.staged.packs); len(missing) > 0 {
-			switch o.settleAttachSkew(cname, rt, profileDaemonSkew(missing)) {
+			skew := profileDaemonSkew(missing)
+			switch o.settleAttachSkew(cname, rt, skew) {
 			case skewRestarted:
 				return 0, true
 			case skewAcknowledged:
+				acked = &skew
 				deliver = false
 			default:
 				releaseLock()
@@ -2281,13 +2289,15 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		contract := attachContractFor(channel, envLines)
 		deliver = !contract.standIn
 		if missing := contract.missingFrom(envLines); len(missing) > 0 {
-			switch o.settleAttachSkew(cname, rt, o.contractSkew(baked, missing)) {
+			skew := o.contractSkew(baked, missing)
+			switch o.settleAttachSkew(cname, rt, skew) {
 			case skewRestarted:
 				return 0, true
 			case skewAcknowledged:
 				// The host-side degradation: nothing of this entry's channel is written, so the
 				// jail keeps what its last entry gave it. A partial write would be worse than
 				// none — the shared half alone strips every scoped value the jail now holds.
+				acked = &skew
 				deliver = false
 			default:
 				releaseLock()
@@ -2330,7 +2340,11 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		// environment, never the current config's (refreshJailBriefings says why). So is its
 		// durable dir: the one its launch exported, which this attach inherits.
 		o.durable = o.attachDurableDir(envLines, cfg)
+		// An acknowledged skew is named in the briefing too (SK-D15): the session this attach
+		// starts reads it, where the stderr account above has scrolled away.
+		o.attachSkewNotice = o.attachSkewBriefing(acked, baked, rt, cname)
 		_, refreshErr = o.refreshJailBriefings(cname, cfg, rt, view.staged, o.launchedIOPriority(rt, envLines))
+		o.attachSkewNotice = nil
 		sp.End()
 	}
 	discardPackTree(cname, o.packTree)
@@ -2338,6 +2352,11 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 		o.pr(o.Stderr).printf("[bold red]%s[/bold red]", refreshErr.Error())
 		releaseLock()
 		return 1, false
+	}
+	// And the acknowledgment's last line: where else this difference is recorded, or that
+	// nowhere else is.
+	if acked != nil {
+		o.noteAttachSkewBriefing(rt, view)
 	}
 	releaseLock()
 	if raced {

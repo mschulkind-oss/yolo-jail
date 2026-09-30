@@ -420,12 +420,19 @@ func (o *Options) runningJailPackView(cname, rt string, cfg *jsonx.OrderedMap, f
 // pack already declares.
 func (o *Options) packSkew(baked string, s *attachPackSkew) attachSkew {
 	lines := o.versionSkewLines(baked)
+	// Each difference once, unrendered for the briefing (SK-D15) and as a bullet for stderr.
+	var diffs []string
+	differs := func(d string) {
+		diffs = append(diffs, d)
+		lines = append(lines, "  • "+d)
+	}
 	if s.unreadable {
-		lines = append(lines, fmt.Sprintf("  • This yolo could not read the pack tree it booted from, %s: %v.", s.dir, s.err))
+		differs(fmt.Sprintf("This yolo could not read the pack tree it booted from, %s: %v.", s.dir, s.err))
 		return attachSkew{
-			jail:  "booted from packs this yolo cannot read, so nothing this entry delivers can be composed over them",
-			lines: lines,
-			keeps: ", and its skills and briefing are not refreshed from your configured packs",
+			jail:        "booted from packs this yolo cannot read, so nothing this entry delivers can be composed over them",
+			lines:       lines,
+			keeps:       ", and its skills and briefing are not refreshed from your configured packs",
+			differences: diffs,
 		}
 	}
 	d := s.diff
@@ -439,16 +446,16 @@ func (o *Options) packSkew(baked string, s *attachPackSkew) attachSkew {
 			"this entry selects cannot be composed over the packs it has"
 	}
 	if len(d.Added) > 0 {
-		lines = append(lines, "  • Added to your config since it launched: "+strings.Join(d.Added, ", ")+".")
+		differs("Added to your config since it launched: " + strings.Join(d.Added, ", ") + ".")
 	}
 	if len(d.Changed) > 0 {
-		lines = append(lines, "  • Changed since it launched: "+strings.Join(d.Changed, ", ")+".")
+		differs("Changed since it launched: " + strings.Join(d.Changed, ", ") + ".")
 	}
 	if len(d.Removed) > 0 {
-		lines = append(lines, "  • Removed from your config since it launched: "+strings.Join(d.Removed, ", ")+".")
+		differs("Removed from your config since it launched: " + strings.Join(d.Removed, ", ") + ".")
 	}
-	lines = append(lines, fmt.Sprintf("  • Over the packs it has: %v.", s.err))
-	return attachSkew{jail: jail, lines: lines}
+	differs(fmt.Sprintf("Over the packs it has: %v.", s.err))
+	return attachSkew{jail: jail, lines: lines, differences: diffs}
 }
 
 // adoptPackRecords points the process-wide pack records at the running jail's packs, for the

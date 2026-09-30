@@ -324,6 +324,10 @@ type Options struct {
 	// refreshJailBriefings and by the backend's $YOLO_DURABLE_DIR emission. Nil until one of
 	// those two ran, which renders no durable line and exports nothing.
 	durable *jailcontent.DurableDir
+	// attachSkewNotice is the acknowledged skew an attach hands its briefing refresh
+	// (attachskewbriefing.go, SK-D15): set by attachExisting just before refreshJailBriefings
+	// and cleared after it, so no other briefing, a fresh launch's included, can carry it.
+	attachSkewNotice *jailcontent.AttachSkew
 
 	// acVersion memoizes the `container --version` probe for this launch. Unexported
 	// and nil-by-default so every hand-built Options in a test starts unprobed; see
