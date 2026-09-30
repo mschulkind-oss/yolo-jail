@@ -1361,10 +1361,14 @@ The key check answers against the **universe**, not the selection: whether a str
 CLI is a fact about the packs this machine can resolve, while selection only decides whether a
 contribution renders. When the universe cannot be enumerated — a configured pack that does not
 resolve — the key check steps aside; that pack is refused on its own terms, first and louder. A
-**bare** `-p <name>` (and the `profile` key's `"*"` or string form) is not checked against anything but the declared set: on the run path it keys
-the name onto every CLI the selected packs install that no pair names, never onto the command after `--`, so there is
-no CLI name in it to mistype. At the host notch it keys the one command after `--`, whatever it is,
-which is the host's grant for an ad-hoc command ([the host notch](#the-credential-gate)).
+**bare** `-p <name>`, like the `profile` key's `"*"` or string form, is not checked against
+anything but the declared set: on the run path it keys the name onto every CLI the selected packs
+install that no pair beside it names (for the key, no named entry beside `"*"`), never onto the
+command after `--`, so there is no CLI name in it to mistype. At the host notch both reach the one
+command after `--` only when a selected pack installs it. For any other command a bare `-p` is
+refused, naming the grant that is legal there, `--with-credentials`
+([the host notch](#the-credential-gate)); the key's `"*"` or string form simply does not reach it,
+so that command runs with no profile and nothing is refused.
 
 When anything is selected, the launch prints one line per distinct profile name: **DECLARED** —
 the selected packs shipping a profile of that name — and **RECEIVED** — every selected pack,
