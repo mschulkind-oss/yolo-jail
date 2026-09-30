@@ -43,8 +43,8 @@ a sidecar is enabled.
 
 **Start at [§3](#3-the-shape)**, the shape. The per-agent answer is [§2.2](#22-what-each-agent-can-hear).
 
-**Needs your ruling:** [OQ-EW10](#OQ-EW10), [OQ-EW5](#OQ-EW5), [OQ-EW6](#OQ-EW6),
-[OQ-EW7](#OQ-EW7), [OQ-EW8](#OQ-EW8) and [OQ-EW9](#OQ-EW9), from the enablement redesign. The feature stays held until they are
+**Needs your ruling:** [OQ-EW10](#OQ-EW10), [OQ-EW7](#OQ-EW7), [OQ-EW8](#OQ-EW8) and
+[OQ-EW9](#OQ-EW9), from the enablement redesign; [OQ-EW5](#OQ-EW5) and [OQ-EW6](#OQ-EW6) were ruled 2026-09-29. The feature stays held until they are
 ruled ([EW-DIR1](#EW-DIR1)). [OQ-EW1](#OQ-EW1), [OQ-EW3](#OQ-EW3) and [OQ-EW4](#OQ-EW4) were ruled
 2026-09-29, and [OQ-EW2](#OQ-EW2) is superseded by [OQ-EW8](#OQ-EW8) and [OQ-EW9](#OQ-EW9).
 
@@ -1134,7 +1134,7 @@ inside one machine, and there a lock is cheap, because everything is on one file
    and [EW-D13](#EW-D13). Which sidecars the gate covers is [OQ-EW10](#OQ-EW10); the gate's
    other open parts are [OQ-EW5](#OQ-EW5), [OQ-EW6](#OQ-EW6) and [OQ-EW7](#OQ-EW7).
 
-5. 💬 <a id="OQ-EW5"></a>**[OQ-EW5](#OQ-EW5): What act turns a sidecar on for a machine: a
+5. ✅ <a id="OQ-EW5"></a>**[OQ-EW5](#OQ-EW5): What act turns a sidecar on for a machine: a
    command, or a question at launch?** This decides what the maintainer does on each machine,
    and whether a synced declaration can ever reach a running watcher through a reflexive answer.
 
@@ -1158,8 +1158,6 @@ inside one machine, and there a lock is cheap, because everything is on one file
      includes only if found. Nothing new to build, but yolo cannot tell a file that syncs from
      one that does not, and it is user settings, which [EW-DIR1](#EW-DIR1)'s words rule out.
 
-   <!-- vantage: oq id=OQ-EW5 leaning="A: a host command, yolo sidecar enable, writes the machine-local record; the launch only names the command and never asks, because what makes it safe is someone saying this is the machine, not someone being at a terminal." -->
-
    _Leaning:_ **A.** It is the shape of direnv's `direnv allow` and launchd's `launchctl
    disable`: a verb that writes state outside the synced tree, and a launch that names the verb
    instead of asking. What makes a watcher safe to run here is knowing this is the machine that
@@ -1169,9 +1167,16 @@ inside one machine, and there a lock is cheap, because everything is on one file
    [EW-D16](#EW-D16)'s no-prompt rule and [EW-D17](#EW-D17), change under B.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29: A, with the command's scope narrowed.** The maintainer: *"yes, I think
+   > this should be a command you run on the host. I guess you can, in the special case, you can
+   > name the jail path that you're talking about, but otherwise this is a command that must be
+   > run on the host, but also must be run in a workspace … you would have to do this on a per
+   > repository basis on that machine, and then when you start up, it's going to fire it up."*
+   > `yolo sidecar enable <name>` runs at the host, in the workspace it enables (its cwd), or
+   > names that workspace's path explicitly as the one exception; it writes the machine-local
+   > record, and the next launch of that workspace starts the sidecar. The launch never asks.
 
-6. 💬 <a id="OQ-EW6"></a>**[OQ-EW6](#OQ-EW6): Does turning a sidecar on cover one workspace, or
+6. ✅ <a id="OQ-EW6"></a>**[OQ-EW6](#OQ-EW6): Does turning a sidecar on cover one workspace, or
    every workspace on the machine?** This decides how many commands each machine takes, and how
    much one mistaken command duplicates.
 
@@ -1205,8 +1210,6 @@ inside one machine, and there a lock is cheap, because everything is on one file
      nothing. Nothing to forget to turn off, but a launch without the flag has no watcher, which
      loses the *"just starts up"* of [§1.1](#11-why-now).
 
-   <!-- vantage: oq id=OQ-EW6 leaning="A: one workspace by default, --all-workspaces for the whole machine, and disable in one workspace overrides the machine-wide record; the default narrows OQ-EW4's no-second-switch ruling on purpose, because the duplicate EW-DIR1 raised is per project." -->
-
    _Leaning:_ **A**, and it narrows [OQ-EW4](#OQ-EW4)'s ruling on purpose rather than fitting
    it. The duplicate [EW-DIR1](#EW-DIR1) raised is two machines acting on one project, so the
    default act should be no wider than one project, even though that brings back one act per
@@ -1217,7 +1220,10 @@ inside one machine, and there a lock is cheap, because everything is on one file
    machine, are host records the agent cannot touch.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Ruled 2026-09-29, as leaned: A.** One workspace by default; a whole-machine option
+   > (`--all-workspaces`) is kept for users who want it, and a per-workspace disable overrides
+   > it. The maintainer: *"Let's default to just one workspace but give whole machine as an
+   > option. Who knows, maybe somebody will want it."*
 
 7. 💬 <a id="OQ-EW7"></a>**[OQ-EW7](#OQ-EW7): For a repository's own sidecar, is acknowledging it
    the same command, or part of the config-change prompt?** This decides whether "launch with
@@ -1376,6 +1382,8 @@ recorded so an implementer does not reopen them.
 | <a id="EW-D12"></a>[`EW-D12`](#14-decision-ledger) | *Implementation decision.* Each agent pack declares its deliverer's tier, and the launch discloses per sidecar what its pings will do with the agent being launched. A tier is declared **wake** only after a human has measured it | 2026-09-28 | [§3.4](#34-deliverers-per-agent) | — |
 | [OQ-EW1](#OQ-EW1) | **Maintainer ruling:** A; only the user's own word declares a host-side sidecar | 2026-09-29 | [§13](#13-open-questions) | pending |
 | [OQ-EW3](#OQ-EW3) | **Maintainer ruling:** a repository may declare an agent-side sidecar, and it runs only after the user's explicit acknowledgement | 2026-09-29 | [§13](#13-open-questions) | pending |
+| [OQ-EW5](#OQ-EW5) | **Maintainer ruling:** A, narrowed; `yolo sidecar enable` runs at the host in the workspace it enables (or names that workspace's path), per repository per machine; the next launch starts it | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | pending |
+| [OQ-EW6](#OQ-EW6) | **Maintainer ruling:** A; one workspace by default, `--all-workspaces` kept as an option | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | pending |
 | <a id="EW-DIR1"></a>EW-DIR1 | **Maintainer direction:** the feature is held until enabling a sidecar is an intentional per-machine act that a synced dotfile cannot trigger, and two machines watching one project is designed for ([OQ-EW2](#OQ-EW2)) | 2026-09-29 | [§12](#12-enabling-a-sidecar-redesign-2026-09-29) | — |
 | <a id="EW-DIR2"></a>EW-DIR2 | **Maintainer direction,** the second on [OQ-EW2](#OQ-EW2): declaring a watcher's shape is separate from the explicit permission that activates it, and yolo does not try to guarantee a single watcher across machines | 2026-09-29 | [§12.6](#126-two-machines-one-project) | — |
 | [OQ-EW4](#OQ-EW4) | **Maintainer ruling:** A, inside a gate: *"it starts everywhere you specify the config needs to allow a gated set."* Read as: no second config switch per workspace. Which sidecars the gate covers is [OQ-EW10](#OQ-EW10), and its mechanics are [OQ-EW5](#OQ-EW5) to [OQ-EW7](#OQ-EW7) | 2026-09-29 | [§12.1](#121-declaring-is-not-enabling) | pending |
