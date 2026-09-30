@@ -158,8 +158,10 @@ That also answers *when* the fetch happens: at **`pack install`**, never at laun
 > `~/.local/share/yolo-jail/pack-binaries/<sha256>/<name>`, mode `0555`, and only
 > `yolo pack install` fills it (`internal/packbin`, `internal/cli/packbinaries.go`). The mounted
 > file carries the exec bit an embedded pack's own tree cannot, which is the point. A build that
-> is not fetched keeps the loophole off, and the launch says to run `yolo pack install`. The
-> release matrix is not built: no shipped pack declares a binary yet.
+> is not fetched keeps the loophole off, and the launch says to run `yolo pack install`. A real
+> podman jail running the mounted build is pinned by `TestAJailRunsAPackBinaryItDownloaded`
+> (`integration/packbinary_test.go`); a real ELF under nix-ld, and every backend but podman on
+> Linux, are not. The release matrix is not built: no shipped pack declares a binary yet.
 
 **Why the build step is a different question.** A build is arbitrary code execution, so it lands in the sharpest existing category rather than a new one, and the precedent is already in the schema: `packdecl.Install.InstallerURL` is *"a curl-piped installer … the sharpest thing a manifest can name: a URL whose contents run as a shell script"*, honored — when this was written — only under the origin rule: **a fetched pack could not introduce one**. ⚠ **That rule is gone**: [`OQ-TP9`](trust-paths.md#decision-ledger) deleted every origin refusal on 2026-09-04, and `packload.Pack.HonoredInstalls` now refuses nothing. The `InstallerURL` field's own doc comment in `packdecl.go` says the same: it is *"NOT gated on the pack's origin"*, and disclosure is what is left (checked 2026-09-25; this sentence used to say the comment still said otherwise). A build step is that, plus the loss of P4: builds are not bit-reproducible in general, so there is no digest to pin and no way to say what will run. My read is that B covers the real need and C should wait for a case B cannot serve. It is [OQ-BP5](#OQ-BP5) because the comment explicitly asks for it and because "both" is a coherent answer.
 
