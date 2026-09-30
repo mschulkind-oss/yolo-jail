@@ -172,6 +172,13 @@ type keeperFixture struct {
 // startKeeperFixture runs a keeper for a fresh plan. tune adjusts the plan before the spawn.
 func startKeeperFixture(t *testing.T, ready bool, tune func(*keeperPlan)) *keeperFixture {
 	t.Helper()
+	return startKeeperFixtureWith(t, ready, tune, nil)
+}
+
+// startKeeperFixtureWith is startKeeperFixture whose keeper's Options tuneOpts adjusts last, after
+// the fixture's own fakes.
+func startKeeperFixtureWith(t *testing.T, ready bool, tune func(*keeperPlan), tuneOpts func(*Options)) *keeperFixture {
+	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	emptyLoopholeDirs(t)
 	cname := "yolo-keeper-" + strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-"))
@@ -206,6 +213,9 @@ func startKeeperFixture(t *testing.T, ready bool, tune func(*keeperPlan)) *keepe
 			o.LookPath = func(string) (string, bool) { return "", false }
 			o.PathExists = func(string) bool { return false }
 			o.StartDetached = func([]string, *os.File) error { return errTestBinarySelfExec }
+			if tuneOpts != nil {
+				tuneOpts(o)
+			}
 		})
 		_ = progW.Close()
 		f.done <- rc
