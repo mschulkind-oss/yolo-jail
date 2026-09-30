@@ -52,8 +52,8 @@ func attachSkewSection(s *AttachSkew) []string {
 	lines := []string{
 		"## ⚠ This session runs in a jail that could not take what started it",
 		"",
-		"The attach that started this session found that this jail " + strings.TrimSuffix(s.Jail, ".") +
-			", and went ahead only because `YOLO_ALLOW_ATTACH_SKEW` was set. Nothing of its " +
+		"`YOLO_ALLOW_ATTACH_SKEW` was set, so the attach that started this session went ahead " +
+			"although this jail " + strings.TrimSuffix(s.Jail, ".") + ". Nothing of its " +
 			"provider/profile selection was delivered: this jail keeps the environment its last " +
 			"entry gave it.",
 		"",
