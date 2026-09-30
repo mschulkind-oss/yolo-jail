@@ -46,6 +46,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -140,7 +141,7 @@ func InstalledOrphans(e *Env) []Orphan {
 	for _, orphan := range catalogLocalBinOrphans(e, packs) {
 		out = append(out, orphan.orphan(OrphanLocalBin))
 	}
-	for _, orphan := range catalogGoBinOrphans(e) {
+	for _, orphan := range catalogGoBinOrphans(e, packs) {
 		out = append(out, orphan.orphan(OrphanGoBin))
 	}
 	return out
@@ -234,6 +235,12 @@ func catalogNpmOrphans(e *Env, packs []*packload.Pack) []string {
 	for _, p := range packs {
 		installs, _ := p.HonoredInstalls()
 		for _, in := range installs {
+			// A FORK's build owns the npm packages its `produces` names under the prefix: a
+			// source build installed with `npm install -g` lands its package there, and an
+			// undeclared one would be deleted at every boot under `programs.autoprune`.
+			for _, name := range forkOutputsUnder(in, ".npm-global/lib/node_modules", true) {
+				declared[name] = struct{}{}
+			}
 			if in.Kind != "npm" {
 				continue
 			}
@@ -366,27 +373,64 @@ func catalogLocalBinOrphans(e *Env, packs []*packload.Pack) []pathOrphan {
 			if in.Kind == "native" && in.Bin != "" {
 				declared[in.Bin] = struct{}{}
 			}
+			// And a FORK's build, whichever of its outputs land here (its program, when that
+			// is .local/bin/<bin>, and anything else its `produces` names in this directory).
+			for _, name := range forkOutputsUnder(in, ".local/bin", false) {
+				declared[name] = struct{}{}
+			}
 		}
 	}
 
 	return catalogDirOrphans(e, e.LocalBin(), declared)
 }
 
-// catalogGoBinOrphans lists every $GOBIN entry, because nothing in yolo declares one.
+// forkOutputsUnder lists the entries directly under dir (home-relative) that a FORK's build
+// declares in its `produces`, for the declared sets above: `.local/bin/pi` under `.local/bin` is
+// "pi". scoped reads a `@scope/name` two levels down as one name, npm's layout. Nothing for any
+// program that is not a fork's.
+func forkOutputsUnder(in packdecl.Install, dir string, scoped bool) []string {
+	if in.Kind != packdecl.InstallKindSource {
+		return nil
+	}
+	var out []string
+	for _, p := range in.Produces {
+		rest, ok := strings.CutPrefix(p, dir+"/")
+		if !ok || rest == "" {
+			continue
+		}
+		parts := strings.Split(rest, "/")
+		name := parts[0]
+		if scoped && strings.HasPrefix(name, "@") && len(parts) > 1 {
+			name += "/" + parts[1]
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+// catalogGoBinOrphans lists every $GOBIN entry no FORK's build declares.
 //
-// THE DECLARED SET IS EMPTY, and that is the deletion of the LSP recipe table rather than an
-// oversight (docs/reference/mcp-configuration.md#oq-lsp1). Its go arm was the only thing in
-// yolo that ever ran `go install` into this directory — the launcher templates land under the
-// npm prefix and ~/.local/bin, and no `via` value installs a Go module (`knownVias` is {npm,
-// installer}) — so with it gone no declaration can own a $GOBIN file. The finder stays for
-// what the arm left behind: a gopls installed before the deletion has no record anywhere now
-// (the ~/.yolo-installed-lsps sentinel went with the table), and without this class it would
-// be invisible to the catalog and to `yolo programs remove` for the life of the home.
-//
-// It takes no packs for the same reason it took none before: an argument nothing reads would
-// read as "packs can own a go binary", and the next edit would believe it.
-func catalogGoBinOrphans(e *Env) []pathOrphan {
-	return catalogDirOrphans(e, e.GoBin(), map[string]struct{}{})
+// THE DECLARED SET WAS EMPTY until the fork route, and that was the deletion of the LSP recipe
+// table rather than an oversight (docs/reference/mcp-configuration.md#oq-lsp1). Its go arm was
+// the only thing in yolo that ever ran `go install` into this directory, and the launcher
+// templates land under the npm prefix and ~/.local/bin. The one declaration that can own a
+// $GOBIN file now is a fork whose `produces` names `go/bin/<name>`
+// (docs/design/forked-programs-as-packs.md) — a forked Go program built with `go install`. The
+// finder stays for what the LSP arm left behind too: a gopls installed before the deletion has no
+// record anywhere now (the ~/.yolo-installed-lsps sentinel went with the table), and without this
+// class it would be invisible to the catalog and to `yolo programs remove` for the life of the
+// home.
+func catalogGoBinOrphans(e *Env, packs []*packload.Pack) []pathOrphan {
+	declared := map[string]struct{}{}
+	for _, p := range packs {
+		installs, _ := p.HonoredInstalls()
+		for _, in := range installs {
+			for _, name := range forkOutputsUnder(in, "go/bin", false) {
+				declared[name] = struct{}{}
+			}
+		}
+	}
+	return catalogDirOrphans(e, e.GoBin(), declared)
 }
 
 // catalogDirOrphans lists every entry of dir whose name is not in declared, rendered as a

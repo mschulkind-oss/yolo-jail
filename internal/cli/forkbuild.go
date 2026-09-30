@@ -168,6 +168,48 @@ func buildFork(b forkBuild, mode buildMode, out, errw io.Writer, color bool) (*c
 	return entry, nil
 }
 
+// buildForksForLaunch is run.Options.BuildForks: the launch's builds (OQ-FP4). For each pinned fork
+// it answers with the store key of its build at the pin — a hit when the store holds it, a build
+// in a sealed jail when it does not — or with why there is none. It waits, bounded, for a build of
+// the same key another launch is running, and then uses that build (FP-D1). It never fails the
+// launch: a failed build is its fork's reason, printed by the fork's launcher in the jail (§9).
+func buildForksForLaunch(pins []packload.ForkPin, platform string, out, errw io.Writer, color bool) map[string]entrypoint.ForkDelivery {
+	pr := richtext.Printer{W: out, Color: color}
+	store := &capture.Store{Dir: paths.CapturesDir()}
+	got := map[string]entrypoint.ForkDelivery{}
+	var missing []forkBuild
+	for _, p := range pins {
+		b := forkBuild{Fork: p.Fork, Commit: p.Commit, Platform: platform}
+		if entry, _, err := resolveForkBuild(store, p.Fork.Bin, platform, p.Fork.Source, p.Commit, b.recipe()); err == nil {
+			got[p.Fork.Bin] = entrypoint.ForkDelivery{Key: entry.Key}
+			continue
+		}
+		missing = append(missing, b)
+	}
+	if len(missing) == 0 {
+		return got
+	}
+	// THE COST IS STATED WHERE IT IS PAID, as auto-capture states its: a source build fetches its
+	// dependencies and compiles, once per commit per machine.
+	pr.Printf("[bold]fork builds[/bold]  %d %s never built at %s on this machine",
+		len(missing), plural(len(missing), "fork", "forks"), plural(len(missing), "its pin", "their pins"))
+	pr.Printf("[dim]  Each is built once now, from its pinned commit, in a sealed jail of its own " +
+		"that gets no credential and no host file; every later launch materializes it.[/dim]")
+	for i, b := range missing {
+		pr.Printf("[dim]  [%d/%d][/dim] %s at %s", i+1, len(missing), b.Fork.Key(), shortSHA(b.Commit))
+		entry, err := buildFork(b, buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound}}, out, errw, color)
+		if err != nil {
+			fmt.Fprintf(errw, "Warning: could not build %s (%v) — nothing was stored, and this launch "+
+				"continues without %s. The next launch builds it again.\n", b.Fork.Key(), err, b.Fork.Bin)
+			got[b.Fork.Bin] = entrypoint.ForkDelivery{Reason: "fork " + b.Fork.Pack + "'s build of commit " +
+				shortSHA(b.Commit) + " failed on the host (" + err.Error() + ")"}
+			continue
+		}
+		got[b.Fork.Bin] = entrypoint.ForkDelivery{Key: entry.Key}
+	}
+	return got
+}
+
 // missingProduces names the `produces` paths the build's result lacks, or "" when it has them all.
 // A build that exits 0 without its program is a FAILED build (§9), and admitting it would file an
 // entry that materializes no program and satisfies every later lookup.

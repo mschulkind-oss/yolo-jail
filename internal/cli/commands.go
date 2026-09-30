@@ -18,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/stores"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/darwinpkg"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -1176,6 +1177,13 @@ func runRun(args []string) int {
 	// run.Options.autoCaptureInstallerPrograms).
 	opts.AutoCapture = func(bins []string, platform string) {
 		autoCapture(bins, platform, os.Stdout, os.Stderr, colorForWriter(os.Stdout))
+	}
+	// Wire the fork build trigger (docs/design/forked-programs-as-packs.md OQ-FP4, FP-D1): every
+	// selected fork the store holds no build of at its pin is built now, in a sealed jail, and the
+	// jail is handed each fork's store key. Fourth seam of the same shape, and on the launch path
+	// only for AutoCapture's reason: the build jail runs from NewDefaultOptions, never from here.
+	opts.BuildForks = func(pins []packload.ForkPin, platform string) map[string]entrypoint.ForkDelivery {
+		return buildForksForLaunch(pins, platform, os.Stdout, os.Stderr, colorForWriter(os.Stdout))
 	}
 	// Set the tmux/kitty jail indicator around the run, restoring on exit. The
 	// restore runs as subprocesses (kitten/tmux) with no timeout of their own,

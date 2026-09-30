@@ -111,8 +111,13 @@ func (o *Options) capturesArgs(rt, dir string) []string {
 		// `container` upgrade. The line names the version reason, in mounts.go's shape, so a
 		// user who wonders why the vendor installer downloads again gets the answer at the
 		// launch instead of from this comment.
-		o.pr(o.Stdout).print("[yellow]Vendor-installer captures are not mounted on this " +
-			"runtime[/yellow] — " + reason + " Installs in the jail download as usual.")
+		//
+		// A FORK'S BUILD LIVES IN THE SAME STORE (docs/design/forked-programs-as-packs.md), and
+		// has no download to fall back to, so the line says what that costs too: the forked
+		// program's launcher names this same reason in the jail (forkDeliveriesFor).
+		o.pr(o.Stdout).print("[yellow]Vendor-installer captures and fork builds are not mounted " +
+			"on this runtime[/yellow] — " + reason + " Installs in the jail download as usual, and " +
+			"a program a fork builds is not delivered.")
 		return nil
 	}
 	return []string{

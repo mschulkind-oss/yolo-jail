@@ -377,6 +377,9 @@ func GenerateAgentLaunchers(e *Env) error {
 	// table. See serverrefresh.go's header for where a per-pack set would
 	// enter if that ever changes.
 	servers := ServerRefreshSpecs(e)
+	// The host's fork decisions (ForkBuildsEnv), read ONCE, like the capture store: every source
+	// launcher bakes its own bin's.
+	forks := forkDeliveries(e)
 
 	packs, err := LoadJailPacks(e)
 	if err != nil {
@@ -457,15 +460,22 @@ func GenerateAgentLaunchers(e *Env) error {
 					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(e, packs, inst.Bin))
 			case packdecl.InstallKindSource:
 				// A FORK's program (docs/design/forked-programs-as-packs.md): built from source
-				// in a capture jail and delivered from the capture store. No launcher yet, and
-				// said so by name: the base's upstream delivery is NOT a fallback, because a
-				// jail that ran the upstream program under the fork's name would be the wrong
-				// program looking like the right one.
-				e.warn(fmt.Sprintf(
-					"yolo-entrypoint: pack %s: no launcher for %q — fork pack %s builds it from "+
-						"source, and this build does not deliver a source-built program into a jail yet",
-					p.Name, inst.Bin, inst.ForkedBy))
-				continue
+				// in a sealed capture jail on the host, and materialized here from the store key
+				// the host handed over (forklauncher.go). The base's upstream delivery is NOT a
+				// fallback, because a jail that ran the upstream program under the fork's name
+				// would be the wrong program looking like the right one.
+				segments := sourceAgentLauncherSegments(inst, forkDeliveryFor(forks, inst.Bin), stampDir,
+					receiptsFile(e), capturesDir(e), agentUpdatesAllows(e, p.Name), servers,
+					launchFlagsFor(e, packs, inst.Bin))
+				prefix := nodeExecPrefix(inst.NodeFloor)
+				launcher = strings.Join(segments, prefix)
+				// AR-L5, as for an npm launcher: a floor nothing met at generation is joined in by
+				// the provisioning stage once it has installed an interpreter.
+				if inst.NodeFloor != "" && prefix == "" {
+					if err := writeFloorPending(e, inst.Bin, inst.NodeFloor, segments); err != nil {
+						return err
+					}
+				}
 			default:
 				// UNREACHABLE from the boot path: LoadJailPacks reads manifests tolerantly,
 				// and DecodeTolerant drops a `program` whose `via` this build does not know

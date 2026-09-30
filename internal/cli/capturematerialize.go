@@ -42,7 +42,7 @@ import (
 // nobody has ruled on: a first run on a machine with no capture must still work.
 
 const captureMaterializeUsage = "usage: yolo internal capture-materialize --store=DIR --bin=NAME " +
-	"[--home=DIR] [--declared=URL] [--receipts=PATH]"
+	"[--key=KEY] [--home=DIR] [--declared=URL] [--receipts=PATH]"
 
 // runCaptureMaterialize is the `yolo internal capture-materialize` entry.
 func runCaptureMaterialize(args []string) int {
@@ -60,6 +60,8 @@ func runCaptureMaterialize(args []string) int {
 			opts.declared = strings.TrimPrefix(a, "--declared=")
 		case strings.HasPrefix(a, "--receipts="):
 			opts.receipts = strings.TrimPrefix(a, "--receipts=")
+		case strings.HasPrefix(a, "--key="):
+			opts.key = strings.TrimPrefix(a, "--key=")
 		default:
 			fmt.Fprintf(os.Stderr, "capture-materialize: unexpected argument %q\n%s\n",
 				a, captureMaterializeUsage)
@@ -89,6 +91,10 @@ type materializeArgs struct {
 	declared string
 	// receipts is the workspace receipt log to append to. Empty writes none.
 	receipts string
+	// key, when set, is the ENTRY to materialize — a fork's build, decided on the host
+	// (docs/design/forked-programs-as-packs.md FP-D8) — instead of the one selection names for
+	// bin. The entry must record a build of bin for this platform, or it is refused.
+	key string
 }
 
 // materializeCapture is runCaptureMaterialize with its writer injected.
@@ -99,6 +105,9 @@ type materializeArgs struct {
 func materializeCapture(a materializeArgs, errw io.Writer) int {
 	store := &capture.Store{Dir: a.store}
 	platform := capture.Platform()
+	if a.key != "" {
+		return materializeForkBuild(store, a, platform, errw)
+	}
 	entry, rec, err := resolveCaptureFor(store, a.bin, platform)
 	if err != nil {
 		fmt.Fprintf(errw, "  yolo: no capture for %s (%s): %v\n", a.bin, platform, err)
@@ -159,6 +168,50 @@ func materializeCapture(a materializeArgs, errw io.Writer) int {
 		fmt.Fprintf(errw, "  (captured under %s: rewrote %d links and %d files to name %s)\n",
 			res.RelocatedFrom, res.RewrittenLinks, res.Rewritten, a.home)
 	}
+	return 0
+}
+
+// materializeForkBuild is the --key mode: put the fork build the HOST decided on into this home
+// (FP-D8 — the fork lock is in the user config directory, which no jail can read, so the host
+// hands the key over). The key is checked against the entry's own `build` record: an entry that
+// records another bin or another platform is refused, because a key the launcher was handed by
+// mistake must not put some other program's bytes under this bin's name.
+func materializeForkBuild(store *capture.Store, a materializeArgs, platform string, errw io.Writer) int {
+	entry, err := store.Resolve(a.key)
+	if err != nil {
+		fmt.Fprintf(errw, "  yolo: fork build %s for %s is not in the store: %v\n", a.key, a.bin, err)
+		return 1
+	}
+	var rec *capture.Record
+	recs, _ := captureRecords(entry.Root)
+	for i := range recs {
+		if recs[i].Source != "" && recs[i].Bin == a.bin && recs[i].Platform == platform {
+			rec = &recs[i]
+		}
+	}
+	if rec == nil {
+		fmt.Fprintf(errw, "  yolo: store entry %s records no build of %s for %s — refusing to put it "+
+			"in place of %s\n", a.key, a.bin, platform, a.bin)
+		return 1
+	}
+	res, err := capture.Materialize(capture.MaterializeOptions{Entry: entry, Home: a.home, Stderr: errw})
+	if err != nil {
+		fmt.Fprintf(errw, "  yolo: materializing fork build %s for %s FAILED: %v\n  (%s may hold a "+
+			"partial tree)\n", entry.Key, a.bin, err, a.home)
+		return 1
+	}
+	if a.receipts != "" {
+		line := entrypoint.BuildReceipt{
+			Bin: a.bin, Source: a.declared, Key: entry.Key, Digest: rec.Digest, Bytes: res.Bytes,
+			Path: entry.Root, Platform: platform, Revision: rec.Revision, Recipe: rec.Recipe,
+			Act: entrypoint.ReceiptActMaterialize, Time: time.Now(),
+		}.Line()
+		if err := entrypoint.AppendReceiptLine(a.receipts, line); err != nil {
+			fmt.Fprintf(errw, "  yolo: (the materialize receipt could not be written: %v)\n", err)
+		}
+	}
+	fmt.Fprintf(errw, "  Materialized %s from fork build %s (commit %s) by %s (%d files, %s)\n",
+		a.bin, entry.Key, rec.Revision, res.Mechanism(), res.Files, humanBytes(res.Bytes))
 	return 0
 }
 

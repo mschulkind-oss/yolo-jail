@@ -622,6 +622,10 @@ func Run(opts Options) (rc int) {
 		// backend shares, so the printer is this backend's.
 		o.noteMacosUserPlatformGaps(cfg)
 		o.noteMacosUserPortKeys(cfg)
+		// A FORK DELIVERS NO PROGRAM ON THIS BACKEND, and says so (FP-D3; forkbuild.go): the build
+		// trigger sits below this arm's return, and no macos-user launch can read the capture
+		// store yet (hand-off H4).
+		o.noteMacosUserForks()
 		// YOLO_STORE_PACKAGES's only consumer (planStorePackages) is below this arm's
 		// return, so on this backend the dial vanished without a line. A NOTICE, not a
 		// refusal — planStorePackages' own ruling for an ineligible launch — and here the
@@ -831,6 +835,13 @@ func Run(opts Options) (rc int) {
 	// this call — every bit of it between two spans, pointing at nothing.
 	sp := o.Perf.Span("launch.auto_capture")
 	o.autoCaptureInstallerPrograms(staged.packs)
+	sp.End()
+	// THE FORK BUILDS, in the same slot and for the same reasons (forkbuild.go; OQ-FP4, eager at
+	// the notch's readiness act): every selected fork this machine holds no build of at its pin
+	// is built now, in a sealed jail of its own, and the jail is handed each fork's store key or
+	// the reason it has none. A hit builds nothing, and no outcome fails this launch (§9).
+	sp = o.Perf.Span("launch.fork_builds")
+	o.forkDelivered = o.forkDeliveriesFor(rt)
 	sp.End()
 	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs, channel, jailDaemons)
 }
@@ -1602,6 +1613,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		agentsPath:       agentsPath,
 		packStaging:      packStaging,
 		capturesDir:      o.CapturesDir(),
+		forkDeliveries:   o.forkDelivered,
 		wsState:          wsState,
 		durableDir:       o.durableJailPath(),
 		miseStore:        miseStore,

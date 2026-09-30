@@ -85,6 +85,10 @@ type assembleInput struct {
 	// EMPTY means "do not mount it" — the capture jail's own launch, which must not be
 	// able to resolve against the store it is filling (Options.CapturesDir).
 	capturesDir string
+	// forkDeliveries is the host's decision per forked program for this launch
+	// (Options.forkDeliveriesFor, forkbuild.go): the store key its jail materializes, or why there
+	// is none. Emitted beside the store mount as entrypoint.ForkBuildsEnv; nil emits nothing.
+	forkDeliveries map[string]entrypoint.ForkDelivery
 	// homeSkeleton is this launch's per-jail home skeleton (buildHomeSkeleton), the
 	// directory podmanBaseMounts binds read-only at /home/agent. It is INPUT, built by the
 	// run pipeline on the fresh-launch path, because building it creates directories and
@@ -913,6 +917,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// The machine's capture store, so a native launcher can materialize an already-captured
 	// install instead of downloading it (captures.go says why it is a mount and why :ro).
 	runCmd = append(runCmd, o.capturesArgs(rt, in.capturesDir)...)
+	// --- FORK BUILDS: which store entry each forked program materializes (forkbuild.go) ---
+	// Beside the store it reads from. The fork lock is in the user config directory, which no jail
+	// can read, so the host decides the entry and hands the jail its key, or why it has none (FP-D8).
+	if wire := entrypoint.ForkBuildsWire(in.forkDeliveries); wire != "" {
+		runCmd = append(runCmd, "-e", entrypoint.ForkBuildsEnv+"="+wire)
+	}
 
 	// --- host files (pack-declared, origin-gated) ---
 	// --- pack `mount` contributions: host-home dir/file :ro under /ctx ---

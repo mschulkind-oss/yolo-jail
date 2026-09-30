@@ -702,7 +702,10 @@ func nodeFloorDecls(packs []*packload.Pack) []nodeFloorDecl {
 			if !slices.Contains(d.DeclaredBy, who) {
 				d.DeclaredBy = append(d.DeclaredBy, who)
 			}
-			if in.Kind == "npm" && packdecl.ValidBinName(in.Bin) && !slices.Contains(d.Launchers, in.Bin) {
+			// The launchers the provisioning stage regenerates once it installs a floor: an npm
+			// program's, and a fork's source launcher, which execs through the floor the same way.
+			if (in.Kind == "npm" || in.Kind == packdecl.InstallKindSource) && packdecl.ValidBinName(in.Bin) &&
+				!slices.Contains(d.Launchers, in.Bin) {
 				d.Launchers = append(d.Launchers, in.Bin)
 			}
 		}
