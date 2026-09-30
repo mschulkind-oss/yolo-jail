@@ -394,7 +394,12 @@ func (k *keeper) beforeReady() (ready bool, rc int, ended bool) {
 		case <-time.After(keeperRunningWait):
 		}
 		k.releaseLaunchLock()
-		k.endJail("", false)
+		// And a container still running under a client that died (killed, or a Mac's remote client
+		// that lost its machine) is the keeper's to stop, as it stops whatever else it started
+		// (§9.5 item 1): its hold never ends by itself. A refused boot's container went with it, so
+		// that ordinary case stops nothing; one the runtime cannot answer for is stopped anyway.
+		id, known := o.probeRunningContainer(p.Cname, p.Runtime, trackingProbeTimeout)
+		k.endJail(bootClientGoneReason(k.pid), !known || id != "")
 		return false, k.finish(jm.exitCode, nil), true
 	case <-k.lifelineGone:
 		o.pr(o.Stderr).printf("keeper: the launch that started %s is gone before its jail was ready; ending the jail", p.Cname)
@@ -705,6 +710,10 @@ const lastSessionLeftReason = "its last session ended"
 
 func keeperSignalledReason(pid int) string {
 	return fmt.Sprintf("its keeper (pid %d) was sent a signal, and ended it in order", pid)
+}
+
+func bootClientGoneReason(pid int) string {
+	return fmt.Sprintf("the runtime client that started it exited before its boot was done, so its keeper (pid %d) ended it", pid)
 }
 
 func launchGoneReason(pid int) string {

@@ -191,3 +191,46 @@ func TestAKeeperRefusesANameAnotherKeeperHolds(t *testing.T) {
 		t.Errorf("a refused keeper rewrote the holder's log: %q", b)
 	}
 }
+
+// TestAClientThatDiesBeforeReadyUnderARunningContainerHasItStopped is §9.5 item 1's "stops what it
+// started": a main process's client that exits before the boot is done is a boot that failed, and
+// the launch fails with it, but when the runtime says the container still runs, it is the keeper's
+// to stop. The first build stopped nothing on that path, which only a refused boot's own exit had
+// ever needed, and left a container whose hold never ends by itself.
+func TestAClientThatDiesBeforeReadyUnderARunningContainerHasItStopped(t *testing.T) {
+	f := startKeeperFixture(t, false, func(p *keeperPlan) {
+		p.RunCmd = []string{"sh", "-c", `echo "a boot line" >&2; exit 1`}
+	})
+	if f.relay() {
+		t.Fatal("a boot that never finished reached ready")
+	}
+	if rc := f.wait(); rc != 1 {
+		t.Errorf("the keeper exited %d, want the client's 1", rc)
+	}
+	if f.jail.stopCount() != 1 {
+		t.Errorf("the keeper stopped the container %d times, want once: it still ran when the client died", f.jail.stopCount())
+	}
+	if _, ok := readKeeperRecord(f.cname); ok {
+		t.Error("the keeper left its start record for a container it stopped")
+	}
+}
+
+// TestARefusedBootIsNotStoppedAgain: the ordinary way a client exits before ready is a refused boot,
+// whose container is gone with it. The keeper asks, finds nothing running, and stops nothing.
+func TestARefusedBootIsNotStoppedAgain(t *testing.T) {
+	f := startKeeperFixture(t, false, func(p *keeperPlan) {
+		p.RunCmd = []string{"sh", "-c", `echo "refused" >&2; exit 3`}
+	})
+	f.jail.mu.Lock()
+	f.jail.stopped = true // the container went with its refused boot
+	f.jail.mu.Unlock()
+	if f.relay() {
+		t.Fatal("a refused boot reached ready")
+	}
+	if rc := f.wait(); rc != 3 {
+		t.Errorf("the keeper exited %d, want the refusal's 3", rc)
+	}
+	if f.jail.stopCount() != 0 {
+		t.Errorf("the keeper stopped a container that had already gone (%d stops)", f.jail.stopCount())
+	}
+}
