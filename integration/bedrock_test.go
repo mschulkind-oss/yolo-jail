@@ -115,9 +115,13 @@ func TestBedrockBridgeCarriesPiToRuntimeInItsRegion(t *testing.T) {
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": ["pi"], "providers": {"bedrock": {"region": "us-east-1"}}}`)
 
+	// The via listener is the only one this launch binds, so the endpoint file names it: at the
+	// declared :8216 on a private network namespace, and at a port the launcher picked on a shared
+	// one (a nested jail's), which is why the address is read rather than written down.
 	script := `set -u
+addr=$(cat "$YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT")
 code=$(curl -sS -o /workspace/bedrock-bridge-pi.json -w '%{http_code}' \
-  http://127.0.0.1:8216/agent/pi/chat/completions -H 'content-type: application/json' \
+  "http://$addr/agent/pi/chat/completions" -H 'content-type: application/json' \
   -H "authorization: Bearer $YOLO_SERVICE_WIRE_BRIDGE_TOKEN" -d '{"model":"m","messages":[]}')
 echo "CODE=$code"`
 	r := runCommand(t, dir, append(jailRunArgs(), "-p", "bedrock-bridge", "--", "bash", "-lc", script))
