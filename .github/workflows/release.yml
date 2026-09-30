@@ -11,8 +11,9 @@
 # (.goreleaser.yaml) also run the pin tool's `stage`, which rebuilds every
 # official pack binary, refuses unless each is the digest the tag pins, and
 # stages the builds that goreleaser uploads beside the archives
-# (docs/design/broker-as-a-pack.md BP-D8, BP-D9). Like the bundle's
-# cross-compile, it runs on the Go the goreleaser job sets up.
+# (docs/design/broker-as-a-pack.md BP-D8, BP-D9). The tool runs on the Go the
+# goreleaser job sets up, which only downloads the pinned toolchain every one
+# of those builds is made with.
 # publish.yml
 # (PyPI wheels + image pushes) runs off the SAME tag push — NOT off the
 # release event: goreleaser creates the release with the workflow-scoped
