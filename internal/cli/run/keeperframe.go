@@ -201,6 +201,13 @@ func (s *keeperSink) endRelay(mirror io.Writer) {
 	s.mirror = mirror
 }
 
+// setLog gives the sink the keeper's log, once the keeper holds its jail's name (keeper.run).
+func (s *keeperSink) setLog(w io.Writer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.log = w
+}
+
 // logf writes one line of the keeper's own, on its stderr stream.
 func (s *keeperSink) logf(format string, args ...any) {
 	s.write(frameStderr, []byte(fmt.Sprintf(format, args...)+"\n"))

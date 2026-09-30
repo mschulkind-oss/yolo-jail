@@ -1,12 +1,15 @@
 package run
 
-// keeperconfirm_test.go pins how the keeper tells its container's end from the end of the runtime
-// client it started the container with (docs/design/jail-lifetime-last-session-wins.md §9.5 item
-// 3: "It confirms with the same probe"; JL-P3: "could not ask" is never "gone").
+// keeperconfirm_test.go pins what a keeper reads as its jail's end, and as its own right to the jail's
+// name: the runtime client it started the container with ending is not the container ending
+// (docs/design/jail-lifetime-last-session-wins.md §9.5 item 3: "It confirms with the same probe";
+// JL-P3: "could not ask" is never "gone"), a stop that did not take leaves the jail unkept, and a
+// probe's instant on the liveness lock is not another keeper.
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,5 +103,91 @@ func TestAJailItsKeeperCouldNotStopIsLeftUnkept(t *testing.T) {
 	}
 	if probeKeeper(f.cname) != keeperGone {
 		t.Error("the keeper's liveness lock is still held after its end")
+	}
+}
+
+// TestAKeeperWaitsOutAProbesHoldOnItsLivenessLock: every probe of a keeper (probeKeeper, which a
+// last session's streamed teardown, `yolo stop`, an arrival's wait and the reaper each make) holds
+// the liveness lock exclusively for an instant. The fresh launch that spawns a keeper found no keeper
+// under the launch lock and handed that lock over, so a hold the new keeper meets is such an instant,
+// not a keeper: it waits it out and starts, rather than refusing the launch as though the previous
+// jail's keeper were still running. And it leaves the log alone until it holds the lock, since the
+// log is truncated at a keeper's start and one it met could be a live keeper's.
+func TestAKeeperWaitsOutAProbesHoldOnItsLivenessLock(t *testing.T) {
+	var session *sessionLock
+	var logBefore string
+	seen := make(chan string, 1) // the log as it stood while the probe held the lock
+	f := startKeeperFixture(t, true, func(p *keeperPlan) {
+		lock, _, err := takeSessionLock(p.Cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		session = lock
+		if err := os.MkdirAll(filepath.Dir(keeperLogPath(p.Cname)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		logBefore = "a line of the keeper that holds the lock\n"
+		if err := os.WriteFile(keeperLogPath(p.Cname), []byte(logBefore), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		probe, err := holdLivenessLock(p.Cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			b, _ := os.ReadFile(keeperLogPath(p.Cname))
+			seen <- string(b)
+			time.Sleep(150 * time.Millisecond)
+			releaseLock(probe)
+		}()
+	})
+	if !f.relay() {
+		t.Fatalf("a probe's instant on the liveness lock refused the launch:\n%s", f.errOut.String())
+	}
+	if got := <-seen; got != logBefore {
+		t.Errorf("a keeper that did not yet hold the liveness lock rewrote the log: %q", got)
+	}
+	session.release()
+	if rc := f.wait(); rc != 0 {
+		t.Errorf("the keeper ended %d", rc)
+	}
+}
+
+// TestAKeeperRefusesANameAnotherKeeperHolds: a hold that outlasts keeperLivenessWait is another
+// keeper, which two launches with no launch lock between them can each spawn: the new one refuses,
+// starts nothing, and leaves the holder's log as it was.
+func TestAKeeperRefusesANameAnotherKeeperHolds(t *testing.T) {
+	saved := keeperLivenessWait
+	keeperLivenessWait = 100 * time.Millisecond
+	t.Cleanup(func() { keeperLivenessWait = saved })
+	const theirs = "the other keeper's line\n"
+	f := startKeeperFixture(t, true, func(p *keeperPlan) {
+		if err := os.MkdirAll(filepath.Dir(keeperLogPath(p.Cname)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(keeperLogPath(p.Cname), []byte(theirs), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		other, err := holdLivenessLock(p.Cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { releaseLock(other) })
+	})
+	if f.relay() {
+		t.Fatal("a keeper started on a name another keeper holds")
+	}
+	if rc := f.wait(); rc != 1 {
+		t.Errorf("the keeper exited %d, want 1", rc)
+	}
+	if !strings.Contains(f.errOut.String(), "Refusing to start this jail's keeper") {
+		t.Errorf("the refusal did not say why:\n%s", f.errOut.String())
+	}
+	if strings.Contains(strings.Join(f.jail.calls, "\n"), "podman run") {
+		t.Error("a refused keeper started the container")
+	}
+	if b, _ := os.ReadFile(keeperLogPath(f.cname)); string(b) != theirs {
+		t.Errorf("a refused keeper rewrote the holder's log: %q", b)
 	}
 }

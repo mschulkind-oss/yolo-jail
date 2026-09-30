@@ -32,6 +32,7 @@ package run
 // controlling terminal, is ignored.
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -189,9 +190,6 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	if progress != nil {
 		k.sink.pipe = progress
 	}
-	if f, err := openKeeperLog(plan.Cname); err == nil {
-		k.sink.log = f
-	}
 	if lifeline != nil {
 		go func() {
 			_, _ = io.Copy(io.Discard, lifeline)
@@ -243,9 +241,8 @@ func (k *keeper) run() int {
 	o.initPerf(p.Cname)
 	scope, line := o.moveKeeperIntoScope(p.Cname)
 	k.scope = scope
-	k.sink.logOnlyf("%s", line)
 
-	live, err := holdLivenessLock(p.Cname)
+	live, err := awaitLivenessLock(p.Cname, keeperLivenessWait)
 	if err != nil {
 		o.pr(o.Stderr).printf("[bold red]Refusing to start this jail's keeper: %v. The keeper of the "+
 			"previous jail named %s is still running; %s, then a launch, ends it.[/bold red]",
@@ -254,6 +251,12 @@ func (k *keeper) run() int {
 	}
 	k.liveness = live
 	defer releaseLock(live)
+	// THE LOG, only now that this keeper holds the name: opening truncates it, and a keeper that
+	// refused above could have met a live one, whose log its last session may be streaming.
+	if f, err := openKeeperLog(p.Cname); err == nil {
+		k.sink.setLog(f)
+	}
+	k.sink.logOnlyf("%s", line)
 	o.writeOwnerPID(p.Cname)
 	if err := writeKeeperRecord(p.Cname, keeperRecord{PID: k.pid, Started: time.Now(),
 		Workspace: p.Workspace, Runtime: p.Runtime, Skeleton: p.Skeleton, PackTree: p.PackTree,
@@ -343,6 +346,29 @@ func (k *keeper) run() int {
 			k.endJail(keeperSignalledReason(k.pid), true)
 			return k.finish(128+int(s.(syscall.Signal)), drained)
 		}
+	}
+}
+
+// keeperLivenessWait bounds a new keeper's wait for its liveness lock (awaitLivenessLock).
+var keeperLivenessWait = 2 * time.Second
+
+// awaitLivenessLock is a new keeper's take of its liveness lock, which waits out a hold of an
+// instant, up to bound. Every probe of a keeper takes the lock exclusively for an instant
+// (probeKeeper, the reaper's take), and several poll it: a last session streaming its teardown,
+// `yolo stop`, an arrival waiting for a drain. The fresh launch that spawned this keeper found no
+// keeper under the launch lock and handed that lock over, so no keeper can have started for the name
+// since, and a hold met here is one of those instants. A take that failed at once refused the launch
+// as though the previous jail's keeper were still running. A hold that outlasts the bound is still
+// refused (errKeeperAlive): two launches with no launch lock between them (holdLaunchLock's
+// warning) can each spawn one.
+func awaitLivenessLock(cname string, bound time.Duration) (*os.File, error) {
+	deadline := time.Now().Add(bound)
+	for {
+		f, err := holdLivenessLock(cname)
+		if !errors.Is(err, errKeeperAlive) || !time.Now().Before(deadline) {
+			return f, err
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
