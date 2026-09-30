@@ -1082,7 +1082,10 @@ pack ships, and every agent that can use the provider renders that one list
   it says so and resumes on another model. On the host,
   `yolo host apply` writes the same list into that file, from the provider table it composes at
   user scope ([OQ-HC1](../design/host-computed-layer.md#OQ-HC1), which superseded
-  [ML-D8](../design/model-lists-and-pickers.md#ML-D8)).
+  [ML-D8](../design/model-lists-and-pickers.md#ML-D8)), with the switch of the profile the
+  config's `profile` names for pi. A launch's `-p` does not reach that file
+  ([OQ-HC3](../design/host-computed-layer.md#OQ-HC3)), so `yolo host -p <profile> -- pi` refuses
+  or not as the configured profile says.
 
 A declared model that has a 1M-context variant lists it right after itself, as `<id>[1m]`. The
 suffix is the clients' spelling for the long-context request, and each strips it before the

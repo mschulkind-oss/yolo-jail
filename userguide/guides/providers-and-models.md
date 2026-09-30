@@ -312,9 +312,11 @@ and under `yolo host`, Codex keeps its usual menu.
 pi shows the same models for your ChatGPT subscription and runs no other one there, as Claude
 Code does. A model typed with `pi --model` stops with an error naming the list, and a session you
 resume that was saved on another model continues on a different one, with pi saying it could not
-restore the model. That holds when you launch with no profile too. To use a model yolo does not list there, add it
-to `providers.openai-codex.models` in your config, or launch with a profile that sets
-`"enforce_models": false`.
+restore the model. That holds when you launch with no profile too. To use a model yolo does not
+list there, add it to `providers.openai-codex.models` in your config, or launch with a profile
+that sets `"enforce_models": false`. Under `yolo host`, pi reads both from a file
+`yolo host apply` writes for the profile your config's `profile` names for pi, and a `-p` on the
+launch does not change it, so make the change in your config and run `yolo host apply`.
 
 A model you pick with `/model` stays picked at the next launch on your ChatGPT subscription and on
 a list a pack narrowed with `only` (below), as long as the profile's `enforce_models` is on, which
