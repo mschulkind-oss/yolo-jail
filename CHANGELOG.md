@@ -713,6 +713,13 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   started cannot answer the question, so the launch says that instead and names
   `yolo host-daemon restart aws-auth`. See
   [when the SSO session lapses](docs/reference/agent-credentials.md#when-the-sso-session-lapses).
+- Git packs now work with three git settings you may have in your own git config. With
+  `safe.bareRepository = explicit`, every git pack failed at launch and at `yolo pack install`,
+  with git's `cannot use bare repository`. Your git hooks, from `core.hooksPath` or from an
+  `init.templateDir`, no longer run inside yolo's copies of your packs: a hook that exited with an
+  error made every pack checkout fail. And with `core.fsmonitor = true`, checking a pack out no
+  longer leaves a `git fsmonitor--daemon` running for it after yolo exits. The rest of your git
+  config, such as credential helpers and `insteadOf` rewrites, still applies to pack downloads.
 
 ## [0.11.0] - 2026-09-28
 
