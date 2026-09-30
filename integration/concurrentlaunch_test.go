@@ -60,6 +60,8 @@ func (s *syncBuffer) String() string {
 // waits for the process it starts.
 type bgRun struct {
 	name string
+	// pid is the launcher's own process, for a test that kills it outright.
+	pid  int
 	out  *syncBuffer
 	done chan error
 	// exited is closed once the process has been reaped. done carries the ONE result, which a
@@ -116,7 +118,7 @@ func startYoloBackground(t *testing.T, name, dir, script string, env ...string) 
 		cancel()
 		t.Fatalf("%s: starting yolo: %v", name, err)
 	}
-	r := &bgRun{name: name, out: out, done: make(chan error, 1), exited: make(chan struct{})}
+	r := &bgRun{name: name, pid: cmd.Process.Pid, out: out, done: make(chan error, 1), exited: make(chan struct{})}
 	go func() {
 		r.done <- cmd.Wait() // buffered: never blocks, whether or not anyone reads it
 		close(r.exited)
