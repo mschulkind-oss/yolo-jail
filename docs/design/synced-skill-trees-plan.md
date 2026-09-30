@@ -173,10 +173,13 @@ design question — recorded here so they are not re-discovered.
   key in its own sentence. For an `enabledPlugins` or `env` loss the advice is not merely
   unhelpful, it is impossible to follow. The working remedy is the `config-overlay` above, and
   the remedy is per-SURFACE-KEY rather than per-class — which is a declaration the owning pack
-  could carry, rather than a switch in the reporter. *Host half fixed:* the remedy is a
-  `config-overlay` (`mcpEntryRemedy`, pinned by `TestFollowingTheHostMCPRemedyKeepsTheEntry`), and
-  its example and key list are built from the surfaces and table keys the run's loss lines name
-  (`droppedTablesOf`, pinned by `TestTheDroppedEntryRemedyNamesTheTableThatLostTheEntry`). The
+  could carry, rather than a switch in the reporter. *Host half fixed:* the remedy names the user
+  config's own tables first (`mcp_servers`, `lsp_servers`, `providers`) and keeps a per-surface
+  `config-overlay` as the one-agent alternative
+  ([HC-D20](host-computed-layer.md#HC-D20); `mcpEntryRemedy`, pinned by
+  `TestTheHostMCPRemedyNamesWhatReachesTheHost` and `TestFollowingTheHostMCPRemedyKeepsTheEntry`).
+  The overlay's example and key list are built from the surfaces and table keys the run's loss
+  lines name (`droppedTablesOf`, pinned by `TestTheDroppedEntryRemedyNamesTheTableThatLostTheEntry`). The
   boot notice still names `mcp_servers`, which is right for the one shipped table a jail boot
   regenerates, `claude/config`'s `mcpServers`.
 - **`yolo pack lint` passes an overlay body the render refuses BY NAME.** `manifest.DecodeOverlay`
