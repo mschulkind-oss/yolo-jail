@@ -9,6 +9,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+**`yolo host -- <agent>` now runs yolo's own copy of the agent, so the same agent starts from a
+terminal, a Waybar widget, cron or an IDE, whatever PATH that launcher had.** For every agent your
+selected packs install, yolo keeps a copy in `~/.local/share/yolo-jail/host-floor`, a folder only
+you can read, that no jail can see and that is on no PATH of yours. The first `yolo host --
+<agent>` installs it, saying what it is doing, and `yolo host apply --assert` installs every one
+that is missing and removes the copy of an agent you no longer select; nothing asks, because
+selecting the pack is the consent. An agent installed with npm runs on the floor's own Node, the
+official release checked against its published checksum, and an agent with its own installer comes
+from the machine's `yolo capture` of it, the same copy your jails use. The floor keeps them current
+at most once an hour when you start one, and `agent_updates` freezes it as it does in a jail. The
+commands an agent runs still see your own PATH first, mise included. `yolo check` has a new section
+listing each agent, where its copy is and when it was installed, and any other copy of it on your
+machine that `yolo host` does not run. Where yolo cannot keep a copy yet (an agent with its own
+installer on a Mac, codex, an agent with no build for your machine, or a machine with no container
+runtime to capture with), `yolo host` runs the one on your PATH and says so; a new user-config key,
+`host_floor`, leaves any pack out, or all of them. Just before it hands over, `yolo host` now prints
+one line naming what it starts and where it came from, so a slow start is visibly the agent's. See
+[yolo's own copy of your agents](userguide/guides/confinement.md#yolos-own-copy-of-your-agents).
+
 **Agents can use `gh` in a jail with your own GitHub login, and the jail never holds a GitHub
 token.** Select the new `github` pack and turn its `github-broker` loophole on, and a bare `gh`
 in the jail is sent to a service on your machine that runs your own `gh` for it, only against the
