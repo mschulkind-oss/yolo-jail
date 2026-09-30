@@ -292,3 +292,60 @@ func TestAModelKeySpelledInAnotherCaseIsTheModel(t *testing.T) {
 		}
 	}
 }
+
+// TestClaudesOwnSpellingOfAListedKiloModelIsAdmitted: on Kilo claude spells a bare `deepseek-` id
+// with its `deepseek/` vendor prefix and, at Kilo's 1M context, the `[1m]` suffix
+// (packs/claude/derive.lua routedSpelling), and the bridge's translation sends Kilo the prefixed
+// id (wirebridge's model normalization). A list naming the bare id, as the providers reference's
+// Kilo example does, holds that model, so the allowlist admits it: the model id claude's derive
+// pins every tier to is read off the real derive, and posted as claude posts it.
+func TestClaudesOwnSpellingOfAListedKiloModelIsAdmitted(t *testing.T) {
+	t.Setenv("KILO_API_KEY", "")
+	const kiloOnly = `{"kind":"models","provider":"kilo","add":[{"id":"deepseek-v4.1-flash","vendor":"deepseek"},{"id":"deepseek-v4.1-pro","vendor":"deepseek"}]},
+  {"kind":"models","provider":"kilo","only":["deepseek-v4.1-flash"]}`
+	const kiloKey = "export KILO_API_KEY=${KILO_API_KEY:-'kilo-key'}"
+
+	var packs []*packload.Pack
+	for _, p := range packload.Embedded() {
+		if p.Name == "claude" || p.Name == "kilo" || p.Name == "wire-bridge" {
+			packs = append(packs, p)
+		}
+	}
+	packs = append(packs, companyPack(t, kiloOnly))
+	providers, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars, err := packload.AgentEnv(packs, providers, map[string]string{"claude": "kilo"}, "claude", "kilo",
+		func(string) (string, bool) { return "", false }, packload.WithResolvedProfiles(resolved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := ""
+	for _, v := range vars {
+		if v.Key == "ANTHROPIC_DEFAULT_OPUS_MODEL" {
+			pinned = v.Value
+		}
+	}
+	if !strings.HasPrefix(pinned, "deepseek/deepseek-v4.1-flash") {
+		t.Fatalf("fixture: claude's opus tier on the narrowed Kilo list is %q, want claude's own spelling of "+
+			"deepseek-v4.1-flash, which this test is about", pinned)
+	}
+
+	b := bootNarrowed(t, []string{"claude", "kilo", "wire-bridge"}, kiloOnly, nil,
+		map[string]string{"claude": "kilo"}, map[string]string{"claude": kiloKey}, true)
+	msg := func(model string) string {
+		return `{"model":"` + model + `","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`
+	}
+	if resp, body := postTo(t, "http://"+b.adapter+"/v1/messages", msg(pinned), nil); resp.StatusCode != 200 || b.up.calls() != 1 {
+		t.Errorf("claude's pinned %q on a list naming deepseek-v4.1-flash: %d, upstream calls %d, want it admitted: %s",
+			pinned, resp.StatusCode, b.up.calls(), body)
+	}
+	if resp, body := postTo(t, "http://"+b.adapter+"/v1/messages", msg("deepseek/deepseek-v4.1-pro[1m]"), nil); resp.StatusCode != 400 {
+		t.Errorf("an off-list model in claude's spelling was admitted: %d %s", resp.StatusCode, body)
+	}
+}

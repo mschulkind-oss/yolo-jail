@@ -41,6 +41,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/wirebridge"
 )
 
 // modelAllowlist is one route's refusal: the provider's narrowed list and whom it binds.
@@ -48,11 +49,38 @@ type modelAllowlist struct {
 	provider string
 	// profiles are the profiles whose switch put the list in force, for the refusal's remedy.
 	profiles []string
-	ids      map[string]bool
-	order    []string
+	// ids is the list keyed by the id the route's upstream receives for it (key), order the list as
+	// declared, for the refusal.
+	ids   map[string]bool
+	order []string
 	// exempt names the agents the list admits every model for (WG-I41), "" when none: the
 	// route then logs an off-list model instead of refusing it.
 	exempt string
+	// translated is set on the adapter route, which translates every request it does not pass
+	// through: the upstream receives the translation's spelling of the model
+	// (wirebridge.NormalizeModel), so the list is compared in it.
+	translated bool
+}
+
+// key is the id model reaches the route's upstream as, the spelling both sides of the list's
+// comparison are read in: on the adapter route the translation's (wirebridge.NormalizeModel), which
+// gives a bare `deepseek-` id its `deepseek/` prefix as claude's own derive spells it on Kilo
+// (packs/claude/derive.lua routedSpelling), so the listed bare id and claude's prefixed one are one
+// model; on a via route, which forwards the body as sent, the id less Claude's [1m] client suffix.
+func (a *modelAllowlist) key(model string) string {
+	if a.translated {
+		return wirebridge.NormalizeModel(model)
+	}
+	return strings.TrimSuffix(model, oneMillionSuffix)
+}
+
+// keyed re-keys a.ids by key, once the route is known.
+func (a *modelAllowlist) keyed() *modelAllowlist {
+	a.ids = map[string]bool{}
+	for _, id := range a.order {
+		a.ids[a.key(id)] = true
+	}
+	return a
 }
 
 // narrowedList reads a composed provider entry's list when a `models` `only` narrowed it
@@ -92,7 +120,7 @@ func (a *modelAllowlist) checks(agentOrRoute string, body []byte) (ok bool, msg 
 	if !named {
 		return true, ""
 	}
-	listedID := a.ids[strings.TrimSuffix(model, oneMillionSuffix)]
+	listedID := a.ids[a.key(model)]
 	if a.exempt != "" {
 		// Admitted whatever it names, and said when that is off the list: the evidence a later
 		// build needs to put the exempt agent's background ids on it.
@@ -224,8 +252,8 @@ func allowlistsFor(p plan, providers *jsonx.OrderedMap, useProfiles map[string]s
 		if !packload.ModelsEnforced(resolved[profile]) {
 			continue
 		}
-		ids, order, _ := narrowedList(providerEntry(providers, r.ProviderName))
-		a := &modelAllowlist{provider: r.ProviderName, profiles: []string{profile}, ids: ids, order: order}
+		_, order, _ := narrowedList(providerEntry(providers, r.ProviderName))
+		a := (&modelAllowlist{provider: r.ProviderName, profiles: []string{profile}, order: order}).keyed()
 		if exempt(r.Agent) {
 			a.exempt = r.Agent
 		}
@@ -244,8 +272,8 @@ func allowlistsFor(p plan, providers *jsonx.OrderedMap, useProfiles map[string]s
 func adapterAllowlist(rt route, providers *jsonx.OrderedMap, useProfiles map[string]string,
 	resolved map[string]packload.ResolvedProfile, packs []*packload.Pack, exempt func(string) bool) *modelAllowlist {
 	entry := providerEntry(providers, rt.ProviderName)
-	ids, order, _ := narrowedList(entry)
-	a := &modelAllowlist{provider: rt.ProviderName, ids: ids, order: order}
+	_, order, _ := narrowedList(entry)
+	a := (&modelAllowlist{provider: rt.ProviderName, order: order, translated: true}).keyed()
 	var exempts []string
 	agents := make([]string, 0, len(useProfiles))
 	for agent := range useProfiles {

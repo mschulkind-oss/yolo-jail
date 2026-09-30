@@ -35,6 +35,13 @@ func normalizeModel(model string) string {
 	return model
 }
 
+// NormalizeModel is the model id a translated request carries upstream for the id the agent
+// sent: Claude Code's `[1m]` client suffix trimmed, and a bare `deepseek-` id given its
+// `deepseek/` vendor prefix. The wire bridge's model allowlist compares ids under it on a route
+// that translates (docs/design/wire-bridge-gateway.md WG-I40), so a model the translation sends
+// upstream as a listed id is that listed model, however the agent spelled it.
+func NormalizeModel(model string) string { return normalizeModel(model) }
+
 func TranslateRequest(body []byte) ([]byte, error) {
 	return TranslateRequestWith(body, ChatOptions{})
 }

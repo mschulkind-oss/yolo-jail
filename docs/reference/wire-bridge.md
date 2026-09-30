@@ -587,7 +587,9 @@ Each refusal names the model, the provider, the list and the setting that turns 
 naming `model` twice is refused too, since the bridge reads one and the provider might read the
 other. The key counts in any letter case (`Model`, `MODEL`), as the bridge's own JSON parser
 counts it ([WG-I40](../design/wire-bridge-gateway.md#WG-I40), [WG-I43](../design/wire-bridge-gateway.md#WG-I43)).
-A request that names no model, such as `GET /models`, is not the list's.
+A request that names no model, such as `GET /models`, is not the list's. On the adapter route an
+id is compared as the translation sends it upstream, so a bare `deepseek-` id on the list and the
+`deepseek/`-prefixed spelling claude uses on Kilo are one model.
 
 **Exempt agents** ([WG-I41](../design/wire-bridge-gateway.md#WG-I41)). A program whose pack
 declares `"unlisted_background_models": true` sends requests for models off the list that yolo does
