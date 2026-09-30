@@ -34,11 +34,12 @@ so a slow start is visibly the agent's. See
 it cannot.** yolo looks for the tools your packs need, and for any command it keeps no copy of, on
 the PATH it was started with, and a Waybar button or a cron job often hands it only `/usr/bin:/bin`.
 A new user-config key, `host_path`, lists folders to search after that PATH, such as `~/.cargo/bin`
-or mise's shims folder, and the agent's own PATH gets them too. When `yolo host`, `yolo host apply`
-or `yolo check-deps` cannot find a program, it now prints one line naming the program, the pack that
-needs it, the whole PATH it searched and the `host_path` entry that fixes it, naming a common folder
-that holds the program when one does. `yolo check` has a new section showing that PATH and whether
-each tool your packs need is on it. See
+or mise's shims folder, and the agent's own PATH gets them too. When `yolo host apply` or
+`yolo check-deps` cannot find a tool your packs need, or `yolo host -- <command>` cannot find the
+command, it now prints one line naming the program, the pack that needs it, the whole PATH it
+searched and the `host_path` entry that fixes it, naming a common folder that holds the program when
+one does. A launch checks the tools your packs need only with `host_apply_on_launch` on. `yolo check`
+has a new section showing that PATH and whether each tool your packs need is on it. See
 [where `yolo host` looks for your tools](userguide/guides/confinement.md#where-yolo-host-looks-for-your-tools-and-host_path).
 
 **A pack can now shape the model list of any provider, so a company can hand its people one

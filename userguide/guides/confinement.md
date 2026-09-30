@@ -119,9 +119,9 @@ tool in `~/.cargo/bin` or behind mise's shims is not found.
   as `$HOME/.cargo/bin` is ignored. When a program is not found, the line yolo prints (below) names
   an ignored entry and how to write it, and so does `yolo check`.
 
-When `yolo host`, `yolo host apply` or `yolo check-deps` cannot find something, it prints one line
-saying which program is missing, which pack needs it, the whole PATH it searched and the
-`host_path` fix:
+When `yolo host apply` or `yolo check-deps` cannot find a tool your packs need, or
+`yolo host -- <command>` cannot find the command, it prints one line saying which program is
+missing, which pack needs it, the whole PATH it searched and the `host_path` fix:
 
 ```text
 yolo host: rg (required by the guardrails pack) is not on this launch's PATH, /usr/bin:/bin, the PATH yolo was started with. If rg is installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.
@@ -132,7 +132,13 @@ folder really holds the program. It is a hint for your config line: yolo never r
 found that way, and never counts it as present. `yolo check` has a **Host launch PATH** section that
 shows the PATH it searched, each `host_path` folder, and whether each tool your packs need is
 found. It reads the PATH of the shell you run it in, so a launcher with a different PATH can still
-get a different answer; that launcher's own output then has the line above.
+get a different answer.
+
+A launch checks the tools your packs need only when `host_apply_on_launch` is on in your user
+config. That key is off unless you set it, or turn `host_wrappers` on, which turns it on too. With
+it off, `yolo host -- <agent>` says nothing about a missing tool, and the agent's first use of it
+fails; run `yolo host apply` or `yolo check-deps` from the same launcher to see the line. The
+command you start is looked up either way, and a miss prints the line.
 
 ## Guest (in development)
 
