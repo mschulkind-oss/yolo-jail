@@ -18,6 +18,7 @@ package entrypoint
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -211,6 +212,39 @@ func TestClaudeOnABridgedProviderShowsTheList(t *testing.T) {
 		if got.env[k] != "qwen-3.8-27b" {
 			t.Errorf("%s = %q, want qwen-3.8-27b", k, got.env[k])
 		}
+	}
+}
+
+// A GATEWAY THAT SHIPS NO LIST KEEPS CLAUDE'S MENU until something lists models for it, as the
+// user guide says of OpenRouter and Kilo: their packs declare no `models`, so the routed branch
+// has no rows and writes no picker, and the user's own `providers.<name>.models` is what gives
+// claude one. Pinned so that doc sentence cannot drift from the code in either direction.
+func TestClaudeOnAGatewayWithNoListKeepsItsMenu(t *testing.T) {
+	for _, gw := range []string{"openrouter", "kilo"} {
+		t.Run(gw, func(t *testing.T) {
+			packs := testPacksForAgent(t, "claude", gw)
+			got := renderClaudeModels(t, packs, nil, nil, gw)
+			if v, present := got.settings["modelPicker"]; present {
+				t.Errorf("modelPicker = %v, want none on a gateway whose pack ships no list", v)
+			}
+			user := jsonx.NewOrderedMap()
+			entry := jsonx.NewOrderedMap()
+			models := jsonx.NewOrderedMap()
+			models.Set("mine-1", "mine-1")
+			entry.Set("models", models)
+			user.Set(gw, entry)
+			got = renderClaudeModels(t, packs, user, nil, gw)
+			// One row, the user's model, in the gateway's own spelling (kilo's carries a
+			// context suffix, routedSpelling's business rather than this test's).
+			ids := pickerIDs(t, got.settings)
+			id := ""
+			if len(ids) == 1 {
+				id, _ = ids[0].(string)
+			}
+			if !strings.HasPrefix(id, "mine-1") {
+				t.Errorf("modelPicker ids = %v, want one row for the user's own mine-1", ids)
+			}
+		})
 	}
 }
 
