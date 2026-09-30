@@ -10,10 +10,13 @@ vantage:
 
 # Slots are not kinds: a pack accepts content through a named exposure, addressed by agent
 
-**Status:** DESIGN, 2026-09-21 — seven rulings are owed. The ROLE MODEL is decided (2026-09-20) and
-the BUILD is blocked (2026-09-21). Re-checked against the tree 2026-09-24: the premises of
-[OQ-D6](#OQ-D6), [OQ-D8](#OQ-D8) and [OQ-D9](#OQ-D9) have moved since they were filed, each
-question carries a note saying how, and none of them is ruled. [OQ-D6](#OQ-D6)'s moved again on
+**Status:** DESIGN, 2026-09-21 — four rulings are owed. The ROLE MODEL is decided (2026-09-20) and
+the BUILD is blocked (2026-09-21). Triaged 2026-09-30: [OQ-D7](#OQ-D7), [OQ-D8](#OQ-D8) and
+[OQ-D11](#OQ-D11) each had one sensible answer inside the ruled role model, and are decided as
+implementation choices [SC-D1](#SC-D1) to [SC-D3](#SC-D3), each reversible. Re-checked against
+the tree 2026-09-24: the premises of [OQ-D6](#OQ-D6), [OQ-D8](#OQ-D8) and [OQ-D9](#OQ-D9) have
+moved since they were filed, and each question carries a note saying how. [OQ-D6](#OQ-D6) and
+[OQ-D9](#OQ-D9) are not ruled. [OQ-D6](#OQ-D6)'s moved again on
 2026-09-29, when two shipped agent packs took one addressed content line each.
 [OQ-D1](#6-open-questions)–[OQ-D5](#OQ-D5) are ruled and stand. An attempt to build slice 1 on
 2026-09-21 stopped at seven places where the doc does not say enough for an implementer to proceed
@@ -52,15 +55,17 @@ names an **agent**, so the pack that supplies that agent is replaceable without 
 content. And it is the vocabulary lever for the manifest's readability problem — most of what
 makes a pack file hard to read is guessing which of several shapes a `kind` is in.
 
-**Needs your ruling:** [OQ-D6](#OQ-D6), [OQ-D7](#OQ-D7), [OQ-D8](#OQ-D8), [OQ-D9](#OQ-D9), [OQ-D10](#OQ-D10), [OQ-D11](#OQ-D11), [OQ-D12](#OQ-D12).
-All **seven** were found by trying to build it and all have the same shape — a
+**Needs your ruling:** [OQ-D6](#OQ-D6), [OQ-D9](#OQ-D9), [OQ-D10](#OQ-D10), [OQ-D12](#OQ-D12).
+The build attempt found **seven** questions, all with the same shape — a
 choice a reasonable implementer would make silently, that changes what lands on disk or whether a
-jail boots: [OQ-D6](#OQ-D6) (the migration window — **the blocker**), [OQ-D7](#OQ-D7) (`accepts`
-has no vocabulary and no stated relation to `kind`), [OQ-D8](#OQ-D8) (what the briefing and skills
-slots are CALLED), [OQ-D9](#OQ-D9) (`to` is a scalar and `agents` is a list),
-[OQ-D10](#OQ-D10) (one severity for two failures the tree split on purpose),
-[OQ-D11](#OQ-D11) (what pack-scope identity does to core's own surfaces), [OQ-D12](#OQ-D12) (the
-prior one-slot-per-agent ruling is now BUILT and this doc legalizes what it refuses).
+jail boots. Four are still yours: [OQ-D6](#OQ-D6) (the migration window — **the blocker**),
+[OQ-D9](#OQ-D9) (`to` is a scalar and `agents` is a list),
+[OQ-D10](#OQ-D10) (one severity for two failures the tree split on purpose), and
+[OQ-D12](#OQ-D12) (the prior one-slot-per-agent ruling is now BUILT and this doc legalizes what it
+refuses). Three are decided as implementation choices on 2026-09-30: [OQ-D7](#OQ-D7) (`accepts`
+is a closed vocabulary used as a compatibility check, [SC-D1](#SC-D1)), [OQ-D8](#OQ-D8) (the
+briefing and skills slots are named for their kinds, [SC-D2](#SC-D2)) and [OQ-D11](#OQ-D11) (the
+owner segment survives, and a pack's own declarations take its identity, [SC-D3](#SC-D3)).
 [OQ-D1](#6-open-questions)–[OQ-D5](#OQ-D5) stay ruled; see [§7](#7-decision-ledger).
 
 **Reads with:** [`pack-system.md`](../reference/pack-system.md) (the `contributes` vocabulary),
@@ -194,8 +199,8 @@ surfaces**: `agent` there is the same field NAME, and
 revert, the overlay prune, the adoption archive, the surface manifest — not the two mechanisms this
 section names. (A file count stood here and reproduced at neither of two readings; the number was
 the drift, so it is gone. `rg -n 'Agent' internal/agentcfg internal/entrypoint` is the measurement,
-and [OQ-D11](#OQ-D11) is the part of it that is a RULING rather than a count: the same field name
-does **not** hold the same string.)
+and [OQ-D11](#OQ-D11), decided as [SC-D3](#SC-D3), is the part of it that is a decision rather
+than a count: the same field name does **not** hold the same string.)
 
 ⚠ **AND THE DESTINATION-READER HALF IS UNDERSTATED TOO, which the ⚠ above does not cover.** Slice 2
 names two mechanisms; a briefing/skills/files DESTINATION is read in the run pipeline, the host
@@ -510,7 +515,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    **Answer:**
    > _(empty — fill in when decided)_
 
-7. 💬 <a id="OQ-D7"></a>**[OQ-D7](#OQ-D7): what is `accepts`, in a vocabulary — and who wins when it
+7. ✅ <a id="OQ-D7"></a>**[OQ-D7](#OQ-D7): what is `accepts`, in a vocabulary — and who wins when it
    disagrees with `kind`?** [§2.1](#21-what-a-slot-declares) names four shapes in prose ("an opaque
    tree, a single file, a JSON document, a set of *things*"), [§2](#2-what-a-kind-is-and-what-a-slot-is)'s
    example writes `"tree"`, and [OQ-D3](#OQ-D3)'s candidate table writes a fifth value, `"concat"`.
@@ -525,8 +530,6 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    [§2](#2-what-a-kind-is-and-what-a-slot-is)'s own example, so under (c) one fact is declared twice
    — the disease, not the cure.
 
-   <!-- vantage: oq id=OQ-D7 leaning="(b)-plus-a-match-check: `accepts` names the shape the slot takes and is REFUSED when a contribution's kind cannot produce it; combining stays the kind's fact. A slot that also decided the combine rule would declare one fact twice." -->
-
    _Leaning:_ the combine rule stays the KIND's — it already is, it is what `Collisions` reads, and
    moving it would relocate the duplication rather than remove it. That leaves `accepts` doing one
    job worth doing: a COMPATIBILITY check, refused by name when a contribution's kind cannot produce
@@ -534,9 +537,15 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    should be answered in the same breath.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Decided as an implementation choice ([SC-D1](#SC-D1)), reversible:** `accepts` is a closed
+   > vocabulary whose one job is a compatibility check, so a contribution whose kind cannot produce
+   > the shape a slot accepts is refused by name, while how content combines stays the kind's
+   > `Combine` and is never restated on the slot. Reading (b) alone is the accepted-and-ignored
+   > declaration this schema refuses elsewhere, and (c) moves the combine fact instead of removing
+   > its duplicate, so the leaning was the one answer left. Its tolerance follows `via`'s, as
+   > [SC-D1](#SC-D1) records.
 
-8. 💬 <a id="OQ-D8"></a>**[OQ-D8](#OQ-D8): what are the briefing and skills slots CALLED?**
+8. ✅ <a id="OQ-D8"></a>**[OQ-D8](#OQ-D8): what are the briefing and skills slots CALLED?**
    [§4](#4-the-split-applied) says `{agent, into}` "becomes an `exposes` entry" for both kinds and
    names no slot; [§2.1](#21-what-a-slot-declares) says a slot's `name` is *"local to the agent it
    belongs to"*. Both readings are legal and they are not the same design: `packs/claude` exposing
@@ -556,8 +565,6 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    > names, whatever destinations the pack declares. Each carries a kind and no address, so this
    > question now decides how a DECLARED broadcast finds its slots too.
 
-   <!-- vantage: oq id=OQ-D8 leaning="Conventional names, and say so: the slot for a kind is named for the kind (`briefing`, `skills`), so `to: pi/briefing` is writable without reading pi's manifest and the kind-only borrower still resolves." -->
-
    _Leaning:_ conventional, and stated as a rule rather than left to convention — the slot that
    receives a `kind` is NAMED for that kind. It is the only reading under which a content pack can
    write `to: "pi/briefing"` without reading pi's manifest, and the only one where the manifest-less
@@ -565,7 +572,13 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    "local to the agent, except for the kinds core already names", which is worth writing down.
 
    **Answer:**
-   > _(empty — fill in when decided)_
+   > **Decided as an implementation choice ([SC-D2](#SC-D2)), reversible:** the slot that receives
+   > `briefing` or `skills` is named for that kind by rule, so `to: "pi/briefing"` is writable
+   > without reading pi's manifest, and every kind-only contribution (core's implicit borrower, the
+   > implicit broadcast of an unnamed `briefing/` file, a declared `{"kind":"briefing"}`) finds its
+   > slots by that name. Per-agent names would make every content pack depend on how its supplier
+   > spells a slot, which is the coupling [OQ-D2](#OQ-D2) ruled out, and would leave a kind-only
+   > contribution nothing to match.
 
 9. 💬 <a id="OQ-D9"></a>**[OQ-D9](#OQ-D9): is `to` a scalar, and where does a MULTI-AGENT audience
    go?** `agents` is a LIST, two entries are supported today and pinned
@@ -615,7 +628,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
     **Answer:**
     > _(empty — fill in when decided)_
 
-11. 💬 <a id="OQ-D11"></a>**[OQ-D11](#OQ-D11): what does pack-scope identity do to core's OWN
+11. ✅ <a id="OQ-D11"></a>**[OQ-D11](#OQ-D11): what does pack-scope identity do to core's OWN
     surfaces, and to a pack that addresses an agent it does not provide?**
     [§5](#5-what-this-costs)'s ⚠ pulls the config surfaces into scope on the claim that `agent`
     there is *"the same field name holding the same string"*. The field's own docstring disagrees:
@@ -630,15 +643,23 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
     NO agent: its slots have no address prefix and can never be named, so is that refused at load or
     accepted as inert?
 
-    <!-- vantage: oq id=OQ-D11 leaning="`Surface.Agent` survives as a free address SEGMENT and slice 3 means only 'packs stop repeating it': core's `mise`/`user` owners are not agents and never were, so the pack-scope identity supplies a DEFAULT for that segment rather than replacing it." -->
-
     _Leaning:_ the field stays, and slice 3 is "packs stop REPEATING it" rather than "the field
     moves" — deleting the segment breaks `mise/config` and every `user/<slug>` host-file surface,
     neither of which is an agent. Which means the pack-scope identity is a DEFAULT for the segment,
     not the only source of it, and the doc should say which shapes may still name it explicitly.
 
     **Answer:**
-    > _(empty — fill in when decided)_
+    > **Decided as an implementation choice ([SC-D3](#SC-D3)), reversible:** `Surface.Agent` stays
+    > the owner segment of every surface address, and core's own surfaces keep naming their owner
+    > (`mise/config`, `user/<slug>`). In a pack, what the pack itself DECLARES (its `config`
+    > surfaces, its `exposes` slots) takes the pack's one identity, and naming another owner there
+    > is refused. What a pack ADDRESSES keeps naming its target (`config-overlay`, `config-list`,
+    > `to`). An `exposes` on a pack that names no agent is refused when the pack is authored. Where
+    > this goes past the leaning it follows [OQ-D5](#OQ-D5)'s own words: core knows an agent *"only
+    > insofar as it identifies a config target"*, so declaring a surface under an agent's name is
+    > providing that agent, and a pack provides one at most, the one it names. Measured 2026-09-30:
+    > every `agent` field in `packs/*/pack.json` names its own pack's identity, so no shipped pack
+    > loses anything.
 
 12. 💬 <a id="OQ-D12"></a>**[OQ-D12](#OQ-D12): how many slots may one agent expose, and what makes
     two of them an error?** [`pi-pack-extensions.md`](pi-pack-extensions.md)'s
@@ -675,13 +696,16 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 | **OQ-D1** | **A second axis, `exposes`.** A `kind` names a contribution; a slot is not one, and making it a kind puts the receiving role inside the supplying vocabulary | 2026-09-20 | [§2](#2-what-a-kind-is-and-what-a-slot-is), [§6](#6-open-questions) | no |
 | **OQ-D2** | **The agent (`bin`) name**, `<bin>/<slot>` — content survives swapping which pack supplies the agent. ⚠ Ratifies what `briefing` and `skills` already do in all seven agent packs; only `files` lacked it | 2026-09-20 | [§3](#3-the-address-the-agent-never-the-pack) | partly — the address exists for two of three kinds |
 | **OQ-D3** | **All three kinds.** The conflation is identical and fixing `files` alone leaves two kinds carrying the flag. ⚠ The original leaning was WITHDRAWN first (`agents` appears in no shipped manifest, and every `briefing`/`skills` contribution is already unambiguously a destination), then ruled the same way in the opposite direction once [OQ-D5](#OQ-D5) made the migration a DELETION rather than a rename | 2026-09-20 | [§6](#6-open-questions) | no |
-| **OQ-D5** | **Declared once per pack (B), stated as a rule about core's vocabulary:** core knows an "agent" only insofar as it identifies a config target; a pack provides **0 or 1** and must NAME the one it provides — declared, never derived | 2026-09-20 | [`OQ-D5`](#OQ-D5) | no. ⚠ [OQ-D11](#OQ-D11) is the unpriced half: core's own `mise`/`user` surface owners are not agents and have no pack to take an identity from |
+| **OQ-D5** | **Declared once per pack (B), stated as a rule about core's vocabulary:** core knows an "agent" only insofar as it identifies a config target; a pack provides **0 or 1** and must NAME the one it provides — declared, never derived | 2026-09-20 | [`OQ-D5`](#OQ-D5) | no. [OQ-D11](#OQ-D11) was the unpriced half (core's own `mise`/`user` surface owners are not agents and have no pack to take an identity from); [SC-D3](#SC-D3) prices it |
 | **OQ-D4** | **Provisional.** `exposes`/`accepts` read as the receiving end; `to` is the shortest thing that is not `into`. Settled only until someone proposes better. ⚠ Its own "must not collide with an existing key" is already unmet — `to` is a JSON key three times in this schema (a jail path, a `/ctx` path, a protocol), and `adapts.to` would sit inside the same contribution entry as a slot `to` | 2026-09-20 | [§6](#6-open-questions) | no |
 | **OQ-D6** | — **open, and the BLOCKER.** The migration window: a shipped pack that drops `into` bricks an older baked entrypoint's boot, or silently delivers every briefing and skill nowhere. `TestShippedAgentPacksKeepIntoForSkew` already draws the boundary — only a user's own pack may reach the addressed shape. ⚠ The "baked entrypoint" premise has changed: the entrypoint is mounted from the flake bundle every launch, so the window is now a host `yolo` newer than that bundle, unmeasured. ⚠ 2026-09-29: since [DS-D33](durable-scratch-space.md#DS-D33) the claude and pi packs each ship one addressed CONTENT line, so the test's boundary now admits that shape on an agent pack; destinations still keep `into`. That line's window (an entrypoint before v0.9.0 fails the boot) is closed by pairing, not by `version.SourceSkew`, which is silent unless the checkout contains the binary's commit; measured, it widens no window, those old readers already refusing every launch that selects either pack for other reasons. Accepting it waits on this question | — | — | — |
-| **OQ-D7** | — **open.** `accepts` has no vocabulary, no stated consumer and no stated relation to `kind`'s `Combine` — and combining decides whether two packs addressing one slot is legal or fatal | — | — | — |
-| **OQ-D8** | — **open.** What the `briefing` and `skills` slots are CALLED. Conventional names make content packs portable and let the kind-only borrower resolve; per-agent names relocate the coupling from paths to names | — | — | — |
+| **OQ-D7** | ✅ **Decided as an implementation choice, [SC-D1](#SC-D1).** It was filed because `accepts` had no vocabulary, no stated consumer and no stated relation to `kind`'s `Combine` | 2026-09-30 | [OQ-D7](#OQ-D7) | no |
+| **OQ-D8** | ✅ **Decided as an implementation choice, [SC-D2](#SC-D2).** It asked what the `briefing` and `skills` slots are CALLED | 2026-09-30 | [OQ-D8](#OQ-D8) | no |
 | **OQ-D9** | — **open.** `to` is a scalar and `agents` is a list, so a multi-agent audience has no spelling. ⚠ The body's "broadcast is not at risk" premise has changed: since [briefing P2](../reference/pack-system.md#briefing-p2) a manifest can declare a broadcast, so `to` needs a spelling for one too | — | — | — |
 | **OQ-D10** | — **open.** "An unmatched `to` is refused at load" collapses two severities the tree split on purpose — unknown NAME fatal, no-such-destination reported — and lands the gate where R5 forbids it (`pack lint` has no config) | — | — | — |
-| **OQ-D11** | — **open.** Pack-scope identity vs core's own surfaces (`mise/config` has no pack) and vs a pack naming a surface for an agent it does not provide (legal today, silently forbidden after) | — | — | — |
+| **OQ-D11** | ✅ **Decided as an implementation choice, [SC-D3](#SC-D3).** It asked what pack-scope identity does to core's own surfaces (`mise/config` has no pack) and to a pack naming a surface for an agent it does not provide | 2026-09-30 | [OQ-D11](#OQ-D11) | no |
 | **OQ-D12** | — **open.** How many slots per agent, and what makes two an error. The prior one-per-agent ruling is now BUILT, so this doc must retire it explicitly | — | — | — |
 | **Alias-root layout** | **`<slot>/<pack>`, at every notch**, through one resolver — [`pi-pack-extensions.md`](pi-pack-extensions.md) [`OQ-4`](pi-pack-extensions.md#10-decision-ledger) restated where it could be read, since the host notch had violated it since the slot shipped | 2026-09-21 | [§5.1](#51-what-landed-instead-2026-09-21) | **yes** — `packload.SlotLanding`, pinned at both notches |
+| <a id="SC-D1"></a>**SC-D1** | *Implementation decision*, [OQ-D7](#OQ-D7). **`accepts` is a closed vocabulary used only as a compatibility check, and combining stays the kind's.** It has one value per shape a shipped kind produces. The spellings are the builder's and stay provisional under [OQ-D4](#OQ-D4). A contribution whose kind cannot produce the shape its addressed slot accepts is refused by name, naming the slot, what it accepts and the kind sent, at the point where the `to` resolves. How severe that refusal is, beside the address checks, is [OQ-D10](#OQ-D10)'s to rule, not this row's. `Combine` stays on the kind (`files` exclusive, `briefing` concat, `skills` merge), because it is what `Collisions` reads, and a slot restating it would declare one fact twice. A slot named for its kind ([SC-D2](#SC-D2)) takes that kind's shape and needs no `accepts`, and writing a different one there is refused. Every other slot declares one, since a slot that accepted anything would check nothing. Tolerance follows `via`'s closed enum (`packdecl.unknownViaSkip`): the authoring path refuses an unknown value, and the tolerant path skips that slot and reports it. That tolerance lands first, in its own change, as `packdecl` asks of every skew-sensitive closed enum. Why it has one answer: reading (b) alone is an accepted-and-ignored declaration, which this schema refuses everywhere else, and (c) moves the combine fact instead of removing its duplicate | 2026-09-30 | [OQ-D7](#OQ-D7) | no |
+| <a id="SC-D2"></a>**SC-D2** | *Implementation decision*, [OQ-D8](#OQ-D8). **A slot that receives `briefing` or `skills` is named for its kind, by rule.** Every other slot's name stays local to its agent (`extensions`, `themes`). These two names are reserved: an agent pack declares that kind's destination under that name, and the slot accepts that kind's shape and nothing else ([SC-D1](#SC-D1)). A contribution that carries a kind and no address resolves to the selected agents' slots of that name. That covers core's implicit borrower, the implicit broadcast of every `briefing/` file no line names, and a declared `{"kind":"briefing"}` broadcast ([briefing P2](../reference/pack-system.md#briefing-p2)). Why it has one answer: per-agent names (`CLAUDE.md`, `AGENTS.md`) would make every content pack depend on how its supplier spells a slot, the coupling [OQ-D2](#OQ-D2) ruled out so that content survives swapping the pack that supplies an agent, and would leave a kind-only contribution nothing to match | 2026-09-30 | [OQ-D8](#OQ-D8) | no |
+| <a id="SC-D3"></a>**SC-D3** | *Implementation decision*, [OQ-D11](#OQ-D11). **`Surface.Agent` stays the owner segment of every surface address, and the pack-scope identity fills it for what a pack declares.** Core's own surfaces keep an explicit owner: `mise/config` in `agentcfg.BuiltinManifest`, and `user/<slug>` for host files. They belong to no pack and have no identity to inherit, and deleting the segment would break both, along with every `config-overlay` that targets `mise/config`. So slice 3 means packs stop REPEATING the segment, not that it moves. A pack's own `config` surfaces, its `exposes` entries and its autonomy postures' config patches take its declared identity. Naming a different owner on a surface or slot the pack declares is refused, because under [OQ-D5](#OQ-D5) identifying a config target is what makes a name an agent, and a pack provides at most one. This goes past the leaning, which left the explicit segment open to packs; [OQ-D5](#OQ-D5)'s words close it. An ADDRESS keeps naming its target explicitly: `config-overlay` and `config-list` `surface`, and a contribution's `to`. That is the provide/address distinction [OQ-D5](#OQ-D5) draws with `packs/matt`. An `exposes` on a pack that names no agent is refused on the authoring path (strict validation, `yolo pack lint`), because its slots could never be addressed and this schema refuses accepted-and-ignored declarations. It is not refused on the tolerant path, where a new refusal is a bricked boot ([§5.1](#51-what-landed-instead-2026-09-21) item 2's precedent). Measured 2026-09-30: every `agent` field in `packs/*/pack.json` names its own pack's identity, so no shipped pack loses a capability | 2026-09-30 | [OQ-D11](#OQ-D11) | no |
