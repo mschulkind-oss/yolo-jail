@@ -73,10 +73,18 @@ func ParseMountElement(v any, where string) (m ContextMount, problems []string) 
 		m.Spec = s
 		if strings.HasSuffix(s, ":rw") {
 			// Not a mode, and never parsed as one: the object form is the only writable
-			// spelling, so the refusal names it rather than guessing what was meant.
+			// spelling, so the refusal names it rather than guessing what was meant. The
+			// suggestion splits a destination into `at`: the object form refuses a colon in
+			// `host`, so suggesting "host:/ctx/d" as the host would answer one error with
+			// another.
+			host, at := SplitMountString(strings.TrimSuffix(s, ":rw"))
+			suggestion := fmt.Sprintf(`{"host": %q, "mode": "rw"}`, host)
+			if at != "" {
+				suggestion = fmt.Sprintf(`{"host": %q, "at": %q, "mode": "rw"}`, host, at)
+			}
 			return m, []string{fmt.Sprintf("%s: %q ends in \":rw\", which is not a mode — "+
-				"a string entry is always read-only. A read-write mount is the object form: "+
-				`{"host": %q, "mode": "rw"}`, where, s, strings.TrimSuffix(s, ":rw"))}
+				"a string entry is always read-only. A read-write mount is the object form: %s",
+				where, s, suggestion)}
 		}
 		m.Host, m.At = SplitMountString(s)
 		if m.Host == "" {

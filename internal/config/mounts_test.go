@@ -122,6 +122,32 @@ func TestMountsValidationRefusesEveryMalformedElement(t *testing.T) {
 	}
 }
 
+// THE `:rw` REFUSAL'S SUGGESTION IS ITSELF A VALID ENTRY. The docker-style spelling a user
+// is most likely to write, "host:/ctx/d:rw", used to be answered with an object whose
+// `host` was "host:/ctx/d" — which the object form refuses for its colon, so following the
+// message produced a second error. The suggestion splits the destination into `at`, and
+// pasting it into the config validates clean and keeps the destination the user wrote.
+func TestTheRWSuffixRefusalSuggestsAnObjectThatValidates(t *testing.T) {
+	src := mountSourceDir(t, "data")
+	for _, tc := range []struct{ name, element, want string }{
+		{"with a destination", src + ":/ctx/d:rw", `{"host": "` + src + `", "at": "/ctx/d", "mode": "rw"}`},
+		{"bare", src + ":rw", `{"host": "` + src + `", "mode": "rw"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newMountsHost(t)
+			h.user(t, `{"mounts": ["`+tc.element+`"]}`)
+			errs, _ := h.validate(t)
+			if got := joined(errs); !strings.Contains(got, tc.want) {
+				t.Fatalf("errors = %q, want the suggestion %s", errs, tc.want)
+			}
+			h.user(t, `{"mounts": [`+tc.want+`]}`)
+			if errs, _ := h.validate(t); len(errs) != 0 {
+				t.Fatalf("the suggested object %s does not validate: %q", tc.want, errs)
+			}
+		})
+	}
+}
+
 // The control for the table above: both forms, in both modes, validate clean.
 func TestMountsValidationAcceptsBothForms(t *testing.T) {
 	h := newMountsHost(t)
