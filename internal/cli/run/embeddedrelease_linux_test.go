@@ -95,19 +95,45 @@ func TestSignalArmHelperProcess(t *testing.T) {
 	os.Stdin = os.NewFile(uintptr(slave), "pty-slave")
 
 	// No onTerminate, as the attach arm passes none: the release must come from runWithProxy
-	// itself. The control stubs that release out. The child is not killed by the arm: a
-	// short sleep outlives it and then exits on its own, so runWithProxy cannot return on
-	// the main goroutine and race the arm's os.Exit.
+	// itself. The control stubs that release out. The child is a sleep that outlives the wait
+	// below, so it cannot exit on its own and let runWithProxy return before the signal; the
+	// arm's own kill ends it, and the proxy's return then yields to the arm's os.Exit.
 	if mode == "control" {
 		terminateRelease = func() {}
 	}
+	// THE SIGNAL WAITS FOR THE ARM. The proxy installs its handler only after the child's exec
+	// has completed (Start, then raw mode, then signal.Notify), and a SIGTERM that arrives
+	// first meets Go's default disposition and kills this process outright. A fixed 300ms
+	// sleep before the kill lost that race wherever the exec took longer, a loaded laptop or
+	// a busy CI runner, and both subtests failed with "signal: terminated".
+	//
+	// Forwarded input is the proxy's signal that its handler is in place: proxyLoop is the
+	// only reader of stdin, and it starts after signal.Notify has returned. So the goroutine
+	// types into the pty until the proxy reports a forwarded chunk (Observer.Input, which
+	// the launch's observer records in the linger slot), then sends the SIGTERM.
+	o := &Options{linger: newLingerSlot()}
 	go func() {
-		time.Sleep(300 * time.Millisecond)
+		deadline := time.Now().Add(signalArmReadyBudget)
+		for o.linger.lastInput.Load() == 0 {
+			if time.Now().After(deadline) {
+				os.Stdout.WriteString("NO-INPUT-FORWARDED: the proxy forwarded no input within " +
+					signalArmReadyBudget.String() + ", so its signal arm was never seen installed\n")
+				os.Exit(3)
+			}
+			_, _ = unix.Write(master, []byte{'x'})
+			time.Sleep(10 * time.Millisecond)
+		}
 		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
 	}()
-	_, _ = runWithProxy([]string{"sleep", "3"}, nil, nil, &Options{})
+	_, _ = runWithProxy([]string{"sleep", "60"}, nil, nil, o)
 	t.Fatal("runWithProxy returned; the signal arm did not fire")
 }
+
+// signalArmReadyBudget bounds the helper's wait for the proxy to forward its first input. That
+// is normally a few milliseconds after the child's exec; ten seconds is generous for exec
+// latency on a loaded machine, and it stays well inside the child's sleep, so a proxy that
+// never forwards is reported as that rather than as the child exiting.
+const signalArmReadyBudget = 10 * time.Second
 
 func helperPty() (int, int, error) {
 	master, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_NOCTTY, 0)
