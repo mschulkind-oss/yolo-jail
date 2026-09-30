@@ -200,7 +200,7 @@ func messagesServeNote(h http.Handler) string {
 // (ServeHTTP logs it after serve returns, and after an abort's panic too, since the line is
 // a deferred call).
 func (m *messagesPassthrough) serve(rec *statusRecorder, in *http.Request, body []byte,
-	model, id string, stream bool, note *string) {
+	model, id string, note *string) {
 	*note = fmt.Sprintf(" (model %s is Anthropic's on the provider's list: untranslated to %s)", id, m.url)
 	if id != model {
 		// The one body edit the pass-through makes, and the translator makes it too
@@ -255,7 +255,10 @@ func (m *messagesPassthrough) serve(rec *statusRecorder, in *http.Request, body 
 	}
 	copyMessagesHeaders(rec.Header(), resp.Header)
 	rec.WriteHeader(resp.StatusCode)
-	if m.relay(rec, in, resp, stream && mediaType == "text/event-stream", id) {
+	// The end-of-stream watch follows the ANSWER's framing, not the request's `stream` flag:
+	// the grammar it checks is the one the bytes are in, so an SSE answer cut short is
+	// truncated whatever the agent asked for, and a JSON answer has no closing event to watch.
+	if m.relay(rec, in, resp, mediaType == "text/event-stream", id) {
 		*note += "; the stream was cut short and the agent's connection aborted"
 		if in.Context().Value(http.ServerContextKey) != nil {
 			panic(http.ErrAbortHandler)

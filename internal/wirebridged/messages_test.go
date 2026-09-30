@@ -440,15 +440,80 @@ func postMessagesTo(t *testing.T, h http.Handler, body string) *httptest.Respons
 }
 
 // TestAnUnstreamedAnswerIsRelayedVerbatim: a non-streaming request's JSON answer comes back
-// as the upstream wrote it, at its status, with its type.
+// as the upstream wrote it, at its status, with its type, and it is not a cut stream. It runs
+// over a real listener, because only there does the relay's abort reach the agent: a JSON
+// answer watched for an SSE closing event would end "early" and be aborted, which an
+// httptest recorder cannot show.
 func TestAnUnstreamedAnswerIsRelayedVerbatim(t *testing.T) {
-	up := withUpstream(t)
+	up, addr, logs := servedBedrockRoute(t, "claude")
 	const answer = `{"id":"msg_2","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"t","signature":"s"},{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"cache_read_input_tokens":2048,"output_tokens":2}}`
 	up.responses = []func() *http.Response{func() *http.Response { return jsonResponse(200, answer) }}
-	rec := postMessagesTo(t, messagesHandler(sigv4.Env{AccessKeyID: "AKID", SecretAccessKey: "s"}),
-		strings.Replace(claudeRequest, `"stream":true,`, "", 1))
-	if rec.Code != http.StatusOK || rec.Body.String() != answer || rec.Header().Get("Content-Type") != "application/json" {
-		t.Errorf("got %d %s %q, want the answer verbatim", rec.Code, rec.Header().Get("Content-Type"), rec.Body)
+	resp, got, err := postMessages(t, addr, strings.Replace(claudeRequest, `"stream":true,`, "", 1), nil)
+	if err != nil || resp.StatusCode != http.StatusOK || got != answer || resp.Header.Get("Content-Type") != "application/json" {
+		t.Errorf("got %d %s %q, read error %v; want the answer verbatim and a clean end",
+			resp.StatusCode, resp.Header.Get("Content-Type"), got, err)
+	}
+	if up.calls() != 1 || up.requests[0].URL.String() != messagesAt {
+		t.Fatalf("calls %d; want one request to the Messages route", up.calls())
+	}
+	waitFor(t, func() bool { return strings.Contains(logs(), "POST /v1/messages 200") })
+	if l := logs(); strings.Contains(l, "ended early") || strings.Contains(l, "aborted") {
+		t.Errorf("a JSON answer was treated as a cut stream:\n%s", l)
+	}
+}
+
+// TestTheStreamWatchFollowsTheAnswersFraming: the end-of-stream watch reads the grammar the
+// bytes are in, so an SSE answer cut before message_stop aborts the agent's connection even
+// when the request did not ask to stream.
+func TestTheStreamWatchFollowsTheAnswersFraming(t *testing.T) {
+	addr, body, pw, logs := streamedBedrockRoute(t)
+	const partial = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n"
+	go func() {
+		_, _ = io.WriteString(pw, partial)
+		_ = pw.Close()
+	}()
+	_, got, rerr := postMessages(t, addr, strings.Replace(claudeRequest, `"stream":true,`, "", 1), nil)
+	if rerr == nil || got != partial {
+		t.Errorf("read %q with error %v; want the partial bytes and then a failed read", got, rerr)
+	}
+	waitClosed(t, body)
+	waitFor(t, func() bool { return strings.Contains(logs(), "without a message_stop or error event") })
+}
+
+// TestAnAgentThatHangsUpMidStreamIsNoCut: the agent closing its own request mid-stream is no
+// upstream fault. The upstream body then fails with the request's cancellation, as a real
+// transport's does, and the relay reports nothing: no "ended early" line, no abort.
+func TestAnAgentThatHangsUpMidStreamIsNoCut(t *testing.T) {
+	addr, body, pw, logs := streamedBedrockRoute(t)
+	up := upstreamTransport.(*captureUpstream)
+	const first = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/v1/messages", strings.NewReader(claudeRequest))
+	req.Header.Set("Content-Type", "application/json")
+	go func() { _, _ = io.WriteString(pw, first) }()
+	resp, err := bridgeClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := make([]byte, len(first))
+	if _, err := io.ReadFull(resp.Body, buf); err != nil || string(buf) != first {
+		t.Fatalf("read %q, %v; want the first event", buf, err)
+	}
+	// The transport ends an in-flight body read once its request's context is done.
+	up.mu.Lock()
+	sent := up.requests[0]
+	up.mu.Unlock()
+	go func() {
+		<-sent.Context().Done()
+		_ = pw.CloseWithError(sent.Context().Err())
+	}()
+	cancel()
+	waitClosed(t, body)
+	waitFor(t, func() bool { return strings.Contains(logs(), "POST /v1/messages 200") })
+	if l := logs(); strings.Contains(l, "ended early") || strings.Contains(l, "aborted") {
+		t.Errorf("the agent's own hang-up was logged as a cut:\n%s", l)
 	}
 }
 

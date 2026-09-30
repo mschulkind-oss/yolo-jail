@@ -247,7 +247,7 @@ func (h *bridgeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// other model falls through to the translation below, unchanged.
 	if h.messages != nil {
 		if id, ok := h.messages.claims(probe.Model); ok {
-			h.messages.serve(rec, r, body, probe.Model, id, probe.Stream, &note)
+			h.messages.serve(rec, r, body, probe.Model, id, &note)
 			return
 		}
 	}
