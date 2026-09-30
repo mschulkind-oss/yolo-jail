@@ -423,7 +423,11 @@ order.)*
    composition's is, and `TestCheckLoopholesGradesAnUnmatchedSupersession` (`internal/cli/check`)
    if the row stops being a `[FAIL]`. `TestLaunchAcceptsAMatchedSupersession` and
    `TestHostLaunchAcceptsAMatchedSupersession` pin the other direction: a correct claim still
-   launches. The integration suite's `TestLaunchRefusesAnUnmatchedSupersession` runs the
+   launches. [RM-D3](#RM-D3)'s ordering, the sentence printed once and only as the refusal, is
+   pinned by `TestLaunchRefusalIsTheOnlyPrintingOfItsSentence` (`internal/cli/run`, a via
+   profile whose composition discovers loopholes) and by the host test under `-p bedrock`,
+   whose doorway plan does; both read the process's stderr, where discovery warns. The
+   integration suite's `TestLaunchRefusesAnUnmatchedSupersession` runs the
    design's own example in a real launch, `claude-oauth-refersh` beside the shipped claude pack,
    and asserts both the refusal and `check`'s non-zero exit.
 5. **The skew diagnostic.** Ships with or before step 4 — a refusal that cannot say "your image is

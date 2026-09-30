@@ -21,34 +21,52 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
-// supersedingHostPack writes a local pack superseding capability and returns the user config
-// selecting it beside the shipped claude pack, whose broker serves claude-oauth-refresh.
-func supersedingHostPack(t *testing.T, capability string) string {
+// supersedingHostPack writes a local pack named name superseding capability and returns the
+// user config selecting it beside the shipped claude pack, whose broker serves
+// claude-oauth-refresh.
+func supersedingHostPack(t *testing.T, name, capability string) string {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "claude-bedrock")
+	dir := filepath.Join(t.TempDir(), name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(
-		`{"name":"claude-bedrock","description":"d","supersedes":[`+
+		`{"name":"`+name+`","description":"d","supersedes":[`+
 			`{"capability":"`+capability+`","because":"Bedrock overrides the OAuth path"}]}`),
 		0o644); err != nil {
 		t.Fatal(err)
 	}
-	return `{"packs": ["claude", {"source":"file://` + dir + `","name":"claude-bedrock"}]}`
+	return `{"packs": ["claude", {"source":"file://` + dir + `","name":"` + name + `"}]}`
 }
 
-const hostTypoSentence = "pack 'claude-bedrock' supersedes capability 'claude-oauth-refersh', " +
+// hostTypoPack names the refusing test's pack, and so its sentence, which no other test in this
+// package says: loopholes' warnf says each distinct line once per process, so a sentence some
+// earlier test had already warned would be silent here, and the "once" count below would pass
+// with the gate misplaced.
+const hostTypoPack = "claude-bedrock-host-typo"
+
+const hostTypoSentence = "pack '" + hostTypoPack + "' supersedes capability 'claude-oauth-refersh', " +
 	"which NO loophole on this machine serves"
 
 // TestHostLaunchRefusesAnUnmatchedSupersession: `yolo host --` refuses before the exec, and
 // `yolo host env` refuses printing nothing to eval, each with the sentence once, the
 // did-you-mean and the remedy. Under `-p bedrock`, so the launch asks for aws-auth's doorway:
 // that plan discovers loopholes, whose discovery warns the same sentence, and a gate placed
-// after it would print the finding twice.
+// after it would print the finding twice. Discovery warns on the PROCESS's stderr
+// (loopholes.warnf), not on the writer hostMain is handed, so the count reads both.
 func TestHostLaunchRefusesAnUnmatchedSupersession(t *testing.T) {
-	cfg := supersedingHostPack(t, "claude-oauth-refersh")
-	rc, env, errs := hostGateRun(t, cfg, nil, []string{"-p", "bedrock"}, "claude")
+	cfg := supersedingHostPack(t, hostTypoPack, "claude-oauth-refersh")
+	var rc int
+	var env map[string]string
+	var errs string
+	discovery := captureStderr(t, func() {
+		rc, env, errs = hostGateRun(t, cfg, nil, []string{"-p", "bedrock"}, "claude")
+	})
+	if n := strings.Count(errs+discovery, hostTypoSentence); n != 1 {
+		t.Errorf("yolo host --: the sentence appears %d times across the launch's stderr and the "+
+			"process's, want once (the refusal only, never first as discovery's warning):\n%s\n%s",
+			n, errs, discovery)
+	}
 	if rc == 0 || env != nil {
 		t.Fatalf("yolo host -- claude with a supersession that retires nothing must refuse "+
 			"before the exec: rc=%d\n%s", rc, errs)
@@ -73,7 +91,7 @@ func TestHostLaunchRefusesAnUnmatchedSupersession(t *testing.T) {
 			}
 		}
 		if n := strings.Count(got, hostTypoSentence); n != 1 {
-			t.Errorf("%s: the sentence appears %d times, want once (the refusal only):\n%s", verb, n, got)
+			t.Errorf("%s: the sentence appears %d times in the refusal, want once:\n%s", verb, n, got)
 		}
 		if strings.Contains(got, "Refusing to launch: a selected pack") {
 			t.Errorf("%s: the jail's header leaked into the host's own refusal prefix:\n%s", verb, got)
@@ -85,7 +103,7 @@ func TestHostLaunchRefusesAnUnmatchedSupersession(t *testing.T) {
 // reaches the exec. A gate that refused a correct claim would refuse every host launch that
 // supersedes.
 func TestHostLaunchAcceptsAMatchedSupersession(t *testing.T) {
-	rc, env, errs := hostGateRun(t, supersedingHostPack(t, "claude-oauth-refresh"), nil, nil, "claude")
+	rc, env, errs := hostGateRun(t, supersedingHostPack(t, "claude-bedrock", "claude-oauth-refresh"), nil, nil, "claude")
 	if rc != 0 || env == nil {
 		t.Fatalf("a matched supersession must launch: rc=%d\n%s", rc, errs)
 	}
@@ -100,7 +118,7 @@ func TestHostLaunchAcceptsAMatchedSupersession(t *testing.T) {
 // compiled into it at this notch too.
 func TestHostLaunchRefusalNamesProvenSkew(t *testing.T) {
 	root, installed, head := hostSkewRepo(t)
-	cfg := supersedingHostPack(t, "claude-oauth-refersh")
+	cfg := supersedingHostPack(t, "claude-bedrock", "claude-oauth-refersh")
 	rc, env, errs := hostGateRun(t, cfg, map[string]string{"YOLO_REPO_ROOT": root}, nil, "claude")
 	if rc == 0 || env != nil {
 		t.Fatalf("the launch must refuse: rc=%d\n%s", rc, errs)

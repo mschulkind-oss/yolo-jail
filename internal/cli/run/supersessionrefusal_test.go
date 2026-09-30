@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,9 +68,10 @@ func macosUserReached(o *Options) *bool {
 // launch now stops, BEFORE the backend dispatch, with the sentence that names the typo,
 // suggests the served capability and lists what is served.
 //
-// It asserts the sentence appears EXACTLY ONCE across both streams: the gate runs ahead of
-// every NewHostSet on the launch path, whose discovery warns the same sentence, so a launch
-// that printed it as a warning and then refused over it would say one thing twice.
+// It asserts the refusal carries the sentence once. That nothing prints it BEFORE the refusal
+// is TestLaunchRefusalIsTheOnlyPrintingOfItsSentence's to pin: discovery warns on the process's
+// stderr, which this test does not read, and this fixture has no via profile, so nothing on the
+// launch path discovers before staging ends.
 func TestLaunchRefusesAnUnmatchedSupersession(t *testing.T) {
 	supersessionFixture(t, "acme-oauth-refersh")
 	var stdout, stderr bytes.Buffer
@@ -97,7 +99,7 @@ func TestLaunchRefusesAnUnmatchedSupersession(t *testing.T) {
 		}
 	}
 	if n := strings.Count(out, "supersedes capability 'acme-oauth-refersh'"); n != 1 {
-		t.Errorf("the sentence appears %d times, want once (the refusal only):\n%s", n, out)
+		t.Errorf("the sentence appears %d times in the launch's output, want once:\n%s", n, out)
 	}
 	if strings.Contains(out, "older than the source tree it builds from") {
 		t.Errorf("the refusal names skew no comparison proved:\n%s", out)
@@ -152,5 +154,74 @@ func TestLaunchRefusalNamesProvenSkew(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal is missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestLaunchRefusalIsTheOnlyPrintingOfItsSentence pins where the gate sits (RM-D3): ahead of
+// checkViaRoutes, whose composition discovers loopholes through NewHostSet when a via profile
+// is active, and whose discovery warns an unmatched claim on the PROCESS's stderr
+// (loopholes.warnf) rather than on o.Stderr. So the fixture selects the shipped claude pack
+// with bedrock-bridge, a via profile, and the count reads the process's stderr too: a gate
+// moved below checkViaRoutes prints the sentence twice, once as a warning the refusal then
+// contradicts. TestLaunchRefusesAnUnmatchedSupersession cannot see this: its fixture has no
+// via, so nothing discovers before staging ends, and it reads only o.Stdout and o.Stderr.
+//
+// The pack name is this test's own, because warnf says each distinct line once per process:
+// a sentence another test had already warned would be silent here, and the count would pass
+// with the gate misplaced.
+func TestLaunchRefusalIsTheOnlyPrintingOfItsSentence(t *testing.T) {
+	home := packHome(t)
+	for _, v := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"} {
+		t.Setenv(v, "")
+	}
+	typo := filepath.Join(t.TempDir(), "claude-bedrock-via-typo")
+	if err := os.MkdirAll(typo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePack(t, typo, `{"name":"claude-bedrock-via-typo","supersedes":[{"capability":`+
+		`"claude-oauth-refersh","because":"Bedrock overrides the OAuth path"}]}`)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.jsonc"), []byte(`{"packs": ["claude", `+
+		`{"source":"file://`+typo+`","name":"claude-bedrock-via-typo"}], `+
+		`"profile": {"claude": "bedrock-bridge"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, t.TempDir(), "macos-user", &stdout, &stderr, nil)
+	reached := macosUserReached(o)
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = saved })
+	done := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
+	rc := Run(*o)
+	os.Stderr = saved
+	_ = w.Close()
+	process := <-done
+	_ = r.Close()
+
+	out := stdout.String() + stderr.String()
+	if rc != 1 || *reached {
+		t.Fatalf("Run() = %d (dispatched=%v), want the refusal\n%s\n%s", rc, *reached, out, process)
+	}
+	if !strings.Contains(out, unmatchedSupersessionHeader) {
+		t.Fatalf("the launch refused, but not over the supersession:\n%s\n%s", out, process)
+	}
+	sentence := "pack 'claude-bedrock-via-typo' supersedes capability 'claude-oauth-refersh'"
+	if n := strings.Count(out+process, sentence); n != 1 {
+		t.Errorf("the sentence appears %d times across the launch's streams and the process's "+
+			"stderr, want once (the refusal only):\nlaunch:\n%s\nprocess stderr:\n%s", n, out, process)
 	}
 }
