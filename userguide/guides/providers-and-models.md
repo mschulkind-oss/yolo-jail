@@ -167,7 +167,7 @@ yolo -p pi=zai,openrouter -- pi
 ```
 
 ```jsonc
-{ "use_profiles": { "pi": ["zai", "openrouter"] } }
+{ "profile": { "pi": ["zai", "openrouter"] } }
 ```
 
 - **The first entry is where a new session starts**: pi opens on z.ai's default model here. A model
@@ -184,14 +184,17 @@ yolo -p pi=zai,openrouter -- pi
 - **Only pi takes a list today.** Claude Code, Codex and Copilot use one provider per session, and
   opencode and oh-omp take one profile until yolo learns to hand them a list, so a list
   named for any of them is refused before anything starts, and the message names the one-profile
-  spelling. A list with no agent named, `-p zai,openrouter`, goes whole to pi and its first entry
-  to every other agent, and the launch says which agents ignore the rest. Every name in it must
-  still be a profile that exists, including the ones an agent ignores.
+  spelling. A list with no agent named, `-p zai,openrouter` or `"profile": ["zai", "openrouter"]`
+  in your config, goes whole to pi and its first entry to every other agent, and the launch says
+  which agents ignore the rest. Every name in it must still be a profile that exists, including
+  the ones an agent ignores.
 - A profile that routes through the wire bridge (`"via": "wire-bridge"`) can only be listed first.
   Two profiles over the same provider cannot share a list, and neither can two Bedrock providers,
   since pi reads one AWS region. One Bedrock profile can sit anywhere in pi's list
-  (`-p pi=zai,bedrock`), and pi reaches it through its own Bedrock client either way.
-- A profile name cannot contain a comma. The same list works at `yolo host -p pi=zai,openrouter --
+  (`-p pi=zai,bedrock`), and pi reaches it through its own Bedrock client either way, with the
+  region from the provider or your `~/.aws/config`.
+- A profile name cannot contain a comma, and in your config a list is always a JSON array, never
+  `"zai,openrouter"`. The same list works at `yolo host -p pi=zai,openrouter --
   pi`, in `yolo host env --agent pi -p zai,openrouter`, on `macos-user`, and in the files
   `yolo host apply` writes.
 

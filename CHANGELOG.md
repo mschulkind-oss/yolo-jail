@@ -81,7 +81,7 @@ into your files and says so; a `claude` you start some other way runs on its own
 [the wire bridge](userguide/guides/providers-and-models.md#the-wire-bridge).
 
 **pi can now use several providers in one session.** List them with `-p pi=zai,openrouter`, or
-as `"use_profiles": {"pi": ["zai", "openrouter"]}` in your config, and pi's `/model` list offers
+as `"profile": {"pi": ["zai", "openrouter"]}` in your config, and pi's `/model` list offers
 every listed provider's models, pi receives every listed provider's key while other agents and a
 plain shell receive none of them, and child agents may use any listed provider and no other. A new
 session starts on the first provider's default model, and a model you pick yourself stays picked.
@@ -90,14 +90,15 @@ the list. Until now `-p pi=zai,openrouter` started pi on z.ai alone and dropped 
 word, and a stray name before any `agent=` was ignored the same way; it now stops the launch.
 Only pi takes a list so far: a list named for Claude Code, Codex, Copilot, opencode or oh-omp is
 refused before anything starts, with the one-profile spelling in the message, and a list naming no
-agent, `-p zai,openrouter`, goes whole to pi and its first entry to every other agent, with a line
-saying which agents ignore the rest. Every name in a list must be a profile that exists, including
-the ones an agent ignores, and `-p pi=,claude=zai` still selects nothing for pi. A Bedrock
-profile can sit anywhere in pi's list (`-p pi=zai,bedrock`) and pi reaches it through its own
-Bedrock client with the provider's region; two Bedrock providers cannot share one list, since pi
-reads one AWS region. The same list works at `yolo host`, in `yolo host env`, on
-`macos-user` and in the files `yolo host apply` writes. A profile name can no longer contain a
-comma. See
+agent, `-p zai,openrouter` or `"profile": ["zai", "openrouter"]`, goes whole to pi and its first
+entry to every other agent, with a line saying which agents ignore the rest. Every name in a list
+must be a profile that exists, including the ones an agent ignores, and `-p pi=,claude=zai` still
+selects nothing for pi. A Bedrock profile can sit anywhere in pi's list (`-p pi=zai,bedrock`) and
+pi reaches it through its own Bedrock client with its region, from the provider or your
+`~/.aws/config`; two Bedrock providers cannot share one list, since pi reads one AWS region. The
+same list works at `yolo host`, where a Bedrock entry gets `aws-auth`'s credentials as a Bedrock
+profile does, in `yolo host env`, on `macos-user` and in the files `yolo host apply` writes. A
+profile name can no longer contain a comma. See
 [several providers in one pi session](userguide/guides/providers-and-models.md#several-providers-in-one-pi-session).
 
 **On the `macos-user` backend, AWS Bedrock through `aws-auth` and the ChatGPT-subscription

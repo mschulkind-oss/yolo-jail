@@ -99,11 +99,16 @@ run. UNMEASURED: no request has reached Bedrock.
 
 **Active sets came the same day** (2026-09-29): an agent may run on an ordered list of profiles
 ([an active set](#an-active-set-several-profiles-for-one-agent),
-[`active-provider-sets.md`](../design/active-provider-sets.md), OQ-AP1 to OQ-AP3). MEASURED: the
+[`active-provider-sets.md`](../design/active-provider-sets.md),
+[`OQ-AP1`](../design/active-provider-sets.md#OQ-AP1) to
+[`OQ-AP3`](../design/active-provider-sets.md#OQ-AP3)). MEASURED: the
 grammar, every refusal, the gate's delivery and pi's render are pinned by unit tests, every call
 site the review cut to the set's first entry now fails one, and two integration launches in a
 real jail rendered pi's files and environment for `-p pi=zai,openrouter` and
-`-p pi=zai,bedrock`. UNMEASURED: no pi session was run, so none switched providers.
+`-p pi=zai,bedrock`. The build first spelled the config list under `use_profiles`, and was
+re-expressed on the `profile` key when it landed after that rename
+([PP-D10](../design/providers-and-profiles-redesign.md#PP-D10)). UNMEASURED: no pi session was run,
+so none switched providers.
 
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
@@ -353,7 +358,9 @@ Every entry of an [active set](#an-active-set-several-profiles-for-one-agent) is
 each entry's key is demanded, and a missing one refuses the whole launch: yolo never starts an
 agent on the entries that have keys. The fact names the entry's position ("profile openrouter is
 entry 2 of pi's profiles (zai, openrouter)"; `packload.ProviderCredentialGapsIn`, which both
-notches call). The region pre-flight asks each entry too.
+notches call). The region pre-flight asks each entry too, and the region fill reads the host's
+`~/.aws/config` for the first entry that needs a region, so a Bedrock entry after the first is
+given its profile's region as a primary one is (`AgentDelivery.RegionFileFor`).
 
 The refusal names the provider, the pack that shipped it (or the user config, when only the
 user's entry put it there), the variable, and **every channel consulted** — the `env_sources`
@@ -1158,8 +1165,10 @@ NAME selects that profile for every CLI the selected packs install that no pair 
 (uniformly, whether or not a command follows `--`), and `cli=name` (comma-separated,
 repeatable) selects for the named CLI only, beside a bare name in either order. The persistent
 form is the `profile` key in user config, which mirrors the flag form for form
-([the selection](#declaring-and-selecting-a-profile)). Profile names refuse `=` at
-declaration so the two grammars cannot be ambiguous, and neither flag means startup
+([the selection](#declaring-and-selecting-a-profile)). A comma continues a list in either
+grammar, a bare `-p zai,openrouter` or a pair's `-p pi=zai,openrouter`
+([an active set](#an-active-set-several-profiles-for-one-agent)). Profile names refuse `=` and `,`
+at declaration so the grammars cannot be ambiguous, and neither flag means startup
 timing — that is `--timing`. (The former third spelling `--pack-profile` is deleted —
 never in a release, and redundant once `-p` carried both grammars.)
 
@@ -1227,11 +1236,14 @@ form for each CLI it reaches. The key mirrors the flag form for form
 "profile": "bedrock"                                // -p bedrock: every agent
 "profile": { "pi": "codex", "claude": "bedrock" }   // -p pi=codex,claude=bedrock
 "profile": { "*": "bedrock", "pi": "codex" }        // -p bedrock -p pi=codex
+"profile": { "pi": ["zai", "openrouter"] }          // -p pi=zai,openrouter
+"profile": ["zai", "openrouter"]                    // -p zai,openrouter: every agent
 ```
 
 `"*"` is every agent the object does not name. Within one source a named CLI keeps its own
-entry, and the default (a bare `-p`, the string form or `"*"`) reaches every other CLI the
-selected packs install, never the command after `--`. A null entry selects no profile for its
+entry, and the default (a bare `-p`, the string or list form, or `"*"`) reaches every other CLI
+the selected packs install, never the command after `--`. A list is an
+[active set](#an-active-set-several-profiles-for-one-agent). A null entry selects no profile for its
 CLI, so `"*"` does not reach it. Both spellings lower to one shape and one fold
 ([PP-D11](../design/providers-and-profiles-redesign.md#PP-D11)), so a form cannot mean one
 thing in config and another on the command line. CLI names are the right key because the
@@ -1248,17 +1260,21 @@ table, so a pack that installs no CLI — a provider pack — still reads any CL
 
 ### An active set: several profiles for one agent
 
-An agent's `use_profiles` value may be a **list** of profile names, its **active set** (a term
+An agent's value in the `profile` key may be a **list** of profile names, its **active set** (a term
 [`active-provider-sets.md`](../design/active-provider-sets.md) coins: the ordered list of profiles
 one agent runs on for one launch; [OQ-AP1](../design/active-provider-sets.md#OQ-AP1), ruled
 2026-09-29). Every listed provider is live for that agent in one session, and the **first
 entry**, the set's primary, is where a fresh session starts when yolo has to pick. A list of one is
 the plain name, byte for byte, so no existing config moves.
 
-- **Spelling.** In config, `"use_profiles": {"pi": ["zai", "openrouter"]}`. On the command line a
+- **Spelling.** In config, `"profile": {"pi": ["zai", "openrouter"]}`, a JSON array and never a
+  comma string (`"zai,openrouter"` is refused, respelled as the array). On the command line a
   comma continues the list of the CLI named before it: `-p pi=zai,openrouter,claude=codex`. A
-  later pair for a CLI replaces its whole list, and a typed pair replaces the config's list for
-  the launch ([AP-D4](../design/active-provider-sets.md#AP-D4)). A bare element before any pair
+  later pair for a CLI replaces its whole list, and a typed pair replaces the key's list for
+  the launch ([AP-D4](../design/active-provider-sets.md#AP-D4)). The key and the flag lower to one
+  `config.ProfileSelection`, whose two fields are lists, and fold through one
+  `config.FoldProfiles`, so a list means one thing in both spellings
+  ([PP-D11](../design/providers-and-profiles-redesign.md#PP-D11)). A bare element before any pair
   (`-p zai,pi=openrouter`), an empty entry (`-p pi=zai,`) and a name after an empty pair
   (`-p pi=,openrouter`) are refused as misuse, exit 2; until this build the first was dropped in
   silence, so `-p pi=zai,openrouter` started pi on zai alone. An empty pair is not an empty
@@ -1267,15 +1283,17 @@ the plain name, byte for byte, so no existing config moves.
 - **Who may hold one.** An agent whose pack declares `provider_sets` on the program that installs
   it (`packdecl.Contribution.ProviderSets`): pi today. A list named at any other agent (claude,
   codex, copilot) is refused before anything starts, naming the one-profile spelling
-  ([OQ-AP2](../design/active-provider-sets.md#OQ-AP2)), by config validation for a
-  `use_profiles` list, by `checkProfileTargets` for a typed pair, and again after resolution by
-  `packload.ProfileSetProblems`. A **bare** list (`-p zai,openrouter`) goes whole to every
-  set-capable agent and its first entry to every other, and the launch prints one line naming
-  those agents and the entries they ignore ([OQ-AP3](../design/active-provider-sets.md#OQ-AP3);
-  `packload.NarrowBareList`, `packload.BareListNote`). The entries an agent ignores must still be
-  declared: `-p zai,typo` refuses naming `typo` whichever agents are selected
-  (`checkProfileDeclarations` in a jail, `hostBareListUndeclared` at `yolo host` and
-  `yolo host env`).
+  ([OQ-AP2](../design/active-provider-sets.md#OQ-AP2)), by config validation for a list named in
+  the `profile` key (`validateProfile`), by `checkProfileTargets` for a typed pair, and again
+  after resolution by `packload.ProfileSetProblems`. A **bare** list, one naming no agent — a bare
+  `-p zai,openrouter`, the key's list form `"profile": ["zai", "openrouter"]`, or a list under
+  `"*"` — goes whole to every set-capable agent and its first entry to every other, and the launch
+  prints one line naming those agents, the entries they ignore and where the list was written
+  ([OQ-AP3](../design/active-provider-sets.md#OQ-AP3); `config.FoldProfiles`,
+  `packload.BareListNote`). The entries an agent ignores must still be declared: `-p zai,typo`
+  or `"profile": ["zai", "typo"]` refuses naming `typo` whichever agents are selected
+  (`checkProfileDeclarations` in a jail, `hostBareListUndeclared` and `composeHostVarsWith` at
+  `yolo host` and `yolo host env`).
 - **What a set refuses** (`packload.ProfileSetProblems`, at every notch and predicted by
   `yolo check`): a name listed twice; two entries resolving to one provider; two entries on one
   regional platform, such as two Bedrock providers, since the agent's process holds one
@@ -1291,11 +1309,12 @@ the plain name, byte for byte, so no existing config moves.
   delivering one needs the `profile-sets` contract tag, so a jail an older yolo launched takes the
   restart-or-refuse disposition ([AP-D8](../design/active-provider-sets.md#AP-D8)). macos-user
   composes the same channel. `yolo host -- <agent>` and `yolo host env --agent <agent>` take the
-  same `-p` and `use_profiles`, and `yolo host apply` renders the `use_profiles` set into the
-  agent's own files, leaving out a whole set it cannot render.
+  same `-p` and `profile` key, open aws-auth's doorway for a Bedrock entry anywhere in the set,
+  and fill a Bedrock entry's region from `~/.aws/config` as a primary's is; `yolo host apply`
+  renders the key's set into the agent's own files, leaving out a whole set it cannot render.
 
 The launch names each set of more than one in order ("Active set for pi: zai, openrouter"), beside
-the per-name profile lines. What pi renders from a set is in [per-agent
+the per-name profile lines, which answer for each entry what it reaches for the agent holding it. What pi renders from a set is in [per-agent
 delivery](#per-agent-delivery). The config-overlay `profile` modifier still gates on the primary
 alone, and opencode does not yet declare `provider_sets`.
 
@@ -1492,7 +1511,7 @@ that can be mistyped is checked against the right set, and each check is fatal:
 | `-p <cli>=<name>` | the same namespace | launch preflight (`checkProfileTargets`) — a flag never reaches config validation |
 | a selected profile **name** | the declared set: selected packs' profiles plus the user's `profiles` | launch preflight, both notches |
 | a `-p`/`--profile` with **no value** (trailing, followed by `--`, or `--profile=`) | nothing: it is refused as "`-p` needs a value", exit 2 | the front door, both notches, through one value-flag reader that `--at`, `--network` and `--with-credentials` share |
-| a **list** (`-p pi=a,b`, a `use_profiles` array) | the grammar (no element before a pair, no empty entry: exit 2), then whether the CLI holds a set and [the set's own rules](#an-active-set-several-profiles-for-one-agent) | the front door's parser; config validation and `checkProfileTargets` for the CLI; `packload.ProfileSetProblems` after resolution, at both notches and in `yolo check` |
+| a **list** (`-p pi=a,b`, a `profile` array) | the grammar (no element before a pair, no empty entry: exit 2), then whether the CLI holds a set and [the set's own rules](#an-active-set-several-profiles-for-one-agent) | the front door's parser; config validation and `checkProfileTargets` for the CLI; `packload.ProfileSetProblems` after resolution, at both notches and in `yolo check` |
 
 The key check answers against the **universe**, not the selection: whether a string names a real
 CLI is a fact about the packs this machine can resolve, while selection only decides whether a
@@ -1745,7 +1764,7 @@ above explains what each is for; this table is the only place the exact spelling
 | Kinds that take the `profile` modifier | `env`, `config-overlay` — refused on every other kind; no shipped pack uses it | `packdecl` `validateContribution` |
 | Kinds that take the `platform` gate | `env` — one gate per contribution, `profile` or `platform`; `platform` on `provider` is the declaration | `packdecl` `validateContribution` |
 | Platform switches | a `program`'s `platform_switches` `[{platform, surface, pointer}]`; claude's: `aws-bedrock`, `claude/settings`, `/env/CLAUDE_CODE_USE_BEDROCK`; on when `true`, `1`, `yes` or `on` | `packs/claude/pack.json`, `packload.PlatformSwitchConflicts` |
-| Profile flag grammar | `-p` / `--profile`: a bare name, or `cli=name` (comma-separated, repeatable), on every notch; at `yolo host` / `yolo host env` a pair may name only the one command composed | `internal/cli` (`parseProfileValue`; `applyProfileValue` on the run path, `hostProfileFor` at the host) |
+| Profile flag grammar | `-p` / `--profile`: a bare name or comma list, or `cli=name` pairs (comma-separated, a bare name after a pair continuing that CLI's list, repeatable), on every notch; at `yolo host` / `yolo host env` a pair may name only the one command composed | `config.ParseProfileFlag`, through `parseProfileValue` (`applyProfileValue` on the run path, `hostProfileFor` at the host) |
 | Profile disclosure line | `Profile <name>: declared by <packs, or your config's profiles>; <agent> → provider "<p>", <route>; …`, then one `Warning: profile "<name>" …` line per agent the selection reaches nothing for or delivers no credential to | `packload.ProfileDisclosures`; printed by `run.noteUseProfiles` and `hostComposition.profileLines` |
 | Conventional tier aliases | `default`, `fast`, `balanced`, `frontier`; a missing one warns at boot as `pack derive for <agent>: provider "<name>" declares no "<alias>" model alias …`, and only when a derive asks `yolo.model_for` for it | `luahook.ConventionalModelAliases`, `luahook.MissingTierAliasNote` |
 | pi-subagents' block | `subagents.defaultProvider`, `subagents.defaultModel` (`<provider>/<id>`, deleted when no default resolves), `subagents.modelScope` `{enforce: true, strict: true, allow}` (the configured ids, or `<provider>/*`), in `~/.pi/agent/settings.json` whenever a pi profile selects `openai-codex`, a provider pi can reach, or a Bedrock provider on pi's own client (then `amazon-bedrock`) | `packs/pi/derive.lua` (`piSubagents`) |
