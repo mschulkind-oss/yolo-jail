@@ -1986,8 +1986,9 @@ func profileSetOf(v any) ([]string, string) {
 
 // profileNameProblem is what is wrong with name as a `profile` value, "" when nothing is. An
 // empty name would select nothing in silence, so null is the one spelling of "none". A name
-// holding "=" can never be declared (profile names refuse it), and it is nearly always the
-// flag's pair grammar written into the string form, so the message respells it as the object.
+// holding "=" or "," can never be declared (profile names refuse both), and it is nearly always
+// the flag's grammar written into a string — its cli=name pairs, or its comma list — so the
+// message respells it as the object or the JSON list the key takes instead.
 func profileNameProblem(name string) string {
 	if name == "" {
 		return "expected a profile name; null selects none"
@@ -1995,8 +1996,17 @@ func profileNameProblem(name string) string {
 	if strings.Contains(name, "=") {
 		msg := fmt.Sprintf("%q is not a profile name — a name cannot contain \"=\", and the "+
 			"per-agent form is an object, not -p's cli=name grammar", name)
-		if _, pairs := ParseProfileFlag(name); len(pairs) > 0 {
+		if _, pairs, err := ParseProfileFlag(name); err == nil && len(pairs) > 0 {
 			msg += ": " + ProfileKeySpelling(ProfileSelection{Named: pairs})
+		}
+		return msg
+	}
+	if strings.Contains(name, ",") {
+		msg := fmt.Sprintf("%q is not a profile name — a name cannot contain \",\", and a list "+
+			"of profiles is a JSON array, not -p's comma list", name)
+		if bare, _, err := ParseProfileFlag(name); err == nil && len(bare) > 1 {
+			list, _ := jsonx.DumpsCompact(profileSetSpelling(bare))
+			msg += ", so write it in its place: " + list
 		}
 		return msg
 	}

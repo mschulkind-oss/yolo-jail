@@ -979,14 +979,22 @@ func (o *Options) notePackHostAccess(loadedPacks []*packload.Pack, channel *pack
 // The line is packload.ProfileDisclosures', which `yolo host` prints too (notch-convergence
 // item 13): what each half means, and why the verb is never "honored", is stated there. A
 // disclosure, so no quiet switch (OQ-RO3).
+//
+// AN ACTIVE SET (docs/design/active-provider-sets.md) adds to it: every entry's name gets its
+// line, each set of more than one is named in order with the entry a session starts on
+// (packload.ActiveSetLines), and a bare list — the config key's or a -p's — narrowed for agents
+// whose packs declare no provider_sets says which agents ignore which entries (the channel's
+// bareNote, OQ-AP3's one line).
 func (o *Options) noteUseProfiles(channel *packChannel, loadedPacks []*packload.Pack,
 	argvPairs map[string]string) {
 	if channel == nil {
 		return
 	}
 	out := o.pr(o.Stderr)
+	sets := packload.ProfileSets(channel.profiles)
 	for _, d := range packload.ProfileDisclosures(packload.ProfileDisclosureInput{
 		Table:     packload.ProfileTable(channel.profiles),
+		Sets:      sets,
 		Packs:     loadedPacks,
 		Resolved:  channel.resolvedProfiles,
 		Providers: channel.providers,
@@ -1003,6 +1011,12 @@ func (o *Options) noteUseProfiles(channel *packChannel, loadedPacks []*packload.
 		for _, w := range d.Warnings() {
 			out.print("[yellow]" + w + "[/yellow]")
 		}
+	}
+	for _, line := range packload.ActiveSetLines(sets) {
+		out.print("[dim]" + line + "[/dim]")
+	}
+	if channel.bareNote != "" {
+		out.print("[yellow]" + channel.bareNote + "[/yellow]")
 	}
 }
 
@@ -2415,9 +2429,11 @@ func profileTablesEqual(a, b *jsonx.OrderedMap) bool {
 		if !ok {
 			return false
 		}
-		as, aok := av.(string)
-		bs, bok := bv.(string)
-		if aok != bok || as != bs {
+		// Compared as ACTIVE SETS (docs/design/active-provider-sets.md), so two lists are equal
+		// only entry for entry, in order, and a list of one equals the string it canonicalizes to.
+		as, aok := packload.ProfileSetValue(av)
+		bs, bok := packload.ProfileSetValue(bv)
+		if aok != bok || strings.Join(as, ",") != strings.Join(bs, ",") {
 			return false
 		}
 	}

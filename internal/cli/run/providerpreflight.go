@@ -60,8 +60,8 @@ func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packl
 	// whose key this launch delivers to anybody, so they are the only ones it may demand.
 	// The SAME scope the vehicles deliver from, so the check and the delivery cannot
 	// disagree about who gets a credential.
-	facts := packload.ProviderCredentialGaps(packs, channel.providers,
-		channel.scope.SelectedProviders(), channel.deliveryLookup(o, argvPairs), consulted)
+	facts := packload.ProviderCredentialGapsIn(packs, channel.providers,
+		channel.scope, channel.deliveryLookup(o, argvPairs), consulted)
 	held := o.Getenv(paths.AllowMissingProvidersEnv) != ""
 	// The refusal's wording is packload's, the host notch's too (notch-convergence.md item 14).
 	lines, refuse = packload.ProviderCredentialRefusal(facts, held)
@@ -102,13 +102,19 @@ func (o *Options) checkProviderRegions(cfg *jsonx.OrderedMap, packs []*packload.
 		if d == nil || d.Provider == "" {
 			continue // a grant-only process selects no provider
 		}
-		asks = append(asks, packload.RegionAsk{Agent: agent, Provider: d.Provider, File: d.RegionFile,
-			Lookup: func(name string) (string, bool) {
-				if v, found := argvPairs[name]; found && v != "" {
-					return v, true
-				}
-				return channel.scope.DeliveredTo(agent, name)
-			}})
+		// EACH ENTRY OF THE AGENT'S ACTIVE SET (docs/design/active-provider-sets.md AP-P1): a
+		// regional provider anywhere in pi's set needs its region delivered to pi. The region
+		// file's lookup is the one the fill read for that provider (AgentDelivery.RegionFile).
+		for _, provider := range packload.SetProvidersOf(d) {
+			asks = append(asks, packload.RegionAsk{Agent: agent, Provider: provider,
+				File: d.RegionFileFor(provider),
+				Lookup: func(name string) (string, bool) {
+					if v, found := argvPairs[name]; found && v != "" {
+						return v, true
+					}
+					return channel.scope.DeliveredTo(agent, name)
+				}})
+		}
 	}
 	stranded := func(name string) bool { return o.Getenv(name) != "" }
 	channels := []string{packload.FromPackEnv, packload.FromProfileEnv}

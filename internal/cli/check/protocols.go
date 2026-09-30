@@ -113,6 +113,17 @@ func protocolPairingGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served
 		errs = append(errs, "This launch will be REFUSED: "+
 			strings.TrimSuffix(refusal.Error(), "\n"))
 	}
+	// THE ACTIVE SETS (docs/design/active-provider-sets.md): the set's own rules, then every
+	// entry after the primary pairing as the primary does, the launch's refusals predicted in
+	// its words.
+	sets := packload.ProfileSets(config.ConfigProfileSets(merged, packs))
+	for _, problem := range packload.ProfileSetProblems(packs, sets, resolved) {
+		errs = append(errs, "This launch will be REFUSED: packs: "+problem)
+	}
+	for _, refusal := range packload.SetEntryPairingRefusals(packs, providers, resolved, sets, unserved) {
+		errs = append(errs, "This launch will be REFUSED: "+
+			strings.TrimSuffix(refusal.Error(), "\n"))
+	}
 	// The launch's VIA-ROUTE gate (checkViaRoutes in internal/cli/run, WG-I13 to WG-I15),
 	// predicted over the same assembled inputs: a via profile whose service will serve no
 	// route for the agent it re-points (a FAIL, as the launch refuses it), or a route without

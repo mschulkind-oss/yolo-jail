@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
@@ -82,6 +83,12 @@ const (
 	// tags: present when entrypoint.AgentEnvFilesEnv is set, the marker the gate froze before
 	// this list existed.
 	contractAgentEnvFiles = "agent-env-files"
+	// contractProfileSets: the jail's boot reads a YOLO_USE_PROFILES value that is a LIST, an
+	// agent's active set (docs/design/active-provider-sets.md AP-D8), and hands the whole set to
+	// its derives as ctx.active_set. An older boot lowers a list to no selection at all, so an
+	// agent on a set would start with none of it. No legacy inference: a jail that predates the
+	// tag list predates sets too.
+	contractProfileSets = "profile-sets"
 )
 
 // launchContractTags is every contract THIS build's jail implements, frozen into every
@@ -95,7 +102,7 @@ const (
 // to learn this jail has it. The per-launch pack trees of pack-system.md's OQ-PK2 needed none: an
 // attach no longer writes any pack tree, so it asks nothing of the jail's binaries, and it finds
 // the tree an older jail binds on the host side (packtree.go's runningJailPackTree).
-var launchContractTags = []string{contractEntryChannel, contractAgentEnvFiles}
+var launchContractTags = []string{contractEntryChannel, contractAgentEnvFiles, contractProfileSets}
 
 // launchContractTagsValue is ContractTagsEnv's value for a launch: the tags, comma-joined.
 func launchContractTagsValue() string { return strings.Join(launchContractTags, ",") }
@@ -206,6 +213,16 @@ func attachContractFor(channel *packChannel, envLines []string) attachContract {
 			withheld: []string{line},
 		})
 	}
+	// A SET OF MORE THAN ONE ENTRY needs a boot that reads a list (AP-D8); a table whose every
+	// set has one entry crosses as the strings it always did and needs nothing.
+	if lists := listedSets(profiles); len(lists) > 0 {
+		c.needs = append(c.needs, contractNeed{
+			tag: contractProfileSets,
+			lacks: "its boot reads one profile per agent, so an agent's list of profiles would " +
+				"reach it as no selection at all",
+			withheld: lists,
+		})
+	}
 	if scoped := channel.agentsWithOwnValues(); len(scoped) > 0 {
 		var withheld []string
 		for _, agent := range scoped {
@@ -236,7 +253,8 @@ func (c attachContract) missingFrom(envLines []string) []contractNeed {
 	return missing
 }
 
-// selectionPhrase renders a selection table as "cli=profile" pairs, sorted, for a disclosure.
+// selectionPhrase renders a selection table as "cli=profile" pairs, sorted, for a disclosure. A
+// set of more than one is spelled as `-p` spells it, "pi=zai,openrouter".
 func selectionPhrase(m *jsonx.OrderedMap) string {
 	if m == nil || m.Len() == 0 {
 		return "(none)"
@@ -245,10 +263,27 @@ func selectionPhrase(m *jsonx.OrderedMap) string {
 	for _, k := range m.Keys() {
 		v, _ := m.Get(k)
 		s, _ := v.(string)
+		if set, ok := packload.ProfileSetValue(v); ok {
+			s = strings.Join(set, ",")
+		}
 		pairs = append(pairs, k+"="+s)
 	}
 	sort.Strings(pairs)
 	return strings.Join(pairs, ", ")
+}
+
+// listedSets names each agent in a selection table whose active set has more than one entry,
+// "the profile list pi=zai,openrouter", sorted: what an attach withholds from a jail that cannot
+// read a list. Nil when every set has one entry.
+func listedSets(m *jsonx.OrderedMap) []string {
+	var out []string
+	for agent, set := range packload.ProfileSets(m) {
+		if len(set) > 1 {
+			out = append(out, "the profile list "+agent+"="+strings.Join(set, ","))
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // scopedValuesPhrase names what the credential gate scoped to one agent: "claude (profile

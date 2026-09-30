@@ -491,12 +491,23 @@ func (o *Options) checkProfileTargets() error {
 		clis = append(clis, cli)
 	}
 	sort.Strings(clis)
+	// A LIST NAMED AT A SINGLE-PROVIDER CLI (docs/design/active-provider-sets.md OQ-AP2, ruled
+	// 2026-09-29) is refused over the same universe, whether or not this launch selects the
+	// CLI's pack: the user asked that agent for something it cannot do, which is a fact about
+	// the flag and the agent, and the config validator refuses the same list in use_profiles on
+	// the same terms. The selected agents' lists are asked again after resolution, with the
+	// set's other rules (ProfileSetProblems).
+	capable, capableKnown := config.SetCapableCLINames()
 	for _, cli := range clis {
-		if installed[cli] {
+		if !installed[cli] {
+			problems = append(problems, fmt.Sprintf("-p %s=%s: no pack installs a "+
+				"CLI named %q (installed: %s)", cli, o.UseProfiles[cli], cli, have))
 			continue
 		}
-		problems = append(problems, fmt.Sprintf("-p %s=%s: no pack installs a "+
-			"CLI named %q (installed: %s)", cli, o.UseProfiles[cli], cli, have))
+		if list := packload.SplitProfileList(o.UseProfiles[cli]); len(list) > 1 && capableKnown && !capable[cli] {
+			problems = append(problems, "-p "+cli+"="+o.UseProfiles[cli]+": "+
+				packload.SingleProviderSetRefusal(cli, list))
+		}
 	}
 	// NO BARE-FORM BRANCH. `-p <name> -- <bin>` was checked here against
 	// filepath.Base(o.Args[0]) until 2026-09-19; the docstring records what it cost and

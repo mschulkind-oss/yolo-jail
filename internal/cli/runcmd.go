@@ -163,25 +163,35 @@ func refuseHostOnlyFlags(parsed runArgv, errw io.Writer) bool {
 
 // applyProfileValue reads one -p/--profile value: "cli=name" (comma-separated,
 // repeatable) merges into the per-CLI selection table, anything else is a bare
-// profile name. Names refuse "=" at declaration (config profiles + the pack
+// profile name. Names refuse "=" and "," at declaration (config profiles + the pack
 // manifest), so a value containing "=" is unambiguously the pair grammar and a
 // name can never collide with it.
+//
+// A LIST (docs/design/active-provider-sets.md OQ-AP1) is carried into run.Options as the
+// comma-joined entries the parser checked — the value's own spelling, split back by
+// packload.SplitProfileList, the one reading a name without commas allows. A later pair for
+// the same CLI replaces its whole list, as a later pair always replaced its one name.
 //
 // The grammar itself is parseProfileValue, which `yolo host` and `yolo host env` read too
 // (ES-D27), so the two notches cannot disagree about what a -p value says. The fold is
 // config.ProfileSelection's, the one the config `profile` key lowers to (PP-D10), so a flag
-// and the key's equivalent form set the same two fields.
-func applyProfileValue(v string, opts *run.Options) {
+// and the key's equivalent form set the same two fields. A value the grammar refuses is
+// returned, for the launch to refuse as misuse (exit 2) before anything starts.
+func applyProfileValue(v string, opts *run.Options) error {
 	sel := opts.ProfileFlags()
-	sel.ApplyFlag(v)
-	opts.ProfileName, opts.UseProfiles = sel.Default, sel.Named
+	if err := sel.ApplyFlag(v); err != nil {
+		return err
+	}
+	opts.SetProfileFlags(sel)
+	return nil
 }
 
-// parseProfileValue is the -p grammar every notch reads (config.ParseProfileFlag): a value
-// with no "=" is a bare profile name (pairs nil), and one with "=" is comma-separated
-// cli=name pairs (a non-nil map, later pairs winning). An element with no "=" inside the pair
-// grammar is dropped, as the run path always dropped it.
-func parseProfileValue(v string) (name string, pairs map[string]string) {
+// parseProfileValue is the -p grammar every notch reads (config.ParseProfileFlag, OQ-AP1): a
+// value with no "=" is a BARE list — one profile name or several separated by commas — and one
+// with "=" is comma-separated cli=name pairs, a bare name after a pair continuing that CLI's
+// list. What the grammar cannot place (a name before any pair, an empty entry) is refused,
+// never dropped.
+func parseProfileValue(v string) (bare []string, pairs map[string][]string, err error) {
 	return config.ParseProfileFlag(v)
 }
 
@@ -323,7 +333,11 @@ func parseRunArgs(args []string, opts *run.Options) runArgv {
 		if f, ok := readValueFlag(args, i, "--profile", "-p"); ok {
 			i = f.last
 			if v, ok := value(f); ok {
-				applyProfileValue(v, opts)
+				// A value the -p grammar refuses (OQ-AP1: a list element naming no agent, an empty
+				// entry) is misuse, refused like a value flag given no value, before anything runs.
+				if err := applyProfileValue(v, opts); err != nil && parsed.misuse == nil {
+					parsed.misuse = err
+				}
 			}
 			continue
 		}

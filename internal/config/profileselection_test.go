@@ -27,23 +27,29 @@ func tableOf(m *jsonx.OrderedMap) map[string]any {
 	return out
 }
 
-// The key's three forms, and null, lower to the two fields -p sets: the string and "*" are
-// Default, every other key is Named.
+// The key's forms, and null, lower to the two fields -p sets: the string, the list and "*" are
+// Default, every other key is Named. A list is an active set, in order
+// (docs/design/active-provider-sets.md OQ-AP1).
 func TestProfileSelectionOfLowersEveryForm(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		value       string
-		wantDefault string
-		wantNamed   map[string]string
+		wantDefault []string
+		wantNamed   map[string][]string
 	}{
-		{"a name for every agent", `"bedrock"`, "bedrock", nil},
-		{"per agent", `{"pi": "codex", "claude": "bedrock"}`, "",
-			map[string]string{"pi": "codex", "claude": "bedrock"}},
-		{"every agent not named", `{"*": "bedrock", "pi": "codex"}`, "bedrock",
-			map[string]string{"pi": "codex"}},
+		{"a name for every agent", `"bedrock"`, []string{"bedrock"}, nil},
+		{"per agent", `{"pi": "codex", "claude": "bedrock"}`, nil,
+			map[string][]string{"pi": {"codex"}, "claude": {"bedrock"}}},
+		{"every agent not named", `{"*": "bedrock", "pi": "codex"}`, []string{"bedrock"},
+			map[string][]string{"pi": {"codex"}}},
 		{"a null entry names its agent and selects none", `{"*": "bedrock", "codex": null}`,
-			"bedrock", map[string]string{"codex": ""}},
-		{"null selects nothing", `null`, "", nil},
+			[]string{"bedrock"}, map[string][]string{"codex": nil}},
+		{"null selects nothing", `null`, nil, nil},
+		{"a list for every agent", `["zai", "openrouter"]`, []string{"zai", "openrouter"}, nil},
+		{"a list per agent", `{"pi": ["zai", "openrouter"], "claude": "bedrock"}`, nil,
+			map[string][]string{"pi": {"zai", "openrouter"}, "claude": {"bedrock"}}},
+		{"a list for every agent not named", `{"*": ["zai", "openrouter"], "codex": "bedrock"}`,
+			[]string{"zai", "openrouter"}, map[string][]string{"codex": {"bedrock"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v, err := jsonx.Decode([]byte(tc.value))
@@ -54,7 +60,7 @@ func TestProfileSelectionOfLowersEveryForm(t *testing.T) {
 			if !ok {
 				t.Fatalf("%s did not lower", tc.value)
 			}
-			if got.Default != tc.wantDefault || !reflect.DeepEqual(got.Named, tc.wantNamed) {
+			if !reflect.DeepEqual(got.Default, tc.wantDefault) || !reflect.DeepEqual(got.Named, tc.wantNamed) {
 				t.Errorf("%s lowered to {Default: %q, Named: %v}, want {%q, %v}",
 					tc.value, got.Default, got.Named, tc.wantDefault, tc.wantNamed)
 			}
@@ -68,7 +74,8 @@ func TestProfileSelectionOfLowersEveryForm(t *testing.T) {
 // below are the rule "every -p beats the key", which is what the persistent table always had
 // under the flag.
 func TestProfileTableForPrecedence(t *testing.T) {
-	bins := []string{"claude", "pi", "codex"}
+	// pi declares provider_sets, so a bare list reaches it whole (OQ-AP3).
+	recv := ProfileReceivers{Bins: []string{"claude", "pi", "codex"}, SetCapable: map[string]bool{"pi": true}}
 	key := func(v string) ProfileSelection {
 		t.Helper()
 		d, err := jsonx.Decode([]byte(v))
@@ -84,7 +91,9 @@ func TestProfileTableForPrecedence(t *testing.T) {
 	flag := func(values ...string) ProfileSelection {
 		var s ProfileSelection
 		for _, v := range values {
-			s.ApplyFlag(v)
+			if err := s.ApplyFlag(v); err != nil {
+				t.Fatalf("-p %s: %v", v, err)
+			}
 		}
 		return s
 	}
@@ -117,19 +126,69 @@ func TestProfileTableForPrecedence(t *testing.T) {
 		{"a named CLI nothing installs is kept for the refusals to find",
 			[]ProfileSelection{key(`{"*": "bedrock", "cloude": "zai"}`)},
 			map[string]any{"claude": "bedrock", "pi": "bedrock", "codex": "bedrock", "cloude": "zai"}},
+		// THE LIST (OQ-AP1 to OQ-AP3): a named list is kept whole, for OQ-AP2's refusal to find
+		// at a CLI that cannot hold it; a bare list reaches a set-capable CLI whole and every
+		// other as its first entry; a later pair replaces a list whole (AP-D4).
+		{"a named list is kept whole",
+			[]ProfileSelection{key(`{"pi": ["zai", "openrouter"], "claude": ["zai", "openrouter"]}`)},
+			map[string]any{"pi": []any{"zai", "openrouter"}, "claude": []any{"zai", "openrouter"}}},
+		{"the key's list reaches pi whole and the others as its first entry",
+			[]ProfileSelection{key(`["zai", "openrouter"]`)},
+			map[string]any{"claude": "zai", "pi": []any{"zai", "openrouter"}, "codex": "zai"}},
+		{"a bare -p list is the key's list",
+			[]ProfileSelection{flag("zai,openrouter")},
+			map[string]any{"claude": "zai", "pi": []any{"zai", "openrouter"}, "codex": "zai"}},
+		{"a -p pair replaces the key's list whole",
+			[]ProfileSelection{key(`{"pi": ["zai", "openrouter"]}`), flag("pi=kilo")},
+			map[string]any{"pi": "kilo"}},
+		{"a list of one is the plain name",
+			[]ProfileSelection{key(`{"pi": ["zai"]}`)},
+			map[string]any{"pi": "zai"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := tableOf(ProfileTableFor(bins, tc.sels...)); !reflect.DeepEqual(got, tc.want) {
+			if got := tableOf(ProfileTableFor(recv, tc.sels...)); !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("table = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
+// WHAT A BARE LIST DID (OQ-AP3), which the launch line and the declaration check read off the
+// fold: the list, the selection it came from, and which receivers took it whole or narrowed. A
+// receiver a named entry took is in neither, and a later bare name clears the record.
+func TestFoldProfilesRecordsWhatABareListNarrowed(t *testing.T) {
+	recv := ProfileReceivers{Bins: []string{"claude", "pi", "codex"}, SetCapable: map[string]bool{"pi": true}}
+	list := []string{"zai", "openrouter"}
+	key := ProfileSelection{Default: list}
+	pair := ProfileSelection{Named: map[string][]string{"codex": {"bedrock"}}}
+	fold := FoldProfiles(recv, key, pair)
+	if !reflect.DeepEqual(fold.BareList, list) || fold.BareFrom != 0 {
+		t.Errorf("fold = %v from %d, want the key's list from selection 0", fold.BareList, fold.BareFrom)
+	}
+	if !reflect.DeepEqual(fold.Whole, []string{"pi"}) || !reflect.DeepEqual(fold.Narrowed, []string{"claude"}) {
+		t.Errorf("whole %v, narrowed %v; want pi whole and claude narrowed, codex taken by its pair",
+			fold.Whole, fold.Narrowed)
+	}
+	for _, want := range []string{"the profile key's list", "claude runs one provider per session",
+		`"profile": {"<agent>": ["zai", "openrouter"]}`} {
+		if note := fold.BareListNote(true); !strings.Contains(note, want) {
+			t.Errorf("the key's line must say %q:\n%s", want, note)
+		}
+	}
+	if fold := FoldProfiles(recv, key, ProfileSelection{Default: []string{"kilo"}}); fold.BareList != nil ||
+		fold.BareListNote(false) != "" {
+		t.Errorf("a later bare name replaces the list everywhere, so nothing is narrowed: %+v", fold)
+	}
+	if fold := FoldProfiles(ProfileReceivers{Bins: []string{"pi"}, SetCapable: map[string]bool{"pi": true}}, key); fold.BareListNote(false) != "" {
+		t.Errorf("a list every receiver holds narrows nothing and says nothing: %q", fold.BareListNote(false))
+	}
+}
+
 // The default never reaches a CLI no pack installs — the 2026-09-03 ruling for a bare -p, and
 // so for "*": `yolo -- sleep 60` is not a profile target.
 func TestProfileTableForDefaultReachesInstalledCLIsOnly(t *testing.T) {
-	got := tableOf(ProfileTableFor([]string{"claude"}, ProfileSelection{Default: "bedrock"}))
+	got := tableOf(ProfileTableFor(ProfileReceivers{Bins: []string{"claude"}},
+		ProfileSelection{Default: []string{"bedrock"}}))
 	if !reflect.DeepEqual(got, map[string]any{"claude": "bedrock"}) {
 		t.Errorf("table = %v, want claude alone", got)
 	}
@@ -141,10 +200,13 @@ func TestProfileTableForIsTheSameBytesForEitherSpelling(t *testing.T) {
 	d, _ := jsonx.Decode([]byte(`{"pi": "codex", "claude": "bedrock", "codex": "zai"}`))
 	key, _ := ProfileSelectionOf(d)
 	var flag ProfileSelection
-	flag.ApplyFlag("codex=zai,pi=codex")
-	flag.ApplyFlag("claude=bedrock")
-	fromKey, _ := jsonx.DumpsCompact(ProfileTableFor(nil, key))
-	fromFlag, _ := jsonx.DumpsCompact(ProfileTableFor(nil, flag))
+	for _, v := range []string{"codex=zai,pi=codex", "claude=bedrock"} {
+		if err := flag.ApplyFlag(v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fromKey, _ := jsonx.DumpsCompact(ProfileTableFor(ProfileReceivers{}, key))
+	fromFlag, _ := jsonx.DumpsCompact(ProfileTableFor(ProfileReceivers{}, flag))
 	if want := `{"claude": "bedrock", "codex": "zai", "pi": "codex"}`; fromKey != want || fromFlag != want {
 		t.Errorf("key emits %s and -p emits %s, want both %s", fromKey, fromFlag, want)
 	}
@@ -181,6 +243,11 @@ func TestValidateProfileAcceptsEveryForm(t *testing.T) {
 		`{"*": "bedrock", "pi": "codex", "codex": null}`,
 		`{"*": null}`,
 		`null`,
+		// Lists (OQ-AP1): pi's pack declares provider_sets, and a bare list is narrowed rather
+		// than refused wherever it lands (OQ-AP3).
+		`{"pi": ["zai", "openrouter"], "claude": ["bedrock"]}`,
+		`["zai", "openrouter"]`,
+		`{"*": ["zai", "openrouter"], "pi": ["openrouter", "zai"]}`,
 	} {
 		errs, _ := ValidateConfig(decode(t, `{"profile": `+v+`}`), t.TempDir(), nil)
 		if len(errs) != 0 {
@@ -189,8 +256,8 @@ func TestValidateProfileAcceptsEveryForm(t *testing.T) {
 	}
 }
 
-// What the key refuses, each by its path. A list is an ordinary shape error today (the
-// provider-list build gives it a meaning), so these assert only the path and the type words.
+// What the key refuses, each by its path. The list's own refusals (an empty list, a repeated
+// name, a list named at an agent that cannot hold one) are profilesets_test.go's.
 func TestValidateProfileRefusesMalformedValues(t *testing.T) {
 	useProfileKeysHome(t)
 	for _, tc := range []struct {
@@ -198,15 +265,18 @@ func TestValidateProfileRefusesMalformedValues(t *testing.T) {
 	}{
 		{`""`, "config.profile:", "null selects none"},
 		{`{"pi": ""}`, "config.profile.pi:", "null selects none"},
-		{`{"pi": 4}`, "config.profile.pi:", "expected a string profile name"},
-		{`{"*": 4}`, "config.profile.*:", "expected a string profile name"},
+		{`{"pi": 4}`, "config.profile.pi:", "expected a profile name, a list of them"},
+		{`{"*": 4}`, "config.profile.*:", "expected a profile name, a list of them"},
 		{`4`, "config.profile:", "expected a string"},
-		{`["zai"]`, "config.profile:", "expected a string"},
-		{`{"pi": ["zai"]}`, "config.profile.pi:", "expected a string profile name"},
+		{`[4]`, "config.profile:", "entry 1 of the list is not a profile name"},
+		{`{"pi": ["zai", ""]}`, "config.profile.pi:", "entry 2 of the list is not a profile name"},
 		{`{"cloude": "zai"}`, "config.profile.cloude:", `no pack installs a CLI named "cloude"`},
 		// The flag's pair grammar written into the string form: refused, and respelled as the
 		// object it meant.
 		{`"pi=codex,claude=bedrock"`, "config.profile:", `"profile": {"claude": "bedrock", "pi": "codex"}`},
+		// And the flag's comma list: refused, and respelled as the JSON list it meant.
+		{`"zai,openrouter"`, "config.profile:", `write it in its place: ["zai", "openrouter"]`},
+		{`{"pi": "zai,openrouter"}`, "config.profile.pi:", `write it in its place: ["zai", "openrouter"]`},
 	} {
 		errs, _ := ValidateConfig(decode(t, `{"profile": `+tc.value+`}`), t.TempDir(), nil)
 		found := ""

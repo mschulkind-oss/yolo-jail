@@ -48,6 +48,10 @@ type packChannel struct {
 	// merge the env block emits as YOLO_USE_PROFILES, the launch-flag injection reads,
 	// and the profile disclosure line describes.
 	profiles *jsonx.OrderedMap
+	// bareNote is OQ-AP3's one launch line for a BARE profile list this launch narrowed (the
+	// config key's or a -p's, config.ProfileFold.BareListNote): which agents take its first entry
+	// alone. "" when none did. The profile disclosure prints it (noteUseProfiles).
+	bareNote string
 	// providers is the composed provider table (composedProviders): user `providers`
 	// entries over every selected pack's `kind: "provider"` service facts. Emitted as
 	// YOLO_PROVIDERS and read by the env derive below.
@@ -127,7 +131,10 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 			o.pr(o.Stdout).print(msg)
 		})
 	}
-	profiles := o.effectiveUseProfiles(cfg, packs)
+	// The fold effectiveUseProfiles returns the table of, kept whole for what a BARE list did in
+	// it (OQ-AP3): the launch line naming the agents that ignore part of it.
+	fold := o.profileFold(cfg, packs)
+	profiles := fold.Table
 	// The user's profile DECLARATIONS, at user scope — never read off `cfg`, which is the
 	// merged map and would let a workspace spelling through (config.LoadProfiles reads
 	// the user file directly; OQ-CS5). Malformed entries arrive as warnings, which this
@@ -164,6 +171,9 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 	for tries := 0; ; tries++ {
 		c, err := o.composePackChannelWith(cfg, packs, userEnv, profiles, userProfiles, specs)
 		if err == nil || o.runtime != "macos-user" || tries > len(packs) { // parity: HonoredBy — a container runs the service's jail daemon; macos-user its host half (macosuserservices.go)
+			if c != nil {
+				c.bareNote = fold.BareListNote(fold.BareFrom == profileFoldFromKey)
+			}
 			return c, err
 		}
 		added, perr := o.planMacosUserService(err, packs)
@@ -189,6 +199,13 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	resolved, err := packload.ResolveProfiles(packs, userProfiles, providers)
 	if err != nil {
 		return nil, err
+	}
+	// THE ACTIVE SETS' OWN RULES (docs/design/active-provider-sets.md AP-D3, OQ-AP2, AP-D9),
+	// once every name resolves and before anything is composed from them: a name listed twice,
+	// a list at an agent that runs one provider per session, two entries on one provider, a via
+	// entry anywhere but first. The host notch refuses the same table in the same words.
+	if problems := packload.ProfileSetProblems(packs, packload.ProfileSets(profiles), resolved); len(problems) > 0 {
+		return nil, fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
 	}
 	// A via this notch does not serve is cleared, so its agent keeps its own client, and named
 	// (noteUnserved): the host's rule, now every notch's (ViaServedAt).
@@ -236,9 +253,11 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	// environment yolo was launched from, so the relay does not claim a credential the
 	// launch would not have carried.
 	scope, err := packload.ScopeCredentials(packload.ScopeInput{
-		Packs:      packs,
-		Providers:  providers,
-		Profiles:   packload.ProfileTable(profiles),
+		Packs:     packs,
+		Providers: providers,
+		Profiles:  packload.ProfileTable(profiles),
+		// Each agent's whole active set (§4.5): every entry's claimed key reaches that agent.
+		Sets:       packload.ProfileSets(profiles),
 		Resolved:   resolved,
 		EnvSources: userEnv,
 		// THE SERVICE CALLER TOKENS, answering first in every agent's lookup (WB-D18): an
@@ -294,13 +313,17 @@ func (o *Options) checkProfileDeclarations(profiles *jsonx.OrderedMap,
 		isDeclared[name] = true
 	}
 	var problems []string
+	sets := packload.ProfileSets(profiles)
 	for _, agent := range profiles.Keys() {
-		name := mapStr(profiles, agent)
-		if name == "" || isDeclared[name] {
-			continue
+		// EVERY ENTRY of the agent's active set (docs/design/active-provider-sets.md AP-D3): one
+		// undeclared entry refuses the launch, and yolo never runs the declared rest.
+		for _, name := range sets[agent] {
+			if name == "" || isDeclared[name] {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf("profile %q selected for %s: %s",
+				name, agent, packload.UndeclaredProfileMessage(name, declared)))
 		}
-		problems = append(problems, fmt.Sprintf("profile %q selected for %s: %s",
-			name, agent, packload.UndeclaredProfileMessage(name, declared)))
 	}
 	if len(problems) == 0 {
 		return nil

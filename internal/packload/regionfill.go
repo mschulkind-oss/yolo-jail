@@ -86,6 +86,9 @@ type RegionFileSource struct {
 // RegionFileLookup is what the fill read for one agent: the file, the profile and section it
 // chose, and either the region it delivered or why it delivered none.
 type RegionFileLookup struct {
+	// Provider is the provider the fill read the file for: the agent's primary, or the first
+	// entry of its active set that needed a region (docs/design/active-provider-sets.md AP-P1).
+	Provider string
 	// Var is the variable the region is delivered in: the first the agent reads.
 	Var string
 	// Region is the region delivered, "" when the file gave none.
@@ -136,6 +139,12 @@ func omapAt(m *jsonx.OrderedMap, key string) *jsonx.OrderedMap {
 
 // fillRegions runs the fill for every delivery, after the gate has composed each: an agent's
 // own delivery is what "a region variable already reaches it" is asked of.
+//
+// OVER THE AGENT'S ACTIVE SET (docs/design/active-provider-sets.md AP-P1): the first entry, in
+// set order, whose provider needs a region from the file gets the fill, so a Bedrock entry after
+// the first reads its region as a primary one does. One lookup per agent: a set names a regional
+// platform once (AP-D12), and a second platform needing the file would be refused by the region
+// pre-flight, which names what it asked, rather than filled in silence.
 func (s *CredentialScope) fillRegions(in ScopeInput) {
 	src := in.RegionFiles
 	if src == nil || src.Getenv == nil {
@@ -148,13 +157,27 @@ func (s *CredentialScope) fillRegions(in ScopeInput) {
 		if d.Provider == "" {
 			continue // a grant-only process selects no provider
 		}
-		if lookup := s.fillRegion(in, src, reqs, files, d); lookup != nil {
+		for _, provider := range d.setProviders() {
+			lookup := s.fillRegion(in, src, reqs, files, d, provider)
+			if lookup == nil {
+				continue
+			}
 			d.RegionFile = lookup
 			if lookup.Region != "" {
 				d.Shape = append(d.Shape, agentenv.Var{Key: lookup.Var, Value: lookup.Region})
 			}
+			break
 		}
 	}
+}
+
+// RegionFileFor is what the region fill read for provider in d's active set, nil when it read
+// nothing for it: the lookup the region pre-flight's ask for that provider carries (RegionAsk.File).
+func (d *AgentDelivery) RegionFileFor(provider string) *RegionFileLookup {
+	if d == nil || d.RegionFile == nil || d.RegionFile.Provider != provider {
+		return nil
+	}
+	return d.RegionFile
 }
 
 // fileRead is one read of a region file, shared by the agents of one launch.
@@ -163,12 +186,12 @@ type fileRead struct {
 	err  error
 }
 
-// fillRegion is the fill for one delivery: nil when the agent needs nothing from the file (its
-// provider is reached through no region, sets one, or declares no region file for its
-// platform, or a variable the agent reads already carries one), and otherwise the lookup.
+// fillRegion is the fill for one delivery's provider: nil when the agent needs nothing from the
+// file for it (the provider is reached through no region, sets one, or declares no region file
+// for its platform, or a variable the agent reads already carries one), and otherwise the lookup.
 func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs map[string]regionRequirement,
-	files map[string]fileRead, d *AgentDelivery) *RegionFileLookup {
-	entry := providerEntry(in.Providers, d.Provider)
+	files map[string]fileRead, d *AgentDelivery, provider string) *RegionFileLookup {
+	entry := providerEntry(in.Providers, provider)
 	if entry == nil {
 		return nil
 	}
@@ -203,7 +226,7 @@ func (s *CredentialScope) fillRegion(in ScopeInput, src *RegionFileSource, reqs 
 		}
 	}
 	f := req.file
-	l := &RegionFileLookup{Var: vars[0], Key: f.Key}
+	l := &RegionFileLookup{Provider: provider, Var: vars[0], Key: f.Key}
 	// A REGION LEFT WHERE YOLO WAS LAUNCHED, which this launch does not deliver (a jail's shell,
 	// BR-D2): the region the user chose, which the file's may not be, so the file is not read.
 	if src.Stranded != nil {
@@ -471,12 +494,12 @@ func (s *CredentialScope) RegionLines() []string {
 		if l == nil || l.Region == "" {
 			continue
 		}
-		key := strings.Join([]string{d.Provider, l.Var, l.Region, l.File, l.Section, l.ProfileFrom}, "\x00")
+		key := strings.Join([]string{l.Provider, l.Var, l.Region, l.File, l.Section, l.ProfileFrom}, "\x00")
 		if g, ok := groups[key]; ok {
 			g.agents = append(g.agents, agent)
 			continue
 		}
-		groups[key] = &group{provider: d.Provider, l: l, agents: []string{agent}}
+		groups[key] = &group{provider: l.Provider, l: l, agents: []string{agent}}
 		order = append(order, key)
 	}
 	sort.Strings(order)

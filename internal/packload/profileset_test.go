@@ -118,14 +118,14 @@ func TestABareListNarrowsForSingleProviderAgentsAndSaysSo(t *testing.T) {
 	if got := NarrowBareList(packs, "claude", list); strings.Join(got, ",") != "zai" {
 		t.Errorf("claude must take the bare list's first entry, got %v", got)
 	}
-	note := BareListNote(list, []string{"pi"}, []string{"codex", "claude"})
+	note := BareListNote(list, []string{"pi"}, []string{"codex", "claude"}, false)
 	for _, want := range []string{"claude and codex run one provider per session", "on zai alone",
 		"ignore openrouter", "pi takes the whole list"} {
 		if !strings.Contains(note, want) {
 			t.Errorf("the bare-list line must say %q:\n%s", want, note)
 		}
 	}
-	if note := BareListNote(list, []string{"pi"}, nil); note != "" {
+	if note := BareListNote(list, []string{"pi"}, nil, false); note != "" {
 		t.Errorf("no agent narrowed must say nothing, got %q", note)
 	}
 }

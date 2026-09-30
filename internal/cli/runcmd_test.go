@@ -548,13 +548,25 @@ func TestProfileFlagTakesBothGrammars(t *testing.T) {
 		{"short glued", []string{"-p=claude=zai"}, "", map[string]string{"claude": "zai"}},
 		{"pair list", []string{"-p", "claude=zai,pi=glm"}, "",
 			map[string]string{"claude": "zai", "pi": "glm"}},
-		{"pair list with a malformed element skips it, as --pack-profile always did",
-			[]string{"-p", "claude=zai,bare"}, "", map[string]string{"claude": "zai"}},
+		// OQ-AP1 (docs/design/active-provider-sets.md, ruled 2026-09-29): a bare element in the
+		// pair grammar CONTINUES the list of the CLI named before it. It used to be dropped, so
+		// `-p pi=zai,openrouter` started pi on zai alone and said nothing.
+		{"a bare element continues the previous pair's list",
+			[]string{"-p", "pi=zai,openrouter"}, "", map[string]string{"pi": "zai,openrouter"}},
+		{"a comma continues one agent's list until the next pair",
+			[]string{"-p", "pi=zai,openrouter,claude=codex"}, "",
+			map[string]string{"pi": "zai,openrouter", "claude": "codex"}},
+		{"a later pair for one CLI replaces its whole list",
+			[]string{"-p", "pi=zai,openrouter", "-p", "pi=kilo"}, "", map[string]string{"pi": "kilo"}},
+		{"a bare list is one value, carried whole", []string{"-p", "zai,openrouter"},
+			"zai,openrouter", nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var opts run.Options
-			parseRunArgs(tc.args, &opts)
+			if parsed := parseRunArgs(tc.args, &opts); parsed.misuse != nil {
+				t.Fatalf("parseRunArgs(%q) refused: %v", tc.args, parsed.misuse)
+			}
 			if opts.ProfileName != tc.wantName {
 				t.Errorf("ProfileName = %q, want %q", opts.ProfileName, tc.wantName)
 			}
@@ -565,6 +577,39 @@ func TestProfileFlagTakesBothGrammars(t *testing.T) {
 				if opts.UseProfiles[k] != v {
 					t.Errorf("UseProfiles[%q] = %q, want %q", k, opts.UseProfiles[k], v)
 				}
+			}
+		})
+	}
+}
+
+// TestProfileListGrammarRefusesWhatItCannotPlace pins OQ-AP1's refusals through the launch's own
+// parser (parseRunArgs, the call site runRun reads misuse from): an element before any pair has
+// no agent to join, and an empty entry is a typo, and both used to be dropped in silence. Each
+// comes back as misuse, which runRun refuses with exit 2 before anything starts; deleting the
+// misuse assignment in parseRunArgs' -p arm fails every case.
+func TestProfileListGrammarRefusesWhatItCannotPlace(t *testing.T) {
+	cases := []struct {
+		value, says string
+	}{
+		{"zai,pi=openrouter", `"zai" names no agent`},
+		{"pi=zai,,openrouter", "entry 2 of the list is empty"},
+		{"pi=zai,", "entry 2 of the list is empty"},
+		{"zai,,openrouter", "entry 2 of the list is empty"},
+		{"pi=,openrouter", "entry 1 of the list is empty"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.value, func(t *testing.T) {
+			var opts run.Options
+			parsed := parseRunArgs([]string{"-p", tc.value, "--", "pi"}, &opts)
+			if parsed.misuse == nil || !strings.Contains(parsed.misuse.Error(), tc.says) {
+				t.Fatalf("-p %s: misuse = %v, want a refusal saying %q", tc.value, parsed.misuse, tc.says)
+			}
+			if len(opts.UseProfiles) != 0 || opts.ProfileName != "" {
+				t.Errorf("-p %s was refused and still selected %v / %q", tc.value, opts.UseProfiles,
+					opts.ProfileName)
+			}
+			if len(opts.Args) != 1 || opts.Args[0] != "pi" {
+				t.Errorf("the refused value must not swallow the command: Args = %q", opts.Args)
 			}
 		})
 	}

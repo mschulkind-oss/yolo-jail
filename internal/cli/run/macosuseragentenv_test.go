@@ -20,6 +20,41 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
+// The ACTIVE SET at the macos-user notch (docs/design/active-provider-sets.md §4.9), through Run:
+// `-p pi=zai,openrouter -- pi` puts both keys in the plan env of the one program the invocation
+// starts and in pi's own env file, and the bootstrap's YOLO_USE_PROFILES carries pi's list.
+func TestMacosUserLaunchDeliversPisWholeSet(t *testing.T) {
+	home := packHome(t)
+	writeUserConfig(t, home, `{"packs": ["claude", "pi", "zai", "openrouter"], "env_sources": [`+
+		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`)
+	ws := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
+	o.UseProfiles = map[string]string{"pi": "zai,openrouter"}
+	o.Args = []string{"pi"}
+	var plan *jsonx.OrderedMap
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
+		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
+		plan = env
+		return 0
+	}
+	if rc := Run(*o); rc != 0 || plan == nil {
+		t.Fatalf("Run() = %d\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+	for k, want := range map[string]string{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"} {
+		if v, _ := plan.Get(k); v != want {
+			t.Errorf("pi's plan env %s = %v, want %s", k, v, want)
+		}
+	}
+	if v, _ := plan.Get(entrypoint.UseProfilesWireEnv); !strings.Contains(strings.ReplaceAll(v.(string), " ", ""),
+		`"pi":["zai","openrouter"]`) {
+		t.Errorf("the bootstrap's YOLO_USE_PROFILES = %v, want pi's list", v)
+	}
+	if !strings.Contains(stderr.String(), "Active set for pi: zai, openrouter") {
+		t.Errorf("the launch must name pi's set:\n%s", stderr.String())
+	}
+}
+
 func TestMacosUserBareLaunchWritesEveryProfiledAgentsEnvFile(t *testing.T) {
 	home := packHome(t)
 	writeUserConfig(t, home, `{"packs": ["claude", "pi", "zai"], "env_sources": [`+

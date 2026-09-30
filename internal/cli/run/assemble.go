@@ -1179,8 +1179,8 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 // and then the -p flags, through the one fold both spellings share (config.ProfileTableFor,
 // PP-D10). So every `-p` form beats every key form for each CLI it reaches — the precedence
 // the persistent table always had under the flag — and within each source a named CLI keeps
-// its own entry while the source's default (a bare -p, the key's string form or its "*")
-// reaches every other CLI this pack set installs. Every key in the result is a CLI name —
+// its own entry while the source's default (a bare -p, the key's string or list form or its
+// "*") reaches every other CLI this pack set installs. Every key in the result is a CLI name —
 // the bin a pack installs — which is what makes the table readable as "the profile each CLI
 // runs" and what lets `yolo check` and the launch pre-flight validate it against one
 // namespace.
@@ -1192,21 +1192,58 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 // a short option whose meaning depends on a token further down the argv is the confusion the
 // ruling removed — name the CLI explicitly with -p <cli>=<name> when the distinction matters.
 //
+// A value is an agent's ACTIVE SET (docs/design/active-provider-sets.md): a string for a set
+// of one, an array for more. A pair or a named key entry replaces that CLI's whole set, never
+// appending (AP-D4), and a BARE list (the key's string or list form, "*", or a -p naming no
+// agent) goes whole to every CLI whose pack declares provider_sets and its first entry to every
+// other (OQ-AP3), which the channel's bareNote says, over the same fold (profileFold).
+//
 // A method on Options taking the config and the pack set, rather than a method on
 // assembleInput, because it has TWO consumers that must agree byte for byte: the env
 // block below (the jail's copy of the table) and the launch's profile disclosure line,
 // which describes the same table to the human. One merge, so neither can drift.
 func (o *Options) effectiveUseProfiles(cfg *jsonx.OrderedMap, packs []*packload.Pack) *jsonx.OrderedMap {
-	return config.ProfileTableFor(config.InstalledBins(packs), config.ConfigProfileSelection(cfg),
+	return o.profileFold(cfg, packs).Table
+}
+
+// profileFold is the fold behind effectiveUseProfiles: the config `profile` key, then the -p
+// flags, over the receivers packs make (config.ReceiversOf).
+func (o *Options) profileFold(cfg *jsonx.OrderedMap, packs []*packload.Pack) config.ProfileFold {
+	return config.FoldProfiles(config.ReceiversOf(packs), config.ConfigProfileSelection(cfg),
 		o.ProfileFlags())
 }
 
+// profileFoldFromKey is profileFold's selection index for the config key: the key is handed
+// first, the flags second.
+const profileFoldFromKey = 0
+
 // ProfileFlags is this launch's -p/--profile selection in the shape the config `profile` key
 // lowers to (config.ProfileSelection): ProfileName is its default and UseProfiles its named
-// entries. The one bridge from the flag fields to the fold, so the flag cannot be read any
-// other way than the key is.
+// entries, each the comma-joined list the grammar checked (AP-D11), split back by
+// packload.SplitProfileList. The one bridge from the flag fields to the fold, so the flag cannot
+// be read any other way than the key is.
 func (o *Options) ProfileFlags() config.ProfileSelection {
-	return config.ProfileSelection{Default: o.ProfileName, Named: o.UseProfiles}
+	sel := config.ProfileSelection{Default: packload.SplitProfileList(o.ProfileName)}
+	if o.UseProfiles != nil {
+		sel.Named = make(map[string][]string, len(o.UseProfiles))
+		for cli, list := range o.UseProfiles {
+			sel.Named[cli] = packload.SplitProfileList(list)
+		}
+	}
+	return sel
+}
+
+// SetProfileFlags stores sel as this launch's -p selection, each list comma-joined
+// (ProfileFlags' inverse).
+func (o *Options) SetProfileFlags(sel config.ProfileSelection) {
+	o.ProfileName = strings.Join(sel.Default, ",")
+	o.UseProfiles = nil
+	if sel.Named != nil {
+		o.UseProfiles = make(map[string]string, len(sel.Named))
+		for cli, set := range sel.Named {
+			o.UseProfiles[cli] = strings.Join(set, ",")
+		}
+	}
 }
 
 // unsetImageRef is what the argv gets when nobody threaded a ref in. It is

@@ -7,9 +7,8 @@ package cli
 // set the same two fields and fold to the same table. So a change to either spelling's reading
 // that the other does not share fails here.
 //
-// The list form (`"profile": {"pi": ["zai", "openrouter"]}` = `-p pi=zai,openrouter`) joins
-// this table when the provider-list build gives both spellings a list (OQ-AP1 to OQ-AP3,
-// docs/design/active-provider-sets.md); today neither spelling has one.
+// The list forms are rows too (docs/design/active-provider-sets.md OQ-AP1 to OQ-AP3): a JSON
+// array in the key is the comma list on the command line, per agent and bare alike.
 
 import (
 	"reflect"
@@ -22,7 +21,10 @@ import (
 )
 
 func TestTheProfileKeyAndItsFlagSelectTheSame(t *testing.T) {
-	bins := []string{"claude", "pi", "codex", "opencode"}
+	// pi declares provider_sets, so a bare list reaches it whole and the others as its first
+	// entry (OQ-AP3), whichever spelling carried it.
+	recv := config.ProfileReceivers{Bins: []string{"claude", "pi", "codex", "opencode"},
+		SetCapable: map[string]bool{"pi": true}}
 	for _, tc := range []struct {
 		name string
 		key  string // the `profile` value
@@ -35,6 +37,12 @@ func TestTheProfileKeyAndItsFlagSelectTheSame(t *testing.T) {
 		{"every agent not named, the pair typed first", `{"*": "bedrock", "pi": "codex"}`, "run -p pi=codex -p bedrock -- claude"},
 		{"the long flag", `"zai"`, "run --profile zai -- claude"},
 		{"no command after --", `{"*": "zai", "codex": "bedrock"}`, "-p zai -p codex=bedrock"},
+		{"a list for one agent", `{"pi": ["zai", "openrouter"]}`, "run -p pi=zai,openrouter -- pi"},
+		{"a list for one agent beside a name for another", `{"pi": ["zai", "openrouter"], "claude": "codex"}`,
+			"run -p pi=zai,openrouter,claude=codex -- pi"},
+		{"a list for every agent", `["zai", "openrouter"]`, "run -p zai,openrouter -- pi"},
+		{"a list for every agent not named", `{"*": ["zai", "openrouter"], "codex": "bedrock"}`,
+			"run -p zai,openrouter -p codex=bedrock -- pi"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v, err := jsonx.Decode([]byte(tc.key))
@@ -50,12 +58,12 @@ func TestTheProfileKeyAndItsFlagSelectTheSame(t *testing.T) {
 				t.Fatalf("%q did not parse: %v", tc.argv, parsed.misuse)
 			}
 			fromFlag := opts.ProfileFlags()
-			if fromKey.Default != fromFlag.Default || !reflect.DeepEqual(fromKey.Named, fromFlag.Named) {
+			if !reflect.DeepEqual(fromKey.Default, fromFlag.Default) || !reflect.DeepEqual(fromKey.Named, fromFlag.Named) {
 				t.Errorf("key %s = {Default: %q, Named: %v}, but %q = {Default: %q, Named: %v}",
 					tc.key, fromKey.Default, fromKey.Named, tc.argv, fromFlag.Default, fromFlag.Named)
 			}
-			keyTable, _ := jsonx.DumpsCompact(config.ProfileTableFor(bins, fromKey))
-			flagTable, _ := jsonx.DumpsCompact(config.ProfileTableFor(bins, fromFlag))
+			keyTable, _ := jsonx.DumpsCompact(config.ProfileTableFor(recv, fromKey))
+			flagTable, _ := jsonx.DumpsCompact(config.ProfileTableFor(recv, fromFlag))
 			if keyTable != flagTable {
 				t.Errorf("key %s folds to %s, but %q folds to %s", tc.key, keyTable, tc.argv, flagTable)
 			}

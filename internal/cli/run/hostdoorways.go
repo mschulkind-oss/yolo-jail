@@ -175,7 +175,9 @@ func PlanHostDoorways(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel packloa
 }
 
 // withoutClientlessPlatforms is sel less the platform of each agent that has no client of it
-// (packload.AgentBindsPlatform), and those agents' platforms by agent.
+// (packload.AgentBindsPlatform), and those agents' platforms by agent. Over each agent's whole
+// ACTIVE SET when sel carries one (docs/design/active-provider-sets.md AP-P1): an entry whose
+// platform the agent has no client of is blanked, and the others keep asking.
 func withoutClientlessPlatforms(packs []*packload.Pack, sel packload.GateSelection) (packload.GateSelection,
 	map[string]string) {
 	clientless := map[string]string{}
@@ -184,13 +186,33 @@ func withoutClientlessPlatforms(packs []*packload.Pack, sel packload.GateSelecti
 			clientless[agent] = platform
 		}
 	}
+	for agent, platforms := range sel.SetPlatforms {
+		for _, platform := range platforms {
+			if _, named := clientless[agent]; !named && platform != "" &&
+				!packload.AgentBindsPlatform(packs, agent, platform) {
+				clientless[agent] = platform
+			}
+		}
+	}
 	if len(clientless) == 0 {
 		return sel, nil
 	}
-	out := packload.GateSelection{Profiles: sel.Profiles, Platforms: map[string]string{}}
+	out := packload.GateSelection{Profiles: sel.Profiles, Platforms: map[string]string{}, Sets: sel.Sets}
 	for agent, platform := range sel.Platforms {
-		if _, skip := clientless[agent]; !skip {
+		if packload.AgentBindsPlatform(packs, agent, platform) {
 			out.Platforms[agent] = platform
+		}
+	}
+	if sel.SetPlatforms != nil {
+		out.SetPlatforms = map[string][]string{}
+		for agent, platforms := range sel.SetPlatforms {
+			kept := make([]string, len(platforms))
+			for i, platform := range platforms {
+				if platform != "" && packload.AgentBindsPlatform(packs, agent, platform) {
+					kept[i] = platform
+				}
+			}
+			out.SetPlatforms[agent] = kept
 		}
 	}
 	return out, clientless

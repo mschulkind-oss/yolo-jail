@@ -125,8 +125,10 @@ func TestEveryTagAnAttachCanNeedIsFrozenByTheLaunch(t *testing.T) {
 	if fn == nil {
 		t.Fatal("contracttags.go has no attachContractFor")
 	}
-	values := map[string]string{contractEntryChannel: contractEntryChannel, contractAgentEnvFiles: contractAgentEnvFiles}
-	byName := map[string]string{"contractEntryChannel": contractEntryChannel, "contractAgentEnvFiles": contractAgentEnvFiles}
+	values := map[string]string{contractEntryChannel: contractEntryChannel, contractAgentEnvFiles: contractAgentEnvFiles,
+		contractProfileSets: contractProfileSets}
+	byName := map[string]string{"contractEntryChannel": contractEntryChannel, "contractAgentEnvFiles": contractAgentEnvFiles,
+		"contractProfileSets": contractProfileSets}
 	var needed []string
 	ast.Inspect(fn, func(n ast.Node) bool {
 		kv, ok := n.(*ast.KeyValueExpr)

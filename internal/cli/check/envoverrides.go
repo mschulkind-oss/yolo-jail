@@ -142,6 +142,8 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 	}
 	scope, _ := packload.ScopeCredentials(packload.ScopeInput{
 		Packs: packs, Providers: providers, Profiles: profiles, Resolved: resolved,
+		// Each agent's whole active set, as the launch hands the gate (active-provider-sets.md §4.5).
+		Sets:       packload.ProfileSets(config.ConfigProfileSets(merged, packs)),
 		EnvSources: userEnv, NoDerives: true, Served: &served,
 	})
 

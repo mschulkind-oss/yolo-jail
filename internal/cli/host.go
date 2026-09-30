@@ -421,10 +421,18 @@ func parseHostExecFlags(args []string, errw io.Writer) (hostExecFlags, bool) {
 // grant of another provider's key to this process stays --with-credentials' alone, never a
 // pair's. envVerb says the value came from `yolo host env`, whose agent is --agent's, so the
 // refusal spells that verb's launch.
+//
+// A LIST (docs/design/active-provider-sets.md OQ-AP1) comes back comma-joined, the spelling
+// run.Options carries it in: a bare `-p zai,openrouter` or a pair `-p pi=zai,openrouter`. Which
+// lists this one agent may hold is the composition's to decide (packload.ProfileSetProblems),
+// and a bare list is narrowed for a single-provider agent by narrowHostBareList first (OQ-AP3).
 func hostProfileFor(v, agent string, envVerb bool) (string, error) {
-	name, pairs := parseProfileValue(v)
+	bare, pairs, err := parseProfileValue(v)
+	if err != nil {
+		return "", err
+	}
 	if pairs == nil {
-		return name, nil
+		return strings.Join(bare, ","), nil
 	}
 	clis := make([]string, 0, len(pairs))
 	for cli := range pairs {
@@ -435,11 +443,12 @@ func hostProfileFor(v, agent string, envVerb bool) (string, error) {
 		if cli == agent {
 			continue
 		}
+		list := strings.Join(pairs[cli], ",")
 		chose, other := "the command after `--`", fmt.Sprintf("`yolo host -p %s -- %s`",
-			shquote.Quote(pairs[cli]), shquote.Quote(cli))
+			shquote.Quote(list), shquote.Quote(cli))
 		if envVerb {
 			chose, other = "--agent, claude by default", fmt.Sprintf("`yolo host env --agent %s -p %s`",
-				shquote.Quote(cli), shquote.Quote(pairs[cli]))
+				shquote.Quote(cli), shquote.Quote(list))
 		}
 		return "", fmt.Errorf("-p %s selects a profile for %q, but this composes the environment "+
 			"of %q alone (%s), so a cli=name pair may name only %q: `-p %s=<name>`, or the bare "+
@@ -447,10 +456,30 @@ func hostProfileFor(v, agent string, envVerb bool) (string, error) {
 			"another provider's key, `%s <provider>` is the grant",
 			shquote.Quote(v), cli, agent, chose, agent, shquote.Quote(agent), cli, other, withCredentialsFlag)
 	}
-	if pairs[agent] == "" {
+	if len(pairs[agent]) == 0 || pairs[agent][0] == "" {
 		return "", fmt.Errorf("-p %s names no profile for %q", shquote.Quote(v), agent)
 	}
-	return pairs[agent], nil
+	return strings.Join(pairs[agent], ","), nil
+}
+
+// narrowHostBareList is OQ-AP3 (ruled 2026-09-29, option C) at the host: a BARE list, a typed -p
+// naming no agent, goes whole to a set-capable agent and its first entry to one that runs one
+// provider per session, with the one line naming what it ignores. typed is the -p as typed and
+// list what hostProfileFor made of it; a pair is not bare, so its list is left for the
+// composition to refuse at a single-provider agent (OQ-AP2). Set capability is read over every
+// resolvable pack (config.SetCapableCLINames), since a CLI is installed by one pack wherever it
+// is selected; when that universe cannot be enumerated nothing is narrowed, and the composition's
+// own check refuses the list rather than dropping part of it in silence.
+func narrowHostBareList(typed, list, agent string) (string, string) {
+	entries := packload.SplitProfileList(list)
+	if strings.Contains(typed, "=") || len(entries) <= 1 {
+		return list, ""
+	}
+	capable, known := config.SetCapableCLINames()
+	if !known || capable[agent] {
+		return list, ""
+	}
+	return entries[0], packload.BareListNote(entries, nil, []string{agent}, false)
 }
 
 // hostExec composes the environment and launches the target.
@@ -476,6 +505,10 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host: %v\n", err)
 		return 2
+	}
+	profile, bareNote := narrowHostBareList(flags.profile, profile, filepath.Base(cmd[0]))
+	if bareNote != "" {
+		fmt.Fprintf(errw, "yolo host: %s\n", bareNote)
 	}
 	flags.profile = profile
 	// THE HOST-RENDER GATE, before anything else this function does (hostapplygate.go, and
@@ -702,7 +735,11 @@ var hostServiceSignals chan os.Signal
 func (c *hostComposition) serviceInput() map[string]string {
 	use := jsonx.NewOrderedMap()
 	if c.profile != "" {
-		use.Set(c.agent, c.profile)
+		set := c.set
+		if len(set) == 0 {
+			set = []string{c.profile}
+		}
+		use.Set(c.agent, packload.ProfileSetWire(set))
 	}
 	env := map[string]string{
 		entrypoint.ProvidersWireEnv:   wireJSON(c.providers),
@@ -823,8 +860,17 @@ type hostComposition struct {
 	scopeInput packload.ScopeInput
 	// profile is the profile this launch selected for its command — a typed -p, else the
 	// command's entry in the config `profile` key — "" when none. The remedy says the -p it names replaces
-	// it (remedyAction).
+	// it (remedyAction). For an active set it is the set's primary.
 	profile string
+	// set is the command's whole active set (docs/design/active-provider-sets.md), profile
+	// first; nil when profile is "".
+	set []string
+	// bareList is the config key's BARE list when it reached this command narrowed to its first
+	// entry (OQ-AP3: the command's pack declares no provider_sets), nil otherwise; bareNote is
+	// the one line saying so, which the launch prints with its profile lines. The list's ignored
+	// entries must still be declared (AP-D3).
+	bareList []string
+	bareNote string
 	// grant is the --with-credentials request this launch was given, resolved; nil without
 	// the flag. Its disclosure is grantLines.
 	grant *hostGrant
@@ -901,8 +947,10 @@ const fromRemoval = "a removal"
 // the exec hands it, which at this notch includes the invoking shell.
 func (c *hostComposition) profileLines() []string {
 	table := map[string]string{}
-	if c.profile != "" {
-		table[c.agent] = c.profile
+	var sets map[string][]string
+	if len(c.set) > 0 {
+		table[c.agent] = c.set[0]
+		sets = map[string][]string{c.agent: c.set}
 	}
 	env := map[string]string{}
 	for _, kv := range c.environ() {
@@ -911,11 +959,18 @@ func (c *hostComposition) profileLines() []string {
 		}
 	}
 	var out []string
+	// Over the agent's whole ACTIVE SET (docs/design/active-provider-sets.md): every entry says
+	// where it landed, beside the set's own line and the key's bare-list note.
 	for _, d := range packload.ProfileDisclosures(packload.ProfileDisclosureInput{
-		Table: table, Packs: c.packs, Resolved: c.resolved, Providers: c.providers, Scope: c.scope,
+		Table: table, Sets: sets, Packs: c.packs, Resolved: c.resolved, Providers: c.providers,
+		Scope:   c.scope,
 		Reaches: func(agent, name string) bool { return agent == c.agent && env[name] != "" },
 	}) {
 		out = append(append(out, d.Line()), d.Warnings()...)
+	}
+	out = append(out, packload.ActiveSetLines(sets)...)
+	if c.bareNote != "" {
+		out = append(out, c.bareNote)
 	}
 	return out
 }
@@ -953,9 +1008,12 @@ func (c *hostComposition) envOverrideFindings(getenv func(string) string) []pack
 		}
 		return "", false
 	}
-	table := map[string]string{}
+	sets := map[string][]string{}
 	if c.profile != "" {
-		table[c.agent] = c.profile
+		sets[c.agent] = c.set
+		if len(c.set) == 0 {
+			sets[c.agent] = []string{c.profile}
+		}
 	}
 	// THE SERVED SET THE GATE COMPOSED THIS LAUNCH AGAINST, doorways included: a pointer this
 	// launch delivers, aws-auth's at a doorway `yolo host --` opens, is checked for its overrides
@@ -963,8 +1021,9 @@ func (c *hostComposition) envOverrideFindings(getenv func(string) string) []pack
 	// withholds has nothing to override.
 	served := c.served
 	// The gate's view of this one-agent selection, platform included (OQ-BR8), built from the
-	// table and resolution the credential gate composed this launch against.
-	sel := packload.SelectionOf(table, c.resolved, c.providers)
+	// table and resolution the credential gate composed this launch against, over the agent's
+	// whole active set (AP-P1).
+	sel := packload.SelectionOfSets(sets, c.resolved, c.providers)
 	// NO HOST FILES, ON PURPOSE. A pack's `host_file` override (aws-auth's `.aws`) asks whether
 	// the launch renders that file for the agent, and at the host the agent reads the user's own
 	// home: every aws-auth user has a ~/.aws, since the service mints from its SSO login, so
@@ -1408,7 +1467,7 @@ func (c *hostComposition) credentialGaps(getenv func(string) string) []string {
 		}
 	}
 	consulted := append([]string(nil), c.consulted...)
-	return packload.ProviderCredentialGaps(c.packs, c.providers, c.selectedProviders(), func(name string) (string, bool) {
+	return packload.ProviderCredentialGapsIn(c.packs, c.providers, c.scope, func(name string) (string, bool) {
 		if v := idx[name]; v != "" {
 			return v, true
 		}
@@ -1452,12 +1511,18 @@ func (c *hostComposition) regionGaps() []string {
 	if d == nil || d.Provider == "" {
 		return nil
 	}
-	return packload.ProviderRegionGaps(c.packs, c.providers, []packload.RegionAsk{{
-		Agent: c.agent, Provider: d.Provider, File: d.RegionFile,
-		Lookup: func(name string) (string, bool) {
-			v, ok := idx[name]
-			return v, ok && v != ""
-		}}}, nil,
+	// One ask per provider of the agent's active set (AP-P1): a regional provider anywhere in
+	// the set needs its region, and carries what the region fill read for it.
+	var asks []packload.RegionAsk
+	for _, provider := range packload.SetProvidersOf(d) {
+		asks = append(asks, packload.RegionAsk{Agent: c.agent, Provider: provider,
+			File: d.RegionFileFor(provider),
+			Lookup: func(name string) (string, bool) {
+				v, ok := idx[name]
+				return v, ok && v != ""
+			}})
+	}
+	return packload.ProviderRegionGaps(c.packs, c.providers, asks, nil,
 		packload.RegionConsulted(c.envSources, packload.FromPackEnv, packload.FromProfileEnv,
 			packload.FromLaunchEnv))
 }
@@ -1601,15 +1666,32 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// selection or the env a host launch carries and the one its launch line describes would
 	// disagree. Over the packs because the config key's "*" (or its string form) reaches the
 	// agent only when a selected pack installs it, as a bare -p reaches a jail's CLIs.
-	profileName := hostAgentProfile(cfg, packs, agent, profile)
+	//
+	// The agent's ACTIVE SET (docs/design/active-provider-sets.md §4.9): a typed -p list, or its
+	// `profile` value, a name or a list. profileName is its primary, the one every fold written
+	// before sets reads. A BARE list in the key (its string or list form, or "*") reaches an agent
+	// whose pack declares no provider_sets as its first entry alone (OQ-AP3), said on the launch.
+	fold := hostProfileFold(cfg, packs, agent, profile)
+	set := packload.ProfileSets(fold.Table)[agent]
+	profileName := ""
+	if len(set) > 0 {
+		profileName = set[0]
+	}
+	if slices.Contains(fold.Narrowed, agent) {
+		c.bareList = fold.BareList
+		c.bareNote = packload.BareListNote(fold.BareList, nil, []string{agent}, true)
+	}
 	// Scoped to the ONE agent this process is. A jail carries the whole CLI-keyed table
 	// because one container holds every agent; a host launch composes a single process, so
 	// only the profile selected at THIS agent's own CLI name may contribute env to it.
 	agentTable := map[string]string{}
+	var setTable map[string][]string
 	if profileName != "" {
 		agentTable[agent] = profileName
+		setTable = map[string][]string{agent: set}
 	}
 	c.profile = profileName
+	c.set = set
 	c.typedProfile = profile
 	// NO PROFILE KEYS A COMMAND NO PACK INSTALLS (docs/design/credential-sources-separation.md
 	// ES-D5, and OQ-NC5 for the typed -p below). A `profile` entry for `bash` delivered
@@ -1683,10 +1765,29 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	resolvedProfiles, c.unservedVias = packload.ViaServedAt(resolvedProfiles, packs, packload.NothingServed())
 	c.resolved = resolvedProfiles
 	if profileName != "" {
+		// EVERY ENTRY of the set must be declared (AP-D3): one undeclared entry refuses the launch,
+		// and the declared rest never runs alone.
 		declared := packload.DeclaredProfileNames(packs, userProfiles)
-		if i := sort.SearchStrings(declared, profileName); i >= len(declared) || declared[i] != profileName {
-			c.err = fmt.Errorf("packs: profile %q selected for %s: %s", profileName, agent,
-				packload.UndeclaredProfileMessage(profileName, declared))
+		for _, name := range set {
+			if i := sort.SearchStrings(declared, name); i >= len(declared) || declared[i] != name {
+				c.err = fmt.Errorf("packs: profile %q selected for %s: %s", name, agent,
+					packload.UndeclaredProfileMessage(name, declared))
+				return c
+			}
+		}
+		// And every entry of the key's BARE list this agent took the first of (OQ-AP3 read with
+		// AP-D3): the ignored entries are in no set above, and a typo there would pass here while
+		// every launch whose agent holds the list refuses it.
+		for i, name := range c.bareList {
+			if j := sort.SearchStrings(declared, name); j >= len(declared) || declared[j] != name {
+				c.err = fmt.Errorf("packs: profile %q (entry %d of the profile key's list %s): %s",
+					name, i+1, strings.Join(c.bareList, ","), packload.UndeclaredProfileMessage(name, declared))
+				return c
+			}
+		}
+		// The set's own rules (AP-D3, OQ-AP2, AP-D9), in the words every notch uses.
+		if problems := packload.ProfileSetProblems(packs, setTable, resolvedProfiles); len(problems) > 0 {
+			c.err = fmt.Errorf("packs: %s", strings.Join(problems, "\npacks: "))
 			return c
 		}
 	}
@@ -1704,7 +1805,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		c.err = fmt.Errorf("-p %s selects a profile for agent CLIs only, at every notch, and no "+
 			"selected pack installs %q, so it would reach nothing here. An arbitrary command "+
 			"receives a provider's key only through the grant: %s", shquote.Quote(profile), agent,
-			c.adHocGrantSpelling(packload.ProviderFor(resolvedProfiles, profile), grant))
+			c.adHocGrantSpelling(packload.ProviderFor(resolvedProfiles, profileName), grant))
 		return c
 	}
 
@@ -1771,8 +1872,10 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// (run.PlanHostDoorways). So the gate composes the pointer at that address and scopes the
 	// token to this agent, as a jail's gate does for its jail daemon. A front door that runs no
 	// process plans none, and its reason rides the served set into the "Not set" line.
+	// Over the agent's whole ACTIVE SET (docs/design/active-provider-sets.md AP-P1): a Bedrock
+	// entry anywhere in pi's set asks for aws-auth's doorway as a Bedrock primary does.
 	doorways, err := run.PlanHostDoorways(cfg, packs,
-		packload.SelectionOf(agentTable, resolvedProfiles, providers),
+		packload.SelectionOfSets(setTable, resolvedProfiles, providers),
 		services == hostServicesStart, c.doorwayLaunchSpelling())
 	if err != nil {
 		c.err = err
@@ -1781,9 +1884,11 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	c.doorways = doorways
 	hostServed := doorways.Served()
 	c.scopeInput = packload.ScopeInput{
-		Packs:      packs,
-		Providers:  providers,
-		Profiles:   agentTable,
+		Packs:     packs,
+		Providers: providers,
+		Profiles:  agentTable,
+		// The agent's whole active set (§4.5): each entry's claimed key reaches it.
+		Sets:       setTable,
 		Resolved:   resolvedProfiles,
 		EnvSources: userEnv,
 		Fallback:   os.LookupEnv,
@@ -2259,11 +2364,12 @@ func hostLaunchSelection(cfg *jsonx.OrderedMap, agent, typed string) packload.Se
 }
 
 // hostAgentProfile is the profile a host launch of agent selects over packs: its entry in
-// effectiveHostProfiles, "" when none.
+// effectiveHostProfiles, the first of its active set, "" when none.
 func hostAgentProfile(cfg *jsonx.OrderedMap, packs []*packload.Pack, agent, typed string) string {
-	v, _ := effectiveHostProfiles(cfg, packs, agent, typed).Get(agent)
-	s, _ := v.(string)
-	return s
+	if set := packload.ProfileSets(effectiveHostProfiles(cfg, packs, agent, typed))[agent]; len(set) > 0 {
+		return set[0]
+	}
+	return ""
 }
 
 // effectiveHostProfiles is the host notch's profile table over packs: the config `profile`
@@ -2274,12 +2380,23 @@ func hostAgentProfile(cfg *jsonx.OrderedMap, packs []*packload.Pack, agent, type
 // notch it is the launch's only command; a -p for a command no selected pack installs is
 // refused by the launch that composes it, never dropped here. With agent "" (a verb that
 // launches nothing: `yolo host apply`, the footer, the overlay gate) it is the key alone.
+//
+// A value is the agent's ACTIVE SET (docs/design/active-provider-sets.md): a typed list (the
+// comma-joined entries hostProfileFor checked) replaces the agent's whole set (AP-D4), and a
+// set of one crosses as the plain string it always did.
 func effectiveHostProfiles(cfg *jsonx.OrderedMap, packs []*packload.Pack, agent, typed string) *jsonx.OrderedMap {
+	return hostProfileFold(cfg, packs, agent, typed).Table
+}
+
+// hostProfileFold is the fold effectiveHostProfiles returns the table of, kept whole for what the
+// key's BARE list did in it (OQ-AP3): the config key over packs' receivers, then the typed -p
+// for agent as its named entry.
+func hostProfileFold(cfg *jsonx.OrderedMap, packs []*packload.Pack, agent, typed string) config.ProfileFold {
 	var flag config.ProfileSelection
 	if typed != "" && agent != "" {
-		flag.Named = map[string]string{agent: typed}
+		flag.Named = map[string][]string{agent: packload.SplitProfileList(typed)}
 	}
-	return config.ProfileTableFor(config.InstalledBins(packs), config.ConfigProfileSelection(cfg), flag)
+	return config.FoldProfiles(config.ReceiversOf(packs), config.ConfigProfileSelection(cfg), flag)
 }
 
 // overlayGateProfiles is the ACTIVE profile table the config-overlay `profile` modifier
@@ -2418,10 +2535,15 @@ func hostEnv(args []string, out, errw io.Writer) int {
 		// shape the -p asked for, which is not additive.
 		agent = hostEnvDefaultAgent(grant != nil, profile)
 	}
+	typedProfile := profile
 	profile, err := hostProfileFor(profile, agent, true)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo host env: %v\n", err)
 		return 2
+	}
+	profile, bareNote := narrowHostBareList(typedProfile, profile, agent)
+	if bareNote != "" {
+		fmt.Fprintf(errw, "yolo host env: %s\n", bareNote)
 	}
 
 	// Only what yolo ADDS is printed, never the whole inherited environment: `yolo host

@@ -133,22 +133,33 @@ func NarrowBareList(packs []*Pack, agent string, list []string) []string {
 // BareListNote is the one launch line OQ-AP3 rules for a bare list: which agents took it whole
 // and which, running one provider per session, start on its first entry and ignore the rest.
 // "" when the list has one entry or no agent was narrowed, so a bare list every receiver holds
-// says nothing it has not already said in the profile lines.
-func BareListNote(list, whole, narrowed []string) string {
+// says nothing it has not already said in the profile lines. keyed says where the list was
+// written — the `profile` key's string, list or "*" form (true) or a bare `-p` (false) — so the
+// line names its source and the per-agent spelling of the same list there.
+func BareListNote(list, whole, narrowed []string, keyed bool) string {
 	if len(list) <= 1 || len(narrowed) == 0 {
 		return ""
 	}
 	whole = sortedCopy(whole)
 	narrowed = sortedCopy(narrowed)
-	line := fmt.Sprintf("Profile list %s (a bare -p, naming no agent): %s %s one provider per "+
-		"session, so %s on %s alone and %s %s", strings.Join(list, ", "),
+	source, remedy := "a bare -p, naming no agent", "-p <agent>="+strings.Join(list, ",")
+	if keyed {
+		quoted := make([]string, len(list))
+		for i, name := range list {
+			quoted[i] = fmt.Sprintf("%q", name)
+		}
+		source = "the profile key's list, naming no agent"
+		remedy = `"profile": {"<agent>": [` + strings.Join(quoted, ", ") + `]}`
+	}
+	line := fmt.Sprintf("Profile list %s (%s): %s %s one provider per "+
+		"session, so %s on %s alone and %s %s", strings.Join(list, ", "), source,
 		joinAnd(narrowed), plural(len(narrowed), "runs", "run"),
 		plural(len(narrowed), "it starts", "each starts"), list[0],
 		plural(len(narrowed), "ignores", "ignore"), joinAnd(list[1:]))
 	if len(whole) > 0 {
 		line += fmt.Sprintf("; %s %s the whole list", joinAnd(whole), plural(len(whole), "takes", "take"))
 	}
-	return line + ". Name an agent to give it a list of its own: -p <agent>=" + strings.Join(list, ",") + "."
+	return line + ". Name an agent to give it a list of its own: " + remedy + "."
 }
 
 // SingleProviderSetRefusal is OQ-AP2's refusal (ruled 2026-09-29, option A), the one wording at
@@ -158,7 +169,7 @@ func SingleProviderSetRefusal(agent string, set []string) string {
 	return fmt.Sprintf("profiles %s are selected for %s, which runs one provider per session "+
 		"(its pack declares no provider_sets), so yolo would start it on %s and drop %s in "+
 		"silence — select one profile for it: `-p %s=%s` for one launch, or "+
-		"`\"use_profiles\": {%q: %q}` in your config", strings.Join(set, ", "), agent, set[0],
+		"`\"profile\": {%q: %q}` in your config", strings.Join(set, ", "), agent, set[0],
 		joinAnd(set[1:]), agent, set[0], agent, set[0])
 }
 

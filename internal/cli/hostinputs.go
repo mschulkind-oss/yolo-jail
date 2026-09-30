@@ -104,9 +104,23 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 	// of that agent can reach.
 	use := jsonx.NewOrderedMap()
 	selected := effectiveHostProfiles(cfg, packs, "", "")
+	// Each agent's ACTIVE SET (docs/design/active-provider-sets.md §4.9): the value is a string or
+	// a list, and profile below is its primary. A set is rendered whole or not at all (AP-P2).
+	sets := packload.ProfileSets(selected)
 	for _, agent := range selected.Keys() {
 		v, _ := selected.Get(agent)
-		profile, _ := v.(string)
+		set := sets[agent]
+		profile := ""
+		if len(set) > 0 {
+			profile = set[0]
+		}
+		// The set's own rules (AP-D3, OQ-AP2, AP-D9) and every later entry's pairing: either one
+		// refused leaves the whole selection out, named.
+		if why := hostSetOmission(packs, providers, resolved, agent, set, unservable); why != "" {
+			c.omitted = append(c.omitted, fmt.Sprintf("profile %s → %s is not applied at "+
+				"the host: %s", agent, strings.Join(set, ", "), why))
+			continue
+		}
 		if refusal := packload.PairingRefusal(packs, providers, resolved, agent, profile,
 			unservable); refusal != nil {
 			// A BRIDGED SELECTION (docs/design/host-notch-services.md OQ-HS3, ruled per launch):
@@ -121,8 +135,12 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 				"the host: %s", agent, profile, firstLine(refusal.Error())))
 			continue
 		}
+		if len(set) > 0 {
+			v = packload.ProfileSetWire(set)
+		}
 		use.Set(agent, v)
-		c.selection = append(c.selection, agent+" → "+profile)
+		// A set is named as -p spells it, "pi → zai,openrouter", since ", " separates agents here.
+		c.selection = append(c.selection, agent+" → "+strings.Join(set, ","))
 	}
 	vars[entrypoint.UseProfilesWireEnv] = wireJSON(use)
 
@@ -151,6 +169,31 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 	c.inputs = &entrypoint.HostInputs{Vars: vars, Packs: packs,
 		AgentLookup: hostAgentLookup(cfg)}
 	return c, nil
+}
+
+// hostSetOmission is why `yolo host apply` leaves one agent's ACTIVE SET out of the files it
+// renders, "" to render it: the set's own rules (packload.ProfileSetProblems), then the pairing
+// of every entry after the primary, whose own refusal the caller words with its bridged note.
+// A set of one asks nothing here.
+func hostSetOmission(packs []*packload.Pack, providers *jsonx.OrderedMap,
+	resolved map[string]packload.ResolvedProfile, agent string, set []string,
+	unservable []packload.Adaptation) string {
+	if len(set) < 2 {
+		return ""
+	}
+	if problems := packload.ProfileSetProblems(packs, map[string][]string{agent: set}, resolved); len(problems) > 0 {
+		return problems[0]
+	}
+	for i, name := range set {
+		if i == 0 {
+			continue
+		}
+		if r := packload.PairingRefusal(packs, providers, resolved, agent, name, unservable); r != nil {
+			return fmt.Sprintf("profile %s, entry %d of the list, cannot be served here: %s",
+				name, i+1, firstLine(r.Error()))
+		}
+	}
+	return ""
 }
 
 // hostServerTable is the user-scope `key` table (mcp_servers or lsp_servers) as the host

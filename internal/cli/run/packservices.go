@@ -253,7 +253,8 @@ func (o *Options) withoutUnselectedProfileDaemons(cfg *jsonx.OrderedMap, packs [
 // the channel composition then refuses that launch, saying why.
 func (o *Options) daemonSelection(cfg *jsonx.OrderedMap, packs []*packload.Pack) (
 	packload.GateSelection, map[string]packload.ResolvedProfile, *jsonx.OrderedMap) {
-	profiles := packload.ProfileTable(o.effectiveUseProfiles(cfg, packs))
+	effective := o.effectiveUseProfiles(cfg, packs)
+	profiles := packload.ProfileTable(effective)
 	providers, err := packload.ComposeProviders(cfgMap(cfg, "providers"), packs)
 	if err != nil {
 		return packload.ProfilesOnly(profiles), nil, nil
@@ -266,7 +267,9 @@ func (o *Options) daemonSelection(cfg *jsonx.OrderedMap, packs []*packload.Pack)
 	if err != nil {
 		return packload.ProfilesOnly(profiles), nil, providers
 	}
-	return packload.SelectionOf(profiles, resolved, providers), resolved, providers
+	// Over each agent's whole active set (docs/design/active-provider-sets.md AP-P1), as the
+	// credential gate reads it, so a daemon a later entry's platform serves starts too.
+	return packload.SelectionOfSets(packload.ProfileSets(effective), resolved, providers), resolved, providers
 }
 
 // noteUnstartedProfileDaemons is the disclosure for withoutUnselectedProfileDaemons: one line per
