@@ -540,12 +540,12 @@ yolo.derive("opencode", "config", function(ctx)
         -- it names the providers the profile selected and nothing else: the one provider of
         -- a single profile, and every provider of an active set, the primary first
         -- (opencodeSetProviders; docs/design/active-provider-sets.md §4.4, "enabled_providers
-        -- names every provider in the set, in order"). It rides the selection beside `model`
-        -- for two reasons: a deselect clears it with the model (OQ-PSW2), and a set that loses
-        -- an entry rewrites it whole (§4.10); and it is written only when a model is, since
-        -- narrowing the providers while opencode starts on its own persisted choice would
-        -- disable the provider that choice names. So a set whose primary resolves no model
-        -- (openrouter and kilo declare none) writes neither, as that one profile alone does.
+        -- names every provider in the set, in order"). It rides the selection beside `model`,
+        -- so a deselect clears it with the model (OQ-PSW2) and a set that loses an entry
+        -- rewrites it whole (§4.10). And it is written only when a model is, since narrowing
+        -- the providers while opencode starts on its own persisted choice would disable the
+        -- provider that choice names: a set whose primary resolves no model (openrouter and
+        -- kilo declare none) writes neither, as that one profile alone does.
         sel.enabled_providers = opencodeSetProviders(ctx, ctx.selected_provider, provOut)
         res.selection = sel
       end
