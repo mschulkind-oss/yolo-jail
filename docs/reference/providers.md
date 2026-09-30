@@ -1456,7 +1456,8 @@ the line, naming why and the fix, in two cases:
 
 - the provider names no endpoint, only a platform, and no selected pack binds that platform for
   the agent, so the selection configures nothing for it (copilot under `-p bedrock`, which has no
-  Bedrock client of its own);
+  Bedrock client of its own). `yolo host --` then opens no credential doorway for that agent
+  either ([HS-D23](../design/host-notch-services.md#HS-D23));
 - the provider names no endpoint, so [the credential preflight](#the-credential-preflight) asks
   nothing of it, and none of the credential variables it claims reaches the agent at this notch.
   The warning names them, and names the withheld pointer that would carry one when there is one
