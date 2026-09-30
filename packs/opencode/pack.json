@@ -19,6 +19,7 @@
       "protocols": [
         "openai"
       ],
+      "provider_sets": true,
       "via": "npm"
     },
     {

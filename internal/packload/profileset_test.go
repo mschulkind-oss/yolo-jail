@@ -302,16 +302,19 @@ func TestALaterEntryTheAgentCannotSpeakRefuses(t *testing.T) {
 	}
 }
 
-// The SHIPPED declarations: pi holds a set (the first slice, §8 step 2), and the three agents
-// OQ-AP2 names as running one provider per session do not. Read off the embedded packs, so
-// dropping `provider_sets` from packs/pi/pack.json fails here.
+// The SHIPPED declarations: pi holds a set (the first slice, §8 step 2) and opencode does (§8
+// step 3, AP-D15), and the three agents OQ-AP2 names as running one provider per session do not.
+// Read off the embedded packs, so dropping `provider_sets` from packs/pi/pack.json or
+// packs/opencode/pack.json fails here.
 func TestTheShippedPacksDeclareWhichAgentsHoldASet(t *testing.T) {
 	var packs []*Pack
-	for _, name := range []string{"pi", "claude", "codex", "copilot"} {
+	for _, name := range []string{"pi", "opencode", "claude", "codex", "copilot"} {
 		packs = append(packs, shippedPack(t, name))
 	}
-	if !HoldsProviderSets(packs, "pi") {
-		t.Error("packs/pi must declare provider_sets on its program")
+	for _, agent := range []string{"pi", "opencode"} {
+		if !HoldsProviderSets(packs, agent) {
+			t.Errorf("packs/%s must declare provider_sets on its program", agent)
+		}
 	}
 	for _, agent := range []string{"claude", "codex", "copilot"} {
 		if HoldsProviderSets(packs, agent) {

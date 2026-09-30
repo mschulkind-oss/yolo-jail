@@ -21,10 +21,10 @@ import (
 )
 
 func TestTheProfileKeyAndItsFlagSelectTheSame(t *testing.T) {
-	// pi declares provider_sets, so a bare list reaches it whole and the others as its first
-	// entry (OQ-AP3), whichever spelling carried it.
+	// pi and opencode declare provider_sets, so a bare list reaches each whole and the others as
+	// its first entry (OQ-AP3), whichever spelling carried it.
 	recv := config.ProfileReceivers{Bins: []string{"claude", "pi", "codex", "opencode"},
-		SetCapable: map[string]bool{"pi": true}}
+		SetCapable: map[string]bool{"pi": true, "opencode": true}}
 	for _, tc := range []struct {
 		name string
 		key  string // the `profile` value
@@ -38,6 +38,7 @@ func TestTheProfileKeyAndItsFlagSelectTheSame(t *testing.T) {
 		{"the long flag", `"zai"`, "run --profile zai -- claude"},
 		{"no command after --", `{"*": "zai", "codex": "bedrock"}`, "-p zai -p codex=bedrock"},
 		{"a list for one agent", `{"pi": ["zai", "openrouter"]}`, "run -p pi=zai,openrouter -- pi"},
+		{"a list for opencode", `{"opencode": ["zai", "openrouter"]}`, "run -p opencode=zai,openrouter -- opencode"},
 		{"a list for one agent beside a name for another", `{"pi": ["zai", "openrouter"], "claude": "codex"}`,
 			"run -p pi=zai,openrouter,claude=codex -- pi"},
 		{"a list for every agent", `["zai", "openrouter"]`, "run -p zai,openrouter -- pi"},

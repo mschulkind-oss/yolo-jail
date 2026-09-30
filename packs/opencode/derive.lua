@@ -154,13 +154,94 @@ end
 --
 -- So the row is `options.region` for a region the provider declares, and the models of the one
 -- list opencode can call (every maker's: its client drives Converse, which serves each shipped
--- entry), each with its name and limits. Only the selected provider, and only on opencode's own
--- transport: a via profile (`bedrock-bridge`) gets the ordinary via row instead, which the launch
--- refuses while the bridge has no upstream for a provider named by region alone.
+-- entry), each with its name and limits. Only the active set's Bedrock entry
+-- (opencodeNativeBedrockEntry below), and only on opencode's own transport: a via profile
+-- (`bedrock-bridge`) gets the ordinary via row instead, which the launch refuses while the bridge
+-- has no upstream for a provider named by region alone.
 local opencodeBedrockProvider = "amazon-bedrock"
 
 local function opencodeNativeBedrock(ctx)
   return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
+end
+
+-- THE ACTIVE SET (docs/design/active-provider-sets.md, OQ-AP1 to OQ-AP3 ruled 2026-09-29; the
+-- active set, a term that doc coins, is the ordered list of profiles one agent runs on for one
+-- launch). opencode is SET-CAPABLE (packs/opencode/pack.json's `provider_sets`, AP-D15):
+-- `-p opencode=zai,openrouter` or `"profile": {"opencode": ["zai", "openrouter"]}` makes every
+-- listed provider live in one session, and ctx.active_set carries the entries in order. The
+-- first entry, the PRIMARY, is ctx.selected_provider and ctx.profile as it always was, so
+-- `model` and `small_model` below answer for it unchanged (AP-D1: a fresh session starts where
+-- the first entry says), and a set of one renders byte for byte what the single profile renders
+-- (AP-P1). The catalog already writes a row for every composed provider opencode can dial; what
+-- the set widens is opencode's own provider filter, `enabled_providers`, and which entry the
+-- native Bedrock row belongs to.
+--
+-- opencodeNativeBedrockEntry is the provider name of the ACTIVE SET entry opencode reaches
+-- through its own amazon-bedrock client, or nil: the primary when opencodeNativeBedrock holds;
+-- else the first later entry on the aws-bedrock platform, which carries no via (a via entry may
+-- sit only first, AP-D9). A set names each regional platform once (AP-D12), so there is at most
+-- one: opencode has ONE amazon-bedrock provider and reads ONE AWS_REGION (BR-D18).
+local function opencodeNativeBedrockEntry(ctx)
+  if opencodeNativeBedrock(ctx) then
+    return ctx.selected_provider
+  end
+  if type(ctx.active_set) == "table" then
+    for i, e in ipairs(ctx.active_set) do
+      if i > 1 and e.platform == "aws-bedrock" then
+        return e.provider
+      end
+    end
+  end
+  return nil
+end
+
+-- opencodeEnforceFor is the model-list switch (enforce_models, MM-D5) that governs provName's
+-- row: the switch of the active-set entry on that provider, its own profile's, since every entry
+-- is live (AP-P1); else the primary's, ctx.enforce_models, which is what every row read before
+-- sets. An entrypoint older than the per-entry field hands nil there, and the row reads the
+-- primary's.
+local function opencodeEnforceFor(ctx, provName)
+  if provName ~= ctx.selected_provider and type(ctx.active_set) == "table" then
+    for _, e in ipairs(ctx.active_set) do
+      if e.provider == provName and type(e.enforce_models) == "boolean" then
+        return e.enforce_models
+      end
+    end
+  end
+  return ctx.enforce_models
+end
+
+-- opencodeSetProviders is `enabled_providers` for the active set: primary, the opencode provider
+-- id the start `model` names, first, then each later entry's id in set order, a Bedrock entry's
+-- being amazon-bedrock, opencode's own client's (opencodeNativeBedrockEntry). opencode reads the
+-- key as a filter, not a list: its 1.18.32 schema describes it as "When set, ONLY these providers
+-- will be enabled. All other providers will be ignored", and its provider loader keeps a provider
+-- only when the key's Set has it (both read from the installed binary's strings, never run). So
+-- every entry is enabled, the order is yolo's statement of the set rather than opencode's menu
+-- order, and a provider outside the set is off even when a stored login would reach it.
+--
+-- An entry whose row the catalog did not write (rows) is not named: the launch refuses an entry
+-- opencode cannot be paired with (refuseUnspeakableSetEntries) before this renders, and a name
+-- with no row here would enable opencode's own catalog provider of that id instead.
+local function opencodeSetProviders(ctx, primary, rows)
+  local out, seen = { primary }, { [primary] = true }
+  if type(ctx.active_set) ~= "table" then
+    return out
+  end
+  local bedrockName = opencodeNativeBedrockEntry(ctx)
+  for i, e in ipairs(ctx.active_set) do
+    if i > 1 then
+      local id = e.provider
+      if id ~= nil and id == bedrockName then
+        id = opencodeBedrockProvider
+      end
+      if type(id) == "string" and id ~= "" and rows[id] ~= nil and not seen[id] then
+        seen[id] = true
+        table.insert(out, id)
+      end
+    end
+  end
+  return out
 end
 
 -- opencodeBedrockModels is the `models` table of the native row: each entry opencode can call,
@@ -228,9 +309,10 @@ yolo.derive("opencode", "config", function(ctx)
     res.mcp = in_full(ctx, out)
   end
 
-  -- 2. Providers
+  -- 2. Providers. provOut is read again by the selection (opencodeSetProviders), which names
+  -- only providers holding a row here.
+  local provOut = {}
   if ctx.providers and next(ctx.providers) ~= nil then
-    local provOut = {}
     for name, prov in pairs(ctx.providers) do
       local baseUrl = providerEndpoint(prov)
       -- VIA (docs/design/wire-bridge-gateway.md OQ-WG6/WG7): the selected provider's entry
@@ -312,7 +394,10 @@ yolo.derive("opencode", "config", function(ctx)
         -- NOT for a list no `only` narrowed: what a list that only adds does to opencode's own
         -- catalog is OQ-MM1's, and whether a list refuses on a gateway serving more than it is
         -- OQ-MM3's, both unruled; such a row stays as it was.
-        if prov.models_only == true and ctx.enforce_models ~= false and next(models) ~= nil then
+        --
+        -- The switch is the one of the active-set entry on this provider (opencodeEnforceFor):
+        -- every entry is live, so each keeps its own profile's.
+        if prov.models_only == true and opencodeEnforceFor(ctx, name) ~= false and next(models) ~= nil then
           local ids = {}
           for id in pairs(models) do table.insert(ids, id) end
           table.sort(ids)
@@ -321,17 +406,23 @@ yolo.derive("opencode", "config", function(ctx)
         provOut[name] = entry
       end
     end
-    -- The native Bedrock row (opencodeNativeBedrock above).
-    if opencodeNativeBedrock(ctx) and provOut[opencodeBedrockProvider] == nil then
-      local p = ctx.providers[ctx.selected_provider]
+    -- The native Bedrock row (opencodeNativeBedrock above), the set's Bedrock entry's wherever
+    -- it sits (opencodeNativeBedrockEntry), so opencode on [zai, bedrock] can switch to a
+    -- Bedrock model its own catalog lacks. The region is the entry's provider's own; a region
+    -- only ~/.aws/config holds reaches opencode as AWS_REGION through the credential gate's
+    -- region fill, which reads for the first entry needing one (AP-D14), and the region
+    -- pre-flight refuses a launch that delivers opencode none (BR-D18).
+    local bedrockName = opencodeNativeBedrockEntry(ctx)
+    if bedrockName and provOut[opencodeBedrockProvider] == nil then
+      local p = ctx.providers[bedrockName]
       local entry = { models = opencodeBedrockModels(callableModels(p, nil)) }
       if type(p) == "table" and type(p.region) == "string" and p.region ~= "" then
         entry.options = { region = p.region }
       end
       -- Under an `only`, the same whitelist as a generic row's (above): these rows add beside
       -- opencode's own Bedrock catalog and cannot narrow it, so the whitelist is the menu, and
-      -- it refuses too, so only while the profile's switch is on (MM-D5, MM-D7).
-      if type(p) == "table" and p.models_only == true and ctx.enforce_models ~= false and next(entry.models) ~= nil then
+      -- it refuses too, so only while the entry's profile's switch is on (MM-D5, MM-D7).
+      if type(p) == "table" and p.models_only == true and opencodeEnforceFor(ctx, bedrockName) ~= false and next(entry.models) ~= nil then
         local ids = {}
         for id in pairs(entry.models) do table.insert(ids, id) end
         table.sort(ids)
@@ -399,7 +490,7 @@ yolo.derive("opencode", "config", function(ctx)
         res.selection = {
           model = qualified,
           small_model = qualified,
-          enabled_providers = { opencodeBedrockProvider },
+          enabled_providers = opencodeSetProviders(ctx, opencodeBedrockProvider, provOut),
         }
       end
     elseif providerEndpoint(p) then
@@ -446,12 +537,16 @@ yolo.derive("opencode", "config", function(ctx)
         -- without this its menu would still offer providers it can no longer call.
         -- enabled_providers is opencode's own HARD key — "When set, ONLY these providers
         -- will be enabled" — so this is the ergonomic half of the ruling, never a model list:
-        -- it names the provider the profile selected and nothing else. It rides the
-        -- selection beside `model` for two reasons: a deselect clears it with the model
-        -- (OQ-PSW2), and it is written only when a model is, since narrowing the providers
-        -- while opencode starts on its own persisted choice would disable the provider that
-        -- choice names.
-        sel.enabled_providers = { ctx.selected_provider }
+        -- it names the providers the profile selected and nothing else: the one provider of
+        -- a single profile, and every provider of an active set, the primary first
+        -- (opencodeSetProviders; docs/design/active-provider-sets.md §4.4, "enabled_providers
+        -- names every provider in the set, in order"). It rides the selection beside `model`
+        -- for two reasons: a deselect clears it with the model (OQ-PSW2), and a set that loses
+        -- an entry rewrites it whole (§4.10); and it is written only when a model is, since
+        -- narrowing the providers while opencode starts on its own persisted choice would
+        -- disable the provider that choice names. So a set whose primary resolves no model
+        -- (openrouter and kilo declare none) writes neither, as that one profile alone does.
+        sel.enabled_providers = opencodeSetProviders(ctx, ctx.selected_provider, provOut)
         res.selection = sel
       end
     end

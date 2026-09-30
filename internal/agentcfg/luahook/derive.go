@@ -192,6 +192,14 @@ type SetEntry struct {
 	ProfileName string
 	Provider    string
 	Profile     map[string]string
+	// ModelsNotEnforced is THIS entry's profile's model-list switch turned off
+	// (enforce_models: false, MM-D5), exposed as the entry's `enforce_models`, its negation:
+	// DeriveCtx.ModelsNotEnforced's field for an entry after the primary. Every entry is live
+	// (docs/design/active-provider-sets.md AP-P1), so a derive rendering a refusal for a list
+	// a `models` contribution narrowed (opencode's whitelist) renders it on that entry's
+	// provider by that entry's own switch, never by the primary's. The zero value is the
+	// default, on.
+	ModelsNotEnforced bool
 }
 
 // DeriveVM is the boundary for running a derive producer, mirroring LuaVM. The
@@ -591,8 +599,9 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 	L.SetField(t, "profile", profile)
 	// ctx.active_set, always a list: one table per entry of the agent's active set, in order,
 	// each with the fields ctx carries for the primary (profile_name, the selected provider as
-	// `provider`, its row's `platform`, and the option map as `profile`), so a set-capable
-	// derive reads every entry the one way it reads the first.
+	// `provider`, its row's `platform`, the option map as `profile`, and its profile's
+	// `enforce_models`), so a set-capable derive reads every entry the one way it reads the
+	// first.
 	set := L.NewTable()
 	for i, e := range ctx.ActiveSet {
 		entry := L.NewTable()
@@ -604,6 +613,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 			L.SetField(opts, k, lua.LString(e.Profile[k]))
 		}
 		L.SetField(entry, "profile", opts)
+		L.SetField(entry, "enforce_models", lua.LBool(!e.ModelsNotEnforced))
 		set.RawSetInt(i+1, entry)
 	}
 	L.SetField(t, "active_set", set)

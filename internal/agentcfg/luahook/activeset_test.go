@@ -52,6 +52,27 @@ yolo.derive("probe", "settings", function(ctx) return { n = tostring(#ctx.active
 	}
 }
 
+// Each entry carries ITS OWN profile's model-list switch as `enforce_models` (MM-D5 read for a
+// set, AP-P1): on by default, off for an entry whose profile says `enforce_models: false`, whatever
+// the primary's says. A derive that renders a refusal for a narrowed list on every entry's
+// provider (opencode's whitelist) reads it here.
+func TestEachSetEntryCarriesItsOwnModelSwitch(t *testing.T) {
+	ctx := activeSetCtx()
+	ctx.ActiveSet[1].ModelsNotEnforced = true
+	got, err := GopherLuaVM{}.Derive(`
+yolo.derive("probe", "settings", function(ctx)
+  return { primary = tostring(ctx.enforce_models), e1 = tostring(ctx.active_set[1].enforce_models),
+    e2 = tostring(ctx.active_set[2].enforce_models) }
+end)`, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"primary": "true", "e1": "true", "e2": "false"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the set's switches read back as %#v, want %#v", got, want)
+	}
+}
+
 // yolo.model_for(alias, provider) answers for an entry of the agent's set, and nil for a provider
 // outside it even when that provider declares the alias (XM-D1, read for a set).
 func TestModelForAnswersForAnEntryOfTheSetOnly(t *testing.T) {

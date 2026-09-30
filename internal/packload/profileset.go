@@ -124,8 +124,8 @@ func HoldsProviderSets(packs []*Pack, agent string) bool {
 // BareListNote is the one launch line OQ-AP3 rules for a bare list: which agents took it whole
 // and which, taking one profile because their packs do not declare provider_sets, start on its
 // first entry and ignore the rest. It says what yolo can hand an agent, never what the agent can
-// hold: opencode and oh-omp can hold several providers (docs/design/active-provider-sets.md §3)
-// and still take one profile until their packs declare provider_sets.
+// hold: oh-omp can hold several providers (docs/design/active-provider-sets.md §3) and still takes
+// one profile until its pack declares provider_sets.
 // "" when the list has one entry or no agent was narrowed, so a bare list every receiver holds
 // says nothing it has not already said in the profile lines. keyed says where the list was
 // written — the `profile` key's string, list or "*" form (true) or a bare `-p` (false) — so the
@@ -161,8 +161,8 @@ func BareListNote(list, whole, narrowed []string, keyed bool) string {
 // every notch and in config validation: a list NAMED at an agent whose pack does not declare
 // provider_sets, naming the agent, why, and the one-entry spellings that work. The why is the
 // declaration yolo reads, never a claim about the agent: claude, codex and copilot run one
-// provider per session, but opencode and oh-omp can hold several and are refused only because
-// their packs do not declare it yet (docs/design/active-provider-sets.md §3).
+// provider per session, but oh-omp can hold several and is refused only because its pack does
+// not declare it yet (docs/design/active-provider-sets.md §3).
 func SingleProviderSetRefusal(agent string, set []string) string {
 	return fmt.Sprintf("profiles %s are selected for %s, whose pack does not declare "+
 		"provider_sets, so yolo cannot hand it a list: it would start %s on %s and drop %s in "+
@@ -281,15 +281,17 @@ func ProfileSetProblems(packs []*Pack, providers *jsonx.OrderedMap, sets map[str
 
 // ActiveSetFor is the derive input for one agent's set (ctx.active_set,
 // docs/design/active-provider-sets.md §4.3): each entry's profile name, the provider it resolves
-// to and its resolved option map, in set order. Nil for no set. The option maps are the resolved
-// table's own, never copied by a caller that edits them.
+// to, its resolved option map and its own model-list switch (ModelsEnforced), in set order. Nil
+// for no set. The option maps are the resolved table's own, never copied by a caller that edits
+// them.
 func ActiveSetFor(set []string, resolved map[string]ResolvedProfile) []luahook.SetEntry {
 	if len(set) == 0 {
 		return nil
 	}
 	out := make([]luahook.SetEntry, 0, len(set))
 	for _, name := range set {
-		e := luahook.SetEntry{ProfileName: name, Provider: ProviderFor(resolved, name)}
+		e := luahook.SetEntry{ProfileName: name, Provider: ProviderFor(resolved, name),
+			ModelsNotEnforced: !ModelsEnforced(resolved[name])}
 		if r, ok := resolved[name]; ok && r.Options != nil {
 			e.Profile = r.Options
 		}

@@ -353,3 +353,49 @@ func TestHostApplySaysWhatTheProfileKeysBareListNarrowed(t *testing.T) {
 		}
 	}
 }
+
+// opencode holds a set too (docs/design/active-provider-sets.md §8 step 3, AP-D15), at the host as
+// in a jail: `yolo host -p opencode=zai,openrouter -- opencode` hands opencode both keys and names
+// the set before it runs, and the profile key's list does the same.
+func TestHostRunsOpencodeOnItsWholeSet(t *testing.T) {
+	const cfg = `{"packs": ["claude", "opencode", "zai", "openrouter"], "env_sources": [` +
+		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`
+	env, errs := hostGateLaunchWith(t, cfg, nil, []string{"-p", "opencode=zai,openrouter"}, "opencode")
+	if env["ZAI_API_KEY"] != "tok-zai" || env["OPENROUTER_API_KEY"] != "tok-router" {
+		t.Errorf("opencode on [zai, openrouter] must receive both keys: ZAI=%q OPENROUTER=%q",
+			env["ZAI_API_KEY"], env["OPENROUTER_API_KEY"])
+	}
+	for _, want := range []string{"Active set for opencode: zai, openrouter",
+		"ZAI_API_KEY (provider zai): opencode only", "OPENROUTER_API_KEY (provider openrouter): opencode only"} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the launch must say %q:\n%s", want, errs)
+		}
+	}
+	env, _ = hostGateLaunchWith(t, `{"packs": ["claude", "opencode", "zai", "openrouter"], `+
+		`"profile": {"opencode": ["zai", "openrouter"]}, "env_sources": [`+
+		`{"ZAI_API_KEY": "tok-zai", "OPENROUTER_API_KEY": "tok-router"}]}`, nil, nil, "opencode")
+	if env["ZAI_API_KEY"] != "tok-zai" || env["OPENROUTER_API_KEY"] != "tok-router" {
+		t.Errorf("the profile key's list must deliver both keys too: ZAI=%q OPENROUTER=%q",
+			env["ZAI_API_KEY"], env["OPENROUTER_API_KEY"])
+	}
+}
+
+// `yolo host apply` renders the profile key's set into opencode's own file (§4.9), through the
+// real command: `enabled_providers` names both entries, the primary first, and `model` is the
+// primary's.
+func TestHostApplyRendersOpencodesSet(t *testing.T) {
+	home := hostComputedHome(t, `{"packs":["opencode","zai","openrouter"],
+		"profile":{"opencode":["zai","openrouter"]}}`)
+	var out, errw bytes.Buffer
+	if rc := hostMain([]string{"apply", "--assert"}, &out, &errw, false, strings.NewReader("y\n")); rc != 0 {
+		t.Fatalf("yolo host apply --assert rc=%d\n%s%s", rc, out.String(), errw.String())
+	}
+	cfg := readJSONAt(t, home, ".config/opencode/opencode.json")
+	if m, _ := cfg["model"].(string); !strings.HasPrefix(m, "zai/") {
+		t.Errorf("the start model must be the primary's: model = %v", cfg["model"])
+	}
+	got, _ := cfg["enabled_providers"].([]any)
+	if len(got) != 2 || got[0] != "zai" || got[1] != "openrouter" {
+		t.Errorf("enabled_providers = %v, want [zai openrouter]", cfg["enabled_providers"])
+	}
+}

@@ -74,23 +74,31 @@ func TestTheSingleProviderListRefusalNamesTheFix(t *testing.T) {
 	}
 }
 
-// opencode and oh-omp CAN hold several providers (docs/design/active-provider-sets.md §3); they
-// take one profile only because their packs do not declare provider_sets yet. So their refusal
-// names the declaration, and never says they run one provider per session.
-func TestAListForOpencodeOrOmpIsRefusedForTheDeclaration(t *testing.T) {
-	for _, agent := range []string{"opencode", "oh-omp"} {
-		t.Run(agent, func(t *testing.T) {
-			useProfileKeysHome(t)
-			errs, _ := ValidateConfig(decode(t, `{"profile": {"`+agent+`": ["zai", "openrouter"]}}`),
-				t.TempDir(), nil)
-			if len(errs) != 1 || !strings.Contains(errs[0], "whose pack does not declare provider_sets") {
-				t.Fatalf("errs = %v, want one refusal naming the missing provider_sets", errs)
-			}
-			if strings.Contains(errs[0], "one provider per session") {
-				t.Errorf("the refusal claims %s runs one provider per session, which its format "+
-					"contradicts:\n%s", agent, errs[0])
-			}
-		})
+// oh-omp CAN hold several providers (docs/design/active-provider-sets.md §3); it takes one
+// profile only because its pack does not declare provider_sets yet. So its refusal names the
+// declaration, and never says it runs one provider per session.
+func TestAListForOmpIsRefusedForTheDeclaration(t *testing.T) {
+	useProfileKeysHome(t)
+	errs, _ := ValidateConfig(decode(t, `{"profile": {"oh-omp": ["zai", "openrouter"]}}`),
+		t.TempDir(), nil)
+	if len(errs) != 1 || !strings.Contains(errs[0], "whose pack does not declare provider_sets") {
+		t.Fatalf("errs = %v, want one refusal naming the missing provider_sets", errs)
+	}
+	if strings.Contains(errs[0], "one provider per session") {
+		t.Errorf("the refusal claims oh-omp runs one provider per session, which its format "+
+			"contradicts:\n%s", errs[0])
+	}
+}
+
+// opencode holds a set since packs/opencode declares provider_sets (§8 step 3, AP-D15), so a list
+// named at it validates clean, through the declaration config validation reads off the shipped
+// packs (SetCapableCLINames). Dropping the declaration refuses it again.
+func TestTheProfileKeyTakesAListForOpencode(t *testing.T) {
+	useProfileKeysHome(t)
+	errs, _ := ValidateConfig(decode(t, `{"profile": {"opencode": ["zai", "openrouter"]}}`),
+		t.TempDir(), nil)
+	if len(errs) != 0 {
+		t.Fatalf("a list for opencode, which declares provider_sets, must validate clean: %v", errs)
 	}
 }
 
