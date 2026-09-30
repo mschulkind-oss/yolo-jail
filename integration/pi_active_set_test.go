@@ -61,3 +61,42 @@ func TestPiRunsOnEveryProviderOfItsSet(t *testing.T) {
 	requireCataloged(t, models.raw, "providers", "zai", "pi models.json")
 	requireCataloged(t, models.raw, "providers", "openrouter", "pi models.json")
 }
+
+// A BEDROCK ENTRY AFTER THE FIRST (AP-D12's "anywhere in pi's set"): `-p pi=zai,bedrock` with a
+// region on the provider starts pi on zai, catalogs the Bedrock list under pi's own
+// amazon-bedrock provider, and hands pi the region in its own environment, through the staged
+// packs, the needs closure that joins bedrock's aws-auth, the channel and the boot render. No
+// agent runs, and nothing reaches AWS.
+func TestPiRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
+	requireJail(t)
+	t.Setenv("ZAI_API_KEY", "integration-probe-not-a-real-key")
+	const region, opus = "eu-west-1", "global.anthropic.claude-opus-5-5"
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["pi", "zai"], "providers": {"bedrock": {"region": "`+region+`"}}}`)
+	// pi's own env file, sourced as pi's launcher sources it; absent when nothing is scoped to pi,
+	// which then reads as no region rather than as a failed launch.
+	r := runCommand(t, dir, append(jailRunArgs(), "-p", "pi=zai,bedrock", "--", "bash", "-lc",
+		`f=~/.config/yolo-agent-env/pi.sh; if [ -r "$f" ]; then . "$f"; fi; printf 'AWS_REGION=%s\n' "${AWS_REGION-}"`))
+	if r.rc != 0 {
+		t.Fatalf("the set launch failed: rc %d\n%s", r.rc, r.combined())
+	}
+	if !strings.Contains(r.stdout, "AWS_REGION="+region+"\n") {
+		t.Errorf("pi's own environment must carry the Bedrock entry's region:\n%s", r.combined())
+	}
+	settings := readPioencodeSurface(t, dir, "pi", "agent", "settings.json")
+	if settings.provider != "zai" {
+		t.Errorf("a fresh session starts on the primary: defaultProvider = %q", settings.provider)
+	}
+	enabled, _ := settings.raw["enabledModels"].([]any)
+	found := false
+	for _, e := range enabled {
+		found = found || e == "amazon-bedrock/"+opus
+	}
+	if !found {
+		t.Errorf("pi's enabledModels = %v, want the Bedrock entry's models under amazon-bedrock", enabled)
+	}
+	models := readPioencodeSurface(t, dir, "pi", "agent", "models.json")
+	requireCataloged(t, models.raw, "providers", "zai", "pi models.json")
+	requireCataloged(t, models.raw, "providers", "amazon-bedrock", "pi models.json")
+}
