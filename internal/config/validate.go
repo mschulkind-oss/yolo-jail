@@ -115,6 +115,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validateHostApplyOnLaunch(config, workspace, errs)
 	validateHostManagement(config, workspace, errs)
 	validateAgentUpdates(config, workspace, errs)
+	validateHostFloor(config, workspace, errs)
 	validatePerfLogging(config, workspace, errs)
 	validateUpdateCheck(config, workspace, errs)
 	validatePromotionTarget(config, workspace, errs)
@@ -639,6 +640,31 @@ func validateAgentUpdates(config *jsonx.OrderedMap, workspace string, errs *[]st
 			"whatever runs in the jail, so a workspace value would let an agent freeze its "+
 			"own updates. It is read from "+paths.UserConfigPath()+" and a workspace value "+
 			"has no effect. Move it there, or remove it.")
+	}
+}
+
+// validateHostFloor shape-checks the `host_floor` opt-out (docs/design/host-tool-provisioning.md
+// OQ-HP1): `agent_updates`' two shapes, by the same shape rule, and user scope only — the floor
+// installs programs the host runs with the user's authority, so a workspace spelling (which an
+// agent can edit) is refused rather than left looking as if it worked.
+func validateHostFloor(config *jsonx.OrderedMap, workspace string, errs *[]string) {
+	v, present := config.Get(hostFloorKey)
+	if !present {
+		return
+	}
+	if v != nil {
+		if prob := agentUpdatesProblem(v); prob != "" {
+			add(errs, "config."+hostFloorKey+": "+prob)
+		}
+	}
+	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	if err != nil || wsCfg == nil {
+		return
+	}
+	if wsValue, atWorkspace := wsCfg.Get(hostFloorKey); atWorkspace && wsValue != nil {
+		add(errs, "config."+hostFloorKey+": user-scope only — it decides which programs yolo "+
+			"installs on your machine and `yolo host` runs, so it is read from "+
+			paths.UserConfigPath()+" and a workspace value has no effect. Move it there, or remove it.")
 	}
 }
 

@@ -884,6 +884,33 @@
       "agent_updates": false
       "agent_updates": { "*": true, "claude": false }
 
+  [bold]host_floor[/bold] (boolean, or object of pack name -> boolean): Keep your agents
+    installed for `yolo host`.  Default TRUE -- absent means on.
+    The HOST AGENT FLOOR is yolo's own copy of every agent CLI your selected packs
+    install, kept in ~/.local/share/yolo-jail/host-floor.  `yolo host -- <agent>`
+    runs that copy by its full path, so the same agent starts whether you typed
+    the command in a terminal or a Waybar widget, cron job or IDE started it with
+    a PATH of its own.  It is on no PATH of yours: your shell, and any copy you
+    installed yourself (~/.local/bin/claude, Homebrew's), are left alone, and
+    `yolo check` names such a copy as not run by `yolo host`.
+    WHEN IT INSTALLS: the first `yolo host -- <agent>` installs the agent it
+    names, and `yolo host apply --assert` installs every one that is missing,
+    printing what it does.  Selecting the pack is the consent; nothing asks.  An
+    npm agent runs on the floor's own Node, the official release checked against
+    its published checksum; claude, codex and agy come from the machine's
+    `yolo capture` of their installer (Linux; on macOS yolo has no copy of those
+    three yet, and `yolo host` runs the one on your PATH, saying so).  The floor
+    keeps them current the way a jail does, at most once an hour when you start
+    one, and `agent_updates` freezes it the same way.
+    A pack set to false here has no floor entry: `yolo host` looks for its agent on
+    your PATH, saying so, and the next `yolo host apply --assert` removes the
+    floor's copy.
+    USER SCOPE ONLY.  It decides which programs yolo installs on your machine, so
+    a workspace value is a `yolo check` error, and is never read.
+    Example (~/.config/yolo-jail/config.jsonc):
+      "host_floor": false
+      "host_floor": { "*": true, "claude": false }
+
   [bold]perf_logging[/bold] (boolean): Record every launch's timings, quietly.  Default FALSE.
     The persistent, SILENT form of `--timing`: every span (probes, image load,
     the child window, the whole shutdown chain) is appended to

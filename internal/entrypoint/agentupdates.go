@@ -32,6 +32,14 @@ func agentUpdatesAllows(e *Env, pack string) bool {
 	return agentUpdatesValue(e.Getenv(AgentUpdatesEnv), pack)
 }
 
+// PackPolicyAllows is agentUpdatesAllows' reading over a wire value the caller already holds:
+// `true`, `false`, or a per-pack object with "*" as the default key, open when absent or
+// unparseable. It is THE reader of that shape at the host too — `agent_updates` for the host
+// agent floor's evergreen refresh, and `host_floor` (config.HostFloorWire), which takes the same
+// shape by design — so the two notches, and the two keys, cannot come to read one value
+// differently (docs/design/host-tool-provisioning.md).
+func PackPolicyAllows(wire, pack string) bool { return agentUpdatesValue(wire, pack) }
+
 // agentUpdatesValue is the reading, split from the Env lookup so the generator and the
 // tests exercise one implementation of the precedence rule — the same split
 // config.hostApplyOnLaunchValue makes, for the same reason.
