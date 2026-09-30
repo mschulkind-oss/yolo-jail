@@ -30,6 +30,7 @@
         }
       ],
       "platform": "aws-bedrock",
+      "region_profile_setting": "profile",
       "served_by": "aws-auth",
       "vars": {
         "AWS_CONTAINER_AUTHORIZATION_TOKEN": "{caller_token}",

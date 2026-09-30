@@ -27,12 +27,14 @@ func hostGateLaunch(t *testing.T, flags []string, agent string) (map[string]stri
 }
 
 // hostGateNames are the variables the host gate cells read, blanked in the invoking shell
-// so what the agent receives is what yolo composed.
+// so what the agent receives is what yolo composed. AWS_PROFILE and AWS_CONFIG_FILE are among
+// them because the region fill reads the region file they choose (BR-DIR1): a developer's own
+// would point a cell at their real AWS config.
 var hostGateNames = []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "ZAI_API_KEY",
 	"CLAUDE_CODE_USE_BEDROCK", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN",
 	"ANTHROPIC_AUTH_TOKEN",
 	"ANTHROPIC_BASE_URL", "PORT", "DEEPSEEK_API_KEY", "CEREBRAS_API_KEY",
-	"OPENROUTER_API_KEY", "KILO_API_KEY", "YOLO_PROVIDERS"}
+	"OPENROUTER_API_KEY", "KILO_API_KEY", "YOLO_PROVIDERS", "AWS_PROFILE", "AWS_CONFIG_FILE"}
 
 // hostGateRegion is the AWS_REGION hostGateHome puts in every host cell's invoking shell.
 const hostGateRegion = "us-test-1"

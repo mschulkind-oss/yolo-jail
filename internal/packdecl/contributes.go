@@ -348,6 +348,13 @@ type Contribution struct {
 	// (docs/plans/notch-convergence.md §2.4). Absent means the vars do not point at a yolo
 	// daemon and are delivered everywhere, as before.
 	ServedBy string `json:"served_by,omitempty"`
+	// RegionProfileSetting names the setting of the `served_by` loophole that holds the profile
+	// the credential these vars point at is minted for — aws-auth's `profile`. An agent this
+	// contribution reaches takes its region, when nothing else gives it one, from that profile's
+	// section of its platform's `region_file`, since that is the profile its credential comes
+	// from (docs/design/bedrock-plumbing.md BR-DIR1, BR-D21). `env` only, beside `served_by` and a
+	// `platform` gate (regionProfileSettingProblems).
+	RegionProfileSetting string `json:"region_profile_setting,omitempty"`
 
 	// --- hook ---
 	Hook string `json:"hook,omitempty"` // hook: the named capability from KnownHooks
@@ -497,6 +504,15 @@ type Contribution struct {
 	// platform's variables (config.knownProviderKeys), so a user provider whose platform no
 	// selected pack declares variables for carries no region requirement.
 	RegionEnvName []string `json:"region_env_name,omitempty"`
+	// RegionFile says where an agent on this provider's PLATFORM keeps a region when neither the
+	// composed entry nor any of the `region_env_name` variables gives it one: a key in one
+	// profile's section of a configuration file on the machine yolo launches on. yolo reads it,
+	// delivers the region in the first variable the agent reads, and the region pre-flight then
+	// counts it, at every notch (packload's regionfill.go; docs/design/bedrock-plumbing.md
+	// BR-DIR1). packs/bedrock declares ~/.aws/config's for "aws-bedrock". A FACT ABOUT THE
+	// PLATFORM like `region_env_name`, which it needs beside it, and a PACK FIELD ONLY. See
+	// RegionFile.
+	RegionFile *RegionFile `json:"region_file,omitempty"`
 	// Models maps a model ALIAS an agent asks for to the provider's model ID —
 	// "default"/"fast" → "glm-5.3[1m]". Alias names are open vocabulary: which aliases a
 	// provider's consumers read is the consumer's business, not core's.
@@ -1333,8 +1349,11 @@ type ProviderContribution struct {
 	// RegionEnvName makes a region its platform's launch requirement; see the field's own
 	// comment on Contribution.
 	RegionEnvName []string
-	Models        map[string]string
-	ModelOptions  map[string]map[string]string
+	// RegionFile is where the platform's agents keep a region the environment does not carry;
+	// see the field's own comment on Contribution.
+	RegionFile   *RegionFile
+	Models       map[string]string
+	ModelOptions map[string]map[string]string
 	// Options is the profile surface this provider declares — the key set a profile for
 	// it may carry, with each option's default. The profile-schema owner (OQ-CS4); see
 	// the field's own comment on Contribution for why it is flat and what null means.
@@ -1366,6 +1385,7 @@ func (m *Manifest) Providers() []ProviderContribution {
 			Platform:      c.Platform,
 			Region:        c.Region,
 			RegionEnvName: c.RegionEnvName,
+			RegionFile:    c.RegionFile,
 			Models:        c.Models,
 			ModelOptions:  c.ModelOptions,
 			Options:       c.Options,
@@ -1830,6 +1850,8 @@ type EnvContribution struct {
 	Platform string
 	// ServedBy is the contribution's `served_by`, "" when it points at no yolo daemon.
 	ServedBy string
+	// RegionProfileSetting is the contribution's `region_profile_setting`, "" when it names none.
+	RegionProfileSetting string
 }
 
 // Gated reports whether the contribution carries a gate at all.
@@ -1910,7 +1932,7 @@ func (m *Manifest) GatedEnvContributions() []EnvContribution {
 			continue
 		}
 		out = append(out, EnvContribution{Vars: c.Vars, Profile: c.Profile, Platform: c.Platform,
-			ServedBy: c.ServedBy})
+			ServedBy: c.ServedBy, RegionProfileSetting: c.RegionProfileSetting})
 	}
 	return out
 }
@@ -3086,6 +3108,8 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, protocolsProblems(label, c)...)
 	problems = append(problems, platformSwitchProblems(label, c)...)
 	problems = append(problems, platformRegionProblems(label, c)...)
+	problems = append(problems, regionFileProblems(label, c)...)
+	problems = append(problems, regionProfileSettingProblems(label, c)...)
 	problems = append(problems, envOverrideProblems(label, c)...)
 	// `adapts` and `address` are the adapter's whole body, refused elsewhere in `profile`'s
 	// position and for its reason: on any other kind they are read by no consumer, so

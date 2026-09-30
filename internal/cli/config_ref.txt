@@ -1372,7 +1372,11 @@
                     credential pointer, for "aws-bedrock"), and `profile` to those that
                     selected that profile by name.  One gate at most.  A provider fact
                     belongs on `platform`: a second profile over the same provider gets
-                    it, which a name gate misses.
+                    it, which a name gate misses.  `region_profile_setting` (beside
+                    `served_by` and a `platform` gate) names the setting of the serving
+                    loophole that holds the profile its credential is minted for
+                    (aws-auth's `profile`): an agent it reaches takes its region from
+                    that profile's section of the platform's `region_file`.
       hook          {hook:"shared_credentials"|"shared_directory"|"unshare_directory"|
                     "per_jail_history", from (~-relative path the hook acts on), at (a
                     machine-scope state dir THIS pack declares; the two shared_* hooks
@@ -1410,6 +1414,8 @@
                     does nothing.
       provider      {name, platform, endpoints:{protocol:{base_url, wire_api}},
                     api_key_env_name, region, region_env_name:[NAME...],
+                    region_file:{path, path_env_name, profile_env_name,
+                    default_profile, profile_section, key},
                     models:{alias: id}, model_options, capabilities,
                     options:{option: default|null}} —
                     the SERVICE facts of a named provider: what service it is
@@ -1422,7 +1428,18 @@
                     every provider of this one's `platform` (which it needs beside it):
                     the variables an agent there reads its region from, so a launch
                     whose agent is on such a provider with no `region` and none of them
-                    delivered to it is refused, naming both ways to set one.  Composed UNDER your
+                    delivered to it is refused, naming both ways to set one.
+                    `region_file` (which needs `region_env_name` beside it) says where
+                    that platform's agents keep a region the environment does not carry:
+                    the `key` of one profile's section of a file under your home
+                    (`path`, relocated by `path_env_name`), the profile being the one the
+                    serving loophole's `region_profile_setting` names, else the one
+                    `profile_env_name` delivers, else `default_profile`, whose section
+                    is its bare name while every other profile's is `profile_section`
+                    with {profile} replaced.  yolo reads it on the machine it launches
+                    on and delivers the region in the first variable the agent reads,
+                    at every notch, saying so; packs/bedrock declares ~/.aws/config's
+                    `region`, AWS_CONFIG_FILE and AWS_PROFILE.  Composed UNDER your
                     `providers` entries per field, so overriding one model alias, one
                     region or one URL keeps everything else the pack shipped.  The
                     credential is NEVER

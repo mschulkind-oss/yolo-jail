@@ -137,9 +137,10 @@ func TestProviderRegionGapsNameAStrandedRegion(t *testing.T) {
 	}
 }
 
-// THE RENDERER: a verdict line (unindented, which the jail's printer bolds), the facts, the
-// ~/.aws/config note (a region yolo does not read is not counted), and the hatch; held, the
-// override notice over the same facts, and a launch that proceeds.
+// THE RENDERER: a verdict line (unindented, which the jail's printer bolds), the facts and the
+// hatch; held, the override notice over the same facts, and a launch that proceeds. The old
+// "A region in ~/.aws/config is not counted" line is GONE (BR-DIR1): the region fill reads that
+// file and delivers its region, and a fact names the file when it gave none.
 func TestProviderRegionRefusalWordsTheVerdictAndTheHatch(t *testing.T) {
 	facts := []string{"  • a fact", "  consulted for a region: x"}
 	lines, refuse := ProviderRegionRefusal(facts, false)
@@ -150,17 +151,17 @@ func TestProviderRegionRefusalWordsTheVerdictAndTheHatch(t *testing.T) {
 		t.Errorf("verdict = %q", lines[0])
 	}
 	got := strings.Join(lines, "\n")
-	for _, want := range []string{"  • a fact", "A region in ~/.aws/config is not counted: yolo does not read it.",
-		"launch anyway with " + paths.AllowMissingProvidersEnv + "=1"} {
+	for _, want := range []string{"  • a fact", "launch anyway with " + paths.AllowMissingProvidersEnv + "=1"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must say %q:\n%s", want, got)
 		}
 	}
-	// THE REVIEW'S FINDING 2: the first wording said an agent reading ~/.aws/config was
-	// "unproven", and Claude Code's own resolver reads it (2.1.285, read statically). The line
-	// says what is true — yolo does not read that file — and claims nothing about the agent.
-	if strings.Contains(got, "unproven") {
-		t.Errorf("the refusal must not call an ~/.aws/config region unproven; claude reads one:\n%s", got)
+	// THE REVIEW'S FINDING 2 said an agent reading ~/.aws/config was not "unproven", and BR-DIR1
+	// then had yolo read that file itself, so neither the old claim nor its correction survives.
+	for _, gone := range []string{"unproven", "not counted", "does not read it"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("the refusal must not say %q: yolo reads the region file now (BR-DIR1):\n%s", gone, got)
+		}
 	}
 	for _, l := range lines[1:] {
 		if l == "" || (l[0] != ' ' && l[0] != '\t') {

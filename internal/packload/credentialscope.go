@@ -99,6 +99,11 @@ type ScopeInput struct {
 	// Nil composes as declared, every variable delivered: the shape of a caller that is not
 	// composing for a notch. Every launch passes one.
 	Served *ServedDaemons
+	// RegionFiles is where this notch reads a platform's region file (regionfill.go,
+	// docs/design/bedrock-plumbing.md BR-DIR1): an agent on a provider reached through a region
+	// that receives none is given the one the file holds for its credential's profile. Nil reads
+	// no file, the shape of a caller that is not composing a launch (`yolo check`, a test).
+	RegionFiles *RegionFileSource
 }
 
 // CredentialScope is the gate's answer for one launch. Its accessors answer on a nil
@@ -158,8 +163,15 @@ type AgentDelivery struct {
 	// Fold is this agent's whole fold sequence (EnvFold for the agent), for a vehicle that
 	// composes one process from scratch (the host notch).
 	Fold []EnvFoldEntry
-	// Shape is its pack's env derive's output, composed through the gated lookup.
+	// Shape is its pack's env derive's output, composed through the gated lookup, then the
+	// region the fill read from the platform's region file when nothing else gives the agent one
+	// (RegionFile, regionfill.go): one list, so every vehicle that delivers the derive's output
+	// delivers the region too.
 	Shape []agentenv.Var
+	// RegionFile is what the region fill read for this agent, nil when it needed nothing from
+	// the file: the region it delivered, or why it delivered none, which the region pre-flight
+	// names (RegionAsk.File).
+	RegionFile *RegionFileLookup
 }
 
 // ScopeCredentials composes the gate's answer. A broken env derive is the one error, and
@@ -237,6 +249,9 @@ func ScopeCredentials(in ScopeInput) (*CredentialScope, error) {
 		}
 		d.Shape = shape
 	}
+	// THE REGION FILL, once every delivery is composed, since what already reaches an agent is
+	// asked of its whole delivery (BR-DIR1).
+	s.fillRegions(in)
 	return s, nil
 }
 

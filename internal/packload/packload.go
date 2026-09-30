@@ -590,6 +590,11 @@ type EnvFoldEntry struct {
 	// when it points at none. The credential gate withholds an entry whose daemon is not
 	// served at the notch it composes for (ScopeInput.Served).
 	ServedBy string
+	// RegionProfileSetting is the entry's contribution's `region_profile_setting`: the setting
+	// of the ServedBy loophole naming the profile the credential it points at comes from, which
+	// picks the section of the platform's region file an agent reached by it reads
+	// (regionfill.go). "" when the contribution names none.
+	RegionProfileSetting string
 	// Pack is the pack whose contribution the entry is, so a reader of the fold can say which
 	// pack declared a value: the host's OpenAI prelaunch keys its managed home on it.
 	Pack string
@@ -688,7 +693,8 @@ func EnvFold(packs []*Pack, sel GateSelection, agent string) []EnvFoldEntry {
 				continue
 			}
 			for _, k := range sortedMapKeys(gated.Vars) {
-				out = append(out, EnvFoldEntry{Key: k, Value: gated.Vars[k], ServedBy: gated.ServedBy, Pack: p.Name})
+				out = append(out, EnvFoldEntry{Key: k, Value: gated.Vars[k], ServedBy: gated.ServedBy,
+					RegionProfileSetting: gated.RegionProfileSetting, Pack: p.Name})
 			}
 		}
 	}

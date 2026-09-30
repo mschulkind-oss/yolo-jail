@@ -254,6 +254,13 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 			v := o.Getenv(name)
 			return v, v != ""
 		},
+		// THE REGION FILE (docs/design/bedrock-plumbing.md BR-DIR1), read on the machine this
+		// launcher runs on, from the environment it was launched from: an agent on a provider
+		// reached through a region that receives none is given the region its credential's
+		// profile names there, in its own env file. Nothing is Inherited: no backend forwards the
+		// launching shell into the jail (BR-D2). The loophole settings are the ones the launch
+		// writes each loophole's settings file from.
+		RegionFiles: &packload.RegionFileSource{Getenv: o.Getenv, Setting: packload.LoopholeSettingIn(cfg)},
 	})
 	if err != nil {
 		return nil, err

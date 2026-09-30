@@ -61,10 +61,16 @@ func TestCheckProviderCredentialsAsksForTheRegion(t *testing.T) {
 		"neither AWS_REGION nor AWS_DEFAULT_REGION is set",
 		`"providers": {"bedrock": {"region": "<region>"}}`,
 		packload.FromEnvSources + ": none configured", packload.FromPackEnv, packload.FromProfileEnv,
-		"~/.aws/config is not counted", paths.AllowMissingProvidersEnv + "=1"} {
+		// The region file the fill consulted (BR-DIR1): this launch environment names no HOME,
+		// so it says it read none.
+		"~/.aws/config (profile \"default\", since nothing names another): not read",
+		paths.AllowMissingProvidersEnv + "=1"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal must say %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "not counted") {
+		t.Errorf("yolo reads the region file now, so the refusal must not say it is not counted:\n%s", got)
 	}
 	if strings.Contains(got, packload.FromContainerArgv) {
 		t.Errorf("no argv was assembled, so the argv is not a consulted channel:\n%s", got)

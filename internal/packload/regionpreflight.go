@@ -22,17 +22,17 @@ package packload
 // which AWS variable carries a region is the pack's fact, for the reason envoverride.go gives
 // for the credential variables.
 //
-// WHAT COUNTS AS A REGION is exactly what the ruling names, both of which yolo can see at
-// launch: the composed entry's `region` (the pack's fact under the user's `providers` entry,
-// which may set it from either config scope), and one of the declared variables set in what
-// the launch delivers to the agent. Nothing else — an `~/.aws/config` region in particular is
-// not counted, because yolo does not read that file, and the refusal says exactly that. It
-// used to say that an agent reading it was "unproven", which is false of claude: Claude Code's
-// resolver does read the shared-config region for the active AWS_PROFILE (read statically from
-// 2.1.285). So at `yolo host`, where the user's ~/.aws is claude's own, a user whose profile
-// names a region is refused although claude would find one; whether yolo should read that file
-// there is a question back to the maintainer (bedrock-plumbing.md, OQ-BR6), and until it is
-// answered the hatch is the way through.
+// WHAT COUNTS AS A REGION is what the ruling names, both of which yolo can see at launch — the
+// composed entry's `region` (the pack's fact under the user's `providers` entry, which may set
+// it from either config scope), and one of the declared variables set in what the launch
+// delivers to the agent — and, since the maintainer's direction of 2026-09-29
+// (bedrock-plumbing.md BR-DIR1, revising BR-D5's "yolo does not read it"), the region the
+// platform's REGION FILE holds for the profile the agent's credential comes from: ~/.aws/config
+// for Bedrock. That one is not counted here but DELIVERED, by the credential gate's region fill
+// (regionfill.go), in the first variable the agent reads, so each notch's lookup finds it like
+// any delivered variable, and at `yolo host` and in a jail alike. When the file gives none, the
+// ask carries what the fill read (RegionAsk.File) and the refusal names the file, the profile
+// and why.
 //
 // PER AGENT, because the credential gate made delivery per agent (OQ-CN6): a region one agent
 // receives through its own gated env or its own shape vars is not a region another agent on
@@ -58,22 +58,26 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // regionRequirement is one PLATFORM's region requirement: the pack whose provider declared the
-// platform's region variables, and those variables.
+// platform's region variables, those variables, and where the platform's agents keep a region
+// the environment does not carry (nil when no provider declares a `region_file`).
 type regionRequirement struct {
 	pack string
 	vars []string
+	file *packdecl.RegionFile
 }
 
 // regionRequirements maps each platform a selected pack says is reached through a region to its
 // requirement. Every provider declaration carrying `region_env_name` (which packdecl refuses
 // without a `platform` beside it) adds its variables to its platform's list, in declaration
 // order and without repeats, and the requirement is attributed to the last pack that declared
-// one. A platform no pack declares variables for has no entry, and neither has a provider with
-// no platform at all.
+// one; its `region_file` (which packdecl refuses without `region_env_name`), likewise the last
+// declared. A platform no pack declares variables for has no entry, and neither has a provider
+// with no platform at all.
 func regionRequirements(packs []*Pack) map[string]regionRequirement {
 	out := map[string]regionRequirement{}
 	for _, p := range packs {
@@ -91,6 +95,9 @@ func regionRequirements(packs []*Pack) map[string]regionRequirement {
 				}
 			}
 			req.pack = p.Name
+			if prov.RegionFile != nil {
+				req.file = prov.RegionFile
+			}
 			out[prov.Platform] = req
 		}
 	}
@@ -114,6 +121,10 @@ type RegionAsk struct {
 	Agent    string
 	Provider string
 	Lookup   func(string) (string, bool)
+	// File is what the region fill read for this agent (AgentDelivery.RegionFile), nil when it
+	// read nothing: the refusal names the file and profile it consulted and why they gave no
+	// region, and offers the file as a third way to set one.
+	File *RegionFileLookup
 }
 
 // ProviderRegionGaps returns the FACT lines of the region pre-flight, empty when every agent on
@@ -174,8 +185,18 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []Regio
 					" from "+orList(vars)+" alone")
 			}
 		}
+		// THE REGION FILE the fill consulted for this agent (BR-DIR1), and why it gave none:
+		// one line per distinct file and profile, since agents on one provider share both.
+		if ask.File != nil {
+			if fact := ask.File.refusalFact(); !slices.Contains(gap.files, fact) {
+				gap.files = append(gap.files, fact)
+				gap.remedies = append(gap.remedies, ask.File.remedy())
+				gap.consulted = append(gap.consulted, ask.File.fileLabel()+" ["+ask.File.Section+"]")
+			}
+		}
 	}
 	var facts []string
+	var files []string
 	for _, name := range providers.Keys() {
 		platform := entryString(providerEntry(providers, name), "platform")
 		req := reqs[platform]
@@ -193,8 +214,18 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []Regio
 						"which this launch does not deliver to the agent")
 				}
 			}
-			facts = append(facts, fmt.Sprintf("    set one: \"providers\": {%q: {\"region\": \"<region>\"}} "+
-				"in your yolo config, or %s=<region> in an env_sources entry", name, gap.vars[0]))
+			facts = append(facts, gap.files...)
+			remedy := fmt.Sprintf("    set one: \"providers\": {%q: {\"region\": \"<region>\"}} "+
+				"in your yolo config, or %s=<region> in an env_sources entry", name, gap.vars[0])
+			for _, r := range gap.remedies {
+				remedy += ", or " + r
+			}
+			facts = append(facts, remedy)
+			for _, c := range gap.consulted {
+				if !slices.Contains(files, c) {
+					files = append(files, c)
+				}
+			}
 		}
 	}
 	if len(facts) == 0 {
@@ -204,16 +235,23 @@ func ProviderRegionGaps(packs []*Pack, providers *jsonx.OrderedMap, asks []Regio
 	if len(consulted) > 0 {
 		where += ", then " + strings.Join(consulted, ", ")
 	}
+	if len(files) > 0 {
+		where += ", then " + strings.Join(files, ", ")
+	}
 	return append(facts, "  consulted for a region: "+where)
 }
 
 // regionGap is one refusal fact of the region pre-flight: the agents on one provider that
-// receive none of the variables they read, those variables, and the lines naming a variable
-// the platform lists that reached one of them unread.
+// receive none of the variables they read, those variables, the lines naming a variable the
+// platform lists that reached one of them unread, and the region files the fill read for them
+// (the fact, the remedy, and the consulted entry of each).
 type regionGap struct {
-	vars   []string
-	agents []string
-	unread []string
+	vars      []string
+	agents    []string
+	unread    []string
+	files     []string
+	remedies  []string
+	consulted []string
 }
 
 // gapFor returns provider's gap for agents reading vars, adding one in first-seen order.
@@ -276,9 +314,10 @@ func RegionConsulted(envSources []string, channels ...string) []string {
 //
 // THE CREDENTIAL PRE-FLIGHT'S HATCH, not one of its own. A selected provider with no region is
 // a provider this launch cannot deliver, which is what YOLO_ALLOW_MISSING_PROVIDERS already
-// overrules; and the one launch a user may need it for is an agent that does read a region the
-// refusal cannot count (an ~/.aws/config one), which is a fact about the user's setup rather
-// than a yolo fault.
+// overrules; the one launch a user may need it for is an agent that reads a region from a place
+// neither the refusal nor the fill counts, which is a fact about the user's setup rather than a
+// yolo fault. A region in the platform's region file IS counted since BR-DIR1: the fill delivers
+// it (regionfill.go), and the facts name the file and profile it read when it gave none.
 func ProviderRegionRefusal(facts []string, held bool) (lines []string, refuse bool) {
 	if len(facts) == 0 {
 		return nil, false
@@ -293,7 +332,6 @@ func ProviderRegionRefusal(facts []string, held bool) (lines []string, refuse bo
 		"Refusing to launch: a selected provider is reached through a region, and this launch names none.",
 	}, facts...)
 	return append(lines,
-		"  A region in ~/.aws/config is not counted: yolo does not read it.",
 		"  Set a region as above, or launch anyway with "+paths.AllowMissingProvidersEnv+"=1."), true
 }
 

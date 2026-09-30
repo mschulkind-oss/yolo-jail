@@ -47,7 +47,15 @@
       "region_env_name": [
         "AWS_REGION",
         "AWS_DEFAULT_REGION"
-      ]
+      ],
+      "region_file": {
+        "default_profile": "default",
+        "key": "region",
+        "path": ".aws/config",
+        "path_env_name": "AWS_CONFIG_FILE",
+        "profile_env_name": "AWS_PROFILE",
+        "profile_section": "profile {profile}"
+      }
     },
     {
       "kind": "profile",

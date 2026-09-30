@@ -574,7 +574,10 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// THE GRANT'S DISCLOSURE (OQ-ES5) follows it: on every run the flag is given, whatever it
 	// delivered, names only. Never suppressible (OQ-RO3), so it is printed unconditionally
 	// here rather than folded into a line a quieter path could skip.
-	for _, block := range [][]string{launch.credentialScopeLines(), launch.grantLines()} {
+	//
+	// THE REGION FILL'S DISCLOSURE (BR-DIR1) leads them: a region the gate read from the region
+	// file for this agent, with the file and the profile, in the jail's words.
+	for _, block := range [][]string{launch.regionLines(), launch.credentialScopeLines(), launch.grantLines()} {
 		printHostLines(errw, block)
 	}
 
@@ -1060,6 +1063,13 @@ func (c *hostComposition) credentialScopeLines() []string {
 	})
 }
 
+// regionLines is the region fill's disclosure for this launch (packload's RegionLines,
+// docs/design/bedrock-plumbing.md BR-DIR1): the region the gate read from the region file for
+// this agent, the file and the profile, in the words the jail prints. Nil when it read none.
+func (c *hostComposition) regionLines() []string {
+	return c.scope.RegionLines()
+}
+
 // unservedLines names what this notch withheld because nothing here serves it — a pack env
 // variable pointing at a jail daemon, a profile's via (P4, notch convergence item 2) — in the
 // words every notch prints (packload.UnservedLines). Header first, like the disclosure.
@@ -1380,7 +1390,7 @@ func (c *hostComposition) regionGaps() []string {
 		return nil
 	}
 	return packload.ProviderRegionGaps(c.packs, c.providers, []packload.RegionAsk{{
-		Agent: c.agent, Provider: d.Provider,
+		Agent: c.agent, Provider: d.Provider, File: d.RegionFile,
 		Lookup: func(name string) (string, bool) {
 			v, ok := idx[name]
 			return v, ok && v != ""
@@ -1708,6 +1718,13 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		// the host's own loopback a credential for whoever binds the port (notch convergence
 		// item 2). The jail's vehicles apply the same rule through the same gate.
 		Served: &hostServed,
+		// THE REGION FILE, the jail's rule (docs/design/bedrock-plumbing.md BR-DIR1): this
+		// agent could read ~/.aws/config itself, and is given its credential profile's region
+		// anyway, so the refusal and the disclosure are one at every notch. The invoking shell is
+		// Inherited here, since the exec'd agent receives it: a region or profile exported there
+		// counts, as it does for the agent.
+		RegionFiles: &packload.RegionFileSource{Getenv: os.Getenv, Inherited: os.LookupEnv,
+			Setting: packload.LoopholeSettingIn(cfg)},
 	}
 	scope, err := packload.ScopeCredentials(c.scopeInput)
 	// A PAIRING THROUGH A PACK SERVICE'S ADAPTATION (docs/design/host-notch-services.md §4.2). The
@@ -2378,7 +2395,7 @@ func hostEnvDelta(agent, profile string, grant *hostGrantRequest, warn func(stri
 	blocks := [][]string{c.selectionLines(), c.profileLines(), refusal}
 	blocks = append(blocks, warnings...)
 	var disclosure []string
-	for _, block := range append(blocks, c.credentialScopeLines(), c.unservedLines(nil), c.grantLines()) {
+	for _, block := range append(blocks, c.regionLines(), c.credentialScopeLines(), c.unservedLines(nil), c.grantLines()) {
 		disclosure = append(disclosure, block...)
 	}
 	return c.vars, disclosure, nil

@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -143,5 +145,41 @@ func TestBedrockRefusesOpencodeARegionItDoesNotRead(t *testing.T) {
 		if !strings.Contains(r.combined(), want) {
 			t.Errorf("the refusal must say %q:\n%s", want, r.combined())
 		}
+	}
+}
+
+// THE HOST'S AWS CONFIG GIVES THE REGION, at a real launch (docs/design/bedrock-plumbing.md
+// BR-DIR1): opencode on `-p bedrock` with no region on the provider and none in env_sources is
+// given its default profile's region from the launcher's ~/.aws/config (an invented one, in the
+// isolated home), in opencode's own env file and nowhere else, and the launch says where it came
+// from. The same launch without the file is TestBedrockRefusesOpencodeARegionItDoesNotRead's
+// refusal, which the unit tier pins too.
+func TestBedrockTakesTheRegionOfTheHostsAWSConfig(t *testing.T) {
+	requireJail(t)
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["opencode"]}`)
+	home := os.Getenv("HOME")
+	if err := os.MkdirAll(filepath.Join(home, ".aws"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".aws", "config"),
+		[]byte("[default]\nregion = eu-north-1\n\n[profile team]\nregion = ap-northeast-1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	script := `echo "SHELL_REGION=${AWS_REGION-unset}"; . ~/.config/yolo-agent-env/opencode.sh; echo "REGION=${AWS_REGION-unset}"`
+	r := runCommand(t, dir, append(jailRunArgs(), "-p", "bedrock", "--", "bash", "-lc", script))
+	if r.rc != 0 {
+		t.Fatalf("a region in the host's ~/.aws/config must let -p bedrock -- opencode launch: rc %d\n%s", r.rc, r.combined())
+	}
+	if got := kvLine(r.stdout, "REGION"); got != "eu-north-1" {
+		t.Errorf("opencode's env file carries AWS_REGION=%q, want the default profile's eu-north-1:\n%s", got, r.combined())
+	}
+	if got := kvLine(r.stdout, "SHELL_REGION"); got != "unset" {
+		t.Errorf("the region is opencode's, yet a bare shell in the jail has AWS_REGION=%q", got)
+	}
+	if want := `Region: AWS_REGION=eu-north-1 for opencode on provider "bedrock", read from ~/.aws/config [default]`; !strings.Contains(r.stderr, want) {
+		t.Errorf("the launch must say where the region came from, %q:\n%s", want, r.stderr)
 	}
 }

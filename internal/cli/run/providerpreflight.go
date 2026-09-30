@@ -90,6 +90,10 @@ func (o *Options) checkProviderCredentials(cfg *jsonx.OrderedMap, packs []*packl
 // forwards that environment under its own name. So a region exported only in the invoking shell
 // is not counted, and the refusal names it as stranded there, which is the one form of this
 // mistake a user can see from their own terminal.
+//
+// A REGION FROM THE HOST'S REGION FILE IS DELIVERED, NOT COUNTED HERE (BR-DIR1): the gate's
+// region fill put it in the agent's shape vars (packload's regionfill.go), which DeliveredTo
+// reads, and the ask carries what the fill read so a refusal names the file and profile.
 func (o *Options) checkProviderRegions(cfg *jsonx.OrderedMap, packs []*packload.Pack,
 	channel *packChannel, argvPairs map[string]string, held bool) ([]string, bool) {
 	var asks []packload.RegionAsk
@@ -98,7 +102,7 @@ func (o *Options) checkProviderRegions(cfg *jsonx.OrderedMap, packs []*packload.
 		if d == nil || d.Provider == "" {
 			continue // a grant-only process selects no provider
 		}
-		asks = append(asks, packload.RegionAsk{Agent: agent, Provider: d.Provider,
+		asks = append(asks, packload.RegionAsk{Agent: agent, Provider: d.Provider, File: d.RegionFile,
 			Lookup: func(name string) (string, bool) {
 				if v, found := argvPairs[name]; found && v != "" {
 					return v, true

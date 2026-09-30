@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // noteCredentialScope prints the gate's disclosure to stderr — every arm that delivers a
@@ -21,13 +22,19 @@ func (o *Options) noteCredentialScope(channel *packChannel) {
 		return
 	}
 	o.noteUnserved(channel)
+	out := o.pr(o.Stderr)
+	// THE REGION FILL'S DISCLOSURE (docs/design/bedrock-plumbing.md BR-DIR1): a region the gate
+	// read from the host's region file for an agent is named, with the file and the profile, in
+	// the words the host notch prints (packload's RegionLines).
+	for _, l := range channel.scope.RegionLines() {
+		out.print(richtext.Escape(l))
+	}
 	// The one disclosure renderer, the host's too; the jail adds no notes (ES-D2 keeps its
 	// wording until OQ-ES5 decides whether a jail shell has a remedy).
 	lines := channel.scope.DisclosureWith(packload.DisclosureNotes{})
 	if len(lines) == 0 {
 		return
 	}
-	out := o.pr(o.Stderr)
 	out.print("[dim]" + lines[0] + "[/dim]")
 	for _, l := range lines[1:] {
 		out.print(l)
