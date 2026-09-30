@@ -890,8 +890,15 @@ ship `briefing/worktrees.md` as `{"kind": "briefing", "from": "briefing/worktree
 line it would broadcast to every agent, and a content `into` narrows only at the host notch
 ([below](#briefing-non-goals)). Their destination lines keep `into` and take no `agents`, and
 content in an agent pack may name only that pack's own agent; `TestShippedAgentPacksKeepIntoForSkew`
-holds both, and states the version-skew window the addressed line accepts
-([DS-D33](../design/durable-scratch-space.md#DS-D33)).
+holds both. The addressed line opens a version-skew window: an entrypoint older than the
+audiences field (first released in v0.9.0) refuses it, and the boot fails. `just install` and a
+release each publish the host `yolo` and the entrypoint together, so only a from-source launch
+(`YOLO_REPO_ROOT`) can pair a newer host with such an entrypoint, and the source-skew gate
+refuses that launch only when the checkout contains the binary's commit. Measured, the line
+widens no window, since those older readers already refuse today's claude and pi manifests for
+other reasons. Whether to accept the window is not ruled
+([DS-D33](../design/durable-scratch-space.md#DS-D33),
+[OQ-D6](../design/slots-and-contributions.md#OQ-D6)).
 
 **Two content contributions naming one source are refused**, naming both
 ([`OQ-PB5`](#oq-pb5)): the same cleaned `from`, or

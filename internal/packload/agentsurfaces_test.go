@@ -163,13 +163,19 @@ func TestEveryAgentPackDeclaresItsBriefingIdentity(t *testing.T) {
 // one agent's tool, and no other shape delivers it to that agent alone: a `briefing/` file
 // nobody names broadcasts to every agent, and a content `into` narrows only at the host notch
 // (a jail broadcasts it — docs/reference/pack-system.md, "A content `into` narrows at the host
-// notch only"). The accepted cost is the window above for that one line: an entrypoint built
-// before the audiences field (9218bf76, 2026-09-02, first released in v0.10.0) refuses it, a
-// pairing the source-skew gate refuses unless YOLO_ALLOW_SOURCE_SKEW=1 and `just install`
-// repairs. The DESTINATION keeps `into` and never takes `agents`, as before, and content may
-// name only the pack's own agent: a broadcast or another agent's name would put one agent's
-// tool facts in every agent's instructions, or fail every launch that does not select the
-// agent it names (docs/reference/agent-briefings.md#ba-p3).
+// notch only"). The cost is the window above for that one line: an entrypoint built before the
+// audiences field (9218bf76, 2026-09-02, first released in v0.9.0) refuses it. Only pairing
+// closes that window — `just install` and a release each publish both halves together — and
+// the source-skew gate does not close it: it refuses a from-source launch only when the
+// checkout contains the binary's commit, and is silent when the checkout lacks it or is no git
+// repository (TestSourceSkewSilentWithoutProof). Measured, the line widens no window: the
+// readers at v0.8.0 and at 9218bf76's parent already refuse today's claude and pi manifests for
+// other reasons (DS-D33). Whether to accept the window on that premise is the maintainer's,
+// under OQ-D6 (docs/design/slots-and-contributions.md). The DESTINATION
+// keeps `into` and never takes `agents`, as before, and content may name only the pack's own
+// agent: a broadcast or another agent's name would put one agent's tool facts in every agent's
+// instructions, or fail every launch that does not select the agent it names
+// (docs/reference/agent-briefings.md#ba-p3).
 func TestShippedAgentPacksKeepIntoForSkew(t *testing.T) {
 	for _, p := range agentPacks(t) {
 		own := map[packdecl.Kind]string{}

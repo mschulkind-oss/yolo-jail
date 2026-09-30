@@ -13,7 +13,8 @@ vantage:
 **Status:** DESIGN, 2026-09-21 — seven rulings are owed. The ROLE MODEL is decided (2026-09-20) and
 the BUILD is blocked (2026-09-21). Re-checked against the tree 2026-09-24: the premises of
 [OQ-D6](#OQ-D6), [OQ-D8](#OQ-D8) and [OQ-D9](#OQ-D9) have moved since they were filed, each
-question carries a note saying how, and none of them is ruled.
+question carries a note saying how, and none of them is ruled. [OQ-D6](#OQ-D6)'s moved again on
+2026-09-29, when two shipped agent packs took one addressed content line each.
 [OQ-D1](#6-open-questions)–[OQ-D5](#OQ-D5) are ruled and stand. An attempt to build slice 1 on
 2026-09-21 stopped at seven places where the doc does not say enough for an implementer to proceed
 without CHOOSING A BEHAVIOUR — filed below as [OQ-D6](#OQ-D6)–[OQ-D12](#OQ-D12), one of them
@@ -477,6 +478,23 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    > `{"kind":"briefing"}` as a broadcast ([briefing P2](../reference/pack-system.md#briefing-p2)),
    > so only an entrypoint older than that refuses it.
 
+   > **Premise changed again, 2026-09-29, not ruled here.** Since
+   > [DS-D33](durable-scratch-space.md#DS-D33) the claude and pi packs each ship one ADDRESSED
+   > CONTENT line, `{"kind": "briefing", "from": "briefing/worktrees.md", "agents": ["claude"]}`
+   > (`["pi"]` for pi), and `TestShippedAgentPacksKeepIntoForSkew` no longer says *"Only a USER's
+   > own pack … may reach the addressed shape"*: it admits exactly that line on an agent pack. The
+   > rule for DESTINATIONS is unchanged — they keep `into` and take no `agents` — so the `exposes`
+   > migration this question is about stands where it did. The line opens this question's window
+   > for content: an entrypoint older than the audiences field (`9218bf76`, first released in
+   > v0.9.0) refuses it and fails the boot. The note above overstates the guard:
+   > `version.SourceSkew` refuses a from-source launch only when the checkout contains the
+   > binary's commit, and returns nil when it does not or when the flake tree is not a git
+   > repository (`TestSourceSkewSilentWithoutProof`). Pairing is what closes the window:
+   > `just install` and a release each publish both halves together. Measured the same day, the
+   > two lines widen no window: the readers at v0.8.0 and at `9218bf76`'s parent already refuse
+   > today's claude and pi manifests for other reasons (DS-D33, and its doc's Appendix A). Whether
+   > those two lines may ship on that premise is part of this question, and DS-D33 waits on it.
+
    <!-- vantage: oq id=OQ-D6 leaning="Ship `exposes` as ADDITIVE and keep `into` on every shipped pack for a release: a jail reads whichever it understands, and only a user's own pack may go exposes-only — which is the boundary the skew test already draws." -->
 
    _Leaning:_ additive, in the shape the skew test already permits. The new axis is skew-safe for
@@ -659,7 +677,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 | **OQ-D3** | **All three kinds.** The conflation is identical and fixing `files` alone leaves two kinds carrying the flag. ⚠ The original leaning was WITHDRAWN first (`agents` appears in no shipped manifest, and every `briefing`/`skills` contribution is already unambiguously a destination), then ruled the same way in the opposite direction once [OQ-D5](#OQ-D5) made the migration a DELETION rather than a rename | 2026-09-20 | [§6](#6-open-questions) | no |
 | **OQ-D5** | **Declared once per pack (B), stated as a rule about core's vocabulary:** core knows an "agent" only insofar as it identifies a config target; a pack provides **0 or 1** and must NAME the one it provides — declared, never derived | 2026-09-20 | [`OQ-D5`](#OQ-D5) | no. ⚠ [OQ-D11](#OQ-D11) is the unpriced half: core's own `mise`/`user` surface owners are not agents and have no pack to take an identity from |
 | **OQ-D4** | **Provisional.** `exposes`/`accepts` read as the receiving end; `to` is the shortest thing that is not `into`. Settled only until someone proposes better. ⚠ Its own "must not collide with an existing key" is already unmet — `to` is a JSON key three times in this schema (a jail path, a `/ctx` path, a protocol), and `adapts.to` would sit inside the same contribution entry as a slot `to` | 2026-09-20 | [§6](#6-open-questions) | no |
-| **OQ-D6** | — **open, and the BLOCKER.** The migration window: a shipped pack that drops `into` bricks an older baked entrypoint's boot, or silently delivers every briefing and skill nowhere. `TestShippedAgentPacksKeepIntoForSkew` already draws the boundary — only a user's own pack may reach the addressed shape. ⚠ The "baked entrypoint" premise has changed: the entrypoint is mounted from the flake bundle every launch, so the window is now a host `yolo` newer than that bundle, unmeasured | — | — | — |
+| **OQ-D6** | — **open, and the BLOCKER.** The migration window: a shipped pack that drops `into` bricks an older baked entrypoint's boot, or silently delivers every briefing and skill nowhere. `TestShippedAgentPacksKeepIntoForSkew` already draws the boundary — only a user's own pack may reach the addressed shape. ⚠ The "baked entrypoint" premise has changed: the entrypoint is mounted from the flake bundle every launch, so the window is now a host `yolo` newer than that bundle, unmeasured. ⚠ 2026-09-29: since [DS-D33](durable-scratch-space.md#DS-D33) the claude and pi packs each ship one addressed CONTENT line, so the test's boundary now admits that shape on an agent pack; destinations still keep `into`. That line's window (an entrypoint before v0.9.0 fails the boot) is closed by pairing, not by `version.SourceSkew`, which is silent unless the checkout contains the binary's commit; measured, it widens no window, those old readers already refusing both manifests for other reasons. Accepting it waits on this question | — | — | — |
 | **OQ-D7** | — **open.** `accepts` has no vocabulary, no stated consumer and no stated relation to `kind`'s `Combine` — and combining decides whether two packs addressing one slot is legal or fatal | — | — | — |
 | **OQ-D8** | — **open.** What the `briefing` and `skills` slots are CALLED. Conventional names make content packs portable and let the kind-only borrower resolve; per-agent names relocate the coupling from paths to names | — | — | — |
 | **OQ-D9** | — **open.** `to` is a scalar and `agents` is a list, so a multi-agent audience has no spelling. ⚠ The body's "broadcast is not at risk" premise has changed: since [briefing P2](../reference/pack-system.md#briefing-p2) a manifest can declare a broadcast, so `to` needs a spelling for one too | — | — | — |
