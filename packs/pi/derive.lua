@@ -479,6 +479,35 @@ local function callableModel(p, list, profile, pick)
   return nil
 end
 
+-- THE NATIVE BEDROCK BINDING (docs/design/bedrock-plumbing.md §6.2, the native half of OQ-BR5;
+-- OQ-BR1: `-p bedrock` puts an agent on Bedrock through its OWN Bedrock client where it has one).
+-- pi has one: pi-ai's built-in provider `amazon-bedrock` on its `bedrock-converse-stream` API.
+-- Every fact below was read from pi 0.99.1, the copy the launcher installs, on 2026-09-29, and
+-- never run (@earendil-works/pi-ai/dist, beside pi-coding-agent's own dist):
+--
+--   - providers/amazon-bedrock.js registers `amazon-bedrock` on bedrockConverseStreamApi() and
+--     resolves its credential from a stored key, AWS_BEARER_TOKEN_BEDROCK, AWS_PROFILE, an access
+--     key pair, the container-credentials variables (aws-auth's pointer) or a web identity file;
+--   - api/bedrock-converse-stream.js takes the region from an inference-profile ARN, else the
+--     options, AWS_REGION or AWS_DEFAULT_REGION, else the model's catalog endpoint region, else
+--     us-east-1; so a region the PROVIDER declares must reach pi's environment (yolo.env below);
+--   - core/provider-composer.js applyModelsJson accepts a models.json row for a built-in
+--     provider that carries only `models`, and modelFromJson takes each such model's `api` and
+--     `baseUrl` from pi's own catalog, so the row names neither and the models stay on Converse.
+--     A row whose id pi's catalog also holds REPLACES that entry, and facts the row does not
+--     declare fall to pi's defaults (a 128,000-token window, a 16,384-token output cap, text
+--     only, no reasoning, zero cost), which is why the list declares its window, cap and inputs.
+--
+-- The models are every entry of the list (Converse serves each shipped maker's), the session
+-- starts on the list's first or the one a profile names, and only the selected provider, on pi's
+-- own transport, is bound: a via profile (`bedrock-bridge`) gets the ordinary via row, which the
+-- launch refuses while the bridge has no upstream for a provider named by region alone.
+local piBedrockProvider = "amazon-bedrock"
+
+local function piNativeBedrock(ctx)
+  return ctx.selected_platform == "aws-bedrock" and (ctx.via_url or "") == ""
+end
+
 -- models: the catalog. Returning {} writes no row and leaves the surface's declared default,
 -- `{"providers": {}}` (packs/pi/pack.json; docs/design/host-computed-layer.md HC-D1), because
 -- pi 0.87.1's ModelsConfigSchema requires `providers` and reports a file without it as a
@@ -509,6 +538,13 @@ yolo.derive("pi", "models", function(ctx)
       name == ctx.selected_provider)
     if viaRow then
       baseUrl, api = ctx.via_url, "openai-completions"
+    end
+    -- A BEDROCK PROVIDER GETS NO GENERIC ROW, even one a user gave an `openai` endpoint: the row
+    -- carries one key, and Bedrock's credential is the AWS chain, which only pi's own
+    -- amazon-bedrock client signs with (the native row below). A via row still rides the
+    -- bridge, which signs for it.
+    if baseUrl and not viaRow and type(prov) == "table" and prov.platform == "aws-bedrock" then
+      baseUrl = nil
     end
     if baseUrl then
       local isKilo = (name == "kilo" or isKiloEndpoint(baseUrl))
@@ -632,6 +668,29 @@ yolo.derive("pi", "models", function(ctx)
         entry.apiKey = "local"
       end
       providers[name] = entry
+    end
+  end
+  -- The native Bedrock row (piNativeBedrock above): `models` alone, no baseUrl, no api and no
+  -- apiKey, so each model stays on pi's own Converse client and pi resolves the AWS credential.
+  -- Each model carries the facts the list declares for it, read by the same piModelFacts every
+  -- other row uses. A list with nothing in it writes no row: pi's `models` must be a non-empty
+  -- array or the whole file is discarded (see the `models` note above).
+  if piNativeBedrock(ctx) and providers[piBedrockProvider] == nil then
+    local p = ctx.providers[ctx.selected_provider]
+    local modelList = {}
+    for _, e in ipairs(callableModels(p, nil)) do
+      local m = { id = e.id, name = e.facts.name or e.id }
+      local cw, maxTokens = tonumber(e.facts.context_window), tonumber(e.facts.max_tokens)
+      if cw then m.contextWindow = cw end
+      if maxTokens then m.maxTokens = maxTokens end
+      local facts = piModelFacts(e.facts, p, ctx, ctx.selected_provider)
+      if facts then
+        for k, v in pairs(facts) do m[k] = v end
+      end
+      table.insert(modelList, m)
+    end
+    if #modelList > 0 then
+      providers[piBedrockProvider] = { models = modelList }
     end
   end
   if next(providers) == nil then
@@ -771,6 +830,36 @@ yolo.derive("pi", "settings", function(ctx)
     return {
       subagents = piSubagents(ctx, "openai-codex", model, ids),
       selection = { defaultProvider = "openai-codex", defaultModel = model },
+    }
+  end
+  -- Bedrock through pi's own client (piNativeBedrock above): pi's built-in provider, started on
+  -- the model a profile names among the entries pi can call, else the list's first. yolo picks
+  -- here because pi's own catalog lists bare ids beside runtime ones (bedrock-plumbing.md §4:
+  -- the P1 404, shipped by a vendor), so a session left to pi may start on one runtime refuses
+  -- (docs/design/model-lists-and-pickers.md OQ-ML2). The scope is the list, the start model
+  -- first, since pi starts on the first scoped model whenever the saved pair falls outside it;
+  -- and the pi-subagents policy keeps children on this provider. A list with nothing pi can
+  -- call names the provider alone and scopes all of it, and pi picks its own model.
+  if piNativeBedrock(ctx) then
+    local list = callableModels(p, nil)
+    local model = callableModel(p, list, ctx.profile, true)
+    local ids = {}
+    if model then table.insert(ids, model) end
+    for _, e in ipairs(list) do
+      if e.id ~= model then table.insert(ids, e.id) end
+    end
+    local sel = { defaultProvider = piBedrockProvider, defaultModel = model }
+    local enabled = {}
+    for _, id in ipairs(ids) do
+      table.insert(enabled, piBedrockProvider .. "/" .. id)
+    end
+    if #enabled == 0 then
+      enabled = { piBedrockProvider .. "/*" }
+    end
+    sel.enabledModels = enabled
+    return {
+      subagents = piSubagents(ctx, piBedrockProvider, model, ids),
+      selection = sel,
     }
   end
   if not piReachable(p) then
@@ -927,7 +1016,19 @@ end)
 -- profile over openai-codex launched pi with no login. openai-codex is recognized by name
 -- because it is pi's own built-in provider id, the same test the settings derive above makes
 -- (PP-D2).
+--
+-- And THE BEDROCK REGION, when pi's own Bedrock client is the transport (piNativeBedrock): a
+-- region the provider declares reaches pi as AWS_REGION, because pi reads its region from its
+-- environment and has no config field for it (api/bedrock-converse-stream.js, pi 0.99.1). A
+-- region the environment already carries needs nothing: the launch delivers it to pi itself.
 yolo.env("pi", function(ctx)
+  if piNativeBedrock(ctx) then
+    local p = ctx.providers and ctx.providers[ctx.selected_provider] or nil
+    if type(p) == "table" and type(p.region) == "string" and p.region ~= "" then
+      return { AWS_REGION = p.region }
+    end
+    return {}
+  end
   if ctx.selected_provider ~= "openai-codex" then return {} end
   return {
     YOLO_AUTH_PRELAUNCH_PI_FLAG = "--pi-auth",

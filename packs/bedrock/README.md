@@ -65,8 +65,11 @@ states (`context_window`, `max_tokens`, `input`), and Claude Opus 5.5 its reason
 | claude | Anthropic models: its Bedrock client drives the Messages API, which serves Claude only | its own Bedrock default. yolo pins a model only when the profile names one, or your config names a `default` alias Claude can call |
 | codex | OpenAI models: its built-in `amazon-bedrock-runtime` client drives the Responses API, which AWS serves for them and not for Anthropic's | GPT-6.1 Sol (US) |
 | opencode | every entry: its built-in `amazon-bedrock` provider sends a cross-Region id to runtime's Converse API, which serves each of them | Claude Opus 5.5 (Global) |
+| pi | every entry: its built-in `amazon-bedrock` provider drives Converse | Claude Opus 5.5 (Global) |
 
-The agents that run their own Bedrock client are listed here as each is bound.
+copilot and oh-omp have no Bedrock client of their own, and reach Bedrock only through yolo's
+wire bridge, which cannot yet reach a provider named by a region alone; `-p bedrock` does not
+configure them. agy has no way to reach Bedrock at all.
 
 codex's client reads the region from `AWS_REGION` or `AWS_DEFAULT_REGION` itself, so yolo writes
 its `aws.region` only for a region you set on the provider. While a codex profile selects
@@ -76,6 +79,11 @@ another Bedrock login; pick another profile for that.
 opencode reads `AWS_REGION` and not `AWS_DEFAULT_REGION`. yolo writes its `options.region`
 from a region you set on the provider, so set it there, or deliver `AWS_REGION`: with only
 `AWS_DEFAULT_REGION` set, the launch proceeds and opencode uses `us-east-1`.
+
+pi lists the models under its own `amazon-bedrock` provider. An id pi's own catalog also holds
+takes the facts this list declares in place of pi's (its cost and thinking levels among them),
+because a pi model row replaces the catalog entry of the same id. A region you set on the
+provider reaches pi as `AWS_REGION`.
 
 ### Choosing another model
 

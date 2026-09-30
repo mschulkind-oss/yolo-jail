@@ -138,5 +138,11 @@ func TestOnlyTheBindingAgentsNeedBedrock(t *testing.T) {
 		if want := slices.Contains(bedrockBinders, name); needs != want {
 			t.Errorf("packs/%s needs bedrock = %v, want %v (bedrockBinders)", name, needs, want)
 		}
+		// The list is what the derives say: a derive that keys on Bedrock's platform binds it,
+		// and one that does not cannot, so a binding added to a derive without the need (or a
+		// need left behind by a deleted binding) fails here rather than at a user's launch.
+		if binds := strings.Contains(DeriveScript(p), `"aws-bedrock"`); binds != needs {
+			t.Errorf("packs/%s's derive keys on \"aws-bedrock\" = %v, but its needs name bedrock = %v", name, binds, needs)
+		}
 	}
 }
