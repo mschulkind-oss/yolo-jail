@@ -894,6 +894,13 @@ podman opens by descriptor, which it does not offer.
   target is recorded host-side, outside every jail-writable directory, as the user's; (c) add a
   `YOLO_ALLOW_*` hatch.
 
+  Two facts added 2026-09-30, when this was triaged and left open. A bind mount is not free: on
+  Linux it needs root (a `sudo mount --bind` or an `/etc/fstab` line), and macOS has no bind mount
+  without a third-party filesystem such as bindfs, so under (a) a Mac user has no supported way to
+  move the directory short of moving the whole workspace. And (c) runs against the standing rule
+  that an escape hatch is for a broken user configuration, never for yolo's own safety check, which
+  leaves (a) or (b) as the real choice.
+
   <!-- vantage: oq id=OQ-JH1 leaning="(a): keep the refusal and document a bind mount as the way to relocate. A hatch would be for yolo's own safety check rather than a broken config, and (b) adds a host-side record for a layout nothing documents." -->
 
   _Leaning:_ **(a)**, keep the refusal and document a bind mount as the way to relocate. A hatch
