@@ -172,13 +172,16 @@ type keeper struct {
 	handles []loopholeDaemon
 	jm      *jailMain
 	running chan struct{} // closed once the container was seen running, or the wait gave up
+	// ending closes at the keeper's last act, so a watch still looking at the runtime stops.
+	ending     chan struct{}
+	endingOnce sync.Once
 }
 
 // newKeeper builds a keeper and its Options from a plan.
 func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os.File,
 	signals <-chan os.Signal) *keeper {
 	k := &keeper{plan: plan, progress: progress, launchLock: lock, signals: signals,
-		lifelineGone: make(chan struct{}), running: make(chan struct{})}
+		lifelineGone: make(chan struct{}), running: make(chan struct{}), ending: make(chan struct{})}
 	k.sink = &keeperSink{}
 	if progress != nil {
 		k.sink.pipe = progress
@@ -462,15 +465,28 @@ func (k *keeper) watchSessions() <-chan struct{} {
 	return drained
 }
 
-// watchContainer closes the returned channel once the container has ended some other way: the main
-// process's client exited, or, on podman, `podman wait` answered, whichever comes first. Neither is
-// a poll (§9.5 item 3).
+// watchContainer closes the returned channel once the container has ended some other way: on podman
+// `podman wait` answered, or the main process's client exited and the runtime then says no container
+// of the name runs, whichever comes first (§9.5 item 3: "It confirms with the same probe").
+//
+// THE CLIENT'S EXIT IS NOT THE CONTAINER'S END. The container is conmon's, not the client's: a client
+// that was killed, or a Mac's remote client that lost its podman machine, exits while the container
+// runs on with sessions in it. Read as the end, it had the keeper take the jail's host services down
+// under those sessions and then leave, with the jail's records gone, so the container, whose main
+// process is a hold that never ends by itself, ran on with no owner and was entered by the next
+// arrival with no word of why. So the exit is confirmed by a bounded probe, and a probe that finds
+// the container still running, or cannot say ("could not ask" is never "gone", JL-P3), leaves the
+// keeper holding: it logs that once and looks again every keeperClientGonePoll, since the one
+// observation that needed no poll is gone with the client.
 func (k *keeper) watchContainer() <-chan struct{} {
 	o, p := k.o, k.plan
 	ended := make(chan struct{})
 	var once sync.Once
 	done := func() { once.Do(func() { close(ended) }) }
-	go func() { <-k.jm.exited; done() }()
+	go func() {
+		<-k.jm.exited
+		k.awaitNotRunning(done)
+	}()
 	if p.Runtime == "podman" {
 		go func() {
 			res := o.Exec([]string{p.Runtime, "wait", p.Cname}, "", nil, 0)
@@ -480,6 +496,39 @@ func (k *keeper) watchContainer() <-chan struct{} {
 		}()
 	}
 	return ended
+}
+
+// keeperClientGonePoll is how often a keeper whose main-process client exited under a running
+// container asks the runtime again whether it still runs (watchContainer). A var so a test need not
+// wait it out.
+var keeperClientGonePoll = 5 * time.Second
+
+// awaitNotRunning is the confirmation of a client's exit: done once a bounded probe answers that no
+// container of the name runs, and never while it runs or the runtime cannot say. It returns at the
+// keeper's end, whatever it found.
+func (k *keeper) awaitNotRunning(done func()) {
+	o, p := k.o, k.plan
+	said := false
+	for {
+		id, known := o.probeRunningContainer(p.Cname, p.Runtime, trackingProbeTimeout)
+		if known && id == "" {
+			done()
+			return
+		}
+		if !said {
+			said = true
+			if known {
+				k.sink.logf("keeper: the main process's runtime client exited while %s still runs; keeping the jail and its host services until it ends", p.Cname)
+			} else {
+				k.sink.logf("keeper: the main process's runtime client exited, and %s could not say whether %s still runs; keeping the jail and its host services, and asking again", p.Runtime, p.Cname)
+			}
+		}
+		select {
+		case <-k.ending:
+			return
+		case <-time.After(keeperClientGonePoll):
+		}
+	}
 }
 
 // endJail stops the container when stop is set, recording reason first, confirms it is gone,
@@ -541,6 +590,7 @@ func (k *keeper) finish(rc int, drained <-chan struct{}) int {
 			k.sink.logf("keeper: a session of %s still holds the session lock after %s; leaving it", p.Cname, keeperSessionsWait)
 		}
 	}
+	k.endingOnce.Do(func() { close(k.ending) })
 	if k.jm != nil {
 		select {
 		case <-k.jm.exited:

@@ -248,3 +248,90 @@ func TestAHungUpFirstSessionEndsOnlyItself(t *testing.T) {
 		t.Errorf("%d containers named %s remain after the last session quit", n, cname)
 	}
 }
+
+// mainProcessClient is the keeper's `<runtime> run` child, the attached client of the jail's main
+// process: a child of keeper whose command line runs a container.
+func mainProcessClient(t *testing.T, keeper int) int {
+	t.Helper()
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		stat, err := os.ReadFile(filepath.Join("/proc", e.Name(), "stat"))
+		if err != nil {
+			continue
+		}
+		s := string(stat)
+		i := strings.LastIndexByte(s, ')')
+		if i < 0 {
+			continue
+		}
+		fields := strings.Fields(s[i+1:])
+		if len(fields) < 2 || fields[1] != strconv.Itoa(keeper) {
+			continue
+		}
+		cmdline, _ := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if strings.Contains(string(cmdline), "\x00run\x00") {
+			return pid
+		}
+	}
+	t.Fatalf("the keeper (pid %d) has no main-process client", keeper)
+	return 0
+}
+
+// TestAKilledMainProcessClientLeavesTheJailKept is §9.5 item 3's confirmation on a real runtime:
+// the runtime client the keeper started the jail's main process with is not the container, which
+// runs on when that client is killed. So the keeper keeps the jail and its host services, an arrival
+// still attaches, and the last session's quit ends the jail as always, with no container left.
+func TestAKilledMainProcessClientLeavesTheJailKept(t *testing.T) {
+	requireJail(t)
+	dir := writeProject(t, `{}`)
+	cname := naming.FromWorkspace(dir)
+
+	const release = "release-first"
+	first := startYoloBackground(t, "first", dir,
+		`echo FIRST-IN-$((40+2)); for _ in $(seq 1 600); do [ -f /workspace/`+release+` ] && break; sleep 0.2; done`)
+	t.Cleanup(func() { writeRelease(t, dir, release) })
+	awaitOutput(t, first, regexp.MustCompile(`FIRST-IN-42`))
+	awaitLaunchLockReleased(t, dir, first)
+	keeper := keeperPID(t, dir)
+
+	client := mainProcessClient(t, keeper)
+	if err := syscall.Kill(client, syscall.SIGKILL); err != nil {
+		t.Fatalf("killing the main process's client: %v", err)
+	}
+	if !awaitProcessGone(client, 10*time.Second) {
+		t.Fatalf("the killed client (pid %d) is still there", client)
+	}
+	time.Sleep(2 * time.Second)
+	if n := runningContainers(t, cname); n != 1 {
+		t.Fatalf("the jail is not running after its main process's client was killed (%d containers)", n)
+	}
+	if syscall.Kill(keeper, 0) != nil {
+		t.Fatal("the keeper let go of a running jail when its client died")
+	}
+	arrival := runYolo(t, dir, "echo ENTERED-$((40+2))")
+	if arrival.rc != 0 || !strings.Contains(arrival.stdout, "ENTERED-42") ||
+		!strings.Contains(arrival.combined(), "Attaching to existing jail") {
+		t.Fatalf("an arrival did not attach to the kept jail: rc %d\n%s", arrival.rc, arrival.combined())
+	}
+
+	writeRelease(t, dir, release)
+	if rc := first.wait(t, jailTimeout()); rc != 0 {
+		t.Errorf("the session ended rc %d:\n%s", rc, first.combined())
+	}
+	if !strings.Contains(first.combined(), "keeper: the last session of "+cname+" left; ending the jail") {
+		t.Errorf("the last quit did not stream the keeper's teardown:\n%s", first.combined())
+	}
+	if n := runningContainers(t, cname); n != 0 {
+		t.Errorf("%d containers named %s remain after the last session quit", n, cname)
+	}
+	if !awaitProcessGone(keeper, 10*time.Second) {
+		t.Errorf("the keeper (pid %d) outlived its jail's last session", keeper)
+	}
+}
