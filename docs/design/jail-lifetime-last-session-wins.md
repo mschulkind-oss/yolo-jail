@@ -1505,9 +1505,11 @@ inherited descriptor above 2, no lifeline could cross it to end what it started.
 - No shipped pack gives the guest supervisor a daemon today
   ([HS-D20](host-notch-services.md#HS-D20)), so nothing a user runs moves out of the keeper's
   reach.
-- An agent-side sidecar at macos-user, which already waits on
-  [OQ-DP8](declaration-parity.md#OQ-DP8), inherits this limit: it would run under that
-  supervisor, one per session.
+- An agent-side sidecar at macos-user inherits this limit, and so it is not started there
+  ([`agent-event-watchers.md` §3.2](agent-event-watchers.md#32-lifecycle-per-side-and-per-notch)):
+  it would run under that supervisor, one per session, and nothing could keep it to one instance
+  per workspace ([§9.9.10](#9910-every-feasibility-problem-found) row 9). A user-declared one is
+  the case; no shipped pack declares any.
 
 **At `yolo host`, the sidecars and the ping box.** Every sidecar is host side there. What a
 launch starts for its own agent (the bridge's host half, the managed Codex refresh adapter, and
@@ -1770,9 +1772,10 @@ starts it"*. From now on it reads this way ([JL-D43](#JL-D43)):
 | 6 | macos-user's session env file and its Seatbelt profile are described as per session but keyed per workspace (`SandboxEnvFile(cname, …)`, `<stateDir>/env/<cname>.env`; `SessionProfilePath(cname, …)`, `profile-<cname>.sb`), and every launch rewrites both; each session also removes the env file at its end. `RunMacosUser` releases the workspace lock before the sandbox reads either, so a second session writing them in that gap would hand the first sandbox the second's environment, which is scoped to another launched agent, or its profile | [`envfile.go`](../../internal/macosuser/envfile.go), [`macosuser.go`](../../internal/macosuser/macosuser.go), and `RunMacosUser`'s `InstallRootFile`, deferred removal and `release()` before `RunWithProxy`; SOURCED; the race INFERRED | both stay the session's, so the keeper does not fix them; a per-session name would, and it is recorded here as found |
 | 7 | A `yolo host` launch from the home directory has no workspace to keep sidecar state in | `paths.WorkspaceScopeBreach` | no key and no keeper there ([§9.9.3](#993-one-keeper-per-workspace-per-notch)) |
 | 8 | State shared across workspaces cannot be owned by a per-workspace keeper. Every `yolo host -- codex` on the machine runs on one managed Codex home keyed on the pack, whose `auth.json` carries one caller token that its live launches share. Two workspaces' keepers, each minting a token into that file, would bring NC-D18's breakage back | `prepare` and `sharedCallerToken` in [`host.go`](../../internal/openaiauthhost/host.go), [NC-D18](../plans/notch-convergence.md#NC-D18); SOURCED | under [OQ-JL9](#OQ-JL9)'s A and B the home keeps NC-D18's machine-wide token and lock; its C makes the home per workspace, the scope `.codex` has in a jail and at macos-user. The host-wide brokers stay outside every keeper, as [HD-R1](host-daemon-ownership.md#HD-R1)'s build leaves them |
+| 9 | An agent-side sidecar at macos-user cannot be kept to one instance per workspace. It would run under each session's guest supervisor, which runs as the sandbox account and is started by that session's `sudo`; only keepers take [EW-D25](agent-event-watchers.md#EW-D25)'s one-instance lock, and a keeper cannot start what runs as the sandbox account (row 2), so two sandboxes would each ping | [EW-D25](agent-event-watchers.md#EW-D25), and the guest supervisor's start in `RunMacosUser` ([`orchestrator.go`](../../internal/macosuser/orchestrator.go)); SOURCED | not started at macos-user, and each launch says so; the same sidecar declared host side runs there under the keeper. It covers user-declared sidecars, which row 2's "no shipped pack" does not |
 
 None of these blocks the ruling, and none is an exception to it. Each is a limit on what a keeper
-can hold at that notch, stated with its reason (1, 2, 5, 7 and 8), work the design owes (4), or a
+can hold at that notch, stated with its reason (1, 2, 5, 7, 8 and 9), work the design owes (4), or a
 defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
 
 ---
