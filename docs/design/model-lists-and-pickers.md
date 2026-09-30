@@ -1285,10 +1285,12 @@ with the notch as an input. This section designs the host half. Nothing in it is
 
 - It resolves the binary (the host floor's copy, else the launch PATH), adds the pack's launch
   flags (`packload.InjectLaunchFlags`), and runs the declarative OpenAI prelaunch. codex's pack
-  declares its view flag unconditionally, so with yolo's OpenAI login present codex runs in a
-  yolo-owned `CODEX_HOME` whose `config.toml` is rebuilt from the user's `~/.codex/config.toml`
-  at every launch (`prepareCodexHome`, `writeManagedCodexConfig`), and `yolo host` stays resident
-  for the refresh adapter (`openaiauthhost.Launch.Run`). Without the login it execs codex.
+  sets the variables that ask the prelaunch for codex's auth file (`YOLO_AUTH_PRELAUNCH_CODEX_FLAG`
+  and `YOLO_AUTH_PRELAUNCH_CODEX_PATH`) in an `env` contribution no profile gates, so with yolo's
+  OpenAI login present codex runs in a yolo-owned `CODEX_HOME` whose `config.toml` is rebuilt
+  from the user's `~/.codex/config.toml` at every launch (`prepareCodexHome`,
+  `writeManagedCodexConfig`), and `yolo host` stays resident for the refresh adapter
+  (`openaiauthhost.Launch.Run`). Without the login it execs codex.
 - `codex/model-list` is `notAtHost`, no launcher runs, and codex keeps its own menu.
 - ⚠ **A host `-p` does not choose codex's provider.** codex reads its provider and model from
   its config file, and at the host only `yolo host apply` writes that file, for the profile the
@@ -1296,9 +1298,10 @@ with the notch as an input. This section designs the host half. Nothing in it is
   ([OQ-HC3](host-computed-layer.md#OQ-HC3); `composeHostInputs`). The launch's `-p` reaches
   codex's environment (the provider's variables, the three wire tables of
   [FT-D2](agent-footer.md#FT-D2)), and nothing in its argv or in the managed copy of its config.
-  The prelaunch does not depend on it, since codex's pack declares its view flag with no gate. So [MM-D22](#MM-D22)'s premise, that a list composed for the launch's `-p`
-  follows the provider codex runs on, holds only when the `-p` and the configured profile name
-  the same provider. Which one should win is [OQ-MM5](#OQ-MM5).
+  The prelaunch does not depend on it either, since no profile gates those two variables. So
+  [MM-D22](#MM-D22)'s premise, that a list composed for the launch's `-p` follows the provider
+  codex runs on, holds only when the `-p` and the configured profile name the same provider.
+  Which one should win is [OQ-MM5](#OQ-MM5).
 - **codex reads the menu again at every thread start** (SOURCED, codex 0.159.2: the app server's
   `thread_processor.rs` loads the config through `ConfigManager::load_with_overrides`, which
   re-applies the launch's `-c` overrides, `current_cli_overrides`, and fails the thread on a
