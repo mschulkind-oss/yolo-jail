@@ -31,7 +31,6 @@ workspace `yolo-jail.jsonc` — see [Why every key is user-scope](#why-every-key
 ```jsonc
 {
   "packs": ["claude"],
-  "providers": {"bedrock": {"region": "us-east-1"}},
   "loopholes": {
     "aws-auth": {
       "enabled": true,
@@ -45,11 +44,7 @@ workspace `yolo-jail.jsonc` — see [Why every key is user-scope](#why-every-key
 }
 ```
 
-The region is there because a Bedrock launch that names none is refused before it starts, and a
-region in `~/.aws/config` is not counted
-([the region preflight](../../docs/reference/providers.md#the-region-preflight)); an
-`AWS_REGION` in an `env_sources` entry works too. Then `yolo -p bedrock -- claude`. `claude`
-brings this pack with it: the claude pack
+Then `yolo -p bedrock -- claude`. `claude` brings this pack with it: the claude pack
 `needs` the [`bedrock`](../bedrock/README.md) pack, which ships the Bedrock provider and
 `needs` `aws-auth`, and the launch prints `+ bedrock (needed by claude)` and
 `+ aws-auth (needed by bedrock)`. codex, opencode and pi need `bedrock` the same way, so you

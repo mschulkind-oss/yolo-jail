@@ -137,8 +137,8 @@ your own AWS settings keeps signing with them, and a launch that also finds a Be
 bearer, or an AWS key pair without `AWS_PROFILE`, in your shell stops and says why, as a jail
 launch does. With the loophole off, the launch says which setting turns it on. Either way the
 launch needs a region yolo can see
-([the region preflight](docs/reference/providers.md#the-region-preflight)): one only in Claude
-Code's own settings does not count. A `bedrock-bridge` profile ships too, for sending an agent
+([the region preflight](docs/reference/providers.md#the-region-preflight)): the `aws-auth`
+profile's counts, and one only in Claude Code's own settings does not. A `bedrock-bridge` profile ships too, for sending an agent
 through the wire bridge instead; the bridge cannot reach Bedrock by region alone yet, so today it
 runs Claude Code on its own login with a warning and refuses codex, opencode, pi and oh-omp.
 Copilot and oh-omp have no Bedrock route yet. See

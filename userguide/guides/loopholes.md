@@ -74,9 +74,9 @@ Loopholes work fully on Podman on Linux. On a Mac they depend on the runtime:
   agent on a Bedrock profile) runs the credential helper for that one command, on your machine's
   own loopback, and stops it when the agent exits. A profile in your `~/.aws` that holds
   credentials still wins: the one `AWS_PROFILE` names, or `[default]` when it is unset.
-  It needs the region setting a jail launch needs, in your yolo config or your shell: a region
-  only in the agent's own settings or in `~/.aws/config` does not count. Tested with stand-ins
-  for the agent and for `aws`, not yet with a real agent.
+  It finds a region the way a jail launch does, the `aws-auth` profile's in `~/.aws/config`
+  included; a region only in the agent's own settings does not count. Tested with stand-ins for
+  the agent and for `aws`, not yet with a real agent.
 
 [Settings per setup](../reference/settings-per-setup.md#the-loopholes-host-services-a-jail-can-use)
 has the per-loophole detail.
