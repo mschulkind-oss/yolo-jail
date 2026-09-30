@@ -543,7 +543,9 @@ SOURCED for yolo, and INFERRED for herdr's side.
 [`host-launch-environment.md` §2.1](../design/host-launch-environment.md#21-the-criterion--decision-inputs-versus-carried-variables):
 yolo only hands them to the child and decides nothing with them. That doc's governing ruling
 (2026-09-25) is that `yolo host` must not depend on its caller's environment for its own
-*decisions*, and it carries session variables through on purpose. Two 2026-09-29 rulings in
+*decisions*, and it carries session variables through on purpose. It was revised for PATH on
+2026-09-29 ([HE-DIR1](../design/host-launch-environment.md#he-dir1)): yolo's checks read the
+caller's PATH. Two 2026-09-29 rulings in
 [`host-tool-provisioning.md`](../design/host-tool-provisioning.md) refine that:
 
 - **[HP-DIR2](../design/host-tool-provisioning.md#HP-DIR2), the maintainer's direction on two
@@ -895,25 +897,26 @@ fi
   the container's argv, and that the label's argv goes through a seam like `tmuxCmd`.
 - The kitty fix of [HR-D5](#HR-D5) rides along.
 
-**Whether the predictability ruling allows it depends on
-[OQ-HE7](../design/host-launch-environment.md#oq-he7).** That ruling, in
+**No ruling stands in its way.** The predictability ruling, in
 [`host-launch-environment.md`](../design/host-launch-environment.md), governs `yolo host`.
-Whether it extends to a jail launch's host-side lookups is
-[OQ-HE7](../design/host-launch-environment.md#oq-he7), which is OPEN and leans yes. Either way,
-the change adds nothing the agent sees.
+[OQ-HE7](../design/host-launch-environment.md#oq-he7), which asked whether to extend it to a jail
+launch's host-side lookups, was retired on 2026-09-29 by
+[HE-DIR1](../design/host-launch-environment.md#he-dir1), under which `yolo host`'s own checks read
+the PATH it was started with. Its answer extends nothing to a jail launch's other reads either.
+The change adds nothing the agent sees.
 
 - **This is not output styling.** The exemption in
   [`host-launch-environment.md` §2.1](../design/host-launch-environment.md#21-the-criterion--decision-inputs-versus-carried-variables)
   covers *"Output styling (`NO_COLOR`, color detection)"*. Option 2 reads `HERDR_ENV` to decide
   whether to run a host program, and the program is the one the ambient `HERDR_BIN_PATH` names.
   That is a decision input: which program to run.
-- **The precedent is exact, and
-  [OQ-HE7](../design/host-launch-environment.md#oq-he7) governs it the same way.** The tmux arm
-  already reads `TMUX` to decide to act, and runs `tmux` from the ambient `PATH` (`tmuxCmd` in
-  [`terminal.go`](../../internal/cli/terminal.go)). The kitty arm does the same with `KITTY_PID`
-  and `kitten`. Whatever [OQ-HE7](../design/host-launch-environment.md#oq-he7) rules for those
-  arms, it rules for the herdr arm.
-- **A narrower variant** resolves `herdr` from the composed `PATH`, rather than executing
+- **The precedent is exact.** The tmux arm already reads `TMUX` to decide to act, and runs
+  `tmux` from the ambient `PATH` (`tmuxCmd` in [`terminal.go`](../../internal/cli/terminal.go)).
+  The kitty arm does the same with `KITTY_PID` and `kitten`. With
+  [OQ-HE7](../design/host-launch-environment.md#oq-he7) retired, no ruling constrains those arms,
+  and the herdr arm stands with them. If a jail launch should stop reading its launcher's
+  environment, that is a new question for all three.
+- **A narrower variant** resolves `herdr` by name on `PATH`, rather than executing
   `$HERDR_BIN_PATH` blindly. That narrows the decision input to whether and where to label,
   from `HERDR_ENV` and `HERDR_PANE_ID`.
 

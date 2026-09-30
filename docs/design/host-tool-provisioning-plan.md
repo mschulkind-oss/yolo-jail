@@ -28,7 +28,8 @@ holds settled detail the design doesn't need.
 - **The collision and platform checks.** `launcherShadows`
   (`internal/entrypoint/launchercollision.go`) and the platform predicate
   `packdecl.Install.UnpublishedReason` (was `launcherUnpublished`). The shadow check's probe path at the host is the
-  composed host PATH minus the prefix itself. Never add the prefix's own install dirs, for the
+  launch PATH ([`host-launch-environment.md` §2.2](host-launch-environment.md#22-the-launch-path-and-what-host_path-adds)),
+  which never holds the prefix. Never add the prefix's own install dirs, for the
   reason `launchercollision.go` gives: that turns evergreen off after the first install.
 - **The Node floor resolution.** `internal/entrypoint/nodefloor.go` and `packdecl/nodefloor.go`
   for the exec prefix.

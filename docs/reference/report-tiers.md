@@ -454,8 +454,12 @@ Six properties an implementer would otherwise decide by accident:
 > [!NOTE]
 > **The probe resolves against the process PATH, which at the host notch is the caller's.** So the
 > same `yolo host` gives a different verdict from a terminal and from a desktop launcher that never
-> ran shell activation. [`host-launch-environment.md`](../design/host-launch-environment.md#3-one-authority--the-seam) proposes one
-> composed host PATH for the probe and the exec alike.
+> ran shell activation. That is by ruling
+> ([HE-DIR1](../design/host-launch-environment.md#he-dir1)): yolo cannot otherwise know where a
+> user's tools are. [`host-launch-environment.md`](../design/host-launch-environment.md#3-one-authority--the-seam)
+> keeps the probe on that PATH, adds a user-scope `host_path` list after it, routes the probe and
+> the exec through one resolver, and has a miss name the PATH it searched and the fix. None of
+> that is built.
 
 ## What this does not license
 
