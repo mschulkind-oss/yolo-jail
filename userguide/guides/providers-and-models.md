@@ -157,46 +157,52 @@ you want in your user config and make profiles for them:
 }
 ```
 
-## Several providers in one pi session
+## Several providers in one session
 
-pi can use more than one provider at once and switch between them with `/model`. List the profiles
-for pi, separated by commas on the command line or as a list in your config:
+pi and opencode can each use more than one provider at once and switch between them with their
+own model picker (`/model` in pi, `/models` in opencode). List the profiles for the agent,
+separated by commas on the command line or as a list in your config:
 
 ```bash
 yolo -p pi=zai,openrouter -- pi
+yolo -p opencode=zai,openrouter -- opencode
 ```
 
 ```jsonc
-{ "profile": { "pi": ["zai", "openrouter"] } }
+{ "profile": { "pi": ["zai", "openrouter"], "opencode": ["zai", "openrouter"] } }
 ```
 
-- **The first entry is where a new session starts**: pi opens on z.ai's default model here. A model
-  you pick yourself, on any listed provider, stays picked on the next launch.
-- **Every listed provider is live**: pi's `/model` list shows each provider's models, the first
-  entry's first, and pi receives every listed provider's key, while other agents and a plain shell
-  receive none of them. Child agents started by pi-subagents may use any listed provider and no
-  other.
+- **The first entry is where a new session starts**: here pi and opencode open on z.ai's default
+  model. A model you pick yourself in pi, on any listed provider, stays picked on the next launch.
+- **Every listed provider is live**: each agent's model picker offers every listed provider's
+  models, and the agent receives every listed provider's key, while other agents and a plain
+  shell receive none of them. In pi the `/model` list shows the first entry's models first, and
+  child agents started by pi-subagents may use any listed provider and no other. opencode shows
+  exactly the listed providers and hides every other one, and it orders its picker itself.
 - **Every listed provider needs its key.** If one is missing, the launch stops and names that
-  provider and its place in the list; it never starts pi on the rest.
+  provider and its place in the list; it never starts the agent on the rest.
 - On the command line a comma continues the list of the agent named before it:
   `-p pi=zai,openrouter,claude=codex` gives pi two providers and Claude Code one. A later
   `-p pi=…` replaces pi's whole list, and a `-p` replaces the list in your config for that launch.
-- **Only pi takes a list today.** Claude Code, Codex and Copilot use one provider per session, and
-  opencode and oh-omp take one profile until yolo learns to hand them a list, so a list
-  named for any of them is refused before anything starts, and the message names the one-profile
+- **Only pi and opencode take a list today.** Claude Code, Codex and Copilot use one provider per
+  session, and oh-omp takes one profile until yolo learns to hand it a list, so a list named for
+  any of them is refused before anything starts, and the message names the one-profile
   spelling. A list with no agent named, `-p zai,openrouter` or `"profile": ["zai", "openrouter"]`
-  in your config, goes whole to pi and its first entry to every other agent, and the launch says
-  which agents ignore the rest. Every name in it must still be a profile that exists, including
-  the ones an agent ignores.
+  in your config, goes whole to pi and opencode and its first entry to every other agent, and the
+  launch says which agents ignore the rest. Every name in it must still be a profile that exists,
+  including the ones an agent ignores.
+- **When the first entry names no model**, as `openrouter` and `kilo` do out of the box, opencode
+  is not narrowed to the list and starts on its own saved choice, exactly as with that one profile
+  alone; list a provider that has a default model first to have opencode start there.
 - A profile that routes through the wire bridge (`"via": "wire-bridge"`) can only be listed first.
   Two profiles over the same provider cannot share a list, and neither can two Bedrock providers,
-  since pi reads one AWS region. One Bedrock profile can sit anywhere in pi's list
-  (`-p pi=zai,bedrock`), and pi reaches it through its own Bedrock client either way, with the
-  region from the provider or your `~/.aws/config`.
+  since each agent reads one AWS region. One Bedrock profile can sit anywhere in the list
+  (`-p pi=zai,bedrock` or `-p opencode=zai,bedrock`), and the agent reaches it through its own
+  Bedrock client either way, with the region from the provider or your `~/.aws/config`.
 - A profile name cannot contain a comma, and in your config a list is always a JSON array, never
   `"zai,openrouter"`. The same list works at `yolo host -p pi=zai,openrouter --
   pi`, in `yolo host env --agent pi -p zai,openrouter`, on `macos-user`, and in the files
-  `yolo host apply` writes.
+  `yolo host apply` writes, for opencode as for pi.
 
 ## The wire bridge
 
