@@ -1076,9 +1076,10 @@ pack ships, and every agent that can use the provider renders that one list
   catalog does not know registers text-only, with no thinking levels, and pi warns once when
   that happens ([ML-D7](../design/model-lists-and-pickers.md#ML-D7)). While the `enforce_models`
   of the profile that governs `openai-codex` is on, as it is by default and with no profile
-  selected, a model outside the list, typed with `--model` or resumed from a session, ends its
-  turn with an error naming the list and the switch
-  ([MM-D23](../design/model-lists-and-pickers.md#MM-D23)). On the host,
+  selected, a model outside the list typed with `--model` ends its turn with an error naming the
+  list and the switch ([MM-D23](../design/model-lists-and-pickers.md#MM-D23)). A session saved on
+  such a model never reaches that error: pi cannot restore a model the list does not register, so
+  it says so and resumes on another model. On the host,
   `yolo host apply` writes the same list into that file, from the provider table it composes at
   user scope ([OQ-HC1](../design/host-computed-layer.md#OQ-HC1), which superseded
   [ML-D8](../design/model-lists-and-pickers.md#ML-D8)).
@@ -1533,9 +1534,11 @@ so a `/model` choice lasts one session. On `openai-codex` the switch governs
 claude's allowlist too. On claude's own Bedrock client the refusal is claude's alone, client side,
 with [the four gaps](../design/model-lists-and-pickers.md#142-what-each-row-rests-on) that come
 with it, so a repository's `.claude/settings.json` can widen or switch it off. pi's refusal is
-its extension's: a model outside the list, typed with `--model` or resumed from a session, ends
-its turn with an error naming the list and the switch, before any request leaves
-([MM-D21](../design/model-lists-and-pickers.md#MM-D21)). It does not hold under
+its extension's: a model outside the list typed with `--model` ends its turn with an error naming
+the list and the switch, before any request leaves
+([MM-D21](../design/model-lists-and-pickers.md#MM-D21)). A session saved on such a model is not
+resumed on it: the list is pi's whole registration for the provider, so pi says it could not
+restore the model and uses another. It does not hold under
 `pi --no-extensions`, and should the extension not find pi's own stream for the list's models,
 pi shows the menu and says once that it cannot refuse there. oh-omp does not refuse yet:
 `--model` still runs a model outside the scope.

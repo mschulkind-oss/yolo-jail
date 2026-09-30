@@ -309,9 +309,10 @@ models it knows, again whenever Codex is updated, so a model your Codex is too o
 out, and yolo says so each time Codex starts; updating Codex brings it back. On any other provider,
 and under `yolo host`, Codex keeps its usual menu.
 
-pi shows the same models for your ChatGPT subscription, and turns away any other one, a model
-typed with `pi --model` or saved in a session you resume included, as Claude Code does there.
-That holds when you launch with no profile too. To use a model yolo does not list there, add it
+pi shows the same models for your ChatGPT subscription and runs no other one there, as Claude
+Code does. A model typed with `pi --model` stops with an error naming the list, and a session you
+resume that was saved on another model continues on a different one, with pi saying it could not
+restore the model. That holds when you launch with no profile too. To use a model yolo does not list there, add it
 to `providers.openai-codex.models` in your config, or launch with a profile that sets
 `"enforce_models": false`.
 
