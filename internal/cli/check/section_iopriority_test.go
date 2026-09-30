@@ -22,7 +22,9 @@ type ioCheck struct {
 }
 
 // runIOPrioritySection runs sectionIOPriority alone over a fake root, returning the report
-// and the reporter (for its counts).
+// and the reporter (for its counts). podman's storage root is the readiness gate's answer, as
+// in a real check; a `podman info` of the section's own fails the test (PR-D6: check asks
+// podman once, through the gate).
 func runIOPrioritySection(t *testing.T, c ioCheck) (string, *reporter) {
 	t.Helper()
 	var out bytes.Buffer
@@ -31,8 +33,9 @@ func runIOPrioritySection(t *testing.T, c ioCheck) (string, *reporter) {
 		env["YOLO_VERSION"] = "9.9.9-test"
 	}
 	exec := func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-		if c.graphRoot != "" && len(argv) > 1 && argv[0] == "podman" && argv[1] == "info" {
-			return ExecResult{Ran: true, RC: 0, Stdout: c.graphRoot + "\n"}
+		if len(argv) > 1 && argv[0] == "podman" && argv[1] == "info" {
+			t.Errorf("the I/O priority section ran its own %q; it reads the readiness gate's answer",
+				strings.Join(argv, " "))
 		}
 		return ExecResult{Ran: false}
 	}
@@ -40,6 +43,11 @@ func runIOPrioritySection(t *testing.T, c ioCheck) (string, *reporter) {
 	fillDefaults(o)
 	o.Getenv = func(k string) string { return env[k] }
 	o.Exec = exec
+	info := `{"host":{}}`
+	if c.graphRoot != "" {
+		info = `{"host":{},"store":{"graphDriverName":"overlay","graphRoot":"` + c.graphRoot + `"}}`
+	}
+	answeringPodman(o, info)
 	o.IsMacOS = c.macOS
 	o.Workspace = ioWS
 	if c.sys != nil {

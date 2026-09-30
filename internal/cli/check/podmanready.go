@@ -13,8 +13,9 @@ import (
 // (docs/design/podman-reboot-readiness.md, a term coined there): the same gate a launch runs,
 // with the same budget and the same progress line (PR-D6), asked ONCE per check. Every podman
 // question check asks on Linux reads its answer — the Container Runtime section's liveness,
-// the runtime resolution Merged Configuration and the later sections use, and the image
-// delivery section's store facts — so check keeps no probe of its own. The one it had
+// the runtime resolution Merged Configuration and the later sections use, the image delivery
+// section's store facts, and the Disk I/O priority section's storage root — so check keeps no
+// probe of its own. The one it had
 // discarded stderr, and disagreed with the launch about why podman was down.
 //
 // Out of scope, as on the launch path (PR-D7): macOS and Apple Container keep their one-shot

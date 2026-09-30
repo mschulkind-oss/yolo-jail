@@ -1,12 +1,13 @@
 package check
 
 import (
+	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // sectionIOPriority grades the disk a declared `resources.io.priority` lands on
@@ -122,11 +123,21 @@ Or declare "idle", which mq-deadline honors.`
 }
 
 // podmanGraphRoot is podman's storage root, where a jail's container layers are written,
-// or "" when podman cannot say.
+// or "" when podman cannot say. Read from the readiness gate's answer (podmanready.go), whose
+// JSON carries store.graphRoot, never from a `podman info` of this section's own: check asks
+// podman once, through the gate, as a launch does (PR-D6).
 func (o *Options) podmanGraphRoot() string {
-	res := o.Exec([]string{"podman", "info", "--format", "{{.Store.GraphRoot}}"}, "", nil, 10*time.Second)
-	if !res.Ran || res.Timeout || res.RC != 0 {
+	res := o.podmanGate()
+	if res.Outcome != runtime.PodmanReady {
 		return ""
 	}
-	return strings.TrimSpace(res.Stdout)
+	var info struct {
+		Store *struct {
+			GraphRoot string `json:"graphRoot"`
+		} `json:"store"`
+	}
+	if json.Unmarshal([]byte(res.Info), &info) != nil || info.Store == nil {
+		return ""
+	}
+	return strings.TrimSpace(info.Store.GraphRoot)
 }
