@@ -21,8 +21,9 @@ import (
 // `mounts` entry whose host source is, contains or lies inside yolo's broker directory or
 // one of that block's `credential_paths` is REFUSED from a workspace config, naming the
 // entry, and DISCLOSED from the user config, where it is the user's own authority (§9.6).
-// The approvals directory is not fenced (BB-D34): every mount is read-only, so none can
-// write an approval.
+// The approvals directory is not fenced (BB-D34): no mount can write an approval — a read-only
+// one cannot write anything, and a read-write one is refused for any source inside yolo's
+// state directory (context-mounts.md §2.3 clause 1, config.rwMountRefusal).
 
 func validateBrokerMountFence(config *jsonx.OrderedMap, workspace string, resolver LoopholeResolver,
 	errs, warns *[]string) {
@@ -80,7 +81,7 @@ func validateBrokerMountFence(config *jsonx.OrderedMap, workspace string, resolv
 	}
 	sort.Strings(specs)
 	for _, spec := range specs {
-		reached := brokerscope.Reaches(mounts[spec], fencedPaths)
+		reached := brokerscope.Reaches(mounts[spec].source, fencedPaths)
 		if reached == "" {
 			continue
 		}
@@ -98,35 +99,29 @@ func validateBrokerMountFence(config *jsonx.OrderedMap, workspace string, resolv
 				spec, f.path, f.what, f.owner, paths.UserConfigPath()))
 			continue
 		}
+		access := "read it"
+		if mounts[spec].rw {
+			access = "read AND write it"
+		}
 		add(warns, fmt.Sprintf("config.mounts: %q (user config) reaches %s, %s (%s); the jail can "+
-			"read it", spec, f.path, f.what, f.owner))
+			"%s", spec, f.path, f.what, f.owner, access))
 	}
 }
 
-// mountHostSources maps each `mounts` entry to its resolved host source.
-func mountHostSources(config *jsonx.OrderedMap) map[string]string {
-	out := map[string]string{}
-	v, ok := config.Get("mounts")
-	if !ok {
-		return out
-	}
-	list, ok := asList(v)
-	if !ok {
-		return out
-	}
-	for _, m := range list {
-		spec, ok := asStr(m)
-		if !ok || spec == "" {
-			continue
-		}
-		host := spec
-		if i := strings.LastIndex(spec, ":"); i > 0 && i+1 < len(spec) && spec[i+1] == '/' {
-			host = spec[:i]
-		}
-		if host == "" {
-			continue
-		}
-		out[spec] = expandAndResolve(host)
+// mountHostSources maps each `mounts` element, keyed by how it was written, to its resolved
+// host source and whether it is read-write. Through ParseMounts, so an object element is
+// fenced exactly as a string one is (context-mounts.md CX-D1: a string-only reader here would
+// skip every object element in silence).
+func mountHostSources(config *jsonx.OrderedMap) map[string]fencedMount {
+	out := map[string]fencedMount{}
+	for _, m := range ParseMounts(config) {
+		out[m.Spec] = fencedMount{source: expandAndResolve(m.Host), rw: m.RW}
 	}
 	return out
+}
+
+// fencedMount is one `mounts` element as the fence judges it.
+type fencedMount struct {
+	source string
+	rw     bool
 }

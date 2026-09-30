@@ -98,13 +98,22 @@ type ScopeBreach struct {
 // a refusal that is the same wherever it is reported. Callers add their own frame and their
 // own consequence.
 func (b *ScopeBreach) What() string {
+	return b.WhatFor("the workspace")
+}
+
+// WhatFor is What with the subject named by the caller: the same collision said about a
+// path that is not a workspace. Its second caller is a read-write `mounts` source
+// (config.rwMountRefusal, docs/design/context-mounts.md §2.3 clause 1), which runs THIS
+// predicate over the source rather than a copy of it — one spelling of the boundary, so
+// the capture-store exemption cannot fall out of one of two.
+func (b *ScopeBreach) WhatFor(subject string) string {
 	switch b.Relation {
 	case ScopeIsRoot:
-		return "the workspace IS " + b.Kind.Name() + " (" + b.Workspace + ")"
+		return subject + " IS " + b.Kind.Name() + " (" + b.Workspace + ")"
 	case ScopeContainsRoot:
-		return "the workspace " + b.Workspace + " CONTAINS " + b.Kind.Name() + " (" + b.Root + ")"
+		return subject + " " + b.Workspace + " CONTAINS " + b.Kind.Name() + " (" + b.Root + ")"
 	default:
-		return "the workspace " + b.Workspace + " is INSIDE " + b.Kind.Name() + " (" + b.Root + ")"
+		return subject + " " + b.Workspace + " is INSIDE " + b.Kind.Name() + " (" + b.Root + ")"
 	}
 }
 

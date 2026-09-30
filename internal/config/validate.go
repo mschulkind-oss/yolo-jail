@@ -354,44 +354,6 @@ func validatePackages(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
-func validateMounts(config *jsonx.OrderedMap, workspace string, errs, warns *[]string) {
-	mountsV, present := config.Get("mounts")
-	if !present || mountsV == nil {
-		return
-	}
-	mounts, ok := asList(mountsV)
-	if !ok {
-		add(errs, "config.mounts: expected a list")
-		return
-	}
-	for idx, mountV := range mounts {
-		path := fmt.Sprintf("config.mounts[%d]", idx)
-		mount, ok := asStr(mountV)
-		if !ok {
-			add(errs, path+": expected a string")
-			continue
-		}
-		colonIdx := strings.LastIndex(mount, ":")
-		hostPath := mount
-		if colonIdx > 0 && colonIdx+1 < len(mount) && mount[colonIdx+1] == '/' {
-			hostPath = mount[:colonIdx]
-			containerPath := mount[colonIdx+1:]
-			if !strings.HasPrefix(containerPath, "/") {
-				add(errs, path+": container mount path must be absolute")
-			}
-		}
-		if hostPath == "" {
-			add(errs, path+": host mount path cannot be empty")
-			continue
-		}
-		resolvedHost := expandAndResolve(hostPath)
-		if !pathExists(resolvedHost) {
-			add(warns, fmt.Sprintf("%s: host path does not exist and will be skipped: %s",
-				path, resolvedHost))
-		}
-	}
-}
-
 func validateWorkspaceReadonly(config *jsonx.OrderedMap, errs *[]string) {
 	v, present := config.Get("workspace_readonly")
 	if !present || v == nil {
