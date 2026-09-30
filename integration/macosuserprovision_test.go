@@ -47,9 +47,10 @@ func TestMacosUserProvisioningStageRunsAndRecordsItself(t *testing.T) {
 	requireMacosUser(t)
 
 	// The runbook's own workspace, spelled its way: "a workspace whose config declares one
-	// cheap tool, e.g. {"mise_tools": {"jq": "latest"}}". `mise_tools` is one of the exactly
-	// two keys ProvisionNeeded counts (internal/macosuser/provision.go), so this is also the
-	// minimum config that makes the stage exist at all.
+	// cheap tool, e.g. {"mise_tools": {"jq": "latest"}}". `mise_tools` starts the stage
+	// (ProvisionNeeded, internal/macosuser/provision.go; a declared Node floor the host cannot
+	// show met is the other thing that does), so this is also the minimum config that makes
+	// the stage exist at all.
 	ws := macosUserWorkspace(t, `{"mise_tools": {"jq": "latest"}}`)
 	sentinel := macosUserSeedStageLog(t, ws)
 
@@ -142,14 +143,15 @@ func TestMacosUserProvisioningStageRunsAndRecordsItself(t *testing.T) {
 		if strings.Contains(log, want) {
 			continue
 		}
-		// The steps are `&&`-joined (provision.Setup), so the FIRST announce missing from
-		// the log is where the stage stopped, and what failed is whatever ran just before
-		// it — the previous step, or the stage's own startup when nothing ran at all.
+		// The steps before the bootstrap are `&&`-joined, and the bootstrap runs whatever
+		// they did (provision.Stage, AR-L4), so the FIRST announce missing from the log is
+		// where the stage stopped, and what failed is whatever ran just before it — the
+		// previous step, or the stage's own startup when nothing ran at all.
 		blame := "the stage never reached its first step: it started (the banner is above) " +
 			"and died before any step ran"
 		if i > 0 {
-			blame = "the step announced by " + announces[i-1] + " failed, so the `&&` " +
-				"chain stopped there"
+			blame = "the step announced by " + announces[i-1] + " failed or never returned, " +
+				"so the stage stopped there"
 		}
 		t.Errorf("runbook item 7: the startup log never records %q — %s.\n\n"+
 			"For `mise install` the usual cause is the CONFINED stage not reaching the "+
@@ -289,15 +291,28 @@ var macosUserStageAnnounceSteps = []string{
 }
 
 // macosUserStageAnnounces returns the TEXT of every announce step in a stage body, in the
-// order the stage runs them. `setup` is a provision.Setup result — steps joined with
-// " && " — so splitting on that separator recovers the members in order.
+// order the stage runs them. `setup` is a provision.Stage result (macosUserStageSteps).
 func macosUserStageAnnounces(setup string) []string {
 	var out []string
-	for _, step := range strings.Split(setup, " && ") {
+	for _, step := range macosUserStageSteps(setup) {
 		for _, announce := range macosUserStageAnnounceSteps {
 			if step == announce {
 				out = append(out, macosUserAnnounceText(step))
 			}
+		}
+	}
+	return out
+}
+
+// macosUserStageSteps recovers a stage body's commands in order. A provision.Stage body is two
+// `&&`-joined groups, `{ steps; }` and `{ bootstrap; }`, separated by the `; ` statements that
+// keep each group's status (AR-L4), so splitting on both separators and dropping a group's
+// opening brace yields every step, among some bookkeeping that is no step at all.
+func macosUserStageSteps(setup string) []string {
+	var out []string
+	for _, piece := range strings.Split(setup, " && ") {
+		for _, frag := range strings.Split(piece, "; ") {
+			out = append(out, strings.TrimPrefix(strings.TrimSpace(frag), "{ "))
 		}
 	}
 	return out
@@ -407,7 +422,7 @@ func TestMacosUserStageSubsetIsWhatItemSevenReads(t *testing.T) {
 	setup := macosuser.ProvisionSetup("/Users/Shared/yolo/ws/.yolo/yolo-bootstrap.sh")
 
 	var announced []string
-	for _, step := range strings.Split(setup, " && ") {
+	for _, step := range macosUserStageSteps(setup) {
 		if strings.HasPrefix(step, `echo "`) {
 			announced = append(announced, step)
 		}
@@ -424,7 +439,7 @@ func TestMacosUserStageSubsetIsWhatItemSevenReads(t *testing.T) {
 		if step != macosUserStageAnnounceSteps[i] {
 			t.Errorf("stage announce step %d is %q; runbook item 7 expects %q there. The "+
 				"ORDER is load-bearing: item 7 reports the first missing announce as the "+
-				"point the `&&` chain stopped, and blames the step before it.",
+				"point the stage stopped, and blames the step before it.",
 				i, step, macosUserStageAnnounceSteps[i])
 		}
 	}
