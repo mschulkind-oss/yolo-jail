@@ -484,12 +484,21 @@ func (s *hostApplySurvey) launchPATH() *hostpath.Launch {
 	return hostLaunchPath()
 }
 
-// MissLine is the miss line (host-launch-environment.md §4.2, HE-D2) for a binary this run found
-// MISSING — the program, the packs that declare it, the whole PATH searched and the `host_path`
-// fix — and "" for any other binary, or in a jail. launch says whether it is a launch's line (the
-// gate's), whose PATH is "this launch's".
+// MissLine is the miss line (host-launch-environment.md §4.2, HE-D2) for a binary this run looked
+// up on the launch PATH and did not find — the program, the packs that declare it, the whole PATH
+// searched and the `host_path` fix — and "" for any other binary, or in a jail. launch says whether
+// it is a launch's line (the gate's), whose PATH is "this launch's".
+//
+// ABSENT, NOT ONLY MISSING: a program whose vendor publishes no build for this host
+// (depUnpublished) is no blocker, since nothing could install it, but it was looked up on the same
+// PATH and not found there — and `yolo host -- <it>` runs whatever that PATH holds (OQ-HE11 (a)).
+// A copy the user built or installed themselves, in a folder that PATH lacks, is exactly what the
+// line's `host_path` fix is for, so it prints here too (§4.2: it prints on every miss).
 func (s *hostApplySurvey) MissLine(bin string, launch bool) string {
-	if s == nil || s.deps[bin].State != depMissing {
+	if s == nil {
+		return ""
+	}
+	if st := s.deps[bin].State; st != depMissing && st != depUnpublished {
 		return ""
 	}
 	return s.launchPATH().MissLine(s.declarers[bin].miss(bin, launch))

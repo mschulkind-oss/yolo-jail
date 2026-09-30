@@ -326,7 +326,9 @@ func reportHostApplyGateDecisions(errw io.Writer, bin string, decisions []string
 // launch starts is left to the exec's own lookup, which prints the same line moments later if it
 // misses too — and does not, when a floor copy or a given path runs instead.
 func reportGateMisses(errw io.Writer, survey *hostApplySurvey, bin string) {
-	for _, dep := range survey.MissingDeps() {
+	// A program with no build for this host is looked up on the same PATH (MissLine), so its miss
+	// is reported beside the missing ones.
+	for _, dep := range append(survey.MissingDeps(), survey.UnpublishedDeps()...) {
 		if dep == bin {
 			continue
 		}

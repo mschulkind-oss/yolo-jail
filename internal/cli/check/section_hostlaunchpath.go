@@ -73,7 +73,10 @@ func (o *Options) sectionHostLaunchPath(r *reporter) {
 		case err == nil:
 			r.ok(fmt.Sprintf("%s — %s (%s)", d.miss.Bin, path, lp.Source(filepath.Dir(path))))
 		case d.unpublished != "":
+			// Ungraded — nothing could install it — but `yolo host -- <it>` runs whatever copy the
+			// launch PATH holds (OQ-HE11 (a)), so the miss line says where it looked (HE-D2).
 			r.dim(fmt.Sprintf("%s — not on this PATH, and no build for this host: %s", d.miss.Bin, d.unpublished))
+			r.note(lp.MissLine(d.miss))
 		default:
 			r.warn(d.miss.Bin+" — not on this PATH", lp.MissLine(d.miss))
 		}

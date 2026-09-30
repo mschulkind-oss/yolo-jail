@@ -106,9 +106,11 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 		default:
 			pr.Printf("[yellow]?[/yellow] %-16s MISSING, no install hint for this host", r.Bin)
 		}
-		// THE MISS LINE (HE-D2) under every missing binary: the whole PATH searched and the
-		// `host_path` fix, since from a bare launcher "missing" may only mean "not on this PATH".
-		if !r.Present && r.Unpublished == "" {
+		// THE MISS LINE (HE-D2) under every binary the lookup did not find: the whole PATH
+		// searched and the `host_path` fix, since from a bare launcher "missing" may only mean "not
+		// on this PATH". A program with no build for this host too: it is not missing (nothing
+		// could install it), but `yolo host -- <it>` runs the copy this PATH holds, if any.
+		if !r.Present {
 			if line := lp.MissLine(declarers[r.Bin].miss(r.Bin, false)); line != "" {
 				pr.Printf("  %s", richtext.Escape(line))
 			}

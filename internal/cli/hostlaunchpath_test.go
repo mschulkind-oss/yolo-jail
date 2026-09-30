@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -143,6 +144,48 @@ func TestEveryHostCheckReadsHostPath(t *testing.T) {
 	}
 	if want, _ := json.Marshal(checking); !strings.Contains(string(doc), `"miss":`+string(want)) {
 		t.Errorf("the JSON document's dependency group lacks the miss line:\n%s", doc)
+	}
+}
+
+// otherOS is a platform this test is not running on, for a program whose vendor publishes no build
+// for this host.
+func otherOS() string {
+	if runtime.GOOS == "darwin" {
+		return "linux"
+	}
+	return "darwin"
+}
+
+// TestAProgramWithNoBuildHereStillPrintsTheMissLine: a selected pack's program whose vendor publishes
+// no build for this host has no floor entry, so `yolo host -- <it>` looks it up on the launch PATH
+// (OQ-HE11 (a)) — and a check that looked it up there and found nothing prints the miss line too
+// (HE-D2: it prints on every miss), in `check-deps`, in `yolo host apply`'s default view and in the
+// launch gate. It is still not MISSING: nothing could install it, so check-deps exits 0 and host
+// apply counts it apart. Gate the miss line on "missing" again at any of the three, and this fails.
+func TestAProgramWithNoBuildHereStillPrintsTheMissLine(t *testing.T) {
+	home, pathDir := launchPathFixture(t, `,"host_apply_on_launch":true`,
+		`{"kind":"program","bin":"yolo-hp-uptool","via":"npm","package":"yolo-hp-uptool-pkg","platforms":["`+otherOS()+`"]}`)
+	withTestFloor(t) // the production floor, so the program has no entry for the platform alone
+	putExe(t, filepath.Join(home, ".cargo", "bin"), "yolo-hp-uptool")
+	tail := `is not on %s, ` + pathDir + `, the PATH yolo was started with. If yolo-hp-uptool is ` +
+		`installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.`
+	checking := "yolo-hp-uptool (a program of the needpack pack) " + strings.Replace(tail, "%s", "the PATH yolo searched", 1)
+	launching := "yolo host: yolo-hp-uptool (a program of the needpack pack) " + strings.Replace(tail, "%s", "this launch's PATH", 1)
+
+	rc, report := runCheckDepsT(t)
+	if rc != 0 || !strings.Contains(report, "no build for this host") {
+		t.Fatalf("check-deps rc=%d, want 0 and the no-build line: nothing could install it\n%s", rc, report)
+	}
+	if !strings.Contains(report, checking) {
+		t.Errorf("check-deps lacks the miss line %q:\n%s", checking, report)
+	}
+	if report := runHostApplyDry(t); !strings.Contains(report, checking) {
+		t.Errorf("host apply's default view lacks the miss line %q:\n%s", checking, report)
+	} else if strings.Contains(report, "MISSING") {
+		t.Errorf("host apply called a program with no build here MISSING:\n%s", report)
+	}
+	if got := runGate(t, "someagent"); !strings.Contains(got, launching) {
+		t.Errorf("the gate lacks the miss line %q:\n%s", launching, got)
 	}
 }
 

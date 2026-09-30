@@ -227,6 +227,21 @@ func missingDepGroups(s *hostApplySurvey) []remedyGroup {
 	return out
 }
 
+// printUnpublishedDepMisses prints the miss line (host-launch-environment.md §4.2, HE-D2) of every
+// program this run found absent whose vendor publishes no build for this host, in the default view,
+// just above the verdict that counts them. Not a tier-3 group: it is neither a loss nor a blocker,
+// since nothing could install it. But the lookup that found nothing was the launch PATH's, and
+// `yolo host -- <it>` runs whatever copy that PATH holds (OQ-HE11 (a)), so a copy the user put in a
+// folder the PATH lacks is fixed by the line's `host_path` entry. A disclosure, so no verbosity
+// hides it.
+func printUnpublishedDepMisses(pr richtext.Printer, s *hostApplySurvey) {
+	for _, bin := range s.UnpublishedDeps() {
+		if line := s.MissLine(bin, false); line != "" {
+			pr.Printf("  [yellow]–[/yellow] %s", richtext.Escape(line))
+		}
+	}
+}
+
 // depBlockerGroups renders missing dependencies as tier-3 groups — ONE group per binary, which
 // is the remedy contract's remedy key for this class.
 //

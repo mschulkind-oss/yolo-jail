@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -100,6 +101,34 @@ func TestCheckHostLaunchPathSaysWhichPathItRead(t *testing.T) {
 	}
 	if strings.Contains(out, "floorcli") {
 		t.Errorf("a program the floor answers for was resolved on the PATH:\n%s", out)
+	}
+}
+
+// TestCheckHostLaunchPathGivesAProgramWithNoBuildHereTheMissLine: a program whose vendor publishes no
+// build for this host is not graded — nothing could install it — but it is a program `yolo host`
+// looks up on the launch PATH, so a miss there carries the miss line like any other (HE-D2). Drop the
+// note from the section's no-build row, and this fails.
+func TestCheckHostLaunchPathGivesAProgramWithNoBuildHereTheMissLine(t *testing.T) {
+	other := "darwin"
+	if runtime.GOOS == "darwin" {
+		other = "linux"
+	}
+	o, home, pathDir := launchPathCheckFixture(t, `{}`,
+		`{"kind":"program","bin":"yolo-hp-uptool","via":"npm","package":"yolo-hp-uptool-pkg","platforms":["`+other+`"]}`)
+	writeCheckFile(t, filepath.Join(home, ".cargo", "bin", "yolo-hp-uptool"), "#!/bin/sh\n", 0o755)
+	out, r := runLaunchPathSection(o)
+	for _, want := range []string{
+		"yolo-hp-uptool — not on this PATH, and no build for this host",
+		"yolo-hp-uptool (a program of the needpack pack) is not on the PATH yolo searched, " + pathDir +
+			`, the PATH yolo was started with. If yolo-hp-uptool is installed, add its folder to "host_path" in ` +
+			"~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("section lacks %q:\n%s", want, out)
+		}
+	}
+	if r.warned != 0 || r.failed != 0 {
+		t.Errorf("a program with no build here graded (%d warn, %d fail)", r.warned, r.failed)
 	}
 }
 

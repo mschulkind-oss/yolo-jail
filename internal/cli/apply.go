@@ -371,6 +371,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// is that no default view omits a loss — a branch that cannot currently produce one must
 		// still be a caller, or the first loss it learns to produce is silent.
 		printRemedyGroups(pr, hostApplyRemedyGroups(survey, home, write))
+		printUnpublishedDepMisses(pr, survey)
 		// THE VERDICT, HERE TOO. This branch returns before the tail below, so an empty
 		// `packs` ended with no count, no verdict and no "nothing written" line at all
 		// (verified 2026-09-11) — the one posture in which the reader has
@@ -824,6 +825,9 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// passes — because a group is a property of the whole run: three surfaces dropping one
 	// server is one fix, and nothing can say so until the third surface has been visited.
 	printRemedyGroups(pr, hostApplyRemedyGroups(survey, home, write))
+	// Beside them, the miss line of each program with no build for this host: not a group, but a
+	// lookup of the launch PATH that found nothing (host-launch-environment.md HE-D2).
+	printUnpublishedDepMisses(pr, survey)
 
 	if !write {
 		// THE DESTINATION ROLL-UP, and it is the point of the change predicate at this surface:
