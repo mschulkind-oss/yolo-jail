@@ -184,6 +184,35 @@ func TestARootfulPodmanDisclosesWhoOwnsTheWrites(t *testing.T) {
 	}
 }
 
+// CX-D12's other half: a NESTED podman reports rootful only because the launch forces it onto
+// `--userns host`, and its writes land under the OUTER jail's mapping, not as host root — so
+// the same answer adds no ownership sentence there, and the mount is still bound and named.
+func TestANestedPodmanReportingRootfulGetsNoOwnershipSentence(t *testing.T) {
+	var elems string
+	rwMountHome(t, func(src string) string {
+		elems = `[{"host": "` + src + `", "mode": "rw"}]`
+		return elems
+	})
+	o := goldenOptions("/ws", os.Getenv("HOME"))
+	o.PathExists = func(p string) bool { return p == "/run/.containerenv" }
+	facts := &podmanFacts{json: `{"host":{"security":{"rootless":false}}}`}
+	if err := json.Unmarshal([]byte(facts.json), &facts.info); err != nil {
+		t.Fatal(err)
+	}
+	facts.parsed = true
+	o.podmanFacts = facts
+
+	argv, stream := assembleUserMounts(t, o, "podman", mergedMounts(t, elems))
+
+	if len(ctxMountArgs(argv)) != 1 || !strings.Contains(stream, "Read-write mount:") {
+		t.Fatalf("a nested launch did not bind and name the read-write mount: %q\n%s",
+			ctxMountArgs(argv), stream)
+	}
+	if strings.Contains(stream, "owned by root on the host") {
+		t.Errorf("a nested podman's forced rootful answer produced the host-root sentence:\n%s", stream)
+	}
+}
+
 // §2.9: read-write is NOT gated by Apple Container's `:ro` floor. On a `container` whose
 // version cannot be read (the fixture's), every read-only element is skipped with its
 // reason — never bound writable in its place — and the read-write one is bound.
