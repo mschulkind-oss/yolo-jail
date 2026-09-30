@@ -307,6 +307,52 @@ func TestTwoMountsAtOneJailPathAreRefused(t *testing.T) {
 	}
 }
 
+// ONLY A MOUNT THE LAUNCH WOULD BIND CAN COLLIDE. An element whose source does not exist
+// is skipped with a warning at launch (§2.1), and so is a pack grant whose source is absent,
+// so neither is ever bound. A config listing one path per machine — "~/src/lib" on one,
+// "/opt/lib" on another, both /ctx/lib — launched on every machine before the duplicate
+// check existed, and must keep launching: refusing it would refuse a jail podman would
+// have started.
+func TestAMountThatIsNeverBoundCollidesWithNothing(t *testing.T) {
+	t.Run("two config elements, one source absent", func(t *testing.T) {
+		h := newMountsHost(t)
+		present := mountSourceDir(t, "lib")
+		absent := filepath.Join(t.TempDir(), "elsewhere", "lib")
+		h.user(t, `{"mounts": ["`+present+`", "`+absent+`"]}`)
+		errs, warns := h.validate(t)
+		if len(errs) != 0 {
+			t.Fatalf("a collision with an element whose source is absent was refused: %q", errs)
+		}
+		if !strings.Contains(joined(warns), "does not exist and will be skipped: "+absent) {
+			t.Errorf("the absent source lost its warning: %q", warns)
+		}
+	})
+	t.Run("a pack grant whose source is absent", func(t *testing.T) {
+		h := newMountsHost(t)
+		pack := mountPackDir(t, "acme", "datasets/acme", "acme")
+		src := mountSourceDir(t, "mine")
+		h.user(t, `{"packs": ["file://`+pack+`"], "mounts": ["`+src+`:/ctx/acme"]}`)
+		if errs, _ := h.validate(t); len(errs) != 0 {
+			t.Fatalf("a collision with a pack grant whose source is absent was refused: %q", errs)
+		}
+	})
+}
+
+// mountPackDir writes a local pack declaring one `mount` of ~/<host> at /ctx/<into>.
+func mountPackDir(t *testing.T, name, host, into string) string {
+	t.Helper()
+	pack := filepath.Join(t.TempDir(), name)
+	if err := os.MkdirAll(pack, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"),
+		[]byte(`{"name":"`+name+`","contributes":[{"kind":"mount","host":"`+host+`","into":"`+into+`"}]}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	return pack
+}
+
 // THE FENCE SEES AN OBJECT ELEMENT (CX-D1's warning): mountHostSources reads through
 // ParseMounts, so a read-write object element reaching the broker's credential path is
 // disclosed from the user config and refused from a workspace one, like a string element.
@@ -344,13 +390,10 @@ func TestTheMountFenceJudgesAnObjectElement(t *testing.T) {
 // config cannot see by reading itself: the check resolves the selection the launch stages.
 func TestAMountAtAPackMountsJailPathIsRefused(t *testing.T) {
 	h := newMountsHost(t)
-	pack := filepath.Join(t.TempDir(), "acme")
-	if err := os.MkdirAll(pack, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pack, "pack.json"),
-		[]byte(`{"name":"acme","contributes":[{"kind":"mount","host":"datasets/acme","into":"acme"}]}`),
-		0o644); err != nil {
+	pack := mountPackDir(t, "acme", "datasets/acme", "acme")
+	// The grant's source EXISTS, so the launch would bind it (an absent one collides with
+	// nothing: TestAMountThatIsNeverBoundCollidesWithNothing).
+	if err := os.MkdirAll(filepath.Join(h.home, "datasets", "acme"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := mountSourceDir(t, "mine")

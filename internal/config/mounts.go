@@ -424,6 +424,12 @@ func validateRWMountSources(config *jsonx.OrderedMap, workspace string, errs *[]
 //
 // Only collisions a `mounts` element is party to are this key's to report; the pack set is
 // resolved only when there is an element to compare it with.
+//
+// ONLY WHAT THE LAUNCH WOULD BIND TAKES PART: an element or a pack grant whose source does
+// not exist is skipped at launch with a warning (run.configCtxMounts, run.packCtxMounts),
+// so it lands nowhere and collides with nothing. A config naming one path per machine —
+// "~/src/lib" here, "/opt/lib" there, both /ctx/lib — started a jail on every machine before
+// this check existed, and refusing it would refuse a launch podman would have made.
 func validateMountDestinations(config *jsonx.OrderedMap, errs *[]string) {
 	elements := ParseMounts(config)
 	if len(elements) == 0 {
@@ -432,14 +438,23 @@ func validateMountDestinations(config *jsonx.OrderedMap, errs *[]string) {
 	type claim struct{ dest, who string }
 	var claims []claim
 	for _, m := range elements {
-		claims = append(claims, claim{path.Clean(m.DestFor(expandAndResolve(m.Host))),
-			"the entry " + m.Spec})
+		source := expandAndResolve(m.Host)
+		if !pathExists(source) {
+			continue // skipped at launch, and warned about by validateMounts
+		}
+		claims = append(claims, claim{path.Clean(m.DestFor(source)), "the entry " + m.Spec})
 	}
 	nConfig := len(claims)
+	if nConfig == 0 {
+		return
+	}
 	selected, _ := resolveSelectedPacks()
 	for _, p := range selected {
 		granted, _ := p.HonoredMounts()
 		for _, mt := range granted {
+			if !pathExists(expandUser("~/" + mt.From)) {
+				continue // skipped at launch: the pack's content is not on this machine
+			}
 			claims = append(claims, claim{
 				path.Clean(paths.ContainerContextDir + "/" + strings.TrimPrefix(mt.To, "/")),
 				"pack " + p.Name + "'s mount of ~/" + mt.From})

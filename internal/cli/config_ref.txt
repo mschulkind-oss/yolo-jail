@@ -492,7 +492,9 @@
     jails, or a jail and you, writing one directory get last-writer-wins,
     like two programs on the host.
     Two mounts at one jail path — a pack `mount` at /ctx/<into> included —
-    are a `yolo check` error.
+    are a `yolo check` error.  An entry whose source does not exist is
+    skipped, so it collides with nothing: one entry per machine at the same
+    path is fine.
     <basename> is the basename AFTER symlink resolution.  A link whose name
     differs from its target's mounts under the TARGET's name: "~/code/sysadmin"
     lands at /ctx/sysadmin-config if that is where the link points.  Use the
