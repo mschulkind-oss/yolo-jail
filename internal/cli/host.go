@@ -1722,8 +1722,9 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		// agent could read ~/.aws/config itself, and is given its credential profile's region
 		// anyway, so the refusal and the disclosure are one at every notch. The invoking shell is
 		// Inherited here, since the exec'd agent receives it: a region or profile exported there
-		// counts, as it does for the agent.
-		RegionFiles: &packload.RegionFileSource{Getenv: os.Getenv, Inherited: os.LookupEnv,
+		// counts, as it does for the agent — except a name an env_sources null removes, which
+		// (4) below takes out of the exec'd environment, so the agent never sees it.
+		RegionFiles: &packload.RegionFileSource{Getenv: os.Getenv, Inherited: inheritedExcept(removals),
 			Setting: packload.LoopholeSettingIn(cfg)},
 	}
 	scope, err := packload.ScopeCredentials(c.scopeInput)
@@ -1838,6 +1839,18 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	}
 	c.vars = vars
 	return c
+}
+
+// inheritedExcept is the invoking shell as the exec'd agent inherits it: os.LookupEnv, with every
+// name in removed answering nothing, because the composition's removals (an env_sources null)
+// are applied last and take that name out of the environment the agent receives.
+func inheritedExcept(removed []string) func(string) (string, bool) {
+	return func(name string) (string, bool) {
+		if slices.Contains(removed, name) {
+			return "", false
+		}
+		return os.LookupEnv(name)
+	}
 }
 
 // adHocGrantSpelling is the pasteable grant that hands this composition's ad-hoc command the

@@ -26,7 +26,8 @@ package packload
 //     `region_profile_setting` reaches the agent (aws-auth's credential pointer): the credential
 //     is minted for THAT profile, so its region is the one that belongs to the credential;
 //  2. the file's profile variable as delivered to the agent — env_sources at every notch, and at
-//     `yolo host` the invoking shell too, which the exec'd agent inherits;
+//     `yolo host` the invoking shell too, which the exec'd agent inherits unless an env_sources
+//     null removes it;
 //  3. the file's default profile.
 //
 // PARSED HERE, NEVER BY ASKING `aws` (BR-D22): the file is AWS's documented INI format
@@ -65,8 +66,9 @@ type RegionFileSource struct {
 	// yolo launches on (BR-D24). An empty HOME reads no file.
 	Getenv func(string) string
 	// Inherited answers a variable the agent inherits beyond what the gate delivers, non-empty:
-	// at `yolo host` the invoking shell, which passes through to the exec'd agent, and nil in a
-	// jail, where no backend forwards that shell (BR-D2).
+	// at `yolo host` the invoking shell, which passes through to the exec'd agent, less every
+	// name an env_sources null removes from it; and nil in a jail, where no backend forwards
+	// that shell (BR-D2).
 	Inherited func(string) (string, bool)
 	// Setting answers a loophole's configured setting, "" when none is set (LoopholeSettingIn).
 	Setting func(loophole, key string) string

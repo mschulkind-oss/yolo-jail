@@ -102,3 +102,26 @@ func TestHostEnvShowsTheRegionOfTheHostsAWSConfig(t *testing.T) {
 		t.Errorf("yolo host env must disclose the region's source:\n%s", joined)
 	}
 }
+
+// A PROFILE THE AGENT DOES NOT RECEIVE chooses nothing: an env_sources null removing AWS_PROFILE
+// takes the shell's value out of the exec'd agent's environment, so its SDK resolves the default
+// profile, and the region the fill reads is the default profile's. Reading the shell's profile
+// there handed claude [profile team]'s region beside the default profile's credential.
+func TestHostRegionFillReadsNoProfileTheAgentDoesNotReceive(t *testing.T) {
+	rc, env, errs := hostGateRunIn(t, `{"packs": ["claude"], "env_sources": [{"AWS_PROFILE": null}]}`,
+		map[string]string{"AWS_REGION": "", "AWS_PROFILE": "team"}, []string{"-p", "bedrock"}, "claude",
+		awsConfigIn(hostAWSConfig))
+	if rc != 0 || env == nil {
+		t.Fatalf("the default profile's region must let the launch run: rc=%d\n%s", rc, errs)
+	}
+	if _, found := env["AWS_PROFILE"]; found {
+		t.Fatalf("the null must remove AWS_PROFILE from claude's environment, got %q", env["AWS_PROFILE"])
+	}
+	if env["AWS_REGION"] != "eu-north-1" {
+		t.Errorf("claude, which receives no AWS_PROFILE, was handed AWS_REGION=%q, want the default profile's eu-north-1",
+			env["AWS_REGION"])
+	}
+	if want := `[default] (profile "default", since nothing names another)`; !strings.Contains(errs, want) {
+		t.Errorf("the disclosure must name the default profile, %q:\n%s", want, errs)
+	}
+}
