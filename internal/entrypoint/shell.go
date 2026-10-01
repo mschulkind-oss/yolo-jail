@@ -228,8 +228,6 @@ export GIT_PAGER=cat
 # Standard Unix convention: programs check VISUAL first for full-screen terminals, EDITOR as fallback.
 export EDITOR=cat
 export VISUAL=nvim
-# Disable pi (pi.dev coding agent) install/usage telemetry inside the jail.
-export PI_TELEMETRY=0
 
 # Combined CA bundle — baseline Nix cacert + every loophole CA.
 # Point every standard TLS trust-store env var at one file so Python

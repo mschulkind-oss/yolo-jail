@@ -260,6 +260,16 @@ func TestBashrcPathMatchesBootPathOrder(t *testing.T) {
 	}
 }
 
+// TestBashrcExportsNoAgentsVariable: core's .bashrc exported PI_TELEMETRY=0 in every jail, pi
+// selected or not. It is pi's variable, so the pi pack's `env` sets it now, and the shell core
+// writes names no agent (docs/design/agent-directory-map.md Appendix B).
+func TestBashrcExportsNoAgentsVariable(t *testing.T) {
+	rc := Bashrc(NewEnv(map[string]string{"JAIL_HOME": "/home/agent"}))
+	if strings.Contains(rc, "PI_TELEMETRY") {
+		t.Error("the generated .bashrc still sets PI_TELEMETRY, which belongs to the pi pack's env")
+	}
+}
+
 // TestLaunchDirIsSeparateFromBlockDir: the generators must write to different dirs. This
 // is the structural half of the fix — with one dir, ordering cannot express "blockers
 // early, installers late" at all.

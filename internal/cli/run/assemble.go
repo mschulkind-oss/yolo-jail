@@ -1165,7 +1165,8 @@ func (o *Options) commonEnvBlock(in *assembleInput, blockedConfigJSON, netMode s
 		"-e", "HOME=/home/agent",
 		"-e", "EDITOR=cat",
 		"-e", "VISUAL=nvim",
-		"-e", "PI_TELEMETRY=0",
+		// No PI_TELEMETRY=0 here any more: it is pi's variable, so the pi pack's `env` sets
+		// it, and core names no agent (docs/design/agent-directory-map.md Appendix B).
 		"-e", "PAGER=cat",
 		"-e", "GIT_PAGER=cat",
 		"-e", "YOLO_BLOCK_CONFIG=" + blockedConfigJSON,

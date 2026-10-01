@@ -528,6 +528,12 @@ is older than the source tree it builds from, the refusal says so and names `jus
 `yolo loopholes list` and `yolo loopholes status` still only warn, so they keep working while you
 fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabilities-and-supersession).
 
+**pi's telemetry switch now comes with the pi pack, so pi runs with telemetry off wherever yolo
+starts it.** A jail used to set `PI_TELEMETRY=0` whether or not pi was selected, and
+`yolo host -- pi` never set it. The pi pack now sets it, so it is there whenever pi is selected,
+`yolo host -- pi` and `yolo host env` included, the jail launch lists it among what the pi pack
+sets, and a jail without pi no longer carries it.
+
 ### Fixed
 
 - A config whose `required_capabilities` asks for web search is no longer refused when an agent you

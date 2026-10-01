@@ -514,7 +514,6 @@ func podmanLinuxGolden(home string) []string {
 		"-e", "HOME=/home/agent",
 		"-e", "EDITOR=cat",
 		"-e", "VISUAL=nvim",
-		"-e", "PI_TELEMETRY=0",
 		"-e", "PAGER=cat",
 		"-e", "GIT_PAGER=cat",
 		"-e", "YOLO_BLOCK_CONFIG=[]",

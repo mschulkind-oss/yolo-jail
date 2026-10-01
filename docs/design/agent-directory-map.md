@@ -7,7 +7,7 @@ summary: "yolo manages an agent's directory only where some pack happens to name
 vantage:
   status-chip: true
 stage: DESIGN
-next: "Move core's PI_TELEMETRY export into the pi pack's env (Appendix B), which rests on no open question. The rest of the pi slice waits on OQ-AM1 to OQ-AM10"
+next: "Rule OQ-AM1 to OQ-AM10 (§12): the rest of the pi slice, §6.4 items 1 to 4 and 6, waits on them. The jail-launch line and Appendix B's core rows are built"
 ---
 
 # Every path in an agent's directory gets a class, and yolo names the ones that fit none
@@ -1215,6 +1215,6 @@ The map makes each of these visible. Fixing them belongs elsewhere:
 | The claude pack does not retire `yolo-managed-mcp-servers.json`, though codex and opencode do | `packs/claude` `retireOnFirstRender` |
 | The `per_jail_history` hook is redundant now that `~/.claude` is per workspace, and leaves orphans | the claude slice ([§7.2](#72-claude)) |
 | ✅ **Fixed** 2026-09-30. `configuring-the-jail` said pi's overlay is `<workspace>/.yolo/state/pi`; it is `<workspace>/.yolo/home/pi`, and `.yolo/home/.pi` on Apple Container. [`agent-briefings.md`](../reference/agent-briefings.md) said the same and is fixed with it | the built-in skill, now checked against the launch's own bind by `TestConfiguringTheJailSkillNamesPisRealOverlay` |
-| Core exports `PI_TELEMETRY=0`, naming an agent's variable | the pi pack's `env` |
+| ✅ **Fixed** 2026-09-30. Core exported `PI_TELEMETRY=0`, naming an agent's variable, in every container jail (an `-e` and the generated `.bashrc`), pi selected or not. The pi pack's `env` sets it now, and `TestPiTelemetryComesFromThePiPackNotCore` and `TestBashrcExportsNoAgentsVariable` pin it. It reaches every process of a jail through the shared env file, as the `-e` did, and, being an ungated pack `env`, every notch that delivers the fold: `yolo host -- pi`, `yolo host env` and macos-user now set it too, and a sealed fork build, which gets no pack env, no longer does | the pi pack's `env` |
 | Copilot's `config.json` migration may loop against yolo's strict `rmw` decode (unmeasured) | measure first ([§7.4](#74-copilot)) |
 | `agent-credentials.md` says every path under `~/.gemini` is agy's; gemini-cli's leftover login contradicts it | the agy slice ([§7.5](#75-agy)) |
