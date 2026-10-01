@@ -71,6 +71,20 @@ type Lock struct {
 	Packs map[string]LockEntry `json:"packs"`
 }
 
+// newerSchemaError refuses a lockfile (this one, or the fork lock) whose schema is newer
+// than this build reads: a newer yolo wrote it, and this one must not guess at it.
+//
+// It names `yolo update` rather than saying "upgrade yolo", because the reader cannot be
+// expected to know how this copy was installed and `yolo update` does: it upgrades a
+// Homebrew or from-source install, prints the download link for a release archive, names
+// the binary's own updater for go install, pipx and uv, and in a jail says to run it on
+// the host (internal/cli/update.go; docs/reference/happy-path-principle.md, rule 7).
+func newerSchemaError(path string, got, want int) error {
+	return fmt.Errorf("%s: schema %d is newer than this yolo understands (%d), so a newer "+
+		"yolo wrote it; run `yolo update` rather than letting this one misread the file",
+		path, got, want)
+}
+
 // LockPath returns the lockfile path beside a user config path.
 func LockPath(userConfigPath string) string {
 	return filepath.Join(filepath.Dir(userConfigPath), "packs.lock.json")
@@ -93,8 +107,7 @@ func LoadLock(path string) (*Lock, error) {
 			"`yolo pack install` regenerates it)", path, err)
 	}
 	if l.Schema > LockSchema {
-		return nil, fmt.Errorf("%s: schema %d is newer than this yolo understands (%d) — "+
-			"upgrade yolo rather than letting it misread the file", path, l.Schema, LockSchema)
+		return nil, newerSchemaError(path, l.Schema, LockSchema)
 	}
 	if l.Packs == nil {
 		l.Packs = map[string]LockEntry{}

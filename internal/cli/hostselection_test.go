@@ -225,12 +225,13 @@ func TestConfigInspectionReportsAMalformedPacksEntry(t *testing.T) {
 // THE CALL SITES, by source: no host verb resolves `packs` entries itself any more. Every
 // production reader of resolveConfiguredPack or config.LoadPacks in this package is either the
 // one selection function or reads entries, not a selection (`yolo pack` verbs list them,
-// `describe` names them, `config promote --to pack:` finds a destination by name).
+// `describe` names them, `config promote --to pack:` finds a destination by name,
+// `init-user-config` asks whether the user config names any).
 func TestEveryHostVerbSelectsThroughTheOneFunction(t *testing.T) {
 	allowed := map[string][]string{
 		// Its definition, and packForCheckDeps; every verb hands it to selectHostPacks as a value.
 		`resolveConfiguredPack\(`: {"checkdeps.go"},
-		`config\.LoadPacks\(`:     {"pack.go", "describe.go", "configpromotewrite.go"},
+		`config\.LoadPacks\(`:     {"pack.go", "describe.go", "configpromotewrite.go", "init.go"},
 		// A selection closed by hand: `packload.Selection{…}.Close(…)`.
 		`\)\.Close\(|\}\.Close\(`: nil,
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +11,10 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cgd"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
 // shortSocketDir returns a scratch dir directly under /tmp.
@@ -225,9 +230,15 @@ func TestNoCommandIsReportedBeforeSocketAvailability(t *testing.T) {
 }
 
 // TestMissingSocketFailsClosed: no delegate means the command does NOT run.
-// Exit 1 with the three-line explanation, and crucially no argv returned — a
-// client that ran the command unlimited would silently ignore the limits it was
-// asked to enforce.
+// Exit 1, and crucially no argv returned — a client that ran the command
+// unlimited would silently ignore the limits it was asked to enforce.
+//
+// AND THE MESSAGE NAMES THE WAY BACK (docs/reference/happy-path-principle.md, rule 1).
+// It used to say the yolo CLI runs the delegate "automatically", which stopped being
+// true on 2026-08-18, when the delegate became an opt-in loophole (OQ-A4): a reader
+// who had launched with the yolo CLI was told to do the one thing they had already
+// done. The two config lines it names now are the delegate's switch;
+// TestTheNamedSwitchIsTheDelegates is the half that proves they are.
 func TestMissingSocketFailsClosed(t *testing.T) {
 	useSocket(t, filepath.Join(shortSocketDir(t), "does-not-exist.sock"))
 	var out, errOut bytes.Buffer
@@ -235,14 +246,67 @@ func TestMissingSocketFailsClosed(t *testing.T) {
 	if code != 1 || command != nil {
 		t.Fatalf("run = %d/%v, want 1/nil — the command must NOT run without limits", code, command)
 	}
+	got := errOut.String()
 	for _, want := range []string{
 		"cgroup delegation not available",
-		"started with the yolo CLI",
-		"cgroup delegate daemon automatically",
+		"~/.config/yolo-jail/config.jsonc",
+		`"packs": [..., "cgroup-delegate"]`,
+		`"loopholes": {"cgroup-delegate": {"enabled": true}}`,
+		"Then restart the jail.",
 	} {
-		if !strings.Contains(errOut.String(), want) {
-			t.Errorf("stderr is missing %q:\n%s", want, errOut.String())
+		if !strings.Contains(got, want) {
+			t.Errorf("stderr is missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "automatically") {
+		t.Errorf("stderr still says the delegate starts automatically; it is an opt-in "+
+			"loophole (OQ-A4):\n%s", got)
+	}
+}
+
+// TestTheNamedSwitchIsTheDelegates is rule 4 of the happy path principle for the
+// message above: config that turns nothing on is a dead end that looks like a next
+// step. So the pack the message names must be a shipped pack contributing a loophole
+// of the name the message enables, and that loophole must be OFF by default. If it
+// were ever on by default, the `enabled` line would be asking for something already
+// done, and the message's diagnosis would be wrong.
+func TestTheNamedSwitchIsTheDelegates(t *testing.T) {
+	name := paths.BuiltinCgroupLoopholeName
+	raw, err := fs.ReadFile(packs.FS, name+"/pack.json")
+	if err != nil {
+		t.Fatalf("no shipped pack named %q, which the message tells the reader to select: %v",
+			name, err)
+	}
+	m, problems := packdecl.Decode(raw)
+	if len(problems) > 0 {
+		t.Fatalf("pack %q: %v", name, problems)
+	}
+	found := false
+	for _, c := range m.Contributes {
+		if c.Kind != packdecl.KindLoophole {
+			continue
+		}
+		dir := name + "/" + c.From
+		data, err := fs.ReadFile(packs.FS, dir+"/manifest.jsonc")
+		if err != nil {
+			t.Fatalf("loophole %s: %v", dir, err)
+		}
+		lm, err := loopholedecl.Decode(data, dir)
+		if err != nil {
+			t.Fatalf("loophole %s: %v", dir, err)
+		}
+		if lm.Name != name {
+			continue
+		}
+		found = true
+		if lm.DefaultEnabled {
+			t.Errorf("the %s loophole is on by default now, so the message's `enabled` "+
+				"line asks for something already done", lm.Name)
+		}
+	}
+	if !found {
+		t.Errorf("pack %q ships no loophole named %q, so the config the message names "+
+			"turns nothing on", name, name)
 	}
 }
 

@@ -15,7 +15,9 @@
 // place the limits on a process that immediately exits.
 //
 // PARITY IS THE CONTRACT for this step: same socket path, same newline-JSON
-// request, same messages, same exit codes as the script it replaces.
+// request, same messages, same exit codes as the script it replaces — with one
+// deliberate exception, the no-socket message, whose old wording had gone false
+// (noDelegateMsg says why).
 package main
 
 import (
@@ -59,6 +61,23 @@ The host-side daemon handles all privileged cgroup operations securely.
 // producer/consumer contract for the name is documented (a refactor once left
 // the two spellings apart and silently disabled the delegate in every jail).
 var cgdSocket = paths.JailHostServicesDir + "/" + paths.CgdSocketName
+
+// noDelegateMsg is what a jail with no delegate socket hears, and it is the one
+// message here that deliberately LEFT the retired script's wording. That said the
+// yolo CLI runs the delegate "automatically", which stopped being true on
+// 2026-08-18, when the delegate became an opt-in loophole shipped by the
+// `cgroup-delegate` pack (docs/reference/loophole-system.md OQ-A4): its reader had
+// already launched with the yolo CLI and was left with nothing to do. It names the
+// switch instead, the same two user-config lines yolo-ps names for its own loophole
+// (docs/reference/happy-path-principle.md, rule 1). The pack and the loophole share
+// the name, which TestTheNamedSwitchIsTheDelegates checks against the shipped pack.
+const noDelegateMsg = "Error: cgroup delegation not available — host daemon socket not found.\n" +
+	"The cgroup delegate is an opt-in loophole, shipped by the " + paths.BuiltinCgroupLoopholeName + " pack.\n" +
+	"Two lines in the host's ~/.config/yolo-jail/config.jsonc turn it on:\n" +
+	"  \"packs\": [..., \"" + paths.BuiltinCgroupLoopholeName + "\"]\n" +
+	"  \"loopholes\": {\"" + paths.BuiltinCgroupLoopholeName + "\": {\"enabled\": true}}\n" +
+	"Then restart the jail. It needs a Linux host with cgroup v2; if it is already on,\n" +
+	"the jail's launch output says why the delegate did not start.\n"
 
 // options is the parsed command line.
 type options struct {
@@ -111,9 +130,7 @@ func run(args []string, stdout, stderr io.Writer) (int, []string) {
 		return 1, nil
 	}
 	if _, err := os.Stat(cgdSocket); err != nil {
-		fmt.Fprintln(stderr, "Error: cgroup delegation not available — host daemon socket not found.")
-		fmt.Fprintln(stderr, "This requires the jail to be started with the yolo CLI (which runs the")
-		fmt.Fprintln(stderr, "host-side cgroup delegate daemon automatically).")
+		fmt.Fprint(stderr, noDelegateMsg)
 		return 1, nil
 	}
 

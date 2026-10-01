@@ -133,13 +133,28 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 			p := filepath.Join(depManifestDir(), name)
 			if err := os.MkdirAll(depManifestDir(), 0o755); err == nil &&
 				os.WriteFile(p, []byte(body), 0o644) == nil {
-				pr.Printf("")
-				pr.Printf("[dim]wrote %s — install with the command for your manager[/dim]", p)
+				printBundleSteps(pr, results, p)
 			}
 		}
 	}
 	// Missing deps are a non-zero exit so a CI or a caller can gate on it.
 	return 1
+}
+
+// printBundleSteps ends the report once the bundle is written at p: the one command that
+// installs it, then each missing dep's command the bundle cannot hold, then the re-check.
+// Every line is a shell command, the notes after `#` included, so the block can be pasted
+// whole. It used to end at "install with the command for your manager", though depcheck had
+// just picked the manager (docs/reference/happy-path-principle.md, rule 7), and running the
+// bundle alone would leave a dep it leaves out still missing (depcheck.Unbundled).
+func printBundleSteps(pr richtext.Printer, results []depcheck.Result, p string) {
+	pr.Printf("")
+	pr.Printf("wrote %s. To install what is missing, run:", richtext.Escape(p))
+	pr.Printf("  %s", richtext.Escape(depcheck.BundleInstall(results, p)))
+	for _, r := range depcheck.Unbundled(results) {
+		pr.Printf("  %s  [dim]# %s (not in the file)[/dim]", richtext.Escape(r.Remedy), richtext.Escape(r.Bin))
+	}
+	pr.Printf("  yolo check-deps  [dim]# check again[/dim]")
 }
 
 // depManifestDir is the fixed, user-scoped home for the generated dep manifest

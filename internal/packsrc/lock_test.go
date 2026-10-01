@@ -90,7 +90,9 @@ func TestLoadLockRejectsNewerSchema(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for a newer schema")
 	}
-	if !strings.Contains(err.Error(), "upgrade yolo") {
+	// The step is the command that knows this install's channel, not "upgrade yolo"
+	// (internal/cli's TestANewerLockfileNamesYoloUpdate pins it through the command).
+	if !strings.Contains(err.Error(), "run `yolo update`") {
 		t.Errorf("error should say what to do: %v", err)
 	}
 }

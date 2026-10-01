@@ -261,7 +261,7 @@ func runPty(args []string) int {
 
 	conn, err := svcendpoint.Dial(ep, dialTimeout)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "yolo-serial: dial daemon failed: %v\n", err)
+		fmt.Fprint(os.Stderr, dialFailureMsg(ep, err))
 		return 2
 	}
 	defer conn.Close()
@@ -269,7 +269,7 @@ func runPty(args []string) int {
 	req := map[string]any{"mode": "monitor", "device": device, "baud": *baud}
 	body, _ := json.Marshal(req)
 	if err := frameproto.WriteRequest(conn, body); err != nil {
-		fmt.Fprintf(os.Stderr, "yolo-serial: send request failed: %v\n", err)
+		fmt.Fprint(os.Stderr, unansweredMsg(ep, false))
 		return 1
 	}
 
@@ -323,38 +323,77 @@ func runPty(args []string) int {
 	return 0
 }
 
+// dialFailureMsg attributes a failed dial of the serial bridge's endpoint and names the
+// next step after each fault, which for every one of them is a relaunch that republishes
+// the endpoint. Each used to stop at the fault, leaving the reader to work the fix out
+// (docs/reference/happy-path-principle.md, rule 1). The wording follows yolo-ps, the
+// sibling client of the same transport.
+//
+// The endpoint's PATH is named and its CONTENTS never are: that file carries this
+// jail's bearer token, and a diagnostic is not a place for it.
+func dialFailureMsg(endpointPath string, err error) string {
+	switch {
+	case errors.Is(err, svcendpoint.ErrEndpointMissing):
+		return fmt.Sprintf("yolo-serial: no endpoint published at %s.  The host-side serial "+
+			"bridge never started or its dir was removed; relaunch the jail.\n", endpointPath)
+	case errors.Is(err, svcendpoint.ErrEndpointMalformed):
+		return fmt.Sprintf("yolo-serial: endpoint file %s is malformed.  It was truncated or "+
+			"written by an older yolo; relaunch the jail to republish it.\n", endpointPath)
+	case errors.Is(err, svcendpoint.ErrAuthRejected):
+		return fmt.Sprintf("yolo-serial: the serial bridge rejected this jail's token.  The "+
+			"endpoint file %s is stale relative to the running bridge; relaunch the jail.\n",
+			endpointPath)
+	default:
+		return fmt.Sprintf("yolo-serial: cannot reach the serial bridge named by %s: %v; "+
+			"relaunch the jail.\n", endpointPath, err)
+	}
+}
+
+// unansweredMsg attributes a connection that AUTHENTICATED and then hung up before the
+// bridge's exit frame. The serial loophole is `publishes: "socket"`: yolo's front owns
+// the listener and the bridge is upstream of it, so a bridge that crashed or was killed
+// on the host does not fail the dial. The front authenticates the jail from a valid
+// endpoint file, cannot reach the bridge, and hangs up, so the request write fails or
+// the stream ends early.
+//
+// Both used to be wrong in different ways: a failed write printed the bare socket
+// error, and an early end of stream was read as success, so `yolo-serial list` against
+// a dead bridge printed nothing and exited 0. The bridge always ends a session with an
+// exit frame (hostservice's handleOne sends Exit(0) when a handler does not), so a
+// stream that ends without one is this fault and nothing else.
+func unansweredMsg(endpointPath string, partial bool) string {
+	what := "never answered"
+	if partial {
+		what = "stopped answering mid-response"
+	}
+	return fmt.Sprintf("yolo-serial: the serial bridge %s.  The endpoint at %s "+
+		"authenticated, so yolo's front is up and the bridge behind it is not: it crashed "+
+		"or was killed on the host, so relaunch the jail.  The reason is in the host's "+
+		"~/.local/share/yolo-jail/logs/host-service-serial.log.\n", what, endpointPath)
+}
+
 func call(endpointPath string, request map[string]any) int {
 	conn, err := svcendpoint.Dial(endpointPath, dialTimeout)
 	if err != nil {
-		switch {
-		case errors.Is(err, svcendpoint.ErrEndpointMissing):
-			fmt.Fprintf(os.Stderr, "yolo-serial: no endpoint published at %s.\n", endpointPath)
-		case errors.Is(err, svcendpoint.ErrEndpointMalformed):
-			fmt.Fprintf(os.Stderr, "yolo-serial: endpoint file %s is malformed.\n", endpointPath)
-		case errors.Is(err, svcendpoint.ErrAuthRejected):
-			fmt.Fprintf(os.Stderr, "yolo-serial: serial daemon rejected this jail's token.\n")
-		default:
-			fmt.Fprintf(os.Stderr, "yolo-serial: cannot reach serial daemon at %s: %v\n", endpointPath, err)
-		}
+		fmt.Fprint(os.Stderr, dialFailureMsg(endpointPath, err))
 		return 2
 	}
 	defer conn.Close()
 
 	body, _ := json.Marshal(request)
 	if err := frameproto.WriteRequest(conn, body); err != nil {
-		fmt.Fprintf(os.Stderr, "yolo-serial: failed to send request: %v\n", err)
+		fmt.Fprint(os.Stderr, unansweredMsg(endpointPath, false))
 		return 1
 	}
 
+	answered := false
 	for {
 		f, err := frameproto.ReadFrame(conn)
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			fmt.Fprintf(os.Stderr, "yolo-serial: stream error: %v\n", err)
-			return 1
+			fmt.Fprint(os.Stderr, unansweredMsg(endpointPath, answered))
+			return 1 // the stream ended before the bridge's exit frame
 		}
+		answered = true
 		switch f.StreamID {
 		case frameproto.StreamStdout:
 			os.Stdout.Write(f.Payload)
@@ -367,5 +406,4 @@ func call(endpointPath string, request map[string]any) int {
 			return 0
 		}
 	}
-	return 0
 }

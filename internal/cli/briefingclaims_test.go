@@ -2,13 +2,13 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
 // renderedBriefing is the briefing exactly as `yolo init` prints it, markup stripped — the
@@ -100,19 +100,15 @@ func TestBriefingAgreesWithTheBlockedToolDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the briefing names a guardrails pack the tree does not ship: %v", err)
 	}
-	var manifest struct {
-		Contributes []struct {
-			Kind        string `json:"kind"`
-			Bin         string `json:"bin"`
-			Replacement string `json:"replacement"`
-		} `json:"contributes"`
-	}
-	if err := json.Unmarshal(raw, &manifest); err != nil {
-		t.Fatalf("decode packs/guardrails/pack.json: %v", err)
+	// packdecl.Decode, the reader yolo itself uses: a pack.json is JSONC, and the guardrails
+	// one carries comments recording where its install hints came from.
+	manifest, problems := packdecl.Decode(raw)
+	if len(problems) > 0 {
+		t.Fatalf("decode packs/guardrails/pack.json: %v", problems)
 	}
 	blocks := 0
 	for _, c := range manifest.Contributes {
-		if c.Kind != "blocked-tool" {
+		if c.Kind != packdecl.KindBlockedTool {
 			continue
 		}
 		blocks++

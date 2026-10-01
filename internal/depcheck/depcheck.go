@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Requirement is one binary a host must provide, with the per-manager package names
@@ -324,53 +326,125 @@ func Missing(results []Result) []Result {
 // is no way to spell `curl … | sh` in one. Splicing the URL in as a token would produce a
 // Brewfile that fails on a line the user cannot fix; the printed remedy already names the
 // command, so nothing is lost by leaving it out of the bundle.
+//
+// So does a hint that is a package PLUS A STEP (bundleToken), and for the same reason. Each
+// dep left out is one Unbundled returns, so a caller can print its command beside the
+// bundle's rather than let the bundle read as the whole install.
 func Manifest(results []Result) (filename, body string) {
-	mgr := ""
-	var pkgs, casks []string
+	b := planBundle(results)
+	if len(b.pkgs)+len(b.casks) == 0 {
+		return "", ""
+	}
+	switch b.mgr {
+	case "brew":
+		var sb strings.Builder
+		for _, p := range b.pkgs {
+			sb.WriteString("brew \"" + p + "\"\n")
+		}
+		// Casks trail the formulae, matching `brew bundle dump`'s grouping.
+		for _, c := range b.casks {
+			sb.WriteString("cask \"" + c + "\"\n")
+		}
+		return "Brewfile", sb.String()
+	default:
+		// Non-brew managers have no cask concept, so a brew-cask hint cannot be selected
+		// for them (hintKeys) — casks is empty here by construction.
+		return b.mgr + "-packages.txt", strings.Join(b.pkgs, "\n") + "\n"
+	}
+}
+
+// BundleInstall is the ONE command that installs the bundle Manifest renders for results,
+// once it is written at path, or "" when Manifest renders none. It exists because the bundle
+// used to be handed over with "install with the command for your manager", though this
+// package had just picked the manager (docs/reference/happy-path-principle.md, rule 7).
+//
+// brew reads its own file format (`brew bundle --file`). The other managers take the file's
+// package list as arguments to the very install line installCmd builds for one package; nix's
+// file already holds installables (`nixpkgs#<pkg>`), so its line takes them as they are. The
+// path is quoted for a shell, since a home directory may hold a space.
+func BundleInstall(results []Result, path string) string {
+	b := planBundle(results)
+	if len(b.pkgs)+len(b.casks) == 0 {
+		return ""
+	}
+	q := shquote.QuoteDisplay(path)
+	switch b.mgr {
+	case "brew":
+		return "brew bundle --file=" + q
+	case "nix":
+		return "nix profile install $(cat " + q + ")"
+	default:
+		return installCmd(b.mgr, "$(cat "+q+")")
+	}
+}
+
+// Unbundled returns the missing results that HAVE a remedy and are not in the bundle Manifest
+// renders: a pack's own installer with no manager fallback, or a hint that is a package plus a
+// step. Their printed remedies are still the whole command; a caller naming BundleInstall's
+// command names these beside it, or running the bundle would leave them missing.
+func Unbundled(results []Result) []Result {
+	return planBundle(results).left
+}
+
+// bundle is what Manifest, BundleInstall and Unbundled read, decided in ONE place so the file,
+// the command that installs it and the list of what it leaves out cannot disagree.
+type bundle struct {
+	mgr         string
+	pkgs, casks []string
+	left        []Result
+}
+
+func planBundle(results []Result) bundle {
+	var b bundle
 	for _, r := range results {
-		if r.Present {
+		if r.Present || r.Remedy == "" {
 			continue
 		}
 		remedy, flavor := r.Remedy, r.Flavor
 		if flavor == selfInstallFlavor {
-			// Only the manager fallback can go in a bundle. No fallback → no line.
-			if r.Fallback == "" {
-				continue
-			}
+			// Only the manager fallback can go in a bundle.
 			remedy, flavor = r.Fallback, r.FallbackFlavor
 		}
-		if remedy == "" {
+		if flavor == "" {
+			flavor = r.Manager // Flavor is the manager for every hint but a cask (Result.Flavor)
+		}
+		token, ok := bundleToken(flavor, remedy)
+		if !ok {
+			b.left = append(b.left, r)
 			continue
 		}
-		mgr = r.Manager
-		// The package name is the last token of the remedy for brew/nix; for apt/dnf/
-		// pacman it is also the trailing token. Recover it rather than re-plumbing.
-		fields := strings.Fields(remedy)
+		b.mgr = r.Manager
 		if flavor == brewCaskHint {
-			casks = append(casks, fields[len(fields)-1])
+			b.casks = append(b.casks, token)
 		} else {
-			pkgs = append(pkgs, fields[len(fields)-1])
+			b.pkgs = append(b.pkgs, token)
 		}
 	}
-	if len(pkgs)+len(casks) == 0 {
-		return "", ""
+	sort.Strings(b.pkgs)
+	sort.Strings(b.casks)
+	return b
+}
+
+// bundleToken is the token a bundle file lists for one remedy, recovered from the install
+// command installCmd built for flavor, or ok=false when the remedy cannot be one line of a
+// bundle: it is empty, it is not installCmd's (a pack's own installer), or the hint it was
+// built from is more than one package token.
+//
+// That last case is a hint that is a package PLUS A STEP, written as `<package> && <command>`
+// — the guardrails pack's apt hint for fd, because Debian's fd-find puts `fd` at
+// /usr/lib/cargo/bin/fd, which no PATH holds, and the step links it onto one. The printed
+// remedy is then the whole command and works when pasted. A bundle line could carry only the
+// package, and installing it would leave the binary missing, so the dep is left out instead
+// and Unbundled names it. Before this check the bundle took the remedy's LAST token, which
+// for such a hint is the link's target path, listed as a package name.
+func bundleToken(flavor, remedy string) (string, bool) {
+	prefix := installCmd(flavor, "")
+	hint, ok := strings.CutPrefix(remedy, prefix)
+	if prefix == "" || !ok || hint == "" || strings.ContainsAny(hint, " \t\r\n") {
+		return "", false
 	}
-	sort.Strings(pkgs)
-	sort.Strings(casks)
-	switch mgr {
-	case "brew":
-		var b strings.Builder
-		for _, p := range pkgs {
-			b.WriteString("brew \"" + p + "\"\n")
-		}
-		// Casks trail the formulae, matching `brew bundle dump`'s grouping.
-		for _, c := range casks {
-			b.WriteString("cask \"" + c + "\"\n")
-		}
-		return "Brewfile", b.String()
-	default:
-		// Non-brew managers have no cask concept, so a brew-cask hint cannot be selected
-		// for them (hintKeys) — casks is empty here by construction.
-		return mgr + "-packages.txt", strings.Join(pkgs, "\n") + "\n"
-	}
+	// The token is the last field of the one-package command: the package itself, or for
+	// nix the installable `nixpkgs#<pkg>` that `nix profile install` takes.
+	fields := strings.Fields(installCmd(flavor, hint))
+	return fields[len(fields)-1], true
 }

@@ -148,6 +148,12 @@ type Contribution struct {
 	// `brew install <token>` silently prefers a same-named formula (brew's `copilot`
 	// formula is AWS's deprecated ECS CLI). "brew-cask" wins over "brew" when a pack
 	// declares both; internal/depcheck holds the lookup order.
+	//
+	// A value may be a package PLUS A STEP, `<package> && <command>`, for a package that
+	// does not put Bin on PATH by itself: Debian's fd-find installs `fd` as
+	// /usr/lib/cargo/bin/fd, so the guardrails pack's apt hint links it into /usr/local/bin.
+	// The printed remedy is the whole command; a bundle file cannot hold the step, so the
+	// dep is left out of it and printed beside it (internal/depcheck's bundleToken).
 	InstallHints map[string]string `json:"install_hints,omitempty"`
 
 	// --- skills / briefing / files (staged trees) ---

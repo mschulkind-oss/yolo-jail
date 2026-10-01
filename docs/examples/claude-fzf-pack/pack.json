@@ -5,7 +5,7 @@
     {
       "kind": "requires",
       "bin": "fd",
-      "install_hints": { "brew": "fd", "apt": "fd-find", "dnf": "fd-find", "pacman": "fd", "nix": "fd" }
+      "install_hints": { "brew": "fd", "apt": "fd-find && sudo ln -sf /usr/lib/cargo/bin/fd /usr/local/bin/fd", "dnf": "fd-find", "pacman": "fd", "nix": "fd" }
     },
     {
       "kind": "requires",

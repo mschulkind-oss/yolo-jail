@@ -44,8 +44,13 @@ func TestForkLockRefusesANewerSchema(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"schema": 99, "forks": {}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadForkLock(path); err == nil || !strings.Contains(err.Error(), "newer") {
+	_, err := LoadForkLock(path)
+	if err == nil || !strings.Contains(err.Error(), "newer") {
 		t.Errorf("err = %v, want a newer-schema refusal", err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "run `yolo update`") {
+		t.Errorf("err = %v, want it to name `yolo update`, the command that knows this "+
+			"install's channel", err)
 	}
 }
 

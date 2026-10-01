@@ -79,8 +79,7 @@ func LoadForkLock(path string) (*ForkLock, error) {
 			path, err)
 	}
 	if l.Schema > ForkLockSchema {
-		return nil, fmt.Errorf("%s: schema %d is newer than this yolo understands (%d) — upgrade yolo "+
-			"rather than letting it misread the file", path, l.Schema, ForkLockSchema)
+		return nil, newerSchemaError(path, l.Schema, ForkLockSchema)
 	}
 	if l.Forks == nil {
 		l.Forks = map[string]ForkLockEntry{}

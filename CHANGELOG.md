@@ -666,6 +666,24 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   command to run yourself, a config error names where to fix it, and a problem in a pack that ships
   with yolo says it is a yolo bug and where to report it. A missing yolo state folder now says why
   yolo could not create it, instead of promising the first launch would.
+- `yolo-cglimit` in a jail without the cgroup delegate now says how to turn it on: the two lines
+  that select the `cgroup-delegate` pack and enable it in `~/.config/yolo-jail/config.jsonc`, then
+  a restart of the jail. It used to say yolo starts the delegate automatically, which stopped being
+  true when the delegate became opt-in.
+- `yolo-serial` now says what to do when it cannot use the serial bridge: relaunch the jail, and,
+  when the bridge stopped on your machine, where its log is. In that case `yolo-serial list` and the
+  other commands used to print nothing and exit 0, as if they had worked; they now exit 1.
+- `yolo init-user-config` now ends with the next steps: the line to add that chooses your agent,
+  `yolo check`, and the command that launches it. Run on a file that selects no packs yet, it
+  prints the same steps.
+- `yolo check-deps` now ends with the command that installs the package list it writes for your
+  package manager, such as `brew bundle --file=…` for a Brewfile, then `yolo check-deps` to check
+  again, instead of "install with the command for your manager".
+- On Debian and Ubuntu, the guardrails pack's install command for `fd` now leaves `fd` on your
+  PATH. The package it named installs the program under other names, so following it left `fd`
+  missing; the command now also links it into `/usr/local/bin`.
+- A pack lockfile written by a newer yolo now tells you to run `yolo update`, which knows how this
+  yolo was installed, instead of only "upgrade yolo".
 - `yolo prune --apply` now removes the old yolo store paths it lists on a Nix installed with the
   official installer and no `experimental-features` line. It used to fail on each one with "experimental
   Nix feature 'nix-command' is disabled".

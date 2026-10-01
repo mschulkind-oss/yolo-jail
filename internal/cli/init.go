@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -99,6 +100,14 @@ func InitUserConfig(out io.Writer) int {
 	}
 	if _, err := os.Stat(p); err == nil {
 		fmt.Fprintf(out, "%s already exists.\n", p)
+		// The likeliest reason to run this again is a jail with no agent, so an existing
+		// file that selects no pack gets the same steps a new one does. One that cannot
+		// be read says nothing more here: `yolo check` reports that, in its own words.
+		problems := 0
+		entries, err := config.LoadPacks(func(string) { problems++ })
+		if err == nil && problems == 0 && !config.HasConfiguredPack(entries) {
+			printUserConfigNextSteps(out)
+		}
 		return 0
 	}
 	if err := os.WriteFile(p, []byte(userConfigContent), 0o644); err != nil {
@@ -106,7 +115,26 @@ func InitUserConfig(out io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(out, "Created %s\n", p)
+	// The template selects no pack, so this is always the case for a file just written.
+	printUserConfigNextSteps(out)
 	return 0
+}
+
+// printUserConfigNextSteps ends `yolo init-user-config` with what to do next, for a user
+// config that selects no pack: as written, the next jail has no coding agent, and the
+// command used to end at `Created <path>` without saying so
+// (docs/reference/happy-path-principle.md, rule 2). Choosing the agent is the user's call,
+// so the step is the edit (rung 3), not a write made for them. The example agent is the one
+// the empty-packs notice names (config.NoPacksGuidance), so a new user hears one answer.
+//
+// It follows the line naming the file, so "that file" is the path the user just read.
+func printUserConfigNextSteps(out io.Writer) {
+	io.WriteString(out, "It selects no packs yet, so a jail has no coding agent. Next:\n"+
+		"  1. Choose your agent: add this line to that file, right after the opening {\n"+
+		"       \"packs\": [\"claude\"],\n"+
+		"     (`yolo pack --help` says what other packs deliver)\n"+
+		"  2. Check the edit:  yolo check\n"+
+		"  3. From your project's directory, launch it:  yolo -- claude\n")
 }
 
 // printBriefing renders the post-init agent briefing with {config_path}
