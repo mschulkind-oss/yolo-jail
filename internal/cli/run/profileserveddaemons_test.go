@@ -207,10 +207,10 @@ func TestAnAttachNeedingAnUnstartedAdapterTakesTheSkewDisposition(t *testing.T) 
 	}
 
 	o, cfg, channel, stderr = attachFixture(t, awsAdapterJailEnv, packs, emptyEnv(), enable)
-	// The fixture's runtime runs no exec, so a proceeding attach ends at the exec (not rc 1): what
-	// matters is that it delivered codex's file rather than refusing.
-	_, _ = o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
-		stagedPacks{root: "/ctx/packs", packs: packs}, channel, false, nil)
+	// A proceeding attach ends at the exec, which a stand-in runtime first on PATH answers
+	// (attachToExec) rather than the machine's podman: what matters is that it delivered
+	// codex's file rather than refusing.
+	_, _, _ = attachToExec(t, o, cfg, packs, channel)
 	if strings.Contains(stderr.String(), "jail daemon that this") {
 		t.Fatalf("an attach into a jail that runs the adapter took the skew disposition:\n%s", stderr.String())
 	}
@@ -327,8 +327,7 @@ func TestAnAttachKeepsTheRunningAdaptersScopedToken(t *testing.T) {
 				withBedrockRegion(cfg)
 			})
 		seed(wsStateOf(o))
-		_, _ = o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
-			stagedPacks{root: "/ctx/packs", packs: packs}, channel, false, nil)
+		_, _, _ = attachToExec(t, o, cfg, packs, channel)
 		shared, err := os.ReadFile(filepath.Join(wsStateOf(o), "yolo-user-env.sh"))
 		if err != nil {
 			t.Fatalf("the attach wrote no shared file: %v\n%s", err, stderr.String())

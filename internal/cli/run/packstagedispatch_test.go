@@ -81,6 +81,12 @@ func dispatchOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 		}
 		return ExecResult{Ran: false}
 	}
+	// The prefix build fails the way the real one does over this empty repo root, without
+	// running the machine's nix: PathExists answers false, so a launch that gets this far
+	// always takes the build arm, and the real `nix build` there asks the machine's daemon.
+	o.BuildJailPrefix = func(string) (string, []string) {
+		return "", []string{"test guard: dispatchOptions builds no prefix"}
+	}
 	// podman answers the readiness gate at once, so resolveRuntime accepts the explicit choice.
 	answeringPodman(o, minimalPodmanInfo)
 	o.Getenv = func(k string) string {

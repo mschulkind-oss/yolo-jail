@@ -94,6 +94,12 @@ type jailPrefix struct {
 	built bool
 }
 
+// registerPrefixRoot is image.RegisterPrefixRoot, which pins a built prefix with a nix GC root by
+// running `nix-store --add-root`. A package variable only so this package's TestMain can replace
+// it: a unit test that reached a build would otherwise run the machine's nix-store against the
+// machine's nix daemon, and hang wherever that daemon does.
+var registerPrefixRoot = image.RegisterPrefixRoot
+
 // prebuiltBinDir is the per-arch prebuilt directory a flake bundle ships, if the
 // resolved source has one. The name matches flake.nix's own prebuilt
 // short-circuit (`./bin/linux-${goArch}`) and stage-source-bundle.sh's layout —
@@ -199,7 +205,7 @@ func (o *Options) jailPrefixSource(root string) (jailPrefix, bool) {
 	// in-jail the gcroots dir is unmounted and the host daemon prunes a
 	// jail-home root as stale.
 	if !o.inJail() {
-		_, _ = image.RegisterPrefixRoot(storePath, o.Stderr)
+		_, _ = registerPrefixRoot(storePath, o.Stderr)
 	}
 	prefix := filepath.Join(storePath, image.JailPrefixSubdir)
 	return jailPrefix{

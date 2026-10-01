@@ -2,9 +2,12 @@ package run
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -44,12 +47,19 @@ func stageBundle(t *testing.T, withBinaries bool) string {
 // prefixOptions is an Options whose only live seam is the prefix build, so a
 // test can tell "took the prebuilt branch" from "ran a build" by whether the
 // stub fired.
+//
+// ITS ENVIRONMENT IS EMPTY. resolveJailPrefix reads YOLO_NIX_HOST_DAEMON, which the
+// macOS guide has a developer pointed at a live checkout export, and the Podman
+// Machine share read reads CONTAINER_HOST and CONTAINER_CONNECTION. Read from the
+// test process, the first turned TestDarwinRefusesAStorePrefix into an acceptance on
+// exactly that developer's Mac.
 func prefixOptions(t *testing.T, build func(string) (string, []string)) (*Options, *int) {
 	t.Helper()
 	calls := 0
 	o := &Options{
 		Stdout: os.Stderr,
 		Stderr: os.Stderr,
+		Getenv: func(string) string { return "" },
 		BuildJailPrefix: func(root string) (string, []string) {
 			calls++
 			return build(root)
@@ -59,6 +69,26 @@ func prefixOptions(t *testing.T, build func(string) (string, []string)) (*Option
 	// already-set BuildJailPrefix alone — the seam under test stays ours.
 	fillDefaults(o)
 	return o, &calls
+}
+
+// unregisteredPrefixRoot is TestMain's registerPrefixRoot: it runs no nix-store and
+// fails the way a launch already tolerates, since the root is best-effort.
+func unregisteredPrefixRoot(string, io.Writer) (string, error) {
+	return "", errors.New("test guard: this package's tests register no nix GC root")
+}
+
+// recordPrefixRoots replaces registerPrefixRoot for the rest of t with one that records
+// the store paths a launch asked to root.
+func recordPrefixRoots(t *testing.T) *[]string {
+	t.Helper()
+	var rooted []string
+	prev := registerPrefixRoot
+	registerPrefixRoot = func(storePath string, _ io.Writer) (string, error) {
+		rooted = append(rooted, storePath)
+		return "", nil
+	}
+	t.Cleanup(func() { registerPrefixRoot = prev })
+	return &rooted
 }
 
 // A flake source that SHIPS prebuilt binaries — every installed bundle, and the
@@ -104,6 +134,7 @@ func TestLiveCheckoutBuildsThePrefix(t *testing.T) {
 		}
 		return store, nil
 	})
+	rooted := recordPrefixRoots(t)
 
 	p, ok := o.resolveJailPrefix(root, "podman")
 	if !ok {
@@ -111,6 +142,11 @@ func TestLiveCheckoutBuildsThePrefix(t *testing.T) {
 	}
 	if *calls != 1 {
 		t.Errorf("the prefix build ran %d times, want exactly 1", *calls)
+	}
+	// ROOTED, on the host (OQ-BF4): the built prefix is pinned with a GC root, or a
+	// collection could take pid1 out from under a jail running from it.
+	if !slices.Equal(*rooted, []string{store}) {
+		t.Errorf("GC roots registered = %q, want one for the built prefix %q", *rooted, store)
 	}
 	wantBin := filepath.Join(store, image.JailPrefixSubdir, "bin")
 	if p.binDir != wantBin {
@@ -128,6 +164,26 @@ func TestLiveCheckoutBuildsThePrefix(t *testing.T) {
 	}
 	if !p.built {
 		t.Error("built=false for a prefix that was built — the launch would report the wrong provenance")
+	}
+}
+
+// A JAIL REGISTERS NO PREFIX ROOT: in-jail the gcroots dir is not mounted and the host
+// daemon prunes a root under the jail's home as stale, so rooting is the host's alone.
+func TestAJailRegistersNoPrefixRoot(t *testing.T) {
+	root := stageBundle(t, false)
+	o, _ := prefixOptions(t, func(string) (string, []string) { return t.TempDir(), nil })
+	o.Getenv = func(k string) string {
+		if k == "YOLO_VERSION" {
+			return "1.2.3"
+		}
+		return ""
+	}
+	rooted := recordPrefixRoots(t)
+	if _, ok := o.resolveJailPrefix(root, "podman"); !ok {
+		t.Fatal("resolveJailPrefix refused a checkout whose build succeeded")
+	}
+	if len(*rooted) != 0 {
+		t.Errorf("a jail registered GC roots %q; only the host may", *rooted)
 	}
 }
 
@@ -620,6 +676,10 @@ func TestDarwinRefusesAStorePrefix(t *testing.T) {
 // not refuse the arm every Homebrew and `just install` user is on. A bundle under
 // $HOME ships prebuilt binaries and never touches the store, and a darwin launch
 // that refused it would be a total outage rather than a diagnosis.
+//
+// The Podman Machine is the test's, sharing the bundle's folder as the default
+// /Users share does for a bundle under $HOME. Read from the machine running the
+// test, a Mac whose machine shares no folder holding t.TempDir() refused here.
 func TestDarwinAcceptsAPrefixTheVMCanSee(t *testing.T) {
 	root := stageBundle(t, true)
 	o, _ := prefixOptions(t, func(string) (string, []string) {
@@ -627,6 +687,13 @@ func TestDarwinAcceptsAPrefixTheVMCanSee(t *testing.T) {
 		return "", nil
 	})
 	o.IsMacOS = true
+	probes := 0
+	fakePodmanMachine(t, o, append(append([]string{}, defaultMacShares...), filepath.Dir(root)), &probes)
+	defer func() {
+		if probes == 0 {
+			t.Error("the launch never read the machine's share list, so this accepted nothing it was shown")
+		}
+	}()
 
 	if _, ok := o.resolveJailPrefix(root, "podman"); !ok {
 		t.Fatal("a darwin launch refused a prefix under $HOME (a t.TempDir(), which is " +

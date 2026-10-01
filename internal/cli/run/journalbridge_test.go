@@ -54,6 +54,10 @@ func TestMain(m *testing.M) {
 	// test that goes through runtime selection says what podman answers
 	// (Options.PodmanReadiness, answeringPodman).
 	defaultPodmanAttempt = refusingPodmanAttempt
+	// NOR DOES A BUILT PREFIX GET A REAL GC ROOT HERE (jailprefix.go): the real registration runs
+	// the machine's nix-store against its nix daemon, so a test that reached a prefix build would
+	// otherwise hang wherever that daemon does. A test that pins the root says what it records.
+	registerPrefixRoot = unregisteredPrefixRoot
 	// A FRESH LAUNCH'S KEEPER RUNS IN-PROCESS HERE (keeper_test.go): the real spawner self-execs
 	// the binary, which here is the test binary, and it refuses to (errTestBinarySelfExec).
 	defaultKeeperSpawner = inProcessKeeper
