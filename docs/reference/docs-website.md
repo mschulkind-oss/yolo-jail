@@ -13,7 +13,7 @@ covers:
   - Justfile
   - .github/workflows/ci.yml
 tags: [docs, website, userguide, vantage, cloudflare, deploy]
-summary: "How the user guide is published: userguide/ is a closed tree of Markdown, scripts/build-site.sh turns it into a static Vantage export with a pinned vantage-md, a static-assets Cloudflare Worker serves that export, and Cloudflare Workers Builds is the one thing that deploys it, on every push to main. The local gate refuses a guide link that leaves the tree and a build script whose output the Worker does not serve."
+summary: "How the user guide is published: userguide/ is a closed tree of Markdown, scripts/build-site.sh turns it into a static Vantage export with the latest vantage-md, a static-assets Cloudflare Worker serves that export, and Cloudflare Workers Builds is the one thing that deploys it, on every push to main. The local gate refuses a guide link that leaves the tree and a build script whose output the Worker does not serve."
 ---
 
 # The docs website — how the user guide is built, served and deployed
@@ -97,9 +97,8 @@ an absolute link.
 `YOLO Jail User Guide`, and does nothing else:
 
 - **Vantage is installed, not built.** Vantage builds its own binary because its site is also a
-  test of that binary; here it is a tool, so the script runs the `vantage-md` package from PyPI at
-  a **pinned** version. A bump is a commit, so a Vantage release cannot change the site without a
-  commit in this repository. It runs through `uvx` when the build image has it, and otherwise
+  test of that binary; here it is a tool, so the script runs the **latest** `vantage-md` release
+  from PyPI on every build, and a Vantage release reaches the site with no commit here. It runs through `uvx` when the build image has it, and otherwise
   through a throwaway Python virtual environment kept outside the published directory, because
   Workers Builds images are not guaranteed to carry `uv`.
 - **No yolo toolchain.** The script needs no Go, no nix and no `just`; the build image has none.
@@ -189,7 +188,7 @@ Each row is a ruling a maintainer could undo on purpose, kept under its original
 | <a id="oq-dw2"></a><a id="dw-d1"></a>[`OQ-DW2`](#oq-dw2), decided as [`DW-D1`](#dw-d1): **`settings-per-setup.md` crosses into the guide, and no other reference page does** (2026-09-30) | It is the one page the guide links that is written for a reader choosing a setup: the maintainer's review of it said *"this is for a user learning about yolo, not me as a developer"*. Moving nothing would send a learner to GitHub for the table of what works in their setup. Moving another page later is a `git mv` and its links, and the closed-tree check refuses any link left pointing out. |
 | <a id="dw-d2"></a>[`DW-D2`](#dw-d2): the move's "no file names the deleted guide directory" check prints only path-shaped words, drops URLs, and skips the files that record the move (2026-09-30) | A bare search over the same paths could never print nothing: it matched its own line, and text that names the deleted directory on purpose. |
 | **No deploy from GitHub Actions** | It is not Vantage's setup, it would be a second deployer, and it would put a deploy token in CI. |
-| **A pinned `vantage-md`** | Unpinned, a Vantage release could change the published site with no commit here. |
+| **The latest `vantage-md` on every build**, not a pinned version (maintainer, 2026-10-01) | The site picks up each Vantage release without a bump commit. The cost is that a Vantage release can change the published site with no commit here; the pinned `vantage-check` in `lint-ci` still gates the guide's Markdown. |
 
 ## Current values
 
@@ -203,7 +202,7 @@ place the values themselves are stated.
 | The build command | `bash scripts/build-site.sh` | the Cloudflare dashboard |
 | The deploy command | `npx wrangler deploy --config docs-wrangler.toml` | the Cloudflare dashboard |
 | The production branch | `main` | the Cloudflare dashboard |
-| The pinned Vantage | `vantage-md` `0.7.0` | `VANTAGE_MD_VERSION`, `scripts/build-site.sh` |
+| The site's Vantage | the latest `vantage-md` release | `scripts/build-site.sh` |
 | The export's display name | `YOLO Jail User Guide` | `scripts/build-site.sh` |
 | The export directory | `dist/docs` | `scripts/build-site.sh`; `[assets] directory`, `docs-wrangler.toml` |
 | Unmatched paths, `workers.dev`, previews | `single-page-application`; on; off | `docs-wrangler.toml` |
