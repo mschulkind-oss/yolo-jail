@@ -3,7 +3,7 @@ title: "Synced skill trees — implementation sketch"
 date: 2026-09-18
 status: accepted
 stage: BUILT
-next: "Fix the live defect recorded here: yolo pack lint passes a config-overlay body that manifest.DecodeOverlay refuses — start at packLint in internal/cli/pack.go"
+next: "Nothing: the design's three steps shipped, and both defects this file records are fixed; what remains is the measurement synced-skill-trees.md cites"
 tags: [plan, sketch, skills, packs, host-notch, claude]
 summary: "The parking lot for `synced-skill-trees.md`: the measurement transcripts that doc cites, and the checks worth re-running against them. Not a hand-off artifact — no design decision is made here. The design's fence, notice and recovery report shipped 2026-09-22, so the build-side notes here are history; its last question, which belongs to the config-ownership axis, was decided on 2026-09-30."
 vantage:
@@ -203,10 +203,15 @@ design question — recorded here so they are not re-discovered.
   which then contributed nothing and lost the entry at the next apply. Whatever lint is checking,
   it is not what the render decodes. This matters more than it looks because the overlay IS the
   remedy: a user following the advice above with the wrong spelling gets a green lint and the loss
-  anyway. *Still live, re-checked 2026-09-30 at `4ac4b8fa`*: a binary built from that tree printed
-  `✓ pack ok` and the same claim line for a one-contribution pack whose overlay body carries only
-  `defaults`, while `DecodeOverlay` refuses that field (`overlayRefusals`,
-  `internal/agentcfg/manifest/overlay.go`).
+  anyway. *Fixed 2026-09-30*: lint now asks the render's own collector, `packoverlay.Collect`, for
+  every problem it reports on the linted pack, at both postures, and fails on any once the
+  manifest itself decodes clean (`overlayProblems`, `internal/cli/pack.go`). So the body that
+  collector decodes with `DecodeOverlay` is refused with `DecodeOverlay`'s own two lines, and an
+  autonomy posture's `config` entry on another pack's surface, which it decodes with
+  `DecodePostureOverlay` and which lint passed the same way, is refused too. Pinned through
+  `yolo pack lint` by
+  `TestPackLintRefusesAnOverlayBodyTheRenderRefuses`, and in the other direction by
+  `TestPackLintPassesAnOverlayTheRenderAccepts` (`internal/cli/packlintoverlay_test.go`).
 
 ## Where the claude.ai facts came from
 

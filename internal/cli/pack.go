@@ -30,6 +30,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
@@ -500,6 +501,15 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// only/exclude is reported as absent rather than linted as if it shipped.
 	problems = append(problems, pack.LoopholeDeclProblems()...)
 
+	// An overlay BODY is the same story one level down: packdecl checks only that a surface
+	// is named and a body is present, and the body is decoded by the render. Lint asks the
+	// render's own collector rather than spelling its rules a second time (overlayProblems).
+	// Only when the manifest decoded clean, for the reason the briefing check below gives: a
+	// missing surface or body is already LoadDir's problem, and the collector would say it again.
+	if len(manifestProblems) == 0 {
+		problems = append(problems, overlayProblems(pack)...)
+	}
+
 	// WHAT THIS PACK DELIVERS, from the one governance predicate every notch reads
 	// (packload.GovernedSources, docs/reference/pack-system.md#briefing-r5) — never re-derived here. A linter
 	// spelling the rule a second time is a linter free to disagree with the jail, and the rule it
@@ -726,6 +736,37 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// the same view `yolo pack footprint` gives, computed from this pack alone.
 	printPackFootprint(pr, pack)
 	return 0
+}
+
+// overlayProblems is every problem the render's overlay collector (packoverlay.Collect, which
+// the jail boot and `yolo host apply` both run and treat as fatal) reports for this one pack:
+// a config-overlay body manifest.DecodeOverlay refuses, a posture overlay
+// manifest.DecodePostureOverlay refuses, an unparseable target, a malformed config-list.
+//
+// THE COLLECTOR ITSELF, never a second copy of its rules. Lint used to check an overlay for
+// packdecl's shape alone, so a body carrying only `defaults` printed "✓ pack ok" and a claim
+// line saying it contributes keys, then contributed nothing at the next apply
+// (docs/design/synced-skill-trees-plan.md) — and that overlay is the remedy yolo's own loss
+// message tells a user to write.
+//
+// At BOTH postures, because lint knows no notch: the collector decodes every posture's
+// overlays but leaves one malformed-entry report at the selected posture to the posture fold,
+// so one run alone could miss it. No profile table, because the profile gate sits after the
+// body decode, so every body is decoded whatever is active. Orphans are dropped: from a
+// one-pack view an overlay on another pack's surface has no owner, which the render reports
+// as inert rather than as a problem, and which owner a launch selects is not lint's to know.
+func overlayProblems(p *packload.Pack) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, autonomy := range []bool{false, true} {
+		for _, prob := range packoverlay.Collect([]*packload.Pack{p}, autonomy, nil).Problems {
+			if !seen[prob] {
+				seen[prob] = true
+				out = append(out, prob)
+			}
+		}
+	}
+	return out
 }
 
 // printPackFootprint prints one pack's declared claims, flagging the ones a human

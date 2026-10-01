@@ -725,6 +725,11 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   `acme: 1 jail daemon runs in the jail — acme-relay`. A loophole that runs only such a program
   used to start it with nothing said. A loophole you switched off, or a program `macos-user` does
   not run, is not named.
+- `yolo pack lint` now fails a `config-overlay` that a jail launch or `yolo host apply` would
+  refuse, and prints the same reasons they do. An overlay whose keys sat under `defaults` instead
+  of `managed` passed lint and was listed as contributing keys, then contributed nothing, and an
+  overlay is one of the fixes `yolo host apply` suggests when it drops an entry of yours. The
+  same holds for an `autonomy` posture's `config` entry on a surface another pack owns.
 
 ## [0.11.0] - 2026-09-28
 
