@@ -784,6 +784,14 @@ shares. So the process that can take the port first is one this same boot starte
 `cannot bind 127.0.0.1:<port>: … address already in use` is therefore a question about **this
 container's own boot**, and this section is the map for answering it.
 
+⚠ **Not on a jail that shares its launcher's network namespace** (`network.mode: "host"`, or a jail
+started inside another). There the port is one the launch picked on the shared loopback, and every
+process on it can bind it. The launch holds the port from the pick, and its keeper lets it go just
+before it starts the container
+([NC-D69](../plans/notch-convergence.md#NC-D69), [NC-D70](../plans/notch-convergence.md#NC-D70)).
+So none of that launch's own listeners can take it, but any other process that binds it during
+the container's start or boot, before the bridge does, can, another jail's launch included.
+
 ### Forwarders start before daemons, so a forward always wins
 
 The entrypoint starts the in-jail port forwarders (`startContainerPortForwarding`) before the

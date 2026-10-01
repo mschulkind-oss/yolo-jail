@@ -11,10 +11,10 @@ package launchservice
 // WHY. A launch composes a service's clients before the service starts, so it picks the port first.
 // The pick used to bind port 0 and close the listener at once: the port was free when picked and
 // not held, so the kernel could hand it to whatever bound port 0 next, and the service's own bind
-// then failed with "address already in use", refusing the launch. What bound next was usually the
-// same launch: it fronts its host services, each on a port-0 listener, between the pick and the
-// service's start. Seen as unit-test flakes; the one recorded (docs/plans/test-suite-speed.md) is
-// a macos-user launch under test whose Codex doorway lost its port to the claude broker's front.
+// then failed with "address already in use", refusing the launch. What bound next could be the
+// same launch, which fronts its host services, each on a port-0 listener, between the pick and the
+// service's start. The one flake recorded (docs/plans/test-suite-speed.md) is that: a macos-user
+// launch under test whose Codex doorway lost its port to the claude broker's front.
 //
 // THE PORT CHANGES HANDS WITHOUT BEING FREE:
 //
@@ -22,10 +22,13 @@ package launchservice
 //     is handed the reserved socket as a descriptor, named in ListenFDsEnv, and listens on it
 //     (Listen). Nothing binds after the pick at all.
 //   - A process the launch does not start (a jail daemon, which its container's or sandbox's
-//     supervisor starts) cannot be handed a descriptor, so the launch closes the reservation
-//     immediately before that start, after every listener of its own is bound (internal/cli/run's
-//     served addresses). Only a process outside the launch, binding that port in the moment
-//     between, can still take it, and that fails closed (docs/plans/notch-convergence.md NC-D43).
+//     supervisor starts) is not handed a descriptor, which would have to cross that boundary to
+//     every jail daemon (docs/plans/notch-convergence.md NC-D69). So the launch closes the
+//     reservation immediately before that start, after every listener of its own is bound
+//     (internal/cli/run's served addresses). Only a process outside the launch can still take the
+//     port, by binding it between that release and the daemon's own bind. For a container jail that
+//     window is the container's start and its boot up to the jail-daemon supervisor, not a
+//     moment. It fails closed (NC-D43).
 
 import (
 	"errors"
