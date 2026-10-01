@@ -21,9 +21,10 @@ package run
 // reaches every agent the host composes and serves none of them but codex, and `yolo host --
 // codex` already serves that URL from the managed adapter (HS-D20).
 //
-// WHERE AND TO WHOM IT ANSWERS is settled here, before the composition: a loopback port picked
-// by binding 127.0.0.1:0 and releasing it (never the declared 1461, which a jail sharing this
-// loopback may hold: NC-D43's trade, failing closed), and a caller token minted for this launch.
+// WHERE AND TO WHOM IT ANSWERS is settled here, before the composition: a loopback port this
+// launch reserves (launchservice's reserve.go; never the declared 1461, which a jail sharing this
+// loopback may hold) and hands the doorway at its start, so the host-service front Start binds
+// before it cannot be given the port, and a caller token minted for this launch.
 // The composition then serves the daemon at that address (HostDoorways.Served), so aws-auth's
 // AWS_CONTAINER_CREDENTIALS_FULL_URI and its scoped AWS_CONTAINER_AUTHORIZATION_TOKEN name the
 // listener this launch starts, for the one agent whose selection asked for it.
@@ -146,24 +147,32 @@ func PlanHostDoorways(cfg *jsonx.OrderedMap, packs []*packload.Pack, sel packloa
 		if !ok {
 			continue
 		}
-		picked, err := pickLoopbackPorts([]string{s.Listen})
+		picked, err := launchservice.ReservePorts([]string{s.Listen})
 		if err != nil {
+			d.Release()
 			return nil, fmt.Errorf("pick a loopback port for the %q doorway: %w", name, err)
 		}
-		s.Listen = picked[s.Listen]
+		held := picked[s.Listen]
+		s.Listen = held.Addr()
 		decl, err := launchservice.AdmitDoorway(packs, packOf[name], name, s.ResolvedHostCmd())
 		if err != nil {
 			// AdmitDoorways admitted this argv above; with only the address changed, a
 			// refusal here is a yolo bug, and the launch refuses rather than serve a pointer
 			// at nothing.
+			held.Release()
+			d.Release()
 			return nil, fmt.Errorf("the %q doorway: %w", name, err)
 		}
 		token, err := svcendpoint.NewToken()
 		if err != nil {
+			held.Release()
+			d.Release()
 			return nil, fmt.Errorf("mint the %q doorway's caller token: %w", name, err)
 		}
+		// The reservation goes with the plan, for Start to hand the doorway: the fronts this
+		// launch binds before it cannot be given the port (launchservice's reserve.go).
 		d.plans = append(d.plans, launchservice.PlanAt(decl, s.Listen,
-			paths.ServiceCallerTokenEnv(name), token))
+			paths.ServiceCallerTokenEnv(name), token, held))
 		d.listen[name] = s.Listen
 		for _, p := range packs {
 			if p != nil && p.Name == decl.Pack && !slices.Contains(d.packs, p) {
@@ -268,6 +277,16 @@ func notOpenedWhy(set loopholes.Set, refused []launchservice.RefusedDoorway, nam
 			"runs, and this command runs none: " + launch + " opens it for that command"
 	}
 	return "which this launch does not open: its loophole composes no doorway at the host"
+}
+
+// Release releases the reserved port of every planned doorway this launch has not started.
+func (d *HostDoorways) Release() {
+	if d == nil {
+		return
+	}
+	for _, p := range d.plans {
+		p.Release()
+	}
 }
 
 // Plans is every doorway this launch opens, in order.

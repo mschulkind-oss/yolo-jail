@@ -25,7 +25,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -217,13 +216,17 @@ type Plan struct {
 	// Moved maps each declared loopback `host:port` of the service's adaptations to the served
 	// address this launch picked (packload.ServedDaemons.WithRebind's input).
 	Moved map[string]string
+	// reserved is the reservation of each served address's port, keyed by that address, held from
+	// the pick until Start hands it to the service (reserve.go). An address with none, in a plan
+	// built by hand, is one the service binds itself.
+	reserved map[string]*Reserved
 }
 
 // NewPlan picks a served address for every adaptation d's service serves, at its DECLARED address
 // (a user's `adapters` override does not apply to it here: WithoutOverrides), and mints its caller
-// token. Each port is picked by binding port 0 on loopback and releasing it before the service
-// binds it. A process that binds it in between makes the service's own bind fail, which refuses the
-// launch before the agent starts: it fails closed (the jail's NC-D43, the same trade).
+// token. Each port is a RESERVED PORT (reserve.go): held by the plan from the pick until Start
+// hands it to the service, so no other listener, this launch's own host-service fronts included,
+// can be given it in between. A plan the launch never starts is Released.
 func NewPlan(packs []*packload.Pack, d Declared) (*Plan, error) {
 	var declared []string
 	seen := map[string]bool{}
@@ -239,16 +242,23 @@ func NewPlan(packs []*packload.Pack, d Declared) (*Plan, error) {
 		declared = append(declared, hp)
 	}
 	sort.Strings(declared)
-	moved, err := pickLoopbackPorts(declared)
+	picked, err := ReservePorts(declared)
 	if err != nil {
 		return nil, fmt.Errorf("pick a loopback port for service %q: %w", d.Service, err)
 	}
 	token, err := svcendpoint.NewToken()
 	if err != nil {
+		ReleaseAll(picked)
 		return nil, fmt.Errorf("mint service %q's caller token: %w", d.Service, err)
 	}
+	moved := make(map[string]string, len(picked))
+	reserved := make(map[string]*Reserved, len(picked))
+	for hp, r := range picked {
+		moved[hp] = r.Addr()
+		reserved[r.Addr()] = r
+	}
 	return &Plan{Declared: d, TokenEnv: paths.ServiceCallerTokenEnv(d.Service), Token: token,
-		Moved: moved}, nil
+		Moved: moved, reserved: reserved}, nil
 }
 
 // PlanAt is the plan for an admitted host argv whose one address and caller token the launch
@@ -256,9 +266,14 @@ func NewPlan(packs []*packload.Pack, d Declared) (*Plan, error) {
 // minted for the loophole (internal/cli/run's served addresses and caller tokens), so the
 // doorway answers exactly where and to whom its clients were composed. d.Cmd must already carry
 // the address. Moved maps the address to itself: nothing a plan made here serves was declared
-// somewhere else first.
-func PlanAt(d Declared, address, tokenEnv, token string) *Plan {
-	return &Plan{Declared: d, TokenEnv: tokenEnv, Token: token, Moved: map[string]string{address: address}}
+// somewhere else first. held is the launch's reservation of the address's port, which the plan
+// takes over and Start hands to the doorway (reserve.go); nil when the launch reserved none.
+func PlanAt(d Declared, address, tokenEnv, token string, held *Reserved) *Plan {
+	p := &Plan{Declared: d, TokenEnv: tokenEnv, Token: token, Moved: map[string]string{address: address}}
+	if held != nil {
+		p.reserved = map[string]*Reserved{address: held}
+	}
+	return p
 }
 
 // WithoutOverrides is addresses without the user's `adapters` override of any conversion one of
@@ -396,29 +411,6 @@ func loopbackHostPort(raw string) string {
 	return u.Host
 }
 
-func pickLoopbackPorts(declared []string) (map[string]string, error) {
-	var held []net.Listener
-	defer func() {
-		for _, l := range held {
-			_ = l.Close()
-		}
-	}()
-	out := make(map[string]string, len(declared))
-	for _, hp := range declared {
-		host, _, err := net.SplitHostPort(hp)
-		if err != nil {
-			return nil, err
-		}
-		l, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
-		if err != nil {
-			return nil, err
-		}
-		held = append(held, l)
-		out[hp] = l.Addr().String()
-	}
-	return out, nil
-}
-
 // LogPath is where a launch-owned service's output goes: one file per service name, appended to
 // by every launch, each start headed by a line naming the launch.
 func LogPath(service string) string {
@@ -450,7 +442,13 @@ func (r *Running) Done() <-chan struct{} { return r.done }
 // Start runs plan's host half with env as its input, and returns once it reports it is listening.
 // A service that does not within ReadyTimeout, reports failure, or exits first is stopped, and
 // the error names it, its argv and its log: the launch then refuses before its agent starts.
+//
+// THE PLAN'S RESERVED PORTS ARE THE SERVICE'S (reserve.go): each is handed over as a descriptor
+// from fd 5, named in ListenFDsEnv, for the service to listen on (Listen), so it serves the port
+// its clients were composed with and no other listener could be given it in between. The launch's
+// own copies close once the service holds its own, and close whether or not it started.
 func Start(plan *Plan, env map[string]string) (*Running, error) {
+	defer plan.Release()
 	argv := SelfExec(plan.Cmd)
 	logPath := LogPath(plan.Service)
 	fail := func(why string) error {
@@ -506,9 +504,10 @@ func Start(plan *Plan, env map[string]string) (*Running, error) {
 		return nil, fail(err.Error())
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
+	reservedFiles, listenFDs := plan.handOver()
 	cmd.Env = append(os.Environ(), InputEnv+"="+inputPath,
-		paths.JailDaemonReadyFDEnv+"=3", LifelineFDEnv+"=4")
-	cmd.ExtraFiles = []*os.File{readyW, lifeR}
+		paths.JailDaemonReadyFDEnv+"=3", LifelineFDEnv+"=4", ListenFDsEnv+"="+listenFDs)
+	cmd.ExtraFiles = append([]*os.File{readyW, lifeR}, reservedFiles...)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	// Its own process group, so a terminal's Ctrl-C reaches the agent and not the service the
 	// agent is talking to.

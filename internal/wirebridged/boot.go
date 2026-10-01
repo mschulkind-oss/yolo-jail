@@ -413,7 +413,7 @@ func servePlan(ctx context.Context, p plan, e *entrypoint.Env) int {
 	// reach — a bind that hangs, or a process killed between these two statements.
 	for _, l := range ls {
 		logf("binding %s for %s", l.addr, l.what)
-		ln, err := net.Listen("tcp", l.addr)
+		ln, err := listenAt(e, l.addr)
 		if err != nil {
 			// A port the manifest URL names that something else holds is a real
 			// fault (WB-D13: the URL is the single source of the port), not an

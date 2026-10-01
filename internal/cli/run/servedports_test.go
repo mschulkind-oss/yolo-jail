@@ -43,12 +43,14 @@ func servedPortLaunch(t *testing.T, tune func(*Options)) assembled {
 	cfg := bareConfig()
 	configSelects(cfg, "claude", "cerebras")
 	t.Cleanup(func() { loopholes.SetPackModules(nil) })
-	return zaiLaunchAssembled(t, packs, cfg, cerebrasKey(), func(o *Options) {
+	la := zaiLaunchAssembled(t, packs, cfg, cerebrasKey(), func(o *Options) {
 		loopholes.SetPackModules(packLoopholeModules(packs))
 		if tune != nil {
 			tune(o)
 		}
 	})
+	t.Cleanup(la.o.releaseReservedPorts) // Run's deferred release, which this harness does not reach
+	return la
 }
 
 // adapterListen is the address the OpenAI adapter's argv in the jail-daemon payload binds.
@@ -170,22 +172,33 @@ func TestOneLaunchComposesOneSetOfServedAddresses(t *testing.T) {
 	}
 }
 
-// THE PICK IS A FREE PORT ON THE DECLARED HOST: every returned address is bindable once the
-// picker has let it go, and no two collide.
-func TestPickLoopbackPortsReturnsDistinctFreePorts(t *testing.T) {
-	got, err := pickLoopbackPorts([]string{"127.0.0.1:1460", "127.0.0.1:1461", "127.0.0.1:8214"})
-	if err != nil {
-		t.Fatal(err)
+// EVERY PICK IS HELD UNTIL ITS SERVER HAS IT (NC-D69): a shared-namespace launch's picked ports
+// are distinct and none is the declared one; while the launch holds them nothing else can bind
+// one; and once it releases them (what it does just before the process that starts the jail's
+// daemons) each is free for its daemon to bind. Through jailDaemonsFor's settle, the production
+// pick.
+func TestASharedNamespaceLaunchHoldsEveryPortItPickedUntilItReleasesThem(t *testing.T) {
+	la := servedPortLaunch(t, func(o *Options) { o.Network = "host" })
+	moved := la.o.movedServedAddresses()
+	if len(moved) == 0 {
+		t.Fatal("fixture: the shared-namespace launch picked nothing")
 	}
 	seen := map[string]bool{}
-	for from, to := range got {
+	for from, to := range moved {
 		if seen[to] || to == from {
-			t.Errorf("pick %s -> %s repeats or keeps the declared port: %v", from, to, got)
+			t.Errorf("pick %s -> %s repeats or keeps the declared port: %v", from, to, moved)
 		}
 		seen[to] = true
+		if l, err := net.Listen("tcp", to); err == nil {
+			_ = l.Close()
+			t.Errorf("another listener bound %s while this launch held it for %s's daemon", to, from)
+		}
+	}
+	la.o.releaseReservedPorts()
+	for from, to := range moved {
 		l, err := net.Listen("tcp", to)
 		if err != nil {
-			t.Errorf("the picked %s is not free: %v", to, err)
+			t.Errorf("%s, picked for %s, is not free for its daemon once released: %v", to, from, err)
 			continue
 		}
 		_ = l.Close()

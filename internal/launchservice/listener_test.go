@@ -24,14 +24,19 @@ import (
 
 // fakeDoorway is a doorway in miniature, on ServeListener: its listen address is its argv's last
 // word, it answers a request carrying its caller token with the input's UPSTREAM value, and one
-// without it with 401. mode "fail" refuses in its prepare, before anything is bound.
+// without it with 401. mode "fail" refuses in its prepare, before anything is bound. It serves
+// the service doorwayServiceEnv names, "door" when that is unset.
 func fakeDoorway(mode string) int {
 	listen := os.Args[len(os.Args)-1]
-	return ServeListener("door", listen, func(getenv func(string) string) (func(net.Listener) error, error) {
+	service := os.Getenv(doorwayServiceEnv)
+	if service == "" {
+		service = "door"
+	}
+	return ServeListener(service, listen, func(getenv func(string) string) (func(net.Listener) error, error) {
 		if mode == "fail" {
 			return nil, errors.New("the input lacks its upstream\nsecond line")
 		}
-		token, upstream := getenv(paths.ServiceCallerTokenEnv("door")), getenv("UPSTREAM")
+		token, upstream := getenv(paths.ServiceCallerTokenEnv(service)), getenv("UPSTREAM")
 		return func(l net.Listener) error {
 			return http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") != token {
@@ -44,16 +49,18 @@ func fakeDoorway(mode string) int {
 	})
 }
 
+// doorwayPlan is a doorway's plan at a port reserved as a launch reserves its doorways' (reserve.go).
 func doorwayPlan(t *testing.T) (*Plan, string) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	held, err := ReservePorts([]string{"127.0.0.1:1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
+	r := held["127.0.0.1:1"]
+	t.Cleanup(r.Release)
+	addr := r.Addr()
 	return PlanAt(Declared{Service: "door", Pack: "p", Cmd: []string{"yolo", "doorway", addr}},
-		addr, paths.ServiceCallerTokenEnv("door"), strings.Repeat("cd", 32)), addr
+		addr, paths.ServiceCallerTokenEnv("door"), strings.Repeat("cd", 32), r), addr
 }
 
 func get(t *testing.T, addr, auth string) (int, string) {

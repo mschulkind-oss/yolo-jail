@@ -283,6 +283,9 @@ func Run(opts Options) (rc int) {
 	// And the session lock a container arm takes (sessionlock.go), released at every return:
 	// auto-capture runs this pipeline in-process, so a process exit is not the only release.
 	defer o.releaseSessionLock()
+	// And every loopback port this launch reserved and did not hand on (servedaddresses.go), for
+	// the same reason: a refused launch, a dry run, an attach.
+	defer o.releaseReservedPorts()
 	staged, stagedOK := o.stageRunPacks(cname)
 	if !stagedOK {
 		return 1
@@ -796,6 +799,11 @@ func Run(opts Options) (rc int) {
 		if !o.DryRun {
 			o.recordLaunchOutcome(launchStarted, -1)
 		}
+		// THE GUEST'S PORTS GO FREE HERE, and no earlier (servedaddresses.go, NC-D69): the
+		// sandbox's supervisor binds the ports this launch reserved for the daemons it runs,
+		// and every listener of this launch's own (the host services' fronts, the doorways and
+		// launch-owned services, which were handed theirs) is bound by now.
+		o.releaseReservedPorts()
 		// Composed LAST, after every endpoint variable has landed on launchEnv (the live
 		// path's handles, or a dry run's placeholder), since the daemons dial those files.
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,

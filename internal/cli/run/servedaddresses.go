@@ -17,17 +17,23 @@ package run
 // so nothing a bridged jail's agents see changes (NC-D42).
 //
 // WHY THE LAUNCHER PICKS. A jail's clients are composed on the host before its daemons bind,
-// so the port has to be known before the container starts. The launcher binds port 0 on the
-// declared loopback host and releases it: on a shared namespace that loopback is normally the
-// jail's, so the kernel's answer is a port free on the loopback the daemon will bind. ⚠ NOT on a
-// macOS podman machine, where `network.mode: host` joins the VM's namespace rather than the
-// Mac's: the port is picked on the Mac's loopback, which the daemon never binds. The pick still
-// keeps two such jails off each other's declared ports, but whether the port is free in the VM
-// is unproven there. sharesLauncherNetns classifies that setup as shared, which is the same
-// blind spot (NC-D43). The port is
-// free when picked, not reserved, so a process binding it in the moments before the daemon
-// does wins it. That fails closed: the daemon cannot bind, and its clients are refused by
-// whichever daemon holds the port, for the wrong caller token (NC-D43).
+// so the port has to be known before the container starts. The launcher RESERVES a port on the
+// declared loopback host (launchservice's reserve.go: a socket bound to port 0 and never listened
+// on): on a shared namespace that loopback is normally the jail's, so the kernel's answer is a
+// port free on the loopback the daemon will bind. ⚠ NOT on a macOS podman machine, where
+// `network.mode: host` joins the VM's namespace rather than the Mac's: the port is picked on the
+// Mac's loopback, which the daemon never binds. The pick still keeps two such jails off each
+// other's declared ports, but whether the port is free in the VM is unproven there.
+// sharesLauncherNetns classifies that setup as shared, which is the same blind spot (NC-D43).
+//
+// HELD UNTIL ITS SERVER HAS IT (NC-D69). This launch binds listeners of its own after the pick,
+// each host service's front on port 0, and a pick that let its port go could be handed to one of
+// them, so the daemon's own bind failed. So each reservation stays held: a doorway this launch
+// opens itself is handed it (takeReservedPort, launchservice.PlanAt), and every other one is
+// released only immediately before the process that starts the jail's daemons (releaseReservedPorts).
+// From then until the daemon binds, only a process outside this launch can take the port, and that
+// fails closed: the daemon cannot bind, and its clients are refused by whichever daemon holds the
+// port, for the wrong caller token (NC-D43).
 //
 // LIFETIME. Settled once per process, like the caller tokens, so the two compositions one
 // launch runs cannot hand one jail two ports. An ATTACH never picks: the running jail's
@@ -38,12 +44,12 @@ package run
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/url"
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -54,6 +60,9 @@ import (
 type servedAddressState struct {
 	// moved maps each declared loopback `host:port` this launch moved to its served address.
 	moved map[string]string
+	// held is the reservation of each served address's port this launch picked, keyed by the
+	// served address, until the process serving it has it (HELD UNTIL ITS SERVER HAS IT, above).
+	held map[string]*launchservice.Reserved
 	// adopted is set once an attach took the running jail's map: from then on nothing is
 	// picked, and a declared address the map does not name is served where it is declared.
 	adopted bool
@@ -131,7 +140,8 @@ func loopbackHostPort(raw string) string {
 // settleServedAddresses picks a served address for every declared address in specs and packs
 // that this process has not settled yet, when the jail shares this process's network namespace.
 // Nothing on a private namespace, nothing after an attach adopted the running jail's map. A
-// pick that fails keeps the declared address, says so, and moves nothing else.
+// pick that fails keeps the declared address, says so, and moves nothing else. Each pick is a
+// reservation this launch holds (o.served.held) until the process serving the port has it.
 func (o *Options) settleServedAddresses(cfg *jsonx.OrderedMap, rt string,
 	specs []loopholes.JailDaemonSpec, packs []*packload.Pack) {
 	if o.served.adopted || !o.sharesNetnsFor(cfg, rt) {
@@ -146,7 +156,7 @@ func (o *Options) settleServedAddresses(cfg *jsonx.OrderedMap, rt string,
 	if len(todo) == 0 {
 		return
 	}
-	picked, err := pickLoopbackPorts(todo)
+	picked, err := launchservice.ReservePorts(todo)
 	if err != nil {
 		o.pr(o.Stderr).print(fmt.Sprintf("[yellow]Could not pick free loopback ports for this "+
 			"jail's daemons (%v); they keep their declared ports, which another jail on this "+
@@ -156,34 +166,37 @@ func (o *Options) settleServedAddresses(cfg *jsonx.OrderedMap, rt string,
 	if o.served.moved == nil {
 		o.served.moved = map[string]string{}
 	}
-	for hp, to := range picked {
-		o.served.moved[hp] = to
+	if o.served.held == nil {
+		o.served.held = map[string]*launchservice.Reserved{}
+	}
+	for hp, r := range picked {
+		o.served.moved[hp] = r.Addr()
+		o.served.held[r.Addr()] = r
 	}
 }
 
-// pickLoopbackPorts returns a free port on each declared address's host, keyed by the declared
-// address. Every listener stays open until all are picked, so no two picks share a port.
-func pickLoopbackPorts(declared []string) (map[string]string, error) {
-	var held []net.Listener
-	defer func() {
-		for _, l := range held {
-			_ = l.Close()
-		}
-	}()
-	out := make(map[string]string, len(declared))
-	for _, hp := range declared {
-		host, _, err := net.SplitHostPort(hp)
-		if err != nil {
-			return nil, err
-		}
-		l, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
-		if err != nil {
-			return nil, err
-		}
-		held = append(held, l)
-		out[hp] = l.Addr().String()
+// takeReservedPort hands over the reservation of the served address addr's port, for a process
+// this launch starts itself and hands it to (launchservice.PlanAt): nil when this launch holds
+// none for it.
+func (o *Options) takeReservedPort(addr string) *launchservice.Reserved {
+	r := o.served.held[addr]
+	delete(o.served.held, addr)
+	return r
+}
+
+// releaseReservedPorts releases every reservation this launch still holds: its jail daemons'
+// ports, immediately before the process that starts those daemons (the macos-user sandbox, the
+// container's keeper), and whatever a launch that started nothing left, and every launch-owned
+// service and doorway plan the launch never started.
+func (o *Options) releaseReservedPorts() {
+	launchservice.ReleaseAll(o.served.held)
+	o.served.held = nil
+	for _, p := range o.launchServices {
+		p.Release()
 	}
-	return out, nil
+	for _, p := range o.launchDoorways {
+		p.Release()
+	}
 }
 
 // servedAddress is where the daemon declared at hp serves in this launch.
@@ -269,8 +282,10 @@ func runningServedAddresses(wsState string) map[string]string {
 }
 
 // adoptRunningServedAddresses makes the running jail's served addresses this process's,
-// REPLACING any it picked: what an attach composes is where the jail's daemons already listen.
+// REPLACING any it picked, whose reservations it releases: what an attach composes is where the
+// jail's daemons already listen.
 func (o *Options) adoptRunningServedAddresses(running map[string]string) {
+	launchservice.ReleaseAll(o.served.held)
 	o.served = servedAddressState{moved: running, adopted: true}
 }
 

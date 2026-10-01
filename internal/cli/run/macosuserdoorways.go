@@ -25,7 +25,9 @@ package run
 // composed its clients with (callertokens.go). So packs/codex's CODEX_REFRESH_TOKEN_URL_OVERRIDE,
 // the refresh marker the Codex launcher binds $YOLO_SERVICE_OPENAI_AUTH_BROKER_TOKEN into, and
 // aws-auth's AWS_CONTAINER_CREDENTIALS_FULL_URI and scoped AWS_CONTAINER_AUTHORIZATION_TOKEN all
-// name the listener this file starts.
+// name the listener this file starts. That listener is the port's own reservation, handed to the
+// doorway at its start (launchservice's reserve.go), so the host-service fronts this launch binds
+// first cannot be given the port.
 //
 // ⚠ NEVER EXECUTED ON A MAC. The arm is pinned by unit tests with the start stubbed, and the
 // doorway processes by tests that run them on Linux; none of it has run under a real macos-user
@@ -80,8 +82,10 @@ func (o *Options) planMacosUserDoorways(rt string, specs []loopholes.JailDaemonS
 			continue // admitDoorways cleared every host argv it refuses; nothing to open
 		}
 		tokenEnv := paths.ServiceCallerTokenEnv(s.Name)
+		// The port's reservation goes with the plan, for the start to hand the doorway
+		// (servedaddresses.go): nothing this launch binds before then can be given it.
 		o.launchDoorways = append(o.launchDoorways,
-			launchservice.PlanAt(d, s.Listen, tokenEnv, channel.callerTokens[tokenEnv]))
+			launchservice.PlanAt(d, s.Listen, tokenEnv, channel.callerTokens[tokenEnv], o.takeReservedPort(s.Listen)))
 	}
 	return o.launchDoorways
 }

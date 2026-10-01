@@ -122,7 +122,11 @@ bind: address already in use`, after the claude broker's front had logged `liste
 127.0.0.1:44791`. READ FROM CODE, the cause is production's: a served address is chosen by
 listening on port 0 and closing the listener (`servedaddresses.go`), and a later listener in the
 same launch can be handed that port before the daemon binds it. UNMEASURED: how often a real
-launch is refused this way.
+launch is refused this way. **Fixed 2026-10-01:** a picked port is now held until the process that
+serves it has it ([NC-D69](notch-convergence.md#NC-D69),
+[HS-D26](../design/host-notch-services.md#HS-D26)), and
+`TestAMacosUserDoorwaysPickedPortIsStillItsOwnWhenAnotherListenerAsksFirst` reproduces this flake
+deterministically, by asking for the doorway's exact port before it opens.
 
 ## Where the time goes
 

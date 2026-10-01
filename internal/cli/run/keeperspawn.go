@@ -112,6 +112,9 @@ func (o *Options) startKeeper(plan *keeperPlan) (*keeperProcess, error) {
 	if o.launchLock != nil && !o.launchLock.isClosed() {
 		lockFile = o.launchLock.f
 	}
+	// The ports this launch reserved for the jail's daemons go free before the keeper, which
+	// starts the container whose supervisor binds them (servedaddresses.go).
+	o.releaseReservedPorts()
 	wait, err := defaultKeeperSpawner(o, planPath, progW, lifeR, lockFile)
 	_ = progW.Close()
 	_ = lifeR.Close()

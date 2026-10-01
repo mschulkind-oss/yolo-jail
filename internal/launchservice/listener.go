@@ -32,7 +32,8 @@ import (
 type Prepare func(getenv func(string) string) (serve func(net.Listener) error, err error)
 
 // ServeListener is a launch-owned listener's whole run: it reads the launch's input (ReadInput,
-// which removes the file), checks it names service, prepares, binds listen, reports `ready
+// which removes the file), checks it names service, prepares, listens on listen (on the port the
+// launch reserved for it, when the launch handed one over: Listen), reports `ready
 // <service>` on the readiness descriptor, and serves until the launch stops it (SIGTERM or
 // SIGINT) or dies (the lifeline's EOF). Any failure before it serves is reported as `failed
 // <service> <why>`, so the launch refuses before its command starts. It returns the exit code.
@@ -70,7 +71,9 @@ func serveListener(service, listen string, prepare Prepare, getenv func(string) 
 	defer stop()
 	ctx, cancel := Lifeline(ctx, getenv)
 	defer cancel()
-	l, err := net.Listen("tcp", listen)
+	// THE PORT THE LAUNCH RESERVED, when it handed one over (reserve.go): the address the
+	// doorway's clients were composed with, held from the pick so nothing else could bind it.
+	l, err := Listen(getenv, listen)
 	if err != nil {
 		return fail(err.Error())
 	}

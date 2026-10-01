@@ -946,9 +946,10 @@ launch, for the one agent it runs, stopped when that agent exits). The mechanism
   where the profile works.
 - **The address is the launch's.** Each of the bridge's adapter addresses moves to a loopback
   port the launch picked, and a user's `adapters` override of those conversions does not apply
-  ([WB-D13](#wb-d13) at a jail only). The port is picked by binding port 0 and releasing it, so a
-  process that takes it first makes the bridge's own bind fail, and the launch refuses before the
-  agent starts.
+  ([WB-D13](#wb-d13) at a jail only). The launch picks the port by binding port 0, holds it, and
+  hands the bridge the bound socket when it starts it, so no other listener, the launch's own
+  host-service fronts included, can be given the port in between
+  ([HS-D26](../design/host-notch-services.md#HS-D26)).
 - **The inputs come from the launch, never from a jail path.** A 0600 file in a 0700 directory
   of its own, named by `YOLO_HOST_SERVICE_INPUT` and removed by the bridge once read, carries the
   three wire tables, the caller token, the host broker's private socket, and the `env_sources`

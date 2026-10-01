@@ -311,6 +311,50 @@ func TestHostCodexClaudeRunsThroughALaunchOwnedBridge(t *testing.T) {
 	assertServiceGone(t, l)
 }
 
+// askForPlannedPortsFirst has another listener ask for every address a launch-owned service was
+// planned on, just before the real start, and returns the addresses it was given. The pick used to
+// let the port go at once, so whatever bound next could be handed it, and the service's own bind
+// then failed with "address already in use" (docs/plans/test-suite-speed.md); asking for the exact
+// port makes that race deterministic.
+func askForPlannedPortsFirst(t *testing.T) *[]string {
+	t.Helper()
+	var taken []string
+	inner := startLaunchService
+	startLaunchService = func(p *launchservice.Plan, env map[string]string) (*launchservice.Running, error) {
+		for _, addr := range p.Addresses() {
+			if other, err := net.Listen("tcp", addr); err == nil {
+				t.Cleanup(func() { _ = other.Close() })
+				taken = append(taken, addr)
+			}
+		}
+		return inner(p, env)
+	}
+	t.Cleanup(func() { startLaunchService = inner })
+	return &taken
+}
+
+// THE PORTS A `yolo host` LAUNCH PICKED FOR ITS BRIDGE ARE STILL THE BRIDGE'S WHEN ANOTHER LISTENER
+// ASKS FOR THEM FIRST: launchservice.NewPlan's pick, the real bridge host half, and claude served
+// through it at the address it was pointed at.
+func TestHostBridgesPickedPortsAreStillItsOwnWhenAnotherListenerAsksFirst(t *testing.T) {
+	upstream, _ := fakeUpstream(t)
+	fakeHostBroker(t)
+	var taken *[]string
+	l := runServiceLaunchWith(t, codexConfig(upstream.URL), []string{"-p", "codex"}, "", nil,
+		func(string) { taken = askForPlannedPortsFirst(t) })
+	if len(*taken) > 0 {
+		t.Errorf("another listener bound %v, ports this launch picked for its bridge, before the "+
+			"bridge started: the pick let them go", *taken)
+	}
+	if l.rc != 0 {
+		t.Fatalf("rc = %d: the bridge lost the port claude was pointed at\n%s", l.rc, l.errs)
+	}
+	if l.report.WithToken != http.StatusOK {
+		t.Errorf("claude's request through the bridge got %d: %s", l.report.WithToken, l.report.Body)
+	}
+	assertServiceGone(t, l)
+}
+
 // THE FLOOR ON THE LAUNCH-OWNED-SERVICES PATH (HP-DIR4, HE-D1): `yolo host -p codex -- claude` is
 // the main way claude runs through a service, and it must run the floor's copy with the floor's
 // PATH exactly as the exec path does. The floor holds claude from the machine's capture (Linux's

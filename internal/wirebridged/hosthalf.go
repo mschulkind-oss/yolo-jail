@@ -19,6 +19,7 @@ package wirebridged
 
 import (
 	"context"
+	"net"
 	"os"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -28,6 +29,17 @@ import (
 // hostHalf reports whether the daemon running under e is the host half.
 func hostHalf(e *entrypoint.Env) bool {
 	return e != nil && e.Getenv(launchservice.HalfEnv) == ServiceName
+}
+
+// listenAt is the listener the daemon under e serves addr on. The host half listens on the port
+// its launch reserved for addr and handed it (launchservice.Listen, reading this process's own
+// environment, where the launch names the descriptors): the address the agent was composed with,
+// held from the pick, so no other listener could be given it first. A jail's bridge binds addr.
+func listenAt(e *entrypoint.Env, addr string) (net.Listener, error) {
+	if hostHalf(e) {
+		return launchservice.Listen(os.Getenv, addr)
+	}
+	return net.Listen("tcp", addr)
 }
 
 // HostMain is the host half's subcommand body. rest is ignored: the whole input is the launch's

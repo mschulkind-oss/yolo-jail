@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -343,6 +344,53 @@ func TestTheRealCodexDoorwayAnswersOnlyTheLaunchsCallerToken(t *testing.T) {
 	if resp, err := client.Post(url, "application/json", strings.NewReader("{}")); err == nil {
 		resp.Body.Close()
 		t.Errorf("the doorway still answers at %s after the launch returned", url)
+	}
+}
+
+// THE PORT THE LAUNCH PICKED FOR A DOORWAY IS STILL THE DOORWAY'S WHEN ANOTHER LISTENER ASKS FOR IT
+// FIRST. The pick used to bind port 0 and let the port go at once, and this launch binds other
+// listeners before it opens its doorways: once the claude broker's front was handed the Codex
+// doorway's port, the doorway's own bind failed with "address already in use", and the launch was
+// refused (docs/plans/test-suite-speed.md). Here, just before the real start, another listener asks
+// for the exact port the doorway was planned on, which makes that race deterministic. It must be
+// refused, and the doorway must still open on the address codex was pointed at. Driven through
+// Run's macos-user arm, so the pick (servedaddresses.go), the plan (planMacosUserDoorways) and the
+// start are all production's.
+func TestAMacosUserDoorwaysPickedPortIsStillItsOwnWhenAnotherListenerAsksFirst(t *testing.T) {
+	o, stderr, _ := codexNativeLaunch(t)
+	orig := startMacosUserDoorway
+	var taken []string
+	startMacosUserDoorway = func(p *launchservice.Plan, env map[string]string) (launchedService, string, error) {
+		for _, addr := range p.Addresses() {
+			if other, err := net.Listen("tcp", addr); err == nil {
+				t.Cleanup(func() { _ = other.Close() })
+				taken = append(taken, addr)
+			}
+		}
+		return orig(p, env)
+	}
+	t.Cleanup(func() { startMacosUserDoorway = orig })
+	var url string
+	answered := 0
+	o.MacosUserRun = func(_ *jsonx.OrderedMap, _ string, _, _ []string, _, _ string, _ macosuser.HomeOverlay,
+		_ macosuser.HostContext, _ bool, env *jsonx.OrderedMap, _ []packload.BlockedTool, _ macosuser.JailDaemons) int {
+		u, _ := env.Get("CODEX_REFRESH_TOKEN_URL_OVERRIDE")
+		url, _ = u.(string)
+		answered = postRefresh(t, url, "yolo-broker:1")
+		return 0
+	}
+	rc := Run(*o)
+	if len(taken) > 0 {
+		t.Errorf("another listener bound %v, the port this launch picked for its doorway, before the "+
+			"doorway opened: the pick let the port go", taken)
+	}
+	if rc != 0 {
+		t.Fatalf("Run() = %d: the doorway lost the port codex was pointed at\n%s", rc, stderr.String())
+	}
+	// 401 is the doorway's own answer to a refresh without the caller token: the listener at the
+	// address codex was pointed at is the doorway.
+	if answered != http.StatusUnauthorized {
+		t.Errorf("a refresh at %s got %d, want the doorway's 401", url, answered)
 	}
 }
 

@@ -309,6 +309,22 @@ func TestHostPiOnBedrockGetsCredentialsThroughALaunchOwnedDoorway(t *testing.T) 
 	}
 }
 
+// THE PORT A `yolo host` LAUNCH PICKED FOR ITS AWS DOORWAY IS STILL THE DOORWAY'S WHEN ANOTHER
+// LISTENER ASKS FOR IT FIRST. This launch fronts the aws-auth host service between the pick and the
+// doorway's start, and a front binds port 0, so before the doorway held its pick the front could be
+// handed the doorway's port. run.PlanHostDoorways' pick, the real doorway, and pi served through
+// it (askForPlannedPortsFirst says how the race is made deterministic).
+func TestHostAWSDoorwaysPickedPortIsStillItsOwnWhenAnotherListenerAsksFirst(t *testing.T) {
+	var taken *[]string
+	l := runDoorwayLaunchAfter(t, bedrockDoorwayConfig("pi", true), map[string]string{"AWS_REGION": ""},
+		nil, "pi", func() { taken = askForPlannedPortsFirst(t) })
+	if len(*taken) > 0 {
+		t.Errorf("another listener bound %v, the port this launch picked for its doorway, before "+
+			"the doorway opened: the pick let it go", *taken)
+	}
+	assertDoorwayServed(t, l)
+}
+
 // THE FRONT IS THE LAUNCH'S OWN, NEVER THE WORKSPACE'S JAIL'S. A `yolo host` launch that opens a
 // doorway publishes its aws-auth front in a host-services dir of its own session, as a macos-user
 // session does (startLoopholesMatching's session arm). The workspace-keyed dir is a container
