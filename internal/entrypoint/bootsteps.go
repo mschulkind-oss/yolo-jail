@@ -443,7 +443,7 @@ func bootSteps() []bootStep {
 			// Publish each caller token the boot was handed as an in-jail 0600 file, for a
 			// client that reads its credential from one (paths.JailCallerTokenDir), before the
 			// supervisor starts the daemons demanding it. A SCOPED token is handed to no boot
-			// (provider-credential-scope.md OQ-CN7 (c)), so aws-auth's gets no file.
+			// (providers.md OQ-CN7 (c)), so aws-auth's gets no file.
 			name:      "write_caller_token_files",
 			run:       func(b *bootRun) { writeCallerTokenFiles(b.e) },
 			noMark:    true,

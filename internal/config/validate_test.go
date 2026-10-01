@@ -553,7 +553,7 @@ func TestValidateProviders(t *testing.T) {
 	}
 }
 
-// OQ-CN1 (docs/design/provider-credential-scope.md): a user's provider entry may list its
+// OQ-CN1 (docs/reference/providers.md): a user's provider entry may list its
 // credential variables, by the same rule a pack manifest follows (packdecl.EnvNames) — a
 // non-empty list of valid, distinct names.
 func TestValidateProviderCredentialVariableList(t *testing.T) {

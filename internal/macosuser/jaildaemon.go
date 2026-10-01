@@ -150,7 +150,7 @@ func (j JailDaemons) Names() []string {
 //
 // A SECOND FILE rather than the agent's session file, for the credential gate's reason: the
 // agent's file carries what THAT program may see, and a scoped caller token is exported only
-// to the agents whose profile selects its daemon (provider-credential-scope.md OQ-CN7 (c)).
+// to the agents whose profile selects its daemon (providers.md OQ-CN7 (c)).
 // The supervisor needs every token its daemons demand, so it reads a file no agent is handed.
 // Beside the session file, in the same 0700 directory with the same search ACE, and read-
 // granted to the same one account.

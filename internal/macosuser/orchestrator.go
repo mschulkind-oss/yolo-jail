@@ -172,7 +172,7 @@ type Options struct {
 	// invocation starts: the pack env fold, the provider env vars, the three wire tables
 	// (YOLO_PROVIDERS, YOLO_PROFILES, YOLO_USE_PROFILES), and the hydrated env_sources LAST
 	// — all of it already narrowed by the credential gate
-	// (docs/design/provider-credential-scope.md; the run pipeline's packChannel.launchEnv)
+	// (docs/reference/providers.md; the run pipeline's packChannel.launchEnv)
 	// to the shared values plus what that program's own profile scopes to it. The run
 	// pipeline composes the channel above the backend dispatch, so a `-p` launch composes
 	// the same environment natively that it does in a container. Nil is the pre-channel
@@ -343,8 +343,8 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	}
 	// NO env_sources HYDRATION HERE ANY MORE. This backend used to call
 	// config.ResolveEnvSources itself and layer EVERY hydrated value — the second delivery
-	// vehicle of docs/design/provider-credential-scope.md §2.3, bypassing the credential
-	// gate. Its env_sources now arrive inside PackEnv, already narrowed by the gate to what
+	// vehicle the credential gate's design counted (docs/reference/providers.md), bypassing
+	// the credential gate. Its env_sources now arrive inside PackEnv, already narrowed by the gate to what
 	// the launched program may see, and LAST in it (the run pipeline's launchEnv), which
 	// is exactly where this layer used to sit: a user's own dotenv entry still beats every
 	// channel value. One hydration per launch also means one set of "file not found"

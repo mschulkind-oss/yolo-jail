@@ -69,6 +69,16 @@ watched running, by area:
 - **The host notch's grant and refusals** ([the credential gate](#the-credential-gate)).
   MEASURED: pinned through `hostMain` by unit tests in `internal/cli`. UNMEASURED: no real host
   has run them.
+- **The credential gate** ([the credential gate](#the-credential-gate)). Its design
+  (`provider-credential-scope.md`) graduated here on 2026-10-01: [the credential-gate
+  rulings](#the-credential-gate-rulings) hold [`OQ-BR4`](#oq-br4) and [`OQ-CN1`](#oq-cn1) to
+  [`OQ-CN9`](#oq-cn9), and the terms the gate section uses are defined there. MEASURED BY TESTS
+  ONLY, save one nested podman boot at `3a48ca94` (pi on zai: only pi's file carried
+  `ZAI_API_KEY`, a bare shell did not, and the launch disclosed it); the tests that pin each done
+  condition are listed in
+  [the design's record](../design/provider-credential-scope.md#5-what-done-looks-like-and-what-i-would-build).
+  UNMEASURED: macos-user, Apple Container and `yolo host` on a real machine, and whether the
+  per-agent file reaches every way an agent is started.
 - **The platform and the provider-keyed gates.** MEASURED BY TESTS ONLY: through the credential
   gate, the shipped derives and each launch arm's call site. No launch was run and no agent
   started.
@@ -359,7 +369,7 @@ has no deliverable credential. A composed entry carrying at least one endpoint
 ([OQ-PT4](#oq-pt4)) and selected by an agent demands that the ONE variable its
 `api_key_env_name` points at be set in what the launch would deliver. Three consequences follow:
 
-- The scope is the **selected provider** ([`OQ-CN3`](../design/provider-credential-scope.md#OQ-CN3),
+- The scope is the **selected provider** ([`OQ-CN3`](#oq-cn3),
   ruled 2026-09-26, narrowing the selected-pack scope of [OQ-13](#pv-oq-13) deliberately). The
   credential gate delivers a provider's key only to an agent that selected it, so a key for a
   provider nobody selected is a key nobody will deliver — and a key nobody will deliver is not a
@@ -388,7 +398,7 @@ whose env derive copies its value into the agent's own environment (claude's
 `ANTHROPIC_AUTH_TOKEN`, copilot's `COPILOT_PROVIDER_API_KEY`) and for no other. opencode, pi and
 codex read the variable itself, so for them the refusal names the variable as left in that shell
 and offers `env_sources` (`packload.ProviderCredentialGapsTo`,
-[CN-D25](../design/provider-credential-scope.md#7-decision-ledger)); until 2026-09-30 the check
+[CN-D25](../design/provider-credential-scope.md#CN-D25)); until 2026-09-30 the check
 counted that shell for every agent, and those three started with no key. At `yolo host` the agent
 inherits that shell, so it counts there.
 
@@ -606,9 +616,8 @@ same hazard one layer down.
 ## The credential gate
 
 A profile's credentials and gated env reach **only the agent that selected it**
-([`OQ-BR4`](../design/provider-credential-scope.md#OQ-BR4), ruled 2026-09-25;
-[`OQ-CN1`–`OQ-CN6`](../design/provider-credential-scope.md#6-open-questions), ruled
-2026-09-26). One function decides it — `packload.ScopeCredentials`, called by the jail notch's
+([`OQ-BR4`](#oq-br4), ruled 2026-09-25; [`OQ-CN1`](#oq-cn1)–[`OQ-CN6`](#oq-cn6), ruled
+2026-09-26; [the credential-gate rulings](#the-credential-gate-rulings)). One function decides it — `packload.ScopeCredentials`, called by the jail notch's
 `composePackChannel` and by the host notch's `composeHostVars` — over three kinds of value:
 
 | Value | Who receives it |
@@ -616,7 +625,7 @@ A profile's credentials and gated env reach **only the agent that selected it**
 | An `env_sources` value whose name a composed provider **claims** (lists in its `api_key_env_name`, or, for a provider that lists none and declares a `platform`, a same-platform provider lists: [the platform](#the-platform-what-service-a-provider-is)) | each agent whose selected profile — any entry of its [active set](#an-active-set-several-profiles-for-one-agent) — resolves to a claiming provider; no other process, a bare shell included. The disclosure names a set's keys in set order |
 | An `env_sources` value no provider claims (`GH_TOKEN`, anything else) | every process, as before |
 | A gated `kind: "env"` contribution | the pack's own agent when its selection satisfies the gate; for a pack that installs no CLI (`aws-auth`), every agent whose selection does. A `platform` gate is satisfied by the selected provider's platform, a `profile` gate by the profile's name ([the `profile` modifier](#the-profile-modifier)), either one by any entry of an active set |
-| An env derive's output (the shape vars) | its own agent, and the derive's copy of the table carries the `api_key` of that agent's provider only, or of each provider in its active set |
+| An env derive's output (the **shape variables**: the provider variables an env derive emits for one agent, such as claude's `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`, credential included; a term coined in the design this gate came from) | its own agent, and the derive's copy of the table carries the `api_key` of that agent's provider only, or of each provider in its active set |
 
 `packs/bedrock`'s `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
@@ -626,7 +635,8 @@ ONE variable keeps the string spelling; a derive sees `api_key_env_name` only wh
 exactly one variable (`packload.ProvidersForDerive`), so a multi-route provider points an agent
 at none of them.
 
-Where each answer lands is the vehicle's:
+Where each answer lands is the **delivery vehicle**'s, a term the gate's design coined for the code
+that writes a launch's environment for one notch or backend. There are three:
 
 - **Container backends.** `yolo-user-env.sh` carries the shared values; each profiled agent's
   own values go to `<workspace>/.yolo/home/agent-env/<agent>.sh` (0600, in a 0700
@@ -647,7 +657,7 @@ Where each answer lands is the vehicle's:
   `<workspace>/.yolo/home/config/yolo-agent-env/` (0600, in a 0700 directory), where the
   bootstrap's home layout links the sandbox's `~/.config`. So an agent started from a bare
   `yolo`'s login zsh sources its profile's values, as its container twin does
-  ([`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9), built). No file is written on a
+  ([`OQ-CN9`](#oq-cn9), built). No file is written on a
   dry run.
 - **The host notch.** `yolo host -- <cmd>` composes one process: the shared values plus that
   command's. The shell it inherits is the user's and passes through untouched. `yolo host env`
@@ -729,7 +739,7 @@ started by another agent inherits that agent's environment, as any child does.
 
 Two consequences to know:
 
-- **The loopback credential services follow the selection** ([`OQ-CN7`](../design/provider-credential-scope.md#OQ-CN7),
+- **The loopback credential services follow the selection** ([`OQ-CN7`](#oq-cn7),
   built). `aws-auth`'s adapter (`127.0.0.1:1461`, or a port the launch picked on a jail
   sharing its launcher's network namespace) starts only when some agent's selected provider
   declares the platform `aws-bedrock` (`-p bedrock`, a profile of your own over it, or a
@@ -741,7 +751,7 @@ Two consequences to know:
   the agent's file and an unexported record in the shared file hold it. The wire bridge
   publishes a route only for a provider some agent's profile selects, but its caller token is
   shared, so any jail process can still use a published route.
-- **Your own value beats a profile's composed one** ([`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8),
+- **Your own value beats a profile's composed one** ([`OQ-CN8`](#oq-cn8),
   built). The agent's launcher sources its file after the shell you typed the command in, so
   each composed value is written against that incoming environment: `ANTHROPIC_MODEL=x
   claude`, or `export ANTHROPIC_BASE_URL=…` before it, keeps your value. The profile's value
@@ -753,12 +763,14 @@ Two consequences to know:
   [OQ-NC13](../plans/notch-convergence.md#OQ-NC13), and which of yolo's own sources wins when two
   set one variable, which the vehicles answer differently today, is
   [OQ-NC12](../plans/notch-convergence.md#OQ-NC12). The menu half of
-[`OQ-CN4`](../design/provider-credential-scope.md#OQ-CN4) is each agent's own key:
+[`OQ-CN4`](#oq-cn4) is each agent's own key:
 opencode's derive writes `enabled_providers: [<selected provider>]` beside its selected model,
 or every provider of its [active set](#an-active-set-several-profiles-for-one-agent), the primary
 first;
 claude's single `ANTHROPIC_BASE_URL` already reaches one provider per launch; pi's
-`enabledModels` is a soft shortlist and restricts nothing. For `openai-codex` pi gets no
+<a id="pi-enabledmodels-is-a-shortlist"></a>`enabledModels` is a soft shortlist and restricts
+nothing: it shapes pi's default model view, which Tab and `--model` escape and which fails open,
+so for pi the only lever on what it can reach is the credential. For `openai-codex` pi gets no
 `enabledModels` at all: its extension registers exactly
 [the declared list](#the-openai-codex-model-list), so pi's view of that provider is the list
 ([ML-D2](../design/model-lists-and-pickers.md#ML-D2)).
@@ -1226,9 +1238,9 @@ adapter pack, and it follows the profile. A role the provider does not name is u
 agent with a profile never inherits it from an agent on another provider. An agent with no
 profile selects no provider and composes none, so one started by an agent that has them keeps
 that agent's values, as a child keeps any of its parent's environment
-([CN-D8](../design/provider-credential-scope.md#7-decision-ledger)). A value you set yourself for
+([CN-D8](../design/provider-credential-scope.md#CN-D8)). A value you set yourself for
 one command still wins in a jail, as every profile-composed value does
-([the per-agent file's precedence](../design/provider-credential-scope.md#OQ-CN8)). A variable of
+([the per-agent file's precedence](#oq-cn8)). A variable of
 the same name the agent's own pack sets wins over the composed one, and no warning is printed for
 a missing role, since nothing asked for it ([XM-D8](../research/extension-model-defaults.md#XM-D8),
 [XM-D9](../research/extension-model-defaults.md#XM-D9)).
@@ -1693,11 +1705,13 @@ after the fold, as the more specific intent. Env values are literal strings; a r
 spelling in a pack's env map (only a derive's `ctx.tombstone` removes, which the per-agent env
 file spells as `unset`).
 
+<a id="the-wide-pass-is-gone"></a>
+
 > [!NOTE]
 > **The launch-wide "wide pass" is gone (trap D2, closed).** It matched a gated env against any
 > bin the launch installed, so `-p codex=bedrock` fired `packs/claude`'s
 > `CLAUDE_CODE_USE_BEDROCK` jail-wide. Ruled out by
-> [`OQ-BR4`](../design/provider-credential-scope.md#OQ-BR4) and built with the credential
+> [`OQ-BR4`](#oq-br4) and built with the credential
 > gate: a satisfied gate delivers to each agent whose selected profile satisfies it and to no
 > other, and the CLI-less case stays reachable.
 
@@ -1928,6 +1942,18 @@ environment.
   sees every request ([`OQ-WG3`](../design/wire-bridge-gateway.md#OQ-WG3), ruled, and built
   2026-09-30 as [WG-I40](../design/wire-bridge-gateway.md#WG-I40)).
 - **No value schema for options** — a typechecker in core is `wire_api`'s enum one layer up.
+- <a id="what-the-credential-gate-does-not-do"></a>**No revoking a credential from a running
+  jail, and no protecting an agent from itself.** The [credential gate](#the-credential-gate)
+  governs a launch: a value already exported into a live shell is not un-exported by rewriting
+  the file it sourced, and an agent reading a credential from a file yolo did not write is
+  outside it. It is not a secrets manager either; `env_sources` stays what it is.
+- **No silent narrowing.** A launch that withholds a credential the user configured says so, as
+  a disclosure rather than a debug line, naming the variables and never their values.
+- **No curated model list from the menu half of the gate.** Writing opencode's
+  `enabled_providers` for the selected provider is a credential-scope act with a catalog-shaped
+  mechanism, and it must never grow into yolo choosing models.
+- **No change to which config scope `env_sources` is read from.** The host reads user scope and
+  the jail the merged config; the gate works within that asymmetry.
 - **No credential VALUE in any composed or wire table.** The name crosses; the value is
   hydrated per derive invocation and in the 0600 env files (`yolo-user-env.sh` for an
   unclaimed value, the selecting agent's own file for a claimed one) only.
@@ -1966,6 +1992,25 @@ older links.
 | <a id="oq-cs8"></a>[OQ-CS8](#oq-cs8) — the agent pack composes the binding in its own derive | Core stops holding an agent→protocol table; each agent declares how a selection reaches it. |
 | <a id="oq-cs9"></a>[OQ-CS9](#oq-cs9) — profiles point at a provider; no `extends` | Provider-declared option defaults already remove the duplication inheritance would fix. |
 | <a id="oq-cs10"></a>[OQ-CS10](#oq-cs10) (withdrawn → constraint) — the host notch runs the env derive | `yolo host -- claude` composes the same environment; the composition is host-launch-time, so the derive is too. |
+
+### The credential-gate rulings
+
+These rows carry the ids of the design the [credential gate](#the-credential-gate) was built from
+(`provider-credential-scope.md`, graduated 2026-10-01; its implementation-decision ledger,
+`CN-D1` to `CN-D25`, stays in that file as the build record). Each was ruled as leaned.
+
+| Ruling | Why it holds |
+| :--- | :--- |
+| <a id="oq-br4"></a>[OQ-BR4](#oq-br4) — **a profile's credentials and gated env reach only the agent that selected it; nothing leaks** (maintainer, 2026-09-25: *"no I don't want it to leak … as specific as possible … certainly not Claude Code gets Bedrock"* because another agent selected it) | A profile picks which provider an agent uses, and before the gate it also decided what every agent in the jail could see. Accepting the leak with a briefing note was the rejected alternative. |
+| <a id="oq-cn1"></a>[OQ-CN1](#oq-cn1) — **`api_key_env_name` is a list on the provider declaration** | The key name is a fact about the provider, and one name cannot express Bedrock's three credential routes, the case that produced the leak. A per-profile allowlist in user config would put a fact about each provider in every user's file. |
+| <a id="oq-cn2"></a>[OQ-CN2](#oq-cn2) — **one gate, in `composePackChannel` at the jail, and every vehicle and the rendered config read its narrowed set** | Filtering only the environment still writes every `api_key` into the agent's rendered config, and two independent filters is the duplicate-implementation defect this repository treats as a class. |
+| <a id="oq-cn3"></a>[OQ-CN3](#oq-cn3) — **the credential pre-flight narrows with the gate** | A key nothing will deliver is not a missing credential; refusing a launch over one is the same defect one layer up. It reopened the pack-scoped pre-flight ([OQ-13](#pv-oq-13)) on purpose. |
+| <a id="oq-cn4"></a>[OQ-CN4](#oq-cn4) — **withholding the credential and narrowing the menu are two things, named separately** | Withholding is the security property and applies everywhere. Menu narrowing is ergonomic and uses each agent's own key: hard for opencode and claude, and for pi a shortlist that must never be described as a restriction ([above](#pi-enabledmodels-is-a-shortlist)). |
+| <a id="oq-cn5"></a>[OQ-CN5](#oq-cn5) — **the gate ships on all three vehicles at once** | The host notch composes an environment for a process outside every sandbox, so shipping the container alone would leave the weakest boundary open while the doc read as done. |
+| <a id="oq-cn6"></a>[OQ-CN6](#oq-cn6) — **a per-agent env file, written from the one gate and sourced by that agent's launcher**; a vehicle that cannot deliver per agent stays per launch and says so | The shared file has one reader per process, so a value only one agent may see needs a place only that agent reads. ⚠ UNMEASURED: whether the file reaches every way an agent is started; an exec by absolute path bypasses every carrier. |
+| <a id="oq-cn7"></a>[OQ-CN7](#oq-cn7) — **a loopback credential service follows the selection** (2026-09-28): `aws-auth`'s adapter starts, and a wire-bridge route is published, only when some agent's profile selects that provider; and `aws-auth` demands a per-launch caller token delivered only in the selecting agent's file | The gate scopes what an environment carries, and an adapter that answers any process would hand the minted credential to a bare shell anyway. What remains is a same-uid file read. |
+| <a id="oq-cn8"></a>[OQ-CN8](#oq-cn8) — **the user's explicit value wins over a profile's composed one** (2026-09-28) | `ANTHROPIC_MODEL=x claude` and an `export` in a jail shell are documented habits. Composed values are written against the launcher's incoming environment, overriding only an empty value or one yolo set, so a stale inherited value cannot win either. |
+| <a id="oq-cn9"></a>[OQ-CN9](#oq-cn9) — **macos-user writes the per-agent files too** (2026-09-28) | A bare `yolo` there starts a login shell, which is no agent, so an agent started from it would otherwise get none of its profile's values. |
 
 ### The profile-variant rulings
 

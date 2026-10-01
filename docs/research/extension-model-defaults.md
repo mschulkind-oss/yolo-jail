@@ -20,7 +20,7 @@ extensions to support?
 every provider. On 2026-10-01: [OQ-XM4](#OQ-XM4)'s role variables, `YOLO_MODEL_<ROLE>` per agent,
 composed by core in the env-derive runner (`packload.ModelRoleVars`, called from
 `packload.AgentEnv`) and delivered by the per-agent env files of
-[OQ-CN6](../design/provider-credential-scope.md#OQ-CN6), the macos-user session and the host
+[OQ-CN6](../reference/providers.md#oq-cn6), the macos-user session and the host
 exec. The implementation decisions are in the [Decision Ledger](#7-decision-ledger).
 **MEASURED:** the model-selection code of eight
 extensions and of pi 0.87.1, read from the published packages (versions in
@@ -36,7 +36,7 @@ started; macos-user's delivery is by reading alone (it delivers the same compose
 
 **Reads with:** [`model-lists-and-pickers.md` §6](../design/model-lists-and-pickers.md#6-tier-aliases-default-fast-balanced)
 (the tier aliases this reuses), [`pi-model-selection-ux.md`](pi-model-selection-ux.md) ([OQ-PM1](pi-model-selection-ux.md#OQ-PM1),
-which this reframes), [`provider-credential-scope.md`](../design/provider-credential-scope.md#OQ-CN6)
+which this reframes), [`providers.md`'s OQ-CN6](../reference/providers.md#oq-cn6)
 (why a jail-wide env var was the wrong vehicle, and the per-agent env files the role variables
 now ride).
 
@@ -135,7 +135,7 @@ mechanism doesn't need to reach claude or opencode plugins today.
 | Option | Who writes what | An extension nobody adapted | Verdict |
 | :--- | :--- | :--- | :--- |
 | **(a) Adapter packs.** Core resolves roles for derives; an adapter pack renders them into one extension's file | core: a small derive helper. Adapters: the extension's author (a pack in their repo) or the user's local pack. yolo ships none | inherits (most do), or keeps its own config | **Take it**, as the main layer |
-| **(b) A published env convention** (`YOLO_MODEL_FAST`, …) that extensions may read | core: the vars. Extensions: opt in | unaffected | **Defer.** A jail-wide var is wrong when two agents run different profiles, until per-agent env exists ([OQ-CN6](../design/provider-credential-scope.md#OQ-CN6)). *Built per agent on 2026-10-01 ([XM-D8](#XM-D8)).* |
+| **(b) A published env convention** (`YOLO_MODEL_FAST`, …) that extensions may read | core: the vars. Extensions: opt in | unaffected | **Defer.** A jail-wide var is wrong when two agents run different profiles, until per-agent env exists ([OQ-CN6](../reference/providers.md#oq-cn6)). *Built per agent on 2026-10-01 ([XM-D8](#XM-D8)).* |
 | **(c) Upstream: a model-roles setting in pi** (and `ctx.modelFor(role)`) | pi. Then yolo's pi derive writes one key | follows once it adopts the setting | **Propose it**; the long-run fix, not ours to ship |
 | **(d) Inherit-first only.** yolo writes the default and scope; extensions that inherit follow | nothing new | follows if it inherits; diverges if configured | **Keep as the floor**, already true; not enough alone |
 | **(e) Document and stop** | docs | diverges | **No.** The maintainer wants something layered |
@@ -241,14 +241,14 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    env var reaches extensions with no adapter, but a jail-wide one is wrong when claude and pi run
    different profiles.
 
-   _Leaning:_ not until per-agent env exists ([OQ-CN6](../design/provider-credential-scope.md#OQ-CN6));
+   _Leaning:_ not until per-agent env exists ([OQ-CN6](../reference/providers.md#oq-cn6));
    then as `YOLO_MODEL_<ROLE>` per agent.
 
    <!-- vantage: oq id=OQ-XM4 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** not until per-agent environment exists
-   > ([OQ-CN6](../design/provider-credential-scope.md#OQ-CN6)); then as `YOLO_MODEL_<ROLE>`, set
+   > ([OQ-CN6](../reference/providers.md#oq-cn6)); then as `YOLO_MODEL_<ROLE>`, set
    > per agent.
 
    **Built 2026-10-01**, per-agent environment having existed since 2026-09-26:
@@ -285,7 +285,7 @@ decisions the build took under them, each one the builder's to make.
 | <a id="XM-D6"></a>XM-D6 | *Implementation decision.* **The block stays a computed key, and a profile switch needs no clearing logic.** The selection mechanism lifts scalars and arrays of scalars only ([Selection](../reference/providers.md#selection-write-on-activation-clear-only-what-yolo-wrote)), so [OQ-PSW2](../reference/providers.md#oq-psw2)'s deselect rule does not govern it. A computed key is re-asserted every boot while a profile is active, and each switch rewrites every leaf yolo names, the `allow` array whole; a deselect writes no block, and the file is recomposed from its layers without it. Measured through the boot render, codex → zai → codex → zai and codex → openrouter → codex → openrouter, then a deselect and a reselect: each boot leaves exactly the new provider's block | 2026-09-28 | [OQ-XM3](#OQ-XM3) | ✅ `58fc65ce` |
 | <a id="XM-D7"></a>XM-D7 | *Implementation decision.* **claude's and opencode's derives do not adopt the helper in this change**, because neither is a clean swap. claude reads the vendor aliases `sonnet` and `haiku`, and moving it to `balanced`/`fast` is [OQ-PSW1](../design/model-lists-and-pickers.md#OQ-PSW1), open when this was written and decided on 2026-09-30 as [MM-D17](../design/model-lists-and-pickers.md#MM-D17) (not built). opencode's `small_model` tries `haiku`, `fast` and `small` in turn, so its lookup is a chain of names rather than one tier | 2026-09-28 | [OQ-XM1](#OQ-XM1) | — |
 | <a id="XM-D8"></a>XM-D8 | *Implementation decision.* **Core composes the role variables, for every agent with a profile, in the env-derive runner, and they ride that runner's output to every vehicle.** `packload.AgentEnv` adds `packload.ModelRoleVars` beside its pack's `yolo.env` output, so the per-agent env file, the macos-user session and `yolo host --`'s exec deliver them with no new reader, and an agent whose pack registers no `yolo.env` gets them too: the vocabulary (`luahook.ConventionalModelAliases`) and the lookup are core's, and a relay each agent pack had to remember is one each could forget. The names are `YOLO_MODEL_` plus the alias upper-cased, for the four conventional aliases only: an open-vocabulary alias is a name a derive may probe, not a role yolo publishes ([OQ-XM2](#OQ-XM2)). The value is `<provider>/<id>`, `yolo.model_for`'s qualified return, read through the same lookup (`luahook.ModelAliasID`), so the two cannot disagree. The provider is the agent's PRIMARY's, never a later entry of its active set, as `yolo.model_for` answers with no provider named. A variable of the same name the agent's own pack sets, a tombstone included, wins, since the pack is the more specific statement about its own agent's process. `yolo check` composes none, because its gate input runs no derive (`ScopeInput.NoDerives`) | 2026-10-01 | [OQ-XM4](#OQ-XM4) | ✅ built 2026-10-01 |
-| <a id="XM-D9"></a>XM-D9 | *Implementation decision.* **A role the agent's provider does not name is removed, and only when some provider in the launch's table names it; a missing role is silent.** An agent started by another agent inherits that one's environment, so a `YOLO_MODEL_FAST` left by an agent on another provider would hand a child a model across providers, which [XM-D1](#XM-D1) forbids; the per-agent file writes the removal only for a value yolo set elsewhere, so a value the user typed stays ([OQ-CN8](../design/provider-credential-scope.md#OQ-CN8)), and the host exec removes it outright, as it applies every composed value. A role no provider in the table names is not touched: nothing the launch composes could have set it. Nor is an agent with no profile: it selects no provider, the gate composes no delivery for it, and so it writes no file and its launch removes nothing, which leaves one started by a profiled agent holding that agent's values, as [CN-D8](../design/provider-credential-scope.md#7-decision-ledger) accepts for every inherited value (found in review). And unlike `yolo.model_for`, nothing warns: no derive asked for the role, so a warning would name a gap nobody relies on, at every launch | 2026-10-01 | [OQ-XM4](#OQ-XM4) | ✅ built 2026-10-01 |
+| <a id="XM-D9"></a>XM-D9 | *Implementation decision.* **A role the agent's provider does not name is removed, and only when some provider in the launch's table names it; a missing role is silent.** An agent started by another agent inherits that one's environment, so a `YOLO_MODEL_FAST` left by an agent on another provider would hand a child a model across providers, which [XM-D1](#XM-D1) forbids; the per-agent file writes the removal only for a value yolo set elsewhere, so a value the user typed stays ([OQ-CN8](../reference/providers.md#oq-cn8)), and the host exec removes it outright, as it applies every composed value. A role no provider in the table names is not touched: nothing the launch composes could have set it. Nor is an agent with no profile: it selects no provider, the gate composes no delivery for it, and so it writes no file and its launch removes nothing, which leaves one started by a profiled agent holding that agent's values, as [CN-D8](../design/provider-credential-scope.md#CN-D8) accepts for every inherited value (found in review). And unlike `yolo.model_for`, nothing warns: no derive asked for the role, so a warning would name a gap nobody relies on, at every launch | 2026-10-01 | [OQ-XM4](#OQ-XM4) | ✅ built 2026-10-01 |
 
 ## Appendix A: evidence
 

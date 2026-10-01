@@ -161,7 +161,7 @@ Could not refresh 3 model catalogs (cerebras, deepseek, openrouter); showing cac
    writes a `models.json` row for each composed provider, with `"apiKey": "${CEREBRAS_API_KEY}"` and
    the like ([L729-L739](../../packs/pi/derive.lua#L729-L739)).
 2. **Credential scoping** (MEASURED live). Under the `codex` profile, `yolo host` scopes credentials to
-   the selection ([`provider-credential-scope.md`](provider-credential-scope.md)) and withholds
+   the selection ([`providers.md`'s credential gate](../reference/providers.md#the-credential-gate)) and withholds
    `CEREBRAS_API_KEY`, `DEEPSEEK_API_KEY` and `OPENROUTER_API_KEY`.
 3. **What fails, and where** (SOURCED; MEASURED by probe).
    - **No network call is made and nothing returns 401.** For a row whose `apiKey` names an unset

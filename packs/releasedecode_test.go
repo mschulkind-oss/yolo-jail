@@ -11,7 +11,7 @@ package packs_test
 // whole set's config-overlays, and a problem in either stops the boot too (genStep, then
 // genFailuresError). So the probe runs all three passes, the way that boot does.
 // Tolerance covers an unknown kind or field. It does not cover a known field whose TYPE grew —
-// claude's `api_key_env_name` became a list (provider-credential-scope.md, OQ-CN1) — or a new
+// claude's `api_key_env_name` became a list (providers.md, OQ-CN1) — or a new
 // value in a closed set, such as a hook name. Either one stops an older jail's boot. So a manifest
 // change the current tree reads happily can still stop every jail an older yolo launched from
 // booting, the moment that jail is handed the new tree

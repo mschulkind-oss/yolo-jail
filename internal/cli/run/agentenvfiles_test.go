@@ -1,7 +1,7 @@
 package run
 
 // agentenvfiles_test.go pins the CONTAINER VEHICLE of the credential gate
-// (docs/design/provider-credential-scope.md, OQ-CN6): what deliverChannel writes into the
+// (docs/reference/providers.md, OQ-CN6): what deliverChannel writes into the
 // shared yolo-user-env.sh and into each agent's own env file, composed through the real
 // composePackChannel over the SHIPPED packs. The launch-level half — Run() writing these
 // files on a fresh container launch and on an attach — is credentialgate_test.go's.

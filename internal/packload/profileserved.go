@@ -2,7 +2,7 @@ package packload
 
 // profileserved.go answers two questions about a jail daemon that serves a SELECTION, both from
 // the selected packs' `env` declarations and the same per-agent gate the credential gate asks
-// (gateFiresFor; docs/design/provider-credential-scope.md OQ-CN7, ruled 2026-09-28).
+// (gateFiresFor; docs/reference/providers.md OQ-CN7, ruled 2026-09-28).
 //
 // A PROFILE-SERVED DAEMON (coined here) is a jail daemon that some selected pack's `env`
 // contribution names `served_by`, where EVERY contribution naming it carries a gate — a

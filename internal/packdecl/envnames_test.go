@@ -1,7 +1,7 @@
 package packdecl
 
 // envnames_test.go pins the provider's `api_key_env_name` as a string OR a list of
-// variable names (docs/design/provider-credential-scope.md, OQ-CN1), on the manifest
+// variable names (docs/reference/providers.md, OQ-CN1), on the manifest
 // decoder a launch reads packs through.
 
 import (

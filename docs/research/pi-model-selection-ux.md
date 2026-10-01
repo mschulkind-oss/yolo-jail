@@ -20,7 +20,7 @@ deliberate divergence: pi's settings derive writes an explicit list of three Cod
 `openai-codex` rather than the `openai-codex/*` wildcard, because the wildcard would also make
 retired models selectable (the derive's own comment). Every other reachable provider gets its
 declared model ids, or `<provider>/*` when it declares none.
-[`provider-credential-scope.md`](../design/provider-credential-scope.md#241-what-pis-enabledmodels-actually-constrains)
+[`providers.md`'s credential gate](../reference/providers.md#pi-enabledmodels-is-a-shortlist)
 re-measured the scope at pi 0.87.1 and found it a soft shortlist, as [§1](#1-what-pi-0851-already-does) says: Tab and `--model`
 both escape it. A hard allowlist can only live at the wire bridge, which is
 [`wire-bridge-gateway.md`](../design/wire-bridge-gateway.md#OQ-WG3)'s question.

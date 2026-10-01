@@ -1,6 +1,6 @@
 package run
 
-// profiledaemons.go is the attach half of OQ-CN7 (b) (docs/design/provider-credential-scope.md,
+// profiledaemons.go is the attach half of OQ-CN7 (b) (docs/reference/providers.md,
 // ruled 2026-09-28): a PROFILE-SERVED jail daemon (coined in internal/packload's
 // profileserved.go — one whose only clients are the agents a profile-gated pointer reaches)
 // starts only when a fresh launch's selection delivers that pointer to some agent

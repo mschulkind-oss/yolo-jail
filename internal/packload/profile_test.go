@@ -117,7 +117,7 @@ func TestProfileEnvGateReachesACLIlessPack(t *testing.T) {
 	}
 }
 
-// TRAP D2 (docs/design/provider-credential-scope.md §2.6): an AGENT pack's gated env reaches
+// TRAP D2 (docs/reference/providers.md#the-wide-pass-is-gone): an AGENT pack's gated env reaches
 // its own agent and nobody else. `-p codex=bedrock` in a jail that also installs claude used
 // to fire claude's CLAUDE_CODE_USE_BEDROCK jail-wide through the launch-wide second pass;
 // under the per-agent gate neither codex, claude nor the shared fold receives it, and claude

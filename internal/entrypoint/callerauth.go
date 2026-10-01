@@ -47,7 +47,7 @@ var callerTokenDir = paths.JailCallerTokenDir
 // 0600 file under callerTokenDir (paths.JailCallerTokenFile), for a client that reads its
 // credential from a file (docs/plans/notch-convergence.md §2.3). The aws-auth pack named its
 // file as AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE until its token was SCOPED
-// (docs/design/provider-credential-scope.md OQ-CN7 (c)): that token is now recorded, never
+// (docs/reference/providers.md OQ-CN7 (c)): that token is now recorded, never
 // exported, so it is not in e.Vars and gets no file, and no shipped pack names one today. The
 // bytes are the token alone, with no newline, because an SDK sends the file's contents verbatim.
 //
@@ -101,7 +101,7 @@ func writePrivateFileAtomic(path string, data []byte) error {
 }
 
 // ScopedCallerTokenRecordPrefix opens a SCOPED CALLER TOKEN's record in yolo-user-env.sh's
-// channel section (docs/design/provider-credential-scope.md OQ-CN7 (c); the term is coined in
+// channel section (docs/reference/providers.md OQ-CN7 (c); the term is coined in
 // internal/packload's profileserved.go): the token of a daemon whose only clients are the agents
 // a profile-gated pointer reaches, which the launcher delivers EXPORTED only in those agents'
 // own env files. The shared file carries it as this COMMENT, never as an export, so no reader

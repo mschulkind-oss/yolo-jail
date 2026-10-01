@@ -1,7 +1,7 @@
 package packdecl
 
 // callertokentoken_test.go pins `{caller_token}` (loopholedecl.TokenCallerToken,
-// docs/design/provider-credential-scope.md OQ-CN7 (c)): legal only as the whole value of a
+// docs/reference/providers.md OQ-CN7 (c)): legal only as the whole value of a
 // profile-gated contribution `served_by` a daemon, because the token it resolves to is scoped
 // to the agents such a contribution reaches, and a client sends it verbatim.
 

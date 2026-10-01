@@ -21,7 +21,7 @@ import (
 // on the notice (measured — this is the bug the first nested launch caught).
 //
 // Scoped to the SELECTED PROVIDERS since the credential gate (OQ-CN3, ruled 2026-09-26,
-// docs/design/provider-credential-scope.md): a cataloged provider no agent's profile
+// docs/reference/providers.md): a cataloged provider no agent's profile
 // selects is no requirement, because the gate delivers its key to nobody, and refusing a
 // launch over a key nobody will deliver was the gate's defect one layer up. That reopens
 // providers.md#pv-oq-13's pack scoping deliberately. What still refuses is a provider some

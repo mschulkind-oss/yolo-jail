@@ -20,7 +20,7 @@ package run
 // each agent's own env file (deliverChannel — per-entry delivery, on a fresh launch and an
 // attach alike), the macos-user arm layers it into its plan env and relays the two wire
 // tables to its bootstrap. What reaches WHICH agent is the credential gate's answer
-// (packload.ScopeCredentials, composed here once; docs/design/provider-credential-scope.md).
+// (packload.ScopeCredentials, composed here once; docs/reference/providers.md).
 // One composition means the
 // two backends cannot answer differently about what a profile delivers — which is the same
 // property packload.ProfileTable's launch-flag injection already claims for the two
@@ -57,7 +57,7 @@ type packChannel struct {
 	// YOLO_PROVIDERS and read by the env derive below.
 	providers *jsonx.OrderedMap
 	// scope is THE CREDENTIAL GATE's answer for this launch (packload.ScopeCredentials,
-	// docs/design/provider-credential-scope.md OQ-CN2): the env_sources and pack env every
+	// docs/reference/providers.md OQ-CN2): the env_sources and pack env every
 	// process may see, and per profiled agent what only that agent receives — its
 	// provider's claimed credentials, the gated env its own selection satisfies, and its
 	// pack's env derive's output (the shape vars, composed through the gate's lookup).
@@ -90,7 +90,7 @@ type packChannel struct {
 	// the derives that point a client at the service. nil when no selected service runs.
 	callerTokens map[string]string
 	// scopedTokenVars are the callerTokens variables whose tokens are SCOPED
-	// (packload.ScopedCallerTokenDaemons, provider-credential-scope.md OQ-CN7 (c)): a selected
+	// (packload.ScopedCallerTokenDaemons, providers.md OQ-CN7 (c)): a selected
 	// pack names the daemon's token through `{caller_token}`, so the token is exported only in
 	// the agent files that pointer reaches, and the shared file carries it as a non-exported
 	// record (entrypoint.ScopedCallerTokenRecord) for the daemon and the next attach to read.
@@ -432,7 +432,7 @@ func (c *packChannel) deliverySource(o *Options, argvPairs map[string]string,
 // session env file. The launched agent's own values reach every process of its session — as
 // any agent's reach its children on every backend. Another agent started inside the session
 // gets its own values from its per-agent env file, which the arm writes with the container
-// vehicle's writer (writeMacosUserAgentEnvFiles, provider-credential-scope.md OQ-CN9); before
+// vehicle's writer (writeMacosUserAgentEnvFiles, providers.md OQ-CN9); before
 // OQ-CN9 it received none of them.
 //
 // The order is the backend's own precedence, unchanged by the gate: the pack env fold

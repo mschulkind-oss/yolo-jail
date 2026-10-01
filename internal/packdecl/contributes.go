@@ -538,7 +538,7 @@ type Contribution struct {
 	// the `providers` config key draws with `api_key_env`.
 	//
 	// A LIST when the provider's credential arrives in several variables (OQ-CN1,
-	// docs/design/provider-credential-scope.md): every name is one the credential gate
+	// docs/reference/providers.md): every name is one the credential gate
 	// delivers only to an agent that selected this provider. See EnvNames for why one name
 	// stays a string and why several point an agent at none of them.
 	APIKeyEnvName EnvNames `json:"api_key_env_name,omitempty"`

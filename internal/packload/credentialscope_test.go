@@ -1,7 +1,7 @@
 package packload
 
 // credentialscope_test.go pins THE CREDENTIAL GATE's own rule (ScopeCredentials,
-// docs/design/provider-credential-scope.md OQ-CN1/CN2): which hydrated values are whose, the
+// docs/reference/providers.md OQ-CN1/CN2): which hydrated values are whose, the
 // env derive's hydration narrowed to the agent's own provider, the derive view of a
 // credential list, and the disclosure's wording. The vehicles that deliver this answer are
 // pinned where they write: internal/cli/run (container, macos-user), internal/cli (host).

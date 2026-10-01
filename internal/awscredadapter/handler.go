@@ -39,7 +39,7 @@
 //
 // So the launcher mints a caller token for this daemon (the loophole declares
 // `jail_daemon.caller_token`), and the token is SCOPED to the agents that selected what this
-// adapter serves (docs/design/provider-credential-scope.md OQ-CN7 (c), ruled 2026-09-28): the
+// adapter serves (docs/reference/providers.md OQ-CN7 (c), ruled 2026-09-28): the
 // pack's `env` contribution names it as AWS_CONTAINER_AUTHORIZATION_TOKEN = `{caller_token}`
 // beside the credentials URI, gated on the provider platform `aws-bedrock` (OQ-BR8), so the
 // launcher exports it only in the env file of each agent whose selected provider is Bedrock.
@@ -267,7 +267,7 @@ func callerRefusalMessage(reason string) string {
 // put it: its own environment when a launch exported the token there, and otherwise the scoped
 // record in the channel section of the jail home's yolo-user-env.sh
 // (entrypoint.ScopedCallerToken). The aws-auth pack SCOPES the token (its pointer names
-// `{caller_token}`, docs/design/provider-credential-scope.md OQ-CN7 (c)): the only exported
+// `{caller_token}`, docs/reference/providers.md OQ-CN7 (c)): the only exported
 // copy is AWS_CONTAINER_AUTHORIZATION_TOKEN in the env file of each agent whose profile selects
 // `bedrock`, so no other process's environment carries it, and the adapter reads the record the
 // shared file keeps for it instead.

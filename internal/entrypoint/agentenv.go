@@ -1,6 +1,6 @@
 package entrypoint
 
-// agentenv.go is the JAIL HALF of the per-agent env file (docs/design/provider-credential-scope.md,
+// agentenv.go is the JAIL HALF of the per-agent env file (docs/reference/providers.md,
 // OQ-CN6): where the file sits in the jail home, and the launcher fragment that sources it.
 //
 // WHY A FILE PER AGENT. Every other channel ends in ~/.config/yolo-user-env.sh, whose first

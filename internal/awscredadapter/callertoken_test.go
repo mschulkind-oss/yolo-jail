@@ -38,7 +38,7 @@ func TestMainWithoutACallerTokenIdlesAndBindsNothing(t *testing.T) {
 	}
 }
 
-// A SCOPED TOKEN IS READ FROM THE SHARED FILE'S RECORD (docs/design/provider-credential-scope.md
+// A SCOPED TOKEN IS READ FROM THE SHARED FILE'S RECORD (docs/reference/providers.md
 // OQ-CN7 (c)). The launcher no longer exports the adapter's token into the environment every
 // jail process inherits; it records it, unexported, in yolo-user-env.sh's channel section, and
 // exports it only as the selecting agent's AWS_CONTAINER_AUTHORIZATION_TOKEN. The adapter's

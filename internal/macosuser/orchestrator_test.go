@@ -529,7 +529,7 @@ func (e errFake) Error() string { return string(e) }
 //     env on the container and nothing here is the defect);
 //  2. the channel is the WHOLE of what this backend delivers from the run pipeline's
 //     composition: buildPlan hydrates no env_sources of its own any more, because the
-//     credential gate (docs/design/provider-credential-scope.md, OQ-CN5) narrows them
+//     credential gate (docs/reference/providers.md, OQ-CN5) narrows them
 //     above the dispatch and the channel carries them — so an env_sources entry the
 //     channel does not carry must NOT reach the sandbox. Re-adding a hydration here is the
 //     second delivery vehicle §2.3 names, bypassing the gate, and it fails this test;

@@ -729,7 +729,7 @@ func ProfilesOnly(profiles map[string]string) GateSelection {
 // pack's in declaration order, each map sorted. agent "" is the SHARED fold — what every
 // process of the launch receives — and no gate fires for it.
 //
-// THE GATE IS PER AGENT (OQ-BR4, ruled 2026-09-25; docs/design/provider-credential-scope.md
+// THE GATE IS PER AGENT (OQ-BR4, ruled 2026-09-25; docs/reference/providers.md
 // §2.6): a satisfied gate delivers its variables to each agent whose selection satisfies it,
 // and to no other. gateFiresFor is the rule. It REPLACED a launch-wide answer whose second,
 // "wide" pass fired when the profile was active for any bin at all: that pass existed so a

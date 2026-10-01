@@ -1,7 +1,7 @@
 package packdecl
 
 // envnames.go is the TYPE of a provider's `api_key_env_name`, which grew from one variable
-// name into a list of them (docs/design/provider-credential-scope.md, OQ-CN1).
+// name into a list of them (docs/reference/providers.md, OQ-CN1).
 //
 // WHY A LIST. The field is the association between a credential variable and the provider
 // it authenticates, and the credential gate reads it to deliver each variable only to an

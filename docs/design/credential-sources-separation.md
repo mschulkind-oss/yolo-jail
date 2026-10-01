@@ -42,14 +42,14 @@ below, for an ad-hoc command, are the design as it was built on 2026-09-27.
 > **In short.** The gate withholds a claimed name only when `env_sources` supplies it, and the
 > host has had a per-command remedy since the gate shipped: `yolo host -p <profile> -- <cmd>`. A
 > separate credentials key would still route by each provider's claim on the name, so it revisits
-> [OQ-CN1](provider-credential-scope.md#OQ-CN1) instead of replacing it.
+> [OQ-CN1](../reference/providers.md#oq-cn1) instead of replacing it.
 
 **Why it matters.** Nobody could find the remedy: the warning named none, and `--help` said `-p`
 was for agents (fixed by ES-D2 and ES-D3). And the same rule takes `AWS_PROFILE` from `terraform` whenever the claude pack is
 selected ([§3.4](#34-the-case-the-filing-missed-claimed-generic-names)).
 
 **The shape.** One `env_sources` channel, classified by name as built
-([CN-D6](provider-credential-scope.md#7-decision-ledger)); five host decisions that pin and
+([CN-D6](provider-credential-scope.md#CN-D6)); five host decisions that pin and
 surface the existing grant; three new questions the filing's cases lead to.
 
 **Cost.** None on the recommended path. The split adds a key, a migration, and a refusal that
@@ -61,10 +61,10 @@ fires on `AWS_PROFILE` for every claude-pack user.
 
 **Needs your ruling:** [OQ-ES5](#OQ-ES5)'s jail half and [OQ-ES6](#OQ-ES6).
 The first's host half is ruled; the second asks for an exception to
-[OQ-BR4](provider-credential-scope.md#OQ-BR4).
+[OQ-BR4](../reference/providers.md#oq-br4).
 
 **Reads with:** [`credential-sources-separation-plan.md`](credential-sources-separation-plan.md)
-(the sketch; its host section is built), [`provider-credential-scope.md`](provider-credential-scope.md)
+(the sketch; its host section is built), [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate)
 (the gate's design, rulings and implementation decisions),
 [`providers.md`](../reference/providers.md#the-credential-gate) (the gate as built),
 [`host-agent-environment.md`](../reference/host-agent-environment.md) (the host's composition).
@@ -88,7 +88,7 @@ The first's host half is ruled; the second asks for an exception to
   - container backends: per-agent files, `~/.config/yolo-agent-env/<agent>.sh`, which
     `deliverChannel` writes;
   - macos-user: the one launched program's session
-    ([CN-D12](provider-credential-scope.md#7-decision-ledger));
+    ([CN-D12](provider-credential-scope.md#CN-D12));
   - the host notch: the one exec'd process (`composeHostVars`).
 - **The shared file.** `~/.config/yolo-user-env.sh` in a container jail. It carries only the
   unclaimed `env_sources` values (`SharedEnvSources`). Its readers are:
@@ -102,7 +102,7 @@ The first's host half is ruled; the second asks for an exception to
   of a provider's claimed values. It is not a config setting, and it does not turn off the gate.
 - **Notch**. A place where yolo renders an agent's environment: the jail, `yolo host`, and
   `guest`, which is not built yet
-  ([`provider-credential-scope.md`](provider-credential-scope.md#words-this-doc-uses)).
+  ([`providers.md`'s credential gate](../reference/providers.md#the-credential-gate)).
 
 ## 1. What happened, precisely
 
@@ -123,7 +123,7 @@ be reproduced from the repository, but the probes reproduce its shape.
 
 1. **`env_sources` was the key's only source.** Had the invoking shell exported `ZAI_API_KEY`,
    `bash` would have printed it. The shell `yolo host` inherits passes through untouched
-   ([CN-D13](provider-credential-scope.md#7-decision-ledger), `hostComposition.environ`), and the
+   ([CN-D13](provider-credential-scope.md#CN-D13), `hostComposition.environ`), and the
    probe printed the same "withheld" line over it
    ([§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong)).
 2. **Nothing keyed `bash`.** There was no `-p` and no `use_profiles` entry for `bash`, so `bash`
@@ -133,7 +133,7 @@ be reproduced from the repository, but the probes reproduce its shape.
    shipped packs.
 4. **The disclosure is five lines.** It is the rule line plus one line per group of names that
    share a claimant and recipients (`CredentialScope.Disclosure`,
-   [CN-D16](provider-credential-scope.md#7-decision-ledger)).
+   [CN-D16](provider-credential-scope.md#CN-D16)).
 
 What the maintainer said:
 
@@ -147,24 +147,24 @@ What the maintainer said:
 
 - **P1. What a user lists under a key named for the environment should reach the
   environment.** This is the filing's premise and the argument for the split. It collides with
-  [OQ-CN1](provider-credential-scope.md#OQ-CN1)'s ruling, and [OQ-ES1](#OQ-ES1) is where the two
+  [OQ-CN1](../reference/providers.md#oq-cn1)'s ruling, and [OQ-ES1](#OQ-ES1) is where the two
   are weighed.
-- **P2. Nothing leaks** ([OQ-BR4](provider-credential-scope.md#OQ-BR4), ruled 2026-09-25):
+- **P2. Nothing leaks** ([OQ-BR4](../reference/providers.md#oq-br4), ruled 2026-09-25):
   *"certainly not Claude Code gets Bedrock"* because another agent selected it. Any change here
   keeps a claimed name out of every process whose profile did not select its provider, unless the
   user explicitly asks for it.
 - **P3. A narrowing is said, and an acknowledgment is explicit.** Two rules bind here:
   - The gate discloses on every arm
-    ([CN-D16](provider-credential-scope.md#7-decision-ledger), and "No silent narrowing" in
-    [`provider-credential-scope.md` §4](provider-credential-scope.md#4-what-this-does-not-license)),
+    ([CN-D16](provider-credential-scope.md#CN-D16), and "No silent narrowing" in
+    [what the credential gate does not do](../reference/providers.md#what-the-credential-gate-does-not-do)),
     and a disclosure is never suppressible
     ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)).
   - An override has to be acknowledged in as many words, and it *"shouldn't just silently ride
     along"* ([OQ-SK1](attach-skew-and-contract-guardrails.md#OQ-SK1), 2026-09-26).
 - **P4. A value no provider claims reaches every process**
-  ([CN-D3](provider-credential-scope.md#7-decision-ledger)). The catch is that "claimed" is not
+  ([CN-D3](provider-credential-scope.md#CN-D3)). The catch is that "claimed" is not
   the same as "secret". bedrock's claim list includes `AWS_PROFILE`, which is a profile name
-  ([CN-D2](provider-credential-scope.md#7-decision-ledger),
+  ([CN-D2](provider-credential-scope.md#CN-D2),
   [§3.4](#34-the-case-the-filing-missed-claimed-generic-names)).
 
 ## 3. Where the surprise is, by spelling and by notch
@@ -200,7 +200,7 @@ The host also has two narrower facts:
   `env_sources` values only. There are no shape variables, because no derive runs for `bash`. A
   pack that installs no CLI (**CLI-less**) contributes no gated env either, because
   `gateFiresFor` fires only for a basename that a selected pack installs
-  ([CN-D4](provider-credential-scope.md#7-decision-ledger)). So `yolo host -p bedrock -- bash`
+  ([CN-D4](provider-credential-scope.md#CN-D4)). So `yolo host -p bedrock -- bash`
   receives the static AWS pair, but not aws-auth's `AWS_CONTAINER_CREDENTIALS_FULL_URI`
   (measured). [OQ-ES7](#OQ-ES7) asked whether that should change. It is moot: since
   [OQ-NC5](../plans/notch-convergence.md#OQ-NC5), a typed `-p` for such a command is refused.
@@ -216,8 +216,8 @@ This section is read from the code and from
 
 | Where `ZAI_API_KEY` is | bare shell (`yolo -- bash`) | an agent whose profile selects zai | a child of that agent |
 | :--- | :--- | :--- | :--- |
-| `env_sources` | absent. The shared file carries unclaimed values only (`deliverChannel` writes `SharedEnvSources`) | present, from its per-agent file | present, by inheritance ([CN-D8](provider-credential-scope.md#7-decision-ledger)) |
-| the host shell that ran `yolo` | absent. It never crosses as a raw variable | only what its env derive composes from it (`ScopeInput.Fallback`, [CN-D6](provider-credential-scope.md#7-decision-ledger)) | as its parent |
+| `env_sources` | absent. The shared file carries unclaimed values only (`deliverChannel` writes `SharedEnvSources`) | present, from its per-agent file | present, by inheritance ([CN-D8](provider-credential-scope.md#CN-D8)) |
+| the host shell that ran `yolo` | absent. It never crosses as a raw variable | only what its env derive composes from it (`ScopeInput.Fallback`, [CN-D6](provider-credential-scope.md#CN-D6)) | as its parent |
 
 **The jail has no grant for a shell.** `-p bash=zai` is refused (`(*Options).checkProfileTargets`:
 `no pack installs a CLI named "bash"`). A bare `-p` never keys the `--` command. The 2026-09-03
@@ -231,9 +231,9 @@ grant.
 ### 3.3 On macos-user
 
 Delivery is per launch, keyed by the basename of argv[0]
-([CN-D12](provider-credential-scope.md#7-decision-ledger), `(*packChannel).launchEnv`). So
+([CN-D12](provider-credential-scope.md#CN-D12), `(*packChannel).launchEnv`). So
 `yolo -- zsh` gets the shared values only. An agent started from that shell used to get none of its
-profile's values either; that was [OQ-CN9](provider-credential-scope.md#OQ-CN9), ruled and built
+profile's values either; that was [OQ-CN9](../reference/providers.md#oq-cn9), ruled and built
 2026-09-28 (`949d9430`): macos-user now writes each profiled agent's env file, which that agent's
 launcher sources. There is no grant for an ad-hoc command here either.
 
@@ -241,7 +241,7 @@ launcher sources. There is no grant for an ad-hoc command here either.
 
 The `bedrock` provider claims `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
-`AWS_CONTAINER_CREDENTIALS_FULL_URI` ([CN-D2](provider-credential-scope.md#7-decision-ledger)).
+`AWS_CONTAINER_CREDENTIALS_FULL_URI` ([CN-D2](provider-credential-scope.md#CN-D2)).
 It was declared in `packs/claude` when this was measured; since 2026-09-29 it is `packs/bedrock`'s
 ([`bedrock-plumbing.md` BR-D15](bedrock-plumbing.md#BR-D15)), which `packs/claude` names in its
 `needs` unconditionally, so the claude pack alone still selects it. With only `"packs": ["claude"]` and `AWS_PROFILE` plus an access key in `env_sources`,
@@ -259,7 +259,7 @@ standing one is wanted.
 ### 3.5 What the disclosure says, and what it gets wrong
 
 The disclosure is not silent. It is printed at `yolo host --` and on stderr at `yolo host env`,
-and on every jail entry ([CN-D16](provider-credential-scope.md#7-decision-ledger)). At
+and on every jail entry ([CN-D16](provider-credential-scope.md#CN-D16)). At
 `8da7840d` it had two defects, both in the built gate rather than in the design. At the host both
 are fixed, by ES-D2 and ES-D4; the jail's line is unchanged until [OQ-ES5](#OQ-ES5):
 
@@ -295,23 +295,23 @@ The filing proposes three changes:
 The split asks you to revisit gate rulings, which you should know before ruling
 [OQ-ES1](#OQ-ES1):
 
-- **[OQ-CN1](provider-credential-scope.md#OQ-CN1), ruled 2026-09-26.** *"The key name is a fact
+- **[OQ-CN1](../reference/providers.md#oq-cn1), ruled 2026-09-26.** *"The key name is a fact
   about the provider … a per-profile allowlist in user config … puts a fact about zai in every
   user's file."* Under the split, every user restates "this is a credential" by moving it to a
   file, which is a coarser form of the rejected alternative. The split also still needs the claim
   to route. The filed design delivers `credential_sources` "only to agents whose active profile
-  selects the claiming provider", which is the [OQ-CN1](provider-credential-scope.md#OQ-CN1) claim.
-- **[CN-D6](provider-credential-scope.md#7-decision-ledger).** "The gate classifies NAMES, not
+  selects the claiming provider", which is the [OQ-CN1](../reference/providers.md#oq-cn1) claim.
+- **[CN-D6](provider-credential-scope.md#CN-D6).** "The gate classifies NAMES, not
   sources." The split classifies by source. It is also silent on the channel CN-D6 exists for:
   the launch environment, `ScopeInput.Fallback`, can be classified only by name.
-- **[CN-D3](provider-credential-scope.md#7-decision-ledger).** The split's `env_sources` would
+- **[CN-D3](provider-credential-scope.md#CN-D3).** The split's `env_sources` would
   behave as CN-D3's unclaimed values already do. The only change in behavior is
   [OQ-ES2](#OQ-ES2)'s refusal.
 
 **A name no provider claims cannot be routed.** The filed example
 `{ "CUSTOM_KEY": "secret-value" }` has no claimant, so the gate cannot tell which agent should
 receive it. The split would have to invent a rule for it: every agent, which is CN-D3; none; or a
-per-name recipient list, which is [OQ-CN1](provider-credential-scope.md#OQ-CN1)'s rejected allowlist.
+per-name recipient list, which is [OQ-CN1](../reference/providers.md#oq-cn1)'s rejected allowlist.
 
 ### 4.3 What it costs that the filing did not count
 
@@ -324,17 +324,17 @@ per-name recipient list, which is [OQ-CN1](provider-credential-scope.md#OQ-CN1)'
 - **The filed examples are wrong.** `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are claimed by no
   shipped provider (`api_key_env_name` across `packs/*/pack.json`: zai, openrouter, cerebras,
   kilo, and bedrock's six). The refusal would never fire on them, and today they reach every
-  process ([CN-D3](provider-credential-scope.md#7-decision-ledger)).
+  process ([CN-D3](provider-credential-scope.md#CN-D3)).
 - **The host needs its own check.** `yolo host` never runs `ValidateConfig` (`composeHostVars`
   reads `config.UserScopeConfigOrEmpty`). A refusal therefore needs a separate pre-flight at the
   host, and it can never see a workspace entry.
 - **Other readers depend on the claimed name.** The wire bridge reads a served agent's key from
   that agent's file, then from the shared file
-  ([CN-D11](provider-credential-scope.md#7-decision-ledger)). MCP `requires_env` is asked per
-  agent ([CN-D19](provider-credential-scope.md#7-decision-ledger)). Any new channel has to feed
+  ([CN-D11](provider-credential-scope.md#CN-D11)). MCP `requires_env` is asked per
+  agent ([CN-D19](provider-credential-scope.md#CN-D19)). Any new channel has to feed
   both, and the refusal would refuse an MCP server's claimed key.
 - **macos-user gets a third vehicle.** The filing designs only the host and container paths.
-  [OQ-CN5](provider-credential-scope.md#OQ-CN5) ruled that all three vehicles ship together.
+  [OQ-CN5](../reference/providers.md#oq-cn5) ruled that all three vehicles ship together.
 
 ## 5. The host half is built: what shipping it takes
 
@@ -348,7 +348,7 @@ one refusal. All five are recorded as implementation decisions, and all five are
 | **ES-D1** | `yolo host -p <profile> -- <cmd>` **is** the host's grant, for any command. Pin it through `hostMain` with a non-agent basename. The cells assert three things: the claimed values arrive; `PORT` still arrives; the line reads `… : bash only`. They must fail if `ScopeCredentials`' agent loop gains an "a pack installs this name" check, or if `effectiveHostProfiles` stops keying the launched basename | It is already the behavior. `hostcredentialgate_test.go` pins pi, codex and claude and no non-agent, so nothing stops it being lost |
 | **ES-D2** | At the host (`yolo host --` and `yolo host env`), each "withheld" line names the remedy: `yolo host -p <profile> -- <cmd>`. The profile named is a declared one that resolves to the claiming provider, and one the named command can run on ([ES-D10](#10-decision-ledger)); if there is none, the line says to declare one. The wording is the implementer's. The jail's line is unchanged until [OQ-ES5](#OQ-ES5) decides whether a shell has a remedy there | "No silent narrowing" already requires the disclosure; naming the one existing remedy is the only way to make it actionable |
 | **ES-D3** | `hostUsage` describes `-p` as applying to the wrapped **command**, and says an ad-hoc command then receives that profile's claimed `env_sources` values. The host-notch bullet in [`providers.md`](../reference/providers.md#the-credential-gate) and [`host-agent-environment.md`](../reference/host-agent-environment.md) say the same | The help text describes the behavior wrongly today |
-| **ES-D4** | At the host, a withheld name that the invoking shell also holds is disclosed as not added by yolo, with the shell's own value passing through. It is never disclosed as "withheld". The wording is the implementer's | The line is false today ([§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong)); [CN-D13](provider-credential-scope.md#7-decision-ledger) fixes the behavior, and the disclosure has to match it |
+| **ES-D4** | At the host, a withheld name that the invoking shell also holds is disclosed as not added by yolo, with the shell's own value passing through. It is never disclosed as "withheld". The wording is the implementer's | The line is false today ([§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong)); [CN-D13](provider-credential-scope.md#CN-D13) fixes the behavior, and the disclosure has to match it |
 | **ES-D5** | Only a typed `-p` keys a command that no resolvable pack installs. A `use_profiles` entry for such a name is refused at `yolo host --` too, with `validateProfile`'s message plus the `-p` spelling. The rule is the validator's own, so a key for an unselected shipped pack's CLI passes at both, as it always has ([ES-D9](#10-decision-ledger)). `yolo check` and every jail launch reading the same user file already refuse it (`unknownProfileCLIMessage`) | Today the host accepts it only because it skips validation (measured: `use_profiles: {"bash": "zai"}` delivers at the host). Two notches disagreeing about one user file is a defect, and the validator's rule stands |
 
 **The notches still differed, and ES-D1 said so.** At the host, `-p` keyed the `--` command. In the
@@ -439,7 +439,7 @@ call site is removed.
 `env_sources`: pass it through, withhold it silently, or refuse it. That list misses how today
 works:
 
-- **Pass it through.** This leaks, and breaks [OQ-BR4](provider-credential-scope.md#OQ-BR4).
+- **Pass it through.** This leaks, and breaks [OQ-BR4](../reference/providers.md#oq-br4).
 - **Withhold it silently.** This is not what happens today. Today it is withheld and disclosed.
 - **Refuse it.** This refuses the channel the code names as "the SECRET channel"
   (`composeHostLaunch`'s comment), for reasons that depend on which packs are selected
@@ -451,7 +451,7 @@ works:
 
 | Alternative | Verdict |
 | :--- | :--- |
-| **A. `credential_sources`, with a refusal in `env_sources`** (the filing's proposal) | **Rejected** ([OQ-ES1](#OQ-ES1), answered 2026-09-30 by [OQ-ES5](#OQ-ES5)'s ruling, which keeps `env_sources` the one store). It would also have revisited [OQ-CN1](provider-credential-scope.md#OQ-CN1) and [CN-D6](provider-credential-scope.md#7-decision-ledger) and still needed their claim |
+| **A. `credential_sources`, with a refusal in `env_sources`** (the filing's proposal) | **Rejected** ([OQ-ES1](#OQ-ES1), answered 2026-09-30 by [OQ-ES5](#OQ-ES5)'s ruling, which keeps `env_sources` the one store). It would also have revisited [OQ-CN1](../reference/providers.md#oq-cn1) and [CN-D6](provider-credential-scope.md#CN-D6) and still needed their claim |
 | **B. `yolo host -p <profile> -- <cmd>` for any command** | **Built.** ES-D1 to ES-D5 pin it and make it findable |
 | **C. `--all-credentials` for one invocation** | Rejected as a flag of its own. At the host, the maintainer's [OQ-ES5](#OQ-ES5) ruling makes the same grant a VALUE of the one explicit flag, `--with-credentials all`, for a command that needs every provider's key: the usage-bar case |
 | **C′. `--with-credentials <provider…>`, an explicit grant naming providers** | **Ruled for the host, 2026-09-27** ([OQ-ES5](#OQ-ES5)). The jail and macos-user half is still open |
@@ -461,11 +461,11 @@ works:
 ## 8. What this does not license
 
 - **No suppressed disclosure.** Every grant is disclosed. The existing `-p` route already says
-  "bash only" ([CN-D16](provider-credential-scope.md#7-decision-ledger),
+  "bash only" ([CN-D16](provider-credential-scope.md#CN-D16),
   [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)), and `--with-credentials` prints
   its own block on every run ([ES-D15](#10-decision-ledger)).
 - **No grant written into a file.** An entry rewrites the per-agent directory whole
-  ([CN-D7](provider-credential-scope.md#7-decision-ledger)), so a grant that lived in a file would
+  ([CN-D7](provider-credential-scope.md#CN-D7)), so a grant that lived in a file would
   be changed by the next attach, and one launch's result would depend on another's. A grant rides
   only its own entry's exec environment.
 - **No workspace-scope credential key.** A workspace config can be edited by an agent, which is
@@ -486,7 +486,7 @@ works:
    <!-- vantage: oq id=OQ-ES1 -->
 
    This was filed as question 1, and ruling it **revisits a ruling you made.**
-   [OQ-CN1](provider-credential-scope.md#OQ-CN1) put the key-to-provider fact on the provider
+   [OQ-CN1](../reference/providers.md#oq-cn1) put the key-to-provider fact on the provider
    declaration and rejected a per-user list on 2026-09-26, and CN-D6 made the gate classify
    names, not sources ([ledger](provider-credential-scope.md#7-decision-ledger)). What has
    changed since is only the surprise in [§1](#1-what-happened-precisely).
@@ -494,7 +494,7 @@ works:
    filed, and [§5](#5-the-host-half-is-built-what-shipping-it-takes) shows its host remedy is
    built. The stakes: a new config key and a migration for every user, or a disclosure fix.
 
-   _Leaning:_ No; [OQ-CN1](provider-credential-scope.md#OQ-CN1) and CN-D6 hold. The split still
+   _Leaning:_ No; [OQ-CN1](../reference/providers.md#oq-cn1) and CN-D6 hold. The split still
    needs the provider's claim to route ([§4.2](#42-what-it-would-revisit)). It has no answer for an unclaimed name, and it would turn
    `AWS_PROFILE` into a refusal ([§4.3](#43-what-it-costs-that-the-filing-did-not-count)). The
    filing's own leaning was also to keep `env_sources` unified.
@@ -541,7 +541,7 @@ works:
    scope only, whatever the key (`composeHostLaunch`), so a workspace `credential_sources` would
    feed jails only. A credential in a workspace file is also readable by every jail process,
    whichever key lists it. That is outside the gate by
-   [`provider-credential-scope.md` §1](provider-credential-scope.md#1-goal-and-non-goals).
+   [the credential gate](../reference/providers.md#the-credential-gate).
 
    _Leaning, should it open:_ User scope only, for the reason in
    [§8](#8-what-this-does-not-license).
@@ -559,7 +559,7 @@ works:
 
    The options are (i) document `. ~/.config/yolo-agent-env/<agent>.sh`, which works only when
    some agent selected the provider, and stop there; or (ii) add a flag that names providers.
-   Option (ii) **revisits a constraint [OQ-CN6](provider-credential-scope.md#OQ-CN6) stated**:
+   Option (ii) **revisits a constraint [OQ-CN6](../reference/providers.md#oq-cn6) stated**:
    *"a bare `yolo -- bash` shell selects no provider, so it gets no provider value."* It would
    break that constraint only when the user asks, for one invocation. Reusing `-p` in the jail would instead revisit the 2026-09-03
    ruling that a profile never keys the `--` command. The stakes: whether a user can debug a
@@ -571,7 +571,7 @@ works:
    - it is carried only in that entry's exec environment, never in a file
      ([§8](#8-what-this-does-not-license));
    - it is disclosed on every entry, including that everything the command starts inherits it
-     ([CN-D8](provider-credential-scope.md#7-decision-ledger));
+     ([CN-D8](provider-credential-scope.md#CN-D8));
    - it can never be expressed in config.
 
    `--all-credentials` is rejected ([§7](#7-alternatives-considered)).
@@ -642,14 +642,14 @@ works:
    bedrock's claim list makes the claude pack alone enough to take `AWS_PROFILE` and the static
    AWS pair from `aws` and `terraform`, at the host and in every jail shell
    ([§3.4](#34-the-case-the-filing-missed-claimed-generic-names)). This asks for **a user-made
-   exception to [OQ-BR4](provider-credential-scope.md#OQ-BR4)**, which is yours to make or refuse.
+   exception to [OQ-BR4](../reference/providers.md#oq-br4)**, which is yours to make or refuse.
 
    The options:
    - (a) the per-invocation grant stays the only remedy: `yolo host -p bedrock -- terraform`, or
      [OQ-ES5](#OQ-ES5)'s flag in a jail;
    - (b) a user-scope, per-name acknowledgment that shares one claimed name with every process,
      disclosed on every launch;
-   - (c) narrow [CN-D2](provider-credential-scope.md#7-decision-ledger)'s list. At the host,
+   - (c) narrow [CN-D2](provider-credential-scope.md#CN-D2)'s list. At the host,
      though, `AWS_PROFILE` selects the user's own SSO credentials, so it is not a harmless name.
 
    The stakes: whether selecting the claude pack silently changes ordinary AWS tooling.
@@ -668,7 +668,7 @@ works:
    Today `yolo host -p bedrock -- bash` receives the static AWS pair but not aws-auth's
    `AWS_CONTAINER_CREDENTIALS_FULL_URI`. `gateFiresFor` does not fire for a basename that no
    selected pack installs ([§3.1](#31-at-the-host)). This revisits
-   [CN-D4](provider-credential-scope.md#7-decision-ledger), an implementation decision, whose
+   [CN-D4](provider-credential-scope.md#CN-D4), an implementation decision, whose
    rule "a table key naming no CLI any selected pack installs activates nothing" the host relies
    on by name. The stakes: SSO is the primary Bedrock route
    ([`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger)), so for most Bedrock users a grant
@@ -676,7 +676,7 @@ works:
 
    _Leaning:_ Yes, for a typed `-p` only. The user named the profile for this one process, and no
    other process receives it, so the grant stays as specific as
-   [OQ-BR4](provider-credential-scope.md#OQ-BR4) requires.
+   [OQ-BR4](../reference/providers.md#oq-br4) requires.
 
    **Answer:**
    > **Moot since [OQ-NC5](../plans/notch-convergence.md#OQ-NC5) (ruled 2026-09-28).** A typed
@@ -701,10 +701,10 @@ works:
 | ES-D1 | *Implementation decision.* The typed host `-p` is the grant for any command, pinned through `hostMain` with a non-agent basename. The cells fail if the agent loop checks installation or the basename keying goes. The notches differ on purpose: the jail's `-p` never keys the `--` command. *Retired 2026-09-28 by [OQ-NC5](../plans/notch-convergence.md#OQ-NC5):* a bare `-p` reaches agent CLIs only at every notch, and a host `-p` for a command no selected pack installs is refused, naming `--with-credentials` ([NC-D62](../plans/notch-convergence.md#NC-D62)) | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `595f9022`; retired as NC-D62 |
 | ES-D2 | *Implementation decision.* At the host, a "withheld" line names `yolo host -p <profile> -- <cmd>`, using a declared profile that resolves to the claimant, or says to declare one. The jail's line is unchanged until [OQ-ES5](#OQ-ES5). *Amended 2026-09-27 by ES-D23:* on a run given `--with-credentials`, the line names that run with its grant widened instead. *Amended 2026-09-28 by [NC-D62](../plans/notch-convergence.md#NC-D62):* for an ad-hoc command the line names the grant, `yolo host --with-credentials <provider> -- <cmd>`, and the `-p` arm is an agent's only | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `hostComposition.credentialRemedy`, pinned by `TestHostGrantWithheldLineNamesTheGrantRemedy` and `TestHostEnvWithheldLineNamesTheGrantRemedy` |
 | ES-D3 | *Implementation decision.* `hostUsage`, providers.md's host-notch bullet and host-agent-environment.md describe `-p` as applying to any wrapped command. *Amended 2026-09-28 by [NC-D62](../plans/notch-convergence.md#NC-D62):* they describe `-p` as reaching agent CLIs only, and `--with-credentials` as an ad-hoc command's grant | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `hostUsage`, pinned by `TestHostHelpDescribesProfileAsReachingAgentCLIsOnly` (help), and `internal/cli/config_ref.txt` (config-ref); providers.md and host-agent-environment.md 2026-09-27 |
-| ES-D4 | *Implementation decision.* At the host, a withheld name the invoking shell holds is disclosed as not added by yolo, never as "withheld" ([CN-D13](provider-credential-scope.md#7-decision-ledger)) | 2026-09-27 | [§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong) | ✅ `hostComposition.processHolds`, pinned by `TestHostGrantShellHeldNameIsDisclosedAsNotAddedNeverWithheld` and `TestHostEnvShellHeldNameIsDisclosedAsNotAdded` |
+| ES-D4 | *Implementation decision.* At the host, a withheld name the invoking shell holds is disclosed as not added by yolo, never as "withheld" ([CN-D13](provider-credential-scope.md#CN-D13)) | 2026-09-27 | [§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong) | ✅ `hostComposition.processHolds`, pinned by `TestHostGrantShellHeldNameIsDisclosedAsNotAddedNeverWithheld` and `TestHostEnvShellHeldNameIsDisclosedAsNotAdded` |
 | ES-D5 | *Implementation decision.* Only a typed `-p` keys a command no resolvable pack installs. A `use_profiles` key naming one is refused at `yolo host --` as `validateProfile` refuses it everywhere else | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `config.UnknownProfileKey`, pinned by `TestHostGrantRefusesAUseProfilesKeyNoPackInstalls` and `TestUnknownProfileKeyIsTheValidatorsRefusal` |
 | ES-D6 | *Implementation decision.* ES-D2 and ES-D4 are one input to the gate's disclosure, `packload.DisclosureNotes`, read by `CredentialScope.DisclosureWith`: a `Remedy` sentence appended to each withheld group's line, given its claimants, and an `Inherited` test that rewords a withheld name the launched process already holds. `Disclosure()` is `DisclosureWith` with no notes, which is the jail's wording, so the jail's lines cannot change by accident. Chosen over post-processing the host's lines because the grouping is the gate's: a shell-held name has to leave its group, and only the grouping knows the groups | 2026-09-27 | [§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong) | ✅ `CredentialScope.DisclosureWith`, pinned by `TestCredentialScopeDisclosureRemedyReachesWithheldLinesOnly`; `DisclosureNotes.Inherited`, pinned by `TestCredentialScopeDisclosureInheritedRewordsWithheldOnly` |
-| ES-D7 | *Implementation decision.* The profile ES-D2 names is a claimant's same-named profile when it resolves to that claimant (every shipped provider ships one), else the first declared profile, by name, that resolves to any claimant. With none, the line says to declare one under `profiles`, showing the entry (`"deepseek": {"provider": "deepseek"}`) and the `-p` it enables. ES-D10 narrows every candidate to one the named command can run on. `yolo host --` spells the remedy for the command as typed; `yolo host env`, which runs nothing, names `eval "$(yolo host env --with-credentials <provider>)"` for the shell and `yolo host -p <profile> -- <agent>` for one launch. *Amended 2026-09-27:* the shell spelling first named the verb's own `--agent`, default `claude`, whose slice carries the agent's whole provider shape: `ANTHROPIC_BASE_URL`, and the key again under `ANTHROPIC_AUTH_TOKEN`. An eval'ing shell then hands those to every process it starts, disclosed only by the key's own name ([CN-D13](provider-credential-scope.md#7-decision-ledger)). `--agent bash` is [§3.1](#31-at-the-host)'s and the help's spelling, and any name no selected pack installs composes the same slice. **Revised 2026-09-28 by [NC-D62](../plans/notch-convergence.md#NC-D62):** the shell spelling was `eval "$(yolo host env --agent bash -p <profile>)"` until a typed `-p` was refused for every command no selected pack installs, bash among them. It is now the grant, `--with-credentials`, which composes the same ad-hoc slice with the keys only ([ES-D16](#10-decision-ledger)). An ad-hoc command's `yolo host --` remedy is the grant too, `yolo host --with-credentials <provider> -- <cmd>`, and names no profile; an agent's keeps the `-p` this row picks | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `remedyProfiles`, pinned by `TestRemedyProfilePrefersTheProvidersOwnName` and `TestHostGrantWithheldLineSaysToDeclareAProfileWhenNoneSelectsTheProvider`; shell spelling, `TestHostEnvWithheldLineNamesTheGrantRemedy` |
+| ES-D7 | *Implementation decision.* The profile ES-D2 names is a claimant's same-named profile when it resolves to that claimant (every shipped provider ships one), else the first declared profile, by name, that resolves to any claimant. With none, the line says to declare one under `profiles`, showing the entry (`"deepseek": {"provider": "deepseek"}`) and the `-p` it enables. ES-D10 narrows every candidate to one the named command can run on. `yolo host --` spells the remedy for the command as typed; `yolo host env`, which runs nothing, names `eval "$(yolo host env --with-credentials <provider>)"` for the shell and `yolo host -p <profile> -- <agent>` for one launch. *Amended 2026-09-27:* the shell spelling first named the verb's own `--agent`, default `claude`, whose slice carries the agent's whole provider shape: `ANTHROPIC_BASE_URL`, and the key again under `ANTHROPIC_AUTH_TOKEN`. An eval'ing shell then hands those to every process it starts, disclosed only by the key's own name ([CN-D13](provider-credential-scope.md#CN-D13)). `--agent bash` is [§3.1](#31-at-the-host)'s and the help's spelling, and any name no selected pack installs composes the same slice. **Revised 2026-09-28 by [NC-D62](../plans/notch-convergence.md#NC-D62):** the shell spelling was `eval "$(yolo host env --agent bash -p <profile>)"` until a typed `-p` was refused for every command no selected pack installs, bash among them. It is now the grant, `--with-credentials`, which composes the same ad-hoc slice with the keys only ([ES-D16](#10-decision-ledger)). An ad-hoc command's `yolo host --` remedy is the grant too, `yolo host --with-credentials <provider> -- <cmd>`, and names no profile; an agent's keeps the `-p` this row picks | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `remedyProfiles`, pinned by `TestRemedyProfilePrefersTheProvidersOwnName` and `TestHostGrantWithheldLineSaysToDeclareAProfileWhenNoneSelectsTheProvider`; shell spelling, `TestHostEnvWithheldLineNamesTheGrantRemedy` |
 | ES-D8 | *Implementation decision.* ES-D4's "the shell holds it" means the composed environment, the one the exec hands over or an eval'ing shell ends with, holds the invoking shell's own value intact. A removal keeps the "withheld" line. Only a withheld group is reworded, because a delivered name carries the `env_sources` value, which beats the shell's; the reworded line names no remedy, because the command already holds a value. *Amended 2026-09-27:* this row first kept the "withheld" line for a value yolo composes over the shell's too, which is false for the same reason ES-D4 is: the process holds the name. That case is ES-D12's | 2026-09-27 | [§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong) | ✅ `TestCredentialScopeDisclosureInheritedRewordsWithheldOnly` and `TestHostGrantBeatsTheShellsValue`; amended: `hostComposition.processHolds`, pinned by `TestHostEnvShellValueComposedOverIsNotDisclosedAsPassingThrough` |
 | ES-D9 | *Implementation decision.* ES-D5 asks the validator's own namespace through `config.UnknownProfileKey`: `config.UseProfileCLINames`, every resolvable pack's CLI, selected or not, with the same message `validateProfile` adds and the same step-aside when a configured pack cannot resolve. The plan's "`binOwner` over the selected packs … resolves the same selection" was wrong, since the validator's namespace is the whole universe; refusing on the selected packs alone would refuse what `yolo check` accepts, the disagreement ES-D5 exists to end. So `use_profiles: {"codex": "zai"}` with codex unselected is accepted at both notches. The refusal sits in the host composition, so `yolo host env --agent <name>` refuses the same entry, and a typed `-p` is exempt. **Revised 2026-09-28 by [notch-convergence item 13](../plans/notch-convergence.md#tier-4--the-host-runs-the-jails-checks-p1-p4):** the host runs the provider and profile section of validation over user scope, so a `use_profiles` key every jail launch refuses refuses every host launch too, a typed `-p` included; ES-D5's check still runs first for the remedy it adds | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `config.UnknownProfileKey`, pinned by `TestHostGrantAcceptsAUseProfilesKeyTheValidatorAccepts` and `TestUnknownProfileKeyStepsAsideWhenTheNamespaceIsUnknowable` |
 | ES-D10 | *Implementation decision.* A remedy is a command the user will run, so the profile it names must be one the named command can run on, asked the way that launch asks. `runsOn` calls `ScopeCredentials` over the launch's own inputs with the candidate selected for the command, which runs `AgentEnv`'s protocol pairing gate and the pack's env derive. ES-D7's order gives the candidates, and the first that composes is named. When none does, the line says the agent cannot run on that profile and names the ad-hoc spelling instead: `yolo host -p <profile> -- bash`, or only the shell spelling at `yolo host env`. The declare-a-profile arm asks the same of the entry it shows, resolved to its provider alone. A command no selected pack installs is never asked, since no pack code runs for it. The credential pre-flight is not re-asked, because the name the line is about is the credential it looks for. Chosen over `PairingRefusals`, the pairing gate alone, which would miss a derive's refusal. The pairing refusal's own fix, adding wire-bridge to `packs`, is not named: at the host that composes claude onto the adapter's address, `http://127.0.0.1:8214` (measured), and the bridge exists only in-jail ([`wire-bridge.md`](../reference/wire-bridge.md#what-this-does-not-license)). *Amended 2026-09-27 by ES-D18:* the host composes that address no longer, so with wire-bridge listed the claude launch refuses naming why, and `runsOn` answers no for it | 2026-09-27 | [§5](#5-the-host-half-is-built-what-shipping-it-takes) | ✅ `hostComposition.runsOn`, pinned by `TestHostGrantRemedyNeverNamesAProfileTheAgentRefuses` and `TestHostGrantRemedyPrefersAProfileTheAgentRunsOn` |
@@ -712,7 +712,7 @@ works:
 | ES-D12 | *Implementation decision.* A withheld name the process holds from a value yolo composed from another source than `env_sources`, such as a pack's `env` of the same name, is disclosed as not delivered from `env_sources`, the process holding that source's value. It is never disclosed as "withheld from every process". The mechanism is `DisclosureNotes.Composed`, beside `Inherited`, which is asked first. At the host it answers for a name whose composed value is not the shell's own, with or without a shell value. The line keeps its remedy, because a delivered `env_sources` value beats the pack's. The jail passes no notes (ES-D6), so its line is unchanged. The jail has the same case, read from the code and not measured: `ScopeCredentials` gives every process the selected packs' static env | 2026-09-27 | [§3.5](#35-what-the-disclosure-says-and-what-it-gets-wrong) | ✅ `DisclosureNotes.Composed`, pinned by `TestCredentialScopeDisclosureComposedRewordsWithheldOnly` and `TestHostGrantComposedNameIsNotDisclosedAsWithheld` |
 | ES-D13 | *Implementation decision.* [OQ-ES5](#OQ-ES5)'s grant is a RECIPIENT of the gate: `packload.ScopeInput.Grants` maps a process to the providers it is granted, and `ScopeCredentials` gives that process a delivery carrying every `env_sources` name a granted provider claims (`credentialClaims`, the one claim model). A grant-only process has no profile and no provider, so no derive runs, no gated env fires and nothing is re-pointed. `SelectedProviders` never lists a granted provider, so the pre-flight asks nothing of it. `LookupFor` is not widened, so no derive sees a granted key. The disclosure counts the grantee as a recipient (`ZAI_API_KEY (provider zai): bash only`). Chosen over appending the values at the host after the gate, which would re-derive the claim model and leave the gate's own lines calling a delivered name withheld. A jail passes no grant, so its answer is unchanged | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |
 | ES-D14 | *Implementation decision.* The flag's grammar. It is repeatable, and each value is a comma list; the occurrences merge. An empty element refuses at the parse, exit 2, because a grant of nothing is a mistake. `all` is a keyword: every composed provider that claims a name `env_sources` holds (`packload.ClaimingProviders`), and it may stand beside names. A provider literally named `all` cannot be granted by name. Any other name the composed table does not hold refuses the launch, exit 1, before the exec, naming every composed provider. The same refusal is `yolo host env`'s error | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |
-| ES-D15 | *Implementation decision.* The grant's disclosure is its own block after the gate's lines, `Credential grant (--with-credentials <as typed>)`, printed on every run given the flag, including one that grants nothing. It says the values are keys only, that the grant selects no profile and re-points nothing, and that everything the command starts inherits them ([CN-D8](provider-credential-scope.md#7-decision-ledger)). With a profile it says the command keeps it. Then there is one line per granted provider: the names it delivered, or `nothing granted`, with the names it claims or that it claims none. It prints names only. Unconditional in `hostExec` and in `hostEnvDelta`'s result ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)) | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |
+| ES-D15 | *Implementation decision.* The grant's disclosure is its own block after the gate's lines, `Credential grant (--with-credentials <as typed>)`, printed on every run given the flag, including one that grants nothing. It says the values are keys only, that the grant selects no profile and re-points nothing, and that everything the command starts inherits them ([CN-D8](provider-credential-scope.md#CN-D8)). With a profile it says the command keeps it. Then there is one line per granted provider: the names it delivered, or `nothing granted`, with the names it claims or that it claims none. It prints names only. Unconditional in `hostExec` and in `hostEnvDelta`'s result ([`OQ-RO3`](../reference/report-tiers.md#why-its-this-way)) | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |
 | ES-D16 | *Implementation decision.* `yolo host env --with-credentials …` with no `--agent` composes the ad-hoc slice (`bash`, ES-D7's stand-in for a name no selected pack installs), not the verb's default `claude`. The ruled spelling `eval "$(yolo host env --with-credentials all)"` asks for keys, and claude's slice would export its profile's whole shape beside them, `ANTHROPIC_BASE_URL` included, re-pointing every claude that shell starts. That is ES-D7's defect, and a grant re-points nothing. `--agent <name>` still composes that agent's slice, profile included, with the keys added. *Amended 2026-09-27 by ES-D21:* the flip applies only when `-p` is not given either | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |
 | ES-D17 | *Implementation decision.* A jail launch given `--with-credentials` exits 2 through `refuseHostOnlyFlags`, ahead of the unknown-flag refusal. The message names the flag as host-only, says the jail half is open, and gives the host spelling with the value typed. Only yolo's own tokens are asked (`parseRunArgs`' boundary), so a wrapped program's flag of the same name is its own. The front door skips the flag's value (`valueTakingFlags`). Without that skip, `yolo --with-credentials zai -- bash` answered `unknown command "zai"`, which never said the flag is host-only. `yolo --at host --with-credentials … -- <cmd>` is the host verb's spelling and carries it there | 2026-09-27 | [§5.1](#51-the-explicit-grant---with-credentials-built) | ✅ 2026-09-27 |
 | ES-D18 | *Implementation decision.* The host composes no adapter address that a pack's own `service` serves. `composedHostProviders` passes `packload.WithoutServiceAdaptations`, and `Adaptation.Service` records the sibling service, which is [the one fact](../reference/protocol-resolution.md#the-three-declarations) that tells that shape from a remote gateway or a user-run proxy. `yolo host` starts no pack service, so `packs/wire-bridge`'s `http://127.0.0.1:8214` is a dead address there ([`wire-bridge.md`](../reference/wire-bridge.md#at-the-host-notch)). A pairing only such an adaptation would resolve refuses at the protocol gate as `*packload.UnservedAdapterError`, handed the left-out list through `ScopeInput.UnservedAdaptations`. The host words it: the profile, the address, the service that serves it only inside a jail, and `yolo -p <agent>=<profile> -- <agent>`, where the profile works. Refused at `yolo host --` and `yolo host env` alike, before the exec. Chosen over refusing on the composed address, which would also refuse an agent that speaks the provider's own wire: copilot on cerebras now runs on cerebras's openai endpoint, as it does with wire-bridge unlisted. This is [WG-I12](wire-bridge-gateway.md#WG-I12)'s rule, which clears the via address, carried to the adapter address. Found by ES-D10: the remedy could not name the pairing refusal's own fix, since at the host that composed claude onto the bridge's address. *Amended 2026-09-27 by ES-D19 and ES-D20:* the same refusal now covers wire-bridge unlisted, and it names only a container jail as where the profile works. *Narrowed 2026-09-28 by [HS-D5](host-notch-services.md#HS-D5):* the host and macos-user start the service's host half for the launch, so this refusal remains only for a service with no host half, one whose pack yolo does not ship, a host half that fails to start, and `yolo host env` | 2026-09-27 | [`wire-bridge.md`](../reference/wire-bridge.md#at-the-host-notch) | ✅ 2026-09-27 |

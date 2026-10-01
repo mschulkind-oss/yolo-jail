@@ -1,7 +1,7 @@
 package run
 
 // agentenvfiles.go is the CONTAINER VEHICLE's half of the credential gate
-// (docs/design/provider-credential-scope.md, OQ-CN6): the per-agent env files, written from
+// (docs/reference/providers.md, OQ-CN6): the per-agent env files, written from
 // the one gate's answer (packChannel.scope) beside the shared yolo-user-env.sh.
 //
 // ONE WRITER FOR BOTH CROSSINGS. deliverChannel is what a fresh launch and an attach both
@@ -166,7 +166,7 @@ func (c *packChannel) agentsWithOwnValues() []string {
 
 // agentEnvFileContent renders one agent's file, "" when the gate scoped nothing to it.
 //
-// THE PRECEDENCE IS "THE USER'S EXPLICIT VALUE WINS" (docs/design/provider-credential-scope.md
+// THE PRECEDENCE IS "THE USER'S EXPLICIT VALUE WINS" (docs/reference/providers.md
 // OQ-CN8, ruled 2026-09-28). The file is sourced by the agent's launcher, AFTER the user's
 // shell, so a plain-form line here would beat `ANTHROPIC_MODEL=x claude` and a jail-shell
 // `export`, which the shared file, sourced before the user's command, never did. So every line

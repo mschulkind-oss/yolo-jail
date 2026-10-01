@@ -154,7 +154,7 @@ host's loopback, and a nested jail shares its parent's, so without a check any l
 could `GET` the credential. Each launch mints a new token for the adapter. This pack sets
 `AWS_CONTAINER_AUTHORIZATION_TOKEN` to it beside the credentials URI, in the env file of each
 agent whose selected provider is Bedrock and in no other process's environment, a bare shell's
-included ([`OQ-CN7`](../../docs/design/provider-credential-scope.md#OQ-CN7)). Your agent's AWS
+included ([`OQ-CN7`](../../docs/reference/providers.md#oq-cn7)). Your agent's AWS
 SDK sends the value as `Authorization`, as it does whenever
 `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` is unset, so do not set that variable yourself: the
 SDK would read the file instead. A request without the token gets `401` with a message naming
@@ -168,7 +168,7 @@ only defence there.
 
 **The pointer reaches only the agents on a Bedrock provider.** An `env` contribution's
 `platform` gate is answered per agent (the credential gate,
-[`OQ-BR4`](../../docs/design/provider-credential-scope.md#OQ-BR4), built): `aws-auth`
+[`OQ-BR4`](../../docs/reference/providers.md#oq-br4), built): `aws-auth`
 installs no CLI, so its gated pointer goes to every agent whose selected provider's platform is
 `aws-bedrock` — `yolo -p codex=bedrock` gives codex `AWS_CONTAINER_CREDENTIALS_FULL_URI` — and to
 no other process, a bare shell included. In a container jail it crosses in that agent's own
@@ -198,7 +198,7 @@ launcher's loopback, `network.mode: "host"` or nested, a port the launch picks i
 the pointer follows) only in a jail whose launch had some agent on `bedrock`, and it answers
 only a request carrying the token that agent's environment holds. So a bare shell, or claude
 under `-p codex=bedrock`, is refused `401`
-([`OQ-CN7`](../../docs/design/provider-credential-scope.md#OQ-CN7), built 2026-09-28). An
+([`OQ-CN7`](../../docs/reference/providers.md#oq-cn7), built 2026-09-28). An
 attach cannot start it: attaching with `-p codex=bedrock` to a jail whose launch selected no
 `bedrock` stops and asks you to restart the jail (or refuses off a terminal, naming
 `yolo stop`), because the pointer it would deliver would point at nothing.

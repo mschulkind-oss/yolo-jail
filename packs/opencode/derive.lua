@@ -779,7 +779,7 @@ yolo.derive("opencode", "config", function(ctx)
         end
         sel.small_model = ctx.selected_provider .. "/" .. smallID
       end
-      -- THE MENU FOLLOWS THE SELECTION (docs/design/provider-credential-scope.md OQ-CN4,
+      -- THE MENU FOLLOWS THE SELECTION (docs/reference/providers.md OQ-CN4,
       -- "both, named separately"): the credential gate withholds every other provider's
       -- key from opencode, and opencode registers a catalog row without an auth check, so
       -- without this its menu would still offer providers it can no longer call.

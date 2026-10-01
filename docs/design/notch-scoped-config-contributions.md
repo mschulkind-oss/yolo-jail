@@ -176,7 +176,7 @@ rule. Since [OQ-3](#OQ-3)'s build nothing confines it: a patch on another pack's
 
 | Ruling | Where it lives | What it requires here |
 | :--- | :--- | :--- |
-| Nothing leaks between jails; a launch's result never depends on other launches | [pi-git-extension-caching OQ-2](pi-git-extension-caching.md#OQ-2), [OQ-BR4](provider-credential-scope.md#7-decision-ledger) | The gate is a pure function of the render target's notch; no cross-launch state |
+| Nothing leaks between jails; a launch's result never depends on other launches | [pi-git-extension-caching OQ-2](pi-git-extension-caching.md#OQ-2), [OQ-BR4](../reference/providers.md#oq-br4) | The gate is a pure function of the render target's notch; no cross-launch state |
 | The credential gate | [providers.md](../reference/providers.md#the-credential-gate); [CN-D3, CN-D13](provider-credential-scope.md#7-decision-ledger) | No interaction: host pi runs the classifier on the user's inherited environment, and no provider or `env_sources` value changes |
 | Escape hatches are for broken user config; an acknowledgment override only where yolo knows the environment differs | [attach-skew-and-contract-guardrails.md](attach-skew-and-contract-guardrails.md#decision-ledger) | None is needed, and none is proposed |
 | No post-merge script slot; a declarative filter only against a real case | [OQ-LT2](../reference/pack-system.md#oq-lt2) | Rules out any Lua or finalize hook here; see the sanitizer, [§6](#6-alternatives-considered) F |

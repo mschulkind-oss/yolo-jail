@@ -40,7 +40,7 @@ import (
 // daemon this launch SERVES (loopholes.ServedJailDaemons: the container runs it, or on
 // macos-user it runs in the guest or opens as a doorway outside it), or that declares no jail
 // daemon at all. aws-auth's jail daemon is served only when some agent's provider is on
-// Bedrock (provider-credential-scope.md OQ-CN7 (b)), so a launch with no such agent asks
+// Bedrock (providers.md OQ-CN7 (b)), so a launch with no such agent asks
 // nothing: a warning about a service none of its agents reaches has nobody to warn.
 //
 // # It never refuses, and it is never silent about what it could not do

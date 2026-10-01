@@ -1,6 +1,6 @@
 package packload
 
-// credentialscope.go is THE CREDENTIAL GATE (docs/design/provider-credential-scope.md,
+// credentialscope.go is THE CREDENTIAL GATE (docs/reference/providers.md,
 // OQ-BR4 and OQ-CN1–OQ-CN6): the one function that decides which of a launch's composed
 // environment values reach which agent. Its rule is the ruling's sentence — a profile's
 // credentials and gated env reach ONLY the agent that selected it — applied to the three

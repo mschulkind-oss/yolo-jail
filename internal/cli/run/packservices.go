@@ -186,7 +186,7 @@ func serviceEndpointEnvArgs(in *assembleInput, o *Options) []string {
 // withoutUnselectedProfileDaemons drops from specs every PROFILE-SERVED daemon (a jail daemon
 // whose only clients are the agents a gated pointer reaches; packload's profileserved.go coins
 // the term) that no agent's selection this launch delivers a gate to — aws-auth's credential
-// adapter when no agent's selected provider is Bedrock (docs/design/provider-credential-scope.md
+// adapter when no agent's selected provider is Bedrock (docs/reference/providers.md
 // OQ-CN7 (b), ruled 2026-09-28; keyed on the provider's platform since OQ-BR8). Enabling the
 // loophole does not start it: selecting a provider it serves does. The selection is the one the
 // credential gate reads, answered per agent by the gate's own gateFiresFor over a selection built

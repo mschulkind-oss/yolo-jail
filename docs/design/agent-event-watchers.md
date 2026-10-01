@@ -82,7 +82,7 @@ ruled 2026-09-29, and [OQ-EW7](#OQ-EW7)'s B is carried out in
 2026-09-29, and [OQ-EW2](#OQ-EW2) is superseded by [OQ-EW8](#OQ-EW8) and [OQ-EW9](#OQ-EW9).
 
 **Reads with:** [`host-notch-services.md`](host-notch-services.md#44-lifetime) (the resident
-host launch a host-side sidecar rides on), [`provider-credential-scope.md`](provider-credential-scope.md)
+host launch a host-side sidecar rides on), [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate)
 (the "deliver as specifically as possible" rule the secrets section follows),
 [`config-safety.md`](../reference/config-safety.md) (the host-side approval record the
 enablement record sits beside), and [§15](#15-the-neighbors) for the rest. No implementation
@@ -800,7 +800,7 @@ rings the doorbell; the agent opens the door by reading the source itself.
   his watcher to the agent side changes nothing about the token.
 - **A host-side sidecar receives only the host variables its `host_env` names.** Their values
   never enter a jail file, a jail environment, the launch log or the box. The launch discloses
-  their names, never their values. This follows [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s
+  their names, never their values. This follows [OQ-BR4](../reference/providers.md#oq-br4)'s
   ruling that delivery is as specific as possible: the variable reaches one process, not every
   process.
 - **Only pings cross from a host-side sidecar,** and a ping is bounded text. Nothing yolo does
@@ -2293,7 +2293,7 @@ recorded so an implementer does not reopen them.
 | :--- | :--- |
 | [`host-notch-services.md`](host-notch-services.md#44-lifetime) | The resident host launch and its stop timings, which host-side sidecars reuse; [OQ-HS3](host-notch-services.md#OQ-HS3)'s ruling on agents launched outside yolo; [OQ-HS4](host-notch-services.md#OQ-HS4)'s embedded-only rule, which [OQ-EW1](#OQ-EW1) is asked beside |
 | [`host-daemon-ownership.md`](host-daemon-ownership.md#HD-R1) | [HD-R1](host-daemon-ownership.md#HD-R1): a host process lives as long as the launch that wanted it |
-| [`provider-credential-scope.md`](provider-credential-scope.md#OQ-BR4) | The ruling that credential delivery is as specific as possible, which `host_env` follows |
+| [`providers.md`'s OQ-BR4](../reference/providers.md#oq-br4) | The ruling that credential delivery is as specific as possible, which `host_env` follows |
 | [`declaration-parity.md`](declaration-parity.md#OQ-DP8) | [OQ-DP8](declaration-parity.md#OQ-DP8), how a jail daemon runs on macos-user, which the agent side waits on there |
 | [`trust-paths.md`](trust-paths.md#decision-ledger) | [OQ-TP9](trust-paths.md#decision-ledger): disclosure, not approval, is the boundary for what a pack may do |
 | [`mcp-configuration.md`](../reference/mcp-configuration.md) | The canonical MCP table, the rejected option D's vehicle |

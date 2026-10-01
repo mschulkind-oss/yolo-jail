@@ -760,7 +760,7 @@ type providerRequirement struct {
 // override notice must not re-offer.
 //
 // NARROWED WITH THE CREDENTIAL GATE (OQ-CN3, ruled 2026-09-26;
-// docs/design/provider-credential-scope.md §3.2): selected is the set of providers some
+// docs/reference/providers.md, the credential preflight): selected is the set of providers some
 // agent's profile selects (CredentialScope.SelectedProviders), and a cataloged provider
 // outside it is no requirement. The gate delivers a provider's credential only to an agent
 // that selected it, so a key for a provider nobody selected is a key nobody will deliver,

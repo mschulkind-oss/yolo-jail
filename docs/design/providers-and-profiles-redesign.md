@@ -53,7 +53,7 @@ maintainer did not rule it:
   Bedrock switch from that, and `packs/aws-auth`'s credential pointer gates on the platform. The
   name-keyed `profile` gate on `env` and `config-overlay` stays for a variant that really is a
   name; no shipped pack uses it.
-- **Ruled, and binding here:** [OQ-BR4](provider-credential-scope.md#OQ-BR4) (2026-09-25): a
+- **Ruled, and binding here:** [OQ-BR4](../reference/providers.md#oq-br4) (2026-09-25): a
   profile's env must not leak to other agents, *"as specific as possible"*.
   [OQ-BR11](bedrock-plumbing.md#OQ-BR11) (2026-09-24): claude gets a native Bedrock profile
   and an everything profile. [DIR-BR3](bedrock-plumbing.md#decision-ledger) (2026-09-25): yolo
@@ -68,7 +68,7 @@ maintainer did not rule it:
    spelled so it survives any answer to [OQ-PP1](#OQ-PP1) — for example `platform` — and not
    spelled `service` or `native`.
 2. ✅ [OQ-BR8](#OQ-BR8) — **ruled 2026-09-29:** gates key on the provider, in each agent's own
-   derive. Which agents receive a fact is [OQ-CN6](provider-credential-scope.md#OQ-CN6)'s per-agent
+   derive. Which agents receive a fact is [OQ-CN6](../reference/providers.md#oq-cn6)'s per-agent
    vehicle, now built.
 3. [OQ-PP1](#OQ-PP1) — what is the one thing `-p` names? _Leaning (⚠ added 2026-09-30):_ (a),
    keep the profile over a provider as built, since every ruling since has built on the profile.
@@ -79,8 +79,8 @@ maintainer did not rule it:
    one launch line naming the agents a bare `-p X` does not reach, never a refusal.
 
 **Out of scope, and where it lives.** The credential delivery gate:
-[`provider-credential-scope.md`](provider-credential-scope.md), whose
-[OQ-CN1](provider-credential-scope.md#OQ-CN1) reads [OQ-BR8](#OQ-BR8). Bedrock's provider
+[`providers.md`'s credential gate](../reference/providers.md#the-credential-gate), whose
+[OQ-CN1](../reference/providers.md#oq-cn1) reads [OQ-BR8](#OQ-BR8). Bedrock's provider
 shape and profile names: [`bedrock-plumbing.md`](bedrock-plumbing.md)
 ([OQ-BR9](bedrock-plumbing.md#OQ-BR9), [OQ-BR1](bedrock-plumbing.md#OQ-BR1)). Model lists:
 [`model-lists-and-pickers.md`](model-lists-and-pickers.md). The deselection state machine:
@@ -146,7 +146,7 @@ and protocol resolution calls an endpoint-less provider "Direct against the agen
 API" ([protocol-resolution.md](../reference/protocol-resolution.md#degenerate-inputs-and-what-each-resolves-to)),
 so nothing refuses and nothing reports. codex goes on talking to OpenAI. Meanwhile the wide env
 gate fires claude's and `aws-auth`'s variables for the whole jail — the leak
-[OQ-BR4](provider-credential-scope.md#OQ-BR4) ruled must end.
+[OQ-BR4](../reference/providers.md#oq-br4) ruled must end.
 
 ### 1.2 Where the Bedrock split ended up
 
@@ -178,7 +178,7 @@ loses, silently:
 claude may then run first-party on whatever login it holds. Nothing reports it, by rule: an
 inactive gate is a clean skip. MEASURED by the 2026-09-23 triage; INFERRED that no request
 reached AWS. D5 is the twin of D2 (the wide env gate, now
-[OQ-BR4](provider-credential-scope.md#OQ-BR4)'s): D2 fires a gate for the wrong agent, D5
+[OQ-BR4](../reference/providers.md#oq-br4)'s): D2 fires a gate for the wrong agent, D5
 fails to fire it for the right one.
 
 **It breaks a case the design called supported.** The deleted
@@ -252,7 +252,7 @@ never a refusal.
   ordinary catalog rows, and only the selected one gets a selection key. It is the shipped case
   under bedrock-plumbing's two-provider fallback, and whenever a user declares a Bedrock provider
   of their own. Any marker design must keep it degenerate-safe.
-- **"As specific as possible"** ([OQ-BR4](provider-credential-scope.md#OQ-BR4), 2026-09-25:
+- **"As specific as possible"** ([OQ-BR4](../reference/providers.md#oq-br4), 2026-09-25:
   *"no I don't want it to leak … certainly not Claude Code gets Bedrock"*). Every option below
   must deliver a provider's facts to the agent that selected it and no other. It is an input,
   not an answer.
@@ -321,7 +321,7 @@ transport's home leaves the everything profile distinguished only by its name. T
   [OQ-WG1](wire-bridge-gateway.md#OQ-WG1) leans toward keying the signer on the upstream host
   rather than on a provider marker, so the signer does not wait here.
 - **Built with [OQ-BR8](#OQ-BR8):** closing D5, together with D2's fix under
-  [OQ-BR4](provider-credential-scope.md#OQ-BR4), each with a test that fails when the call site
+  [OQ-BR4](../reference/providers.md#oq-br4), each with a test that fails when the call site
   is deleted. **Built 2026-09-29** ([PP-D2](#PP-D2) to [PP-D6](#PP-D6)).
 
 ---
@@ -333,7 +333,7 @@ transport's home leaves the everything profile distinguished only by its name. T
 | [OQ-CS9](../reference/providers.md#oq-cs9) | Profiles point at a provider; no `extends` | Rules out `bedrock-sso extends bedrock` ([OQ-BR8](#OQ-BR8)). Under [OQ-PP1](#OQ-PP1) (b) or (c) it is moot for profiles, but may reappear as a provider-level `extends` |
 | [OQ-PT8](../reference/providers.md#oq-pt8), 2026-09-01 | A profile is `{name, provider}`; its body moved onto name-keyed `profile:` contributions | Does **not** answer [OQ-BR8](#OQ-BR8): name versus provider was a consequence, never a choice. [OQ-PP1](#OQ-PP1) (b) would make the `profile` kind an alias or delete it |
 | [OQ-PT3](../reference/providers.md#oq-pt3) | A provider's fact is composed from the provider, not restated in a gated overlay | The precedent [OQ-BR8](#OQ-BR8)'s leaning follows |
-| [agent-auth-modes OQ-9](agent-auth-modes.md#OQ-9) | Still open: AWS's two-part credential has no declarative home | Same question as [OQ-CN1](provider-credential-scope.md#OQ-CN1) from the credential side; a transport or marker field may give it one |
+| [agent-auth-modes OQ-9](agent-auth-modes.md#OQ-9) | Still open: AWS's two-part credential has no declarative home | Same question as [OQ-CN1](../reference/providers.md#oq-cn1) from the credential side; a transport or marker field may give it one |
 
 ---
 
@@ -379,14 +379,14 @@ transport's home leaves the everything profile distinguished only by its name. T
 
 2. ✅ <a id="OQ-BR8"></a>**[OQ-BR8](#OQ-BR8): Does a contribution's gate key on the profile
    NAME or on the provider it selects?** Moved here from bedrock-plumbing on 2026-09-25, id kept.
-   It is [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s other direction: BR4 ruled that a gate
+   It is [OQ-BR4](../reference/providers.md#oq-br4)'s other direction: BR4 ruled that a gate
    must not fire for the wrong agent; this asks why it fails to fire for the right one
    ([§2.1](#21-d5-a-second-profile-over-one-provider-silently-loses-every-gated-fact),
    [§2.2](#22-gates-key-on-the-name-derives-key-on-the-provider)). Stakes: whether a second intent
    over a shipped provider is supported or a silent trap; whether the credential adapter's port
    stays written three times ([appendix](#appendix-evidence-and-how-to-re-check-it)); whether
    [OQ-BR11](bedrock-plumbing.md#OQ-BR11)'s everything profile can work; and whether
-   [OQ-CN1](provider-credential-scope.md#OQ-CN1) can gate credentials by provider.
+   [OQ-CN1](../reference/providers.md#oq-cn1) can gate credentials by provider.
 
    | Option | Verdict |
    | :--- | :--- |
@@ -403,19 +403,19 @@ transport's home leaves the everything profile distinguished only by its name. T
    - `aws-auth`'s adapter address is composed into a provider row, as codex's Responses address
      already is (the `openai-codex` provider's `endpoints` in `packs/openai-auth/pack.json`). That
      removes the duplicated `1461` and makes the pointer fire for the right provider; it reaches
-     only the selecting agent once [OQ-CN6](provider-credential-scope.md#OQ-CN6)'s per-agent
+     only the selecting agent once [OQ-CN6](../reference/providers.md#oq-cn6)'s per-agent
      vehicle exists. Because provider names are
      sole-owned ([§3](#3-constraints-any-redesign-keeps)), `aws-auth` ships its own provider
      rather than annotating claude's;
    - two variants of one service are two PROVIDERS, not two profiles over one.
 
    A derive runs per agent, but today its output still lands in the one shared env file every
-   process reads ([provider-credential-scope §2.7](provider-credential-scope.md#27-one-shared-file-five-readers)).
+   process reads ([provider-credential-scope §2.7](../reference/providers.md#what-crosses-to-the-jail)).
    So keying on the provider makes a fact fire for the right provider, which closes D5, and a
    provider-keyed fact reaches only the selecting agent once
-   [OQ-CN6](provider-credential-scope.md#OQ-CN6)'s per-agent vehicle exists. The `claude/settings`
+   [OQ-CN6](../reference/providers.md#oq-cn6)'s per-agent vehicle exists. The `claude/settings`
    half of claude's flag is per-agent already; the env half is not. So this option is necessary
-   for [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s *"as specific as possible"*, not
+   for [OQ-BR4](../reference/providers.md#oq-br4)'s *"as specific as possible"*, not
    sufficient. The everything profile then differs from the native one by provider or by a
    transport option ([OQ-PP2](#OQ-PP2)), never by name.
 
@@ -427,7 +427,7 @@ transport's home leaves the everything profile distinguished only by its name. T
    the port, checked by nothing.
 
    _Leaning:_ The first option, as the bullets above spell it, built with
-   [OQ-BR4](provider-credential-scope.md#OQ-BR4)'s fix, which is the same function.
+   [OQ-BR4](../reference/providers.md#oq-br4)'s fix, which is the same function.
 
    <!-- vantage: oq id=OQ-BR8 -->
 
@@ -577,7 +577,7 @@ in [OQ-BR2](#OQ-BR2).
 | <a id="PP-D6"></a>PP-D6 | *Implementation decision.* **The `profile` modifier stays; shipped packs stop using it.** A name gate still suits a variant that really is a name, and a user's local pack may carry one. `TestNoShippedPackKeysAFactOnAProfileName` fails if a shipped pack reintroduces one. Consequence: pi's new env producer ends the host's "nothing reads the table" excuse for pi on a codex profile whose provider no selected pack ships; the shipped pi `needs` openai-auth, so only a hand-built pack set meets that refusal | 2026-09-29 | ✅ pinned by `TestNoShippedPackKeysAFactOnAProfileName` |
 | <a id="PP-D7"></a>PP-D7 | *Implementation decision.* **`platform` is shape-checked and user-scope only.** One token, no whitespace (`packdecl.PlatformProblem`, shared by the manifest and config validators). A workspace `providers.<name>.platform` is refused like `api_key_env_name`, because the platform gate decides which agents receive aws-auth's pointer. Exposed to a derive as `ctx.selected_platform`, read off the selected provider's composed row | 2026-09-29 | ✅ `packdecl.PlatformProblem` |
 | <a id="PP-D8"></a>PP-D8 | *Implementation decision.* **The switch is the agent pack's declaration.** Core names no agent's file or variable, so a program declares `platform_switches` (`{platform, surface, pointer}`); packs/claude declares `aws-bedrock` at `/env/CLAUDE_CODE_USE_BEDROCK` in `claude/settings`. `packload.PlatformSwitchConflicts` reads it from the user's own copy of that `readsHost` surface, on when true, 1, yes or on. The line prints before the provider pre-flight on every jail arm (fresh container launch, attach, macos-user) and at `yolo host --`; it offers a declared profile over a provider of the platform with no via. It says what yolo delivers, not that the launch fails: at `yolo host` the user's own credentials may still serve claude. Not read: a switch captured from an in-jail edit of the settings file, and the process environment | 2026-09-29 | ✅ `packdecl.PlatformSwitch` |
-| <a id="PP-D9"></a>PP-D9 | *Implementation decision, revised by the review the same day.* **The credential claims follow the platform.** A composed provider that declares a `platform` and no `api_key_env_name` of its own co-claims every name a same-platform provider in the composed table lists (`packload.credentialClaims`); one that lists its own keeps exactly those, and only a provider's own list is inherited. So a user's `"platform": "aws-bedrock"` provider keeps the six AWS names the shipped `bedrock` claims ([CN-D2](provider-credential-scope.md#7-decision-ledger)) to its agents, like the region variables, which are a platform fact too ([BR-D1](bedrock-plumbing.md#BR-D1)). The first build left the claims out and said such a key "reaches every process"; the review measured the opposite: the shipped `bedrock`, always in the table beside it, still claimed the names, so the gate withheld them from every process, the agent on the user's provider included, and claude started in Bedrock mode with no AWS credential and no word of it. The claim model still reads the composed table alone: the platform is a field of the composed entry, and the pre-flight, which asks for exactly one named key, is unchanged | 2026-09-29 | ✅ `packload.credentialClaims` |
+| <a id="PP-D9"></a>PP-D9 | *Implementation decision, revised by the review the same day.* **The credential claims follow the platform.** A composed provider that declares a `platform` and no `api_key_env_name` of its own co-claims every name a same-platform provider in the composed table lists (`packload.credentialClaims`); one that lists its own keeps exactly those, and only a provider's own list is inherited. So a user's `"platform": "aws-bedrock"` provider keeps the six AWS names the shipped `bedrock` claims ([CN-D2](provider-credential-scope.md#CN-D2)) to its agents, like the region variables, which are a platform fact too ([BR-D1](bedrock-plumbing.md#BR-D1)). The first build left the claims out and said such a key "reaches every process"; the review measured the opposite: the shipped `bedrock`, always in the table beside it, still claimed the names, so the gate withheld them from every process, the agent on the user's provider included, and claude started in Bedrock mode with no AWS credential and no word of it. The claim model still reads the composed table alone: the platform is a field of the composed entry, and the pre-flight, which asks for exactly one named key, is unchanged | 2026-09-29 | ✅ `packload.credentialClaims` |
 | <a id="PP-D10"></a>PP-D10 | **Maintainer ruling** (in chat): *"yes, let's go with your profile proposal. fire that off now."* The proposal it accepted: the persistent selection becomes the `profile` key, mirroring `-p`/`--profile` exactly. `"profile": "bedrock"` is `-p bedrock` (every agent); `"profile": { "pi": "codex", "claude": "bedrock" }` is `-p pi=codex,claude=bedrock`; `"profile": { "*": "bedrock", "pi": "codex" }` is `-p bedrock -p pi=codex`, *"`"*"` is every agent not named"*; and a list value (`{ "pi": ["zai", "openrouter"] }`) once the provider-list build lands (built 2026-09-30 as [AP-D13](active-provider-sets.md#AP-D13): `{ "pi": ["zai", "openrouter"] }` is `-p pi=zai,openrouter`, and the list form and a list under `"*"` are `-p zai,openrouter`). *"`"*"` can't collide with an agent, because agents are named by the program they install and no program is called `*`."* `use_profiles` is *"refused by name, with the new spelling in the message"*. It *"stays user-scope only, as today: a repo's committed config can't pick where your credentials go."* The key follows whatever [OQ-PP1](#OQ-PP1) decides `-p` names. The cost the maintainer accepted: `profile` (which to use) and `profiles` (the declarations) differ by one letter | 2026-09-29 | ✅ [PP-D11](#PP-D11); the list value ✅ 2026-09-30 ([AP-D13](active-provider-sets.md#AP-D13)) |
 | <a id="PP-D11"></a>PP-D11 | *Implementation decision.* **One shape and one fold for both spellings, and a pair keeps its CLI beside a bare `-p`.** The key and every `-p` value lower to `config.ProfileSelection` (a default and per-CLI entries), and `config.ProfileTableFor` is the one function that turns selections into the CLI-keyed table, at the jail launch, `yolo host --` and `yolo host env`, `yolo host apply`, the host footer, the overlay gate, `yolo check` and the selection closure. The precedence between the two sources is kept: every `-p` form beats every key form for each CLI it reaches. Within one source a named CLI keeps its entry and the default reaches every other CLI the selected packs install, never the command after `--`. That is a change to `-p`, which the ruling's equation requires: a bare `-p` was folded last and overwrote a pair typed beside it, so `-p bedrock -p pi=codex` ran pi on bedrock. A null entry keeps `"*"` off its agent; an empty name is refused, null being the spelling of none. At `yolo host` the default reaches the one command only when a selected pack installs it, so an ad-hoc command is neither refused nor handed a profile. `use_profiles` is an error on the host, respelling the user's own entries under the new key, at every host reader of the selection: `yolo host --` and `yolo host env`, `yolo host apply` in both postures, the automatic apply a wrapped launch runs (asked before its observe pass) and `yolo config render --at host` each run the provider and profile section of validation over user scope. The review found the first build refusing it at the two launch verbs alone: `yolo host apply --assert` read the selection off the new key, ignored the old one, and deselected the profile an earlier apply had written into the real home. It is a warning in-jail, where a snapshot an older launcher wrote carries it (the `agent_profiles` precedent); a workspace carrying it gets the rename and the user-scope refusal together. What crosses into a jail is unchanged: `YOLO_USE_PROFILES` is the folded table, the derive still reads it as `ctx.use_profiles`, and the inherited snapshots carry `profile` verbatim, `"*"` included. The list value landed where this row said it would, in the two fields of `ProfileSelection`, which are now ordered lists ([AP-D13](active-provider-sets.md#AP-D13), 2026-09-30): `config.ParseProfileFlag` reads -p's comma continuation, `ProfileSelectionOf` a JSON array, `validateProfile` checks both shapes, and the fold (`config.FoldProfiles`, whose table `ProfileTableFor` returns) emits a set and narrows a list naming no agent (the key's list form, a list under `"*"`, a bare `-p`) to its first entry for an agent whose pack declares no `provider_sets`, saying so at launch. The precedence and the pair-beside-a-bare-`-p` rule above are unchanged | 2026-09-29 | ✅ `config.ProfileSelection`, `config.FoldProfiles` and `config.ProfileTableFor`; pinned by `internal/cli/profilekeyflag_test.go` (its list rows included), `internal/cli/run/profilekey_test.go`, `internal/cli/hostprofilekey_test.go` and `internal/config/profileselection_test.go` |
 | [OQ-PP2](#OQ-PP2) | **Answered by [OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s ruling** (2026-09-29, the maintainer: *"by default we should pick the right thing, the native by default, but we should allow configurations to force the bridge"*) **and [OQ-WG2](wire-bridge-gateway.md#OQ-WG2)'s** (2026-09-25: *"this should be a property of the profile"*). The transport is derived per agent (a native client for the provider's `platform` or endpoints, else the bridge), and a profile's `via` forces the bridge. No provider declares a per-agent table, which also keeps agent knowledge out of providers ([OQ-CS8](../reference/providers.md#oq-cs8)) | 2026-09-30 | ✅ the native half for Bedrock ([BR-D9](bedrock-plumbing.md#BR-D9) to [BR-D14](bedrock-plumbing.md#BR-D14)); the forcing half, `bedrock-bridge` ([BR-D16](bedrock-plumbing.md#BR-D16)), carries every agent since the bridge reached Bedrock by region on 2026-09-30 ([`wire-bridge-gateway.md` WG-I39](wire-bridge-gateway.md#WG-I39)) |

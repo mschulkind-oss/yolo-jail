@@ -67,7 +67,7 @@ ping box, which is designed and not built.
 the answer rides back on), [`loophole-system.md`](../reference/loophole-system.md) and
 [`loophole-transport.md`](../reference/loophole-transport.md) (what the broker is and how a jail
 reaches it), [`config-safety.md`](../reference/config-safety.md) (the config-change gate the
-scope is approved through), [`provider-credential-scope.md`](provider-credential-scope.md)
+scope is approved through), [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate)
 (delivery as specific as possible), [`sso-backed-bedrock.md`](sso-backed-bedrock.md) (the second consumer waiting for a
 request shape). No implementation sketch is open yet.
 

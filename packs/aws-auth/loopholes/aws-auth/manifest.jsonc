@@ -167,7 +167,7 @@
   // demands this launch's caller token (`caller_token` below; the launcher mints
   // YOLO_SERVICE_AWS_AUTH_TOKEN), which the pack's `env` contribution SCOPES as
   // AWS_CONTAINER_AUTHORIZATION_TOKEN = {caller_token}: exported only in the env file of an
-  // agent whose profile selects `bedrock` (provider-credential-scope.md OQ-CN7 (c)), and
+  // agent whose profile selects `bedrock` (providers.md OQ-CN7 (c)), and
   // the adapter reads it from the shared file's unexported record. It sits beside the
   // URI, the slot the SDK's container provider already reads and sends as
   // `Authorization` (docs/plans/notch-convergence.md §2.3). And the adapter STARTS only

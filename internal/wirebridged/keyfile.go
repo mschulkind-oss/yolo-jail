@@ -9,7 +9,7 @@ package wirebridged
 // served upstream without the credential it was configured to carry.
 //
 // THE FILE IS THE SERVED AGENT'S OWN, since the credential gate
-// (docs/design/provider-credential-scope.md, OQ-CN6): a provider credential the
+// (docs/reference/providers.md, OQ-CN6): a provider credential the
 // gate scopes to the agent that selected the provider no longer sits in the shared
 // yolo-user-env.sh, it sits in that agent's env file (entrypoint.AgentEnvFile). A
 // route is always served for one agent — the one whose profile selected the

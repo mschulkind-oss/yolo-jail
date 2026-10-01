@@ -643,7 +643,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		return 1
 	}
 
-	// THE CREDENTIAL GATE'S DISCLOSURE (docs/design/provider-credential-scope.md §4, "no
+	// THE CREDENTIAL GATE'S DISCLOSURE (docs/reference/providers.md, "no
 	// silent narrowing"): a launch that withholds a credential the user configured says so,
 	// on stderr like every other line here, names only. The same wording the jail notch
 	// prints, because it is the same gate's answer.
@@ -915,7 +915,7 @@ type hostComposition struct {
 	// names the channels it looked in under its own headings (packload.RegionConsulted).
 	envSources []string
 	// scope is the CREDENTIAL GATE's answer for this one-agent launch
-	// (packload.ScopeCredentials, docs/design/provider-credential-scope.md OQ-CN5): the
+	// (packload.ScopeCredentials, docs/reference/providers.md OQ-CN5): the
 	// same function the jail notch's composePackChannel calls, over this notch's user-scope
 	// inputs. vars were composed from it; the pre-flight narrows by it and the exec path
 	// discloses it. Nil only when the composition refused before reaching the gate.
@@ -1968,7 +1968,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		}
 	}
 
-	// THE CREDENTIAL GATE (docs/design/provider-credential-scope.md; OQ-CN5 ruled that the
+	// THE CREDENTIAL GATE (docs/reference/providers.md; OQ-CN5 ruled that the
 	// host notch ships with the jail's, since it composes for a process outside every
 	// sandbox). The same packload.ScopeCredentials the jail notch's composePackChannel
 	// calls, over this notch's inputs: a provider's claimed credential reaches this agent
@@ -2696,9 +2696,10 @@ func hostEnv(args []string, out, errw io.Writer) int {
 	}
 	// THE CREDENTIAL GATE'S DISCLOSURE, as `yolo host --` prints it and on stderr for the
 	// same reason: an eval'ing shell reads only stdout, and "no silent narrowing"
-	// (provider-credential-scope.md §4) holds for this front door too. The script below is
-	// ONE agent's slice, so an env_sources credential another agent's profile claims is not
-	// in it — which a shell that used to receive every value must be told.
+	// (providers.md, what the credential gate does not do) holds for this front door too.
+	// The script below is ONE agent's slice, so an env_sources credential another agent's
+	// profile claims is not in it — which a shell that used to receive every value must be
+	// told.
 	// Each block's head line is unindented (the gate's rule line, the grant's header) and
 	// carries the verb's prefix; the indented lines under it are its detail.
 	for _, line := range disclosure {

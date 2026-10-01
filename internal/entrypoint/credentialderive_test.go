@@ -1,7 +1,7 @@
 package entrypoint
 
 // credentialderive_test.go pins the IN-JAIL half of a provider's credential variable LIST
-// (docs/design/provider-credential-scope.md, OQ-CN1), through the boot render of the real
+// (docs/reference/providers.md, OQ-CN1), through the boot render of the real
 // pi, opencode and zai packs (pioencodeRender).
 //
 // The derives read the composed table through packload.ProvidersForDerive: a provider that

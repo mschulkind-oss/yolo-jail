@@ -38,7 +38,7 @@ the boundary between subscription OAuth tokens and ambient platform API keys.
 [OQ-3](#OQ-3) and does not build the route until it rules.
 
 **Reads with:** [`pi-codex-provider-shadowing-plan.md`](pi-codex-provider-shadowing-plan.md) (the companion sketch — incomplete while questions are open),
-[`provider-credential-scope.md`](provider-credential-scope.md) (the ambient environment delivery boundary),
+[`providers.md`'s credential gate](../reference/providers.md#the-credential-gate) (the ambient environment delivery boundary),
 [`../reference/providers.md`](../reference/providers.md) (the provider declaration and derivation reference).
 
 ---
@@ -390,7 +390,7 @@ provider and the settings branch runs in the same render.
 
 Excluding `openai-codex` from `models.json` prevents Pi from switching to `openai-responses` and
 falling back to `OPENAI_API_KEY`. However, the broader issue of ambient environment leakage
-remains tracked in [`provider-credential-scope.md`](provider-credential-scope.md). When a profile
+remains tracked in [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate). When a profile
 selects a subscription provider, ambient platform keys for the same vendor should ideally be scoped
 or masked to prevent tools or subagents from inadvertently picking them up.
 

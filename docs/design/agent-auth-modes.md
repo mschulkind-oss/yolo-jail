@@ -44,7 +44,7 @@ the body is the record of built work.
 | [§7](#7-in-jail-vs-host-cli-parity-cleaning-up-auto-yolo-mode) — in-jail vs host-CLI auto-YOLO parity | **Fixed; kept as the diagnosis.** [§7.2](#72-the-fix) step 1 **shipped**, and has since been re-pointed: `packAliases` (`internal/entrypoint/shell.go`) calls `packload.InjectLaunchFlags` over the bare `<bin>` — the host's own call — rather than folding the flag table a second time, and states what it wrote. So the `.bashrc` alias and `yolo -- claude` agree, and both are disclosed. **Step 2 shipped too**, 2026-09-13, once [OQ-DP7](declaration-parity.md#OQ-DP7) ruled to close the third spelling: the generated launcher now carries the flags, so a non-interactive `bash -c claude` gets them, and `YOLO_NO_LAUNCH_FLAGS=1` is the one-invocation escape ([`declaration-parity.md`](declaration-parity.md)'s `DP-B44`). |
 | [§8](#8-dynamic-overflow-what-is-reachable-and-what-is-not) — why dynamic failover is deferred; [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) — the measured subscription bearer | **Kept here, and cited from outside.** [§8.1](#81-measured-2026-09-02-the-subscription-bearer-follows-anthropic_base_url) is the measurement that a subscription OAuth bearer follows `ANTHROPIC_BASE_URL` unconditionally — cited by [`claude-oauth-refresh-mechanics.md`](../research/claude-oauth-refresh-mechanics.md), and the fact under [`boundary-broker.md`](boundary-broker.md)'s B2. [OQ-1](#12-decision-ledger) is [`boundary-broker.md`](boundary-broker.md)'s delegated `OQ-D`. |
 | [§9](#9-traps-and-failure-modes) — blank `ANTHROPIC_API_KEY`, single-use refresh tokens, scope isolation, wire-API mismatch | **Kept here.** [`providers.md`](../reference/providers.md) states the scope rule as a ruling ([OQ-CS5](../reference/providers.md#oq-cs5)) and carries none of the other three. |
-| [§11](#11-open-questions) [OQ-9](#11-open-questions) — AWS's two-part credential has no declarative home | **STILL OPEN.** Its live form, [`provider-credential-scope.md`](provider-credential-scope.md)'s [`OQ-CN1`](provider-credential-scope.md#OQ-CN1), was ruled 2026-09-26 and built; whether that answers this question is the note under [OQ-9](#OQ-9). |
+| [§11](#11-open-questions) [OQ-9](#11-open-questions) — AWS's two-part credential has no declarative home | **STILL OPEN.** Its live form, [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate)'s [`OQ-CN1`](../reference/providers.md#oq-cn1), was ruled 2026-09-26 and built; whether that answers this question is the note under [OQ-9](#OQ-9). |
 
 > [!NOTE]
 > **Vocabulary drift (2026-09-02).** This doc's spellings are the 2026-08-29 design as accepted;
@@ -460,7 +460,7 @@ dropped it without answering it (the roadmap and sibling docs cited it as [`auth
    ([`sso-backed-bedrock.md`](sso-backed-bedrock.md)), which is a single variable and needs no
    pair. That works today and is not blocking anything; the question is whether a credential
    *pair* ever gets first-class declaration or whether `env_sources` is the permanent answer.
-   **The live form of this question is [`OQ-CN1`](provider-credential-scope.md#OQ-CN1)** —
+   **The live form of this question is [`OQ-CN1`](../reference/providers.md#oq-cn1)** —
    where the key→provider association lives, and whether `api_key_env_name` grows into a list —
    so rule the two together. [`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger) (2026-09-24)
    bears on it without answering it: it rules that the static pair is a **supported** Bedrock
@@ -474,7 +474,7 @@ dropped it without answering it (the roadmap and sibling docs cited it as [`auth
 
    > [!NOTE]
    > **Re-checked against the tree 2026-09-30; not a ruling.** The question's first premise, a
-   > single credential pointer, no longer holds: [`OQ-CN1`](provider-credential-scope.md#OQ-CN1)
+   > single credential pointer, no longer holds: [`OQ-CN1`](../reference/providers.md#oq-cn1)
    > was ruled 2026-09-26 as *"Grow `api_key_env_name` into a list on the provider declaration"*
    > and built as `packdecl.EnvNames` (`internal/packdecl/envnames.go`). The `bedrock` provider,
    > now `packs/bedrock`'s, lists `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,

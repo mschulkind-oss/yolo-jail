@@ -1,6 +1,6 @@
 package run
 
-// profileserveddaemons_test.go pins OQ-CN7 (docs/design/provider-credential-scope.md, ruled
+// profileserveddaemons_test.go pins OQ-CN7 (docs/reference/providers.md, ruled
 // 2026-09-28) on the launcher: (b) aws-auth's in-jail credential adapter starts only when some
 // agent's profile selects what it serves, and says so when it does not; (c) its caller token is
 // scoped to the agents that selected it, the adapter demands it, and an agent that did not

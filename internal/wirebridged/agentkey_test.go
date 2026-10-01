@@ -1,7 +1,7 @@
 package wirebridged
 
 // agentkey_test.go pins the bridge's half of the credential gate
-// (docs/design/provider-credential-scope.md, OQ-CN6's constraint): the key of a provider
+// (docs/reference/providers.md, OQ-CN6's constraint): the key of a provider
 // the bridge serves no longer sits in the shared yolo-user-env.sh — the gate scopes it to
 // the agent that selected the provider, in that agent's own env file — so the bridge must
 // read THAT file, for the agent the route is served for, or a correctly configured bridged

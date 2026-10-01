@@ -391,7 +391,7 @@ Checked against `7da7993b` by three independent readers and by hand; each claim 
 
 - **The live case is a boot failure, not a broken statusline.** Two contracts landed the same day
   that a pre-2026-09-26 jail cannot decode: claude's bedrock provider declares `api_key_env_name`
-  as a list ([`OQ-CN1`](provider-credential-scope.md#OQ-CN1); `packs/claude/pack.json`), where
+  as a list ([`OQ-CN1`](../reference/providers.md#oq-cn1); `packs/claude/pack.json`), where
   v0.10.0's `packdecl` declares a string, and pi declares the `unshare_directory` hook, which
   v0.10.0 reports as `unknown hook`. v0.10.0's in-jail loader treats any decode problem as fatal
   (`LoadJailPacks` returns `pack <name>: <problem>`, `internal/entrypoint/packsurfaces.go` at
@@ -403,7 +403,7 @@ Checked against `7da7993b` by three independent readers and by hand; each claim 
   launch, and macos-user has no attach.
 - **A precedent for Layer 1 exists.** The credential gate freezes `YOLO_AGENT_ENV_FILES=1` into
   every container it launches, and an attach reads its absence as "this jail predates the
-  per-agent env files" ([`provider-credential-scope.md`](provider-credential-scope.md), CN-D18):
+  per-agent env files" ([`providers.md`'s credential gate](../reference/providers.md#the-credential-gate), CN-D18):
   one named marker per contract, no version matrix, and no hatch.
 - **[`OQ-PK2`](../reference/pack-system.md#oq-pk2) is ruled (c)** the same day: one immutable pack
   tree per launch, kept until the jail stops, plus a notice on attach when the configured pack set

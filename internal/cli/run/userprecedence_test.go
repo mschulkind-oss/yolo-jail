@@ -1,6 +1,6 @@
 package run
 
-// userprecedence_test.go pins OQ-CN8 (docs/design/provider-credential-scope.md, ruled
+// userprecedence_test.go pins OQ-CN8 (docs/reference/providers.md, ruled
 // 2026-09-28) through the production launch composition and claude's REAL launcher: a value the
 // user sets on the command line (`ANTHROPIC_MODEL=x claude`) or exports in a jail shell beats
 // the one claude's profile composes, as it did before the per-agent files; with no value of the

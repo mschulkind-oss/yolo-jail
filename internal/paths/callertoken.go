@@ -53,7 +53,7 @@ func ServiceCallerTokenEnv(serviceName string) string {
 // client that reads a credential from a FILE and cannot be handed a secret any other way, as
 // the AWS SDKs' container-credentials provider can (AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE;
 // docs/plans/notch-convergence.md §2.3). The aws-auth pack used it until its token was scoped
-// to the selecting agents' env files (docs/design/provider-credential-scope.md OQ-CN7 (c)); a
+// to the selecting agents' env files (docs/reference/providers.md OQ-CN7 (c)); a
 // scoped token gets no file. On the /run tmpfs, so it dies with the container, and in-jail
 // only, so no host process can read it.
 const JailCallerTokenDir = "/run/yolo/caller-tokens"

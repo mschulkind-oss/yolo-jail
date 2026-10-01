@@ -3,7 +3,7 @@ package entrypoint
 // callertokenfiles_test.go pins the in-jail caller-token FILES (paths.JailCallerTokenDir;
 // docs/plans/notch-convergence.md §2.3): the boot writes each token it was handed to a 0600 file
 // of its own. The aws-auth pack named that file as AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE until
-// its token was SCOPED (docs/design/provider-credential-scope.md OQ-CN7 (c)): its pointer now
+// its token was SCOPED (docs/reference/providers.md OQ-CN7 (c)): its pointer now
 // names the token itself, delivered only in the selecting agent's env file, and the boot is
 // handed no aws-auth token to write a file for.
 

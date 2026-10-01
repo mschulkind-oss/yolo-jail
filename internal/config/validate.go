@@ -1287,7 +1287,7 @@ func validateProviderEntries(config *jsonx.OrderedMap, errs, warns *[]string) {
 		}
 		if a, ok := cfg.Get("api_key_env_name"); ok && a != nil {
 			// One variable name, or a list of them (OQ-CN1,
-			// docs/design/provider-credential-scope.md). The rule is packdecl's, so a pack
+			// docs/reference/providers.md). The rule is packdecl's, so a pack
 			// manifest and this entry cannot accept different values for one field of one
 			// composed table. A lone string keeps its old wording, which tests and users
 			// already know.

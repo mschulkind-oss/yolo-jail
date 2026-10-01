@@ -105,7 +105,7 @@ func tokenDelivered() *jsonx.OrderedMap {
 		map[string]string{widgetToken: "frozen-token-value"})
 }
 
-// A credential the gate WITHHOLDS overrides nothing (docs/design/provider-credential-scope.md,
+// A credential the gate WITHHOLDS overrides nothing (docs/reference/providers.md,
 // OQ-CN2): the override's variable is claimed by a provider no agent selected, so the launch
 // delivers it to no process and does not refuse — and `check`, predicting through the same
 // packload.ScopeCredentials, must not refuse either. Reading the raw hydration here, as this

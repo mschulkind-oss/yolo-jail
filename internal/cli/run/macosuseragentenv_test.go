@@ -1,6 +1,6 @@
 package run
 
-// macosuseragentenv_test.go pins OQ-CN9 (docs/design/provider-credential-scope.md, ruled
+// macosuseragentenv_test.go pins OQ-CN9 (docs/reference/providers.md, ruled
 // 2026-09-28): a macos-user launch writes the same per-agent env files the container vehicle
 // writes, into the sidecar directory the bootstrap's home layout links the sandbox's ~/.config
 // to, so an agent started from a bare `yolo`'s login shell sources its profile's values. Driven

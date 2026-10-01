@@ -1,7 +1,7 @@
 package run
 
 // credentialnotes.go is the credential gate's DISCLOSURE on the jail notch
-// (docs/design/provider-credential-scope.md §4, "no silent narrowing"): a launch that
+// (docs/reference/providers.md, "no silent narrowing"): a launch that
 // withholds a credential the user configured says so, and one that scopes it says to whom.
 // Names only, never a value. A disclosure rather than a debug line, so it has no quiet
 // switch (docs/reference/report-tiers.md, OQ-RO3).

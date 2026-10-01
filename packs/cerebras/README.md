@@ -69,7 +69,7 @@ A launch in which some agent's profile selects cerebras and that never hydrates
 `CEREBRAS_API_KEY` **refuses outright** (the credential preflight demands the key of a
 cataloged provider an agent selected:
 [`OQ-PT4`](../../docs/reference/providers.md#oq-pt4), narrowed by
-[`OQ-CN3`](../../docs/design/provider-credential-scope.md#OQ-CN3)). Selecting the pack with no
+[`OQ-CN3`](../../docs/reference/providers.md#oq-cn3)). Selecting the pack with no
 agent on cerebras demands nothing, since the key would reach nobody.
 `YOLO_ALLOW_MISSING_PROVIDERS=1` continues loudly instead.
 

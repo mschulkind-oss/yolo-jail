@@ -201,7 +201,7 @@ type Options struct {
 	// composition that needed one, or adopted from the running jail by an attach. nil until then.
 	callerTokens map[string]string
 	// unstartedDaemons are the profile-served jail daemons (packload.UnselectedProfileServedDaemons,
-	// provider-credential-scope.md OQ-CN7 (b)) the last jail-daemon payload this process composed
+	// providers.md OQ-CN7 (b)) the last jail-daemon payload this process composed
 	// left out because no agent's selection delivers a gate they serve. Read by the one disclosure
 	// that says so (noteUnstartedProfileDaemons). nil when none was left out.
 	unstartedDaemons []packload.ProfileServedDaemon

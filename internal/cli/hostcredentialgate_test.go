@@ -1,7 +1,7 @@
 package cli
 
 // hostcredentialgate_test.go pins the credential gate at the HOST NOTCH
-// (docs/design/provider-credential-scope.md, OQ-CN5: the host ships with the jail, since it
+// (docs/reference/providers.md, OQ-CN5: the host ships with the jail, since it
 // composes an environment for a process outside every sandbox). Each cell runs `yolo host`
 // through hostMain to the exec, with the exec itself replaced (hostSyscallExec) so the
 // environment the agent would have been handed is what the test reads. The packs are the

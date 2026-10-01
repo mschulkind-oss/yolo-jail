@@ -259,7 +259,7 @@ type mcpTables struct {
 	perAgent map[string]*jsonx.OrderedMap
 }
 
-// loadMCPTables evaluates requires_env PER AGENT (provider-credential-scope.md, OQ-CN6).
+// loadMCPTables evaluates requires_env PER AGENT (providers.md, OQ-CN6).
 //
 // WHY PER AGENT. A server's `requires_env` names the variables its entry needs, and yolo
 // writes the entry's ${VAR} references literally for the consuming agent to resolve from ITS

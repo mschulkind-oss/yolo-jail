@@ -1,7 +1,7 @@
 package entrypoint
 
 // opencodemenu_test.go pins OQ-CN4's menu half for opencode
-// (docs/design/provider-credential-scope.md, "both, named separately"), through the boot
+// (docs/reference/providers.md, "both, named separately"), through the boot
 // render of the real pi, opencode and zai packs (pioencodeRender), over the fixture
 // credentialderive_test.go declares.
 

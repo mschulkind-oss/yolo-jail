@@ -1,7 +1,7 @@
 package entrypoint
 
 // agentenv_test.go pins the JAIL HALF of the per-agent env file
-// (docs/design/provider-credential-scope.md, OQ-CN6): every carrier a bare agent name can
+// (docs/reference/providers.md, OQ-CN6): every carrier a bare agent name can
 // resolve to in ~/.yolo/bin/launch — the npm launcher, the native launcher and the wrapper,
 // with launch flags or, for an agent the image provides, with none — sources
 // $HOME/.config/yolo-agent-env/<bin>.sh before it hands over to the

@@ -59,7 +59,7 @@ func emptyEnv() *jsonx.OrderedMap { return jsonx.NewOrderedMap() }
 
 // zaiSelectedByAcme is the zai fixture beside an agent pack whose CLI, acme, selects it on
 // o. Since the pre-flight narrowed with the credential gate (OQ-CN3,
-// docs/design/provider-credential-scope.md) a key is demanded only for a provider SOME
+// docs/reference/providers.md) a key is demanded only for a provider SOME
 // agent's profile selects — a cataloged provider nobody selected has its key delivered to
 // nobody — so every refusal this file pins needs that agent.
 func zaiSelectedByAcme(t *testing.T, o *Options) []*packload.Pack {

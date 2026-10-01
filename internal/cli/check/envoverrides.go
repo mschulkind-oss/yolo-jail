@@ -122,7 +122,7 @@ func envOverrideGap(packs []*packload.Pack, merged *jsonx.OrderedMap, served pac
 	profiles := config.ConfigProfileTable(merged, packs)
 
 	// "DELIVERED" IS THE CREDENTIAL GATE'S ANSWER, as it is at launch
-	// (docs/design/provider-credential-scope.md, OQ-CN2): a variable reaches the jail when
+	// (docs/reference/providers.md, OQ-CN2): a variable reaches the jail when
 	// it reaches SOME process of it — the shared set or one agent's — so a credential the
 	// gate withholds from every agent overrides nothing, and a gated env fires only for an
 	// agent that selected its profile. The same packload.ScopeCredentials the launch calls,

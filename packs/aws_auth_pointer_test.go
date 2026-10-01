@@ -151,7 +151,7 @@ func TestEveryShippedListenPointerNamesADaemonThatDeclaresOne(t *testing.T) {
 // contribution would set the variable in every jail that selects this pack — including one
 // whose loophole is disabled for want of a Bedrock selection — and an AWS SDK would then dial a
 // port with nothing behind it instead of falling through its chain. Per agent since the
-// credential gate ([`OQ-BR4`](../docs/design/provider-credential-scope.md#7-decision-ledger)).
+// credential gate ([`OQ-BR4`](../docs/reference/providers.md#oq-br4)).
 func TestAWSAuthPointerIsPlatformGated(t *testing.T) {
 	m := awsAuthPack(t)
 	if unconditional := m.EnvContributions(); len(unconditional) != 0 {
@@ -174,7 +174,7 @@ func TestAWSAuthPointerIsPlatformGated(t *testing.T) {
 // AWS_CONTAINER_AUTHORIZATION_TOKEN is the protocol's request header carried by value, and the
 // manifest must never hold a secret: it names the adapter's caller token as the TOKEN
 // `{caller_token}`, which the launch resolves to the per-launch value and delivers only in the
-// env file of an agent whose profile selects `bedrock` (docs/design/provider-credential-scope.md
+// env file of an agent whose profile selects `bedrock` (docs/reference/providers.md
 // OQ-CN7 (c)). It used to name the boot's token FILE instead, which every jail process could be
 // pointed at; and AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE must stay absent, because the SDKs
 // prefer the file to the token when both are set. Both are pinned below.

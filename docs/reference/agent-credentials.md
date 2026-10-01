@@ -778,7 +778,7 @@ The service **refuses to start**, naming the key to write, in six cases:
 
 - **The pointer and the caller token**, exported only in the env file of each agent whose
   selected provider is a Bedrock one, and in no other process's environment, a bare shell's
-  included ([`OQ-CN7`](../design/provider-credential-scope.md#OQ-CN7)). The **caller token** is a secret
+  included ([`OQ-CN7`](providers.md#oq-cn7)). The **caller token** is a secret
   the launcher mints for each launch, and the adapter answers `401` to a request that does not
   carry it. It exists because the loopback is not always the jail's own: a jail on
   `network.mode: "host"` puts the adapter's port on the host's loopback, and a nested jail

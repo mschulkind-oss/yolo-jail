@@ -38,7 +38,7 @@ const TokenListen = "{listen}"
 // daemon. It resolves to the per-launch token the launcher minted for the daemon, and a
 // contribution naming it SCOPES the token: the token reaches only the agents that contribution
 // is delivered to, in their own env files, and is never exported into the shared per-entry
-// channel every jail process inherits (docs/design/provider-credential-scope.md OQ-CN7 (c)).
+// channel every jail process inherits (docs/reference/providers.md OQ-CN7 (c)).
 // Profile-gated because an ungated contribution is delivered to every process, which is the
 // exposure the scoping removes. Whole-value because a client sends the value verbatim as a
 // credential (the AWS SDKs send AWS_CONTAINER_AUTHORIZATION_TOKEN as `Authorization`), so a

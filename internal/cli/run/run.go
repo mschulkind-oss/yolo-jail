@@ -783,7 +783,7 @@ func Run(opts Options) (rc int) {
 		// disclosed at the same point (§2.4), so the backend is never handed one unsaid.
 		ctxDelivery.ctx.Links = ctxLinks
 		o.noteMacosUserRWMounts(cname, ctxLinks)
-		// EVERY PROFILED AGENT'S OWN ENV FILE, on this backend too (provider-credential-scope.md
+		// EVERY PROFILED AGENT'S OWN ENV FILE, on this backend too (providers.md
 		// OQ-CN9, ruled 2026-09-28): the container vehicle's writer, into the sidecar directory
 		// the bootstrap's home layout links the sandbox's ~/.config to, so an agent started from
 		// a bare `yolo`'s login shell sources its profile's values the way its container twin

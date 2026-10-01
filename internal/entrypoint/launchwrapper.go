@@ -30,7 +30,7 @@ package entrypoint
 // declares `launch` flags for has a script in ~/.yolo/bin/launch that injects them. There
 // is no "most packs" left to be partial about.
 //
-// THE SAME WRAPPER CARRIES AN AGENT'S OWN ENV FILE (provider-credential-scope.md, OQ-CN6).
+// THE SAME WRAPPER CARRIES AN AGENT'S OWN ENV FILE (providers.md, OQ-CN6).
 // The credential gate delivers what it scopes to one agent in ~/.config/yolo-agent-env/<bin>.sh,
 // and only a carrier in the launch dir sources it. An agent the image, the store package
 // farm or a declared mise tool provides gets no installer, and one with no launch flags got

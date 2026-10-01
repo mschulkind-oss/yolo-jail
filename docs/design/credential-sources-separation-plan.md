@@ -72,9 +72,9 @@ the shared file is narrowed where `deliverChannel` calls `writeUserEnvFile`, not
 | `internal/cli/host.go`: `composeHostVars` | The host notch's gate call. It needs its own pre-flight for any refusal |
 | `internal/cli/check/envoverrides.go` | The third `ScopeCredentials` caller (`NoDerives`), which is `yolo check`'s prediction |
 | `internal/cli/run/agentenvfiles.go`: `deliverChannel` | Writes the shared file from `SharedEnvSources` and each agent's file. `writeUserEnvFile` (`userenv.go`) only writes what it is handed |
-| `internal/cli/run/profilechannel.go`: `(*packChannel).launchEnv`; `internal/cli/run/credentialnotes.go`: `noteMacosUserCredentialScope` | The macos-user vehicle ([CN-D12](provider-credential-scope.md#7-decision-ledger)); [OQ-CN5](provider-credential-scope.md#OQ-CN5) requires all three vehicles to ship together |
-| `internal/wirebridged/keyfile.go`: `resolveKey` | Reads a served agent's key from that agent's file, then the shared file ([CN-D11](provider-credential-scope.md#7-decision-ledger)) |
-| `internal/entrypoint/mcp.go`: `loadMCPTables` | `requires_env` is asked per agent ([CN-D19](provider-credential-scope.md#7-decision-ledger)) |
+| `internal/cli/run/profilechannel.go`: `(*packChannel).launchEnv`; `internal/cli/run/credentialnotes.go`: `noteMacosUserCredentialScope` | The macos-user vehicle ([CN-D12](provider-credential-scope.md#CN-D12)); [OQ-CN5](../reference/providers.md#oq-cn5) requires all three vehicles to ship together |
+| `internal/wirebridged/keyfile.go`: `resolveKey` | Reads a served agent's key from that agent's file, then the shared file ([CN-D11](provider-credential-scope.md#CN-D11)) |
+| `internal/entrypoint/mcp.go`: `loadMCPTables` | `requires_env` is asked per agent ([CN-D19](provider-credential-scope.md#CN-D19)) |
 
 [OQ-ES2](credential-sources-separation.md#OQ-ES2) and
 [OQ-ES4](credential-sources-separation.md#OQ-ES4) are blocked on [OQ-ES1](credential-sources-separation.md#OQ-ES1) as well.
@@ -89,7 +89,7 @@ the shared file is narrowed where `deliverChannel` calls `writeUserEnvFile`, not
   two places:
   - the jail: only the `--` command's exec environment for that entry, never `deliverChannel`'s
     files, because an attach rewrites the directory whole
-    ([CN-D7](provider-credential-scope.md#7-decision-ledger));
+    ([CN-D7](provider-credential-scope.md#CN-D7));
   - macos-user: `launchEnv`.
 
   In the jail the flag joins `runFlags` (`internal/cli`), and its disclosure is not
@@ -118,7 +118,7 @@ why ES-D1 is a pin and not a feature.
 2. `-- bash`: `ZAI_API_KEY` absent, `PORT` delivered, and the withheld line names
    `yolo host -p` (ES-D2).
 3. The key both in `env_sources` and exported in the shell, then `-- bash`: the shell's value
-   reaches `bash` ([CN-D13](provider-credential-scope.md#7-decision-ledger)), and no line says
+   reaches `bash` ([CN-D13](provider-credential-scope.md#CN-D13)), and no line says
    "withheld" for it (ES-D4).
 4. `use_profiles: {"bash": "zai"}`, then `-- bash`: refused with the `-p` spelling (ES-D5). The
    same config with a typed `-p zai` still delivers.

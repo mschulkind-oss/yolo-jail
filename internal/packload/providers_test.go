@@ -516,7 +516,7 @@ func TestProviderCredentialGapsFollowCatalogMembership(t *testing.T) {
 	}
 }
 
-// OQ-CN3 (docs/design/provider-credential-scope.md): the pre-flight narrows WITH the
+// OQ-CN3 (docs/reference/providers.md): the pre-flight narrows WITH the
 // credential gate. A cataloged provider no agent selected owes no key, because the gate
 // delivers its key to nobody — refusing over it is the gate's own defect one layer up. The
 // same cataloged provider, selected, still refuses.

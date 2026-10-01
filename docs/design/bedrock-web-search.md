@@ -56,7 +56,7 @@ pack-contributed entries, the closed preset list; the settled parts fold in ther
 [`mcp-presets-removal.md`](mcp-presets-removal.md) (the `mcp` kind),
 [capability-driven MCP delivery](../reference/mcp-configuration.md#capability-driven-mcp-delivery) (the delivery rule this
 reuses), [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) (how "this is
-Bedrock" gets spelled), [`provider-credential-scope.md`](provider-credential-scope.md) (why nothing
+Bedrock" gets spelled), [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate) (why nothing
 selected for one agent reaches another), [`sso-backed-bedrock.md`](sso-backed-bedrock.md) (where
 the AWS credential comes from, and owner of `packs/aws-auth`'s README).
 
@@ -240,7 +240,7 @@ Two constraints on the gate, both ruled elsewhere:
   doc was written so that neither spelling changes it.
 - **It is as specific as possible.** The maintainer ruled that a profile's facts must not leak to an
   agent that did not select it: *"certainly not Claude Code gets Bedrock"* because another agent did
-  ([OQ-BR4](provider-credential-scope.md#OQ-BR4)). Per render target means codex on Bedrock gives
+  ([OQ-BR4](../reference/providers.md#oq-br4)). Per render target means codex on Bedrock gives
   codex search, and gives claude on its subscription nothing.
 
 ## 6. What today's mechanisms can and cannot express
