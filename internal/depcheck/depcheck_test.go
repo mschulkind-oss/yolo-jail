@@ -294,8 +294,11 @@ func TestNixIsOfferedOnlyWhereTheLookupFindsIt(t *testing.T) {
 	}
 
 	none := Check(req, only())
-	if r := none[0]; r.Manager != "" || r.Remedy != "" || r.Flavor != "" {
-		t.Errorf("no manager on the lookup: tool = %+v, want no manager and no remedy", r)
+	if r := none[0]; r.Manager != "" || r.Remedy != "" || r.Flavor != "" || !r.Hinted {
+		t.Errorf("no manager on the lookup: tool = %+v, want no manager, no remedy, and hinted", r)
+	}
+	if r := Check([]Requirement{{Bin: "bare"}}, only())[0]; r.Hinted {
+		t.Errorf("a requirement with no hint reported Hinted: %+v", r)
 	}
 	if r := none[1]; r.Remedy != "npm install -g vendored" || r.Fallback != "" || r.FallbackFlavor != "" {
 		t.Errorf("no manager on the lookup: vendored = %+v, want its own installer and no fallback", r)

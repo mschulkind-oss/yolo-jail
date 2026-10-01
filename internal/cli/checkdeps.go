@@ -103,9 +103,10 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 			if r.Fallback != "" {
 				pr.Printf("  [dim]or via %s: %s[/dim]", r.Manager, r.Fallback)
 			}
-		case r.Manager == "":
+		case r.Manager == "" && r.Hinted:
 			// No manager on this PATH, so no hint could be the remedy: say that, rather than
-			// blame the pack's hints or name a manager the host does not have.
+			// blame the pack's hints or name a manager the host does not have. A binary with no
+			// hint at all keeps the line below, as `yolo host apply` does: no manager would help.
 			pr.Printf("[yellow]?[/yellow] %-16s MISSING, %s", r.Bin, richtext.Escape(depcheck.NoManager))
 		default:
 			pr.Printf("[yellow]?[/yellow] %-16s MISSING, no install hint for this host", r.Bin)

@@ -212,7 +212,7 @@ func TestApplyHostOffersNoManagerThePathLacks(t *testing.T) {
 	if !strings.Contains(report, "install_hints cover nix, but no package manager yolo knows is on this PATH") {
 		t.Errorf("the line should say no package manager is on the PATH:\n%s", report)
 	}
-	if strings.Contains(report, "yourself for nix") {
+	if strings.Contains(report, "install it yourself for") {
 		t.Errorf("a hint-less requires named a manager the PATH lacks:\n%s", report)
 	}
 
@@ -224,9 +224,12 @@ func TestApplyHostOffersNoManagerThePathLacks(t *testing.T) {
 
 // TestCheckDepsOffersNoManagerThePathLacks is check-deps' half of the test above: with no package
 // manager on the launch PATH, a nix-only hint prints no `nix profile install`, and the line says no
-// manager is on the PATH; with nix there, nix's command is the remedy.
+// manager is on the PATH; with nix there, nix's command is the remedy. A binary declaring no hint
+// at all keeps the no-hint line, as `yolo host apply` does: no manager could install it, so blaming
+// the missing manager would send the user to install one for nothing.
 func TestCheckDepsOffersNoManagerThePathLacks(t *testing.T) {
-	launchPathFixture(t, "", `{"kind":"requires","bin":"nixonlybin","install_hints":{"nix":"nixonly-pkg"}}`)
+	launchPathFixture(t, "", `{"kind":"requires","bin":"nixonlybin","install_hints":{"nix":"nixonly-pkg"}}`,
+		`{"kind":"requires","bin":"bareneed"}`)
 	fakeBinDir(t) // a PATH with no manager at all
 	rc, report := runCheckDepsT(t)
 	if rc != 1 {
@@ -237,6 +240,9 @@ func TestCheckDepsOffersNoManagerThePathLacks(t *testing.T) {
 	}
 	if !strings.Contains(report, "nixonlybin       MISSING, no package manager yolo knows is on this PATH") {
 		t.Errorf("the line should say no package manager is on the PATH:\n%s", report)
+	}
+	if !strings.Contains(report, "bareneed         MISSING, no install hint for this host") {
+		t.Errorf("a binary with no hint at all should keep the no-hint line:\n%s", report)
 	}
 
 	fakeBinDir(t, "nix")

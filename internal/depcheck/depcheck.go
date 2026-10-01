@@ -120,6 +120,9 @@ type Result struct {
 	// Manager is the detected manager the remedy is for, "" when the lookup found none (NoManager
 	// says so in words).
 	Manager string
+	// Hinted is whether the requirement declares any install hint. NoManager is the reason a
+	// missing binary has no remedy only when it is: a binary with no hint has none on any host.
+	Hinted bool
 	// Flavor is the hint KEY the remedy came from — the same as Manager except for
 	// brewCaskHint and selfInstallFlavor. Carried per-result rather than per-manifest because
 	// one brew host can need both verbs: a Brewfile mixing `brew "postgresql@16"` and
@@ -214,7 +217,7 @@ func Check(reqs []Requirement, look Lookup) []Result {
 	mgr := DetectManager(look)
 	var out []Result
 	for _, r := range reqs {
-		res := Result{Bin: r.Bin, Manager: mgr}
+		res := Result{Bin: r.Bin, Manager: mgr, Hinted: len(r.Hints) > 0}
 		switch {
 		case presentAt(look, r.Bin, &res):
 			// probed present; nothing to remedy
