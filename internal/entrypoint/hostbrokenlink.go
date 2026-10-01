@@ -27,8 +27,9 @@ package entrypoint
 // destination, with or without its parent directories, is created. Only the case the writer cannot
 // complete without inventing a directory is refused.
 //
-// THE READ SIDE IS FindDanglingLink, in this file because it walks the same chain (linkChainEnd)
-// and a second walker is what docs/design/agent-directory-map.md AM-D5 rules out. A file yolo
+// THE READ SIDE IS FindDanglingLink, in this file because it takes the same walk up the path
+// (unresolvedLinkOnPath) and along the same chain (linkChainEnd), and a second walker is what
+// docs/design/agent-directory-map.md AM-D5 rules out. A file yolo
 // READS has no write-through exemption: a link to a missing file reads nothing whether or not the
 // target's directory exists.
 
@@ -60,44 +61,59 @@ const maxLinkHops = 40
 // FindBrokenLink reports the broken link on path's way to the filesystem, or nil when a write to
 // path can complete without inventing a directory. See the file header for what counts.
 //
-// It walks UP from path until something exists (Lstat), because a missing path means either a
-// plain missing file (created, parents included) or a missing parent whose own ancestor may be the
-// link. The first existing entry decides: a regular file or directory means nothing on the way is
-// a link to nowhere; a symlink that does not resolve is the candidate.
+// It walks UP from path until something exists (unresolvedLinkOnPath), because a missing path
+// means either a plain missing file (created, parents included) or a missing parent whose own
+// ancestor may be the link. The first existing entry decides: a regular file or directory means
+// nothing on the way is a link to nowhere; a symlink that does not resolve is the candidate.
 func FindBrokenLink(path string) *BrokenLink {
+	p, serr, found := unresolvedLinkOnPath(path)
+	if !found || !os.IsNotExist(serr) {
+		// Nothing on the way is a link that does not resolve, or the one there fails for a
+		// reason that is not absence, which the writer reports as itself: not this rule's case.
+		return nil
+	}
+	end, ok := linkChainEnd(p)
+	if !ok {
+		return &BrokenLink{Link: p, Target: firstHop(p)}
+	}
+	if p == filepath.Clean(path) {
+		// The destination itself: broken only when the chain's end has no directory.
+		if dirExists(filepath.Dir(end)) {
+			return nil
+		}
+	}
+	// An ANCESTOR link that resolves to nothing is broken whatever its parent holds:
+	// writing below it means creating the directory it names, which is the same
+	// invented tree one level up.
+	return &BrokenLink{Link: p, Target: end}
+}
+
+// unresolvedLinkOnPath is the WALK UP both predicates in this file share: from path toward the
+// root until something exists (Lstat), because a missing path means either a plain missing file
+// or a missing parent whose own ancestor may be the link. The first existing entry decides. found
+// is true only when that entry is a symlink that os.Stat cannot follow, and serr is that Stat's
+// error, so each caller rules on it: ENOENT, a loop (ELOOP), or something else such as EACCES.
+// found is false when the first existing entry is not a link, when it resolves, when an Lstat on
+// the way fails for a reason that is not absence, and when nothing on the way exists at all.
+func unresolvedLinkOnPath(path string) (link string, serr error, found bool) {
 	p := filepath.Clean(path)
 	for {
 		fi, err := os.Lstat(p)
 		if err == nil {
 			if fi.Mode()&os.ModeSymlink == 0 {
-				return nil
+				return "", nil, false
 			}
-			if _, serr := os.Stat(p); serr == nil || !os.IsNotExist(serr) {
-				// Resolves (or fails for a reason that is not absence, which the writer
-				// reports as itself): not this rule's case.
-				return nil
+			if _, serr := os.Stat(p); serr != nil {
+				return p, serr, true
 			}
-			end, ok := linkChainEnd(p)
-			if !ok {
-				return &BrokenLink{Link: p, Target: firstHop(p)}
-			}
-			if p == filepath.Clean(path) {
-				// The destination itself: broken only when the chain's end has no directory.
-				if dirExists(filepath.Dir(end)) {
-					return nil
-				}
-			}
-			// An ANCESTOR link that resolves to nothing is broken whatever its parent holds:
-			// writing below it means creating the directory it names, which is the same
-			// invented tree one level up.
-			return &BrokenLink{Link: p, Target: end}
+			return "", nil, false
 		}
 		if !os.IsNotExist(err) {
-			return nil
+			return "", nil, false
 		}
 		parent := filepath.Dir(p)
 		if parent == p {
-			return nil
+			return "", nil, false
 		}
 		p = parent
 	}
@@ -109,43 +125,26 @@ func FindBrokenLink(path string) *BrokenLink {
 // link to nowhere, and when nothing is there and no link explains it: a plain missing file, which
 // is the user not having created it.
 //
-// It walks up from path exactly as FindBrokenLink does, because a dotfiles manager that linked a
-// whole directory leaves the file's own path absent and the link one or more levels up. Unlike
-// FindBrokenLink it exempts nothing: the write-through case (a missing target in a directory that
-// exists) is a write's, and a read of it fails all the same.
+// It walks up from path with FindBrokenLink's own walk (unresolvedLinkOnPath), because a dotfiles
+// manager that linked a whole directory leaves the file's own path absent and the link one or more
+// levels up. Unlike FindBrokenLink it exempts nothing: the write-through case (a missing target in
+// a directory that exists) is a write's, and a read of it fails all the same.
 func FindDanglingLink(path string) (link, target string, ok bool) {
-	p := filepath.Clean(path)
-	for {
-		fi, err := os.Lstat(p)
-		if err == nil {
-			if fi.Mode()&os.ModeSymlink == 0 {
-				return "", "", false
-			}
-			_, serr := os.Stat(p)
-			if serr == nil {
-				return "", "", false
-			}
-			end, chained := linkChainEnd(p)
-			switch {
-			case !chained:
-				// A loop, or a chain longer than the kernel follows: nothing at its end either.
-				return p, firstHop(p), true
-			case os.IsNotExist(serr):
-				return p, end, true
-			default:
-				// Resolves to something that cannot be read for another reason (EACCES on the
-				// way, say): the caller's to report as itself.
-				return "", "", false
-			}
-		}
-		if !os.IsNotExist(err) {
-			return "", "", false
-		}
-		parent := filepath.Dir(p)
-		if parent == p {
-			return "", "", false
-		}
-		p = parent
+	p, serr, found := unresolvedLinkOnPath(path)
+	if !found {
+		return "", "", false
+	}
+	end, chained := linkChainEnd(p)
+	switch {
+	case !chained:
+		// A loop, or a chain longer than the kernel follows: nothing at its end either.
+		return p, firstHop(p), true
+	case os.IsNotExist(serr):
+		return p, end, true
+	default:
+		// Resolves to something that cannot be read for another reason (EACCES on the
+		// way, say): the caller's to report as itself.
+		return "", "", false
 	}
 }
 
