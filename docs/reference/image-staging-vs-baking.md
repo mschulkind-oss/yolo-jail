@@ -1175,6 +1175,11 @@ none reaches the output of `yolo -- <cmd>`: the run path hands the loader's gene
 2026-10-01 it handed `Out` the command's stdout, so a launch that had to load its image printed
 `Image load needed`, this report and `Done: loaded image` into the command's output
 (`TestAColdImageLoadWritesNothingOnTheCommandsStdout`, `internal/cli/run/imageload_test.go`).
+**MEASURED** 2026-10-01 in a nested podman jail with the binary `just build-go` made at
+`088efaa5`, from a throwaway workspace whose `packages: ["hello"]` named an image the store did not
+hold: `yolo run -- bash -lc "echo ONLY-THIS-LINE"` printed `Image load needed: nix store path
+changed`, `Copied image: 2 layer(s), 27 MB copied; 90 layer(s), 3.2 GB already present` and
+`Done: loaded image` on stderr, and its stdout was `ONLY-THIS-LINE` alone.
 
 `created` is a **constant** (`0001-01-01T00:00:00Z`): nix2container `time.Parse`s the value, so
 the `created = "now"` the flake used to pass would fail the nix build, and a build-time timestamp
