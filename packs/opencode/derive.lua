@@ -325,6 +325,12 @@ local function opencodeNativeBedrockEntry(ctx)
   return nil
 end
 
+-- ⚠ WHERE A WHITELIST GOES IS STATED TWICE: here, and in this pack's program declaration
+-- `exact_menu_refuses` (every list an `only` narrowed, and openai-codex's whole list), which
+-- `yolo check` reads to say when a profile's switch leaves opencode's menu unnarrowed
+-- (docs/design/model-lists-and-pickers.md MM-D29). Moving a whitelist here moves that declaration;
+-- internal/entrypoint/unnarrowedmenus_test.go fails when the two disagree.
+--
 -- opencodeEnforceFor is the model-list switch (enforce_models, MM-D5) that governs provName's
 -- row: the switch of the active-set entry on that provider, its own profile's, since every entry
 -- is live (AP-P1); else the primary's, ctx.enforce_models, which is what every row read before

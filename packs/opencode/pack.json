@@ -2,6 +2,11 @@
   "contributes": [
     {
       "bin": "opencode",
+      "exact_menu_refuses": {
+        "providers": [
+          "openai-codex"
+        ]
+      },
       "install_hints": {
         "brew": "opencode",
         "pacman": "opencode"

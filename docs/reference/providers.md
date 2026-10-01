@@ -1631,7 +1631,11 @@ the list. On `openai-codex` claude's allowlist and pi's refusal hold whether or 
 narrowed the list, since there the list is each one's whole menu for the provider, and pi's
 refusal lives in the registration that also carries the subscription login
 ([MM-D23](../design/model-lists-and-pickers.md#MM-D23)). Off (`"enforce_models": false`), the list only shapes the menus, and opencode's menu is not narrowed at
-all, since its whitelist cannot hide without refusing. With the switch off claude's start pin
+all, since its whitelist cannot hide without refusing. `yolo check` warns about each provider
+the switch leaves unnarrowed this way, naming the profile: one whose list an `only` narrowed, and
+`openai-codex`, whose whole list is opencode's menu there and which opencode's pack names in its
+program's `exact_menu_refuses` ([pack-system.md](pack-system.md#exact_menu_refuses),
+[MM-D29](../design/model-lists-and-pickers.md#MM-D29)). With the switch off claude's start pin
 returns, on `openai-codex` and under an `only` alike, wherever the profile's `model` or the
 provider's default names a model: no allowlist then keeps an off-list saved model from starting,
 so a `/model` choice lasts one session. On `openai-codex` the switch governs

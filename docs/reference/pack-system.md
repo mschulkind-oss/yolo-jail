@@ -702,6 +702,20 @@ discloses the flag the way it discloses a pack's launch flags
 `list` or `into` that is empty, absolute, unclean or escaping the home, the two at one path, a
 `flag` that never spells `{into}`, a missing `entries` or `id`, and an entry key given two roles.
 
+<a id="exact_menu_refuses"></a>`exact_menu_refuses` says the program's model menu can show
+exactly a list only through a filter that also refuses every model off it, so its pack's derive
+writes that filter only while the governing profile's `enforce_models` is on. It is an object.
+Its presence covers every list a `models` `only` narrowed; `providers`, optional, names the
+providers, by yolo's provider name, whose whole list the derive makes the menu with no `only`.
+`packs/opencode` declares it with `["openai-codex"]`: opencode's `whitelist` is its one way to
+narrow a menu, and any model the whitelist leaves out fails as "Model not found". `yolo check` is
+the one reader: for each provider of the agent's configured profile and active set whose list
+that covers, where the profile governing that provider turns the switch off, it warns that yolo
+does not narrow the agent's menu there, naming the agent, the provider, the profile and the pack
+([`providers.md`](providers.md#model-lists-shaped-by-packs),
+[MM-D29](../design/model-lists-and-pickers.md#MM-D29)). It does not see `-p`. On `program` alone;
+`packdecl` refuses an empty `providers` list, an empty name and a name given twice.
+
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. One key names an installer *flavor* rather than
@@ -766,8 +780,8 @@ programs, the launcher generator and the host floor included, sees the fork's. I
 selection function (`config.SelectPacks`), which every host verb and the launch read, and in the
 jail's pack loader over the staged tree, whose base `pack.json` is unchanged. The rewrite keeps the
 base's `refresh`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
-`platform_regions`, `unlisted_background_models` and `node_floor` (a fork's own `node_floor`
-replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
+`platform_regions`, `unlisted_background_models`, `exact_menu_refuses` and `node_floor` (a
+fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
 `versions_dir`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.
 
 A fork brings its base into the launch the way an unconditional [`needs`](wire-bridge.md#needs--a-conditional-pack-dependency)

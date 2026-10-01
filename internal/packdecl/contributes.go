@@ -742,6 +742,19 @@ type Contribution struct {
 	// A PACK FACT for `platform_switches`' reason: what a binary sends is that binary's fact,
 	// and core names no agent. ON `program` ALONE.
 	UnlistedBackgroundModels bool `json:"unlisted_background_models,omitempty"`
+	// ExactMenuRefuses says this program's model menu shows exactly a list only through a filter
+	// that also refuses every model off it, so the pack's derive writes that filter only while the
+	// governing profile's `enforce_models` is on, and with it off yolo does not narrow the menu
+	// (docs/design/model-lists-and-pickers.md MM-D5, MM-D29). packs/opencode declares it: its
+	// `provider.<id>.whitelist` is the one lever opencode has, and any model it leaves out fails as
+	// "Model not found". It covers every list a `models` `only` narrowed, and the whole list of
+	// each provider ExactMenuRefusal.Providers names. `yolo check` is its one reader: it says, per
+	// agent and provider, when a profile's switch leaves such a menu unnarrowed
+	// (packload.UnnarrowedMenus). A program that declares nothing is never named there.
+	//
+	// A PACK FACT for `platform_switches`' reason: what an agent's menu can do is that agent's
+	// fact, and core names no agent. ON `program` ALONE.
+	ExactMenuRefuses *ExactMenuRefusal `json:"exact_menu_refuses,omitempty"`
 
 	// --- adapter (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1) ---
 	// Adapts is the protocol PAIR this contribution converts, and Address is where the
@@ -3322,6 +3335,8 @@ func validateContribution(label string, c Contribution) []string {
 	problems = append(problems, modelCatalogProblems(label, c)...)
 	// `model_menu` is a program's alone: the launcher runs it before exec'ing the program.
 	problems = append(problems, modelMenuProblems(label, c)...)
+	// `exact_menu_refuses` is a program's alone: it says how that program's model menu narrows.
+	problems = append(problems, exactMenuProblems(label, c)...)
 	// `reserved` is skills' alone, refused in `profile`'s position and for `profile`'s reason:
 	// the only consumer is the skills destination walk, so a reserved name on any other kind is
 	// a declaration that silently protects nothing.

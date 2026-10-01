@@ -56,8 +56,9 @@ while Copilot shares its provider through the bridge. A profile's new
 `"enforce_models": false` drops the refusals; opencode then shows its full menu, and Claude Code
 starts each session on the profile's model again. `"pin_model": "true"` makes Claude Code start
 every session on the profile's model with the refusals on too. Your own `providers` entry still has the
-last word, and `yolo check` names a model a pack adds twice or an `only` that names a model
-nothing added. See
+last word, and `yolo check` names a model a pack adds twice, an `only` that names a model
+nothing added, and each provider whose opencode menu a profile's `"enforce_models": false` leaves
+unnarrowed. See
 [model menus](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
 
 **Codex on your ChatGPT subscription now offers yolo's model list in its `/model` menu.**

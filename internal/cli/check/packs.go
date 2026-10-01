@@ -252,6 +252,10 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	for _, w := range modelListNotes(loaded, merged) {
 		r.warn(w, "")
 	}
+	// Which of those lists a profile's `enforce_models` off leaves out of an agent's menu
+	// (docs/design/model-lists-and-pickers.md MM-D5, MM-D29): over the same selected set and the
+	// same composition, with the profiles resolved as the launch resolves them.
+	unnarrowedMenuReport(r, loaded, merged, userProfiles)
 	// Whether the ids those lists name are ones an installed agent's own catalog knows
 	// (docs/design/model-lists-and-pickers.md MM-D16): over the same selected set and the same
 	// composition, read from the files each agent's pack declares, so a warning here names an id

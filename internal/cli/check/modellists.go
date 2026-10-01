@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -40,6 +41,51 @@ func modelListNotes(packs []*packload.Pack, merged *jsonx.OrderedMap) []string {
 		return nil
 	}
 	return notes
+}
+
+// unnarrowedMenuReport is MM-D5's line (docs/design/model-lists-and-pickers.md: "opencode cannot
+// shape its menu without refusing, so with the switch off it gets no whitelist, and `yolo check`
+// says its menu is then not narrowed"; MM-D29 the mechanism): one WARNING per agent and provider
+// whose model menu yolo does not narrow to the provider's list because the governing profile turns
+// `enforce_models` off. Which agents, lists and profiles count is packload.UnnarrowedMenus', over
+// the composition and the profile resolution the launch runs; the agents are the programs whose
+// pack declares `exact_menu_refuses`, so core names none.
+//
+// A WARNING and never a refusal: the launch starts, the menu shows more than the list, and the
+// agent runs a model off it, which is what the switch asked for everywhere but this menu. Inputs
+// that do not compose or resolve say nothing here: the protocol-pairing prediction beside it
+// reports that. Like every prediction in this section it reads the configured `profile`, never a
+// `-p`.
+func unnarrowedMenuReport(r *reporter, packs []*packload.Pack, merged *jsonx.OrderedMap,
+	userProfiles func() (map[string]packload.UserProfile, error)) {
+	profiles := config.ConfigProfileTable(merged, packs)
+	if len(profiles) == 0 {
+		return
+	}
+	providers, err := packload.ComposeProviders(subMap(merged, "providers"), packs)
+	if err != nil || providers == nil {
+		return
+	}
+	declared, err := userProfiles()
+	if err != nil {
+		return
+	}
+	resolved, err := packload.ResolveProfiles(packs, declared, providers)
+	if err != nil {
+		return
+	}
+	sets := packload.ProfileSets(config.ConfigProfileSets(merged, packs))
+	for _, m := range packload.UnnarrowedMenus(packs, providers, resolved, profiles, sets) {
+		r.warn(fmt.Sprintf("Model list: yolo does not narrow %s's menu for provider %q to its list, "+
+			"because profile %q turns enforce_models off", m.Agent, m.Provider, m.Profile),
+			fmt.Sprintf("pack %s says %s's menu can show exactly a list only through a filter that "+
+				"also refuses every model off it, so yolo writes that filter only while the profile's "+
+				"enforce_models is on. With it off, %s's menu for %q is not held to the list: it can "+
+				"offer the models of %s's own catalog for that provider, and %s runs a model off the "+
+				"list when one is picked. To narrow the menu, drop \"enforce_models\": false from "+
+				"profile %q, which turns the list's refusals back on too",
+				m.Pack, m.Agent, m.Agent, m.Provider, m.Agent, m.Agent, m.Profile))
+	}
 }
 
 // modelCatalogReport is MM-D16's currency check (docs/design/model-lists-and-pickers.md §9), over

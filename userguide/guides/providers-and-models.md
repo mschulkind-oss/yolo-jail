@@ -380,7 +380,8 @@ Code on one provider, the bridge refuses neither.
 
 To keep the menus but stop the refusals, set `"enforce_models": false` on the profile:
 `"profiles": {"zai-open": {"provider": "zai", "enforce_models": false}}`. opencode then shows its
-full menu again, because it cannot narrow a menu without refusing. Claude Code also goes back to
+full menu again, because it cannot narrow a menu without refusing, and `yolo check` warns that
+opencode's menu for that provider is not narrowed. Claude Code also goes back to
 starting every session on the profile's model, as it does on the other providers, so a model you
 pick with `/model` lasts only for that session.
 
