@@ -32,19 +32,32 @@ running, by area:
   and tested in-process. On the host that reported the listen-port collision, that the
   provider-table fix ends it is inferred from an in-process reproduction, and no launch there has
   been observed succeeding
-  ([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)).
+  ([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)). One
+  translated request reached a live upstream, on 2026-10-01, and was refused: Bedrock's GPT-6.1
+  Sol answers the `max_tokens` the translation sends with a 400
+  ([`wire-bridge-gateway.md` §2.4](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)).
 - **[The via route](#the-via-route--one-route-per-agent-under-agentname)**, both wires. MEASURED
-  in-process only, against a stubbed upstream; no agent has sent a request through it.
+  in-process against a stubbed upstream, and its Responses wire against real Bedrock on
+  2026-10-01 with a request shaped like codex's
+  ([`wire-bridge-gateway.md` §2.4](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01));
+  no agent has sent a request through it.
 - **[The host half](#at-the-host-notch).** MEASURED through `hostMain` in `internal/cli`'s unit
   tests, a real host half serving a fake agent against a stubbed upstream and a fake host broker,
   and the macos-user arm by unit tests with the start stubbed. No agent CLI and no Mac have run it.
 - **[The Messages pass-through](#the-messages-pass-through-on-a-bedrock-upstream).** Its route
   and stream framing are SOURCED from AWS's documentation and the Anthropic SDK's source, and it
-  is MEASURED in-process only, against a fake upstream serving that documented format. No request
-  has reached Bedrock through it.
+  is MEASURED in-process against a fake upstream serving that documented format. MEASURED live on
+  2026-10-01: a streamed Claude Opus 5.5 request reached runtime through it, signed by the bridge,
+  and came back as Anthropic server-sent events
+  ([`wire-bridge-gateway.md` §2.4](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)).
+  No agent has sent a request through it.
 - **[Which upstream is Bedrock's](#which-upstream-is-bedrocks), the region-composed upstream and
   [the model allowlist](#the-model-allowlist).** MEASURED the same way: the production boot over
-  the shipped packs, against a stubbed upstream, and no request to AWS.
+  the shipped packs, against a stubbed upstream. On 2026-10-01 the boot over a jail's own tables
+  signed for the shipped `bedrock` provider and composed runtime's `us-east-1` URL, and AWS served
+  the requests it sent
+  ([`wire-bridge-gateway.md` §2.4](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)).
+  No request has tested the allowlist against AWS.
 
 A **wire bridge** *(coined here)* is a daemon that manufactures, on the agent's loopback, a wire
 protocol a provider does not natively serve, by translating to one it does. It runs in the jail,

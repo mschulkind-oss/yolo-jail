@@ -17,7 +17,8 @@ Bedrock? It can go through its own built-in Bedrock client, or through yolo's wi
 also covers what you type to pick one, and what shape yolo's Bedrock provider takes so that every
 agent can read it.
 
-**Status:** 2026-09-25, rewritten after the maintainer's review of that day.
+**Status:** 2026-10-01 — the first live requests reached Bedrock from a jail (the MEASURED live
+line below). Rewritten 2026-09-25 after the maintainer's review of that day.
 - Ruled: yolo ships one endpoint family, `bedrock-runtime` ([DIR-BR3](#DIR-BR3)). Every agent
   reaches every Bedrock model, across the whole matrix ([DIR-BR1](#DIR-BR1), [DIR-BR2](#DIR-BR2)).
   claude gets a native profile and an everything profile ([OQ-BR11](#OQ-BR11)). pi gets its native
@@ -63,8 +64,17 @@ agent can read it.
 - MEASURED 2026-09-29, for step 2: the codex-cli 0.158.0, opencode 1.18.32 and pi 0.99.1 Bedrock
   clients, read statically from the copies the launcher installed and never run; every shipped
   model id, read from its AWS model card ([`packs/bedrock/README.md`](../../packs/bedrock/README.md#sources)).
-- UNMEASURED: no request has reached Bedrock from any agent, through the bridge, or with any of
-  the three credentials.
+- MEASURED live 2026-10-01, from a jail in `us-east-1` under the SSO credential `aws-auth` serves
+  ([the first live requests](#the-first-live-requests-2026-10-01); every result is in
+  [`wire-bridge-gateway.md` §2.4](wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)):
+  runtime served Claude Opus 5.5 on its Messages route and GPT-6.1 Sol on its Responses route,
+  signed by botocore and by the wire bridge alike. ConverseStream for GPT-6.1 Sol, pi's and
+  opencode's native wire, answered 500 under a 16-token cap. GPT-6.1 Sol refused the bridge's
+  translated request for its `max_tokens`. Claude Code's own Bedrock mode had already run on
+  `aws-auth`'s credential, on 2026-09-29
+  ([`providers.md`](../reference/providers.md#two-channels-split-by-payload-type)).
+- UNMEASURED: any request codex, opencode or pi sends; a Bedrock API key and a static key pair,
+  neither of which that jail holds.
 
 **Needs your ruling:** [OQ-BR24](#OQ-BR24), raised 2026-09-30 when the bridge began carrying
 copilot and oh-omp on plain `-p bedrock` ([BR-D15](#BR-D15)'s amendment). Both re-asks were answered 2026-09-29. [BR-D17](#BR-D17)'s is
@@ -1031,7 +1041,9 @@ links.
 ## 14. Evidence, and how to re-check it
 
 Every third-party fact carries its source and date; re-run these rather than trusting the tables.
-Repo claims were verified at `f491d192` (2026-09-24), cited by symbol. No request was made to AWS.
+Repo claims were verified at `f491d192` (2026-09-24), cited by symbol. No request was made to AWS
+for these readings. The first live requests, on 2026-10-01, are
+[the last part of this section](#the-first-live-requests-2026-10-01).
 
 **codex**: the standalone **codex-cli 0.156.1** yolo's launcher installs
 (`~/.codex/packages/standalone/releases/0.156.1-x86_64-unknown-linux-musl/bin/codex`). It was read
@@ -1132,3 +1144,50 @@ matches), which shows presence only.
 [opencode providers](https://opencode.ai/docs/providers/) ·
 [Bedrock Web Search](https://docs.aws.amazon.com/bedrock/latest/userguide/web-search.html) ·
 [Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock)
+
+### The first live requests, 2026-10-01
+
+MEASURED from a jail in `us-east-1`, signed with the SSO credential `aws-auth` serves. Its
+container pointer was the jail's only AWS credential source; no Bedrock API key and no static key
+pair are set there. [`wire-bridge-gateway.md` §2.4](wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)
+holds the method and the eight Responses and Messages requests, sent directly and through the
+wire bridge, and [`bedrock-web-search.md`](bedrock-web-search.md#measured-live-2026-10-01-runtime-refuses-claudes-search-tool)
+the two that carried Claude's search tool. No agent was started.
+
+This doc's own request is the one Converse call, on the wire pi and opencode drive natively
+([§4](#4-what-each-agent-can-actually-do)). It was ConverseStream, the streaming form pi's
+`bedrock-converse-stream` client sends, for GPT-6.1 Sol, the model [BR-D19](#BR-D19) starts an
+agent on when it starts on an OpenAI model:
+
+```console
+$ uv run -q --with botocore python - <<'EOF'
+import botocore.session
+from botocore.config import Config
+client = botocore.session.Session().create_client(
+    "bedrock-runtime", region_name="us-east-1",
+    config=Config(retries={"total_max_attempts": 1}))  # the 2026-10-01 run did not set this
+resp = client.converse_stream(
+    modelId="us.openai.gpt-6.1-sol",
+    messages=[{"role": "user", "content": [{"text": "Reply with the one word: pong"}]}],
+    inferenceConfig={"maxTokens": 16})
+for event in resp["stream"]:
+    print(next(iter(event)))
+EOF
+```
+
+| Time (UTC) | Status | Answer |
+| :--- | :--- | :--- |
+| 15:37:26 | **500** `InternalServerException`, after 23.4 s | *"The system encountered an unexpected error during processing. Try your request again."* No stream event arrived |
+
+botocore 1.43.106's default retry policy re-sends a 500, and the run left it on, so this one call
+was up to five HTTP requests. The attempt count was not captured.
+
+**What it decides.** No Converse request has completed, so done-condition 2's turn on opencode
+and pi is still open.
+
+**What it leaves open.** The cause, INFERRED from the gateway's Responses requests: one with no
+reasoning effort under a 16-token cap answered 500 for both GPT ids, and the same request with a
+low effort was served ([§2.4](wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01),
+requests 1 to 3). This call set no effort either. A Converse request with a low effort or with no
+cap, and a Claude model on Converse, were not sent, by the measurement's budget. Whether a pi or
+opencode turn, which sends no such cap, meets the 500 is unmeasured.

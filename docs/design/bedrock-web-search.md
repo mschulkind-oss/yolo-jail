@@ -3,7 +3,7 @@ title: "Web search on every Bedrock profile: the AgentCore MCP preset"
 date: 2026-09-25
 status: in-review
 stage: DESIGN
-next: "Rule OQ-BR19, the first owed, then OQ-BR23 and OQ-BR20. D7, read 2026-10-01 from the shipped packages, bears on OQ-BR19 (codex and opencode do not resolve ${VAR} in an MCP server's env) and widens OQ-BR23 (on -p bedrock-bridge claude and codex offer a search runtime cannot serve; copilot and oh-omp search outside the MCP table)"
+next: "Rule OQ-BR19, the first owed, then OQ-BR23 and OQ-BR20. D7, read 2026-10-01 from the shipped packages, bears on OQ-BR19 (codex and opencode do not resolve ${VAR} in an MCP server's env) and widens OQ-BR23 (on -p bedrock-bridge claude and codex offer a search runtime cannot serve, and runtime answered claude's with a 400 on 2026-10-01; copilot and oh-omp search outside the MCP table)"
 depends-on:
   - mcp-presets-removal.md
 tags: [bedrock, aws, agentcore, mcp, web-search, tavily, packs, providers]
@@ -21,9 +21,13 @@ out of [`bedrock-plumbing.md`](bedrock-plumbing.md) on 2026-09-25, where it was 
 question ids are unchanged. **MEASURED:** yolo's MCP pipeline, read at `6f21b82c`
 ([§3](#3-what-yolos-mcp-pipeline-does-today)); the bridge refusing Claude's search server tool on
 its translating route, and the `${VAR}` references this jail's own agent configs carry (D7).
+**MEASURED live, 2026-10-01:** runtime's Messages route answers Claude's search server tool with
+a 400, *"tool type 'web_search_20250305' is not supported for this model"*, whether it is sent
+directly or through the bridge, which relays the 400 unchanged
+([D7](#measured-live-2026-10-01-runtime-refuses-claudes-search-tool)).
 **UNMEASURED:** no one has called an AgentCore gateway or started an agent. Every per-agent fact
-in D7 is read from shipped code, not run, and what runtime answers to a server tool it does not
-serve is undocumented. Every AWS fact is SOURCED from AWS's pages on the date given in the
+in D7 is read from shipped code, not run, and what runtime answers to codex's hosted `web_search`
+tool on its Responses route is undocumented and unsent. Every AWS fact is SOURCED from AWS's pages on the date given in the
 [evidence appendix](#evidence-and-how-to-re-check-it).
 
 **The question this doc answers.** When an agent talks to Bedrock, how does it search the web,
@@ -47,7 +51,8 @@ and when a user's own Tavily search server is also eligible, which one does it g
   [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-BR10)). It already exports the AgentCore
   service name and gateway-host matcher for this proxy.
 - **Read 2026-10-01** ([D7](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)): on
-  `-p bedrock-bridge`, claude and codex each offer a search that runtime cannot serve; codex and
+  `-p bedrock-bridge`, claude and codex each offer a search that runtime cannot serve, and
+  runtime refuses claude's with a 400 (MEASURED the same day); codex and
   opencode pass a `${VAR}` in an MCP server's `env` through as literal text; pi's own MCP client
   read a file yolo did not write, which the pi pack now writes
   ([AM-D20](agent-directory-map.md#AM-D20)). AWS documents Bedrock's server-side web search for none
@@ -101,7 +106,7 @@ the AWS credential comes from, and owner of `packs/aws-auth`'s README).
 | :--- | :--- |
 | Bedrock's built-in Web Search | **mantle only**: a server-side tool on mantle's Responses API, for `openai.gpt-5.4`, `openai.gpt-5.5` and the three GPT-5.6 models, in `us-east-1`, `us-east-2` and `us-west-2` (and three of them in `us-gov-west-1`). Runtime serves no server-side or pre-configured tools. **None of the three models `packs/bedrock` lists is among them** ([D7](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)) |
 | Amazon Nova Web Grounding | the one server-side search AWS documents on runtime: a Converse `systemTool`, `nova_grounding`, for Nova models on US cross-Region profiles only. yolo lists no Nova model, and no agent yolo ships sends it |
-| Claude Code's WebSearch tool | **absent in Bedrock mode**: *"The WebSearch tool is not available on Amazon Bedrock"* ([Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock)). **Offered, and cannot work, on `-p bedrock-bridge`** (D7 (a)) |
+| Claude Code's WebSearch tool | **absent in Bedrock mode**: *"The WebSearch tool is not available on Amazon Bedrock"* ([Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock)). **Offered, and cannot work, on `-p bedrock-bridge`**: runtime refuses its server tool with a 400, MEASURED (D7 (a)) |
 | codex's search | AWS documents it on mantle only (*"Codex … connects to Amazon Bedrock through the `bedrock-mantle` endpoint and can use Web Search"*, CLI 0.147.0 or later). codex 0.158.0 turns it off for its runtime provider and **sends it on `-p bedrock-bridge`**, where runtime cannot serve it (D7 (a)) |
 | copilot | nothing from Bedrock; GitHub's hosted `web_search` MCP tool whenever copilot holds a GitHub login (D7 (a)) |
 | opencode, pi | nothing, unless the user turns on opencode's Exa or Parallel search or installs a pi search package (D7 (a)) |
@@ -347,8 +352,10 @@ policy narrows only as far as the role allows, so the role behind `aws-auth` mus
 
 Both traps are real. They were read on 2026-10-01 (build step 9.1) from the packages installed in
 this jail and from codex's source at the tag of the binary yolo installs. oh-omp, which is not
-installed here, was read from its npm package. No agent was started and nothing was called. Each
-row names the version read. The labels: **SOURCED** is read from that version's code or AWS's
+installed here, was read from its npm package. No agent was started, and nothing was called for
+the readings. Claude's row was then measured against runtime the same day
+([below](#measured-live-2026-10-01-runtime-refuses-claudes-search-tool)). Each row names the
+version read. The labels: **SOURCED** is read from that version's code or AWS's
 pages, **MEASURED** was run here, **INFERRED** follows from the two. How to re-read each one is
 under [Shipped-package re-checks](#shipped-package-re-checks).
 
@@ -360,13 +367,40 @@ tools.
 
 | Agent, version read | Its own search on a Bedrock profile |
 | :--- | :--- |
-| claude 2.1.286 | **`-p bedrock`: none.** SOURCED: WebSearch's `isEnabled` is true only when Claude Code's provider is `firstParty`, `anthropicAws`, `anthropicGoogleCloud`, `foundry` or `vertex`, and false for `bedrock` and `mantle`. **`-p bedrock-bridge`: offered, and it cannot work.** SOURCED: yolo sets `ANTHROPIC_BASE_URL` and no `CLAUDE_CODE_USE_BEDROCK` there (`nativeBedrock` in `packs/claude/derive.lua`), so the provider is `firstParty`. A WebSearch call is a second Messages request, carrying Anthropic's server tool `web_search_20250305`, to the main model (or to the small fast model when Claude Code's feature flag `tengu_plum_vx3` is on; it defaults off). For a model the list marks `"vendor": "anthropic"` (Claude Opus 5.5), the bridge forwards that request unchanged to runtime's Messages route ([wire-bridge.md](../reference/wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream)), and Anthropic documents web search as *"not available on Amazon Bedrock"*. MEASURED for any other model: the bridge's translating route refuses it, which the daemon answers with a named 400 ([WB-D5](../reference/wire-bridge.md#wb-d5)). INFERRED: runtime refuses the forwarded tool too, though AWS documents no answer |
-| codex 0.158.0 | **`-p bedrock`: none.** SOURCED: the `amazon-bedrock-runtime` provider reports the capability `web_search: false` (true only for the mantle endpoint). That suppresses both the hosted `web_search` tool and codex's standalone search. **`-p bedrock-bridge`: sent, and runtime cannot serve it.** SOURCED: the via row is an ordinary provider named `bedrock`, not one of codex's two Bedrock names, so it takes the default capabilities (`web_search: true`). Unless its `web_search` mode is `"disabled"`, codex adds the hosted `{"type": "web_search", …}` tool to every Responses request. The via route forwards the body unchanged to runtime's `/openai/v1/responses`, where *"server-side tool use and pre-configured tools aren't available, including web search"*. INFERRED: a 400 or a silently ignored tool; AWS does not say which |
+| claude 2.1.286 | **`-p bedrock`: none.** SOURCED: WebSearch's `isEnabled` is true only when Claude Code's provider is `firstParty`, `anthropicAws`, `anthropicGoogleCloud`, `foundry` or `vertex`, and false for `bedrock` and `mantle`. **`-p bedrock-bridge`: offered, and it cannot work.** SOURCED: yolo sets `ANTHROPIC_BASE_URL` and no `CLAUDE_CODE_USE_BEDROCK` there (`nativeBedrock` in `packs/claude/derive.lua`), so the provider is `firstParty`. A WebSearch call is a second Messages request, carrying Anthropic's server tool `web_search_20250305`, to the main model (or to the small fast model when Claude Code's feature flag `tengu_plum_vx3` is on; it defaults off). For a model the list marks `"vendor": "anthropic"` (Claude Opus 5.5), the bridge forwards that request unchanged to runtime's Messages route ([wire-bridge.md](../reference/wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream)), and Anthropic documents web search as *"not available on Amazon Bedrock"*. MEASURED for any other model: the bridge's translating route refuses it, which the daemon answers with a named 400 ([WB-D5](../reference/wire-bridge.md#wb-d5)). MEASURED live 2026-10-01 for Claude Opus 5.5: runtime refuses the forwarded tool with a 400, and the bridge relays it ([below](#measured-live-2026-10-01-runtime-refuses-claudes-search-tool)) |
+| codex 0.158.0 | **`-p bedrock`: none.** SOURCED: the `amazon-bedrock-runtime` provider reports the capability `web_search: false` (true only for the mantle endpoint). That suppresses both the hosted `web_search` tool and codex's standalone search. **`-p bedrock-bridge`: sent, and runtime cannot serve it.** SOURCED: the via row is an ordinary provider named `bedrock`, not one of codex's two Bedrock names, so it takes the default capabilities (`web_search: true`). Unless its `web_search` mode is `"disabled"`, codex adds the hosted `{"type": "web_search", …}` tool to every Responses request. The via route forwards the body unchanged to runtime's `/openai/v1/responses`, where *"server-side tool use and pre-configured tools aren't available, including web search"*. INFERRED: a 400 or a silently ignored tool; AWS does not say which, and the live requests of 2026-10-01 did not send it |
 | copilot 1.0.48 | **Nothing from Bedrock.** SOURCED: its requests through the bridge carry no server tool, since the package names no `web_search_20…` type. Its `web_search` is a tool of GitHub's hosted MCP server (`api.githubcopilot.com/mcp`, toolset `web_search`), offered unless the model's catalog entry says it searches natively. copilot connects that server only with a GitHub login (a saved login, the `gh` CLI or a token variable), and never in offline mode. INFERRED: on Bedrock, copilot searches through GitHub whenever it holds such a login, outside yolo's MCP table. Whether a yolo launch of copilot on Bedrock carries one was not read |
 | opencode 1.18.34 | **None by default.** SOURCED: its `websearch` tool is registered only for the providers `opencode` and `opencode-go`, or when `OPENCODE_ENABLE_EXA`, `OPENCODE_ENABLE_PARALLEL` or `OPENCODE_EXPERIMENTAL` is set (or the older spellings `OPENCODE_EXPERIMENTAL_EXA` and `OPENCODE_EXPERIMENTAL_PARALLEL`). It then calls Exa's or Parallel's hosted MCP endpoint from the opencode process. No call site adds a provider's own search tool to a request. No shipped pack sets those variables |
 | pi 0.99.2 | **None.** SOURCED: pi ships no search tool, and its Bedrock client (`amazon-bedrock`, the Converse API) sends only the session's own tools. This jail's user installed `pi-web-access` 0.33.0, a pi package that searches through Exa and other services from the pi process. It is the user's install, not one yolo ships |
 | oh-omp 0.15.3 | **Nothing from Bedrock.** SOURCED: its own `web_search` tool uses the first search service whose credential it finds, in this order: Tavily, Perplexity, Brave, Jina, Kimi, Anthropic, Gemini, Codex, Z.ai, Exa, Parallel, Kagi, Synthetic. None of these is Bedrock. Its derive projects no MCP table, but oh-omp loads MCP servers from other agents' files by default, among them `~/.claude.json`, `~/.claude/mcp.json`, `~/.codex/config.toml`, `~/.config/opencode/opencode.json` and a project's `.mcp.json` (its `disabledProviders` setting defaults to empty, and the omp pack sets none). INFERRED: a preset in claude's or codex's file reaches oh-omp whenever that pack is selected beside it ((b) below) |
 | agy | **Never on a Bedrock profile.** SOURCED: its `program` declares no protocol (`packs/agy/pack.json`), so no profile routes it to Bedrock |
+
+<a id="measured-live-2026-10-01-runtime-refuses-claudes-search-tool"></a>
+**Measured live, 2026-10-01: runtime refuses Claude's search tool.** Two requests carried
+Claude Code's server tool to runtime's Messages route, in `us-east-1`, signed with the SSO
+credential `aws-auth` serves. They were part of the first live Bedrock requests, whose method and
+other results are
+[`wire-bridge-gateway.md` §2.4](wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)'s.
+No agent was started. The body carried the server tool a WebSearch call carries, as Claude Code
+spells it ([the shipped-package re-checks](#shipped-package-re-checks)), cut to one use, under a
+16-token cap:
+
+```json
+{"model": "global.anthropic.claude-opus-5-5", "max_tokens": 16,
+ "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 1}],
+ "messages": [{"role": "user", "content": "Search the web for today's date; answer in three words."}]}
+```
+
+| Time (UTC) | Sent | Status | Answer |
+| :--- | :--- | :--- | :--- |
+| 15:37:18 | directly to `POST https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1/messages`, signed by botocore 1.43.106 for `bedrock`, with `anthropic-version: 2023-06-01` | **400**, 0.4 s | `{"type":"error","error":{"type":"invalid_request_error","message":"tool type 'web_search_20250305' is not supported for this model"}}` |
+| 15:39:50 | through the bridge's adapter route, `POST 127.0.0.1:8214/v1/messages`, which passed it untranslated to the same URL under its own signature | **400**, 0.4 s | the same body, relayed unchanged ([WG-I32](wire-bridge-gateway.md#WG-I32)); the bridge logged `POST /v1/messages 400 417ms (model global.anthropic.claude-opus-5-5 is Anthropic's on the provider's list: untranslated to …/anthropic/v1/messages)` |
+
+So on `-p bedrock-bridge`, claude's WebSearch on Claude Opus 5.5 ends in a 400
+`invalid_request_error` that names the tool type, and nothing was searched. What Claude Code then
+shows its user was not observed, since no agent ran. The answer says *"for this model"*, so
+whether another Claude id on runtime accepts the tool is unmeasured. AWS's pages name no Claude
+model that does ([the evidence table](#evidence-and-how-to-re-check-it)).
 
 **(b) An agent's MCP client may not pass the jail's environment to the proxy.** The proxy needs
 the credential variables and the gateway URL. The planned entry names each in its `env` as a
@@ -409,7 +443,8 @@ projects to. That doc owns the rule; this one only records the reading.
   under codex, which forwards only the names in its own `env_vars` key. No derive writes that key
   today.
 - **For trap (a).** On `-p bedrock-bridge`, claude's WebSearch and codex's hosted search sit beside
-  any preset, and both fail. The capability rule drops only MCP entries, so it cannot remove
+  any preset, and both fail. claude's fails with the 400 measured below; codex's failure is
+  inferred. The capability rule drops only MCP entries, so it cannot remove
   them. It does not count them either: the `bedrock` provider row declares no `web_search`, and
   that row is all the rule reads, so the rule still delivers a search entry beside them.
 - **[OQ-BR19](#OQ-BR19).** Option A's last step, *"the proxy reads the URL from the variable the
@@ -679,7 +714,9 @@ projects to. That doc owns the rule; this one only records the reading.
 Every AWS claim is a fact about a third party; re-read the source rather than trusting the table.
 Repo claims were read at `6f21b82c` and are cited by symbol, not line.
 
-Read 2026-09-25 unless noted; nothing was called. The claims themselves are stated in
+Read 2026-09-25 unless noted; nothing was called, except the two requests of 2026-10-01 under
+[D7](#measured-live-2026-10-01-runtime-refuses-claudes-search-tool), sent as
+[`wire-bridge-gateway.md` §11](wire-bridge-gateway.md#11-evidence) shows. The claims themselves are stated in
 [§1](#1-why-a-bedrock-profile-has-no-search-today) and [§2](#2-what-agentcore-web-search-is);
 this table maps each to its source.
 

@@ -3,11 +3,11 @@ title: "The wire bridge as the jail's model gateway: signing, routing by model a
 date: 2026-09-25
 status: accepted
 stage: DECIDED
-next: "A human with a Bedrock credential sends one codex turn under -p bedrock-bridge: AWS documents runtime's /openai/v1/responses for both shipped GPT ids (§2.3, read 2026-10-01), so only a live request can still refute the route"
+next: "Make the translating route send an output cap runtime's GPT models accept: GPT-6.1 Sol refused its max_tokens with a 400 at the first live request (§2.4, MEASURED 2026-10-01), so claude's everything profile and copilot fail every turn on that model"
 depends-on:
   - pi-codex-provider-shadowing.md#OQ-3
 tags: [wire-bridge, bedrock, aws, sigv4, routing, failover, models, allowlist, providers, subscription]
-summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled: it signs its own AWS requests with SigV4 (built, keyed on the provider's platform marker since 2026-09-30), routes claude's everything profile by model id so Claude models reach Bedrock's own Messages route untranslated (built), offers a sign-only OpenAI chat-completions route (built), and carries claude's subscription with opt-in per-model failover to Bedrock (unbuilt). A Bedrock provider named by region alone is reached at runtime's own URL composed from the region (built 2026-09-30), so the shipped bedrock-bridge profile carries every agent, and plain bedrock carries copilot and oh-omp, which have no Bedrock client of their own (WG-I44). A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default; built 2026-09-30) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, is decided (WG-I36, 2026-09-30: pi's client sends a placeholder bearer and only the bridge signs) and not built; where pi's re-pointing row may live waits on pi-codex-provider-shadowing's OQ-3."
+summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled: it signs its own AWS requests with SigV4 (built, keyed on the provider's platform marker since 2026-09-30), routes claude's everything profile by model id so Claude models reach Bedrock's own Messages route untranslated (built), offers a sign-only OpenAI chat-completions route (built), and carries claude's subscription with opt-in per-model failover to Bedrock (unbuilt). The first live requests, 2026-10-01, found AWS accepting the bridge's signatures on runtime's Messages and Responses routes, and GPT-6.1 Sol refusing the translating route's max_tokens. A Bedrock provider named by region alone is reached at runtime's own URL composed from the region (built 2026-09-30), so the shipped bedrock-bridge profile carries every agent, and plain bedrock carries copilot and oh-omp, which have no Bedrock client of their own (WG-I44). A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default; built 2026-09-30) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, is decided (WG-I36, 2026-09-30: pi's client sends a placeholder bearer and only the bridge signs) and not built; where pi's re-pointing row may live waits on pi-codex-provider-shadowing's OQ-3."
 vantage:
   status-chip: true
 ---
@@ -18,7 +18,8 @@ vantage:
 provider, what may it do? It could sign for AWS, choose an upstream per model or per agent,
 fail over when a subscription runs out, or refuse a model that is not on a list.
 
-**Status:** 2026-09-25; the one question opened since, [OQ-WG8](#OQ-WG8), was decided as an implementation choice on 2026-09-30 ([WG-I36](#WG-I36)) — the SigV4 signer, [OQ-WG6](#OQ-WG6), [OQ-WG7](#OQ-WG7) and Part 3's sign-only route are built, and the via route's Responses wire for codex is built (2026-09-26, [WG-I20](#WG-I20)). Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
+**Status:** 2026-10-01 — the first live requests reached Bedrock from a jail
+([§2.4](#24-the-first-live-requests-measured-2026-10-01)). Ruled 2026-09-25; the one question opened since, [OQ-WG8](#OQ-WG8), was decided as an implementation choice on 2026-09-30 ([WG-I36](#WG-I36)) — the SigV4 signer, [OQ-WG6](#OQ-WG6), [OQ-WG7](#OQ-WG7) and Part 3's sign-only route are built, and the via route's Responses wire for codex is built (2026-09-26, [WG-I20](#WG-I20)). Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
 day, carrying its bridge questions with their ids unchanged. **Part 1 (signing) is built,
 2026-09-25** ([§2](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)), with the
 region-composed upstream URL and the re-key on the provider's platform marker built 2026-09-30
@@ -40,16 +41,21 @@ four questions were ruled in review on 2026-09-25. **MEASURED:** what the bridge
 bridge handler with the network stubbed. **SOURCED, 2026-09-29:** runtime's Messages route is
 `/anthropic/v1/messages` and streams Anthropic server-sent events, read from AWS's docs and the
 Anthropic SDK's source ([§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)).
-**UNMEASURED:** no request has reached real Bedrock through the bridge with any credential, so AWS
-has never accepted one of its signatures. Nobody has sent a request to runtime's Messages route or
-seen the subscription's usage-limit response. The
-via route is MEASURED in-process only: its tests run the real daemon, mux and signer against a
-stubbed upstream, and the pi, oh-omp and opencode derives against the real shipped `derive.lua`.
-No agent has sent a request through it. **SOURCED, 2026-10-01:** `bedrock-runtime` serves the
+**MEASURED live, 2026-10-01** ([§2.4](#24-the-first-live-requests-measured-2026-10-01)): from a
+jail in `us-east-1`, under the SSO credential `aws-auth` serves, AWS accepted the bridge's own
+SigV4 signatures on runtime's Messages route, where Claude Opus 5.5 went untranslated and streamed
+Anthropic server-sent events, and on its Responses route, where a streamed request shaped like
+codex's reached GPT-6.1 Sol on codex's via route. GPT-6.1 Sol refused the translating route's
+request with a 400, because it carries `max_tokens`. **UNMEASURED:** a Bedrock API key and a
+static key pair, which that jail does not hold; any request an agent sends; the via route's
+chat-completions wire; the subscription's usage-limit response. The via route's tests run the real
+daemon, mux and signer against a stubbed upstream, and the pi, oh-omp and opencode derives against
+the real shipped `derive.lua`. No agent has sent a request through it. **SOURCED, 2026-10-01:** `bedrock-runtime` serves the
 OpenAI Responses API at `POST /openai/v1/responses`, by bearer API key or SigV4, for both GPT ids
 the `bedrock` pack ships, read from AWS's Bedrock User Guide; botocore's service model carries
 no such route ([§2.3](#23-responses-at-runtimes-openaiv1responses-sourced-2026-10-01)). So codex's route to
-Bedrock is real as configured on paper, and still unproven on the wire. That pi,
+Bedrock is real as configured, and on 2026-10-01 a codex-shaped request crossed it
+([§2.4](#24-the-first-live-requests-measured-2026-10-01)); codex itself has not. That pi,
 opencode and codex keep a base URL's path is read
 from their installed client sources, and oh-omp's from its published package
 ([§4.1](#41-how-it-is-built)); none is observed on the wire.
@@ -171,9 +177,11 @@ is set. The credential order, lazy single-flight resolution, the three failure s
 expired-signature retry are built as [§2.1](#21-behavior-the-signer-fixes) states. Which upstream
 is Bedrock's was keyed on its host until 2026-09-30, when the re-key on the provider's `platform`
 and the region-composed upstream URL were built ([§2.2](#22-how-the-bedrock-upstream-is-chosen-built-2026-09-30)).
-One thing is not:
-- **A live request.** AWS has not yet accepted a signature from this signer, and that is
-  [Risk R6](#21-behavior-the-signer-fixes)'s whole exposure.
+One thing was not, until 2026-10-01:
+- ~~**A live request.**~~ AWS accepted this signer's signatures on runtime's Messages and Responses
+  routes on 2026-10-01, under the SSO credential
+  ([§2.4](#24-the-first-live-requests-measured-2026-10-01)). The bearer arm and the static key pair
+  have still sent nothing.
 
 [OQ-BR10](#OQ-BR10) is ruled: the bridge signs with **SigV4**, AWS's request-signing scheme
 ([AWS docs](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv.html)). The signer
@@ -236,7 +244,9 @@ build it. [OQ-WG1](#OQ-WG1) lets one signer serve both without waiting on the pr
 
 **Risk R6.** A signer bug fails every bridged request with a 403, for every user alike. The test
 vectors pin the signer before any live request, the 403 body names the signature mismatch, and
-the bridge log carries it.
+the bridge log carries it. MEASURED 2026-10-01: it did not happen for a signature made from the
+container credential, which AWS accepted on runtime's Responses and Messages routes
+([§2.4](#24-the-first-live-requests-measured-2026-10-01), requests 4, 5 and 7).
 
 ### 2.2 How the Bedrock upstream is chosen (built 2026-09-30)
 
@@ -360,13 +370,16 @@ plain `-p bedrock` and the fifth refusing a launch where the one adapter route i
    adapter's; that class predates the carrier and is not this decision's. An implementation
    decision. Lives in `wirebridged.adapterTakenRefusal`.
 
-The first three are MEASURED in-process only: the production boot over the shipped packs' composed
+The first three are MEASURED in-process: the production boot over the shipped packs' composed
 table, each served agent's key channel, and a stubbed upstream that records what was sent; so is the
 fourth, whose boot reads the tables as the launcher writes and the entrypoint decodes them. The
-fifth is the gate over those same tables. No
-request has reached AWS. That runtime serves Responses at `/openai/v1/responses` was read from
-codex's binary until 2026-10-01, and is now read from AWS's documentation
-([§2.3](#23-responses-at-runtimes-openaiv1responses-sourced-2026-10-01)); it is still not observed.
+fifth is the gate over those same tables. The first three reached AWS on 2026-10-01: over a
+jail's own tables, the daemon's boot signed for the shipped `bedrock` provider by its platform,
+took `us-east-1` from the provider's `region`, and composed runtime's URL from it, and AWS served
+the requests ([§2.4](#24-the-first-live-requests-measured-2026-10-01)). That runtime serves Responses at
+`/openai/v1/responses` was read from codex's binary until 2026-10-01, and then from AWS's
+documentation ([§2.3](#23-responses-at-runtimes-openaiv1responses-sourced-2026-10-01)); it is now
+observed ([§2.4](#24-the-first-live-requests-measured-2026-10-01)).
 
 ### 2.3 Responses at runtime's `/openai/v1/responses` (SOURCED 2026-10-01)
 
@@ -416,8 +429,9 @@ was made to AWS.
   Completions page's SigV4 example signs `aws:amz:us-east-1:bedrock` against
   `/openai/v1/chat/completions` on the same host, and botocore's `signingName` is `bedrock`. That is
   the inference [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled) made for
-  the Messages route. Until a signed request is accepted, both the bridge's SigV4 arm and the bearer
-  fallback rest on the documentation alone (Risk R6).
+  the Messages route. MEASURED 2026-10-01: AWS accepted requests signed for `bedrock` on this path,
+  both botocore's and the bridge's ([§2.4](#24-the-first-live-requests-measured-2026-10-01)). The
+  bearer fallback still rests on the documentation alone.
 - **Headers.** The examples send `Content-Type: application/json` and the bearer, and nothing
   else. One header is constrained: *"The `OpenAI-Project` header is accepted only as `default` or
   as your own default project ARN; any other value is rejected."* A **project** is AWS's
@@ -441,16 +455,20 @@ was made to AWS.
   sends any of these (a web-search tool, a `/models` fetch, an `OpenAI-Project` header) is a fact
   about codex's requests, unread here.
 - **Streaming.** The runtime examples set `stream: true` and iterate the OpenAI SDK's events, so
-  the stream is OpenAI's server-sent events. INFERRED from the client the page uses. The via route
+  the stream is OpenAI's server-sent events. INFERRED from the client the page uses. MEASURED
+  2026-10-01: it is OpenAI's Responses events as `data:` lines with no `event:` lines, ended by a
+  `data: [DONE]` line ([§2.4](#24-the-first-live-requests-measured-2026-10-01)). The via route
   relays the body untouched, so the framing changes nothing in the bridge.
 
 **What this decides, and what it leaves.** The documentation question this doc carried is closed:
 the route, both credentials and both shipped GPT ids are what AWS documents. It rules nothing.
 Still open, and not this reading's to close:
 
-- **No request has reached AWS** (UNMEASURED), so no signature or key has been accepted on this
-  route.
-- **codex's request shape against runtime's limits**, listed above, is unread.
+- ~~**No request has reached AWS.**~~ Five did on 2026-10-01, and a signature was accepted
+  ([§2.4](#24-the-first-live-requests-measured-2026-10-01)). No Bedrock API key has been sent.
+- **codex's request shape against runtime's limits**, listed above, is unread. A request shaped
+  like codex's, with no tool runtime refuses, was served
+  ([§2.4](#24-the-first-live-requests-measured-2026-10-01)).
 - **GPT-6.1 Sol's card now lists a global id.** `global.openai.gpt-6.1-sol` appears where
   [`bedrock-plumbing.md` BR-D7](bedrock-plumbing.md#BR-D7) read on 2026-09-29 that `us.` was the
   only runtime id AWS offered. The pack ships `us.openai.gpt-6.1-sol` as codex's start model
@@ -458,6 +476,102 @@ Still open, and not this reading's to close:
   covers. The `bedrock` pack's [README Sources list](../../packs/bedrock/README.md#sources)
   carries the same 2026-09-29 reading (*"no global or in-Region id"*). That premise is
   [`bedrock-plumbing.md`](bedrock-plumbing.md)'s to take up, and the README's with it.
+
+### 2.4 The first live requests (MEASURED 2026-10-01)
+
+**Eleven calls reached `bedrock-runtime` on 2026-10-01, from a jail, in `us-east-1`.** They were
+signed with the SSO credential `aws-auth` serves. Its container pointer was the jail's only AWS
+credential source, and botocore named the method it resolved `container-role`. No Bedrock API key
+and no static key pair are set in that jail, so neither was sent, and the bearer arm is still
+unmeasured. Each call had a one-line prompt and an output cap of 16 tokens. Every Responses
+request carried `store: false`, so nothing was stored, and no AWS resource was created or changed.
+No agent was started. Eight calls are this doc's, below. The other three are recorded where they
+belong: the web search tool, sent directly and through the bridge, in
+[`bedrock-web-search.md`](bedrock-web-search.md#measured-live-2026-10-01-runtime-refuses-claudes-search-tool),
+and ConverseStream in
+[`bedrock-plumbing.md`](bedrock-plumbing.md#the-first-live-requests-2026-10-01). botocore re-sent
+the ConverseStream call on its 500, so at most fifteen HTTP requests reached AWS.
+
+**Two signers, so that a failure can be placed.** A **direct** request was signed by botocore
+1.43.106's `SigV4Auth` for the service `bedrock` and sent with no retry. botocore shares no code
+with yolo. A **bridge** request went through the daemon itself. A throwaway test in
+`internal/wirebridged`, deleted after the run, called `run`, the body `Main` runs, over the jail's
+own composed tables and process environment. It changed three things: `YOLO_USE_PROFILES` named
+`bedrock-bridge` for claude and codex, the endpoint file was a private one, and the caller token
+was fresh. Everything else was the production path at `45c5cc99`: the boot, the listeners, the
+caller-token check, the handlers and the `internal/sigv4` signer, against the real upstream, with
+no jail launch. Its serve lines, trimmed:
+
+```text
+wire-bridge: serving provider "bedrock": anthropic on 127.0.0.1:8214 → openai https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1 (…, credential SigV4 for bedrock in us-east-1, from sigv4.Env{container endpoint http://127.0.0.1:1461/credentials}); Anthropic models on its list pass untranslated to https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1/messages: global.anthropic.claude-opus-5-5
+wire-bridge: serving via routes on 127.0.0.1:8216 (…): /agent/claude/ chat-completions and Responses → https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1 (provider bedrock, SigV4 for bedrock in us-east-1, …); /agent/codex/ chat-completions and Responses → https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1 (…)
+```
+
+**A codex-shaped request**, a term coined here, is a Responses body with the fields codex's own
+requests carry. The field names were read in the strings of the installed codex binaries, and the
+body was not captured from codex. It carried `instructions`, `input` as one `message` of
+`input_text`, one `function` tool, `tool_choice: "auto"`, `parallel_tool_calls: false`,
+`reasoning: {"effort": "low", "summary": "auto"}`, `store: false`, `stream: true`,
+`include: ["reasoning.encrypted_content"]` and a `prompt_cache_key`. It also carried
+`max_output_tokens: 16`, which codex does not send. It carried no `web_search` tool, which codex
+adds under `-p bedrock-bridge`
+([`bedrock-web-search.md` D7](bedrock-web-search.md#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)).
+
+The prompt was *"Reply with the one word: pong"*. Times are UTC, and the commands are under
+[§11](#11-evidence).
+
+| # | Time | Signer | Request | Status | Answer, trimmed |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 1 | 15:36:49 | direct | `POST /openai/v1/responses`, `us.openai.gpt-6.1-sol`, `max_output_tokens: 16`, not streamed | **500**, 3.2 s | `{"error":{"message":"The server had an error while processing your request. Sorry about that!","type":"server_error","param":null,"code":"internal_server_error"}}`; no model, no usage |
+| 2 | 15:37:01 | direct | request 1 for `global.openai.gpt-6-astra` | **500**, 3.3 s | the same body |
+| 3 | 15:44:49 | direct | request 1 plus `"reasoning": {"effort": "low"}` | **200**, 0.7 s | `model` `us.openai.gpt-6.1-sol`, `status` `completed`; usage 13 in, 5 out, 0 reasoning; text `pong` |
+| 4 | 15:40:14 | bridge | codex-shaped, `POST 127.0.0.1:8216/agent/codex/responses`, streamed | **200**, headers in 0.2 s, `text/event-stream` | `response.created` through `response.completed`: `model` `us.openai.gpt-6.1-sol`, `status` `completed`; usage 139 in, 5 out, 0 reasoning; text `pong`; then `data: [DONE]`. 193.9 s end to end |
+| 5 | 15:44:34 | bridge | request 4 again, each line timed | **200**, headers in 0.2 s | `response.created` at 0.24 s, `response.completed` and `data: [DONE]` at 2.05 s, end of body at 2.05 s |
+| 6 | 15:37:12 | direct | `POST /anthropic/v1/messages` with `anthropic-version: 2023-06-01`, `global.anthropic.claude-opus-5-5`, `max_tokens: 16`, not streamed | **200**, 1.5 s, `application/json` | `model` `claude-opus-5-5`, `stop_reason` `end_turn`; usage 18 in, 4 out, no cache read or written, `service_tier` `standard`; text `pong` |
+| 7 | 15:39:38 | bridge | request 6, streamed, to the adapter route, `POST 127.0.0.1:8214/v1/messages` | **200**, 1.5 s, `text/event-stream` | `message_start` (`model` `claude-opus-5-5`, 24 in), `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta` (`end_turn`, 4 out), `message_stop`; text `pong`. The bridge logged `POST /v1/messages 200 1.481s (model global.anthropic.claude-opus-5-5 is Anthropic's on the provider's list: untranslated to …/anthropic/v1/messages)` |
+| 8 | 15:39:59 | bridge | the adapter route, `us.openai.gpt-6.1-sol`, `max_tokens: 16`, not streamed: translated to `POST /openai/v1/chat/completions` | **400**, 0.26 s | `{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model.","type":"api_error"},"type":"error"}` |
+
+**What it decides.**
+
+- **Risk R6 did not happen for SigV4.** AWS accepted the bridge's own signature for the service
+  `bedrock`, made from the container credential, on runtime's Responses route (requests 4 and 5)
+  and its Messages route (request 7). [§2.3](#23-responses-at-runtimes-openaiv1responses-sourced-2026-10-01)
+  and [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled) had inferred that
+  service name for both. Request 8's 400 carries the model's own parameter
+  error, not AWS's 403 for a bad signature, so the chat-completions route accepted the signature
+  too. That last step is INFERRED.
+- **The Messages framing is what [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)
+  read**: `text/event-stream`, carrying Anthropic's events,
+  relayed byte for byte, so [WG-I30](#WG-I30)'s refusal of the binary event stream never fired.
+  The `model` an answer names is `claude-opus-5-5`, not the inference-profile id that was asked
+  for.
+- **codex's via route works on the wire**, for a codex-shaped request. The stream is OpenAI's
+  Responses events as `data:` lines, with no `event:` lines, ended by `data: [DONE]`. OpenAI's own
+  Responses stream sends `event:` lines and no `[DONE]`. Whether codex reads that last line
+  without complaint is unread.
+- **The translating route cannot carry a turn to GPT-6.1 Sol** (request 8). It sends the
+  Anthropic request's cap as chat-completions' `max_tokens` (the `MaxTokens` field in
+  `internal/wirebridge/request.go`), and the model refuses that field. Every Anthropic Messages
+  request carries `max_tokens`, which that API requires, so claude's everything profile, and
+  copilot on either Bedrock profile, fail every request for GPT-6.1 Sol. GPT-6 Astra was not sent
+  through the translation. That is
+  [Risk R7](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled), met at the
+  first request.
+
+**What it leaves open.**
+
+- **The 500s of requests 1 and 2.** Request 3 differs from request 1 only by a low reasoning
+  effort. So the 500 follows the model's default reasoning under a 16-token cap. INFERRED: the
+  default effort's reasoning does not fit the cap, and runtime answers 500 instead of the
+  `incomplete` status OpenAI documents. Astra was not re-sent with a low effort, and no request was
+  sent without a cap, by this measurement's budget. An agent sends no such cap, so whether a real
+  turn meets this 500 is unmeasured.
+- **Request 4's 193.9 s.** Its headers arrived in 0.2 s, and its lines were not timed. The same
+  request, sent again as request 5, finished in 2.05 s. Where the other 192 s went is unmeasured.
+- **The bearer arm and the static key pair**, which that jail does not hold.
+- **What an agent adds**: codex's own headers and its hosted `web_search` tool, claude's
+  `anthropic-beta` values, `thinking` and `cache_control` on the pass-through, and the via route's
+  chat-completions wire, which no request used.
 
 ---
 
@@ -500,7 +614,8 @@ builder's first measurement, not a choice left to rule. It was read, and AWS was
 - **The credential.** The endpoints page marks SigV4 and Bedrock API keys as both supported on
   `bedrock-runtime`. The Messages page's API-key example sends the key as `x-api-key`. No example
   signs `/anthropic/v1/messages` with SigV4, so the bridge signing it for the service `bedrock`,
-  the name runtime signs its other routes with, is INFERRED.
+  the name runtime signs its other routes with, is INFERRED. MEASURED 2026-10-01: AWS accepted it
+  ([§2.4](#24-the-first-live-requests-measured-2026-10-01), requests 6 and 7).
 - **What the route does not serve.** No `count_tokens` is documented on runtime's Messages route.
   AWS's token-counting page says a Claude model offered only through cross-Region inference has
   no CountTokens on runtime at all, and points to the `bedrock-mantle` endpoint, which yolo does
@@ -508,12 +623,16 @@ builder's first measurement, not a choice left to rule. It was read, and AWS was
 
 A measurement read from documentation can still be wrong. So an answer framed as AWS's binary
 event stream is refused by name rather than relayed ([WG-I30](#WG-I30)), and the first real turn
-confirms or refutes the rest ([§3.1](#31-how-it-is-built)).
+confirms or refutes the rest ([§3.1](#31-how-it-is-built)). The first live requests, on
+2026-10-01, confirmed the route, the body and the server-sent events
+([§2.4](#24-the-first-live-requests-measured-2026-10-01)).
 
 **Risk R7.** Translation loses something a non-Anthropic model needs: tool-call fidelity,
 reasoning, or a vendor's streaming quirk. The bridge already fails closed on an unknown block
 type ([WB-D5](../reference/wire-bridge.md#wb-d5)). Measure one turn per vendor in the org's list
-before shipping that vendor in a company pack.
+before shipping that vendor in a company pack. MEASURED 2026-10-01 for OpenAI's GPT-6.1 Sol: the
+first translated request failed with a 400, because the translation sends `max_tokens`, which the
+model refuses ([§2.4](#24-the-first-live-requests-measured-2026-10-01), request 8).
 
 **Done-condition** (carried from [`bedrock-plumbing.md`](bedrock-plumbing.md)'s done-condition
 6). It waited on [OQ-BR9](bedrock-plumbing.md#OQ-BR9) and
@@ -621,9 +740,18 @@ concurrent build numbered its own from WG-I26 on ([WG-I26](#WG-I26)):
 - **The `anthropic-beta` values claude sends are forwarded as sent**, and nobody knows which of
   them runtime accepts. On `ANTHROPIC_BASE_URL`, claude sends the betas it sends the first-party
   API, and a value runtime rejects fails the request with a 400, which the bridge relays
-  ([WG-I32](#WG-I32)). Only a real turn settles it.
-- **No request has reached the route.** The tests run the production boot, handler, signer and
-  relay against a fake upstream that serves the documented format.
+  ([WG-I32](#WG-I32)). Only a real turn settles it. The live requests of 2026-10-01 sent none.
+- ~~**No request has reached the route.**~~ Two did on 2026-10-01, through the bridge: a streamed
+  Claude Opus 5.5 request, served and relayed as Anthropic server-sent events, and one carrying
+  the web search server tool, which runtime refused with a 400 that the bridge relayed unchanged
+  ([§2.4](#24-the-first-live-requests-measured-2026-10-01);
+  [`bedrock-web-search.md`](bedrock-web-search.md#measured-live-2026-10-01-runtime-refuses-claudes-search-tool)).
+  The tests run the production boot, handler, signer and relay against a fake upstream that serves
+  the documented format.
+- **GPT-6.1 Sol on the translating route fails at its first request** (MEASURED 2026-10-01). The
+  route sends the cap as `max_tokens`, and the model refuses it with a 400
+  ([§2.4](#24-the-first-live-requests-measured-2026-10-01), request 8). So the everything profile
+  has not completed a turn against a non-Anthropic model, which is this part's done-condition.
 
 ---
 
@@ -1195,7 +1323,8 @@ Three earlier non-licenses are reopened here by name:
    ([WB-D14](../reference/wire-bridge.md#wb-d14)). The step starts with [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled)'s one measurement,
    SSE or binary event-stream.
    **BUILT 2026-09-29** ([§3.1](#31-how-it-is-built), [WG-I30](#WG-I30)–[WG-I35](#WG-I35)). The
-   measurement, SOURCED: `/anthropic/v1/messages`, streaming Anthropic SSE. The route is live for
+   measurement, SOURCED: `/anthropic/v1/messages`, streaming Anthropic SSE, and MEASURED so on
+   2026-10-01 ([§2.4](#24-the-first-live-requests-measured-2026-10-01)). The route is live for
    a Bedrock provider the bridge reaches at runtime's `/openai/v1`, and since step 1's
    region-composed URL (2026-09-30) that includes the shipped `bedrock` under `-p bedrock-bridge`.
    `count_tokens` stays refused ([WG-I35](#WG-I35)).
@@ -1517,7 +1646,7 @@ Three earlier non-licenses are reopened here by name:
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-BR10 | **The bridge signs its own requests (option A: a standard-library signer pinned by AWS's test vectors).** Answered by DIR-BR2: SSO on the bridge route rules out option B, whose minted key lives at most an hour. A over C (vendoring the AWS SDK's signer) is the implementer's call, taken to keep the hermetic build free of an AWS module | 2026-09-24 | [§2](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled) (moved from [`bedrock-plumbing.md`](bedrock-plumbing.md)) | 2026-09-25: `internal/sigv4`, pinned by AWS's SigV4 test suite; the bridge signs through `internal/wirebridged/signing.go`. Not yet accepted by a live Bedrock |
+| OQ-BR10 | **The bridge signs its own requests (option A: a standard-library signer pinned by AWS's test vectors).** Answered by DIR-BR2: SSO on the bridge route rules out option B, whose minted key lives at most an hour. A over C (vendoring the AWS SDK's signer) is the implementer's call, taken to keep the hermetic build free of an AWS module | 2026-09-24 | [§2](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled) (moved from [`bedrock-plumbing.md`](bedrock-plumbing.md)) | 2026-09-25: `internal/sigv4`, pinned by AWS's SigV4 test suite; the bridge signs through `internal/wirebridged/signing.go`. Accepted by live Bedrock on 2026-10-01, under the SSO credential ([§2.4](#24-the-first-live-requests-measured-2026-10-01)) |
 | OQ-BR18 | **Yes, the bridge may carry a Claude subscription.** The maintainer's call on Anthropic's terms and company policy | 2026-09-24 | [§5](#5-part-4--the-subscription-arm-and-opt-in-failover-ruled) (moved) | — |
 | OQ-BR16 | **The everything profile carries the subscription too**, forwarded untranslated with its own bearer, so one model list spans Teams and Bedrock. *"yes that would be amazing"* | 2026-09-24 | [§5](#5-part-4--the-subscription-arm-and-opt-in-failover-ruled) (moved) | — |
 | OQ-BR17 | **Opt-in automatic failover, per model, from the subscription to Bedrock** on the subscription's usage-limit response, every switch disclosed. *"yes, opt in"*. Supersedes [agent-auth-modes OQ-1](agent-auth-modes.md#12-decision-ledger)'s deferral for this path | 2026-09-24 | [§5](#5-part-4--the-subscription-arm-and-opt-in-failover-ruled) (moved) | — |
@@ -1578,7 +1707,8 @@ Part 2 rests on [OQ-BR11](bedrock-plumbing.md#OQ-BR11) (2026-09-24), and Part 3 
 ## 11. Evidence
 
 Every AWS row was read 2026-09-24 unless marked, and no request was made to AWS for any of them.
-Re-check instructions:
+The live requests of 2026-10-01 are [§2.4](#24-the-first-live-requests-measured-2026-10-01)'s,
+and how they were sent follows the table. Re-check instructions:
 [`bedrock-plumbing.md` §14](bedrock-plumbing.md#14-evidence-and-how-to-re-check-it).
 
 | Claim | Source |
@@ -1613,6 +1743,58 @@ $ curl -sSL https://docs.aws.amazon.com/bedrock/latest/userguide/inference-respo
 $ curl -sSL https://raw.githubusercontent.com/boto/botocore/1.43.106/botocore/data/bedrock-runtime/2023-09-30/service-2.json \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["metadata"]; ops=d["operations"].values(); print(m["signingName"], m["auth"], len(d["operations"]), sum("/openai" in o["http"]["requestUri"] for o in ops))'
 bedrock ['aws.auth#sigv4', 'smithy.api#httpBearerAuth'] 11 0
+```
+
+**The live requests, 2026-10-01** (MEASURED;
+[§2.4](#24-the-first-live-requests-measured-2026-10-01) has every result). The jail's AWS
+variables, by name only:
+
+```console
+$ env | rg -o '^AWS_[A-Z_]+=' | sort
+AWS_CONTAINER_AUTHORIZATION_TOKEN=
+AWS_CONTAINER_CREDENTIALS_FULL_URI=
+AWS_REGION=
+```
+
+A direct request, request 3 here. Requests 1, 2 and 6 change only the URL and the body, and
+request 6 adds `anthropic-version: 2023-06-01` to the headers. botocore resolves `aws-auth`'s
+pointer and its token itself, and nothing prints a credential, a signature or the token. The run
+used a longer script that printed the trimmed answers in the table. This is its core:
+
+```console
+$ uv run -q --with botocore python - <<'EOF'
+import json, urllib.error, urllib.request
+import botocore.session
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
+creds = botocore.session.Session().get_credentials().get_frozen_credentials()
+url = "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/responses"
+body = json.dumps({"model": "us.openai.gpt-6.1-sol", "input": "Reply with the one word: pong",
+                   "reasoning": {"effort": "low"}, "max_output_tokens": 16, "store": False}).encode()
+req = AWSRequest(method="POST", url=url, data=body, headers={"Content-Type": "application/json"})
+SigV4Auth(creds, "bedrock", "us-east-1").add_auth(req)
+try:
+    r = urllib.request.urlopen(urllib.request.Request(url, data=body, headers=dict(req.headers.items())))
+    print(r.status, r.read().decode()[:400])
+except urllib.error.HTTPError as e:
+    print(e.code, e.read().decode()[:400])
+EOF
+```
+
+A bridge request. The throwaway test, deleted after the run and not committed, did this in
+package `wirebridged` before sending each request with the fresh token as its bearer:
+
+```go
+EndpointFile = filepath.Join(t.TempDir(), "wire-bridge.endpoint") // never the jail's own
+vars := map[string]string{} // filled from os.Environ(), the jail's own environment
+vars["YOLO_USE_PROFILES"] = `{"claude": "bedrock-bridge", "codex": "bedrock-bridge"}`
+vars[CallerTokenEnv], _ = svcendpoint.NewToken()
+go run(ctx, entrypoint.NewEnv(vars), time.Hour) // the body Main runs
+```
+
+```console
+$ ZZ_LIVE_BEDROCK=1 ZZ_REQS=adapter-messages-opus-stream go test -count=1 -run TestZZLiveBedrock -v ./internal/wirebridged/
+wire-bridge: POST /v1/messages 200 1.481s (model global.anthropic.claude-opus-5-5 is Anthropic's on the provider's list: untranslated to https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1/messages)
 ```
 
 **Client sources**, read 2026-09-26; nothing was run:
