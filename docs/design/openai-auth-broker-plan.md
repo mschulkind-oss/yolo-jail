@@ -19,12 +19,12 @@ and a real expiry crossing, which need a person with a ChatGPT account. No build
 Steps 1–8 are built (1, 2 and 5 differently from the original hand-off, as the table below says),
 steps 10 and 11 shipped 2026-09-18 (`36c47baa`, `4de78ac0`; step 10's endpoint-withholding half
 was declined there, with its reason), step 9 shipped 2026-09-29 as
-[OQ-OA6](openai-auth-broker.md#OQ-OA6)'s route (b) (`fea3b6c7`), and step 4 is done now that the
+[OQ-OA6](../reference/agent-credentials.md#oq-oa6)'s route (b) (`fea3b6c7`), and step 4 is done now that the
 design dropped the clause no extension could build (2026-09-29,
-[OQ-OA7](openai-auth-broker.md#OQ-OA7)). One known gap has no step: a third concurrent login finds
+[OQ-OA7](../reference/agent-credentials.md#oq-oa7)). One known gap has no step: a third concurrent login finds
 no port (step 5's row).
 
-**Design:** [`openai-auth-broker.md`](openai-auth-broker.md)
+**Design:** [`agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#the-openai-subscription-credential-service)
 
 > [!WARNING]
 > **MEASURED 2026-09-22, and two of this plan's steps change shape. Read before building either.**
@@ -53,7 +53,7 @@ no port (step 5's row).
 > belongs to a vendored third-party SDK acting on its own cache. So
 > `packs/pi/extensions/yolo-openai-auth.js` having no retry is **correct, not partial** — the
 > extension API exposes no status to hook. The ruling half is settled: the design dropped the
-> clause on 2026-09-29 ([OQ-OA7](openai-auth-broker.md#OQ-OA7)).
+> clause on 2026-09-29 ([OQ-OA7](../reference/agent-credentials.md#oq-oa7)).
 >
 > **What these static reads cannot show:** no exit codes, no network failure paths, and nothing about
 > whether a refreshed token is actually accepted upstream.
@@ -84,7 +84,7 @@ dead `127.0.0.1:1460` override as one of its four measured cases, and is blocked
 | 1 | Credential transaction | **done, differs** | `openaiauth.Broker`: `withLock` (`syscall.Flock`), reload under lock, `DecisionStale` on a caller-generation mismatch, `writeState`'s 0600-in-0700 atomic rename, `TokenFingerprint`, `context.WithoutCancel` around redemption. `TestConcurrentCallersRedeemExactlyOnce` is the race. **Differs:** a NEW package, not a generalization of `internal/oauthbroker`, whose `withRefreshLock` is still a second flock transaction — see Blockers. |
 | 2 | Host service transport | **done, differs** | **Differs:** the service ships from `packs/openai-auth`, not from the Codex pack. `packs/codex/pack.json` and `packs/pi/pack.json` each carry an unconditional `needs` on it. `TestStagePacksJoinsOpenAIAuthForCodex` and `TestStageRunPacksPreservesNeededOpenAIAuthState` exercise the real selection call site. |
 | 3 | Codex adapter | **done** | `internal/openaiauthadapter` serves the native token-endpoint shape, JSON and form bodies both (`readTokenRequest`, fixed 2026-09-22); the manifest's `jail_daemon` binds `127.0.0.1:1460`; `packs/codex/pack.json` sets `CODEX_REFRESH_TOKEN_URL_OVERRIDE` at that URL. The version floor is **measured** (0.56.0, the warning above), so a launch-time refusal would be dead code. The floor is **recorded** (2026-09-25) in [`../research/openai-subscription-auth.md`](../research/openai-subscription-auth.md) [§1.2](../research/openai-subscription-auth.md#12-codex-refresh-is-careful-inside-one-process-not-across-processes), beside its 0.154.0 provenance line. |
-| 4 | Pi adapter | **done** | `packs/pi/extensions/yolo-openai-auth.js` registers the `openai-codex` provider (`login`/`refreshToken`/`getApiKey`), shells to `yolo internal openai-auth-client`, and puts `yolo-broker:<generation>` in Pi's `refresh` field — never the canonical token. It refreshes before expiry only, which is now all the design asks. The design's former ask-once-more after an unauthorized response was **measured unbuildable** (the warning above): pi has no 401 refresh path and the extension API exposes no status. The design dropped it 2026-09-29 ([OQ-OA7](openai-auth-broker.md#OQ-OA7)); re-open if pi adds a status hook, meaning a way for an extension to see a response's HTTP status. |
+| 4 | Pi adapter | **done** | `packs/pi/extensions/yolo-openai-auth.js` registers the `openai-codex` provider (`login`/`refreshToken`/`getApiKey`), shells to `yolo internal openai-auth-client`, and puts `yolo-broker:<generation>` in Pi's `refresh` field — never the canonical token. It refreshes before expiry only, which is now all the design asks. The design's former ask-once-more after an unauthorized response was **measured unbuildable** (the warning above): pi has no 401 refresh path and the extension API exposes no status. The design dropped it 2026-09-29 ([OQ-OA7](../reference/agent-credentials.md#oq-oa7)); re-open if pi adds a status hook, meaning a way for an extension to see a response's HTTP status. |
 | 5 | Callback relay and login | **partial, differs** | `openaiauthdaemon.StartLogin`: PKCE, exact-path `/auth/callback`, state compared before the code is taken, a second callback refused 409, `listenLoginPort` binding 1455 then 1457 with the redirect URI naming the port it got. **Differs:** no state registry and no routing to a jail — the host daemon owns the whole flow and the jail's `login` action only streams the URL back, which makes the design's relay unnecessary rather than unbuilt. **Missing:** a third concurrent login has no port. |
 | 6 | Backend transport | **done** (was partial until step 9) | Podman: `hostServicesMountArgs` emits the services-dir bind plus `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT`, and the adapter joins `YOLO_JAIL_DAEMONS` through `runtimeArgsFor`. `macos-user`: the arm calls `startLoopholesDisclosed` with the whole pack set, refuses the launch when this service did not start, sets the variable to the **host** path, and `macosuser.EndpointGrantCommands` ACL-grants it (`PlanInvariants` refuses a plan that carries an endpoint without a grant). Apple Container reports the loophole inert (step 10). Step 9 shipped 2026-09-29 (`fea3b6c7`): the `macos-user` launch opens the Codex doorway itself (`internal/cli/run/macosuserdoorways.go`). |
 | 7 | Managed host use | **done** (was partial until step 11) | `openaiauthhost.Prepare`, reached from `internal/cli/host.go` through `prepareOpenAIAuthHost` (`TestHostExecUsesManagedOpenAIAuthLaunch` pins that call site): a managed `CODEX_HOME`, the ordinary config copied with this workspace marked trusted, `AGENTS.md`/`skills` symlinked, a dynamic adapter on `127.0.0.1:0` closed when Codex exits. `hostwrap.Body("codex")` routes through it. The one-shot import shipped as step 11. |
@@ -119,7 +119,7 @@ stays in `YOLO_JAIL_DAEMONS` turns an unreachable front into no front at all.
 - **The one-retry-after-401 exists in-tree**: `wirebridged.NewCodexResponsesHandler` sets
   `retryUnauthorized` around `openauthclient.RequestAccessToken`. It is **not** a template for
   step 4: that handler sees the upstream status, and pi's extension never does
-  ([OQ-OA7](openai-auth-broker.md#OQ-OA7)).
+  ([OQ-OA7](../reference/agent-credentials.md#oq-oa7)).
 - **Step 11's negative half still guards it.** `jailActionAllowed` excludes `import` and
   `logout` (`TestJailActionsExcludeMachineWideDestructiveOperations`), and `openauthclient.Run`
   refuses both from a jail (`TestRunRefusesMachineWideMutations`); the positive path lives on
@@ -185,7 +185,7 @@ Each step ends green and committable. **Class** names the instrument that can ac
 prove it — read *Instruments* below before believing a green.
 
 9. **SHIPPED 2026-09-29 (`fea3b6c7`), route (b)**, ruled as
-   [OQ-OA6](openai-auth-broker.md#OQ-OA6) under
+   [OQ-OA6](../reference/agent-credentials.md#oq-oa6) under
    [HS-D15](host-notch-services.md#HS-D15); passing on the hosted Mac nightly since 2026-09-30.
    **`macos-user` Codex refresh consumer.** Two routes, and the choice is a ruling — see
    Blockers. **(a)** Wait for
@@ -286,7 +286,7 @@ prove it — read *Instruments* below before believing a green.
 
 ## Don't
 
-- Don't build the design's state-routed callback relay ([§3](openai-auth-broker.md#3-browser-callback-relay)).
+- Don't build the design's state-routed callback relay ([the OpenAI login](../reference/agent-credentials.md#openai-login)).
   The daemon owns the flow and the jail never listens, so there is nothing to route. The
   real gap is the third concurrent login, and it is a port-allocation question.
 - Don't try to start `yolo-jaild` natively yourself: it is not built for darwin and
@@ -300,8 +300,8 @@ prove it — read *Instruments* below before believing a green.
 
 ## Blockers
 
-- **Ruled 2026-09-29: route (b)** ([OQ-OA6](openai-auth-broker.md#OQ-OA6)), and built. As it
-  stood: **stop and ask: route (a) or (b) for step 9** — filed as [OQ-OA6](openai-auth-broker.md#OQ-OA6). Route (b) is the cheaper path and un-blocks
+- **Ruled 2026-09-29: route (b)** ([OQ-OA6](../reference/agent-credentials.md#oq-oa6)), and built. As it
+  stood: **stop and ask: route (a) or (b) for step 9** — filed as [OQ-OA6](../reference/agent-credentials.md#oq-oa6). Route (b) is the cheaper path and un-blocks
   this service from the two rulings
   the jail-daemon plan was waiting on
   ([OQ-DP8](declaration-parity.md#OQ-DP8), [OQ-DP9](declaration-parity.md#OQ-DP9)) —
@@ -313,8 +313,8 @@ prove it — read *Instruments* below before believing a green.
   launch-time refusal or a `min_version` schema field is new behavior and belongs in the
   design doc first. `internal/packdecl` has no such field today — and the measured floor
   (0.56.0, about a year behind every installable Codex) makes such a refusal dead code.
-- **Two flock transactions, by accident rather than by ruling.** The design's
-  [§2](openai-auth-broker.md#2-one-writer-and-two-views) says the engine "should be
-  generalized once … rather than a second independent implementation"; what shipped is
+- **Two flock transactions, by accident rather than by ruling.** The design said
+  the engine "should be generalized once … rather than a second independent implementation"
+  (the reference now [records the two](../reference/agent-credentials.md#openai-one-writer)); what shipped is
   `internal/openaiauth` beside `internal/oauthbroker`. Nothing remaining needs it resolved.
   Recorded so the next reader does not believe that sentence.

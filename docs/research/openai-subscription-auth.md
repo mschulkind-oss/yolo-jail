@@ -17,7 +17,7 @@ upstream source, and public issue reports. Codex's version floor for the broker 
 > service owns refresh and every consumer, including an opted-in host Codex,
 > obtains current tokens through it.
 
-**Reads with:** [`../design/openai-auth-broker.md`](../design/openai-auth-broker.md)
+**Reads with:** [`../reference/agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#the-openai-subscription-credential-service)
 (the resulting design), [`../reference/agent-credentials.md`](../reference/agent-credentials.md)
 (the existing credential tiers), and
 [`claude-oauth-refresh-mechanics.md`](claude-oauth-refresh-mechanics.md) (the

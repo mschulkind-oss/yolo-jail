@@ -37,7 +37,7 @@ the write families mutate the user's credential file.
 **Needs your ruling:** [OQ-1](#OQ-1), [OQ-2](#OQ-2), [OQ-3](#OQ-3).
 
 **Reads with:** [`notch-convergence.md`](../plans/notch-convergence.md) (NC-D37's host prelaunch rule),
-[`openai-auth-broker.md`](openai-auth-broker.md) (the one refresh owner, and the pi view it serves),
+[`agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#the-openai-subscription-credential-service) (the one refresh owner, and the pi view it serves),
 [`agent-directory-map.md`](agent-directory-map.md) (`auth.json`'s class and its host column),
 [`pi-codex-provider-shadowing.md`](pi-codex-provider-shadowing.md) (Pi provider catalog layering),
 [`model-lists-and-pickers.md`](model-lists-and-pickers.md) (ML-D3, MM-D23, and
@@ -222,11 +222,11 @@ pi auth file is the user's own file at the host"*. Four things stand behind it:
   forward and gave the reason.
 - **The broker design states the rule for codex only.** Its user experience section says *"Yolo never
   rewrites the user's ordinary `~/.codex/auth.json` or silently changes a directly launched host Codex"*
-  ([`openai-auth-broker.md`](openai-auth-broker.md#1-user-experience)). Its ledger rules
+  ([`agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#openai-login)). Its ledger rules
   *"`yolo host -- codex` shares the broker through a managed Codex home; direct host Codex remains
-  untouched"* ([OQ-OA3](openai-auth-broker.md#8-decision-ledger)). For pi it says only that
+  untouched"* ([OQ-OA3](../reference/agent-credentials.md#oq-oa3)). For pi it says only that
   *"`yolo host -- pi` and the Pi extension use the private socket directly"*
-  ([§4](openai-auth-broker.md#4-backend-transport)). Nothing says how pi's first `auth.json` entry
+  ([the OpenAI service's backend routes](../reference/agent-credentials.md#openai-backends)). Nothing says how pi's first `auth.json` entry
   appears at the host. **That is the design gap this doc fills.**
 - **The directory map classes `auth.json` as state and credential** (*"every provider's login and API
   key"*), and its host column says yolo writes nothing there: *"pi itself persists the broker's view
@@ -260,7 +260,7 @@ These facts hold for every option that stores an entry (A, A′, B, C, E, F).
 
 - **Pi never holds the canonical refresh token.** The entry is an access token, its expiry and the
   non-secret marker `yolo-broker:<generation>` in pi's required `refresh` field
-  ([`openai-auth-broker.md` §2](openai-auth-broker.md#2-one-writer-and-two-views)).
+  ([the OpenAI service's one-writer rule](../reference/agent-credentials.md#openai-one-writer)).
 - **Pi refreshes it itself** (SOURCED; MEASURED). At request time, with under five minutes left, pi
   runs `oauth.refresh` under its lock with a 15 s timeout (`$AI/auth/resolve.js:46-92`). That is the
   extension's [`refreshToken`](../../packs/pi/extensions/yolo-openai-auth.js#L318), which asks the
@@ -611,7 +611,7 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
 - **macos-user.** The directory map says that backend's merge lands in a sidecar; this doc changes
   nothing there.
 - **A token OpenAI rejects before its recorded expiry.** That stays as
-  [OQ-OA7](openai-auth-broker.md#OQ-OA7) left it.
+  [OQ-OA7](../reference/agent-credentials.md#oq-oa7) left it.
 - **opencode's subscription wiring** ([§4](#4-the-opencode-parallel)).
 - **Changes to pi upstream.** Every option here uses an interface pi 0.99.2 already ships.
 
@@ -700,7 +700,7 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
    D2, and it matches [OQ-NC7](../plans/notch-convergence.md#OQ-NC7) A, where host claude keeps its own
    login. The codex precedent is C's shape instead: `yolo host -- codex` uses the broker through a
    managed home while a direct host codex stays untouched
-   ([OQ-OA3](openai-auth-broker.md#8-decision-ledger)). A keeps that second half, and C would cost E,
+   ([OQ-OA3](../reference/agent-credentials.md#oq-oa3)). A keeps that second half, and C would cost E,
    the largest build here. [OQ-KC1](keychain-from-a-jail.md#OQ-KC1), the nearest unruled question,
    also keeps a yolo-owned login apart from the host's own, but for a jail, not the host.
 

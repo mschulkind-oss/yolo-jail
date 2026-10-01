@@ -5,7 +5,7 @@
 // opencode's built-in ChatGPT support that would otherwise own the credential, its request
 // `fetch`, because that fetch refreshes the token itself against a hard-coded
 // https://auth.openai.com and stores the refresh token it gets back. yolo's machine-wide
-// broker is the only refresh owner (docs/design/openai-auth-broker.md OQ-OA1), so this plugin
+// broker is the only refresh owner (docs/reference/agent-credentials.md OQ-OA1), so this plugin
 // asks the broker for the current access token instead, through
 // `yolo internal openai-auth-client token`, as pi's extension does (packs/pi/extensions/
 // yolo-openai-auth.js). opencode never holds the canonical refresh token (OQ-OA2).
@@ -56,7 +56,8 @@ const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key";
 const INTERNAL_TITLE_HEADER = "x-opencode-title";
 
 // A token this close to its expiry is asked for again: the broker refreshes inside the same
-// five-minute window (docs/design/openai-auth-broker.md §2), so it already holds a newer one.
+// five-minute window (docs/reference/agent-credentials.md, "One writer"), so it already holds a
+// newer one.
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
 // The two routes `yolo internal openai-auth-client` has to the machine's OpenAI login: a jail's

@@ -27,6 +27,9 @@ covers:
   - internal/openauthclient/
   - internal/openaiauthadapter/
   - internal/openaiauthhost/
+  - internal/cli/run/openaiauthmigration.go
+  - packs/pi/extensions/yolo-openai-auth.js
+  - packs/opencode/plugins/yolo-openai-auth.js
   - internal/macosuser/seatbelt.go
   - internal/macosuser/envfile.go
   - internal/loopholes/guestrun.go
@@ -45,7 +48,10 @@ tags: [credentials, security, boundary, env_sources, host_files, broker, oauth, 
 
 **Status:** verified 2026-10-01 against `d4e435a3`, the whole doc. A runtime claim says whether
 anyone has watched it run: `MEASURED` where someone has, `UNMEASURED` where no one has, which
-covers most of the `macos-user` column and opencode on the OpenAI service.
+covers most of the `macos-user` column and opencode on the OpenAI service. The
+[OpenAI service section](#the-openai-subscription-credential-service), its `OQ-OA` and `OA-D1`
+rows in [Why it's this way](#why-its-this-way) and its current values were rewritten against
+`d4e435a3` the same day, when the design `openai-auth-broker.md` graduated into them.
 
 yolo-jail's credential story is **structural, not a policy one**: host credentials are
 *physically absent* from the jail, and the only credentials an agent can reach are ones a human
@@ -146,7 +152,7 @@ enforced by the Seatbelt profile's read denies instead.
 
 - **Only Claude writes authentication back through an agent overlay into the global home.** The
   OpenAI credential service shares Codex, Pi and opencode authentication through separate
-  canonical state and generated agent views; it never makes a workspace overlay authoritative.
+  canonical state and generated agent views; it never makes any workspace overlay authoritative.
 
 ## The delivery channels
 
@@ -467,60 +473,171 @@ Three beliefs about it were measured false, and each one had been load-bearing s
 ### The OpenAI subscription credential service
 
 Codex, Pi and opencode use one machine-wide OpenAI subscription grant without sharing any agent's
-whole home. The `openai-auth` pack owns a host singleton named `openai-auth-broker`; each of those
-agent packs `needs` that pack, so selecting any of them selects the same service rather than
-declaring a second refresh owner.
+whole home. The `openai-auth` pack owns a host singleton named `openai-auth-broker`, and every
+agent pack that can use the subscription `needs` that pack, so selecting any of them selects the
+same service rather than declaring a second refresh owner ([`OQ-OA1`](#oq-oa1)). Sharing the
+credential files alone would race on a single-use refresh token; a login per workspace and agent
+would avoid the race by making the user repeat the browser login every time.
 
-The canonical file contains the access, identity and refresh tokens, their expiry, the OpenAI
-account id, and a monotonically increasing generation. It lives under the loophole's host state
-directory and never crosses into a jail. Login replacement, logout and refresh all take one
-machine-wide file lock. Refresh reloads the canonical file while holding that lock, returns the
-current generation to a caller holding an older refresh token, and contacts OpenAI at most once
-for the current generation. Updates use an atomic rename of a mode-`0600` file in a mode-`0700`
-directory.
+<a id="openai-one-writer"></a>
+
+#### One writer, and a view per agent
+
+The host service is the **only writer** of the canonical credential: the access, identity and
+refresh tokens, their expiry, the OpenAI account id, and a monotonically increasing
+**generation**. The file lives under the loophole's host state directory and never crosses into a
+jail. Login, refresh, replacement and logout all take one machine-wide file lock, and every update
+is an atomic rename of a mode-`0600` file in a mode-`0700` directory.
+
+A refresh takes the lock, reloads the canonical file, and then decides:
+
+- a caller presenting an older generation than the current one is **stale**: it gets the current
+  generation back, and OpenAI is not contacted, even when that generation is due;
+- a current access token with more than the refresh lead left is returned **cached**;
+- otherwise the service redeems the refresh token **exactly once**, persists the rotation, and
+  answers.
+
+Once a redemption may have started, the caller's cancellation no longer reaches it
+(`context.WithoutCancel`): OpenAI may already have consumed the refresh token, so the service
+finishes and persists the rotation before it releases the lock.
 
 One prerelease build passed the literal relative path `{state}/credentials.json` to the daemon.
 The next launch checks only two bounded locations for that file: the current workspace and, on
 Linux, the recorded singleton process's working directory under `/proc`. While holding the same
 singleton lock used for startup, it validates the file, moves it into the canonical private state
 directory, removes the empty literal `{state}` directory, and replaces the daemon so later writes
-use the canonical path. It never searches other workspaces. If both a legacy and canonical file
-exist, or more than one bounded candidate exists, yolo refuses to choose and prints the paths;
-preserving both for a deliberate manual choice is safer than overwriting a refresh authority.
+use the canonical path (`prepareLegacyOpenAIAuthState`, `internal/cli/run`). It never searches
+other workspaces. If both a legacy and canonical file exist, or more than one bounded candidate
+exists, yolo refuses to choose and prints the paths: preserving both for a deliberate manual
+choice is safer than overwriting a refresh authority.
 
-The agents receive different views:
+No agent ever receives the canonical refresh token ([`OQ-OA2`](#oq-oa2)). Each gets a **view** of
+the canonical state, shaped for its own client:
 
-- Codex gets its native `auth.json` shape in the workspace home. Its native refresh URL points to
-  a jail-local HTTP adapter, which forwards the presented `yolo-broker:<generation>` marker
-  through the authenticated host-service endpoint. The marker also carries this launch's
-  **caller token**, a secret the launcher mints per launch, and the adapter refuses with HTTP 401
-  a refresh whose marker lacks it, before the service is asked anything: the adapter's port is a
-  loopback port, which anything sharing that loopback can reach. Only the host service holds or
-  may redeem the canonical refresh token.
-- Pi's `openai-codex` provider extension asks the service for an access token and expiry. Its
-  workspace record carries the nonsecret marker `yolo-broker` where Pi's schema requires a
-  refresh string. Pi never receives the canonical refresh token, so Pi's per-workspace file lock
-  is no longer responsible for cross-workspace serialization.
-- opencode gets an `oauth` entry under `openai` in its own `auth.json`, the entry its built-in
-  ChatGPT support keys on, with the broker's marker as its refresh value. A yolo plugin
-  (`packs/opencode/plugins/yolo-openai-auth.js`) replaces opencode's request fetch for that
-  credential, so every token comes from the service and opencode never refreshes against OpenAI
-  itself. UNMEASURED: no opencode session has sent a request on the subscription.
+- **Codex** gets its native `auth.json` in the workspace home, with
+  `yolo-broker:<generation>` where its schema requires a refresh token. Its supported refresh-URL
+  override (`CODEX_REFRESH_TOKEN_URL_OVERRIDE`) points at a small HTTP adapter, which forwards the
+  marker to the service over the authenticated host-service endpoint. A stale marker gets the
+  current generation, so a stale Codex view repairs itself on its next refresh. The adapter's
+  loopback port is reachable by every process on that loopback, so the launch also binds its
+  per-launch caller token into the marker (`yolo-broker:<generation>.<token>`), and the adapter
+  refuses a marker without it, with HTTP 401, before the service is asked anything. The service
+  never sees the suffix.
+- **Pi**'s `openai-codex` provider extension asks the service for an access token and its expiry,
+  and writes them to the workspace provider record with `yolo-broker:<generation>` in Pi's
+  required `refresh` field. Pi's normal refresh window calls the extension, which asks the service
+  again, so concurrent workspaces each take their own Pi file lock and the service performs at
+  most one upstream refresh among them. Pi's other provider credentials stay in its workspace
+  `auth.json`.
+- **opencode** gets Pi's view, merged under its own `openai` key in its own `auth.json`
+  ([`OA-D1`](#oa-d1)). opencode files its own ChatGPT login and an OpenAI API key under that same
+  key, so the view replaces either one, and the launch names what it replaced. opencode's own
+  request `fetch` refreshes against a hard-coded `auth.openai.com` and keeps the refresh token it
+  gets back, and no config key or variable moves it, so yolo's opencode plugin replaces that
+  fetch, which a later plugin may do. The plugin asks the service for the access token within the
+  refresh lead of its expiry, and opencode never sends a refresh. If the plugin fails to load,
+  opencode's own fetch sends the marker, which is no credential, once the token expires.
+  UNMEASURED: no opencode session has sent a request on the subscription.
 
 Pi's and opencode's views are written only when `openai-codex` is an entry of that agent's active
 provider set, keyed on the provider rather than on a profile's name, so a user's own profile over
 `openai-codex` gets the view too. Codex's pack declares its view unconditionally.
 
-The host service checks expiry proactively once per minute and refreshes within five minutes of
-expiry. A permanent upstream refusal preserves the last state for diagnosis, marks login as
-required, and suppresses further unattended redemption attempts. Status output contains token
-fingerprints: eight hexadecimal characters derived from a token's SHA-256 digest. A fingerprint
-helps correlate generations without revealing the token.
+> [!WARNING]
+> **Pi's view refreshes before expiry and at no other time** ([`OQ-OA7`](#oq-oa7)). Pi calls a
+> provider's refresh only from expiry-checked call sites, an unauthorized (HTTP 401) response is in
+> none of its retry classifiers, and its extension API shows no response status, so an "ask once
+> more after a 401" step cannot be built (measured against pi 0.87.0, re-read in 0.99.1). The
+> service's proactive refresh covers what that step was for. The one gap is a token OpenAI rejects
+> before its recorded expiry: pi reports that request as failed. Re-open this only if pi gives an
+> extension a way to see a response's status.
 
-Browser login also runs in the host service. It binds host loopback port 1455, falling back to
-1457, prints the authorization URL through the client, validates the OAuth state on the exact
-callback path, exchanges the code with PKCE, and atomically replaces canonical state. Directly
-launched host Codex and its credential file remain outside this service.
+The service also refreshes **proactively**, checking on a short tick and refreshing once the
+canonical access token is within the refresh lead of expiry, so an idle agent or a machine waking
+from sleep resumes with a current token. That replicates the Claude broker's semantics (a
+machine-wide flock, reload under lock, stale-caller detection, cached return, one redemption,
+atomic persistence, proactive refresh, fingerprint-only diagnostics) without its hostname
+interception: Codex exposes a refresh-URL override and Pi a provider extension API, so no
+OpenAI-signing CA is installed and no unrelated traffic is intercepted ([`OQ-OA5`](#oq-oa5)).
+
+> [!NOTE]
+> **Two flock transactions, not one shared engine.** The design once said the Claude and OpenAI
+> brokers' engine would be generalized once, with provider-specific adapters. What shipped is
+> `internal/openaiauth` beside `internal/oauthbroker`, each with its own lock transaction, and
+> nothing depends on merging them.
+
+<a id="openai-login"></a>
+
+#### Login, and what a user sees
+
+The first Codex, Pi or opencode launch without a credential prints one browser URL, and opens it
+on the host when a browser opener exists. **The login runs in the host service**, not in the jail
+([`OQ-OA4`](#oq-oa4)): the service binds a host loopback callback port, falling back to a second
+one when another process holds the first, names the port it got in the redirect URI, accepts only
+the exact callback path, compares the OAuth `state` before it takes the code, refuses a second
+callback, exchanges the code with PKCE, and atomically replaces the canonical state. The jail's
+login action only streams the URL back. So no callback is relayed into a jail and no per-jail host
+port is reserved. ⚠ A third concurrent login finds no free port.
+
+One login serves every agent and every workspace on the machine, and a new login replaces the old
+grant atomically. Logout is explicit, machine-wide, and says so before it deletes anything
+([Import and logout](#import-and-logout--the-hosts-two-verbs)).
+
+<a id="openai-failure-and-recovery"></a>
+
+#### Failure and recovery
+
+- A **transient** upstream error leaves the canonical state unchanged and is returned as
+  retryable. There is no automatic second redemption.
+- A **permanent** refusal keeps the last state for diagnosis, marks the grant as needing a login,
+  and stops further unattended redemption: the proactive refresh skips a grant marked that way.
+- A **client disconnect** after a redemption may have started does not cancel it (above).
+- A **service restart** reloads the persisted state; a pending login is lost, and a retry prints a
+  fresh URL.
+
+Status and logs carry token fingerprints, expiry, generation decisions, latency, caller identity
+and upstream error metadata. A fingerprint is eight hexadecimal characters of a token's SHA-256
+digest, enough to correlate generations without revealing the token. Token bodies, authorization
+codes, PKCE verifiers and callback query strings are never logged or printed.
+
+<a id="openai-backends"></a>
+
+#### How each backend reaches it
+
+The refresh algorithm is the same on every backend, and none intercepts `auth.openai.com`
+([`OQ-OA5`](#oq-oa5)); only the route from an agent's adapter to the host service differs.
+
+- **Container jails** use the per-jail authenticated loopback-TLS front and its endpoint file.
+  The Codex adapter is the loophole's `jail_daemon`, inside the jail. Pi's extension and the
+  opencode plugin call the same front.
+- **`macos-user`** starts the same host singleton, and the sandboxed account reaches its front on
+  the Mac's loopback, reading the endpoint credential from the sandbox-visible state the launch
+  prepared. The Codex adapter is a **doorway** (the thin adapter that checks the launch's caller
+  token and forwards to the host service): the launch opens it outside the sandbox as a listener
+  it owns, on a port it picked, and closes it when the command exits ([`OQ-OA6`](#oq-oa6)). See
+  the warning under [Import and logout](#import-and-logout--the-hosts-two-verbs).
+- **`yolo host`** reaches the service through a private mode-`0600` Unix socket ([below](#import-and-logout--the-hosts-two-verbs)).
+
+<a id="openai-measured"></a>
+
+#### What has been watched running
+
+MEASURED, as recorded on 2026-09-30: a brokered refresh through a jail's published endpoint on
+rootless podman, on both architectures (`TestOpenAIAuthBrokerRoundTripsAnImportedToken`, `ci.yml`
+run 36662086103), and the `macos-user` doorway on a hosted Mac, reachable from inside the sandbox,
+refusing a refresh without the launch's caller token, admitting one bound to it, and gone when the
+session ends (`TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox`, `macos-user.yml` run
+36719581090; it runs no Codex). opencode's view is MEASURED by unit tests only.
+
+UNMEASURED, because each needs a ChatGPT account and wall-clock time, and so a person
+([`../design/openai-auth-broker-plan.md`](../design/openai-auth-broker-plan.md) owns the checks):
+
+- two Codex and two Pi processes crossing one expiry concurrently with exactly one upstream
+  refresh;
+- Codex and Pi working from one browser login in different workspaces;
+- an opted-in host Codex and a jail Codex crossing one expiry without a reused-token failure;
+- a browser login from a bridged-network jail with two logins pending at once;
+- the same login and expiry crossing under `macos-user`, with no DNS or trust-store change.
 
 ### Import and logout — the host's two verbs
 
@@ -559,7 +676,10 @@ contribution or its env derive, as the launch composes them
 So `yolo host -p codex -- pi` gives Pi's provider extension the private host Unix socket, and
 `yolo host -p zai -- pi` does nothing of the kind, since pi's derive declares the prelaunch only
 when `openai-codex` is in pi's active provider set; `yolo host -p codex -- opencode` hands
-opencode's plugin the same socket on the same rule. `yolo host -- codex` writes the native credential view under
+opencode's plugin the same socket on the same rule. At the host, opencode's `auth.json` is the
+user's own and yolo does not write it, so the plugin offers the shared login in opencode's
+`/connect`, and each such launch says so until that file holds the view
+(`opencodeHostLoginNotice`, `internal/openaiauthhost`). `yolo host -- codex` writes the native credential view under
 `<global storage>/host-agents/<the declaring pack>` (`codex` for the shipped pack), sets
 `CODEX_HOME` to that directory, and starts a dynamic loopback refresh adapter. With no login, the
 browser login starts only at a terminal; off one the launch says a login is required and runs
@@ -568,7 +688,10 @@ generated Codex wrapper delegates to the same command. The managed home's `confi
 COPY of the ordinary host one, rebuilt at every launch with this launch's workspace trusted and
 the daemon key below, so the ordinary `config.toml` is read and never written; `AGENTS.md` and
 `skills` are links to the ordinary host Codex home when present; the managed home's own
-`auth.json`, session state, and cache stay separate. A direct `codex` launch and `~/.codex/auth.json` are untouched.
+`auth.json`, session state, and cache stay separate. A direct `codex` launch and `~/.codex/auth.json` are untouched
+([`OQ-OA3`](#oq-oa3)): a host Codex shares the login only when yolo launches it, and one launched
+directly keeps its own home and, if logged in there, a grant of its own. An explicit import can
+seed the service from that file once; after it the two files are independent.
 The managed launch also keeps Codex's background server off, since one would outlive the launch and
 keep posting refreshes to its closed adapter: the managed `config.toml` sets
 `features.daemon_auto_start = false`, the argv gains `--no-daemon` (disclosed; not beside `queue`
@@ -588,7 +711,8 @@ in that home is stopped once, when no other launch of it is live
 > but the refresh adapter declares a host argv (`jail_daemon.host_cmd`), so since 2026-09-29
 > (`fea3b6c7`) the launch opens it outside the sandbox instead, as a listener it owns on the Mac's
 > loopback, and `CODEX_REFRESH_TOKEN_URL_OVERRIDE` names that port
-> ([`host-notch-services.md` HS-D15](../design/host-notch-services.md#HS-D15)). MEASURED on a
+> ([`host-notch-services.md` HS-D15](../design/host-notch-services.md#HS-D15),
+> [the sandbox's decline list](macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)). MEASURED on a
 > hosted Mac on 2026-09-30 (`TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox`, `macos-user.yml`
 > run 36719581090), with no Codex run through it. Starting a service is still not the same as the
 > jail reaching it, and the agent pack dependency alone creates no second credential path. See
@@ -1020,6 +1144,14 @@ Rulings a future change would otherwise undo, kept with their original IDs.
 | **[OQ-A10](loophole-system.md#oq-a10)** — the broker is a *contribution* of `packs/claude`, not a pack of its own | The dependency is structural: there is no jail that wants the broker and not claude. Selecting the pack is the declaration, which is why the host-side activation probe could be deleted rather than replaced. |
 | **[OQ-A1](loophole-system.md#oq-a1)** — the broker stays on by default through `default_enabled: true` on its own manifest | A shipped loophole is host access you ask for, except where it keeps a credential you already asked for from being burnt, as this one and `openai-auth-broker` do, so the two kinds need opposite defaults. Off by default means silently reintroducing the race. |
 | **P1 (broker)** — concurrent consumers must be serialized by a host-wide flock | Anthropic mints single-use refresh tokens. This is a property of the upstream service, not of yolo's architecture, so no refactor retires it. |
+| <a id="oq-oa1"></a>[`OQ-OA1`](#oq-oa1) (OpenAI): **one machine-wide host service is the sole writer** of the subscription's refresh token, and every agent pack that can use the subscription `needs` the one pack that owns it | OpenAI's refresh token is single-use, so two writers race on it, and a login per agent or workspace would make the user repeat the browser flow every time. |
+| <a id="oq-oa2"></a>[`OQ-OA2`](#oq-oa2) (OpenAI): **no agent receives the canonical refresh token.** Codex uses its native refresh override with an opaque generation marker; Pi gets an access-token view | A view an agent can redeem would make that agent a second writer. The marker lets the service tell a stale view from a current one without trusting the caller with anything redeemable. |
+| <a id="oq-oa3"></a>[`OQ-OA3`](#oq-oa3) (OpenAI): **`yolo host -- codex` shares the login through a managed Codex home; a directly launched host Codex is untouched** | Rewriting the user's ordinary `~/.codex/auth.json` would silently change a program yolo did not launch. |
+| <a id="oq-oa4"></a>[`OQ-OA4`](#oq-oa4) (OpenAI): **no browser callback depends on a per-jail host port** | Ruled as a temporary state-routed relay for container callbacks. As built, the host service runs the whole login and the jail only streams the URL back, which meets the ruling with no relay at all; do not add one. |
+| <a id="oq-oa5"></a>[`OQ-OA5`](#oq-oa5) (OpenAI): **every backend uses authenticated loopback TLS and the same refresh algorithm, and none intercepts `auth.openai.com`** | Codex's refresh-URL override and Pi's provider API are supported seams; interception would need an OpenAI-signing CA and would catch unrelated host traffic. |
+| <a id="oq-oa6"></a>[`OQ-OA6`](#oq-oa6) (OpenAI), route (b), maintainer ruling 2026-09-29: **on `macos-user` the Codex refresh adapter is a launch-owned doorway outside the sandbox**, under [HS-D15](../design/host-notch-services.md#HS-D15)'s rule for every credential service | The doorway opens on whichever loopback the agent sees: a container's own loopback holds it as a jail daemon, and `macos-user` and `yolo host` share the Mac's. The maintainer, on why an in-jail placement was never a principle: *"the host doesn't have to run [in the jail] anyway, so the host can access it."* |
+| <a id="oq-oa7"></a>[`OQ-OA7`](#oq-oa7) (OpenAI), decided 2026-09-29: **Pi's view refreshes before expiry only, with no ask-once-more after an unauthorized response** | Pi gives an extension no way to see a response's status ([the warning](#openai-one-writer)), and the service's proactive refresh covers the expiry case. Re-open only if pi adds a status hook. |
+| <a id="oa-d1"></a>[`OA-D1`](#oa-d1) (OpenAI), decided 2026-10-01: **opencode gets Pi's view, and yolo's plugin replaces opencode's request `fetch` on that entry** | opencode's refresh address is hard-coded and no config or variable moves it (read from opencode 1.18.34's source, not run), so the only way to keep it from redeeming is to own the fetch. MEASURED by unit tests only; no opencode session has sent a request on the subscription. |
 | **`env_sources` over the settings `env` block, as shipped** | The `env` block is the right long-term target — it is the one channel that renders at *both* the jail and host notches — but nothing shipped uses it for a secret today, and a doc that said otherwise was measured wrong against a live jail. State the mechanism that runs. |
 | **MCP `${VAR}` is passed through verbatim** | An interpolated secret entered the file without passing through any provenance layer, and sourced config content from process env at render time. Resolution one step later, by the consumer, loses nothing. |
 | **[OQ-SSO1](../design/sso-backed-bedrock.md#13-decision-ledger), [OQ-SSO10](../design/sso-backed-bedrock.md#OQ-SSO10)**: `aws-auth` requires a narrowing, serves un-narrowed only when asked by name, and discloses that at every launch through a declared `disclose` sentence | Any process in the jail can read the served credential, so the narrowing is the only defense there. A default that widened could not be tightened later without breaking working setups. The service is a singleton, so its own spawn line prints once and then serves every later launch in silence; and a launch that tested the loophole's name would be a switch on a tool name in the one loop that renders every pack. |
@@ -1064,6 +1196,11 @@ $ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
 | OpenAI canonical state | `<loophole state>/credentials.json`, mode `0600`; parent and lock are private | `internal/openaiauth`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
 | OpenAI credential daemon | `yolo internal daemon openai-auth-broker`, `scope: "host"` | `internal/openaiauthdaemon`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
 | OpenAI jail endpoint | `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT` | `internal/openauthclient` |
+| OpenAI refresh lead, and the proactive tick (verified at `d4e435a3`) | 5 min; checked every minute | `openaiauth.DefaultRefreshLead`; the daemon's `-refresh-interval` (`internal/openaiauthdaemon`) |
+| OpenAI login callback (verified at `d4e435a3`) | `http://localhost:<port>/auth/callback`, port `1455`, else `1457`; abandoned after 15 min | `internal/openaiauthdaemon` (`loginPorts`, the daemon's `-login-timeout`) |
+| OpenAI upstream request timeout (verified at `d4e435a3`) | 30 s | `internal/openaiauthdaemon` (`upstream.go`) |
+| OpenAI view markers (verified at `d4e435a3`) | `yolo-broker:<generation>` in Pi's and opencode's views; `yolo-broker:<generation>.<caller token>` in Codex's, the adapter stripping the suffix | `internal/openauthclient` (`pi.go`, `opencode.go`, `callermarker.go`) |
+| opencode's view (verified at `d4e435a3`) | the `openai` key of opencode's `auth.json`, merged by `yolo internal openai-auth-client token --opencode-auth`; at the host, `$XDG_DATA_HOME/opencode/auth.json`, else `~/.local/share/opencode/auth.json`, which yolo never writes | `internal/openauthclient/opencode.go`; `internal/openaiauthhost` (`opencodeHostAuthPath`) |
 | AWS credential daemon | `yolo internal daemon aws-auth`, `scope: "host"` | `internal/awsauthdaemon`; `packs/aws-auth/loopholes/aws-auth/manifest.jsonc` |
 | AWS settings keys | `loopholes.aws-auth.settings.profile`, `.role_arn`, `.session_policy` (strings) and `.unnarrowed` (bool, default `false`), every one `scope: "user"`; the loophole ships `default_enabled: false` | `packs/aws-auth/loopholes/aws-auth/manifest.jsonc`; `internal/awsauth` (`settings.go`) |
 | AWS pointer | `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://{listen}/credentials` and `AWS_CONTAINER_AUTHORIZATION_TOKEN={caller_token}`, gated on the agent's provider declaring `"platform": "aws-bedrock"`, `served_by: "aws-auth"` | `packs/aws-auth/pack.json` |

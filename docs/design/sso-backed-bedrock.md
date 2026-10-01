@@ -134,7 +134,7 @@ no broker"* and *"no `~/.aws` mount"* — this doc is exactly that excluded half
 compose without either changing),
 [`../reference/agent-credentials.md`](../reference/agent-credentials.md) (the channel
 enumeration this adds to, and the boundary rules it must not break),
-[`openai-auth-broker.md`](openai-auth-broker.md) (the host-singleton-plus-jail-adapter shape,
+[`agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#the-openai-subscription-credential-service) (the host-singleton-plus-jail-adapter shape,
 built),
 [`boundary-broker.md`](boundary-broker.md) (where the human-approval tier this design
 deliberately does not build would live),

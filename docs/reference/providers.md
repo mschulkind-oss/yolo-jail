@@ -1073,7 +1073,7 @@ and pi's do ([OQ-1, OQ-2](../design/pi-codex-provider-shadowing.md#10-decision-l
   listed id, and `enabled_providers` naming `openai`. A later entry of an
   [active set](#an-active-set-several-profiles-for-one-agent) adds the row and `openai` to
   `enabled_providers`.
-- **The login is the shared one** ([`openai-auth-broker.md`](../design/openai-auth-broker.md)). The
+- **The login is the shared one** ([`agent-credentials.md`'s OpenAI service](agent-credentials.md#the-openai-subscription-credential-service)). The
   env derive emits `YOLO_AUTH_PRELAUNCH_OPENCODE_FLAG=--opencode-auth` and
   `YOLO_AUTH_PRELAUNCH_OPENCODE_PATH=.local/share/opencode/auth.json` whenever `openai-codex` is in
   opencode's active set (keyed on the provider, as pi's are). In a jail the launcher writes the

@@ -58,7 +58,7 @@ host networking."*
    refresh token needs no interception ([§5](#5-the-recommended-shape)).
 3. **This is the OpenAI service's design, applied to Claude.** The OpenAI broker already keeps
    the canonical refresh token host-side and hands each agent a view
-   ([`openai-auth-broker.md` §2](openai-auth-broker.md#2-one-writer-and-two-views)). Pi's view
+   ([the OpenAI service's one-writer rule](../reference/agent-credentials.md#openai-one-writer)). Pi's view
    carries a marker where its refresh token would go. Claude's view simply omits the field.
 4. **The wire bridge does not make the best option better.** The bridge would help the options
    that keep a network hop ([§4](#4-the-options-that-remove-the-hosts-entry), options B and C). It
@@ -70,7 +70,7 @@ host networking."*
 - **Credential view** — a per-workspace `.credentials.json` the host broker writes for Claude:
   the current access token and its expiry, with no refresh token. It is not the canonical
   credential. It is not a symlink to a shared file, which is today's mechanism. The word "view"
-  is [`openai-auth-broker.md` §2](openai-auth-broker.md#2-one-writer-and-two-views)'s, for the
+  is [the OpenAI service's](../reference/agent-credentials.md#openai-one-writer), for the
   same thing on the OpenAI side.
 - **Canonical credential** — the one record that holds the refresh token, owned and written by
   the host broker under its refresh lock. It is not what any Claude process reads. Today the
@@ -418,9 +418,9 @@ Every step is in the
   A view at the host would make host claude a second refresher of nothing, which is safe, but it
   is that question's to reopen.
 - **The OpenAI service.** It already works this way, and this doc copies its shape. Generalizing
-  the two brokers into one engine is
-  [`openai-auth-broker.md` §2](openai-auth-broker.md#2-one-writer-and-two-views)'s stated
-  intent, and not a prerequisite.
+  the two brokers into one engine was the OpenAI design's stated intent, which the build did not
+  follow ([two flock transactions](../reference/agent-credentials.md#openai-one-writer)), and it
+  is not a prerequisite.
 - **[OQ-CI1](../reference/claude-oauth-interposition.md#oq-ci1).** This design keeps the login
   shared and answers the reason that question was asked: sharing the grant rather than the file
   removes the costs it listed.
@@ -553,7 +553,7 @@ implementation decision under them.
 | :--- | :--- |
 | [`notch-convergence.md`](../plans/notch-convergence.md#OQ-NC2) | [OQ-NC2](../plans/notch-convergence.md#OQ-NC2), the terminator on a shared namespace, which the view dissolves; [NC-D15](../plans/notch-convergence.md#NC-D15), the refresh-token caller check this deletes along with its listener |
 | [`claude-oauth-interposition.md`](../reference/claude-oauth-interposition.md#why-there-is-a-file-on-disk-at-all) | the channel table this doc re-reads for 2.1.284, the interception it retires, and [OQ-CI1](../reference/claude-oauth-interposition.md#oq-ci1) |
-| [`openai-auth-broker.md`](openai-auth-broker.md#2-one-writer-and-two-views) | the one-writer, two-views design this copies |
+| [`agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#openai-one-writer) | the one-writer, two-views design this copies |
 | [`agent-credentials.md`](../reference/agent-credentials.md#the-claude-oauth-broker) | the broker's rulings, its floors and the background refresher [CL-D5](#CL-D5) retunes |
 | [`claude-oauth-refresh-mechanics.md`](../research/claude-oauth-refresh-mechanics.md) | the vendor's refresh state machine, including why writing the file is the right hook |
 | [`wire-bridge.md`](../reference/wire-bridge.md#caller-authentication) | the caller token and ports that options B and C would reuse |

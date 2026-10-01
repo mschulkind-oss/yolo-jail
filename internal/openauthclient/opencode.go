@@ -83,7 +83,7 @@ func ReadOpencodeLogin(path string) OpencodeLogin {
 // every other provider's entry. The refresh value is the broker's generation marker, never a
 // credential: yolo's opencode plugin (packs/opencode/plugins/yolo-openai-auth.js) serves every
 // request from the broker, and only an entry carrying that marker is one it serves, so opencode
-// never refreshes the token itself (docs/design/openai-auth-broker.md OQ-OA2).
+// never refreshes the token itself (docs/reference/agent-credentials.md OQ-OA2).
 //
 // It returns what the write replaced under `openai`. That key is also where opencode files its
 // own ChatGPT login and an OpenAI API key, so the view REPLACES either one, and the caller says

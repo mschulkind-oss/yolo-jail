@@ -32,7 +32,7 @@ that owned it has gone ([§3](#3-what-it-means-for-yolo-one-row-per-notch)).
 **Needs your ruling:** [OQ-CDX3](#OQ-CDX3), what to do about `codex agents` in jails and on
 macos-user. [OQ-CDX1](#OQ-CDX1) and [OQ-CDX2](#OQ-CDX2) were ruled 2026-09-29.
 
-**Reads with:** [`openai-auth-broker.md`](../design/openai-auth-broker.md) (the refresh owner the
+**Reads with:** [`agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#the-openai-subscription-credential-service) (the refresh owner the
 daemon talks to), [`host-notch-services.md`](../design/host-notch-services.md#HS-D15) (the doorway
 rule), [`host-daemon-ownership.md`](../design/host-daemon-ownership.md#HD-R1) (HD-R1, no host
 singletons), [`central-yolo-watcher.md`](central-yolo-watcher.md) (the watcher exploration), and
@@ -551,7 +551,7 @@ launched started one** (INFERRED: no yolo launch was run).
 
 `yolo host -- codex` points Codex at a **managed `CODEX_HOME`**, `<yolo state>/host-agents/codex`,
 so the host broker can serve it without touching the user's own `~/.codex`
-([OQ-OA3](../design/openai-auth-broker.md#8-decision-ledger)). It opens a refresh adapter on a fresh
+([OQ-OA3](../reference/agent-credentials.md#oq-oa3)). It opens a refresh adapter on a fresh
 `127.0.0.1:0` port and hands Codex that URL, and closes the adapter when the agent exits
 (MEASURED: `prepare` and `Launch.Run` in [`host.go`](../../internal/openaiauthhost/host.go)).
 
@@ -570,7 +570,7 @@ so the host broker can serve it without touching the user's own `~/.codex`
 - **Does it bypass the broker? No.** The managed `auth.json` holds a broker marker,
   `yolo-broker:<generation>` bound to the caller token, never the real refresh token
   (MEASURED: [`openauthclient/codex.go:54-62`](../../internal/openauthclient/codex.go#L54-L62);
-  [`openai-auth-broker.md` §2](../design/openai-auth-broker.md#2-one-writer-and-two-views)). So the
+  [the OpenAI service's one-writer rule](../reference/agent-credentials.md#openai-one-writer)). So the
   daemon cannot redeem anything at OpenAI itself, and the broker stays the one refresh owner.
 - **What it can leak.** Once A's port is free, any local process, another user's included, can bind
   it and receive B's marker **with B's live caller token**. It can then replay that to B's adapter
@@ -718,7 +718,7 @@ What the comparison teaches:
    into the real home, so a key in the codex pack's `config` contribution would land in your
    `~/.codex/config.toml` too (INFERRED; [§6](#6-what-is-unmeasured-and-how-to-measure-it), item 8).
    The broker ledger already says a direct host Codex "remains untouched"
-   ([OQ-OA3](../design/openai-auth-broker.md#8-decision-ledger)). **Why it is a question:** the same
+   ([OQ-OA3](../reference/agent-credentials.md#oq-oa3)). **Why it is a question:** the same
    key that protects yolo's launches would have prevented your incident if the daemon caused it
    ([§1](#1-the-short-answer)), but it changes a program yolo does not launch.
 
@@ -735,7 +735,7 @@ What the comparison teaches:
      than the CLI and names `codex app-server daemon update`. **You see** a stale daemon like the
      one [§1](#1-the-short-answer) suspects reported, and yolo changes nothing in your tool.
 
-   _Leaning:_ **A**, which keeps [OQ-OA3](../design/openai-auth-broker.md#8-decision-ledger)'s promise.
+   _Leaning:_ **A**, which keeps [OQ-OA3](../reference/agent-credentials.md#oq-oa3)'s promise.
    C is A plus a read-only diagnosis. Choose C if you want `yolo check` to have caught this
    incident, knowing it makes yolo report on a process it neither starts nor owns.
 
@@ -748,7 +748,7 @@ What the comparison teaches:
    > never changes a Codex the user starts directly from a terminal: `yolo host apply` does not
    > write the daemon key into the user's own `~/.codex`, and no `yolo check` row reports on its
    > daemon. This follows the 2026-09-28 ruling that an agent started outside yolo may lack
-   > features, and [OQ-OA3](../design/openai-auth-broker.md#8-decision-ledger)'s "remains untouched".
+   > features, and [OQ-OA3](../reference/agent-credentials.md#oq-oa3)'s "remains untouched".
 
 3. 💬 <a id="OQ-CDX3"></a>**[OQ-CDX3](#OQ-CDX3): In a jail and on macos-user, `codex agents`
    still starts Codex's daemon. Accept that, or hand every in-jail `codex` `--no-daemon`?**

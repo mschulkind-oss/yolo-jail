@@ -814,7 +814,7 @@ end)
 -- (`yolo host`, internal/openaiauthhost). The view is the `oauth` credential opencode's built-in
 -- ChatGPT support keys on, with the broker's generation marker as its refresh value, and
 -- plugins/yolo-openai-auth.js serves every request from the broker, so opencode never holds or
--- spends the refresh token (docs/design/openai-auth-broker.md OQ-OA2).
+-- spends the refresh token (docs/reference/agent-credentials.md OQ-OA2).
 --
 -- The path is where opencode's Auth store reads with XDG_DATA_HOME unset, which yolo never sets
 -- for an agent: $XDG_DATA_HOME/opencode/auth.json, else ~/.local/share/opencode/auth.json

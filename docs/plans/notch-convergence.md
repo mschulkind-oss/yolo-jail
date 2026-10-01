@@ -291,7 +291,7 @@ line numbers are left out on purpose, because they drift.
 | C3 | Env precedence | `agentEnvFileContent`: since [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8) every line defers to the launcher's incoming environment (CN-D21), so the user's value wins, then the file's first line: `env_sources`, then the gated env, then the shape (re-read 2026-09-30) | `composeHostVarsGranting`: fold, then `env_sources`, then shape, then removals, all applied over the shell | `launchEnv`: `env_sources` last; tombstones skipped. Since item 17, every other agent reads the per-agent file | One key gets three winners (MEASURED 2026-09-30, [OQ-NC12](#OQ-NC12)) | One ordered composition in packload, which each vehicle serializes | [`OQ-CN8`](../design/provider-credential-scope.md#OQ-CN8), ✅ built `cef51809`, decided the user's value in the per-agent file only. The rest is [OQ-NC12](#OQ-NC12) and [OQ-NC13](#OQ-NC13) ([NC-D68](#NC-D68)) |
 | C4 | Delivery vehicle | per-agent files | one exec | per launch, by basename, and since item 17 the per-agent files too | An agent started from a macos-user shell gets none of its profile. ✅ Closed by item 17 | macos-user writes the per-agent files | [`OQ-CN9`](../design/provider-credential-scope.md#OQ-CN9), ✅ ruled and built `949d9430` (CN-D24; [NC-D67](#NC-D67)) |
 | C5 | Workspace scope of credential inputs | `env_sources` and `providers.*.api_key_env_name` merge in from the workspace | user scope only | as jail | A repo file can make `GH_TOKEN` zai-claimed and send it to z.ai | One scope reader for credential-bearing keys | [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3), [OQ-NC6](#OQ-NC6). ✅ The provider half built `c7a3482b`: every credential-routing provider field is refused at workspace scope ([NC-D63](#NC-D63)). `env_sources` waits on [`OQ-AS3`](../research/agent-safehouse.md#OQ-AS3) |
-| C6 | OpenAI prelaunch | declarative: `YOLO_AUTH_PRELAUNCH_<BIN>_*` read by the `agentAuthPrelaunchShellFn` launcher block, with no login without a TTY | `openaiauthhost.prepare` switches on the names `codex` and `pi`, and logs in regardless of profile or TTY | shim as jail | MEASURED: `yolo host -p zai -- pi </dev/null` reached the broker's browser login | The host reads the same declarative values from its composition. One Go prelaunch, logging in only at a TTY. The managed `CODEX_HOME` is keyed on the declaring pack | — ([OQ-OA3](../design/openai-auth-broker.md#8-decision-ledger) covers codex's managed home only) |
+| C6 | OpenAI prelaunch | declarative: `YOLO_AUTH_PRELAUNCH_<BIN>_*` read by the `agentAuthPrelaunchShellFn` launcher block, with no login without a TTY | `openaiauthhost.prepare` switches on the names `codex` and `pi`, and logs in regardless of profile or TTY | shim as jail | MEASURED: `yolo host -p zai -- pi </dev/null` reached the broker's browser login | The host reads the same declarative values from its composition. One Go prelaunch, logging in only at a TTY. The managed `CODEX_HOME` is keyed on the declaring pack | — ([OQ-OA3](../reference/agent-credentials.md#oq-oa3) covers codex's managed home only) |
 | C7 | Refusal and disclosure renderers | `checkProviderCredentials` has its own verdict line; `Disclosure()` gives no remedies | `credentialScopeLines` → `DisclosureWith(notes)`, and no verdict line | as jail | One refusal, two wordings | Both move next to `ProviderCredentialGaps` in packload. The jail passes `DisclosureNotes` | — |
 | C8 | Claude OAuth | brokered through the terminator | the host claude's own login | the singleton is ensured, and no terminator runs | Two login lineages for Claude, one for OpenAI | — | [OQ-NC7](#OQ-NC7) |
 
@@ -432,7 +432,7 @@ is reported verified only against a real rootless host or CI, with
    macos-user run no `jail_daemon` and no `kind: "service"` process. So a `via` or adapter profile
    works in a container, refuses at the host, and on macos-user launches against dead addresses.
    This decides whether item 3 is built at all. It also answers
-   [`OQ-OA6`](../design/openai-auth-broker.md#OQ-OA6) for Codex on macos-user. Option A is drawn
+   [`OQ-OA6`](../reference/agent-credentials.md#oq-oa6) for Codex on macos-user. Option A is drawn
    in full, for the host and macos-user, in
    [`host-notch-services.md`](../design/host-notch-services.md), which owns two narrower questions
    under it.
@@ -456,7 +456,7 @@ is reported verified only against a real rootless host or CI, with
    > **Ruled in review 2026-09-28, as leaned:** A, run them launch-owned. It is the `openaiauthhost`
    > shape already shipped for host Codex, it makes one declaration mean one thing at every notch,
    > and item 1 makes a host-loopback service no weaker than a jail's.
-   > [`OQ-OA6`](../design/openai-auth-broker.md#OQ-OA6) takes route (b). The service lifetime and
+   > [`OQ-OA6`](../reference/agent-credentials.md#oq-oa6) takes route (b). The service lifetime and
    > host-half declaration are [`host-notch-services.md`](../design/host-notch-services.md)'s
    > [`OQ-HS3`](../design/host-notch-services.md#OQ-HS3) and
    > [`OQ-HS4`](../design/host-notch-services.md#OQ-HS4).

@@ -2,7 +2,7 @@ package run
 
 // macosuserdoorways.go is the macos-user launch's LAUNCH-OWNED DOORWAYS
 // (docs/design/host-notch-services.md HS-D15, the doorway rule, ruled 2026-09-29; OQ-OA6's route
-// (b) in docs/design/openai-auth-broker.md). A DOORWAY is that ruling's word for the thin adapter
+// (b) in docs/reference/agent-credentials.md). A DOORWAY is that ruling's word for the thin adapter
 // an agent's client talks to, which checks the launch's caller token and forwards to a
 // credential service's host daemon: the Codex refresh adapter (openai-auth) and the AWS
 // container-credentials adapter (aws-auth). The rule is that the host daemon is the same on every

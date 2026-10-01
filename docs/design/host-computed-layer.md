@@ -467,7 +467,7 @@ What would settle it: the first screen pi printed; `yolo host apply --verbose`;
 `cat ~/.pi/agent/models.json`; `yolo openai-auth status`; `yolo --version`; your
 `host_management` value; and whether pi started through `yolo host`, a wrapper, an IDE or directly.
 Until then no candidate gets a question here: the `models.json` one is fixed by [HC-D1](#HC-D1),
-the login before exec belongs to [`openai-auth-broker.md`](openai-auth-broker.md), and the npm
+the login before exec belongs to [`agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#the-openai-subscription-credential-service), and the npm
 install and the classifier belong to
 [`notch-scoped-config-contributions.md`](notch-scoped-config-contributions.md).
 
