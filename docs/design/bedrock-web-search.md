@@ -49,8 +49,9 @@ and when a user's own Tavily search server is also eligible, which one does it g
 - **Read 2026-10-01** ([D7](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)): on
   `-p bedrock-bridge`, claude and codex each offer a search that runtime cannot serve; codex and
   opencode pass a `${VAR}` in an MCP server's `env` through as literal text; pi's own MCP client
-  reads a file yolo does not write. AWS documents Bedrock's server-side web search for none of the
-  three models `packs/bedrock` lists, on either endpoint.
+  read a file yolo did not write, which the pi pack now writes
+  ([AM-D20](agent-directory-map.md#AM-D20)). AWS documents Bedrock's server-side web search for none
+  of the three models `packs/bedrock` lists, on either endpoint.
 
 **Needs your ruling:** [OQ-BR19](#OQ-BR19), [OQ-BR20](#OQ-BR20), [OQ-BR23](#OQ-BR23).
 
@@ -400,12 +401,13 @@ projects to. That doc owns the rule; this one only records the reading.
 
 - **For the preset's entry (build steps 9.2 and 9.3).** Listing each variable in `env` as `${VAR}`
   works for claude and copilot. It breaks codex, where the proxy gets literal text and no AWS
-  variable at all, and opencode, where literal text overwrites credentials the proxy would
-  otherwise inherit. It reaches pi only through a user's adapter, and oh-omp only through
-  claude's or codex's file, resolved from the first and literal from the second. An entry that
-  lists no AWS variable in `env` reaches them by inheritance under claude, copilot and opencode,
-  and not under codex, which forwards only the names in its own `env_vars` key. No derive writes
-  that key today.
+  variable at all, and opencode, where literal text overwrites credentials the proxy would otherwise
+  inherit. It works for pi, whose own client resolves `${VAR}` in `env` and now reads the file the
+  pi pack writes ([AM-D20](agent-directory-map.md#AM-D20)), and reaches oh-omp only through claude's
+  or codex's file, resolved from the first and literal from the second. An entry that lists no AWS
+  variable in `env` reaches them by inheritance under claude, copilot, opencode and pi, and not
+  under codex, which forwards only the names in its own `env_vars` key. No derive writes that key
+  today.
 - **For trap (a).** On `-p bedrock-bridge`, claude's WebSearch and codex's hosted search sit beside
   any preset, and both fail. The capability rule drops only MCP entries, so it cannot remove
   them. It does not count them either: the `bedrock` provider row declares no `web_search`, and
@@ -429,8 +431,8 @@ projects to. That doc owns the rule; this one only records the reading.
 
 12. *(numbered as in bedrock-plumbing.md's done list.)* After [OQ-BR19](#OQ-BR19)–[OQ-BR23](#OQ-BR23)
     rule: with a gateway URL configured and a gateway carrying a Web Search target, every agent that
-    projects MCP servers (claude on both Bedrock profiles, codex, opencode, pi through its MCP
-    adapter, copilot) lists the search tool and completes one search under static keys and under
+    projects MCP servers (claude on both Bedrock profiles, codex, opencode, pi through its own MCP
+    client, copilot) lists the search tool and completes one search under static keys and under
     the SSO credential, on a real host, and the answer cites its sources. Under a Bedrock API key
     alone the tool's error says a bearer cannot sign. With no URL the preset is absent and the
     launch says where the URL goes. Under claude's subscription with no profile, the preset is

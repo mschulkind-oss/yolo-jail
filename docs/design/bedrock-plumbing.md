@@ -584,7 +584,7 @@ the umbrella acceptance runbook.
 | **claude** | native, or everything pass-through | everything, bridge | yes | native yes; bridge needs the signer | AgentCore preset | native shipped; rest [`wire-bridge-gateway.md`](wire-bridge-gateway.md), [`model-lists-and-pickers.md`](model-lists-and-pickers.md) |
 | **codex** | native (measure: done 5) | native | yes | yes, via the chain | preset | [§6.2](#62-what-each-derive-emits) |
 | **opencode** | native | native | yes | yes | preset | [§6.2](#62-what-each-derive-emits) |
-| **pi** | native Converse, or bridge | native Converse, or bridge | yes | yes | preset, via pi's MCP adapter | [§6.2](#62-what-each-derive-emits); [`wire-bridge-gateway.md`](wire-bridge-gateway.md) |
+| **pi** | native Converse, or bridge | native Converse, or bridge | yes | yes | preset, through pi's own MCP client (0.99.0 and later) | [§6.2](#62-what-each-derive-emits); [`wire-bridge-gateway.md`](wire-bridge-gateway.md) |
 | **copilot** | bridge | bridge | yes | needs the signer | preset | [`wire-bridge-gateway.md`](wire-bridge-gateway.md) |
 | **oh-omp** | the bridge's sign-only route | same | yes | needs that route | **none**: no MCP table | [`wire-bridge-gateway.md`](wire-bridge-gateway.md); unverified |
 | **agy** | no Bedrock transport | — | — | — | — | **the one hole** |
