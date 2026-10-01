@@ -85,6 +85,13 @@ func TestAJailRunsAPackBinaryItDownloaded(t *testing.T) {
 	if strings.Contains(before.stdout, "hello from") {
 		t.Errorf("a program ran before it was downloaded:\n%s", before.combined())
 	}
+	// The launch names a jail daemon only when its jail runs it (trust-paths.md OQ-TP10): one
+	// waiting for its binary is not in the payload, so naming it would announce a process that
+	// never starts.
+	if strings.Contains(before.combined(), "jail daemon runs in the jail") {
+		t.Errorf("the launch before install named a jail daemon its jail does not run:\n%s",
+			before.combined())
+	}
 
 	install := runCommand(t, dir, []string{"pack", "install"}, withEnv("SSL_CERT_FILE="+certFile))
 	if install.rc != 0 || !strings.Contains(install.stdout, "binary hello for linux/"+runtime.GOARCH+
@@ -98,5 +105,11 @@ func TestAJailRunsAPackBinaryItDownloaded(t *testing.T) {
 	}
 	if !strings.Contains(after.stdout, "hello from /etc/yolo-jail/loophole-binaries/hello-bin/hello") {
 		t.Errorf("the jail's supervisor did not run the downloaded program:\n%s", after.combined())
+	}
+	// ...and the launch that runs it says so before the jail starts: a loophole declaring only a
+	// jail daemon produces no claim, so this line is the only place a user learns it runs.
+	if want := "hello-bin: 1 jail daemon runs in the jail — hello-bin"; !strings.Contains(after.combined(), want) {
+		t.Errorf("the launch ran a pack's jail daemon without naming it (want %q):\n%s",
+			want, after.combined())
 	}
 }
