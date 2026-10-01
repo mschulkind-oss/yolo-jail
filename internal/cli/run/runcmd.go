@@ -293,6 +293,10 @@ type Options struct {
 	// (runArmedSession) and nothing else. A launch in a herdr pane sets HERDR_AGENT here
 	// (herdragent.go); it is never passed into the container.
 	runtimeClientEnv []string
+	// herdr is this launch's registration with the herdr pane it runs in (herdragent.go). Run
+	// makes it before any signal arm, whose teardown releases it; nil registers nothing. A
+	// pointer for linger's reason.
+	herdr *herdrPane
 
 	// Now is the clock seam. nil => time.Now.
 	Now func() time.Time

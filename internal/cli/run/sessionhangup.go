@@ -79,12 +79,14 @@ func (o *Options) attachSignalArm(rt, cname, sessionID string) *launchSignalArm 
 	return armLaunchSignals(o.attachTeardown(rt, cname, sessionID))
 }
 
-// attachTeardown is the attach arm's onTerminate: the hangup, then the terminal's jail indicator,
-// which the front door's deferred restore never puts back on this path (os.Exit skips it).
+// attachTeardown is the attach arm's onTerminate: the hangup, then the herdr pane's release and
+// the terminal's jail indicator, which the front door's and Run's deferred restores never put
+// back on this path (os.Exit skips them).
 func (o *Options) attachTeardown(rt, cname, sessionID string) func() {
 	return func() {
 		o.Perf.Mark("terminate.signal")
 		o.hangUpAttachSession(rt, cname, sessionID)
+		o.releaseHerdrAgent()
 		o.restoreTerminal()
 	}
 }

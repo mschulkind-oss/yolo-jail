@@ -180,7 +180,7 @@ channel, and the slice passes nothing of herdr's into the jail.
   row 6.
 - **Jail indicator.** yolo's existing marker on the terminal around a jail: a red
   "🔒 JAIL &lt;project&gt;" tmux pane border or kitty tab title. yolo sets it at launch and restores
-  it at exit ([`terminal.go`](../../internal/cli/terminal.go#L29-L45)).
+  it at exit (`SetupJailIndicator` in [`terminal.go`](../../internal/cli/terminal.go)).
 - **Notch.** A position on yolo's confinement dial: a container jail, macos-user, or `yolo host`.
   Defined in [the launch-PATH ruling](../reference/host-agent-environment.md#he-dir1).
 
@@ -513,7 +513,7 @@ SOURCED.
 > **yolo's kitty indicator probably misfires inside a herdr pane that runs in kitty.** herdr
 > removes `KITTY_WINDOW_ID` but not `KITTY_PID`. yolo's kitty arm needs only `KITTY_PID`, and when
 > the window id is missing it falls back to `--match recent:0`
-> ([`terminal.go`](../../internal/cli/terminal.go#L70-L80)). So one jail pane would retitle the
+> (`kittySetupJailTab` in [`terminal.go`](../../internal/cli/terminal.go)). So one jail pane would retitle the
 > kitty tab holding all of herdr "🔒 JAIL &lt;project&gt;", and two jail panes would fight over it.
 > That only happens where kitty's remote control reaches it, for example through an inherited
 > `KITTY_LISTEN_ON`. INFERRED and unmeasured. The tmux arm is safe, because herdr removes `TMUX`.
@@ -960,19 +960,23 @@ worktrees.
 
 #### Built, 2026-09-30
 
-[`herdragent.go`](../../internal/cli/run/herdragent.go), called from `run.Run` above the backend
-dispatch. It does what this section describes, with three differences:
+[`herdragent.go`](../../internal/cli/run/herdragent.go), called by each backend arm just before its
+session starts, once that arm's signal handler is installed
+([when it registers](#when-it-registers-revised-2026-10-01)). It does what this section describes,
+with three differences:
 
 - **A self-report as well as the hint.** It also runs `herdr pane report-agent <pane> --source
-  yolo-jail --agent <bin> --state unknown`, and `release-agent` at exit. That identifies the pane
-  from the start of the launch, and on macos-user, where no runtime client carries the hint. The
+  yolo-jail --agent <bin> --state unknown`, and `release-agent` when the session ends. That
+  identifies the pane from the session's start, and on macos-user, where no runtime client carries
+  the hint. The
   `yolo-jail` source matches a hand-written wrapper some users already run, so a machine running
   both ends up with one registration. Whether herdr accepts `report-agent-session` on a pane identified
   this way, without the hint, is unmeasured ([§2.4](#24-hooks-self-reports-and-resume-commands)
   measured only the hint), so Option 3 should rely on the hint.
 - **Which panes it acts in.** Only a launch whose command is a program a selected pack installs
-  (`Pack.InstallBins`) gets the hint, the report or the label. `yolo -- bash` and bare `yolo` get
-  none of them, as [HR-D8](#HR-D8) scopes the label. Core still names no agent.
+  (`Pack.InstallBins`) gets the hint, the report or the label. An attach matches the packs the
+  running jail booted from, as every host-side reader on an attach does. `yolo -- bash` and bare
+  `yolo` get none of them, as [HR-D8](#HR-D8) scopes the label. Core still names no agent.
 - **The narrower variant.** It runs the `herdr` found on `PATH`, never the ambient
   `HERDR_BIN_PATH`.
 
@@ -980,8 +984,12 @@ Also built: the hint goes on `runtimeClientEnv`, which only `runArmedSession` re
 each session's runtime client and nothing else ([HR-D3](#HR-D3)). The kitty arm stands down in a
 herdr pane ([HR-D5](#HR-D5)), detected by `HERDR_ENV=1` as well as `TERM_PROGRAM=herdr`, because
 herdr 0.7.5 leaves the outer terminal's `TERM_PROGRAM` set and does not set `HERDR_BIN_PATH`.
-MEASURED in a herdr 0.7.5 pane on macOS. `YOLO_NO_HERDR=1` turns all of it off. A failed report
-prints one line, and the launch continues with only the hint.
+MEASURED in a herdr 0.7.5 pane on macOS. `YOLO_NO_HERDR=1` turns off the hint, the report and the
+label. The kitty stand-down does not read it, because that arm would retitle the kitty tab holding
+all of herdr either way. The label carries `--applies-to-source yolo-jail` as well as `--agent`, so
+it applies only while this launch's report holds the pane. A failed report prints one line saying
+why: the first line herdr wrote, or that herdr could not be run from `PATH` or did not answer
+within 2 s. The launch then continues with only the hint.
 
 **First real run, 2026-09-30, herdr 0.7.5, podman on macOS, iTerm2.** A `yolo -- claude` built
 from this slice made herdr's sidebar show Claude's status, the same result as the hand-written
@@ -998,9 +1006,65 @@ guard, did not appear while its pane was alone in the tab, on 0.7.5 or 0.9.3. On
 split, it appeared on the pane's border on 0.9.3. MEASURED. So the label in [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) shows
 only on a split pane, unless the user turns borders on for every pane.
 
-Not yet tested: the label and status clearing after a normal quit and after Ctrl-C, and the hint
-on the podman client (`ps eww`). So the run does not tell whether the status came from the hint
-or from the self-report.
+##### When it registers, revised 2026-10-01
+
+**The first version registered above the backend dispatch, and a signal there left the pane
+registered.** The report and the label went out before the config prompt and the image build, and
+no signal handler is installed in that stretch. Neither is one once the session's arm is disarmed,
+and the last session then streams its keeper's teardown. A Ctrl-C or SIGTERM in the first stretch,
+or a SIGHUP in the second, ended the launcher by Go's default action. The report and the label
+stayed behind. MEASURED in review with a fake `herdr` on `PATH` that logs its calls.
+
+**herdr does not retire them by itself.** For a label it can identify by process, such as
+`claude`, herdr keeps a report from a source it does not know until one of these happens:
+
+- the source releases it;
+- another report replaces it;
+- herdr sees that agent's process exit, or detects a different agent in the pane;
+- the pane closes.
+
+It clears a self-report at the pane's idle shell prompt only for a label it cannot identify
+(`self_reported_agent_active` in `src/terminal/state.rs`). That report is also what satisfies the
+label's `--agent` guard. So a host shell, or a later unconfined `claude` in the same pane, read as
+the jailed agent under "🔒 JAIL". SOURCED at `v0.9.3`.
+
+**Now each arm registers only once its signal arm is installed:**
+
+- the fresh launch just after `armLaunchSignals`;
+- an attach just after `attachSignalArm`;
+- macos-user, which has no signal arm, after its config prompt and just before its sandbox
+  starts.
+
+Each releases when its session's runtime client returns. That is before the arm is disarmed and
+before the jail's teardown is streamed, so the label lasts as long as the agent in that pane. Both
+teardowns a signal runs release too, and `run.Run` defers the release for every other return.
+
+MEASURED 2026-10-01 with the same fake `herdr`, in a nested jail on a rootful podman:
+
+- a Ctrl-C or SIGTERM during the build, and a Ctrl-C at the config prompt, now send herdr nothing;
+- each of these sends one registration and one release: a normal exit; a SIGINT before ready; a
+  Ctrl-C or SIGTERM after it; a SIGHUP while the teardown streams; and an attach from a second
+  pane, which releases its own registration and leaves the first pane's;
+- every release comes before the keeper's teardown is streamed.
+
+**macos-user still has no signal arm**, so a signal that ends its launcher leaves the registration
+behind. A pane close is harmless, because it ends herdr's state for the pane. A Mac has to settle
+the rest.
+
+**Where the hint lands.** MEASURED in review from `/proc/<pid>/environ` during a session, and again
+after the revision:
+
+- `HERDR_AGENT=<bin>` is on the session's `podman exec` client only, with and without a terminal,
+  and on an attach's exec;
+- the launcher, the keeper and the keeper's `podman run` carry only the pane's `HERDR_ENV` and
+  `HERDR_PANE_ID`;
+- no process in the container has any `HERDR_` variable.
+
+The keeper's `podman run` could not carry the hint usefully anyway. The keeper is spawned with
+`setsid`, so that client is outside the pane's foreground process group, which is where herdr looks.
+
+Still untested on a real herdr: the label and the status clearing after a quit and after a Ctrl-C,
+and whether the status came from the hint or from the self-report.
 
 ### 4.4 Option 3: resume after a herdr restart
 
@@ -1153,7 +1217,7 @@ Each of these has one sensible answer, so none is asked.
 | <a id="HR-D5"></a>HR-D5 | *Implementation decision.* **The kitty indicator stands down when `TERM_PROGRAM=herdr`,** and the herdr label takes its place | [§3.1](#31-a-container-jail) |
 | <a id="HR-D6"></a>HR-D6 | *Implementation decision.* **The pane-close kill is [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1)'s input, not a herdr-specific fix.** The evidence of [§3.4](#34-closing-a-pane-is-a-kill) is carried into that doc, and no herdr-only teardown path is built. What is carried: (1) podman forwards a pane close's HUP (MEASURED) and TERM (its default proxies every received signal) into the container, so under D the hold at pid 1 needs `--sig-proxy=false`, a detached start, or to ignore forwarded signals, and this holds for an ordinary window close too; (2) what survives a pane close is any process outside herdr's one-time process list: A's keeper, or a detached process the launcher spawns on the hangup, within about 500 ms (250 ms if SIGTERM ends the launcher). So B's successor, or a D-plus-successor hybrid, survives too. *Carried 2026-09-29:* that doc's [§3.1](../design/jail-lifetime-last-session-wins.md#31-what-a-pane-close-does-measured) holds the evidence, and [OQ-JL1](../design/jail-lifetime-last-session-wins.md#OQ-JL1) was directed to A's keeper, so the conditionals on D and B no longer apply. The keeper design takes both halves: pid 1's runtime client runs with `--sig-proxy=false` and the hold ignores SIGHUP ([JL-D15](../design/jail-lifetime-last-session-wins.md#JL-D15)), and the keeper is spawned with `setsid` ([§9.1](../design/jail-lifetime-last-session-wins.md#91-what-starts-it)) | [§3.4](#34-closing-a-pane-is-a-kill) |
 | <a id="HR-D7"></a>HR-D7 | *Implementation decision.* **If yolo reports a resume command, the host builds it.** The jail supplies at most a session id, checked against a strict character set. herdr types whatever it stores into a host shell | [§2.4](#24-hooks-self-reports-and-resume-commands), MEASURED |
-| <a id="HR-D8"></a>HR-D8 | *Implementation decision.* **The pane label carries the `--agent` guard and is cleared at exit,** so a killed launcher does not leave a stale jail title. **Scope:** herdr shows a guarded label only while the pane's detected agent matches it, so the label appears only for agents herdr recognizes. A jail running bare `yolo`, `yolo -- bash` or an unrecognized command gets no herdr marker. The non-agent case is a follow-up, with one candidate: an unguarded label with `--ttl-ms`, refreshed by the launcher, so a killed launcher's label expires | [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) |
+| <a id="HR-D8"></a>HR-D8 | *Implementation decision, revised 2026-10-01 from review.* **The pane label carries the `--agent` and `--applies-to-source` guards. The report and the label are sent only under a signal arm, and released when the session ends** ([when it registers](#when-it-registers-revised-2026-10-01)). The guards alone do not retire what a killed launcher leaves: the launcher's own report is what makes the pane's agent match, and herdr keeps that report until it is released or replaced, or the pane closes. **Scope:** the self-report satisfies the guard, so the label appears for any program a selected pack installs. A jail running bare `yolo`, `yolo -- bash` or any other command gets no herdr marker. The non-agent case is a follow-up, with one candidate: an unguarded label with `--ttl-ms`, refreshed by the launcher, so a killed launcher's label expires | [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) |
 | <a id="HR-D9"></a>HR-D9 | *Implementation decision.* **herdr's host `SessionStart` hook reaching jail Claude is a follow-up for the claude pack's host-layer composition, not part of the herdr slice.** It crosses today through the `readsHost` settings layer, which folds host keys with no filter ([§3.6](#36-two-writers-on-one-agent-config-file)). First measure what the user sees ([§6](#6-what-is-unmeasured) item 5). Then either drop, and disclose, a host-layer hook command whose absolute host path does not exist in the jail, or accept the failing hook and document it. The choice covers every host hook, not only herdr's, so it belongs with the pack's composition rules | [§3.6](#36-two-writers-on-one-agent-config-file) |
 
 ### 4.9 Folded in: the terminal-multiplexer design

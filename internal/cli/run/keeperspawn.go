@@ -217,7 +217,8 @@ func (o *Options) awaitPreviousKeeper(cname string) bool {
 var keeperUnwindWait = 20 * time.Second
 
 // keeperPreReadyTeardown is the launch arm's teardown until the jail is ready: close the lifeline,
-// which ends the keeper's jail, relay its unwind for a moment, and give the terminal back.
+// which ends the keeper's jail, relay its unwind for a moment, release the herdr pane, and give the
+// terminal back.
 func (o *Options) keeperPreReadyTeardown(kp *keeperProcess, cname, rt string) func() {
 	return func() {
 		o.Perf.Mark("terminate.signal")
@@ -230,6 +231,7 @@ func (o *Options) keeperPreReadyTeardown(kp *keeperProcess, cname, rt string) fu
 		// statement after it will run; then the terminal, so the launch's last words land in the
 		// tab that ran it.
 		o.emitTimingReport(0, cname, rt)
+		o.releaseHerdrAgent()
 		o.restoreTerminal()
 	}
 }

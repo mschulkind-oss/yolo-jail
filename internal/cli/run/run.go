@@ -348,13 +348,12 @@ func Run(opts Options) (rc int) {
 	if len(injectedArgs) > 0 {
 		injectedArgs = o.injectLaunchFlagsDisclosed(staged.packs, injectedArgs)
 	}
-	// THE HERDR PANE, told which agent it runs (herdragent.go): above the dispatch, so both
-	// arms and an attach report the argv the backend will receive, and so the hint is on
-	// runtimeClientEnv before either arm spawns a session's runtime client.
-	if release := o.registerHerdrAgent(staged.packs, injectedArgs); release != nil {
-		o.chainHerdrRelease(release)
-		defer release()
-	}
+	// THE HERDR PANE's slot, made here, before any signal arm exists, so an arm's teardown can
+	// release it from its own goroutine. Each arm registers into it only once its arm is
+	// installed, just before its session starts, and releases it when the session returns
+	// (herdragent.go's WHEN); this defer covers every other return.
+	o.herdr = &herdrPane{}
+	defer o.releaseHerdrAgent()
 	// A SHARED NETWORK, SAID (OQ-NC3): above the dispatch for the launch flags' reason, so every
 	// arm and an attach print it from here (sharednetwork.go).
 	o.noteSharedNetwork(cfg, rt)
@@ -811,6 +810,9 @@ func Run(opts Options) (rc int) {
 		// and every listener of this launch's own (the host services' fronts, the doorways and
 		// launch-owned services, which were handed theirs) is bound by now.
 		o.releaseReservedPorts()
+		// THE HERDR PANE, registered as late as this arm can (herdragent.go): it has no signal
+		// arm, so a registration made before its config prompt outlived a Ctrl-C there.
+		o.registerHerdrAgent(staged.packs, injectedArgs)
 		// Composed LAST, after every endpoint variable has landed on launchEnv (the live
 		// path's handles, or a dry run's placeholder), since the daemons dial those files.
 		return o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
@@ -1907,6 +1909,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// alone, which closes the lifeline and so has the keeper unwind; from ready on it is the
 	// session's arm, retargeted rather than replaced, so no signal falls between two arms.
 	arm := armLaunchSignals(o.keeperPreReadyTeardown(kp, cname, rt))
+	// THE HERDR PANE, registered now that the arm covers it (herdragent.go): every teardown the
+	// arm runs releases it, and so does this launch before each disarm below.
+	o.registerHerdrAgent(loadedPacks, injectedArgs)
 	keeperStarted := false
 	ready := relayKeeper(kp.progress, o.Stdout, o.Stderr, os.Stdout, os.Stderr, keeperEvents{
 		started: func(pid int) {
@@ -1934,6 +1939,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		// always was. Its exit, not the pipe's end, is the evidence (JL-D29).
 		<-kp.exited
 		sp.End()
+		o.releaseHerdrAgent()
 		if !arm.disarm() {
 			select {} // the signal arm is ending this launch; never race it
 		}
@@ -1957,7 +1963,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	sessionStart := o.Now()
 	logFrom := keeperLogSize(cname)
 	rc, execErr := runArmedSession(firstExec, arm, o)
-	if !arm.detach() || !arm.disarm() {
+	if !arm.detach() {
+		select {} // the signal arm is ending this launch; never race it
+	}
+	// The agent has left this pane: herdr is told while the arm still covers the call, and
+	// before the jail's teardown, which this session may wait out, is streamed.
+	o.releaseHerdrAgent()
+	if !arm.disarm() {
 		select {} // the signal arm is ending this launch; never race it
 	}
 	sp.End()
@@ -2498,11 +2510,16 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// killed, since killing the client alone left them running there with no terminal. Armed
 	// just before the exec and disarmed once it returns, with or without a terminal.
 	arm := o.attachSignalArm(rt, cname, sessionID)
+	// THE HERDR PANE, registered under the arm (herdragent.go), against the packs the running jail
+	// booted from, as every host-side reader on an attach reads them; released once the exec
+	// returns, before the arm lets go.
+	o.registerHerdrAgent(view.staged.packs, o.Args)
 	// What the keeper records from here on is this session's to be shown at its quit (JL-D19).
 	logFrom := keeperLogSize(cname)
 	sp := o.Perf.Span("attach.exec")
 	rc, err := runArmedSession(runCmd, arm, o)
 	sp.End()
+	o.releaseHerdrAgent()
 	if !arm.disarm() {
 		select {} // the signal arm is ending this launch; never race it
 	}
