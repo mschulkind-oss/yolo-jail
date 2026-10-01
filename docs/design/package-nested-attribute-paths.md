@@ -5,7 +5,7 @@ status: in-review
 tags: [config, nix, packages, flake]
 summary: "A `packages` entry like `rocmPackages.clr` fails because yolo reads any dot as an output selection. In Nix both are the same attribute walk, so one path-walking resolver supports nested collections and output selection alike — provided it keeps the base derivation for the /lib symlink farm."
 stage: DESIGN
-next: "Rule OQ-1 — the resolver's disambiguation rule decides the whole build"
+next: "Rule OQ-1 — the resolver's disambiguation rule decides the whole build; the 2026-10-01 probe found the collision real in one family (texlivePackages.*.texsource) and absent at top level"
 ---
 
 # Nested nixpkgs attribute paths in `packages` — and why output selection is the same operation
@@ -281,5 +281,61 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
    exists to break) and cannot silently produce the wrong `/lib` farm tomorrow. If you want the
    resolver to have no surprising cases at all, that is the ruling to make.
 
+   **Measured 2026-10-01: the collision exists, in one family.** A `nix eval` over the nixpkgs
+   this flake pins (`e158d9ed` in `flake.lock`) asked, of every derivation, whether any name in
+   its `outputs` resolves to an attribute that is not that output (its `outputName` differs). A
+   positive control, a derivation whose `passthru.lib` shadows its `lib` output, was caught.
+
+   - **Top level: none**, among 24,786 derivations.
+   - **One level down: 1,961**, among the 79,811 derivations of the 292 package sets marked
+     `recurseForDerivations`. All but one are `texlivePackages.<pkg>.texsource`: `texsource` is in
+     the package's `outputs` (`["tex", "texdoc", "texsource"]`), but the attribute is a separate
+     derivation named `<pkg>-texsource` whose `outputName` is `out`. The other is
+     `cygwin.newlib-cygwin-nobin.bin`, a cross-compilation set.
+
+   So the leaning's rule resolves `texlivePackages.abc.texsource` as an output of
+   `texlivePackages.abc` and feeds `getLib texlivePackages.abc` to the `/lib` farm, while the
+   member reading would feed `getLib` of the separate texsource derivation: the different image
+   contents this question warns of, on a real path. The `throw` alternative would refuse those
+   1,960 paths, none of which `packages` can spell today, since `packageNameRe` allows one dot.
+   UNMEASURED: sets nested more than one level deep, and whether anyone wants such a path in
+   `packages`.
+
    **Answer:**
    > _(empty — fill in when decided)_
+
+## Appendix: re-running the collision probe
+
+The 2026-10-01 measurement in [OQ-1](#OQ-1), as one expression. Save it as `collide.nix` and run
+`nix eval --impure --json --file collide.nix`; pin `rev` and `narHash` to the `nixpkgs` node of
+`flake.lock`. It finished in a few minutes in a jail.
+
+```nix
+let
+  src = builtins.fetchTree {
+    type = "github"; owner = "nixos"; repo = "nixpkgs";
+    rev = "e158d9ed9b51c98974c5e66e1ba1c9e0255fecaa";
+    narHash = "sha256-hKlVl12B1dF0Q5vd9dY3lIJM5mFGWYSlXwSLAqHZ1+s=";
+  };
+  pkgs = import src { system = "x86_64-linux"; overlays = [ ];
+    config = { allowAliases = false; allowUnfree = true; }; };
+  lib = pkgs.lib;
+  try = e: let r = builtins.tryEval e; in if r.success then r.value else null;
+  # Output names whose attribute is not that output.
+  shadowed = p: builtins.filter
+    (o: try ((p.${o}.outputName or null) == o) == false)
+    (let os = try (p.outputs or [ "out" ]); in if builtins.isList os then os else [ ]);
+  isDrv = v: try (lib.isDerivation v) == true;
+  isSet = v: try (builtins.isAttrs v && !(lib.isDerivation v)
+    && (v.recurseForDerivations or false)) == true;
+  row = name: v: { inherit name; outputs = shadowed v; };
+  top = builtins.concatMap (n: let v = try pkgs.${n}; in
+    if isDrv v then [ (row n v) ] else [ ]) (builtins.attrNames pkgs);
+  nested = builtins.concatMap (s: let set = pkgs.${s}; in
+    builtins.concatMap (m: let v = try set.${m}; in
+      if isDrv v then [ (row "${s}.${m}" v) ] else [ ])
+    (let ns = try (builtins.attrNames set); in if builtins.isList ns then ns else [ ]))
+    (builtins.filter (n: isSet (try pkgs.${n})) (builtins.attrNames pkgs));
+  hits = rows: builtins.filter (r: r.outputs != [ ]) rows;
+in { top = hits top; nested = hits nested; }
+```
