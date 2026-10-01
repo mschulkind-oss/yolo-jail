@@ -19,6 +19,8 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // notSwept is the files of this package another change owns: their findings get their next
@@ -302,5 +304,70 @@ func TestIssuesURLIsThisModulesRepo(t *testing.T) {
 	module := strings.TrimSpace(strings.TrimPrefix(first, "module"))
 	if want := "https://" + module + "/issues"; issuesURL != want {
 		t.Errorf("issuesURL = %q, want %q (go.mod's module path)", issuesURL, want)
+	}
+}
+
+// A self-check whose program would not start used to be told "If the program it runs is
+// missing, `yolo pack install` fetches a loophole's programs" — but a program the pack declares
+// under "binaries" and has not fetched never reaches the run (the gate says `yolo pack install`
+// itself), so this one is a program pack install does not fetch. Its step is the command itself.
+func TestSelfCheckThatWillNotStartNamesItsCommand(t *testing.T) {
+	isolatedModuleDir(t)
+	mod := selfCheckModule(t, t.TempDir(), "acme-gone", []string{"/no/such/acme-doctor", "--self-check"})
+	recordPackModule(t, mod, true)
+
+	r, out := runCheckLoopholes(t, t.TempDir())
+	var note string
+	for _, f := range r.findings {
+		if f.Status == "warn" && strings.Contains(f.Message, "acme-gone: self-check could not run") {
+			note = f.Note
+		}
+	}
+	if note == "" {
+		t.Fatalf("no could-not-run finding:\n%s", out)
+	}
+	if strings.Contains(note, "yolo pack install") {
+		t.Errorf("a program pack install does not fetch is sent to pack install:\n%s", note)
+	}
+	if !strings.Contains(note, "Run `/no/such/acme-doctor --self-check` yourself") || !strings.Contains(note, "then: yolo check") {
+		t.Errorf("the note does not name the self-check to run:\n%s", note)
+	}
+}
+
+// A self-check withheld because nothing vouched for its module says it is a yolo bug to report,
+// and now says where.
+func TestWithheldSelfCheckNamesTheIssueTracker(t *testing.T) {
+	isolatedModuleDir(t)
+	mod := selfCheckModule(t, t.TempDir(), "acme-withheld", []string{"/bin/true"})
+	recordPackModule(t, mod, false)
+
+	_, out := runCheckLoopholes(t, t.TempDir())
+	if !strings.Contains(out, "please report it") || !strings.Contains(out, issuesURL) {
+		t.Errorf("the yolo-bug note names no issue tracker:\n%s", out)
+	}
+	if strings.Contains(out, "yolo pack install") {
+		t.Errorf("a withheld self-check is sent to pack install:\n%s", out)
+	}
+}
+
+// The lockfile note through its call site: a corrupt lockfile in the user config directory is
+// told how to write it again, by the Packs section itself.
+func TestCorruptLockfileFindingThroughThePacksSection(t *testing.T) {
+	packsFixture(t, `{"packs": ["claude"]}`)
+	lock := packsrc.LockPath(paths.UserConfigPath())
+	if err := os.WriteFile(lock, []byte(`{`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	r := newReporter(&out, false)
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
+	var note string
+	for _, f := range r.findings {
+		if f.Status == "fail" && strings.HasPrefix(f.Message, "Lockfile: ") {
+			note = f.Note
+		}
+	}
+	if !strings.Contains(note, "rm "+lock+" && yolo pack install") {
+		t.Errorf("the lockfile finding's note is %q:\n%s", note, out.String())
 	}
 }

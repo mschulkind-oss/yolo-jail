@@ -214,11 +214,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 			if out == "" {
 				out = "command missing"
 			}
-			if !strings.Contains(out, "please report it") {
-				out += "\nIf the program it runs is missing, `yolo pack install` fetches a loophole's " +
-					"programs on this machine, " + recheck
-			}
-			r.warn("loophole "+lp.Name+": self-check could not run", out)
+			r.warn("loophole "+lp.Name+": self-check could not run", selfCheckNotRunNote(out, lp.DoctorCmd))
 		default:
 			if graded := reportSelfCheckLines(r, lp.Name, res.Output); graded == 0 {
 				// Zero GRADED lines is not zero output: a doctor_cmd owes the protocol
@@ -750,4 +746,20 @@ func firstLine(s string) string {
 		}
 	}
 	return s
+}
+
+// selfCheckNotRunNote is the next step for a self-check that reached no verdict (RC nil). A
+// refusal before the run is the callee's ("not run: …"): an unfetched program names
+// `yolo pack install` there, and a misplaced module where to install it, so its own words
+// stand; the one that is yolo's own fault gains where to report it. Anything else is a program
+// that would not start or did not finish, so the step is to run it by hand, where its own error
+// shows.
+func selfCheckNotRunNote(out string, doctorCmd []string) string {
+	switch {
+	case strings.Contains(out, "please report it"):
+		return out + "\nReport it at " + issuesURL + " with the output of `yolo --version`."
+	case strings.HasPrefix(out, "not run: "), len(doctorCmd) == 0:
+		return out
+	}
+	return out + "\n" + probeNote(doctorCmd...)
 }

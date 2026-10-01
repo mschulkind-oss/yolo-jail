@@ -653,12 +653,14 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   its question at a terminal makes, then `yolo check` again. It used to say `yolo prune --apply`,
   which removes only stopped containers, so the running orphans stayed. `yolo check --format json`
   at a terminal no longer waits for an answer to that question, which it never showed, and its
-  document carries the command too.
+  document carries the command too. At a terminal, a removal the runtime refuses now says so and
+  names the command to retry, where it used to report the jail stopped.
 - When no container runtime is installed, `yolo check` now names the install command for your
   machine: the `dnf` line on Fedora, the `pacman` line on Arch, the `apt` line with the network
   helpers on Debian and Ubuntu, the system option on NixOS, and on a Mac Apple Container or Podman,
   whichever your chip and macOS version can run. It used to suggest `sudo apt install podman`
-  everywhere.
+  everywhere, even to a host whose Podman is installed but would not run; that Podman's own problem,
+  with the command that shows why, is now the only one reported.
 - More of `yolo check`'s problems now say what to do about them. `Could not resolve the yolo-jail
   repo root` gives the fix a launch gives for it. A check that could not get an answer names the
   command to run yourself, a config error names where to fix it, and a problem in a pack that ships

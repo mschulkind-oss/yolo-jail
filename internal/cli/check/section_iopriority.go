@@ -41,8 +41,7 @@ func (o *Options) sectionIOPriority(r *reporter, merged *jsonx.OrderedMap, runti
 		case inStrSlice(paths.NativeRuntimes, runtimeSel):
 			r.warn(key+" is not applied on macos-user yet",
 				"The launch names the key. setiopolicy_np is the planned mechanism, once a Mac\n"+
-					"shows the policy survives the launch's sudo and sandbox-exec. Until yolo applies\n"+
-					"it, nothing on this Mac can: "+ioDropKey)
+					"shows the policy survives the launch's sudo and sandbox-exec.\n"+ioDropKey)
 		default:
 			backend := "podman on macOS"
 			if runtimeSel == "container" {
@@ -106,7 +105,7 @@ func (o *Options) gradeIODisk(r *reporter, p ioprio.Priority, key, path string, 
 			"'s scheduler to bfq, and persist it with a udev rule:\n" +
 			"  echo bfq | sudo tee /sys/block/" + d.Name + "/queue/scheduler\n" +
 			"  echo 'ACTION==\"add|change\", KERNEL==\"" + d.Name + "\", ATTR{queue/scheduler}=\"bfq\"' | " +
-			"sudo tee /etc/udev/rules.d/60-yolo-ioscheduler.rules"
+			"sudo tee /etc/udev/rules.d/60-yolo-ioscheduler-" + d.Name + ".rules"
 		if d.Scheduler == "mq-deadline" {
 			note += `
 Or declare "idle", which mq-deadline honors.`

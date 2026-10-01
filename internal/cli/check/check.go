@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
@@ -331,6 +332,10 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 
 	type offlineEntry struct{ rt, version, hint string }
 	var offline []offlineEntry
+	// broken is every runtime found on PATH that would not run, each already a [FAIL] naming the
+	// command that shows why. When nothing else works that row is the finding (one cause, one
+	// row: HE-D2), so no "not installed" row tells the host to install what it has.
+	var broken []string
 	for _, p := range probes {
 		if _, ok := o.LookPath(p.name); !ok {
 			continue
@@ -338,10 +343,12 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 		verRes := o.Exec(p.versionCmd, "", nil, 5*time.Second)
 		if !verRes.Ran {
 			r.fail(p.name+" found but not working: exec failed", probeNote(p.versionCmd...))
+			broken = append(broken, p.name)
 			continue
 		}
 		if verRes.Timeout {
 			r.fail(p.name+" found but not working: timeout", probeNote(p.versionCmd...))
+			broken = append(broken, p.name)
 			continue
 		}
 		version := firstLine(strings.TrimSpace(verRes.Stdout))
@@ -357,6 +364,7 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 				}
 			case runtime.PodmanNotStarted:
 				r.fail(p.name+" found but not working: "+gate.Refusal(p.name), probeNote(p.livenessCmd...))
+				broken = append(broken, p.name)
 			default:
 				// The fix first, then podman's own evidence (HE-D2's one row).
 				offline = append(offline, offlineEntry{p.name, version, p.livenessHint + "\n" + gate.Refusal(p.name)})
@@ -366,6 +374,7 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 		pingRes := o.Exec(p.livenessCmd, "", nil, 10*time.Second)
 		if !pingRes.Ran || pingRes.Timeout {
 			r.fail(p.name+" found but not working: liveness probe failed", p.livenessHint+"\n"+recheck)
+			broken = append(broken, p.name)
 			continue
 		}
 		pingOK := pingRes.RC == 0
@@ -408,7 +417,7 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 			}
 			r.fail("Container runtime installed but not started ("+strings.Join(found, "; ")+")",
 				strings.Join(starts, "\n")+"\nIt's installed — you just need to START it.")
-		} else {
+		} else if len(broken) == 0 {
 			r.fail("No container runtime installed", o.runtimeInstallNote())
 		}
 	}
@@ -840,7 +849,17 @@ func (o *Options) sectionRunningJails(r *reporter, detectedRuntime string) {
 				// from the stop record, written before the removal as every stop yolo makes writes
 				// it (run.RecordJailStop, jail-lifetime-last-session-wins.md JL-D53).
 				run.RecordJailStop(orph.name, run.YoloCheckOrphanReason(os.Getpid(), orph.reason))
-				_ = o.Exec(orphanRemoval(detectedRuntime, orph.name), "", nil, 30*time.Second)
+				rm := orphanRemoval(detectedRuntime, orph.name)
+				// Stopped only when the runtime says so (rule 5: never OK over broken). A refused
+				// removal keeps its tracking, since the jail is still there, and names the retry.
+				if res := o.Exec(rm, "", nil, 30*time.Second); !res.Ran || res.Timeout || res.RC != 0 {
+					why := firstLine(strings.TrimSpace(res.Stderr))
+					if why == "" {
+						why = "the runtime did not remove it"
+					}
+					r.warn("Could not stop "+orph.name, why+"\nfix:  "+shquote.Join(rm)+"\n"+recheck)
+					continue
+				}
 				cleanupTracking(orph.name)
 				r.line("    " + r.style("Stopped "+orph.name, ansiGreen))
 			}

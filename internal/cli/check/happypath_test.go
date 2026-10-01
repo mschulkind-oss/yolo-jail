@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
@@ -330,6 +331,100 @@ func TestPodmanInstallHintsMatchTheGuide(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("no line of userguide/getting-started.md installs %q with %s", pkgs, mgr)
+		}
+	}
+}
+
+// A runtime that IS installed but would not run reached the same "nothing works" branch as one
+// that is absent, so a second [FAIL] said "No container runtime installed" and its note told an
+// apt host that none of apt, dnf or pacman was on its PATH, and a Mac to install the runtime it
+// already has. The runtime's own [FAIL] names the command that shows why it does not run, and is
+// the one row for that cause (HE-D2, docs/reference/host-agent-environment.md).
+func TestBrokenRuntimeIsNotToldToInstallOne(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		mac     bool
+		bins    []string
+		notWant []string
+	}{
+		{name: "linux", bins: []string{"podman", "apt"},
+			notWant: []string{"None of apt, dnf or pacman", "sudo apt install"}},
+		{name: "mac", mac: true, bins: []string{"podman", "brew"},
+			notWant: []string{"brew install podman", "brew install container"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			var out bytes.Buffer
+			opts := baseOptions(t, &out)
+			opts.IsMacOS, opts.Machine = tc.mac, "arm64"
+			opts.LookPath = func(name string) (string, bool) {
+				for _, b := range tc.bins {
+					if b == name {
+						return "/usr/bin/" + name, true
+					}
+				}
+				return "", false
+			}
+			opts.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} }
+			opts.sectionContainerRuntime(newReporter(&out, false))
+			got := stripANSI(out.String())
+			if !strings.Contains(got, "[FAIL] podman found but not working: exec failed") {
+				t.Fatalf("no finding for the podman that does not run:\n%s", got)
+			}
+			for _, w := range tc.notWant {
+				if strings.Contains(got, w) {
+					t.Errorf("an installed podman is told %q:\n%s", w, got)
+				}
+			}
+			if strings.Contains(got, "No container runtime installed") {
+				t.Errorf("an installed podman is reported as no runtime installed:\n%s", got)
+			}
+			if n := strings.Count(got, "[FAIL]"); n != 1 {
+				t.Errorf("one cause, %d [FAIL] rows:\n%s", n, got)
+			}
+		})
+	}
+}
+
+// The terminal's yes printed "Stopped <name>" whatever the removal returned, so a removal the
+// runtime refused read as done: the false green rule 5 forbids. A failed removal says so, names
+// the command to retry, and leaves the jail's tracking file, since the jail is still there.
+func TestOrphanRemovalThatFailsIsNotReportedAsStopped(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	jails := twoOrphans(t)
+	refuse := func(argv []string, d string, e []string, to time.Duration) ExecResult {
+		if len(argv) > 1 && argv[1] == "rm" {
+			return ExecResult{Ran: true, RC: 125, Stderr: "Error: cannot remove container: device busy\n"}
+		}
+		return jails.exec(argv, d, e, to)
+	}
+	// Each jail's tracking file, which the removal of a jail that is gone clears.
+	if err := os.MkdirAll(paths.ContainerDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, ws := range jails.running {
+		if err := os.WriteFile(filepath.Join(paths.ContainerDir(), name), []byte(ws+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var out bytes.Buffer
+	r := newReporter(&out, false)
+	(&Options{IsTTYStdout: func() bool { return true }, Stdin: strings.NewReader("y\n"), Exec: refuse}).
+		sectionRunningJails(r, "podman")
+	got := stripANSI(out.String())
+	if strings.Contains(got, "Stopped yolo-") {
+		t.Errorf("a refused removal is reported as stopped:\n%s", got)
+	}
+	for name := range jails.running {
+		if _, err := os.Stat(filepath.Join(paths.ContainerDir(), name)); err != nil {
+			t.Errorf("the tracking of %s, still running, was removed: %v", name, err)
+		}
+	}
+	for _, want := range []string{"Could not stop yolo-api-3f2a91c0", "device busy",
+		"podman rm -f yolo-api-3f2a91c0", "then: yolo check"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the failed removal does not say %q:\n%s", want, got)
 		}
 	}
 }

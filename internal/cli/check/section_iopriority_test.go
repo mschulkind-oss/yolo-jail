@@ -174,3 +174,26 @@ func TestIOPriorityCheckIsSilentWhenUndeclared(t *testing.T) {
 		}
 	}
 }
+
+// Two disks that both ignore the priority each get their own persistence step: one udev rules
+// file per disk, so following the second disk's note does not overwrite the first disk's rule.
+func TestIOPriorityUdevRulePerDisk(t *testing.T) {
+	sys := iopriotest.Scheduler(t, ioWS, "kyber").Mount("/yolo-test-store", "ext4", "/dev/nvme0n1p1").
+		Disk("nvme0n1", "[none] mq-deadline").Part("nvme0n1", "nvme0n1p1")
+	got, _ := runIOPrioritySection(t, ioCheck{sys: sys, io: "low", runtime: "podman", graphRoot: "/yolo-test-store/containers"})
+	for _, want := range []string{"/etc/udev/rules.d/60-yolo-ioscheduler-sda.rules",
+		"/etc/udev/rules.d/60-yolo-ioscheduler-nvme0n1.rules"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no per-disk rules file %s:\n%s", want, got)
+		}
+	}
+}
+
+// macos-user's note said "nothing on this Mac can:" and then, in the shared step, "Nothing here
+// can make it act": the same sentence twice in one note.
+func TestIOPriorityMacOSUserNoteSaysItOnce(t *testing.T) {
+	got, _ := runIOPrioritySection(t, ioCheck{io: "low", macOS: true, runtime: "macos-user"})
+	if n := strings.Count(strings.ToLower(got), "nothing"); n != 1 {
+		t.Errorf("the note says \"nothing\" %d times, want once:\n%s", n, got)
+	}
+}
