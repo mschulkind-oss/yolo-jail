@@ -214,6 +214,50 @@ func TestStorePackagesAreRootedAsATranslatedRootInAJail(t *testing.T) {
 	}
 }
 
+// A JAIL'S PROFILE ROOT IS BEST-EFFORT, as every in-jail root is (§4, "Failure"): the build
+// takes no out-link there, so a roots directory that cannot be made costs the root and never
+// the packages. And a jail whose launcher stated no map makes nothing at all, as it did before
+// translated roots. Only the host's build needs the directory before it runs, because there
+// nix itself writes the out-link into it.
+func TestAJailsStoreProfileRootNeverFailsItsPackages(t *testing.T) {
+	f := newJailRootFixture(t)
+	prev := materializeProfileAt
+	materializeProfileAt = func(string, []any, string, string, io.Writer) (*darwinpkg.DarwinPackages, error) {
+		return &darwinpkg.DarwinPackages{ProfilePath: f.storePath}, nil
+	}
+	t.Cleanup(func() { materializeProfileAt = prev })
+	pkgs := []any{"zbar"}
+
+	// No map: the old in-jail state, which created no directory.
+	noMap := map[string]string{"YOLO_VERSION": f.env["YOLO_VERSION"]}
+	o, _, _ := storeOptions(t, noMap)
+	if _, _, err := o.materializeStorePackages()(t.TempDir(), pkgs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(paths.PackageRootsDir()); !os.IsNotExist(err) {
+		t.Errorf("a jail with no host path map made %s (%v)", paths.PackageRootsDir(), err)
+	}
+
+	// A build dir that is a file: no roots directory can be made under it, whoever runs this.
+	if err := os.RemoveAll(paths.BuildDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(paths.BuildDir()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.BuildDir(), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o, _, _ = storeOptions(t, f.env)
+	profile, _, err := o.materializeStorePackages()(t.TempDir(), pkgs)
+	if err != nil || profile != f.storePath {
+		t.Errorf("a jail whose roots dir cannot be made lost its packages: %q, %v", profile, err)
+	}
+	if n := len(f.daemon.Roots()); n != 0 {
+		t.Errorf("the daemon was sent %d roots for a link that could not be made", n)
+	}
+}
+
 // THE ONE FAILURE A LAUNCH SAYS: the host's daemon refusing the root (§4, "Failure"), on the
 // launch stream, naming what is left unprotected. Every other failure is silent.
 func TestADaemonRefusalIsTheOneFailureALaunchSays(t *testing.T) {

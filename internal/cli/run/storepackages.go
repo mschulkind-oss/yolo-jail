@@ -313,14 +313,21 @@ func nixBuildImageExtrasProfile(repoRoot string) (string, error) {
 // unrooted-but-running jail is the state that existed before any of this, not a regression
 // to hard-fail on.
 func rootExtrasProfile(storePath string, root image.Rooter, out io.Writer) {
-	dir := paths.PackageRootsDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	rootPackageProfile(extrasProfileRootLink(storePath), storePath, root, out,
+		"could not register a GC root for the store-delivered image extras "+
+			"(a nix-collect-garbage could reclaim them)")
+}
+
+// rootPackageProfile registers link, under paths.PackageRootsDir, as storePath's GC root
+// through root: the one mechanism behind both profile roots registered after their build —
+// the extras' everywhere, and the store-delivered packages' in a jail. Best-effort, a roots
+// directory that cannot be made being a warning like any other failure to root.
+func rootPackageProfile(link, storePath string, root image.Rooter, out io.Writer, failMsg string) {
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		fmt.Fprintln(out, "Warning: could not create GC-root dir: "+err.Error())
 		return
 	}
-	_ = root(extrasProfileRootLink(storePath), storePath, out,
-		"could not register a GC root for the store-delivered image extras "+
-			"(a nix-collect-garbage could reclaim them)")
+	_ = root(link, storePath, out, failMsg)
 }
 
 // extrasProfileRootLink is the extras closure's GC root, keyed by its store path.
@@ -346,25 +353,26 @@ func (o *Options) materializeStorePackages() func(string, []any) (string, []stri
 	root := o.gcRooter()
 	return func(repoRoot string, packages []any) (string, []string, error) {
 		link := storeProfileRootLink(packages)
-		// nix does not create an --out-link's parent, and a translated root needs it too.
-		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-			return "", nil, err
-		}
 		// IN A JAIL THE BUILD TAKES NO OUT-LINK: nix would register it under the jail's
 		// spelling, a root the host daemon prunes as stale (internal/darwinpkg/gcroot.go
 		// verified it), so the root is registered after the build instead, translated
 		// (in-jail-nix-roots.md NR-D2) — with the two-step's window, which the image root
-		// has always had.
-		outLink := link
-		if inJail {
-			outLink = ""
+		// has always had. That root is best-effort like every in-jail one (§4, "Failure"),
+		// so only the host's build needs the link's directory before it runs: nix does not
+		// create an --out-link's parent, and there the out-link IS the root.
+		outLink := ""
+		if !inJail {
+			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+				return "", nil, err
+			}
+			outLink = link
 		}
 		res, err := materializeProfileAt(repoRoot, packages, "", outLink, nil)
 		if err != nil {
 			return "", nil, err
 		}
 		if inJail && root != nil {
-			_ = root(link, res.ProfilePath, o.Stderr,
+			rootPackageProfile(link, res.ProfilePath, root, o.Stderr,
 				"could not register a GC root for the store-delivered packages "+
 					"(a nix-collect-garbage could reclaim them)")
 		}
