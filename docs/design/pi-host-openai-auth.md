@@ -11,12 +11,13 @@ summary: "Pi gates a provider's models on a stored credential or a configured ke
 # Why host Pi cannot select OpenAI Codex — and how to seed its auth
 
 **Status:** 2026-10-01. Nothing built. Diagnosis measured live on the maintainer's host 2026-09-30, then
-re-verified against pi 0.99.2 and the tree at `2f579bb9` with offline probes of pi's own model runtime.
+re-verified against pi 0.99.2 and the tree at `2f579bb9` with offline probes of pi's own model runtime,
+whose commands and output are in [Appendix A](#appendix-a-the-probes).
 
 > **In short.** Host pi lists no ChatGPT model because pi counts `openai-codex` as configured only
-> when a credential is stored for it, and only the jail stores one. Pi also accepts a provider that
-> declares itself configured with no stored credential, so the host can serve the subscription
-> through the socket NC-D37 already hands it, without writing the user's `auth.json`.
+> when a credential is stored for it, and yolo stores one only inside a jail. Pi also accepts a
+> provider that declares itself configured with no stored credential, so the host can serve the
+> subscription through the socket NC-D37 already hands it, without writing the user's `auth.json`.
 
 **Why it matters.** Running `yolo host -- pi` under the `codex` profile boots pi into a fallback
 model (`local/qwen3.8-27b`) and hides every ChatGPT subscription model from `/model`, which says
@@ -26,8 +27,9 @@ model (`local/qwen3.8-27b`) and hides every ChatGPT subscription model from `/mo
 extension, `/login` or `yolo host apply`), give host pi an agent directory of yolo's own, as host
 codex already has, or mark the provider configured from the extension and write nothing.
 
-**Cost.** None for jail launches. The no-write family moves yolo's `openai-codex` registration
-onto pi's native provider interface; the write families mutate the user's credential file.
+**Cost.** None for jail launches. The no-write family changes yolo's `openai-codex` registration
+(D2 moves it onto pi's native provider interface), the managed directory is the largest build, and
+the write families mutate the user's credential file.
 
 **Start at [§1](#1-the-diagnosis-why-host-pi-ignores-openai-codex)** for the runtime gate, then
 [§3.1](#31-what-nc-d37-protects) for what the host is protecting.
@@ -46,19 +48,24 @@ onto pi's native provider interface; the write families mutate the user's creden
 ## 1. The Diagnosis: Why host Pi ignores OpenAI Codex
 
 **Evidence tags used in this doc.** **MEASURED**: run and observed, either live on the maintainer's
-host (2026-09-30) or by an offline probe. **SOURCED**: read at the cited file and line.
-**INFERRED**: reasoned from sourced code and not run.
+host (2026-09-30) or by an offline probe whose command and output are in
+[Appendix A](#appendix-a-the-probes), cited by its label (P1 to P8, W1, E1, O1). **SOURCED**: read at the
+cited file and line, or URL. **INFERRED**: reasoned from sourced code and not run. A statement of what
+an option *would* do is INFERRED unless it carries another tag.
 
 **The probes** *(throwaway, not in the tree)* import pi's own `ModelRuntime` from the installed
-package. They run with a scratch `HOME`, scratch `auth.json` and `models.json`, and a `fetch` that
-records the URL and throws. They start no CLI, call no model and log nothing in. A test built from
-them is a build step ([§5](#5-build-order-and-the-tests-that-pin-each-step)).
+package. They run with a scratch `HOME`, scratch `auth.json` and `models.json`, a fake `yolo` first on
+`PATH`, and a `fetch` that records the URL and throws. They start no CLI, call no model and log
+nothing in. A test built from them is a build step ([§5](#5-build-order-and-the-tests-that-pin-each-step)).
 
-**Paths.** pi-coding-agent and its pi-ai dependency are both 0.99.2 (MEASURED, `package.json`).
+**Paths.** pi-coding-agent and its pi-ai dependency are both 0.99.2 (MEASURED, E1).
 `$PI` is `@earendil-works/pi-coding-agent/dist` and `$AI` is that package's
-`node_modules/@earendil-works/pi-ai/dist`. The `pi` binary runs `$PI/bundle/cli.js`, a bundle that
-keeps these identifiers. Upstream's v0.87.1 sources match at every point checked, and upstream main,
-read 2026-10-01, keeps `checkProviderAuth` unchanged (SOURCED).
+`node_modules/@earendil-works/pi-ai/dist`; a bare `docs/` path is the package's own documentation.
+The `pi` binary runs `$PI/bundle/cli.js` (the package's `bin`), a bundle that keeps these
+identifiers. Upstream's `packages/ai/src/models.ts` carries the same `checkProviderAuth` at tag
+`v0.87.1` and on `main`, read 2026-10-01 (SOURCED,
+[`main`](https://github.com/earendil-works/pi/blob/main/packages/ai/src/models.ts),
+[`v0.87.1`](https://github.com/earendil-works/pi/blob/v0.87.1/packages/ai/src/models.ts)).
 
 ### 1.1 The gate, step by step
 
@@ -73,7 +80,7 @@ read 2026-10-01, keeps `checkProviderAuth` unchanged (SOURCED).
 3. **The check** (SOURCED, `$AI/models.js:263-284`). Each availability pass asks `checkProviderAuth`
    per provider:
    ```javascript
-   checkProviderAuth(provider, credential, signal) {
+   async checkProviderAuth(provider, credential, signal) {
        if (credential?.type === "oauth") {
            return provider.auth.oauth ? { source: "OAuth", type: "oauth" } : undefined;
        }
@@ -90,9 +97,9 @@ read 2026-10-01, keeps `checkProviderAuth` unchanged (SOURCED).
    unless an extension or `models.json` supplies `apiKey` (`$PI/core/provider-composer.js:231-233`:
    *"OAuth-only providers get no fabricated API-key login method"*). With no stored oauth entry the
    check returns `undefined`.
-5. **No callback probes availability** (MEASURED). A stored oauth entry with `expires: 1` counts as
-   configured, and the probe's `login`, `refresh` and `getApiKey` counters all stay at zero. Expiry is
-   not part of the check.
+5. **No callback probes availability** (MEASURED, P2). A stored oauth entry with `expires: 1` counts as
+   configured, and the fake `yolo` behind the extension's `login` and `refreshToken` is never called.
+   Expiry is not part of the check.
 6. **The divergence between notches** (SOURCED).
    - **In a jail** the launcher's prelaunch ([`shims.go`](../../internal/entrypoint/shims.go#L990))
      runs `yolo internal openai-auth-client token --pi-auth=$HOME/.pi/agent/auth.json` before pi
@@ -104,12 +111,13 @@ read 2026-10-01, keeps `checkProviderAuth` unchanged (SOURCED).
      ([§3.1](#31-what-nc-d37-protects)).
 7. **The failure** (MEASURED live; SOURCED `$PI/core/model-resolver.js:503-530`).
    - With no `openai-codex` entry in `~/.pi/agent/auth.json`, the provider reports
-     `{ configured: false }` (probe: the same result with an empty `auth.json`).
+     `{ configured: false }` (P1: the same result with an empty `auth.json`).
    - `findInitialModel` keeps the saved default (`openai-codex/gpt-6.1-sol`) only when
-     `hasConfiguredAuth` is true, and otherwise takes the first model of `getAvailableSnapshot()`.
+     `hasConfiguredAuth` is true. Otherwise it takes a known provider's default model from
+     `getAvailableSnapshot()`, else that snapshot's first model.
      A restored session applies the same gate (`$PI/core/sdk.js:92-100`).
-   - `local` declares the literal key `"local"`, which counts as configured (probe: `local: true`),
-     so pi starts on `local/qwen3.8-27b`.
+   - `local` declares the literal key `"local"`, which counts as configured (P1: `local` configured,
+     and `local/qwen3.8-27b` the only available model), so pi starts on `local/qwen3.8-27b`.
    - The `/model` picker lists `getAvailableSnapshot()` (`$PI/modes/interactive/components/model-selector.js:103-109`),
      so no `openai-codex` model appears.
 
@@ -121,7 +129,7 @@ available (MEASURED live). The path is SOURCED: `showLoginDialog` → `modelRunt
 (`$PI/modes/interactive/interactive-mode.js:5142-5165`) → the composer's adapter around the
 extension's `login` (`provider-composer.js:183-193`) → [`brokerLogin`](../../packs/pi/extensions/yolo-openai-auth.js#L93-L99),
 which asks `status`, logs in only when it must, and returns `brokerToken`. Pi writes the result
-under its own lock and marks the provider configured. A probe with a fake broker reproduced it:
+under its own lock and marks the provider configured. A probe with a fake broker reproduced it (P3):
 configured went from false to true, `isUsingSubscription` was true, no lock was left behind, and
 another provider's entry survived beside an entry of the shape `WritePiAuth` writes.
 
@@ -158,16 +166,16 @@ Could not refresh 3 model catalogs (cerebras, deepseek, openrouter); showing cac
 3. **What fails, and where** (SOURCED; MEASURED by probe).
    - **No network call is made and nothing returns 401.** For a row whose `apiKey` names an unset
      variable, the composed resolver throws locally (`provider-composer.js:276-278`), and the catalog
-     refresh records that as the provider's error (`$AI/models.js:200`, `:209-212`). Probe: the error
+     refresh records that as the provider's error (`$AI/models.js:200`, `:209-212`). P5: the error
      *Failed to resolve API key for provider "cerebras" from environment variable: CEREBRAS_API_KEY*,
      with no `fetch` at all.
    - **Only a row that overlays one of pi's built-in providers can fail.** Every built-in except
      `radius` carries a remote-catalog refresh hook (`model-runtime.js:87-91`). A built-in with no row
-     and no key is skipped silently (probe: `deepseek` with no row, no error). A provider that exists
-     only in `models.json` has no hook (`provider-composer.js:384`; probe: `local`, no error).
-   - **A keyed refresh asks pi.dev, not the provider, and sends no credential** (MEASURED: three
-     attempts at `https://pi.dev/api/models/providers/cerebras?types=…`; SOURCED
-     `remote-catalog-provider.js:76-85`).
+     and no key is skipped silently (P5: `deepseek` with no row, no error). A provider that exists
+     only in `models.json` has no hook (`provider-composer.js:384`; P5: `local`, no error).
+   - **A keyed refresh asks pi.dev, not the provider, and sends no credential** (MEASURED, P5: three
+     attempts at `https://pi.dev/api/models/providers/cerebras?types=…` once the variable is set;
+     SOURCED `$PI/core/remote-catalog-provider.js:76-85`).
 4. **When the user sees it** (SOURCED). Pi's startup catalog refresh swallows its errors
    (`interactive-mode.js:796-803`). The warning appears only in the `/model` picker
    (`model-selector.js:144`) and in `/model <term>` (`interactive-mode.js:4255-4257`). So it is not a
@@ -210,7 +218,8 @@ and what the user sees.
 pi auth file is the user's own file at the host"*. Four things stand behind it:
 
 - **The rule is older than NC-D37.** `6d118252` (2026-09-15) returned before any write with
-  `if agent == "pi" { return launch }`. NC-D37 carried that forward and gave the reason.
+  `if agent == "pi" { return launch, nil }` (SOURCED, `git show 6d118252`). NC-D37 carried that
+  forward and gave the reason.
 - **The broker design states the rule for codex only.** Its user experience section says *"Yolo never
   rewrites the user's ordinary `~/.codex/auth.json` or silently changes a directly launched host Codex"*
   ([`openai-auth-broker.md`](openai-auth-broker.md#1-user-experience)). Its ledger rules
@@ -257,7 +266,7 @@ These facts hold for every option that stores an entry (A, A′, B, C, E, F).
   extension's [`refreshToken`](../../packs/pi/extensions/yolo-openai-auth.js#L318), which asks the
   broker for the current generation. A catalog refresh does the same once the entry has expired
   (`$AI/models.js:230-245`). Pi writes the result back before it releases the lock
-  (`$PI/core/auth-storage.js:378-395`). Probe: an entry with 60 s left gave a new token and a stored
+  (`$PI/core/auth-storage.js:378-395`). P4: an entry with 60 s left gave a new token and a stored
   `refresh: yolo-broker:2` after one refresh call.
 - **Nothing flows back to the broker, and nothing needs to.** The broker is the one writer of the
   lineage. It returns a cached generation or performs one upstream refresh under its machine lock,
@@ -281,12 +290,13 @@ These facts hold for every option that stores an entry (A, A′, B, C, E, F).
   The host has no such handling yet.
 - **Pi's writer and yolo's differ on the file itself.** Pi creates `auth.json` as `{}` with mode 0600
   only when it is missing, and writes in place, so an existing file keeps its mode, its ACLs and a
-  symlink (`auth-storage.js:14-32`; MEASURED: a 0644 file stayed 0644 through pi's login and refresh).
-  [`WritePiAuth`](../../internal/openauthclient/pi.go#L38-L44) chmods `~/.pi/agent` to 0700 on every
-  call and replaces the file by rename ([`codex.go`](../../internal/openauthclient/codex.go#L74-L111)).
-  That resets the mode to 0600, drops ACLs and turns a symlinked `auth.json` into a regular file,
-  leaving a dotfiles target with the stale copy. It is harmless in a jail and a mutation of the user's
-  file at the host.
+  symlink (`auth-storage.js:14-32`; MEASURED, P3 and P4: a 0644 file stayed 0644 through pi's login
+  and refresh). [`WritePiAuth`](../../internal/openauthclient/pi.go#L38-L44) chmods `~/.pi/agent` to
+  0700 on every call and replaces the file by rename
+  ([`codex.go`](../../internal/openauthclient/codex.go#L74-L111)). That resets the mode to 0600,
+  turns a symlinked `auth.json` into a regular file and leaves a dotfiles target with the stale copy
+  (MEASURED, W1). A replaced file also loses its ACLs (INFERRED: a rename installs a new inode). It
+  is harmless in a jail and a mutation of the user's file at the host.
 
 ### 3.3 A host pi that already has its own openai-codex login
 
@@ -321,20 +331,23 @@ What each option does to an own login is a column of the table in [§3.4](#34-fo
 
 ### 3.4 For the auth.json seeding: the option space
 
-The first three are the maintainer's; the rest come from reading pi's runtime and the codex precedent.
+A, B and C are the first draft's [OQ-1](#OQ-1) options, and E takes the place of its third
+seeding option; A′, D and F come from reading pi's runtime and the codex precedent.
 
 #### A — Host prelaunch seeding with `WritePiAuth` (amend NC-D37)
 
 `openaiauthhost.Prepare` calls `WritePiAuth` on `~/.pi/agent/auth.json` for the pi view.
 
 - **The user sees** the codex default at start, with nothing said unless a launch line is added.
-- **It writes** the user's `auth.json` on every `codex`-profile launch, with the side effects of
-  [§3.2](#32-what-a-seeded-entry-does-afterwards-refresh-rotation-the-lock)'s last bullet.
+- **It writes** the user's `auth.json` on every `codex`-profile launch (precisely, every launch whose
+  active set has an `openai-codex` entry, [`derive.lua`](../../packs/pi/derive.lua#L1360-L1363)), with
+  the side effects of [§3.2](#32-what-a-seeded-entry-does-afterwards-refresh-rotation-the-lock)'s last
+  bullet.
 - **It ignores a relocated agent directory.** The prelaunch path is fixed at `.pi/agent/auth.json`
   ([`derive.lua`](../../packs/pi/derive.lua#L1362)), while pi honors `PI_CODING_AGENT_DIR`, which a host
   shell passes through to pi.
 - **Lock:** pi's, as above. The host would need the jail's exit-75 handling.
-- **An own login is deleted** on every `codex`-profile launch (MEASURED 2026-09-30 by a scratch test of
+- **An own login is deleted** on every `codex`-profile launch (MEASURED, W1, a scratch test of
   `WritePiAuth` on a host-shaped home: it replaced the entry, replaced a symlinked file with a regular
   one, moved `~/.pi/agent` from 0755 to 0700, and kept and reformatted every other provider, `!command`
   values included). So the first draft's claim that it works *"without clobbering existing host
@@ -391,14 +404,15 @@ supported forms exist (SOURCED, MEASURED by probe):
 - **D1 — `apiKey: "!<command>"` on the existing registration.**
   - The availability check counts a command value as configured **without running it**
     (`provider-composer.js:252-254`). Pi runs the command fresh on every request
-    (`:276-281`; `resolve-config-value.js:192-201`; pi's `docs/models.md` says so). Probe: configured,
-    source `models_json_command`, the command did not run during the check and did run at `getAuth`.
+    (`:276-281`; `$PI/core/resolve-config-value.js:192-201`; pi's `docs/models.md:64` says so). P7:
+    configured, source `models_json_command`, the command did not run during the check and did run at
+    `getAuth`.
   - A stored oauth entry still wins over the key (`$AI/auth/resolve.js:24-28`), so a jail and an own
     login behave as today.
   - **Costs:** the command runs through `execSync`, blocking pi's event loop, with a 10 s timeout and
     stderr discarded (`resolve-config-value.js:159-171`), which loses `brokerFailure`'s advice.
     `openai-auth-client token` prints a JSON view, so it would need a raw-token mode. `isUsingOAuth`
-    becomes false (MEASURED), so the footer shows a dollar cost without *"(sub)"*
+    becomes false (MEASURED, P7), so the footer shows a dollar cost without *"(sub)"*
     (`$PI/modes/interactive/components/footer.js:162-167`), and `/login` lists an extra API-key method
     (`interactive-mode.js:4739-4747`). The extension must add the key only when the host socket is
     set, or plain pi counts the provider configured and fails every request.
@@ -408,13 +422,13 @@ supported forms exist (SOURCED, MEASURED by probe):
     custom resolution (`docs/custom-provider.md:83`).
   - `auth.apiKey` takes an async `check()` and `resolve()` (`$AI/auth/types.d.ts:170-196`), and a check
     may answer with type `"oauth"` (`:94-97`).
-  - **MEASURED** (2026-10-01): the built-in `openai-codex` provider spread with an added `auth.apiKey`
+  - **MEASURED** (2026-10-01, P8): the built-in `openai-codex` provider spread with an added `auth.apiKey`
     whose `check` returns `{ type: "oauth", source: "yolo shared login" }`, over an empty `auth.json`:
     configured, `isUsingOAuth` and `isUsingSubscription` both true, no `resolve` during the check, and
-    `getAuth` returned the broker's token while `auth.json` stayed `{}`.
-  - The same probe with a stored own login: `getAuth` returned the own access token, because a stored
-    oauth entry wins. Near expiry pi refreshed it against `https://auth.openai.com/oauth/token`, the
-    built-in refresh, not the broker. Which oauth the native provider carries is therefore
+    `getAuth` returned the stand-in broker token while `auth.json` stayed `{}`.
+  - The same probe with a stored own login (P8): `getAuth` returned the own access token, because a
+    stored oauth entry wins. Near expiry pi refreshed it against `https://auth.openai.com/oauth/token`,
+    the built-in refresh, not the broker. Which oauth the native provider carries is therefore
     [OQ-3](#OQ-3)'s question, and a stored broker view (a jail's, or the one `/login` already wrote on
     the maintainer's host) still needs a broker-capable refresh: the marker dispatch of
     [§3.3](#33-a-host-pi-that-already-has-its-own-openai-codex-login).
@@ -440,7 +454,7 @@ The first draft's option 3 rejected this because pi has no `--auth-path` flag. T
 not matter: `PI_CODING_AGENT_DIR` relocates pi's whole agent directory, and
 `PI_CODING_AGENT_SESSION_DIR` can keep sessions where they are (SOURCED `$PI/config.js:434-456`; the
 directory map already declares both, [`agent-directory-map.md`](agent-directory-map.md#62-the-map)). Pi has
-no auth-only variable or flag (MEASURED: every `process.env` read in `$PI` and the flag list in
+no auth-only variable or flag (MEASURED, E1: every `PI_` variable `$PI` reads, and the flag list in
 `$PI/cli/args.js`).
 
 - **It writes** a directory of yolo's under `~/.local/share/yolo-jail/host-agents/pi`, as host codex
@@ -475,48 +489,55 @@ no auth-only variable or flag (MEASURED: every `process.env` read in `$PI` and t
 
 | Option | Writes the user's `auth.json` | NC-D37 | An own login | Plain `pi` after a `yolo host` launch | Build |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| A | every codex launch, by rename | amends | deleted | configured until expiry | small |
-| A′ | when absent, in place | amends | kept | configured until expiry | small |
-| B | when absent, from pi | defeats its reason | kept | configured until expiry | small, through pi's runtime |
-| C | only on the user's `/login` | as is | overwritten on request | configured until expiry | tiny |
+| A | every codex launch, by rename | amends | deleted | configured; works until expiry | small |
+| A′ | when absent, in place | amends | kept | configured; works until expiry | small |
+| B | when absent, from pi | defeats its reason | kept | configured; works until expiry | small, through pi's runtime |
+| C | only on the user's `/login` | as is | overwritten on request | configured; works until expiry | tiny |
 | D1 | never | as is | kept, but see [§3.3](#33-a-host-pi-that-already-has-its-own-openai-codex-login) | unconfigured | small, with UI costs |
 | D2 | never | as is | kept, but see [§3.3](#33-a-host-pi-that-already-has-its-own-openai-codex-login) | unconfigured | medium (native provider) |
 | E | never (yolo's own file) | amends | untouched | unconfigured | large |
-| F | at apply time | moves the host-management line | as A or A′ | configured until expiry | small |
+| F | at apply time | moves the host-management line | as A or A′ | configured; works until expiry | small |
+
+"Configured; works until expiry" is [§3.2](#32-what-a-seeded-entry-does-afterwards-refresh-rotation-the-lock)'s
+stale-token case: the check ignores expiry, so the provider stays listed after its token has lapsed.
 
 ### 3.5 For catalog refresh noise
 
-1. **Filter `models.json` by the active profile.** Write a row only when its credential is delivered
-   this launch, or its key is a literal such as `local`.
-   - **At the host** (INFERRED): `models.json` is rendered by `yolo host apply` from the user-scope
-     composition, not per launch, so it cannot follow each launch's `-p`. Rewriting it per launch would
-     race concurrent launches with different `-p`, the hazard [MM-D27](model-lists-and-pickers.md#MM-D27)
-     solves for codex's menu. A direct launch, and a key from the user's own shell, need the rows.
-   - **In a jail** (INFERRED): `models.json` is rendered at boot, while an attach rewrites the agent's
-     env file whole ([`active-provider-sets.md`](active-provider-sets.md)), so a key an attach delivers
-     would find no row. [AP-D16](active-provider-sets.md#AP-D16) assumes rows exist for providers
-     outside the set.
-2. **Accept the warning as harmless.** Pi degrades to cached models, and the warning appears only in
-   the picker.
-3. **Leave `apiKey` off a row for one of pi's built-in providers when the row's variable is pi's own
-   name for it** — `cerebras`, `deepseek` and `openrouter` here (`$AI/env-api-keys.js:85-93`). Pi's
-   inherited key lookup then answers nothing when the variable is unset and the same key when it is
-   set, and every row stays. **MEASURED** (2026-10-01, probe): a `cerebras` row with no `apiKey`
-   refreshed with no error and no `fetch` while `CEREBRAS_API_KEY` was unset, and was configured with
-   the same key once it was set. A built-in whose configured variable has another name keeps the
-   warning.
+The letters are [OQ-2](#OQ-2)'s.
 
-**The mid-session switching cost**, which the first draft gave as option 2's reason, is small for
+- **A — Filter `models.json` by the active profile.** Write a row only when its credential is delivered
+  this launch, or its key is a literal such as `local`.
+  - **At the host** (INFERRED): `models.json` is rendered by `yolo host apply` from the user-scope
+    composition, not per launch, so it cannot follow each launch's `-p`. Rewriting it per launch would
+    race concurrent launches with different `-p`, the hazard [MM-D27](model-lists-and-pickers.md#MM-D27)
+    solves for codex's menu. A direct launch, and a key from the user's own shell, need the rows.
+  - **In a jail** (INFERRED): `models.json` is rendered at boot, while an attach rewrites the agent's
+    env file whole ([`active-provider-sets.md`](active-provider-sets.md)), so a key an attach delivers
+    would find no row. [AP-D16](active-provider-sets.md#AP-D16) assumes rows exist for providers
+    outside the set.
+- **B — Accept the warning as harmless.** Pi degrades to cached models, and the warning appears only in
+  the picker.
+- **C — Leave `apiKey` off a row for one of pi's built-in providers when the row's variable is pi's own
+  name for it** — `cerebras`, `deepseek` and `openrouter` here (`$AI/env-api-keys.js:85-93`). Pi's
+  inherited key lookup then answers nothing when the variable is unset and the same key when it is
+  set, and every row stays. **MEASURED** (2026-10-01, P6): a `cerebras` row with no `apiKey`
+  refreshed with no error and no `fetch` while `CEREBRAS_API_KEY` was unset, and was configured with
+  the same key, and its row's `baseUrl`, once it was set. A built-in whose configured variable has
+  another name keeps the warning. A via row keeps its `apiKey`, because that key is the via
+  service's caller token ([`derive.lua`](../../packs/pi/derive.lua#L728-L730)), not pi's variable.
+
+**The mid-session switching cost**, which the first draft gave as B's reason, is small for
 every option. Pi's environment is fixed when it starts, so a withheld key cannot arrive mid-session,
 and a profile change is a new launch. The one mid-session path is `/login` storing a key for that
-provider: a stored key makes it configured (`provider-composer.js:244-251`), and under option 1 it
+provider: a stored key makes it configured (`provider-composer.js:244-251`), and under A it
 would lose its row's `baseUrl` and model overrides.
 
 ---
 
 ## 4. The opencode parallel
 
-opencode 1.18.34 has the same kind of gate (SOURCED from the binary's strings; the rest INFERRED):
+opencode 1.18.34 has the same kind of gate (SOURCED from the binary's strings, O1 for the loader
+gate, the `OPENCODE_AUTH_CONTENT` read, the refresh host and the headless method; the rest INFERRED):
 
 - **A plugin's OAuth loader runs only when its auth store has an entry**, so the ChatGPT subscription
   is live only with an `openai` entry, or with `OPENAI_API_KEY` set (the API-key route).
@@ -540,7 +561,7 @@ from the host; the *"ChatGPT Pro/Plus (headless)"* device-code method avoids tha
 What I would build, in order, on the leanings below. Each step names the ruling it waits on. Each
 test has to fail when the production call site is deleted, not only when the callee changes.
 
-1. **The catalog noise ([OQ-2](#OQ-2), option 3).** The pi models derive leaves `apiKey` off a
+1. **The catalog noise ([OQ-2](#OQ-2) C).** The pi models derive leaves `apiKey` off a
    built-in's row when the row's variable is pi's own name for it.
    - A derive test that renders through the real surface loop: no `apiKey` on a `cerebras` row keyed by
      `CEREBRAS_API_KEY`, and the `${…}` reference kept on a row whose variable has another name.
@@ -600,18 +621,21 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
 
 1. 💬 **OQ-1: How host Pi receives its initial `openai-codex` credential.**
    Pi counts `openai-codex` as configured only with a stored credential or a key method, and the host
-   writes neither today. The answer decides whether yolo's login ever enters the user's `auth.json`,
+   writes neither today. What should bridge this gap? The answer decides whether yolo's login ever
+   enters the user's `auth.json`,
    and whether plain `pi` keeps a working subscription after a `yolo host` launch. Each option is in
    [§3.4](#34-for-the-authjson-seeding-the-option-space).
 
-   - **A — Host prelaunch merges `auth.json` (amend NC-D37).** `WritePiAuth` on every
-     `codex`-profile launch. Deletes an own login and replaces a symlinked file.
+   - **A — Host prelaunch merges `auth.json` (amend NC-D37).** `openaiauthhost.Prepare` calls
+     `WritePiAuth` on `~/.pi/agent/auth.json` on every `codex`-profile launch. It keeps other
+     providers, but deletes an own login and replaces a symlinked file.
    - **A′ — Marker-gated merge (amend NC-D37).** Writes in place only when the entry is absent or is
      already a broker view.
-   - **B — `yolo-openai-auth.js` seeds `auth.json` on extension load.** Writes through pi's exported
-     runtime, so under pi's own lock.
-   - **C — Require explicit `/login` once on the host**, with a line that says so. No amendment; no jail
-     parity.
+   - **B — `yolo-openai-auth.js` seeds `auth.json` on extension load.** When `openai-codex` is
+     missing it writes `brokerToken()`'s view, through pi's exported runtime and so under pi's own
+     lock.
+   - **C — Require explicit `/login` once on the host**, with a line that says so. `/login` reuses
+     the broker's login with no browser. No amendment; no jail parity.
    - **D — Mark the provider configured with no file write.** D2, a native provider with a key check
      gated on the host socket, keeps the subscription label and blocks nothing. No amendment.
    - **E — A managed pi agent directory**, as host codex has. Two lineages; the user's other pi logins
@@ -632,12 +656,14 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
 
 2. 💬 **OQ-2: Handling catalog refresh failures for unscoped providers.**
    Under credential scoping, `models.json` rows for unselected providers make pi's model picker report
-   refresh failures. The stakes are noise only: no option shows or hides a model the others do not
+   refresh failures. Should yolo suppress unselected providers in `models.json`? The stakes are noise
+   only: no option shows or hides a model the others do not
    ([§2](#2-secondary-symptom-catalog-refresh-failures-under-credential-scoping)). Options are in
    [§3.5](#35-for-catalog-refresh-noise).
 
-   - **A — Only render providers with available credentials in `models.json`.** Cannot follow a
-     launch's `-p` at the host, and loses rows an attach or a direct launch needs.
+   - **A — Only render providers with available credentials in `models.json`.** Omit a row whose key
+     credential scoping withholds, at the host and in a jail. Cannot follow a launch's `-p` at the
+     host, and loses rows an attach or a direct launch needs.
    - **B — Leave `models.json` intact.** The warning stays, in the picker only.
    - **C — Leave `apiKey` off a built-in's row when the row's variable is pi's own name for it.**
      Silences the warning for those rows, with the same key when it is set. Other rows keep it.
@@ -668,13 +694,344 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
    - **C — Two lineages, kept apart.** [OQ-1](#OQ-1)'s E: the managed directory serves `yolo host`, and the
      user's `~/.pi/agent` keeps its own login untouched.
 
-   <!-- vantage: oq id=OQ-3 leaning="A — the user's own login wins and refreshes through OpenAI by the marker dispatch; yolo's login serves only a missing or broker-marked entry. It fixes today's silent replacement without a file write, and matches OQ-NC7 A and the broker design's untouched direct codex." -->
+   <!-- vantage: oq id=OQ-3 leaning="A — the user's own login wins and refreshes through OpenAI by the marker dispatch; yolo's login serves only a missing or broker-marked entry. It fixes today's silent replacement without a file write and matches OQ-NC7 A; codex's precedent, OQ-OA3, is C's shape, which costs E's managed directory." -->
 
    _Leaning:_ A. It fixes today's silent replacement without a file write, so it composes with [OQ-1](#OQ-1)'s
-   D2. It matches [OQ-NC7](../plans/notch-convergence.md#OQ-NC7) A, where host claude keeps its own
-   login, and the broker design, where a direct host codex stays untouched. The nearest unruled
-   question, [OQ-KC1](keychain-from-a-jail.md#OQ-KC1), leans the same way: a yolo-owned login, kept
-   separate from the host's own.
+   D2, and it matches [OQ-NC7](../plans/notch-convergence.md#OQ-NC7) A, where host claude keeps its own
+   login. The codex precedent is C's shape instead: `yolo host -- codex` uses the broker through a
+   managed home while a direct host codex stays untouched
+   ([OQ-OA3](openai-auth-broker.md#8-decision-ledger)). A keeps that second half, and C would cost E,
+   the largest build here. [OQ-KC1](keychain-from-a-jail.md#OQ-KC1), the nearest unruled question,
+   also keeps a yolo-owned login apart from the host's own, but for a jail, not the host.
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+---
+
+## Appendix A: the probes
+
+Run 2026-10-01 in a jail, against pi 0.99.2 and the tree at `2f579bb9`, by the review of this doc.
+Every one is offline. P1 to P8 write only under a scratch directory, and W1 only under its
+`t.TempDir()`, its test file removed again afterwards, so none is in the tree.
+
+**E1, the installed versions and pi's agent-directory switches.** No `PI_` variable and no flag
+relocates `auth.json` alone; `ENV_AGENT_DIR` and `ENV_SESSION_DIR` are `PI_CODING_AGENT_DIR` and
+`PI_CODING_AGENT_SESSION_DIR` (`$PI/config.js:435-436`).
+
+```console
+$ PKG=~/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent; PI=$PKG/dist
+$ jq -r .version $PKG/package.json $PKG/node_modules/@earendil-works/pi-ai/package.json
+0.99.2
+0.99.2
+$ rg -o -N --no-filename 'process\.env\.PI_[A-Z_]+|process\.env\[ENV_[A-Z_]+\]' $PI -g '*.js' -g '!**/bundle/**' | sort -u
+process.env.PI_CLEAR_ON_SHRINK
+process.env.PI_CODING_AGENT
+process.env.PI_EXPERIMENTAL
+process.env.PI_HARDWARE_CURSOR
+process.env.PI_INSTALLER_API_BASE
+process.env.PI_MANAGED_INSTALL_ROOT
+process.env.PI_OFFLINE
+process.env.PI_PACKAGE_DIR
+process.env.PI_SHARE_VIEWER_URL
+process.env.PI_SKIP_VERSION_CHECK
+process.env.PI_STARTUP_BENCHMARK
+process.env.PI_TELEMETRY
+process.env.PI_TIMING
+process.env[ENV_AGENT_DIR]
+process.env[ENV_RADIUS_GATEWAY]
+process.env[ENV_SESSION_DIR]
+$ rg -o -N '"--[a-z-]+"' $PI/cli/args.js | sort -u | rg -i 'auth|agent-dir|config' || echo none
+none
+```
+
+**P1 to P8, pi's own model runtime.** The command, then the fake `yolo` and the script it runs:
+
+```console
+$ REPO=/path/to/yolo-jail    # this checkout
+$ mkdir -p /tmp/pi-review-probe/bin /tmp/pi-review-probe/home    # bin/yolo and probe.mjs below go here
+$ cd /tmp/pi-review-probe && env -i PATH=/tmp/pi-review-probe/bin:/usr/bin:/bin:"$(dirname "$(readlink -f "$(command -v node)")")" \
+    HOME=/tmp/pi-review-probe/home PI_CODING_AGENT_DIR=/tmp/pi-review-probe/home/.pi/agent \
+    PI_DIST=$HOME/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist \
+    YOLO_EXT=$REPO/packs/pi/extensions/yolo-openai-auth.js PROBE_ROOT=/tmp/pi-review-probe/cases \
+    node probe.mjs
+```
+
+<details>
+<summary><code>bin/yolo</code>, the stand-in for the credential client</summary>
+
+```sh
+#!/bin/sh
+# Fake yolo for the probe: answers `internal openai-auth-client <action>` and logs each call.
+echo "$*" >> "$PROBE_DIR/yolo-calls"
+case "$3" in
+  status) echo '{"logged_in":true,"login_required":false}' ;;
+  login) echo '{}' ;;
+  token) now=$(date +%s); echo "{\"access_token\":\"broker-tok-${PROBE_GEN:-1}\",\"expires_at\":$(( (now+3600)*1000 )),\"generation\":${PROBE_GEN:-1}}" ;;
+  *) echo "unexpected: $*" >&2; exit 2 ;;
+esac
+```
+
+</details>
+
+<details>
+<summary><code>probe.mjs</code></summary>
+
+```javascript
+// Offline probe of pi's model runtime. Scratch HOME and files, a fake `yolo` first on PATH,
+// and a fetch that records the URL and throws: no CLI, no model call, no login.
+import { mkdirSync, writeFileSync, readFileSync, existsSync, statSync, chmodSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
+const { PI_DIST: PI, YOLO_EXT: EXT, PROBE_ROOT: ROOT } = process.env;
+const { ModelRuntime } = await import(join(PI, "core/model-runtime.js"));
+const { refreshModelCatalogs } = await import(join(PI, "modes/interactive/model-catalog-refresh.js"));
+const { builtinProviders } = await import(join(PI, "../node_modules/@earendil-works/pi-ai/dist/providers/all.js"));
+
+const fetches = [];
+globalThis.fetch = async (url) => {
+	fetches.push(String(url));
+	throw new Error("probe: network disabled");
+};
+let n = 0;
+function scratch(auth, models = { providers: {} }) {
+	const dir = join(ROOT, `case${++n}`);
+	rmSync(dir, { recursive: true, force: true });
+	mkdirSync(dir, { recursive: true });
+	process.env.PROBE_DIR = dir; // the fake yolo logs its calls here
+	writeFileSync(join(dir, "auth.json"), JSON.stringify(auth, null, 2));
+	writeFileSync(join(dir, "models.json"), JSON.stringify(models, null, 2));
+	return dir;
+}
+const calls = (dir) => (existsSync(join(dir, "yolo-calls")) ? readFileSync(join(dir, "yolo-calls"), "utf8").trim().split("\n") : []);
+const stored = (dir) => JSON.parse(readFileSync(join(dir, "auth.json"), "utf8"));
+const mode = (dir) => (statSync(join(dir, "auth.json")).mode & 0o777).toString(8);
+const runtimeFor = (dir) => ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: join(dir, "models.json") });
+// The shipped extension's registration, applied as agent-session-services.js applies it.
+async function yoloExtension(rt, extra = {}) {
+	const regs = [];
+	await (await import(`${EXT}?n=${n}`)).default({ registerProvider: (id, c) => regs.push([id, c]), on: () => {} });
+	for (const [id, c] of regs) rt.registerProvider(id, { ...c, ...extra });
+	await rt.refresh({ allowNetwork: false });
+}
+const local = { local: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "local", models: [{ id: "qwen3.8-27b" }] } };
+const cerebras = (apiKey) => ({ cerebras: { baseUrl: "https://api.cerebras.ai/v1", api: "openai-completions", ...apiKey, models: [{ id: "probe-model" }] } });
+const out = (label, value) => console.log(`${label}: ${JSON.stringify(value)}`);
+const refreshAll = async (rt) => {
+	fetches.length = 0;
+	const r = await refreshModelCatalogs(rt, new AbortController().signal);
+	return [...r.errors].map(([id, e]) => `${id}: ${e.message}`);
+};
+
+{ // P1: no openai-codex entry.
+	const dir = scratch({}, { providers: local });
+	const rt = await runtimeFor(dir);
+	await yoloExtension(rt);
+	out("P1 openai-codex configured / status", [rt.hasConfiguredAuth("openai-codex"), rt.getProviderAuthStatus("openai-codex")]);
+	out("P1 local configured", rt.hasConfiguredAuth("local"));
+	out("P1 available", rt.getAvailableSnapshot().map((m) => `${m.provider}/${m.id}`));
+}
+{ // P2: a stored entry that expired long ago.
+	const dir = scratch({ "openai-codex": { type: "oauth", access: "a", refresh: "yolo-broker:1", expires: 1 } });
+	const rt = await runtimeFor(dir);
+	await yoloExtension(rt);
+	out("P2 configured / yolo calls", [rt.hasConfiguredAuth("openai-codex"), calls(dir).length]);
+}
+{ // P3: /login through the extension, another provider beside it, file mode 0644.
+	const dir = scratch({ zai: { type: "api_key", key: "zai-key" } });
+	chmodSync(join(dir, "auth.json"), 0o644);
+	const rt = await runtimeFor(dir);
+	await yoloExtension(rt);
+	const before = rt.hasConfiguredAuth("openai-codex");
+	process.env.PROBE_GEN = "1";
+	await rt.login("openai-codex", "oauth", { prompt: async () => "", notify: () => {}, signal: new AbortController().signal }, {});
+	out("P3 configured before / after", [before, rt.hasConfiguredAuth("openai-codex")]);
+	out("P3 isUsingSubscription / lock left", [rt.isUsingSubscription("openai-codex"), existsSync(join(dir, "auth.json.lock"))]);
+	out("P3 stored", { keys: Object.keys(stored(dir)), entry: Object.keys(stored(dir)["openai-codex"]).sort(), refresh: stored(dir)["openai-codex"].refresh, mode: mode(dir) });
+	out("P3 yolo calls", calls(dir));
+}
+{ // P4: an entry with 60 s left, refreshed at request time.
+	const dir = scratch({ "openai-codex": { type: "oauth", access: "old", refresh: "yolo-broker:1", expires: Date.now() + 60_000 } });
+	chmodSync(join(dir, "auth.json"), 0o644);
+	const rt = await runtimeFor(dir);
+	await yoloExtension(rt);
+	process.env.PROBE_GEN = "2";
+	const auth = await rt.getAuth("openai-codex");
+	out("P4 token / stored refresh / mode", [auth?.auth?.apiKey, stored(dir)["openai-codex"].refresh, mode(dir)]);
+	out("P4 yolo calls", calls(dir));
+}
+{ // P5: a row naming an unset variable, a built-in with no row (deepseek), a models.json-only provider.
+	const rt = await runtimeFor(scratch({}, { providers: { ...local, ...cerebras({ apiKey: "${CEREBRAS_API_KEY}" }) } }));
+	out("P5 errors / fetches", [await refreshAll(rt), fetches]);
+	process.env.CEREBRAS_API_KEY = "probe-key";
+	const rt2 = await runtimeFor(scratch({}, { providers: cerebras({ apiKey: "${CEREBRAS_API_KEY}" }) }));
+	out("P5 variable set: errors / fetches", [await refreshAll(rt2), fetches]);
+	delete process.env.CEREBRAS_API_KEY;
+}
+{ // P6: the same row with no apiKey.
+	const rt = await runtimeFor(scratch({}, { providers: cerebras({}) }));
+	out("P6 unset: errors / fetches / configured", [await refreshAll(rt), fetches.length, rt.hasConfiguredAuth("cerebras")]);
+	process.env.CEREBRAS_API_KEY = "probe-key";
+	const rt2 = await runtimeFor(scratch({}, { providers: cerebras({}) }));
+	out("P6 set: configured / key / row baseUrl", [rt2.hasConfiguredAuth("cerebras"), (await rt2.getAuth("cerebras"))?.auth?.apiKey, rt2.getModel("cerebras", "probe-model")?.baseUrl]);
+	delete process.env.CEREBRAS_API_KEY;
+}
+{ // P7 (D1): apiKey "!command" added to the extension's registration.
+	const dir = scratch({});
+	const counter = join(dir, "cmd-runs");
+	const runs = () => (existsSync(counter) ? readFileSync(counter, "utf8").trim().split("\n").length : 0);
+	const rt = await runtimeFor(dir);
+	await yoloExtension(rt, { apiKey: `!echo run >> ${counter}; echo cmd-key` });
+	out("P7 configured / status / runs", [rt.hasConfiguredAuth("openai-codex"), rt.getProviderAuthStatus("openai-codex"), runs()]);
+	out("P7 getAuth key / runs / isUsingOAuth", [(await rt.getAuth("openai-codex"))?.auth?.apiKey, runs(), rt.isUsingOAuth("openai-codex")]);
+}
+// P8 (D2): pi's built-in openai-codex provider plus an auth.apiKey whose check answers "oauth".
+async function d2(auth) {
+	const dir = scratch(auth);
+	const rt = await runtimeFor(dir);
+	const base = builtinProviders().find((p) => p.id === "openai-codex");
+	const count = { checks: 0, resolves: 0 };
+	rt.registerNativeProvider({
+		...base,
+		auth: {
+			...base.auth,
+			apiKey: {
+				name: "yolo shared login",
+				check: async () => (count.checks++, { type: "oauth", source: "yolo shared login" }),
+				resolve: async () => (count.resolves++, { auth: { apiKey: "broker-token" }, source: "yolo shared login" }),
+			},
+		},
+	});
+	await rt.refresh({ allowNetwork: false });
+	return { dir, rt, count };
+}
+{
+	const { dir, rt, count } = await d2({});
+	out("P8 configured / isUsingOAuth / isUsingSubscription", [rt.hasConfiguredAuth("openai-codex"), rt.isUsingOAuth("openai-codex"), rt.isUsingSubscription("openai-codex")]);
+	out("P8 resolves after the check", count.resolves);
+	out("P8 getAuth key / resolves / auth.json", [(await rt.getAuth("openai-codex"))?.auth?.apiKey, count.resolves, readFileSync(join(dir, "auth.json"), "utf8")]);
+	const own = { type: "oauth", access: "own-access", refresh: "own-refresh" };
+	const { rt: rt2 } = await d2({ "openai-codex": { ...own, expires: Date.now() + 3_600_000 } });
+	out("P8 own login: getAuth key", (await rt2.getAuth("openai-codex"))?.auth?.apiKey);
+	const { rt: rt3 } = await d2({ "openai-codex": { ...own, expires: Date.now() + 60_000 } });
+	fetches.length = 0;
+	const err = await rt3.getAuth("openai-codex").then(() => "none", (e) => e.message);
+	out("P8 own login near expiry: error / fetches", [err, fetches]);
+}
+```
+
+</details>
+
+Output:
+
+```text
+P1 openai-codex configured / status: [false,{"configured":false}]
+P1 local configured: true
+P1 available: ["local/qwen3.8-27b"]
+P2 configured / yolo calls: [true,0]
+P3 configured before / after: [false,true]
+P3 isUsingSubscription / lock left: [true,false]
+P3 stored: {"keys":["zai","openai-codex"],"entry":["access","expires","refresh","type"],"refresh":"yolo-broker:1","mode":"644"}
+P3 yolo calls: ["internal openai-auth-client status","internal openai-auth-client token"]
+P4 token / stored refresh / mode: ["broker-tok-2","yolo-broker:2","644"]
+P4 yolo calls: ["internal openai-auth-client token"]
+P5 errors / fetches: [["cerebras: Failed to resolve API key for provider \"cerebras\" from environment variable: CEREBRAS_API_KEY"],[]]
+P5 variable set: errors / fetches: [["cerebras: probe: network disabled"],["https://pi.dev/api/models/providers/cerebras?types=chat%2Cimage%2Cclassifier","https://pi.dev/api/models/providers/cerebras?types=chat%2Cimage%2Cclassifier","https://pi.dev/api/models/providers/cerebras?types=chat%2Cimage%2Cclassifier"]]
+P6 unset: errors / fetches / configured: [[],0,false]
+P6 set: configured / key / row baseUrl: [true,"probe-key","https://api.cerebras.ai/v1"]
+P7 configured / status / runs: [true,{"configured":true,"source":"models_json_command"},0]
+P7 getAuth key / runs / isUsingOAuth: ["cmd-key",1,false]
+P8 configured / isUsingOAuth / isUsingSubscription: [true,true,true]
+P8 resolves after the check: 0
+P8 getAuth key / resolves / auth.json: ["broker-token",1,"{}"]
+P8 own login: getAuth key: "own-access"
+P8 own login near expiry: error / fetches: ["OAuth refresh failed for openai-codex: OpenAI Codex token refresh error: probe: network disabled",["https://auth.openai.com/oauth/token"]]
+```
+
+**W1, `WritePiAuth` on a host-shaped home**, as a throwaway test in the package, from the worktree root:
+
+```console
+$ cp writepiauth_probe_test.go internal/openauthclient/zz_probe_test.go
+$ go test -mod=vendor -count=1 -run TestProbeWritePiAuthOnAHostShapedHome -v ./internal/openauthclient/
+$ rm internal/openauthclient/zz_probe_test.go
+```
+
+<details>
+<summary><code>writepiauth_probe_test.go</code></summary>
+
+```go
+package openauthclient
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// WritePiAuth on a host-shaped agent directory: 0755, a symlinked auth.json, an own login.
+func TestProbeWritePiAuthOnAHostShapedHome(t *testing.T) {
+	root := t.TempDir()
+	agent, target := filepath.Join(root, ".pi", "agent"), filepath.Join(root, "dotfiles", "pi-auth.json")
+	for _, d := range []string{agent, filepath.Dir(target)} {
+		if err := os.MkdirAll(d, 0o755); err != nil || os.Chmod(d, 0o755) != nil {
+			t.Fatal(err)
+		}
+	}
+	own := `{"zai":{"type":"api_key","key":"!pass show zai"},"openai-codex":{"type":"oauth","access":"own-access","refresh":"own-refresh","expires":4102444800000}}`
+	path := filepath.Join(agent, "auth.json")
+	if os.WriteFile(target, []byte(own), 0o644) != nil || os.Symlink(target, path) != nil {
+		t.Fatal("setup")
+	}
+	if err := WritePiAuth(path, json.RawMessage(`{"access_token":"broker","expires_at":4102444800000,"generation":3}`)); err != nil {
+		t.Fatal(err)
+	}
+	fi, _ := os.Lstat(path)
+	di, _ := os.Stat(agent)
+	after, _ := os.ReadFile(path)
+	left, _ := os.ReadFile(target)
+	t.Logf("symlink after: %v, file mode %o, dir mode %o", fi.Mode()&os.ModeSymlink != 0, fi.Mode().Perm(), di.Mode().Perm())
+	t.Logf("auth.json:\n%s", after)
+	t.Logf("dotfiles target:\n%s", left)
+}
+```
+
+</details>
+
+Output:
+
+```text
+=== RUN   TestProbeWritePiAuthOnAHostShapedHome
+    zz_probe_test.go:31: symlink after: false, file mode 600, dir mode 700
+    zz_probe_test.go:32: auth.json:
+        {
+          "openai-codex": {
+            "type": "oauth",
+            "access": "broker",
+            "refresh": "yolo-broker:3",
+            "expires": 4102444800000
+          },
+          "zai": {
+            "type": "api_key",
+            "key": "!pass show zai"
+          }
+        }
+    zz_probe_test.go:33: dotfiles target:
+        {"zai":{"type":"api_key","key":"!pass show zai"},"openai-codex":{"type":"oauth","access":"own-access","refresh":"own-refresh","expires":4102444800000}}
+--- PASS: TestProbeWritePiAuthOnAHostShapedHome (0.00s)
+PASS
+ok  	github.com/mschulkind-oss/yolo-jail/internal/openauthclient	0.004s
+```
+
+**O1, opencode's gate** ([§4](#4-the-opencode-parallel)), from the strings of the installed binary:
+
+```console
+$ OC=~/.npm-global/lib/node_modules/opencode-ai; jq -r .version $OC/package.json
+1.18.34
+$ strings -n 6 $OC/node_modules/opencode-linux-x64/bin/opencode > oc.txt
+$ rg -o 'if\(!\(yield\*Q\.get\(a\)\.pipe\(v\.orDie\)\)\)continue;if\(!n\.auth\.loader\)continue|if\(process\.env\.OPENCODE_AUTH_CONTENT\)try\{return JSON\.parse|we="https://auth\.openai\.com",rn=1455|ChatGPT Pro/Plus \(headless\)' oc.txt | sort | uniq -c
+      2 ChatGPT Pro/Plus (headless)
+      1 if(!(yield*Q.get(a).pipe(v.orDie)))continue;if(!n.auth.loader)continue
+      1 if(process.env.OPENCODE_AUTH_CONTENT)try{return JSON.parse
+      1 we="https://auth.openai.com",rn=1455
+```
