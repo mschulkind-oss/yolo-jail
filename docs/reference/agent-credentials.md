@@ -1,27 +1,35 @@
 ---
 status: current
 stage: CURRENT
-next: "Re-verify against the tree (system-doc), starting at the per-backend table's macos-user column: the stamp is d8bf06a0, and the launch-owned doorways and Claude's store bridge landed after it"
-verified: 2026-09-20
-verified_commit: d8bf06a0
+verified: 2026-10-01
+verified_commit: d4e435a3
 covers:
   - internal/cli/run/assemble.go
   - internal/cli/run/assemble_parts.go
   - internal/cli/run/hostfiles.go
   - internal/cli/run/packhostgrants.go
   - internal/cli/run/userenv.go
+  - internal/cli/run/agentenvfiles.go
+  - internal/cli/run/claudecredentialview.go
+  - internal/cli/run/claudesecurestorage.go
+  - internal/cli/run/macosctxtree.go
+  - internal/cli/claudeauth.go
   - internal/config/envsources.go
   - internal/config/hostfiles.go
-  - internal/entrypoint/claude.go
+  - internal/entrypoint/sharedlink.go
   - internal/entrypoint/identity.go
   - internal/broker/
+  - internal/claudeview/
   - internal/oauthbroker/
   - internal/oauthterminator/
   - internal/openaiauth/
   - internal/openaiauthdaemon/
   - internal/openauthclient/
   - internal/openaiauthadapter/
+  - internal/openaiauthhost/
   - internal/macosuser/seatbelt.go
+  - internal/macosuser/envfile.go
+  - internal/loopholes/guestrun.go
   - internal/awsauth/
   - internal/awsauthdaemon/
   - internal/awscredadapter/
@@ -35,18 +43,9 @@ tags: [credentials, security, boundary, env_sources, host_files, broker, oauth, 
 
 # Agent credentials — what crosses the jail boundary, and how
 
-**Status:** verified 2026-09-20 against `d8bf06a0`. The
-[gemini-paths paragraph](#agys-paths-under-gemini) alone was re-checked against `f937d0fd` on
-2026-09-27. The [SSO-backed Bedrock section](#sso-backed-bedrock-credentials-aws-auth) and the
-`aws-auth` rows in the tables below were written against `fe24347c` on 2026-09-29, when
-[`sso-backed-bedrock.md`](../design/sso-backed-bedrock.md) graduated into them; the launch
-warning in that section, and its rows, were added the same day with the change that built it
-([SSO-D1](../design/sso-backed-bedrock.md#SSO-D1)). Their `yolo host` sentences were rewritten
-when that notch started opening the adapter
-([HS-D21](../design/host-notch-services.md#HS-D21)). The OpenAI service's `macos-user` warning and
-its two `macos-user` cells in [the backend table](#per-backend-differences) were corrected on
-2026-09-30 against `4ac4b8fa`, for the launch-owned doorway (`fea3b6c7`). Nothing else in the doc
-was re-checked.
+**Status:** verified 2026-10-01 against `d4e435a3`, the whole doc. A runtime claim says whether
+anyone has watched it run: `MEASURED` where someone has, `UNMEASURED` where no one has, which
+covers most of the `macos-user` column and opencode on the OpenAI service.
 
 yolo-jail's credential story is **structural, not a policy one**: host credentials are
 *physically absent* from the jail, and the only credentials an agent can reach are ones a human
@@ -60,16 +59,19 @@ enumeration of those channels and of what each one does and does not carry.
 | Mount assembly — where omission is the boundary | `internal/cli/run` (`assemble.go`, `assemble_parts.go`) |
 | Per-agent host-file grants (`reads-host`) | `internal/cli/run` (`hostFileArgs`); `packload.Pack.HonoredHostFiles` |
 | User-declared host files (`host_files`) | `internal/config` (`LoadHostFiles`, `validateHostFiles`, `hostFileReservedDests`); `internal/cli/run` (`hostUserFileArgs`) |
-| The secret channel (`env_sources`) | `internal/config` (`ResolveEnvSources`, `ParseDotenv`); `internal/cli/run` (`userenv.go`) |
+| The secret channel (`env_sources`) | `internal/config` (`ResolveEnvSources`, `ParseDotenv`); `internal/cli/run` (`userenv.go`, `agentenvfiles.go`); `internal/macosuser` (`envfile.go`) |
 | Composed agent surfaces, and the boot-time compose | `internal/entrypoint` (`prism.go`), `internal/agentcfg` |
 | Git identity — the two-key allowlist | `internal/cli/run` (`composeGitconfig`), `internal/entrypoint` (`identity.go`) |
-| The Claude OAuth broker daemon and its flock | `internal/broker`, `internal/oauthbroker` (`RefreshLockPath`) |
-| The OpenAI credential service and agent views | `internal/openaiauth`, `internal/openaiauthdaemon`, `internal/openauthclient`, `internal/openaiauthadapter` |
+| The Claude OAuth broker daemon, its flock and its canonical login | `internal/broker`, `internal/oauthbroker` (`RefreshLockPath`, `ConfigureStore`) |
+| The opt-in Claude credential view | `internal/claudeview` (`SwitchEnv`), `internal/oauthbroker` (`views.go`), `internal/cli/run` (`claudecredentialview.go`) |
+| The OpenAI credential service and agent views | `internal/openaiauth`, `internal/openaiauthdaemon`, `internal/openauthclient`, `internal/openaiauthadapter`, `internal/openaiauthhost` |
 | The AWS credential service and its jail adapter | `internal/awsauth` (mint, cache, lock, narrowing), `internal/awsauthdaemon`, `internal/awscredadapter`; the pack is `packs/aws-auth` |
 | The pack-declared override rule the AWS pointer uses | `internal/packdecl` (`EnvOverride`), `internal/packload` (`EnvOverrideFindings`) |
 | The shared-credentials symlink | `internal/entrypoint` (`linkThroughShared`, applied through the `shared_credentials` hook) |
 | The jail-facing hop for a host daemon | `internal/svcendpoint` (`ServeFrontWithOptions`) |
 | The `macos-user` Seatbelt profile | `internal/macosuser` (`seatbelt.go`) |
+| Which jail daemons the `macos-user` guest runs | `internal/loopholes` (`JailDaemonsRunIn`) |
+| The `macos-user` copy of host files into `/ctx` | `internal/cli/run` (`macosctxtree.go`) |
 | The canonical boundary prose every jail is told | `internal/jailcontent` (`BriefingContent`) |
 
 **Reads with:** [`jail-home.md`](jail-home.md) (how the jail home is composed and where creds
@@ -143,8 +145,8 @@ enforced by the Seatbelt profile's read denies instead.
   channel cannot be used to overwrite `~/.claude/settings.json` and strip its managed block.
 
 - **Only Claude writes authentication back through an agent overlay into the global home.** The
-  OpenAI credential service shares Codex and Pi authentication through separate canonical state
-  and generated agent views; it never makes either workspace overlay authoritative.
+  OpenAI credential service shares Codex, Pi and opencode authentication through separate
+  canonical state and generated agent views; it never makes a workspace overlay authoritative.
 
 ## The delivery channels
 
@@ -155,10 +157,11 @@ Container backends only. It carries the composed git config and global gitignore
 host settings grant at `/ctx/host-<pack>/`, and user-declared host files at
 `/ctx/host-user/<slug>`.
 
-Apple Container cannot do a nested single-file `:ro` bind, so it **materializes** (copies) these
-into the workspace state dir instead, relying on the whole-directory bind over the jail home. The
-`:ro` guarantee is lost there — the copy is writable — but the file is regenerated every run
-regardless.
+Apple Container **materializes** (copies) these into the workspace state dir instead, relying on
+the whole-directory bind over the jail home. That is a choice, not a limit: `container` 1.1.0
+binds a single file and honors `:ro` (measured 2026-09-14), and the copy is kept because it needs
+no version gate (`acMaterialize` in `internal/cli/run` states the trade). The `:ro` guarantee is
+lost there — the copy is writable — but the file is regenerated every run regardless.
 
 ### Composed surfaces at boot
 
@@ -186,8 +189,17 @@ The *resolver* is shared across backends; delivery is not.
   is mounted (or materialized) into the jail and *sourced* by `.bashrc` and by the entrypoint. It
   is a file the jail sources, not a `-e` block on the container argv, so the values are
   re-derivable from that one file.
-- **`macos-user`** resolves host-side and bakes the pairs onto the sandbox launch argv via
-  `env -i K=V …`.
+- **`macos-user`** resolves host-side and writes the same values into one per-session file,
+  root-owned `0600` with a single `user:` ACL entry letting the sandbox account read it. The
+  sandboxed argv names the file and carries no value: `env -i` there passes only the identity
+  variables (`HOME`, `USER`, `SHELL`, `PATH` and the two that travel with `PATH`), and a plan
+  check refuses any other pair (`envfile.go` in `internal/macosuser`). Until 2026-09-13 the
+  values rode the argv.
+
+On every backend, a value a selected provider claims as its credential is held back from the
+shared delivery and goes to the env file of the agent whose profile selected that provider
+([the credential gate](providers.md#the-credential-gate)). On `macos-user` the launched agent's
+own values also ride its session file, since that backend runs one command per invocation.
 
 > [!WARNING]
 > **An empty resolve TRUNCATES the exported file; it must never be a no-op.** The file outlives
@@ -198,9 +210,10 @@ The *resolver* is shared across backends; delivery is not.
 
 > [!WARNING]
 > **Choosing `env_sources` as the secret channel is a decision, not a default.** Resolved values
-> land cleartext at `0644` in several agent config files and in a render sidecar, and on
-> `macos-user` they ride the process argv, visible in `ps`. That is the cost of the channel; a
-> reader weighing where to put a key should know it before picking this one.
+> are written cleartext into the files that deliver them, every one `0600`, and are exported into
+> the environment of every process that sources them — on the container backends, every shell in
+> the jail. Any process running as the jail's user can read them. That is the cost of the
+> channel; a reader weighing where to put a key should know it before picking this one.
 
 **The `${VAR}` placeholder convention** ties `env_sources` to MCP, and **yolo does not do the
 substituting.** An MCP server's `env` value written as `"${TAVILY_API_KEY}"` is passed through
@@ -235,13 +248,10 @@ the single source of truth and the entrypoint never re-reads config. `macos-user
 list, in two halves that come from different places: the source-less entries are read out of the
 merged config by the pure plan builder, and the source-bearing ones are resolved by the host CLI,
 which also **copies each file source** into a root-owned tree the sandbox reads and names it with
-`YOLO_CTX_ROOT`. There is still no bind mount anywhere on that backend; the bytes arrive by copy.
-
-> **⚠ Changed 2026-09-13.** Until then that backend carried **only** the source-less entries: with
-> no bind mounts there was no `/ctx/host-user` to carry a source into, so a source-bearing entry
-> was **skipped** rather than silently rendered without its host layer. One shape is still
-> skipped — a `source` naming a **directory**, which a copy does not scale to — and it is now
-> named in a warning instead of dropped in silence.
+`YOLO_CTX_ROOT`. There is still no bind mount anywhere on that backend; the bytes arrive by copy,
+and the same root-owned tree carries each pack's `reads-host` grant. One shape is skipped there —
+a `source` naming a **directory**, which a copy does not scale to — and the launch names it in a
+warning rather than dropping it in silence.
 
 ### The Claude OAuth broker
 
@@ -320,14 +330,36 @@ It bundles two jobs.
    flock.
 
 **Selecting the `claude` pack is the dependency.** The broker is a *contribution* of
-`packs/claude`, not a pack of its own, because the dependency is structural. It is the only
-shipped loophole manifest with `default_enabled: true`, which is what makes selecting the pack
-*sufficient*: the others are host access you ask for, and this one keeps a credential you already
-asked for from being burnt.
+`packs/claude`, not a pack of its own, because the dependency is structural. Its manifest ships
+`default_enabled: true`, which is what makes selecting the pack *sufficient*. One other shipped
+manifest does the same, `openai-auth-broker`, for the same reason: every other loophole is host
+access you ask for, and these two keep a credential you already asked for from being burnt.
 
-The broker operates on **one file only** — the shared credentials file under the global home — and
-never touches host Claude's own credentials. Host and in-jail Claude therefore keep **independent**
-OAuth identities, through separate `/login` flows, which Anthropic permits.
+The broker keeps **one canonical login** for the machine, `claude-credentials.json` in its own
+host-only state directory, which no launch mounts. It keeps two kinds of file in step with it,
+each written under the refresh lock: the **shared credentials file** under the global home, which
+an interception jail's Claude reads as its own store file, with the refresh token in it; and each
+registered workspace's **credential view** (below). On its first locked operation a broker with no
+canonical login yet adopts the shared file's login as the first one. The broker never writes host
+Claude's own credentials. It reads the host user's `~/.claude/.credentials.json` only to relay a
+file there that carries **no** refresh token, which is a nested jail's own view, and never relays
+a real login. Host and in-jail Claude therefore keep **independent** OAuth identities, through
+separate `/login` flows, which Anthropic permits.
+
+**The credential view is the opt-in replacement for the interception.** A view is a per-workspace
+`.credentials.json` the broker writes into the workspace's Claude directory: the current access
+token and its real expiry, and **no refresh token**. Claude refreshes only when its stored
+credential holds one, so a jail reading a view never contacts the token endpoint and the broker
+is the machine's one refresher. A launch selects it with `YOLO_CLAUDE_CREDENTIAL_VIEW=1` in the
+host environment; it is off by default on every backend (`claudeview.DefaultOn`). A view launch
+drops the terminator, the intercepted hostname and the shared-file link, and registers the
+workspace with the broker, which writes the view from the canonical login. A `/login` in that
+jail leaves a view carrying a refresh token, which the broker adopts as the machine's login; a
+`/logout` there signs out only that workspace, until its next launch. `yolo claude-auth logout`
+signs the whole machine out, and `yolo claude-auth status` describes the canonical login, the
+shared file and every view by fingerprint, never by token. UNMEASURED: no real Claude has run on
+a view yet; the measures it waits on, and the deletion of the interception after them, are
+[`claude-login-without-interception.md`](../design/claude-login-without-interception.md)'s.
 
 > [!WARNING]
 > **Do not reintroduce a host-side `command_on_path: claude` activation probe.** It stood in for
@@ -361,10 +393,13 @@ capability with a reason. Under an auth route where no OAuth token is ever refre
 not *exist* rather than being done differently — and this is the only off switch that does not
 require editing a `loopholes:` block.
 
-#### ⚠ The 90/300 threshold mismatch — a live defect
+<a id="-the-90300-threshold-mismatch--a-live-defect"></a>
 
-**The broker answers most refreshes with the token the caller already has, and Claude counts that
-as a failed refresh.** All four measurements below are against Claude Code 2.1.278 and the tree.
+#### The refresh floor sits above Claude's own due threshold
+
+**A refresh the broker answers with the caller's own token is, to Claude, a failed refresh**, so
+the floor below which the broker mints must sit above the point at which Claude asks. The
+measurements below are against Claude Code 2.1.278.
 
 Claude considers a token due for refresh at **300 seconds** of remaining life:
 
@@ -372,76 +407,69 @@ Claude considers a token due for refresh at **300 seconds** of remaining life:
 function eO(e,n=Date.now()){if(e===null)return!1;return n+300000>=e}
 ```
 
-yolo's broker refuses to act until **90 seconds** (`oauthbroker.go:162`):
-
-```go
-if expiresAtMS-nowMS() < 90_000 { return nil }   // else: serve the on-disk record
-```
-
-Between those two numbers is a 210-second window in which Claude asks for a refresh and
-`AsOAuthResponse(cached)` echoes the **same `access_token`** back with HTTP 200. Claude's
-401-recovery path reads that as exhaustion:
+and its 401-recovery path reads an unchanged access token as exhaustion:
 
 ```js
 if(Zt()?.accessToken===De){ if(bre()!==null||!$1(w)&&++_e>=Rmo) throw m("api_request","api_request_oauth_refresh_exhausted"), new Fd(w,g) } else _e=0
 ```
 
 `Rmo` is **2**. On a plain host this branch is unreachable, because a real refresh always mints a
-new access token — which is the whole of why a plain Claude never loses its login and a jail's
-does. Three aggravating facts:
+new access token. Until 2026-09-20 the broker's one floor was **90 seconds**, below Claude's 300,
+so for 210 seconds of every token's life Claude asked for a refresh and got its own token back
+with HTTP 200. Of 380 successful refresh replies in one jail's terminator log, **364 (96%)**
+carried 90–299 seconds of life, and that window was ending sessions.
 
-- **`force` is dropped.** `IsRefreshGrant` inspects only `grant_type`, and `DoRefresh(credsPath)`
-  has no force parameter, so Claude's force-refresh cannot compel an upstream call from inside a
-  jail.
-- **yolo already disagrees with itself.** `BackgroundRefreshLeadSeconds` is **300** — the same
-  number Claude uses. Only the on-demand cache floor dissents, and Claude always wins the race to
-  act on the threshold, because it checks before every API call while the refresher ticks at 60s.
-- **Measured in one jail's terminator log:** of 380 successful refresh replies, **364 (96%)**
-  carried 90–299 seconds of life — i.e. were the caller's own token handed back.
+The floor answered two questions, and now there are two constants. `LiveTokenFloorMS` answers the
+`cached` action's *is there a usable token*. `RefreshCacheFloorMS` answers the refresh path's
+*should I mint*, and is **derived** from `ConsumerRefreshDueMS`, Claude's threshold recorded as a
+fact about the client, so the inequality lives in the source rather than in two numbers that
+happen to differ ([current values](#current-values)). A test fails if the derived floor ever sits
+below the consumer's threshold, and a behavioural test asserts the two paths disagree inside the
+old window. Claude still checks before every API call while the background refresher ticks once a
+minute, so Claude is the one that acts first on its threshold; the floor is what makes that
+harmless.
 
-**FIXED 2026-09-20.** The floor was one constant answering two different questions, and the fix
-splits them: `LiveTokenFloorMS` (90s) still answers the `cached` action's *is there a usable
-token*, while `RefreshCacheFloorMS` — **derived** as `ConsumerRefreshDueMS + 60_000`, so the
-inequality is in the source rather than in two numbers that happen to differ — answers the refresh
-path's *should I mint*. `DoRefresh` reads the second. The derivation is pinned by a test that fails
-if the floor ever sits below the consumer's threshold again, and a behavioural test asserts the two
-paths disagree inside the old window.
-
-⚠ **`force` is still dropped**, and closing this did not close that. It is a separate and optional
-improvement: with the floor above Claude's threshold there is nothing for a force to override in
-normal operation, so it now only matters if the consumer's threshold moves and yolo's constant does
-not follow.
+> [!WARNING]
+> **`force` is dropped.** `IsRefreshGrant` inspects only `grant_type`, and the refresh path has
+> no force parameter, so Claude's force-refresh cannot compel an upstream call from inside a
+> jail. With the floor above Claude's threshold there is nothing for a force to override in normal
+> operation; it matters only if Claude's threshold moves and `ConsumerRefreshDueMS` does not
+> follow.
 
 #### What the broker does *not* buy
 
 Three beliefs about it were measured false, and each one had been load-bearing somewhere:
 
-- **It is not what stops a jail spending a stale token.** That is the terminator, independently:
-  `Refresh` sends `AskHostBroker(endpointPath, singleton("action","refresh"))` and nothing else,
-  so the refresh token Claude presents is discarded at the jail edge and never reaches upstream.
-  `DoRefresh` takes only a path.
+- **It is not what stops a jail spending a stale token.** That is the terminator, independently.
+  It hands the broker the refresh token Claude presented, and the broker uses it only as proof of
+  the caller: the token must be the shared file's current one, or one of the few the broker just
+  replaced, or the answer is `caller_unauthenticated`, which the terminator returns as HTTP 401
+  (`DoRefreshAsCaller`). The presented token is compared and never spent; the refresh is always
+  made from the canonical login under the flock. The check exists because the terminator's port
+  is a loopback port, which anything sharing that loopback can reach.
 - **It does not need to be a singleton.** See the flock note above — host-side is the requirement.
 - **It does not trigger the vendor's dead-token disk clear, and cannot surface a real one
   either.** The vendor classifies a dead token by the **top-level `error` string**, not the status
-  code (`jd(e.response.data).code==="invalid_grant"`). yolo's five broker codes — `creds_unreadable`,
-  `no_refresh_token`, `upstream_http`, `upstream_bad_response`, `upstream_unreachable` — are never
-  that string, so the catastrophic shared-file blanking path is closed. The mirror is the cost: a
-  **genuine** upstream `invalid_grant` is wrapped as `{"error":"upstream_http","body":"…"}`, so
-  Claude cannot see a truly dead token either and retries instead of prompting a clean re-login.
+  code (`jd(e.response.data).code==="invalid_grant"`). None of the refresh path's codes —
+  `creds_unreadable`, `caller_unauthenticated`, `no_refresh_token`, `upstream_http`,
+  `upstream_bad_response`, `upstream_unreachable` — is that string, so the catastrophic
+  shared-file blanking path is closed. The mirror is the cost: a **genuine** upstream
+  `invalid_grant` is wrapped as `{"error":"upstream_http","body":"…"}`, so Claude cannot see a
+  truly dead token either and retries instead of prompting a clean re-login.
 
 > [!WARNING]
 > **The broker discards `refresh_token_expires_in`, the one field that predicts a logout.**
-> Anthropic returns it and Claude 2.1.278 persists it as `refreshTokenExpiresAt`; it appears
-> **nowhere** in `internal/`, `packs/` or `docs/`. `NormalizeOAuth` drops it, so neither the
+> Anthropic returns it and Claude 2.1.278 persists it as `refreshTokenExpiresAt`; no production
+> code in `internal/` or `packs/` reads either. `NormalizeOAuth` drops it, so neither the
 > broker's log nor `describeCreds` can say how long the refresh token itself has left — which is
 > why a refresh-token expiry is undiagnosable after the fact rather than merely unpredicted.
 
 ### The OpenAI subscription credential service
 
-Codex and Pi use one machine-wide OpenAI subscription grant without sharing either agent's whole
-home. The `openai-auth` pack owns a host singleton named `openai-auth-broker`; both agent packs
-depend on that pack, so selecting either agent selects the same service rather than declaring two
-refresh owners.
+Codex, Pi and opencode use one machine-wide OpenAI subscription grant without sharing any agent's
+whole home. The `openai-auth` pack owns a host singleton named `openai-auth-broker`; each of those
+agent packs `needs` that pack, so selecting any of them selects the same service rather than
+declaring a second refresh owner.
 
 The canonical file contains the access, identity and refresh tokens, their expiry, the OpenAI
 account id, and a monotonically increasing generation. It lives under the loophole's host state
@@ -460,16 +488,28 @@ use the canonical path. It never searches other workspaces. If both a legacy and
 exist, or more than one bounded candidate exists, yolo refuses to choose and prints the paths;
 preserving both for a deliberate manual choice is safer than overwriting a refresh authority.
 
-The two agents receive different views:
+The agents receive different views:
 
 - Codex gets its native `auth.json` shape in the workspace home. Its native refresh URL points to
   a jail-local HTTP adapter, which forwards the presented `yolo-broker:<generation>` marker
-  through the authenticated host-service endpoint. Only the host service holds or may redeem the
-  canonical refresh token.
+  through the authenticated host-service endpoint. The marker also carries this launch's
+  **caller token**, a secret the launcher mints per launch, and the adapter refuses with HTTP 401
+  a refresh whose marker lacks it, before the service is asked anything: the adapter's port is a
+  loopback port, which anything sharing that loopback can reach. Only the host service holds or
+  may redeem the canonical refresh token.
 - Pi's `openai-codex` provider extension asks the service for an access token and expiry. Its
   workspace record carries the nonsecret marker `yolo-broker` where Pi's schema requires a
   refresh string. Pi never receives the canonical refresh token, so Pi's per-workspace file lock
   is no longer responsible for cross-workspace serialization.
+- opencode gets an `oauth` entry under `openai` in its own `auth.json`, the entry its built-in
+  ChatGPT support keys on, with the broker's marker as its refresh value. A yolo plugin
+  (`packs/opencode/plugins/yolo-openai-auth.js`) replaces opencode's request fetch for that
+  credential, so every token comes from the service and opencode never refreshes against OpenAI
+  itself. UNMEASURED: no opencode session has sent a request on the subscription.
+
+Pi's and opencode's views are written only when `openai-codex` is an entry of that agent's active
+provider set, keyed on the provider rather than on a profile's name, so a user's own profile over
+`openai-codex` gets the view too. Codex's pack declares its view unconditionally.
 
 The host service checks expiry proactively once per minute and refreshes within five minutes of
 expiry. A permanent upstream refusal preserves the last state for diagnosis, marks login as
@@ -513,11 +553,13 @@ token: the thing being imported is the refresh token, and the broker refreshes a
 is already due. Logout deletes the canonical state under the same lock and is idempotent.
 
 Managed host launches share the service too, on the same trigger a jail's launcher reads: the
-`YOLO_AUTH_PRELAUNCH_<BIN>_*` values the launched command's pack declares in its `env`, as the
-launch composes them ([notch convergence item 15](../plans/notch-convergence.md#tier-4--the-host-runs-the-jails-checks-p1-p4)).
-So `yolo host -p codex -- pi` gives Pi's provider extension the private host Unix socket, and a
-`yolo host -- pi` or `yolo host -p zai -- pi` does nothing of the kind, since pi's pack declares
-its view on the `codex` profile only. `yolo host -- codex` writes the native credential view under
+`YOLO_AUTH_PRELAUNCH_<BIN>_*` values the launched command's pack declares, in its `env`
+contribution or its env derive, as the launch composes them
+([notch convergence item 15](../plans/notch-convergence.md#tier-4--the-host-runs-the-jails-checks-p1-p4)).
+So `yolo host -p codex -- pi` gives Pi's provider extension the private host Unix socket, and
+`yolo host -p zai -- pi` does nothing of the kind, since pi's derive declares the prelaunch only
+when `openai-codex` is in pi's active provider set; `yolo host -p codex -- opencode` hands
+opencode's plugin the same socket on the same rule. `yolo host -- codex` writes the native credential view under
 `<global storage>/host-agents/<the declaring pack>` (`codex` for the shipped pack), sets
 `CODEX_HOME` to that directory, and starts a dynamic loopback refresh adapter. With no login, the
 browser login starts only at a terminal; off one the launch says a login is required and runs
@@ -542,16 +584,14 @@ in that home is stopped once, when no other launch of it is live
 > end**: it is allow-listed out of an otherwise total loophole skip, so the daemon starts and the
 > jail cannot reach it (measured on `container` 1.1.0). On `macos-user` the HOST half is not
 > special — that arm starts every loophole's host daemon through the ordinary spawn boundary — and
-> since 2026-09-29 (`fea3b6c7`) the JAIL half arrives by another route: the refresh adapter is a
-> `jail_daemon`, which this backend does not run, so the launch opens it outside the Seatbelt
-> sandbox as a listener it owns on the Mac's loopback, and `CODEX_REFRESH_TOKEN_URL_OVERRIDE`
-> names that port ([`host-notch-services.md` HS-D15](../design/host-notch-services.md#HS-D15)).
-> MEASURED on a hosted Mac on 2026-09-30 (`TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox`,
-> `macos-user.yml` run 36719581090), with no Codex run through it. Until that change this
-> warning said the adapter's port was bound by nothing. ⚠ It also said the service was "the **one** loophole the two macOS backends carry"
-> and that the `macos-user` arm "starts it by hand" until 2026-09-18; both described the arm as it
-> was before its lifecycle was generalised. Starting a service is still not the same as the jail
-> reaching it, and the agent pack dependency alone creates no second credential path. See
+> the JAIL half arrives by another route. That backend runs jail daemons in its Seatbelt guest,
+> but the refresh adapter declares a host argv (`jail_daemon.host_cmd`), so since 2026-09-29
+> (`fea3b6c7`) the launch opens it outside the sandbox instead, as a listener it owns on the Mac's
+> loopback, and `CODEX_REFRESH_TOKEN_URL_OVERRIDE` names that port
+> ([`host-notch-services.md` HS-D15](../design/host-notch-services.md#HS-D15)). MEASURED on a
+> hosted Mac on 2026-09-30 (`TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox`, `macos-user.yml`
+> run 36719581090), with no Codex run through it. Starting a service is still not the same as the
+> jail reaching it, and the agent pack dependency alone creates no second credential path. See
 > [the backend table](#per-backend-differences) for what each backend actually delivers.
 
 ### SSO-backed Bedrock credentials (`aws-auth`)
@@ -590,8 +630,10 @@ narrowing:
 - `unnarrowed: true` serves the profile's permission set as it is. It is the one setting that
   widens, and it is a bool so that no misspelling can grant.
 
-Then an agent selects the `bedrock` profile: `yolo -p bedrock -- claude`, or
-`-p <agent>=bedrock` for another agent. claude, codex, opencode and pi each `need`
+Then an agent selects a Bedrock provider, a provider whose `platform` is `aws-bedrock`: the
+shipped `bedrock` profile (`yolo -p bedrock -- claude`, or `-p <agent>=bedrock` for another
+agent), or a user's own profile over the same provider. The gate keys on the provider's
+platform, never on a profile's name. claude, codex, opencode and pi each `need`
 `packs/bedrock`, which `needs` `aws-auth`, so selecting any of them selects this pack, and
 selected but unconfigured it changes nothing. The worked config block is
 in [the pack README](../../packs/aws-auth/README.md#enabling-it).
@@ -611,8 +653,8 @@ The service **refuses to start**, naming the key to write, in six cases:
 #### What crosses into the jail
 
 - **The pointer and the caller token**, exported only in the env file of each agent whose
-  selected profile is `bedrock`, and in no other process's environment, a bare shell's included
-  ([`OQ-CN7`](../design/provider-credential-scope.md#OQ-CN7)). The **caller token** is a secret
+  selected provider is a Bedrock one, and in no other process's environment, a bare shell's
+  included ([`OQ-CN7`](../design/provider-credential-scope.md#OQ-CN7)). The **caller token** is a secret
   the launcher mints for each launch, and the adapter answers `401` to a request that does not
   carry it. It exists because the loopback is not always the jail's own: a jail on
   `network.mode: "host"` puts the adapter's port on the host's loopback, and a nested jail
@@ -630,8 +672,8 @@ Nothing else crosses: no access key, secret or session token in any file or vari
 access or refresh token, no `~/.aws`, and not the service's minted-credential cache, whose state
 directory crosses only an inert marker file.
 
-The adapter starts only on a launch where some agent's profile is `bedrock`, and the pointer
-crosses only where the adapter runs. A launch that does not run it leaves the pointer out and
+The adapter starts only on a launch where some agent's selected provider is a Bedrock one, and
+the pointer crosses only where the adapter runs. A launch that does not run it leaves the pointer out and
 says why: a jail whose launch has not enabled the loophole, and `yolo host env`, which runs no
 process. `yolo host -- <agent>` runs it for that one agent: with the loophole enabled and the
 agent on a Bedrock provider, the launch opens the adapter itself as a listener on the host's
@@ -698,8 +740,8 @@ all three, as two FAILs and a WARN.
 
 The rule counts only what reaches the jail:
 
-- The declaration is evaluated only while the pointer is delivered, which takes an agent on the
-  `bedrock` profile.
+- The declaration is evaluated only while the pointer is delivered, which takes an agent on a
+  Bedrock provider.
 - A variable counts when it is delivered into the jail, through `env_sources` or a pack. One
   exported only in the shell `yolo` was run from does not count, since no backend forwards that
   shell.
@@ -725,7 +767,7 @@ SSO cache on every mint. So a lapse runs like this:
 3. The human runs that login on the host. The next fetch succeeds, in the jail that is already
    running, with no relaunch.
 
-**The launch warns first, and proceeds.** A launch where some agent's profile is `bedrock` asks
+**The launch warns first, and proceeds.** A launch where some agent's provider is a Bedrock one asks
 the service, once it has started or found it, whether that agent's first fetch would be served.
 The question is the **launch check**, a term coined for this feature: one request a launch sends
 to a host daemon whose manifest declares `host_daemon.launch_check`, through the front the launch
@@ -757,8 +799,9 @@ through the front the jail's own launch published. It starts nothing, so a jail 
 not start the service is not asked. The check cannot see a session that ended after the cached
 credential was minted: that credential still works, and the lapse shows at the next mint, within
 its hour. `macos-user`
-asks the same way, before the sandboxed command runs. `yolo host` starts no aws-auth service
-and asks nothing ([`host-notch-services.md` HS-D20](../design/host-notch-services.md#HS-D20)).
+asks the same way, before the sandboxed command runs. `yolo host` ensures the service for a
+Bedrock agent's doorway ([`host-notch-services.md` HS-D21](../design/host-notch-services.md#HS-D21))
+but asks it nothing: no launch check runs at that notch.
 The decision is [`SSO-D1`](../design/sso-backed-bedrock.md#SSO-D1).
 
 The SSO config form sets how often a human acts, not how long a jail lasts. A profile in the
@@ -773,7 +816,8 @@ On podman, as described above. On `macos-user`, whose sandboxed agent shares the
 loopback, the launch opens the adapter outside the Seatbelt sandbox, as a listener it owns on a
 port it picks, which the pointer names
 ([`host-notch-services.md` HS-D15](../design/host-notch-services.md#HS-D15)). Apple Container
-starts no host service but the OpenAI one, so none of this runs there.
+starts no host service but the OpenAI one, and the Claude broker for a launch that opted into the
+credential view, so none of this runs there.
 [The backend table](#per-backend-differences) has the row.
 
 #### What has been watched running
@@ -818,7 +862,8 @@ Container backends compose a fresh minimal INI each run from the host's effectiv
 `user.name`/`user.email` (a repo-local value for the host working directory wins) and mount it —
 `:ro` on podman, materialized on Apple Container. `macos-user` has no mount namespace, so it
 forwards the same two keys as environment variables and replays them imperatively with
-`git config --global`. Full account: [`git-identity.md`](git-identity.md).
+`git config --global`, adding the workspace as a git `safe.directory` there too, since the sandbox
+account does not own it. Full account: [`git-identity.md`](git-identity.md).
 
 ### Host-service loopholes
 
@@ -838,7 +883,7 @@ are [`loophole-transport.md`](loophole-transport.md)'s.
 
 ## Where each agent's credentials live
 
-Most agents authenticate **inside the jail**. Codex and Pi can instead use yolo's OpenAI
+Most agents authenticate **inside the jail**. Codex, Pi and opencode can instead use yolo's OpenAI
 credential service, while several agents also accept a provider API key through
 `env_sources`. Each pack's manifest pins that agent's overlay dirs (its `state` contributions) and
 its config surfaces; `packs/*/pack.json` is the enumeration, and
@@ -855,14 +900,14 @@ Two asymmetries are the load-bearing part, and neither is visible from a per-age
   pack that declares no `state` dir rides the per-workspace `.config` overlay instead.
 - **Claude and OpenAI subscription authentication have different sharing paths.** Claude gets a separate read-write
   shared-credentials mount plus the relative symlink, so a single OAuth identity is shared across
-  every jail on a host. Codex and Pi receive generated views from canonical service state and
-  cannot write that state directly. Claude history stays isolated per host workspace even when
+  every jail on a host. Codex, Pi and opencode receive generated views from canonical service
+  state and cannot write that state directly. Claude history stays isolated per host workspace even when
   the home is shared, because the history file is keyed on a hash of the host directory.
 
 > [!WARNING]
 > **Do not generalize either sharing mechanism.** Claude shares one agent-native file. OpenAI
-> subscription authentication keeps one canonical service file and materializes narrower Codex
-> and Pi views. Other agent overlays are still seeded one-way per workspace.
+> subscription authentication keeps one canonical service file and materializes narrower Codex,
+> Pi and opencode views. Other agent overlays are still seeded one-way per workspace.
 
 <a id="agys-paths-under-gemini"></a>
 
@@ -886,30 +931,34 @@ are agy's.** Two different directories matter, and they are not the same one:
 
 ## Per-backend differences
 
-`macos-user`'s defining property for credentials is its **single shared home**: every session runs
-as one hidden Unix user, and there are **no mounts** — so every credential surface that is a mount
-on the container backends is either an imperative replay or "just the real home." The security
-consequence is that **all concurrent `macos-user` sessions share one credentials file per agent**;
-the shared home *is* the sharing mechanism, with no per-workspace and no per-session separation.
+`macos-user`'s defining property for credentials is its **single account home**: every session
+runs as one hidden Unix user, and there are **no mounts** — so every credential surface that is a
+mount on the container backends is a copy, an imperative replay, or "just the real home." Since
+2026-09-12 that home has a **workspace tier**: each agent state dir the podman argv would bind from
+`<workspace>/.yolo/home` is a symlink from the account home into that same directory, and a mirror
+there points each machine-scope shared dir back at the account home's real one, so the relative
+`shared_credentials` link resolves as it does on every backend. Everything the tier does not link
+is the machine tier, credentials included, so **all concurrent `macos-user` sessions share one
+credentials file per agent**, with no per-session separation.
 
 Its boundary is the Seatbelt profile: `(allow default)`, then deny reads under the users root
-(re-allowing only the sandbox home and the neutral workspace) and deny the system keychain
-directory. So other host users' homes and the login keychain are unreadable, while the network is
+(re-allowing only the sandbox home and the neutral workspace) and deny both system keychain
+directories. So other host users' homes and the login keychain are unreadable, while the network is
 fully open.
 
 | Credential mechanism | podman | container (Apple Container) | macos-user |
 | :--- | :--- | :--- | :--- |
-| Host cred propagation | none — not mounted | none — not mounted | none — Seatbelt read-denies the users root and the keychain dir |
-| git identity, global gitignore | composed file, `:ro` bind | composed file, **materialized** (no nested `:ro`) | forwarded as env, replayed with `git config --global` |
-| `env_sources` | file mounted, sourced | file **materialized**, sourced | baked onto the launch argv via `env -i` |
-| Per-agent host settings grant | `/ctx/host-<pack>/` `:ro` mount, then boot compose | materialized copy, then boot compose | boot compose, fail-open — no `/ctx`, same pure generators |
+| Host cred propagation | none — not mounted | none — not mounted | none — Seatbelt read-denies the users root and both system keychain directories |
+| git identity, global gitignore | composed file, `:ro` bind | composed file, **materialized** (a copy by choice, needing no version gate) | forwarded as env, replayed with `git config --global`; the global gitignore does not replay ([current values](#current-values)) |
+| `env_sources` | file mounted, sourced | file **materialized**, sourced | a per-session root-owned `0600` file the sandbox account may read, named on the argv; no value on the argv since 2026-09-13 |
+| Per-agent host settings grant | `/ctx/host-<pack>/` `:ro` mount, then boot compose | materialized copy, then boot compose | copied into the root-owned `/ctx` tree the launch stages (`YOLO_CTX_ROOT`, 2026-09-13), then boot compose; a copy that fails ends the launch |
 | User `host_files` | source-bearing: `/ctx/host-user/<slug>` `:ro`; source-less: composed | source-less composes; a **file** `source` is materialized (copied into the workspace home, since Apple Container cannot bind a single file there); a **directory** `source` binds `:ro` from Apple Container 1.1.0 and is skipped with a named reason below it or when the version is unreadable | source-less composes; a **file** `source` is copied into a root-owned `/ctx` tree (2026-09-13); a **directory** `source` is skipped and warned |
-| Claude shared credentials | shared bind + relative symlink | shared bind **nested inside** the whole-home bind, then the same relative symlink — one mount per declared shared dir (2026-08-24; before that the single bind put the creds in the per-workspace home) | free — one real credentials file in the shared home |
-| claude-oauth-broker | active when the `claude` pack is selected | **skipped whole** — no singleton is ensured on this backend, the host-service start admits only the OpenAI service, and the container args drop the loophole for its `intercepts` (which need `--add-host`) | **host half runs, jail half does not.** ⚠ This cell said "the arm returns before any broker ensure", which stopped being true when the arm's lifecycle was generalised: the singleton is ensured and a per-jail front publishes `claude-oauth-broker.endpoint` (measured, unit, 2026-09-18). Nothing uses it — the TLS terminator that would route a refresh through it is a `jail_daemon`, this backend runs none, and the interception would need an `--add-host` it cannot emit either. So refreshes are still not serialized, and the launch now declines the terminator by name |
-| OpenAI subscription credentials | canonical host-service state; Codex and Pi get workspace views | the **one** service this backend starts, endpoint file mounted — and measured unreachable from the guest, so the agent sees "OpenAI login is required" ([G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog)). The launch **names the cause** as of 2026-09-18: this was the one pack the inert report was withheld for, so the single service this backend starts was the single one it said nothing about. The endpoint variable and the mount are still emitted — the measurement is per BACKEND, so withholding one service's pointer would patch a per-service hole in a per-backend fact | host daemon started like every other, and a launch that cannot start it is the one that is **refused**; the endpoint path rides the sandbox env instead of a mount. Its refresh adapter does not run as a jail daemon: the launch opens it outside the sandbox as a listener it owns, and Codex's refresh URL names that port (2026-09-29, HS-D15; MEASURED on a hosted Mac 2026-09-30, with no Codex run). Until then a session worked only until its first token refresh |
-| AWS SSO credentials (`aws-auth`) | host singleton; adapter in the jail; pointer and caller token in the env file of the agent on `bedrock`. MEASURED, in daily use (2026-09-29) | not started: this backend starts no host service but the OpenAI one | host singleton; the adapter opens outside the Seatbelt sandbox as a listener the launch owns, on the Mac's loopback the agent shares, and the pointer names its port. UNMEASURED: its hardware test ran on a hosted Mac on 2026-09-30 and was refused at the region pre-flight before its probe, so nothing past the launch was observed. `yolo host`, which is no backend, does the same for the one agent it runs when that agent is on a Bedrock provider ([`host-notch-services.md` §4.8](../design/host-notch-services.md#48-yolo-host)), MEASURED by unit tests with a fake agent and a fake `aws` |
-| Host-service loopholes | endpoint file + `YOLO_SERVICE_*_ENDPOINT` | only the OpenAI credential service starts; its endpoint file crosses in the host-services dir bind, gated on the loophole being active and its pack cleared to run host code. Every other pack host daemon is skipped and each one is reported inert | **every host daemon starts**, through the same spawn boundary and the same exec disclosure the container path uses; each endpoint's path rides the sandbox env with a per-file ACL grant instead of a mount. ⚠ "the same one service and nothing else" is retracted (2026-09-18) — it described the arm before the generalisation. The inert report here is the PLATFORM axis only. The `jail_daemon` half runs for nothing and is declined by name, except a doorway, one whose `jail_daemon` declares `host_cmd`, which the launch opens outside the sandbox instead (HS-D15) |
-| Per-workspace cred isolation | per-workspace `.yolo/home` overlay | one whole-home bind per workspace, but the claude dir is shared across workspaces there | **one shared home for all sessions** |
+| Claude shared credentials | shared bind + relative symlink | shared bind **nested inside** the whole-home bind, then the same relative symlink — one mount per declared shared dir (2026-08-24; before that the single bind put the creds in the per-workspace home) | the account home's own `.claude-shared-credentials`, the machine tier, reached by the same relative symlink through the workspace tier's mirror |
+| claude-oauth-broker | active when the `claude` pack is selected | **skipped whole**: the host-service start admits only the OpenAI service, and the container args drop the loophole for its `intercepts` (which need `--add-host`). A launch that opts into the credential view also starts the singleton, which writes the view into the home the guest binds; no endpoint is published to the jail. UNMEASURED on this backend | **host half runs, jail half does not.** The singleton is ensured and a per-jail front publishes `claude-oauth-broker.endpoint` (measured, unit, 2026-09-18). Nothing uses it: the guest runs jail daemons, but it declines the TLS terminator because the interception needs an `--add-host` and a bind to port 443, and the sandbox has neither. So refreshes are not serialized here, and the launch names the declined terminator. The credential view can be opted into on this backend too; it is UNMEASURED there |
+| OpenAI subscription credentials | canonical host-service state; Codex, Pi and opencode get workspace views | the **one** service this backend starts for every launch, endpoint file mounted — and measured unreachable from the guest, so the agent sees "OpenAI login is required" ([G6](../plans/setup-support-gaps.md#2-ranked-gap-backlog)). The launch **names the cause** in its inert report. The endpoint variable and the mount are still emitted — the measurement is per BACKEND, so withholding one service's pointer would patch a per-service hole in a per-backend fact | host daemon started like every other, and a launch that cannot start it is the one that is **refused**; the endpoint path rides the sandbox env instead of a mount. Its refresh adapter is a doorway: it declares a host argv, so the launch opens it outside the sandbox as a listener it owns rather than in the guest, and Codex's refresh URL names that port (2026-09-29, HS-D15; MEASURED on a hosted Mac 2026-09-30, with no Codex run) |
+| AWS SSO credentials (`aws-auth`) | host singleton; adapter in the jail; pointer and caller token in the env file of the agent on a Bedrock provider. MEASURED, in daily use (2026-09-29) | not started: this backend starts no host service but the OpenAI one and, for an opted-in credential view, the Claude broker | host singleton; the adapter opens outside the Seatbelt sandbox as a listener the launch owns, on the Mac's loopback the agent shares, and the pointer names its port. UNMEASURED: its hardware test ran on a hosted Mac on 2026-09-30 and was refused at the region pre-flight before its probe, so nothing past the launch was observed. `yolo host`, which is no backend, does the same for the one agent it runs when that agent is on a Bedrock provider ([`host-notch-services.md` §4.8](../design/host-notch-services.md#48-yolo-host)), MEASURED by unit tests with a fake agent and a fake `aws` |
+| Host-service loopholes | endpoint file + `YOLO_SERVICE_*_ENDPOINT` | only the OpenAI credential service starts, and the Claude broker for an opted-in credential view; the OpenAI endpoint file crosses in the host-services dir bind, gated on the loophole being active and its pack cleared to run host code. Every other pack host daemon is skipped and each one is reported inert | **every host daemon starts**, through the same spawn boundary and the same exec disclosure the container path uses; each endpoint's path rides the sandbox env with a per-file ACL grant instead of a mount. The inert report here is the PLATFORM axis only. The `jail_daemon` half runs in the guest, as the sandbox account under the session's Seatbelt profile (`yolo-jaild supervise`, since 2026-09-28; MEASURED with a local pack on a hosted Mac, 2026-09-30). The guest declines four shapes by name: an intercepting daemon (the Claude terminator), a pack service's (its host half runs instead), a doorway declaring `host_cmd` (opened outside the sandbox, HS-D15), and one whose argv names a container-only path |
+| Per-workspace cred isolation | per-workspace `.yolo/home` overlay | one whole-home bind per workspace, with the machine-scope shared dirs (`.claude-shared-credentials` among them) bound inside it and shared across workspaces | a per-workspace tier: each agent state dir podman would bind is a symlink from the account home into `<workspace>/.yolo/home`; credentials stay in the one account home, shared by every session |
 | Isolation boundary | userns (Linux) / VM (macOS) + read-only root | VM + read-only root | Unix user + Seatbelt — weaker, deliberately |
 
 Linux versus macOS on the container backends is a runtime-flag story, not a credential story: the
@@ -959,7 +1008,8 @@ The sharper question than "what can a live session reach."
 - **Not a promise that a raw secret stays out of the agent's process.** A host-service loophole
   keeps the secret host-side; `env_sources` deliberately does the opposite. The channel chosen is
   the decision.
-- **Not per-session isolation on `macos-user`.** One home, all sessions, by construction.
+- **Not per-session isolation on `macos-user`.** One account home, whose machine tier holds the
+  credentials, for every session, by construction.
 
 ## Why it's this way
 
@@ -968,7 +1018,7 @@ Rulings a future change would otherwise undo, kept with their original IDs.
 | Ruling | Why it holds |
 | :--- | :--- |
 | **[OQ-A10](loophole-system.md#oq-a10)** — the broker is a *contribution* of `packs/claude`, not a pack of its own | The dependency is structural: there is no jail that wants the broker and not claude. Selecting the pack is the declaration, which is why the host-side activation probe could be deleted rather than replaced. |
-| **[OQ-A1](loophole-system.md#oq-a1)** — the broker stays on by default through `default_enabled: true` on its own manifest | Every other shipped loophole is host access you ask for; this one keeps a credential you already asked for from being burnt, so the two need opposite defaults. Off by default means silently reintroducing the race. |
+| **[OQ-A1](loophole-system.md#oq-a1)** — the broker stays on by default through `default_enabled: true` on its own manifest | A shipped loophole is host access you ask for, except where it keeps a credential you already asked for from being burnt, as this one and `openai-auth-broker` do, so the two kinds need opposite defaults. Off by default means silently reintroducing the race. |
 | **P1 (broker)** — concurrent consumers must be serialized by a host-wide flock | Anthropic mints single-use refresh tokens. This is a property of the upstream service, not of yolo's architecture, so no refactor retires it. |
 | **`env_sources` over the settings `env` block, as shipped** | The `env` block is the right long-term target — it is the one channel that renders at *both* the jail and host notches — but nothing shipped uses it for a secret today, and a doc that said otherwise was measured wrong against a live jail. State the mechanism that runs. |
 | **MCP `${VAR}` is passed through verbatim** | An interpolated secret entered the file without passing through any provenance layer, and sourced config content from process env at render time. Resolution one step later, by the consumer, loses nothing. |
@@ -995,32 +1045,35 @@ $ rg -n '"scope": "host"' packs/*/loopholes/*/manifest.jsonc
 | :--- | :--- | :--- |
 | Per-agent host grant mount | `/ctx/host-<pack>/<file>`, `:ro` | `internal/cli/run` (`hostFileArgs`) |
 | User host-file mount | `/ctx/host-user/<slug>`, `:ro` | `internal/cli/run/hostfiles.go` (`hostUserFileArgs`) |
-| Resolved `env_sources` file | `~/.config/yolo-user-env.sh`, `export K=${K:-'v'}` lines — the values no provider claims | `internal/cli/run/userenv.go` |
-| Per-agent env file | `~/.config/yolo-agent-env/<agent>.sh`, `0600`, a `:ro` bind on podman and written in place on Apple Container — the credentials and gated env the credential gate scopes to that agent, sourced by its launcher ([`providers.md`](providers.md#the-credential-gate)) | `internal/cli/run/agentenvfiles.go`, `internal/entrypoint/agentenv.go` |
-| Jail service dir | `/run/yolo-services/` | `internal/svcendpoint`, `internal/loopholes` |
+| Resolved `env_sources` file | `~/.config/yolo-user-env.sh`, `0600`: `export K=${K:-'v'}` lines for the values no provider claims, then the channel section's plain `export K='v'` lines. On `macos-user` a per-session root-owned `0600` file with one `user:` ACL entry for the sandbox account carries them instead | `internal/cli/run/userenv.go` (`userEnvFileMode`); `internal/macosuser/envfile.go` |
+| Per-agent env file | `~/.config/yolo-agent-env/<agent>.sh`, `0600` in a `0700` directory, a `:ro` bind on podman, written in place on Apple Container and in the workspace tier's `config/yolo-agent-env` on `macos-user` — the credentials and gated env the credential gate scopes to that agent, sourced by its launcher ([`providers.md`](providers.md#the-credential-gate)) | `internal/cli/run/agentenvfiles.go`, `internal/entrypoint/agentenv.go` |
+| Jail service dir | `/run/yolo-services/` | `internal/paths` (`JailHostServicesDir`) |
 | Endpoint file | `<name>.endpoint`, mode `0600`, named by `YOLO_SERVICE_<NAME>_ENDPOINT` | `internal/svcendpoint` |
-| Declared-service socket | `<name>.sock`, named by `YOLO_SERVICE_<NAME>_SOCKET` | `internal/loopholes` |
-| Broker refresh lock | `oauthbroker.RefreshLockPath` | `internal/oauthbroker/refresh.go` |
-| Broker refresh floor | **`ConsumerRefreshDueMS + 60_000`** = 360s — `DoRefresh` serves the on-disk token above this and mints below it. Derived, not written, so it cannot drift under the consumer's threshold ([why](#-the-90300-threshold-mismatch--a-live-defect)) | `internal/oauthbroker/oauthbroker.go` (`RefreshCacheFloorMS`, `cachedForRefresh`) |
+| Declared-service socket | `<name>.sock`, named by `YOLO_SERVICE_<NAME>_SOCKET`, for a service still on a unix socket | `internal/cli/run` (`hostServiceSocketEnvVar`) |
+| Broker refresh lock | `<broker state>/refresh.lock`, held around every refresh and every write of the canonical login, the shared file and the views | `internal/oauthbroker` (`RefreshLockPath`, set by `ConfigureStore`) |
+| Broker refresh floor | **`ConsumerRefreshDueMS + 60_000`** = 360s — `DoRefresh` serves the on-disk token above this and mints below it. Derived, not written, so it cannot drift under the consumer's threshold ([why](#the-refresh-floor-sits-above-claudes-own-due-threshold)) | `internal/oauthbroker/oauthbroker.go` (`RefreshCacheFloorMS`, `cachedForRefresh`) |
 | Broker liveness floor | **90s** — the `cached` action's floor, a different question and deliberately lower | `internal/oauthbroker/oauthbroker.go` (`LiveTokenFloorMS`, `CachedTokens`) |
 | Consumer due-threshold | **300s** — Claude Code's own `Date.now()+300000>=expiresAt`. A fact about the client, recorded so the floor above derives from it | `internal/oauthbroker/oauthbroker.go` (`ConsumerRefreshDueMS`); measured, 2.1.278 |
-| Background refresher | lead **1800s** (thirty minutes, since 2026-09-29; it was 300s, the value the threshold section above describes), refreshing with a cache floor equal to the lead; tick **60s**, fast retry **5s** × **12** ([CL-D5](../design/claude-login-without-interception.md#CL-D5), [CL-D18](../design/claude-login-without-interception.md#CL-D18)) | `internal/oauthbroker/oauthbroker.go` (`BackgroundRefresh*`), `internal/oauthbroker/refresh.go` (`doBackgroundRefresh`) |
+| Background refresher | lead **1800s** (thirty minutes since 2026-09-29; it was 300s), refreshing with a cache floor equal to the lead; tick **60s**, fast retry **5s** × **12** ([CL-D5](../design/claude-login-without-interception.md#CL-D5), [CL-D18](../design/claude-login-without-interception.md#CL-D18)) | `internal/oauthbroker/oauthbroker.go` (`BackgroundRefresh*`), `internal/oauthbroker/refresh.go` (`doBackgroundRefresh`) |
 | Vendor refresh lock | `<storage dir>/.oauth_refresh.lock`, the storage dir being `CLAUDE_SECURESTORAGE_CONFIG_DIR ?? CLAUDE_CONFIG_DIR ?? ~/.claude`; `realpath:false`, stale `60000`, update `5000`. **Machine-scoped** since [CL-D22](../design/claude-login-without-interception.md#CL-D22), on every jail launch but a credential-view launch, whose lock stays in the workspace's `~/.claude`; one lock across Apple Container VMs is unmeasured ([above](#the-claude-oauth-broker)) | Claude Code bundle (`acquireOAuthRefreshLock`), measured; `internal/cli/run/claudesecurestorage.go` |
-| Broker credentials file | the shared-credentials dir under the global home | `internal/storage` (`ensure.go`), `internal/entrypoint/claude.go` |
+| Broker canonical login | `<broker state>/claude-credentials.json`, host-only: no launch mounts it | `internal/oauthbroker/store.go` (`CanonicalPath`) |
+| Shared credentials file | `<global home>/.claude-shared-credentials/.credentials.json`, what an interception jail's Claude reads | `internal/storage` (`ensure.go`), `internal/oauthbroker` (`LegacyCredsPath`) |
+| Claude credential view | opted in by `YOLO_CLAUDE_CREDENTIAL_VIEW=1` in the host environment, off by default on every backend; the view is `<workspace>/.yolo/home/<claude dir>/.credentials.json`, one registration per workspace under `<broker state>/claude-views` | `internal/claudeview` (`SwitchEnv`, `DefaultOn`, `ViewRel`); `internal/oauthbroker/store.go` (`ViewRegistryDir`) |
+| Claude host verbs | `yolo claude-auth status`, `inspect <file>`, `refresh`, `logout`; `refresh` and `logout` refuse inside a jail | `internal/cli/claudeauth.go` |
 | Broker daemon | `yolo internal daemon claude-oauth-broker`, `scope: "host"` | `internal/broker`; `packs/claude/loopholes/claude-oauth-broker/manifest.jsonc` |
 | OpenAI canonical state | `<loophole state>/credentials.json`, mode `0600`; parent and lock are private | `internal/openaiauth`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
 | OpenAI credential daemon | `yolo internal daemon openai-auth-broker`, `scope: "host"` | `internal/openaiauthdaemon`; `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
 | OpenAI jail endpoint | `YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT` | `internal/openauthclient` |
 | AWS credential daemon | `yolo internal daemon aws-auth`, `scope: "host"` | `internal/awsauthdaemon`; `packs/aws-auth/loopholes/aws-auth/manifest.jsonc` |
 | AWS settings keys | `loopholes.aws-auth.settings.profile`, `.role_arn`, `.session_policy` (strings) and `.unnarrowed` (bool, default `false`), every one `scope: "user"`; the loophole ships `default_enabled: false` | `packs/aws-auth/loopholes/aws-auth/manifest.jsonc`; `internal/awsauth` (`settings.go`) |
-| AWS pointer | `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://{listen}/credentials` and `AWS_CONTAINER_AUTHORIZATION_TOKEN={caller_token}`, gated on the `bedrock` profile, `served_by: "aws-auth"` | `packs/aws-auth/pack.json` |
+| AWS pointer | `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://{listen}/credentials` and `AWS_CONTAINER_AUTHORIZATION_TOKEN={caller_token}`, gated on the agent's provider declaring `"platform": "aws-bedrock"`, `served_by: "aws-auth"` | `packs/aws-auth/pack.json` |
 | AWS mint timing | re-mint below **10 min** of remaining life (twice the SDK's five-minute window), a pre-mint tick at half that; `AssumeRole` asks **3600 s**, the role-chaining ceiling, as session name `yolo-jail` | `internal/awsauth` (`RemintLead`, `Broker.TickInterval`, `MintDuration`, `SessionName`) |
 | AWS lapse answer | a `4xx` with `Code: ExpiredToken` and a message naming `aws sso login --profile <profile>`; a profile missing from `~/.aws/config` answers `ProfileNotFound` instead | `internal/awsauth` (`loginRequired`, `mint.go`) |
 | AWS caller refusal | `401`, `Code: CallerUnauthenticated` | `internal/awscredadapter` (`handler.go`) |
 | AWS service log | `~/.local/share/yolo-jail/logs/host-service-aws-auth.log` on the host: the profile, the narrowing and the SSO form at start, then each failed mint the pre-mint ticker or a launch check ran | `internal/awsauthdaemon` (`reportStartup`, `mintTracker`) |
 | AWS launch check | declared as `host_daemon.launch_check: true`; asked by a launch that serves the adapter; answered from the cache, or from the mint a cold cache needs, within a **2 s** budget the daemon clamps to at most **5 s**, the launch reading **1 s** past it; a failure prints `loophole aws-auth: cannot mint a Bedrock credential for this launch: …` | `packs/aws-auth/loopholes/aws-auth/manifest.jsonc`; `internal/hostservice` (`LaunchCheckBudget`, `LaunchCheckBudgetCap`), `internal/awsauthdaemon` (`launchcheck.go`), `internal/cli/run` (`launchcheck.go`, `launchCheckMargin`) |
 | AWS canonical state | `<loophole state>/credentials.json`, mode `0600` in a `0700` directory | `internal/awsauth` (`state.go`) |
-| AWS jail endpoint | `YOLO_SERVICE_AWS_AUTH_ENDPOINT`, read by the in-jail adapter, which listens on `127.0.0.1:1461` (its `jail_daemon.listen`), or on a port the launch picked when the jail shares its launcher's network namespace. Emitted by any launch where the loophole is active and its pack may run host code, like every other `scope: "host"` loophole's — `hostServicesMountArgs` derives the set from the manifests rather than naming services one by one, which it did until 2026-09-20 (two names, and this one was the third, so the adapter answered `ServiceUnreachable` for every request while the launch reported a healthy jail). On `macos-user` the launch runs the adapter outside the sandbox instead, through `jail_daemon.host_cmd`, and `yolo host --` runs it the same way for an agent on a Bedrock provider, handing the adapter the endpoint of a front of its own in its input file (`internal/cli/run/hostdoorways.go`). ⚠ Not on Apple Container, which starts no host service but the OpenAI one | `internal/awscredadapter` (`EndpointEnv`); `internal/cli/run/assemble_parts.go` |
+| AWS jail endpoint | `YOLO_SERVICE_AWS_AUTH_ENDPOINT`, read by the in-jail adapter, which listens on `127.0.0.1:1461` (its `jail_daemon.listen`), or on a port the launch picked when the jail shares its launcher's network namespace. Emitted by any launch where the loophole is active and its pack may run host code, like every other `scope: "host"` loophole's — `hostServicesMountArgs` derives the set from the manifests rather than naming services one by one, which it did until 2026-09-20 (two names, and this one was the third, so the adapter answered `ServiceUnreachable` for every request while the launch reported a healthy jail). On `macos-user` the launch runs the adapter outside the sandbox instead, through `jail_daemon.host_cmd`, and `yolo host --` runs it the same way for an agent on a Bedrock provider, handing the adapter the endpoint of a front of its own in its input file (`internal/cli/run/hostdoorways.go`). ⚠ Not on Apple Container, which starts no aws-auth service | `internal/awscredadapter` (`EndpointEnv`); `internal/cli/run/assemble_parts.go` |
 | Codex refresh adapter | `http://{listen}/oauth/token`: `127.0.0.1:1460` on a jail with its own network namespace, a port the launch picked on one sharing its launcher's (`network.mode: "host"`, or nested) | `internal/openaiauthadapter`; the pointer in `packs/codex/pack.json`, the port as `jail_daemon.listen` in `packs/openai-auth/loopholes/openai-auth-broker/manifest.jsonc` |
 | Git identity keys carried | `user.name`, `user.email`, plus an in-jail `core.excludesFile` | `internal/cli/run` (`composeGitconfig`), `internal/entrypoint/identity.go` |
 | `macos-user` identity replay vars | `YOLO_GIT_NAME`, `YOLO_GIT_EMAIL` only — `YOLO_GLOBAL_GITIGNORE` is read by the entrypoint and **set by nothing**, so the global gitignore does not replay on this backend | `internal/macosuser` (`MacosSandboxEnv`), `internal/entrypoint/identity.go` |
