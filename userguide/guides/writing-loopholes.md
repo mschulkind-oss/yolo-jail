@@ -244,7 +244,9 @@ has the details.
 project being launched or inside the jail's home, because an agent in the jail could rewrite it
 before the next launch. Keep it in your pack, or somewhere like `~/.local/bin`.
 
-The program's output is logged at `~/.local/share/yolo-jail/logs/host-service-<name>.log`.
+The program's output is logged at `~/.local/share/yolo-jail/logs/host-service-<name>.log`. Once
+that log passes 4 MiB, the next launch keeps its newest 4 MiB in `host-service-<name>.log.1`,
+replacing the older copy there, and empties the log.
 
 ### A program in the jail
 

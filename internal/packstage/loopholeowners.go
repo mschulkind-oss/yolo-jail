@@ -57,6 +57,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 )
 
 // RetiredLoopholeStateDir is the subdirectory of the STATE ROOT that holds retired
@@ -218,8 +220,12 @@ func RetireLoopholeState(req RetireRequest) (generation string, moved []string, 
 	}
 	if req.LogDir != "" {
 		log := filepath.Join(req.LogDir, "host-service-"+req.Loophole+".log")
-		if exists(log) {
-			sources = append(sources, struct{ src, name string }{log, filepath.Base(log)})
+		// The log's one archived generation (internal/logcap) goes with it, for the same
+		// attribution reason.
+		for _, p := range []string{log, log + logcap.ArchiveSuffix} {
+			if exists(p) {
+				sources = append(sources, struct{ src, name string }{p, filepath.Base(p)})
+			}
 		}
 	}
 	if len(sources) == 0 {

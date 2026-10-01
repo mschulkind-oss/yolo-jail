@@ -48,6 +48,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
+	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -461,6 +462,13 @@ func EnsureSingleton(deps Deps) Ensured {
 	if BrokerIsAlive(deps) {
 		drift, judged := RunningSettingsDrift(deps)
 		if !judged || !drift.Stale() {
+			// THE REUSE BOUNDS THE LOG TOO. A daemon whose settings still match is never
+			// respawned, so its log is never reopened, and the spawn's own trim would leave
+			// a daemon that outlives weeks of launches writing to an unbounded file. Trimmed
+			// in place (logcap says why), so the live daemon keeps writing to its log.
+			if deps.LogPath != "" {
+				_ = logcap.Trim(deps.LogPath)
+			}
 			return done
 		}
 		reportSettingsRestart(deps, drift)
@@ -763,7 +771,8 @@ func RealPgrepStrays() []int {
 func realSpawn(argv []string, logPath string) (int, func() bool, error) {
 	_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
 	cmd := exec.Command(argv[0], argv[1:]...)
-	if lf, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+	// Bounded at open (internal/logcap): past the cap the log moves to one archived generation.
+	if lf, err := logcap.Open(logPath, 0o644); err == nil {
 		cmd.Stdout, cmd.Stderr = lf, lf
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

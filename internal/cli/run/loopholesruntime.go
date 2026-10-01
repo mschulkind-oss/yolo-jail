@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -1219,7 +1220,10 @@ func (o *Options) startExternalService(
 	logPath := filepath.Join(logDir, "host-service-"+name+".log")
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	serviceLog := ""
-	if lf, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+	// Bounded at open (internal/logcap): past the cap the log moves to one archived
+	// generation. Trimmed in place, because the same log is held open by this loophole's
+	// daemon in every other jail running it.
+	if lf, err := logcap.Open(logPath, 0o644); err == nil {
 		cmd.Stdout, cmd.Stderr = lf, lf
 		serviceLog = logPath
 	} else {

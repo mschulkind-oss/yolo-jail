@@ -57,7 +57,9 @@ A service you declare is on by default. `"enabled": false` switches it off witho
 4. When the jail exits, yolo stops your program.
 
 Your program's output is logged on the host at
-`~/.local/share/yolo-jail/logs/host-service-<name>.log`.
+`~/.local/share/yolo-jail/logs/host-service-<name>.log`. Once that log passes 4 MiB, the next
+launch keeps its newest 4 MiB in `host-service-<name>.log.1`, replacing the older copy there, and
+empties the log.
 
 ## A minimal service
 

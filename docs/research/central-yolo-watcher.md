@@ -22,7 +22,8 @@ daemons, now gets the kernel's parent-death signal
 ([JL-D60](../design/jail-lifetime-last-session-wins.md#JL-D60); `setChildDeathSignal` in
 `internal/cli/run/keeper_linux.go`, applied in `network.go` and `loopholesruntime.go`), so
 [§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune)'s "no `Pdeathsig` under `internal/`" is no
-longer true.
+longer true. And [§2.6](#26-done-by-nobody) item 3, the unbounded host-service and socat logs, was
+closed 2026-10-01 with no watcher, by the processes that open them.
 
 > **In short.** A central watcher would fix three different kinds of gap, and only one of them
 > needs a resident process. Crash leftovers want a lifeline on each launch's children, and work
@@ -223,9 +224,32 @@ designs chose, not of what the maintainer ruled.
 1. **Keeping a jail up until its last session leaves.** No process counts sessions. That is the
    sibling doc's whole subject ([§8](#8-where-this-touches-the-last-session-wins-sibling)).
 2. **Killing a SIGKILLed launcher's loophole daemons and socat** (INFERRED, [§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune)).
-3. **Rotating two kinds of host log.** The per-daemon `host-service-<name>.log` files are opened
-   `O_APPEND` with no bound (SOURCED: `internal/cli/run/loopholesruntime.go:1071-1073`), and so is
-   each `<cname>-socat.log` (SOURCED: `network.go:35`). MEASURED in `/ctx/host-yolo-logs` on
+3. **Rotating two kinds of host log.** ✅ **Done 2026-10-01, by the process that opens each log,
+   with no watcher**, as [§5.5](#55-logs-and-registrations) said it could be. Each open now goes
+   through `internal/logcap`, which bounds the log the way `crossings.log` is bounded: past 4 MiB
+   its newest 4 MiB, from a whole line, replace the one archived generation, `<log>.1`, and the log
+   is emptied (SOURCED: `internal/logcap/logcap.go:55-58`, `Trim` at `:76-104`). The opens are the
+   per-jail daemon's (`internal/cli/run/loopholesruntime.go:1215`), each socat's
+   (`internal/cli/run/network.go:55`) and a host-wide daemon's spawn
+   (`internal/broker/brokerlifecycle.go:775`). That third site was missing from this item: the two
+   large logs measured below are host-wide daemons' (`scope: "host"` in
+   `packs/claude/loopholes/claude-oauth-broker/manifest.jsonc:117` and
+   `packs/aws-auth/loopholes/aws-auth/manifest.jsonc:146`), which `broker.EnsureSingleton` spawns,
+   not the run pipeline. A launch that reuses a live host-wide daemon trims its log too
+   (`brokerlifecycle.go:470`), because nothing reopens it. It is **copy and truncate, not
+   crossings.log's rename**, because the writer is a child holding its own descriptor, and a
+   per-jail daemon's log is keyed on the loophole's name, so every jail running it holds the same
+   file: a rename would leave each writing into the archive. So a log holds at most 4 MiB plus what
+   its writers wrote since the last launch that opened or reused it, and nothing trims it while no
+   yolo command runs. A line written between the copy and the truncate is lost (UNMEASURED: how
+   often a daemon writes inside that window). Retiring a loophole moves its `.1` with its log
+   (`internal/packstage/loopholeowners.go`, `RetireLoopholeState`). Pinned by
+   `TestAPortForwardLaunchCapsTheSocatLog` and `TestAHostDaemonLaunchCapsItsServiceLog`
+   (`internal/cli/run/logcap_test.go`), `TestEnsureCapsTheLogOfALiveDaemonItReuses` and
+   `TestRealSpawnCapsTheDaemonLog` (`internal/broker/logcap_test.go`). The rest of this item is
+   the inventory as it was. The `host-service-<name>.log` files were opened `O_APPEND` with no
+   bound (SOURCED at `51620f7e`: `internal/cli/run/loopholesruntime.go:1071-1073`), and so was
+   each `<cname>-socat.log` (SOURCED at `51620f7e`: `network.go:35`). MEASURED in `/ctx/host-yolo-logs` on
    2026-09-29: `host-service-claude-oauth-broker.log` is 1.4 MB and `host-service-aws-auth.log`
    356 KB. Eleven `broker-relay-*.log` files from July and August remain from a relay that no
    longer exists. Five zero-byte test-daemon logs (`eofd`, `fake-svc`, `fronted`, `outside`,
@@ -353,8 +377,8 @@ same outcome. Where the cheaper shape reaches it, the watcher is not the reason 
 
 ### 5.5 Logs and registrations
 
-- **Gap.** Host logs grow without bound, and view registrations never expire
-  ([§2.6](#26-done-by-nobody) items 3 and 4).
+- **Gap.** View registrations never expire ([§2.6](#26-done-by-nobody) item 4). Host logs grew
+  without bound until 2026-10-01, when the cheaper route below was built for them (item 3).
 - **Cheaper.** Rotation in the process that writes the log needs neither a watcher nor a tick.
   The host side already has the pattern to copy: `crossaudit` rotates `crossings.log` at write
   time to one archived generation at 4 MiB, and the launch log is trimmed at open. The in-jail

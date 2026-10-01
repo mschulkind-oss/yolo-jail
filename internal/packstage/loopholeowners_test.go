@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 )
 
 // A missing record is EMPTY, not an error: the first launch on a machine has nothing
@@ -161,6 +163,41 @@ func TestRetireLoopholeStateArchivesRatherThanDeleting(t *testing.T) {
 	// archive sweep walks a different tree, and a user who lost a CA looks here.
 	if !strings.HasPrefix(gen, filepath.Join(stateRoot, RetiredLoopholeStateDir)) {
 		t.Errorf("generation %q is not under the state root's retired dir", gen)
+	}
+}
+
+// The log's ONE archived generation (internal/logcap's `.1`, beside a log that grew past its
+// cap) goes with the log, for the log's own reason: left behind, it is a file named for a
+// loophole nothing on the machine can explain.
+func TestRetireLoopholeStateTakesTheLogsArchivedGenerationToo(t *testing.T) {
+	root := t.TempDir()
+	logDir := filepath.Join(root, "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(logDir, "host-service-acme-proxy.log")
+	for path, body := range map[string]string{logPath: "newest\n", logPath + logcap.ArchiveSuffix: "older\n"} {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	gen, moved, err := RetireLoopholeState(RetireRequest{
+		Loophole: "acme-proxy", Pack: "acme", StateRoot: filepath.Join(root, "state"),
+		LogDir: logDir, Stamp: ArchiveStamp(time.Unix(1700000000, 0).UTC()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 2 {
+		t.Errorf("moved = %v, want the log and its archived generation", moved)
+	}
+	if _, err := os.Lstat(logPath + logcap.ArchiveSuffix); !os.IsNotExist(err) {
+		t.Error("the log's archived generation survived retirement")
+	}
+	data, err := os.ReadFile(filepath.Join(gen, "host-service-acme-proxy.log"+logcap.ArchiveSuffix))
+	if err != nil || string(data) != "older\n" {
+		t.Errorf("the archived generation is not in the retirement archive: %q, %v", data, err)
 	}
 }
 

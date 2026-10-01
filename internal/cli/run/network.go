@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -51,7 +52,9 @@ func (o *Options) startPortForwards(parsed []PortForward, cname string, socketDi
 	logDir := filepath.Join(paths.GlobalStorage(), "logs")
 	_ = os.MkdirAll(logDir, 0o755)
 	logPath := socatLogPath(cname)
-	logFile, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	// Bounded at open (internal/logcap): one archived generation past the cap, as
+	// crossings.log has, rather than a log every launch of this jail appends to forever.
+	logFile, _ := logcap.Open(logPath, 0o644)
 
 	var procs []*forwardProc
 	var expected []string
