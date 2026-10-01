@@ -103,14 +103,10 @@ type nixDryRunPlan struct {
 	ignored string
 }
 
-var (
-	nixPlanBuildHeader = regexp.MustCompile(`^(?:these \d+ derivations|this derivation) will be built:`)
-	nixPlanFetchHeader = regexp.MustCompile(`^(?:these \d+ paths|this path) will be fetched`)
-)
-
 // parseNixDryRun reads nix's plan out of its stderr: the store paths listed under each of the two
-// headers. ok is false when neither header appears and nix failed, which is a dry run that
-// planned nothing rather than one with nothing to do.
+// headers, which are nixWillBuildRe's and nixWillFetchRe's (macarchivedelivery_test.go, the
+// package's one spelling of nix's plan summary). ok is false when neither header appears and nix
+// failed, which is a dry run that planned nothing rather than one with nothing to do.
 func parseNixDryRun(stderr string, failed bool) (*nixDryRunPlan, bool) {
 	plan := &nixDryRunPlan{}
 	var into *[]string
@@ -120,9 +116,9 @@ func parseNixDryRun(stderr string, failed bool) (*nixDryRunPlan, bool) {
 		switch {
 		case strings.Contains(trimmed, "ignoring untrusted substituter"):
 			plan.ignored, into = trimmed, nil
-		case nixPlanBuildHeader.MatchString(trimmed):
+		case nixWillBuildRe.MatchString(trimmed):
 			into, seen = &plan.build, true
-		case nixPlanFetchHeader.MatchString(trimmed):
+		case nixWillFetchRe.MatchString(trimmed):
 			into, seen = &plan.fetch, true
 		case into != nil && strings.HasPrefix(trimmed, "/nix/store/"):
 			*into = append(*into, trimmed)
