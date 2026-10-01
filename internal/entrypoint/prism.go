@@ -31,6 +31,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
@@ -1426,16 +1427,34 @@ const dropRemedyUserConfig = "~/.config/yolo-jail/config.jsonc"
 // Unlike the host's, it offers no `config-overlay` alternative, because in a jail one does
 // not keep the entry: an rmw render asserts overlays FIRST and the regeneration below then
 // clears the table (applyRMWLayers), so the overlay's entry is the one this notice reports.
+//
+// A SERVER CAPABILITY-DRIVEN DELIVERY WITHHELD IS NOT "NOT IN CONFIG", and gets a line of its
+// own (noteWithheldMCPEntries). It is declared under `mcp_servers`, and the derive never saw it
+// because the agent's active source does the job its `provides` names (luahook's
+// eligibleMCPServers), so the declare-it remedy below changes nothing for it: MEASURED
+// 2026-10-01, a launch on kilo wrote the server and the next one on claude's own login told the
+// reader to declare what was declared (docs/reference/mcp-configuration.md). Which names the
+// boundary withheld is recorded per surface by the render step that ran the derive
+// (Env.recordMCPWithheld). Matched by NAME in whichever table lost the entry, because core
+// cannot say which table a derive builds from its MCP servers; a derive that renames its
+// servers leaves its withheld ones under the remedy below, as before.
 func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, dest *jsonx.OrderedMap, table map[string]any) {
 	if e.Stderr == nil {
 		return
 	}
-	var dropped []string
+	withheld := e.mcpWithheld[surface.Key()]
+	var dropped, held []string
 	for _, name := range dest.Keys() {
-		if _, kept := table[name]; !kept {
+		if _, kept := table[name]; kept {
+			continue
+		}
+		if _, isHeld := withheld.servers[name]; isHeld {
+			held = append(held, name)
+		} else {
 			dropped = append(dropped, name)
 		}
 	}
+	noteWithheldMCPEntries(e, surface, key, held, withheld)
 	if len(dropped) == 0 {
 		return
 	}
@@ -1456,6 +1475,60 @@ func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, des
 		"%s on the host, or in this workspace's %s (%s), reaching every agent\n",
 		surface.Agent, surface.Name, key, strings.Join(dropped, ", "), key,
 		dropRemedyUserConfig, config.WorkspaceConfigName, manifest.EntryKindHomes())
+}
+
+// mcpWithholding is what capability-driven MCP delivery withheld from one surface's derive:
+// each server, mapped to the capability its `provides` names, and the active source that
+// performs that capability, as the notice names it.
+type mcpWithholding struct {
+	source  string
+	servers map[string]string
+}
+
+// recordMCPWithheld records what the ctx boundary withheld from the derive that ran over ctx
+// (luahook.WithheldMCPServers), for the drop notice of the same surface's rmw write. A surface
+// that withheld nothing has its record cleared, so a stale one can never speak for this render.
+func (e *Env) recordMCPWithheld(surface manifest.Surface, ctx *luahook.DeriveCtx) {
+	withheld := luahook.WithheldMCPServers(ctx)
+	if len(withheld) == 0 {
+		delete(e.mcpWithheld, surface.Key())
+		return
+	}
+	// The source the rule read (luahook's sourceCapabilities): the selected provider's row when a
+	// profile selects one, the agent's built-in login otherwise.
+	source := surface.Agent + "'s own login"
+	if ctx.SelectedProvider != "" {
+		source = fmt.Sprintf("provider %q", ctx.SelectedProvider)
+	}
+	if e.mcpWithheld == nil {
+		e.mcpWithheld = map[manifest.SurfaceKey]mcpWithholding{}
+	}
+	e.mcpWithheld[surface.Key()] = mcpWithholding{source: source, servers: withheld}
+}
+
+// noteWithheldMCPEntries is the drop notice's line for the entries of table key that left the
+// file because capability-driven delivery withheld them (names, from w). Quiet when there are
+// none. It names where each is declared, the capability and the source that performs it, and
+// the one change that delivers it here — removing its `provides` — rather than the declare-it
+// remedy, which for a declared server changes nothing.
+func noteWithheldMCPEntries(e *Env, surface manifest.Surface, key string, names []string, w mcpWithholding) {
+	if len(names) == 0 {
+		return
+	}
+	sort.Strings(names)
+	items := make([]string, len(names))
+	for i, name := range names {
+		items[i] = fmt.Sprintf("%s (provides %s)", name, w.servers[name])
+	}
+	it, stays, its := "it", "it stays", "its"
+	if len(names) > 1 {
+		it, stays, its = "them", "each stays", "their"
+	}
+	fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (in config, withheld by capability): %s "+
+		"— %s does that job itself, so yolo does not deliver %s to this agent; %s declared "+
+		"under `%s`, and to deliver %s anyway, remove %s `provides`\n",
+		surface.Agent, surface.Name, key, strings.Join(items, ", "), w.source, it, stays,
+		manifest.SourceMCPServers, it, its)
 }
 
 // sortedKeys returns layer's keys in a deterministic order, so a re-render writes

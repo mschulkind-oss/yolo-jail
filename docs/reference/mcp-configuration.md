@@ -1,7 +1,7 @@
 ---
 status: current
 stage: CURRENT
-next: "Make the boot's drop notice (noteDroppedManagedEntries, internal/entrypoint/prism.go) tell a server the derive boundary dropped by capability from one not in config: today it names mcp_servers as the remedy for both, measured 2026-10-01"
+next: "Make the boot's drop notice (noteDroppedManagedEntries, internal/entrypoint/prism.go) tell a server the requires_env gate removed from one not in config, as it tells a capability-withheld one since 2026-10-01: a copy a previous render left in the file is still called not in config"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -35,7 +35,8 @@ The [derive-boundary section](#what-the-derive-boundary-removes) was re-checked 
 MEASURED on 2026-10-01 in a nested jail at `d4e435a3`: claude's rendered `mcpServers` drops a
 `provides: "web_search"` server under its own login and keeps it under `-p claude=kilo`
 ([the recording](#a-launch-with-a-provides-server-recorded-2026-10-01)). The same launches found
-the boot's drop notice naming the wrong remedy for that drop.
+the boot's drop notice naming the wrong remedy for that drop, fixed the same day: a withheld
+server now gets a line of its own (unit-pinned through the boot loop; not re-run in a nested jail).
 
 MCP config is **pack-declarative**. Core builds **one** canonical server table in-jail from
 the user's config — presets expanded, custom entries merged, `requires_env` gates applied —
@@ -255,18 +256,37 @@ and with `provides` stripped. Without a value for `KILO_API_KEY` the kilo launch
 the jail started, and a value in the launching shell alone was refused too, as relayed to no
 agent; the placeholder reached no model.
 
-⚠ **The boot's drop notice names the wrong remedy for this drop.** The native launch that ran
-after the kilo launch, in the same workspace, printed:
+The native launch that ran after the kilo launch, in the same workspace, printed the boot's drop
+notice for that entry, and named the wrong remedy for it:
 
 ```text
 claude/config: dropping from mcpServers (not in config): probe-search — add under `mcp_servers` to keep it, reaching every agent
 ```
 
 `probe-search` is under `mcp_servers`. It was dropped by the derive boundary, and following the
-notice changes nothing. The first native launch in the workspace printed no such line, so the
-notice reads the entry the previous render left in `~/.claude.json`. Not fixed here: the notice
-is `noteDroppedManagedEntries` (`internal/entrypoint/prism.go`), which the roadmap's item on that
-notice's remedies owns.
+notice changed nothing. The first native launch in the workspace printed no such line, so the
+notice reads the entry the previous render left in `~/.claude.json`.
+
+**Fixed 2026-10-01: a withheld server gets a line of its own.** The render step that runs a
+surface's derive records what the boundary withheld from the ctx it handed that derive
+(`luahook.WithheldMCPServers`, the filter's own rule, read by `Env.recordMCPWithheld`), and the
+drop notice (`noteDroppedManagedEntries`, `internal/entrypoint/prism.go`) splits the entries
+leaving the table into the ones withheld and the rest. Only the rest keep the declare-it remedy.
+The same sequence now prints:
+
+```text
+claude/config: dropping from mcpServers (in config, withheld by capability): probe-search (provides web_search) — claude's own login does that job itself, so yolo does not deliver it to this agent; it stays declared under `mcp_servers`, and to deliver it anyway, remove its `provides`
+```
+
+A selected provider is named as the source instead (`provider "zai" does that job itself`). The
+match is by name, in whichever table lost the entry, because core cannot say which table a derive
+builds from its MCP servers, so a derive that renamed its servers would leave a withheld one under
+the declare-it remedy. No shipped derive renames them. ⚠ A server the `requires_env` gate removed
+is not covered: the loader drops it before the derive's table is built, so the boundary records
+nothing for it, and a copy a previous render left in the file is still called "not in config",
+beside the gate's own `skipped — required env not set` line. Pinned through the boot loop by
+`capabilitydropnotice_test.go` (`internal/entrypoint`), and the rule's partition by
+`TestWithheldMCPServersIsWhatTheDeriveWasNotHanded` (`internal/agentcfg/luahook`).
 
 ### The projection, and how tools differ
 

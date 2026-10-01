@@ -122,6 +122,12 @@ type Env struct {
 	// this render, so `yolo check`'s read-back (EmbeddedPackSurfaces) asks the loop what it
 	// did instead of deciding the condition a second way. Sequential, like warnedOnce.
 	listSkipped map[manifest.SurfaceKey]bool
+	// mcpWithheld records, per surface, the MCP servers capability-driven delivery took out
+	// of the table that surface's derive was handed (luahook.WithheldMCPServers), so the drop
+	// notice (noteDroppedManagedEntries) can tell a server that IS declared from an entry no
+	// config declares. Written by the render step that runs the derive, read by the rmw write
+	// below it; sequential, like warnedOnce.
+	mcpWithheld map[manifest.SurfaceKey]mcpWithholding
 	// progressCfg is the rendering of the boot's slow steps (Env.progress). The zero
 	// value is the line-oriented one with the default timings; a test sets
 	// Immediate to see a step that finishes at once.

@@ -491,6 +491,64 @@ end)`
 	}
 }
 
+// WithheldMCPServers names exactly the servers the ctx boundary took out of ctx.mcp_servers,
+// each with the capability that took it, for a source that is a selected provider as for an
+// agent's built-in login: what it reports and what the derive was handed partition the
+// configured table. The drop notice reads it to tell a declared, withheld server from an entry
+// no config declares, so a server it names that the derive did see, or one it misses, is a
+// notice that lies.
+func TestWithheldMCPServersIsWhatTheDeriveWasNotHanded(t *testing.T) {
+	script := `
+yolo.derive("claude", "config", function(ctx)
+  local servers = {}
+  for name, cfg in pairs(ctx.mcp_servers or {}) do servers[name] = cfg end
+  return { mcpServers = servers }
+end)`
+	servers := map[string]any{
+		"tavily":      map[string]any{"command": "npx", "provides": "web_search"},
+		"sourcegraph": map[string]any{"command": "sg-mcp", "provides": "code_search"},
+		"fs":          map[string]any{"command": "mcp-fs"},
+	}
+	for _, tc := range []struct {
+		name string
+		ctx  *DeriveCtx
+		want map[string]string
+	}{
+		{"built-in login", &DeriveCtx{NativeCapabilities: []string{"web_search"}},
+			map[string]string{"tavily": "web_search"}},
+		{"selected provider", &DeriveCtx{SelectedProvider: "p", NativeCapabilities: []string{"web_search"},
+			Tables: map[string]map[string]any{"providers": {"p": map[string]any{
+				"capabilities": []any{"code_search"}}}}},
+			map[string]string{"sourcegraph": "code_search"}},
+		{"a source that declares nothing", &DeriveCtx{}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.ctx.Agent, tc.ctx.Surface = "claude", "config"
+			if tc.ctx.Tables == nil {
+				tc.ctx.Tables = map[string]map[string]any{}
+			}
+			tc.ctx.Tables["mcp_servers"] = servers
+			withheld := WithheldMCPServers(tc.ctx)
+			if !reflect.DeepEqual(withheld, tc.want) {
+				t.Errorf("WithheldMCPServers = %v, want %v", withheld, tc.want)
+			}
+			out, err := GopherLuaVM{}.Derive(script, tc.ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			handed, _ := out["mcpServers"].(map[string]any)
+			for name := range servers {
+				_, saw := handed[name]
+				_, held := withheld[name]
+				if saw == held {
+					t.Errorf("%s: handed to the derive = %v, reported withheld = %v; exactly one "+
+						"must hold", name, saw, held)
+				}
+			}
+		})
+	}
+}
+
 // agy is the LOAD-BEARING pack for this change, not claude. Its derive exists only to
 // supply a dynamic layer over `defaults.mcpServers = {}` (packs/agy/derive.lua says so),
 // so any bug that hands it an empty table renders `{}` and silently removes every MCP

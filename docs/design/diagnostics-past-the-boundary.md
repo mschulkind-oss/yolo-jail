@@ -275,6 +275,14 @@ under one is dropped and announced like any other. Pinned through the boot loop 
 `TestTheBootDropNoticeForClaudesMCPTableStillNamesMCPServers`
 (`internal/entrypoint/droppedentryremedy_test.go`).
 
+A second wrong remedy, on the same day: an MCP server **declared** under `mcp_servers` and
+withheld by capability-driven delivery, because the agent's active source does the job its
+`provides` names, was told "not in config" and handed the remedy above, which changes nothing
+for it. It now gets a line of its own, naming the capability, the source that performs it and the
+one change that delivers it, removing its `provides`
+([the MCP reference](../reference/mcp-configuration.md#a-launch-with-a-provides-server-recorded-2026-10-01)
+has the measurement and the line).
+
 ### 3.2 The 8214 failure, as the worked case
 
 The ordering that makes it fatal is a fact, re-verified independently of

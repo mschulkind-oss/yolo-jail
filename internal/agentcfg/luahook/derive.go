@@ -720,19 +720,57 @@ func sourceCapabilities(ctx *DeriveCtx) map[string]bool {
 // case (no provider capabilities, no built-in declaration) and keeps the render
 // byte-identical for it.
 func eligibleMCPServers(servers map[string]any, have map[string]bool) map[string]any {
-	if len(have) == 0 || len(servers) == 0 {
+	withheld := withheldMCPServers(servers, have)
+	if len(withheld) == 0 {
 		return servers
 	}
 	out := make(map[string]any, len(servers))
 	for name, v := range servers {
-		if cfg, ok := v.(map[string]any); ok {
-			if provides, ok := cfg["provides"].(string); ok && have[provides] {
-				continue
-			}
+		if _, gone := withheld[name]; !gone {
+			out[name] = v
 		}
-		out[name] = v
 	}
 	return out
+}
+
+// withheldMCPServers is THE RULE eligibleMCPServers applies, stated once: each configured
+// server whose `provides` names a capability in have, mapped to that capability. nil when
+// nothing is withheld.
+func withheldMCPServers(servers map[string]any, have map[string]bool) map[string]string {
+	if len(have) == 0 || len(servers) == 0 {
+		return nil
+	}
+	var out map[string]string
+	for name, v := range servers {
+		cfg, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		if provides, ok := cfg["provides"].(string); ok && have[provides] {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[name] = provides
+		}
+	}
+	return out
+}
+
+// WithheldMCPServers is what capability-driven MCP delivery takes out of ctx.mcp_servers
+// before a derive runs over ctx: each server ctx's table declares whose `provides` the active
+// source performs itself (sourceCapabilities), mapped to that capability. nil when nothing is.
+//
+// It reads the same three inputs the ctx boundary does — the configured table, the selected
+// provider's row and the agent's native capabilities — through the same rule
+// (withheldMCPServers), so it cannot name a server the derive was handed, or miss one it was
+// not. Its reader is the jail boot's drop notice (entrypoint.noteDroppedManagedEntries), which
+// has to tell a server the boundary withheld, and that IS declared, from an entry no config
+// declares: the two need different remedies.
+func WithheldMCPServers(ctx *DeriveCtx) map[string]string {
+	if ctx == nil {
+		return nil
+	}
+	return withheldMCPServers(ctx.Tables[sourceMCPServers], sourceCapabilities(ctx))
 }
 
 // withoutProvidesKey removes `provides` from every surviving MCP entry on the way out to

@@ -363,7 +363,26 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 	if deriveScript == "" {
 		return nil, nil, nil
 	}
-	out, err := (luahook.GopherLuaVM{}).DeriveLayer(deriveScript, &luahook.DeriveCtx{
+	return deriveLayerOver(e, surface, deriveScript, deriveCtx(e, surface, sel, tables))
+}
+
+// deriveLayerOver runs surface's derive over ctx: deriveComputedLayer for a caller that holds
+// the ctx itself, because it reads something else off it too (renderPlannedSurface, which
+// records what the ctx boundary withheld).
+func deriveLayerOver(e *Env, surface manifest.Surface, deriveScript string, ctx *luahook.DeriveCtx) (map[string]any, []string, error) {
+	out, err := (luahook.GopherLuaVM{}).DeriveLayer(deriveScript, ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("surface %s/%s: derive: %w", surface.Agent, surface.Name, err)
+	}
+	return out.Layer, out.InFull, nil
+}
+
+// deriveCtx is the ctx one surface's derive runs over: the resolved selection and the live
+// tables, with the skew and helper notes routed to the boot's warnings. The one constructor, so a
+// reader of the ctx beside the derive (luahook.WithheldMCPServers) reads what the derive was
+// handed rather than a second spelling of it.
+func deriveCtx(e *Env, surface manifest.Surface, sel surfaceSelection, tables map[string]map[string]any) *luahook.DeriveCtx {
+	return &luahook.DeriveCtx{
 		Agent:              surface.Agent,
 		Surface:            surface.Name,
 		ProfileName:        sel.Profile,
@@ -379,11 +398,7 @@ func deriveComputedLayer(e *Env, surface manifest.Surface, deriveScript string, 
 		// A helper's warn-don't-refuse note (yolo.model_for's missing tier alias), keyed by
 		// agent like the skew note above, so one finding prints once per boot.
 		Warn: func(msg string) { e.warnOnce("pack derive for " + surface.Agent + ": " + msg) },
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("surface %s/%s: derive: %w", surface.Agent, surface.Name, err)
 	}
-	return out.Layer, out.InFull, nil
 }
 
 // unknownDeriveAPINote is the skew line for one `yolo.<name>` this build does not know,
@@ -552,9 +567,20 @@ func renderPlannedSurface(e *Env, pl surfacePlan, src jailLayerSource) error {
 	// is what the derive declared about it (ctx.in_full, CO13), and only the stateful arm
 	// reads it: it is the one mechanism that ADOPTS a file, so the one that has to know
 	// which tables it may claim wholesale as yolo's own previous output.
-	computed, inFull, err := deriveComputedLayer(e, surface, src.deriveScript, src.sel, src.tables)
-	if err != nil {
-		return err
+	var (
+		computed map[string]any
+		inFull   []string
+		err      error
+	)
+	if src.deriveScript != "" {
+		ctx := deriveCtx(e, surface, src.sel, src.tables)
+		if computed, inFull, err = deriveLayerOver(e, surface, src.deriveScript, ctx); err != nil {
+			return err
+		}
+		// What the ctx boundary withheld from that derive, read off the ctx it was handed, for
+		// the rmw arm's drop notice: a server declared under mcp_servers and withheld there is
+		// not an entry "not in config", and needs another remedy (noteDroppedManagedEntries).
+		e.recordMCPWithheld(surface, ctx)
 	}
 	layers := surfaceLayers{computed: computed, inFull: inFull}
 	// THE RESERVED SELECTION NAMESPACE is applied by the stateful writer alone; the two
