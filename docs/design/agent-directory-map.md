@@ -7,7 +7,7 @@ summary: "yolo manages an agent's directory only where some pack happens to name
 vantage:
   status-chip: true
 stage: DESIGN
-next: "Fix Appendix B's two core rows, which rest on no open question: the configuring-the-jail skill's pi overlay path, and core's PI_TELEMETRY export, which belongs to the pi pack's env. The rest of the pi slice waits on OQ-AM1 to OQ-AM10"
+next: "Move core's PI_TELEMETRY export into the pi pack's env (Appendix B), which rests on no open question. The rest of the pi slice waits on OQ-AM1 to OQ-AM10"
 ---
 
 # Every path in an agent's directory gets a class, and yolo names the ones that fit none
@@ -1214,7 +1214,7 @@ The map makes each of these visible. Fixing them belongs elsewhere:
 | The managed codex home drops codex's `config.toml` edits and leaves stale links | [`openai-auth-broker.md`](openai-auth-broker.md) |
 | The claude pack does not retire `yolo-managed-mcp-servers.json`, though codex and opencode do | `packs/claude` `retireOnFirstRender` |
 | The `per_jail_history` hook is redundant now that `~/.claude` is per workspace, and leaves orphans | the claude slice ([§7.2](#72-claude)) |
-| `configuring-the-jail` says pi's overlay is `<workspace>/.yolo/state/pi`; it is `<workspace>/.yolo/home/pi` | the built-in skill |
+| ✅ **Fixed** 2026-09-30. `configuring-the-jail` said pi's overlay is `<workspace>/.yolo/state/pi`; it is `<workspace>/.yolo/home/pi`, and `.yolo/home/.pi` on Apple Container. [`agent-briefings.md`](../reference/agent-briefings.md) said the same and is fixed with it | the built-in skill, now checked against the launch's own bind by `TestConfiguringTheJailSkillNamesPisRealOverlay` |
 | Core exports `PI_TELEMETRY=0`, naming an agent's variable | the pi pack's `env` |
 | Copilot's `config.json` migration may loop against yolo's strict `rmw` decode (unmeasured) | measure first ([§7.4](#74-copilot)) |
 | `agent-credentials.md` says every path under `~/.gemini` is agy's; gemini-cli's leftover login contradicts it | the agy slice ([§7.5](#75-agy)) |

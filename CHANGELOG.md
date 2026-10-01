@@ -752,6 +752,9 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   home, instead of starting without it in silence. A dotfiles manager that leaves `~/.pi/agent/settings.json` as a link into a folder
   you deleted now gets one line naming the link and where it points. The jail still starts,
   without that file, and a file you never created still says nothing.
+- The guidance yolo gives agents in every jail now says pi's per-workspace folder is
+  `<workspace>/.yolo/home/pi` (`.yolo/home/.pi` on Apple Container). It named
+  `.yolo/state/pi`, a folder that does not exist, so an agent could send you looking for it.
 
 ## [0.11.0] - 2026-09-28
 
