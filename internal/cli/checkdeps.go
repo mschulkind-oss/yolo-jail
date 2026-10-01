@@ -20,11 +20,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/check"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -50,10 +52,21 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 	reqs, unresolved, floor, declarers := configuredDepRequirements()
 	pr := richtext.Printer{W: out, Color: color}
 	// NAMED, NEVER SKIPPED: a pack this probe could not resolve declares deps nobody looked
-	// at, so "nothing missing" would be a claim about binaries it never checked.
+	// at, so "nothing missing" would be a claim about binaries it never checked. Each is followed
+	// by its fix, then the re-check: the exit 1 used to be the run's only answer to it.
 	for _, u := range unresolved {
 		pr.Printf("[red]✗[/red] pack %s could not be resolved, so its deps were not probed: %s",
-			u.Name, u.Reason)
+			richtext.Escape(u.Name), richtext.Escape(u.Reason))
+		for i, line := range strings.Split(checkDepsUnresolvedStep(u), "\n") {
+			lead := "    "
+			if i == 0 {
+				lead = "  → "
+			}
+			pr.Printf("%s%s", lead, richtext.Escape(line))
+		}
+	}
+	if len(unresolved) > 0 {
+		pr.Printf("  then: yolo check-deps")
 	}
 	// The floor's programs, each by its floor entry: never missing in the sense this verb exits 1
 	// over, because the floor installs one that is not there yet (HP-D3).
@@ -88,28 +101,34 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 	missing := depcheck.Missing(results)
 	for _, r := range results {
 		switch {
+		// Every value below that a pack or the host chose (a bin, a path, a command) is escaped,
+		// so the printer cannot read a bracket in it as markup. A command printed through it
+		// unescaped lost a bracketed style word (`acme[red]` read `acme`, another package), and
+		// an unclosed `[` ran on into the `[/dim]` after it.
 		case r.Present:
-			pr.Printf("[green]✓[/green] %-16s %s", r.Bin, r.Path)
+			pr.Printf("[green]✓[/green] %-16s %s", richtext.Escape(r.Bin), richtext.Escape(r.Path))
 		case r.Unpublished != "":
 			// Not missing, and not an exit-1: nothing could install it (depcheck.Missing
 			// leaves it out), so the line is the reason and no command.
-			pr.Printf("[yellow]–[/yellow] %-16s no build for this host — %s", r.Bin, r.Unpublished)
+			pr.Printf("[yellow]–[/yellow] %-16s no build for this host — %s", richtext.Escape(r.Bin),
+				richtext.Escape(r.Unpublished))
 		case r.Remedy != "":
-			pr.Printf("[red]✗[/red] %-16s MISSING → %s", r.Bin, r.Remedy)
+			pr.Printf("[red]✗[/red] %-16s MISSING → %s", richtext.Escape(r.Bin), richtext.Escape(r.Remedy))
 			// The package-manager alternative for a dep whose primary remedy is the tool's
 			// own installer. Shown because a user who would rather go through their package
 			// manager should not have to read pack.json to find the token — but shown SECOND,
 			// since the first-party installer is the one that stays current.
 			if r.Fallback != "" {
-				pr.Printf("  [dim]or via %s: %s[/dim]", r.Manager, r.Fallback)
+				pr.Printf("  [dim]or via %s: %s[/dim]", r.Manager, richtext.Escape(r.Fallback))
 			}
 		case r.Manager == "" && r.Hinted:
 			// No manager on this PATH, so no hint could be the remedy: say that, rather than
 			// blame the pack's hints or name a manager the host does not have. A binary with no
 			// hint at all keeps the line below, as `yolo host apply` does: no manager would help.
-			pr.Printf("[yellow]?[/yellow] %-16s MISSING, %s", r.Bin, richtext.Escape(depcheck.NoManager))
+			pr.Printf("[yellow]?[/yellow] %-16s MISSING, %s", richtext.Escape(r.Bin),
+				richtext.Escape(depcheck.NoManager))
 		default:
-			pr.Printf("[yellow]?[/yellow] %-16s MISSING, no install hint for this host", r.Bin)
+			pr.Printf("[yellow]?[/yellow] %-16s MISSING, no install hint for this host", richtext.Escape(r.Bin))
 		}
 		// THE MISS LINE (HE-D2) under every binary the lookup did not find: the whole PATH
 		// searched and the `host_path` fix, since from a bare launcher "missing" may only mean "not
@@ -269,6 +288,11 @@ type unresolvedPack struct {
 	// names, so a remedy may not offer "remove it from `packs`" for it. Not on the wire, as on
 	// the entry.
 	Implicit bool `json:"-"`
+	// Shipped is config.PackEntry.Embedded: a pack that ships with yolo, whose fix is the
+	// maintainers' rather than the user's. Source is the entry's address, which a remedy for the
+	// user's own pack names. Neither is on the wire, as Implicit is not.
+	Shipped bool   `json:"-"`
+	Source  string `json:"-"`
 }
 
 // newUnresolvedPack records a resolution failure from resolveConfiguredPack for entry e. The
@@ -279,7 +303,7 @@ func newUnresolvedPack(e config.PackEntry, err error) unresolvedPack {
 	var malformed manifestProblemsError
 	name := e.Name
 	u := unresolvedPack{Name: name, Reason: strings.TrimPrefix(err.Error(), "packs: "+name+": "),
-		NeedsInstall: errors.As(err, &miss), Implicit: e.Implicit}
+		NeedsInstall: errors.As(err, &miss), Implicit: e.Implicit, Shipped: e.Embedded(), Source: e.Source}
 	if errors.As(err, &malformed) {
 		u.ManifestProblems = append([]string(nil), malformed.problems...)
 	}
@@ -313,6 +337,30 @@ type storeMissError struct{ err error }
 
 func (e storeMissError) Error() string { return e.err.Error() }
 func (e storeMissError) Unwrap() error { return e.err }
+
+// checkDepsUnresolvedStep is the fix for one pack check-deps could not resolve, in the words `yolo
+// check` gives for the same pack (check.UserPackFix, check.ShippedPackFix), each line of it a
+// line of the report. The caller ends the set with the re-check. A git pack not in the store yet
+// is fetched, never fixed: check-deps does not fetch (resolveConfiguredPack). The conventional
+// local pack has no `packs` entry, so its fix is its directory. A problem with no pack address
+// (a malformed `packs` entry, a refused selection) says where it was written itself.
+func checkDepsUnresolvedStep(u unresolvedPack) string {
+	switch {
+	case u.NeedsInstall:
+		return "Run `yolo pack install` to fetch it now (check-deps never fetches; the next host launch " +
+			"fetches it too)"
+	case u.Implicit:
+		dir := paths.LocalPackDir()
+		return "Fix what it names in " + dir + " (`yolo pack lint " + dir + "` re-checks it); it has no " +
+			"`packs` entry, since it is read because that directory exists"
+	case u.Shipped:
+		return check.ShippedPackFix(u.Name)
+	case u.Source != "":
+		return check.UserPackFix(u.Source)
+	}
+	return "Change what it names, in " + paths.UserConfigPath() + " (`yolo config-ref` documents " +
+		"`packs`) or in a pack you wrote (`yolo pack --help`)"
+}
 
 // unresolvedNames is the names alone, for the reports that list them.
 func unresolvedNames(list []unresolvedPack) []string {
@@ -428,8 +476,8 @@ beside the manifest's. The report ends with every command to run, then the re-ch
 Packs resolve the way a launch resolves them: a git pack from the pack store, a
 local one from its path. check-deps never fetches: a git pack not in the store yet
 is fetched by the next launch, or now by ` + "`yolo pack install`" + `. A configured pack
-that cannot be resolved, or whose manifest has problems, is named with the reason, and
-its deps are not probed.
+that cannot be resolved, or whose manifest has problems, is named with the reason and
+its fix, and its deps are not probed.
 
 It never installs anything — it detects and hands off. Exit is non-zero when a declared
 dep is missing, or when a configured pack could not be resolved.

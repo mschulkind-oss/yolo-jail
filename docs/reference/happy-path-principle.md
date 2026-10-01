@@ -18,6 +18,7 @@ covers:
   - internal/config/packs.go
   - internal/depcheck/
   - internal/entrypoint/shims.go
+  - internal/hostfloor/floor.go
   - internal/packsrc/lock.go
   - internal/prune/probes.go
   - internal/storage/nixinstall.go
@@ -122,7 +123,7 @@ rung 4. Cite rungs and rules by number, and never renumber them.
 | **1. Do it** | Fixes the missing piece itself when that's safe, cheap and can be undone, and says what it did. When the fix needs the user's OK, it asks first, then does it. | A [pack](pack-system.md)'s agent installs the first time it runs: its launcher prints `Installing <package>...`, then runs it. A rootless podman whose pasta cannot forward the host's loopback is launched on slirp4netns instead, with a note on what changed, what it costs and how to get back. |
 | **2. Offer it as one command** | Names a single command that makes the fix. | `yolo prune` is a dry run ending `Re-run with --apply to execute.` A yolo older than its source tree refuses with `Fix:  (cd <repoRoot> && just install)`. |
 | **3. Give exact instructions** | Prints the exact command or config line for *this* platform when yolo can't run it (it needs sudo, a package manager, or an edit to the user's config). | `yolo check-deps` prints `sudo dnf install -y <pkg>` on a dnf host and `brew install --cask <pkg>` for a cask. With no packs, a launch says to add `"packs": ["claude"]` to `~/.config/yolo-jail/config.jsonc`. With no nix, `yolo check` prints the install the [getting-started guide](../../userguide/getting-started.md) gives for this machine. |
-| **4. Name the owner** | When the user's own action can't fix it, says why and who or what can. | In a jail, `yolo update` says it is the jail's copy of the host's yolo and to run `yolo update` on the host. A rootful podman can't forward loopback, and yolo says so and names the two setups that work instead. |
+| **4. Name the owner** | When the user's own action can't fix it, says why and who or what can. | In a jail, `yolo update` says it is the jail's copy of the host's yolo, kept until the jail is relaunched, and to run `yolo update` on the host and relaunch the jail. A rootful podman can't forward loopback, and yolo says so and names the two setups that work instead. |
 
 When a step is expensive, yolo says what it will cost before doing it. A launch's auto-capture
 (one install per machine, reused by every workspace) names the download it is about to pay for,
@@ -137,9 +138,14 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    variable that overrules the refusal). A hatch alone is not a next step, because it goes on
    without what was refused. No `yolo check` finding may be written with a literal empty note
    (`TestNoFindingIsWrittenWithAnEmptyNote`), and `nix found but could not be run` now names the
-   command that shows nix's own error, then the reinstall. In a `macos-user` jail, whose nix is the
-   host's and which that jail's account cannot reinstall, it names `yolo check` on the host and a
-   relaunch instead (rung 4). The in-jail clients name one too:
+   command that shows nix's own error, then the reinstall. A nix whose `nix --version` exits
+   non-zero gets the same step after nix's own error, where it got that error alone, or nothing
+   when nix printed none (`TestANixThatExitsNonzeroNamesItsErrorAndTheReinstall`). In a
+   `macos-user` jail, whose nix is the host's and which that jail's account cannot reinstall, both
+   name `yolo check` on the host and a relaunch instead (rung 4). `yolo check-deps` follows each
+   pack it could not resolve with that pack's fix, in the words `yolo check` gives for it, and then
+   `yolo check-deps` to check again; it used to exit 1 after the problem alone
+   (`TestCheckDepsNamesTheFixForAnUnresolvedPack`). The in-jail clients name one too:
    `yolo-serial` says to relaunch the jail, as `yolo-ps` does, and `yolo-cglimit` names the two
    config lines that turn on the cgroup delegate.
 2. **Every success points forward too.** A command that finishes normally ends by naming the likely
@@ -148,8 +154,9 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    *In yolo:* `yolo init` names the next command (`Tell them to run: yolo -- claude`), and
    `yolo init-user-config` ends with the line that selects an agent, `yolo check`, and the
    command that launches it. A successful `yolo host apply --assert` ends at its verdict and
-   counts and names no next command; a line naming one would belong to its
-   [verdict block](report-tiers.md#the-verdict-block).
+   counts and names no next command. Adding one waits on a ruling: its
+   [verdict block](report-tiers.md#the-verdict-block) is the verdict line and the counts, and
+   "Only the dry run has a footer", so an `--assert` ends at its counts.
 3. **Advice must be specific and verified.** Give the exact package name, flag or path for the
    user's platform. Generic advice can be just as wrong as no advice. Every platform-specific entry
    records where its name came from, and a test rejects any entry that doesn't.
@@ -157,7 +164,10 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    (`TestNixIsOfferedOnlyWhereTheLookupFindsIt`, `TestEveryProbeReadsTheCallersLookup`). The
    install lines `yolo check` prints for a missing container runtime and for a missing nix are
    read against the getting-started guide they come from (`TestPodmanInstallHintsMatchTheGuide`,
-   `TestNixInstallHintsMatchTheGuide`). **yolo does not yet enforce rule 3 for a pack's
+   `TestNixInstallHintsMatchTheGuide`). `yolo check-deps` prints each install command as the pack
+   wrote it, square brackets included, where a bracketed word the output's color markup reads as a
+   style used to vanish from the command (`TestCheckDepsPrintsABracketedCommandAsWritten`).
+   **yolo does not yet enforce rule 3 for a pack's
    `install_hints`:** a pack records no source for them, except the `guardrails` pack, whose
    comments cite where each of its names came from, and no test checks that an entry has a
    source or that the names it gives are right.
@@ -190,21 +200,25 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
 6. **Re-running is always safe.** The next step for nearly any interrupted command is to run it
    again, and that only works if a second run can't make things worse.
    *In yolo:* a failed auto-capture says `The next launch retries.`, and a launcher whose update is
-   busy or fails runs the installed version. The gap: a failed first-use install ends at
-   `⚠ <name> not available`, without saying that running it again retries.
+   busy or fails runs the installed version. An agent's launcher whose first-use install fails
+   ends `⚠ <name> not available: its install failed, above. Run <name> again to retry the install.`,
+   and the next run does retry it. The pnpm launcher retries a failed install only an hour after
+   the last try, so it says when a run retries and prints the command that retries now
+   (`launcherretry_test.go` runs each launcher again, and the pnpm command as printed).
 7. **Don't send the user to find something yolo could figure out itself.** If yolo can work out the
    value, fork it from an existing copy or fetch it, it does that instead of asking the user to go
    and get it.
    *In yolo:* the macOS nix-daemon restart reads the daemon's label from `/Library/LaunchDaemons`.
    `yolo check-deps` ends with the command that installs its package list for the manager it
-   found, and a pack lockfile, a fork lock or a capture written by a newer yolo names
-   `yolo update`, which knows this install's channel, or in a jail says to run it on the host and
-   relaunch the jail, which keeps the yolo it was launched with until then.
+   found, and a pack lockfile, a fork lock, a capture or a host floor record written by a newer
+   yolo names `yolo update`, which knows this install's channel, or in a jail says to run it on the
+   host and relaunch the jail, which keeps the yolo it was launched with until then. `yolo update`
+   itself, run in a jail, says the same.
 
 ## Before and after
 
 Each pair below shows what yolo printed before 2026-10-01, then what it prints now. **Each "Now"
-is current output.** The last pair is still open: its "Target" is not yet what yolo prints.
+is current output.**
 
 **Before:** `yolo check` on a Linux host with no nix (`sectionNix`):
 
@@ -241,14 +255,13 @@ why each jail stopped, which a removal from outside yolo cannot.
           then: yolo check
 ```
 
-**Today, still open:** a jail's first `codex` whose install fails (the launcher in
-`~/.yolo/bin/launch`):
+**Before:** a jail's first `codex` whose install fails (the launcher in `~/.yolo/bin/launch`):
 
 ```text
   ⚠ codex not available
 ```
 
-**Target:** the launcher installs again on the next run, so it says so.
+**Now:** the launcher installs again on the next run, so it says so.
 
 ```text
   ⚠ codex not available: its install failed, above. Run codex again to retry the install.

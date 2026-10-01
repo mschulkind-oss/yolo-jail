@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
+	"github.com/mschulkind-oss/yolo-jail/internal/updatehint"
 )
 
 // The CALL SITE, pinned: deleting the hook from dispatchNative fails this, which
@@ -669,6 +670,13 @@ func TestUpdateCommand(t *testing.T) {
 		h.env["YOLO_VERSION"] = "0.10.0"
 		if rc := updateMain([]string{"update"}, h.d); rc != 1 || h.applied != 0 {
 			t.Errorf("exit %d, applied %d; want 1, 0", rc, h.applied)
+		}
+		// The jail keeps the yolo it was launched with, so the host's update alone leaves this
+		// jail on the old one: the step is the host's update AND a relaunch, in updatehint's
+		// words, which every refusal of a newer yolo's file prints too.
+		if !strings.Contains(h.stderr.String(), updatehint.InJailStep) {
+			t.Errorf("the in-jail refusal does not name the host's update and the relaunch (%q):\n%s",
+				updatehint.InJailStep, h.stderr.String())
 		}
 	})
 	t.Run("unknown channel", func(t *testing.T) {

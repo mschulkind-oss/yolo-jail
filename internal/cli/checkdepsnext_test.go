@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -213,5 +214,99 @@ func TestCheckDepsEndsWithTheRecheckWithoutABundle(t *testing.T) {
 				t.Errorf("a run with no bundle wrote %d file(s) under ~/.config/yolo", len(entries))
 			}
 		})
+	}
+}
+
+// TestCheckDepsNamesTheFixForAnUnresolvedPack: a configured pack check-deps could not resolve
+// made it exit 1 after "✗ pack <name> could not be resolved, so its deps were not probed: <why>",
+// with no step anywhere in the report. That line is now followed by its fix, in the words
+// `yolo check` gives for the same pack (check.UserPackFix), and then the re-check.
+func TestCheckDepsNamesTheFixForAnUnresolvedPack(t *testing.T) {
+	missing := filepath.Join(floortest.ResolvedTemp(t), "gone")
+	home := checkDepsHome(t, `{"packs":[{"source":"file://`+missing+`","name":"gonepack"}]}`, "apt")
+	var out, errw bytes.Buffer
+	rc := checkDepsMain(nil, &out, &errw, false)
+	report := out.String() + errw.String()
+	if rc != 1 {
+		t.Fatalf("rc = %d with a pack unresolved, want 1:\n%s", rc, report)
+	}
+	_, after, ok := strings.Cut(report, "✗ pack gonepack could not be resolved")
+	if !ok {
+		t.Fatalf("no line for the unresolved pack:\n%s", report)
+	}
+	userConfig := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	for _, want := range []string{
+		"\n  → Fix the pack at file://" + missing + " (`yolo pack --help` documents every field), " +
+			"or its `packs` entry in " + userConfig + "\n",
+		"\n  then: yolo check-deps\n",
+	} {
+		if !strings.Contains(after, want) {
+			t.Errorf("the report is missing %q after the unresolved pack:\n%s", want, report)
+		}
+	}
+}
+
+// TestCheckDepsUnresolvedStepNamesWhoCanAct: the step depends on why the pack did not resolve.
+// A git pack not fetched yet is fetched by `yolo pack install`; a pack that ships with yolo is
+// the maintainers' to fix, so the step is the issue tracker and, until then, dropping it; the
+// conventional local pack has no `packs` entry, so its step is its directory.
+func TestCheckDepsUnresolvedStepNamesWhoCanAct(t *testing.T) {
+	t.Setenv("HOME", floortest.ResolvedTemp(t))
+	t.Setenv("XDG_CONFIG_HOME", "")
+	for _, tc := range []struct {
+		name string
+		u    unresolvedPack
+		want []string
+	}{
+		{"not fetched", unresolvedPack{Name: "remote", NeedsInstall: true},
+			[]string{"`yolo pack install`"}},
+		{"shipped", unresolvedPack{Name: "claude", Shipped: true},
+			[]string{"is a yolo bug", "/issues", "drop claude from `packs` in " + paths.UserConfigPath()}},
+		{"local pack", unresolvedPack{Name: "local", Implicit: true},
+			[]string{paths.LocalPackDir(), "`yolo pack lint " + paths.LocalPackDir() + "`"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := checkDepsUnresolvedStep(tc.u)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("the step lacks %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
+// TestCheckDepsPrintsABracketedCommandAsWritten: the MISSING line and the package-manager
+// alternative under it printed the install command through the rich-markup printer unescaped. A
+// bracketed word the printer reads as a style (`acme[red]`) vanished from the command, which
+// then named another package, and an unclosed `[` ran on into the `[/dim]` after it, which
+// printed as text. Each line now prints the command as written (richtext.Escape, whose
+// zero-width joiner is removed here as the printer's own tests remove it).
+func TestCheckDepsPrintsABracketedCommandAsWritten(t *testing.T) {
+	pack := filepath.Join(floortest.ResolvedTemp(t), "brackets")
+	writeFile(t, filepath.Join(pack, "pack.json"), `{"name":"brackets","contributes":[`+
+		`{"kind":"program","bin":"yolo-cd-br","via":"npm","package":"acme[red]",`+
+		`"install_hints":{"apt":"acme-tools[dim"}}]}`)
+	checkDepsHome(t, `{"host_floor": false, "packs":[{"source":"file://`+pack+`","name":"brackets"}]}`, "apt")
+	for _, color := range []bool{false, true} {
+		var out, errw bytes.Buffer
+		rc := checkDepsMain([]string{"--no-manifest"}, &out, &errw, color)
+		report := strings.ReplaceAll(stripANSI(out.String()+errw.String()), "\u2060", "")
+		if rc != 1 {
+			t.Fatalf("rc = %d with a dep missing, want 1:\n%s", rc, report)
+		}
+		for _, want := range []string{
+			"MISSING → npm install -g acme[red]\n",
+			"  or via apt: sudo apt install -y acme-tools[dim\n",
+			"\n  npm install -g acme[red]  # yolo-cd-br\n",
+		} {
+			if !strings.Contains(report, want) {
+				t.Errorf("color=%v: the report does not print %q as written:\n%s", color, want, report)
+			}
+		}
+		if strings.Contains(report, "[/dim]") {
+			t.Errorf("color=%v: a closing tag printed as text, so the command ran on into it:\n%s",
+				color, report)
+		}
 	}
 }

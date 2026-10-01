@@ -1,5 +1,5 @@
 // Package updatehint is the one next step for a file a NEWER yolo wrote: a pack lockfile, a fork
-// lock, a capture manifest. Each is refused rather than misread, since an unknown field may change
+// lock, a capture manifest, a host floor record. Each is refused rather than misread, since an unknown field may change
 // what the known ones mean, and the refusal used to end at "upgrade yolo", which leaves the reader
 // to work out how this copy was installed (docs/reference/happy-path-principle.md, rule 7, coins
 // "next step"). `yolo update` knows: it upgrades a Homebrew or from-source install, prints the
@@ -23,10 +23,14 @@ import (
 // (config.InJail); it is read here because this package sits below config.
 func Step() string {
 	if os.Getenv("YOLO_VERSION") != "" {
-		return "run `yolo update` on the host and relaunch this jail"
+		return InJailStep
 	}
 	return "run `yolo update`"
 }
+
+// InJailStep is Step in a jail, for a caller that has already decided it runs in one: `yolo
+// update`'s own refusal there, which reads the environment through its own seam.
+const InJailStep = "run `yolo update` on the host and relaunch this jail"
 
 // NewerSchema is the refusal for the file subject names, schema got, when this yolo reads schema
 // want and older: a newer yolo wrote it, and Step is the way to that yolo.

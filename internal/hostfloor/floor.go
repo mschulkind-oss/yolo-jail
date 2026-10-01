@@ -62,6 +62,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/updatehint"
 )
 
 // Program is one floor candidate: a `program` contribution of a selected pack.
@@ -552,7 +553,9 @@ func (f *Floor) readRecord(bin string) (*Record, error) {
 		return nil, err
 	}
 	if rec.Schema > recordSchema {
-		return nil, fmt.Errorf("record schema %d is newer than this yolo's %d", rec.Schema, recordSchema)
+		// A newer yolo wrote it. The refusal names the way to that yolo, in the sentence every
+		// reader of a newer yolo's file prints (updatehint); it used to end at the two numbers.
+		return nil, updatehint.NewerSchema("host floor record "+f.recordPath(bin), rec.Schema, recordSchema)
 	}
 	return &rec, nil
 }

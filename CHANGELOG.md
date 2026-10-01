@@ -675,9 +675,9 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   yolo could not create it, instead of promising the first launch would. With no Nix, `yolo check`
   and `yolo macos-setup` now give the install command
   [Getting Started](userguide/getting-started.md#step-1-install-nix) recommends for your machine,
-  where they linked to nixos.org's download page, and a Nix that will not start names the command
-  that shows Nix's own error and how to reinstall it. Inside a jail, where installing Nix would not
-  help, `yolo check` says what to do instead.
+  where they linked to nixos.org's download page, and a Nix that will not start, or whose
+  `nix --version` fails, names the command that shows Nix's own error and how to reinstall it.
+  Inside a jail, where installing Nix would not help, `yolo check` says what to do instead.
 - `yolo-cglimit` in a jail without the cgroup delegate now says how to turn it on: the two lines
   that select the `cgroup-delegate` pack and enable it in `~/.config/yolo-jail/config.jsonc`, then
   a restart of the jail. It used to say yolo starts the delegate automatically, which stopped being
@@ -698,12 +698,22 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   left out of that list and its installer's command is printed beside it, as each tool's own line
   already advised, since that installer keeps it current. A run that writes no list, with
   `--no-manifest` or with nothing a list can hold, now ends with each command and the re-check too.
+  A pack it could not read is now followed by its fix, as `yolo check` words it, and then the
+  re-check, where the run used to stop there with exit 1. An install command with square brackets
+  in it now prints exactly as the pack wrote it; one whose brackets held a word such as `red` lost
+  it, and so named another package.
+- An agent whose first install in a jail fails now ends with `Run <agent> again to retry the
+  install.`, where it stopped at "⚠ codex not available". pnpm, which yolo installs on first use
+  and tries again only an hour after a failed install, says when it will try again and gives the
+  command that retries now.
 - On Debian and Ubuntu, the guardrails pack's install command for `fd` now leaves `fd` on your
   PATH. The package it named installs the program under other names, so following it left `fd`
   missing; the command now also links it into `/usr/local/bin`.
 - A pack lockfile, or a machine's `yolo capture` of a program, written by a newer yolo now tells
   you to run `yolo update`, which knows how this yolo was installed, or in a jail to run it on your
-  machine and relaunch the jail, instead of only "upgrade yolo".
+  machine and relaunch the jail, instead of only "upgrade yolo". `yolo update` run in a jail now
+  says the same: run it on your machine, then relaunch the jail, which keeps the yolo it started
+  with until then.
 - Two commands yolo told you to run did not exist. The OpenAI login check said to sign in with
   `yolo host codex`, and now says `yolo -- codex`; `yolo programs --help` showed a
   `remove-undeclared` verb, which is `yolo programs remove`.

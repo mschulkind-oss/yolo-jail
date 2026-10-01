@@ -200,8 +200,9 @@ func (o *Options) nixInstallNote() string {
 	return o.nixInstallLines() + nixRecheck
 }
 
-// nixBrokenNote is the next step for a nix the lookup found and that would not start: the command
-// that shows nix's own error, then the reinstall. The NixOS Nix installer, and the Determinate
+// nixBrokenNote is the next step for a nix the lookup found and that would not start, or that
+// exited non-zero on `nix --version` (sectionNix prints nix's stderr above it): the command that
+// shows nix's own error, then the reinstall. The NixOS Nix installer, and the Determinate
 // installer it grew from, remove their own install (storage.NixInstallerReceipt); a nix from the
 // nixos.org script, which has no uninstaller, or from a distribution's package is removed the way
 // it was installed.

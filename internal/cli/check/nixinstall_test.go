@@ -128,6 +128,50 @@ func TestANixThatWillNotStartNamesItsErrorAndTheReinstall(t *testing.T) {
 	}
 }
 
+// TestANixThatExitsNonzeroNamesItsErrorAndTheReinstall: a nix that started and exited non-zero on
+// `nix --version` got nix's own stderr as its note and nothing else, or an empty note when nix
+// printed nothing. It keeps that stderr and now adds the next step a nix that will not start gets
+// (nixBrokenNote): the command that shows the error, then the reinstall. In a container jail that
+// step is the relaunch, since the jail's nix is the image's.
+func TestANixThatExitsNonzeroNamesItsErrorAndTheReinstall(t *testing.T) {
+	const nixPath = "/opt/my nix/bin/nix"
+	exits := func(stderr string) func(*Options) {
+		return func(o *Options) {
+			o.Exec = func([]string, string, []string, time.Duration) ExecResult {
+				return ExecResult{Ran: true, RC: 1, Stderr: stderr}
+			}
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		mod    func(*Options)
+		stderr string
+		want   []string
+	}{
+		{"with an error", func(o *Options) { o.Machine = "x86_64" }, "error: libstore is broken\n",
+			[]string{"error: libstore is broken", "'/opt/my nix/bin/nix' --version",
+				storage.NixUninstallManual, storage.NixInstallerCommand, "then, in a new terminal: yolo check"}},
+		{"silent", func(o *Options) { o.Machine = "x86_64" }, "",
+			[]string{"'/opt/my nix/bin/nix' --version", storage.NixInstallerCommand}},
+		{"container jail", func(o *Options) {
+			o.Getenv = func(k string) string { return map[string]string{"YOLO_VERSION": "9.9.9-test"}[k] }
+		}, "error: boom\n", []string{"error: boom", "'/opt/my nix/bin/nix' --version",
+			"relaunch the jail, then: yolo check"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := nixSection(t, func(o *Options) { tc.mod(o); exits(tc.stderr)(o) }, nixPath)
+			if !strings.Contains(got, "[FAIL] nix found but `nix --version` exited 1") {
+				t.Fatalf("no [FAIL] for a nix that exited 1:\n%s", got)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("the finding lacks %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
 // TestANixInAMacosUserJailNamesTheHost: a macos-user jail runs the host's own nix, which its
 // launch puts on the sandbox's PATH when it can and otherwise names why ("nix is not available
 // inside the sandbox: …"). The sandbox account can neither install Nix for the host nor repair

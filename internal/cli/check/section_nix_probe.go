@@ -45,8 +45,13 @@ func (o *Options) sectionNix(r *reporter) {
 		case !res.Ran:
 			r.fail("nix found but could not be run: "+nixPath, o.nixBrokenNote(nixPath))
 		case res.RC != 0:
-			r.fail(fmt.Sprintf("nix found but `nix --version` exited %d", res.RC),
-				strings.TrimSpace(res.Stderr))
+			// nix's own error, then the step a nix that will not start gets: it used to be the
+			// error alone, and an empty note when nix printed none.
+			note := o.nixBrokenNote(nixPath)
+			if stderr := strings.TrimSpace(res.Stderr); stderr != "" {
+				note = stderr + "\n" + note
+			}
+			r.fail(fmt.Sprintf("nix found but `nix --version` exited %d", res.RC), note)
 		default:
 			r.ok("Nix: " + storage.ParseNixVersion(res.Stdout).Describe())
 		}

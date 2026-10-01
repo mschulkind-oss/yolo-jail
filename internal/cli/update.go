@@ -23,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
+	"github.com/mschulkind-oss/yolo-jail/internal/updatehint"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -398,7 +399,11 @@ func updateMain(args []string, d updateDeps) int {
 		}
 	}
 	if d.getenv("YOLO_VERSION") != "" {
-		fmt.Fprintln(d.stderr, "yolo update: this is the jail's copy of the host's yolo; run `yolo update` on the host")
+		// The jail keeps the yolo it was launched with, so an update on the host alone leaves
+		// this jail on the old one: the step is the host's update and a relaunch, in the words
+		// every refusal of a newer yolo's file uses (updatehint).
+		fmt.Fprintln(d.stderr, "yolo update: this is the jail's copy of the host's yolo, which the jail keeps "+
+			"until it is relaunched; "+updatehint.InJailStep)
 		return 1
 	}
 	ch := d.current()

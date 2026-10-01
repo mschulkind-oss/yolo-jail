@@ -355,11 +355,24 @@ func (o *Options) reportUnresolvedPack(r *reporter, e config.PackEntry, err erro
 // user's own pack is theirs to fix, and a pack that ships with yolo is the maintainers'.
 func packFixNote(e config.PackEntry) string {
 	if e.Embedded() {
-		return yoloBugNote("A problem in a pack that ships with yolo") + "\nUntil it is fixed, drop " +
-			e.Name + " from `packs` in " + paths.UserConfigPath() + ", " + recheck
+		return ShippedPackFix(e.Name) + ", " + recheck
 	}
-	return "Fix the pack at " + e.Source + " (`yolo pack --help` documents every field), or its `packs` " +
-		"entry in " + paths.UserConfigPath() + ", " + recheck
+	return UserPackFix(e.Source) + ", " + recheck
+}
+
+// UserPackFix is packFixNote for the user's own pack, at source, without the re-check, so another
+// verb reporting the same pack (`yolo check-deps`) gives the same fix and ends on its own re-check.
+func UserPackFix(source string) string {
+	return "Fix the pack at " + source + " (`yolo pack --help` documents every field), or its `packs` " +
+		"entry in " + paths.UserConfigPath()
+}
+
+// ShippedPackFix is packFixNote for a pack that ships with yolo, named name, without the re-check:
+// it is the maintainers' to fix (rung 4), so the step is the issue tracker and, until then,
+// dropping the pack.
+func ShippedPackFix(name string) string {
+	return yoloBugNote("A problem in a pack that ships with yolo") + "\nUntil it is fixed, drop " +
+		name + " from `packs` in " + paths.UserConfigPath()
 }
 
 // keepOneNote is the next step for two selected packs claiming one name: the launch refuses the

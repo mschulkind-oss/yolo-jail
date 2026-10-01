@@ -771,6 +771,14 @@ func pkgManagerLauncher(bin, pkg, stampDir, receiptsPath string,
 	return r.Replace(pkgManagerLauncherTemplate)
 }
 
+// installFailedLine is the last line an agent launcher (npm or native) prints when its first-use
+// install left nothing to run. It used to end at "⚠ <name> not available", which reports the
+// failure and stops (docs/reference/happy-path-principle.md, rule 6). Neither launcher throttles
+// its cold install (the stamp throttles updates only), so the next run retries it, and the line
+// says so. The pnpm launcher does throttle a failed install, and says something else
+// (pkgManagerLauncherTemplate).
+const installFailedLine = `echo "  ⚠ $BIN not available: its install failed, above. Run $BIN again to retry the install." >&2`
+
 // stampMtimeFn is the `_stamp_mtime` helper every launcher template embeds, and it exists
 // because `stat -c %Y` is GNU-only.
 //
@@ -1453,7 +1461,7 @@ if [ -x "$REAL_BIN" ]; then
     _yolo_model_menu
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 else
-    echo "  ⚠ $BIN not available" >&2
+    ` + installFailedLine + `
     exit 1
 fi
 `
@@ -2100,7 +2108,7 @@ if [ -x "$REAL_BIN" ]; then
     _yolo_model_menu
     exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 else
-    echo "  ⚠ $BIN not available" >&2
+    ` + installFailedLine + `
     exit 1
 fi
 `
@@ -2170,7 +2178,16 @@ if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 else
-    echo "  ⚠ $BIN not available" >&2
+    # THE THROTTLE DECIDES WHAT THE NEXT STEP IS. Unlike the agent launchers, a failed install
+    # here is retried only RETRY_INTERVAL after the last attempt, so "run it again" would be
+    # false for the next hour: the line says when a run retries, and the command that retries
+    # now, which removes the stamp the throttle reads.
+    if [ "${SHOULD_INSTALL:-0}" = "1" ]; then
+        echo "  ⚠ $BIN not available: its install failed, above. A run of $BIN $((RETRY_INTERVAL / 60)) minutes from now retries it." >&2
+    else
+        echo "  ⚠ $BIN not available: its install failed less than $((RETRY_INTERVAL / 60)) minutes ago, so this run did not try again." >&2
+    fi
+    echo "    To retry the install now: rm -f $(printf '%q' "$STAMP") && $(printf '%q' "$BIN")" >&2
     exit 1
 fi
 `
