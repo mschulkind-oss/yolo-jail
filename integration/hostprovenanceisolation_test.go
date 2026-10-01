@@ -3,6 +3,7 @@ package integration
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
@@ -38,6 +39,17 @@ var claudeSettingsSurface = manifest.Surface{Agent: "claude", Name: "settings", 
 // test's own launches wrote. machineHome's tree is only read, never written.
 func privateHostProvenance(t *testing.T, home, machineHome string) {
 	t.Helper()
+	privateStateEntries(t, home, machineHome,
+		filepath.Base(render.Host(home, nil, render.OwnershipUnstated).ProvenanceDir()))
+}
+
+// privateStateEntries is privateHostProvenance for any set of the state dir's top-level
+// entries: home's link to the machine's state dir becomes a private directory linking back
+// every entry except those named in hidden, which this home then has none of until a test or a
+// launch makes its own. The Apple Container login-seed experiment hides `home`, the machine
+// store that holds the seed (paths.GlobalHome), so the seed it plants is never the machine's.
+func privateStateEntries(t *testing.T, home, machineHome string, hidden ...string) {
+	t.Helper()
 	store := paths.GlobalStorageUnder(home)
 	fi, err := os.Lstat(store)
 	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -58,9 +70,8 @@ func privateHostProvenance(t *testing.T, home, machineHome string) {
 	// launch wrote with modes RemoveAll cannot unlink through. WalkDir does not follow the
 	// links, so nothing of the machine's is chmod'd or removed.
 	t.Cleanup(func() { removeWorkspaceTree(t, store) })
-	hidden := filepath.Base(render.Host(home, nil, render.OwnershipUnstated).ProvenanceDir())
 	for _, e := range entries {
-		if e.Name() == hidden {
+		if slices.Contains(hidden, e.Name()) {
 			continue
 		}
 		if err := os.Symlink(filepath.Join(machineStore, e.Name()), filepath.Join(store, e.Name())); err != nil {
