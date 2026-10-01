@@ -35,10 +35,11 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 	}
 	fs := flag.NewFlagSet("openai-auth-client "+action, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	var codexAuth, piAuth, importFrom, hostSocket string
+	var codexAuth, piAuth, opencodeAuth, importFrom, hostSocket string
 	if action == "token" || action == "login" {
 		fs.StringVar(&codexAuth, "codex-auth", "", "atomically write a Codex auth.json view")
 		fs.StringVar(&piAuth, "pi-auth", "", "atomically merge a Pi auth.json view")
+		fs.StringVar(&opencodeAuth, "opencode-auth", "", "atomically merge an opencode auth.json view")
 	}
 	if hostOnlyAction(action) {
 		// --host-socket, because a machine-wide mutation must NAME its door. The env var is
@@ -60,8 +61,8 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stderr, "openai-auth-client %s: unexpected arguments: %v\n", action, fs.Args())
 		return 2
 	}
-	if codexAuth != "" && piAuth != "" {
-		fmt.Fprintln(stderr, "openai-auth-client: --codex-auth and --pi-auth are mutually exclusive")
+	if views := nonEmpty(codexAuth, piAuth, opencodeAuth); views > 1 {
+		fmt.Fprintln(stderr, "openai-auth-client: --codex-auth, --pi-auth and --opencode-auth are mutually exclusive")
 		return 2
 	}
 	request := map[string]any{"action": action}
@@ -129,6 +130,12 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			return 1
 		}
 		response, _ = json.Marshal(map[string]any{"auth_path": piAuth})
+	} else if opencodeAuth != "" {
+		if err := WriteOpencodeAuth(opencodeAuth, response); err != nil {
+			fmt.Fprintln(stderr, "openai-auth-client:", err)
+			return 1
+		}
+		response, _ = json.Marshal(map[string]any{"auth_path": opencodeAuth})
 	}
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, response); err != nil {
@@ -141,4 +148,15 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return 1
 	}
 	return 0
+}
+
+// nonEmpty counts the values that are set.
+func nonEmpty(values ...string) int {
+	n := 0
+	for _, v := range values {
+		if v != "" {
+			n++
+		}
+	}
+	return n
 }

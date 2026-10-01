@@ -130,9 +130,9 @@ type ViaPointer struct {
 // for this agent: its config is what it would be without via.
 //
 // It exists because a profile's `via` is an input to a derive, not an instruction to it.
-// Each derive decides for itself which provider rows ride ctx.via_url: pi and oh-omp skip
-// `openai-codex`, their built-in subscription client, and codex writes a row only for a
-// provider it can reach at all, while opencode re-points whatever provider is selected.
+// Each derive decides for itself which provider rows ride ctx.via_url: pi, oh-omp and opencode
+// skip `openai-codex`, their built-in subscription client, and codex writes a row only for a
+// provider it can reach at all, while opencode re-points every other selected provider.
 // No declaration states those rules, so the launch's via-route gate
 // (wirebridged.ViaRouteGate) asks the derives, the one place they live, instead of
 // refusing on a guess from the manifests.

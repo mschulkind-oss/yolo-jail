@@ -32,8 +32,8 @@ structural facts, not guessable from a manifest:
 
 - `openai-auth` declares the `openai-codex` PROVIDER (its capabilities, its Responses endpoint and
   the subscription's ONE model list — no credential pointer) rather than an agent pack owning it,
-  because `claude`, `codex` and `pi` each ship a `codex` profile selecting it and all `needs` it.
-  Every consumer renders that list, so a model is added there and nowhere else
+  because `claude`, `codex`, `opencode` and `pi` each ship a `codex` profile selecting it and all
+  `needs` it. Every consumer renders that list, so a model is added there and nowhere else
   ([ML-D1](docs/design/model-lists-and-pickers.md#ML-D1)).
 - `wire-bridge` is the only `kind: "service"` pack — one in-jail daemon and its endpoint file, joined to a
   launch by any SELECTED pack whose `needs` names it. `packs/claude` names it UNCONDITIONALLY, so a bare

@@ -1,4 +1,4 @@
-// Package openaiauthhost prepares managed host Codex and Pi launches that use
+// Package openaiauthhost prepares managed host Codex, Pi and opencode launches that use
 // yolo's machine-wide OpenAI subscription credential service.
 package openaiauthhost
 
@@ -93,8 +93,9 @@ func PrelaunchVar(bin, field string) string {
 // The view flags the credential client writes (`yolo internal openai-auth-client token`), which
 // a pack's prelaunch FLAG names. At the host each is served its own way (prepare).
 const (
-	CodexViewFlag = "--codex-auth"
-	PiViewFlag    = "--pi-auth"
+	CodexViewFlag    = "--codex-auth"
+	PiViewFlag       = "--pi-auth"
+	OpencodeViewFlag = "--opencode-auth"
 )
 
 // Prelaunch is the declarative OpenAI prelaunch one host launch carries: what the launched
@@ -137,19 +138,21 @@ func Prepare(p Prelaunch, stderr io.Writer) (*Launch, error) {
 //   - A LOGIN ONLY AT A TERMINAL. With no login and no terminal, it says what is missing and
 //     lets the command run without the credential, in the jail launcher's words: a browser
 //     login nobody can open only hangs, and plenty of invocations need no credential at all.
-//   - THE VIEW, served the host's way: the pi view is the host credential socket its extension
-//     reads (a jail writes pi's auth file into the jail's home instead; at the host that file is
-//     the user's own), the codex view a managed CODEX_HOME keyed on the declaring pack, with its
-//     refresh adapter. A login-only prelaunch proves the login and writes nothing.
+//   - THE VIEW, served the host's way: the pi and opencode views are the host credential socket
+//     their yolo extension and plugin read (a jail writes each one's auth file into the jail's
+//     home instead; at the host that file is the user's own, and opencode's plugin offers the
+//     shared login in its /connect so the user stores the view themselves), the codex view a
+//     managed CODEX_HOME keyed on the declaring pack, with its refresh adapter. A login-only
+//     prelaunch proves the login and writes nothing.
 func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 	if !p.Declared() {
 		return nil, nil
 	}
 	switch p.Flag {
-	case "", CodexViewFlag, PiViewFlag:
+	case "", CodexViewFlag, PiViewFlag, OpencodeViewFlag:
 	default:
-		return nil, fmt.Errorf("%s: the host serves no OpenAI view %q (it serves %s and %s)",
-			p.Bin, p.Flag, CodexViewFlag, PiViewFlag)
+		return nil, fmt.Errorf("%s: the host serves no OpenAI view %q (it serves %s, %s and %s)",
+			p.Bin, p.Flag, CodexViewFlag, PiViewFlag, OpencodeViewFlag)
 	}
 	socket, err := d.ensure(stderr)
 	if err != nil {
@@ -162,7 +165,7 @@ func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 	switch p.Flag {
 	case "":
 		return nil, nil
-	case PiViewFlag:
+	case PiViewFlag, OpencodeViewFlag:
 		return &Launch{vars: map[string]string{openauthclient.HostSocketEnv: socket}}, nil
 	}
 	launch := &Launch{vars: map[string]string{openauthclient.HostSocketEnv: socket}}

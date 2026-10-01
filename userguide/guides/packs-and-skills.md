@@ -54,8 +54,8 @@ your host's login.
 **Habits.** `guardrails` makes recursive `grep` and `find` refuse and point at `rg` and `fd`.
 [Packages and Tools](packages-and-tools.md#blocked-tools) covers blocking tools.
 
-Some packs bring others with them. The `claude`, `codex` and `pi` packs bring `openai-auth`, the
-shared ChatGPT login service, and `claude` also brings `aws-auth` and `wire-bridge`. The launch
+Some packs bring others with them. The `claude`, `codex`, `opencode` and `pi` packs bring
+`openai-auth`, the shared ChatGPT login service, and `claude` also brings `aws-auth` and `wire-bridge`. The launch
 prints the full set it resolved, so what you see there can be longer than what you typed.
 
 ### Packs from elsewhere

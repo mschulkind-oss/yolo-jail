@@ -156,9 +156,12 @@ Two more come with the agent packs, with no extra pack to add:
   `-p` that fixes it; yolo leaves a key you wrote alone. `yolo host apply` writes that key itself
   while your host selection puts Claude Code on Bedrock, and removes it again once the selection
   moves off Bedrock; until then the line says the key is yolo's.
-- **`codex`**, in the `claude`, `codex` and `pi` packs: your ChatGPT subscription, through yolo's
-  shared OpenAI login. `codex` and `pi` use this login by default; `yolo -p codex -- claude` runs
-  Claude Code against it. See [Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi).
+- **`codex`**, in the `claude`, `codex`, `opencode` and `pi` packs: your ChatGPT subscription,
+  through yolo's shared OpenAI login. `codex` and `pi` use this login by default;
+  `yolo -p codex -- claude` runs Claude Code against it, and `yolo -p codex -- opencode` runs
+  opencode on it through opencode's own ChatGPT support. A bare `-p codex` with all four packs
+  selected puts every one of them on the subscription. See
+  [Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi).
 
 OpenRouter and Kilo ship no model list, because their catalogs change too quickly. Name the models
 you want in your user config and make profiles for them:
@@ -320,6 +323,11 @@ Codex reads that from its own config, which `yolo host apply` writes for the pro
 names. So a `-p` naming another provider than that one leaves Codex's usual menu in place, and
 yolo says why each time. To use yolo's menu at the host, set `profile` for Codex in your config
 and run `yolo host apply`.
+
+opencode on your ChatGPT subscription (`yolo -p codex -- opencode`) shows the same models in
+`/models`, with the 1M-context variants as models of their own, and runs no other one there while
+the profile's `enforce_models` is on; with it off, opencode also shows the rest of its own OpenAI
+models. It starts on the list's first model each time.
 
 pi shows the same models for your ChatGPT subscription and runs no other one there, as Claude
 Code does. A model typed with `pi --model` stops with an error naming the list, and a session you

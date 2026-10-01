@@ -751,9 +751,9 @@ to the bridge ([WG-I15](#WG-I15)).
     whatever client sends it, and the launch refuses a selection it knows it cannot honor
     (`checkProfileDeclarations`' rule). No hatch, because the remedy is a config line. It applies
     only to a via agent whose via URL is non-empty and whose config the via re-points
-    ([WG-I15](#WG-I15)). So a via over `openai-codex` refuses opencode, whose derive re-points the
-    selected provider whatever it is, and not pi, oh-omp or codex, which keep the subscription on
-    their own client. claude and copilot prefer `anthropic`, agy declares no protocols, none of
+    ([WG-I15](#WG-I15)). So a via over `openai-codex` refuses no shipped agent: pi, oh-omp, codex
+    and opencode keep the subscription on their own client. opencode has since 2026-10-01; until
+    then its derive re-pointed the selected provider whatever it was, and such a via refused it. claude and copilot prefer `anthropic`, agy declares no protocols, none of
     their derives read the via URL, and a via on their profile is neither refused nor disclosed.
     Before it, a provider offering neither wire still gave the agent `ctx.via_url`, and the agent
     met the failure at its first request, recorded only in the daemon's log.
@@ -781,7 +781,7 @@ to the bridge ([WG-I15](#WG-I15)).
     **Why the derives:** a profile's `via` is an input to a derive, not an instruction to it, and
     each derive decides which rows ride it. pi and oh-omp keep `openai-codex` on their own client,
     codex writes a row only for a provider it can reach, and opencode re-points whatever provider
-    is selected. No declaration states those rules, so a gate reading only manifests refused
+    is selected but `openai-codex`, which it too keeps on its own client (since 2026-10-01). No declaration states those rules, so a gate reading only manifests refused
     launches that worked: pi, oh-omp and codex on a via over `openai-codex`, and warned codex of
     404s on a chat-only provider it never sends to. **Why disclose:** the launch the user gets is
     the launch without via, which works, so a refusal would stop a working jail. The notice says

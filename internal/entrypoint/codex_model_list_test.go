@@ -4,7 +4,8 @@ package entrypoint
 // (docs/design/model-lists-and-pickers.md ML-D1): packs/openai-auth/pack.json declares it on
 // the provider, and every consumer renders it — claude's picker and allowlist, claude's
 // launch env, pi's selection and pi-subagents' scope, the data file pi's extension
-// registers, codex's model. The maintainer's report (2026-09-27) was that two hand-kept
+// registers, codex's model, opencode's selection and the rows and whitelist on its own `openai`
+// provider. The maintainer's report (2026-09-27) was that two hand-kept
 // lists had drifted apart; the test that keeps them together is this one.
 //
 // Every consumer is driven through its PRODUCTION call site — the boot render
@@ -198,6 +199,7 @@ type codexConsumers struct {
 	piSettings      map[string]any
 	piModelsFile    map[string]any
 	codexModel      any
+	opencodeConfig  map[string]any
 }
 
 // piCodexModelsRel is the pi/codex-models surface's path, relative to HOME, read off the
@@ -225,7 +227,7 @@ func piCodexModelsRel(t *testing.T) string {
 
 func renderCodexConsumers(t *testing.T, user *jsonx.OrderedMap) (codexConsumers, *jsonx.OrderedMap) {
 	t.Helper()
-	packs := testPacksForAgent(t, "pi", "claude", "codex")
+	packs := testPacksForAgent(t, "pi", "claude", "codex", "opencode")
 	providers, err := packload.ComposeProviders(user, packs)
 	if err != nil {
 		t.Fatal(err)
@@ -265,12 +267,13 @@ func renderCodexConsumers(t *testing.T, user *jsonx.OrderedMap) (codexConsumers,
 		got.claudeEnv[v.Key] = v.Value
 	}
 
-	// pi settings and the extension's data file, through the boot render.
+	// pi settings and the extension's data file, and opencode's config, through the boot render.
 	r := newPioencodeRender(t, providersJSON)
 	r.wireProfiles(wire)
-	r.render(t, `{"pi":"codex"}`)
+	r.render(t, `{"pi":"codex","opencode":"codex"}`)
 	got.piSettings = r.piSettings(t)
 	got.piModelsFile = r.surface(t, strings.Split(piCodexModelsRel(t), "/")...)
+	got.opencodeConfig = r.ocConfig(t)
 
 	// codex, through the boot render.
 	codexCfg := renderCodexConfig(t, providersJSON, `{"codex":"codex"}`, wire)
@@ -284,8 +287,13 @@ func requireConsumersRender(t *testing.T, got codexConsumers, want []codexModel)
 	requireConsumersRenderTiers(t, got, want, nil)
 }
 
+// opencodeSmallModel is the tiers key for opencode's small model, which is no variable: the id an
+// alias moves opencode's `small_model` to.
+const opencodeSmallModel = "opencode small_model"
+
 // requireConsumersRenderTiers is requireConsumersRender for a table that names a tier alias:
-// tiers holds each claude tier variable the alias moves off the default entry, and its id.
+// tiers holds each claude tier variable the alias moves off the default entry, and its id, and
+// under opencodeSmallModel the id opencode's small model moves to.
 func requireConsumersRenderTiers(t *testing.T, got codexConsumers, want []codexModel, tiers map[string]string) {
 	t.Helper()
 	if len(want) == 0 {
@@ -327,7 +335,9 @@ func requireConsumersRenderTiers(t *testing.T, got codexConsumers, want []codexM
 		wantEnv["ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION"] = first.Description + " (default)"
 	}
 	for k, v := range tiers {
-		wantEnv[k] = v
+		if k != opencodeSmallModel {
+			wantEnv[k] = v
+		}
 	}
 	for k, v := range wantEnv {
 		if got.claudeEnv[k] != v {
@@ -384,6 +394,44 @@ func requireConsumersRenderTiers(t *testing.T, got codexConsumers, want []codexM
 
 	if got.codexModel != first.ID {
 		t.Errorf("codex config model = %v, want %s", got.codexModel, first.ID)
+	}
+
+	// opencode: its own `openai` provider (opencode's built-in ChatGPT client) carries the list as
+	// rows, the menu is exactly the list (the whitelist, the switch being on), and the session
+	// starts on the list's default, the one codexDefault picks for every consumer.
+	oc := got.opencodeConfig
+	small := first.ID
+	if id, moved := tiers[opencodeSmallModel]; moved {
+		small = id
+	}
+	if oc["model"] != "openai/"+first.ID || oc["small_model"] != "openai/"+small {
+		t.Errorf("opencode model = %v, small_model = %v, want openai/%s and openai/%s",
+			oc["model"], oc["small_model"], first.ID, small)
+	}
+	rows, _ := oc["provider"].(map[string]any)
+	row, _ := rows["openai"].(map[string]any)
+	models, _ := row["models"].(map[string]any)
+	var wantIDs []string
+	for _, m := range want {
+		wantIDs = append(wantIDs, m.ID)
+		entry, _ := models[m.ID].(map[string]any)
+		if entry == nil {
+			t.Errorf("opencode's openai row has no %s: %v", m.ID, models)
+			continue
+		}
+		if m.Name != "" && entry["name"] != m.Name {
+			t.Errorf("opencode's %s is named %v, want %q", m.ID, entry["name"], m.Name)
+		}
+		if m.Base != "" && entry["id"] != m.Base {
+			t.Errorf("opencode's %s sends model id %v, want its base %s", m.ID, entry["id"], m.Base)
+		}
+	}
+	if len(models) != len(want) {
+		t.Errorf("opencode's openai row has %d models, want the list's %d: %v", len(models), len(want), models)
+	}
+	sort.Strings(wantIDs)
+	if got := strs(row["whitelist"]); !reflect.DeepEqual(got, wantIDs) {
+		t.Errorf("opencode's openai whitelist = %v, want the list's ids %v", got, wantIDs)
 	}
 }
 
@@ -523,21 +571,23 @@ func TestAnAliasForADeclaredCodexIDChangesNoConsumer(t *testing.T) {
 		t.Fatalf("the Go statement of the rule expands the aliased table to %v, want %v", list, want)
 	}
 	// `fast` is also the haiku tier's conventional alias (MM-D17), so claude's haiku tier follows
-	// it: the one thing that alias is meant to move. The list, its order, its names and every
+	// it, and so does opencode's small model, by the same alias rule its other providers follow:
+	// the one thing that alias is meant to move. The list, its order, its names and every
 	// agent's default stay where the declaration put them.
-	requireConsumersRenderTiers(t, got, want, map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-6-luna"})
+	requireConsumersRenderTiers(t, got, want, map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-6-luna",
+		opencodeSmallModel: "gpt-6-luna"})
 	if ids := runExtensionRegisteredIDs(t, got.piModelsFile); !reflect.DeepEqual(ids, codexIDs(want, "")) {
 		t.Errorf("the pi extension registers %v, want %v", ids, codexIDs(want, ""))
 	}
 }
 
-// THE HELPER IS ONE TEXT IN THREE FILES. A derive cannot load another file, so
+// THE HELPER IS ONE TEXT IN FOUR FILES. A derive cannot load another file, so
 // codexModelList and codexDefault are copied into each consumer's derive.lua; a copy edited
 // alone is exactly the drift this list exists to end, so every copy must be byte-identical.
 func TestCodexModelListHelperIsIdenticalInEveryDerive(t *testing.T) {
 	helper := regexp.MustCompile(`(?s)-- THE openai-codex MODEL LIST\..*?\nlocal function codexDefault\(list, profile\)\n.*?\nend\n`)
 	var first, firstPack string
-	for _, pack := range []string{"claude", "pi", "codex"} {
+	for _, pack := range []string{"claude", "pi", "codex", "opencode"} {
 		p, err := embeddedPack(pack)
 		if err != nil {
 			t.Fatal(err)

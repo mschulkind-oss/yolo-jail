@@ -25,7 +25,9 @@ import (
 //   - claude   reads `p.endpoints.anthropic` and nothing else.
 //   - copilot  prefers `p.endpoints.anthropic`, falls back to `p.endpoints.openai` (D-3).
 //   - pi       prefers `prov.endpoints.openai`, then `openai-responses`.
-//   - opencode reads `prov.endpoints.openai`.
+//   - opencode prefers `prov.endpoints.openai` (its chat-completions SDK), then
+//     `openai-responses` (its Responses SDK); openai-codex, whose only own endpoint is
+//     `openai-responses`, it reaches through its own `openai` client by name instead.
 //   - oh-omp   walks {"openai", "anthropic"} in that stable preference order.
 //   - codex    prefers `prov.endpoints.openai-responses`, falls back to `prov.endpoints.openai`.
 //
@@ -36,7 +38,7 @@ var shippedProtocols = map[string][]string{
 	"claude":   {"anthropic"},
 	"copilot":  {"anthropic", "openai"},
 	"pi":       {"openai", "openai-responses"},
-	"opencode": {"openai"},
+	"opencode": {"openai", "openai-responses"},
 	"oh-omp":   {"openai", "anthropic"},
 	"codex":    {"openai-responses", "openai"},
 	"agy":      nil,

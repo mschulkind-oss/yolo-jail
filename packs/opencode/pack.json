@@ -17,7 +17,8 @@
         }
       ],
       "protocols": [
-        "openai"
+        "openai",
+        "openai-responses"
       ],
       "provider_sets": true,
       "via": "npm"
@@ -35,8 +36,18 @@
       "project_dirs": [".opencode/skills", ".claude/skills", ".agents/skills"]
     },
     {
+      "kind": "profile",
+      "name": "codex",
+      "provider": "openai-codex"
+    },
+    {
       "from": "footer/yolo-footer.js",
       "into": ".config/opencode/yolo/footer.js",
+      "kind": "files"
+    },
+    {
+      "from": "plugins/yolo-openai-auth.js",
+      "into": ".config/opencode/plugins/yolo-openai-auth.js",
       "kind": "files"
     },
     {
@@ -104,6 +115,9 @@
   "needs": [
     {
       "pack": "bedrock"
+    },
+    {
+      "pack": "openai-auth"
     }
   ]
 }

@@ -359,6 +359,19 @@ Container 1.1.0 or later; on `macos-user` and older Apple Container the launch s
 delivered yet. See
 [Run your own fork of a program](userguide/guides/packs-and-skills.md#run-your-own-fork-of-a-program).
 
+**opencode can now run on your ChatGPT subscription, on the same shared login as Codex and pi.**
+`yolo -p codex -- opencode` puts opencode on it through opencode's own ChatGPT support, and a bare
+`-p codex` with the `opencode` pack selected no longer refuses the whole launch with "this launch
+cannot point opencode at it". The first launch without a login prints the browser link once for
+the whole machine, as Codex and pi do, and yolo hands opencode the shared login's current token,
+so opencode never refreshes the login itself and cannot use up the refresh Codex and pi share.
+opencode's `/models` shows the models yolo lists for the subscription, the ones Claude Code, Codex
+and pi show, including the 1M-context variants, and runs no other one there while the profile's
+`enforce_models` is on. Any other OpenAI login you make in opencode, its own ChatGPT login or an
+API key, stays opencode's. On your own machine, `yolo host -p codex -- opencode` offers the shared
+login as "ChatGPT Plus/Pro (yolo shared login)" in opencode's `/connect`. See
+[A shared ChatGPT login](userguide/guides/authentication.md#a-shared-chatgpt-login-for-codex-and-pi).
+
 ### Changed
 
 **A jail now lives while any terminal in it does.** Quitting the agent in the terminal that

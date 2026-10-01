@@ -1,21 +1,45 @@
 -- opencode: project the canonical MCP and provider entries into opencode's dialect.
 
--- The provider's URL for the protocol opencode speaks — `openai`, which is also what
--- packs/opencode declares in its `protocols` list. ONE spelling: the single-protocol
--- `base_url` shorthand is deleted (protocol-resolution.md), because the same bare field
--- meant `openai` here and `anthropic` in claude's derive. Total over non-tables so the call
--- site stays a one-line gate. Returns nil when the provider names no URL an openai-speaking
--- agent can use, which is what keeps the gate below honest: a provider whose only endpoint
--- speaks anthropic would otherwise emit an entry with no URL. opencode consumes no
--- wire_api, so only the URL comes back.
+-- The provider's URL for a protocol opencode speaks, and which protocol it is: `openai` first,
+-- then `openai-responses`, the order packs/opencode declares in its `protocols` list. ONE
+-- spelling: the single-protocol `base_url` shorthand is deleted (protocol-resolution.md),
+-- because the same bare field meant `openai` here and `anthropic` in claude's derive. Total
+-- over non-tables so the call site stays a one-line gate. Returns nil when the provider names
+-- no URL opencode can use, which is what keeps the gate below honest: a provider whose only
+-- endpoint speaks anthropic would otherwise emit an entry with no URL. opencode consumes no
+-- wire_api; the endpoint's KEY picks the SDK (opencodeSDK).
 local function providerEndpoint(prov)
-  if type(prov) ~= "table" then return nil end
-  local ep = prov.endpoints and prov.endpoints.openai or nil
-  if type(ep) == "table" and ep.base_url then
-    return ep.base_url
+  if type(prov) ~= "table" or type(prov.endpoints) ~= "table" then return nil end
+  for _, protocol in ipairs({"openai", "openai-responses"}) do
+    local ep = prov.endpoints[protocol]
+    if type(ep) == "table" and ep.base_url then
+      return ep.base_url, protocol
+    end
   end
   return nil
 end
+
+-- THE SDK OPENCODE LOADS FOR EACH PROTOCOL IT SPEAKS, read from the opencode 1.18.34 binary
+-- the launcher installs (its bundled packages, never run): `@ai-sdk/openai-compatible`, whose
+-- language model is chat completions and which has no Responses model at all, for `openai`;
+-- `@ai-sdk/openai`, whose language model IS Responses (it posts to `<baseURL>/responses`), for
+-- `openai-responses`. A row's npm is what opencode builds its client from, so a Responses-only
+-- provider on the compatible SDK would send chat completions to an endpoint that serves none.
+local opencodeSDK = {
+  ["openai"] = "@ai-sdk/openai-compatible",
+  ["openai-responses"] = "@ai-sdk/openai",
+}
+
+-- THE ChatGPT SUBSCRIPTION (docs/design/model-lists-and-pickers.md ML-D1). yolo's provider is
+-- `openai-codex` (packs/openai-auth); opencode's is its own built-in `openai`, which its
+-- built-in ChatGPT login (CodexAuthPlugin, opencode 1.18.34) puts on the subscription whenever
+-- an `oauth` credential is stored under `openai`. That is opencode's NATIVE client for the
+-- provider, so it is never catalogued as a yolo row (docs/design/pi-codex-provider-shadowing.md
+-- OQ-1, OQ-2: recognized by name, as packs/pi and packs/codex do): no `npm`, no `baseURL`, no
+-- via row. yolo's own opencode plugin (plugins/yolo-openai-auth.js) hands that client the
+-- broker's access token, so opencode never refreshes the token itself.
+local opencodeCodexProvider = "openai-codex"
+local opencodeOpenAIProvider = "openai"
 
 local function isLocalEndpoint(url)
   if type(url) ~= "string" then return false end
@@ -37,6 +61,99 @@ end
 local function in_full(ctx, t)
   if ctx.in_full then return ctx.in_full(t) end
   return t
+end
+
+-- THE openai-codex MODEL LIST. codexModelList expands the one declaration of it — the
+-- `models` and `model_options` packs/openai-auth/pack.json ships on the openai-codex provider,
+-- with the user's `providers.openai-codex` merged over it — into the ordered list every
+-- consumer presents (docs/design/model-lists-and-pickers.md ML-D1). `p` is
+-- ctx.providers["openai-codex"]; anything without a `models` table expands to {}.
+--
+-- Each declared id is WIRE-TRUE. Its facts come from model_options under the alias spelled
+-- as the id: `order` (the map is unordered all the way here, so this is the only order there
+-- is; unordered ids go last, by id), `name`, `description`, `context_window`, and
+-- `long_context_window`, which means "this model also has a 1M variant". That variant is
+-- emitted right after its base as `<id>[1m]`, a CLIENT spelling Claude Code, packs/pi's
+-- extension and the wire bridge each strip before the request leaves, and opencode's row
+-- names by its base id.
+--
+-- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/codex/derive.lua,
+-- packs/opencode/derive.lua and packs/pi/derive.lua, because a derive cannot load another file
+-- (the sandbox has no require and no io). internal/entrypoint/codex_model_list_test.go fails
+-- when the copies differ, and when any consumer stops reading the declaration.
+local function codexModelList(p)
+  if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
+  local opts = type(p.model_options) == "table" and p.model_options or {}
+  local aliases = {}
+  for alias in pairs(p.models) do
+    if type(alias) == "string" then table.insert(aliases, alias) end
+  end
+  table.sort(aliases)
+  local function text(v)
+    if type(v) == "string" and v ~= "" then return v end
+    return nil
+  end
+  -- ONE ROW PER ID, and the alias spelled as the id carries its facts. Another alias naming
+  -- the same id (a `default` or `fast` the user added) fills only a fact that row still
+  -- lacks, in sorted alias order, so adding one moves nothing. Both of those names sort
+  -- before every declared id, and a first-alias-wins walk handed the id the new alias's
+  -- facts, which are none (docs/design/model-lists-and-pickers.md ML-D6).
+  local rows, byId = {}, {}
+  local function absorb(id, alias)
+    local r = byId[id]
+    if not r then
+      r = { id = id }
+      byId[id] = r
+      table.insert(rows, r)
+    end
+    local f = type(opts[alias]) == "table" and opts[alias] or {}
+    if r.order == nil then r.order = tonumber(f.order) end
+    if r.name == nil then r.name = text(f.name) end
+    if r.description == nil then r.description = text(f.description) end
+    if r.context_window == nil then r.context_window = tonumber(f.context_window) end
+    if r.long_context_window == nil then r.long_context_window = tonumber(f.long_context_window) end
+  end
+  for _, alias in ipairs(aliases) do
+    if alias ~= "" and p.models[alias] == alias then absorb(alias, alias) end
+  end
+  for _, alias in ipairs(aliases) do
+    local id = p.models[alias]
+    if type(id) == "string" and id ~= "" and id ~= alias then absorb(id, alias) end
+  end
+  table.sort(rows, function(a, b)
+    if a.order and b.order and a.order ~= b.order then return a.order < b.order end
+    if a.order and not b.order then return true end
+    if b.order and not a.order then return false end
+    return a.id < b.id
+  end)
+  local list = {}
+  for _, r in ipairs(rows) do
+    table.insert(list, {
+      id = r.id,
+      name = r.name,
+      description = r.description,
+      context_window = r.context_window,
+    })
+    if r.long_context_window then
+      table.insert(list, {
+        id = r.id .. "[1m]",
+        base = r.id,
+        name = r.name and (r.name .. " (1M context)"),
+        description = r.description and (r.description .. " · 1M context"),
+        context_window = r.long_context_window,
+      })
+    end
+  end
+  return list
+end
+
+-- codexDefault is the model a codex-profile launch starts on, by ONE rule in every consumer:
+-- the profile's `model` option unless it is absent or "default", else the first declared id,
+-- which is always a base id. nil when the list is empty and the profile names nothing.
+local function codexDefault(list, profile)
+  local m = type(profile) == "table" and profile.model or nil
+  if type(m) == "string" and m ~= "" and m ~= "default" then return m end
+  return list[1] and list[1].id
 end
 
 -- THE MODELS OF A MULTI-MAKER PROVIDER THIS AGENT CAN CALL. callableModels expands a provider's
@@ -213,7 +330,9 @@ end
 
 -- opencodeSetProviders is `enabled_providers` for the active set: primary, the opencode provider
 -- id the start `model` names, first, then each later entry's id in set order, a Bedrock entry's
--- being amazon-bedrock, opencode's own client's (opencodeNativeBedrockEntry). opencode reads the
+-- being amazon-bedrock, opencode's own client's (opencodeNativeBedrockEntry), and an
+-- openai-codex entry's being `openai`, the built-in provider opencode's ChatGPT login rides
+-- (opencodeCodexRow). opencode reads the
 -- key as a filter, not a list: its 1.18.32 schema describes it as "When set, ONLY these providers
 -- will be enabled. All other providers will be ignored", and its provider loader keeps a provider
 -- only when the key's Set has it (both read from the installed binary's strings, never run). So
@@ -245,6 +364,8 @@ local function opencodeSetProviders(ctx, primary, rows)
       local id = e.provider
       if id ~= nil and id == bedrockName then
         id = opencodeBedrockProvider
+      elseif id == opencodeCodexProvider then
+        id = opencodeOpenAIProvider
       end
       local named = rows[id] ~= nil or
         (id == e.provider and opencodeFirstParty(ctx.providers and ctx.providers[id] or nil))
@@ -255,6 +376,73 @@ local function opencodeSetProviders(ctx, primary, rows)
     end
   end
   return out
+end
+
+-- opencodeSetHas says whether provider is the primary or any later entry of the active set: an
+-- entry opencode can switch to mid-session needs its row and its login as much as the primary
+-- does (docs/design/active-provider-sets.md AP-P1), the rule packs/pi's piSetHas states.
+local function opencodeSetHas(ctx, provider)
+  if ctx.selected_provider == provider then return true end
+  if type(ctx.active_set) == "table" then
+    for _, e in ipairs(ctx.active_set) do
+      if e.provider == provider then return true end
+    end
+  end
+  return false
+end
+
+-- A NON-KEY for opencode's `openai` SDK on the subscription. With yolo's credential stored, both
+-- opencode's own ChatGPT fetch and yolo's plugin drop the Authorization header and send the
+-- subscription's bearer, so this value is never sent. Without one (no login yet: the launcher
+-- said so and continued), opencode's `openai` provider would otherwise take an ambient
+-- OPENAI_API_KEY from the environment and send a ChatGPT-subscription request to the metered
+-- platform API on it, the subscription/platform-key crossing
+-- docs/design/pi-codex-provider-shadowing.md §1 forbids. A config `options.apiKey` outranks the
+-- environment's key in opencode's SDK options (provider.ts resolveSDK, 1.18.34), so the request
+-- fails instead, and the variable stays in the environment for every tool opencode runs.
+local opencodeCodexNoKey = "yolo-chatgpt-subscription-needs-the-shared-login"
+
+-- opencodeCodexModels is the subscription's ONE list (codexModelList's, ML-D1) as rows of
+-- opencode's own `openai` provider: each entry keyed by the id the list spells, named by its
+-- `name` fact (MM-D7), at the window the list declares. A `[1m]` variant is its own row that
+-- names its base as the model id opencode sends (a config model's `id`), so the request carries
+-- the wire-true id and only the window differs. The window is both `context` and `input`:
+-- opencode's catalog gives these ids a 922,000-token input limit, and its compaction budgets
+-- by `input` when one is set. `output` is required beside them by opencode's config schema, and
+-- 0 is opencode's own "not stated" (its maxOutputTokens reads 0 as its 32,000 cap, and its own
+-- ChatGPT plugin sends no output limit at all); the list declares none. An entry without a
+-- window (a user's added id) carries none, so opencode's catalog answers for it.
+local function opencodeCodexModels(list)
+  local models = {}
+  for _, e in ipairs(list) do
+    local m = { name = e.name }
+    if e.base then m.id = e.base end
+    if e.context_window then
+      m.limit = { context = e.context_window, input = e.context_window, output = 0 }
+    end
+    models[e.id] = m
+  end
+  return models
+end
+
+-- opencodeCodexRow is `provider.openai` while openai-codex is in the active set: the list's rows,
+-- the non-key above, and, while the profile's switch is on (enforce_models, MM-D5), the
+-- `whitelist` that makes the menu exactly the list, the one lever opencode has (MM-D7): its
+-- catalog's `openai` models stay beside config rows otherwise, and its ChatGPT login keeps more
+-- of them than the subscription list names. No `npm`, no `baseURL`: opencode's own client and
+-- address answer, as for its own Bedrock client above.
+local function opencodeCodexRow(ctx, p)
+  local entry = {
+    models = opencodeCodexModels(codexModelList(p)),
+    options = { apiKey = opencodeCodexNoKey },
+  }
+  if opencodeEnforceFor(ctx, opencodeCodexProvider) ~= false and next(entry.models) ~= nil then
+    local ids = {}
+    for id in pairs(entry.models) do table.insert(ids, id) end
+    table.sort(ids)
+    entry.whitelist = ids
+  end
+  return entry
 end
 
 -- opencodeBedrockModels is the `models` table of the native row: each entry opencode can call,
@@ -327,14 +515,19 @@ yolo.derive("opencode", "config", function(ctx)
   local provOut = {}
   if ctx.providers and next(ctx.providers) ~= nil then
     for name, prov in pairs(ctx.providers) do
-      local baseUrl = providerEndpoint(prov)
+      local baseUrl, protocol = providerEndpoint(prov)
       -- VIA (docs/design/wire-bridge-gateway.md OQ-WG6/WG7): the selected provider's entry
-      -- points at this agent's route on the service its profile names. opencode already speaks
-      -- chat-completions to every provider here (@ai-sdk/openai-compatible), the protocol the
-      -- via route passes through to the provider's own `openai` endpoint.
+      -- points at this agent's route on the service its profile names. opencode speaks
+      -- chat-completions there (@ai-sdk/openai-compatible), its first declared protocol and the
+      -- one the via route passes through to the provider's own `openai` endpoint.
       local viaRow = (ctx.via_url ~= nil and ctx.via_url ~= "" and name == ctx.selected_provider)
       if viaRow then
-        baseUrl = ctx.via_url
+        baseUrl, protocol = ctx.via_url, "openai"
+      end
+      -- openai-codex IS NEVER A ROW, a via one included (opencodeCodexProvider above): opencode
+      -- reaches it through its own `openai` client, the native row below.
+      if name == opencodeCodexProvider then
+        baseUrl = nil
       end
       -- A BEDROCK PROVIDER GETS NO GENERIC ROW, even one a user gave an `openai` endpoint: the
       -- row speaks @ai-sdk/openai-compatible with one key, and Bedrock's credential is the AWS
@@ -375,7 +568,7 @@ yolo.derive("opencode", "config", function(ctx)
         -- upstream reads. `{env:VAR}` stays valid under options — substitution applies to
         -- the whole config text at load, before the schema ever sees it.
         local entry = {
-          npm = "@ai-sdk/openai-compatible",
+          npm = opencodeSDK[protocol] or opencodeSDK.openai,
           models = models,
         }
         entry.options = { baseURL = baseUrl }
@@ -443,6 +636,13 @@ yolo.derive("opencode", "config", function(ctx)
       end
       provOut[opencodeBedrockProvider] = entry
     end
+    -- The subscription's native row (opencodeCodexRow), whenever openai-codex is in the set, so
+    -- opencode on [zai, codex] can switch to it mid-session. It owns opencode's `openai` id
+    -- outright: a yolo provider of that name cannot share it, and its generic row would put
+    -- the subscription on another SDK and address.
+    if opencodeSetHas(ctx, opencodeCodexProvider) and type(ctx.providers[opencodeCodexProvider]) == "table" then
+      provOut[opencodeOpenAIProvider] = opencodeCodexRow(ctx, ctx.providers[opencodeCodexProvider])
+    end
     if next(provOut) ~= nil then
       res.provider = in_full(ctx, provOut)
     end
@@ -507,6 +707,27 @@ yolo.derive("opencode", "config", function(ctx)
         sel.small_model = qualified
       end
       res.selection = sel
+    elseif ctx.selected_provider == opencodeCodexProvider then
+      -- The subscription through opencode's own `openai` client (opencodeCodexRow): the model
+      -- codexDefault picks, the ONE rule every codex consumer shares, so opencode starts where
+      -- claude, codex and pi do; the small model by the alias rule the generic branch below
+      -- follows, which the shipped list (no `fast` alias) answers with the same model. Never
+      -- the generic branch, which would name `openai-codex/<id>`, a provider opencode has no row
+      -- of. No row (the table holds no openai-codex entry, which the launch refuses first)
+      -- writes nothing, OQ-CS2's guard.
+      if provOut[opencodeOpenAIProvider] ~= nil then
+        local model = codexDefault(codexModelList(p), ctx.profile)
+        local sel = { enabled_providers = opencodeSetProviders(ctx, opencodeOpenAIProvider, provOut) }
+        if model then
+          sel.model = opencodeOpenAIProvider .. "/" .. model
+          local models = type(p) == "table" and type(p.models) == "table" and p.models or {}
+          local smallAlias = ctx.profile and ctx.profile.small_model
+          local small = (smallAlias and (models[smallAlias] or smallAlias)) or
+            models.haiku or models.fast or models.small or model
+          sel.small_model = opencodeOpenAIProvider .. "/" .. small
+        end
+        res.selection = sel
+      end
     elseif providerEndpoint(p) then
       local alias = (ctx.profile and ctx.profile.model) or "default"
       local modelID = nil
@@ -572,4 +793,31 @@ yolo.derive("opencode", "config", function(ctx)
   end
 
   return res
+end)
+
+-- env: the environment opencode's own process launches with, run host-side by the env runner
+-- (packload.AgentEnv) and delivered in opencode's own env file. One fact: THE OPENAI LOGIN
+-- PRELAUNCH. opencode's launcher reads YOLO_AUTH_PRELAUNCH_OPENCODE_FLAG/_PATH before it execs
+-- opencode, and writes the shared OpenAI login's view into opencode's auth file (the jail's
+-- launcher, entrypoint's agentAuthPrelaunchShellFn), or hands opencode the host credential socket
+-- (`yolo host`, internal/openaiauthhost). The view is the `oauth` credential opencode's built-in
+-- ChatGPT support keys on, with the broker's generation marker as its refresh value, and
+-- plugins/yolo-openai-auth.js serves every request from the broker, so opencode never holds or
+-- spends the refresh token (docs/design/openai-auth-broker.md OQ-OA2).
+--
+-- The path is where opencode's Auth store reads with XDG_DATA_HOME unset, which yolo never sets
+-- for an agent: $XDG_DATA_HOME/opencode/auth.json, else ~/.local/share/opencode/auth.json
+-- (src/auth/index.ts, opencode 1.18.34). An XDG_DATA_HOME of the user's own moves opencode's
+-- store away from the view, and the launch then writes a file opencode does not read.
+--
+-- Keyed on the PROVIDER, never on the profile's name (docs/design/providers-and-profiles-redesign.md
+-- OQ-BR8, PP-D2), and wanted when openai-codex is ANY entry of the active set (AP-P1), packs/pi's
+-- rule: opencode on [zai, codex] can switch to the subscription mid-session.
+yolo.env("opencode", function(ctx)
+  local env = {}
+  if opencodeSetHas(ctx, opencodeCodexProvider) then
+    env.YOLO_AUTH_PRELAUNCH_OPENCODE_FLAG = "--opencode-auth"
+    env.YOLO_AUTH_PRELAUNCH_OPENCODE_PATH = ".local/share/opencode/auth.json"
+  end
+  return env
 end)

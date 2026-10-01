@@ -353,12 +353,13 @@ end
 -- is; unordered ids go last, by id), `name`, `description`, `context_window`, and
 -- `long_context_window`, which means "this model also has a 1M variant". That variant is
 -- emitted right after its base as `<id>[1m]`, a CLIENT spelling Claude Code, packs/pi's
--- extension and the wire bridge each strip before the request leaves.
+-- extension and the wire bridge each strip before the request leaves, and opencode's row
+-- names by its base id.
 --
--- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/pi/derive.lua and
--- packs/codex/derive.lua, because a derive cannot load another file (the sandbox has no
--- require and no io). internal/entrypoint/codex_model_list_test.go fails when the copies
--- differ, and when any consumer stops reading the declaration.
+-- ⚠ DUPLICATED VERBATIM in packs/claude/derive.lua, packs/codex/derive.lua,
+-- packs/opencode/derive.lua and packs/pi/derive.lua, because a derive cannot load another file
+-- (the sandbox has no require and no io). internal/entrypoint/codex_model_list_test.go fails
+-- when the copies differ, and when any consumer stops reading the declaration.
 local function codexModelList(p)
   if type(p) ~= "table" or type(p.models) ~= "table" then return {} end
   local opts = type(p.model_options) == "table" and p.model_options or {}

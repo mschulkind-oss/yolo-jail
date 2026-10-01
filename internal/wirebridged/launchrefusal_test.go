@@ -282,22 +282,21 @@ func shippedGate(t *testing.T, provider string, agents ...string) ([]error, []st
 	return ViaRouteGate(packs, providers, use, resolved)
 }
 
-// TestShippedSubscriptionViaRefusesOnlyTheAgentItRepoints: a via over openai-codex. pi,
-// oh-omp and codex implement the subscription natively and their derives never re-point it,
-// so the via has no effect on them and their launches start. opencode's derive re-points the
-// selected provider whatever it is, so opencode would be sent to a prefix nothing serves, and
-// only opencode is refused.
-func TestShippedSubscriptionViaRefusesOnlyTheAgentItRepoints(t *testing.T) {
+// TestShippedSubscriptionViaRepointsNoAgent: a via over openai-codex. pi, oh-omp, codex and
+// opencode each implement the subscription natively (opencode through its own `openai` client
+// and ChatGPT login), so no derive re-points it: the via has no effect on any of them, every
+// launch starts, and each is told so. opencode was the one refused until its derive stopped
+// cataloguing openai-codex (docs/design/pi-codex-provider-shadowing.md OQ-2), because a via row
+// sent it to a prefix nothing serves.
+func TestShippedSubscriptionViaRepointsNoAgent(t *testing.T) {
 	refusals, notices := shippedGate(t, "openai-codex", "pi", "oh-omp", "codex", "opencode")
-	if len(refusals) != 1 {
-		t.Fatalf("refusals %v, want exactly opencode's", refusals)
+	if len(refusals) != 0 {
+		t.Fatalf("refusals %v, want none: every agent here keeps its own subscription client", refusals)
 	}
-	wantAll(t, "opencode refusal", refusals[0].Error(), "(active for opencode)", "ChatGPT subscription")
 	joined := strings.Join(notices, "\n")
-	for _, agent := range []string{"pi", "oh-omp", "codex"} {
+	for _, agent := range []string{"pi", "oh-omp", "codex", "opencode"} {
 		wantAll(t, agent+" notice", joined, "(active for "+agent+")", "has no effect on "+agent)
 	}
-	wantNone(t, "native agents' notices", joined, "(active for opencode)")
 }
 
 // TestShippedClaudeOnABridgedBedrockProfileRidesTheAdapterRoute: claude prefers `anthropic`, which

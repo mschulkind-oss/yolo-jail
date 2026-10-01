@@ -45,6 +45,8 @@ covers:
   - packs/aws-auth/pack.json
   - packs/openai-auth/pack.json
   - packs/codex/pack.json
+  - packs/opencode/pack.json
+  - packs/opencode/plugins/yolo-openai-auth.js
 tags: [providers, profiles, packs, derives, selection, deselection, zai, cerebras, openrouter, kilo]
 ---
 
@@ -114,6 +116,20 @@ so none switched providers. opencode took a set on 2026-09-30
 ([AP-D15](../design/active-provider-sets.md#AP-D15)), MEASURED the same way: unit tests over its
 render, the jail's channel and `yolo host`, and two integration launches rendering its file for
 `-p opencode=zai,openrouter` and `-p opencode=zai,bedrock`; no opencode session was run.
+
+**opencode on the ChatGPT subscription is newest** (2026-10-01): packs/opencode ships a `codex`
+profile, declares `openai-responses`, and runs `openai-codex` on opencode's own `openai` client
+and ChatGPT support, with yolo's plugin handing that client the shared login's access token
+([selecting `openai-codex` for opencode](#selecting-openai-codex-for-opencode)). Until then a bare
+`-p codex` with opencode selected refused the whole launch, opencode speaking only chat
+completions. MEASURED: unit tests over the launch's channel composition, the boot render, the
+view writer, the host prelaunch and the shipped plugin under node with a fake `yolo`; a real
+`-p codex` launch of claude, codex, opencode and pi in a nested jail, which rendered opencode's
+file (`TestCodexProfileRendersOneModelListForEveryAgent`) and delivered the plugin to opencode's
+plugin directory; and `yolo host -p codex -- opencode` against a stand-in `opencode`. opencode's
+own behavior (its plugin loader, its auth store, its SDK choice) was read from the installed
+1.18.34 binary and upstream source, never run. UNMEASURED: no opencode session has sent a
+request on the subscription, and no login was made.
 
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
@@ -803,7 +819,7 @@ unverified assertion in a new location:
 | :--- | :--- | :--- |
 | codex | `openai-responses` → `responses` (the only value codex accepts) | **no entry at all** |
 | pi | `anthropic` → `anthropic-messages`; `openai-chat-completions` → `openai-completions`; `openai-responses` → `openai-responses` | no entry |
-| opencode | consumes no protocol field (URL only) | — |
+| opencode | no `wire_api`: the endpoint's key picks the SDK, `openai` → `@ai-sdk/openai-compatible` (chat completions), `openai-responses` → `@ai-sdk/openai` (Responses); `openai-codex` is never a row, its own `openai` client serves it | no entry |
 | omp | the same three spellings as pi | no entry |
 | claude | no config dialect; the env derive reads endpoints directly | composes nothing |
 | copilot | `anthropic` → `COPILOT_PROVIDER_TYPE=anthropic`; `openai-chat-completions` → `TYPE=openai` + `COPILOT_PROVIDER_WIRE_API=completions`; `openai-responses` → `TYPE=openai` + `WIRE_API=responses` (provenance in the derive: copilot 1.0.48 help topic) | composes nothing — the one agent speaking both families; nothing only when the provider names no endpoint |
@@ -1072,6 +1088,53 @@ codex's pack declares `openai-responses` among the protocols its program speaks,
 protocol the `openai-codex` entry serves, so pointing codex at it resolves like any other pairing
 ([`protocol-resolution.md`](protocol-resolution.md)).
 
+### Selecting `openai-codex` for opencode
+
+opencode has its own ChatGPT-subscription client: its built-in `openai` provider, which its
+built-in ChatGPT login puts on the subscription whenever an `oauth` credential is stored under
+`openai` (read from opencode 1.18.34, never run). The opencode pack ships a `codex` profile over
+`openai-codex`, as claude, codex and pi do, and its derive treats the provider by name, as codex's
+and pi's do ([OQ-1, OQ-2](../design/pi-codex-provider-shadowing.md#10-decision-ledger)):
+
+- **No yolo row for `openai-codex`**, a via row included. A row would put opencode on another SDK
+  and address in place of its own client.
+- **opencode's own `openai` row carries the list**: each entry of
+  [the declared list](#the-openai-codex-model-list) by its id with its name and window, a `[1m]`
+  variant naming its base as the model id opencode sends, and, while the profile's
+  `enforce_models` is on, a `whitelist` of exactly those ids. It names no `npm` and no `baseURL`.
+  Its `apiKey` is a literal non-key, so opencode never sends a subscription request to the metered
+  platform API on an `OPENAI_API_KEY` from the environment when no login is stored; the variable
+  stays in the environment for the tools opencode runs.
+- **The selection** is `model` and `small_model` `openai/<id>`, the profile's `model` or the first
+  listed id, and `enabled_providers` naming `openai`. A later entry of an
+  [active set](#an-active-set-several-profiles-for-one-agent) adds the row and `openai` to
+  `enabled_providers`.
+- **The login is the shared one** ([`openai-auth-broker.md`](../design/openai-auth-broker.md)). The
+  env derive emits `YOLO_AUTH_PRELAUNCH_OPENCODE_FLAG=--opencode-auth` and
+  `YOLO_AUTH_PRELAUNCH_OPENCODE_PATH=.local/share/opencode/auth.json` whenever `openai-codex` is in
+  opencode's active set (keyed on the provider, as pi's are). In a jail the launcher writes the
+  broker's view there under `openai`, merged beside the other providers' logins: the access token
+  and the generation marker `yolo-broker:<n>` as the refresh value, never the refresh token. At the
+  host (`yolo host -p codex -- opencode`) the launch hands opencode the broker's host socket
+  instead, and the shared login is the "ChatGPT Plus/Pro (yolo shared login)" method of
+  opencode's `/connect` for OpenAI, beside its API-key method.
+- **yolo's plugin serves every request.** packs/opencode delivers
+  `~/.config/opencode/plugins/yolo-openai-auth.js`, which opencode loads after its own plugins. On
+  yolo's credential its `fetch` replaces opencode's own ChatGPT fetch: it asks the broker for the
+  access token (again only within five minutes of its expiry), sends it with the account id to the
+  subscription's Responses endpoint, and never refreshes the token itself. opencode's own fetch
+  would refresh against a hard-coded `auth.openai.com` and keep the refresh token it got back,
+  which neither config nor environment can redirect. On any other credential, and with neither
+  yolo's credential nor `yolo host`'s socket, the plugin registers nothing, and opencode's own
+  OpenAI login, its methods and its fetch are opencode's.
+
+Limits: the view is written where opencode reads its auth store with `XDG_DATA_HOME` unset, which
+yolo does not set; an `XDG_DATA_HOME` of your own moves opencode's store away from the view. The
+plugin requires opencode to keep its loading order (its plugins first, then a config-directory
+plugin, the later auth loader's `fetch` winning); if it does not load, opencode's own fetch sends
+the generation marker, which is no credential, to `auth.openai.com` once the stored token
+expires, and the request fails.
+
 ### The `openai-codex` model list
 
 The subscription's models are declared once, on the `openai-codex` provider the `openai-auth`
@@ -1114,11 +1177,16 @@ pack ships, and every agent that can use the provider renders that one list
   [ML-D8](../design/model-lists-and-pickers.md#ML-D8)), with the switch of the profile the
   config's `profile` names for pi. A launch's `-p` does not reach that file
   ([OQ-HC3](../design/host-computed-layer.md#OQ-HC3)), so `yolo host -p <profile> -- pi` refuses
-  or not as the configured profile says.
+  or not as the configured profile says;
+- **opencode** carries the list as rows of its own `openai` provider, a `[1m]` variant naming its
+  base as the model it sends, and its menu is exactly the list while the profile's
+  `enforce_models` is on, through the `whitelist` that also refuses any other model; off, the rows
+  only add names and windows beside opencode's own catalog
+  ([above](#selecting-openai-codex-for-opencode), [MM-D7](../design/model-lists-and-pickers.md#MM-D7)).
 
 A declared model that has a 1M-context variant lists it right after itself, as `<id>[1m]`. The
 suffix is the clients' spelling for the long-context request, and each strips it before the
-model id reaches the service.
+model id reaches the service (opencode's row maps it to the base id instead).
 
 To change the list, override the provider's `models` in your config, the same per-field merge
 every shipped provider takes. A `null` removes a model, and a new alias adds one after the
@@ -1147,7 +1215,7 @@ What each agent actually receives, from one composed table and one selection:
 | :--- | :--- | :--- |
 | codex | `~/.codex/config.toml` `[model_providers.<id>]` (TOML); never a row for `openai-codex` | top-level `model_provider` + `model`; `model` alone for `openai-codex` ([above](#selecting-openai-codex-for-codex)) |
 | pi | `~/.pi/agent/models.json` `providers.<id>` (JSON; credential as `apiKey: "${VAR}"` config-value syntax); never a row for `openai-codex`, whose models the extension registers from [the declared list](#the-openai-codex-model-list) | `~/.pi/agent/settings.json` `defaultProvider` + `defaultModel` (a pair of bare ids), and `enabledModels` (the scoped list, default first), which is not written for `openai-codex`. Also, for every provider, pi-subagents' `subagents` block: `defaultModel` as `<provider>/<id>` (the same model), and `modelScope` `{enforce, strict, allow}` over the provider's configured ids, or `<provider>/*` when it configures none, so a child agent never crosses providers ([XM-D3](../research/extension-model-defaults.md#XM-D3), [XM-D4](../research/extension-model-defaults.md#XM-D4)). For an [active set](#an-active-set-several-profiles-for-one-agent) the pair stays the primary's, `enabledModels` is each entry's run in set order, each led by its own default (an `openai-codex` entry adds its declared base ids, never a `[1m]` variant, since `enabledModels` are minimatch patterns), and `modelScope.allow` is the union, so a child may use any listed provider and none other; each entry's profile options reach its own catalog row, and the OpenAI login pre-launches when any entry is `openai-codex` |
-| opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options` | top-level `model = "<provider>/<model>"` and `small_model`, written only when a model resolves, and `enabled_providers` naming the selected provider whether or not one does, so opencode on a provider that declares no models chooses among that provider's own ([AP-D17](../design/active-provider-sets.md#AP-D17)). For an [active set](#an-active-set-several-profiles-for-one-agent) `model` and `small_model` stay the primary's and `enabled_providers` names every entry in set order, a Bedrock entry as `amazon-bedrock` wherever it sits and an entry whose provider names no endpoint by that provider's name, which must be opencode's own id for it (`anthropic`), since yolo writes such an entry no row; opencode reads that key as a filter ("When set, ONLY these providers will be enabled", its 1.18.32 schema), so the order states the set and does not order opencode's menu. Each entry's own `enforce_models` decides the `whitelist` on its provider's row. A model picked in opencode lasts for that run of it: the `model` yolo writes outranks opencode's saved recent picks at its next start ([AP-D15](../design/active-provider-sets.md#AP-D15)) |
+| opencode | `~/.config/opencode/opencode.json` `provider.<id>` — `baseURL`/`apiKey` live UNDER `options`; `npm` `@ai-sdk/openai-compatible` for an `openai` endpoint, `@ai-sdk/openai` for an `openai-responses` one; never a row for `openai-codex`, whose list rides opencode's own `openai` row ([above](#selecting-openai-codex-for-opencode)) | top-level `model = "<provider>/<model>"` and `small_model`, written only when a model resolves, and `enabled_providers` naming the selected provider whether or not one does, so opencode on a provider that declares no models chooses among that provider's own ([AP-D17](../design/active-provider-sets.md#AP-D17)). For an [active set](#an-active-set-several-profiles-for-one-agent) `model` and `small_model` stay the primary's and `enabled_providers` names every entry in set order, a Bedrock entry as `amazon-bedrock` wherever it sits and an entry whose provider names no endpoint by that provider's name, which must be opencode's own id for it (`anthropic`), since yolo writes such an entry no row; opencode reads that key as a filter ("When set, ONLY these providers will be enabled", its 1.18.32 schema), so the order states the set and does not order opencode's menu. Each entry's own `enforce_models` decides the `whitelist` on its provider's row. A model picked in opencode lasts for that run of it: the `model` yolo writes outranks opencode's saved recent picks at its next start ([AP-D15](../design/active-provider-sets.md#AP-D15)) |
 | omp | `~/.oh-omp/agent/models.yml` `providers.<id>` (YAML; credential as the provider's env-var NAME, which oh-omp resolves before treating it as a literal) | **none** — the derive writes a catalog and no selection key, so a selected profile makes the provider *available* and the user chooses it inside the agent |
 | copilot | no catalog (BYOK is env-var-only; no copilot config file has provider keys) | process env from the copilot pack's env derive: `COPILOT_PROVIDER_BASE_URL` (the sole activation gate), `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_WIRE_API` (openai type only), `COPILOT_MODEL` (required — a provider with no resolvable alias composes nothing at all), `COPILOT_PROVIDER_API_KEY` (a placeholder for a keyless loopback endpoint), `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` ← the provider's `context_window` option |
 | claude | no catalog (claude has no provider directory) | process env from the claude pack's env derive: the address and credential for the provider's `anthropic` endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` — a dummy token on a routed launch that has no key, so claude never falls back to the user's own subscription login), `AWS_REGION` from the provider's `region`, one model id per claude tier resolved from the provider's aliases (the selected one from the profile's `model` option; on a Bedrock provider only from its Anthropic entries, and none unless named, [the shipped Bedrock provider](#the-shipped-bedrock-provider)), and knobs composed from provider options (the context window, request and stream timeouts). Claude's `[1m]` suffix is appended to every model id when the `context_window` option is at least one million — it is Claude Code's client syntax for the context-1m beta, stripped before the wire — and non-essential traffic is disabled on any routed launch. The exact variable set is the derive's, in `packs/claude/derive.lua` |
@@ -1487,7 +1555,7 @@ What it does, in order:
 
 The launch checks that the bridge can serve the agent before it starts anything. First it runs
 the agent's own derives with `ctx.via_url` set, to see whether the agent's config points at the
-URL at all. A derive decides which provider rows ride it: pi, oh-omp and codex keep
+URL at all. A derive decides which provider rows ride it: pi, oh-omp, codex and opencode keep
 `openai-codex` on their own subscription client, and codex writes no row for a provider it
 cannot reach. A via there changes nothing the agent sends
 ([WG-I15](../design/wire-bridge-gateway.md#WG-I15)). `yolo check` predicts every answer for the
@@ -1497,7 +1565,7 @@ cannot see it.
 | What the via does for the agent | Launch | `yolo check` |
 | :--- | :--- | :--- |
 | **Nothing**: the agent's config does not point at its via URL, for example pi with a via over `openai-codex` | warns on stderr that the via has no effect, and starts ([WG-I15](../design/wire-bridge-gateway.md#WG-I15)) | WARN |
-| **Points the agent at a prefix the bridge serves no route for**: the provider declares neither wire, is not in the composed table, or is the ChatGPT subscription (opencode, whose derive re-points any selected provider) | refuses, naming the profile, the agent, the reason and the via URL ([WG-I13](../design/wire-bridge-gateway.md#WG-I13)) | FAIL |
+| **Points the agent at a prefix the bridge serves no route for**: the provider declares neither wire, is not in the composed table, or is the ChatGPT subscription, whose credential a via route does not carry (the via agents yolo ships, pi, oh-omp, codex and opencode, each keep it on their own client) | refuses, naming the profile, the agent, the reason and the via URL ([WG-I13](../design/wire-bridge-gateway.md#WG-I13)) | FAIL |
 | **Points the agent at a route with only the wire it does not prefer**, for example pi on a Responses-only provider such as `openrouter` | warns on stderr, naming the endpoint the provider lacks, and starts ([WG-I14](../design/wire-bridge-gateway.md#WG-I14)) | WARN |
 | **Carries none of the agent's requests**: the agent's first protocol is neither via wire, as claude's and copilot's `anthropic` is, and its config does not point at its via URL | warns on stderr that the via sends none of its requests through the bridge, naming the agent's own switch for the provider's platform when its pack declares one (claude's `CLAUDE_CODE_USE_BEDROCK` for `aws-bedrock`), and starts | WARN |
 
@@ -1953,6 +2021,7 @@ above explains what each is for; this table is the only place the exact spelling
 | codex's model for `openai-codex` | the profile's `model` option; the first declared `openai-codex` id when the profile names none or names `default` (`gpt-6.1-sol` as shipped); no `model` when the list is empty | `packs/codex/derive.lua` |
 | The `openai-codex` model list | ids `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-luna` in that order, each with a `[1m]` variant at 1,000,000 tokens after it; declared as `models` (alias = id) plus `model_options` facts `order`, `name`, `description`, `context_window`, `long_context_window` | `packs/openai-auth/pack.json` |
 | pi's copy of that list | `~/.pi/agent/yolo-openai-codex-models.json`, the computed surface `pi/codex-models`: `{"models": [{"id", "base", "name", "contextWindow"}, …], "enforce": <bool>}`, `enforce` being the switch of the profile that governs `openai-codex` (`piEnforceFor`); `{}` for an empty list. Read by the openai-auth extension at load, which refuses an unlisted id only when `enforce` is `true`. `yolo host apply` renders it at the host notch too, over the configured profile ([OQ-HC1](../design/host-computed-layer.md#OQ-HC1)) | `packs/pi/pack.json`, `packs/pi/derive.lua`, `packs/pi/extensions/yolo-openai-auth.js` |
+| opencode on `openai-codex` | `provider.openai` in `~/.config/opencode/opencode.json`: `models` keyed by each listed id (`name`; `limit` `{context, input}` at the declared window, `output` 0; `id` the base for a `[1m]` variant), `options.apiKey` the literal `yolo-chatgpt-subscription-needs-the-shared-login`, `whitelist` the ids while `enforce_models` is on; no `npm`, no `baseURL`; `model`/`small_model` `openai/<id>`, `enabled_providers` `openai`. The prelaunch `--opencode-auth` writes `{"openai": {"type": "oauth", "refresh": "yolo-broker:<n>", "access", "expires", "accountId"}}` into `~/.local/share/opencode/auth.json`, keeping every other key; the plugin `~/.config/opencode/plugins/yolo-openai-auth.js` serves requests on that credential | `packs/opencode/pack.json`, `packs/opencode/derive.lua`, `packs/opencode/plugins/yolo-openai-auth.js`, `internal/openauthclient/opencode.go` |
 | User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `profile` (user-scope-only); `use_profiles` and `agent_profiles` refused by name as old spellings of `profile` | `internal/config` |
 | Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#OQ-NC6), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. Since 2026-09-29 also `platform`, which decides which agents a pack's credential pointer reaches ([PP-D7](../design/providers-and-profiles-redesign.md#PP-D7)). `models`, `options`, `region` and `capabilities` still merge from either scope, a `region` only as one DNS label ([a region is a host-name part](#a-region-is-a-host-name-part)). The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`, `validateProviderRegion`) |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |

@@ -10,10 +10,11 @@ import (
 	"testing"
 )
 
-// The prelaunches the shipped codex and pi packs declare, at a terminal.
+// The prelaunches the shipped codex, pi and opencode packs declare, at a terminal.
 var (
-	codexPrelaunch = Prelaunch{Bin: "codex", Flag: CodexViewFlag, Pack: "codex", Interactive: true}
-	piPrelaunch    = Prelaunch{Bin: "pi", Flag: PiViewFlag, Pack: "pi", Interactive: true}
+	codexPrelaunch    = Prelaunch{Bin: "codex", Flag: CodexViewFlag, Pack: "codex", Interactive: true}
+	piPrelaunch       = Prelaunch{Bin: "pi", Flag: PiViewFlag, Pack: "pi", Interactive: true}
+	opencodePrelaunch = Prelaunch{Bin: "opencode", Flag: OpencodeViewFlag, Pack: "opencode", Interactive: true}
 )
 
 // loggedOutDeps is a broker that has no login, recording every action it is asked.
@@ -47,7 +48,7 @@ func TestPrepareDoesNothingWhenNoPrelaunchIsDeclared(t *testing.T) {
 // A LOGIN ONLY AT A TERMINAL: off one, no login starts, the jail launcher's two lines are printed,
 // and the launch continues without the credential.
 func TestPrepareNeverLogsInWithoutATerminal(t *testing.T) {
-	for _, p := range []Prelaunch{codexPrelaunch, piPrelaunch, {Bin: "claude", Login: true, Pack: "claude"}} {
+	for _, p := range []Prelaunch{codexPrelaunch, piPrelaunch, opencodePrelaunch, {Bin: "claude", Login: true, Pack: "claude"}} {
 		p.Interactive = false
 		var actions []string
 		var stderr bytes.Buffer
@@ -83,6 +84,35 @@ func TestPrepareRefusesAViewTheHostDoesNotServe(t *testing.T) {
 	_, err := prepare(loggedOutDeps(&actions), Prelaunch{Bin: "x", Flag: "--x-auth", Interactive: true}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), `"--x-auth"`) || len(actions) != 0 {
 		t.Fatalf("err = %v, actions = %v", err, actions)
+	}
+}
+
+// THE OPENCODE VIEW IS SERVED AS PI'S IS, by the host credential socket the yolo plugin dials: no
+// managed home and no adapter, because opencode's own home is the user's and the plugin, not
+// opencode, asks the broker for each request's token. Logged in, the launch carries the socket and
+// nothing else, and asks for no browser login.
+func TestPrepareServesOpencodeTheHostSocket(t *testing.T) {
+	var actions []string
+	d := deps{
+		ensure: func(io.Writer) (string, error) { return "/tmp/broker.host", nil },
+		request: func(_ string, request any, _ io.Writer) (json.RawMessage, error) {
+			action := request.(map[string]any)["action"].(string)
+			actions = append(actions, action)
+			return json.RawMessage(`{"logged_in":true}`), nil
+		},
+	}
+	launch, err := prepare(d, opencodePrelaunch, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launch == nil || len(launch.vars) != 1 || launch.vars["YOLO_OPENAI_AUTH_HOST_SOCKET"] != "/tmp/broker.host" {
+		t.Fatalf("launch = %#v, want the host socket alone", launch)
+	}
+	if launch.listener != nil || launch.noDaemon {
+		t.Errorf("an opencode launch started a managed Codex adapter: %#v", launch)
+	}
+	if strings.Join(actions, ",") != "status" {
+		t.Errorf("broker actions = %v, want the login check alone", actions)
 	}
 }
 

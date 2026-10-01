@@ -4,7 +4,7 @@ date: 2026-09-14
 status: accepted
 stage: BUILT
 next: "Graduate into agent-credentials.md's OpenAI subscription section (system-doc), which then states the build rather than §3's relay; §7's login and expiry checks stay owed to a human"
-tags: [authentication, codex, pi, oauth, design]
+tags: [authentication, codex, pi, opencode, oauth, design]
 summary: "A machine-wide OpenAI credential service owns refresh-token rotation and browser callbacks while agents retain isolated runtime state."
 ---
 
@@ -31,10 +31,14 @@ recorded in the [plan](openai-auth-broker-plan.md): [§3](#3-browser-callback-re
 relay was not built, because the host daemon owns the whole login flow and the jail only streams
 the URL back (plan step 5), and [§2](#2-one-writer-and-two-views)'s shared broker engine was not
 generalized: `internal/openaiauth` sits beside `internal/oauthbroker` (the plan's Blockers).
+**opencode joined 2026-10-01** on Pi's view ([OA-D1](#OA-D1)): MEASURED by unit tests only (the
+view writer, the host prelaunch, and yolo's opencode plugin under node against a fake `yolo`);
+no opencode session has sent a request on the subscription.
 
 > **In short.** A yolo host service owns one OpenAI subscription grant and is
-> the only component allowed to refresh it. Codex and Pi receive compatible
-> views while their config, sessions, caches, and histories stay per workspace.
+> the only component allowed to refresh it. Codex, Pi and opencode receive
+> compatible views while their config, sessions, caches, and histories stay per
+> workspace.
 
 **Why it matters.** Sharing credential files alone creates a race around a
 single-use refresh token; separate logins avoid the race by making the user
@@ -115,6 +119,16 @@ unauthorized response, because pi gives an extension no way to see one
 ([OQ-OA7](#OQ-OA7)). Pi's other provider credentials remain in its workspace
 `auth.json`.
 
+opencode receives Pi's view, under its own `openai` key in its own `auth.json`: the current access
+token, its expiry and account, and the `yolo-broker:<generation>` marker as the refresh value
+([OA-D1](#OA-D1)). opencode's built-in ChatGPT support keys on that `oauth` entry, but its own
+request `fetch` refreshes against a hard-coded `auth.openai.com` and stores the refresh token it
+gets back, and no config key or variable redirects it. So yolo's opencode plugin replaces that
+fetch, which opencode allows, since a later plugin's auth loader outranks a built-in one. The
+plugin asks the broker for the access token, again only within five minutes of its expiry, and
+opencode never sends a refresh. A plugin that failed to load leaves opencode's own fetch to send
+the marker, which is no credential, once the token expires.
+
 > [!NOTE]
 > **Why Pi has no ask-once-more after an unauthorized response ([OQ-OA7](#OQ-OA7), decided
 > 2026-09-29).** An earlier draft of this section said the adapter asks the broker once more
@@ -170,9 +184,9 @@ route to the host service differs.
 
 Container jails use the existing per-jail authenticated loopback-TLS front and
 endpoint file. Codex points its supported refresh URL override at a small
-in-jail HTTP adapter. Pi's provider extension calls the same front. Neither
-requires interception of `auth.openai.com`, so normal authorization-code and
-device login traffic still goes directly to OpenAI.
+in-jail HTTP adapter. Pi's provider extension and yolo's opencode plugin call
+the same front. None of them requires interception of `auth.openai.com`, so
+normal authorization-code and device login traffic still goes directly to OpenAI.
 
 `macos-user` starts the same host singleton before entering the Seatbelt sandbox.
 The sandboxed account reaches its authenticated loopback-TLS front directly on
@@ -189,8 +203,11 @@ intercept all host traffic for `auth.openai.com`.
 `yolo host -- codex` uses the same host singleton through a private mode-`0600`
 Unix socket and starts a dynamic loopback adapter on `127.0.0.1:0`. Yolo remains
 as the Codex parent and closes that adapter as soon as Codex exits. `yolo host --
-pi` and the Pi extension use the private socket directly. Generated wrappers
-delegate to these same host launch paths.
+pi` and the Pi extension use the private socket directly, and so do
+`yolo host -p codex -- opencode` and yolo's opencode plugin, which offers the
+shared login in opencode's `/connect` because the host's opencode `auth.json`
+is the user's own and yolo does not write it. Generated wrappers delegate to
+these same host launch paths.
 
 ## 5. Failure and recovery
 
@@ -243,6 +260,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
 | OQ-OA5 | All backends use authenticated loopback TLS and the same refresh algorithm; none intercepts `auth.openai.com`. | 2026-09-14 |
 | OQ-OA6 | Route (b): on `macos-user` the Codex refresh doorway is a launch-owned listener, by [HS-D15](host-notch-services.md#HS-D15)'s doorway rule. Built `fea3b6c7` ([HS-D16](host-notch-services.md#HS-D16) to [HS-D20](host-notch-services.md#HS-D20)). | 2026-09-29 |
 | OQ-OA7 | Implementation decision: the Pi adapter refreshes before expiry only, with no ask-once-more after an unauthorized response. Measured against pi 0.87.0, no extension can build that step, and the broker's proactive refresh covers the expiry case. Re-open if pi adds a status hook. | 2026-09-29 |
+| <a id="OA-D1"></a>OA-D1 | Implementation decision, applying [OQ-OA1 and OQ-OA2](#8-decision-ledger) to a third agent: **opencode receives Pi's access-token view**, merged under `openai` into its own `auth.json` by `yolo internal openai-auth-client token --opencode-auth`, and **yolo's opencode plugin replaces opencode's request `fetch`** on that entry alone, so every request's token comes from the broker and opencode never refreshes. Codex's seam does not exist in opencode: its refresh address is hard-coded, and neither config nor environment moves it (read from opencode 1.18.34's source, never run). At the host the view is the private socket, as Pi's is. Built 2026-10-01 | 2026-10-01 |
 
 ## 9. Open questions
 

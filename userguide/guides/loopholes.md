@@ -33,7 +33,7 @@ access behind it.
 | Loophole (its pack) | What it gives the jail | On when you select the pack? |
 |---|---|---|
 | `claude-oauth-broker` (`claude`) | One shared Claude login that stays fresh across jails ([Logins](authentication.md#a-shared-claude-login-that-stays-fresh)) | Yes |
-| `openai-auth-broker` (`openai-auth`, brought in by `claude`, `codex` and `pi`) | One shared ChatGPT login for Codex and pi ([Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi)) | Yes |
+| `openai-auth-broker` (`openai-auth`, brought in by `claude`, `codex`, `opencode` and `pi`) | One shared ChatGPT login for Codex, pi and opencode ([Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi)) | Yes |
 | `aws-auth` (`aws-auth`, also brought in by `bedrock`, which `claude`, `codex`, `opencode` and `pi` bring in) | AWS Bedrock with credentials from your host's `aws sso login`, narrowed to one role | No |
 | `github-broker` (`github`) | `gh` in the jail, run by your host's own GitHub login against this workspace's repositories, read-only for now, with no token in the jail ([GitHub](github.md)) | No |
 | `serial` (`serial`) | USB serial devices on the host, through an allowlist, with the `yolo-serial` command | No |

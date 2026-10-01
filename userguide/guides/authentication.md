@@ -36,7 +36,8 @@ nothing is saved, and the next `copilot` asks you to log in again.
 |---|---|
 | `claude`, `agy` | Every project on this machine |
 | `codex`, `pi` | Every project on this machine, through yolo's shared ChatGPT login (below) |
-| `copilot`, `opencode`, `omp`, and `gh` | One project: log in once in each |
+| `opencode` | On the `codex` profile, every project on this machine, through the same shared ChatGPT login; any other login, one project |
+| `copilot`, `omp`, and `gh` | One project: log in once in each |
 
 A per-project login lives in that project's `.yolo/` folder. A machine-wide one lives under
 `~/.local/share/yolo-jail/`. [Storage](storage.md#what-persists-across-restarts) lists the folders.
@@ -64,12 +65,21 @@ does not log in Claude Code on your host, and the reverse.
 > works there, but two jails running at the same time can log each other out; log in again when
 > that happens. If you run several Claude jails at once on a Mac, Podman avoids it.
 
-## A shared ChatGPT login for Codex and pi
+<a id="a-shared-chatgpt-login-for-codex-and-pi"></a>
 
-The `codex` and `pi` packs bring `openai-auth`, a service on your host that holds one ChatGPT
-subscription login for the whole machine. The first time you start `codex` or `pi` without a login,
-it prints a browser link, and opens it on the host when it can. After that one login, Codex and pi
-in every project use it, and the service handles refreshing it.
+## A shared ChatGPT login for Codex, pi and opencode
+
+The `codex`, `pi` and `opencode` packs bring `openai-auth`, a service on your host that holds one
+ChatGPT subscription login for the whole machine. The first time you start `codex` or `pi`
+without a login, or `opencode` on the `codex` profile, it prints a browser link, and opens it on
+the host when it can. After that one login, Codex, pi and opencode in every project use it, and
+the service handles refreshing it; opencode never refreshes it itself.
+
+opencode uses it only on the `codex` profile (`yolo -p codex -- opencode`, or a `profile` that
+selects `codex` for opencode). Any other OpenAI login you make in opencode, a ChatGPT login of
+its own or an API key, stays opencode's and stays in that project. On your own machine,
+`yolo host -p codex -- opencode` offers the shared login as **ChatGPT Plus/Pro (yolo shared
+login)** in opencode's `/connect` for OpenAI; pick it once.
 
 ```bash
 yolo openai-auth status                     # whose login, and when it expires
@@ -81,7 +91,7 @@ These run on your host only, not inside a jail. On yolo 0.10.0 they are spelled
 `yolo internal openai-auth status`, and so on; `yolo openai-auth` arrives in the next release.
 
 > [!IMPORTANT]
-> **Apple Container cannot reach this service yet**, so `codex` and `pi` print
+> **Apple Container cannot reach this service yet**, so `codex`, `pi` and `opencode` print
 > `OpenAI login is required.` there and the browser login fails too. Use an API key, or Podman. On
 > `macos-user` it works partly, and a long session can lose its login; relaunch to get it back.
 

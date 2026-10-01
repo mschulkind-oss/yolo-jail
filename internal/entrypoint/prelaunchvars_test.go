@@ -35,7 +35,8 @@ func TestTheJailLauncherReadsTheHostsPrelaunchVariables(t *testing.T) {
 // manifests' env alone: since OQ-BR8 pi's view flag comes from its env derive, keyed on the
 // provider, and a manifest walk would never see it.
 func TestEveryShippedPrelaunchViewIsOneTheHostServes(t *testing.T) {
-	served := map[string]bool{openaiauthhost.CodexViewFlag: true, openaiauthhost.PiViewFlag: true}
+	served := map[string]bool{openaiauthhost.CodexViewFlag: true, openaiauthhost.PiViewFlag: true,
+		openaiauthhost.OpencodeViewFlag: true}
 	packs := packload.Embedded()
 	seen := 0
 	for _, p := range packs {
