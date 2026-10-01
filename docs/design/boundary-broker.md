@@ -7,7 +7,7 @@ next: "Build the rest of step 2 short of the doorbell: user-scope sets under the
 depends-on:
   - agent-event-watchers.md
 tags: [design, credentials, github, gh, approvals, notifications, loopholes, audit, broker]
-summary: "Revised around the maintainer's 2026-09-28 brief and his 2026-09-29 rulings. A host daemon runs the host's own `gh` login on the jail's behalf, only against the workspace's own GitHub repositories. Each source defines named permission sets: GitHub's default two are read-only, always held, and read-write, which a human hands over whole for a window (15 minutes by default) from a persistent desktop notification on Linux and macOS. The request outlives its connection, the answer reaches the agent later through the `yolo notify` ping channel, and the agent re-issues its command under the grant. Credential-printing and host-reaching commands are refused outright, whatever is granted. Every brokered call is appended to a host audit log that yolo mounts into no jail. The scope is re-read from the workspace's remotes at every fresh launch and approved in that launch's config-change diff; an out-of-scope command is refused, and a user-scope entry keyed by workspace is the only widening. On macOS the notifier is terminal-notifier, a dependency of the Homebrew formula on Apple silicon running macOS 14 or later, where a prebuilt bottle exists. Step 1 (reads, the scope, the audit log, the mount fence) is built; a pack intercepts `gh` through a generic contribution kind. Step 2's widening entry is built: a widened repository joins the scope for every set. Open: how a host daemon hands the launch a line to print."
+summary: "Revised around the maintainer's 2026-09-28 brief and his 2026-09-29 rulings. A host daemon runs the host's own `gh` login on the jail's behalf, only against the workspace's own GitHub repositories. Each source defines named permission sets: GitHub's default two are read-only, always held, and read-write, which a human hands over whole for a window (15 minutes by default) from a persistent desktop notification on Linux and macOS. The request outlives its connection, the answer reaches the agent later through the `yolo notify` ping channel, and the agent re-issues its command under the grant. Credential-printing and host-reaching commands are refused outright, whatever is granted. Every brokered call is appended to a host audit log that yolo mounts into no jail. The scope is re-read from the workspace's remotes at every fresh launch and approved in that launch's config-change diff; an out-of-scope command is refused, and a user-scope entry keyed by workspace is the only widening. On macOS the notifier is terminal-notifier, a dependency of the Homebrew formula on Apple silicon running macOS 14 or later, where a prebuilt bottle exists. Step 1 (reads, the scope, the audit log, the mount fence) is built; a pack intercepts `gh` through a generic contribution kind. Step 2's widening entry is built: a widened repository joins the scope for every set. Open: how a host daemon hands the launch a line to print, and whether the merged config a jail can read keeps other workspaces' widening entries."
 vantage:
   status-chip: true
 ---
@@ -22,10 +22,11 @@ built 2026-09-29** (the read path, the repository scope, the audit log, the moun
 around the maintainer's brief of that day; first sketched
 2026-08-05. [OQ-BB1](#OQ-BB1), [OQ-BB2](#OQ-BB2), [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4),
 [OQ-BB6](#OQ-BB6), [OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8), [OQ-BB9](#OQ-BB9) and OQ-C were ruled on
-2026-09-29, and the body now follows those rulings ([§1.2](#12-what-it-rules)); only
-[OQ-BB10](#OQ-BB10) is open. Step 1 lives in `internal/ghbroker` (the classifier, the
-executor, the daemon and the `yolo gh` forwarder), `internal/brokerscope`, `internal/brokeraudit`,
-`packs/github` and the `intercept` contribution kind; its implementation decisions are
+2026-09-29, and the body now follows those rulings ([§1.2](#12-what-it-rules));
+[OQ-BB10](#OQ-BB10) is open, and so is [OQ-BB11](#OQ-BB11), filed 2026-10-01. Step 1 lives in
+`internal/ghbroker` (the classifier, the executor, the daemon and the `yolo gh` forwarder),
+`internal/brokerscope`, `internal/brokeraudit`, `packs/github` and the `intercept` contribution
+kind; its implementation decisions are
 [BB-D37](#BB-D37) to [BB-D45](#BB-D45), and the fixes a review of it found are
 [BB-D46](#BB-D46) to [BB-D51](#BB-D51). Still unbuilt: the request store, `yolo approve`, the
 notifiers, the ping, and every write. (`internal/broker` and the `yolo broker` verb mean the
@@ -59,7 +60,7 @@ ping box, which is designed and not built.
 
 **Start at [§3](#3-the-flow)**, the flow. Everything else is what one step of it needs.
 
-**Needs your ruling:** [OQ-BB10](#OQ-BB10).
+**Needs your ruling:** [OQ-BB10](#OQ-BB10) and [OQ-BB11](#OQ-BB11).
 [OQ-BB3](#OQ-BB3), [OQ-BB4](#OQ-BB4), [OQ-BB6](#OQ-BB6),
 [OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8), [OQ-BB9](#OQ-BB9) and OQ-C were ruled 2026-09-29.
 
@@ -845,6 +846,11 @@ repositories to that workspace's scope alone. Built 2026-10-01 in this spelling,
   rest, an account-wide command and a repository limited to some sets.
 - **Read at the fresh launch** that writes the scope file, like the remotes; an attach reads no
   config, so an edit takes effect at the next fresh launch.
+- **Readable in the jail, every workspace's entries.** Every fresh container launch writes the
+  merged config into the workspace for the jail's own reads, and nothing filters it, so a jail
+  can read every widening entry, the other workspaces' paths and repositories with its own. None of them
+  admits it anything, since the broker reads only its scope file. Whether that copy keeps them is
+  [OQ-BB11](#OQ-BB11).
 
 **Out of scope means it does not run.** A command whose repository is outside the scope, or that
 names none the broker can check, exits 64. The message names the scope's repositories, and then
@@ -1428,7 +1434,8 @@ of unYOLO's ideas behind triggers. The asynchronous ruling fires three of them:
 [OQ-BB7](#OQ-BB7), [OQ-BB8](#OQ-BB8) and [OQ-BB9](#OQ-BB9) are ruled; step 2's widening entry,
 built, admits whole repositories that join the scope for every set. What still waits on a ruling:
 how a host daemon hands the launching terminal a line to print ([OQ-BB10](#OQ-BB10)), which step
-2's no-notifier notice needs.
+2's no-notifier notice needs; and whether the merged config a jail can read keeps other
+workspaces' widening entries ([OQ-BB11](#OQ-BB11)), which no step of the build waits on.
 
 **Testing constraints.** No test may call GitHub or start an agent. The classifier is tested on
 argv alone, against a table pinned to a `gh` version; the executor against a fake `gh` that
@@ -1880,6 +1887,84 @@ covered:
     **Answer:**
     > _(empty — fill in when decided)_
 
+11. 💬 <a id="OQ-BB11"></a>**[OQ-BB11](#OQ-BB11): Does the merged config a jail can read keep
+    other workspaces' widening entries?** Raised building the widening entry
+    ([BB-D52](#BB-D52)), filed 2026-10-01. Every fresh container launch writes the merged config,
+    user scope and workspace together, into the workspace as `.yolo/config-assembled.json`, so
+    that a jail's own config reads see what the host saw. That file is the **delivery copy**
+    [`config-safety.md`](../reference/config-safety.md#file-locations) defines. Nothing filters
+    it, so it holds the user config's whole `brokered` key: every widening entry the user has
+    written, each workspace's host path and the repositories added to it. Those can name private
+    repositories and other projects' folders. Nothing that reads the copy grants anything, and
+    the broker never reads it. This decides what a jail can learn about the user's other
+    workspaces from that file.
+
+    Where it is, at `197694c34`:
+
+    - **Written** by `config.WriteAssembledConfig` (`internal/config/assembled.go:70`), which
+      serializes the config it is handed, whole. Its one caller, `writeLaunchConfigArtifacts`
+      (`internal/cli/run/preflight.go:427`), runs after the approval gate on the fresh container
+      launch (`internal/cli/run/run.go:1214`), with the config `loadAndValidateConfig` merged
+      (`run.go:169`). The macos-user arm returns before that write (`run.go:801`), so this is
+      a question about the container backends.
+    - **Read in the jail** by `config.LoadConfig`, which returns the copy as it is for the jail's
+      own workspace (`internal/config/load.go:416`).
+    - **Left out of both files a jail inherits** already, the user config each launch generates
+      for the jail and the one a nested launch composes from
+      ([OQ-LP9](../reference/loophole-system.md#oq-lp9)), because nothing in a jail has the
+      paths the key is keyed by (`internal/config/inherit.go:257`).
+
+    Every reader of `brokered` in the copy today:
+
+    - `yolo config dump` (`internal/cli/configdrift.go:135`) and `yolo describe --json`
+      (`internal/cli/describe.go:54`) print it. `describe --hash`, and the hash on `describe`'s
+      summary line, cover it.
+    - `yolo internal config-dump` (`internal/cli/internal.go:419`) prints it and validates it:
+      `validateBrokered` checks each entry's shape (`internal/config/brokered.go:290`) and skips
+      its warning about an unknown source inside a jail (`brokered.go:309`).
+
+    What does not read it: the scope. `config.BrokeredWidening` reads the user config file
+    itself (`brokered.go:71`), at the host launch that writes the scope file
+    (`internal/cli/run/brokeredscope.go:89`), and the broker reads only that scope file. Inside a
+    jail the user config file is the generated one, which leaves the key out. An in-jail
+    `yolo check` merges the two config files itself (`internal/cli/check/check.go:112`) and
+    never reads the copy.
+
+    - **A — Drop `brokered` from the delivery copy.** The write leaves the key out, as both
+      inherited files already do and for their reason. A jail learns nothing about any
+      workspace's widening from the file. The cost: in a jail, `yolo config dump` and
+      `describe --json` no longer show the key, so they differ from the same commands at the host
+      by it, and so does `describe --hash`. The jail's own widening stays visible only where the
+      launch already says it: its launch line, which `.yolo/launch.log` keeps, and the
+      out-of-scope refusal, which lists the whole scope. And when [§5.7](#57-permission-sets)'s sets land under the same key,
+      they are dropped too, unless that build keeps them.
+    - **B — Keep only this workspace's entries.** The write keeps each entry whose key names this
+      workspace, by the match the scope file's reader uses, and drops every other. A jail learns
+      what its launch line already told it, and how the user spelled the key, which can be a link
+      outside the workspace. The cost: one more filter, which must call the reader's own match or
+      the copy and the scope file disagree about which entry applies; and a `brokered` in
+      `yolo config dump` that looks like the user's file and is not.
+    - **C — Keep it as is.** No change. The cost: every container jail can read, for every
+      workspace the user has widened, its host path and the repositories added to it, and can
+      send them anywhere its network reaches. That holds whether or not its own launch starts a
+      broker, since the copy is written at every fresh container launch and holds every user
+      key. Nothing more: no reader of the copy grants anything.
+
+    Under A or B, a copy already written keeps the key until that workspace's next fresh
+    container launch rewrites it.
+
+    <!-- vantage: oq id=OQ-BB11 leaning="A: drop brokered from the delivery copy, for the reason both inherited files already leave it out: nothing in a jail reads it to do anything, the jail's own widening is already said by its launch line, and each out-of-scope refusal lists the scope." -->
+
+    _Leaning:_ **A.** It is the smallest change that ends the exposure, and it extends to the
+    delivery copy the rule [`inherit.go`](../../internal/config/inherit.go) already applies to
+    the two inherited files. What a jail loses is display: no reader of the copy acts on the
+    key, the jail's own widening is already said at launch, and each out-of-scope refusal lists
+    the scope it joined. B is the choice if an agent's `describe --json` should explain its own
+    scope.
+
+    **Answer:**
+    > _(empty — fill in when decided)_
+
 ## 15. Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
@@ -1942,7 +2027,7 @@ covered:
 | <a id="BB-D49"></a>[`BB-D49`](#15-decision-ledger) | *Implementation decision.* The broker's own log names no workspace, no repository and no host path. It is the daemon's stderr, which the launch appends to one file per loophole name under `logs/`, shared by every jail on the machine, and `logs/` is the directory a `mounts` entry commonly exposes to a jail. It says the host gh's version, whether a `hosts.yml` was copied and whether the token is held for redaction; the launch discloses the scope on its own terminal, and the audit log holds the rest | 2026-09-29 | [§8](#8-audit) | built: `ghbroker.Runner.Summary`, pinned by `TestTheBrokersLogNamesNoWorkspaceRepositoryOrHostPath` |
 | <a id="BB-D50"></a>[`BB-D50`](#15-decision-ledger) | *Implementation decision,* carrying out [BB-D19](#BB-D19)'s "follows no symlink". The scope reader opens the git config and the worktree pointer files with `O_NOFOLLOW` and `O_NONBLOCK`, judges what it opened by `fstat`, and reads through a cap: 1 MiB for the config, 64 KiB for a pointer file. A larger config, a FIFO or a symlink reads as an empty scope and says why, so a sparse `truncate -s 64G .git/config` costs the host nothing | 2026-09-29 | [§5.6](#56-the-repository-scope) | built: `brokerscope.readCapped`, pinned by `TestReadRemotesStopsAtTheCap`, `TestReadRemotesDoesNotWaitOnAFIFO` and `TestReadCappedRefusesASymlinkAtOpen` |
 | <a id="BB-D51"></a>[`BB-D51`](#15-decision-ledger) | *Implementation decision,* carrying out [BB-D2](#BB-D2)'s timeout and [BB-D42](#BB-D42)'s cleanup when the broker is stopped. Each gh runs in its own process group, which the launcher's SIGTERM to the broker's group does not reach, so the broker kills its gh groups itself when told to stop; a call in flight then returns inside the launcher's 5-second grace and the cleanup runs. On Linux each gh also dies with a broker killed outright (a parent-death SIGKILL); elsewhere it runs until its next write fails or it finishes. Run dirs are named `<pid>-<start-id>`, and the next broker or self-check to start removes one whose pid answers ESRCH, the rule [BB-D44](#BB-D44) collects scope files by; any other answer, and a name with no pid, keeps it. The self-check lays its dir out there too, not in the system temp dir | 2026-09-29 | [§4.1](#41-how-the-broker-runs-gh), [§7](#7-grants-and-the-request-store) | built: `ghbroker.Runner.Shutdown` and `ghbroker.sweepRunDirs`, pinned by `TestAStoppedBrokerEndsItsGHAndRemovesItsCopy`, `TestAKilledBrokersCopyIsCollectedByTheNextStart` and `TestTheNextStartCollectsARunDirADeadOwnerLeft` |
-| <a id="BB-D52"></a>[`BB-D52`](#15-decision-ledger) | *Implementation decision,* building [BB-D33](#BB-D33)'s widening entry. The key is [§5.6](#56-the-repository-scope)'s spelling, `brokered.<source>.workspaces.<path>.repos`, whose `<source>` is a loophole manifest's `brokered.source`, so core names no tool; a source no selected pack's loophole brokers is a warning, as an entry for a loophole no selected pack ships is, since one user config serves machines that select different packs. A source object accepts `workspaces` alone until step 2 builds the sets. A workspace key is an absolute path or starts with `~/`, and a relative path, `~user/`, a `$`, a bare `~` and an empty key are refused; it matches the one folder it resolves to, never a folder under it, and never a workspace its resolution passes through: a key whose path, links followed, visits a folder or link inside the workspace does not match it, since what lies there is the agent's to change and [BB-P9](#BB-P9) makes the remotes the workspace's one input to its scope. Added in review the same day, after a unit test MEASURED an entry for `~/code/app/sub` widening `~/code/app` once `sub` became a link to `.`. Its limit: a link inside one workspace can still point an entry at another workspace, which widens that other jail, never the one whose agent made the link, and that launch's line discloses it. Each repository is `owner/repo` by the check a remote's reduction uses (`brokerscope.ValidRepo`). Validation refuses every malformed key, entry and repository, and the reader skips each of them too, so a refused one admits nothing even where nothing validated. The scope file's `widened` list, and the launch line disclosing it, hold what the entry adds beyond the approved remotes, compared without case. A spawn whose gate recorded no scope still carries the entry, which needs no approval, so the fail-closed rule of [BB-D44](#BB-D44) withholds the remotes alone. The out-of-scope refusal for a repository names the user config's path and the entry keyed by the workspace's host path the launch resolved, which the jail already holds as `YOLO_HOST_DIR`; the account-wide refusal says no widening entry admits one. The key is in neither file a jail inherits: its paths are host paths, which nothing in a jail has. It does reach the jail another way, as every user-config key does: MEASURED 2026-10-01 in a nested launch, the merged config the host delivers into the workspace (`.yolo/config-assembled.json`, `config.WriteAssembledConfig`) carries the whole `brokered` key, so a jail can read every workspace's entries, the paths and the repository names, though none of them admits it anything. Whether that copy should drop the key or keep only this workspace's entries is a question for the maintainer, not decided here | 2026-10-01 | [§5.6](#56-the-repository-scope) | built: the reader and validator, `config.BrokeredWidening` and `config.validateBrokered`, pinned by `TestBrokeredWideningIsTheUserEntryForThisWorkspaceAlone`, `TestAWideningKeyThatRunsThroughTheWorkspaceNeverMatchesIt`, `TestValidateBrokeredRefusesEachBadShapeAndAWorkspaceValue` and `TestValidateBrokeredWarnsOfASourceNoSelectedPackBrokers`; the launch's write, `run.Options.writeScopeFiles`, pinned by `TestAWideningEntryJoinsTheScopeFileAndIsDisclosed` and `TestAWideningEntryWithNoRemoteAndNoApproval`; the refusal, `ghbroker.Scope.widenAdvice`, pinned by `TestTheBrokerRunsAWidenedRepositoryAndNamesTheEntryForAnother`; end to end in a nested podman jail by `TestGitHubBrokerAWideningEntryAdmitsARepositoryForOneWorkspace` |
+| <a id="BB-D52"></a>[`BB-D52`](#15-decision-ledger) | *Implementation decision,* building [BB-D33](#BB-D33)'s widening entry. The key is [§5.6](#56-the-repository-scope)'s spelling, `brokered.<source>.workspaces.<path>.repos`, whose `<source>` is a loophole manifest's `brokered.source`, so core names no tool; a source no selected pack's loophole brokers is a warning, as an entry for a loophole no selected pack ships is, since one user config serves machines that select different packs. A source object accepts `workspaces` alone until step 2 builds the sets. A workspace key is an absolute path or starts with `~/`, and a relative path, `~user/`, a `$`, a bare `~` and an empty key are refused; it matches the one folder it resolves to, never a folder under it, and never a workspace its resolution passes through: a key whose path, links followed, visits a folder or link inside the workspace does not match it, since what lies there is the agent's to change and [BB-P9](#BB-P9) makes the remotes the workspace's one input to its scope. Added in review the same day, after a unit test MEASURED an entry for `~/code/app/sub` widening `~/code/app` once `sub` became a link to `.`. Its limit: a link inside one workspace can still point an entry at another workspace, which widens that other jail, never the one whose agent made the link, and that launch's line discloses it. Each repository is `owner/repo` by the check a remote's reduction uses (`brokerscope.ValidRepo`). Validation refuses every malformed key, entry and repository, and the reader skips each of them too, so a refused one admits nothing even where nothing validated. The scope file's `widened` list, and the launch line disclosing it, hold what the entry adds beyond the approved remotes, compared without case. A spawn whose gate recorded no scope still carries the entry, which needs no approval, so the fail-closed rule of [BB-D44](#BB-D44) withholds the remotes alone. The out-of-scope refusal for a repository names the user config's path and the entry keyed by the workspace's host path the launch resolved, which the jail already holds as `YOLO_HOST_DIR`; the account-wide refusal says no widening entry admits one. The key is in neither file a jail inherits: its paths are host paths, which nothing in a jail has. It does reach the jail another way, as every user-config key does: MEASURED 2026-10-01 in a nested launch, the merged config the host delivers into the workspace (`.yolo/config-assembled.json`, `config.WriteAssembledConfig`) carries the whole `brokered` key, so a jail can read every workspace's entries, the paths and the repository names, though none of them admits it anything. Whether that copy should drop the key or keep only this workspace's entries is [OQ-BB11](#OQ-BB11), filed for the maintainer and not decided here | 2026-10-01 | [§5.6](#56-the-repository-scope) | built: the reader and validator, `config.BrokeredWidening` and `config.validateBrokered`, pinned by `TestBrokeredWideningIsTheUserEntryForThisWorkspaceAlone`, `TestAWideningKeyThatRunsThroughTheWorkspaceNeverMatchesIt`, `TestValidateBrokeredRefusesEachBadShapeAndAWorkspaceValue` and `TestValidateBrokeredWarnsOfASourceNoSelectedPackBrokers`; the launch's write, `run.Options.writeScopeFiles`, pinned by `TestAWideningEntryJoinsTheScopeFileAndIsDisclosed` and `TestAWideningEntryWithNoRemoteAndNoApproval`; the refusal, `ghbroker.Scope.widenAdvice`, pinned by `TestTheBrokerRunsAWidenedRepositoryAndNamesTheEntryForAnother`; end to end in a nested podman jail by `TestGitHubBrokerAWideningEntryAdmitsARepositoryForOneWorkspace` |
 | [OQ-BB3](#OQ-BB3) | **Maintainer ruling:** A; Allow once · Allow read-write 15 min · Deny, dismissal denies | 2026-09-29 | [§14](#14-open-questions) | pending |
 | [OQ-BB4](#OQ-BB4) | **Maintainer ruling, delegated:** terminal-notifier as a dependency of the published Homebrew formula on Apple silicon (carried out as macOS 14 or later, where the bottle is, [BB-D35](#BB-D35)), optional on Intel and older macOS, `yolo approve` without it; yolo's own signed helper once the release signs | 2026-09-29 | [§14](#14-open-questions) | pending |
 | [OQ-BB6](#OQ-BB6) | **Maintainer ruling:** (a), a user-scope entry keyed by workspace; (e) not adopted, so an out-of-scope read refuses | 2026-09-29 | [§14](#14-open-questions) | built 2026-10-01: (a) as the `brokered` key's widening entry ([BB-D33](#BB-D33), [BB-D52](#BB-D52)), end to end in `TestGitHubBrokerAWideningEntryAdmitsARepositoryForOneWorkspace`; (e)'s refusal was built with step 1 ([BB-D20](#BB-D20)) |
