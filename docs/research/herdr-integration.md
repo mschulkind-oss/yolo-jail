@@ -883,7 +883,8 @@ fi
 - **You type:** `yolo -- claude` in a herdr pane, and nothing else.
 - **You see:**
   - herdr's sidebar lists the pane as claude: working, blocked on a question, or done;
-  - the pane's title reads "🔒 JAIL yolo-jail";
+  - the pane's border reads "🔒 JAIL yolo-jail", on a split pane, or on any pane with
+    `pane_borders = "always"` (see the [first real run](#built-2026-09-30));
   - herdr's notifications fire, if you turned them on;
   - `herdr agent prompt <pane> "…"` from a host script reaches the jailed agent.
 - **After you quit:** the label goes, and the pane is a shell again.
@@ -984,14 +985,22 @@ prints one line, and the launch continues with only the hint.
 
 **First real run, 2026-09-30, herdr 0.7.5, podman on macOS, iTerm2.** A `yolo -- claude` built
 from this slice made herdr's sidebar show Claude's status, the same result as the hand-written
-wrapper. MEASURED. **The pane label was not seen.** herdr 0.7.5 accepts
-`report-metadata --title`: it exits 0, and the pane's `herdr pane get` record gains a `title`
-field, separate from `terminal_title`. But a probe title held for 60 seconds showed nowhere in the
-sidebar, the pane chrome or the tab. MEASURED. The display behavior in [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) was read from 0.9.3's
-source, so 0.7.5 may store the label without showing it. A run on 0.9.3 or later would settle
-this. Not yet tested: the label and status clearing after a normal quit and after Ctrl-C, and the
-hint on the podman client (`ps eww`). So this run does not tell whether the status came from the
-hint or from the self-report.
+wrapper. MEASURED.
+
+**The label shows only on a pane border, and by default only a split pane has one.** In 0.9.3
+herdr draws the reported title in exactly one place: the pane's border label, where it takes
+priority over a manual pane name (`border_label` in `src/terminal/state.rs`, called only from
+`src/ui/panes.rs`). The sidebar never shows it. With the default `[ui] pane_borders = "auto"`,
+herdr draws borders only around split panes, so a pane alone in its tab has nowhere to show the
+label. `pane_borders = "always"` also frames a lone pane. Both SOURCED at `v0.9.3`. A
+`report-metadata --title "🔒 JAIL probe"` probe, sent with this slice's `--source` and `--agent`
+guard, did not appear while its pane was alone in the tab, on 0.7.5 or 0.9.3. Once the tab was
+split, it appeared on the pane's border on 0.9.3. MEASURED. So the label in [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) shows
+only on a split pane, unless the user turns borders on for every pane.
+
+Not yet tested: the label and status clearing after a normal quit and after Ctrl-C, and the hint
+on the podman client (`ps eww`). So the run does not tell whether the status came from the hint
+or from the self-report.
 
 ### 4.4 Option 3: resume after a herdr restart
 
@@ -1354,14 +1363,14 @@ Two of its claims are corrected by this doc's evidence:
 
 ## 6. What is unmeasured
 
-1. **A real `yolo -- claude` in a host herdr pane.** One run on herdr 0.7.5 showed the status but
-   not the label ([first real run](#built-2026-09-30)). Still owed on a real host:
+1. **A real `yolo -- claude` in a host herdr pane.** One run on herdr 0.7.5 showed the status.
+   A label probe on 0.9.3 showed on a split pane's border, which is the only place herdr draws it
+   ([first real run](#built-2026-09-30)). Still owed on a real host:
    - whether the hint on the runtime client alone makes herdr pick Claude's manifest (that run
      also self-reported, so it cannot tell);
    - how long the idle window lasts during boot;
    - what the screen rules make of Claude under `--dangerously-skip-permissions`;
-   - whether the label and its `--agent` guard show on herdr 0.9.3 or later, since 0.7.5 stores
-     the label without showing it.
+   - the label from a real jail launch, rather than a probe, and that it clears at exit.
 2. **Rootless podman.** Whether herdr can read `HERDR_AGENT` from a rootless podman process that
    has re-entered its user namespace, and whether host `/proc` shows a jailed agent's process
    group at all. A nested jail runs rootful and cannot show either. Only a real rootless host can.

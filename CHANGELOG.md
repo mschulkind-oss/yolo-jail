@@ -116,8 +116,9 @@ counts tokens with its own estimate there. See
 agent by the program running in its pane, and for a jailed one that program is yolo, so the pane
 used to read as a plain shell. Now a launch in a herdr pane whose command is an agent one of your
 packs installs, such as `yolo -- claude`, tells herdr which agent it is and says so in one line.
-herdr's sidebar then shows whether the agent is working, blocked or done, and the pane is titled
-"🔒 JAIL" and the project's name until the jail exits. A bare `yolo` or `yolo -- bash` registers nothing, and
+herdr's sidebar then shows whether the agent is working, blocked or done. A pane that has a
+border, which in herdr by default means a split pane, is also labelled "🔒 JAIL" and the
+project's name until the jail exits. A bare `yolo` or `yolo -- bash` registers nothing, and
 `YOLO_NO_HERDR=1` turns this off. If herdr refuses the registration, the launch says why and carries
 on. In a herdr pane running inside kitty, yolo no longer retitles the kitty tab that holds all of
 herdr.
