@@ -164,33 +164,37 @@ host or an outside account follows under [External waits](#external-waits).
 
 ## External waits
 
-38. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
+38. One Mac session checks [whether two Apple Container jails mount the shared mise volume read-write at once](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)
+    — first among the waits because, if they do, the ext4 disk can be corrupted; read from `container`'s source, not seen.
+39. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
     by running [its runbook](runbooks/claude-credential-view-measures.md), on a Mac and for a day on a rootless host,
     and [the OpenAI service](../design/openai-auth-broker-plan.md) by recording one browser login and one shared expiry.
-39. One session at a Mac clears [the host capture for installer agents](../design/host-tool-provisioning.md), which runs
+40. One session at a Mac clears [the host capture for installer agents](../design/host-tool-provisioning.md), which runs
     each vendor installer under Seatbelt; the hosted Mac job runs no vendor install until [OQ-CI7](../reference/agent-install-in-ci.md#OQ-CI7) says it may.
-40. A real rootless Linux host, which a nested jail is not, clears [a real reboot](../design/podman-reboot-readiness.md#testing-and-the-real-host-check),
+41. A real rootless Linux host, which a nested jail is not, clears [a real reboot](../design/podman-reboot-readiness.md#testing-and-the-real-host-check),
     [a low-space collection with a jail up](storage-lifecycle.md) and [the keeper's scope move and logout](../design/jail-lifetime-last-session-wins.md#8-what-done-looks-like).
-41. One live agent session per check, which no test may start, clears [the footer](../design/agent-footer.md#21-as-built),
+42. One live agent session per check, which no test may start, clears [the footer](../design/agent-footer.md#21-as-built),
     [Claude's LSP plugin](../reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin), [the via route](../design/wire-bridge-gateway.md#41-how-it-is-built),
     [menus under a model list](../design/model-lists-and-pickers.md#13-build-order-and-what-done-looks-like),
     [a switch inside a provider set](../design/active-provider-sets.md#9-what-done-looks-like),
     [Copilot's config migration](../design/agent-directory-map.md#74-copilot) and [a Kilo session](../design/gateway-provider-packs.md).
-42. A human with the cloud account clears [a first Bedrock request](../design/bedrock-plumbing.md),
+43. A human with the cloud account clears [a first Bedrock request](../design/bedrock-plumbing.md),
     [an SSO lapse mid-turn](../design/sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it),
     [settings-only Bedrock mode](../reference/providers.md#two-channels-split-by-payload-type),
     [an AgentCore gateway](../design/bedrock-web-search.md) and
     [a Claude usage-limit response](../design/wire-bridge-gateway.md#5-part-4--the-subscription-arm-and-opt-in-failover-ruled).
-43. [Apple Container's published ports on the runner Mac](../design/backend-parity.md#54-which-test-answers-which-row) clear
+44. [Apple Container's published ports on the runner Mac](../design/backend-parity.md#54-which-test-answers-which-row) clear
     with a Local Network grant or Apple's signed `container` package and a rerun, which [the runbook](runbooks/mac-actions-runner.md) records.
-44. The maintainer's own commits and launches clear [the `matt` pack's `briefing/`](../reference/pack-system.md#briefing),
+45. The maintainer's own commits and launches clear [the `matt` pack's `briefing/`](../reference/pack-system.md#briefing),
     [its posture list at the host](../design/notch-scoped-config-contributions.md#5-fastest-path-to-the-motivating-case),
     [a dropped pack's host output](../reference/pack-system.md#retiring-a-dropped-packs-host-output), [the fzf pack's adoption](handoff-fzf-pack-adoption.md) and
     [the listen-port fix where reported](../reference/wire-bridge.md#what-can-hold-the-listen-port-before-the-bridge-does).
-45. A live `llama-server` and one manual agent turn per row clear [the `llamacpp` provider](../../packs/llamacpp/README.md),
+46. A live `llama-server` and one manual agent turn per row clear [the `llamacpp` provider](../../packs/llamacpp/README.md),
     whose per-agent spellings are read from each agent's code and have never met a server; copilot is the one to try first.
-46. The next scheduled `macos-user.yml` run clears [the AWS doorway on a Mac](../design/host-notch-services.md), whose
+47. The next scheduled `macos-user.yml` run clears [the AWS doorway on a Mac](../design/host-notch-services.md), whose
     test now carries the region the launch requires and has never run.
+48. One Mac session runs [the benchmark of macos-user against Apple Container](../research/macos-backend-performance.md#appendix-a--the-harness)
+    — nothing has compared the two backends on one machine, and the macOS direction's VM-overhead premise rests on that comparison.
 
 ## Boundaries
 

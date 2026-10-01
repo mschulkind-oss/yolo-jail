@@ -36,6 +36,8 @@ disk-image growth, a filesystem boundary over the workspace, daemon lifecycle. T
 macOS path as fast and convenient as Linux, with **no VM and no RAM pre-commitment**, without
 throwing away the things that make this yolo rather than a sandbox wrapper.
 
+**Not yet measured:** nothing has compared this overhead with `macos-user` on one Mac; [the macOS backend benchmark](../research/macos-backend-performance.md) is the measurement that will test this premise.
+
 | Component | Lives in |
 | :--- | :--- |
 | The native, no-VM backend | `internal/macosuser` |
