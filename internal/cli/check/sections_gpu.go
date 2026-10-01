@@ -35,13 +35,14 @@ func (o *Options) checkRocmEnumeration(r *reporter) {
 		if res.Timeout {
 			msg = "timeout"
 		}
-		r.warn("rocminfo execution failed — enumeration skipped", msg)
+		r.warn("rocminfo execution failed — enumeration skipped",
+			msg+"\nOptional: passthrough needs only the device nodes below. "+probeNote("rocminfo"))
 		return
 	}
 	if res.RC != 0 || strings.TrimSpace(res.Stdout) == "" {
 		r.warn("rocminfo ran but reported no GPUs",
-			"Check amdgpu driver installation (the device-node checks "+
-				"below are the functional gate)")
+			"The device-node checks below are the functional gate. Run `rocminfo` for its own "+
+				"error, "+recheck)
 		return
 	}
 	foundGPU := false
@@ -60,7 +61,9 @@ func (o *Options) checkRocmEnumeration(r *reporter) {
 	}
 	if !foundGPU {
 		r.warn("rocminfo ran but enumerated no GPU agent",
-			"Check the amdgpu driver and that the GPU is ROCm-supported")
+			"ROCm lists the GPUs it supports at "+
+				"https://rocm.docs.amd.com/projects/install-on-linux/en/latest/reference/system-requirements.html; "+
+				"the device-node checks below are the functional gate.")
 	}
 }
 

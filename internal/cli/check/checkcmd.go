@@ -110,6 +110,9 @@ type Options struct {
 	// place only there, and is written as lines anywhere else. nil => the ioctl probe on
 	// os.Stderr.
 	IsTTYStderr func() bool
+	// storageErr is what EnsureGlobalStorage returned, so the Global Storage section can say why
+	// a directory it should have created is missing. nil when it succeeded or did not run.
+	storageErr error
 	// podmanReady is the gate's result, asked once per check and read by every section that
 	// needs a podman answer on Linux. nil until the first asks.
 	podmanReady *yoloruntime.ReadyResult

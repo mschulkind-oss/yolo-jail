@@ -70,7 +70,8 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// nothing" rather than as a misdiagnosis.
 	entries, err := config.LoadPacks(r.configWarn)
 	if err != nil {
-		r.fail("Loading packs: "+err.Error(), "")
+		r.fail("Loading packs: "+err.Error(),
+			"Fix the `packs` list in "+paths.UserConfigPath()+" (`yolo pack --help` shows an entry's forms), "+recheck)
 		return
 	}
 	// HasConfiguredPack, not len(entries): the conventional local pack arrives with no config
@@ -84,9 +85,10 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		}
 	}
 
-	lock, lockErr := packsrc.LoadLock(packsrc.LockPath(paths.UserConfigPath()))
+	lockPath := packsrc.LockPath(paths.UserConfigPath())
+	lock, lockErr := packsrc.LoadLock(lockPath)
 	if lockErr != nil {
-		r.fail("Lockfile: "+lockErr.Error(), "")
+		r.fail("Lockfile: "+lockErr.Error(), lockfileNote(lockPath, lockErr))
 		lock = &packsrc.Lock{Packs: map[string]packsrc.LockEntry{}}
 	}
 	configured := map[string]string{}
@@ -136,7 +138,9 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	sel, _ := config.SelectPacks(entries, config.PackSelectSpec{
 		Resolve: func(e config.PackEntry) (*packload.Pack, error) {
 			if treeErr != nil {
-				r.fail(e.Name+": "+treeErr.Error(), "")
+				r.fail(e.Name+": "+treeErr.Error(),
+					"yolo check stages each pack under "+os.TempDir()+". Make it writable, or point TMPDIR "+
+						"at a directory that is, "+recheck)
 				return nil, nil
 			}
 			// THE ONE RESOLVER, the launch's (config.ResolvePack): staged with the REAL executor, so
@@ -174,7 +178,9 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			case len(res.Staged.Staged) == 0:
 				// Not a hard failure — a pack may legitimately be empty mid-authoring —
 				// but never silent, because it is nearly always a filter typo.
-				r.warn(e.Name+": stages 0 files", "check its only/exclude filters")
+				r.warn(e.Name+": stages 0 files",
+					"Its `only`/`exclude` filters match none of its files. Fix them in its `packs` entry in "+
+						paths.UserConfigPath()+" (`yolo pack --help` shows the filters), "+recheck)
 				return nil, nil
 			default:
 				r.ok(fmt.Sprintf("%s: %d file(s) stage", e.Name, len(res.Staged.Staged)))
@@ -182,7 +188,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			// There is nothing origin-dependent left to match: OQ-TP9 deleted the host-access gate,
 			// so `check` and the launch load a pack the same way.
 			for _, prob := range res.Problems {
-				r.fail(prob, "the launch refuses this pack until it is fixed")
+				r.fail(prob, "the launch refuses this pack until it is fixed.\n"+packFixNote(e))
 			}
 			if res.Pack != nil && len(res.Problems) == 0 {
 				return res.Pack, nil
@@ -199,7 +205,10 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 
 	loaded := sel.Configured
 	if sel.ClosureErr != nil {
-		r.fail("Pack selection: "+sel.ClosureErr.Error(), "")
+		r.fail("Pack selection: "+sel.ClosureErr.Error(),
+			"Fix the `packs` entry, or the `needs` of a pack you wrote, that this names "+
+				"(`yolo pack --help`), "+recheck+"\n"+
+				yoloBugNote("The same problem in a pack that ships with yolo"))
 	} else {
 		loaded = sel.Packs()
 		for _, cause := range sel.Causes {
@@ -219,7 +228,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// interesting case is a user's pack against a shipped one.
 	for _, c := range packload.ConfigSurfaceCollisions(loaded) {
 		r.fail("config surface "+c.Target+" has more than one owner",
-			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
+			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason+"\n"+keepOneNote())
 	}
 
 	// Agent-NAME exclusivity over the same selected set, and fatal here for the same reason:
@@ -229,7 +238,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// own agent pack against a shipped one — two packs that both want to be `claude`.
 	for _, c := range packload.AgentNameCollisions(loaded) {
 		r.fail("agent name "+c.Target+" has more than one owning pack",
-			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
+			"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason+"\n"+keepOneNote())
 	}
 
 	// The launch's PROTOCOL-PAIRING gate, predicted over the SELECTED set — here rather
@@ -241,16 +250,16 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	served := o.predictedServed(merged, loaded)
 	pairErrs, pairWarns := protocolPairingGap(loaded, merged, served, r.configWarn, userProfiles)
 	for _, e := range pairErrs {
-		r.fail(e, "")
+		r.fail(e, launchPredictionNote)
 	}
 	for _, w := range pairWarns {
-		r.warn(w, "")
+		r.warn(w, launchPredictionNote)
 	}
 	// What the `models` contributions of the selected packs could not do as written — a
 	// duplicate, an `only` id nothing added, a provider nothing declares — over the same
 	// selected set, since a pack pulled in by `needs` shapes a list at launch too.
 	for _, w := range modelListNotes(loaded, merged) {
-		r.warn(w, "")
+		r.warn(w, modelListFixNote)
 	}
 	// Which of those lists a profile's `enforce_models` off leaves out of an agent's menu
 	// (docs/design/model-lists-and-pickers.md MM-D5, MM-D29): over the same selected set and the
@@ -304,7 +313,8 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	if cols := packload.Collisions(packload.Embedded()); len(cols) > 0 {
 		for _, c := range cols {
 			r.fail(fmt.Sprintf("pack footprint collision: %s %s", c.Kind, c.Target),
-				"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason)
+				"packs "+strings.Join(c.Packs, ", ")+" — "+c.Reason+"\n"+
+					yoloBugNote("A collision between the packs yolo ships"))
 		}
 	}
 }
@@ -338,8 +348,35 @@ func (o *Options) reportUnresolvedPack(r *reporter, e config.PackEntry, err erro
 			}
 		}
 	}
-	r.fail(e.Name+": "+why.Error(), "")
+	r.fail(e.Name+": "+why.Error(), packFixNote(e))
 }
+
+// packFixNote is the next step for a pack whose declaration or address the launch refuses: the
+// user's own pack is theirs to fix, and a pack that ships with yolo is the maintainers'.
+func packFixNote(e config.PackEntry) string {
+	if e.Embedded() {
+		return yoloBugNote("A problem in a pack that ships with yolo") + "\nUntil it is fixed, drop " +
+			e.Name + " from `packs` in " + paths.UserConfigPath() + ", " + recheck
+	}
+	return "Fix the pack at " + e.Source + " (`yolo pack --help` documents every field), or its `packs` " +
+		"entry in " + paths.UserConfigPath() + ", " + recheck
+}
+
+// keepOneNote is the next step for two selected packs claiming one name: the launch refuses the
+// pair, so the selection keeps one of them.
+func keepOneNote() string {
+	return "Keep one of them in `packs` in " + paths.UserConfigPath() + ", " + recheck
+}
+
+// launchPredictionNote follows a launch refusal check predicts over the selected packs: the
+// refusal's own words name what to change, in the config or a pack's declarations.
+const launchPredictionNote = "Change what it names, in your config (`yolo config-ref`) or a pack you wrote " +
+	"(`yolo pack --help`), " + recheck
+
+// modelListFixNote follows a `models` contribution that could not do what it says. The pack's
+// author can fix it; for a pack that ships with yolo that is the maintainers.
+var modelListFixNote = "Fix the `models` contribution of the pack it names, if the pack is yours " +
+	"(`yolo pack --help`), " + recheck + "\n" + yoloBugNote("The same problem in a pack that ships with yolo")
 
 // launchWouldRepair reports which store miss a resolution failure is when the next HOST
 // launch repairs it: packsrc.ErrNotFetched for a git pack whose mirror the store does not

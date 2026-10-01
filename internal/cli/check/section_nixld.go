@@ -36,9 +36,9 @@ func (o *Options) sectionNixLD(r *reporter) {
 	res := o.Exec([]string{"env", "-i", node, "--version"}, "", nil, 15*time.Second)
 	switch {
 	case res.Timeout:
-		r.fail("mise node env-free probe timed out", "")
+		r.fail("mise node env-free probe timed out", probeNote("env", "-i", node, "--version"))
 	case !res.Ran:
-		r.warn("could not run the mise node probe: exec failed", "")
+		r.warn("could not run the mise node probe: exec failed", probeNote("env", "-i", node, "--version"))
 	case res.RC == 0 && strings.HasPrefix(strings.TrimSpace(res.Stdout), "v"):
 		r.ok("mise node runs env-free: " + strings.TrimSpace(res.Stdout) + " (nix-ld OK)")
 	default:

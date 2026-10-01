@@ -648,6 +648,22 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   Determinate Nix, which frees disk space on its own, is no longer warned that its automatic
   garbage collection is off, and inside a podman or Apple Container jail that row now says to
   check on your machine instead of reading the jail's own Nix settings as yours.
+- `yolo check` with its output piped now tells you how to remove the orphaned jails it lists:
+  `podman rm -f` (on Apple Container, `container rm --force`) with their names, the same removal
+  its question at a terminal makes, then `yolo check` again. It used to say `yolo prune --apply`,
+  which removes only stopped containers, so the running orphans stayed. `yolo check --format json`
+  at a terminal no longer waits for an answer to that question, which it never showed, and its
+  document carries the command too.
+- When no container runtime is installed, `yolo check` now names the install command for your
+  machine: the `dnf` line on Fedora, the `pacman` line on Arch, the `apt` line with the network
+  helpers on Debian and Ubuntu, the system option on NixOS, and on a Mac Apple Container or Podman,
+  whichever your chip and macOS version can run. It used to suggest `sudo apt install podman`
+  everywhere.
+- More of `yolo check`'s problems now say what to do about them. `Could not resolve the yolo-jail
+  repo root` gives the fix a launch gives for it. A check that could not get an answer names the
+  command to run yourself, a config error names where to fix it, and a problem in a pack that ships
+  with yolo says it is a yolo bug and where to report it. A missing yolo state folder now says why
+  yolo could not create it, instead of promising the first launch would.
 - `yolo prune --apply` now removes the old yolo store paths it lists on a Nix installed with the
   official installer and no `experimental-features` line. It used to fail on each one with "experimental
   Nix feature 'nix-command' is disabled".

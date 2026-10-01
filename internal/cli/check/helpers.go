@@ -7,7 +7,9 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // cleanupTrackingFn removes a container's tracking file.
@@ -84,12 +86,12 @@ func loadConfigLoose(workspace string) *jsonx.OrderedMap {
 // The non-interactive case needed the OTHER half, or assigning Stdin would trade one
 // wrong behaviour for a worse one: reading a piped stdin means `yolo check < script`
 // in CI could answer "y" to a destructive prompt nobody saw. So the question is asked
-// only on a terminal, and the pipe gets a statement of fact plus the command — the
-// same shape run's own reclaim offer uses (run/offer.go: "No prompt, no deletion, one
-// line. Never an implicit yes.").
+// only where canAskAboutOrphans says it can be seen, and everywhere else the finding's
+// note carries the command instead (nonTTYOrphansNote) — the same shape run's own
+// reclaim offer uses (run/offer.go: "No prompt, no deletion, one line. Never an
+// implicit yes.").
 func (o *Options) orphanCleanupPrompt(r *reporter, n int) bool {
-	if o.Stdin == nil || !o.IsTTYStdout() {
-		r.line("  " + r.style(nonTTYOrphansLine(n), ansiYellow))
+	if !o.canAskAboutOrphans() {
 		return false
 	}
 	prompt := "  " + r.style(pluralOrphansPrompt(n), ansiYellow) + " "
@@ -102,16 +104,44 @@ func (o *Options) orphanCleanupPrompt(r *reporter, n int) bool {
 	return answer == "y" || answer == "yes"
 }
 
+// canAskAboutOrphans reports whether the orphan question can be seen and answered: a
+// terminal on both ends, and a human report to print it in. `--format json` discards that
+// report (outfmt.Sink), so a JSON run at a terminal would block on an answer to a question
+// nobody was shown.
+func (o *Options) canAskAboutOrphans() bool {
+	return o.Stdin != nil && o.IsTTYStdout() && !outfmt.IsJSON(o.Format)
+}
+
 func pluralOrphansPrompt(n int) string {
 	return "Stop " + itoa(n) + " orphaned jail(s)? [y/N]"
 }
 
-// nonTTYOrphansLine is what a pipe gets instead of a question it cannot answer: what
-// is true, and the command that acts on it. Never a prompt, so nothing can read an
+// orphanRemoval is the runtime command that removes the named jails: the one a terminal's yes
+// runs for each orphan, and the one nonTTYOrphansNote prints for all of them, so the two cannot
+// name different removals. Apple Container takes the --force spelling its launch path uses
+// (run's removeStaleContainer); podman, -f.
+func orphanRemoval(rt string, names ...string) []string {
+	force := "-f"
+	if rt == "container" {
+		force = "--force"
+	}
+	return append([]string{rt, "rm", force}, names...)
+}
+
+// nonTTYOrphansNote is the orphan finding's note where no question can be asked: what is true,
+// and the command that removes them, then the re-check. Never a prompt, so nothing can read an
 // implicit yes out of redirected input.
-func nonTTYOrphansLine(n int) string {
-	return itoa(n) + " orphaned jail(s) are still here. Run `yolo prune --apply` to remove them; " +
-		"this check will not."
+//
+// It used to send the reader to `yolo prune --apply`, which removes only STOPPED containers
+// while these are running, so following it changed nothing. The command is the runtime's own
+// removal, the one the terminal's yes runs; the yes also records, for each session the
+// removal ends, why its jail stopped (run.RecordJailStop), which a removal from outside yolo
+// cannot, so those sessions report a stop from outside yolo.
+func nonTTYOrphansNote(rt string, names []string) string {
+	return "These containers are stuck or have lost their workspace, and this check removes them\n" +
+		"only when a terminal answers its question:\n" +
+		"fix:  " + shquote.Join(orphanRemoval(rt, names...)) + "\n" +
+		recheck
 }
 
 // pyStrOf renders a human string for a non-string cmd[0] element (rare/never

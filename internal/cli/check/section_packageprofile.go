@@ -129,7 +129,7 @@ func (o *Options) checkPackageProfile(r *reporter, notch render.Kind, materializ
 		r.fail("The `packages:` GC root points at a store path that no longer exists",
 			"Root: "+link+"\nTarget: "+target+"\nA nix GC collected a ROOTED "+
 				"closure, which should be impossible — the next run rebuilds it, "+
-				"but please report this.")
+				"but please report it at "+issuesURL+".")
 		return
 	}
 	r.ok("`packages:` profile resolved and GC-rooted: " + target)

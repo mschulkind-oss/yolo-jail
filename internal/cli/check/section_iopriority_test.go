@@ -77,7 +77,8 @@ func TestIOPriorityCheckGradesTheDiskTable(t *testing.T) {
 			[]string{`[WARN] resources.io.priority "low" does nothing on sda (scheduler mq-deadline)`, `Or declare "idle"`, "udev rule"}, nil},
 		{"kyber through LUKS", iopriotest.Kyber(t, ioWS), "idle",
 			[]string{`[WARN] resources.io.priority "idle" does nothing on nvme0n1 (scheduler kyber), the disk under ` + ioWS,
-				"switch nvme0n1's scheduler to bfq"}, []string{"Or declare"}},
+				"switch nvme0n1's scheduler to bfq", "echo bfq | sudo tee /sys/block/nvme0n1/queue/scheduler",
+				`KERNEL=="nvme0n1", ATTR{queue/scheduler}="bfq"`, "then: yolo check"}, []string{"Or declare"}},
 		{"none", iopriotest.Scheduler(t, ioWS, "none"), "low",
 			[]string{`[WARN] resources.io.priority "low" does nothing on sda (scheduler none)`}, nil},
 		{"bfq under LUKS", iopriotest.New(t).Mount(ioWS, "btrfs", "/dev/mapper/root").
@@ -141,6 +142,10 @@ func TestIOPriorityCheckOnMacOSHosts(t *testing.T) {
 		got, _ := runIOPrioritySection(t, ioCheck{io: "low", macOS: true, runtime: tc.rt})
 		if !strings.Contains(got, "[WARN] "+tc.want) {
 			t.Errorf("%s: report\n%s\nwant %q", tc.rt, got, tc.want)
+		}
+		// Nothing on a Mac can make the key act, so the step is the one that silences it.
+		if !strings.Contains(got, "remove resources.io.priority to silence this, then: yolo check") {
+			t.Errorf("%s: the warning names no next step:\n%s", tc.rt, got)
 		}
 	}
 }

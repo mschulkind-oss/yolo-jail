@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostwrap"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // sectionHostWrappers observes whether the generated host launch wrappers are actually what a
@@ -71,7 +72,8 @@ func (o *Options) sectionHostWrappers(r *reporter) {
 	missingDir := st.dirErr != nil && os.IsNotExist(st.dirErr)
 	if st.dirErr != nil && !missingDir {
 		r.warn("cannot read the wrapper directory "+dir,
-			joinLines(st.dirErr.Error(), st.gateClause(gateUnreadable)))
+			joinLines(st.dirErr.Error(), "Make it readable by you (`ls -ld "+shquote.Quote(dir)+"` shows its owner), "+
+				recheck, st.gateClause(gateUnreadable)))
 		return
 	}
 	if missingDir || len(names) == 0 {

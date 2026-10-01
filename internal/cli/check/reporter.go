@@ -187,7 +187,9 @@ func (r *reporter) hostFact(msg, whereToCheck string) {
 // three gates at check.go), and r.warned is read only by summaryFailWarn and
 // summaryFinal below. So a finding that used to scroll past now lands in the count
 // and nothing starts refusing — which is why this step needed no ruling on OQ-RM1.
-func (r *reporter) configWarn(msg string) { r.warn(msg, "") }
+func (r *reporter) configWarn(msg string) {
+	r.warn(msg, "Fix the config entry this names (`yolo config-ref` documents every key), "+recheck)
+}
 
 // style wraps s in an ANSI SGR sequence when color is on; otherwise returns s
 // unchanged. Combined-SGR sequences (e.g. "1;97;41") pass through verbatim.

@@ -43,7 +43,8 @@ func (o *Options) sectionGPUNvidia(r *reporter, merged *jsonx.OrderedMap) {
 	r.sectionHeader("GPU (NVIDIA)")
 	if o.IsMacOS {
 		r.warn("GPU passthrough is not supported on macOS",
-			"NVIDIA GPU passthrough requires Linux with NVIDIA drivers")
+			"NVIDIA GPU passthrough requires a Linux host with NVIDIA drivers. On this Mac, remove "+
+				"`gpu` from your config, "+recheck)
 		r.blank()
 		return
 	}
@@ -68,9 +69,10 @@ func (o *Options) sectionGPUNvidia(r *reporter, merged *jsonx.OrderedMap) {
 				r.ok("GPU detected: " + strings.TrimSpace(line))
 			}
 		} else if !res.Ran || res.Timeout {
-			r.fail("nvidia-smi execution failed", "probe failed")
+			r.fail("nvidia-smi execution failed", probeNote("nvidia-smi"))
 		} else {
-			r.fail("nvidia-smi found but no GPUs detected", "Check NVIDIA driver installation")
+			r.fail("nvidia-smi found but no GPUs detected",
+				"The NVIDIA driver sees no GPU. Run `nvidia-smi` for the driver's own error, "+recheck)
 		}
 	} else {
 		r.fail("nvidia-smi not found",
@@ -130,7 +132,8 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 	r.sectionHeader("GPU (AMD/ROCm)")
 	if o.IsMacOS {
 		r.warn("ROCm passthrough is not supported on macOS",
-			"AMD ROCm GPU passthrough requires Linux with the amdgpu driver")
+			"AMD ROCm GPU passthrough requires a Linux host with the amdgpu driver. On this Mac, "+
+				"remove `gpu` from your config, "+recheck)
 		r.blank()
 		return
 	}
@@ -158,7 +161,8 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 			}
 		} else {
 			r.fail("no /dev/dri render node present",
-				"ROCm needs at least one /dev/dri/renderD* node")
+				"ROCm needs at least one /dev/dri/renderD* node, which appears once amdgpu binds the GPU. "+
+					"`sudo dmesg | grep -i amdgpu` shows why it did not, "+recheck)
 		}
 	}
 
@@ -167,7 +171,8 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 		r.ok("Podman will preserve render/video group via --group-add keep-groups")
 	} else if effectiveRuntime == "container" {
 		r.warn("Apple Container does not support device passthrough",
-			"ROCm passthrough will be ignored on the 'container' runtime")
+			"ROCm passthrough will be ignored on the 'container' runtime. Set \"runtime\": "+
+				"\"podman\" in your config to use it, "+recheck)
 	}
 
 	if mode == "cdi" && inJail {
@@ -197,7 +202,8 @@ func (o *Options) sectionGPUAmd(r *reporter, merged *jsonx.OrderedMap) {
 // checkDeviceNode runs the nested _check_node closure (ROCm device nodes).
 func (o *Options) checkDeviceNode(r *reporter, node string) {
 	if !o.PathExists(node) {
-		r.fail(node+" not present", "")
+		r.fail(node+" not present",
+			node+" appears once the amdgpu driver is loaded: `sudo modprobe amdgpu`, "+recheck)
 		return
 	}
 	r.ok("Device node: " + node)
@@ -207,7 +213,8 @@ func (o *Options) checkDeviceNode(r *reporter, node string) {
 	}
 	gid, groupName, ok := o.NodeGID(node)
 	if !ok {
-		r.fail("Could not stat "+node+": stat error", "")
+		r.fail("Could not stat "+node+": stat error",
+			"Run `ls -l "+node+"` to see why, "+recheck)
 		return
 	}
 	if o.InUserGroups(gid) {
@@ -258,7 +265,7 @@ func (o *Options) sectionKVM(r *reporter, merged *jsonx.OrderedMap) {
 	} else {
 		gid, groupName, ok := o.NodeGID(kvmPath)
 		if !ok {
-			r.fail("Could not stat /dev/kvm: stat error", "")
+			r.fail("Could not stat /dev/kvm: stat error", "Run `ls -l /dev/kvm` to see why, "+recheck)
 		} else if o.InUserGroups(gid) {
 			r.warn(fmt.Sprintf("User is in group '%s' but /dev/kvm is not accessible from this process", groupName),
 				"Log out and back in (or `newgrp kvm`) so the new group takes effect")
@@ -272,7 +279,8 @@ func (o *Options) sectionKVM(r *reporter, merged *jsonx.OrderedMap) {
 		r.ok("Podman will preserve kvm group via --group-add keep-groups")
 	} else if effectiveRuntimeKVM == "container" {
 		r.warn("Apple Container does not support device passthrough",
-			"kvm: true will be ignored on the 'container' runtime")
+			"kvm: true will be ignored on the 'container' runtime. Set \"runtime\": \"podman\" "+
+				"in your config to use it, "+recheck)
 	}
 	r.blank()
 }

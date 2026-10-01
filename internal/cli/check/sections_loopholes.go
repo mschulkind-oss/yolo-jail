@@ -133,7 +133,8 @@ func (o *Options) checkLoopholes(r *reporter) {
 	userSwitches := loopholeConfigBlock(o.Workspace)
 	for _, e := range entries {
 		if e.Err != "" {
-			r.warn("loophole "+filepath.Base(e.Path)+": invalid manifest", e.Err)
+			r.warn("loophole "+filepath.Base(e.Path)+": invalid manifest",
+				e.Err+"\nFix "+e.Path+" (`yolo pack --help` documents a loophole's fields), or remove it, "+recheck)
 			continue
 		}
 		lp := e.Loophole
@@ -213,6 +214,10 @@ func (o *Options) checkLoopholes(r *reporter) {
 			if out == "" {
 				out = "command missing"
 			}
+			if !strings.Contains(out, "please report it") {
+				out += "\nIf the program it runs is missing, `yolo pack install` fetches a loophole's " +
+					"programs on this machine, " + recheck
+			}
 			r.warn("loophole "+lp.Name+": self-check could not run", out)
 		default:
 			if graded := reportSelfCheckLines(r, lp.Name, res.Output); graded == 0 {
@@ -223,7 +228,11 @@ func (o *Options) checkLoopholes(r *reporter) {
 				// when that is true.
 				note := strings.TrimSpace(res.Output)
 				if note == "" {
-					note = "no output"
+					// Nothing says why, so the note names who can: the pack that ships the
+					// self-check, and the config line that turns the loophole off meanwhile.
+					note = "no output, so nothing says why. The pack or config that declares " + lp.Name + " owns this " +
+						"self-check; `yolo loopholes disable " + lp.Name + "` prints the config that turns it " +
+						"off meanwhile."
 				}
 				r.fail(fmt.Sprintf("loophole %s: self-check failed (rc=%d)", lp.Name, *res.RC), note)
 			}
@@ -533,12 +542,13 @@ func (o *Options) checkHostServiceLiveness(r *reporter) {
 	}
 	rt := o.detectRuntimeForListing()
 	if rt == "" {
-		r.warn("no container runtime found — skipping liveness probe", "")
+		r.warn("no container runtime found — skipping liveness probe",
+			"Container Runtime, above, names the command that installs or starts one, "+recheck)
 		return
 	}
 	cnames, listErr := o.listRunningJailNames(rt)
 	if listErr != "" {
-		r.warn("could not list running jails via "+rt, firstLine(listErr))
+		r.warn("could not list running jails via "+rt, firstLine(listErr)+"\n"+probeNote(rt, "ps"))
 		return
 	}
 	if len(cnames) == 0 {

@@ -9,7 +9,7 @@ package check
 // these tests are really pinning: with Stdin assigned unconditionally, a piped stdin
 // (`yolo check < file`, any CI job) becomes an answer nobody typed, on a prompt whose
 // yes branch runs `rm -f` against containers. So the question is asked only on a
-// terminal, and a pipe gets a statement plus the command instead.
+// terminal, and a pipe gets the command in the finding's note instead.
 
 import (
 	"bytes"
@@ -64,19 +64,14 @@ func TestOrphanPromptNeverReadsAPipeAsYes(t *testing.T) {
 	if strings.Contains(got, "[y/N]") {
 		t.Errorf("a question was asked where no answer can be read:\n%s", got)
 	}
-	// Silence would be its own defect: the orphans are still there and the user needs
-	// the command that removes them.
-	if !strings.Contains(got, "3 orphaned jail(s)") {
-		t.Errorf("the non-terminal line does not say how many orphans are here:\n%s", got)
-	}
-	if !strings.Contains(got, "yolo prune --apply") {
-		t.Errorf("the non-terminal line does not name the command that removes them:\n%s", got)
-	}
+	// Silence would be its own defect: the orphans are still there and the user needs the
+	// command that removes them. The finding's note carries it, so a JSON run gets it too;
+	// TestPipedOrphanHintRemovesWhatTheTerminalsYesRemoves (happypath_test.go) follows it.
 }
 
-// A nil Stdin is the state the CLI used to be in. It must behave like the pipe — one
-// factual line, no question — rather than printing a prompt it cannot read, because
-// that is the exact output the audit found.
+// A nil Stdin is the state the CLI used to be in. It must behave like the pipe — no
+// question — rather than printing a prompt it cannot read, because that is the exact
+// output the audit found.
 func TestOrphanPromptWithNoStdinStatesRatherThanAsks(t *testing.T) {
 	o, r, out := promptOpts("", true)
 

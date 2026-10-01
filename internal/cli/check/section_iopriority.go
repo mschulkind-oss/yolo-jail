@@ -41,13 +41,14 @@ func (o *Options) sectionIOPriority(r *reporter, merged *jsonx.OrderedMap, runti
 		case inStrSlice(paths.NativeRuntimes, runtimeSel):
 			r.warn(key+" is not applied on macos-user yet",
 				"The launch names the key. setiopolicy_np is the planned mechanism, once a Mac\n"+
-					"shows the policy survives the launch's sudo and sandbox-exec.")
+					"shows the policy survives the launch's sudo and sandbox-exec. Until yolo applies\n"+
+					"it, nothing on this Mac can: "+ioDropKey)
 		default:
 			backend := "podman on macOS"
 			if runtimeSel == "container" {
 				backend = "Apple Container"
 			}
-			r.warn(key+" is not applied on "+backend, ioVirtiofsWhy)
+			r.warn(key+" is not applied on "+backend, ioVirtiofsWhy+"\n"+ioDropKey)
 		}
 		return
 	}
@@ -60,6 +61,10 @@ func (o *Options) sectionIOPriority(r *reporter, merged *jsonx.OrderedMap, runti
 	}
 }
 
+// ioDropKey is the next step where no host change makes a priority act: leave the key, which
+// is harmless, or drop it, which silences the row.
+const ioDropKey = "Nothing here can make it act; remove resources.io.priority to silence this, " + recheck
+
 // ioVirtiofsWhy is why a priority does nothing on a VM backend.
 const ioVirtiofsWhy = "The jail runs in a VM, and its workspace reaches the Mac over VirtioFS,\n" +
 	"which carries no I/O priority."
@@ -69,7 +74,7 @@ func (o *Options) gradeIOPath(r *reporter, p ioprio.Priority, key, path string) 
 	res := ioprio.Resolve(o.ioSysRoot, path)
 	switch res.Kind {
 	case ioprio.KindVirtiofs:
-		r.warn(key+" does nothing under "+res.Path+", a VirtioFS mount", ioVirtiofsWhy)
+		r.warn(key+" does nothing under "+res.Path+", a VirtioFS mount", ioVirtiofsWhy+"\n"+ioDropKey)
 	case ioprio.KindNoBlock:
 		r.skip(res.Path+" is on "+res.FSType+", with no block device behind it: no disk scheduler to grade", "")
 	case ioprio.KindUnreadable:
@@ -98,11 +103,15 @@ func (o *Options) gradeIODisk(r *reporter, p ioprio.Priority, key, path string, 
 		r.ok(msg)
 	case ioprio.EffectNone:
 		note := ioprio.IgnoresWhy + ".\nHost change (root): switch " + d.Name +
-			"'s scheduler to bfq, and persist it with a udev rule."
+			"'s scheduler to bfq, and persist it with a udev rule:\n" +
+			"  echo bfq | sudo tee /sys/block/" + d.Name + "/queue/scheduler\n" +
+			"  echo 'ACTION==\"add|change\", KERNEL==\"" + d.Name + "\", ATTR{queue/scheduler}=\"bfq\"' | " +
+			"sudo tee /etc/udev/rules.d/60-yolo-ioscheduler.rules"
 		if d.Scheduler == "mq-deadline" {
 			note += `
 Or declare "idle", which mq-deadline honors.`
 		}
+		note += "\n" + recheck
 		r.warn(key+" does nothing on "+on, note)
 	default:
 		if d.Scheduler == "" {

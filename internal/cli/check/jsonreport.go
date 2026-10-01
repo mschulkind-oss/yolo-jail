@@ -41,7 +41,8 @@ type Finding struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`
 	// Note is the remediation text the human form renders as "-> …" lines,
-	// unwrapped. Empty for most findings.
+	// unwrapped: for a fail or a warn, the next step (TestNoFindingIsWrittenWithAnEmptyNote
+	// guards it). Empty for most passes.
 	Note string `json:"note,omitempty"`
 }
 

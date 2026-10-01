@@ -46,7 +46,7 @@ func Check(opts Options) int {
 		// Wire the v2 layout migration (audit §B#2: nil left it dead). canReclaim
 		// returns false — the fail-safe defer (the full live-jail probe is the run
 		// path's concern; declining never harms).
-		_ = storage.EnsureGlobalStorage(func() {
+		o.storageErr = storage.EnsureGlobalStorage(func() {
 			storage.MigrateStorageLayout(o.inJail(), func() bool { return false }, func(msg string) {
 				fmt.Fprintln(o.Stderr, msg)
 			})
@@ -124,10 +124,10 @@ func Check(opts Options) int {
 		if o.PathExists(filepath.Join(rr.Root, "flake.nix")) {
 			r.ok("flake.nix found: " + filepath.Join(rr.Root, "flake.nix") + via)
 		} else {
-			r.warn("flake.nix not found at "+filepath.Join(rr.Root, "flake.nix")+via, "")
+			r.warn("flake.nix not found at "+filepath.Join(rr.Root, "flake.nix")+via, flakeMissingNote(rr))
 		}
 	} else {
-		r.fail("Could not resolve the yolo-jail repo root", "")
+		r.fail("Could not resolve the yolo-jail repo root", repoRootFix)
 	}
 
 	// --- Merged Configuration ---
@@ -337,11 +337,11 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 		}
 		verRes := o.Exec(p.versionCmd, "", nil, 5*time.Second)
 		if !verRes.Ran {
-			r.fail(p.name+" found but not working: exec failed", "")
+			r.fail(p.name+" found but not working: exec failed", probeNote(p.versionCmd...))
 			continue
 		}
 		if verRes.Timeout {
-			r.fail(p.name+" found but not working: timeout", "")
+			r.fail(p.name+" found but not working: timeout", probeNote(p.versionCmd...))
 			continue
 		}
 		version := firstLine(strings.TrimSpace(verRes.Stdout))
@@ -356,7 +356,7 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 					detectedRuntime = p.name
 				}
 			case runtime.PodmanNotStarted:
-				r.fail(p.name+" found but not working: "+gate.Refusal(p.name), "")
+				r.fail(p.name+" found but not working: "+gate.Refusal(p.name), probeNote(p.livenessCmd...))
 			default:
 				// The fix first, then podman's own evidence (HE-D2's one row).
 				offline = append(offline, offlineEntry{p.name, version, p.livenessHint + "\n" + gate.Refusal(p.name)})
@@ -365,7 +365,7 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 		}
 		pingRes := o.Exec(p.livenessCmd, "", nil, 10*time.Second)
 		if !pingRes.Ran || pingRes.Timeout {
-			r.fail(p.name+" found but not working: liveness probe failed", "")
+			r.fail(p.name+" found but not working: liveness probe failed", p.livenessHint+"\n"+recheck)
 			continue
 		}
 		pingOK := pingRes.RC == 0
@@ -409,12 +409,7 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 			r.fail("Container runtime installed but not started ("+strings.Join(found, "; ")+")",
 				strings.Join(starts, "\n")+"\nIt's installed — you just need to START it.")
 		} else {
-			r.fail("No container runtime installed",
-				"Install one:\n"+
-					"  Linux:  your package manager, e.g. `sudo apt install podman`\n"+
-					"  macOS:  `brew install podman` then `podman machine init "+
-					"&& podman machine start`,\n"+
-					"          or `brew install container` then `container system start`")
+			r.fail("No container runtime installed", o.runtimeInstallNote())
 		}
 	}
 	r.blank()
@@ -434,11 +429,22 @@ func (o *Options) sectionGlobalStorage(r *reporter) {
 		{"Agents", paths.AgentsDir()},
 		{"Build", paths.BuildDir()},
 	}
+	// Check() has already tried to create every one of these (EnsureGlobalStorage), so a
+	// missing one is a failed creation and "the first run creates it" would be false: that run
+	// fails the same way. Only a run told not to create them can say so.
+	missingNote := "Will be created on first run"
+	if !o.SkipEnsureStorage {
+		missingNote = "yolo could not create it"
+		if o.storageErr != nil {
+			missingNote += ": " + o.storageErr.Error()
+		}
+		missingNote += ".\nMake " + paths.GlobalStorage() + " and its parents writable by you, " + recheck
+	}
 	for _, e := range entries {
 		if o.PathExists(e.path) {
 			r.ok(e.name + ": " + e.path)
 		} else {
-			r.warn(e.name+" directory missing: "+e.path, "Will be created on first run")
+			r.warn(e.name+" directory missing: "+e.path, missingNote)
 		}
 	}
 	r.blank()
@@ -475,7 +481,7 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	src.user = userSrc
 	if err != nil {
 		userConfig = jsonx.NewOrderedMap()
-		r.fail(err.Error(), "")
+		r.fail(err.Error(), "Fix it in the file this names, "+recheck)
 		failed = true
 	} else if o.PathExists(userPath) {
 		r.ok("Parsed user config: " + userPath)
@@ -501,7 +507,7 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	src.workspace = wsSrc
 	if err != nil {
 		workspaceConfig = jsonx.NewOrderedMap()
-		r.fail(err.Error(), "")
+		r.fail(err.Error(), "Fix it in the file this names, "+recheck)
 		failed = true
 	} else if o.PathExists(wsPath) || o.PathExists(localPath) {
 		// Name every file that was actually read: a local override that silently
@@ -538,11 +544,12 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	located := src.orNone()
 	runtimeSel, runtimeErr, runtimeUnavailable := o.resolveRuntimeForCheck(merged)
 	runtimeBlocked := false
+	runtimeFinding := ""
 	if runtimeErr != "" && runtimeUnavailable && runtimeFailReported {
 		r.dim("No runtime available — see Container Runtime above")
 		runtimeBlocked = true
 	} else if runtimeErr != "" {
-		errors = append(errors, runtimeErr)
+		runtimeFinding = runtimeErr
 	} else if runtimeSel != "" {
 		r.ok("Runtime available: " + runtimeSel)
 	}
@@ -563,11 +570,14 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	warnings = located.merged.Annotate(warnings)
 
 	for _, msg := range warnings {
-		r.warn(msg, "")
+		r.warn(msg, configNote(msg, workspace))
 	}
-	if len(errors) > 0 || runtimeBlocked {
+	if len(errors) > 0 || runtimeBlocked || runtimeFinding != "" {
+		if runtimeFinding != "" {
+			r.fail(runtimeFinding, o.runtimeFindingNote(merged))
+		}
 		for _, msg := range errors {
-			r.fail(msg, "")
+			r.fail(msg, configNote(msg, workspace))
 		}
 		r.blank()
 		return true
@@ -575,7 +585,8 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	r.ok("Merged config is semantically valid")
 	if o.AcceptConfigChanges {
 		if o.inJail() {
-			r.warn("--accept-config-changes is host-only (disabled inside running jail)", "")
+			r.warn("--accept-config-changes is host-only (disabled inside running jail)",
+				"Run `yolo check --accept-config-changes` on the host, in this workspace.")
 		} else {
 			wsCfg, err := config.LoadWorkspaceConfig(workspace, false, func(string) {})
 			if err == nil {
@@ -589,7 +600,8 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 						r.ok("Approved " + s.Label + " repository scope recorded: " + describeRepos(s.Read.Repos()))
 					}
 				} else {
-					r.fail("Could not record the approval", writeErr.Error())
+					r.fail("Could not record the approval", writeErr.Error()+
+						"\nMake "+paths.ApprovalsDir()+" writable by you, then: yolo check --accept-config-changes")
 				}
 			}
 		}
@@ -603,12 +615,12 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 func (o *Options) sectionEntrypointDryRun(r *reporter, repoRoot string, repoRootOK bool, workspace string, merged *jsonx.OrderedMap) {
 	r.sectionHeader("Entrypoint Dry-Run")
 	if !repoRootOK {
-		r.fail("Entrypoint preflight failed", "repo root resolution failed")
+		r.fail("Entrypoint preflight failed", "repo root resolution failed\n"+repoRootFix)
 		r.blank()
 		return
 	}
 	if err := o.entrypointPreflight(r, repoRoot, workspace, merged); err != "" {
-		r.fail("Entrypoint preflight failed", err)
+		r.fail("Entrypoint preflight failed", err+"\n"+entrypointPreflightNote)
 	} else {
 		r.ok("Generated per-agent jail config in a temp home")
 	}
@@ -632,7 +644,7 @@ func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoR
 		r.ok("Not applicable — native macOS backend builds no Linux image")
 	} else if o.Build {
 		if !repoRootOK {
-			r.fail("Skipped nix build", "repo root resolution failed")
+			r.fail("Skipped nix build", "repo root resolution failed\n"+repoRootFix)
 		} else {
 			// This builds the IMAGE, so the filter asks about the image's platform (Linux),
 			// not the host running check.
@@ -656,7 +668,8 @@ func (o *Options) sectionImageBuild(r *reporter, merged *jsonx.OrderedMap, repoR
 			}
 		}
 	} else {
-		r.warn("Skipped nix build (--no-build)", "")
+		r.warn("Skipped nix build (--no-build)",
+			"`yolo check` without --no-build builds the image this config needs.")
 	}
 	r.blank()
 	return builtStorePath, imageBuildSkipped
@@ -690,10 +703,11 @@ func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedH
 	o.reportImageDelivery(r, detectedRuntime)
 	if builtStorePath != "" {
 		checkImage := image.JailImageRef(detectedRuntime, builtStorePath)
-		res := o.Exec(image.ImageInspectCmd(detectedRuntime, checkImage), "", nil, 10*time.Second)
+		inspect := image.ImageInspectCmd(detectedRuntime, checkImage)
+		res := o.Exec(inspect, "", nil, 10*time.Second)
 		switch {
 		case !res.Ran || res.Timeout:
-			r.warn("Could not check image: probe failed", "")
+			r.warn("Could not check image: probe failed", probeNote(inspect...))
 		case res.RC == 0:
 			r.ok("Image loaded for this config: " + checkImage)
 		default:
@@ -709,9 +723,10 @@ func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedH
 		// this backend by any pre-C2 load, and a warn (not a fail) is the right
 		// severity for "could not tell".
 		checkImage := image.JailImage(detectedRuntime)
-		res := o.Exec(image.ImageInspectCmd(detectedRuntime, checkImage), "", nil, 10*time.Second)
+		inspect := image.ImageInspectCmd(detectedRuntime, checkImage)
+		res := o.Exec(inspect, "", nil, 10*time.Second)
 		if !res.Ran || res.Timeout {
-			r.warn("Could not check image: probe failed", "")
+			r.warn("Could not check image: probe failed", probeNote(inspect...))
 		} else if res.RC == 0 {
 			r.ok("Image loaded: " + checkImage)
 		} else {
@@ -720,7 +735,7 @@ func (o *Options) sectionContainerImage(r *reporter, detectedRuntime, notLoadedH
 	} else {
 		res := o.Exec([]string{detectedRuntime, "images", repo, "--format", "{{.Repository}}:{{.Tag}} ({{.Size}})"}, "", nil, 10*time.Second)
 		if !res.Ran || res.Timeout {
-			r.warn("Could not check image: probe failed", "")
+			r.warn("Could not check image: probe failed", probeNote(detectedRuntime, "images", repo))
 		} else {
 			images := strings.TrimSpace(res.Stdout)
 			if images != "" {
@@ -743,7 +758,7 @@ func (o *Options) sectionRunningJails(r *reporter, detectedRuntime string) {
 	if detectedRuntime == "container" {
 		res := o.Exec([]string{"container", "ls", "--filter", "name=yolo-"}, "", nil, 5*time.Second)
 		if !res.Ran || res.Timeout {
-			r.warn("Could not check running containers", "")
+			r.warn("Could not check running containers", probeNote("container", "ls"))
 			r.blank()
 			return
 		}
@@ -759,7 +774,7 @@ func (o *Options) sectionRunningJails(r *reporter, detectedRuntime string) {
 	} else {
 		res := o.Exec([]string{detectedRuntime, "ps", "--filter", "name=^yolo-", "--format", "{{.Names}}\t{{.RunningFor}}"}, "", nil, 5*time.Second)
 		if !res.Ran || res.Timeout {
-			r.warn("Could not check running containers", "")
+			r.warn("Could not check running containers", probeNote(detectedRuntime, "ps"))
 			r.blank()
 			return
 		}
@@ -805,16 +820,27 @@ func (o *Options) sectionRunningJails(r *reporter, detectedRuntime string) {
 		r.line("    " + c.name + " -> " + cws + marker)
 	}
 	if len(orphans) > 0 {
-		r.warn(pluralOrphans(len(orphans)),
-			"These containers are stuck or have lost their workspace")
+		// A terminal is asked, and its yes does the removal below. Anything else (a pipe, or a
+		// JSON run, whose report and so the question are discarded) gets the command in the
+		// finding's own note, so the JSON document carries it too.
+		ask := o.canAskAboutOrphans()
+		note := "These containers are stuck or have lost their workspace"
+		if !ask {
+			names := make([]string, len(orphans))
+			for i, orph := range orphans {
+				names[i] = orph.name
+			}
+			note = nonTTYOrphansNote(detectedRuntime, names)
+		}
+		r.warn(pluralOrphans(len(orphans)), note)
 		r.blank()
-		if o.orphanCleanupPrompt(r, len(orphans)) {
+		if ask && o.orphanCleanupPrompt(r, len(orphans)) {
 			for _, orph := range orphans {
 				// A running jail, whose attached sessions this removal cuts short: each prints why
 				// from the stop record, written before the removal as every stop yolo makes writes
 				// it (run.RecordJailStop, jail-lifetime-last-session-wins.md JL-D53).
 				run.RecordJailStop(orph.name, run.YoloCheckOrphanReason(os.Getpid(), orph.reason))
-				_ = o.Exec([]string{detectedRuntime, "rm", "-f", orph.name}, "", nil, 30*time.Second)
+				_ = o.Exec(orphanRemoval(detectedRuntime, orph.name), "", nil, 30*time.Second)
 				cleanupTracking(orph.name)
 				r.line("    " + r.style("Stopped "+orph.name, ansiGreen))
 			}
@@ -864,13 +890,17 @@ func (o *Options) sectionInlineLoopholes(r *reporter, merged *jsonx.OrderedMap) 
 			if isExecutableFile(exePath) {
 				r.ok("loopholes." + name + ": " + exePath)
 			} else {
-				r.fail("loopholes."+name+": command not found or not executable: "+exePath, "")
+				r.fail("loopholes."+name+": command not found or not executable: "+exePath,
+					"Install it there, or point `loopholes."+name+".command` at the program in the config "+
+						"that declares it, "+recheck)
 			}
 		} else {
 			if resolved, ok := o.LookPath(exeArg); ok {
 				r.ok("loopholes." + name + ": " + resolved)
 			} else {
-				r.fail("loopholes."+name+": command not found on PATH: "+exeArg, "")
+				r.fail("loopholes."+name+": command not found on PATH: "+exeArg,
+					"Install "+exeArg+", or point `loopholes."+name+".command` at it by absolute path in "+
+						"the config that declares it, "+recheck)
 			}
 		}
 	}

@@ -26,9 +26,10 @@ func (o *Options) sectionMacOSPlatform(r *reporter, _ *jsonx.OrderedMap) {
 			o.checkPodmanMachineResources(r, cfg)
 			o.checkPodmanMachineShares(r, cfg)
 		} else if !res.Ran || res.Timeout {
-			r.warn("podman: probe failed", "")
+			r.warn("podman: probe failed", probeNote("podman", "machine", "info"))
 		} else {
-			r.warn("Podman Machine: not configured", "")
+			r.warn("Podman Machine: not configured",
+				"Create and start it:\n  "+o.podmanMachineInit()+"\n  podman machine start\n"+recheck)
 		}
 	}
 
@@ -44,7 +45,7 @@ func (o *Options) sectionMacOSPlatform(r *reporter, _ *jsonx.OrderedMap) {
 				r.warn("Apple Container system not running", "Start with: container system start")
 			}
 		} else if !res.Ran || res.Timeout {
-			r.warn("Apple Container CLI: probe failed", "")
+			r.warn("Apple Container CLI: probe failed", probeNote("container", "system", "status"))
 		} else {
 			r.warn("Apple Container: installed but not started", "Start with: container system start")
 		}
@@ -113,6 +114,21 @@ func (o *Options) checkPodmanMachineShares(r *reporter, cfg *jsonx.OrderedMap) {
 			"yolo checks a launch's folders against it only when it can read it.")
 		return
 	}
+	sources := o.machineShareSources()
+	unreachable := shares.Unreachable(sources, runtime.ResolveThroughExisting)
+	if len(unreachable) == 0 {
+		r.ok("Podman Machine shares the folders a jail binds (" + strings.Join(sources, ", ") + ")")
+		return
+	}
+	r.fail("Podman Machine '"+shares.Machine+"' does not share: "+strings.Join(unreachable, ", "),
+		shares.UnsharedRefusal(unreachable))
+}
+
+// machineShareSources is the folders a launch from here binds that `yolo check` can name
+// without assembling one: the workspace, and yolo's own binaries and flake bundle (the jail
+// prefix), named as the launch names them (see checkPodmanMachineShares). A new machine's
+// `podman machine init` shares them too (podmanMachineInit).
+func (o *Options) machineShareSources() []string {
 	var sources []string
 	if o.Workspace != "" {
 		sources = append(sources, o.Workspace)
@@ -125,13 +141,7 @@ func (o *Options) checkPodmanMachineShares(r *reporter, cfg *jsonx.OrderedMap) {
 			sources = append(sources, "/nix/store")
 		}
 	}
-	unreachable := shares.Unreachable(sources, runtime.ResolveThroughExisting)
-	if len(unreachable) == 0 {
-		r.ok("Podman Machine shares the folders a jail binds (" + strings.Join(sources, ", ") + ")")
-		return
-	}
-	r.fail("Podman Machine '"+shares.Machine+"' does not share: "+strings.Join(unreachable, ", "),
-		shares.UnsharedRefusal(unreachable))
+	return sources
 }
 
 // evalSymlinksOr is filepath.EvalSymlinks with the path itself as the fallback, as the
