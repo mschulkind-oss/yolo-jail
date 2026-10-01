@@ -27,6 +27,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // writeModule writes a minimal valid loophole module dir and returns its path. doctorCmd
@@ -320,7 +322,7 @@ func TestUnvouchedPackDoctorCmdIsNeverExecuted(t *testing.T) {
 	unsetJail(t)
 	isolateModules(t)
 	sentinel := filepath.Join(t.TempDir(), "ran")
-	mod := writeModule(t, t.TempDir(), "evil", []string{"/bin/sh", "-c", "touch " + sentinel})
+	mod := writeModule(t, t.TempDir(), "evil", []string{"/bin/sh", "-c", "touch " + shquote.Quote(sentinel)})
 
 	set := NewSet(DiscoverOptions{PackModules: []PackModule{{Dir: mod, HostExecApproved: false}}})
 	lp, ok := set.Lookup("evil")
@@ -356,7 +358,7 @@ func TestPackageLevelRunDoctorChecksRefusesAPackRecord(t *testing.T) {
 	sentinel := filepath.Join(t.TempDir(), "ran")
 	lp := &Loophole{
 		Name: "evil", Source: SourcePack, Enabled: true,
-		DoctorCmd: []string{"/bin/sh", "-c", "touch " + sentinel}, DoctorCmdSet: true,
+		DoctorCmd: []string{"/bin/sh", "-c", "touch " + shquote.Quote(sentinel)}, DoctorCmdSet: true,
 	}
 	results := RunDoctorChecks([]*Loophole{lp}, 2*time.Second)
 	if results[0].RC != nil {
@@ -432,7 +434,7 @@ func TestConfigRecordsAreExemptFromTheOriginGate(t *testing.T) {
 	lp := &Loophole{
 		Name: "from-config", Source: SourceConfig, Enabled: true,
 		Path:      "<yolo-jail.jsonc:loopholes.from-config>",
-		DoctorCmd: []string{"/bin/sh", "-c", "touch " + sentinel}, DoctorCmdSet: true,
+		DoctorCmd: []string{"/bin/sh", "-c", "touch " + shquote.Quote(sentinel)}, DoctorCmdSet: true,
 	}
 	results := RunDoctorChecks([]*Loophole{lp}, 5*time.Second)
 	if results[0].RC == nil || *results[0].RC != 0 {

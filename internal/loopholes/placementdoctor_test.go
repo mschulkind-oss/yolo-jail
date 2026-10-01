@@ -30,6 +30,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // writeDoctorModule writes a module dir under parent whose only host-side face is a
@@ -52,10 +54,12 @@ func writeDoctorModule(t *testing.T, parent, name, target string) string {
 }
 
 // touchScript writes an executable shell script that creates sentinel, and returns its path.
+// The sentinel is quoted as one word: a script that cannot create it would make every "the
+// doctor_cmd did not run" assertion below pass without the rule having refused anything.
 func touchScript(t *testing.T, dir, sentinel string) string {
 	t.Helper()
 	p := filepath.Join(dir, "evil-doctor.sh")
-	if err := os.WriteFile(p, []byte("#!/bin/sh\ntouch "+sentinel+"\n"), 0o755); err != nil {
+	if err := os.WriteFile(p, []byte("#!/bin/sh\ntouch "+shquote.Quote(sentinel)+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return p
