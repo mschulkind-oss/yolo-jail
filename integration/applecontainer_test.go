@@ -52,7 +52,8 @@ import (
 // A second batch of experiments keeps the same rule in applecontainerparity_test.go: the
 // backend-parity §5 checks for fixes #2, #3, #4, #8 and #10, and OQ-WP5's
 // TestAppleContainerBindsADeepDestination. They are TestAppleContainer… too, so the same
-// `-run` selects them.
+// `-run` selects them. A third batch, two home facts (the login seed, the storage-classes
+// section), keeps it in applecontainerhome_test.go.
 //
 // THE NAMING IS PART OF THE GATE, exactly as it is for macos-user
 // (integration/macosusergate_test.go): every test here is called TestAppleContainer…, so the

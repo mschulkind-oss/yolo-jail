@@ -7,19 +7,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// APPLE CONTAINER HOME FACTS BUILT ON LINUX AND NEVER BOOTED, ASKED AS EXPERIMENTS — a third
+// TWO APPLE CONTAINER HOME FACTS BUILT ON LINUX AND NEVER BOOTED, ASKED AS EXPERIMENTS — a third
 // batch under the exception applecontainer_test.go's header names, kept by
 // applecontainerparity_test.go's rule: BOTH ANSWERS PASS, each is recorded on one
 // `AC-PARITY <fix> VERDICT:` line, and only an experiment not conducted is red.
 //
 //	login-seed       TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed   docs/design/base-home-legacy-state.md §3, OQ-BH12
+//	storage-classes  TestAppleContainerBriefingCarriesItsStorageClasses       docs/design/durable-scratch-space.md, DS-P1
 //
-// They run in apple-container.yml, on the maintainer's SELF-HOSTED Mac (the only Apple Container
+// Both run in apple-container.yml, on the maintainer's SELF-HOSTED Mac (the only Apple Container
 // instrument there is; that workflow's header says why no hosted runner can run the backend).
-// None adds a job or a trigger there: the job selects every TestAppleContainer… test by name.
+// Neither adds a job or a trigger there: the job selects every TestAppleContainer… test by name.
 
 // TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed asks OQ-BH12's fix on the hardware.
 //
@@ -89,4 +91,70 @@ func TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed(t *testing.T) {
 	}
 	acParityRecord(t, fix, true, "a fresh workspace's jail reads the seed's login at "+
 		"~/.claude.json, has ~/.claude, and has neither undotted podman bind source", evidence)
+}
+
+// TestAppleContainerBriefingCarriesItsStorageClasses asks the storage-classes section's Apple
+// Container wording on the hardware.
+//
+// The section is rendered from the launch's own persistence map (DS-P1), and Apple Container's
+// map differs from podman's in exactly two facts: the whole home is one per-workspace bind, and
+// the per-launch paths are tmpfs. So its section says the per-launch set is in RAM, puts all of
+// /home/agent in the per-workspace class, and names what yolo rewrites at each launch instead of
+// a read-only rest (internal/jailcontent/persistencesection.go). Linux pins that text from a
+// hand-built map; only a boot shows the map the Apple Container launch really builds reaching
+// the briefing that ARRIVES, and $YOLO_DURABLE_DIR naming a directory the jail can write.
+func TestAppleContainerBriefingCarriesItsStorageClasses(t *testing.T) {
+	const fix = "storage-classes"
+	dir := appleContainerWorkspace(t)
+	res := acParityRun(t, fix, dir, strings.Join([]string{
+		`echo "=== BRIEFING ==="; cat ~/.claude/CLAUDE.md 2>&1`,
+		`echo "=== DURABLE ==="`,
+		`echo "dir|${` + durable.EnvVar + `-UNSET}"`,
+		`if [ -n "${` + durable.EnvVar + `-}" ] && touch "$` + durable.EnvVar + `/.yolo-it-probe" 2>/dev/null; then rm -f "$` + durable.EnvVar + `/.yolo-it-probe"; echo "write|ALLOWED"; else echo "write|DENIED"; fi`,
+		`echo "=== END ==="`,
+	}, "\n"))
+	briefing := section(res.stdout, "=== BRIEFING ===", "=== DURABLE ===")
+	if !strings.Contains(briefing, "# YOLO Jail Environment") {
+		t.Fatalf("%s %s: no yolo briefing arrived at ~/.claude/CLAUDE.md, so there is no section "+
+			"to read — NOTHING WAS MEASURED:\n%s", acParityTag, fix, lastLines(briefing, 30))
+	}
+	facts := map[string]string{}
+	for _, line := range strings.Split(section(res.stdout, "=== DURABLE ===", "=== END ==="), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "|"); ok {
+			facts[k] = v
+		}
+	}
+
+	var wrong []string
+	for _, want := range []string{
+		"## Storage classes: what survives a restart",
+		"- **Per launch** (in RAM)",
+		"all of `/home/agent` outside the other classes",
+		"- **Rewritten at each launch**",
+		"`$" + durable.EnvVar + "`",
+	} {
+		if !strings.Contains(briefing, want) {
+			wrong = append(wrong, fmt.Sprintf("the section lacks %q", want))
+		}
+	}
+	for _, unwanted := range []string{"- **Read-only**: the rest of", "- **Per launch** (on disk)"} {
+		if strings.Contains(briefing, unwanted) {
+			wrong = append(wrong, fmt.Sprintf("the section carries podman's %q", unwanted))
+		}
+	}
+	if facts["dir"] != durable.ContainerJailPath {
+		wrong = append(wrong, fmt.Sprintf("$%s is %q, want %s", durable.EnvVar, facts["dir"], durable.ContainerJailPath))
+	}
+	if facts["write"] != "ALLOWED" {
+		wrong = append(wrong, "the jail cannot write in $"+durable.EnvVar)
+	}
+	evidence := fmt.Sprintf("durable facts: %v\nsection:\n%s", facts,
+		lastLines(section(briefing, "## Storage classes", "\n## "), 20))
+	if len(wrong) > 0 {
+		acParityRecord(t, fix, false, "the delivered storage-classes section is not Apple "+
+			"Container's: "+strings.Join(wrong, "; "), evidence)
+		return
+	}
+	acParityRecord(t, fix, true, "the delivered briefing carries Apple Container's storage "+
+		"classes, and $"+durable.EnvVar+" is a writable "+durable.ContainerJailPath, evidence)
 }

@@ -5,7 +5,7 @@ status: accepted
 tags: [design, briefing, jail-home, storage-classes, worktrees, scratch, workflows, packs, pi, claude, codex, opencode, macos-user]
 summary: "An agent put its landing worktree in /tmp, a restart deleted it, and the next command cherry-picked onto main ungated. yolo gives every jail six kinds of writable and read-only space with different lifetimes and tells the agent about none of them. The design names those storage classes, generates a briefing section from the launch's own mounts, adds one agent-neutral durable dir at <workspace>/.yolo/durable exported as $YOLO_DURABLE_DIR, reports what accumulates there at every launch and in yolo check and yolo stores without ever deleting it, and has each agent's own pack point its workflow tool there where the tool's default is not durable."
 stage: BUILT
-next: "Read Apple Container's Storage classes section back from a real launch: add a check beside TestAppleContainerBriefingAdvertisesNoLoopholes in integration/applecontainerparity_test.go for apple-container.yml"
+next: "Read the AC-PARITY storage-classes verdict from the next apple-container.yml run (TestAppleContainerBriefingCarriesItsStorageClasses) into this status line"
 depends-on:
   - slots-and-contributions.md#OQ-D6
 vantage:
@@ -20,7 +20,10 @@ extension, the claude and pi packs' own prose, and each backend's own wording of
 section. MEASURED: in a podman jail on a rootless Linux host, with evidence verified at
 `c8fda25f` ([Appendix A](#appendix-a--the-measured-runs)); on 2026-09-30 a podman jail's
 `$YOLO_DURABLE_DIR` is `/workspace/.yolo/durable` and its Claude briefing carries the section.
-UNMEASURED: Apple Container's wording, which is unit-tested only; no Mac has rendered it. The
+UNMEASURED: Apple Container's wording, which is unit-tested only; no Mac has rendered it. Its
+check was written on 2026-10-01 as an experiment for `apple-container.yml`, which runs on the
+maintainer's self-hosted Mac: `TestAppleContainerBriefingCarriesItsStorageClasses`
+([`applecontainerhome_test.go`](../../integration/applecontainerhome_test.go)). The
 version-skew window the claude and pi pack lines open waits on
 [OQ-D6](slots-and-contributions.md#OQ-D6) ([DS-D33](#DS-D33)).
 
@@ -747,7 +750,13 @@ leads with the durable dir.
 ([DS-D33](#DS-D33)) and step 6's Apple Container wording ([DS-D34](#DS-D34)), which had been
 the podman section with the whole home in the per-workspace class and the per-launch set in
 RAM. Both are pinned by unit tests through their production call sites. No Mac has rendered
-the Apple Container section, and no agent has read either pack's prose. The version-skew
+the Apple Container section, and no agent has read either pack's prose. The Mac half is written
+(2026-10-01): `TestAppleContainerBriefingCarriesItsStorageClasses` reads the section that
+arrives at `~/.claude/CLAUDE.md` in a real Apple Container launch for its heading, the
+per-launch set in RAM, the whole `/home/agent` in the per-workspace class and the "Rewritten at
+each launch" bullet, with none of podman's read-only or on-disk wording, and checks that
+`$YOLO_DURABLE_DIR` is a writable `/workspace/.yolo/durable`. Both answers pass, and it logs one
+`AC-PARITY storage-classes VERDICT:` line. The version-skew
 window the two pack lines open is not ruled ([DS-D33](#DS-D33),
 [OQ-D6](slots-and-contributions.md#OQ-D6)). Found while building:
 pi-subagents' own cleanup can drop host-made worktrees' registrations in a container jail
