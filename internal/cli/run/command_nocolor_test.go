@@ -33,7 +33,7 @@ func TestTheContainerScriptHonorsNoColor(t *testing.T) {
 			}
 			return ""
 		}
-		rc, stdout, stderr := f.runFirstSession(t, o.provisionStage(), o.sessionCmd(targetCmdForTest))
+		rc, stdout, stderr := f.runFirstSession(t, o.provisionStage, o.sessionCmd(targetCmdForTest))
 		if rc != 0 || !strings.Contains(stdout, targetMarker) {
 			t.Fatalf("NO_COLOR=%q: the launch did not reach its target (rc %d):\n%s\n%s",
 				tc.noColor, rc, stdout, stderr)

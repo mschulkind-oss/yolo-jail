@@ -23,6 +23,7 @@ package run
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +35,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
@@ -115,7 +117,8 @@ func fetchedLoopholePack(t *testing.T, home string) (sentinel string) {
 }
 
 // sentinelDaemon is the fixture daemon's argv, as manifest JSON: touch the sentinel, then exit
-// non-zero.
+// non-zero. The sentinel is shell-quoted into the script and the argv JSON-encoded, because it
+// is a temp path and a temp dir may hold a space (or a quote) anywhere.
 //
 // THE EXIT IS THE SYNCHRONIZATION, and the sentinel check after startLoopholesDisclosed is a
 // single stat because of it. The daemon publishes nothing, so its readiness wait always
@@ -127,7 +130,11 @@ func fetchedLoopholePack(t *testing.T, home string) (sentinel string) {
 // broken spawn path" for a daemon that ran. waitServiceReady returns the moment a daemon exits non-zero, and
 // sh exits only after touch has finished, so the sentinel exists before the wait ends.
 func sentinelDaemon(sentinel string) string {
-	return `["/bin/sh","-c","touch ` + sentinel + `; exit 3"]`
+	argv, err := json.Marshal([]string{"/bin/sh", "-c", "touch " + shquote.Quote(sentinel) + "; exit 3"})
+	if err != nil {
+		panic(err)
+	}
+	return string(argv)
 }
 
 // sentinelDaemonBudget is the readiness deadline these tests give the fixture daemon. The

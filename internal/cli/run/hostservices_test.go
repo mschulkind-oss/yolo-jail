@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -152,7 +153,8 @@ func TestEmittedAddressIsAStablePath(t *testing.T) {
 // exercises the substitution itself: a template the framework failed to fill would
 // leave the script with an empty $1 and every one of these tests would pass
 // vacuously. TestExternalServiceAcceptsCompleteEndpoint is the control that catches
-// exactly that.
+// exactly that. Any other path a script names is a temp path, which may hold a space, so
+// the callers embed it with shquote.Quote.
 //
 // readyTimeout is the readiness deadline (Options.ServiceReadyTimeout); 0 keeps the
 // production default. A POSITIVE test passes 0: it returns the moment the daemon is
@@ -197,7 +199,7 @@ func TestExternalServiceWaitsForCompleteEndpoint(t *testing.T) {
 		// Two fields: the format an older publisher wrote, and also what a torn write
 		// looks like. It must NOT satisfy the wait.
 		h, ok := startExternalServiceHarness(t, socketsDir,
-			`test -n "$1" || exit 9; printf '127.0.0.1:1 Y29zdA==\n' > "$1"; : > `+marker+`; sleep 30`,
+			`test -n "$1" || exit 9; printf '127.0.0.1:1 Y29zdA==\n' > "$1"; : > `+shquote.Quote(marker)+`; sleep 30`,
 			loopholes.TransportLoopbackTLS, timeout)
 		if ok {
 			if h.stop != nil {
@@ -232,7 +234,7 @@ func TestExternalServiceAcceptsCompleteEndpoint(t *testing.T) {
 	}
 	defer ln.Close()
 	h, ok := startExternalServiceHarness(t, socketsDir,
-		`test -n "$1" || exit 9; cp `+seed+` "$1"; sleep 30`, loopholes.TransportLoopbackTLS, 0)
+		`test -n "$1" || exit 9; cp `+shquote.Quote(seed)+` "$1"; sleep 30`, loopholes.TransportLoopbackTLS, 0)
 	if !ok {
 		t.Fatal("a complete endpoint file did not satisfy the wait")
 	}
@@ -1049,7 +1051,7 @@ func TestExternalServiceTeardownKillsProcessGroup(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "forked.pid")
 	// The daemon FORKS a sleeper, records its pid, publishes, and keeps running.
 	h, ok := startExternalServiceHarness(t, socketsDir,
-		`sleep 300 & echo $! > `+pidFile+`; cp `+seed+` "$1"; exec sleep 300`,
+		`sleep 300 & echo $! > `+shquote.Quote(pidFile)+`; cp `+shquote.Quote(seed)+` "$1"; exec sleep 300`,
 		loopholes.TransportLoopbackTLS, 0)
 	if !ok {
 		t.Fatal("the harness daemon never became ready")
@@ -1267,7 +1269,7 @@ func TestExternalServiceAcceptsADaemonizingWrapper(t *testing.T) {
 	// The wrapper publishes from a BACKGROUND child, then exits 0 immediately —
 	// so the exited channel closes well before the endpoint appears.
 	h, ok := startExternalServiceHarness(t, socketsDir,
-		`( sleep 0.4; cp `+seed+` "$1" ) & exit 0`, loopholes.TransportLoopbackTLS, 0)
+		`( sleep 0.4; cp `+shquote.Quote(seed)+` "$1" ) & exit 0`, loopholes.TransportLoopbackTLS, 0)
 	if !ok {
 		t.Fatal("a wrapper that exits 0 after backgrounding its publisher must still " +
 			"reach readiness; the clean exit is not a failure")

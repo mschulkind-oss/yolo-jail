@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The real starter does not wait, and what it starts is detached: its own session (so
@@ -18,7 +20,8 @@ func TestStartDetachedDoesNotWaitAndDetaches(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "facts")
 	script := `sleep 2; s=$(cut -d' ' -f6 /proc/$$/stat); a=$(readlink /proc/$$/fd/0); b=$(readlink /proc/$$/fd/1); c=$(readlink /proc/$$/fd/2); ` +
-		`printf '%s\n' "$s" "$a" "$b" "$c" > ` + out + `.tmp && mv ` + out + `.tmp ` + out
+		`printf '%s\n' "$s" "$a" "$b" "$c" > ` + shquote.Quote(out+".tmp") + ` && mv ` +
+		shquote.Quote(out+".tmp") + ` ` + shquote.Quote(out)
 	start := time.Now()
 	if err := startDetached([]string{"sh", "-c", script}, nil); err != nil {
 		t.Fatal(err)

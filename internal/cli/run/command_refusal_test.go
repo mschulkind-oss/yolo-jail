@@ -7,10 +7,11 @@ package run
 // OQ-AR3), that the refusal skips no unrelated step, that an ordinary failure still
 // degrades, and that the Executing banner prints the target it is about to run.
 //
-// ⚠ THE LOG PATH IS REWRITTEN BEFORE ANYTHING RUNS. The composed bytes name
+// ⚠ THE STAGE IS COMPOSED AT A TEMP LOG PATH BEFORE ANYTHING RUNS. The launch's bytes name
 // /workspace/.yolo/startup.log, and inside a jail /workspace/.yolo is the LIVE session's
-// state dir; running them as-is would truncate that session's startup log. finalCmdIn
-// substitutes a temp path and refuses to run a command that still names /workspace/.yolo.
+// state dir; running them as-is would truncate that session's startup log. stageAt composes
+// the stage with startupLog pointed at a temp path, so the product's own quoting embeds it,
+// and refuses to run a command that still names /workspace/.yolo.
 
 import (
 	"os"
@@ -78,7 +79,8 @@ func shellQuoteForTest(s string) string { return "'" + strings.ReplaceAll(s, "'"
 // every harnessed launch has).
 func (f stageFixture) run(t *testing.T, target string, timing bool) (rc int, stdout, stderr string) {
 	t.Helper()
-	return f.runFirstSession(t, buildProvisionStage(true), buildSessionCmd(target, timing, true))
+	return f.runFirstSession(t, func() string { return buildProvisionStage(true) },
+		buildSessionCmd(target, timing, true))
 }
 
 // runFirstSession runs what the first session runs, in the entrypoint's order
@@ -87,10 +89,13 @@ func (f stageFixture) run(t *testing.T, target string, timing bool) (rc int, std
 // A stage that exits non-zero is the session's status, and the command never runs — which is
 // the entrypoint's gate, pinned in internal/entrypoint by
 // TestARefusedProvisioningRefusesEveryWaiterWithItsStatus and TestMainWiresTheHoldAndTheGateInOrder.
-func (f stageFixture) runFirstSession(t *testing.T, stage, session string) (rc int, stdout, stderr string) {
+//
+// It takes the stage's COMPOSER rather than its bytes and composes it through stageAt itself,
+// so no caller can hand it a stage that still logs to the jail's /workspace/.yolo.
+func (f stageFixture) runFirstSession(t *testing.T, stage func() string, session string) (rc int, stdout, stderr string) {
 	t.Helper()
 	var out, errb strings.Builder
-	rc = f.runBash(t, finalCmdIn(t, stage, f.log), nil, &out, &errb)
+	rc = f.runBash(t, stageAt(t, f.log, stage), nil, &out, &errb)
 	if rc != 0 {
 		return rc, out.String(), errb.String()
 	}
@@ -113,19 +118,28 @@ func (f stageFixture) runBash(t *testing.T, text string, env []string, out, errb
 	return 0
 }
 
-// finalCmdIn points the composed command's startup log at logPath, and refuses to hand back
-// anything that still names the jail's /workspace/.yolo (see the file comment).
-func finalCmdIn(t *testing.T, composed, logPath string) string {
+// stageAt runs compose — buildProvisionStage, or a launch's own provisionStage — with
+// startupLog pointed at logPath instead of the jail's, and refuses to hand back anything that
+// still names the jail's /workspace/.yolo (see the file comment).
+//
+// It points startupLog itself rather than rewriting the composed text, because the stage
+// embeds the path in shell source in two quoting contexts (shquote.Quote for the redirections,
+// a double-quoted printf format for the console line), and only the composer knows which is
+// which. A textual swap of the bare jail path put an UNQUOTED temp path into both, so a temp
+// dir with a space in it split every redirection into two words. The package has no parallel
+// tests, so nothing but this composition sees the swap.
+func stageAt(t *testing.T, logPath string, compose func() string) string {
 	t.Helper()
-	if !strings.Contains(composed, startupLog) {
-		t.Fatalf("the composed command no longer names %s, so this rewrite is stale:\n%s", startupLog, composed)
-	}
-	out := strings.ReplaceAll(composed, startupLog, logPath)
-	if strings.Contains(out, "/workspace/.yolo") {
+	jailLog := startupLog
+	startupLog = logPath
+	stage := compose()
+	startupLog = jailLog
+	if strings.Contains(stage, "/workspace/.yolo") {
 		t.Fatalf("refusing to run a command that still names /workspace/.yolo — inside a jail "+
-			"that is the live session's state dir:\n%s", out)
+			"that is the live session's state dir, so the stage no longer takes its log path "+
+			"from startupLog:\n%s", stage)
 	}
-	return out
+	return stage
 }
 
 // targetMarker is printed only by the target itself: the Executing banner displays the
