@@ -64,7 +64,6 @@ import (
 	goruntime "runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -124,24 +123,6 @@ func forgeCodexLogin(t *testing.T) forgedCodexLogin {
 
 // singletonPID is the PID the openai-auth-broker singleton's PID file names, or 0.
 func singletonPID() int { return hostDaemonPID(openaiauth.LoopholeName) }
-
-// processGone reports that pid is no longer a running process. A ZOMBIE counts as gone: the
-// singleton is spawned detached, so its reaper is whatever adopted it, and a container's PID 1
-// may never reap it — kill(pid, 0) alone would call it alive forever.
-func processGone(pid int) bool {
-	if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
-		return true
-	}
-	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return errors.Is(err, fs.ErrNotExist)
-	}
-	// The state is the first field after the parenthesised command name, which may itself
-	// contain spaces or parentheses — hence the LAST ')'.
-	s := string(stat)
-	i := strings.LastIndexByte(s, ')')
-	return i >= 0 && i+2 < len(s) && s[i+2] == 'Z'
-}
 
 // daemonStateFile returns the --state-file the process pid was started with, read from its
 // command line. ok is false when the process is not an openai-auth-broker daemon at all, or its

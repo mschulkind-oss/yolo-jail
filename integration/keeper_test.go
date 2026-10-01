@@ -8,6 +8,7 @@ package integration
 // (internal/cli/run/keeper_test.go); only a real jail proves the shape they make.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,20 +26,28 @@ import (
 // keeper by its command line.
 func keeperPID(t *testing.T, dir string) int {
 	t.Helper()
+	pid, why := findKeeperPID(dir, jailTimeout())
+	if pid == 0 {
+		t.Fatal(why)
+	}
+	return pid
+}
+
+// findKeeperPID is keeperPID for a caller that records a missing keeper rather than failing on
+// it: the pid, or 0 and why none was found within bound.
+func findKeeperPID(dir string, bound time.Duration) (int, string) {
 	path := filepath.Join(paths.GlobalStorage(), "owners", naming.FromWorkspace(dir))
-	deadline := time.Now().Add(jailTimeout())
+	deadline := time.Now().Add(bound)
 	for {
 		raw, err := os.ReadFile(path)
 		if err == nil {
-			if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 0 {
-				cmdline, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
-				if strings.Contains(string(cmdline), "internal\x00daemon\x00jail-keeper") {
-					return pid
-				}
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 0 &&
+				processHasArgs(pid, "internal", "daemon", "jail-keeper") {
+				return pid, ""
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("no keeper named in %s: %q (%v)", path, raw, err)
+			return 0, fmt.Sprintf("no keeper named in %s: %q (%v)", path, raw, err)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -253,34 +262,21 @@ func TestAHungUpFirstSessionEndsOnlyItself(t *testing.T) {
 // process: a child of keeper whose command line runs a container.
 func mainProcessClient(t *testing.T, keeper int) int {
 	t.Helper()
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		t.Fatal(err)
+	if pid := findMainProcessClient(keeper); pid != 0 {
+		return pid
 	}
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		stat, err := os.ReadFile(filepath.Join("/proc", e.Name(), "stat"))
-		if err != nil {
-			continue
-		}
-		s := string(stat)
-		i := strings.LastIndexByte(s, ')')
-		if i < 0 {
-			continue
-		}
-		fields := strings.Fields(s[i+1:])
-		if len(fields) < 2 || fields[1] != strconv.Itoa(keeper) {
-			continue
-		}
-		cmdline, _ := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
-		if strings.Contains(string(cmdline), "\x00run\x00") {
+	t.Fatalf("the keeper (pid %d) has no main-process client", keeper)
+	return 0
+}
+
+// findMainProcessClient is mainProcessClient's search: the pid, or 0 when no child of keeper runs
+// a container.
+func findMainProcessClient(keeper int) int {
+	for _, pid := range processChildren(keeper) {
+		if processHasArgs(pid, "run") {
 			return pid
 		}
 	}
-	t.Fatalf("the keeper (pid %d) has no main-process client", keeper)
 	return 0
 }
 
