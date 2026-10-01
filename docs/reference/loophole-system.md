@@ -572,8 +572,10 @@ an agent-writable target — including the ones no rule can see, like a Python d
 > launching and the homes it manages, not that some other checkout is agent-writable in a
 > different jail — so it catches the shape that actually occurs, a daemon sitting in the repo
 > being worked on, and the permission argument covers the rest. And the check is
-> deliberately conservative about what counts as a path (no whitespace, no shell
+> deliberately conservative about what counts as a **relative** path (no whitespace, no shell
 > metacharacters), because a false positive refuses a working loophole at **every** launch.
+> An absolute path is read as a path whatever it contains: it lands in a tree only by
+> starting with that tree's own path, and a macOS home is often under a path with a space.
 
 > [!WARNING]
 > **A rule about how two REAL paths relate cannot be verified by a test that invents both of

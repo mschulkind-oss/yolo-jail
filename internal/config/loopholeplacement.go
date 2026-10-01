@@ -256,33 +256,40 @@ func resolvePlacementPath(p string) string {
 	return filepath.Clean(abs)
 }
 
-// shellish holds the characters that say "this element is not a plain path": a
-// space or tab (a `sh -c` script body, or a flag and its value in one string), and
-// the shell metacharacters that only ever appear in code. A path containing any of
-// them is missed — which is the right trade for a tripwire, because the
-// alternative is reading `sleep 300 & echo $! > /tmp/pid` as a relative path and
-// refusing a working daemon at every launch.
+// shellish holds the characters that say "this RELATIVE element is not a plain
+// path": a space or tab (a `sh -c` script body, or a flag and its value in one
+// string), and the shell metacharacters that only ever appear in code. A relative
+// path containing any of them is missed — which is the right trade for a tripwire,
+// because the alternative is reading `sleep 300 & echo $! > /tmp/pid` as a path
+// resolved against the workspace and refusing a working daemon at every launch.
+//
+// An ABSOLUTE element is exempt, because that false positive cannot happen to it:
+// it lands inside a tree only when its cleaned spelling starts with the tree's own
+// path, which a script body does only by naming something in that tree. And on
+// macOS the miss is no edge case, a home often being under a path with a space
+// ("/Users/Jane Doe", "~/Library/Application Support").
 const shellish = " \t\n;|&$><*?\"'`()"
 
 // argvPathTarget resolves one argv element to the absolute path it would name,
 // reporting false when the element does not denote a path at all (a bare program
-// name resolved through PATH, a flag, a script body, or a framework placeholder).
+// name resolved through PATH, a flag, a relative script body, or a framework
+// placeholder).
 func argvPathTarget(arg, workspace string) (string, bool) {
 	if arg == "" || strings.HasPrefix(arg, "-") || strings.Contains(arg, "{") {
 		return "", false
 	}
+	p := expandUser(arg)
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p), true
+	}
 	if strings.ContainsAny(arg, shellish) {
 		return "", false
 	}
-	p := expandUser(arg)
-	if !filepath.IsAbs(p) {
-		// No separator means PATH lookup, not a path this rule can locate.
-		if !strings.Contains(p, "/") || workspace == "" {
-			return "", false
-		}
-		p = filepath.Join(workspace, p)
+	// No separator means PATH lookup, not a path this rule can locate.
+	if !strings.Contains(p, "/") || workspace == "" {
+		return "", false
 	}
-	return filepath.Clean(p), true
+	return filepath.Clean(filepath.Join(workspace, p)), true
 }
 
 // underTree reports whether p is dir itself or anything beneath it. Symlinks are

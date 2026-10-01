@@ -95,6 +95,51 @@ func TestInlineLoopholeCommandInsideTheJailHomeIsRefused(t *testing.T) {
 	}
 }
 
+// An absolute path with a space or a parenthesis in it is still a path. A macOS home
+// is routinely under one ("/Users/Jane Doe", "~/Library/Application Support"), and so
+// is a checkout under "~/My Projects": reading every element carrying whitespace as a
+// script body let a daemon parked in such a workspace, or in the jail home under such
+// a HOME, pass the rule in silence. The space is in the trees this test builds, so it
+// fails on every TMPDIR rather than only on a spaced one.
+func TestPlacementRuleReadsAnAbsolutePathWithASpaceAsAPath(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "Jane Doe")
+	t.Setenv("HOME", home)
+	ws := filepath.Join(t.TempDir(), "My Projects (old)", "repo")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	errs, _ := validateScopedIn(t, ws,
+		`{"loopholes": {"svc": {"command": ["python3", "`+ws+`/tool.py"]}}}`, "", nil)
+	if hits := containing(errs, "config.loopholes.svc.command[1]",
+		filepath.Join(ws, "tool.py"), "bind-mounts :rw", "the placement rule"); len(hits) != 1 {
+		t.Errorf("command in a workspace under a spaced path: errors = %v, want one placement refusal", errs)
+	}
+
+	errs, _ = validateScopedIn(t, ws,
+		`{"loopholes": {"svc": {"command": ["/usr/bin/daemon"], "doctor_cmd": ["`+ws+`/check.sh"]}}}`,
+		"", nil)
+	if hits := containing(errs, "config.loopholes.svc.doctor_cmd[0]", "the placement rule"); len(hits) != 1 {
+		t.Errorf("doctor_cmd in a workspace under a spaced path: errors = %v, want one placement refusal", errs)
+	}
+
+	inJailHome := filepath.Join(home, ".local/share/yolo-jail/home", "tool.py")
+	errs, _ = validateScopedIn(t, t.TempDir(),
+		`{"loopholes": {"svc": {"command": ["python3", "`+inJailHome+`"]}}}`, "", nil)
+	if hits := containing(errs, "config.loopholes.svc.command[1]", "jail home tree"); len(hits) != 1 {
+		t.Errorf("command in the jail home under a spaced HOME: errors = %v, want one refusal naming the jail home tree", errs)
+	}
+
+	probs := LoopholeManifestPlacementProblems(LoopholeManifestPlacement{
+		Name:          "acme",
+		ModuleDir:     filepath.Join(home, "Library/Application Support/acme"),
+		HostDaemonCmd: []string{"python3", filepath.Join(ws, "tool.py")},
+	}, ws)
+	if hits := containing(probs, "loophole 'acme'", "host_daemon.cmd[1]", filepath.Join(ws, "tool.py")); len(hits) != 1 {
+		t.Errorf("manifest daemon in a workspace under a spaced path: problems = %v, want the host_daemon.cmd refusal", probs)
+	}
+}
+
 // The shapes that must stay clean: a program outside both trees, a PATH lookup,
 // the bundled ["yolo","internal","daemon",…] form, framework placeholders, and
 // flags. A false positive here refuses a working loophole at every launch.
@@ -107,6 +152,9 @@ func TestPlacementRuleLeavesLegitimateInstallsAlone(t *testing.T) {
 		`["/usr/local/bin/mydaemon", "--socket", "{socket}"]`,
 		`["python3", "` + filepath.Join(home, "tools/daemon.py") + `"]`,
 		`["mydaemon", "--flag=a/b"]`,
+		// Read as a path now that a space no longer hides one, and still outside both
+		// trees: the user's own home is not the jail home.
+		`["` + filepath.Join(home, "Library/Application Support/acme/daemon") + `", "--socket", "{socket}"]`,
 	} {
 		errs, _ := validateScopedIn(t, ws,
 			`{"loopholes": {"svc": {"command": `+cmd+`}}}`, "", nil)
