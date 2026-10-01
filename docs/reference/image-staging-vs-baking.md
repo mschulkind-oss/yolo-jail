@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-24
-verified_commit: f491d192
+verified: 2026-10-01
+verified_commit: d4e435a3
 covers:
   - flake.nix
   - internal/image/
@@ -12,22 +12,24 @@ covers:
   - internal/cli/run/srcskew.go
   - internal/cli/run/storepackages.go
   - internal/cli/run/hostprobes.go
+  - internal/cli/run/machineshares.go
   - internal/cli/check/section_imagedelivery.go
   - internal/entrypoint/storepackages.go
   - scripts/build-go.sh
   - scripts/stage-source-bundle.sh
 tags: [image, nix, podman, mounts, packages, disk]
 stage: CURRENT
-next: "Re-verify against the tree with the system-doc skill: covered files have moved since f491d192, the stock-tag GC root and the rootless store naming of issue #47 among them"
 summary: "How a jail gets its image and its own binaries: the image bakes nixpkgs and names, a launch bind-mounts yolo's binaries and can deliver packages from the mounted nix store, a failed build is fatal, the loaded image is addressed by content and delivered by a layer-negotiating `skopeo copy` (layer-aware delivery, C9) over a three-tier layer plan, serialised machine-wide and with no retained tar anywhere. The invariants, the pipeline, the traps, and the cost model that shaped them."
 ---
 
 # Image delivery — what the image bakes, and what a launch mounts in
 
-**Status:** verified 2026-09-24 against `f491d192`. The two macOS delivery
+**Status:** verified 2026-10-01 against `d4e435a3`, the whole doc. The two macOS delivery
 arms were **measured at their launch call site on 2026-09-25**, both passing at `22011184` (Apple
 Container on an arm64 Mac, Podman Machine on an Intel runner) — see
-[Archive destinations](#archive-destinations).
+[Archive destinations](#archive-destinations). The rootless store naming of issue #47 is
+measured by CI's rootless runners only, which a nested jail cannot stand in for
+([the store the copy writes](#the-store-the-copy-writes)).
 
 A container jail runs on two things a launch assembles separately. The **image** is a nix-built
 OCI image holding nixpkgs tools, the FHS link farm and `/etc` — and, of yolo's own code, nothing
@@ -117,8 +119,9 @@ has no store path in hand; nothing may depend on it by name.
 `nix build .#ociImage` yields a nix2container `image.json` naming its layer digests, and
 `skopeo copy nix:… containers-storage:…` asks the destination for each blob before sending it.
 The two backends whose runtime cannot be copied into from the host — Apple Container, and podman
-on macOS, whose store is inside a VM — get a TEMPORARY archive in their loader's own format, which
-the launch removes itself. There is exactly one delivery mechanism per launch, chosen by the
+on macOS, whose store is inside a VM — get a TEMPORARY `oci-archive` that leaves out the layers the
+destination already holds ([the delta archive](#the-delta-archive)), which the launch removes
+itself. There is exactly one delivery mechanism per launch, chosen by the
 backend and never by a failure, and no way back to the old one; see
 ["Delivering into the runtime"](#delivering-into-the-runtime).
 
@@ -177,7 +180,8 @@ before making a container at all.
 ### Where the binaries come from
 
 **Flake bundle** *(coined here)* — a directory holding `flake.nix`, `flake.lock` and prebuilt
-Linux binaries under `bin/linux-<arch>/`. `scripts/stage-source-bundle.sh` produces one for
+Linux binaries under `bin/linux-<arch>/`, and, for the `macos-user` guest, the darwin
+`yolo-jaild` under `bin/darwin-<arch>/` (below). `scripts/stage-source-bundle.sh` produces one for
 `just install` (under `paths.FlakeBundleDir`), the release archive and Homebrew ship one beside
 the binary, and `installPrefix` bakes one *into* the mounted prefix. Not a checkout: a checkout
 has the flake files and no `bin/`.
@@ -196,7 +200,8 @@ has the flake files and no `bin/`.
   launch — the image no longer carries a `yolo-entrypoint`, so there is nothing to fall back on.
   The prefix closure is then GC-rooted host-side under its own roots directory
   (`RegisterPrefixRoot`): held by *liveness* — is a container executing from it — and deliberately
-  not under the image roots, which are reaped on age. The one test that decides which policy a root
+  not under the image roots, which are reaped on age unless a container is running on their image
+  ([`OQ-LS4`](image-retention.md#why-its-this-way)). The one test that decides which policy a root
   gets is whether losing it can cost only a rebuild; a running jail losing the file behind its own
   pid1 cannot.
 
@@ -217,6 +222,15 @@ binaries into `opt/yolo-jail/bin/` — not symlinks, because `os.Executable` wou
 symlink through to `goBinaries`' own store path, which has no `share/yolo-jail` sibling and would
 make the bundle undiscoverable — and copies them a second time into
 `share/yolo-jail/bin/linux-<arch>/`, which is what gives a nested jail its prebuilt arm.
+
+**The `macos-user` guest's binaries take the same two-way switch.** That backend has no image and
+no container, but it runs a declared jail daemon in its Seatbelt guest, so the flake's
+`guestPrefix` holds `guestBinaries` (`yolo-jaild` alone) built for darwin: copied from a bundle's
+`bin/darwin-<arch>/` when one ships it, compiled from `goSrc` with `GOOS=darwin` otherwise. The
+script's `GUEST_BINARIES` stages that set for both Mac arches into every release and Homebrew
+bundle, `just install` stages it only on a Mac, and the launch stages it into the sandbox's
+root-owned prefix, never onto a host `PATH`, so the host ship set stays `{yolo}`. A test pins the
+flake's list, the script's and `macosuser.GuestBinaries` together.
 
 The share half is **never the checkout itself**, even though a checkout would satisfy the
 resolver. Mounting it would put the whole working tree inside the jail at a second path and let
@@ -326,9 +340,10 @@ built. What to use instead, and the `macos-user` path that runs the Mac's own ni
 [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md#nix-inside-the-sandbox).
 
 The refusal is keyed on darwin, not on the runtime, so Apple Container gets it too. That
-backend's prefix mount has **not** been exercised on hardware; podman on Linux (including the
-nested jail this repo develops in) and macOS podman with `/nix` shared are the two measured
-arms. `macos-user` needed nothing: it runs no container, loads no image, and its `yolo` is the
+backend's prefix mount ran on hardware in the 2026-09-25 delivery runs, from a staged bundle, whose
+launches ran a command in the jail ([Archive destinations](#archive-destinations)); the refusal
+itself has not been watched firing there. Podman on Linux (including the nested jail this repo
+develops in) and macOS podman with `/nix` shared are the other measured arms. `macos-user` needed nothing: it runs no container, loads no image, and its `yolo` is the
 host's own binary. See [`../guides/macos.md`](../../userguide/guides/macos.md#running-a-live-checkout-on-podman).
 
 ### Two halves, two cadences
@@ -1149,7 +1164,10 @@ value. skopeo's own progress cannot supply them: it prints `Copying blob` whethe
 was present. The copy itself consults neither, so a wrong figure changes a printed number and no
 behaviour; "copied" is a ceiling, since an orphan blob from an interrupted copy is counted as moved.
 The `image.layer_copy` span is the timing instrument, and it is the one the warm-launch acceptance
-target was set against.
+target was set against. While the copy runs, the launch reads skopeo's per-blob lines and keeps one
+live progress line against the image's own layer inventory, as it does for the other long steps of
+a load: the image build, the copier build, the identity eval, a wait on the image-copy lock and, on
+the archive backends, the tar write and the runtime's load.
 
 `created` is a **constant** (`0001-01-01T00:00:00Z`): nix2container `time.Parse`s the value, so
 the `created = "now"` the flake used to pass would fail the nix build, and a build-time timestamp
@@ -1388,8 +1406,8 @@ no image and nothing to substitute.
 | Backend | Image | yolo's binaries | `packages:` |
 | :--- | :--- | :--- | :--- |
 | podman on Linux | `skopeo copy nix:… containers-storage:…`, layer-negotiated, no archive; on a rootless store inside `podman unshare` and into the store podman reports, named | two `:ro` mounts; prebuilt or `nix build .#installPrefix` | baked, or store-delivered on opt-in |
-| podman on macOS | a [delta archive](#the-delta-archive) — `skopeo copy nix:… oci:…`, tarred, then `podman load -i`, then both are removed; the archive leaves out the layers podman already holds, because the store is inside the Podman Machine VM, which does not share `/nix`, so there is no local store to negotiate with; ⚠ [measured on Linux only](#archive-destinations). The nix build may offload to a builder container | same mounts; a built (store-path) prefix is refused unless the VM shares `/nix` and `YOLO_NIX_HOST_DAEMON` says so | baked (no shared store) |
-| Apple Container | a [delta archive](#the-delta-archive) — `skopeo copy nix:… oci:…`, tarred, then `container image load -i`, then both are removed; the present set is yolo's own delivery record; ⚠ [not run on a Mac](#archive-destinations) | same mounts, `:ro` ignored; not exercised on hardware | baked (cannot bind-mount the store) |
+| podman on macOS | a [delta archive](#the-delta-archive) — `skopeo copy nix:… oci:…`, tarred, then `podman load -i`, then both are removed; the archive leaves out the layers podman already holds, because the store is inside the Podman Machine VM, which does not share `/nix`, so there is no local store to negotiate with; [measured on an Intel Podman Machine](#archive-destinations) on 2026-09-25. The nix build may offload to a builder container | same mounts; a built (store-path) prefix is refused unless the VM shares `/nix` and `YOLO_NIX_HOST_DAEMON` says so | baked (no shared store) |
+| Apple Container | a [delta archive](#the-delta-archive) — `skopeo copy nix:… oci:…`, tarred, then `container image load -i`, then both are removed; the present set is yolo's own delivery record; [measured on an arm64 Mac](#archive-destinations) on 2026-09-25 | same mounts, `:ro` honored from `container` 1.1.0 and ignored below it; run on hardware from a staged bundle on 2026-09-25 | baked (cannot bind-mount the store) |
 | `macos-user` | none | the host's own binary | a `buildEnv` profile on PATH — [`nix-across-backends.md`](nix-across-backends.md) |
 
 ## Non-goals
@@ -1443,14 +1461,15 @@ ones cited from sibling docs and code comments and are never renumbered.
 
 ## Current values
 
-Verified at `f491d192`. The prose above says what each is for; this table is the only place the
+Verified at `d4e435a3`. The prose above says what each is for; this table is the only place the
 values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Prefix mount destinations | `/opt/yolo-jail/bin`, `/opt/yolo-jail/share/yolo-jail` | `JailPrefixBinDir`, `JailPrefixShareDir` (`internal/cli/run/jailprefix.go`) |
 | Container argv entrypoint | `/opt/yolo-jail/bin/yolo-entrypoint` | `JailEntrypointPath` (`internal/cli/run/jailprefix.go`) |
-| Prebuilt binaries in a bundle | `bin/linux-<GOARCH>/` | `prebuiltBinDir` (`internal/cli/run/jailprefix.go`); `prebuiltBinDir` (`flake.nix`); `scripts/stage-source-bundle.sh` |
+| Prebuilt binaries in a bundle | `bin/linux-<GOARCH>/`; the `macos-user` guest's under `bin/darwin-<GOARCH>/` | `prebuiltBinDir` (`internal/cli/run/jailprefix.go`); `prebuiltBinDir`, `guestPrebuiltDir` (`flake.nix`); `scripts/stage-source-bundle.sh` |
+| Guest binary set | `yolo-jaild` | `guestBinaries` (`flake.nix`); `GUEST_BINARIES` (`scripts/stage-source-bundle.sh`); `macosuser.GuestBinaries` |
 | Shipped binary set | 7 names; `goprobe` excluded | `shippedBinaries` (`flake.nix`); `SHIPPED_BINARIES` (`scripts/stage-source-bundle.sh`) |
 | Go fileset the image build sees | `go.mod`, `go.sum`, `vendor/`, `cmd/`, `internal/`, `packs/` | `goSrc` (`flake.nix`); `version.ImageSourcePaths` adds `flake.nix`, `flake.lock` |
 | Flake source order | `YOLO_REPO_ROOT` → bundle beside the binary → `~/.local/share/yolo-jail/flake-bundle` | `reporoot.Resolve`; `paths.FlakeBundleDir` |
