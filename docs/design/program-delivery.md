@@ -5,7 +5,7 @@ status: in-review
 tags: [packs, uniformity, delivery, pinning, npm, mise, image, evergreen]
 summary: "Four delivery classes, one of which kept no record and was never re-derived — and all divergence lived there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at its own invocation) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which. Largely implemented by 2026-09-04; three questions open."
 stage: DESIGN
-next: "Finish OQ-PD19's first task, why pnpm is kept out of mise: read the review of PR #19 (4369b25a, 2026-05-10), where the exclusion arrived with pnpm's lazy npm launcher"
+next: "Rule OQ-PD19: its first task is done as far as any record goes (2026-10-01: PR #19 records no reason; the exclusion hides a project's own mise pin of pnpm, and read with the launcher check it leaves a declared mise_tools pnpm with no pnpm at all)"
 ---
 
 # How executable content gets into a jail — and what makes two jails the same
@@ -1844,6 +1844,35 @@ exclusion came from. It arrived with PR #19 (`4369b25a`, 2026-05-10), whose summ
 `MISE_DISABLE_TOOLS` *"with yolo-managed package managers included"*. So pnpm is kept out of mise
 because yolo's own launcher installs it. Why that PR chose a yolo launcher over mise is still
 unrecorded, and that is what is left of the first task.
+
+⚠ *Finished 2026-10-01: the record has no reason, and what the exclusion does is measurable
+instead.* PR #19's GitHub record holds no answer. Its API returns zero reviews, zero review
+comments and zero conversation comments, and none of its seven pre-squash commits states one
+(fetched 2026-10-01). The PR body says only *"keep `pnpm` available via a controlled lazy
+npm-backed launcher while avoiding mise-managed `pnpm`"*, and the review change it lists for pnpm
+is the failed-install stamp's retry throttle. So the reason is unrecorded anywhere public, and
+only the PR's author can supply it. What the exclusion does today, MEASURED 2026-10-01 in this
+jail with mise 2026.8.6:
+
+- **It hides a project's own pin.** In a scratch project whose `mise.toml` pins
+  `pnpm = "9.12.0"`, `mise ls --current` under the jail's `MISE_DISABLE_TOOLS=pnpm` lists no
+  pnpm. With the variable cleared it lists the pin, missing, so mise would install it.
+  `command -v pnpm` resolves to `~/.yolo/bin/launch/pnpm`, the `pnpm@latest` launcher. A project
+  that pins pnpm through mise therefore runs yolo's unpinned pnpm in every jail.
+- **It hides a declared `mise_tools` pnpm too, and the launcher stands down for one.** A global
+  mise config naming pnpm, the kind of file `mise_tools` renders into
+  (`~/.config/mise/config.toml`, `internal/agentcfg/builtin.go`), is hidden the same way (the
+  same probe, through `MISE_GLOBAL_CONFIG_FILE`). `config.MergeMiseDisabledTools` adds pnpm on every launch whatever
+  the config declares (`internal/config/derived.go`), while `declaredMiseBins` withholds yolo's
+  pnpm launcher for a declared `mise_tools` pnpm (`internal/entrypoint/launchercollision.go`). So
+  READ together, a user who declares `mise_tools` pnpm gets no pnpm at all, the opposite of
+  [`OQ-PD12a`](#decision-ledger)'s *"a `mise_tools` pnpm keeps its name"*. UNMEASURED end to end:
+  no jail with that declaration was launched.
+- **What mise would install instead.** mise resolves `pnpm` to `aqua:pnpm/pnpm`, then
+  `npm:pnpm` (`mise registry`), so a pin through mise is an ordinary versioned tool.
+
+So the first task is done as far as any record goes. The exclusion's original reason can come
+only from the PR's author, and every effect the tree shows works against a project's own pin.
 
 <!-- vantage: oq id=OQ-PD19 leaning="Narrow both steps to the pnpm question and retire the rest. Step five dissolves for agent dependencies by OQ-PD6's own amendment, and step three's user-scope venue goes with it. What survives is one concrete question — how does yolo pin pnpm, given mise is closed to it and nobody remembers why — which is small, real, and not what either step proposed to build." -->
 
