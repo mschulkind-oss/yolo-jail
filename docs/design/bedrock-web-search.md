@@ -359,12 +359,12 @@ tools.
 
 | Agent, version read | Its own search on a Bedrock profile |
 | :--- | :--- |
-| claude 2.1.286 | **`-p bedrock`: none.** SOURCED: WebSearch's `isEnabled` is true only when Claude Code's provider is `firstParty`, `anthropicAws`, `anthropicGoogleCloud`, `foundry` or `vertex`, and false for `bedrock` and `mantle`. **`-p bedrock-bridge`: offered, and it cannot work.** SOURCED: yolo sets `ANTHROPIC_BASE_URL` and no `CLAUDE_CODE_USE_BEDROCK` there (`nativeBedrock` in `packs/claude/derive.lua`), so the provider is `firstParty`. A WebSearch call is a second Messages request to the main model, carrying Anthropic's server tool `web_search_20250305`. For a model the list marks `"vendor": "anthropic"` (Claude Opus 5.5), the bridge forwards that request unchanged to runtime's Messages route ([wire-bridge.md](../reference/wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream)), and Anthropic documents web search as *"not available on Amazon Bedrock"*. MEASURED for any other model: the bridge's translating route refuses it, which the daemon answers with a named 400 ([WB-D5](../reference/wire-bridge.md#wb-d5)). INFERRED: runtime refuses the forwarded tool too, though AWS documents no answer |
+| claude 2.1.286 | **`-p bedrock`: none.** SOURCED: WebSearch's `isEnabled` is true only when Claude Code's provider is `firstParty`, `anthropicAws`, `anthropicGoogleCloud`, `foundry` or `vertex`, and false for `bedrock` and `mantle`. **`-p bedrock-bridge`: offered, and it cannot work.** SOURCED: yolo sets `ANTHROPIC_BASE_URL` and no `CLAUDE_CODE_USE_BEDROCK` there (`nativeBedrock` in `packs/claude/derive.lua`), so the provider is `firstParty`. A WebSearch call is a second Messages request, carrying Anthropic's server tool `web_search_20250305`, to the main model (or to the small fast model when Claude Code's feature flag `tengu_plum_vx3` is on; it defaults off). For a model the list marks `"vendor": "anthropic"` (Claude Opus 5.5), the bridge forwards that request unchanged to runtime's Messages route ([wire-bridge.md](../reference/wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream)), and Anthropic documents web search as *"not available on Amazon Bedrock"*. MEASURED for any other model: the bridge's translating route refuses it, which the daemon answers with a named 400 ([WB-D5](../reference/wire-bridge.md#wb-d5)). INFERRED: runtime refuses the forwarded tool too, though AWS documents no answer |
 | codex 0.158.0 | **`-p bedrock`: none.** SOURCED: the `amazon-bedrock-runtime` provider reports the capability `web_search: false` (true only for the mantle endpoint). That suppresses both the hosted `web_search` tool and codex's standalone search. **`-p bedrock-bridge`: sent, and runtime cannot serve it.** SOURCED: the via row is an ordinary provider named `bedrock`, not one of codex's two Bedrock names, so it takes the default capabilities (`web_search: true`). Unless its `web_search` mode is `"disabled"`, codex adds the hosted `{"type": "web_search", …}` tool to every Responses request. The via route forwards the body unchanged to runtime's `/openai/v1/responses`, where *"server-side tool use and pre-configured tools aren't available, including web search"*. INFERRED: a 400 or a silently ignored tool; AWS does not say which |
 | copilot 1.0.48 | **Nothing from Bedrock.** SOURCED: its requests through the bridge carry no server tool, since the package names no `web_search_20…` type. Its `web_search` is a tool of GitHub's hosted MCP server (`api.githubcopilot.com/mcp`, toolset `web_search`), offered unless the model's catalog entry says it searches natively. copilot connects that server only with a GitHub login (a saved login, the `gh` CLI or a token variable), and never in offline mode. INFERRED: on Bedrock, copilot searches through GitHub whenever it holds such a login, outside yolo's MCP table. Whether a yolo launch of copilot on Bedrock carries one was not read |
-| opencode 1.18.34 | **None by default.** SOURCED: its `websearch` tool is registered only for the providers `opencode` and `opencode-go`, or when `OPENCODE_ENABLE_EXA`, `OPENCODE_ENABLE_PARALLEL` or `OPENCODE_EXPERIMENTAL` is set. It then calls Exa's or Parallel's hosted MCP endpoint from the opencode process. No call site adds a provider's own search tool to a request. No shipped pack sets those variables |
+| opencode 1.18.34 | **None by default.** SOURCED: its `websearch` tool is registered only for the providers `opencode` and `opencode-go`, or when `OPENCODE_ENABLE_EXA`, `OPENCODE_ENABLE_PARALLEL` or `OPENCODE_EXPERIMENTAL` is set (or the older spellings `OPENCODE_EXPERIMENTAL_EXA` and `OPENCODE_EXPERIMENTAL_PARALLEL`). It then calls Exa's or Parallel's hosted MCP endpoint from the opencode process. No call site adds a provider's own search tool to a request. No shipped pack sets those variables |
 | pi 0.99.2 | **None.** SOURCED: pi ships no search tool, and its Bedrock client (`amazon-bedrock`, the Converse API) sends only the session's own tools. This jail's user installed `pi-web-access` 0.33.0, a pi package that searches through Exa and other services from the pi process. It is the user's install, not one yolo ships |
-| oh-omp 0.15.3 | **Nothing from Bedrock.** SOURCED: its own `web_search` tool uses the first search service whose credential it finds, in this order: Tavily, Perplexity, Brave, Jina, Kimi, Anthropic, Gemini, Codex, Z.ai, Exa, Parallel, Kagi, Synthetic. None of these is Bedrock. Its derive projects no MCP table, so a preset would not reach it |
+| oh-omp 0.15.3 | **Nothing from Bedrock.** SOURCED: its own `web_search` tool uses the first search service whose credential it finds, in this order: Tavily, Perplexity, Brave, Jina, Kimi, Anthropic, Gemini, Codex, Z.ai, Exa, Parallel, Kagi, Synthetic. None of these is Bedrock. Its derive projects no MCP table, but oh-omp loads MCP servers from other agents' files by default, among them `~/.claude.json`, `~/.claude/mcp.json`, `~/.codex/config.toml`, `~/.config/opencode/opencode.json` and a project's `.mcp.json` (its `disabledProviders` setting defaults to empty, and the omp pack sets none). INFERRED: a preset in claude's or codex's file reaches oh-omp whenever that pack is selected beside it ((b) below) |
 | agy | **Never on a Bedrock profile.** SOURCED: its `program` declares no protocol (`packs/agy/pack.json`), so no profile routes it to Bedrock |
 
 **(b) An agent's MCP client may not pass the jail's environment to the proxy.** The proxy needs
@@ -373,11 +373,12 @@ the credential variables and the gateway URL. The planned entry names each in it
 
 | Agent, version read | File yolo writes | Server inherits the agent's environment? | `${VAR}` in `env` |
 | :--- | :--- | :--- | :--- |
-| claude 2.1.286 | `~/.claude.json` `mcpServers` | **yes**, minus Claude Code's own credentials | **resolved**, with `${VAR:-default}`, in `command`, `args` and `env` |
-| codex 0.158.0 | `~/.codex/config.toml` `[mcp_servers]` | **no**: an empty environment plus `HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`, `__CF_USER_TEXT_ENCODING`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR` and `TZ`, the names in the entry's `env_vars` key, and `env` | **not resolved**: `env` reaches the server as written |
+| claude 2.1.286 | `~/.claude.json` `mcpServers` | **yes**, minus Claude Code's own credentials. Claude Code's opt-in `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, which yolo does not set, also withholds cloud credentials such as `AWS_SECRET_ACCESS_KEY` | **resolved**, with `${VAR:-default}`, in `command`, `args` and `env` |
+| codex 0.158.0 | `~/.codex/config.toml` `[mcp_servers]` | **no**: an empty environment plus `HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`, `__CF_USER_TEXT_ENCODING`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR` and `TZ`, codex's custom-CA variables such as `SSL_CERT_FILE`, the names in the entry's `env_vars` key, and `env` | **not resolved**: `env` reaches the server as written |
 | copilot 1.0.48 | `~/.copilot/mcp-config.json` | **yes**, minus copilot's own agent and provider variables | **resolved**: `${VAR}`, `${VAR:-default}` and `$VAR` |
 | opencode 1.18.34 | `~/.config/opencode/opencode.json` `mcp`, with `env` renamed `environment` | **yes**: the process environment, then `environment` over it | **not resolved**: opencode substitutes `{env:VAR}` in its config text, so `${VAR}` stays literal and **replaces** the inherited value of that variable |
 | pi 0.99.2 | `~/.pi/agent/mcp-adapter.json` | its own MCP client, **yes** | its own client **resolves** `${VAR}`, `$VAR` and `!command`, **but it reads `~/.pi/agent/mcp.json` and a trusted project's `.pi/mcp.json`**, and the pi pack writes neither. It deletes an `mcp.json` that holds exactly its own render, the file's location before yolo 0.11.0 (`retireIfMatchesRender`; [AM-R1](agent-directory-map.md#AM-R1)). So pi's own client sees none of yolo's table. A user-installed `pi-mcp-adapter` (3.3.0 in this jail) reads `mcp-adapter.json`, inherits the environment and resolves `${VAR}` |
+| oh-omp 0.15.3 | none of its own; it reads claude's and codex's files above, among others ((a)) | **yes**: the process environment, then the entry's `env` over it | **resolved**, with `${VAR:-default}`, in an entry read from `~/.claude.json`. **Not resolved** in one read from `~/.codex/config.toml`, where it adds the names in `env_vars` from its own environment |
 
 All SOURCED. MEASURED in this jail, the user's Tavily entry as each agent's config carries it:
 
@@ -400,12 +401,15 @@ projects to. That doc owns the rule; this one only records the reading.
 - **For the preset's entry (build steps 9.2 and 9.3).** Listing each variable in `env` as `${VAR}`
   works for claude and copilot. It breaks codex, where the proxy gets literal text and no AWS
   variable at all, and opencode, where literal text overwrites credentials the proxy would
-  otherwise inherit. It reaches pi only through a user's adapter. An entry that lists no AWS
-  variable in `env` reaches them by inheritance under claude, copilot and opencode, and not under
-  codex, which forwards only the names in its own `env_vars` key. No derive writes that key today.
+  otherwise inherit. It reaches pi only through a user's adapter, and oh-omp only through
+  claude's or codex's file, resolved from the first and literal from the second. An entry that
+  lists no AWS variable in `env` reaches them by inheritance under claude, copilot and opencode,
+  and not under codex, which forwards only the names in its own `env_vars` key. No derive writes
+  that key today.
 - **For trap (a).** On `-p bedrock-bridge`, claude's WebSearch and codex's hosted search sit beside
-  any preset, and both fail. The capability rule cannot drop them, because the `bedrock` provider
-  declares no `web_search`, and that row is all the rule reads.
+  any preset, and both fail. The capability rule drops only MCP entries, so it cannot remove
+  them. It does not count them either: the `bedrock` provider row declares no `web_search`, and
+  that row is all the rule reads, so the rule still delivers a search entry beside them.
 - **[OQ-BR19](#OQ-BR19).** Option A's last step, *"the proxy reads the URL from the variable the
   entry's `env` names"*, holds under claude and copilot. Under codex the variable never reaches
   the proxy unless the codex derive also names it in `env_vars`. Under opencode the reference
@@ -726,11 +730,21 @@ $ rg -a -o 'function Ru\(e,\{expandVars:n=!0\}=\{\}\)' $C
 function Ru(e,{expandVars:n=!0}={})
 $ rg -a -o 'case"stdio":\{let S=e;h=\{\.\.\.S,command:g\(S\.command\)[^}]*\}' $C
 case"stdio":{let S=e;h={...S,command:g(S.command),args:S.args.map((w)=>g(w)),env:S.env?qr(S.env,(w)=>g(w)):void 0}
+$ rg -a -o 'v=R\("tengu_plum_vx3",!1\)\?rb\(\):f\.mainLoopModel\(\)' $C
+v=R("tengu_plum_vx3",!1)?rb():f.mainLoopModel()
+$ rg -a -o 'function id\(\)\{let e=C\.scrubEnabledLatched;[^}]*\}' $C
+function id(){let e=C.scrubEnabledLatched;if(e!==void 0)return e;let r=Le(process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB);return C.setScrubEnabledLatched(r),r}
+$ rg -a -c 'Oo=\["ANTHROPIC_API_KEY",[^\]]*"AWS_SECRET_ACCESS_KEY"' $C
+1
 ```
 
 `"gateway"` is Claude Code's own cloud-gateway login (`credentialSlots.gatewayAuth`), not a
-custom `ANTHROPIC_BASE_URL`. A stdio server's environment is the process environment minus the
-names Claude Code withholds as its own credentials, and none of them is an `AWS_*` variable.
+custom `ANTHROPIC_BASE_URL`. `rb()` is the small fast model. A stdio server's environment is the
+process environment minus the names Claude Code withholds as its own credentials, and none of
+them is an `AWS_*` variable. With `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` set, the environment also
+loses every name on the scrub list `Oo`, which includes `AWS_SECRET_ACCESS_KEY`,
+`AWS_SESSION_TOKEN` and `AWS_BEARER_TOKEN_BEDROCK`. No pack sets that variable
+(`rg -n SUBPROCESS_ENV_SCRUB packs/ internal/` finds nothing).
 
 **codex 0.158.0** (`~/.codex/packages/standalone/current/codex-package.json` says `"version":
 "0.158.0"`). It was read from `openai/codex` at the tag `rust-v0.158.0`, under `codex-rs/`:
@@ -745,7 +759,8 @@ names Claude Code withholds as its own credentials, and none of them is an `AWS_
   `"Amazon Bedrock Runtime"`.
 - `core/src/tools/spec_plan.rs`, `hosted_model_tool_specs` and `standalone_web_search_enabled`:
   both require `turn_context.provider.capabilities().web_search`.
-- `rmcp-client/src/utils.rs`, `create_env_for_mcp_server` and `DEFAULT_ENV_VARS`;
+- `rmcp-client/src/utils.rs`, `create_env_for_mcp_server` and `DEFAULT_ENV_VARS`, plus
+  `CUSTOM_CA_ENV_KEYS` from `network-proxy/src/certs.rs`;
   `utils/pty/src/child_command.rs`, `Command::new` calls `.env_clear()`;
   `codex-mcp/src/rmcp_client.rs` passes `env` through with no expansion.
 - The binary carries the same strings:
@@ -776,6 +791,8 @@ $ rg -a -o 'env:\{\.\.\.process\.env,\.\.\.Z==="opencode"\?\{BUN_BE_BUN:"1"\}:\{
 env:{...process.env,...Z==="opencode"?{BUN_BE_BUN:"1"}:{},...F.environment}
 $ rg -a -o 'o\.text\.replace\(/\\\{env:\(\[\^\}\]\+\)\\\}/g' $O
 o.text.replace(/\{env:([^}]+)\}/g
+$ rg -a -o 'enableExa:h\.all\(\{experimental:Q,enabled:k\("OPENCODE_ENABLE_EXA"\),legacy:k\("OPENCODE_EXPERIMENTAL_EXA"\)\}' $O
+enableExa:h.all({experimental:Q,enabled:k("OPENCODE_ENABLE_EXA"),legacy:k("OPENCODE_EXPERIMENTAL_EXA")}
 ```
 
 **pi 0.99.2** (`@earendil-works/pi-coding-agent`; its MCP client came in 0.99.0, dated 2026-09-29
@@ -799,7 +816,29 @@ exit=1
 $ curl -sSL https://registry.npmjs.org/@oh-labs/oh-omp-linux-x64/-/oh-omp-linux-x64-0.15.3.tgz | tar -xz
 $ rg -a -A14 'SEARCH_PROVIDER_ORDER = \[' package/oh-omp | tr -d ' \n'
 SEARCH_PROVIDER_ORDER=["tavily","perplexity","brave","jina","kimi","anthropic","gemini","codex","zai","exa","parallel","kagi","synthetic"];
+$ rg -a -o 'description: "Load MCP servers from [^"]*"' package/oh-omp | sort -u
+description: "Load MCP servers from .claude.json and .claude/mcp.json"
+description: "Load MCP servers from .vscode/mcp.json"
+description: "Load MCP servers from Windsurf config (mcp_config.json)"
+description: "Load MCP servers from config.toml [mcp_servers.*] sections"
+description: "Load MCP servers from marketplace plugin .mcp.json files"
+description: "Load MCP servers from opencode.json mcp key"
+description: "Load MCP servers from standalone mcp.json or .mcp.json in project root"
+description: "Load MCP servers from ~/.cursor/mcp.json and .cursor/mcp.json"
+description: "Load MCP servers from ~/.gemini/settings.json and .gemini/settings.json"
+$ rg -a -o 'const userClaudeJson = path24\.join\(ctx\.home, "\.claude\.json"\);' package/oh-omp
+const userClaudeJson = path24.join(ctx.home, ".claude.json");
+$ rg -a -o 'const mcpServers = expandEnvVarsDeep\(json3\.mcpServers\);' package/oh-omp
+const mcpServers = expandEnvVarsDeep(json3.mcpServers);
+$ rg -a -o 'const env4 = \{ \.\.\.config2\.env \};' package/oh-omp
+const env4 = { ...config2.env };
+$ rg -a -o 'disabledProviders: \{ type: "array", default: EMPTY_STRING_ARRAY \}' package/oh-omp
+disabledProviders: { type: "array", default: EMPTY_STRING_ARRAY }
 ```
+
+The `config.toml` loader is codex's (`~/.codex/config.toml`); `env4` there is copied with no
+expansion, unlike the Claude loader's `expandEnvVarsDeep`. oh-omp's stdio transport starts a
+server with `{ ...Bun.env, ...this.config.env }`.
 
 **The bridge refusing Claude's search tool** (MEASURED): a throwaway test, deleted after the run
 and not committed, in `internal/wirebridge`:
