@@ -143,11 +143,14 @@ func TestStopArgv(t *testing.T) {
 func TestSessionBuildersLine(t *testing.T) {
 	s := &Session{Runtime: "podman"}
 	line := s.BuildersLine("127.0.0.1", BuilderHostPort, 4)
-	// System derived from the host arch, not frozen — see TestBuilderURIAndBuildersLine.
-	if !strings.HasPrefix(line, "ssh-ng://root@127.0.0.1:31022 "+BuilderSystem()+" ") {
-		t.Errorf("BuildersLine = %q", line)
+	// Read as nix reads it, because where the key sits depends on this process's home
+	// (BuildersLine moves a key path nix would split into the URI). System derived from the
+	// host arch, not frozen — see TestBuilderURIAndLine.
+	m := parseBuildersAsNix(t, line)
+	if m.base != "ssh-ng://root@127.0.0.1:31022" || m.system != BuilderSystem() || m.key != BuilderKey() {
+		t.Errorf("BuildersLine = %q: nix reads %q, system %q, key %q", line, m.base, m.system, m.key)
 	}
-	if !strings.HasSuffix(line, " 4") {
+	if len(m.fields) != 4 || m.fields[3] != "4" {
 		t.Errorf("BuildersLine should end with maxjobs: %q", line)
 	}
 }
@@ -216,7 +219,7 @@ func TestSessionStartPinsTheScannedHostKeyIntoTheBuildersLine(t *testing.T) {
 		t.Errorf("builders line does not end with the scanned host key:\n got %q\n want suffix %q",
 			line, " "+want)
 	}
-	if got := len(strings.Fields(line)); got != 8 {
+	if got := len(parseBuildersAsNix(t, line).fields); got != 8 {
 		t.Errorf("builders line has %d fields, want 8 so the key lands in nix's "+
 			"publicHostKey slot: %q", got, line)
 	}

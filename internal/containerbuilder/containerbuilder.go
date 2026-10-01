@@ -80,7 +80,9 @@ func RunArgv(runtime, pubkey, image, name string, hostPort int) []string {
 	return argv
 }
 
-// BuilderURI is the ssh-ng store/builder URI nix uses to reach the container.
+// BuilderURI is the ssh-ng store/builder URI nix uses to reach the container. The key path is
+// percent-encoded (nixQueryEscape), which nix decodes, so a path holding a space or a '&' is
+// still the one ssh is handed.
 func BuilderURI(host string, port int, keyPath string) string {
 	if port == 0 {
 		port = BuilderHostPort
@@ -88,7 +90,29 @@ func BuilderURI(host string, port int, keyPath string) string {
 	if keyPath == "" {
 		keyPath = BuilderKey()
 	}
-	return fmt.Sprintf("ssh-ng://%s@%s:%d?ssh-key=%s", BuilderSSHUser, host, port, keyPath)
+	return fmt.Sprintf("ssh-ng://%s@%s:%d?ssh-key=%s", BuilderSSHUser, host, port, nixQueryEscape(keyPath))
+}
+
+// nixBuildersSeparators are the bytes nix's `builders` parser cuts a line on: '\n' and ';'
+// separate machines, '#' starts a comment, and " \t\n\r" separate a machine's fields. A key path
+// holding any of them cannot be field 3 (BuildersLine).
+const nixBuildersSeparators = " \t\n\r;#"
+
+// nixQueryEscape percent-encodes s for a nix store URI's query: every byte but the unreserved
+// ones and '/', so no separator above, and no '&', '=', '%' or '+', survives unencoded. nix
+// decodes %XX in a query value and nothing else.
+func nixQueryEscape(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' ||
+			strings.IndexByte("-._~/", c) >= 0 {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
 }
 
 // BuilderSystem is the nix system the container builder advertises: the LINUX system
@@ -152,6 +176,16 @@ func nixLinuxSystem(goarch string) string {
 // to configure on the host. Fields 5-7 (speedFactor, supported, mandatory) have to be
 // spelled to reach it, and "-" is nix's own "default" token. Empty publicHostKey keeps
 // the historical 4-field line.
+//
+// A KEY PATH NIX WOULD SPLIT MOVES INTO THE STORE URI. The key sits under the state dir in the
+// user's home, so a home holding a space put that space in field 3: every later field moved one
+// place right and nix refused the whole line ("bad machine specification: failed to convert
+// column #3 … to 'unsigned int'", measured against nix 2.34.8), while a ';' or '#' cut the line
+// at that byte, so ssh got a truncated key path and no host-key pin. nix has no quoting for a
+// field, but it percent-decodes the URI's query, and a key field of "-" leaves the URI's ssh-key
+// in force. So such a path is spelled `?ssh-key=<encoded>` on field 1 with "-" in field 3, and
+// every other path keeps the field-3 line, byte for byte. builderslineparse_test.go reads both
+// forms as nix does and records the measurement.
 func BuildersLine(host string, port, maxJobs int, keyPath, publicHostKey string) string {
 	if port == 0 {
 		port = BuilderHostPort
@@ -162,8 +196,12 @@ func BuildersLine(host string, port, maxJobs int, keyPath, publicHostKey string)
 	if keyPath == "" {
 		keyPath = BuilderKey()
 	}
-	line := fmt.Sprintf("ssh-ng://%s@%s:%d %s %s %d",
-		BuilderSSHUser, host, port, BuilderSystem(), keyPath, maxJobs)
+	uri := fmt.Sprintf("ssh-ng://%s@%s:%d", BuilderSSHUser, host, port)
+	keyField := keyPath
+	if strings.ContainsAny(keyPath, nixBuildersSeparators) {
+		uri, keyField = BuilderURI(host, port, keyPath), "-"
+	}
+	line := fmt.Sprintf("%s %s %s %d", uri, BuilderSystem(), keyField, maxJobs)
 	if publicHostKey != "" {
 		line += " 1 - - " + publicHostKey
 	}

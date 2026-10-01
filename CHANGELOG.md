@@ -820,6 +820,11 @@ sets, and a jail without pi no longer carries it.
   starts without `CODEX_REFRESH_TOKEN_URL_OVERRIDE`: there is no login for yolo's managed Codex
   launch to share, and running it once from a terminal logs you in. The line used to put it down
   to a helper yolo does not start at the host, which no setting could change.
+- On podman on macOS and on Apple Container, a jail image whose packages have to be built on
+  the Linux builder container now builds when your home folder's path has a space in it. Nix
+  split the path of the builder's key at the space and refused the builder, so the build failed.
+  A path with a `;` or a `#` in it was cut short at that character, so Nix could not reach the
+  builder either.
 
 ## [0.11.0] - 2026-09-28
 
