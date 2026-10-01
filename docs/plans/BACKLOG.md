@@ -2,7 +2,7 @@
 title: "Backlog — the one implementable list"
 status: in-review
 stage: CURRENT
-next: "Settle E5's residual fact: survey the shipped packs' managed and defaults layers (packs/*/pack.json) for an array a pack would need to append to now that config-list exists; none found means E5 has no subject"
+next: "Rule E5: the 2026-10-01 survey found no managed or defaults array that needs an append, so the call left is whether E5 closes and the guarded posture's emptied additionalDirectories gets a question of its own"
 tags: [backlog, packs, composed-config]
 ---
 
@@ -414,6 +414,23 @@ and `managed`**, not an annotation on `managed`/`defaults`, and a `managed` arra
 wholesale. That design does not mention E5 and rules nothing about the `managed` layer. So what is
 left of E5 is narrower: **does any surface need a `managed` or `defaults` array to append, now that
 `config-list` covers a pack adding entries?** If not, E5 closes.
+
+_Surveyed 2026-10-01, at `d4e435a3`: no surface needs a `managed` or `defaults` append._ Every
+array a shipped pack puts in either layer, its autonomy postures included, is one of these (READ
+from `packs/*/pack.json`, by walking every `managed` and `defaults` object):
+
+| Pack, surface, layer | Array | What it needs |
+| :--- | :--- | :--- |
+| `claude/settings`, autonomous posture, `managed` | `permissions.additionalDirectories: ["/"]`, `permissions.allow: []`, `permissions.deny: []` | a **replace**, which is the point: the autonomous posture applies in a jail, and AGENTS.md states that `allow: []` is not an allowlist mechanism |
+| `agy/settings`, autonomous posture, `managed` | `trustedWorkspaces: ["/workspace"]` | a replace, for the same reason |
+| `claude/settings`, guarded posture, `managed` | `permissions.additionalDirectories: []` | the **opposite of an append**. The guarded posture is what the host notch renders (MEASURED: host apply writes `[]`, [`notch-convergence.md`](notch-convergence.md) row D5), and RFC 7386 replaces the array, so a user's own `additionalDirectories` in the real `~/.claude/settings.json` is emptied with it (READ from `mergeValue`, `internal/agentcfg/engine.go`, not run). Its commit, `9a7b4d88`, says the posture *"resets defaultMode/additionalDirectories/skipDangerous to prompts-on (leaving allow/deny alone — no clobber)"*: the intent is to take out the `/` grant, which is a per-entry **removal**, and no declarative op removes an entry ([OQ-LT2](../reference/pack-system.md#oq-lt2)) |
+| `opencode/tui`, `defaults` | `plugin: ["./yolo/footer.js"]` | an append, and `config-list` is its shape rather than this one: a `defaults` value only fills an absent key, so a user who has a `plugin` list of their own gets no yolo footer (READ, not run) |
+
+So E5's `managed`/`defaults` subject is empty, and the survey left two facts for other homes. The
+guarded posture's empty array is a removal that has no declarative form, which is [OQ-LT2](../reference/pack-system.md#oq-lt2)'s
+accepted gap meeting a shipped case. And opencode's footer entry is a `config-list` candidate on
+its owner's own surface. What is left to decide here is one call: close E5, and file the guarded
+posture's clobber as a question of its own, or keep E5 open for it.
 
 **Answer:**
 > _(empty — fill in when decided)_
