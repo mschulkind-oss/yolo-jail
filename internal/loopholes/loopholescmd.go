@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // Deps are the injectable seams: Out/Err writers, the workspace cwd, and the
@@ -35,6 +36,11 @@ type Deps struct {
 	// it, deliberately: a rejected config entry is a diagnostic about the config,
 	// not part of the report, and it belongs on stderr in both forms.
 	Format string
+	// Color is whether Out receives ANSI color, decided by the caller through the one color
+	// gate (tty.Color: requested, a terminal, and NO_COLOR unset; docs/reference/cli-color.md).
+	// False is the plain report, the same text with the color left out. RealDeps leaves it
+	// false, since this package does not probe the terminal; the CLI front door sets it.
+	Color bool
 }
 
 // RealDeps returns Deps backed by the real filesystem/config loaders.
@@ -264,8 +270,13 @@ func Status(deps Deps) int {
 	if outfmt.IsJSON(deps.Format) {
 		return statusJSON(deps)
 	}
+	// COLOR IS ADDITIVE (docs/plans/cli-visual-polish.md): every line below is the plain
+	// report's text wrapped in style tags, so with color off the tags vanish and the text is
+	// unchanged. What yolo did not write (a loophole's name, a doctor's output, a supersession's
+	// reason) is Escaped, so a style tag inside it prints as text in both forms.
+	p := richtext.Printer{W: deps.Out, Color: deps.Color}
 	if deps.InJail {
-		fmt.Fprintln(deps.Out, "Inside jail — doctor checks are host-side.  From the host: yolo loopholes status")
+		p.Print("Inside jail — doctor checks are host-side.  From the host: [cyan]yolo loopholes status[/cyan]")
 		return 0
 	}
 	set := loopholesWithConfig(deps, true)
@@ -281,20 +292,39 @@ func Status(deps Deps) int {
 	// reason, rather than skipped: a skip is indistinguishable from `no-check`, which
 	// would read as "this loophole declares no self-check" — the wrong story entirely.
 	for _, r := range set.RunDoctorChecks(all, doctorCheckTimeout) {
-		fmt.Fprintf(deps.Out, "  [%s] %s  rc=%s\n", doctorState(set, r), r.Loophole.Name, rcStr(r.RC))
+		state := doctorState(set, r)
+		// The state stays in its brackets, which are literal text to the renderer: no state
+		// word is a style word, so `[ok]` prints as itself inside the tags around it.
+		p.Printf("  [%s][%s][/%s] [bold]%s[/bold]  [dim]rc=%s[/dim]", doctorStateStyle[state], state,
+			doctorStateStyle[state], richtext.Escape(r.Loophole.Name), rcStr(r.RC))
 		// The who and the why, for the same reason `loopholes list` carries them: a
 		// loophole a pack turned off must never be an unexplained absence, and `status` is
 		// the other command a user reaches for when one is not working.
 		for _, s := range r.Loophole.SupersededBy {
-			fmt.Fprintf(deps.Out, "      %s\n", s.Line())
+			p.Printf("      %s", richtext.Escape(s.Line()))
 		}
 		if r.Output != "" {
 			for _, line := range strings.Split(r.Output, "\n") {
-				fmt.Fprintf(deps.Out, "      %s\n", line)
+				p.Printf("      [dim]%s[/dim]", richtext.Escape(line))
 			}
 		}
 	}
 	return 0
+}
+
+// doctorStateStyle is the color of each doctorState word, by the CLI's one convention
+// (docs/plans/cli-visual-polish.md): green for a check that passed, red for one that failed,
+// yellow where the loophole wants attention (an unmet requirement, a check the origin gate
+// withheld), and dim where off is the expected answer (turned off, superseded by a selected
+// pack's choice, or declaring no self-check). Every state doctorState returns has an entry.
+var doctorStateStyle = map[string]string{
+	"ok":         "green",
+	"fail":       "red",
+	"inactive":   "yellow",
+	"unapproved": "yellow",
+	"disabled":   "dim",
+	"superseded": "dim",
+	"no-check":   "dim",
 }
 
 // CmdSetEnabled runs `yolo loopholes enable|disable <name>`. It TOGGLES NOTHING

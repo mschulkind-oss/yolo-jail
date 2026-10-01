@@ -106,7 +106,8 @@ There are three shapes, and each one ends at `tty.Color` or at its `NoColor` hal
   (every test) and a pipe both get plain text. Every entry point that writes to stdout asks
   `colorForWriter(os.Stdout)`. `yolo config` asks it once, in its dispatch, and hands the answer
   to every verb in `configColorVerbs`. The macos-user commands receive the same answer through
-  `macosuser.RealDeps`.
+  `macosuser.RealDeps`, and `yolo loopholes` through `loopholes.Deps.Color`, which its dispatch
+  sets.
 - **Command packages with their own terminal seam** (`prune`, the host daemons in
   `internal/broker`, `yolo stores`, `check`, and the run pipeline) call `tty.Color` themselves,
   passing their requested color and their seam's answer (`IsTTYStdout`, in most of them). The seam

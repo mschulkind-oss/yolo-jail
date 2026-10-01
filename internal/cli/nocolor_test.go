@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -50,6 +51,17 @@ var noColorEntryPoints = []struct {
 	},
 		run: func() int { return runPrograms([]string{"programs", "ls"}) }},
 	{name: "pack", run: func() int { return runPack([]string{"pack", "ls"}) }},
+	// One user-config loophole whose doctor_cmd is /bin/true: status grades it `[ok]` in green.
+	// Host side, since in a jail the command prints a one-line pointer instead, and with the
+	// pack-module record reset so no selected pack's real self-check runs here.
+	{name: "loopholes status", setup: func(t *testing.T) {
+		t.Setenv("YOLO_VERSION", "")
+		os.Unsetenv("YOLO_VERSION")
+		writeUserConfig(t, `{"loopholes": {"probe": {"description": "d", "command": ["/bin/true"], `+
+			`"doctor_cmd": ["/bin/true"]}}}`)
+		loopholes.ResetPackModules()
+		t.Cleanup(loopholes.ResetPackModules)
+	}, run: func() int { return runLoopholes([]string{"loopholes", "status"}) }},
 	// No boot baseline in a fresh cwd, which drift reports in color.
 	{name: "config", run: func() int { return runConfig([]string{"config", "drift"}) }},
 	// A configured pack that cannot resolve is reported in color, before any probe.

@@ -2,16 +2,17 @@
 title: "CLI visual polish — color to guide the eye"
 status: accepted
 stage: DECIDED
-next: "Build Group A's first item, yolo loopholes status: wire a color gate and a richtext.Printer through Deps, starting at Status in internal/loopholes/loopholescmd.go"
+next: "Build Group A's second item, yolo loopholes list: color its state labels and names through the Deps.Color the front door already sets (List in internal/loopholes/loopholescmd.go)"
 tags: [plan, cli, color, polish]
 ---
 
 # Plan: CLI visual polish — color to guide the eye
 
-**Status:** 2026-07-20 — in progress, **no checklist item has moved since 2026-07-21 —
-re-checked 2026-09-24**, when this doc's line-number anchors were replaced by symbol names because
-they had drifted, **and again 2026-09-30** (Group A's two `loopholes` items still have no color
-path: `internal/loopholes/loopholescmd.go` imports no `richtext`). `broker status` below is now `yolo host-daemon status`; the `broker` spelling
+**Status:** 2026-07-20 — in progress. **One checklist item moved on 2026-10-01**, Group A's
+`yolo loopholes status`, which colors through `Deps.Color` and a `richtext.Printer` now; Group A's
+`loopholes list` is still flat. Before that no item had moved since 2026-07-21 (re-checked
+2026-09-24, when this doc's line-number anchors were replaced by symbol names because they had
+drifted, and again 2026-09-30). `broker status` below is now `yolo host-daemon status`; the `broker` spelling
 survives as an alias for the Claude broker (2026-09-20). One item in
 the "remaining" list below is now unbuildable as written: `builder` polish, because `yolo builder`
 and `internal/builder` were **deleted** on 2026-07-23 when the container builder became the sole
@@ -173,14 +174,20 @@ Palette is sufficient for every item unless noted.
 These emit color-mappable status vocabulary but have no color path at all.
 Highest value, low risk (text stays byte-identical after strip).
 
-- [ ] **`yolo loopholes status`** (`Status` in `internal/loopholes/loopholescmd.go`) —
-  **Impact: high · Effort: med.** *The single biggest missed opportunity.* Wire a
-  `richtext.Printer` + color gate into `Deps` (package currently writes to a raw
-  `io.Writer`, no TTY probe). Then color the existing bracket prefixes:
-  `[ok]`→green, `[fail]`→red, `[inactive]`→yellow, `[disabled]`/`[no-check]`→dim
-  (direct reuse of check's proven pass/fail vocabulary). Bold the loophole Name;
-  dim `rc=%s` and the wrapped Output detail lines; cyan the suggested
-  `yolo loopholes status` command in the in-jail short-circuit line.
+- [x] **`yolo loopholes status`** (`Status` in `internal/loopholes/loopholescmd.go`) —
+  **DONE 2026-10-01.** `Deps.Color` carries the decision, which `runLoopholes`
+  (`internal/cli/commands.go`) takes from the one gate (`colorForWriter(os.Stdout)`), and
+  `Status` prints through a `richtext.Printer`. The bracket prefixes take their color from
+  `doctorStateStyle`: `[ok]`→green, `[fail]`→red, `[inactive]`→yellow,
+  `[disabled]`/`[no-check]`→dim, and the two states this item did not name, `[unapproved]`→yellow
+  (a self-check the origin gate withheld wants attention) and `[superseded]`→dim (a selected
+  pack's choice). The loophole name is bold, `rc=%s` and the doctor output lines are dim, and the
+  in-jail line's `yolo loopholes status` is cyan. The name, the doctor output and the
+  supersession line are `richtext.Escape`d, as other commands do with text yolo did not write, so
+  a style tag inside one prints as text in both forms, with a zero-width joiner after its `[`.
+  `TestStatusColorsItsStateVocabulary` pins the colors and that the colored report without its
+  escapes is the plain one byte for byte; `TestEveryCommandHonorsNoColor` drives the front door's
+  decision with and without `NO_COLOR`.
 - [ ] **`yolo loopholes list`** (`List` in `internal/loopholes/loopholescmd.go`) —
   **Impact: high · Effort: med** (same Deps plumbing as status). Color the status
   label green `active` / yellow `inactive (reason)` / dim `disabled`; bold the
@@ -291,7 +298,8 @@ golden update — call it out for human sign-off, don't fold it in silently.
 1. ~~Richtext palette extension (magenta/blue)~~ **SHIPPED (6be7884)** — and
    `--explain` took the one-hue-per-layer route (59568e4).
 2. Group A (loopholes status → loopholes list → ps): highest value, self-
-   contained plumbing, no goldens. (`ps` done — d71dba3.)
+   contained plumbing, no goldens. (`ps` done — d71dba3; `loopholes status` done
+   2026-10-01.)
 3. ~~`--help`~~ + config surfaces (the structural renderer-routing change), then
    ~~`--explain`~~ — `--help` and `--explain` both landed (59568e4); the
    `config --help`/`configUsage` string remains plain.

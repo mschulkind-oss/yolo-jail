@@ -915,6 +915,7 @@ func runLoopholes(args []string) int {
 	}
 	deps := loopholes.RealDeps()
 	deps.Format = format
+	deps.Color = colorForWriter(os.Stdout)
 	switch sub {
 	case "", "list":
 		return loopholes.List(deps)
