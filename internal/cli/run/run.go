@@ -348,6 +348,13 @@ func Run(opts Options) (rc int) {
 	if len(injectedArgs) > 0 {
 		injectedArgs = o.injectLaunchFlagsDisclosed(staged.packs, injectedArgs)
 	}
+	// THE HERDR PANE, told which agent it runs (herdragent.go): above the dispatch, so both
+	// arms and an attach report the argv the backend will receive, and so the hint is on
+	// runtimeClientEnv before either arm spawns a session's runtime client.
+	if release := o.registerHerdrAgent(staged.packs, injectedArgs); release != nil {
+		o.chainHerdrRelease(release)
+		defer release()
+	}
 	// A SHARED NETWORK, SAID (OQ-NC3): above the dispatch for the launch flags' reason, so every
 	// arm and an attach print it from here (sharednetwork.go).
 	o.noteSharedNetwork(cfg, rt)

@@ -288,6 +288,12 @@ type Options struct {
 	// with the collector, so a launch that records nothing arms nothing. A
 	// pointer for perfWindowAOnce's reason — Options crosses seams by value.
 	linger *lingerSlot
+
+	// runtimeClientEnv is added to the environment of each session's runtime client
+	// (runArmedSession) and nothing else. A launch in a herdr pane sets HERDR_AGENT here
+	// (herdragent.go); it is never passed into the container.
+	runtimeClientEnv []string
+
 	// Now is the clock seam. nil => time.Now.
 	Now func() time.Time
 	// ServiceReadyTimeout bounds each spawned host service's readiness wait

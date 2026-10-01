@@ -48,6 +48,9 @@ func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(),
 func runArmedSession(cmd []string, arm *launchSignalArm, o *Options) (int, error) {
 	c := exec.Command(cmd[0], cmd[1:]...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if len(o.runtimeClientEnv) > 0 {
+		c.Env = append(os.Environ(), o.runtimeClientEnv...)
+	}
 	if err := c.Start(); err != nil {
 		return 0, err
 	}
