@@ -69,9 +69,7 @@ is what it takes over, and [§5](#5-how-terrible-is-it) answers "how terrible is
   agent: the bridge's host half, which no other launch uses, and the Codex refresh adapter, whose
   managed home every host Codex launch on the machine already shares.
 
-**Reads with:** [`jail-lifetime-last-session-wins-plan.md`](jail-lifetime-last-session-wins-plan.md)
-(the implementation plan for step 3, the keeper at the container backends),
-[`herdr-integration.md` §3.4](../research/herdr-integration.md#34-closing-a-pane-is-a-kill)
+**Reads with:** [`herdr-integration.md` §3.4](../research/herdr-integration.md#34-closing-a-pane-is-a-kill)
 (what closing a pane does), and
 [`central-yolo-watcher.md`](../research/central-yolo-watcher.md) (the sibling exploration of a
 machine-wide watcher). [§12](#12-the-neighbors) lists the rest.
@@ -844,9 +842,10 @@ sibling doc's subject ([`central-yolo-watcher.md`](../research/central-yolo-watc
    ([JL-D25](#JL-D25), [JL-D30](#JL-D30)), and move the owner-PID file onto the keeper. **This is
    the step that fixes the symptom:** quitting the first agent no longer ends the others, and
    the first terminal gets its prompt back.
-   - **Built** 2026-09-30, at the container backends
-     ([`jail-lifetime-last-session-wins-plan.md`](jail-lifetime-last-session-wins-plan.md) is the
-     hand-off it followed). The keeper is `yolo internal daemon jail-keeper`
+   - **Built** 2026-09-30, at the container backends, from a hand-off plan that was retired on
+     2026-10-01 once its traps moved to the next bullet
+     ([`jail-lifetime-last-session-wins-plan.md`](jail-lifetime-last-session-wins-plan.md) is now
+     a pointer). The keeper is `yolo internal daemon jail-keeper`
      ([`run/keeper.go`](../../internal/cli/run/keeper.go)), wired by the CLI through
      `internaldaemon.JailKeeper`; its plan is [`run/keeperplan.go`](../../internal/cli/run/keeperplan.go),
      its output [`run/keeperframe.go`](../../internal/cli/run/keeperframe.go), its locks and records
@@ -867,6 +866,23 @@ sibling doc's subject ([`central-yolo-watcher.md`](../research/central-yolo-watc
      [JL-D4](#JL-D4) allows; the parent-death end of [JL-D32](#JL-D32) off Linux
      ([JL-D60](#JL-D60)); and nothing here ran on a Mac or a real rootless systemd host, where
      [§8](#8-what-done-looks-like) items 11 and 13 and the scope move ([JL-D61](#JL-D61)) are owed.
+   - **Traps the build met**, as the hand-off plan recorded them at `e343542d`, for whoever
+     changes the keeper next. Handing the launch lock to the keeper closes the launch's copy
+     without `LOCK_UN`, because unlocking any duplicate of a `flock` releases it for every copy
+     (`flock.go`; `TestTheLaunchLockSurvivesItsHandOff`). `internaldaemon` cannot import `run`,
+     whose tests dispatch through it, so the CLI sets `internaldaemon.JailKeeper`. A unit test
+     never self-execs the keeper (`errTestBinarySelfExec`), and the package's end-to-end tests
+     swap in an in-process spawner (`defaultKeeperSpawner`). The keeper's start cannot disclose,
+     so it has its own pin in `TestEverySpawnEntryDisclosesHostExecFirst` (`checkPlan` first),
+     never an exemption. A keeper path returns through its chain and never calls `os.Exit`,
+     which would skip the teardown and take every loophole front's goroutine with it. The keeper
+     notifies for SIGPIPE rather than ignoring it, because Go exits on a SIGPIPE to fd 1 or 2
+     otherwise. The kernel's parent-death signal is Linux-only (`keeper_linux.go`). An arrival
+     never waits holding the launch lock, or the keeper's non-blocking teardown guards back off
+     and leak the host-services dir, the tracking file, the skeleton and the pack tree. The
+     running event reaches the launch before ready, or the relay ends first and the
+     housekeeping slot never starts. And `GOOS=darwin staticcheck` runs in `just lint`, so every
+     new helper needs a caller on both GOOS.
 4. **The Mac backends.** Add the session signal arm [`proxy_other.go`](../../internal/cli/run/proxy_other.go)
    lacks, measure `container exec`'s client-death behavior and the detach keys on Apple
    Container, and run the lifecycle on both Mac runners.
