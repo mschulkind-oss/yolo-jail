@@ -5,7 +5,7 @@ status: in-review
 tags: [research, herdr, terminal, multiplexer, sessions, lifecycle, worktrees, host, notches, integration]
 summary: "herdr is a terminal multiplexer built for coding agents. A background server owns every pane's terminal, so agents keep running when the window closes, and herdr shows which agent is working, blocked or done. It sits beside yolo rather than competing with it: herdr is where the terminals live, and yolo is the environment each agent runs in. `yolo host -- <agent>` in a herdr pane already gets everything herdr offers. `yolo -- <agent>` in a container jail shows up as a plain terminal, because herdr looks for the agent among host processes and finds only podman. The best first step is small. When the launcher runs in a herdr pane, it tells herdr which program is inside by setting a variable on the host-side runtime process, and, for an agent herdr recognizes, it labels the pane as a jail, the way yolo already marks tmux panes and kitty tabs. Three things break and need rulings or other designs. Closing a herdr pane signals the launcher and, through podman's signal forwarding, the jail's own processes, and probably kills the launcher during its teardown (inferred, not measured). herdr's worktrees break git inside container jails. A herdr restart brings jail panes back as empty shells. herdr's socket must never cross into a jail, because it gives full control of the user's terminals. Four rulings are owed."
 stage: DESIGN
-next: "Measure §6 item 8 in a Linux jail, the fact OQ-HR3 turns on: bind a host-path .git into a --read-only podman container, then commit from the worktree"
+next: "Measure the commit half of §6 item 8, the fact OQ-HR3 turns on: the mount half was measured 2026-10-01 (podman creates the host-path mountpoint in a --read-only container); a commit from the worktree inside that container, and a rootless host, remain"
 vantage:
   status-chip: true
 ---
@@ -1189,7 +1189,14 @@ Each of these has one sensible answer, so none is asked.
    not been tried.
 8. **Option 4's mount.** Whether podman creates a mountpoint at a host path such as
    `/home/<user>/code/<repo>/.git` in a container started with `--read-only`, and whether git then
-   commits from the worktree.
+   commits from the worktree. **The mount half was MEASURED on 2026-10-01**, with the rootful
+   podman 5.8.7 nested in a jail (`podman info` reports `rootless: false`). A scratch repository's
+   `.git` was bound read-write at `/home/u/code/repo/.git` into a `--read-only` container of the
+   jail image, beside its linked worktree bound at `/workspace`, whose `.git` file named
+   `/home/u/code/repo/.git/worktrees/slug`. Podman created `/home/u` and the path below it in the
+   read-only root, and the bound directory listed in full. **The commit half is not measured**:
+   the tooling this session ran under refuses to run git inside a container. A rootless host is
+   also open, because its uid mapping decides who owns what git writes into that directory.
 9. **herdr's own docs lag its code.** The resume page says 0.10.0. At the v0.9.3 tag,
    `docs/versions/manifest.json` still says the current version is 0.9.1. So the live `herdr.dev`
    pages may lag the `docs/next` tree read here.
