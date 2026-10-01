@@ -3,7 +3,6 @@ title: "What a central yolo watcher would buy, and why the answer is mostly a sc
 date: 2026-09-29
 status: accepted
 stage: CURRENT
-next: "Re-verify section 2.3's two SIGKILL rows against the keeper, whose children get the parent-death signal on Linux (internal/cli/run/keeper_linux.go), and say where they still hold"
 tags: [research, exploration, host, daemons, lifecycle, housekeeping, credentials, cleanup]
 summary: "Exploration, not a proposal: an inventory of every recurring host duty yolo has, who does it today, and what one long-lived per-user watcher would fix. Most gaps are either crash leftovers, which per-launch lifelines close with no watcher, or work that is due while no yolo command runs, which one-shot runs on an OS timer reach. Only a duty that must hold a live listener across launches needs a resident process, and no ruled duty does today. Nothing here is proposed for implementation now."
 vantage:
@@ -15,15 +14,17 @@ vantage:
 **Status:** Exploration: **nothing here is proposed for implementation now**, and no watcher is
 built. Evidence verified at `51620f7e` (2026-09-29), and the review corrections re-checked at
 `bfb79a6e`. No ruling is owed: [OQ-YW1](#OQ-YW1) was ruled 2026-09-29, and [YW-D7](#YW-D7)
-records why the direction needs none. Since then the sibling below was built at the container
-backends, and the two SIGKILL rows of this inventory moved with it (checked 2026-09-30, not re-verified
-row by row): on Linux each child a jail's keeper starts, the socat forwards and the fronted
-daemons, now gets the kernel's parent-death signal
-([JL-D60](../design/jail-lifetime-last-session-wins.md#JL-D60); `setChildDeathSignal` in
-`internal/cli/run/keeper_linux.go`, applied in `network.go` and `loopholesruntime.go`), so
-[§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune)'s "no `Pdeathsig` under `internal/`" is no
-longer true. And [§2.6](#26-done-by-nobody) item 3, the unbounded host-service and socat logs, was
-closed 2026-10-01 with no watcher, by the processes that open them.
+records why the direction needs none. Since then the sibling below built the **keeper** at the
+container backends, and every row it moved was re-verified against `d4e435a3` on 2026-10-01: the
+jail-lifetime, attach and host-service rows of [§2.1](#21-done-by-the-launch-in-the-launchs-own-process),
+the orphan and SIGKILL rows of [§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune), items 1
+and 2 of [§2.6](#26-done-by-nobody), and [§5.1](#51-jail-lifetime-and-sessions),
+[§5.2](#52-host-services-a-launch-owns) and [§8](#8-where-this-touches-the-last-session-wins-sibling).
+Those rows cite symbols at `d4e435a3`; every other row keeps its `51620f7e` line numbers. On Linux
+the keeper's children end with it; off Linux, and on macos-user, which has no keeper, the two
+SIGKILL rows still hold. And
+[§2.6](#26-done-by-nobody) item 3, the unbounded host-service and socat logs, was closed
+2026-10-01 with no watcher, by the processes that open them.
 
 > **In short.** A central watcher would fix three different kinds of gap, and only one of them
 > needs a resident process. Crash leftovers want a lifeline on each launch's children, and work
@@ -128,9 +129,9 @@ line at `51620f7e`) or INFERRED (read from code, not reproduced).
 
 | Duty | What a crash leaves | Evidence | Kind |
 | :--- | :--- | :--- | :--- |
-| Container lifetime. The container's main process is the first launch's agent: the run is `--rm -i --init`, and the entrypoint execs `bash -c <command>` as that process. When agent #1 exits for any reason, the container ends and `--rm` removes it, taking every `podman exec` session with it. Closing the window (SIGHUP) or signaling the launcher also runs `stopJail` (`podman stop -t 5`). A Ctrl-C keypress does **not**: since a 2026-09-19 ruling the proxy forwards it into the jail as a byte | the container runs until the next launch's orphan reaper | `internal/cli/run/assemble.go:345, 977`, `internal/entrypoint/boot.go:496-520`, `internal/ttyproxy/ttyproxy.go:27-31, 472-493`, `run.go:1591-1606`, `lifecycle.go:158-166` | SOURCED |
-| Attach. `podman exec` under the tty proxy with no start or terminate hook: "A jail whose launcher is gone is relaunched, not attached-and-repaired" | nothing; it owns nothing | `run.go:2131-2165` | SOURCED |
-| Loophole host daemons, fronts, cgroup delegate, socat forwarders, torn down by `stopLoopholes` and `cleanupPortForwarding` on both exit arms | see [§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune) | `run.go:1600-1606`, `loopholesruntime.go:430-455` | SOURCED |
+| Container lifetime, **since the keeper** (container backends). The fresh launch spawns the jail's **keeper**, one background host process per running container jail, which starts the container. Its main process is a hold that only keeps the container running until a SIGTERM, and every session, the first included, enters by `exec`. The keeper ends the jail when it can take the jail's session lock exclusively, which is the last session gone, or when the container ends. Closing a session's window ends that session's processes in the jail and nothing else, and a Ctrl-C keypress is forwarded into the jail as a byte | a SIGKILLed launcher leaves nothing: the keeper owns the jail. A SIGKILLed keeper leaves an **unkept** jail, whose sessions run on without host services; its last session reaps it as it quits ([JL-D30](../design/jail-lifetime-last-session-wins.md#JL-D30)), and the next launch's reaper does once no session is left in it | `KeeperMain` (`internal/cli/run/keeper.go`), `HoldMainArg` (`internal/entrypoint/jailmain.go`), `sessionlock.go`, `sessionhangup.go`, `reapOrphanedJails` (`lifecycle.go`) at `d4e435a3`; [JL-D13](../design/jail-lifetime-last-session-wins.md#JL-D13) | SOURCED |
+| Attach, a session like the first: `<runtime> exec`, holding the session lock shared. An arrival at a jail whose keeper is dead is refused, naming `yolo stop`, rather than attached-and-repaired | nothing; it owns nothing | `refuseUnkeptJail` (`lifecycle.go`) at `d4e435a3` | SOURCED |
+| Loophole host daemons, fronts, cgroup delegate, socat forwarders: started by the jail's keeper on the container backends and torn down by its teardown chain (`teardownAfterExit`, which calls `stopLoopholes`) | see [§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune) | `keeper.go`, `teardownAfterExit` (`run.go`), `stopLoopholes` (`loopholesruntime.go`) at `d4e435a3` | SOURCED |
 | Tracking file, home skeleton and pack tree removed once the runtime says the container is **known gone** | left for a later reaper | `trackingcleanup.go:1-86` | SOURCED |
 | The housekeeping slot: old images, superseded store outputs, cache measure and purge, orphan agent staging, retired loophole state, image tars, flake-bundle generations, scratch volumes. Fresh launches only, after the container is visible, under a machine-wide skip-if-held flock. Every class except scratch volumes is debounced 24 hours; scratch volumes are reaped on every fresh launch, past a grace age | a pass cut mid-delete by the terminate arm's exit | `housekeeping.go:131-149, 273-287`, `scratchremoval.go:185-193`, `prune/autoreap.go:40` | SOURCED |
 | The slot runs on the proxy's goroutine, so it never delays **its own** launch. The image load of **another** launch **blocks** on that same lock, and the slot has been recorded at **62 s and 116 s** on the maintainer's host | — | `run.go:1584-1589`, `housekeeping.go:208-221` (citing `host-perf.log`) | SOURCED |
@@ -149,9 +150,9 @@ line at `51620f7e`) or INFERRED (read from code, not reproduced).
 
 | Duty | Who gets to it | Evidence | Kind |
 | :--- | :--- | :--- | :--- |
-| Orphaned jails (running, owner PID dead) | the next launch on the machine; a no-op on Apple Container | `run.go:1000-1003`, `lifecycle.go:170-206` | SOURCED |
-| **The loophole host daemons of a SIGKILLed launcher.** They are spawned `Setsid` with no lifeline and no parent-death signal, and the orphan reap passes `nil` handles, so it removes the host-services dir and kills no process | **nobody** | `loopholesruntime.go:1082`, `lifecycle.go:202`; no `Pdeathsig` under `internal/` | INFERRED |
-| **socat forwarders of a SIGKILLed launcher**: a plain `exec.Command`, no `Setsid`, no lifeline. Their `<cname>-socat.log` is appended forever. socat is not yolo code, so it cannot read a lifeline pipe: the fix is `Pdeathsig` (Linux only) or a small yolo wrapper that does | **nobody** | `network.go:33-43` | INFERRED |
+| Orphaned jails: running, the owner-PID file naming a dead process, the keeper's liveness lock free, and no session holding the session lock | the next launch on the machine, Apple Container's keeper-era jails included (one started before keepers is still left alone there) | `reapOrphanedJails` (`lifecycle.go`) at `d4e435a3` | SOURCED |
+| **The per-jail loophole host daemons of a SIGKILLed keeper.** A SIGKILLed launcher no longer matters, because the keeper, not the launcher, starts them. They are spawned `Setsid`, and on Linux each also gets the kernel's parent-death signal (SIGTERM), so they end with the keeper ([JL-D32](../design/jail-lifetime-last-session-wins.md#JL-D32)). **Still holds off Linux**, where there is no parent-death signal (Apple Container on a Mac: owed to the sibling's Mac step, [JL-D60](../design/jail-lifetime-last-session-wins.md#JL-D60)), **and on macos-user**, which has no keeper: a session's daemons are spawned the same `Setsid` way with neither. The orphan reap still passes `nil` handles, so it kills no process. The host-wide `scope: "host"` singletons are not in this row: they outlive every launch on purpose ([§2.4](#24-the-three-small-watchers-that-already-ship)) | on Linux, the kernel; off Linux and on macos-user, **nobody** | `setChildDeathSignal` (`keeper_linux.go`, a no-op in `keeper_other.go`), applied under `keeperMode` in `loopholesruntime.go`; `reapOrphanedJails` (`lifecycle.go`) at `d4e435a3` | SOURCED |
+| **socat forwarders of a SIGKILLed keeper**: a plain `exec.Command`, and on Linux the same parent-death signal, so they end with the keeper. The keeper's next start also removes the whole forward socket dir first, so a socat left behind is unreachable from the next jail ([JL-D32](../design/jail-lifetime-last-session-wins.md#JL-D32)). **Still holds off Linux**: a leftover socat runs on until something ends it. Either way their `<cname>-socat.log` is appended forever | on Linux, the kernel; off Linux, **nobody** | `startPortForwards` (`network.go`) at `d4e435a3` | SOURCED |
 | Owner-PID files of a launcher killed while its container also died | overwritten by the next fresh launch of that workspace, and harmless in between: the orphan reap walks live containers only. Litter only for a workspace never relaunched | `lifecycle.go:23-39, 184-204`, `run.go:1511` | SOURCED |
 | Embedded-pack fallback trees (`$TMPDIR/yolo-embedded-lease-*`) of a process that died without release | the next fallback's sweep or `yolo prune`, past an age floor | [AGENTS.md](../../AGENTS.md), `packload/embeddedcache.go` | SOURCED |
 | Image GC roots (one-week horizon, liveness held for running images), stopped containers, other builds' embedded-pack trees, shadowed home seeds, the host-render archive, superseded captures | **`yolo prune --apply` only**: each function's one non-test caller is `prunecmd.go` | `rg` over `internal/`; [`image-retention.md`](../reference/image-retention.md#gc-root-retention--age-except-under-a-running-image) | MEASURED |
@@ -214,16 +215,20 @@ designs chose, not of what the maintainer ruled.
 | Design | Its lifecycle as written | Evidence |
 | :--- | :--- | :--- |
 | Event-watcher sidecars and the ping box | host-side sidecars are children of the launch that creates the container, and an attach starts none ([EW-D10](../design/agent-event-watchers.md#EW-D10)). How a sidecar notices its launch died is left to the implementer | [`agent-event-watchers.md` §3.2](../design/agent-event-watchers.md#32-lifecycle-per-side-and-per-notch) |
-| The GitHub boundary broker | "a loophole host daemon, one per jail" ([BB-D1](../design/boundary-broker.md#BB-D1)); "a jail stopping ends every grant it holds"; expiry checked at use, never by a sweeper; decided records kept 7 days "then go", in a store mutated under one flock by one function ([BB-D10](../design/boundary-broker.md#BB-D10)). ⚠ Spawned by today's `Setsid` path, it would inherit the orphan defect in [§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune), and "a jail stopping ends every grant" would fail for a SIGKILLed launcher (INFERRED) | [`boundary-broker.md` §7](../design/boundary-broker.md#7-grants-and-the-request-store) |
+| The GitHub boundary broker | "a loophole host daemon, one per jail" ([BB-D1](../design/boundary-broker.md#BB-D1)); "a jail stopping ends every grant it holds"; expiry checked at use, never by a sweeper; decided records kept 7 days "then go", in a store mutated under one flock by one function ([BB-D10](../design/boundary-broker.md#BB-D10)). ⚠ Spawned by today's `Setsid` path, it would inherit the orphan defect in [§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune) where that still holds, and "a jail stopping ends every grant" would fail for a SIGKILLed keeper off Linux (INFERRED; on Linux the keeper's parent-death signal ends it) | [`boundary-broker.md` §7](../design/boundary-broker.md#7-grants-and-the-request-store) |
 | The podman reboot readiness gate | a host-wide advisory flock with a shared deadline, owned by whichever launch arrives first. Its own scope boundary says the design "must not … start a host service": a limit on that gate, not a ruling against any host process | [`podman-reboot-readiness.md`](../design/podman-reboot-readiness.md#verdict-and-boundary) |
 | In-jail nix roots | option C is an **in-jail** root watcher. A host-side reconciler was rejected: "It cannot tell which jail an entry came from" | [`in-jail-nix-roots.md` §5](../design/in-jail-nix-roots.md#5-what-registers-the-translated-root), [§6](../design/in-jail-nix-roots.md#6-alternatives-rejected) |
 | The durable-dir report | computed at each fresh launch and in `yolo check` / `yolo stores`; never deletes | [`durable-scratch-space.md` §5.4](../design/durable-scratch-space.md#54-the-durable-dir-report) |
 
 ### 2.6 Done by nobody
 
-1. **Keeping a jail up until its last session leaves.** No process counts sessions. That is the
-   sibling doc's whole subject ([§8](#8-where-this-touches-the-last-session-wins-sibling)).
-2. **Killing a SIGKILLed launcher's loophole daemons and socat** (INFERRED, [§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune)).
+1. **Keeping a jail up until its last session leaves**, now built at the container backends by
+   the sibling's keeper, which ends the jail at the last session
+   ([§8](#8-where-this-touches-the-last-session-wins-sibling)). The keeper at `yolo host` and
+   macos-user is the sibling's step 5, unbuilt.
+2. **Killing a SIGKILLed keeper's loophole daemons and socat off Linux, and a macos-user
+   session's daemons** ([§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune)). On Linux the
+   kernel's parent-death signal does it.
 3. **Rotating two kinds of host log.** ✅ **Done 2026-10-01, by the process that opens each log,
    with no watcher**, as [§5.5](#55-logs-and-registrations) said it could be. Each open now goes
    through `internal/logcap`, which bounds the log the way `crossings.log` is bounded: past 4 MiB
@@ -295,7 +300,7 @@ flowchart LR
 
 | Kind | Rows | What reaches it | Needs a watcher? |
 | :--- | :--- | :--- | :--- |
-| **Crash leftover**: a process died without its teardown | SIGKILLed loophole daemons (podman and macos-user alike) and socat, scratch volumes the remover never reached, skeletons and pack trees, fallback embedded trees, `/tmp/yolo-host-services-*` dirs | a lifeline on every yolo launch child (already built for `yolo host` services), `Pdeathsig` or a wrapper for socat, and the next launch's reapers. A held-flock marker (already built for macos-user sessions) is liveness **evidence** a reaper could act on; today its collector removes dirs, not processes. On podman, the runtime's own per-container process ([S8](#4-the-shapes-compared)) is a further route | **No.** A watcher reaps these sooner, and that is all it adds |
+| **Crash leftover**: a process died without its teardown | SIGKILLed loophole daemons and socat off Linux and on macos-user, scratch volumes the remover never reached, skeletons and pack trees, fallback embedded trees, `/tmp/yolo-host-services-*` dirs | a lifeline on every yolo launch child (already built for `yolo host` services), the parent-death signal (built on Linux for every child a keeper starts), and the next launch's reapers. A held-flock marker (already built for macos-user sessions) is liveness **evidence** a reaper could act on; today its collector removes dirs, not processes. On podman, the runtime's own per-container process ([S8](#4-the-shapes-compared)) is a further route | **No.** A watcher reaps these sooner, and that is all it adds |
 | **Done at use by the one writer** | log rotation, registration expiry, the broker's 7-day deletion | the process that writes the file or store bounds it when it opens or reads it, as `crossaudit` already does for `crossings.log` | **No**, and no tick either |
 | **Due while nobody runs yolo** | idle credential refresh ([OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9)), reclaim on an idle machine and the prune-only classes, boot-time scratch cleanup, prefetch | a **tick**: an OS timer starting a short yolo process that calls the floor's function and exits | **No.** A scheduler reaches all of these. A tick holds no resident state, but it has two build seams ([§6.2](#62-versions)) |
 | **A live listener across launches** | a boundary-broker request that survives its jail; a ping that reaches every session; jail lifetime owned by nothing that is a launch | a resident process | **Yes**, and no design asks for one: the in-review broker and event-watcher designs chose per-jail and per-launch lifetimes, and [OQ-HS3](../design/host-notch-services.md#OQ-HS3) ruled host services per launch |
@@ -305,7 +310,7 @@ flowchart LR
 | Shape | What it reaches | Cost | What it breaks | Verdict |
 | :--- | :--- | :--- | :--- | :--- |
 | **S0. Nothing new** | today's rows | none | nothing; every gap in [§2.6](#26-done-by-nobody) stays | the baseline |
-| **S1. Lifelines everywhere** | every crash leftover | small: `Lifeline` and flock liveness are in the tree. socat cannot read a pipe, so it takes `Pdeathsig` (Linux only) or a yolo wrapper | nothing. HD-R1 mode 6's stragglers (a refresh that must finish after its launch) must be deliberately exempt | **take it** whenever the crash class is worked, and before the boundary broker is built, whose per-jail grant lifetime depends on it ([§2.5](#25-designed-not-built)); it needs no watcher and no ruling beyond HD-R1's |
+| **S1. Lifelines everywhere** | every crash leftover | small: `Lifeline` and flock liveness are in the tree, and since the keeper every child it starts carries `Pdeathsig` on Linux, socat included, which cannot read a pipe. Off Linux socat still takes a yolo wrapper | nothing. HD-R1 mode 6's stragglers (a refresh that must finish after its launch) must be deliberately exempt | **take it** whenever the crash class is worked, and before the boundary broker is built, whose per-jail grant lifetime depends on it ([§2.5](#25-designed-not-built)); it needs no watcher and no ruling beyond HD-R1's |
 | **S2. Opportunistic one-shots**, the self-update pattern generalized: any host yolo command whose per-duty stamp is stale starts a detached, lock-guarded run | reclaim on a machine that runs yolo but rarely launches | more detached writers, each owning the hazard the scratch remover already hit | nothing ruled; does nothing when nobody types yolo, which is [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9)'s idle week | useful, and a weaker S3 |
 | **S3. Scheduled ticks**: a systemd user timer or a launchd agent runs a tick every few minutes and at login | every "due while nobody runs" row | an install and uninstall step per OS; a status probe that reads "could not ask `systemctl`" as unknown; linger on Linux; on macOS, a job set to the `Background` session type in the `user/<uid>` domain if it must run with no GUI login ([§6.3](#63-platform)); keeping the unit's binary path in step with installs ([§6.2](#62-versions)) | [minimal-disk-footprint A6](../design/minimal-disk-footprint.md#7-alternatives-considered) and [disk-levers](../design/disk-levers-and-backfill.md#51-the-housekeeping-slot) rejected a timer for reclaim (P7: it runs at moments no user bounds). A tick pays P7 instead of avoiding it | **the shape to reach for first**, if [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9) rules a timer in; [OQ-YW1](#OQ-YW1) asks whether reclaim may ride it |
 | **S4. A socket-activated resident watcher that exits when idle** | the live-listener rows, plus everything S3 reaches | a new IPC protocol and a new version handshake; two activation mechanisms; peer checks | HD-R1's spirit and [OQ-HS3](../design/host-notch-services.md#OQ-HS3); a busy old-build watcher is modes 3 and 4 again | **held back** behind [§7](#7-what-would-have-to-be-true-before-building-one) |
@@ -322,25 +327,26 @@ same outcome. Where the cheaper shape reaches it, the watcher is not the reason 
 
 ### 5.1 Jail lifetime and sessions
 
-- **Gap.** The first launch owns the container, so closing it ends every session.
+- **Gap, closed at the container backends.** The first launch owned the container, so closing
+  it ended every session.
 - **A watcher buys** a refcount that lives outside every launch: sessions register, and the last
   one out stops the container.
-- **Cheaper.** A **keeper**: the first launch's own process stays resident without its terminal
-  once its agent exits, and ends the jail when the last session's shared flock is released. That
-  is per jail, so it keeps [YW-P3](#YW-P3). **A host-side keeper is not enough on its own.** The
-  container's main process is agent #1 ([§2.1](#21-done-by-the-launch-in-the-launchs-own-process)),
-  so when that agent exits the container stops, however long the launcher stays. A keeper also
-  needs agent #1 moved out of the main process, with an idle init as PID 1 and every agent,
-  launch #1's included, run as an exec session. It also needs the proxy's SIGHUP arm to stop
-  calling `stopJail`. Whether it is buildable is the sibling doc's question
+- **What was built instead is the cheaper shape.** A **keeper**, one per jail and spawned by the
+  fresh launch, owns the host services and the container and ends the jail when the session
+  lock's last shared holder is gone. The container's main process became a hold, every agent,
+  launch #1's included, runs as an exec session, and a closed window ends only its own session
+  ([§2.1](#21-done-by-the-launch-in-the-launchs-own-process)). It is per jail, so it keeps
+  [YW-P3](#YW-P3). The keeper at `yolo host` and macos-user is the sibling's unbuilt step 5
   ([§8](#8-where-this-touches-the-last-session-wins-sibling)).
 
 ### 5.2 Host services a launch owns
 
-- **Gap.** A SIGKILLed launcher's loophole daemons and socat keep running, INFERRED.
-- **A watcher buys** a reaper that sees the dead launch within seconds.
-- **Cheaper.** The lifeline, which `yolo host` services already carry. The container-path daemons
-  do not use it today. This is defect-shaped and needs no watcher.
+- **Gap, narrowed.** A SIGKILLed keeper's loophole daemons and socat keep running off Linux, and
+  a SIGKILLed macos-user session's daemons keep running ([§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune)).
+  On Linux the kernel's parent-death signal ends them with the keeper.
+- **A watcher buys** a reaper that sees the dead keeper or session within seconds.
+- **Cheaper.** The lifeline, which `yolo host` services already carry, or the parent-death signal
+  where the kernel has one. This is defect-shaped and needs no watcher.
 
 ### 5.3 Credentials
 
@@ -396,7 +402,8 @@ same outcome. Where the cheaper shape reaches it, the watcher is not the reason 
 - **Cheaper, and designed (in review, not ruled).** Per-jail brokers, grants that end with the
   jail, silence as a deny, and `yolo approve` from any terminal. **This is the one duty where only
   a resident process would do more, and the design deliberately does not want more.** "Grants end
-  with the jail" holds for a SIGKILLed launcher only once S1 covers loophole daemons.
+  with the jail" holds for a SIGKILLed keeper on Linux, through the parent-death signal its
+  children carry, and off Linux only once S1 covers loophole daemons.
 
 ### 5.7 Boot and updates
 
@@ -529,25 +536,23 @@ and 6, plus the opt-out rule [YW-P5](#YW-P5) and the unit-path rule in [§6.2](#
 
 ## 8. Where this touches the last-session-wins sibling
 
-`docs/design/jail-lifetime-last-session-wins.md` asks whether
-closing the first agent can stop taking the others down, with no central watcher. The two docs
-meet in three places:
+`docs/design/jail-lifetime-last-session-wins.md` asked whether
+closing the first agent can stop taking the others down, with no central watcher, and its steps
+1 to 3 built the answer at the container backends (re-checked at `d4e435a3`). The two docs meet
+in three places:
 
-- **The container is not the only thing the first launch owns.** Its process also holds every
-  per-jail front, loophole daemon, cgroup delegate goroutine and socat forwarder
-  ([§2.1](#21-done-by-the-launch-in-the-launchs-own-process)). An attach cannot rebuild them
-  (`run.go:2131-2140`). So last-session-wins means **every launch-owned host service must outlive
-  launch #1**, not only the container. That is the strongest pull toward a watcher in the whole
-  inventory.
-- **A keeper can answer it without a central watcher, under two preconditions.** Launcher
-  residency alone is not enough, because the container's lifetime is its main process's, and
-  that process is agent #1 (SOURCED: `assemble.go:345`, `internal/entrypoint/boot.go:496-520`).
-  So, first, the main process must be something that waits for sessions, such as an idle init,
-  with every agent, launch #1's included, started as an exec session. Second, the proxy's
-  SIGHUP arm, which runs `stopJail` when the terminal closes (SOURCED: `ttyproxy.go:27-31`,
-  `run.go:1591-1606`), must stop doing so. With both, a keeper that stays resident until the last
-  session's flock is free keeps what it owns alive exactly as long as the jail. It stays per jail
-  and inside [YW-P3](#YW-P3). The sibling doc is where whether that is buildable gets settled.
+- **The container was not the only thing the first launch owned.** Its process also held every
+  per-jail front, loophole daemon, cgroup delegate goroutine and socat forwarder, and an attach
+  cannot rebuild them. So last-session-wins meant **every launch-owned host service must outlive
+  launch #1**, not only the container. That was the strongest pull toward a watcher in the whole
+  inventory, and a per-jail keeper answered it.
+- **The keeper is built, without a central watcher, and both preconditions this doc named were
+  met.** The container's main process is a hold that waits for sessions, with every agent,
+  launch #1's included, started as an exec session, and a closed terminal ends only its own
+  session rather than running `stopJail`. The keeper owns the host services from the jail's first
+  moment and stays resident until the session lock's last shared holder is gone
+  ([§2.1](#21-done-by-the-launch-in-the-launchs-own-process)). It stays per jail and inside
+  [YW-P3](#YW-P3). The keeper at `yolo host` and macos-user is the sibling's step 5, unbuilt.
 - **Podman already runs a keeper-shaped process.** `conmon` is a per-container host process that
   outlives the launcher ([S8](#4-the-shapes-compared)). It keeps the container, not the
   launch-owned host services, so it covers half the job: those services would still need a
@@ -565,9 +570,9 @@ meet in three places:
   [OQ-HD9](../design/host-daemon-ownership.md#OQ-HD9)'s leaned catch-up already covers ([§2.4](#24-the-three-small-watchers-that-already-ship)).
 - It does not decide whether view registrations expire by age. That belongs to
   [`claude-login-without-interception.md`](../design/claude-login-without-interception.md).
-- It does not fix the SIGKILL-orphan rows in [§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune).
-  They are defect-shaped, INFERRED from code, and need no watcher. The lifeline is the fix, if
-  one is wanted.
+- It does not fix the SIGKILL-orphan rows in [§2.3](#23-reaped-at-the-next-launch-or-by-yolo-prune)
+  where they still hold, off Linux and on macos-user. They are defect-shaped and need no watcher.
+  The lifeline, or the parent-death signal the keeper already uses on Linux, is the fix.
 - It does not design log rotation, which needs neither a watcher nor a tick.
 - It does not fix the image-load stall behind the housekeeping lock
   ([§5.4](#54-cleanup-and-reclaim)). That is a launch-path lock-granularity question, and no
