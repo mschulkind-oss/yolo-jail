@@ -22,6 +22,7 @@ import (
 // when a key is classified not-applicable or unbuilt and has no sample here, so the next such
 // key is driven through the report rather than assumed to reach it.
 var undoneKeySamples = map[string]string{
+	"brokered":              `{"github": {"workspaces": {"~/code/app": {"repos": ["org/lib"]}}}}`,
 	"cache_relocations":     `{"npm": "/srv/cache/npm"}`,
 	"devices":               `[{"usb": "0403:6001"}]`,
 	"ephemeral_storage":     `"tmpfs"`,
