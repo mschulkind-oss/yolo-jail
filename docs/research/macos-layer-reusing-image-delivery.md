@@ -6,7 +6,7 @@ status: accepted
 tags: [research, macos, image-delivery, podman, apple-container]
 summary: "Can podman-on-macOS and Apple Container get the per-layer reuse skopeo gives podman on Linux? Measured on Linux, sourced for the Mac side. A delta archive gets it with no new listener, but Apple Container still rebuilds its ext4 snapshot for every new image."
 stage: DECIDED
-next: "Find whether OQ-LR2's in-VM copier is slow or wedged: on nightly run 36711874486 it printed 'Writing manifest' and was killed at its 45-minute cap; start at TestMacArchiveFirstLoadInVMCopierOnPodman in integration/macarchivedelivery_test.go"
+next: "Read the next archive-delivery-macos nightly's OQ-LR2 IN-VM COPIER line: the copier now runs under an in-VM SIGQUIT deadline and reports its exit, so a goroutine dump or the exit marker says whether the copy or the ssh session hung"
 vantage:
   status-chip: true
 ---
@@ -20,7 +20,10 @@ lists the commands that settle each Mac claim. ⚠ **Since 2026-09-25 the built 
 MEASURED on both Mac backends**, through real launches in CI rather than through those commands:
 [Mac results](#mac-results-2026-09-25) has the numbers. What is left is
 [`OQ-LR2`](#OQ-LR2)'s first-load work: the gzip candidate has lost in every later sample, and
-the in-VM copier has not yet produced a time.
+the in-VM copier has not yet produced a time. On Linux its last step, after `Writing manifest`,
+took about 0.1 s of a 51 s cold copy (MEASURED 2026-10-01), and the nightly's copier now reports
+its own exit and a goroutine dump at an in-VM deadline, so the next run can say whether the copy
+or the session hung.
 
 **The question** (the maintainer, 2026-09-24): on podman-on-macOS and on Apple Container, can
 image delivery get the layer reuse that `skopeo copy nix: → containers-storage:` gives podman on
@@ -668,6 +671,41 @@ What each step settles:
      blob copied, then `Writing manifest to image destination`, then `signal: killed` at 45
      minutes. Whether the copy was slow to commit or the `podman machine ssh` session never
      exited is not known, so the in-VM copier still has no time.
+
+   **On Linux, the step after `Writing manifest` is about a tenth of a second (MEASURED
+   2026-10-01).** The same copier (`.#imageCopier`, skopeo 1.24.1) and the same image.json
+   (`.#ociImage` at `d4e435a3`), writing a NAMED store as a rootless delivery does, into an empty
+   scratch store inside a jail, rootful and with no `podman unshare`, every output line
+   timestamped from the start:
+
+   ```console
+   $ skopeo --insecure-policy copy nix:<image.json> \
+       'containers-storage:[overlay@<scratch>/graph+<scratch>/run:overlay.mount_program=<fuse-overlayfs>]localhost/yolo-jail:oqlr2-probe'
+       0.1  Getting image source signatures
+       8.7  Copying blob sha256:8dba2418…   (the last of 91 such lines, all printed by 8.7 s)
+      50.9  Copying config sha256:b617a1ad…
+      50.9  Writing manifest to image destination
+   rc=0 total=51.0
+   ```
+
+   Without a terminal the copier prints a blob's line when it starts it, so the 42 s between the
+   last of them and `Copying config` is the layers being written; the store held 3.4 GB after.
+   The one-minute load average was 40 to 45 from other agents' work. So on Linux nothing heavy is
+   left once `Writing manifest` prints. INFERRED for the Mac: a copy that printed it and then ran
+   45 minutes was not slow at writing layers. It was stopped in its last step, a lock or the
+   store's final record, or it had exited into an ssh session that never returned. UNMEASURED: the
+   rootless half, since `podman unshare` refuses on this jail's rootful podman, and the VM itself.
+
+   **The next nightly can tell those apart (2026-10-01).** `inVMCopyArgv` now runs the copier
+   under `timeout -s QUIT -k 60 <the test's deadline less five minutes>`, between the namespace
+   prefix and the copier, and the VM's shell prints `yolo in-VM copier exited rc=<status>` when
+   it returns. A copier still running at its deadline is sent SIGQUIT and prints every goroutine's
+   stack, which the test logs from `SIGQUIT: quit` on, so the dump names where it waited; a marker
+   followed by a kill at the outer deadline says the session hung after the copy. The argv is
+   otherwise the Linux delivery's, as before (`TestInVMCopyArgvIsTheLinuxDeliveryArgv`), and the
+   readers are pinned under `-short` (`TestTheInVMCopierReportReadsWhatTheVMPrints`). Checked on
+   Linux against a stand-in Go program that never returns: `SIGQUIT: quit`, its stacks, then
+   `yolo in-VM copier exited rc=124`.
 
 3. ✅ <a id="OQ-LR3"></a>[**OQ-LR3**](#OQ-LR3) (decided): What is Apple Container's present-set probe?** Podman has one:
    `PresentLayerDigests`. For Apple Container the choice is `container image inspect`, if it

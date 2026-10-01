@@ -1290,7 +1290,9 @@ func TestMacArchiveFirstLoadInVMCopierOnPodman(t *testing.T) {
 	if facts.NamesStore() {
 		storeWrite += ", store `" + facts.Store.Spec() + "`"
 	}
-	argv := inVMCopyArgv(facts, linuxCopier, imgs.a, refA)
+	copyTimeout := macArchiveLaunchTimeout()
+	inVMLimit := copyTimeout - inVMCopyMargin
+	argv := inVMCopyArgv(facts, linuxCopier, imgs.a, refA, inVMLimit)
 
 	hadA := macEvictImage(t, rt, refA)
 	if hadA {
@@ -1299,11 +1301,11 @@ func TestMacArchiveFirstLoadInVMCopierOnPodman(t *testing.T) {
 	t.Cleanup(func() { macEvictImage(t, rt, refA) })
 	warm, _ := splitByPresence(imgs.layersA, macPresentNow(t, rt))
 
-	copyTimeout := macArchiveLaunchTimeout()
 	t0 := time.Now()
 	out, crc := macRun(copyTimeout, argv...)
 	took := time.Since(t0)
 	landed := crc == 0 && macImagePresent(rt, refA)
+	inRC, exited := inVMCopierExit(out)
 
 	var verdict string
 	switch {
@@ -1313,13 +1315,23 @@ func TestMacArchiveFirstLoadInVMCopierOnPodman(t *testing.T) {
 		verdict = "the copy exited 0 and the Mac's default connection does NOT see " + refA +
 			": it wrote a store that connection does not read (the research doc's premise that " +
 			"`podman machine ssh` reaches the default connection's store does not hold here)"
+	case exited && timedOut(inRC):
+		verdict = fmt.Sprintf("the COPIER ran past its in-VM deadline of %s and was sent SIGQUIT — "+
+			"wedged, or slower than that; the goroutine dump below says where it was", inVMLimit)
+	case exited && crc == -1:
+		verdict = fmt.Sprintf("the copier EXITED in the VM (rc=%d) and `podman machine ssh` did not "+
+			"return within %s — the SESSION hung, not the copy", inRC, copyTimeout)
 	case crc == -1:
-		verdict = fmt.Sprintf("did not finish within %s (killed) — slower than that, or wedged", copyTimeout)
+		verdict = fmt.Sprintf("did not finish within %s (killed), and the VM never reported the "+
+			"copier's exit, though its in-VM deadline was %s", copyTimeout, inVMLimit)
 	default:
 		verdict = fmt.Sprintf("FAILED, rc=%d: %s", crc, strings.ReplaceAll(lastLines(out, 3), "\n", " ⏎ "))
 	}
 	t.Logf("OQ-LR2 IN-VM COPIER: %s\nargv: %s\noutput (last lines):\n%s",
 		verdict, strings.Join(argv, " "), lastLines(out, 30))
+	if dump := goroutineDump(out); dump != "" {
+		t.Logf("OQ-LR2 IN-VM COPIER goroutine dump, from SIGQUIT:\n%s", dump)
+	}
 
 	baseline := "not measured in this process (run TestMacArchiveFirstLoadCompressionOnPodman first, as the nightly step does)"
 	if oqLR2Uncompressed.load > 0 {
@@ -1369,9 +1381,75 @@ func vmLinuxSystem(unameM string) (string, error) {
 // `podman machine ssh` names no machine, so it is the DEFAULT one, which is the machine the
 // Mac's default connection talks to; it logs in as root on a rootful machine and as the
 // machine user otherwise, which is the store that connection reads.
-func inVMCopyArgv(facts image.PodmanStoreFacts, copier, imageJSON, ref string) []string {
+//
+// TWO ADDITIONS, AND NEITHER CHANGES WHAT IS TIMED. Nightly run 36711874486 printed `Writing
+// manifest to image destination` and was killed at the test's 45-minute deadline, which cannot
+// tell a copier that never returned from a copier that returned into an ssh session that never
+// did. So the copier runs under `timeout -s QUIT -k 60 <limit>`, between the namespace prefix
+// and the copier, with the limit shorter than the test's own deadline: a Go program sent SIGQUIT prints
+// every goroutine's stack and exits, and that dump says where it was. And the remote shell
+// prints inVMCopierExitMarker with the copier's status once it returns, so a session that still
+// hangs afterwards is the session's. On Linux the step after `Writing manifest` took about 0.1 s
+// of a 51 s cold copy (docs/research/macos-layer-reusing-image-delivery.md, OQ-LR2).
+func inVMCopyArgv(facts image.PodmanStoreFacts, copier, imageJSON, ref string, limit time.Duration) []string {
+	inner := image.DeliveryCopyArgvFor("podman", facts, copier, imageJSON, ref)
 	return []string{"podman", "machine", "ssh", "--",
-		shquote.Join(image.DeliveryCopyArgvFor("podman", facts, copier, imageJSON, ref))}
+		shquote.Join(withInVMDeadline(inner, copier, limit)) + `; echo "` + inVMCopierExitMarker + ` rc=$?"`}
+}
+
+// inVMCopyMargin is how much sooner than the test's own deadline the in-VM `timeout` fires,
+// so the copier's SIGQUIT dump and the exit marker cross the session before macRun kills it.
+const inVMCopyMargin = 5 * time.Minute
+
+// inVMCopierExitMarker opens the line the VM's shell prints when the copier returns.
+const inVMCopierExitMarker = "yolo in-VM copier exited"
+
+// timedOut reports whether rc is coreutils `timeout`'s status for a deadline that fired: 124
+// when the SIGQUIT ended the copier, 137 when it did not and the KILL a minute later did.
+func timedOut(rc int) bool { return rc == 124 || rc == 128+9 }
+
+// withInVMDeadline puts `timeout -s QUIT -k 60 <seconds>` immediately before the copier in a
+// delivery argv, after any namespace prefix, so the signal reaches the copier itself and not
+// `podman unshare`, and a copier the SIGQUIT does not end is killed a minute later. An argv
+// without the copier is returned unchanged.
+func withInVMDeadline(argv []string, copier string, limit time.Duration) []string {
+	for i, a := range argv {
+		if a != copier {
+			continue
+		}
+		out := append([]string{}, argv[:i]...)
+		out = append(out, "timeout", "-s", "QUIT", "-k", "60", strconv.Itoa(int(limit/time.Second)))
+		return append(out, argv[i:]...)
+	}
+	return argv
+}
+
+// inVMCopierExit reads the copier's status off the VM's exit marker, and whether it printed.
+func inVMCopierExit(out string) (int, bool) {
+	for _, line := range strings.Split(out, "\n") {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(line), inVMCopierExitMarker+" rc=")
+		if !ok {
+			continue
+		}
+		if rc, err := strconv.Atoi(strings.TrimSpace(rest)); err == nil {
+			return rc, true
+		}
+	}
+	return 0, false
+}
+
+// goroutineDump is the output from a Go runtime's `SIGQUIT: quit` line on, at most 600 lines,
+// or "" when there is none.
+func goroutineDump(out string) string {
+	i := strings.Index(out, "SIGQUIT: quit")
+	if i < 0 {
+		return ""
+	}
+	ls := strings.Split(out[i:], "\n")
+	if len(ls) > 600 {
+		ls = ls[:600]
+	}
+	return strings.Join(ls, "\n")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1545,11 +1623,20 @@ func TestInVMCopyArgvIsTheLinuxDeliveryArgv(t *testing.T) {
 			facts := image.ReadPodmanStoreFacts("podman", func([]string) (string, bool) {
 				return tc.info, tc.info != ""
 			})
-			got := inVMCopyArgv(facts, copier, img, ref)
+			const limit = 40 * time.Minute
+			got := inVMCopyArgv(facts, copier, img, ref, limit)
 			inner := image.DeliveryCopyArgvFor("podman", facts, copier, img, ref)
+			// The copy is the launch's, with `timeout` spliced in just before the copier:
+			// after the namespace prefix, so the SIGQUIT reaches the copier and not
+			// `podman unshare`.
+			n := len(strings.Fields(tc.wantPrefix))
+			timed := append(append(append([]string{}, inner[:n]...),
+				"timeout", "-s", "QUIT", "-k", "60", "2400"), inner[n:]...)
 			// ONE shell-quoted word after `--`: the VM's login shell parses what ssh
-			// sends, and a named store's `[...]` is a bracket glob to it.
-			want := []string{"podman", "machine", "ssh", "--", shquote.Join(inner)}
+			// sends, and a named store's `[...]` is a bracket glob to it. Then the exit
+			// marker, which that shell expands.
+			want := []string{"podman", "machine", "ssh", "--",
+				shquote.Join(timed) + `; echo "yolo in-VM copier exited rc=$?"`}
 			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 				t.Errorf("inVMCopyArgv =\n  %q\nwant\n  %q", got, want)
 			}
@@ -1570,5 +1657,40 @@ func TestInVMCopyArgvIsTheLinuxDeliveryArgv(t *testing.T) {
 				t.Errorf("the named store is not quoted for the VM's shell: %q", got[4])
 			}
 		})
+	}
+}
+
+// TestTheInVMCopierReportReadsWhatTheVMPrints pins the two readers the in-VM copier's verdict
+// rests on, against the text the VM's shell and a Go runtime print. A marker the parser missed
+// would report a session that hung after the copy as a copy that never ended, which is the
+// very ambiguity the marker exists to remove.
+func TestTheInVMCopierReportReadsWhatTheVMPrints(t *testing.T) {
+	for _, tc := range []struct {
+		out    string
+		rc     int
+		exited bool
+	}{
+		{"Writing manifest to image destination\n" + inVMCopierExitMarker + " rc=0\n", 0, true},
+		{"SIGQUIT: quit\ngoroutine 1 [semacquire]:\n" + inVMCopierExitMarker + " rc=124\n", 124, true},
+		{"Writing manifest to image destination\n\nsignal: killed", 0, false},
+		{"  " + inVMCopierExitMarker + " rc=137  \n", 137, true},
+	} {
+		rc, exited := inVMCopierExit(tc.out)
+		if rc != tc.rc || exited != tc.exited {
+			t.Errorf("inVMCopierExit(%q) = %d, %v; want %d, %v", tc.out, rc, exited, tc.rc, tc.exited)
+		}
+	}
+	if !timedOut(124) || !timedOut(137) || timedOut(0) || timedOut(1) {
+		t.Error("timedOut must be true for coreutils timeout's 124 and 137 alone")
+	}
+	dump := goroutineDump("Copying blob x\nSIGQUIT: quit\nPC=0x0 m=0\n\ngoroutine 1 [syscall]:\n")
+	if !strings.HasPrefix(dump, "SIGQUIT: quit") || !strings.Contains(dump, "goroutine 1 [syscall]") {
+		t.Errorf("goroutineDump kept %q", dump)
+	}
+	if goroutineDump("Writing manifest to image destination\n") != "" {
+		t.Error("goroutineDump found a dump in output that has none")
+	}
+	if got := withInVMDeadline([]string{"a", "b"}, "/nix/store/c", time.Minute); strings.Join(got, " ") != "a b" {
+		t.Errorf("an argv without the copier must come back unchanged, got %q", got)
 	}
 }
