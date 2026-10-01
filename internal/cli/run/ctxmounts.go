@@ -174,8 +174,25 @@ func (o *Options) packCtxMounts(rt string, packs []*packload.Pack, note func(str
 // briefedCtxMounts is what the agent's briefing lists under "Additional Context Mounts":
 // every config element and pack grant this launch binds, each with its mode and, for a
 // grant, its pack (§3.8 — before this, an agent learned a pack mount's path only from the
-// pack's own prose). appliedCtxMounts then removes the lot on a backend that binds none.
-func (o *Options) briefedCtxMounts(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack) []jailcontent.ContextMount {
+// pack's own prose), at the path the agent opens under ctxDir, the context dir.
+//
+// macos-user lists what ITS decider delivers (macosCtxLinks: a link in the context dir per
+// mount), and nothing at all when that decider refuses one, since such a launch refuses before
+// any agent reads a briefing. One decider per backend for the briefing and the delivery, so the
+// agent is never told about a path that is not there.
+func (o *Options) briefedCtxMounts(rt, ctxDir string, cfg *jsonx.OrderedMap, packs []*packload.Pack) []jailcontent.ContextMount {
+	if rt == "macos-user" { // parity: HonoredBy — macos-user delivers a context mount as a root-owned link plus Seatbelt rules (macosCtxLinks), and the briefing lists exactly what that decider delivers
+		links, refused := o.macosCtxLinks(cfg, packs, nil)
+		if len(refused) > 0 {
+			return nil
+		}
+		var out []jailcontent.ContextMount
+		for _, l := range links {
+			out = append(out, jailcontent.ContextMount{Path: ctxDir + "/" + l.Rel(),
+				Host: l.Source, ReadWrite: l.RW, Pack: l.Pack})
+		}
+		return out
+	}
 	var out []jailcontent.ContextMount
 	for _, m := range o.configCtxMounts(rt, cfg, nil) {
 		out = append(out, jailcontent.ContextMount{Path: m.dest, Host: m.source, ReadWrite: m.rw})
@@ -183,5 +200,5 @@ func (o *Options) briefedCtxMounts(rt string, cfg *jsonx.OrderedMap, packs []*pa
 	for _, m := range o.packCtxMounts(rt, packs, nil) {
 		out = append(out, jailcontent.ContextMount{Path: m.dest, Host: m.source, Pack: m.pack})
 	}
-	return o.appliedCtxMounts(rt, out)
+	return out
 }

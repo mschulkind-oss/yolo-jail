@@ -82,12 +82,45 @@ import (
 // anything that could re-open it again (nothing does). The zero value renders nothing, so
 // a launch that delivered no content gets the profile it always got.
 func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly) string {
+	return SeatbeltProfileWithContext(workspace, sandboxHome, readonlyRels, homeReadonly, nil)
+}
+
+// profileWritableRoots is the writable set's fixed half: what the profile re-allows for
+// file-write* besides the workspace and the sandbox home. ONE LIST, read by the profile below
+// and by the context-mount siting (DarwinContextSiting's WritableRoots), so "a read-only source
+// inside the writable set is refused" is never judged against a different set from the one the
+// kernel is handed (docs/design/context-mounts.md §3.4).
+var profileWritableRoots = []string{"/tmp", "/private/tmp", "/var/folders", "/private/var/folders", "/dev"}
+
+// bootVolume is the one entry under /Volumes the profile re-allows reads of.
+const bootVolume = "/Volumes/Macintosh HD"
+
+// SeatbeltProfileWithContext is SeatbeltProfile plus the CONTEXT MOUNTS this launch delivers by
+// link (ctxlinks.go; docs/design/context-mounts.md §3.4). With none it is byte-identical to
+// SeatbeltProfile. Each link adds its RESOLVED source to three blocks, each placed by what it
+// must beat, because last-match-wins is decided among the rules that match ONE operation:
+//
+//   - a read-write source's write allow, right after the writable-set allow and before every
+//     write deny that must win (`#seatbelt-test-id:context-write-allow#`);
+//   - a read-only source's write deny, after every write allow
+//     (`#seatbelt-test-id:context-readonly-deny#`);
+//   - every source's read allow, after the /Users read deny it re-opens and before the keychain
+//     denies, so no source can re-open a keychain (`#seatbelt-test-id:context-read-allow#`);
+//
+// and each source under /Users/Shared/ adds its intermediate directories to the ancestor
+// literals: the traversal the workspace needed, with the siblings still denied.
+func SeatbeltProfileWithContext(workspace, sandboxHome string, readonlyRels []string, homeReadonly HomeReadonly, ctx []ContextLink) string {
 	if sandboxHome == "" {
 		sandboxHome = SandboxHome()
 	}
 	ws := sbplStr(workspace)
 	home := sbplStr(sandboxHome)
-	ancestors := ancestorLiterals(workspace, sandboxHome)
+	ancestors := ancestorLiterals(append([]string{workspace, sandboxHome},
+		contextSources(ctx, func(ContextLink) bool { return true })...)...)
+	var writable strings.Builder
+	for _, w := range profileWritableRoots {
+		writable.WriteString("    (subpath " + sbplStr(w) + ")\n")
+	}
 	return "(version 1)\n" +
 		";; yolo-jail macOS-user sandbox profile — SandVault-parity.\n" +
 		";; Base allow with targeted denies; last match wins.\n" +
@@ -100,19 +133,17 @@ func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string, homeR
 		"(allow file-write*\n" +
 		"    (subpath " + ws + ")\n" +
 		"    (subpath " + home + ")\n" +
-		"    (subpath \"/tmp\")\n" +
-		"    (subpath \"/private/tmp\")\n" +
-		"    (subpath \"/var/folders\")\n" +
-		"    (subpath \"/private/var/folders\")\n" +
-		"    (subpath \"/dev\"))\n" +
+		strings.TrimSuffix(writable.String(), "\n") + ")\n" +
+		contextWriteAllow(ctx) +
 		readonlyDenies(workspace, readonlyRels) +
 		homeReadonlyDenies(homeReadonly) +
+		contextReadonlyDeny(ctx) +
 		"\n" +
 		";; --- Volumes: deny reads except the boot volume ---\n" +
 		";; #seatbelt-test-id:volumes-read-deny#\n" +
 		"(deny file-read* (subpath \"/Volumes\"))\n" +
 		";; #seatbelt-test-id:boot-volume-read-allow#\n" +
-		"(allow file-read* (subpath \"/Volumes/Macintosh HD\"))\n" +
+		"(allow file-read* (subpath " + sbplStr(bootVolume) + "))\n" +
 		"\n" +
 		";; --- Raw disk + packet capture: never ---\n" +
 		";; #seatbelt-test-id:raw-device-deny#\n" +
@@ -136,6 +167,7 @@ func SeatbeltProfile(workspace, sandboxHome string, readonlyRels []string, homeR
 		ancestors +
 		"    (subpath " + ws + ")\n" +
 		"    (subpath " + home + "))\n" +
+		contextReadAllow(ctx) +
 		"\n" +
 		";; --- Keychains: System.keychain is world-readable (0644) on stock\n" +
 		";;     macOS, so this deny is load-bearing ---\n" +

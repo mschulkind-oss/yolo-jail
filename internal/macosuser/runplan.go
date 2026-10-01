@@ -41,8 +41,16 @@ type RunPlan struct {
 	// ContextDir is what $YOLO_CONTEXT_DIR names for the agent and the bootstrap: the same
 	// root-owned tree as CtxRoot, but set on EVERY launch and staged every launch, empty when
 	// nothing was composed (docs/design/context-mounts.md CX-D4).
-	ContextDir    string
-	BootstrapArgv []string
+	ContextDir string
+	// ContextLinks are the context mounts this launch delivers, each a root-owned link in
+	// ContextDir with the profile deciding access to its source (ctxlinks.go); ContextPreflight
+	// is the DAC preflight the launch asks before the sandbox starts, and ContextOccupied the
+	// context-dir paths yolo's own staging uses, which no link may touch. All empty with no
+	// context mount.
+	ContextLinks     []ContextLink
+	ContextPreflight []ContextProbe
+	ContextOccupied  []string
+	BootstrapArgv    []string
 	// ProvisionArgv is the CONFINED provisioning stage, run between the bootstrap and
 	// the agent — nil when this config gives it nothing to do (ProvisionNeeded), which
 	// is what makes `yolo -- bash` in a tool-less workspace pay nothing for it.
@@ -171,6 +179,13 @@ type HostContext struct {
 	// an arbitrary user-named tree, which is why the directory-shaped cells stayed with
 	// DP-D15 (refuse) rather than joining DP-L1 (deliver).
 	HostFiles []config.HostFileEntry
+	// Links are the CONTEXT MOUNTS this launch delivers — config `mounts` elements and pack
+	// `mount` grants — each sited by the caller with SiteContextLinks against its resolved
+	// source (docs/design/context-mounts.md §3). Not bytes: each becomes a root-owned link in
+	// the context dir, so nothing is copied (DP-D15's size argument stands) and the bytes the
+	// agent reads are live. The caller's for the same reason as the rest of this struct:
+	// resolving a source is a read of the invoking user's filesystem.
+	Links []ContextLink
 }
 
 // Darwin carries the already-materialized native `packages:` result threaded
@@ -456,11 +471,11 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	stageCommands := append([][]string{}, StageBinaryCommands(selfExe, "")...)
 	stageCommands = append(stageCommands, StagePackCommands(hostPackRoot, cname, "")...)
 	stageCommands = append(stageCommands, StageHomeOverlayCommands(hostHomeOverlay.Tree, cname, "")...)
-	if hostCtx.Tree != "" {
-		stageCommands = append(stageCommands, StageCtxCommands(hostCtx.Tree, cname, "")...)
-	} else {
-		stageCommands = append(stageCommands, StageEmptyCtxCommands(cname, "")...)
-	}
+	// THE CONTEXT DIR, with the composed tree in it when there is one and a root-owned link per
+	// delivered context mount (ctxlinks.go). The links ride the same `.new`-then-swap as the
+	// tree, so a mount dropped from the config stops being named on the next launch.
+	ctxLinks := append([]ContextLink(nil), hostCtx.Links...)
+	stageCommands = append(stageCommands, StageContextDirCommands(hostCtx.Tree, ctxLinks, cname, "")...)
 	stageCommands = append(stageCommands, endpointGrantCommands(sandboxEnv)...)
 
 	// THE GUEST'S JAIL DAEMONS (OQ-DP8, OQ-DP9; jaildaemon.go), composed only when the
@@ -487,9 +502,10 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		Workspace:   workspace,
 		Cname:       cname,
 		ProfilePath: profilePath,
-		Seatbelt:    SeatbeltProfile(workspace, SandboxHome(), cfgStrList(cfg, "workspace_readonly"), homeReadonly),
-		StagedDir:   stateDir,
-		StagedYolo:  stagedYolo,
+		Seatbelt: SeatbeltProfileWithContext(workspace, SandboxHome(),
+			cfgStrList(cfg, "workspace_readonly"), homeReadonly, ctxLinks),
+		StagedDir:  stateDir,
+		StagedYolo: stagedYolo,
 		// Binary first, then the pack trees, then the content overlay, then the context
 		// tree: all four are prerequisites of the bootstrap the caller runs immediately
 		// after this list, and the binary is the one that fails most cheaply.
@@ -497,6 +513,9 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 		PackRoot:            packRoot,
 		CtxRoot:             ctxRoot,
 		ContextDir:          contextDir,
+		ContextLinks:        ctxLinks,
+		ContextPreflight:    ContextPreflight(ctxLinks, ""),
+		ContextOccupied:     ContextOccupied(hostCtx.Delivered),
 		BootstrapArgv:       DarwinBootstrapArgv(stagedYolo, SandboxHome(), bootstrapEnv, ""),
 		ProvisionArgv:       provisionArgv,
 		ProvisionScriptPath: provisionScriptPath,
@@ -963,6 +982,8 @@ func PlanInvariants(plan RunPlan) []string {
 					"; the agent would not know where its context mounts live")
 		}
 	}
+
+	problems = append(problems, contextLinkProblems(plan)...)
 
 	// THE REPORT AND THE TREE ARE ONE FACT, checked against each other rather than each
 	// against itself. The jail's read fails CLOSED (OQ-CO10), so a report claiming

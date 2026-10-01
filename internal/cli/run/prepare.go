@@ -76,11 +76,11 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// `mount` grant with its pack — through the SAME decider the argv uses (ctxmounts.go), so
 	// an Apple Container skip, a missing source or a backend that binds nothing leaves the
 	// agent no /ctx path that does not exist. ctxDir is what $YOLO_CONTEXT_DIR names here.
-	ctxMounts := o.briefedCtxMounts(rt, cfg, staged.packs)
 	ctxDir := paths.ContainerContextDir
 	if rt == "macos-user" { // parity: NotApplicable — the context dir's value per backend, not a capability (CX-D4)
 		ctxDir = macosuser.StagedCtxRoot(cname, "")
 	}
+	ctxMounts := o.briefedCtxMounts(rt, ctxDir, cfg, staged.packs)
 
 	// ACTIVE loopholes (name, description) — census site 1, through the converged set.
 	//
@@ -288,7 +288,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	//     inverted afterwards: the briefing was delivered and four of its sections were
 	//     false. The four are closed together (declaration-parity.md §11 step 1) — net
 	//     mode and both port lists through appliedNetMode, the /ctx list through
-	//     appliedCtxMounts, the resource line through briefedResourceLimits, and the
+	//     briefedCtxMounts, the resource line through briefedResourceLimits, and the
 	//     enforcement vector plus the standing-constraints section through Mechanism and
 	//     BackendLimits above. What remains open there is the ## Environment block, which
 	//     is still written in the container's own vocabulary — `/workspace`,

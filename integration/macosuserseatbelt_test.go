@@ -107,6 +107,16 @@ var seatbeltRules = []seatbeltRule{
 		"What is measured instead is the allow beside it — file-ioctl-tty-allow runs a " +
 		"real pty through `script`, which fails if the deny is wider than the re-allow."},
 	{id: "file-ioctl-tty-allow"},
+	// THE CONTEXT MOUNTS (docs/design/context-mounts.md §3.4, §4 steps 4-5).
+	{id: "context-read-allow"},
+	{id: "context-write-allow"},
+	{id: "context-readonly-deny", unproven: "belt and braces by design: every read-only " +
+		"source the siting admits is OUTSIDE the writable set (macosuser.SiteContextLinks " +
+		"refuses one inside it), so write-outside-deny refuses the write first and deleting " +
+		"this deny changes no outcome. What IS measured is that a write to a read-only source " +
+		"is refused with EPERM — context_ro_source_write_refused, registered against the rule " +
+		"that decides it. The deny is the one that keeps \"read-only\" true if a later edit " +
+		"ever re-allows writes there."},
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +169,19 @@ type seatbeltFixtures struct {
 	skills   string // <stateDir>/skills          — staged, write-protected
 	briefing string // <stateDir>/CLAUDE.md       — staged, write-protected
 	content  macosuser.HomeReadonly
+	// THE CONTEXT MOUNTS (context-mounts.md §3), laid out as a launch delivers them: two
+	// sources under one traversal-only directory BESIDE the workspace, so only the rules this
+	// fixture's links add can open them, and a sibling of both that nothing grants. linkDir is
+	// a stand-in for the context dir: outside the writable set (the profile's root write deny
+	// is what keeps a link there from being replaced; root ownership is the launch's half,
+	// asserted by integration/macosusercontextmounts_test.go) and read-allowed by the base
+	// policy, holding one link to the read-only source and one to the ungranted sibling.
+	ctxRoot    string // <root>/ctx               — traversal only
+	ctxRO      string // <root>/ctx/ro            — read-only context mount, holds a git repo
+	ctxRW      string // <root>/ctx/rw            — read-write context mount
+	ctxSibling string // <root>/ctx/other         — granted by nothing
+	linkDir    string // /private/var/tmp/yolo-sb-ctx-…   — the links
+	ctxLinks   []macosuser.ContextLink
 }
 
 type seatbeltCase struct {
@@ -169,6 +192,10 @@ type seatbeltCase struct {
 	why    string
 	script func(seatbeltFixtures) string
 	want   seatbeltWant
+	// refusal, when set, is text a wantRefused run's output must carry — "Operation not
+	// permitted", the EPERM that proves the PROFILE refused rather than the file mode (EACCES,
+	// "Permission denied"), which is the distinction declaration-parity.md §6.1 probe 3 drew.
+	refusal string
 }
 
 // seatbeltCases is the whole suite. It is a pure function of the fixtures so the
@@ -413,6 +440,126 @@ func seatbeltCases() []seatbeltCase {
 			},
 			want: wantAllowed,
 		},
+		// --- THE CONTEXT MOUNTS (docs/design/context-mounts.md §3, §4 steps 4-5): the
+		// Mac-hardware probes §4 lists that need no sandbox account. The DAC preflight, the
+		// root-owned link and the real launch are macosusercontextmounts_test.go's. ---
+		{
+			name: "context_ro_source_readable",
+			id:   "context-read-allow",
+			why: "the read allow is what opens a context source: the source sits beside the " +
+				"workspace under the /Users read deny, so nothing else in the profile re-allows it.",
+			script: func(f seatbeltFixtures) string { return "cat " + sh(f.ctxRO+"/seed") },
+			want:   wantAllowed,
+		},
+		{
+			name: "context_read_through_the_link",
+			id:   "context-read-allow",
+			why: "the delivery's own shape: the agent opens the LINK, which sits outside the " +
+				"writable set, and Seatbelt judges its TARGET (declaration-parity.md §6.1 probe " +
+				"1), so the source's allow is what lets the read through.",
+			script: func(f seatbeltFixtures) string { return "cat " + sh(f.linkDir+"/data/seed") },
+			want:   wantAllowed,
+		},
+		{
+			name: "context_ro_source_write_refused",
+			id:   "write-outside-deny",
+			why: "a read-only source is outside the writable set (the siting refuses one inside " +
+				"it), so the root write deny refuses a write there — with EPERM, so the profile and " +
+				"not the file mode refused it: the runner owns the file and the bare control writes " +
+				"it. Self-cleaning.",
+			script: func(f seatbeltFixtures) string {
+				return "touch " + sh(f.ctxRO+"/probe") + " && rm -f " + sh(f.ctxRO+"/probe")
+			},
+			want:    wantRefused,
+			refusal: "Operation not permitted",
+		},
+		{
+			name: "context_rw_source_writable",
+			id:   "context-write-allow",
+			why: "the write allow is the ONLY rule that lets the sandbox write a read-write " +
+				"source: it is outside the workspace and outside the writable set.",
+			script: func(f seatbeltFixtures) string {
+				p := sh(f.ctxRW + "/probe")
+				return "touch " + p + " && rm " + p + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
+			name: "context_sibling_of_a_source_refused",
+			id:   "users-read-deny",
+			why: "the allow names each source as a subpath and its parent as a literal, so a " +
+				"folder beside the sources stays denied.",
+			script: func(f seatbeltFixtures) string { return "cat " + sh(f.ctxSibling+"/secret") },
+			want:   wantRefused,
+		},
+		{
+			name: "context_relative_walk_out_of_a_source_refused",
+			id:   "users-read-deny",
+			why:  "a `..` walk out of a source is resolved first and judged where it lands (§3.3).",
+			script: func(f seatbeltFixtures) string {
+				return "cat " + sh(f.ctxRO+"/../other/secret")
+			},
+			want: wantRefused,
+		},
+		{
+			name: "context_link_to_an_ungranted_folder_refused",
+			id:   "users-read-deny",
+			why: "a link the profile has no rule for grants nothing — the link is only a name " +
+				"(§3.3), the same whether a launch staged it or the agent did.",
+			script: func(f seatbeltFixtures) string { return "cat " + sh(f.linkDir+"/other/secret") },
+			want:   wantRefused,
+		},
+		{
+			name: "context_agent_planted_link_refused",
+			id:   "users-read-deny",
+			why: "the agent can plant a link anywhere it may write, pointing anywhere, and gains " +
+				"nothing, because Seatbelt judges the target. Self-cleaning.",
+			script: func(f seatbeltFixtures) string {
+				l := sh(f.ws + "/planted-link")
+				return "ln -s " + sh(f.outside+"/secret") + " " + l + " && cat " + l +
+					"; rc=$?; rm -f " + l + "; exit $rc"
+			},
+			want: wantRefused,
+		},
+		{
+			name: "context_link_replacement_refused",
+			id:   "write-outside-deny",
+			why: "a link outside the writable set cannot be re-pointed, which is the Seatbelt " +
+				"half of what keeps a context mount's NAME honest; the context dir being " +
+				"root-owned is the other half, a launch's. The bare control re-points the link " +
+				"and puts it back.",
+			script: func(f seatbeltFixtures) string {
+				l := sh(f.linkDir + "/data")
+				return "ln -sfn " + sh(f.ctxSibling) + " " + l + " && ln -sfn " + sh(f.ctxRO) + " " + l
+			},
+			want:    wantRefused,
+			refusal: "Operation not permitted",
+		},
+		{
+			name: "context_ancestor_stat_allowed",
+			id:   "workspace-read-allow",
+			why: "a source under /Users/Shared/ has its intermediate directories granted as " +
+				"literals, so a tool can stat the chain — and ctx/ is no ancestor of the " +
+				"workspace, so only the sources' own ancestor literals grant it.",
+			script: func(f seatbeltFixtures) string {
+				return "test -d " + sh(f.ctxRoot) + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
+			name: "context_git_inside_a_source",
+			id:   "workspace-read-allow",
+			why: "the ancestor-literal case in its real shape (§4: \"git works inside a " +
+				"shared-root source\"): git resolves its cwd component by component and walks up " +
+				"to the repository from a subdirectory. HOME points into the workspace so git " +
+				"reads no config file the profile denies.",
+			script: func(f seatbeltFixtures) string {
+				ws := sh(f.ws)
+				return "cd " + sh(f.ctxRO+"/sub") + " && HOME=" + ws + " XDG_CONFIG_HOME=" + ws +
+					" GIT_CONFIG_NOSYSTEM=1 git rev-parse --show-toplevel && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
 		// LAST, deliberately: if the kernel lets the rename-away through and refuses only the
 		// replacement, the sandboxed run leaves the state dir at its .moved name, and a case
 		// after this one would be measuring a different fixture.
@@ -466,6 +613,10 @@ func TestMacosUserSeatbeltProfileEnforcesItsRules(t *testing.T) {
 					t.Errorf("NOT REFUSED. `%s` succeeded under the profile.\n"+
 						"rule: #seatbelt-test-id:%s#\nwhy:  %s\noutput:\n%s",
 						script, tc.id, tc.why, sbOut)
+				} else if tc.refusal != "" && !strings.Contains(sbOut, tc.refusal) {
+					t.Errorf("REFUSED, but not with %q, so something other than the profile may "+
+						"have refused it.\nrule: #seatbelt-test-id:%s#\nwhy:  %s\noutput:\n%s",
+						tc.refusal, tc.id, tc.why, sbOut)
 				}
 			case wantAllowed:
 				if !strings.Contains(sbOut, seatbeltOK) {
@@ -490,6 +641,32 @@ func TestMacosUserSeatbeltProfileEnforcesItsRules(t *testing.T) {
 	}
 }
 
+// TestMacosUserSeatbeltContextHardLinkMeasurement RECORDS the answer to
+// docs/design/context-mounts.md §3.7's hard-link question and asserts nothing about it: can a
+// sandbox that may write a read-write source make a HARD link there to a file the profile
+// denies, on the same volume, and read the denied file through it? Path-keyed rules would
+// judge the link's own path. If it works, it works against the workspace and /tmp today
+// equally; a read-write source adds one more writable directory and no new class, which is
+// why the answer is recorded rather than gated on. Only a broken control fails it.
+func TestMacosUserSeatbeltContextHardLinkMeasurement(t *testing.T) {
+	requireMacosUserSeatbelt(t)
+	f := seatbeltFixture(t)
+	profile := seatbeltProfileFile(t, f)
+	link := sh(f.ctxRW + "/hardlink-to-outside")
+	script := "ln " + sh(f.outside+"/secret") + " " + link + " && cat " + link +
+		"; rc=$?; rm -f " + link + "; exit $rc"
+	if out, rc := runScript(t, script, nil); rc != 0 {
+		t.Fatalf("the CONTROL failed: `%s` exits %d unsandboxed, so there is nothing to "+
+			"measure.\noutput:\n%s", script, rc, out)
+	}
+	out, rc := runScript(t, script, []string{"/usr/bin/sandbox-exec", "-f", profile})
+	verdict := "REFUSED: a hard link does not carry a denied file into a writable source"
+	if rc == 0 {
+		verdict = "ALLOWED: a hard link carries a denied file into a writable source and it reads"
+	}
+	t.Logf("MEASUREMENT (context-mounts.md §3.7, hard links): %s (rc %d).\noutput:\n%s", verdict, rc, out)
+}
+
 // ---------------------------------------------------------------------------
 // The registry check — pure, and it runs on Linux.
 // ---------------------------------------------------------------------------
@@ -502,11 +679,16 @@ func TestMacosUserSeatbeltProfileEnforcesItsRules(t *testing.T) {
 // that develop this repo cannot load a Seatbelt profile, so if this check waited for a
 // Mac, a deny added today would sit unproven until the next nightly at the earliest.
 func TestMacosUserSeatbeltRegistryMatchesTheProfile(t *testing.T) {
-	// With delivered content, so the two G14 rules are in the text too — otherwise the rules a
-	// launch with a pack generates are the ones this never checks.
-	profile := macosuser.SeatbeltProfile("/Users/Shared/proj", "", []string{"vendored"},
+	// With delivered content, so the two G14 rules are in the text too, and a context mount of
+	// each mode, so the three context rules are — otherwise the rules a launch with a pack or a
+	// `mounts` entry generates are the ones this never checks.
+	profile := macosuser.SeatbeltProfileWithContext("/Users/Shared/proj", "", []string{"vendored"},
 		macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), "/Users/Shared/proj",
-			[]string{".claude"}, []string{".claude/skills", ".claude/CLAUDE.md"}))
+			[]string{".claude"}, []string{".claude/skills", ".claude/CLAUDE.md"}),
+		[]macosuser.ContextLink{
+			{Dest: "/ctx/lib", Source: "/Users/Shared/ci/lib", Dir: true},
+			{Dest: "/ctx/data", Source: "/Users/Shared/yolo/data", RW: true, Dir: true},
+		})
 
 	inProfile := map[string]bool{}
 	for _, m := range seatbeltIDPattern.FindAllStringSubmatch(profile, -1) {
@@ -567,8 +749,8 @@ func TestMacosUserSeatbeltRegistryMatchesTheProfile(t *testing.T) {
 //
 // Not behind requireMacosUserSeatbelt, so not in the vacuity ledger: it exercises no
 // profile, and counting it would let the macOS job's "something ran" check pass without
-// one. Only the home_content cases, because the older cases' controls lean on BSD `script`
-// and macOS paths.
+// one. Only the home_content and context cases, because the older cases' controls lean on
+// BSD `script` and macOS paths.
 func TestMacosUserSeatbeltContentControlsRunUnsandboxed(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("no sh on PATH")
@@ -579,8 +761,13 @@ func TestMacosUserSeatbeltContentControlsRunUnsandboxed(t *testing.T) {
 	}
 	f := seatbeltTree(t, root)
 	ran := 0
+	_, gitErr := exec.LookPath("git")
 	for _, tc := range seatbeltCases() {
-		if !strings.HasPrefix(tc.name, "home_content_") {
+		if !strings.HasPrefix(tc.name, "home_content_") && !strings.HasPrefix(tc.name, "context_") {
+			continue
+		}
+		if tc.name == "context_git_inside_a_source" && gitErr != nil {
+			t.Logf("%s: no git on PATH here, so its control cannot run", tc.name)
 			continue
 		}
 		ran++
@@ -594,10 +781,20 @@ func TestMacosUserSeatbeltContentControlsRunUnsandboxed(t *testing.T) {
 		}
 		// Every control must leave the fixture as it found it, or the next case measures a
 		// different tree.
-		for _, p := range []string{f.stateDir, filepath.Join(f.skills, "demo", "SKILL.md"), f.briefing} {
+		for _, p := range []string{f.stateDir, filepath.Join(f.skills, "demo", "SKILL.md"), f.briefing,
+			filepath.Join(f.ctxRO, "seed"), filepath.Join(f.ctxRW, "seed")} {
 			if _, err := os.Stat(p); err != nil {
 				t.Errorf("after %s's control, %s is gone (%v): the control does not restore "+
 					"what it changed", tc.name, p, err)
+			}
+		}
+		if target, err := os.Readlink(filepath.Join(f.linkDir, "data")); err != nil || target != f.ctxRO {
+			t.Errorf("after %s's control, the link points at %q (%v), not %s", tc.name, target, err, f.ctxRO)
+		}
+		for _, p := range []string{filepath.Join(f.ctxRO, "probe"), filepath.Join(f.ctxRW, "probe"),
+			filepath.Join(f.ws, "planted-link")} {
+			if _, err := os.Lstat(p); err == nil {
+				t.Errorf("after %s's control, %s is left behind", tc.name, p)
 			}
 		}
 	}
@@ -784,8 +981,28 @@ func seatbeltTree(t *testing.T, root string) seatbeltFixtures {
 	f.briefing = filepath.Join(f.stateDir, "CLAUDE.md")
 	f.content = macosuser.ResolveHomeReadonly(macosuser.SandboxHome(), f.ws,
 		[]string{".claude"}, []string{".claude/skills", ".claude/CLAUDE.md"})
+	f.ctxRoot = filepath.Join(resolved, "ctx")
+	f.ctxRO = filepath.Join(f.ctxRoot, "ro")
+	f.ctxRW = filepath.Join(f.ctxRoot, "rw")
+	f.ctxSibling = filepath.Join(f.ctxRoot, "other")
+	// On a Mac the links sit where the base policy reads and the root write deny refuses, as
+	// /var/yolo-jail does. Anywhere else this tree exists only to run the bare controls, and a
+	// path under / would be one more directory a Linux test run leaves on the machine.
+	linkBase := "/private/var/tmp"
+	if goruntime.GOOS != "darwin" {
+		linkBase = resolved
+	}
+	f.linkDir = filepath.Join(linkBase,
+		fmt.Sprintf("yolo-sb-ctx-%d-%d", os.Getpid(), time.Now().UnixNano()))
+	t.Cleanup(func() { _ = os.RemoveAll(f.linkDir) })
+	f.ctxLinks = []macosuser.ContextLink{
+		{Dest: "/ctx/ro", Source: f.ctxRO, Dir: true},
+		{Dest: "/ctx/rw", Source: f.ctxRW, RW: true, Dir: true},
+	}
 	for _, d := range []string{f.ws, f.readonly, f.outside,
-		filepath.Join(f.skills, "demo"), filepath.Join(f.stateDir, "projects")} {
+		filepath.Join(f.skills, "demo"), filepath.Join(f.stateDir, "projects"),
+		filepath.Join(f.ctxRO, "sub"), filepath.Join(f.ctxRO, ".git", "objects"),
+		filepath.Join(f.ctxRO, ".git", "refs"), f.ctxRW, f.ctxSibling, f.linkDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatalf("creating %s: %v", d, err)
 		}
@@ -794,10 +1011,20 @@ func seatbeltTree(t *testing.T, root string) seatbeltFixtures {
 		filepath.Join(f.ws, "seed"):                 seatbeltOK + "\n",
 		filepath.Join(f.outside, "secret"):          "a sibling checkout's private file\n",
 		filepath.Join(f.skills, "demo", "SKILL.md"): "demo skill\n",
-		f.briefing: "the briefing\n",
+		f.briefing:                            "the briefing\n",
+		filepath.Join(f.ctxRO, "seed"):        seatbeltOK + "\n",
+		filepath.Join(f.ctxRW, "seed"):        seatbeltOK + "\n",
+		filepath.Join(f.ctxSibling, "secret"): "a folder nobody mounted\n",
+		// The smallest tree git accepts as a repository: HEAD, objects/ and refs/.
+		filepath.Join(f.ctxRO, ".git", "HEAD"): "ref: refs/heads/main\n",
 	} {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatalf("writing %s: %v", path, err)
+		}
+	}
+	for name, target := range map[string]string{"data": f.ctxRO, "other": f.ctxSibling} {
+		if err := os.Symlink(target, filepath.Join(f.linkDir, name)); err != nil {
+			t.Fatalf("linking %s: %v", name, err)
 		}
 	}
 	return f
@@ -840,14 +1067,14 @@ func startSeatbeltCanary(t *testing.T) (int, string) {
 // seatbeltProfileFile writes the generated profile where sandbox-exec can read it.
 //
 // The arguments are the ones BuildRunPlan passes (runplan.go): the workspace, the real
-// sandbox home, the workspace_readonly list, and the content rules ResolveHomeReadonly
-// derives for a claude-pack delivery — so the text under test is the text a launch would
-// install, not a second profile written for the occasion. It is left in
+// sandbox home, the workspace_readonly list, the content rules ResolveHomeReadonly derives
+// for a claude-pack delivery, and the context links — so the text under test is the text a
+// launch would install, not a second profile written for the occasion. It is left in
 // the temp dir on failure and its path is logged, because the first question about a
 // surprising refusal is what the profile actually said.
 func seatbeltProfileFile(t *testing.T, f seatbeltFixtures) string {
 	t.Helper()
-	profile := macosuser.SeatbeltProfile(f.ws, "", []string{"vendored"}, f.content)
+	profile := macosuser.SeatbeltProfileWithContext(f.ws, "", []string{"vendored"}, f.content, f.ctxLinks)
 	path := filepath.Join(t.TempDir(), "session.sb")
 	if err := os.WriteFile(path, []byte(profile), 0o644); err != nil {
 		t.Fatalf("writing the profile to %s: %v", path, err)

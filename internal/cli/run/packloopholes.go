@@ -328,9 +328,6 @@ func pluginCodeClaim(c packload.Claim) bool {
 // disclosureLine is one claim rendered for the launch disclosure.
 type disclosureLine struct {
 	pack, claim string
-	// kind is the claim's kind, so a backend that delivers none of a kind can leave its
-	// lines out (notePackHostAccessExcept). Zero for a line that summarizes several claims.
-	kind packdecl.Kind
 	// countsPlugins says a jail-code line (packJailCodeLines) counts wrapped plugins, whose
 	// itemization is in `yolo pack footprint`, so the block's header points there.
 	countsPlugins bool
@@ -413,7 +410,7 @@ func disclosedClaimsServed(packs []*packload.Pack, class disclosureClass,
 				}
 			}
 			lines = append(lines, disclosureLine{
-				pack: p.Name, claim: sentence + "  [" + string(c.Kind) + "]", kind: c.Kind})
+				pack: p.Name, claim: sentence + "  [" + string(c.Kind) + "]"})
 		}
 	}
 	return lines

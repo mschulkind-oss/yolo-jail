@@ -557,11 +557,20 @@
     reason when it cannot read `container --version` at all, because the
     safe error is the one that costs a mount rather than the one that costs
     the guarantee.  A read-write entry is bound on every Apple Container
-    version: it needs nothing :ro provides.  "macos-user" delivers no context
-    mount yet, and a launch that declares one whose source exists REFUSES,
-    naming each entry and the remedy (a container runtime, or drop the entry
-    for that workspace); an entry whose source does not exist is skipped with
-    a warning, as on every backend.
+    version: it needs nothing :ro provides.
+    "macos-user" has no container, so each entry is a root-owned LINK in
+    $YOLO_CONTEXT_DIR (not /ctx) to the host folder itself, and the sandbox
+    profile decides what the agent may do there.  The folder must be one
+    the sandbox account can reach, outside every user's home: a read-only
+    one under /Users/Shared or outside /Users (/opt, /usr/local, …), a
+    read-write one under /Users/Shared/yolo.  Before the sandbox starts the
+    launch asks, as that account, whether it can read (and for read-write,
+    write) each folder.  Anything else — a folder in a home, on another
+    volume, overlapping the workspace or a place the sandbox writes (/tmp),
+    or an `at` outside /ctx — REFUSES the launch, naming each entry and why.
+    Tools that resolve paths print the host path there, and a subfolder the
+    sandbox account may not read stays unreadable.  An entry whose source
+    does not exist is skipped with a warning, as on every backend.
 
   [bold]cache_relocations[/bold] (object): Put a jail cache subdir on other storage.
     Keys are cache SUBDIR NAMES, not paths — a single path segment, no "/",

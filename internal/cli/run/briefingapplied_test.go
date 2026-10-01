@@ -19,7 +19,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
 
 // appliedTestConfig is the minimal config every row builds on: one agent, empty security,
@@ -404,11 +406,21 @@ func TestBriefedResourceLimitsAreASubsetOfTheEmittedFlags(t *testing.T) {
 // macosUserBriefing composes the jail briefing for a macos-user launch of one config.
 func macosUserBriefing(t *testing.T, cfg *jsonx.OrderedMap) string {
 	t.Helper()
+	return macosUserBriefingWith(t, cfg, nil)
+}
+
+// macosUserBriefingWith is macosUserBriefing with the options tweaked first — the context-mount
+// siting, which a test states rather than inherits from where this machine keeps its temp dir.
+func macosUserBriefingWith(t *testing.T, cfg *jsonx.OrderedMap, tweak func(*Options)) string {
+	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	emptyLoopholeDirs(t)
 	o := appliedOptions(t, t.TempDir(), home, false)
 	o.IsMacOS, o.IsLinux = true, false
+	if tweak != nil {
+		tweak(o)
+	}
 	return appliedBriefing(t, o, "macos-user", cfg)
 }
 
@@ -463,26 +475,45 @@ func TestMacosUserBriefingSaysHostNetworkingAndAdvertisesNoPorts(t *testing.T) {
 	}
 }
 
-// DP-B1 / DP-L7, BOTH briefing sites. macos-user binds nothing — it has no container to
-// mount into — so a section headed "Additional Context Mounts (read-only)" is a file-path
-// map of a filesystem that does not exist. The second site is the `## Limitations` bullet,
-// which was unconditional: a jail with no `mounts` at all was still told `/ctx/` existed
-// and was read-only. Fixing one and not the other leaves the agent a reason to go looking.
-func TestMacosUserBriefingListsNoContextMounts(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "sysadmin")
+// DP-B1 / DP-L7, BOTH briefing sites, now that macos-user delivers context mounts by link
+// (docs/design/context-mounts.md §4 step 4). A mount the backend REFUSES must not be listed —
+// a section naming it is a file-path map of a filesystem that does not exist, and the
+// `## Limitations` bullet must not describe a context tree nothing linked. A mount it DELIVERS
+// is listed at the path the agent opens — under the context dir, never /ctx — with the two
+// deltas the link brings (§3.7, §3.8).
+func TestMacosUserBriefingListsOnlyTheContextMountsItDelivers(t *testing.T) {
+	dir := filepath.Join(floortest.ResolvedTemp(t), "sysadmin")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got := macosUserBriefing(t, appliedTestConfig("mounts", []any{dir}))
+	cfg := func() *jsonx.OrderedMap { return appliedTestConfig("mounts", []any{dir}) }
 
-	if strings.Contains(got, "## Additional Context Mounts") {
-		t.Errorf("listed context mounts on a backend that binds none:\n%s", got)
+	refused := macosUserBriefingWith(t, cfg(), func(o *Options) {
+		o.macosCtxSiting = sitingWritable(t, "", filepath.Dir(dir))
+	})
+	if strings.Contains(refused, "## Additional Context Mounts") || strings.Contains(refused, "sysadmin") {
+		t.Errorf("listed a context mount the backend refuses:\n%s", refused)
 	}
-	if strings.Contains(got, "sysadmin") {
-		t.Errorf("named an unbound mount source:\n%s", got)
+	if strings.Contains(refused, "/ctx/") || strings.Contains(refused, "context mounts under") {
+		t.Errorf("the Limitations bullet describes a context tree nothing linked:\n%s", refused)
 	}
-	if strings.Contains(got, "/ctx/") {
-		t.Errorf("the Limitations bullet still describes a /ctx tree nothing mounted:\n%s", got)
+
+	delivered := macosUserBriefingWith(t, cfg(), func(o *Options) {
+		o.macosCtxSiting = sitingWritable(t, "")
+	})
+	staged := macosuser.StagedCtxRoot("yolo-ws-abcd1234", "") + "/sysadmin"
+	for _, want := range []string{
+		"## Additional Context Mounts",
+		"- `" + staged + "` (read-only; host `" + dir + "`)",
+		"`pwd -P`, `realpath` and",
+		"context mounts under `$YOLO_CONTEXT_DIR` are read-only unless marked read-write",
+	} {
+		if !strings.Contains(delivered, want) {
+			t.Errorf("the briefing of a delivered mount lacks %q:\n%s", want, delivered)
+		}
+	}
+	if strings.Contains(delivered, "`/ctx/") {
+		t.Errorf("the briefing names a /ctx path, which does not exist on macOS:\n%s", delivered)
 	}
 }
 

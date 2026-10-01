@@ -63,8 +63,9 @@ type ContextMount struct {
 type BriefingInput struct {
 	Workspace    string
 	BlockedTools []BlockedTool
-	// ContextMounts are the context mounts this launch bound, config elements and pack
-	// grants alike; empty on a backend that binds none (run.appliedCtxMounts).
+	// ContextMounts are the context mounts this launch delivered, config elements and pack
+	// grants alike — bound on a container backend, linked on macos-user — and only those
+	// (run.briefedCtxMounts).
 	ContextMounts []ContextMount
 	// ContextDir is what $YOLO_CONTEXT_DIR names on this backend (paths.ContextDirEnv);
 	// empty means the container answer, /ctx.
@@ -771,13 +772,23 @@ func BriefingContent(in BriefingInput) string {
 				"A read-write mount is the host's own directory, not a copy: what you write there",
 				"is what the host reads.")
 		}
+		// THE LINK DELIVERY'S TWO DELTAS, said where an agent would trip on them
+		// (docs/design/context-mounts.md §3.7, §3.8). With no container there is no mount
+		// namespace: each entry is a link to the host folder itself, so a tool that resolves
+		// paths reports the host's, and the sandbox account's file permissions apply below the
+		// folder, which a container's root would have read past.
+		if MechanismHasNoContainer(in.Mechanism) {
+			lines = append(lines, "",
+				"Each is a link to the host folder itself, not a mount: `pwd -P`, `realpath` and",
+				"git print the host path, and a subfolder this account may not read stays",
+				"unreadable here (`Permission denied`).")
+		}
 		lines = append(lines, "")
 	}
 
 	// DP-B1's SECOND briefing site. The `/ctx` clause was unconditional, so a jail with no
-	// `mounts` at all — and every macos-user jail, which binds none whatever the config says
-	// (run.appliedCtxMounts) — was told a read-only filesystem existed that nothing had
-	// mounted. The "Additional Context Mounts" section above lists what was BOUND; this line
+	// `mounts` at all — and every macos-user jail, which bound none before it delivered them by
+	// link — was told a read-only filesystem existed that nothing had mounted. The "Additional Context Mounts" section above lists what was BOUND; this line
 	// describes the same thing, so the two have to appear and disappear together. Fixing one
 	// and not the other is how the first fix was found to be half a fix.
 	noSudoLine := "- No sudo/root."

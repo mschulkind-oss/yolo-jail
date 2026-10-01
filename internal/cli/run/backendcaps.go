@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
-	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -28,7 +27,8 @@ import (
 // on, stated once, with its evidence in the comment. A single-site `rt ==` check is
 // still fine at its site.
 //
-// The second cluster below (appliedNetMode, appliedCtxMounts, appliedResourceLimits)
+// The second cluster below (appliedNetMode, appliedResourceLimits; the context-mount list
+// is decided per entry in ctxmounts.go)
 // clears that bar for a reason worth naming: their two call sites are the ARGV and the
 // BRIEFING, and a briefing composed from the config instead of from what the launch
 // applied is §6's defect — a jail that told the agent something untrue, which is worse
@@ -190,36 +190,14 @@ func appliedNetMode(rt, netMode string, inContainer bool) string {
 	return netMode
 }
 
-// appliedCtxMounts filters the briefing's context mounts down to the ones the backend
-// will actually bind.
-//
-// §6 names only network and resources, but a briefing section headed "Additional Context
-// Mounts" listing mounts the backend REFUSED is the same defect with a different key: the
-// assembler dropped every read-only one on an old Apple Container (roBindsUnsupported, and
-// it prints why), and the agent was then handed a list of /ctx paths that do not exist.
-//
-// The macos-user arm is the SECOND backend that binds none of them, and it gets its own
-// clause rather than joining roBindsUnsupported because the two facts are different: Apple
-// Container refuses a `:ro` bind it would otherwise make, and macos-user makes no bind at
-// all — it has no container to mount anything into. Folding it into the `:ro` predicate
-// would have that predicate answer a question nobody asked it (DP-B1 / DP-L7).
-//
-// ⚠ THE NATIVE MARKER BELOW HAS MOVED TWICE. It read `Warned` while nothing warned; a
-// warning was then built (DP-B1's human half); and since context-mounts.md §4 step 3 the
-// launch REFUSES a declared context mount on this backend (refuseMacosUserCtxMounts,
-// DP-D15's ruling), so a macos-user briefing never has one to leave out — this arm is what
-// keeps that true for a caller that reaches prepare without the refusal.
-//
-// THE APPLE CONTAINER HALF IS NO LONGER HERE. It used to drop every entry below the `:ro`
-// floor; the floor is now applied PER ENTRY upstream (configCtxMounts, packCtxMounts),
-// because a read-write element is not gated by it (context-mounts.md §2.9) and must stay
-// listed on the backend that binds it.
-func (o *Options) appliedCtxMounts(rt string, mounts []jailcontent.ContextMount) []jailcontent.ContextMount {
-	if inStrSlice(paths.NativeRuntimes, rt) { // parity: Refused — macos-user binds nothing, and the launch refuses a declared context mount (refuseMacosUserCtxMounts, DP-D15)
-		return nil
-	}
-	return mounts
-}
+// THE CONTEXT-MOUNT LIST IS NO LONGER FILTERED HERE. appliedCtxMounts used to drop the
+// briefing's context mounts on a backend that did not bind them: every read-only one on an
+// Apple Container below the `:ro` floor, and every one on macos-user, which bound none
+// (DP-B1 / DP-L7). Both halves left: the `:ro` floor is applied PER ENTRY by the deciders the
+// argv uses (configCtxMounts, packCtxMounts; CX-D13), and macos-user delivers its context
+// mounts by link and briefs exactly what its own decider delivers (briefedCtxMounts →
+// macosCtxLinks; docs/design/context-mounts.md §4 step 4). With nothing left to filter, the
+// function went with them.
 
 // limitSource says where an applied resource limit's value came from. It exists so the
 // briefing can state what the backend IMPOSES without gaining a standing line: yolo's own

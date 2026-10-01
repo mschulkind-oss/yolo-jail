@@ -445,6 +445,15 @@ func RunMacosUser(deps Deps, opts Options) int {
 		return 1
 	}
 
+	// THE DAC PREFLIGHT for every context mount this launch delivers (ctxlinks.go;
+	// docs/design/context-mounts.md §3.5), asked here, BEFORE the nix build, for the reason the
+	// preconditions above are: it is cheap, it is a fact about this machine, and a refusal after
+	// a half-hour build is the worst place to learn it. The same probes the plan carries
+	// (BuildRunPlan → ContextPreflight over the same links), which PlanInvariants checks.
+	if !runContextPreflight(deps, out, opts.HostCtx.Links) {
+		return 1
+	}
+
 	// Materialize the native tool closure for THIS Mac's arch (the acceptance
 	// bar): the FLOOR plus `packages:`. Runs nix on the HOST user before any
 	// sandbox; on failure abort.
@@ -694,6 +703,37 @@ func RunMacosUser(deps Deps, opts Options) int {
 	return deps.RunWithProxy(plan.LaunchArgv)
 }
 
+// runContextPreflight asks the kernel, as the sandbox account, whether it can reach every
+// context mount's source, and reports whether the launch should continue. Every link is asked
+// in full rather than stopping at the first refusal, so one message names every source to move;
+// a link's later probes are skipped once one fails, since its line is already written.
+//
+// No links asks nothing and prints nothing, which is every launch that declares no context mount.
+func runContextPreflight(deps Deps, out printer, links []ContextLink) bool {
+	if len(links) == 0 {
+		return true
+	}
+	out.printf("[dim]Checking that %s can reach %d context mount source(s) — sudo may "+
+		"prompt for your password.[/dim]", SandboxUser, len(links))
+	var failed []ContextProbe
+	refused := map[string]bool{}
+	for _, p := range ContextPreflight(links, "") {
+		key := p.Link.Dest + "\x00" + p.Link.Source
+		if refused[key] {
+			continue
+		}
+		if deps.Run(p.Argv) != 0 {
+			refused[key] = true
+			failed = append(failed, p)
+		}
+	}
+	if len(failed) > 0 {
+		out.print(ContextPreflightRefusal(failed))
+		return false
+	}
+	return true
+}
+
 // runProvisionStage runs the confined provisioning stage and reports whether the launch
 // should continue. false means the human asked to stop, or the stage REFUSED the launch.
 //
@@ -794,6 +834,18 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		p.printf("host bytes:  %s [dim](root-owned; the sandbox reads it and cannot "+
 			"write it)[/dim]", plan.CtxRoot)
 	}
+	// THE CONTEXT MOUNTS, named on the same rule: "this launch declares none" and "this
+	// backend delivers none" were one statement until §4 step 4. Each is the link the agent
+	// opens and the host folder behind it, at the STAGED path — never the /ctx spelling, which
+	// names nothing on macOS.
+	if len(plan.ContextLinks) == 0 {
+		p.print("context:     [dim]no context mounts[/dim]")
+	} else {
+		for _, l := range plan.ContextLinks {
+			p.printf("context:     %s/%s → %s [dim](%s, %s; a root-owned link, and the "+
+				"profile decides access)[/dim]", plan.ContextDir, l.Rel(), l.Source, l.Mode(), l.Origin())
+		}
+	}
 	p.printf("git identity: %s", gitIdentityRepr(plan.GitIdentity))
 	// THE ENV FILE IS DISCLOSED BY NAME AND BY KEY, NEVER BY VALUE — and that is the
 	// disclosure this dry run owes its reader rather than a redaction (envfile.go).
@@ -839,6 +891,12 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	p.print("[bold]── privileged commands (run via sudo) ──[/bold]\n" +
 		"[dim]sudo may prompt for your password; it's forwarded through the " +
 		"TTY proxy so you can answer inline.[/dim]")
+	// The DAC preflight first, as the launch runs it: before the nix build, as the sandbox
+	// account. Each is the whole argv, `sudo` included.
+	for _, probe := range plan.ContextPreflight {
+		p.print("  " + shquote.JoinDisplay(probe.Argv) + "  [dim](can " + SandboxUser + " " +
+			probe.Access + " it?)[/dim]")
+	}
 	for _, cmd := range plan.StageCommands {
 		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}

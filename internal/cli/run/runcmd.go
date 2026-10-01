@@ -356,6 +356,11 @@ type Options struct {
 	// machineShares memoizes the macOS Podman Machine share-list read for this launch
 	// (machineshares.go), which both bind-source pre-flights consult. nil = not read yet.
 	machineShares *machineSharesProbe
+	// macosCtxSiting is the macOS layout the macos-user context-mount siting reads
+	// (macosCtxLinks). nil, every real launch, is a default macOS install's
+	// (macosuser.DarwinContextSiting); a test sets it to state the facts a Linux machine cannot
+	// produce, such as a source outside every writable place.
+	macosCtxSiting *macosuser.ContextSiting
 	// Stdout/Stderr receive the human output (console.print goes to stderr in
 	// rich by default for status; run() uses console (stdout) for most lines).
 	// nil => os.Stdout / os.Stderr.

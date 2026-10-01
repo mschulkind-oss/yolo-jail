@@ -423,6 +423,13 @@ A whole class of container features has no attachment point.
   common dependency directory is in the default shadow set on the container backends — so
   every such workspace gets a protection here that is absent, with nothing in the config
   hinting at the difference.
+- **config `mounts` and a pack `mount`** — **delivered by link, from outside every home.** Each
+  is a root-owned symbolic link in `$YOLO_CONTEXT_DIR` to the host folder itself, the Seatbelt
+  profile decides access to the folder, and a check run as the sandbox account confirms it can
+  reach the folder before the sandbox starts. A folder this backend cannot serve, one in a home
+  above all, refuses the launch with its reason
+  ([`../design/context-mounts.md`](../design/context-mounts.md#3-delivering-context-dirs-on-macos-user)).
+  Built 2026-10-01 and not yet run on a Mac.
 - **`workspace_readonly`** — **enforced.** It *was* silently inert, and the fix was a wiring
   gap rather than an impossibility: the Seatbelt profile is a write deny-list with re-allows,
   so the policy is expressed there. This is a behaviour change for anyone who set the key on

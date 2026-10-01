@@ -7,10 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // DP-L1: the host bytes a `/ctx` mount carries on every other backend now cross on
@@ -340,17 +342,53 @@ func TestMacosUserDryRunStillComposesTheContextTree(t *testing.T) {
 	}
 }
 
-// DP-D15'S FATAL REFUSAL (docs/design/context-mounts.md §4 step 3). The two /ctx
-// declarations this backend cannot deliver were accepted, validated and dropped — first in
-// silence, then behind a warning — and DP-D15 ruled a fatal error better than a mount that
-// is "surprisingly not there with an easily missed warning". Nothing on this backend
-// delivers a context mount yet, so every declared one whose source exists refuses the
-// launch, named, before the handler is reached.
+// THE CONTEXT MOUNTS ON THIS ARM (docs/design/context-mounts.md §4 steps 3-5). A declared
+// config `mounts` element or pack `mount` grant is DELIVERED as a root-owned link plus
+// Seatbelt rules where the siting rules admit its source, and REFUSES the launch, named, with
+// its reason, everywhere else — DP-D15's "a fatal error … rather than having it be surprisingly
+// not there", narrowed by OQ-CX5 to the sources this backend cannot serve.
 //
-// ⚠ Run(), for macosctxtree_test.go's own reason and one sharper: the refusal is a function
-// of the config and a pack list, so a unit test of it passes with the call deleted — and a
-// missing call is EXACTLY the defect, since every other reader of these two keys is below
-// the arm's return.
+// ⚠ Run(), for macosctxtree_test.go's own reason and one sharper: the decision is a function of
+// the config and a pack list, so a unit test of it passes with the call deleted — and a missing
+// call is EXACTLY the defect, since every other reader of these two keys is below the arm's
+// return.
+//
+// ⚠ THE SITING'S macOS FACTS ARE STATED BY EVERY TEST (o.macosCtxSiting), never inherited:
+// whether a t.TempDir() fixture sits in "a place the sandbox may write" is a fact about where
+// this machine keeps its temp dir (/tmp here, /var/folders on a Mac, anything under TMPDIR), so
+// a test that let the default decide would pass or fail by machine.
+
+// sitingWritable is a default macOS install's siting with the sandbox's writable places
+// replaced by `writable`, resolved, and the shared root by sharedRoot when it is not "".
+func sitingWritable(t *testing.T, sharedRoot string, writable ...string) *macosuser.ContextSiting {
+	t.Helper()
+	s := macosuser.DarwinContextSiting()
+	s.WritableRoots = nil
+	for _, w := range writable {
+		resolved, err := filepath.EvalSymlinks(w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.WritableRoots = append(s.WritableRoots, resolved)
+	}
+	if sharedRoot != "" {
+		s.SharedRoot = sharedRoot
+	}
+	return &s
+}
+
+// refusingSiting puts every temp dir in the sandbox's writable set, so any fixture source the
+// test made refuses as "which the sandbox may write" — the state every source was in before
+// delivery existed, now for a stated reason.
+func refusingSiting(t *testing.T) func(*Options) {
+	return func(o *Options) { o.macosCtxSiting = sitingWritable(t, "", os.TempDir()) }
+}
+
+// deliveringSiting puts nothing in the writable set and the shared root at sharedRoot, so a
+// fixture source outside the workspace and the home is one this backend delivers.
+func deliveringSiting(t *testing.T, sharedRoot string) func(*Options) {
+	return func(o *Options) { o.macosCtxSiting = sitingWritable(t, sharedRoot) }
+}
 
 // runMacosUserExpectingRefusal drives Run() on the macos-user arm and returns its output,
 // failing unless the launch refused WITHOUT reaching the backend handler.
@@ -376,7 +414,7 @@ func runMacosUserExpectingRefusal(t *testing.T, ws string, tweak func(*Options))
 	return out
 }
 
-func TestMacosUserRefusesADeclaredConfigMount(t *testing.T) {
+func TestMacosUserRefusesADeclaredConfigMountItCannotDeliver(t *testing.T) {
 	logs := t.TempDir()
 	home := ctxLaunchHome(t, `, "mounts": ["~/code/ref-repo", "`+logs+`:/ctx/logs"]`)
 	// The source EXISTS: an absent one is skipped, not refused (the test below).
@@ -384,13 +422,15 @@ func TestMacosUserRefusesADeclaredConfigMount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := runMacosUserExpectingRefusal(t, t.TempDir(), nil)
+	out := runMacosUserExpectingRefusal(t, t.TempDir(), refusingSiting(t))
 
 	for _, want := range []string{
 		"Refusing the macos-user launch",
-		"/ctx/ref-repo", // the bare-path entry, at the destination it would have taken
-		"/ctx/logs",     // the host:container entry, at the one it named
+		"/ctx/ref-repo",               // the bare-path entry, at the destination it would have taken
+		"/ctx/logs",                   // the host:container entry, at the one it named
+		"which the sandbox may write", // the REASON, per entry — not one sentence for all
 		"container runtime",
+		macosuser.SharedRootDefault(), // where to move it
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal never mentioned %q:\n%s", want, out)
@@ -403,65 +443,62 @@ func TestMacosUserRefusesADeclaredConfigMount(t *testing.T) {
 	}
 }
 
-// Every mode refuses: a read-write element is no more deliverable here than a read-only
-// one, and a --dry-run refuses too, since its plan would describe a launch that cannot run.
-func TestMacosUserRefusesAReadWriteMountAndADryRunToo(t *testing.T) {
-	data := t.TempDir()
+// A read-write element outside the shared root refuses, and a --dry-run refuses too, since its
+// plan would describe a launch that cannot run.
+func TestMacosUserRefusesAReadWriteMountOutsideTheSharedRootAndADryRunToo(t *testing.T) {
+	data := floortest.ResolvedTemp(t)
 	ctxLaunchHome(t, `, "mounts": [{"host": "`+data+`", "mode": "rw", "at": "/ctx/data"}]`)
 
-	out := runMacosUserExpectingRefusal(t, t.TempDir(), func(o *Options) { o.DryRun = true })
-	if !strings.Contains(out, "/ctx/data (read-write)") {
-		t.Errorf("the refusal did not name the read-write mount:\n%s", out)
+	out := runMacosUserExpectingRefusal(t, t.TempDir(), func(o *Options) {
+		o.DryRun = true
+		deliveringSiting(t, "/Users/Shared/yolo")(o)
+	})
+	for _, want := range []string{"/ctx/data (read-write)", "a read-write source must sit under /Users/Shared/yolo"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the refusal did not say %q:\n%s", want, out)
+		}
+	}
+}
+
+// A SOURCE INSIDE A REAL HOME REFUSES (OQ-CX7: v1 delivers only sources outside every home),
+// with the home named — the common case on a Mac, so the one most worth a precise reason.
+func TestMacosUserRefusesASourceInsideAHome(t *testing.T) {
+	users := floortest.ResolvedTemp(t)
+	notes := filepath.Join(users, "alice", "notes")
+	if err := os.MkdirAll(notes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctxLaunchHome(t, `, "mounts": ["`+notes+`"]`)
+
+	out := runMacosUserExpectingRefusal(t, t.TempDir(), func(o *Options) {
+		s := sitingWritable(t, "")
+		s.UsersRoot, s.UsersRootAliases = users, nil
+		o.macosCtxSiting = s
+	})
+	if want := "is inside the home folder " + filepath.Join(users, "alice"); !strings.Contains(out, want) {
+		t.Errorf("the refusal did not say %q:\n%s", want, out)
 	}
 }
 
 // A PACK `mount` GRANT IS THE SAME DECLARATION, and refuses the same way. No pack yolo ships
 // declares one, so this drives a configured (file://) pack.
-func TestMacosUserRefusesAPackMountGrant(t *testing.T) {
-	home := packHome(t)
-	src := filepath.Join(t.TempDir(), "acme")
-	if err := os.MkdirAll(src, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeHostFileAt(t, filepath.Join(src, "pack.json"),
-		`{"name":"acme","contributes":[{"kind":"mount","host":"datasets/acme","into":"acme"}]}`,
-		0o644)
-	writeUserPacks(t, home, `["file://`+src+`"]`)
-	if err := os.MkdirAll(filepath.Join(home, "datasets", "acme"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+func TestMacosUserRefusesAPackMountGrantItCannotDeliver(t *testing.T) {
+	home := acmeMountPack(t, true)
 
-	out := runMacosUserExpectingRefusal(t, t.TempDir(), nil)
+	out := runMacosUserExpectingRefusal(t, t.TempDir(), refusingSiting(t))
 
 	for _, want := range []string{"Refusing the macos-user launch", "pack acme", "~/datasets/acme", "/ctx/acme"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the refusal never mentioned %q:\n%s", want, out)
 		}
 	}
+	_ = home
 }
 
-// KEYED ON A DELIVERABLE DECLARATION, never on a default (DP-D15's own warning): a source
-// that does not exist would be absent on every backend, so it is skipped with the container
-// backends' line and the launch goes on (CX-D9).
-func TestMacosUserSkipsADeclaredMountWhoseSourceIsAbsent(t *testing.T) {
-	ctxLaunchHome(t, `, "mounts": ["~/no/such/dir"]`)
-
-	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
-	if !strings.Contains(out, "mount path does not exist, skipping") {
-		t.Errorf("an absent mount source was not named as skipped:\n%s", out)
-	}
-	if strings.Contains(out, "Refusing the macos-user launch") {
-		t.Errorf("an absent source refused the launch:\n%s", out)
-	}
-}
-
-// THE BANNER STOPS ANNOUNCING A READ THAT DOES NOT HAPPEN (DP-B2). The banner used to
-// disclose a pack `mount` as a host READ on this backend, where nothing is ever bound. With
-// the grant's source absent the launch proceeds (the test above), and that is the one state
-// in which the banner still prints on this arm with the grant selected — so it is where the
-// contradiction lived and where it is pinned. The container arm keeps the line, which is
-// what makes this the macos-user arm's own filter rather than a lost claim kind.
-func TestMacosUserBannerDoesNotDiscloseAPackMountItDoesNotDeliver(t *testing.T) {
+// acmeMountPack selects a configured pack `acme` whose `mount` grant is ~/datasets/acme →
+// /ctx/acme, plus an env claim the banner always prints, and makes the source when withSource.
+func acmeMountPack(t *testing.T, withSource bool) string {
+	t.Helper()
 	home := packHome(t)
 	src := filepath.Join(t.TempDir(), "acme")
 	if err := os.MkdirAll(src, 0o755); err != nil {
@@ -471,20 +508,118 @@ func TestMacosUserBannerDoesNotDiscloseAPackMountItDoesNotDeliver(t *testing.T) 
 		`{"name":"acme","contributes":[{"kind":"mount","host":"datasets/acme","into":"acme"},`+
 			`{"kind":"env","vars":{"ACME_MARKER":"1"}}]}`, 0o644)
 	writeUserPacks(t, home, `["file://`+src+`"]`)
-	// ~/datasets/acme deliberately NOT created.
-
-	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
-
-	// The control: the banner printed, so its silence about the mount is the filter.
-	if !strings.Contains(out, "ACME_MARKER=1") {
-		t.Fatalf("fixture: the pack's env claim is not on the banner, so this test cannot tell "+
-			"a filtered mount line from no banner at all:\n%s", out)
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "acme:") && strings.Contains(line, "[mount]") {
-			t.Errorf("the macos-user banner still discloses a pack mount this backend never "+
-				"binds:\n%s", line)
+	if withSource {
+		if err := os.MkdirAll(filepath.Join(home, "datasets", "acme"), 0o755); err != nil {
+			t.Fatal(err)
 		}
+	}
+	return home
+}
+
+// KEYED ON A DELIVERABLE DECLARATION, never on a default (DP-D15's own warning): a source
+// that does not exist would be absent on every backend, so it is skipped with the container
+// backends' line and the launch goes on (CX-D9).
+func TestMacosUserSkipsADeclaredMountWhoseSourceIsAbsent(t *testing.T) {
+	ctxLaunchHome(t, `, "mounts": ["~/no/such/dir"]`)
+
+	ctx, out := runMacosUserCapturingCtx(t, t.TempDir(), refusingSiting(t))
+	if !strings.Contains(out, "mount path does not exist, skipping") {
+		t.Errorf("an absent mount source was not named as skipped:\n%s", out)
+	}
+	if strings.Contains(out, "Refusing the macos-user launch") {
+		t.Errorf("an absent source refused the launch:\n%s", out)
+	}
+	if len(ctx.Links) != 0 {
+		t.Errorf("an absent source crossed as a link: %+v", ctx.Links)
+	}
+}
+
+// THE DELIVERY ITSELF (§4 step 4): a read-only config element whose source the siting admits
+// reaches the backend as a link — at the container's /ctx path, from the RESOLVED source, read-
+// only and a directory — and the launch neither refuses nor discloses a write. Fails if the arm
+// stops handing the links over (ctxDelivery.ctx.Links) or stops deciding them.
+func TestMacosUserDeliversAReadOnlyConfigMountAsALink(t *testing.T) {
+	root := floortest.ResolvedTemp(t)
+	lib := filepath.Join(root, "lib")
+	if err := os.MkdirAll(lib, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Through a symlink, so the RESOLVED source is what must cross: a rule on the link's own
+	// spelling would match nothing (declaration-parity.md §6.1 probe 2).
+	alias := filepath.Join(floortest.ResolvedTemp(t), "lib-alias")
+	if err := os.Symlink(lib, alias); err != nil {
+		t.Fatal(err)
+	}
+	ctxLaunchHome(t, `, "mounts": ["`+alias+`:/ctx/lib"]`)
+
+	ctx, out := runMacosUserCapturingCtx(t, t.TempDir(), deliveringSiting(t, ""))
+
+	want := macosuser.ContextLink{Dest: "/ctx/lib", Source: lib, Dir: true}
+	if len(ctx.Links) != 1 || ctx.Links[0] != want {
+		t.Fatalf("Links = %+v, want exactly %+v — the backend was not handed the mount to link", ctx.Links, want)
+	}
+	if strings.Contains(out, "Refusing the macos-user launch") || strings.Contains(out, "Read-write mount:") {
+		t.Errorf("a deliverable read-only mount refused or was disclosed as writable:\n%s", out)
+	}
+}
+
+// STEP 5: a read-write element under the shared root crosses read-write, and §2.4's
+// disclosure is on the launch stream WITH YOLO_NO_BANNER=1 set, naming the path the agent
+// opens here — under the context dir, not /ctx.
+func TestMacosUserDeliversAReadWriteMountAndDisclosesIt(t *testing.T) {
+	shared := floortest.ResolvedTemp(t)
+	data := filepath.Join(shared, "datasets")
+	if err := os.MkdirAll(data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctxLaunchHome(t, `, "mounts": [{"host": "`+data+`", "mode": "rw", "at": "/ctx/data"}]`)
+	t.Setenv("YOLO_NO_BANNER", "1")
+	ws := t.TempDir()
+
+	ctx, out := runMacosUserCapturingCtx(t, ws, func(o *Options) {
+		deliveringSiting(t, shared)(o)
+		base := o.Getenv
+		o.Getenv = func(k string) string {
+			if k == "YOLO_NO_BANNER" {
+				return "1"
+			}
+			return base(k)
+		}
+	})
+
+	if len(ctx.Links) != 1 || !ctx.Links[0].RW || ctx.Links[0].Source != data || ctx.Links[0].Dest != "/ctx/data" {
+		t.Fatalf("Links = %+v, want one read-write link to %s at /ctx/data", ctx.Links, data)
+	}
+	staged := macosuser.StagedCtxRoot(cnameFromWorkspace(t, ws), "") + "/data"
+	for _, want := range []string{"Read-write mount:", data + " → " + staged, "including a symlink the jail planted"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch stream lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+// THE BANNER DISCLOSES A PACK `mount` THIS BACKEND DELIVERS, as every container arm does, and
+// the grant crosses as a link from the home path the pack names, resolved. DP-B2's banner half
+// left the claim out while nothing delivered it; delivery brought it back.
+func TestMacosUserBannerDisclosesAPackMountItDelivers(t *testing.T) {
+	home := acmeMountPack(t, true)
+
+	ctx, out := runMacosUserCapturingCtx(t, t.TempDir(), deliveringSiting(t, ""))
+
+	if !strings.Contains(out, "ACME_MARKER=1") {
+		t.Fatalf("fixture: the pack's env claim is not on the banner:\n%s", out)
+	}
+	disclosed := false
+	for _, line := range strings.Split(out, "\n") {
+		disclosed = disclosed || (strings.Contains(line, "acme:") && strings.Contains(line, "[mount]"))
+	}
+	if !disclosed {
+		t.Errorf("the macos-user banner does not disclose the pack mount it delivers:\n%s", out)
+	}
+	want := macosuser.ContextLink{Dest: "/ctx/acme", Source: filepath.Join(home, "datasets", "acme"),
+		Named: "~/datasets/acme", Dir: true, Pack: "acme"}
+	if len(ctx.Links) != 1 || ctx.Links[0] != want {
+		t.Errorf("Links = %+v, want %+v", ctx.Links, want)
 	}
 }
 
@@ -493,7 +628,7 @@ func TestMacosUserBannerDoesNotDiscloseAPackMountItDoesNotDeliver(t *testing.T) 
 func TestMacosUserSaysNothingAboutContextMountsNobodyDeclared(t *testing.T) {
 	ctxLaunchHome(t, "")
 
-	_, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
+	ctx, out := runMacosUserCapturingCtx(t, t.TempDir(), nil)
 
 	for _, unwanted := range []string{"Refusing the macos-user launch", "context mount"} {
 		if strings.Contains(out, unwanted) {
@@ -501,6 +636,15 @@ func TestMacosUserSaysNothingAboutContextMountsNobodyDeclared(t *testing.T) {
 				unwanted, out)
 		}
 	}
+	if len(ctx.Links) != 0 {
+		t.Errorf("a launch that declared nothing handed the backend links: %+v", ctx.Links)
+	}
+}
+
+// cnameFromWorkspace is the container name the run pipeline derives for ws.
+func cnameFromWorkspace(t *testing.T, ws string) string {
+	t.Helper()
+	return runtime.FromWorkspace(resolvePath(ws))
 }
 
 // containsString is a local membership test — the run package has no generic helper and

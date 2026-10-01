@@ -304,9 +304,9 @@ var rwBoundaryConsequence = map[paths.ScopeRootKind]string{
 //     writable path to the workspace that bypasses workspace_readonly, the overlay that
 //     locks yolo-jail.jsonc included.
 //
-// Clause 3 (macos-user: /var/yolo-jail and the sandbox home) is not here: that backend
-// delivers no context mount yet and refuses every declared one (run's
-// refuseMacosUserCtxMounts), so there is no macos-user source for it to judge.
+// Clause 3 (macos-user: /var/yolo-jail and the sandbox home) is not here: it is a fact about
+// one backend's layout, judged by that backend's siting at launch (macosuser.SiteContextLinks,
+// through run's planMacosUserCtxMounts), which refuses either mode there.
 //
 // ~/.ssh, ~/.aws and the like are deliberately NOT named (CX-D2): whoever gets an element
 // past the trust predicate already holds the host user's authority.
