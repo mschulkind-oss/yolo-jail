@@ -18,6 +18,9 @@ step 2, the [listener inventory](#43-the-listener-inventory-in-go) (`internal/li
 Steps 3–5 — the boot snapshot, the supervisor tier lines and the dial — are not built. ⚠ Step 1
 reports on the **terminal**, not only to `boot.log`, which this design's cost line and
 [§9](#9-success-criteria)'s last criterion did not plan for ([§8](#8-what-i-would-build-in-order)).
+The one-line defect [§3.1](#31-one-of-the-six-is-not-this-designs-problem) set aside was fixed
+2026-10-01: the jail boot's drop notice names the dropped table and where each kind of entry is
+declared, instead of `mcp_servers` for every table.
 
 > **In short.** The problem is not log volume. yolo's observability facility is careful,
 > principled — and it stops at the container wall, so the measurements that settle a
@@ -214,7 +217,7 @@ formed.
 | :--- | :--- | :--- |
 | **`127.0.0.1:8214` held before the bridge binds it.** Four hypotheses; the cause was a provider-table aliasing that let a pack's jail-loopback address into the user-provider table, so the in-jail `socat` took the port before the supervisor started | **the jail's own listener table, with owning PIDs and argv**, at the moment the bind failed. `ss -ltnp` on the host was empty because the host end is a UNIX socket | the boot snapshot, at readiness failure. **Half built 2026-09-19**: the skipped forward and the wire-bridge bind failure now name the holder from `internal/listeners`; the snapshot is not built |
 | **A ~10 s silent gap at teardown**, between the agent's goodbye and yolo's last two lines | a span or mark covering the gap — the host half already has the shape (a dangling `start` is the answer to "who is doing it"); what is missing is a span over that stretch | host `host-perf.log`; owned elsewhere — see [§7](#7-risks) R3. **Instrumented 2026-09-24** (`f491d192`): the gap is Window A, now split into podman's teardown and the `podman run` client lingering after its container is removed, with the lingering client sampled — see [`perf-logging.md`](../reference/perf-logging.md#window-a-attribution) |
-| **`dropComputedTables` blamed for the wrong remedy.** Dropping a user's `enabledPlugins` or `env` entry prints *"add under `mcp_servers` to keep it"* | the dropped key's own name in the remedy. The message is a `Fprintf` with the table name in the subject and `mcp_servers` hardcoded in the predicate | not a diagnostic-tier problem at all — a one-line defect, [§3.1](#31-one-of-the-six-is-not-this-designs-problem). ⚠ **Both examples are stale as of 2026-09-25, and the defect is not**: `enabledPlugins` is no longer written, and `env` is not declared in full (`CO13`), so neither reaches the message now. A declared table that is not an MCP table still does: copilot's `lspServers`, and the provider catalogs at a host apply |
+| **`dropComputedTables` blamed for the wrong remedy.** Dropping a user's `enabledPlugins` or `env` entry prints *"add under `mcp_servers` to keep it"* | the dropped key's own name in the remedy. The message is a `Fprintf` with the table name in the subject and `mcp_servers` hardcoded in the predicate | not a diagnostic-tier problem at all — a one-line defect, [§3.1](#31-one-of-the-six-is-not-this-designs-problem). Both examples went stale 2026-09-25: `enabledPlugins` is no longer written, and `env` is not declared in full (`CO13`), so neither reaches the message now. **Fixed 2026-10-01**: the remedy names the dropped table and each kind's config table, so a pack's non-MCP table is no longer told `mcp_servers` alone ([§3.1](#31-one-of-the-six-is-not-this-designs-problem)) |
 | **`supervisor.waitTimeout` abandons live goroutines** after 10 s and reports nothing, leaking a process that can hold a port — which is how the 8214 port came to be held | *that the deadline fired*, and which children had not settled. ⚠ **It was examined and deliberately left unfixed**, and the reason is this design's central constraint rather than an oversight: the only channel available is the per-daemon log that may itself be the wedged thing ([§4.1.1](#411-the-sink-may-not-be-the-resource-under-diagnosis-and-it-must-outlive-the-boot)) | a sink independent of any service — [OQ-DB5](#oq-db5) |
 | **The Apple Container stale-image loop** (three compounding faults) | which image identity the launch resolved, which it found loaded, and why it did not replace it — each as a recorded fact rather than an inference from a retry | host-side; `launch.log` already carries the disclosures, so this is a *coverage* gap in what the image path states, not a tier gap |
 | **A darwin-only `unlinkat …: bad file descriptor`** surfacing in an unrelated test. Cause: `os.NewFile` arms a finalizer unconditionally, so every daemon spawn minted a second owner of an inherited fd and a GC closed it. Fixed in `16ef96cb`/`281acc5a`; the `terminate`/`start` publish race found alongside it was a real but separate bug (`13ecc5da`), **not** this failure's cause | that a process held a descriptor it did not own. ⚠ **The only visible trace was GitHub's own orphan-process cleanup step** — the diagnosis came from CI infrastructure rather than from anything yolo emitted, which is this table's thesis arriving from outside the product | CI; out of scope for the tier, and named so the table is honest |
@@ -239,12 +242,28 @@ sentence and then hardcodes `mcp_servers` in the remedy clause, so `claude/setti
 It earns its row for one reason: **a remedy that names the wrong key is worse than no
 remedy**, and it is the same defect class as a give-up with no report — a diagnostic that
 is present, confident and wrong. The fix is one `Fprintf`. It was assigned to whoever fixed
-the over-drop; `CO13` fixed it and left the message as it was, so it now has no owner.
-(Checked 2026-09-25, and again 2026-09-30: `noteDroppedManagedEntries` still hardcodes
-`mcp_servers` in its remedy clause, whatever table it names. But only `regenerateManagedTables`, on an `rmw`
-surface, calls it, the host render's `Env` carries no `Stderr`, and the one shipped `rmw` surface whose derive
-returns a table is `claude/config`, whose table is `mcpServers`; `claude/settings` is not `rmw`. So with the
-shipped packs the wrong remedy is reachable only from a pack that declares such a surface.)
+the over-drop; `CO13` fixed it and left the message as it was, and it then had no owner until
+the roadmap gave it one. Only `regenerateManagedTables`, on an `rmw` surface, calls it, the host
+render's `Env` carries no `Stderr`, and the one shipped `rmw` surface whose derive returns a table
+is `claude/config`, whose table is `mcpServers`; `claude/settings` is not `rmw`. So with the
+shipped packs the wrong remedy was reachable only from a pack that declares such a surface
+(checked 2026-09-25 and 2026-09-30).
+
+**Fixed 2026-10-01.** The notice now reads *"`<agent>/<surface>`: dropping from `<table>` (not in
+config): `<names>` — to keep it, declare it in yolo-jail.jsonc under the table `<table>` is built
+from (an MCP server under `mcp_servers`, an LSP server under `lsp_servers`, a provider under
+`providers`), reaching every agent"* (`noteDroppedManagedEntries`,
+`internal/entrypoint/prism.go:1422-1442`). It names each kind's config table rather than one,
+because no declaration tells core which config table a pack's derive builds a table from, and
+that is the form the host's twin, `mcpEntryRemedy`, already gives the same loss class
+([HC-D20](host-computed-layer.md#HC-D20)). It offers no `config-overlay`, unlike the host's: in a
+jail an `rmw` render asserts overlays before the derived tables and then clears each table it
+regenerates (`applyRMWLayers`, `internal/entrypoint/prism.go:1503-1510`), so an overlay's entry
+under one is dropped and announced like any other. Pinned through the boot loop by
+`TestTheBootDropNoticeNamesTheRemedyForATableThatIsNotMCP`,
+`TestFollowingTheBootDropRemedyKeepsTheEntry` and
+`TestTheBootDropNoticeForClaudesMCPTableStillNamesMCPServers`
+(`internal/entrypoint/droppedentryremedy_test.go`).
 
 ### 3.2 The 8214 failure, as the worked case
 

@@ -3,7 +3,7 @@ title: "Synced skill trees — implementation sketch"
 date: 2026-09-18
 status: accepted
 stage: BUILT
-next: "Nothing here: the design's three steps shipped and the lint defect is fixed; the boot half of the dropped-entry remedy is diagnostics-past-the-boundary.md §3.1's"
+next: "Nothing here: the design's three steps shipped, and both defects this measurement found are fixed"
 tags: [plan, sketch, skills, packs, host-notch, claude]
 summary: "The parking lot for `synced-skill-trees.md`: the measurement transcripts that doc cites, and the checks worth re-running against them. Not a hand-off artifact — no design decision is made here. The design's fence, notice and recovery report shipped 2026-09-22, so the build-side notes here are history; its last question, which belongs to the config-ownership axis, was decided on 2026-09-30."
 vantage:
@@ -191,9 +191,10 @@ design question — recorded here so they are not re-discovered.
   ([HC-D20](host-computed-layer.md#HC-D20); `mcpEntryRemedy`, pinned by
   `TestTheHostMCPRemedyNamesWhatReachesTheHost` and `TestFollowingTheHostMCPRemedyKeepsTheEntry`).
   The overlay's example and key list are built from the surfaces and table keys the run's loss
-  lines name (`droppedTablesOf`, pinned by `TestTheDroppedEntryRemedyNamesTheTableThatLostTheEntry`). The
-  boot notice still names `mcp_servers`, which is right for the one shipped table a jail boot
-  regenerates, `claude/config`'s `mcpServers`.
+  lines name (`droppedTablesOf`, pinned by `TestTheDroppedEntryRemedyNamesTheTableThatLostTheEntry`).
+  *Boot half fixed 2026-10-01:* the boot notice names the dropped table and each kind's config
+  table, as the host's does, but no `config-overlay`, which a jail's `rmw` render clears with the
+  table ([diagnostics-past-the-boundary.md §3.1](diagnostics-past-the-boundary.md#31-one-of-the-six-is-not-this-designs-problem)).
 - **`yolo pack lint` passes an overlay body the render refuses BY NAME.** `manifest.DecodeOverlay`
   reports two problems for a body carrying `defaults` where `managed` belongs: `defaults` is one
   of `OverlayDTO`'s explicitly-refused fields (declared rather than left to

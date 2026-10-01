@@ -1405,6 +1405,20 @@ func regenerateManagedTables(e *Env, surface manifest.Surface, obj *jsonx.Ordere
 // requirement of OQ12 (d). Quiet when nothing is dropped. Not a warning: dropping
 // a stale/hand-added entry is the intended behavior, but a user who added a server
 // through the agent's UI must be told where it went, with the fix.
+//
+// THE REMEDY IS THE TABLE'S, NOT THE MCP CLASS'S. A derive builds each table from the
+// config's own tables (manifest's Source* names, the ctx the derive reads), so the one
+// declaration that keeps a dropped entry is in the config table its kind lives in. Core
+// cannot say which table a pack's derive reads for a key — no declaration says so, and
+// core knows no vendor's key names — so the remedy names the dropped table and each kind's
+// home, the remedy-contract form the host's mcpEntryRemedy gives the same loss class
+// (docs/reference/report-tiers.md, the remedy contract; HC-D20). It used to hardcode
+// `mcp_servers` whatever table it named, which keeps nothing for an LSP or provider table
+// (docs/design/diagnostics-past-the-boundary.md §3.1).
+//
+// Unlike the host's, it offers no `config-overlay` alternative, because in a jail one does
+// not keep the entry: an rmw render asserts overlays FIRST and the regeneration below then
+// clears the table (applyRMWLayers), so the overlay's entry is the one this notice reports.
 func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, dest *jsonx.OrderedMap, table map[string]any) {
 	if e.Stderr == nil {
 		return
@@ -1420,8 +1434,11 @@ func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, des
 	}
 	sort.Strings(dropped)
 	fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (not in config): %s "+
-		"— add under `mcp_servers` to keep it, reaching every agent\n",
-		surface.Agent, surface.Name, key, strings.Join(dropped, ", "))
+		"— to keep it, declare it in yolo-jail.jsonc under the table %s is built from "+
+		"(an MCP server under `%s`, an LSP server under `%s`, a provider under `%s`), "+
+		"reaching every agent\n",
+		surface.Agent, surface.Name, key, strings.Join(dropped, ", "), key,
+		manifest.SourceMCPServers, manifest.SourceLSPServers, manifest.SourceProviders)
 }
 
 // sortedKeys returns layer's keys in a deterministic order, so a re-render writes
