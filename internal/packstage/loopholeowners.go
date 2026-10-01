@@ -57,8 +57,6 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 )
 
 // RetiredLoopholeStateDir is the subdirectory of the STATE ROOT that holds retired
@@ -75,6 +73,15 @@ import (
 // loophole can be called ".retired" — the collision is unrepresentable rather than merely
 // avoided.
 const RetiredLoopholeStateDir = ".retired"
+
+// logArchiveSuffix mirrors logcap.ArchiveSuffix: the one archived generation internal/logcap
+// keeps beside a host-service log once it passes its cap (host-service-<name>.log.1).
+//
+// Spelled here rather than imported, for the file doc's "No internal imports" reason, the way
+// internal/prune spells RetiredLoopholeStateDir. Pinned equal by
+// TestLogArchiveSuffixMatchesTheLogcapWriter, so a retirement cannot drift into leaving the
+// archive behind.
+const logArchiveSuffix = ".1"
 
 // ArchiveStampFormat is the generation-directory name format, and it MUST stay the format
 // internal/prune parses (looksLikeArchiveStamp). Prune deletes only a directory whose name
@@ -220,9 +227,9 @@ func RetireLoopholeState(req RetireRequest) (generation string, moved []string, 
 	}
 	if req.LogDir != "" {
 		log := filepath.Join(req.LogDir, "host-service-"+req.Loophole+".log")
-		// The log's one archived generation (internal/logcap) goes with it, for the same
+		// The log's one archived generation (logArchiveSuffix) goes with it, for the same
 		// attribution reason.
-		for _, p := range []string{log, log + logcap.ArchiveSuffix} {
+		for _, p := range []string{log, log + logArchiveSuffix} {
 			if exists(p) {
 				sources = append(sources, struct{ src, name string }{p, filepath.Base(p)})
 			}

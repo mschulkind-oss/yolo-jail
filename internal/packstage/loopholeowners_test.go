@@ -201,6 +201,15 @@ func TestRetireLoopholeStateTakesTheLogsArchivedGenerationToo(t *testing.T) {
 	}
 }
 
+// The retirement's spelling of the log archive's suffix is the writer's, so the `.1` the cap
+// leaves beside a log is the one a retirement moves.
+func TestLogArchiveSuffixMatchesTheLogcapWriter(t *testing.T) {
+	if logArchiveSuffix != logcap.ArchiveSuffix {
+		t.Errorf("packstage.logArchiveSuffix = %q, but internal/logcap archives a log at %q",
+			logArchiveSuffix, logcap.ArchiveSuffix)
+	}
+}
+
 // A loophole that never ran has nothing on disk: retirement is a silent no-op rather than an
 // empty generation dir the user has to wonder about.
 func TestRetireLoopholeStateNoStateIsANoOp(t *testing.T) {
