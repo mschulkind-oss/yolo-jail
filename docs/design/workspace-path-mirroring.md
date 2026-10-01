@@ -509,7 +509,7 @@ or a home-relative tool — which is most installed software.
 mirroring on parity grounds is arguing against the evidence.
 
 **It does not license a config knob.** Two spellings of the workspace path is a second way to
-do one thing, which [`happy-path-principle.md`](../reference/happy-path-principle.md) exists to refuse
+do one thing, which [`fill-the-matrix-principle.md`](../reference/fill-the-matrix-principle.md) exists to refuse
 (*"Fill the matrix. Support one path per cell"*). [§10](#10-alternatives-each-with-a-verdict), alternative C.
 
 **It does not change the outbound host-execution threat model** ([§4.4](#44-trust-one-undocumented-fail-safe-and-nothing-else)), and it must not be
@@ -717,7 +717,7 @@ Two conclusions follow, and they run in the same direction:
   2-versus-1 anomaly — the same way macos-user has no `/home/agent` (one shared
   `/Users/_yolojail`), no image, and no `per_side_paths` (*"Seatbelt can deny a path, it
   cannot fork one"*, [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md)).
-  [`happy-path-principle.md`](../reference/happy-path-principle.md) expects backends to fill different
+  [`fill-the-matrix-principle.md`](../reference/fill-the-matrix-principle.md) expects backends to fill different
   cells; `${workspace}` is the machinery that lets them.
 - **macos-user is not a precedent for mirroring, because it forbids the mirrored path.**
   Adopting mirroring on the container backends would make podman-on-macOS and macos-user
@@ -827,7 +827,7 @@ canonicalization ambiguity [§8](#8-migration) describes, where `pwd -P`, watche
 symlinks silently disagree with every doc. Strictly worse than A.
 
 **C. Make it a config knob** (`workspace_mount: "fixed" | "mirror"`). — **Rejected.** A second
-way to do one thing, which [`happy-path-principle.md`](../reference/happy-path-principle.md) refuses on
+way to do one thing, which [`fill-the-matrix-principle.md`](../reference/fill-the-matrix-principle.md) refuses on
 principle (*"A second option only earns its place if it covers a matrix cell the first
 cannot"* — this covers no new cell). Worse than either pole in practice, because every doc,
 skill, briefing and pack would have to hedge on a value it cannot know.

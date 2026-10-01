@@ -34,7 +34,7 @@ dispatch-only). A cell a test on either job pins is marked [CI].
 > what's built/proven/pending.
 
 **Purpose:** track macOS coverage across the whole cross-product so nothing
-ships half-done. yolo's rule (happy-path-principle.md) is "fill the matrix, one
+ships half-done. yolo's rule ([`fill-the-matrix-principle.md`](../reference/fill-the-matrix-principle.md)) is "fill the matrix, one
 path per cell." This is that matrix, with honest status. Update it as cells go
 green.
 

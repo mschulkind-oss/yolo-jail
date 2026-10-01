@@ -146,7 +146,7 @@ const confinementLabelPad = "               "
 //     it decides posture inside a pack's config surfaces, never as a line of its own.
 //
 // Printing the vector is NOT a step toward letting a user assemble one — only the three
-// named presets are selectable (happy-path-principle.md), and this adds no config surface.
+// named presets are selectable (fill-the-matrix-principle.md), and this adds no config surface.
 func printConfinementVector(pr richtext.Printer, prof render.Profile) {
 	var composed []string
 	for _, prim := range render.PrimitiveOrder() {

@@ -21,7 +21,7 @@ a length budget, which is the misreading this page spends most of its words prev
 
 **Sibling principles:** [`gate-placement-principle.md`](gate-placement-principle.md) (where a gate
 earns its place), [`extension-point-principle.md`](extension-point-principle.md) (who designs an
-extension point), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix).
+extension point), [`fill-the-matrix-principle.md`](fill-the-matrix-principle.md) (one path per matrix cell).
 
 **Reads with:** [`agent-briefings.md`](agent-briefings.md) — how a briefing is composed and
 delivered, which is the mechanism this principle rations.

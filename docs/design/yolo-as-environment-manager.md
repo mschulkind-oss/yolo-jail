@@ -86,7 +86,7 @@ reads as "yolo, at the jail level." The name gets *more* accurate under this fra
 **Reads with:** [../reference/what-yolo-is.md](../reference/what-yolo-is.md) (whose separability answer this
 reframes),
 [host-render-target.md](host-render-target.md) (the render side of the same idea; its [§9.1](host-render-target.md#9-open-questions--the-discussion-part) is
-the question this doc answers), [../reference/happy-path-principle.md](../reference/happy-path-principle.md) (which
+the question this doc answers), [../reference/fill-the-matrix-principle.md](../reference/fill-the-matrix-principle.md) (which
 constrains how many knobs this may add),
 [../reference/macos-no-vm-direction.md](../reference/macos-no-vm-direction.md) (the prior, narrower
 version of this argument),
@@ -620,7 +620,7 @@ boundary) + Seatbelt (confinement)" and its Linux form is "bwrap namespaces, no 
 — those are already *different compositions wearing one notch name*, which is the evidence the
 primitive layer is real and needs a home.
 
-What [../reference/happy-path-principle.md](../reference/happy-path-principle.md) rules out is *exposing* that vector as
+What [../reference/fill-the-matrix-principle.md](../reference/fill-the-matrix-principle.md) rules out is *exposing* that vector as
 the everyday interface — "fill the matrix, support one path per cell." So the design is
 two-layer: a composable primitive model that the code assembles and `describe` can print
 (so a non-standard combination is legible and testable), with **three named, documented

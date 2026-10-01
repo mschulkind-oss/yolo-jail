@@ -24,7 +24,7 @@ A principle keeps its rationale on purpose: a rule stripped to its verdict reads
 gets ignored, and this one is cited to *delete* things, which is the harder direction.
 
 **Sibling principles:** [`extension-point-principle.md`](extension-point-principle.md) (who designs
-an extension point), [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix, don't
+an extension point), [`fill-the-matrix-principle.md`](fill-the-matrix-principle.md) (fill the matrix, don't
 support every tool). Those two are about what to build; this one is about what *not* to.
 
 ---

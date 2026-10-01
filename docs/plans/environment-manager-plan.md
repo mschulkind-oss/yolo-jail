@@ -89,7 +89,7 @@ approval — is shipped and is the substrate every phase renders through
 **Reads with:** the design doc (the spec); [`BACKLOG.md`](BACKLOG.md) Stage G +
 [`../design/host-render-target.md`](../design/host-render-target.md) (Phase 1's
 detailed design); [`../reference/pack-system.md`](../reference/pack-system.md#selection-and-the-load-path) (the pack
-substrate); [`happy-path-principle.md`](../reference/happy-path-principle.md) (the
+substrate); [`fill-the-matrix-principle.md`](../reference/fill-the-matrix-principle.md) (the
 constraint on how many knobs each phase may expose).
 
 ---
@@ -286,7 +286,7 @@ and the byte-equality gate is green.
 - **2.2** Internally, model confinement as a **composable primitive set** (separate user
   / Seatbelt / bwrap+Landlock / namespace) that the three notches are presets over — so a
   future fourth combination (Linux `guest`, seatbelt-without-user) is not a bolted-on
-  special case. Only the three presets are user-selectable (`happy-path-principle.md`);
+  special case. Only the three presets are user-selectable (`fill-the-matrix-principle.md`);
   hand-assembly is an advanced opt-in, not the front door.
 - **2.3** `describe` prints the mechanism next to the notch (the dial is ordinal within a
   platform, not absolute across — a VM `jail` is stronger than a namespace `jail`).
@@ -895,7 +895,7 @@ the call site.
   How confinement is represented
   internally (separate user / Seatbelt / bwrap / namespace as independent knobs) so a fourth
   combination is expressible and `describe`-printable without exposing a hand-assembled
-  policy vector (`happy-path-principle.md`). Design doc [§4.0](../design/yolo-as-environment-manager.md#40-why-the-middle-notch-is-not-called-sandbox). **No call needed from you now** —
+  policy vector (`fill-the-matrix-principle.md`). Design doc [§4.0](../design/yolo-as-environment-manager.md#40-why-the-middle-notch-is-not-called-sandbox). **No call needed from you now** —
   I will propose it as part of Phase 2 and you review then; flagged here only so Phase 2 does
   not hard-code three monoliths and foreclose it.
 

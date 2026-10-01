@@ -18,7 +18,7 @@ import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 
 // Confinement is the resolved notch. The three values are presets over a composable
 // primitive model (see internal/render/confinement.go) — a user selects a notch, not a
-// hand-assembled policy vector (happy-path-principle.md).
+// hand-assembled policy vector (fill-the-matrix-principle.md).
 type Confinement string
 
 const (

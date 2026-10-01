@@ -9,7 +9,7 @@ package render
 // what keeps a fourth combination (a Linux `guest`) from being a bolted-on special case
 // rather than another preset.
 //
-// happy-path-principle.md still rules: only the three named presets are user-selectable
+// fill-the-matrix-principle.md still rules: only the three named presets are user-selectable
 // (the `confinement` key). The primitive vector is an implementation fact that
 // `describe` can print, not a matrix the user hand-assembles. So this file gives a
 // primitive set and the three presets over it — not a config surface.

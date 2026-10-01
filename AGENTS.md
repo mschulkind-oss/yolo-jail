@@ -313,6 +313,12 @@ live, so edits are visible on the host instantly — there is no sync step.
 
 ## Invariants & gotchas
 
+- **Every stop names the next step.** A refusal, a `yolo check` finding, a launcher line or a command's
+  last line that reports a problem also gives the easiest next step that keeps the user's trust: yolo does
+  it, asks, prints the one command, or names who can. A message that only reports is a defect
+  ([`happy-path-principle.md`](docs/reference/happy-path-principle.md), the maintainer's, adopted
+  2026-10-01; the one-path-per-cell rule it was confused with is
+  [`fill-the-matrix-principle.md`](docs/reference/fill-the-matrix-principle.md)).
 - **Run `yolo check` after every edit** to [`yolo-jail.jsonc`](yolo-jail.jsonc) or
   `~/.config/yolo-jail/config.jsonc`, before asking a human to restart. `yolo check --no-build` is the fast
   in-jail preflight. The y/N startup diff prompt is not a substitute.

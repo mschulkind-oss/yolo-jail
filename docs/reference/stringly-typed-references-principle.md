@@ -28,7 +28,7 @@ is what makes the severity affordable.
 where the authority changes — **[R5](#r5-place-the-gate-where-the-reference-is-decidable-and-the-failure-is-actionable)
 is that principle applied to references**),
 [`extension-point-principle.md`](extension-point-principle.md) (who designs an extension point), and
-[`happy-path-principle.md`](happy-path-principle.md) (fill the matrix with one blessed path).
+[`fill-the-matrix-principle.md`](fill-the-matrix-principle.md) (fill the matrix with one blessed path).
 
 **Reads with:** [`../design/reference-mismatch-diagnostics.md`](../design/reference-mismatch-diagnostics.md) —
 the in-flight design that closes the one remaining gap named below, written from the user's side.

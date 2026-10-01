@@ -21,7 +21,7 @@ before deciding that one use case is too few to design for.
 A principle keeps its rationale on purpose: this one asks for work whose payoff is invisible at the
 time (a field with one consumer), so the argument *is* the rule.
 
-**Sibling principles:** [`happy-path-principle.md`](happy-path-principle.md) (fill the matrix, don't
+**Sibling principles:** [`fill-the-matrix-principle.md`](fill-the-matrix-principle.md) (fill the matrix, don't
 support every tool) and [`gate-placement-principle.md`](gate-placement-principle.md) (put the gate
 where the authority changes). The first is about *breadth*, the second about *what not to build*;
 this one is about *who does the designing*.

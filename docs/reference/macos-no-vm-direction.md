@@ -47,7 +47,7 @@ throwing away the things that make this yolo rather than a sandbox wrapper.
 
 **Reads with:** [`macos-user-nix-and-features.md`](macos-user-nix-and-features.md) (that
 backend as built), [`nix-across-backends.md`](nix-across-backends.md) (what nix produces for
-each), [`../reference/happy-path-principle.md`](happy-path-principle.md) (one path per
+each), [`fill-the-matrix-principle.md`](fill-the-matrix-principle.md) (one path per
 matrix cell), [`../guides/macos.md`](../../userguide/guides/macos.md) (user-facing setup).
 
 ---
@@ -74,7 +74,7 @@ image to produce. "Which builder?" is a question *inside* the container track.
 - **The container cell is the fallback** for what native darwin cannot cover: a declared
   package with no darwin build, or a user who wants VM-grade isolation over Seatbelt.
 
-That satisfies the happy-path principle — one path per matrix cell, with the container as the
+That satisfies the [fill-the-matrix principle](fill-the-matrix-principle.md) — one path per matrix cell, with the container as the
 "needs real Linux" escape hatch — rather than two backends the user has to choose between.
 
 ### The acceptance bar
@@ -157,7 +157,7 @@ the mechanism and the platform escape hatch.
 > [!WARNING]
 > **A user's own persistent Linux builder is an escape hatch, not a shipped option.** Someone
 > who already runs one in their own nix configuration will use it, and that is fine. It is not
-> a path yolo provisions, because it is per-user infrastructure — the thing the happy-path
+> a path yolo provisions, because it is per-user infrastructure — the thing the fill-the-matrix
 > principle exists to keep off the default path.
 
 **Accepting "macOS means a VM"** and investing only in tuning it is the option the goal
@@ -196,7 +196,7 @@ Forward-facing rulings a maintainer would otherwise undo.
 
 | Ruling | Why it stays |
 | :--- | :--- |
-| **Pursue both, as one composed product** — not two competing backends | Framing them as competitors forces a user-facing choice between "fast" and "works for this package", which is exactly the matrix cell the happy-path principle says should have one path. The container is the *escape hatch*, and naming it that is what makes the native path the default it is headed for. |
+| **Pursue both, as one composed product** — not two competing backends | Framing them as competitors forces a user-facing choice between "fast" and "works for this package", which is exactly the matrix cell the fill-the-matrix principle says should have one path. The container is the *escape hatch*, and naming it that is what makes the native path the default it is headed for. |
 | **The builder axis exists only for the container runtime** | Every argument that starts "which builder should macOS use?" is a container-track question. Blurring it is what makes a VM-based builder look like an answer to a no-VM goal. |
 | **A darwin `buildEnv` profile, not an imperative nix profile** | An imperative profile accumulates state nobody declared and drifts from the config that was supposed to define it. A `buildEnv` is a pure function of the declared list. |
 | **The persistent on-demand VM builder is gone; the ephemeral container builder is the only shipped one** | A VM builder needs idle-stop logic, a RAM commitment and `sudo`. A builder that exists only during a build is zero-idle by construction, so the whole idle-stop concern disappears rather than being managed. |

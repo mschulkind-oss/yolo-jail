@@ -170,7 +170,7 @@ Fine for a 30-second "does my Mac boot the VM?" check; never for actual use.
 ### Non-options (for completeness)
 - **Colima / Docker-VM as the builder** — it's a Docker VM, not a nix builder;
   you'd install nix *inside* it and copy closures. Strictly more setup than any
-  of A–C. Already rejected in [happy-path-principle.md](../reference/happy-path-principle.md).
+  of A–C. Already rejected in [fill-the-matrix-principle.md](../reference/fill-the-matrix-principle.md).
 - **A remote Linux box on your LAN** — works (it's the same ssh-remote-builder
   mechanism), but requires you to *own and run* a Linux machine. Fine as a
   power-user escape hatch, not a default.
