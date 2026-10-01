@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 	"unicode"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // A remote or merge ref spelled like an option never reaches git: whatever
@@ -95,9 +97,13 @@ func TestCheckSourceWithRealGitNeverRunsAConfiguredUploadPack(t *testing.T) {
 	isolateGitConfig(t)
 	dir := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "pwned")
+	// git runs an upload-pack through a shell, so the marker is quoted as one word: unquoted,
+	// a temp dir holding a space made the command touch something else, and both "it did not
+	// run" checks below passed whatever git did.
+	uploadPack := "--upload-pack=touch " + shquote.Quote(marker) + ";"
 	gitIn(t, dir, "init", "-q", "-b", "main")
 	gitIn(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
-	gitIn(t, dir, "config", "branch.main.remote", "--upload-pack=touch "+marker+";")
+	gitIn(t, dir, "config", "branch.main.remote", uploadPack)
 	gitIn(t, dir, "config", "branch.main.merge", "refs/heads/main")
 	head := gitIn(t, dir, "rev-parse", "HEAD")
 
@@ -111,11 +117,19 @@ func TestCheckSourceWithRealGitNeverRunsAConfiguredUploadPack(t *testing.T) {
 	}
 
 	// And the `--` alone holds: git takes the value as a repository name.
-	if _, err := runGit(context.Background(), dir, "ls-remote", "--exit-code", "--", "--upload-pack=touch "+marker+";", "refs/heads/main"); err == nil {
+	if _, err := runGit(context.Background(), dir, "ls-remote", "--exit-code", "--", uploadPack, "refs/heads/main"); err == nil {
 		t.Error("ls-remote of an option-shaped repository name succeeded")
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("git read the remote after `--` as an option (stat err %v)", err)
+	}
+
+	// The control that makes both negatives mean something: handed to git AS an option, the
+	// same upload-pack does run and does make the marker.
+	_, _ = runGit(context.Background(), dir, "ls-remote", uploadPack, dir)
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("the fixture's upload-pack made no marker even when git ran it (%v), so the "+
+			"checks above prove nothing", err)
 	}
 }
 
