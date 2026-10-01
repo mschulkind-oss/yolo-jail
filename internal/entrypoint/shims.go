@@ -2040,7 +2040,10 @@ _update() {
     fi
     if [ "$rc" = 0 ]; then
         _prune_versions
-    else
+    elif [ "$_YOLO_MISPLACED" != 1 ]; then
+        # An installer that reported success and took the program away did not FAIL: the line
+        # for what it did is _say_misplaced's, at either end of this script, and "running the
+        # installed version" would name one that is gone.
         _say_not_updated update "$rc"
     fi
     return "$rc"

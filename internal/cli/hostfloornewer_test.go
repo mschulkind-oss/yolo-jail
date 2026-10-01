@@ -187,3 +187,23 @@ func TestHostApplyVerdictCountsAProgramTheFloorWillNotInstall(t *testing.T) {
 		t.Errorf("the --assert's verdict is not\n%s\ngot:\n%s", assertVerdict, report)
 	}
 }
+
+// The --assert's verdict counts a floor install that failed, as it counts one the floor will not
+// make: the floor stage printed "could not install it" and the run exited 1, and the verdict under
+// it said "Nothing to apply — this home is up to date."
+func TestHostApplyVerdictCountsAProgramTheFloorCouldNotInstall(t *testing.T) {
+	dist, _ := floorHostFixture(t, "")
+	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli", "fail")
+
+	rc, report := applyWith(t, true, nil)
+	verdict := "Incomplete — yolo's floor could not install floorcli (above); nothing else needed changing."
+	if rc != 1 {
+		t.Fatalf("--assert rc = %d, want 1:\n%s", rc, report)
+	}
+	if !strings.Contains(report, "floorcli: could not install it") {
+		t.Fatalf("the floor stage did not report the failed install:\n%s", report)
+	}
+	if !strings.Contains(report, "\n"+verdict+"\n") || strings.Contains(report, "up to date") {
+		t.Errorf("the --assert's verdict is not\n%s\ngot:\n%s", verdict, report)
+	}
+}

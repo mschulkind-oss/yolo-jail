@@ -207,3 +207,57 @@ func TestAPackUpdateWhoseInstallerLandsNothingSaysSoAndFails(t *testing.T) {
 	}
 	assertNoRetryLoop(t, out, "misnative")
 }
+
+// The installer re-run that updates an installed program: it exits 0 and takes the program away.
+// That is the install that left nothing to run, not a failed update, so the update says what the
+// launch path's last line says, and only that. It also printed "update failed (status 1) —
+// running the installed version.", which contradicted the line under it ("reported success") and
+// named a version that was gone, in `yolo pack update` and at a launch alike.
+func TestAnInstallerUpdateThatLeavesNothingToRunSaysSoOnce(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl not found")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("#!/bin/bash\nrm -f \"$HOME/.local/bin/misnative\"\necho installed\nexit 0\n"))
+	}))
+	t.Cleanup(srv.Close)
+	url := srv.URL + "/install.sh"
+	for _, tc := range []struct {
+		name string
+		env  []string
+	}{
+		{"yolo pack update", []string{packUpdateEnv}},
+		{"a launch due an update", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, pathEnv, _ := misplacedFixture(t,
+				`{"kind":"program","bin":"misnative","via":"installer","url":"`+url+`"}`)
+			realBin := filepath.Join(e.Home, ".local", "bin", "misnative")
+			writeTestFile(t, realBin, "#!/bin/sh\necho old\n")
+			if err := os.Chmod(realBin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			out, rc := runGeneratedLauncher(t, e, pathEnv, "misnative", tc.env...)
+			if rc == 0 {
+				t.Fatalf("an update that left nothing to run reported success:\n%s", out)
+			}
+			if !strings.Contains(out, "re-running its installer") {
+				t.Fatalf("the launcher did not run the update:\n%s", out)
+			}
+			want := "  ⚠ misnative not available: its installer, " + url + ", reported success, but there is no " +
+				"misnative at " + realBin + ", where this launcher runs it from.\n" +
+				"    Pack acme's install for misnative does not put it there: tell that pack's author, or, if " +
+				"yolo ships pack acme, report it at " + IssuesURL + ".\n"
+			if !strings.HasSuffix(out, want) {
+				t.Errorf("the update does not end with\n%s\ngot:\n%s", want, out)
+			}
+			for _, wrong := range []string{"update failed", "running the installed version"} {
+				if strings.Contains(out, wrong) {
+					t.Errorf("the update says %q over an installer that reported success and left nothing:\n%s",
+						wrong, out)
+				}
+			}
+			assertNoRetryLoop(t, out, "misnative")
+		})
+	}
+}

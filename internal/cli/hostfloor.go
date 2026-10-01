@@ -296,6 +296,7 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 		if err != nil {
 			pr.Printf("  [red]%-20s %s: could not install it: %v[/red]", "host_floor", p.Bin(), err)
 			survey.noteUnattributedFailure()
+			survey.noteFloorFailed(p.Bin()) // the verdict names it (hostApplyOutcome)
 			rc = 1
 			continue
 		}

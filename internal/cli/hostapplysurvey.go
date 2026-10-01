@@ -180,10 +180,11 @@ type hostApplySurvey struct {
 	// among them, a loss.
 	floor []hostApplyDocFloorEntry
 	// floorRefused are the programs the floor stage will not install, in either posture, because a
-	// newer yolo wrote their record (hostfloor.ErrNewerRecord). A BLOCKER that leaves an --assert
-	// incomplete: it writes the rest and exits 1, so the verdict names them (hostApplyOutcome). The
-	// verdict used to read the floor stage not at all, and said "this home is up to date".
-	floorRefused []string
+	// newer yolo wrote their record (hostfloor.ErrNewerRecord); floorFailed are those whose install
+	// an --assert tried and failed. Each is a BLOCKER that leaves an --assert incomplete: it writes
+	// the rest and exits 1, so the verdict names them (hostApplyOutcome). The verdict used to read
+	// the floor stage not at all, and said "this home is up to date".
+	floorRefused, floorFailed []string
 	// unresolvedPacks are the configured packs this run could not resolve, with the resolver's
 	// reason. A BLOCKER that outranks every other: an --assert over them is refused before the
 	// first write (no half states), so the verdict of a dry run that found one is "would refuse".
@@ -246,6 +247,21 @@ func (s *hostApplySurvey) FloorRefusals() []string {
 		return nil
 	}
 	return s.floorRefused
+}
+
+// noteFloorFailed records bin as a program whose floor install an --assert tried and failed.
+func (s *hostApplySurvey) noteFloorFailed(bin string) {
+	if s != nil {
+		s.floorFailed = append(s.floorFailed, bin)
+	}
+}
+
+// FloorFailures names the programs whose floor install failed, in the order the stage reported them.
+func (s *hostApplySurvey) FloorFailures() []string {
+	if s == nil {
+		return nil
+	}
+	return s.floorFailed
 }
 
 // Home is the home this apply rendered into, "" for a survey nobody filled.

@@ -90,11 +90,12 @@ func hostApplyOutcome(s *hostApplySurvey, write bool) string {
 		// FIRST AMONG THE BLOCKERS: an --assert over an incomplete pack set writes nothing at all
 		// (no half states), so no count below describes anything it would do.
 		return outcomeRefused
-	case len(s.Failures()) > 0 || len(s.FloorRefusals()) > 0:
+	case len(s.Failures()) > 0 || len(s.FloorRefusals()) > 0 || len(s.FloorFailures()) > 0:
 		// A program yolo's floor will not install over a newer yolo's record is this outcome too,
-		// in both postures: an --assert writes the rest and exits 1, as it does for a destination
-		// it cannot write. The verdict read the floor stage not at all, and said "this home is up
-		// to date" under the line saying the floor would not install it.
+		// in both postures, and one whose install an --assert tried and failed: an --assert writes
+		// the rest and exits 1, as it does for a destination it cannot write. The verdict read the
+		// floor stage not at all, and said "this home is up to date" under the line saying the
+		// floor would not, or could not, install it.
 		return outcomeIncomplete
 	case !write && len(s.MissingDeps()) > 0:
 		return outcomeBlocked
@@ -125,7 +126,7 @@ const (
 	outcomeRefused = "refused"
 	// outcomeIncomplete — a pack failed to render, so the counts are missing its surfaces, or a
 	// destination could not be written, or yolo's floor will not install a program over a newer
-	// yolo's record. An --assert writes the rest and exits 1.
+	// yolo's record, or an --assert's floor install failed. An --assert writes the rest and exits 1.
 	outcomeIncomplete = "incomplete"
 	// outcomeBlocked — a declared dependency is missing (dry run only: an --assert with one
 	// is refused by the gate before it reaches a verdict at all).
@@ -172,8 +173,9 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 		// The PACKS, and the rest of the run in the same sentence: the failures themselves are
 		// stated once, with their fixes, in the group above, and what the reader still needs
 		// from the last line is whose config is missing and whether anything else happened. A
-		// program the floor will not install is named beside them, as a blocker is (the verdict
-		// block), with its step: one sentence, ending the run (P7).
+		// program the floor could not install is named beside them, its error being in the floor
+		// stage's line, and one it will not install as a blocker is (the verdict block), with its
+		// step: one sentence, ending the run (P7).
 		var what []string
 		if failures := s.Failures(); len(failures) > 0 {
 			who := "some of " + joinWords(possessives(failurePacks(failures)), "and") + " config"
@@ -182,6 +184,9 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 			} else {
 				what = append(what, who+" cannot be written")
 			}
+		}
+		if bins := s.FloorFailures(); len(bins) > 0 {
+			what = append(what, "yolo's floor could not install "+joinWords(bins, "and"))
 		}
 		if bins := s.FloorRefusals(); len(bins) > 0 {
 			what = append(what, floorRefusalClause(bins))

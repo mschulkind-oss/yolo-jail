@@ -15,8 +15,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `yolo pack update` no longer reports success when an agent's install leaves nothing to run; it
   says so, and who can fix it.
 - `yolo check-deps` now fails when yolo's own copy of an agent was installed by a newer yolo.
-- `yolo host apply` no longer calls your home up to date when it will not install an agent over a
-  newer yolo's copy; it names the step.
+- `yolo host apply` no longer calls your home up to date when it cannot install yolo's copy of an
+  agent.
 
 ## [0.11.1] - 2026-10-01
 

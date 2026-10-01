@@ -210,7 +210,9 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    the host floor will not install over a newer yolo's record ([rule 7](#the-rules)), ends with
    `yolo check-deps` to check again. A user config it cannot parse is one of those problems: the
    run used to say there was nothing to check and exit 0
-   (`TestCheckDepsRefusesAnUnreadableUserConfig`).
+   (`TestCheckDepsRefusesAnUnreadableUserConfig`). An `--assert` whose install of yolo's own copy
+   of an agent failed says so in its verdict, where it said the home was up to date
+   (`TestHostApplyVerdictCountsAProgramTheFloorCouldNotInstall`).
 6. **Re-running is always safe.** The next step for nearly any interrupted command is to run it
    again, and that only works if a second run can't make things worse.
    *In yolo:* a failed auto-capture says `The next launch retries.`, and a launcher whose update is
@@ -223,10 +225,13 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    `launchermisplaced_test.go`). It used to get the failed-install line, which sent the user round
    that loop. `yolo pack update` ends with the same line and exits non-zero, where on the npm path
    it reported that refresh as a success
-   (`TestAPackUpdateWhoseNpmInstallLandsNothingSaysSoAndFails`). The pnpm launcher retries a failed install only an hour after the last failure, so it
-   says when a run retries and prints the command that retries now. Only a failure starts that
-   hour, a successful install clearing it, so a pnpm removed after it installed is installed again
-   on the next run, where the line used to say its install had failed
+   (`TestAPackUpdateWhoseNpmInstallLandsNothingSaysSoAndFails`). An installer re-run that takes
+   away the program it was updating gets that line alone, where it also said the update had
+   failed and the installed version runs (`TestAnInstallerUpdateThatLeavesNothingToRunSaysSoOnce`).
+   The pnpm launcher retries a failed install only an hour after the last failure, so it says
+   when a run retries and prints the command that retries now. Only a failure starts that hour, a
+   successful install clearing it, so a pnpm removed after it installed is installed again on the
+   next run, where the line used to say its install had failed
    (`launcherretry_test.go` runs each launcher again, and the pnpm command as printed;
    `pnpmthrottle_test.go` runs both orders).
 7. **Don't send the user to find something yolo could figure out itself.** If yolo can work out the
@@ -245,12 +250,12 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    and ends with its re-check, as it does for a missing dependency, where it exited 0
    (`TestCheckDepsFailsOverANewerYolosFloorRecord`). `yolo host apply`'s verdict, in a dry run
    and an `--assert`, says the floor will not install that program and names the step, where it
-   said the home was up to date
-   (`TestHostApplyVerdictCountsAProgramTheFloorWillNotInstall`). The floor is one folder every yolo on the
-   machine shares, so the newer record can be another install's (a from-source build beside a
-   Homebrew one), or a yolo the user went back from on purpose, and then `yolo update` finds
-   nothing newer, or undoes that choice. So the refusal names a second step that works on every
-   channel: remove that record, and the next launch installs this yolo's own copy
+   said the home was up to date (`TestHostApplyVerdictCountsAProgramTheFloorWillNotInstall`). The
+   floor is one folder every yolo on the machine shares, so the newer record can be another
+   install's (a from-source build beside a Homebrew one), or a yolo the user went back from on
+   purpose, and then `yolo update` finds nothing newer, or undoes that choice. So the refusal
+   names a second step that works on every channel: remove that record, and the next launch
+   installs this yolo's own copy
    (`TestTheRefusalOfANewerYolosRecordNamesAStepThatWorksWithoutIt`).
 
 ## Before and after
