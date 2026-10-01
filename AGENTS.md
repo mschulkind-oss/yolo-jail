@@ -549,8 +549,21 @@ release is fixed by the next one. What the script cannot judge is who the sectio
 - **Write to the user, in their terms**: what they can now do, see or stop working around. No commit
   hashes, PR numbers, package names or file paths; a repository-relative doc link is fine, since
   `release.yml` pins it to the tag.
-- **Prose for a feature, a bullet for an unrelated fix**, under `### Added`, `### Changed` and
-  `### Fixed`; a number only where a test or a constant pins it.
+- **Short, by the maintainer's ruling (2026-10-01: ours had grown "nigh unreadable", ten times
+  Vantage's).** The standard is the `open-source-project` skill's `references/changelog.md`, kept
+  tighter than its ceilings:
+  - a release opens with ONE sentence naming its two or three biggest changes;
+  - a feature is one `**Bold lead.**` paragraph of at most two or three short sentences, then
+    `See [doc](link)`;
+  - a fix is one bullet line;
+  - a section stays at or under about 650 words.
+
+  Never say how a change works, why, or how it was found. `### Changed` keeps every upgrade-breaking
+  change, each with the one action the user takes. When you land other work, rewrite its lines to
+  this shape: a union merge keeps every rewording.
+- `### Added`, `### Changed`, `### Fixed`, then `### Contributors`, thanking each outside
+  contributor by public GitHub name and linked handle (never an email); a number only where a test
+  or a constant pins it.
 - An old minor line's retrospective section is headed `## 0.9.x`. A heading that spells a full version
   is one the extractor will publish.
 
