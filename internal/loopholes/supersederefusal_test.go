@@ -1,10 +1,12 @@
 package loopholes
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -110,5 +112,18 @@ func TestUnmatchedSupersessionFixNamesOnlyProvenSkew(t *testing.T) {
 	}
 	if got := supersessionSkewClause(nil, "/src/yolo-jail"); got != "" {
 		t.Errorf("no skew rendered a clause: %q", got)
+	}
+
+	// The `cd` is for pasting, so a checkout under a path with a space in it has to come back
+	// out of a shell as ONE word.
+	spaced := "/Users/Jane Doe/code/yolo-jail"
+	clause = supersessionSkewClause(skew, spaced)
+	_, rest, _ := strings.Cut(clause, "(cd ")
+	dir, _, found := strings.Cut(rest, " && just install)")
+	if !found {
+		t.Fatalf("skew clause offers no `(cd <tree> && just install)`: %q", clause)
+	}
+	if got := testsupport.ShellWords(t, "cd "+dir); !slices.Equal(got, []string{"cd", spaced}) {
+		t.Errorf("the clause's cd reads as %q in a shell, want [cd %q]: %q", got, spaced, clause)
 	}
 }

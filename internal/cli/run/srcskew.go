@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -53,7 +54,7 @@ func (o *Options) refuseOnSourceSkew(repoRoot string) bool {
 			"and a yolo-entrypoint built from different source — which fails deep inside the\n" +
 			"boot, naming neither half (the last one refused with\n" +
 			"`mkdir /home/agent/.yolo: read-only file system`).\n\n" +
-			"[bold]Fix:[/bold]  (cd " + repoRoot + " && just install)\n\n" +
+			"[bold]Fix:[/bold]  (cd " + shquote.Quote(repoRoot) + " && just install)\n\n" +
 			"[bold]If you just ran that[/bold], the path above is not where it installed — compare it\n" +
 			"with `go env GOBIN` (or `$(go env GOPATH)/bin`), check `command -v -a yolo` for an\n" +
 			"older copy earlier on PATH, and `hash -r` if your shell cached the old location.\n\n" +

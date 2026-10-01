@@ -121,7 +121,7 @@ func failureGroups(s *hostApplySurvey, home string, write bool) []remedyGroup {
 				Headline: fmt.Sprintf("%s: %s is a symlink to %s, whose directory does not exist",
 					notWritten, prettyHomePath(home, f.Link.Link), prettyHomePath(home, f.Link.Target)),
 				Remedy: fmt.Sprintf("rm %s   (or recreate %s), then `yolo host apply --assert`",
-					prettyHomePath(home, f.Link.Link),
+					shellHomePath(home, f.Link.Link),
 					prettyHomePath(home, filepath.Dir(f.Link.Target))),
 				VerdictTerm: failureVerdictTerm(f),
 				Warn:        true,

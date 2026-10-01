@@ -1,9 +1,14 @@
 package basehome
 
 import (
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // TestCleanupLinesAreOptionalAndNameOnlyDeclaredRootsWithBytes pins the reworded report
@@ -31,8 +36,8 @@ func TestCleanupLinesAreOptionalAndNameOnlyDeclaredRootsWithBytes(t *testing.T) 
 	for _, want := range []string{
 		"Nothing mounts or reads these bytes",
 		"optional cleanup",
-		"  mkdir -p " + archive,
-		"  mv " + filepath.Join(home, ".claude") + " " + archive + "/",
+		"  mkdir -p " + shquote.Quote(archive),
+		"  mv " + shquote.Quote(filepath.Join(home, ".claude")) + " " + shquote.Quote(archive) + "/",
 		"Do NOT move .claude-shared-credentials",
 	} {
 		if !strings.Contains(body, want) {
@@ -50,6 +55,36 @@ func TestCleanupLinesAreOptionalAndNameOnlyDeclaredRootsWithBytes(t *testing.T) 
 	for _, e := range lines {
 		if strings.Contains(e, "-home-someone-code-secret-thing") {
 			t.Errorf("a cleanup line names a workspace: %q", e)
+		}
+	}
+}
+
+// The cleanup lines are for pasting, so each path in them has to come back out of a shell as
+// ONE word. The state dir is under the user's home, and a macOS home is often under a path with
+// a space in it (/Users/Jane Doe): printed bare, `mv` moved the path's first word.
+func TestCleanupLinesNameEachPathAsOneShellWord(t *testing.T) {
+	home := filepath.Join(baseHomeFixture(t), "Jane Doe", "state", "home")
+	mkdirAll(t, filepath.Dir(home), ".")
+	if err := os.Rename(legacyFixture(t), home); err != nil {
+		t.Fatal(err)
+	}
+	rep := Detect(home, fixtureDeclsWithSweep())
+	if rep.Summary() == "" {
+		t.Fatal("the fixture produced no Summary, so the lines below prove nothing")
+	}
+	archive := filepath.Join(filepath.Dir(home), "home archive")
+	var offered [][]string
+	for _, line := range rep.CleanupLines(home, archive) {
+		if strings.HasPrefix(line, "  mkdir -p ") || strings.HasPrefix(line, "  mv ") {
+			offered = append(offered, testsupport.ShellWords(t, strings.TrimSpace(line)))
+		}
+	}
+	for _, want := range [][]string{
+		{"mkdir", "-p", archive},
+		{"mv", filepath.Join(home, ".claude"), archive + "/"},
+	} {
+		if !slices.ContainsFunc(offered, func(got []string) bool { return slices.Equal(got, want) }) {
+			t.Errorf("the cleanup lines do not offer %q as a shell reads them; they offer %q", want, offered)
 		}
 	}
 }

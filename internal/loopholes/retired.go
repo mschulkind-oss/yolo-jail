@@ -41,6 +41,7 @@ import (
 	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // RetiredUserLoopholes returns the module directories still sitting in the retired
@@ -96,9 +97,12 @@ func RetiredUserLoopholeNotice() string {
 		strings.Join(stranded, ", ") + "\n")
 	b.WriteString("Move each module into the conventional local pack, which is selected " +
 		"implicitly — no `packs` config line needed:\n")
-	b.WriteString("  mkdir -p " + filepath.Join(local, "loopholes") + "\n")
-	b.WriteString("  mv " + filepath.Join(dir, "<name>") + " " +
-		filepath.Join(local, "loopholes", "<name>") + "\n")
+	// Each path is one shell word, quoted, and the <name> placeholder stays outside the quotes:
+	// the lines are for pasting, and the directories are under the user's home, which can hold a
+	// space (/Users/Jane Doe).
+	b.WriteString("  mkdir -p " + shquote.Quote(filepath.Join(local, "loopholes")) + "\n")
+	b.WriteString("  mv " + shquote.Quote(dir) + "/<name> " +
+		shquote.Quote(filepath.Join(local, "loopholes")) + "/<name>\n")
 	b.WriteString("then declare each one in " + filepath.Join(local, "pack.json") + ":\n")
 	b.WriteString(`  {"name": "local", "contributes": [{"kind": "loophole", "from": "loopholes/` +
 		name + `"}]}` + "\n")

@@ -11,8 +11,11 @@ package loopholes
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // TestMain pins the retired directory somewhere that does not exist, for the whole
@@ -122,6 +125,37 @@ func TestRetiredUserDirIsReportedWithMigrationInstructions(t *testing.T) {
 	Discover(DiscoverOptions{})
 	if len(*warnings) != before {
 		t.Errorf("the notice repeated: %v", (*warnings)[before:])
+	}
+}
+
+// The migration commands are for pasting, so each directory in them has to come back out of a
+// shell as ONE word. Both live under the user's home, and a macOS home is often under a path
+// with a space in it (/Users/Jane Doe): printed bare, `mv` moved the path's first word.
+func TestRetiredUserDirMigrationCommandsNameEachPathAsOneShellWord(t *testing.T) {
+	unsetJail(t)
+	isolateModules(t)
+	home := filepath.Join(t.TempDir(), "Jane Doe")
+	t.Setenv("HOME", home)
+	retired := filepath.Join(home, ".config", "yolo-jail", "loopholes")
+	writeManifest(t, mkdir(t, filepath.Join(retired, "alpha")), map[string]any{"name": "alpha", "description": "x"})
+	t.Cleanup(withRetiredDir(retired))
+
+	local := filepath.Join(home, ".config", "yolo-jail", "local", "loopholes")
+	var offered [][]string
+	for _, line := range strings.Split(RetiredUserLoopholeNotice(), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "mkdir -p ") || strings.HasPrefix(line, "mv ") {
+			offered = append(offered, testsupport.ShellWords(t, strings.ReplaceAll(line, "<name>", "alpha")))
+		}
+	}
+	for _, want := range [][]string{
+		{"mkdir", "-p", local},
+		{"mv", filepath.Join(retired, "alpha"), filepath.Join(local, "alpha")},
+	} {
+		if !slices.ContainsFunc(offered, func(got []string) bool { return slices.Equal(got, want) }) {
+			t.Errorf("the notice does not offer %q as a shell reads it; it offers %q:\n%s",
+				want, offered, RetiredUserLoopholeNotice())
+		}
 	}
 }
 

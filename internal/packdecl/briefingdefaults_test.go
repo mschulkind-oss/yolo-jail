@@ -16,8 +16,11 @@ package packdecl
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // P2: SILENCE IS A BROADCAST, in a manifest too. Every row here was refused with
@@ -127,6 +130,16 @@ func TestRepositoryInstructionFileIsRefusedAsABriefingSource(t *testing.T) {
 	if !strings.Contains(probs, "Rename it inside briefing/") ||
 		!strings.Contains(probs, "git mv briefing/AGENTS.md briefing/prose.md") {
 		t.Errorf("briefing/AGENTS.md must be refused naming the rename, got %q", probs)
+	}
+
+	// The `git mv` is for pasting, so a source path with a space in it is one shell word.
+	probs = decodeOne(t, `{"kind":"briefing","from":"briefing/My Notes/AGENTS.md"}`)
+	_, rest, _ := strings.Cut(probs, "`git mv ")
+	if mv, _, ok := strings.Cut(rest, "`"); !ok {
+		t.Errorf("briefing/My Notes/AGENTS.md must be refused naming a `git mv`, got %q", probs)
+	} else if got := testsupport.ShellWords(t, mv); !slices.Equal(got,
+		[]string{"briefing/My Notes/AGENTS.md", "briefing/prose.md"}) {
+		t.Errorf("the offered `git mv %s` reads as %q in a shell: %q", mv, got, probs)
 	}
 
 	// SOURCES only, and exact case. A DESTINATION ending in AGENTS.md is where five shipped

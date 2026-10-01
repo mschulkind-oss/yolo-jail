@@ -574,6 +574,13 @@ sets, and a jail without pi no longer carries it.
   yolo refuses to start a program an agent can rewrite, but it read any path with a space as a
   shell script rather than a path, so in such a project the program started on your machine at
   every launch. See [the placement rule](docs/reference/loophole-system.md#the-placement-rule).
+- The commands yolo prints for you to paste now work when a path in them has a space, as a macOS
+  home under `/Users/Jane Doe` or a project under `~/My Projects` does. The macos-user `sudo rm`
+  remedies, the cleanup `mv` for old base-home state, the `(cd … && just install)` fix for a stale
+  yolo, the `rm` for a linked `.yolo` or a broken symlink, the `yolo update --from` remedy and the
+  retired-loopholes migration all printed such a path bare, so a pasted command split it in two
+  and acted on the wrong paths or failed. The macos-user `--dry-run` plan also quotes the
+  arguments of each command it would run as root, so it reads back as the command that runs.
 - A config whose `required_capabilities` asks for web search is no longer refused when an agent you
   selected searches on its own login, such as Claude Code or Antigravity, or when a profile runs an
   agent on a provider that searches, such as z.ai. The launch used to count only what your own

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Bytes is the candidate byte total.
@@ -158,9 +160,11 @@ func (r Report) CleanupLines(globalHome, archive string) []string {
 	if len(roots) == 0 {
 		return lines
 	}
-	lines = append(lines, "Moving them aside is optional cleanup:", "", "  mkdir -p "+archive)
+	// Each path is one shell word, quoted: the lines are for pasting, and a home under a path
+	// with a space in it (/Users/Jane Doe) would otherwise move the wrong things.
+	lines = append(lines, "Moving them aside is optional cleanup:", "", "  mkdir -p "+shquote.Quote(archive))
 	for _, root := range roots {
-		lines = append(lines, "  mv "+filepath.Join(globalHome, root)+" "+archive+"/")
+		lines = append(lines, "  mv "+shquote.Quote(filepath.Join(globalHome, root))+" "+shquote.Quote(archive)+"/")
 	}
 	return append(lines, "",
 		"Do NOT move .claude-shared-credentials or .gemini-shared-credentials — those are your "+

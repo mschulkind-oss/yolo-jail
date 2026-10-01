@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 func TestNewer(t *testing.T) {
@@ -296,5 +298,21 @@ printf 'ssh_askpass:%s\n' "${SSH_ASKPASS-unset}"
 		if !strings.Contains(out, want) {
 			t.Errorf("runGit output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// The refusal's `yolo update --from <checkout>` is for pasting, so a checkout under a path with
+// a space in it has to come back out of a shell as one word.
+func TestSourceBranchMismatchNamesTheCheckoutAsOneShellWord(t *testing.T) {
+	dir := "/Users/Jane Doe/code/yolo-jail"
+	msg := SourceBranchMismatch(Channel{Kind: KindSource, SourceDir: dir, Branch: "main"}, "topic").Error()
+	_, rest, _ := strings.Cut(msg, "`yolo update --from ")
+	arg, _, ok := strings.Cut(rest, "`")
+	if !ok {
+		t.Fatalf("the refusal offers no `yolo update --from <checkout>`: %q", msg)
+	}
+	if got := testsupport.ShellWords(t, "yolo update --from "+arg); !slices.Equal(got,
+		[]string{"yolo", "update", "--from", dir}) {
+		t.Errorf("the offered command reads as %q in a shell: %q", got, msg)
 	}
 }

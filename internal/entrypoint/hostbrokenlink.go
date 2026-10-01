@@ -37,6 +37,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // BrokenLink names a destination's broken link: Link is the symlink on the destination's path,
@@ -51,7 +53,7 @@ type BrokenLink struct {
 func (b BrokenLink) Reason() string {
 	return fmt.Sprintf("%s is a symlink to %s, whose directory does not exist — remove the link "+
 		"(`rm %s`) or recreate %s, then apply again; nothing was written there",
-		b.Link, b.Target, b.Link, filepath.Dir(b.Target))
+		b.Link, b.Target, shquote.Quote(b.Link), filepath.Dir(b.Target))
 }
 
 // maxLinkHops bounds a chain walk, as the kernel's own 40 does; a longer chain (or a loop) is

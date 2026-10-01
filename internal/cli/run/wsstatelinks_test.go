@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // hostSecret is the content of a host file the jail wants copied somewhere it can read.
@@ -572,7 +574,11 @@ func TestRunRefusesALinkedWorkspaceState(t *testing.T) {
 	for _, linked := range []string{".yolo", ".yolo/home"} {
 		t.Run(linked, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
-			ws := t.TempDir()
+			// Under "My Projects", so the `rm` the refusal offers has a space to keep in one word.
+			ws := filepath.Join(t.TempDir(), "My Projects", "ws")
+			if err := os.MkdirAll(ws, 0o755); err != nil {
+				t.Fatal(err)
+			}
 			hostDir := t.TempDir()
 			if linked == ".yolo/home" {
 				if err := os.MkdirAll(filepath.Join(ws, ".yolo"), 0o755); err != nil {
@@ -594,6 +600,13 @@ func TestRunRefusesALinkedWorkspaceState(t *testing.T) {
 				if !strings.Contains(out, want) {
 					t.Errorf("the refusal should name %q:\n%s", want, out)
 				}
+			}
+			// The remedy is for pasting: the link has to come back out of a shell as one word.
+			_, rest, _ := strings.Cut(out, "(rm ")
+			if arg, _, ok := strings.Cut(rest, "); yolo recreates"); !ok {
+				t.Errorf("the refusal offers no `rm <link>`:\n%s", out)
+			} else if got := testsupport.ShellWords(t, "rm "+arg); !slices.Equal(got, []string{"rm", link}) {
+				t.Errorf("the offered rm reads as %q in a shell, want [rm %q]:\n%s", got, link, out)
 			}
 			assertEmptyDir(t, hostDir, "a refused launch")
 		})

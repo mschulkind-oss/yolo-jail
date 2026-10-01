@@ -47,6 +47,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // THERE IS NO HOST LAUNCH APPROVAL (docs/plans/notch-convergence.md OQ-NC10, ruled 2026-09-28).
@@ -435,6 +436,16 @@ func prettyHomePath(home, abs string) string {
 		return "~/" + filepath.ToSlash(rel)
 	}
 	return abs
+}
+
+// shellHomePath is prettyHomePath for a path a remedy hands to a shell: what follows `~/` is one
+// quoted word, so the tilde still expands and a space in the rest (~/Library/Application Support)
+// stays inside the one argument.
+func shellHomePath(home, abs string) string {
+	if rel, ok := strings.CutPrefix(abs, home+string(filepath.Separator)); ok {
+		return "~/" + shquote.Quote(filepath.ToSlash(rel))
+	}
+	return shquote.Quote(abs)
 }
 
 func reportHostApplyGateSynchronized(errw io.Writer, home string, survey *hostApplySurvey) {

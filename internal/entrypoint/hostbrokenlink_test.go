@@ -12,11 +12,13 @@ package entrypoint
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // linkIntoMissingDir makes path a symlink to a file inside a directory that does not exist, and
@@ -254,5 +256,21 @@ func TestADanglingLinkIsAnyLinkAReadCannotFollow(t *testing.T) {
 		if link, target, ok := FindDanglingLink(p); ok {
 			t.Errorf("%s reported dangling: (%q, %q)", p, link, target)
 		}
+	}
+}
+
+// The refusal's `rm` is for pasting, so the link has to come back out of a shell as ONE word: a
+// destination under a path with a space in it, as a macOS app's settings are under
+// ~/Library/Application Support, printed bare would remove the path's first word.
+func TestABrokenLinkReasonNamesTheLinkAsOneShellWord(t *testing.T) {
+	link := filepath.Join(t.TempDir(), "Library", "Application Support", "Acme", "settings.json")
+	reason := BrokenLink{Link: link, Target: filepath.Join(t.TempDir(), "gone", "settings.json")}.Reason()
+	_, rest, _ := strings.Cut(reason, "(`rm ")
+	arg, _, ok := strings.Cut(rest, "`)")
+	if !ok {
+		t.Fatalf("the reason offers no `rm <link>`: %q", reason)
+	}
+	if got := testsupport.ShellWords(t, "rm "+arg); !slices.Equal(got, []string{"rm", link}) {
+		t.Errorf("the reason's rm reads as %q in a shell, want [rm %q]: %q", got, link, reason)
 	}
 }

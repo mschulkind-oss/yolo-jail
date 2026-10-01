@@ -12,8 +12,12 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // brokenLinkHome is a home with claude and pi selected and pi's settings.json linked into a
@@ -105,5 +109,29 @@ func TestAMissingDestinationIsCreatedNotFailed(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".pi", "agent", "settings.json")); err != nil {
 		t.Errorf("pi/settings was not created: %v\n%s", err, report)
+	}
+}
+
+// The broken link's remedy is for pasting, so the link has to come back out of a shell as ONE
+// word, the tilde still expanding. A pack surface may sit under a path with a space in it, as a
+// macOS app's settings do under ~/Library/Application Support; printed bare, the `rm` removed
+// the path's first word.
+func TestABrokenLinkRemedyNamesTheLinkAsOneShellWord(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "Jane Doe")
+	t.Setenv("HOME", home)
+	link := filepath.Join(home, "Library", "Application Support", "Acme", "settings.json")
+	var s hostApplySurvey
+	s.noteBrokenLink([]string{"acme"}, entrypoint.BrokenLink{
+		Link: link, Target: filepath.Join(home, ".dotfiles", "acme", "settings.json")})
+	groups := failureGroups(&s, home, true)
+	if len(groups) != 1 {
+		t.Fatalf("failureGroups = %+v, want the one broken-link group", groups)
+	}
+	cmd, _, ok := strings.Cut(groups[0].Remedy, "   (or recreate")
+	if !ok {
+		t.Fatalf("the remedy offers no `rm <link>`: %q", groups[0].Remedy)
+	}
+	if got := testsupport.ShellWords(t, cmd); !slices.Equal(got, []string{"rm", link}) {
+		t.Errorf("the remedy's %q reads as %q in a shell, want [rm %q]", cmd, got, link)
 	}
 }

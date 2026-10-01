@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // TestCheckCallsTheBaseHomeDisclosure pins the call site.
@@ -98,8 +100,8 @@ func TestCheckBaseHomeDisclosureWritesToStderr(t *testing.T) {
 	for _, want := range []string{
 		"Nothing mounts or reads these bytes",
 		"optional cleanup",
-		"  mkdir -p " + archive,
-		"  mv " + filepath.Join(globalHome, ".claude") + " " + archive + "/",
+		"  mkdir -p " + shquote.Quote(archive),
+		"  mv " + shquote.Quote(filepath.Join(globalHome, ".claude")) + " " + shquote.Quote(archive) + "/",
 		"Do NOT move .claude-shared-credentials",
 	} {
 		if !strings.Contains(errBuf.String(), want) {

@@ -3,6 +3,7 @@ package loopholes
 import (
 	"fmt"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -66,7 +67,7 @@ func supersessionSkewClause(skew *version.Skew, repoRoot string) string {
 	return fmt.Sprintf("This yolo is older than the source tree it builds from (yolo: %s, "+
 		"tree: %s, at %s): the packs it ships are its own commit's, so a capability only a "+
 		"newer pack serves matches nothing here. Run `(cd %s && just install)`, then retry.",
-		shortCommit(skew.BinaryCommit), shortCommit(skew.TreeCommit), repoRoot, repoRoot)
+		shortCommit(skew.BinaryCommit), shortCommit(skew.TreeCommit), repoRoot, shquote.Quote(repoRoot))
 }
 
 // shortCommit abbreviates a full sha for the clause, as the source-skew refusal does: a

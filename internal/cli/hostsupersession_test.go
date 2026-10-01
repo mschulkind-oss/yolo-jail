@@ -18,6 +18,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
@@ -128,7 +129,7 @@ func TestHostLaunchRefusalNamesProvenSkew(t *testing.T) {
 		"This yolo is older than the source tree it builds from",
 		"yolo: " + installed[:8],
 		"tree: " + head[:8],
-		"(cd " + root + " && just install)",
+		"(cd " + shquote.Quote(root) + " && just install)",
 	} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("the host refusal is missing %q:\n%s", want, errs)

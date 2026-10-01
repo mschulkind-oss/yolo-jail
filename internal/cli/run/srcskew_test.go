@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
@@ -24,10 +25,15 @@ import (
 // TestRunRefusesWhenTheHostBinaryIsOlderThanTheTree fails.
 
 // skewRepo builds a repo whose HEAD has moved past `installed` through internal/,
-// and stamps this binary as `installed` for the duration of the test.
+// and stamps this binary as `installed` for the duration of the test. The checkout sits
+// under "My Projects", so the refusal's pasteable `(cd <tree> && just install)` has a
+// space to keep in one word.
 func skewRepo(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	root := filepath.Join(t.TempDir(), "My Projects", "yolo-jail")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	git := func(args ...string) string {
 		t.Helper()
 		full := append([]string{
@@ -127,7 +133,7 @@ func TestRunRefusesWhenTheHostBinaryIsOlderThanTheTree(t *testing.T) {
 	}
 	for _, want := range []string{
 		"older than the source tree",
-		"just install",
+		"(cd " + shquote.Quote(repoRoot) + " && just install)",
 		"they differ in  internal",
 		AllowSourceSkewEnv,
 	} {

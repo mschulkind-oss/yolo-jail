@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
@@ -84,7 +85,7 @@ func Run(opts Options) (rc int) {
 		o.pr(o.Stderr).print("[bold red]Refusing to launch: " + linked + " is a symbolic " +
 			"link. The jail can write this workspace's .yolo, so a link there would carry " +
 			"the launcher's writes, and the container's binds, to wherever it points.[/bold red]")
-		o.pr(o.Stderr).print("[dim]Remove the link (rm " + linked + "); yolo recreates the " +
+		o.pr(o.Stderr).print("[dim]Remove the link (rm " + shquote.Quote(linked) + "); yolo recreates the " +
 			"directory on the next launch. There is no override for this one.[/dim]")
 		return 1
 	}

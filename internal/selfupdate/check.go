@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -82,7 +83,7 @@ func Check(ctx context.Context, ch Channel, prev State, deps CheckDeps) State {
 // the binary was built from. Check and Apply share it word for word.
 func SourceBranchMismatch(ch Channel, current string) error {
 	return fmt.Errorf("the checkout at %s is on %q, but this yolo was built from %q; switch back (or run `yolo update --from %s` to deploy %q deliberately)",
-		ch.SourceDir, current, ch.Branch, ch.SourceDir, current)
+		ch.SourceDir, current, ch.Branch, shquote.Quote(ch.SourceDir), current)
 }
 
 // sourceUpstream resolves the checkout's branch and what it tracks, refusing a

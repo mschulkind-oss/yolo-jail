@@ -1992,11 +1992,11 @@ func ReservedBriefingSourceProblem(field, rel string) string {
 		"tools read that name at any depth — so yolo never ships it as pack prose. ", field, rel, base)
 	if dir, _ := path.Split(clean); dir == DefaultBriefingDir+"/" {
 		return msg + fmt.Sprintf("Rename it inside %s/, e.g. `git mv %s %s`, and point any "+
-			"\"from\" naming it at %q", DefaultBriefingDir, clean, target, target)
+			"\"from\" naming it at %q", DefaultBriefingDir, shquote.Quote(clean), target, target)
 	}
 	return msg + fmt.Sprintf("Move the prose under %s/ with another name, e.g. `git mv %s %s`, "+
 		"then set \"from\": %q — or drop \"from\", and this contribution carries every "+
-		"%s/*.md no other contribution names", DefaultBriefingDir, clean, target, target,
+		"%s/*.md no other contribution names", DefaultBriefingDir, shquote.Quote(clean), target, target,
 		DefaultBriefingDir)
 }
 
