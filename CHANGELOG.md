@@ -604,16 +604,6 @@ sets, and a jail without pi no longer carries it.
   nothing else provides it, and it also stepped aside for the pnpm you declared, so the jail had
   no pnpm at all. mise now installs the version you declared, and a jail that declares none still
   gets yolo's.
-- With `network.mode: "host"`, and in a jail started from inside another jail, a launch is no
-  longer refused once in a while because a service inside the jail found its port taken
-  ("address already in use"). yolo picks those ports before the jail starts, and could then hand
-  the same port to one of the services it starts on your machine for that jail; it now keeps each
-  port to itself until the jail starts.
-- With `network.mode: "host"`, and in a jail started from inside another jail, a launch no longer
-  fails now and then because one of the jail's own services finds its port already taken
-  ("address already in use"). yolo picks those ports before the jail starts, and a service it
-  started on your machine for the same jail could take one first; yolo now holds each port until
-  the jail starts.
 - With `network.mode: "host"`, and in a jail started from inside another jail, a service yolo
   starts on your machine for the jail can no longer take a port that the jail's own services were
   given, which could make the launch fail with "address already in use". yolo picks those ports
