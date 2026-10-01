@@ -22,7 +22,8 @@ It found one key nobody had listed, [DP-B46](#54-the-host-notch-and-the-entry-po
 DP-B46's fix, which as a [§5](#5-silently-broken) row waits on approval rather than a ruling,
 the delivery half of [`DP-D15`](#7-ruled-divergent-and-the-ones-i-would-re-open)'s directory-shaped
 cells (its refusal half is built, and [`context-mounts.md`](context-mounts.md) owns the rest), and
-[§11](#11-what-i-would-build-in-order)'s step 7, which waits on a Mac.
+[§11](#11-what-i-would-build-in-order)'s step 7, which waits on a Mac (its macos-user rows'
+checks were written on 2026-10-01 for the scheduled `macos-user.yml` job and have not run there).
 [DP-L16](#6-alignable-with-the-mechanism-and-its-cost) is not left: principle
 [HP-DIR3](host-tool-provisioning.md#HP-DIR3) (2026-09-29) withdrew it, since at the host yolo never
 provisions `packages:`.
@@ -1279,6 +1280,21 @@ three. So the briefing fixes land together or not at all.
    step 1, since a zsh rc is the alternative mechanism there.
 7. **Everything gated on an instrument** — [DP-L15](#6-alignable-with-the-mechanism-and-its-cost)
    and every macos-user row — waits for a Mac.
+   - **The macos-user rows a launch can answer have a Mac check, written 2026-10-01** for the
+     scheduled `macos-user.yml` job, which runs on a GitHub-hosted Mac
+     ([`macosuserdeclparity_test.go`](../../integration/macosuserdeclparity_test.go)).
+     `TestMacosUserBriefingAndLaunchLinesDescribeThisBackend` reads the briefing that arrives at
+     `~/.claude/CLAUDE.md` for [DP-B19](#53-both-axes-at-once-the-notch-the-briefing-and-the-render-target)'s
+     header, the Environment block ruled 2026-09-13, [DP-B11](#51-macos-user-read-by-nobody-warned-by-nobody)'s
+     Home line, [DP-B3](#51-macos-user-read-by-nobody-warned-by-nobody)'s network line and
+     [DP-B6](#51-macos-user-read-by-nobody-warned-by-nobody)'s missing resources line, and the
+     launch output for [DP-B4](#51-macos-user-read-by-nobody-warned-by-nobody)'s `kvm` and
+     `gpu.enabled` lines. `TestMacosUserRefusesADeclaredContextMount` is
+     [DP-B1](#51-macos-user-read-by-nobody-warned-by-nobody) as `DP-D15` rules it, a refused
+     launch naming the entry. [DP-B8](#51-macos-user-read-by-nobody-warned-by-nobody) was already
+     `TestMacosUserFooterSaysJail`'s `renderer_on_path`. UNMEASURED until the job runs them.
+     DP-B5, DP-B9 and DP-B10 are stated skips and are not asserted here, and DP-L15 is
+     Apple Container's, still a Mac session.
 
 > [!CAUTION]
 > **Nothing in this catalog is verifiable from in-jail.** Every macos-user row was ruled
