@@ -3,9 +3,9 @@ title: "Several providers in one agent session: an ordered set per agent, and th
 date: 2026-09-29
 status: accepted
 stage: DECIDED
-next: "Build the oh-omp slice the doc lists as not built: declare provider_sets on packs/omp/pack.json's program, so a list named at oh-omp is taken whole and each entry's key reaches it"
+next: "Close §13's two remaining gaps: the config-overlay profile modifier gates on the set's primary alone (packoverlay.Collect takes the primary table), and the host remedy line names the primary only; §8 step 5 waits on a user asking for two via entries in one set"
 tags: [design, providers, profiles, selection, models, credentials, pi, opencode, notches, wire-bridge]
-summary: "Today each agent runs on exactly one profile, so one provider. The maintainer wants several active at once, switched freely inside pi. The proposal: an agent's selection becomes an ordered list of profiles (`-p pi=zai,openrouter`, `profile: {pi: [\"zai\", \"openrouter\"]}`); the picker offers the union of their models; the session starts, per OQ-ML2, only where it must, on the first entry's default; each listed provider's key reaches that agent alone; child agents stay inside the set. Only agents whose pack declares it may hold a set: pi, opencode and oh-omp can, claude, codex and copilot cannot. OQ-AP1 to OQ-AP3 were ruled 2026-09-29 and BUILT the same day for pi at every notch (the grammar, the config list, both refusals, the bare-list narrowing, the gate, the pre-flights, the contract tag and pi's render), and re-expressed on the `profile` key that replaced `use_profiles` (PP-D10, AP-D13); opencode's slice (§8 step 3) was BUILT 2026-09-30 (AP-D15, AP-D16). Measured by tests and by integration launches that render pi's and opencode's files for a set; no pi or opencode session was run."
+summary: "Today each agent runs on exactly one profile, so one provider. The maintainer wants several active at once, switched freely inside pi. The proposal: an agent's selection becomes an ordered list of profiles (`-p pi=zai,openrouter`, `profile: {pi: [\"zai\", \"openrouter\"]}`); the picker offers the union of their models; the session starts, per OQ-ML2, only where it must, on the first entry's default; each listed provider's key reaches that agent alone; child agents stay inside the set. Only agents whose pack declares it may hold a set: pi, opencode and oh-omp can, claude, codex and copilot cannot. OQ-AP1 to OQ-AP3 were ruled 2026-09-29 and BUILT the same day for pi at every notch (the grammar, the config list, both refusals, the bare-list narrowing, the gate, the pre-flights, the contract tag and pi's render), and re-expressed on the `profile` key that replaced `use_profiles` (PP-D10, AP-D13); opencode's slice (§8 step 3) was BUILT 2026-09-30 (AP-D15, AP-D16), and oh-omp's on 2026-10-01 (AP-D18). Measured by tests and by integration launches that render pi's, opencode's and oh-omp's files for a set; no pi, opencode or oh-omp session was run."
 vantage:
   status-chip: true
 ---
@@ -18,13 +18,15 @@ single-provider refusal, the bare-list narrowing, and pi holding a set at every 
 first spelled the config list under `use_profiles`; it lands on the `profile` key that replaced
 that key the same day ([PP-D10](providers-and-profiles-redesign.md#PP-D10)), as the key's list
 form ([AP-D13](#AP-D13)). opencode (step 3) was built on 2026-09-30
-([§14](#14-what-was-built-2026-09-30-opencode), [AP-D15](#AP-D15), [AP-D16](#AP-D16)). Not built:
-oh-omp, which can hold a set and does not declare one yet ([§4.3](#43-which-agents-take-a-set)),
-and several via routes (step 5), which wait on a user asking for two. MEASURED: unit tests pin each rule, every call site the review
-cut to the set's first entry now fails one, and integration launches rendered pi's and
-opencode's files for a set in a real jail ([§13](#13-what-was-built-2026-09-29),
-[§14](#14-what-was-built-2026-09-30-opencode)). UNMEASURED: no pi or opencode session was run, so
-none switched providers, and no request reached a provider. The code
+([§14](#14-what-was-built-2026-09-30-opencode), [AP-D15](#AP-D15), [AP-D16](#AP-D16)), and oh-omp
+on 2026-10-01 ([§15](#15-what-was-built-2026-10-01-oh-omp), [AP-D18](#AP-D18)). Not built: several
+via routes (step 5), which wait on a user asking for two, and the two gaps [§13](#13-what-was-built-2026-09-29)
+lists last. MEASURED: unit tests pin each rule, every call site the review
+cut to the set's first entry now fails one, and integration launches rendered pi's,
+opencode's and oh-omp's files for a set in a real jail ([§13](#13-what-was-built-2026-09-29),
+[§14](#14-what-was-built-2026-09-30-opencode), [§15](#15-what-was-built-2026-10-01-oh-omp)).
+UNMEASURED: no pi, opencode or oh-omp session was run, so none switched providers, and no request
+reached a provider. The code
 evidence for [§2](#2-what-exists-today) and [§3](#3-what-each-agent-can-hold) was read at `f26397cc`, and the per-agent capabilities from each agent's
 config format and its derive, not from a run.
 
@@ -200,8 +202,9 @@ What changes around the grammar:
   spelling of the declaration is the implementer's. It sits on the pack, because core does not
   know what an agent is.
 - **The first slice declares it for pi.** opencode followed on 2026-09-30
-  ([§8](#8-what-i-would-build-in-order) step 3, [AP-D15](#AP-D15)). oh-omp needs only its keys,
-  since it writes no selection, and does not declare it yet.
+  ([§8](#8-what-i-would-build-in-order) step 3, [AP-D15](#AP-D15)), and oh-omp on 2026-10-01
+  ([AP-D18](#AP-D18)). oh-omp writes no start model, so its set is its keys, its catalog rows and,
+  under an `only`, its picker scope.
 - **A set-capable agent's derives read the whole set** through a new derive input that lists
   each entry's provider, profile name and profile options, in order. `ctx.selected_provider` and
   `ctx.profile` stay, holding the primary, so a derive that predates sets reads a one-entry set
@@ -225,6 +228,10 @@ What changes around the grammar:
   - **opencode:** `enabled_providers` names every provider in the set, in order. opencode reads
     the key as a filter, not a list, so the order states the set and does not order opencode's
     menu ([AP-D15](#AP-D15)).
+  - **oh-omp:** its own picker already offers every provider its catalog holds, so nothing is
+    written unless an `only` narrowed an entry's list. Then `enabledModels` holds every entry in
+    set order, a narrowed entry's run with its default first and `<provider>/*` for any other,
+    because oh-omp's selector shows only the scope ([AP-D18](#AP-D18)).
 - **The start model follows [OQ-ML2](model-lists-and-pickers.md#OQ-ML2), read over the union.**
   yolo picks only when the model the agent would start on is not one of the set's models (a
   wrong-family id, a model of a provider that left the set, or none). A valid choice on any
@@ -532,6 +539,7 @@ made in this doc, and every one yields to a ruling on the questions above.
 | <a id="AP-D15"></a>AP-D15 | *Implementation decision.* **opencode holds a set** ([§8](#8-what-i-would-build-in-order) step 3): `packs/opencode` declares `provider_sets`, and its derive renders the set as three facts of `opencode.json`. `enabled_providers` names every entry in set order, the primary first, a Bedrock entry as `amazon-bedrock` (opencode's own client) wherever it sits, and an entry on opencode's own first-party provider by that provider's name. A first-party entry is one whose provider names no endpoint: it repoints nothing, so the protocol gate lets it through as the plain bring-your-own-key launch ([OQ-PR2](../reference/protocol-resolution.md#oq-pr2)), and opencode reaches it through its own built-in provider of that id, for which yolo writes no row. Its name must therefore be opencode's id for that provider (`anthropic`, `openai`); a name opencode has no provider of enables nothing. Any other entry the catalog wrote no row for is not named, since a bare name would enable opencode's own catalog provider of that id in place of the one the entry composed. *Corrected 2026-09-30 by the review:* the first build named only entries with a row, so `[zai, anthropic]` on a first-party `anthropic` disabled opencode's own anthropic provider while `[anthropic, zai]` kept it, and the derive said the launch refused such an entry, which no pre-flight does. `model` and `small_model` stay the primary's ([AP-D1](#AP-D1)). All three ride the selection. `model` and `small_model` are written only when the primary's model resolves, and `enabled_providers` whether or not one does ([AP-D17](#AP-D17), which corrected the first build). The native `amazon-bedrock` row belongs to the set's Bedrock entry wherever it sits, with that provider's `region` as `options.region`; a region only `~/.aws/config` holds reaches opencode as `AWS_REGION` through the region fill ([AP-D14](#AP-D14)), and one only `AWS_DEFAULT_REGION` carries is refused ([BR-D18](bedrock-plumbing.md#BR-D18)). opencode reads `enabled_providers` as a filter: its 1.18.32 schema describes the key as *"When set, ONLY these providers will be enabled. All other providers will be ignored"*, and its provider loader keeps a provider only when the key's `Set` has it (both read from the installed binary's strings, never run). So the order states the set and does not order opencode's menu. **A pick does not outlast opencode's run while yolo writes `model`** (found by the review, 2026-09-30): opencode saves its recent and favorite picks and not its current one, and its start order tries the config's `model` before them (both read from the 1.18.32 binary's strings), so each time opencode starts it is on the primary's model again whenever that model resolves. That is the exception to [§4.4](#44-models-the-union-and-the-start-model)'s *"a valid choice on any entry … is never steered"*. One profile had it before sets; a set makes it visible, since switching providers is the feature. With no `model` written ([AP-D17](#AP-D17)) opencode's recent picks decide, within the set | 2026-09-30 | [§14](#14-what-was-built-2026-09-30-opencode) | ✅ 2026-09-30 (`opencodeSetProviders`, `opencodeNativeBedrockEntry` in [`packs/opencode/derive.lua`](../../packs/opencode/derive.lua); `TestOpencodeRendersItsWholeActiveSet`, `TestOpencodeOnASetWithBedrockSecondBindsItNatively`, `TestAFirstPartyEntryAfterTheFirstIsInOpencodesFilter`, `TestAnOpencodeSetWhosePrimaryHasNoModelIsStillHeldToTheSet`, `TestOpencodesFlagAndKeyListRenderTheSame`, `TestOpencodeRunsOnEveryProviderOfItsSet`) |
 | <a id="AP-D16"></a>AP-D16 | *Implementation decision.* **Each `ctx.active_set` entry carries its own profile's `enforce_models`** ([MM-D5](model-lists-and-pickers.md#MM-D5)), beside `profile_name`, `provider`, `platform` and `profile`, so a derive that renders a refusal for a list a `models` contribution narrowed renders it on each entry's provider by that entry's switch, never the primary's ([AP-P1](#AP-P1)). opencode's `whitelist` is the one such refusal a set-capable agent renders today. A row for a provider outside the set still follows the primary's switch, as every row did before sets. The switch is a profile field, not an option, so the entry's `profile` table did not carry it | 2026-09-30 | [§14](#14-what-was-built-2026-09-30-opencode) | ✅ 2026-09-30 (`luahook.SetEntry.ModelsNotEnforced`, `packload.ActiveSetFor`; `opencodeEnforceFor`; `TestEachSetEntryCarriesItsOwnModelSwitch`, `TestEachOpencodeSetEntryKeepsItsOwnModelSwitch`, and on opencode's own Bedrock row `TestABedrockEntryAfterTheFirstKeepsItsOwnModelSwitch`) |
 | <a id="AP-D17"></a>AP-D17 | *Implementation decision.* **opencode's `enabled_providers` is written whenever the primary is a provider opencode's config holds, whether or not a model resolves**, for a set and for one profile alike ([AP-P1](#AP-P1)). A primary that declares no models (openrouter and kilo ship none) has no pick to give, so yolo names the providers and no model, and opencode chooses within them: [§4.4](#44-models-the-union-and-the-start-model)'s reading, and [DIR-AP1](#DIR-AP1)'s *"whenever you start up a session, we always want to make sure that we have picked one of those models"*. opencode's start order, read from the strings of the installed 1.18.32 binary and never run, is the config's `model`, then the first recent pick whose provider is loaded, then the first loaded provider's default; so under the filter a saved pick inside the set is kept and one outside it is passed over ([AP-P3](#AP-P3)). The first build wrote the filter only beside a model, reasoning that it would disable the provider opencode's saved choice names; when that choice lies outside the set, that is what the set asks for. The row amends [CN-D17](provider-credential-scope.md#7-decision-ledger)'s *"only when a model is written"* for opencode on one profile too, so a profile on openrouter or kilo now narrows opencode's menu to that provider. A primary whose provider names no endpoint still writes nothing: it is opencode's own first-party provider, which yolo leaves to opencode, so a set led by one is not held to the set | 2026-09-30 | [§14](#14-what-was-built-2026-09-30-opencode) | ✅ 2026-09-30 (the selection in [`packs/opencode/derive.lua`](../../packs/opencode/derive.lua); `TestAnOpencodeSetWhosePrimaryHasNoModelIsStillHeldToTheSet`, `TestOpencodeDeriveWritesTheSelectionKey`) |
+| <a id="AP-D18"></a>AP-D18 | *Implementation decision.* **oh-omp holds a set.** `packs/omp` declares `provider_sets`, so a list named at oh-omp is taken whole, a bare list reaches it whole, and each entry's key reaches oh-omp alone through the gate that already reads the set. Its catalog needed nothing, since it writes a row for every provider oh-omp reaches, selected or not. Its picker scope, `enabledModels` in `config.yml`, is written only when an `only` narrowed some entry, as for one profile ([MM-D8](model-lists-and-pickers.md#MM-D8)). Once written, the scope must hold every entry, since oh-omp's selector shows nothing outside it: a narrowed entry contributes its run with its default first, and any other entry contributes `<provider>/*`. That is every model oh-omp has for the entry, which is what it shows with no scope. oh-omp 0.15.3 matches the scope as globs over `<provider>/<id>` (`resolveModelScope`, read in the installed binary's strings, never run). Runs follow set order, so when nothing saved is in the scope, oh-omp's start rule (the scope's first entry) lands on the primary. **A carried entry sits only first, as a via entry does** ([AP-D9](#AP-D9)). oh-omp has no Bedrock client, so plain `bedrock` reaches it through the wire bridge's route for oh-omp, the agent's one route, whose upstream is the primary's provider. The first build accepted `-p oh-omp=zai,bedrock`, said both were live, and rendered no `bedrock` row, so the session ran on zai alone. `packload.ProfileSetProblems` now asks `ResolvedProfile.ViaFor`, not the profile's own `via`, and refuses the entry naming the reorder. A bare list that puts such an entry after the first is refused for oh-omp too, as it already was for pi with a via entry | 2026-10-01 | [§15](#15-what-was-built-2026-10-01-oh-omp) | ✅ 2026-10-01 (`"provider_sets": true` in [`packs/omp/pack.json`](../../packs/omp/pack.json); `ompNarrowedRun` and the set branch of `yolo.derive("oh-omp", "settings")` in [`packs/omp/derive.lua`](../../packs/omp/derive.lua); `ViaFor` in `packload.ProfileSetProblems`; `TestOmpScopesTheWholeSetWhenAnEntryIsNarrowed`, `TestAnOmpSetOfOneRendersExactlyTheSingleProfile`, `TestACarriedEntryCanSitInASetOnlyFirst`, `TestTheShippedPacksDeclareWhichAgentsHoldASet`, `TestTheProfileKeyTakesAListForOmp`; in a real launch, `TestOmpRunsOnEveryProviderOfItsSet` and `TestOmpRefusesACarriedEntryAfterItsFirst`) |
 
 ## 12. The neighbors
 
@@ -599,13 +607,10 @@ each fixed with a test that fails without the fix:
 
 Not built, and each is a known gap rather than a silent one:
 
-- **oh-omp** does not declare `provider_sets` (it writes no selection and needs only its keys,
-  [§4.3](#43-which-agents-take-a-set)), so a list named at it is refused like one named at
-  claude, and a bare list gives it its first entry. It can hold several providers
-  ([§3](#3-what-each-agent-can-hold)), so the refusal and the bare-list line name the missing
-  declaration ("whose pack does not declare provider_sets, so yolo cannot hand it a list"),
-  never "runs one provider per session". opencode, which this bullet named beside it until
-  2026-09-30, holds a set now ([§14](#14-what-was-built-2026-09-30-opencode)).
+- ~~**oh-omp**~~, which did not declare `provider_sets`, so a list named at it was refused like
+  one named at claude, and a bare list gave it its first entry. It holds a set since 2026-10-01
+  ([§15](#15-what-was-built-2026-10-01-oh-omp)), as opencode, which this bullet named beside it,
+  has since 2026-09-30 ([§14](#14-what-was-built-2026-09-30-opencode)).
 - **Several via routes per agent** (step 5), and so a via entry after the first.
 - **The config-overlay `profile` modifier** still gates on the primary alone
   (`packoverlay.Collect` takes the primary table); an `env` gate reads every entry.
@@ -647,9 +652,38 @@ Two facts the build settled:
 
 Not built:
 
-- **oh-omp** ([§13](#13-what-was-built-2026-09-29)'s list).
+- ~~**oh-omp**~~, built 2026-10-01 ([§15](#15-what-was-built-2026-10-01-oh-omp)).
 - **A per-entry `small_model`.** opencode has one `small_model`, which stays the primary's.
 - **Keeping opencode's own pick from one run to the next.** yolo writes the primary's `model` at
   every boot that resolves one, and opencode tries it before its saved recent picks, so a model
   picked in opencode lasts until opencode quits ([AP-D15](#AP-D15)). pi keeps a pick across
   launches. Closing this needs the render to see opencode's saved picks, which it does not read.
+
+## 15. What was built, 2026-10-01: oh-omp
+
+oh-omp's slice, at every notch, through the same grammar, fold, gate and pre-flights as pi's
+([§13](#13-what-was-built-2026-09-29)) and opencode's ([§14](#14-what-was-built-2026-09-30-opencode)),
+none of which names an agent. MEASURED: unit tests pin each piece below through its call site
+over the shipped packs, and two integration launches in a real jail.
+`TestOmpRunsOnEveryProviderOfItsSet` (`-p oh-omp=zai,openrouter`) read both keys in oh-omp's own
+env file, neither in a bare shell, the launch's "Active set for oh-omp: zai, openrouter" line, and a
+`models.yml` row per entry. `TestOmpRefusesACarriedEntryAfterItsFirst` (`-p oh-omp=zai,bedrock`
+beside claude) read the refusal. Each was revert-checked: with `provider_sets` dropped the first
+launch refused, and the second started before the refusal existed (observed 2026-10-01).
+UNMEASURED: no oh-omp session was run, so none switched providers, and no request reached a
+provider. oh-omp's reading of `enabledModels` as globs comes from the strings of an installed
+oh-omp 0.15.3 binary, not from a run.
+
+| Piece | Where it lives |
+| :--- | :--- |
+| The declaration ([AP-D2](#AP-D2), [AP-D18](#AP-D18)): a list named at oh-omp is taken, and a bare list reaches it whole | `"provider_sets": true` on the program in [`packs/omp/pack.json`](../../packs/omp/pack.json) |
+| Each entry's catalog row and key | unchanged: the `models` derive already writes a row for every provider oh-omp reaches, and the gate delivers each entry's key |
+| The scope over the set when any entry is narrowed: each narrowed run with its default first, `<provider>/*` for the rest, in set order | `ompNarrowedRun` and the set branch of `yolo.derive("oh-omp", "settings")` in [`packs/omp/derive.lua`](../../packs/omp/derive.lua) |
+| A carried entry anywhere but first is refused, naming the reorder | `ResolvedProfile.ViaFor` in `packload.ProfileSetProblems`, at every notch and in `yolo check` |
+
+One fact the build settled:
+
+- **A carried pairing is a via route in all but name.** [AP-D7](#AP-D7) already counted a bridged
+  pairing toward the one-route limit, but the refusal [AP-D9](#AP-D9) built read only a
+  profile's own `via`. No set-capable agent was carried until oh-omp, since pi and opencode bind
+  Bedrock to their own clients, so nothing showed the gap until oh-omp's set ran.

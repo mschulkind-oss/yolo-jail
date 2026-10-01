@@ -107,6 +107,34 @@ func TestProfileSetProblemsRefuseWhatASetCannotMean(t *testing.T) {
 	}
 }
 
+// A CARRIED ENTRY SITS ONLY FIRST, as a via entry does (AP-D9, AP-D18): oh-omp has no Bedrock
+// client, so plain `bedrock` reaches it through the wire bridge's route for oh-omp, the one route an
+// agent has, whose upstream is its first entry's provider. Second in the set it would have no row
+// at all and the set would run on zai alone in silence, which a launch did once oh-omp declared
+// provider_sets; so it is refused, naming the reorder, and first it is clean. Over the shipped
+// packs through the resolution every notch runs, so the carrier is the one a launch composes.
+func TestACarriedEntryCanSitInASetOnlyFirst(t *testing.T) {
+	packs := embeddedNamed(t, "omp", "zai", "bedrock", "aws-auth", "wire-bridge")
+	providers, resolved, _ := launchSelection(t, packs, nil, nil, nil)
+	if via, _ := resolved["bedrock"].ViaFor("oh-omp"); via != "wire-bridge" {
+		t.Fatalf("plain bedrock must be carried for oh-omp by the wire bridge, got %q: this cell "+
+			"measures nothing otherwise", via)
+	}
+	problems := ProfileSetProblems(packs, providers, map[string][]string{"oh-omp": {"zai", "bedrock"}}, resolved)
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v, want one refusing the carried entry after the first", problems)
+	}
+	for _, want := range []string{`profile "bedrock" (entry 2 of oh-omp's profiles: zai, bedrock)`,
+		`"wire-bridge"`, "-p oh-omp=bedrock,zai"} {
+		if !strings.Contains(problems[0], want) {
+			t.Errorf("the refusal must say %q:\n%s", want, problems[0])
+		}
+	}
+	if problems := ProfileSetProblems(packs, providers, map[string][]string{"oh-omp": {"bedrock", "zai"}}, resolved); len(problems) != 0 {
+		t.Errorf("a carried entry first is the one route's upstream, and must be clean: %v", problems)
+	}
+}
+
 // A bare list goes whole to a set-capable agent and its first entry to every other (OQ-AP3,
 // config.FoldProfiles), and the one launch line names exactly the agents narrowed and what they
 // ignore, with the per-agent spelling of the list where it was written.
@@ -302,18 +330,18 @@ func TestALaterEntryTheAgentCannotSpeakRefuses(t *testing.T) {
 	}
 }
 
-// The SHIPPED declarations: pi holds a set (the first slice, §8 step 2) and opencode does (§8
-// step 3, AP-D15), and the three agents OQ-AP2 names as running one provider per session do not.
-// Read off the embedded packs, so dropping `provider_sets` from packs/pi/pack.json or
-// packs/opencode/pack.json fails here.
+// The SHIPPED declarations: pi holds a set (the first slice, §8 step 2), opencode does (§8
+// step 3, AP-D15) and oh-omp does (AP-D18), and the three agents OQ-AP2 names as running one
+// provider per session do not. Read off the embedded packs, so dropping `provider_sets` from
+// packs/pi/pack.json, packs/opencode/pack.json or packs/omp/pack.json fails here.
 func TestTheShippedPacksDeclareWhichAgentsHoldASet(t *testing.T) {
 	var packs []*Pack
-	for _, name := range []string{"pi", "opencode", "claude", "codex", "copilot"} {
+	for _, name := range []string{"pi", "opencode", "omp", "claude", "codex", "copilot"} {
 		packs = append(packs, shippedPack(t, name))
 	}
-	for _, agent := range []string{"pi", "opencode"} {
+	for agent, pack := range map[string]string{"pi": "pi", "opencode": "opencode", "oh-omp": "omp"} {
 		if !HoldsProviderSets(packs, agent) {
-			t.Errorf("packs/%s must declare provider_sets on its program", agent)
+			t.Errorf("packs/%s must declare provider_sets on the program installing %s", pack, agent)
 		}
 	}
 	for _, agent := range []string{"claude", "codex", "copilot"} {

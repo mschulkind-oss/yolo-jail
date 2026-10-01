@@ -1937,12 +1937,11 @@
     A value may also be a LIST of profile names, the agent's ACTIVE SET: every listed
     provider is live in one session (its models in the picker, its key delivered to that
     agent alone), and the FIRST entry is where a fresh session starts.  Only an agent whose
-    pack declares `provider_sets` holds one (pi and opencode today); a list NAMED at any
-    other agent is REFUSED, naming the one-profile spelling: claude, codex and copilot run
-    one provider per session, and oh-omp takes one profile until its pack declares it.  A
-    list naming no agent — the list form, a list under "*", or a bare `-p zai,openrouter` —
-    goes whole to every agent that holds a set and its first entry to every other, and the
-    launch names the agents that ignore the rest.
+    pack declares `provider_sets` holds one (pi, opencode and oh-omp today); a list NAMED at
+    any other agent is REFUSED, naming the one-profile spelling: claude, codex and copilot
+    run one provider per session.  A list naming no agent — the list form, a list under
+    "*", or a bare `-p zai,openrouter` — goes whole to every agent that holds a set and its
+    first entry to every other, and the launch names the agents that ignore the rest.
     A list of one is the plain name.  An empty list is refused (null means "none"), as is a
     name listed twice, two entries on one provider, two on one regional platform (two
     Bedrock providers share the agent's one AWS_REGION), and a via profile anywhere but

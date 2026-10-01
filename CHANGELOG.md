@@ -143,8 +143,8 @@ such a profile and names the command that works, and `yolo host apply` writes no
 into your files and says so; a `claude` you start some other way runs on its own login. See
 [the wire bridge](userguide/guides/providers-and-models.md#the-wire-bridge).
 
-**pi and opencode can now use several providers in one session.** List them with
-`-p pi=zai,openrouter` or `-p opencode=zai,openrouter`, or as
+**pi, opencode and oh-omp can now use several providers in one session.** List them with
+`-p pi=zai,openrouter`, `-p opencode=zai,openrouter` or `-p oh-omp=zai,openrouter`, or as
 `"profile": {"pi": ["zai", "openrouter"]}` in your config, and the agent's model picker offers
 every listed provider's models, the agent receives every listed provider's key while other agents
 and a plain shell receive none of them, and pi's child agents may use any listed provider and no
@@ -155,14 +155,15 @@ provider has one.
 A missing key for any listed provider stops the launch and names that provider and its place in
 the list. Until now `-p pi=zai,openrouter` started pi on z.ai alone and dropped the rest without a
 word, and a stray name before any `agent=` was ignored the same way; it now stops the launch.
-Only pi and opencode take a list so far: a list named for Claude Code, Codex, Copilot or oh-omp is
+Only pi, opencode and oh-omp take a list so far: a list named for Claude Code, Codex or Copilot is
 refused before anything starts, with the one-profile spelling in the message, and a list naming no
-agent, `-p zai,openrouter` or `"profile": ["zai", "openrouter"]`, goes whole to pi and opencode and
-its first entry to every other agent, with a line saying which agents ignore the rest. Every name
+agent, `-p zai,openrouter` or `"profile": ["zai", "openrouter"]`, goes whole to pi, opencode and
+oh-omp and its first entry to every other agent, with a line saying which agents ignore the rest. Every name
 in a list must be a profile that exists, including the ones an agent ignores, and
-`-p pi=,claude=zai` still selects nothing for pi. A Bedrock profile can sit anywhere in the list
-(`-p pi=zai,bedrock`, `-p opencode=zai,bedrock`) and the agent reaches it through its own Bedrock
-client with its region, from the provider or your `~/.aws/config`; two Bedrock providers cannot
+`-p pi=,claude=zai` still selects nothing for pi. A Bedrock profile can sit anywhere in pi's or
+opencode's list (`-p pi=zai,bedrock`, `-p opencode=zai,bedrock`) and the agent reaches it through
+its own Bedrock client with its region, from the provider or your `~/.aws/config`; oh-omp reaches
+Bedrock through the wire bridge, so in its list `bedrock` comes first. Two Bedrock providers cannot
 share one list, since each agent reads one AWS region. The
 same list works at `yolo host`, where a Bedrock entry gets `aws-auth`'s credentials as a Bedrock
 profile does, in `yolo host env`, on `macos-user` and in the files `yolo host apply` writes. A

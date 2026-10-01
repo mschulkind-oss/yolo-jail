@@ -74,19 +74,17 @@ func TestTheSingleProviderListRefusalNamesTheFix(t *testing.T) {
 	}
 }
 
-// oh-omp CAN hold several providers (docs/design/active-provider-sets.md §3); it takes one
-// profile only because its pack does not declare provider_sets yet. So its refusal names the
-// declaration, and never says it runs one provider per session.
-func TestAListForOmpIsRefusedForTheDeclaration(t *testing.T) {
+// oh-omp holds a set since packs/omp declares provider_sets (AP-D18), so a list named at it
+// validates clean, through the declaration config validation reads off the shipped packs
+// (SetCapableCLINames). Until then its refusal named the missing declaration rather than saying it
+// runs one provider per session, which its format contradicts; dropping the declaration refuses it
+// again.
+func TestTheProfileKeyTakesAListForOmp(t *testing.T) {
 	useProfileKeysHome(t)
 	errs, _ := ValidateConfig(decode(t, `{"profile": {"oh-omp": ["zai", "openrouter"]}}`),
 		t.TempDir(), nil)
-	if len(errs) != 1 || !strings.Contains(errs[0], "whose pack does not declare provider_sets") {
-		t.Fatalf("errs = %v, want one refusal naming the missing provider_sets", errs)
-	}
-	if strings.Contains(errs[0], "one provider per session") {
-		t.Errorf("the refusal claims oh-omp runs one provider per session, which its format "+
-			"contradicts:\n%s", errs[0])
+	if len(errs) != 0 {
+		t.Fatalf("a list for oh-omp, which declares provider_sets, must validate clean: %v", errs)
 	}
 }
 

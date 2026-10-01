@@ -12,6 +12,7 @@
         "openai",
         "anthropic"
       ],
+      "provider_sets": true,
       "via": "npm"
     },
     {

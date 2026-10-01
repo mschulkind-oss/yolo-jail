@@ -183,13 +183,14 @@ you want in your user config and make profiles for them:
 
 ## Several providers in one session
 
-pi and opencode can each use more than one provider at once and switch between them with their
-own model picker (`/model` in pi, `/models` in opencode). List the profiles for the agent,
+pi, opencode and oh-omp can each use more than one provider at once and switch between them with
+their own model picker (`/model` in pi, `/models` in opencode). List the profiles for the agent,
 separated by commas on the command line or as a list in your config:
 
 ```bash
 yolo -p pi=zai,openrouter -- pi
 yolo -p opencode=zai,openrouter -- opencode
+yolo -p oh-omp=zai,openrouter -- oh-omp
 ```
 
 ```jsonc
@@ -199,7 +200,8 @@ yolo -p opencode=zai,openrouter -- opencode
 - **The first entry is where a new session starts**: here pi and opencode open on z.ai's default
   model. A model you pick yourself in pi, on any listed provider, stays picked on the next launch.
   opencode goes back to the first entry's default model each time it starts, when that entry has
-  one, so a model you pick in opencode lasts until you quit it.
+  one, so a model you pick in opencode lasts until you quit it. oh-omp chooses its own starting
+  model, as it does with one provider.
 - **Every listed provider is live**: each agent's model picker offers every listed provider's
   models, and the agent receives every listed provider's key, while other agents and a plain
   shell receive none of them. In pi the `/model` list shows the first entry's models first, and
@@ -207,19 +209,23 @@ yolo -p opencode=zai,openrouter -- opencode
   exactly the listed providers and hides every other one, and it orders its picker itself. A
   provider you declared with a key and no address, which means the agent's own service, is
   opencode's built-in provider of the same name, so give it opencode's name for that service
-  (`anthropic`, `openai`).
+  (`anthropic`, `openai`). oh-omp's picker offers every listed provider; when a company list
+  narrows one of them, it shows that list and every model of the other listed providers, and
+  nothing else.
 - **Every listed provider needs its key.** If one is missing, the launch stops and names that
   provider and its place in the list; it never starts the agent on the rest.
 - On the command line a comma continues the list of the agent named before it:
   `-p pi=zai,openrouter,claude=codex` gives pi two providers and Claude Code one. A later
   `-p pi=…` replaces pi's whole list, and a `-p` replaces the list in your config for that launch.
-- **Only pi and opencode take a list today.** Claude Code, Codex and Copilot use one provider per
-  session, and oh-omp takes one profile until yolo learns to hand it a list, so a list named for
-  any of them is refused before anything starts, and the message names the one-profile
-  spelling. A list with no agent named, `-p zai,openrouter` or `"profile": ["zai", "openrouter"]`
-  in your config, goes whole to pi and opencode and its first entry to every other agent, and the
-  launch says which agents ignore the rest. Every name in it must still be a profile that exists,
-  including the ones an agent ignores.
+- **Only pi, opencode and oh-omp take a list today.** Claude Code, Codex and Copilot use one
+  provider per session, so a list named for any of them is refused before anything starts, and
+  the message names the one-profile spelling. A list with no agent named, `-p zai,openrouter` or
+  `"profile": ["zai", "openrouter"]` in your config, goes whole to pi, opencode and oh-omp and its
+  first entry to every other agent, and the launch says which agents ignore the rest. Every name
+  in it must still be a profile that exists, including the ones an agent ignores.
+- **oh-omp reaches Bedrock only through the wire bridge**, which serves one route per agent, so in
+  oh-omp's list a `bedrock` profile has to come first (`-p oh-omp=bedrock,zai`); listed later, the
+  launch stops and says how to reorder it.
 - **When the first entry names no model**, as `openrouter` and `kilo` do out of the box, opencode
   still shows only the listed providers and picks the model itself: a model you picked before on
   one of them, else a default of its own among them. List a provider that has a default model

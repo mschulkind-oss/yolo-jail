@@ -154,16 +154,18 @@ end)
 -- (what a list that only adds does to omp's catalog is OQ-MM1's), or when omp cannot reach it.
 -- The scope does not refuse: `--model` still resolves any model omp knows, and `modelRoles`
 -- may name one outside it.
-yolo.derive("oh-omp", "settings", function(ctx)
-  local name = ctx.selected_provider
-  if name == nil or name == "" then return {} end
+
+-- ompNarrowedRun is one provider's run of the scope under an `only`: its narrowed list, the
+-- default entry first, as `<provider>/<id>`; nil when the provider's list is not narrowed or omp
+-- cannot reach it, which is "no scope of its own". via is whether this provider's row rides the
+-- profile's via route, which only the selected provider's does.
+local function ompNarrowedRun(ctx, name, profile, via)
   local prov = ctx.providers and ctx.providers[name] or nil
   if type(prov) ~= "table" or prov.models_only ~= true or type(prov.models) ~= "table" then
-    return {}
+    return nil
   end
-  local reachable = (name == "openai-codex") or (ctx.via_url ~= nil and ctx.via_url ~= "")
-    or (providerEndpoint(prov) ~= nil)
-  if not reachable then return {} end
+  local reachable = (name == "openai-codex") or via or (providerEndpoint(prov) ~= nil)
+  if not reachable then return nil end
   -- The list's order (`order`, then id), the default entry first: the profile's `model`, as an
   -- alias or an id, else the provider's `default` alias, else the first entry.
   local opts = type(prov.model_options) == "table" and prov.model_options or {}
@@ -186,9 +188,9 @@ yolo.derive("oh-omp", "settings", function(ctx)
     if b.order and not a.order then return false end
     return a.id < b.id
   end)
-  if #rows == 0 then return {} end
+  if #rows == 0 then return nil end
   local default = nil
-  local m = type(ctx.profile) == "table" and ctx.profile.model or nil
+  local m = type(profile) == "table" and profile.model or nil
   if type(m) == "string" and m ~= "" then
     local id = prov.models[m] or m
     if byId[id] then default = id end
@@ -197,9 +199,56 @@ yolo.derive("oh-omp", "settings", function(ctx)
     default = prov.models.default
   end
   default = default or rows[1].id
-  local scope = { name .. "/" .. default }
+  local run = { name .. "/" .. default }
   for _, r in ipairs(rows) do
-    if r.id ~= default then table.insert(scope, name .. "/" .. r.id) end
+    if r.id ~= default then table.insert(run, name .. "/" .. r.id) end
   end
+  return run
+end
+
+-- THE ACTIVE SET (docs/design/active-provider-sets.md §4.4, AP-D18). oh-omp is SET-CAPABLE
+-- (packs/omp/pack.json's `provider_sets`): `-p oh-omp=zai,openrouter` makes every listed provider
+-- live in one session, and ctx.active_set carries the entries in order, the first being
+-- ctx.selected_provider and ctx.profile as always. The catalog above already writes a row for
+-- every provider omp reaches, selected or not, and each entry's key reaches omp through the
+-- credential gate, so the set is the scope's to state, and only when a scope is written at all.
+--
+-- A scope is all of omp's picker, so once one is written each entry must be in it: an entry
+-- whose list an `only` narrowed contributes that run, its default first, and every other entry
+-- contributes `<provider>/*`, every model omp has for it, which is what "no scope of its own"
+-- shows it today (omp matches enabledModels as globs over `<provider>/<id>`, read in 0.15.3's
+-- resolveModelScope). Runs follow set order, so the primary's leads and omp's start rule above
+-- lands on the primary when nothing saved is in the scope. With no entry narrowed nothing is
+-- written, exactly as for one profile (AP-P1), and a set of one takes the single path below
+-- unchanged. Only the primary rides the via route (AP-D9).
+yolo.derive("oh-omp", "settings", function(ctx)
+  local name = ctx.selected_provider
+  if name == nil or name == "" then return {} end
+  local via = (ctx.via_url ~= nil and ctx.via_url ~= "")
+  local set = ctx.active_set
+  if type(set) ~= "table" or #set < 2 then
+    local run = ompNarrowedRun(ctx, name, ctx.profile, via)
+    if run == nil then return {} end
+    return { selection = { enabledModels = run } }
+  end
+  local scope, seen, narrowed = {}, {}, false
+  local function add(v)
+    if not seen[v] then
+      seen[v] = true
+      table.insert(scope, v)
+    end
+  end
+  for i, e in ipairs(set) do
+    if type(e) == "table" and type(e.provider) == "string" and e.provider ~= "" then
+      local run = ompNarrowedRun(ctx, e.provider, e.profile, i == 1 and via)
+      if run then
+        narrowed = true
+        for _, v in ipairs(run) do add(v) end
+      else
+        add(e.provider .. "/*")
+      end
+    end
+  end
+  if not narrowed then return {} end
   return { selection = { enabledModels = scope } }
 end)

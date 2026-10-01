@@ -124,8 +124,8 @@ func HoldsProviderSets(packs []*Pack, agent string) bool {
 // BareListNote is the one launch line OQ-AP3 rules for a bare list: which agents took it whole
 // and which, taking one profile because their packs do not declare provider_sets, start on its
 // first entry and ignore the rest. It says what yolo can hand an agent, never what the agent can
-// hold: oh-omp can hold several providers (docs/design/active-provider-sets.md §3) and still takes
-// one profile until its pack declares provider_sets.
+// hold: an agent whose format holds several providers takes one profile while its pack does not
+// declare provider_sets, as oh-omp did until AP-D18 (docs/design/active-provider-sets.md §3).
 // "" when the list has one entry or no agent was narrowed, so a bare list every receiver holds
 // says nothing it has not already said in the profile lines. keyed says where the list was
 // written — the `profile` key's string, list or "*" form (true) or a bare `-p` (false) — so the
@@ -161,8 +161,9 @@ func BareListNote(list, whole, narrowed []string, keyed bool) string {
 // every notch and in config validation: a list NAMED at an agent whose pack does not declare
 // provider_sets, naming the agent, why, and the one-entry spellings that work. The why is the
 // declaration yolo reads, never a claim about the agent: claude, codex and copilot run one
-// provider per session, but oh-omp can hold several and is refused only because its pack does
-// not declare it yet (docs/design/active-provider-sets.md §3).
+// provider per session, and an agent that can hold several but whose pack does not declare it
+// (oh-omp until AP-D18) is refused for the declaration alone (docs/design/active-provider-sets.md
+// §3).
 func SingleProviderSetRefusal(agent string, set []string) string {
 	return fmt.Sprintf("profiles %s are selected for %s, whose pack does not declare "+
 		"provider_sets, so yolo cannot hand it a list: it would start %s on %s and drop %s in "+
@@ -195,7 +196,8 @@ func SingleProviderSetRefusal(agent string, set []string) string {
 //   - A via entry anywhere but first is refused (AP-D9, this build's narrowing of AP-D7's "at
 //     most one per set"): an agent has ONE via route, whose upstream is the provider its
 //     primary resolves to, so a via entry must be the primary to be routed at all. Being first
-//     also makes it the only one, which is AP-D7's limit.
+//     also makes it the only one, which is AP-D7's limit. A CARRIED entry rides that same route
+//     (ResolvedProfile.ViaFor), so it is refused anywhere but first too (AP-D18).
 func ProfileSetProblems(packs []*Pack, providers *jsonx.OrderedMap, sets map[string][]string,
 	resolved map[string]ResolvedProfile) []string {
 	regional := regionRequirements(packs)
@@ -267,13 +269,23 @@ func ProfileSetProblems(packs []*Pack, providers *jsonx.OrderedMap, sets map[str
 			if i == 0 {
 				continue
 			}
-			if via := resolved[name].Via; via != "" {
-				problems = append(problems, fmt.Sprintf("profile %q (entry %d of %s's profiles: %s) "+
-					"routes through %q, and a via profile can sit in a set only as its first entry — "+
-					"%s has one via route, whose upstream is the provider the first entry resolves "+
-					"to: list it first (-p %s=%s) or leave it out", name, i+1, agent,
-					strings.Join(set, ", "), via, agent, agent, strings.Join(moveFirst(set, i), ",")))
+			// ViaFor, not the profile's own Via: a CARRIED entry (carrier.go) rides the same one
+			// route, so it can sit only first too (AP-D18). oh-omp on plain `bedrock` is the case:
+			// second in its set, the entry had no row and the set ran on the first alone.
+			via, _ := resolved[name].ViaFor(agent)
+			if via == "" {
+				continue
 			}
+			how := fmt.Sprintf("routes through %q, and a via profile", via)
+			if resolved[name].Via == "" {
+				how = fmt.Sprintf("reaches %s only through %q, which carries an agent with no "+
+					"client of its provider's platform, and a carried profile", agent, via)
+			}
+			problems = append(problems, fmt.Sprintf("profile %q (entry %d of %s's profiles: %s) "+
+				"%s can sit in a set only as its first entry — %s has one via route, whose "+
+				"upstream is the provider the first entry resolves to: list it first (-p %s=%s) "+
+				"or leave it out", name, i+1, agent, strings.Join(set, ", "), how, agent, agent,
+				strings.Join(moveFirst(set, i), ",")))
 		}
 	}
 	return problems
