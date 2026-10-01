@@ -21,6 +21,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // notSwept is the files of this package another change owns: their findings get their next
@@ -289,7 +290,7 @@ func TestLockfileFindingNamesTheStepForItsCause(t *testing.T) {
 	if err := os.WriteFile(corrupt, []byte(`{`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := lockfileNote(corrupt, os.ErrInvalid); !strings.Contains(got, "rm "+corrupt+" && yolo pack install") {
+	if got := lockfileNote(corrupt, os.ErrInvalid); !strings.Contains(got, "rm "+shquote.Quote(corrupt)+" && yolo pack install") {
 		t.Errorf("a corrupt lockfile is told %q", got)
 	}
 }
@@ -367,7 +368,7 @@ func TestCorruptLockfileFindingThroughThePacksSection(t *testing.T) {
 			note = f.Note
 		}
 	}
-	if !strings.Contains(note, "rm "+lock+" && yolo pack install") {
+	if !strings.Contains(note, "rm "+shquote.Quote(lock)+" && yolo pack install") {
 		t.Errorf("the lockfile finding's note is %q:\n%s", note, out.String())
 	}
 }
