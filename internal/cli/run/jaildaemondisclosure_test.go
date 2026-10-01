@@ -37,13 +37,22 @@ func jailOnlyLoophole(name string, cmd string) string {
 // launch printed.
 func jailDaemonBoundary(t *testing.T, rt string, cfg *jsonx.OrderedMap) (map[string]bool, string) {
 	t.Helper()
+	return jailDaemonBoundaryFor(t, rt, cfg, func() *packload.Pack {
+		return writeRealLoopholePack(t, "acme", "acme-relay",
+			jailOnlyLoophole("acme-relay", `["yolo-jaild", "acme-relay"]`))
+	})
+}
+
+// jailDaemonBoundaryFor is jailDaemonBoundary over the pack mkPack writes, which it calls once
+// HOME points at a scratch directory.
+func jailDaemonBoundaryFor(t *testing.T, rt string, cfg *jsonx.OrderedMap,
+	mkPack func() *packload.Pack) (map[string]bool, string) {
+	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	emptyLoopholeDirs(t)
-	p := writeRealLoopholePack(t, "acme", "acme-relay",
-		jailOnlyLoophole("acme-relay", `["yolo-jaild", "acme-relay"]`))
-	packs := []*packload.Pack{p}
+	packs := []*packload.Pack{mkPack()}
 	t.Cleanup(loopholes.SnapshotPackModules())
 	loopholes.SetPackModules(packLoopholeModules(packs))
 
@@ -94,6 +103,73 @@ func TestALoopholeJailDaemonIsDisclosedAtTheSpawnBoundary(t *testing.T) {
 	if strings.Contains(got, "runs pack code on your machine") {
 		t.Errorf("a jail daemon is announced in the HOST execution block. It runs nothing on "+
 			"the user's machine; that block's value is that every line in it does:\n%s", got)
+	}
+	// The header points at the footprint only for plugins: a jail daemon has no claim, so
+	// `yolo pack footprint` lists nothing for it, and a pointer there sends the reader to a
+	// report that does not mention what the line named.
+	if strings.Contains(got, "yolo pack footprint") {
+		t.Errorf("a block naming only a jail daemon points at `yolo pack footprint`, which "+
+			"lists nothing for one:\n%s", got)
+	}
+}
+
+// writePluginAndJailDaemonPack writes one pack that ships a wrapped plugin declaring a hook
+// and a loophole declaring only a jail daemon, loaded through packload like the fixtures above.
+func writePluginAndJailDaemonPack(t *testing.T) *packload.Pack {
+	t.Helper()
+	root := t.TempDir()
+	plugin := filepath.Join(root, "skills", "acme-tools", ".claude-plugin")
+	mod := filepath.Join(root, "loopholes", "acme-relay")
+	for _, d := range []string{plugin, mod} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		filepath.Join(plugin, "plugin.json"): `{"name":"acme-tools","skills":["./"],` +
+			`"hooks":{"PreToolUse":[]}}`,
+		filepath.Join(mod, "manifest.jsonc"): jailOnlyLoophole("acme-relay", `["yolo-jaild", "acme-relay"]`),
+		filepath.Join(root, "pack.json"): `{"contributes":[` +
+			`{"kind":"skills","from":"skills","into":".claude/skills"},` +
+			`{"kind":"loophole","from":"loopholes/acme-relay"}]}`,
+	}
+	for path, body := range files {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, probs := packload.LoadDir(root, "acme")
+	if len(probs) > 0 {
+		t.Fatalf("the plugin-and-loophole pack fixture does not load: %v", probs)
+	}
+	return p
+}
+
+// A PACK WITH BOTH IS STILL ONE LINE (report-tiers.md P1): the plugin counts, then the jail
+// daemons, on the pack's one line, and the header keeps its footprint pointer because that
+// line counts a plugin. Through the real boundary, like the test above.
+func TestAPacksPluginCodeAndJailDaemonShareOneLine(t *testing.T) {
+	names, got := jailDaemonBoundaryFor(t, "podman", newConfig(), func() *packload.Pack {
+		return writePluginAndJailDaemonPack(t)
+	})
+	if !names["acme-relay"] {
+		t.Fatalf("the payload does not carry the fixture's jail daemon (%v):\n%s", names, got)
+	}
+	var lines []string
+	for _, l := range strings.Split(got, "\n") {
+		if strings.Contains(l, "acme:") {
+			lines = append(lines, l)
+		}
+	}
+	want := "acme: 1 wrapped plugin runs code in the jail — hooks (1); " +
+		"1 jail daemon runs in the jail — acme-relay"
+	if len(lines) != 1 || !strings.Contains(lines[0], want) {
+		t.Fatalf("a pack shipping a plugin hook and a jail daemon did not get one line with "+
+			"both, plugin counts first. Want one line containing %q; the launch said:\n%s", want, got)
+	}
+	if !strings.Contains(got, "(`yolo pack footprint` names each plugin)") {
+		t.Errorf("the block counts a plugin and its header no longer points at the report "+
+			"that itemizes it:\n%s", got)
 	}
 }
 
