@@ -98,3 +98,62 @@ func TestLocateReportsAMalformedDocument(t *testing.T) {
 		t.Error("Locate over a truncated document returned no error")
 	}
 }
+
+// LocateSteps steps into an array as well as an object: a config refusal names the second
+// entry of a list, and the line it was written on is the element's.
+func TestLocateStepsFindsAnArrayElement(t *testing.T) {
+	doc := `{
+  "packs": [
+    "claude",
+    // a comment between entries
+    {"source": "git+https://example.test/p", "name": "p"},
+  ],
+}`
+	cases := []struct {
+		path []Step
+		want string
+	}{
+		{[]Step{Key("packs"), Elem(0)}, `"claude"`},
+		{[]Step{Key("packs"), Elem(1), Key("name")}, `"p"`},
+	}
+	for _, tc := range cases {
+		span, ok, err := LocateSteps([]byte(doc), tc.path...)
+		if err != nil || !ok {
+			t.Fatalf("LocateSteps(%v) = %v, %v, %v", tc.path, span, ok, err)
+		}
+		if got := doc[span.Start:span.End]; got != tc.want {
+			t.Errorf("LocateSteps(%v) spans %q, want %q", tc.path, got, tc.want)
+		}
+	}
+	if _, ok, err := LocateSteps([]byte(doc), Key("packs"), Elem(2)); err != nil || ok {
+		t.Errorf("LocateSteps past the end of the list = %v, %v; want nothing found", ok, err)
+	}
+	// A key step never matches an element, nor an element step a member.
+	if _, ok, _ := LocateSteps([]byte(doc), Key("packs"), Key("0")); ok {
+		t.Error(`Key("0") matched an array element`)
+	}
+	if _, ok, _ := LocateSteps([]byte(`{"a": {"0": 1}}`), Key("a"), Elem(0)); ok {
+		t.Error("Elem(0) matched an object member")
+	}
+}
+
+// Position counts lines and characters from 1, as an editor's file:line:col jump does.
+func TestPositionCountsLinesAndCharactersFromOne(t *testing.T) {
+	doc := "{\n  \"é\": 1,\n  \"k\": 2\n}"
+	for _, tc := range []struct {
+		needle    string
+		line, col int
+	}{
+		{"{", 1, 1},
+		{"1", 2, 8}, // the é is one character and two bytes
+		{"\"k\"", 3, 3},
+	} {
+		line, col := Position([]byte(doc), strings.Index(doc, tc.needle))
+		if line != tc.line || col != tc.col {
+			t.Errorf("Position(%q) = %d:%d, want %d:%d", tc.needle, line, col, tc.line, tc.col)
+		}
+	}
+	if line, col := Position([]byte(doc), len(doc)+5); line != 4 || col != 2 {
+		t.Errorf("Position past the end = %d:%d, want the end, 4:2", line, col)
+	}
+}

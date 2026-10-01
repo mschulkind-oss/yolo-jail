@@ -10,31 +10,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// checkPresetNullConflicts reports same-file
-// preset/null contradictions (a preset enabled in mcp_presets but null-removed
-// in mcp_servers within the SAME config file).
-func checkPresetNullConflicts(config *jsonx.OrderedMap, label string) []string {
-	var errs []string
-	presetsV, _ := config.Get("mcp_presets")
-	serversV, _ := config.Get("mcp_servers")
-	presets, okP := presetsV.([]any)
-	servers, okS := serversV.(*jsonx.OrderedMap)
-	if !okP || !okS {
-		return errs
-	}
-	for _, nameV := range presets {
-		name, ok := nameV.(string)
-		if !ok {
-			continue
-		}
-		if v, present := servers.Get(name); present && v == nil {
-			errs = append(errs, label+": preset '"+name+"' is enabled in mcp_presets but "+
-				"null-removed in mcp_servers within the same config file")
-		}
-	}
-	return errs
-}
-
 // cleanupTrackingFn removes a container's tracking file.
 func cleanupTrackingFn(name string) {
 	runtime.CleanupContainerTracking(name)

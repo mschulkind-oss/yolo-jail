@@ -101,14 +101,16 @@ func Check(opts Options) int {
 	o.sectionGlobalStorage(r)
 
 	// --- Config Files ---
-	userConfig, workspaceConfig, parseFailed := o.sectionConfigFiles(r, workspace)
+	userConfig, workspaceConfig, src, parseFailed := o.sectionConfigFiles(r, workspace)
 	if parseFailed {
 		r.summaryFailOnly()
 		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
 
-	// Merge + flake.nix resolution.
-	merged := config.MergeConfig(userConfig, workspaceConfig)
+	// Merge + flake.nix resolution. The provenance merges beside it, so a refusal below names
+	// the file and line its key was written at (config's sources.go).
+	merged, mergedSrc := config.MergeConfigWithSources(userConfig, src.user, workspaceConfig, src.workspace)
+	src.merged = mergedSrc
 	var repoRoot string
 	repoRootOK := false
 	if rr, ok := o.RepoRoot(); ok {
@@ -129,7 +131,7 @@ func Check(opts Options) int {
 	}
 
 	// --- Merged Configuration ---
-	if exit := o.sectionMergedConfig(r, merged, workspace, userConfig, workspaceConfig, runtimeFailReported); exit {
+	if exit := o.sectionMergedConfig(r, merged, workspace, userConfig, workspaceConfig, src, runtimeFailReported); exit {
 		r.summaryFailWarn()
 		return finish(o.Stdout, os.Stderr, o.Format, r, 1)
 	}
@@ -442,10 +444,25 @@ func (o *Options) sectionGlobalStorage(r *reporter) {
 	r.blank()
 }
 
+// configSources is where each value of the configs check validates was written (config's
+// sources.go): the user scope's, the workspace's, and the merge of the two. A nil
+// *configSources, or a nil member, locates nothing.
+type configSources struct {
+	user, workspace, merged *config.Sources
+}
+
+// orNone is s, or the zero record for a nil s.
+func (s *configSources) orNone() configSources {
+	if s == nil {
+		return configSources{}
+	}
+	return *s
+}
+
 // sectionConfigFiles runs the Config Files block. Returns (userConfig,
-// workspaceConfig, parseFailed). A parse failure sets parseFailed so the caller
-// early-exits with the fail-only summary.
-func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.OrderedMap, *jsonx.OrderedMap, bool) {
+// workspaceConfig, their provenance, parseFailed). A parse failure sets parseFailed
+// so the caller early-exits with the fail-only summary.
+func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.OrderedMap, *jsonx.OrderedMap, *configSources, bool) {
 	r.sectionHeader("Config Files")
 	userPath := paths.UserConfigPath()
 	failed := false
@@ -453,7 +470,9 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	// UserScopeConfig carries the includes AND any --user-layer, so `yolo check` validates
 	// the same user scope a launch would compose — a flag that changed the launch but not
 	// the preflight would leave the agent no way to verify what it just did.
-	userConfig, err := config.UserScopeConfig(true, func(string) {})
+	src := &configSources{}
+	userConfig, userSrc, err := config.UserScopeConfigWithSources(true, func(string) {})
+	src.user = userSrc
 	if err != nil {
 		userConfig = jsonx.NewOrderedMap()
 		r.fail(err.Error(), "")
@@ -478,7 +497,8 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	// is believed.
 	wsPath := filepath.Join(workspace, config.WorkspaceConfigName)
 	localPath := filepath.Join(workspace, config.WorkspaceLocalConfigName)
-	workspaceConfig, err := config.LoadWorkspaceConfig(workspace, true, func(string) {})
+	workspaceConfig, wsSrc, err := config.LoadWorkspaceConfigWithSources(workspace, true, func(string) {})
+	src.workspace = wsSrc
 	if err != nil {
 		workspaceConfig = jsonx.NewOrderedMap()
 		r.fail(err.Error(), "")
@@ -498,7 +518,7 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 		r.ok("No workspace yolo-jail.jsonc found")
 	}
 	r.blank()
-	return userConfig, workspaceConfig, failed
+	return userConfig, workspaceConfig, src, failed
 }
 
 // sectionMergedConfig runs the Merged Configuration block. Returns true when
@@ -509,10 +529,13 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 // is then that same cause, so it is a dim line pointing back rather than a second [FAIL]
 // (one cause, one row: HE-D2, docs/reference/host-agent-environment.md). It still stops the
 // section as the [FAIL] did, so what runs after is unchanged.
-func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, workspace string, userConfig, workspaceConfig *jsonx.OrderedMap, runtimeFailReported bool) bool {
+//
+// src locates each refusal in the files that wrote its key; nil locates nothing.
+func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, workspace string, userConfig, workspaceConfig *jsonx.OrderedMap, src *configSources, runtimeFailReported bool) bool {
 	r.sectionHeader("Merged Configuration")
 	resolver := loopholes.NewResolver()
 	errors, warnings := config.ValidateConfig(merged, workspace, resolver)
+	located := src.orNone()
 	runtimeSel, runtimeErr, runtimeUnavailable := o.resolveRuntimeForCheck(merged)
 	runtimeBlocked := false
 	if runtimeErr != "" && runtimeUnavailable && runtimeFailReported {
@@ -524,9 +547,9 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 		r.ok("Runtime available: " + runtimeSel)
 	}
 
-	// Same-file preset+null contradictions.
-	errors = append(errors, checkPresetNullConflicts(userConfig, paths.UserConfigPath())...)
-	errors = append(errors, checkPresetNullConflicts(workspaceConfig, "yolo-jail.jsonc")...)
+	// Same-file preset+null contradictions, each located in its own scope's record.
+	errors = append(errors, config.PresetNullConflicts(userConfig, paths.UserConfigPath(), located.user)...)
+	errors = append(errors, config.PresetNullConflicts(workspaceConfig, "yolo-jail.jsonc", located.workspace)...)
 
 	// The launch's capability gate, predicted here through the launch's own census, over the
 	// launch this config describes: the user scope's pack selection under the `profile` key
@@ -535,6 +558,9 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 		config.ConfigCapabilityLaunch(merged))
 	errors = append(errors, capErrs...)
 	warnings = append(warnings, capWarns...)
+	// Every message above that names a config key, located (the preset/null ones already are).
+	errors = located.merged.Annotate(errors)
+	warnings = located.merged.Annotate(warnings)
 
 	for _, msg := range warnings {
 		r.warn(msg, "")

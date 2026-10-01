@@ -255,8 +255,9 @@ func TestSkippedPackEntryWarningReachesTheSummary(t *testing.T) {
 			"skipped `packs` entry is a pack the user asked for and did not get; it must "+
 			"reach the count, not scroll past it:\n%s", r.warned, got)
 	}
-	if !strings.Contains(got, "[WARN] config.packs[0]") {
-		t.Errorf("the skipped entry is not a graded [WARN] row naming the config path:\n%s", got)
+	// Led by where the entry was written (config's sources.go), then its config path.
+	if !strings.Contains(got, "[WARN] ~/.config/yolo-jail/config.jsonc:1:12: config.packs[0]") {
+		t.Errorf("the skipped entry is not a graded [WARN] row naming its file, line and config path:\n%s", got)
 	}
 	if strings.Contains(got, "Warning: config.packs") {
 		t.Errorf("the skipped entry is still on the retired ungraded channel:\n%s", got)
@@ -378,11 +379,16 @@ func TestEveryConfigWarnSinkIsGraded(t *testing.T) {
 	// [FAIL] rows. Counting them again through a second sink would double-report one
 	// problem — the mirror image of the defect this file is about, and just as misleading
 	// in the summary.
+	//
+	// The *WithSources spellings are the same reads with the provenance beside them
+	// (config's sources.go), exempt for the same reason.
 	reReported := map[string]bool{
-		"LoadConfig":            true,
-		"UserScopeConfig":       true,
-		"LoadJSONCWithIncludes": true,
-		"LoadWorkspaceConfig":   true,
+		"LoadConfig":                     true,
+		"UserScopeConfig":                true,
+		"UserScopeConfigWithSources":     true,
+		"LoadJSONCWithIncludes":          true,
+		"LoadWorkspaceConfig":            true,
+		"LoadWorkspaceConfigWithSources": true,
 	}
 
 	fset := token.NewFileSet()

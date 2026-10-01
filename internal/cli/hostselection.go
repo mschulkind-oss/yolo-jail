@@ -117,6 +117,11 @@ func (s hostPackSet) problems() []unresolvedPack {
 		if !found {
 			name, reason = "packs", p
 		}
+		// Where the entry was written (config's sources.go): the name is only its place in
+		// the composed list, and the user scope is many files.
+		if where := config.PackEntryLocations(p); len(where) > 0 {
+			reason += " (written at " + strings.Join(where, " and at ") + ")"
+		}
 		out = append(out, unresolvedPack{Name: name, Reason: reason})
 	}
 	out = append(out, s.unresolved...)

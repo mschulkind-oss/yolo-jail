@@ -113,19 +113,22 @@ func ValidateUserLayer(path string) string {
 // half). Within the user level the layer wins over config.jsonc and its includes, which is
 // what "layer this in as if it were user-level" has to mean for the flag to be useful —
 // a layer that lost to the file it is meant to adjust could not adjust anything.
-func applyUserLayer(base *jsonx.OrderedMap) *jsonx.OrderedMap {
+//
+// The provenance (sources.go) is folded the same way, so a refusal of a key the layer wrote
+// names the layer.
+func applyUserLayer(base *jsonx.OrderedMap, baseNode *srcNode) (*jsonx.OrderedMap, *srcNode) {
 	path := UserLayerPath()
 	if path == "" {
-		return base
+		return base, baseNode
 	}
-	layer, err := LoadJSONCWithIncludes(path, "--user-layer "+path, false, func(string) {}, nil)
+	layer, layerNode, err := loadWithIncludes(path, "--user-layer "+path, false, func(string) {}, nil)
 	if err != nil || layer == nil || layer.Len() == 0 {
-		return base
+		return base, baseNode
 	}
 	if base == nil {
 		base = jsonx.NewOrderedMap()
 	}
-	return MergeConfig(base, layer)
+	return mergeConfig(base, layer, baseNode, layerNode)
 }
 
 // UserScopeConfig is the exported user-scope read for callers outside this package (the
@@ -140,6 +143,25 @@ func UserScopeConfig(strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 	return loadUserScopeConfig(p, p, strict, warn)
 }
 
+// UserScopeConfigWithSources is UserScopeConfig plus where each value was written
+// (sources.go), for a caller that reports validation problems over the user scope.
+func UserScopeConfigWithSources(strict bool, warn Warn) (*jsonx.OrderedMap, *Sources, error) {
+	p := paths.UserConfigPath()
+	m, n, err := loadUserScope(p, p, strict, warn)
+	return m, sourcesOf(n), err
+}
+
+// UserScopeSources is the provenance of the user scope UserScopeConfigOrEmpty reads, nil
+// when it cannot be read: for a caller that already holds that config, validated it, and
+// wants the refusals located. It reads the files again, so it belongs on an error path.
+func UserScopeSources() *Sources {
+	_, src, err := UserScopeConfigWithSources(false, func(string) {})
+	if err != nil {
+		return nil
+	}
+	return src
+}
+
 // loadUserScopeConfig is THE user-scope read: config.jsonc plus its includes, plus the
 // inherited nested-launch file, plus any --user-layer, in that precedence.
 //
@@ -150,11 +172,19 @@ func UserScopeConfig(strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 // `host_files` and `cache_relocations`. Neither addition is a workspace-reachable channel —
 // one is an argv, the other is a file the HOST generated and mounted :ro.
 func loadUserScopeConfig(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
-	cfg, err := LoadJSONCWithIncludes(path, label, strict, warn, nil)
+	m, _, err := loadUserScope(path, label, strict, warn)
+	return m, err
+}
+
+// loadUserScope is loadUserScopeConfig with the provenance (sources.go) beside the map.
+func loadUserScope(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, *srcNode, error) {
+	cfg, node, err := loadWithIncludes(path, label, strict, warn, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return applyUserLayer(applyInheritedLaunch(cfg)), nil
+	cfg, node = applyInheritedLaunch(cfg, node)
+	cfg, node = applyUserLayer(cfg, node)
+	return cfg, node, nil
 }
 
 // InheritedLaunchPath is the nested-launch file a jail's host wrote beside its user config:
@@ -183,15 +213,16 @@ func InheritedLaunchPath() string {
 //
 // PRECEDENCE: UNDER config.jsonc, not over it. The inherited file is what the OUTER scope
 // handed down; a jail's own config.jsonc (and any --user-layer on top) is the more local
-// statement and must win — the same direction as user-under-workspace one level up.
-func applyInheritedLaunch(base *jsonx.OrderedMap) *jsonx.OrderedMap {
+// statement and must win — the same direction as user-under-workspace one level up. The
+// provenance (sources.go) is folded the same way, so a refused key the file carries names it.
+func applyInheritedLaunch(base *jsonx.OrderedMap, baseNode *srcNode) (*jsonx.OrderedMap, *srcNode) {
 	path := InheritedLaunchPath()
 	if path == "" {
-		return base
+		return base, baseNode
 	}
-	inherited, err := LoadJSONCFile(path, "inherited launch config", false, func(string) {})
+	inherited, inheritedNode, err := loadJSONCFile(path, "inherited launch config", false, func(string) {})
 	if err != nil || inherited == nil || inherited.Len() == 0 {
-		return base
+		return base, baseNode
 	}
 	// The inherited file is the one config read OUTSIDE LoadJSONCWithIncludes, so it
 	// anchors itself: its relative env_sources entries resolve beside it, which is the
@@ -199,7 +230,7 @@ func applyInheritedLaunch(base *jsonx.OrderedMap) *jsonx.OrderedMap {
 	// already — the parent launch's loader anchored them before writing the file.)
 	AnchorEnvSources(inherited, filepath.Dir(path))
 	if base == nil {
-		return inherited
+		return inherited, inheritedNode
 	}
-	return MergeConfig(inherited, base)
+	return mergeConfig(inherited, base, inheritedNode, baseNode)
 }

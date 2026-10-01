@@ -62,17 +62,20 @@ type parser struct {
 	pos   int
 	wsErr error // set by skipWS on an unterminated block comment
 
-	// at, when set, is told where every object member's value sat once it is parsed: the
-	// path of steps from the top-level value down to it, and the byte range [start, end) of
-	// its text. Locate sets it; Decode leaves it nil, and then path stays empty.
+	// at, when set, is told where every object member's value and every array element sat
+	// once it is parsed: the path of steps from the top-level value down to it, and the byte
+	// range [start, end) of its text. Locate sets it; Decode leaves it nil, and then path
+	// stays empty.
 	at   func(path []pathStep, start, end int)
 	path []pathStep
 }
 
-// pathStep is one step of the path at reports: an object key, or an array element.
+// pathStep is one step of the path at reports: an object key, or an array element and its
+// position in the array.
 type pathStep struct {
 	key   string
 	index bool
+	pos   int
 }
 
 func (p *parser) errf(format string, args ...any) error {
@@ -237,14 +240,16 @@ func (p *parser) parseArray() (any, error) {
 	}
 	for {
 		p.skipWS()
+		start := p.pos
 		if p.at != nil {
-			p.path = append(p.path, pathStep{index: true})
+			p.path = append(p.path, pathStep{index: true, pos: len(arr)})
 		}
 		val, err := p.parseValue()
 		if err != nil {
 			return nil, err
 		}
 		if p.at != nil {
+			p.at(p.path, start, p.pos)
 			p.path = p.path[:len(p.path)-1]
 		}
 		arr = append(arr, val)

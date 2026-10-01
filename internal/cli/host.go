@@ -1809,6 +1809,8 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// adds.
 	if profile == "" && profileName != "" && !selectedPackInstalls(packs, agent) {
 		if msg, unknown := config.UnknownProfileKey(agent); unknown {
+			// Located in the user scope, as hostProviderSectionRefusal's problems are.
+			msg = config.UserScopeSources().AnnotateOne(msg)
 			c.err = fmt.Errorf("%s. A profile reaches agent CLIs only, so no profile entry "+
 				"or -p selects one for a command no pack installs: remove the entry. %s",
 				msg, c.adHocGrantSpelling(hostProfileProvider(packs, profileName), grant))
@@ -2854,8 +2856,17 @@ func hostWrappersStatus(pr richtext.Printer, errw io.Writer) int {
 // a reader that skipped this refusal did not refuse the retired `use_profiles`: it ignored it,
 // and an --assert then deselected the profile an earlier apply had written into the real home
 // (PP-D11: "use_profiles is an error on the host").
+//
+// Each problem names the file and line its key was written at, as the launch's and `yolo
+// check`'s do (config's sources.go). Every caller hands this the user scope
+// (config.UserScopeConfigOrEmpty), so the record is that scope's, read again only when there is
+// something to locate.
 func hostProviderSectionRefusal(cfg *jsonx.OrderedMap, warn func(string)) error {
 	errs, warns := config.ValidateProviderSection(cfg)
+	if len(errs) > 0 || len(warns) > 0 {
+		src := config.UserScopeSources()
+		errs, warns = src.Annotate(errs), src.Annotate(warns)
+	}
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %s that every launch refuses (`yolo check` reports the "+
 			"same):\n  ✗ %s", plural(len(errs), "a problem", fmt.Sprintf("%d problems", len(errs))),

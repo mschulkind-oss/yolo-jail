@@ -25,31 +25,47 @@ func defaultWarn(msg string) {
 // a non-object top level is a ConfigError in strict mode, else warns and returns
 // an empty map.
 func LoadJSONCFile(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
+	m, _, err := loadJSONCFile(path, label, strict, warn)
+	return m, err
+}
+
+// LoadJSONCFileWithSources is LoadJSONCFile plus where each value sits in the file
+// (sources.go), for a caller that reports on one file by itself.
+func LoadJSONCFileWithSources(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, *Sources, error) {
+	m, n, err := loadJSONCFile(path, label, strict, warn)
+	return m, sourcesOf(n), err
+}
+
+// loadJSONCFile is LoadJSONCFile, returning the file's provenance tree beside the map (nil
+// whenever the map is the empty one a missing or unreadable file yields).
+func loadJSONCFile(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, *srcNode, error) {
 	if warn == nil {
 		warn = defaultWarn
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return jsonx.NewOrderedMap(), nil
+			return jsonx.NewOrderedMap(), nil, nil
 		}
 		// A read error other than not-exist is surfaced as a parse failure.
-		return handleParseFailure(label, err, strict, warn)
+		m, err := handleParseFailure(label, err, strict, warn)
+		return m, nil, err
 	}
 	parsed, perr := json5.Decode(data)
 	if perr != nil {
-		return handleParseFailure(label, perr, strict, warn)
+		m, err := handleParseFailure(label, perr, strict, warn)
+		return m, nil, err
 	}
 	m, ok := asMap(parsed)
 	if !ok {
 		msg := label + " must contain a top-level JSON object"
 		if strict {
-			return nil, configErr("%s", msg)
+			return nil, nil, configErr("%s", msg)
 		}
 		warn(msg)
-		return jsonx.NewOrderedMap(), nil
+		return jsonx.NewOrderedMap(), nil, nil
 	}
-	return m, nil
+	return m, fileTree(&srcFile{path: path, data: data}, m), nil
 }
 
 func handleParseFailure(label string, err error, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
@@ -64,21 +80,44 @@ func handleParseFailure(label string, err error, strict bool, warn Warn) (*jsonx
 // mergeLists appends override items not already present, with equality by the
 // canonical dedup key (sorted-key JSON of the item). The base list is copied;
 // order is base-then-new-override.
-func mergeLists(base, override []any) []any {
+//
+// It also folds the two lists' provenance (sources.go) when either is recorded: an override
+// item the dedup drops is the base item written again, so that entry's record names both
+// files. With neither recorded the node is nil and no record is built.
+func mergeLists(base, override []any, bsrc, osrc *srcNode) ([]any, *srcNode) {
+	track := bsrc != nil || osrc != nil
 	merged := make([]any, len(base))
 	copy(merged, base)
-	seen := make(map[string]struct{}, len(merged))
-	for _, item := range merged {
-		seen[dedupKey(item)] = struct{}{}
-	}
-	for _, item := range override {
-		k := dedupKey(item)
-		if _, ok := seen[k]; !ok {
-			merged = append(merged, item)
-			seen[k] = struct{}{}
+	var node *srcNode
+	if track {
+		node = &srcNode{writers: concatWriters(bsrc.writerList(), osrc.writerList()),
+			elems: make([]*srcNode, len(base))}
+		for i := range base {
+			node.elems[i] = bsrc.elem(i)
 		}
 	}
-	return merged
+	seen := make(map[string]int, len(merged)) // dedup key -> index of its first item
+	for i, item := range merged {
+		k := dedupKey(item)
+		if _, dup := seen[k]; !dup {
+			seen[k] = i
+		}
+	}
+	for j, item := range override {
+		k := dedupKey(item)
+		if i, ok := seen[k]; ok {
+			if track {
+				node.elems[i] = alsoWrittenIn(node.elems[i], osrc.elem(j))
+			}
+			continue
+		}
+		merged = append(merged, item)
+		seen[k] = len(merged) - 1
+		if track {
+			node.elems = append(node.elems, osrc.elem(j))
+		}
+	}
+	return merged, node
 }
 
 // MergeConfig recursively merges override onto base: recursive dict merge, list
@@ -92,10 +131,28 @@ func mergeLists(base, override []any) []any {
 // (an agent arrives as a pack), so the exception has no members and the mechanism
 // went with it rather than sitting inert waiting for a user it will not get.
 func MergeConfig(base, override *jsonx.OrderedMap) *jsonx.OrderedMap {
+	merged, _ := mergeConfig(base, override, nil, nil)
+	return merged
+}
+
+// mergeConfig is MergeConfig, folding the two configs' provenance (sources.go) beside the
+// values when either is recorded. ONE function for both, so the record cannot disagree with
+// the merge about which file's value won: every branch below decides the value and its
+// record together. With neither recorded the node is nil and no record is built.
+func mergeConfig(base, override *jsonx.OrderedMap, bsrc, osrc *srcNode) (*jsonx.OrderedMap, *srcNode) {
+	track := bsrc != nil || osrc != nil
 	result := jsonx.NewOrderedMap()
+	var node *srcNode
+	if track {
+		node = &srcNode{writers: concatWriters(bsrc.writerList(), osrc.writerList()),
+			keys: make(map[string]*srcNode, base.Len()+override.Len())}
+	}
 	for _, k := range base.Keys() {
 		v, _ := base.Get(k)
 		result.Set(k, v)
+		if track {
+			node.keys[k] = bsrc.key(k)
+		}
 	}
 	for _, key := range override.Keys() {
 		value, _ := override.Get(key)
@@ -103,20 +160,35 @@ func MergeConfig(base, override *jsonx.OrderedMap) *jsonx.OrderedMap {
 		if present {
 			if em, ok := asMap(existing); ok {
 				if vm, ok := asMap(value); ok {
-					result.Set(key, MergeConfig(em, vm))
+					merged, mn := mergeConfig(em, vm, node.key(key), osrc.key(key))
+					result.Set(key, merged)
+					if track {
+						node.keys[key] = mn
+					}
 					continue
 				}
 			}
 			if el, ok := asList(existing); ok {
 				if vl, ok := asList(value); ok {
-					result.Set(key, mergeLists(el, vl))
+					merged, ln := mergeLists(el, vl, node.key(key), osrc.key(key))
+					result.Set(key, merged)
+					if track {
+						node.keys[key] = ln
+					}
 					continue
 				}
 			}
 		}
 		result.Set(key, value)
+		if track {
+			if present {
+				node.keys[key] = replacedBy(node.keys[key], osrc.key(key))
+			} else {
+				node.keys[key] = osrc.key(key)
+			}
+		}
 	}
-	return result
+	return result, node
 }
 
 // LoadJSONCWithIncludes loads a JSONC file and its includes. Include entries are
@@ -124,6 +196,13 @@ func MergeConfig(base, override *jsonx.OrderedMap) *jsonx.OrderedMap {
 // skip; overrides win (later wins); cycles are detected via the shared seen set.
 // The include_if_found key is consumed and removed from the returned config.
 func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[string]struct{}) (*jsonx.OrderedMap, error) {
+	m, _, err := loadWithIncludes(path, label, strict, warn, seen)
+	return m, err
+}
+
+// loadWithIncludes is LoadJSONCWithIncludes, returning the composed provenance beside the
+// map: the file's own tree with each include's merged over it, as the includes' values are.
+func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[string]struct{}) (*jsonx.OrderedMap, *srcNode, error) {
 	if warn == nil {
 		warn = defaultWarn
 	}
@@ -132,17 +211,17 @@ func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[
 	}
 	resolved := resolvePathForSeen(path)
 	if _, ok := seen[resolved]; ok {
-		return jsonx.NewOrderedMap(), nil
+		return jsonx.NewOrderedMap(), nil, nil
 	}
 	seen[resolved] = struct{}{}
 
-	raw, err := LoadJSONCFile(path, label, strict, warn)
+	raw, node, err := loadJSONCFile(path, label, strict, warn)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if raw.Len() == 0 {
 		// An empty (falsy) map is returned directly WITHOUT consuming includes.
-		return raw, nil
+		return raw, node, nil
 	}
 	// Anchor this file's relative env_sources entries at THIS file's directory, before
 	// the include walk merges anyone else's in. Per-file is the point (see
@@ -152,29 +231,31 @@ func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[
 
 	includesVal, hasIncludes := raw.Get("include_if_found")
 	raw.Delete("include_if_found") // consumed; not part of the returned config
+	includesNode := node.key("include_if_found")
+	node = node.without("include_if_found")
 	if !hasIncludes || includesVal == nil {
-		return raw, nil
+		return raw, node, nil
 	}
 
 	includes, ok := asList(includesVal)
 	if !ok {
-		msg := label + ".include_if_found: expected a list of strings"
+		msg := includeProblem(includesNode, label, "include_if_found: expected a list of strings")
 		if strict {
-			return nil, configErr("%s", msg)
+			return nil, nil, configErr("%s", msg)
 		}
 		warn(msg)
-		return raw, nil
+		return raw, node, nil
 	}
 
 	baseDir := filepath.Dir(path)
 	result := raw
 	for idx, entry := range includes {
-		entryLabel := fmt.Sprintf("%s.include_if_found[%d]", label, idx)
+		entryLabel := fmt.Sprintf("include_if_found[%d]", idx)
 		s, ok := asStr(entry)
 		if !ok {
-			msg := entryLabel + ": expected a string path"
+			msg := includeProblem(includesNode.elem(idx), label, entryLabel+": expected a string path")
 			if strict {
-				return nil, configErr("%s", msg)
+				return nil, nil, configErr("%s", msg)
 			}
 			warn(msg)
 			continue
@@ -183,10 +264,10 @@ func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[
 			continue
 		}
 		if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") {
-			msg := fmt.Sprintf("%s: must be a relative path (got %s); "+
-				"absolute paths and '~' are not supported", entryLabel, pytext.Repr(s))
+			msg := includeProblem(includesNode.elem(idx), label, fmt.Sprintf("%s: must be a relative path (got %s); "+
+				"absolute paths and '~' are not supported", entryLabel, pytext.Repr(s)))
 			if strict {
-				return nil, configErr("%s", msg)
+				return nil, nil, configErr("%s", msg)
 			}
 			warn(msg)
 			continue
@@ -195,13 +276,13 @@ func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[
 		if !pathExists(incPath) {
 			continue
 		}
-		included, err := LoadJSONCWithIncludes(incPath, incPath, strict, warn, seen)
+		included, incNode, err := loadWithIncludes(incPath, incPath, strict, warn, seen)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		result = MergeConfig(result, included)
+		result, node = mergeConfig(result, included, node, incNode)
 	}
-	return result, nil
+	return result, node, nil
 }
 
 func resolveWorkspaceConfigPath(workspace, baseName string) (string, string) {
@@ -221,25 +302,52 @@ func resolveWorkspaceConfigPath(workspace, baseName string) (string, string) {
 // yolo-jail.local.jsonc (or yolo-jail.local.json) (local wins), sharing the seen
 // set so a config that also includes the local file doesn't merge it twice.
 func LoadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
+	m, _, err := loadWorkspaceConfig(workspace, strict, warn)
+	return m, err
+}
+
+// LoadWorkspaceConfigWithSources is LoadWorkspaceConfig plus where each value was written
+// (sources.go).
+func LoadWorkspaceConfigWithSources(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, *Sources, error) {
+	m, n, err := loadWorkspaceConfig(workspace, strict, warn)
+	return m, sourcesOf(n), err
+}
+
+func loadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, *srcNode, error) {
 	if workspace == "" {
 		workspace = cwd()
 	}
 	seen := map[string]struct{}{}
 	wsPath, wsLabel := resolveWorkspaceConfigPath(workspace, WorkspaceConfigName)
-	wsCfg, err := LoadJSONCWithIncludes(wsPath, wsLabel, strict, warn, seen)
+	wsCfg, wsNode, err := loadWithIncludes(wsPath, wsLabel, strict, warn, seen)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	localPath, localLabel := resolveWorkspaceConfigPath(workspace, WorkspaceLocalConfigName)
-	localCfg, err := LoadJSONCWithIncludes(localPath, localLabel, strict, warn, seen)
+	localCfg, localNode, err := loadWithIncludes(localPath, localLabel, strict, warn, seen)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return MergeConfig(wsCfg, localCfg), nil
+	m, n := mergeConfig(wsCfg, localCfg, wsNode, localNode)
+	return m, n, nil
 }
 
 // LoadConfig merges the user-level config under the workspace config.
 func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
+	m, _, err := loadConfig(workspace, strict, warn)
+	return m, err
+}
+
+// LoadConfigWithSources is LoadConfig plus where each value of the merged config was written
+// (sources.go), for a caller that reports validation problems: Annotate the messages with it.
+// The Sources is nil where LoadConfig reads the in-jail copy of the host's assembled config,
+// whose source files the jail does not have.
+func LoadConfigWithSources(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, *Sources, error) {
+	m, n, err := loadConfig(workspace, strict, warn)
+	return m, sourcesOf(n), err
+}
+
+func loadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, *srcNode, error) {
 	// Inside a jail, for THIS JAIL'S OWN workspace, do NOT re-assemble: COPY the
 	// host's already-merged config from the delivered assembled config instead
 	// (<workspace>/.yolo/config-assembled.json — see assembled.go). The user-level
@@ -293,21 +401,22 @@ func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, er
 	// With a layer set we fall through and assemble, then merge it in.
 	if inJail() && jailOwnWorkspace(workspace) && UserLayerPath() == "" {
 		if snap, ok := loadAssembledSnapshot(workspace); ok {
-			return snap, nil
+			return snap, nil, nil
 		}
 	}
 	// The user half goes through loadUserScopeConfig so a --user-layer lands at user-level
 	// precedence (a workspace config still wins over it — see userlayer.go).
-	userCfg, err := loadUserScopeConfig(
+	userCfg, userNode, err := loadUserScope(
 		paths.UserConfigPath(), paths.UserConfigPath(), strict, warn)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	wsCfg, err := LoadWorkspaceConfig(workspace, strict, warn)
+	wsCfg, wsNode, err := loadWorkspaceConfig(workspace, strict, warn)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return MergeConfig(userCfg, wsCfg), nil
+	m, n := mergeConfig(userCfg, wsCfg, userNode, wsNode)
+	return m, n, nil
 }
 
 // inJail reports whether we are executing inside a yolo jail (the host always

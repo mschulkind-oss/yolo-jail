@@ -214,7 +214,11 @@ func TestConfigInspectionReportsAMalformedPacksEntry(t *testing.T) {
 		t.Errorf("the resolvable part still selects %v, want %v", packNames(packs), claudeAndItsNeeds)
 	}
 	if len(problems) != 1 || problems[0].Name != "config.packs[1]" {
-		t.Errorf("problems = %+v, want the malformed entry named by its place", problems)
+		t.Fatalf("problems = %+v, want the malformed entry named by its place", problems)
+	}
+	// And by the file and line it was written at, since its place is in the composed list.
+	if want := "(written at ~/.config/yolo-jail/config.jsonc:1:22)"; !strings.HasSuffix(problems[0].Reason, want) {
+		t.Errorf("reason = %q, want it to end %q", problems[0].Reason, want)
 	}
 }
 

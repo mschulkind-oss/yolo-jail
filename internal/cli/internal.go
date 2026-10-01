@@ -406,7 +406,7 @@ func runConfigDump(args []string) int {
 		}
 	}
 
-	cfg, err := config.LoadConfig(workspace, strict, nil)
+	cfg, src, err := config.LoadConfigWithSources(workspace, strict, nil)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "config-dump:", err)
 		return 1
@@ -417,6 +417,8 @@ func runConfigDump(args []string) int {
 	// both other callers accept. An oracle that disagrees with the thing it is an
 	// oracle for is worse than no oracle.
 	errs, warns := config.ValidateConfig(cfg, workspace, loopholes.NewResolver())
+	// Located as the launch and `yolo check` locate them, for the same reason as the resolver.
+	errs, warns = src.Annotate(errs), src.Annotate(warns)
 
 	out := jsonx.NewOrderedMap()
 	out.Set("config", cfg)

@@ -168,25 +168,34 @@ func reprAny(v any) string {
 // ParseMounts returns cfg's well-formed `mounts` elements in order. Malformed ones are
 // dropped here and reported by validateMounts, which a launch runs first.
 func ParseMounts(cfg *jsonx.OrderedMap) []ContextMount {
+	out, _ := parseMountsIndexed(cfg)
+	return out
+}
+
+// parseMountsIndexed is ParseMounts plus each element's index in the list, which the
+// elements it skips make differ from its index in the result.
+func parseMountsIndexed(cfg *jsonx.OrderedMap) ([]ContextMount, []int) {
 	if cfg == nil {
-		return nil
+		return nil, nil
 	}
 	v, ok := cfg.Get(mountsKey)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	list, ok := asList(v)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	var out []ContextMount
+	var indices []int
 	for i, el := range list {
 		m, problems := ParseMountElement(el, fmt.Sprintf("config.mounts[%d]", i))
 		if len(problems) == 0 {
 			out = append(out, m)
+			indices = append(indices, i)
 		}
 	}
-	return out
+	return out, indices
 }
 
 // mountScope is the set of config files a `mounts` element was declared in.
@@ -386,18 +395,22 @@ func validateMountScope(config *jsonx.OrderedMap, workspace string, errs *[]stri
 	if rwMountTrusted(mountScopeWorkspace) || !hasRWMount(config) {
 		return
 	}
-	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	wsCfg, wsNode, err := loadWorkspaceConfig(workspace, false, func(string) {})
 	if err != nil || wsCfg == nil {
 		return
 	}
-	for _, m := range ParseMounts(wsCfg) {
+	// Located in the workspace files' own record (sources.go), at the element itself: the
+	// merged record could only say where the `mounts` key is, in every file that writes one.
+	elements, indices := parseMountsIndexed(wsCfg)
+	for n, m := range elements {
 		if !m.RW {
 			continue
 		}
-		add(errs, fmt.Sprintf("config.mounts: %s is in the workspace config, and a read-write "+
+		msg := fmt.Sprintf("config.mounts: %s is in the workspace config, and a read-write "+
 			"mount is user-scope only — move it to %s. A workspace config is agent-editable, "+
 			"so it cannot grant a read-write host mount (docs/design/context-mounts.md §2.2; "+
-			"a read-only entry may stay where it is)", m.Spec, paths.UserConfigPath()))
+			"a read-only entry may stay where it is)", m.Spec, paths.UserConfigPath())
+		add(errs, locatedAt(wsNode.key(mountsKey).elem(indices[n]), msg))
 	}
 }
 
@@ -412,12 +425,15 @@ func validateRWMountSources(config *jsonx.OrderedMap, workspace string, errs *[]
 	if inJail() && jailOwnWorkspace(workspace) {
 		return
 	}
-	for _, m := range ParseMounts(config) {
+	// Named by its index in the merged list, so the location a caller adds (sources.go) is
+	// the element's own line rather than the `mounts` key's in every file that writes one.
+	elements, indices := parseMountsIndexed(config)
+	for n, m := range elements {
 		if !m.RW {
 			continue
 		}
 		if why := rwMountRefusal(expandUser(m.Host), workspace); why != "" {
-			add(errs, fmt.Sprintf("config.mounts: %s is refused: %s", m.Spec, why))
+			add(errs, fmt.Sprintf("config.mounts[%d]: %s is refused: %s", indices[n], m.Spec, why))
 		}
 	}
 }

@@ -35,7 +35,7 @@ func TestCheckRefusesAWorkspaceProviderCredentialVariable(t *testing.T) {
 		Getenv:   func(string) string { return "" },
 		LookPath: func(string) (string, bool) { return "", false },
 	}
-	o.sectionMergedConfig(r, merged, ws, empty, empty, false)
+	o.sectionMergedConfig(r, merged, ws, empty, empty, nil, false)
 	got := stripANSI(buf.String())
 	for _, want := range []string{"[FAIL]", "config.providers.zai.api_key_env_name: user-scope only",
 		"move it to " + paths.UserConfigPath()} {

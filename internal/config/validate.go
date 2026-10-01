@@ -1168,6 +1168,40 @@ func validateMCPServers(config *jsonx.OrderedMap, errs *[]string) {
 	}
 }
 
+// PresetNullConflicts reports same-file preset/null contradictions: a preset enabled in
+// `mcp_presets` and null-removed in `mcp_servers` within ONE config (cfg, which the launch and
+// `yolo check` each read per scope; ValidateConfig sees only the merged map, where an override
+// across scopes is legal). Each problem leads with where the null entry was written (src,
+// sources.go), else with label, the config's own name for itself.
+//
+// ONE copy for both callers: the launch gate and `yolo check` each kept their own, word for
+// word, which is how two spellings of one refusal start to differ.
+func PresetNullConflicts(cfg *jsonx.OrderedMap, label string, src *Sources) []string {
+	var errs []string
+	presetsV, _ := cfg.Get("mcp_presets")
+	serversV, _ := cfg.Get("mcp_servers")
+	presets, okP := presetsV.([]any)
+	servers, okS := serversV.(*jsonx.OrderedMap)
+	if !okP || !okS {
+		return errs
+	}
+	for _, nameV := range presets {
+		name, ok := nameV.(string)
+		if !ok {
+			continue
+		}
+		if v, present := servers.Get(name); present && v == nil {
+			where := label
+			if locs := src.node().key("mcp_servers").key(name).locations(); len(locs) > 0 {
+				where = locs[0]
+			}
+			errs = append(errs, where+": preset '"+name+"' is enabled in mcp_presets but "+
+				"null-removed in mcp_servers within the same config file")
+		}
+	}
+	return errs
+}
+
 func validateProviders(config *jsonx.OrderedMap, workspace string, errs, warns *[]string) {
 	// ABOVE the presence gate, not below it. The scope check reads the workspace FILE and
 	// the gate below asks the MERGED map — normally the same answer, since a workspace

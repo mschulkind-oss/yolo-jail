@@ -22,7 +22,9 @@ import (
 func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 	out := o.pr(o.Stdout)
 
-	cfg, err := config.LoadConfig(o.Workspace, true, func(string) {})
+	// WithSources: every refusal below names the file and line its key was written at
+	// (config's sources.go), since the config is composed from many files.
+	cfg, src, err := config.LoadConfigWithSources(o.Workspace, true, func(string) {})
 	if err != nil {
 		// ConfigError → print the message; any other load error also surfaces
 		// (LoadConfig only returns ConfigError in strict mode for malformed
@@ -33,20 +35,22 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 
 	resolver := loopholeResolver()
 	configErrors, configWarnings := config.ValidateConfig(cfg, o.Workspace, resolver)
+	configErrors = src.Annotate(configErrors)
+	configWarnings = src.Annotate(configWarnings)
 
 	// Cross-hierarchy overrides are valid, but same-file contradictions are not.
 	userPath := paths.UserConfigPath()
-	userRaw, err := config.LoadJSONCFile(userPath, userPath, false, func(string) {})
+	userRaw, userSrc, err := config.LoadJSONCFileWithSources(userPath, userPath, false, func(string) {})
 	if err != nil || userRaw == nil {
 		userRaw = jsonx.NewOrderedMap()
 	}
 	wsPath := o.Workspace + "/yolo-jail.jsonc"
-	wsRaw, err := config.LoadJSONCFile(wsPath, "yolo-jail.jsonc", false, func(string) {})
+	wsRaw, wsSrc, err := config.LoadJSONCFileWithSources(wsPath, "yolo-jail.jsonc", false, func(string) {})
 	if err != nil || wsRaw == nil {
 		wsRaw = jsonx.NewOrderedMap()
 	}
-	configErrors = append(configErrors, checkPresetNullConflicts(userRaw, userPath)...)
-	configErrors = append(configErrors, checkPresetNullConflicts(wsRaw, "yolo-jail.jsonc")...)
+	configErrors = append(configErrors, config.PresetNullConflicts(userRaw, userPath, userSrc)...)
+	configErrors = append(configErrors, config.PresetNullConflicts(wsRaw, "yolo-jail.jsonc", wsSrc)...)
 
 	for _, msg := range configWarnings {
 		out.printf("  [yellow]⚠ %s[/yellow]", msg)
@@ -75,7 +79,7 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 	// (declaration-parity.md) recorded the alternative as a known defect in advance:
 	// the delivery this replaces sits below the macos-user return, so a check written
 	// there would silently not refuse on exactly one backend.
-	if o.refuseUnmetCapabilities(cfg) {
+	if o.refuseUnmetCapabilities(cfg, src) {
 		return nil, false
 	}
 	return cfg, true
@@ -137,7 +141,9 @@ func (o *Options) capabilityLaunch(cfg *jsonx.OrderedMap) *config.CapabilityLaun
 // refusal, and it reads beside checkProviderCredentials' and the notch gate's, which are the two
 // it will be compared with. The config ERRORS above keep Stdout; moving them is a separate change
 // with its own callers.
-func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap) bool {
+//
+// src locates the key in the files that wrote it (config's sources.go); nil locates nothing.
+func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap, src *config.Sources) bool {
 	missing, err := config.UnmetCapabilities(cfg, o.capabilityLaunch(cfg))
 	if len(missing) == 0 {
 		return false
@@ -162,6 +168,9 @@ func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap) bool {
 	}
 	out.printf("[bold red]Refusing to launch: config.required_capabilities declares %s, "+
 		"and nothing this config or its selected packs declare satisfies it.[/bold red]", named)
+	if where := src.Locations("config.required_capabilities"); len(where) > 0 {
+		out.print("  config.required_capabilities is written at " + strings.Join(where, " and at ") + ".")
+	}
 	out.print("  A capability is satisfied by a declaration: `providers.<name>.capabilities` " +
 		"naming it (the agent has it natively there), an `mcp_servers.<name>` entry with " +
 		"\"provides\": \"<capability>\", or a selected agent whose pack declares it for the " +
@@ -169,31 +178,6 @@ func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap) bool {
 	out.printf("[dim]Declare the satisfier, drop the name from required_capabilities, or "+
 		"launch anyway with %s=1.[/dim]", AllowUnmetCapabilitiesEnv)
 	return true
-}
-
-// checkPresetNullConflicts detects a same-file
-// preset/null contradiction (a preset enabled in mcp_presets but null-removed in
-// mcp_servers within the same file).
-func checkPresetNullConflicts(cfg *jsonx.OrderedMap, label string) []string {
-	var errs []string
-	presetsV, _ := cfg.Get("mcp_presets")
-	serversV, _ := cfg.Get("mcp_servers")
-	presets, okP := presetsV.([]any)
-	servers, okS := serversV.(*jsonx.OrderedMap)
-	if !okP || !okS {
-		return errs
-	}
-	for _, nameV := range presets {
-		name, ok := nameV.(string)
-		if !ok {
-			continue
-		}
-		if v, present := servers.Get(name); present && v == nil {
-			errs = append(errs, label+": preset '"+name+"' is enabled in mcp_presets but "+
-				"null-removed in mcp_servers within the same config file")
-		}
-	}
-	return errs
 }
 
 // resolveRuntime returns the resolved container runtime

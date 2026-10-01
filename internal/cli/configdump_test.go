@@ -91,3 +91,36 @@ func TestConfigDumpResolvesInstalledLoopholes(t *testing.T) {
 		t.Errorf("a SELECTED pack's loophole was reported as uninstalled:\n%s", out)
 	}
 }
+
+// The oracle's errors name where a refused key was written, as `yolo check` and the launch do
+// (userguide/reference/configuration.md#the-config-files): an oracle that
+// printed the bare key would disagree with the two callers it stands in for.
+func TestConfigDumpErrorsNameWhereTheKeyWasWritten(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_USER_LAYER", "")
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"config.jsonc": `{"include_if_found": ["old.jsonc"]}`,
+		"old.jsonc":    "{\n  \"use_profiles\": \"zai\"\n}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var rc int
+	out := captureStdout(t, func() { rc = runConfigDump([]string{t.TempDir()}) })
+	if rc == 0 {
+		t.Errorf("config-dump accepted use_profiles:\n%s", out)
+	}
+	if want := "~/.config/yolo-jail/old.jsonc:2:19: config.use_profiles: RENAMED"; !strings.Contains(out, want) {
+		t.Errorf("config-dump's error does not say where use_profiles was written (want %q):\n%s", want, out)
+	}
+}

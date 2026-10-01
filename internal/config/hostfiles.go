@@ -327,13 +327,14 @@ func LoadHostFiles(merged *jsonx.OrderedMap, warn Warn, probeSource bool) ([]Hos
 	// strict=true: a malformed user config is an error, never a silently empty
 	// list. Silently dropping a host_files entry looks exactly like the feature
 	// not working, which is the failure this whole key's plumbing exists to avoid.
-	userCfg, err := loadUserScopeConfig(userPath, userPath, true, warn)
+	userCfg, userNode, err := loadUserScope(userPath, userPath, true, warn)
 	if err != nil {
 		return nil, err
 	}
 	if v, present := userCfg.Get(hostFilesKey); present && v != nil {
 		userEntries, problems := checkHostFiles(v, "user", probeSource)
-		for _, p := range problems {
+		// Located in the user scope's own record (sources.go), whose list these indices count.
+		for _, p := range sourcesOf(userNode).Annotate(problems) {
 			warn(p + " — entry skipped")
 		}
 		for _, e := range userEntries {
@@ -401,10 +402,18 @@ func dedupeHostFilesByPath(entries []HostFileEntry, warn Warn) []HostFileEntry {
 // scope labels the entries for error messages and the ls listing. probeSource is
 // the filesystem-probe gate — see LoadHostFiles.
 func checkHostFiles(v any, scope string, probeSource bool) (entries []HostFileEntry, problems []string) {
+	entries, _, problems = checkHostFilesIndexed(v, scope, probeSource)
+	return entries, problems
+}
+
+// checkHostFilesIndexed is checkHostFiles plus, for each entry it returns, that entry's index
+// in the list it was handed: an entry refused above it is not returned, so the two counts
+// part there.
+func checkHostFilesIndexed(v any, scope string, probeSource bool) (entries []HostFileEntry, indices []int, problems []string) {
 	prefix := "config." + hostFilesKey
 	list, ok := asList(v)
 	if !ok {
-		return nil, []string{prefix + ": expected a list of host-file entries " +
+		return nil, nil, []string{prefix + ": expected a list of host-file entries " +
 			"(a path string, or an object with a 'path')"}
 	}
 	// The selection, resolved as validateWritableHomeDirs resolves it: a partly unresolvable
@@ -427,8 +436,9 @@ func checkHostFiles(v any, scope string, probeSource bool) (entries []HostFileEn
 		}
 		byPath[entry.Path] = idx
 		entries = append(entries, entry)
+		indices = append(indices, idx)
 	}
-	return entries, problems
+	return entries, indices, problems
 }
 
 // checkHostFileEntry validates and lowers ONE entry, string or object form. It
@@ -955,7 +965,7 @@ func validateHostFiles(config *jsonx.OrderedMap, workspace string, errs *[]strin
 	// Warnings from the re-read are discarded: this same file was already loaded
 	// (and any parse problem already reported) by whoever produced the merged
 	// config we were handed.
-	wsCfg, err := LoadWorkspaceConfig(workspace, false, func(string) {})
+	wsCfg, wsNode, err := loadWorkspaceConfig(workspace, false, func(string) {})
 	if err != nil || wsCfg == nil {
 		return
 	}
@@ -965,16 +975,20 @@ func validateHostFiles(config *jsonx.OrderedMap, workspace string, errs *[]strin
 	}
 	// Re-check the WORKSPACE value on its own so the reported indices match what
 	// the user wrote in their workspace config, not their position in the merge.
-	wsEntries, _ := checkHostFiles(wsValue, "workspace", false)
-	for i, e := range wsEntries {
+	// For the same reason the refusal is located here, in the workspace files' own
+	// record (sources.go): the merged list's entry at this index is someone else's.
+	wsEntries, wsIndices, _ := checkHostFilesIndexed(wsValue, "workspace", false)
+	for n, e := range wsEntries {
 		if !e.SourceBearing() {
 			continue
 		}
-		add(errs, fmt.Sprintf("config.%s[%d]: an entry that names a host source is "+
+		i := wsIndices[n]
+		msg := fmt.Sprintf("config.%s[%d]: an entry that names a host source is "+
 			"user-scope only — move it to ~/.config/yolo-jail/config.jsonc (a workspace "+
 			"config travels with the repo and is agent-editable, so it cannot decide which "+
 			"host files cross into the jail). A source-less entry (inline 'content', or only "+
-			"'managed'/'defaults') is allowed here.", hostFilesKey, i))
+			"'managed'/'defaults') is allowed here.", hostFilesKey, i)
+		add(errs, locatedAt(wsNode.key(hostFilesKey).elem(i), msg))
 	}
 }
 

@@ -101,7 +101,7 @@ func TestMergedConfigSectionReportsTheCapabilityGap(t *testing.T) {
 			Getenv:   func(string) string { return "" },
 			LookPath: func(string) (string, bool) { return "", false },
 		}
-		o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, false)
+		o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, nil, false)
 		got := stripANSI(buf.String())
 		if !strings.Contains(got, "required_capabilities") || !strings.Contains(got, "[FAIL]") {
 			t.Errorf("the section must FAIL on a gap the launch would refuse:\n%s", got)
@@ -120,7 +120,7 @@ func TestMergedConfigSectionReportsTheCapabilityGap(t *testing.T) {
 			},
 			LookPath: func(string) (string, bool) { return "", false },
 		}
-		o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, false)
+		o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, nil, false)
 		got := stripANSI(buf.String())
 		if !strings.Contains(got, "[WARN]") || !strings.Contains(got, "required_capabilities") {
 			t.Errorf("with the hatch set the gap must still be reported, as a WARN:\n%s", got)
@@ -160,7 +160,7 @@ func TestMergedConfigSectionCountsASelectedPacksCapability(t *testing.T) {
 		Getenv:   func(string) string { return "" },
 		LookPath: func(string) (string, bool) { return "", false },
 	}
-	o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, false)
+	o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, nil, false)
 	got := stripANSI(buf.String())
 	if strings.Contains(got, "required_capabilities") {
 		t.Errorf("claude is selected and declares web_search, so the launch's gate passes and "+
@@ -182,7 +182,7 @@ func TestMergedConfigSectionReadsTheProfileKey(t *testing.T) {
 		Getenv:   func(string) string { return "" },
 		LookPath: func(string) (string, bool) { return "", false },
 	}
-	o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, false)
+	o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, nil, false)
 	got := stripANSI(buf.String())
 	if !strings.Contains(got, "web_search") || !strings.Contains(got, "REFUSED") {
 		t.Errorf("claude runs on bedrock here, which declares no web_search, so check must "+

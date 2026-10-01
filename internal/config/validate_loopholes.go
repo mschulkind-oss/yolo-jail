@@ -171,7 +171,7 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 					continue
 				}
 				for _, viol := range loopholeScopeKeyViolations(name, e.spec, e.file, infoPtr) {
-					scoped(viol)
+					scoped(e.locate(viol))
 				}
 				// The per-key `settings` scope rule rides the SAME downgrade as the
 				// two-verbs key rows above: a workspace file supplying a user-scope
@@ -179,7 +179,7 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 				// at the top of this file — /workspace is live-mounted, so a hard
 				// error here would refuse every nested launch over the same file.
 				for _, viol := range loopholeSettingsScopeViolations(name, e.spec, e.file, infoPtr) {
-					scoped(viol)
+					scoped(e.locate(viol))
 				}
 			}
 			installed := infoPtr != nil || userInstalledInline(spec, entries)
@@ -353,7 +353,7 @@ func loopholeScopeKeyViolations(name string, spec *jsonx.OrderedMap, srcFile str
 // deliberate act either way, which is what keeps the line off every launch.
 func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, installed bool) (violation, disclosure string) {
 	var enabled *bool
-	var file string
+	var at wsLoopholeEntry // the entry whose `enabled` decides, which the message names
 	for _, e := range entries {
 		if e.spec == nil || hasKey(e.spec, "command") {
 			// An install-shaped workspace entry already drew the key violation.
@@ -365,25 +365,26 @@ func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, install
 		}
 		b := ev.(bool)
 		enabled = &b
-		file = e.file
+		at = e
 	}
 	if enabled == nil {
 		return "", ""
 	}
+	file := at.file
 	if *enabled && !installed {
-		return "config.loopholes." + name + ": " + file + " enables a loophole that is " +
-			"not installed on this machine. " + loopholeNotInstalledRemedy(name), ""
+		return at.locate("config.loopholes." + name + ": " + file + " enables a loophole that is " +
+			"not installed on this machine. " + loopholeNotInstalledRemedy(name)), ""
 	}
 	if !*enabled && installed {
-		return "", "config.loopholes." + name + ": disabled by " + file +
+		return "", at.locate("config.loopholes." + name + ": disabled by " + file +
 			" (workspace scope) — the installed loophole " + pytext.Repr(name) +
-			" will not run for jails launched from this workspace."
+			" will not run for jails launched from this workspace.")
 	}
 	if *enabled && installed {
-		return "", "config.loopholes." + name + ": enabled by " + file +
+		return "", at.locate("config.loopholes." + name + ": enabled by " + file +
 			" (workspace scope) — the installed loophole " + pytext.Repr(name) +
 			" runs for jails launched from this workspace because that " +
-			"agent-editable file switched it on."
+			"agent-editable file switched it on.")
 	}
 	return "", ""
 }
@@ -410,6 +411,15 @@ func userInstalledInline(mergedSpec *jsonx.OrderedMap, entries []wsLoopholeEntry
 type wsLoopholeEntry struct {
 	file string
 	spec *jsonx.OrderedMap
+	// src is where that file (with its includes) wrote each value (sources.go), nil when the
+	// entry was not read from it; locate leads a message about the entry with it, so the
+	// refusal names this file even where the merged record's winner is the other one.
+	src *Sources
+}
+
+// locate is msg led by where this entry wrote the key msg names, or msg unchanged.
+func (e wsLoopholeEntry) locate(msg string) string {
+	return e.src.AnnotateOne(msg)
 }
 
 // workspaceLoopholeEntries re-reads the workspace-scope config files and maps
@@ -429,7 +439,7 @@ func workspaceLoopholeEntries(workspace string) map[string][]wsLoopholeEntry {
 	seen := map[string]struct{}{}
 	for _, fname := range []string{WorkspaceConfigName, WorkspaceLocalConfigName} {
 		path := filepath.Join(workspace, fname)
-		cfg, err := LoadJSONCWithIncludes(path, fname, false, func(string) {}, seen)
+		cfg, node, err := loadWithIncludes(path, fname, false, func(string) {}, seen)
 		if err != nil || cfg == nil {
 			continue
 		}
@@ -444,7 +454,7 @@ func workspaceLoopholeEntries(workspace string) map[string][]wsLoopholeEntry {
 		for _, name := range block.Keys() {
 			specV, _ := block.Get(name)
 			spec, _ := asMap(specV)
-			out[name] = append(out[name], wsLoopholeEntry{file: path, spec: spec})
+			out[name] = append(out[name], wsLoopholeEntry{file: path, spec: spec, src: sourcesOf(node)})
 		}
 	}
 	return out

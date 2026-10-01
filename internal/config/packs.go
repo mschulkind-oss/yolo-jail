@@ -216,8 +216,10 @@ func LoadPacks(warn Warn) ([]PackEntry, error) {
 	if warn == nil {
 		warn = func(string) {}
 	}
-	entries, problems, err := loadPackEntries(warn)
-	for _, p := range problems {
+	entries, problems, src, err := loadPackEntries(warn)
+	// Each skipped entry names the file and line it was written at (sources.go): the user
+	// scope is many files, and this warning reaches verbs that run no validation.
+	for _, p := range src.Annotate(problems) {
 		warn(p + " — entry skipped")
 	}
 	return entries, err
@@ -232,21 +234,34 @@ func LoadPacks(warn Warn) ([]PackEntry, error) {
 // (docs/plans/notch-convergence.md NC-D5): a launch-shaped verb refuses a malformed entry at
 // every notch, which it cannot do with a problem already printed and discarded. The jail's
 // launch refused it through config validation while `yolo host` dropped it with no word.
+//
+// The problems keep that `config.packs[1]: …` shape, unlocated, because a caller reads the
+// entry's place off it (the host verbs' unresolvedPack names it); PackEntryLocations says
+// where the entry was written.
 func LoadPackEntries() ([]PackEntry, []string, error) {
-	return loadPackEntries(func(string) {})
+	entries, problems, _, err := loadPackEntries(func(string) {})
+	return entries, problems, err
+}
+
+// PackEntryLocations is where the user scope wrote the entry a LoadPackEntries problem names
+// (its leading `config.packs[1]`), highest precedence first; nil when that cannot be said. It
+// reads the user scope again, so it belongs on the path that reports the problem.
+func PackEntryLocations(problem string) []string {
+	path, _, _ := strings.Cut(problem, ": ")
+	return UserScopeSources().Locations(path)
 }
 
 // loadPackEntries is the read both spellings share; warn receives only the loader's own
-// warnings, never an entry problem.
-func loadPackEntries(warn Warn) ([]PackEntry, []string, error) {
+// warnings, never an entry problem. src is where the user scope's values were written.
+func loadPackEntries(warn Warn) ([]PackEntry, []string, *Sources, error) {
 	userPath := paths.UserConfigPath()
-	// loadUserScopeConfig, not LoadJSONCWithIncludes: the same direct read of the user file
-	// (so workspace scope stays inexpressible — see the file header) PLUS any
-	// --user-layer. `packs` is the key the layer exists for, since installing a loophole
-	// from inside a jail means naming the pack that carries it.
-	userCfg, err := loadUserScopeConfig(userPath, userPath, true, warn)
+	// loadUserScope (loadUserScopeConfig with its record), not LoadJSONCWithIncludes: the
+	// same direct read of the user file (so workspace scope stays inexpressible — see the
+	// file header) PLUS any --user-layer. `packs` is the key the layer exists for, since
+	// installing a loophole from inside a jail means naming the pack that carries it.
+	userCfg, userNode, err := loadUserScope(userPath, userPath, true, warn)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var entries []PackEntry
 	var problems []string
@@ -266,7 +281,7 @@ func loadPackEntries(warn Warn) ([]PackEntry, []string, error) {
 	if local, ok := localPackEntry(); ok && !hasPackNamed(entries, local.Name) {
 		entries = append(entries, local)
 	}
-	return entries, problems, nil
+	return entries, problems, sourcesOf(userNode), nil
 }
 
 // hasPackNamed reports whether any entry already carries this name.
