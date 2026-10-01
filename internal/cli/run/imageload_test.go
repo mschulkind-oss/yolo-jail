@@ -2,6 +2,9 @@ package run
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/image"
@@ -21,7 +24,7 @@ import (
 // check-ci` could not have caught it: both are integration tests, excluded by
 // -short.
 //
-// Delete the `Report: o.Stderr` line in imageLoadOptions and this fails.
+// Delete the `Report: o.Stderr` line in autoLoadImage and this fails.
 func TestTheRunPathSendsImageDisclosuresToStderr(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	var got image.AutoLoadOptions
@@ -36,9 +39,10 @@ func TestTheRunPathSendsImageDisclosuresToStderr(t *testing.T) {
 	o.autoLoadImage(jsonx.NewOrderedMap(), "podman", t.TempDir(), storePackagesPlan{})
 
 	if got.Report == nil {
-		t.Fatal("imageLoadOptions left Report nil, so the image half falls back to Out — " +
-			"which here is the JAIL COMMAND'S STDOUT. Any disclosure on a warm launch " +
-			"then corrupts the output of whatever the user asked the jail to run.")
+		t.Fatal("autoLoadImage left Report nil, so the image half's disclosures fall back to " +
+			"Out, and depend on where Out goes. When Out was the JAIL COMMAND'S STDOUT, a " +
+			"disclosure on a warm launch corrupted the output of whatever the user asked the " +
+			"jail to run.")
 	}
 	if got.Report != o.Stderr {
 		t.Errorf("Report is not the launch's stderr; every other launch line "+
@@ -46,9 +50,71 @@ func TestTheRunPathSendsImageDisclosuresToStderr(t *testing.T) {
 			"goes somewhere else is one the human watching the launch never sees. "+
 			"got %p, want %p", got.Report, o.Stderr)
 	}
-	if got.Out != o.Stdout {
-		t.Errorf("Out is no longer the command's stdout (%p vs %p) — the progress/"+
-			"status lines on the COLD paths are expected there", got.Out, o.Stdout)
+	// And the general output beside it: a cold load's status lines are launch lines too, and
+	// on the command's stdout they land in the output of whatever the user asked the jail to
+	// run (TestAColdImageLoadWritesNothingOnTheCommandsStdout has the reproduction).
+	if got.Out != o.Stderr {
+		t.Errorf("Out is not the launch's stderr (%p vs %p), so the image load's status lines "+
+			"go somewhere other than the launch stream", got.Out, o.Stderr)
+	}
+}
+
+// TestAColdImageLoadWritesNothingOnTheCommandsStdout is the reproduction for the image half's
+// GENERAL output: a launch that has to load its image prints "Image load needed", what it copied
+// and "Done: loaded image", and those lines went to Out, which the run path set to the jailed
+// command's own stdout. So `yolo -- <cmd>` on a launch after a flake change, a prune or a first
+// install printed them into the command's output, where the GC-root warning used to land too
+// (TestAnImageRootRefusalGoesToTheLaunchStream).
+//
+// It drives the REAL loader (image.AutoLoadImage) with the writers the run path hands it, faking
+// only the build, the runtime and the copy, so moving Out back to stdout fails it whichever of the
+// loader's lines a later edit adds or removes.
+func TestAColdImageLoadWritesNothingOnTheCommandsStdout(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	// The build's answer: a nix2container manifest of one layer, which the copy's report reads.
+	manifest := filepath.Join(t.TempDir(), "image.json")
+	if err := os.WriteFile(manifest, []byte(`{"version":1,"arch":"amd64","layers":[`+
+		`{"digest":"sha256:cold","size":1000,"diff_ids":"sha256:cold"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	o := goldenOptions(t.TempDir(), t.TempDir())
+	o.Stdout, o.Stderr = &stdout, &stderr
+	o.autoLoad = func(opts image.AutoLoadOptions) image.LoadResult {
+		opts.BuildStorePath = func(string, []any, string) (string, []string) { return manifest, nil }
+		opts.EvalIdentity = func(string) (string, bool) { return "", false }
+		// No image of any name is loaded: every inspect answers "absent", everything else succeeds.
+		opts.Run = func(argv []string) (int, bool) {
+			if len(argv) >= 3 && argv[1] == "image" && argv[2] == "inspect" {
+				return 1, true
+			}
+			return 0, true
+		}
+		opts.BuildCopier = func(string) (string, []string) { return "/nix/store/fake-skopeo/bin/skopeo", nil }
+		opts.LayerCopy = func(string, string, []string) (image.CopyReport, bool) {
+			return image.CopyReport{Layers: 1, Total: 1000, CopiedLayers: 1, Copied: 1000}, true
+		}
+		opts.StoreFacts = func() image.PodmanStoreFacts {
+			return image.PodmanStoreFacts{Rootless: image.RootlessNo}
+		}
+		opts.PresentDigests = func() map[string]struct{} { return nil }
+		opts.LockImageCopy = func() func() { return func() {} }
+		opts.LockHousekeeping = nil
+		opts.RegisterRoot, opts.RootCopier = nil, nil
+		opts.LookupEnv = func(string) (string, bool) { return "", false }
+		return image.AutoLoadImage(opts)
+	}
+
+	if res := o.autoLoadImage(jsonx.NewOrderedMap(), "podman", t.TempDir(), storePackagesPlan{}); !res.OK {
+		t.Fatalf("the cold load failed:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("the image load wrote into the jailed command's stdout:\n%s", stdout.String())
+	}
+	for _, want := range []string{"Image load needed", "Copied image:", "Done: loaded image"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("the launch stream is missing %q:\n%s", want, stderr.String())
+		}
 	}
 }
 

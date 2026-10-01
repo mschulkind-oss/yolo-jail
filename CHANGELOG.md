@@ -600,6 +600,11 @@ sets, and a jail without pi no longer carries it.
 - When yolo cannot protect the jail's image from Nix's garbage collector, its warning no longer
   lands in the output of `yolo -- <command>`. It is printed with yolo's other launch messages, on
   standard error, so a script reading the command's output gets only that output.
+- yolo's messages about the jail's image no longer land in the output of `yolo -- <command>`:
+  that a launch has to load the image and what it copied, and the warning when yolo cannot
+  protect the image from Nix's garbage collector. They are printed with yolo's other launch
+  messages, on standard error, so a script reading the command's output gets only that output,
+  on the first launch after an update as on every other.
 - When a jail leaves out an MCP server you declared with `provides`, because the agent's own login
   or its provider already does that job, the startup line no longer says the server is not in your
   config and tells you to declare it there. It now says the server is declared, names the job and

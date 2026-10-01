@@ -64,14 +64,21 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		SkipBuild:     false,
 		ExtraPackages: extra,
 		Attr:          attr,
-		Out:           o.Stdout,
-		// THE LAUNCH STREAM IS STDERR, and a disclosure must not be written to the
-		// jail command's stdout. `yolo -- <cmd>` passes the command's output through
-		// untouched, and callers compare it exactly — two integration tests assert
-		// `r.stdout == want` on an `env | grep` — so a provenance line on Out turns
-		// into corrupted command output rather than a message. Every other launch
-		// line ("Flake source:", "Jail binaries:") is already on stderr for this
-		// reason; Report is how the image half reaches the same place.
+		// THE LAUNCH STREAM IS STDERR, for every line the image half writes, and none of
+		// them may be written to the jail command's stdout. `yolo -- <cmd>` passes the
+		// command's output through untouched, and callers compare it exactly — two
+		// integration tests assert `r.stdout == want` on an `env | grep` — so a line on
+		// stdout turns into corrupted command output rather than a message. Every other
+		// launch line ("Flake source:", "Jail binaries:") is already on stderr for this
+		// reason.
+		//
+		// Out was the command's stdout until 2026-10-01, on the argument that its lines
+		// are all on cold paths; a cold path is still a launch whose command's output a
+		// caller reads, so a launch after a flake change printed "Image load needed" and
+		// the copy report into it (TestAColdImageLoadWritesNothingOnTheCommandsStdout).
+		// Report stays set beside it: it is the disclosure stream the image half's own
+		// contract names, and nothing here should depend on its fallback to Out.
+		Out:    o.Stderr,
 		Report: o.Stderr,
 		// The long steps' live progress (the nix builds, the layer copy, the archive
 		// load) is drawn on Report, in place when the launch stream is a terminal.

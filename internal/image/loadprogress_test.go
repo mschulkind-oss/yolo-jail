@@ -66,8 +66,9 @@ func coldLoadOpts(t *testing.T, manifest, copier string, out, report *bytes.Buff
 // progress: after `podman image prune` a launch sat between "Image load needed" and
 // "Copied image" for as long as the copy took, with nothing on the terminal. Each
 // long step of a cold load now has a start line and a result line on the LAUNCH
-// STREAM (Report), and none of it lands on Out, which is the jailed command's
-// stdout on the run path.
+// STREAM (Report), and none of it lands on Out, the load's general output, which a
+// caller may send somewhere other than the terminal (the run path sent it to the
+// jailed command's stdout until 2026-10-01).
 func TestAColdLoadNarratesEveryLongStep(t *testing.T) {
 	withBuildDir(t)
 	manifest := storeManifest(t, "cold")
@@ -92,7 +93,7 @@ func TestAColdLoadNarratesEveryLongStep(t *testing.T) {
 		}
 	}
 	if strings.Contains(out.String(), "Copying the image into") || strings.Contains(out.String(), "with nix") {
-		t.Errorf("progress leaked onto Out (the jailed command's stdout):\n%s", out.String())
+		t.Errorf("progress leaked onto Out rather than the launch stream (Report):\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), "Copied image:") {
 		t.Errorf("the copied/skipped report is gone: %q", out.String())

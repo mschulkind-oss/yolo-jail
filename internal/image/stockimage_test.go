@@ -358,7 +358,7 @@ func TestNightlyWorkflowTagsTheStockImage(t *testing.T) {
 
 // THE REGRESSION THIS FILE EXISTS TO PREVENT A SECOND TIME. The stock-skip line
 // is the only disclosure on the WARM path — the path every ordinary launch takes
-// — and it was first written to Out. On the run path Out is the jail command's
+// — and it was first written to Out. On the run path Out was then the jail command's
 // own stdout, so `yolo -- bash -c "env | grep ..."` came back with a provenance
 // sentence glued to the front of the command's output. Two integration tests that
 // compare stdout EXACTLY went red on main within hours
@@ -367,7 +367,10 @@ func TestNightlyWorkflowTagsTheStockImage(t *testing.T) {
 // caught it: both are integration tests, and `just check-ci` does not run them.
 //
 // Routing the line back to Out fails this test; deleting the Report wiring in
-// run.imageLoadOptions fails TestTheRunPathSendsImageDisclosuresToStderr.
+// run.autoLoadImage fails TestTheRunPathSendsImageDisclosuresToStderr. The run path
+// now sends Out to stderr too (TestAColdImageLoadWritesNothingOnTheCommandsStdout),
+// and this stays a pin of its own: a disclosure is Report's whatever a caller makes
+// of Out.
 func TestTheStockSkipDisclosureStaysOffTheCommandsStdout(t *testing.T) {
 	withBuildDir(t)
 	var out, report bytes.Buffer
@@ -380,8 +383,9 @@ func TestTheStockSkipDisclosureStaysOffTheCommandsStdout(t *testing.T) {
 	}
 
 	if got := out.String(); strings.Contains(got, "Image build skipped") {
-		t.Errorf("the disclosure reached Out, which on the run path IS the jail command's "+
-			"stdout — it corrupts the output of whatever the user asked the jail to run.\nOut:\n%s", got)
+		t.Errorf("the disclosure reached Out rather than Report, so it goes wherever a caller "+
+			"sends the load's general output — once the jail command's stdout, where it "+
+			"corrupted the output of whatever the user asked the jail to run.\nOut:\n%s", got)
 	}
 	if got := report.String(); !strings.Contains(got, stockRef) || !strings.Contains(got, testIdentity) {
 		t.Errorf("the disclosure did not reach Report with its ref and identity, so the "+

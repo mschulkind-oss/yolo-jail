@@ -1169,6 +1169,13 @@ live progress line against the image's own layer inventory, as it does for the o
 a load: the image build, the copier build, the identity eval, a wait on the image-copy lock and, on
 the archive backends, the tar write and the runtime's load.
 
+**Every line a load prints is on the launch stream, standard error**, beside `Flake source:`, and
+none reaches the output of `yolo -- <cmd>`: the run path hands the loader's general output
+(`AutoLoadOptions.Out`) the launch's stderr, as it does its disclosures (`Report`). Until
+2026-10-01 it handed `Out` the command's stdout, so a launch that had to load its image printed
+`Image load needed`, this report and `Done: loaded image` into the command's output
+(`TestAColdImageLoadWritesNothingOnTheCommandsStdout`, `internal/cli/run/imageload_test.go`).
+
 `created` is a **constant** (`0001-01-01T00:00:00Z`): nix2container `time.Parse`s the value, so
 the `created = "now"` the flake used to pass would fail the nix build, and a build-time timestamp
 would make the derivation vary per build and destroy content addressing

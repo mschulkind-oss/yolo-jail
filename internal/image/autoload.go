@@ -63,22 +63,20 @@ type AutoLoadOptions struct {
 	// stripped by the caller's printer; here we write plain text). nil =>
 	// io.Discard.
 	//
-	// ⚠ ON THE RUN PATH THIS IS THE JAIL COMMAND'S OWN STDOUT (`run.imageLoadOptions`
-	// passes `o.Stdout`), NOT the launch report stream — which is stderr, where
-	// "Flake source:" and "Jail binaries:" go. Everything written here therefore
-	// lands in the output of whatever the user asked the jail to run. That is
-	// survivable only because every existing line below is on a COLD path (a build
-	// failure, a cache load, a first-ever load), so a warm launch writes nothing.
-	// A line on the warm path belongs on Report instead: one was added here on
-	// 2026-09-13 and broke two integration tests that compare a command's stdout
-	// exactly, within hours.
+	// The run path (`run.autoLoadImage`) hands it the launch's STDERR, the launch report
+	// stream where "Flake source:" and "Jail binaries:" go, and never the jail command's
+	// stdout. It handed it stdout until 2026-10-01, on the argument that every line here is
+	// on a COLD path (a build failure, a first or changed load), so a warm launch writes
+	// nothing; but a cold launch's command is read by its caller as much as a warm one's,
+	// and `yolo -- <cmd>` after a flake change printed "Image load needed" and the copy
+	// report into the command's output.
 	Out io.Writer
 	// Report receives launch-stream DISCLOSURES — the lines a launch owes the user
 	// about what it is about to run, which OQ-RO3 says may be compressed but never
-	// suppressed. Separate from Out precisely because those two streams have
-	// different readers: Out is consumed by whoever is reading the jail command's
-	// output, Report by the human watching the launch. nil => Out, which keeps
-	// every existing caller and test unchanged.
+	// suppressed. A field of its own so a caller that does send Out somewhere a reader
+	// parses still gets every disclosure on the stream the human watches; the run path
+	// sends both to stderr. nil => Out, which keeps every existing caller and test
+	// unchanged.
 	Report io.Writer
 	// Progress is how the long steps of a load render their live progress (the nix
 	// builds, the layer copy, the archive write and load, a wait on another
@@ -357,13 +355,14 @@ func (o *AutoLoadOptions) fill() {
 	}
 	if o.LockImageCopy == nil {
 		o.LockImageCopy = func() func() {
-			// THE WAIT NOTICE GOES TO THE LAUNCH STREAM, not to Out, and the two
-			// lines this lock adds are deliberately split across the two writers.
-			// Out is the jail command's OWN STDOUT on the run path (see the Out
-			// field), so a "this launch is paused" notice written there is invisible
-			// to the human whose terminal is stalled — which is the entire failure
-			// the notice exists to prevent. The copy's own report stays on Out
-			// beside the copied/skipped line it belongs with.
+			// THE WAIT NOTICE GOES TO THE LAUNCH STREAM, Report, and the two lines
+			// this lock adds are deliberately split across the two writers. A caller
+			// may send Out where a reader parses rather than where the human looks
+			// (the run path did, to the jail command's stdout, until 2026-10-01; see
+			// the Out field), and a "this launch is paused" notice written there is
+			// invisible to the human whose terminal is stalled — which is the entire
+			// failure the notice exists to prevent. The copy's own report stays on
+			// Out beside the copied/skipped line it belongs with.
 			//
 			// The wait then gets a progress line of its own: the notice says the
 			// launch is queued, the line says for how long, because the peer's copy

@@ -422,9 +422,10 @@ func nixStorePathValid(storePath string) bool {
 // supplied one, else the progress writer it already had.
 //
 // The fallback is what keeps this change small — every caller that never set
-// Report behaves exactly as before — but the run path DOES set it, because Out
-// there is the jail command's stdout and a disclosure written to it corrupts the
-// output of whatever the user asked the jail to run. See AutoLoadOptions.Out.
+// Report behaves exactly as before — but the run path DOES set it, so a disclosure
+// never depends on where that caller sends Out. It sent Out to the jail command's
+// stdout until 2026-10-01, where a disclosure corrupted the output of whatever the
+// user asked the jail to run. See AutoLoadOptions.Out.
 func (o *AutoLoadOptions) reportWriter(out io.Writer) io.Writer {
 	if o.Report != nil {
 		return o.Report
