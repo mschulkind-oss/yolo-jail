@@ -73,6 +73,9 @@ func TestEveryConfigVerbDisclosesItsTarget(t *testing.T) {
 			scratchHostHome(t)
 			t.Setenv("YOLO_VERSION", "")
 			ws, _ := withWorkspaceCwd(t)
+			// reset asks the container runtime whether this workspace's jail runs; the answer
+			// is the test's, not the machine's podman's.
+			withJailLiveness(t, "", true)
 
 			var out, errw bytes.Buffer
 			configRunW(argv, &out, &errw)

@@ -340,6 +340,7 @@ func TestConfigResetIsIdempotent(t *testing.T) {
 // capture surfaces is an error rather than a silent success.
 func TestConfigDiffResetRejectMissingAgent(t *testing.T) {
 	tgt, _ := withSidecarDir(t)
+	withJailLiveness(t, "", true) // reset asks the runtime first; no jail runs here
 	for _, fn := range []func([]string, *bytes.Buffer, *bytes.Buffer, bool) int{
 		func(a []string, o, e *bytes.Buffer, c bool) int { return configDiff(tgt, a, o, e, c) },
 		func(a []string, o, e *bytes.Buffer, c bool) int { return configReset(tgt, a, o, e, c) },
