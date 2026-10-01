@@ -16,7 +16,7 @@ import (
 // to work out how this copy was installed. It now names `yolo update`, as the pack lockfile's
 // refusal does (docs/reference/happy-path-principle.md, rule 7). In a jail, where this yolo is
 // the host's copy and its own `yolo update` only says to run it on the host, the refusal says
-// that directly.
+// that directly, then to relaunch the jail, whose yolo the update on the host does not replace.
 //
 // Driven through materializeCapture, the in-jail act every generated launcher runs before its
 // download, so it fails if the message stops reaching the person reading the launch.
@@ -25,7 +25,7 @@ func TestACaptureFromANewerYoloNamesYoloUpdate(t *testing.T) {
 		name, yoloVersion, want string
 	}{
 		{"host", "", "run `yolo update` rather than"},
-		{"jail", "9.9.9-test", "run `yolo update` on the host rather than"},
+		{"jail", "9.9.9-test", "run `yolo update` on the host and relaunch this jail rather than"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("YOLO_VERSION", tc.yoloVersion)

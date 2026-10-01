@@ -137,8 +137,8 @@ func MacosSetup(deps Deps) int {
 			"nix not found on PATH — every launch materializes the package floor "+
 				"(mise, node, git, ripgrep, …) plus any `packages:` via native "+
 				"nix, so without it NO launch starts, not just one that declares "+
-				"packages. "+intro+", then open a new terminal so nix is on its PATH:\n      "+
-				strings.Join(cmds, "\n      "))
+				"packages. "+intro+":\n      "+strings.Join(cmds, "\n      ")+
+				"\n    Then open a new terminal, so nix is on its PATH.")
 		out.print("• nix (native package floor; required by every launch): " +
 			"[yellow]not found[/yellow]")
 	} else {

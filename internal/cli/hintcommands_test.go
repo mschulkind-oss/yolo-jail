@@ -18,16 +18,25 @@ package cli
 //   - A flag (`--assert`) must be one the command parses: a long-flag literal, a flag.FlagSet
 //     definition or an entry of a flag table, in its handler or in a function that handler hands
 //     its argv to (as TestUsageListsEveryParsedFlag reads them), across packages of this module.
-//     After a verb, the verb's own branch and what it calls, plus what the command parses before
-//     it picks the verb. Main's global flags count for every command, and so does `--help`, which
+//     After a verb, the verb's own branch and what it calls (for config, the function its verb map
+//     names), plus what the command parses outside every verb's branch; with no verb, only the
+//     latter. Main's global flags count for every command, and so does `--help`, which
 //     TestEveryRegisteredCommandAnswersHelp pins.
 //
-// What it does not read: a word after the verb (`yolo pack lint <dir>`, `yolo broker restart
-// <name>`), which a command takes as an argument; a placeholder (`<agent>`, `%s`), after which
-// nothing in that position is checked; short flags; and a command spelled in a message without
-// backticks. A removed flag a handler still refuses by name (prune's `--keep-images`) reads as
-// parsed, and the check does not run a hint, so it cannot say the command does what the hint
-// promises. TestTheHintCheckRefusesWhatIsNotACommand keeps the resolver from passing everything.
+// THE HINTS READ are the backticked `yolo …` spans of a string literal, or of a chain of literals
+// joined with `+`, where each piece that is not a literal (a variable, a call, a constant) reads as
+// a placeholder: "`yolo pack lint " + dir + "`" is read as `yolo pack lint <…>`. A fmt verb is a
+// placeholder too, so `yolo %s` checks nothing and `yolo pack install %s` checks `pack install`.
+//
+// What it does not read: a command spelled without backticks ("then: yolo check"), or in a raw
+// string literal, which cannot hold a backtick (usage text, whose `Examples:` lines
+// TestEveryHelpExampleExists reads instead); a word after the verb (`yolo pack lint <dir>`, `yolo
+// broker restart <name>`), which a command takes as an argument; the word a placeholder stands in
+// for; and short flags. A flag the command parses before picking its verb and then
+// refuses for one verb (`yolo loopholes enable --format json`), or a removed flag a handler still
+// refuses by name (prune's `--keep-images`), reads as parsed, and the check does not run a hint, so
+// it cannot say the command does what the hint promises. TestTheHintCheckRefusesWhatIsNotACommand
+// keeps the resolver from passing everything.
 
 import (
 	"fmt"
@@ -129,6 +138,10 @@ func TestTheHintCheckRefusesWhatIsNotACommand(t *testing.T) {
 		"yolo internal bogus",
 		"yolo openai-auth bogus",
 		"yolo config bogus",
+		"yolo config ls --bogus",
+		// A flag with no verb before it is read against what the command parses outside its
+		// verbs' branches, not against every verb's flags at once.
+		"yolo host --assert -- codex",
 	} {
 		if tree.check(bad) == "" {
 			t.Errorf("`%s` resolved, but it is not a command", bad)
@@ -145,6 +158,11 @@ func TestTheHintCheckRefusesWhatIsNotACommand(t *testing.T) {
 		"yolo loopholes list --format json",
 		"yolo config dump",
 		"yolo config reset claude/settings",
+		// config picks these verbs from a map of functions, so a verb's flags are read from the
+		// function the map names.
+		"yolo config ls --all",
+		"yolo config promote <agent> --plan",
+		"yolo loopholes --format json",
 		"yolo openai-auth import --from <auth.json>",
 		"yolo broker restart",
 		"yolo capture codex",
@@ -154,6 +172,44 @@ func TestTheHintCheckRefusesWhatIsNotACommand(t *testing.T) {
 	} {
 		if problem := tree.check(good); problem != "" {
 			t.Errorf("`%s` is a command, but the check says it %s", good, problem)
+		}
+	}
+}
+
+// TestTheHintScanReadsAHintBuiltFromPieces: a hint a message builds with `+` is read as the
+// joined text, a piece that is not a literal standing for a placeholder, so a command word
+// written in a literal piece is still checked. The scan read only one literal at a time, and a
+// literal holding an opening backtick and no closing one held no hint, so a message that spliced
+// a name into its command (`yolo loopholes disable " + name + "`) was never read at all.
+func TestTheHintScanReadsAHintBuiltFromPieces(t *testing.T) {
+	root := t.TempDir()
+	src := "package x\n\nimport \"fmt\"\n\nvar name = \"x\"\n\n" +
+		"var one = \"Run `yolo nosuchone` now.\"\n" +
+		"var spliced = \"Run `yolo nosuchtwo \" + name + \"` now.\"\n" +
+		"var split = \"Run `\" + \"yolo nosuchthree\" + \"` now.\"\n" +
+		"var inner = \"a \" + fmt.Sprintf(\"Run `yolo nosuchfour %s`.\", name) + \" b\"\n" +
+		"var ints = 1 + 2\n"
+	if err := os.MkdirAll(filepath.Join(root, "internal", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "x", "x.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "cmd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, h := range scanHints(t, root) {
+		got = append(got, h.text)
+	}
+	want := []string{"yolo nosuchone", "yolo nosuchtwo <…>", "yolo nosuchthree", "yolo nosuchfour %s"}
+	if !slices.Equal(got, want) {
+		t.Errorf("scanned hints = %q, want %q", got, want)
+	}
+	tree := loadCommandTree(t)
+	for _, h := range want {
+		if tree.check(h) == "" {
+			t.Errorf("`%s` resolved, but it is not a command", h)
 		}
 	}
 }
@@ -215,20 +271,37 @@ func scanHints(t *testing.T, root string) []hint {
 				return err
 			}
 			rel, _ := filepath.Rel(root, p)
-			ast.Inspect(f, func(n ast.Node) bool {
-				lit, ok := n.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					return true
+			add := func(at token.Pos, text string) {
+				for _, m := range hintPattern.FindAllStringSubmatch(text, -1) {
+					out = append(out, hint{pos: fmt.Sprintf("%s:%d", rel, fset.Position(at).Line), text: m[1]})
 				}
-				v, err := strconv.Unquote(lit.Value)
-				if err != nil {
-					return true
-				}
-				for _, m := range hintPattern.FindAllStringSubmatch(v, -1) {
-					out = append(out, hint{pos: fmt.Sprintf("%s:%d", rel, fset.Position(lit.Pos()).Line), text: m[1]})
+			}
+			var visit func(ast.Node) bool
+			visit = func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.BinaryExpr:
+					// A message built with `+` is read as one text, so a hint split across
+					// literals, or with a name spliced into it, is read too. Each piece that is
+					// not a literal reads as a placeholder, and is scanned on its own.
+					text, rest, ok := joinedLiterals(n)
+					if !ok {
+						return true
+					}
+					add(n.Pos(), text)
+					for _, r := range rest {
+						ast.Inspect(r, visit)
+					}
+					return false
+				case *ast.BasicLit:
+					if n.Kind == token.STRING {
+						if v, err := strconv.Unquote(n.Value); err == nil {
+							add(n.Pos(), v)
+						}
+					}
 				}
 				return true
-			})
+			}
+			ast.Inspect(f, visit)
 			return nil
 		})
 		if err != nil {
@@ -236,6 +309,42 @@ func scanHints(t *testing.T, root string) []hint {
 		}
 	}
 	return out
+}
+
+// joinedLiterals is the text a chain of `+` builds: each string literal's value, and "<…>" (a
+// placeholder) for each piece that is not one, which rest returns so the caller can scan it on
+// its own. ok is false for a chain with no string literal in it, an arithmetic sum.
+func joinedLiterals(e *ast.BinaryExpr) (text string, rest []ast.Expr, ok bool) {
+	if e.Op != token.ADD {
+		return "", nil, false
+	}
+	var b strings.Builder
+	var walk func(ast.Expr)
+	walk = func(x ast.Expr) {
+		switch x := x.(type) {
+		case *ast.ParenExpr:
+			walk(x.X)
+			return
+		case *ast.BinaryExpr:
+			if x.Op == token.ADD {
+				walk(x.X)
+				walk(x.Y)
+				return
+			}
+		case *ast.BasicLit:
+			if x.Kind == token.STRING {
+				if v, err := strconv.Unquote(x.Value); err == nil {
+					b.WriteString(v)
+					ok = true
+					return
+				}
+			}
+		}
+		b.WriteString("<…>")
+		rest = append(rest, x)
+	}
+	walk(e)
+	return b.String(), rest, ok
 }
 
 // commandTree is the CLI as its dispatchers' source spells it.
@@ -365,14 +474,14 @@ func (c *commandTree) verbs(k string) map[string]*verbBranch {
 		return map[string]*verbBranch{}
 	}
 	out := map[string]*verbBranch{}
-	add := func(v string, from *srcFunc, n ast.Node) {
+	add := func(v string, from *srcFunc, n ast.Node, bare bool) {
 		if v == "" || v == "help" || strings.HasPrefix(v, "-") {
 			return
 		}
 		if out[v] == nil {
 			out[v] = &verbBranch{}
 		}
-		out[v].nodes = append(out[v].nodes, srcNode{from, n})
+		out[v].nodes = append(out[v].nodes, srcNode{in: from, n: n, bare: bare})
 	}
 	ast.Inspect(fn.decl, func(n ast.Node) bool {
 		switch n := n.(type) {
@@ -382,18 +491,24 @@ func (c *commandTree) verbs(k string) map[string]*verbBranch {
 			}
 			for _, s := range n.Body.List {
 				cc := s.(*ast.CaseClause)
+				var vs []string
 				for _, e := range cc.List {
 					if lit, ok := e.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 						v, _ := strconv.Unquote(lit.Value)
-						add(v, fn, cc)
+						vs = append(vs, v)
 					}
+				}
+				// `case "", "list":` is also what the command runs with no verb.
+				bare := slices.Contains(vs, "")
+				for _, v := range vs {
+					add(v, fn, cc, bare)
 				}
 			}
 		case *ast.IfStmt:
 			if b, ok := n.Cond.(*ast.BinaryExpr); ok && b.Op == token.EQL && types.ExprString(b.X) == d.on {
 				if lit, ok := b.Y.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 					v, _ := strconv.Unquote(lit.Value)
-					add(v, fn, n.Body)
+					add(v, fn, n.Body, false)
 				}
 			}
 		}
@@ -404,7 +519,7 @@ func (c *commandTree) verbs(k string) map[string]*verbBranch {
 			for _, elt := range vs.Values[0].(*ast.CompositeLit).Elts {
 				kv := elt.(*ast.KeyValueExpr)
 				v, _ := strconv.Unquote(kv.Key.(*ast.BasicLit).Value)
-				add(v, fn, kv.Value)
+				add(v, fn, kv.Value, false)
 			}
 		}
 	}
@@ -414,13 +529,18 @@ func (c *commandTree) verbs(k string) map[string]*verbBranch {
 // verbBranch is the code one verb runs: its case clause, if body or map value.
 type verbBranch struct{ nodes []srcNode }
 
+// srcNode is one verb's branch in the function in. bare is whether the command also runs it with
+// no verb (a `case "", "list":` clause).
 type srcNode struct {
-	in *srcFunc
-	n  ast.Node
+	in   *srcFunc
+	n    ast.Node
+	bare bool
 }
 
-// flags is every long flag k parses, or with a verb, what it parses before picking the verb and
-// what that verb's branch parses.
+// flags is every long flag k parses. For a command that takes verbs it is what the command
+// parses outside every verb's branch, plus, with a verb, what that verb's branch parses; with no
+// verb, a branch the command also runs with none counts as its own. A flag written with no verb
+// used to be read against every verb's flags at once, so `yolo host --assert -- codex` passed.
 func (c *commandTree) flags(k, verb string) map[string]bool {
 	out := map[string]bool{}
 	h := c.handlers[k]
@@ -428,22 +548,32 @@ func (c *commandTree) flags(k, verb string) map[string]bool {
 		return out
 	}
 	verbs := c.verbs(k)
-	if verb == "" || verbs == nil {
+	if verbs == nil {
 		c.src.flagsFrom([]*srcFunc{h}, out, nil)
 		return out
 	}
-	// Before the verb: the handler's own parse, skipping every verb's branch.
 	skip := map[ast.Node]bool{}
 	for _, b := range verbs {
 		for _, n := range b.nodes {
-			skip[n.n] = true
+			if verb != "" || !n.bare {
+				skip[n.n] = true
+			}
 		}
 	}
 	c.src.flagsFrom([]*srcFunc{h}, out, skip)
+	if verb == "" {
+		return out
+	}
 	// The verb's branch, and what it calls, whatever their signatures: a verb's handler may take
-	// no argv and parse nothing, which is then the truth about it.
+	// no argv and parse nothing, which is then the truth about it. A branch that is a function
+	// VALUE, as config's verb map holds, is that function.
 	for _, n := range verbs[verb].nodes {
 		next := c.src.scan(n.in, n.n, nil, out)
+		if e, ok := n.n.(ast.Expr); ok {
+			if f := c.src.funcValue(n.in, e); f != nil {
+				next = append(next, f)
+			}
+		}
 		c.src.flagsFrom(next, out, nil)
 	}
 	return out
@@ -553,7 +683,12 @@ func (x *srcIndex) load(dir string) *srcPkg {
 
 // callee is the function of this module call calls, or nil.
 func (x *srcIndex) callee(from *srcFunc, call *ast.CallExpr) *srcFunc {
-	switch fn := call.Fun.(type) {
+	return x.funcValue(from, call.Fun)
+}
+
+// funcValue is the package-level function of this module e names, from the file of from, or nil.
+func (x *srcIndex) funcValue(from *srcFunc, e ast.Expr) *srcFunc {
+	switch fn := e.(type) {
 	case *ast.Ident:
 		return x.load(from.pkg).funcs[fn.Name]
 	case *ast.SelectorExpr:

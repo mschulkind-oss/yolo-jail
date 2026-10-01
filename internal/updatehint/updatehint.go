@@ -15,13 +15,15 @@ import (
 	"os"
 )
 
-// Step is what to run: `yolo update`, and in a jail `yolo update` on the host. A jail's yolo is
-// the host's copy, mounted read-only, and its own `yolo update` only says to run it on the host
-// (internal/cli/update.go), so the refusal says that directly. YOLO_VERSION is the in-jail signal
-// every other probe reads (config.InJail); it is read here because this package sits below config.
+// Step is what to run: `yolo update`, and in a jail `yolo update` on the host, then a relaunch. A
+// jail's yolo is the host's copy, mounted read-only, and its own `yolo update` only says to run it
+// on the host (internal/cli/update.go), so the refusal says that directly. The jail keeps the copy
+// it was launched with until it is relaunched, so an update on the host alone would leave this
+// jail refusing the same file. YOLO_VERSION is the in-jail signal every other probe reads
+// (config.InJail); it is read here because this package sits below config.
 func Step() string {
 	if os.Getenv("YOLO_VERSION") != "" {
-		return "run `yolo update` on the host"
+		return "run `yolo update` on the host and relaunch this jail"
 	}
 	return "run `yolo update`"
 }

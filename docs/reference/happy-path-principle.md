@@ -137,7 +137,9 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    variable that overrules the refusal). A hatch alone is not a next step, because it goes on
    without what was refused. No `yolo check` finding may be written with a literal empty note
    (`TestNoFindingIsWrittenWithAnEmptyNote`), and `nix found but could not be run` now names the
-   command that shows nix's own error, then the reinstall. The in-jail clients name one too:
+   command that shows nix's own error, then the reinstall. In a `macos-user` jail, whose nix is the
+   host's and which that jail's account cannot reinstall, it names `yolo check` on the host and a
+   relaunch instead (rung 4). The in-jail clients name one too:
    `yolo-serial` says to relaunch the jail, as `yolo-ps` does, and `yolo-cglimit` names the two
    config lines that turn on the cgroup delegate.
 2. **Every success points forward too.** A command that finishes normally ends by naming the likely
@@ -163,13 +165,14 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    real command. A hint naming a deleted command is a dead end that *looks* like a next step, which
    is worse than no hint.
    *In yolo:* every backticked `yolo …` command in a string literal under `internal/` and `cmd/`,
-   and every one-command line of a command's help examples, is resolved against the dispatchers'
-   own source:
+   or in literals joined with `+` (a piece that is not a literal reads as a placeholder), and every
+   one-command line of a command's help examples, is resolved against the dispatchers' own source:
    its command through the router `yolo` dispatches with, its verb in that command's verb switch,
    and each `--flag` after it in what that command parses (`TestEveryHintedYoloCommandExists`,
    `TestEveryHelpExampleExists`, in `internal/cli/hintcommands_test.go`). It caught `yolo host codex`
    and `yolo host check-deps`, neither a command, and a help example for a `yolo programs` verb
-   that does not exist. Every command's help carries an example that routes to that command
+   that does not exist. A command a message spells without backticks, such as the
+   `then: yolo check` many `yolo check` notes end with, is not read. Every command's help carries an example that routes to that command
    (`TestEveryCommandShowsACopyableExample`), and every `docs/` path or anchor cited from Go
    resolves (`TestEveryDocCitationFromGoResolves`). **No test checks that a named command does what
    the hint says:** that is each hint's own test. `yolo check`'s piped orphan note used to name
@@ -195,7 +198,8 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    *In yolo:* the macOS nix-daemon restart reads the daemon's label from `/Library/LaunchDaemons`.
    `yolo check-deps` ends with the command that installs its package list for the manager it
    found, and a pack lockfile, a fork lock or a capture written by a newer yolo names
-   `yolo update`, which knows this install's channel, or in a jail says to run it on the host.
+   `yolo update`, which knows this install's channel, or in a jail says to run it on the host and
+   relaunch the jail, which keeps the yolo it was launched with until then.
 
 ## Before and after
 

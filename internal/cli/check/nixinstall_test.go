@@ -127,3 +127,48 @@ func TestANixThatWillNotStartNamesItsErrorAndTheReinstall(t *testing.T) {
 		})
 	}
 }
+
+// TestANixInAMacosUserJailNamesTheHost: a macos-user jail runs the host's own nix, which its
+// launch puts on the sandbox's PATH when it can and otherwise names why ("nix is not available
+// inside the sandbox: …"). The sandbox account can neither install Nix for the host nor repair
+// it, so the step is the host's. The notes used to give this account the host's install, or the
+// uninstall of the host's nix, as if the jail were the host.
+func TestANixInAMacosUserJailNamesTheHost(t *testing.T) {
+	jail := func(o *Options) {
+		o.IsMacOS, o.Machine = true, "arm64"
+		o.Getenv = func(k string) string { return map[string]string{"YOLO_VERSION": "9.9.9-test"}[k] }
+		o.PathExists = func(p string) bool { return p == storage.NixInstallerReceipt }
+	}
+	for _, tc := range []struct {
+		name, nixPath string
+		want          []string
+	}{
+		{"not found", "", []string{"[FAIL] nix not found", "nix is not available inside the sandbox",
+			"run `yolo check` on the host", "then relaunch the jail"}},
+		{"will not start", "/nix/store/x-nix/bin/nix", []string{"[FAIL] nix found but could not be run",
+			"/nix/store/x-nix/bin/nix --version", "run `yolo check` on the host", "then relaunch the jail"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := nixSection(t, jail, tc.nixPath)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("the finding lacks %q:\n%s", want, got)
+				}
+			}
+			for _, host := range []string{storage.NixInstallerCommand, storage.NixInstallerUninstall} {
+				if strings.Contains(got, host) {
+					t.Errorf("the jail's account is told to run the host's %q:\n%s", host, got)
+				}
+			}
+		})
+	}
+	// The note quotes the launch's own line; it must still be the line a launch prints.
+	src, err := os.ReadFile(filepath.Join("..", "..", "macosuser", "orchestrator.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "nix is not available inside the sandbox:") {
+		t.Error("the macos-user launch no longer prints \"nix is not available inside the sandbox:\", " +
+			"which the note quotes")
+	}
+}

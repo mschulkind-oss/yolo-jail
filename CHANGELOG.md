@@ -669,7 +669,8 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   and `yolo macos-setup` now give the install command
   [Getting Started](userguide/getting-started.md#step-1-install-nix) recommends for your machine,
   where they linked to nixos.org's download page, and a Nix that will not start names the command
-  that shows Nix's own error and how to reinstall it.
+  that shows Nix's own error and how to reinstall it. Inside a jail, where installing Nix would not
+  help, `yolo check` says what to do instead.
 - `yolo-cglimit` in a jail without the cgroup delegate now says how to turn it on: the two lines
   that select the `cgroup-delegate` pack and enable it in `~/.config/yolo-jail/config.jsonc`, then
   a restart of the jail. It used to say yolo starts the delegate automatically, which stopped being
@@ -695,7 +696,7 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   missing; the command now also links it into `/usr/local/bin`.
 - A pack lockfile, or a machine's `yolo capture` of a program, written by a newer yolo now tells
   you to run `yolo update`, which knows how this yolo was installed, or in a jail to run it on your
-  machine, instead of only "upgrade yolo".
+  machine and relaunch the jail, instead of only "upgrade yolo".
 - Two commands yolo told you to run did not exist. The OpenAI login check said to sign in with
   `yolo host codex`, and now says `yolo -- codex`; `yolo programs --help` showed a
   `remove-undeclared` verb, which is `yolo programs remove`.

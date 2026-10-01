@@ -166,6 +166,19 @@ var containerJailNixNote = "This nix comes from the jail's image, so installing 
 // are the image's. A macos-user jail runs the host's own nix, so it is not one.
 func (o *Options) inContainerJail() bool { return o.inJail() && !o.IsMacOS }
 
+// macosUserJailNixFix ends the next step for a nix missing or broken inside a macos-user jail. Its
+// nix is the host's own, which this sandbox account can neither install nor repair (rung 4: the
+// host's user can), so the step is the host's check and then a relaunch, which delivers the host's
+// nix again.
+const macosUserJailNixFix = "run `yolo check` on the host, fix what it reports there,\nthen relaunch the jail."
+
+// macosUserJailNixMissing is the next step for no nix inside a macos-user jail: the launch puts
+// the host's nix on the sandbox's PATH when it can, and its output says why when it cannot
+// (macosuser's "nix is not available inside the sandbox: <reason>.").
+const macosUserJailNixMissing = "This jail runs the host's nix, and its launch did not put it on the sandbox's PATH\n" +
+	"(the launch's line \"nix is not available inside the sandbox: …\" says why). This account\n" +
+	"cannot install Nix for the host, so " + macosUserJailNixFix
+
 // nixInstallLines is the getting-started guide's install of Nix for this machine
 // (storage.NixInstall: the nixos.org script on an Intel Mac, the NixOS Nix installer elsewhere),
 // introduced and indented as a note's commands.
@@ -178,8 +191,11 @@ func (o *Options) nixInstallLines() string {
 // re-check. It used to be "Install Nix: https://nixos.org/download/", a page that leaves the
 // choice of installer to the reader.
 func (o *Options) nixInstallNote() string {
-	if o.inContainerJail() {
+	switch {
+	case o.inContainerJail():
 		return containerJailNixNote
+	case o.inJail():
+		return macosUserJailNixMissing
 	}
 	return o.nixInstallLines() + nixRecheck
 }
@@ -191,8 +207,12 @@ func (o *Options) nixInstallNote() string {
 // it was installed.
 func (o *Options) nixBrokenNote(nixPath string) string {
 	see := "Run it yourself to see nix's own error:\n  " + shquote.Join([]string{nixPath, "--version"}) + "\n"
-	if o.inContainerJail() {
+	switch {
+	case o.inContainerJail():
 		return see + containerJailNixNote
+	case o.inJail():
+		return see + "This nix is the host's, which this account cannot repair or reinstall, so\n" +
+			macosUserJailNixFix
 	}
 	if o.PathExists(storage.NixInstallerReceipt) {
 		return see + "If the install is broken, remove it and install Nix again:\n  " +

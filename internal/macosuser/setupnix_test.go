@@ -31,4 +31,9 @@ func TestMacosSetupNamesThisMacsNixInstall(t *testing.T) {
 	if strings.Contains(got, "nixos.org/download") {
 		t.Errorf("setup still sends the reader to choose an installer:\n%s", got)
 	}
+	// The new terminal comes after the install, which is what puts nix on a new shell's PATH;
+	// the warning used to say it before the commands, as if they ran in that terminal.
+	if strings.Index(got, "open a new terminal") < strings.Index(got, cmds[len(cmds)-1]) {
+		t.Errorf("setup says to open a new terminal before the install's last command:\n%s", got)
+	}
 }
