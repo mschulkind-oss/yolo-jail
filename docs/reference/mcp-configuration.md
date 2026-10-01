@@ -36,7 +36,7 @@ MEASURED on 2026-10-01 in a nested jail at `d4e435a3`: claude's rendered `mcpSer
 `provides: "web_search"` server under its own login and keeps it under `-p claude=kilo`
 ([the recording](#a-launch-with-a-provides-server-recorded-2026-10-01)). The same launches found
 the boot's drop notice naming the wrong remedy for that drop, fixed the same day: a withheld
-server now gets a line of its own (unit-pinned through the boot loop; not re-run in a nested jail).
+server now gets a line of its own (MEASURED in a nested jail at `1493ac51`, the same two launches).
 
 MCP config is **pack-declarative**. Core builds **one** canonical server table in-jail from
 the user's config — presets expanded, custom entries merged, `requires_env` gates applied —
@@ -272,7 +272,9 @@ surface's derive records what the boundary withheld from the ctx it handed that 
 (`luahook.WithheldMCPServers`, the filter's own rule, read by `Env.recordMCPWithheld`), and the
 drop notice (`noteDroppedManagedEntries`, `internal/entrypoint/prism.go`) splits the entries
 leaving the table into the ones withheld and the rest. Only the rest keep the declare-it remedy.
-The same sequence now prints:
+**MEASURED** with the same two launches and configs, in a nested podman jail with the binary
+`just build-go` made at `1493ac51`, the native launch after the kilo one now prints, and its
+`jq` output is `probe-plain` alone, as before:
 
 ```text
 claude/config: dropping from mcpServers (in config, withheld by capability): probe-search (provides web_search) — claude's own login does that job itself, so yolo does not deliver it to this agent; it stays declared under `mcp_servers`, and to deliver it anyway, remove its `provides`
