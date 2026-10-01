@@ -39,15 +39,15 @@ import (
 // backend keeps no boot log (the catalog step's notDarwin reason in bootsteps.go says the
 // same). So the only observable answer here is the bytes.
 //
-// THE MARK IS PLANTED IN A PRIVATE STATE DIR, never the machine's: privateHostProvenance first
-// replaces the isolated home's link to the machine's store with a private directory, so the
-// mark written here is this test's alone and the self-hosted Mac's real render history is
-// neither read nor touched.
+// THE MARK IS PLANTED IN A PRIVATE STATE DIR, never a shared one: privateHostProvenance first
+// replaces the isolated home's link to the shared state dir (this run's own, or the machine's)
+// with a private directory, so the mark written here is this test's alone and no other
+// launch's render history is read or touched.
 func TestMacosUserComposesARenderedHostFileAsABaseline(t *testing.T) {
 	requireMacosUser(t)
 	packHome(t, `{"packs": ["claude"]}`)
 	home := os.Getenv("HOME")
-	privateHostProvenance(t, home, hostHome)
+	privateHostProvenance(t, home)
 	if entrypoint.HostSurfaceRendered(home, claudeSettingsSurface) {
 		t.Fatal("this home already carries a host-render mark for claude/settings before the " +
 			"test planted one, so the control below could not compose the user's layer")
@@ -111,8 +111,8 @@ func plantHostRenderMark(t *testing.T, home, agent, name string) {
 }
 
 // hostRenderMarkPath is where home's host-render mark for agent/name lives, or an error when
-// home's state dir is still a LINK: isolateHome links it to the machine's, and a mark written
-// through that link would rewrite the machine's own render history.
+// home's state dir is still a LINK: isolateHome links it to a shared state dir (this run's own,
+// or the machine's), and a mark written through that link would rewrite that dir's render history.
 func hostRenderMarkPath(home, agent, name string) (string, error) {
 	store := paths.GlobalStorageUnder(home)
 	if fi, err := os.Lstat(store); err == nil && fi.Mode()&os.ModeSymlink != 0 {

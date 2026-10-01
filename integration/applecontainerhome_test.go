@@ -34,14 +34,14 @@ import (
 // What only a boot shows is that a FRESH workspace's jail then reads the seed's login at
 // ~/.claude.json and has the selected pack's dotted dir and none of the undotted ones.
 //
-// THE SEED IS THIS TEST'S, never the machine's: the isolated home's link to the machine's state
-// dir is replaced by a private dir linking back everything except `home` (privateStateEntries),
-// the store the seed lives in, and a seed carrying a per-run fake login is written there. No
-// agent starts, so the fake login is only bytes in a file.
+// THE SEED IS THIS TEST'S, never the machine's: the isolated home's link to the shared state
+// dir (this run's own, or the machine's) is replaced by a private dir linking back everything
+// except `home` (privateStateEntries), the store the seed lives in, and a seed carrying a per-run
+// fake login is written there. No agent starts, so the fake login is only bytes in a file.
 func TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed(t *testing.T) {
 	const fix = "login-seed"
 	dir := appleContainerWorkspace(t)
-	privateStateEntries(t, os.Getenv("HOME"), hostHome, filepath.Base(paths.GlobalHome()))
+	privateStateEntries(t, os.Getenv("HOME"), filepath.Base(paths.GlobalHome()))
 	nonce := acParityNonce()
 	email := "yolo-it-" + nonce + "@example.invalid"
 	seed := filepath.Join(paths.GlobalHome(), ".claude", "claude.json")

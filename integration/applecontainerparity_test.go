@@ -335,7 +335,7 @@ func TestAppleContainerReadsHostGrantArrives(t *testing.T) {
 	// reason that is not #3 (hostprovenanceisolation_test.go). MEASURED 2026-09-25: run
 	// 36170072271 on the maintainer's Mac reported DOES NOT HOLD with the copy present
 	// under YOLO_CTX_ROOT, the one shape that label produces.
-	privateHostProvenance(t, os.Getenv("HOME"), hostHome)
+	privateHostProvenance(t, os.Getenv("HOME"))
 	if entrypoint.HostSurfaceRendered(os.Getenv("HOME"), claudeSettingsSurface) {
 		t.Fatalf("%s %s: this home still carries a host-render mark for claude/settings, so "+
 			"the launcher would drop its settings.json as yolo's own render — NOTHING WOULD BE "+

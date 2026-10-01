@@ -279,7 +279,7 @@ func TestMacosUserDeliversHostBytesByCopy(t *testing.T) {
 	// self-hosted Mac runs as the maintainer's own account, whose home has been host-rendered
 	// (hostprovenanceisolation_test.go). TestAppleContainerReadsHostGrantArrives met the same
 	// shape on 2026-09-25 and took the same fix.
-	privateHostProvenance(t, home, hostHome)
+	privateHostProvenance(t, home)
 	if entrypoint.HostSurfaceRendered(home, claudeSettingsSurface) {
 		t.Fatalf("#14: this home still carries a host-render mark for claude/settings, so the " +
 			"launcher would drop its settings.json as yolo's own render — NOTHING WOULD BE " +
