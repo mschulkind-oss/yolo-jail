@@ -192,3 +192,55 @@ func TestHostRenderNoLongerRowsAPostureOverlayAsFoldedNowhere(t *testing.T) {
 		}
 	}
 }
+
+// A GUARDED POSTURE OVERLAY'S ARRAY AND THE USER'S OWN LIST, under each writing contract
+// (docs/reference/pack-system.md#autonomy). An array replaces the file's array whole (RFC 7386),
+// and the overlay folds BELOW capture: under `assert` rmw writes it over the user's list, at the
+// first apply and after a later edit alike; under `own` the user's list is the capture, which
+// outranks it, so the user's list stays and an edit to it survives the next apply. Contrast
+// claude's guarded `managed` array, which outranked both (internal/cli/hostguardeddirs_test.go).
+func TestAGuardedPostureOverlayArrayAndTheUsersOwnList(t *testing.T) {
+	for _, tc := range []struct {
+		ownership    render.HostOwnership
+		first, later []any
+	}{
+		{render.OwnershipAssert, []any{"from-the-pack"}, []any{"from-the-pack"}},
+		{render.OwnershipOwn, []any{"users-first"}, []any{"users-later"}},
+	} {
+		t.Run(tc.ownership.String(), func(t *testing.T) {
+			home := t.TempDir()
+			path := home + "/" + listSettings
+			writeSettings := func(body string) {
+				t.Helper()
+				if err := os.MkdirAll(home+"/.pi/agent", 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			writeSettings(`{"dirs":["users-first"]}`)
+			owner := postureOverlayOwner(t)
+			contributor := postureOverlayContributor(t, nil,
+				map[string]any{"dirs": []any{"from-the-pack"}})
+
+			applyHostPacks(t, home, tc.ownership, false, owner, contributor)
+			if got := readRenderedJSON(t, home, listSettings)["dirs"]; !reflect.DeepEqual(got, tc.first) {
+				t.Errorf("first apply: dirs = %#v, want %#v", got, tc.first)
+			}
+
+			// The user edits the file the apply wrote.
+			edited := readRenderedJSON(t, home, listSettings)
+			edited["dirs"] = []any{"users-later"}
+			body, err := json.Marshal(edited)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeSettings(string(body))
+			applyHostPacks(t, home, tc.ownership, false, owner, contributor)
+			if got := readRenderedJSON(t, home, listSettings)["dirs"]; !reflect.DeepEqual(got, tc.later) {
+				t.Errorf("after the user's edit: dirs = %#v, want %#v", got, tc.later)
+			}
+		})
+	}
+}

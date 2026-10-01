@@ -1592,9 +1592,14 @@ posture may be absent. A posture has three halves, and each reaches a different 
 
 **A posture's `config` key replaces the value it lands on, and an array replaces the whole
 array**, as every `managed` and overlay key does (JSON Merge Patch, RFC 7386). At the host the
-file is the user's own, so a `guarded` array empties or overwrites the user's list at every
-`yolo host apply`, whether `host_management` is `assert` or `own`. Claude's guarded posture did
-that to `permissions.additionalDirectories` with an empty list until it was removed. It now keeps
+file is the user's own. On the declaring pack's own surface the key is `managed`, which outranks
+the user's file under `host_management: assert` and their captured edits under `own`, so a
+`guarded` array there empties or overwrites the user's list at every `yolo host apply`. A posture
+overlay's array does the same under `assert`, where `rmw` writes it over the file; under `own`
+the user's own list outranks it, because capture sits above `config-overlay`
+(`TestAGuardedPostureOverlayArrayAndTheUsersOwnList`). Claude's guarded posture emptied
+`permissions.additionalDirectories` the first way, with a `managed` empty list, until the list
+was removed. It now keeps
 prompts on with `defaultMode` and `skipDangerousModePermissionPrompt` alone and leaves the user's
 permission lists to the user, which is what the environment-manager plan asks of every guarded block
 ([§9.0](../plans/environment-manager-plan.md#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs),

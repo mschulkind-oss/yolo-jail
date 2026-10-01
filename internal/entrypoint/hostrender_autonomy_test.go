@@ -181,9 +181,10 @@ func TestHostRenderReportsOverwrites(t *testing.T) {
 // NO SHIPPED PACK'S HOST POSTURE REPLACES A LIST. The posture the host profile selects renders
 // its `config` into the real home's files: on the pack's own surface as managed keys, and on
 // another pack's as a posture overlay. In both, an array replaces the file's array whole (RFC
-// 7386). In a user's own config file that empties or overwrites the user's list at every apply,
-// which is what claude's guarded `permissions.additionalDirectories: []` did until it was
-// removed. A pack that wants an entry in a host list declares a posture `lists` entry, which
+// 7386). In a user's own config file that empties or overwrites the user's list at every apply:
+// a managed key under both `assert` and `own`, a posture overlay under `assert` (under `own` the
+// user's captured list outranks an overlay). That is what claude's guarded
+// `permissions.additionalDirectories: []` did until it was removed. A pack that wants an entry in a host list declares a posture `lists` entry, which
 // appends and keeps the user's own entries (docs/reference/pack-system.md#autonomy).
 //
 // A walk over the shipped manifests, so it covers every pack at once. The behavior it guards is
@@ -199,8 +200,9 @@ func TestNoShippedHostPostureReplacesAList(t *testing.T) {
 		switch x := v.(type) {
 		case []any:
 			t.Errorf("pack %s's host posture sets the array %s = %v, which replaces the user's "+
-				"own list in their real config file at every `yolo host apply`. Add entries with "+
-				"a posture `lists` entry, or leave the key to the user.", pack, at, x)
+				"own list in their real config file at every `yolo host apply` (on the pack's own "+
+				"surface always, as a posture overlay under `assert`). Add entries with a posture "+
+				"`lists` entry, or leave the key to the user.", pack, at, x)
 		case map[string]any:
 			for k, sub := range x {
 				walk(pack, at+"."+k, sub)
