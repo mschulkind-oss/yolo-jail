@@ -20,6 +20,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +80,48 @@ func TestMacosUserRunsALoopholeJailDaemonInTheGuestAsDeclared(t *testing.T) {
 	av, _ := got.env.Get(tokVar)
 	if tok, _ := dv.(string); !svcendpoint.IsToken(tok) || av != dv {
 		t.Errorf("the caller token is not handed to both the supervisor and the agent: daemon %v, agent %v", dv, av)
+	}
+}
+
+// THE GUEST'S DAEMON FINDS ITS PICKED PORT FREE WHEN THE SANDBOX STARTS (NC-D69). The launch
+// holds each port it picked from the pick on (servedaddresses.go), and the guest's supervisor,
+// which starts with the sandbox, binds the ones its daemons were composed with: so the arm must
+// let them go just before MacosUserRun, not at Run's deferred release, which runs only once the
+// sandbox has exited. Inside the stub handler, where the supervisor would be binding, the port the
+// daemon's argv names must be bindable. Deleting the release above MacosUserRun fails this.
+func TestTheMacosUserGuestDaemonsPickedPortIsFreeWhenTheSandboxStarts(t *testing.T) {
+	home := packHome(t)
+	ws := t.TempDir()
+	writeLocalLoopholePack(t, home, "acme-proxy", `{"name": "acme-proxy",
+		"description": "acme proxy", "default_enabled": true, "transport": "loopback-tls",
+		"jail_daemon": {"cmd": ["yolo-jaild", "acme-adapter", "--listen", "{listen}"],
+		"listen": "127.0.0.1:1460", "caller_token": true}}`)
+	writeUserConfigJSON(t, home, `{"packs": []}`)
+
+	var listen string
+	var bindErr error
+	got := macosUserLaunchDuring(t, ws, func(jd macosuser.JailDaemons) {
+		specs := payloadOf(t, jd)
+		if len(specs) != 1 || len(specs[0].Cmd) != 4 {
+			return
+		}
+		listen = specs[0].Cmd[3]
+		l, err := net.Listen("tcp", listen)
+		if err != nil {
+			bindErr = err
+			return
+		}
+		_ = l.Close()
+	})
+	if got.rc != 0 {
+		t.Fatalf("Run() = %d, want 0\n%s", got.rc, got.out)
+	}
+	if !strings.HasPrefix(listen, "127.0.0.1:") || listen == "127.0.0.1:1460" {
+		t.Fatalf("fixture: the guest's daemon was not handed a picked port (%q)\n%s", listen, got.out)
+	}
+	if bindErr != nil {
+		t.Errorf("the guest's daemon could not bind %s, the port it was composed with, as the "+
+			"sandbox started: the launch still held it: %v", listen, bindErr)
 	}
 }
 

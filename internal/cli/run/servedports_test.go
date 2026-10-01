@@ -16,6 +16,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -251,9 +252,24 @@ func TestAnAttachComposesForTheRunningJailsServedAddresses(t *testing.T) {
 		"127.0.0.1:8215": "127.0.0.1:48215", "127.0.0.1:8216": "127.0.0.1:48216",
 	}
 	writeRunningChannel(t, wsState, running)
+	if l, err := net.Listen("tcp", picked); err == nil {
+		_ = l.Close()
+		t.Fatalf("fixture: this process's own pick %s was not held before the attach adopted", picked)
+	}
+	// Kept reachable to the end, so only a release can close it: a reservation the attach merely
+	// dropped would otherwise be closed by its finalizer at whichever collection came first.
+	ownPick := o.served.held[picked]
+	defer runtime.KeepAlive(ownPick)
 	rekeyed, err := o.rekeyChannelForAttach(wsState, packs, channel, compose(o, cfg))
 	if err != nil {
 		t.Fatal(err)
+	}
+	// This process's own picks serve nothing once it adopts the running jail's, so the attach lets
+	// them go rather than hold them bound for its session's life (NC-D69).
+	if l, err := net.Listen("tcp", picked); err != nil {
+		t.Errorf("the attach still holds %s, its own pick, after adopting the running jail's ports: %v", picked, err)
+	} else {
+		_ = l.Close()
 	}
 	if !rekeyed.servedAddressesAgree(running) {
 		t.Errorf("the attach composed for %v, want the running jail's %v", rekeyed.servedAddresses, running)

@@ -102,6 +102,13 @@ type macosUserLaunchResult struct {
 // macosUserLaunch runs a real macos-user launch against a stub backend handler.
 func macosUserLaunch(t *testing.T, ws string) macosUserLaunchResult {
 	t.Helper()
+	return macosUserLaunchDuring(t, ws, nil)
+}
+
+// macosUserLaunchDuring is macosUserLaunch with during, when non-nil, run inside the stub
+// handler: where the sandbox would be starting, before any deferred teardown of Run's.
+func macosUserLaunchDuring(t *testing.T, ws string, during func(macosuser.JailDaemons)) macosUserLaunchResult {
+	t.Helper()
 	var stdout, stderr bytes.Buffer
 	o := dispatchOptions(t, ws, "macos-user", &stdout, &stderr, nil)
 	cname := runtime.FromWorkspace(ws)
@@ -110,6 +117,9 @@ func macosUserLaunch(t *testing.T, ws string) macosUserLaunchResult {
 		_ macosuser.HostContext, _ bool, launchEnv *jsonx.OrderedMap, _ []packload.BlockedTool, jd macosuser.JailDaemons) int {
 		got.env = launchEnv
 		got.jailDaemons = jd
+		if during != nil {
+			during(jd)
+		}
 		got.sessionDirs = servicesSessionDirs(t, cname)
 		for _, dir := range got.sessionDirs {
 			entries, _ := os.ReadDir(dir)
