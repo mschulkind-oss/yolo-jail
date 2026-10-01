@@ -36,7 +36,10 @@
 // (docs/design/program-delivery.md §3.5): SIGTERM once Bound.Timeout has passed, and SIGKILL once
 // the child has outlived that, or a forwarded signal, by Bound.KillAfter. Both go to the child's
 // whole process group, each signal followed by a SIGCONT, because a STOPPED process acts on
-// nothing but SIGKILL and SIGCONT: its SIGTERM waits, pending, for something to continue it. That
+// nothing but SIGKILL and SIGCONT: its SIGTERM waits, pending, for something to continue it. The
+// SIGKILL goes to the group even when the child itself exited in time, so a grandchild that
+// ignored the SIGTERM does not outlive the bound; RunBounded returns once the group is empty or
+// the grace is over. A process that left the group (setsid, setpgid) is out of its reach. That
 // is GNU timeout(1)'s `-k` semantics, built here rather than borrowed, for two reasons. A stock
 // macOS has no timeout(1). And timeout(1) caused the 2026-10-01 hang: it runs its command in a
 // process group of its own on the user's terminal, so `claude install` switching that terminal to
@@ -97,8 +100,9 @@ type Bound struct {
 	// Timeout is how long the child may run before its process group is sent SIGTERM. Zero is
 	// no timeout.
 	Timeout time.Duration
-	// KillAfter is how long the child may outlive that SIGTERM, or a signal RunBounded forwarded
-	// to it, before its process group is sent SIGKILL. Zero never kills.
+	// KillAfter is how long the child, and every process left in its process group, may outlive
+	// that SIGTERM, or a signal RunBounded forwarded to it, before the group is sent SIGKILL.
+	// Zero never kills.
 	KillAfter time.Duration
 }
 
@@ -193,6 +197,32 @@ func RunBounded(c *exec.Cmd, b Bound) error {
 				o.killed = true
 				_ = syscall.Kill(group, syscall.SIGKILL)
 			case <-done:
+				// THE BOUND COVERS THE GROUP, NOT JUST THE COMMAND. Once a signal went out, a
+				// member the command started can outlive it: a grandchild that ignores SIGTERM
+				// stays behind when its parent dies of it, still writing to the install prefix
+				// after the launcher has dropped its lock. So until the grace runs out, wait for
+				// the group to empty, and SIGKILL whatever of it is left then. A process that
+				// left the group (setsid, setpgid) is out of reach, as it is for timeout(1).
+				killed := o.killed
+				for killNow != nil && groupAlive(group) {
+					select {
+					case s := <-sigs:
+						if sig, ok := s.(syscall.Signal); ok {
+							signalGroup(sig)
+						}
+					case <-killNow:
+						killNow = nil
+						killed = true
+						_ = syscall.Kill(group, syscall.SIGKILL)
+					case <-time.After(20 * time.Millisecond):
+					}
+				}
+				// A SIGKILL is not synchronous, and a member is gone only once its parent (by now
+				// init) has reaped it. A moment for that, so the caller that releases its lock
+				// next releases it on an empty group.
+				for wait := time.Now().Add(time.Second); killed && groupAlive(group) && time.Now().Before(wait); {
+					time.Sleep(10 * time.Millisecond)
+				}
 				if kill != nil {
 					kill.Stop()
 				}
@@ -218,6 +248,13 @@ func RunBounded(c *exec.Cmd, b Bound) error {
 		return &Stopped{Signal: o.first, Err: err}
 	}
 	return err
+}
+
+// groupAlive says whether any process is still in the process group whose id is -group: signal 0
+// checks without sending. EPERM is a member this process may not signal, which is still a member.
+func groupAlive(group int) bool {
+	err := syscall.Kill(group, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // WrapperExit is how a process whose whole job is running the child ends after Run returned err

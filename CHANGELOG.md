@@ -618,14 +618,14 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
 
 ### Fixed
 
-- Starting an agent whose hourly update was due no longer hangs. Claude Code could sit on
-  "Updating claude..." indefinitely, and Ctrl-C did nothing: its updater was stopped, before it did any
-  work, for touching a terminal it was not allowed to use. An update, and a pre-launch refresh such
-  as pi's, now runs without the terminal, still showing its progress, and one still running after
-  60 seconds is stopped, and killed 5 seconds later if it has to be, on a Mac too. Ctrl-C now stops
-  an update or a refresh, and the agent starts on the version you already had, saying so. A
-  terminal closed during an update no longer leaves the next launches saying "another update is in
-  progress" for ten minutes.
+- Starting Claude Code, Codex or Antigravity when its hourly update was due no longer hangs. Claude
+  Code could sit on "Updating claude..." indefinitely, and Ctrl-C did nothing: its updater was
+  stopped, before it did any work, for touching a terminal it was not allowed to use. These agents'
+  own updaters, and a pre-launch refresh such as pi's, now run without the terminal, still showing
+  their progress, and one still running after 60 seconds is stopped, and killed 5 seconds later if
+  it has to be, on a Mac too. Ctrl-C now stops any agent's update or refresh, and the agent starts on
+  the version you already had, saying so. A terminal closed during an update no longer leaves the
+  next launches saying "another update is in progress" for ten minutes.
 - Claude Code and Copilot can use GPT-6.1 Sol on Amazon Bedrock through the wire bridge, where
   every turn failed with "Unsupported parameter: 'max_tokens' is not supported with this model".
   The bridge now sends a turn's output limit to an OpenAI-style provider as

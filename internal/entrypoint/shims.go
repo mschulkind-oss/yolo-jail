@@ -1297,7 +1297,7 @@ _locked_update() {
     fi
     _shielded _drop_lock _update || rc=$?
     _drop_lock
-    if [ "$_YOLO_INTERRUPTED" = 1 ] && [ "$HAS_UPDATE_VERB" != "1" ]; then
+    if [ "$rc" != 0 ] && [ "$_YOLO_INTERRUPTED" = 1 ] && [ "$HAS_UPDATE_VERB" != "1" ]; then
         _say_not_updated update "$rc"
     fi
     return "$rc"
@@ -1822,8 +1822,14 @@ _installer_body_kind() (
 # that downloads a vendor script anyway. Without the verb the installer keeps the /dev/null
 # stdin and loses only the terminal half, and the launcher says so.
 _run_without_terminal() {
+    local detach=0
     if command -v yolo >/dev/null 2>&1 &&
         YOLO_BYPASS_SHIMS=1 yolo internal ` + NoTerminalVerb + ` -- true </dev/null >/dev/null 2>&1; then
+        detach=1
+    fi
+    # An update's Ctrl-C during the probe (see _bounded): run nothing rather than the fallback.
+    if [ "$_YOLO_INTERRUPTED" = 1 ]; then return 130; fi
+    if [ "$detach" = 1 ]; then
         YOLO_BYPASS_SHIMS=1 yolo internal ` + NoTerminalVerb + ` -- "$@" </dev/null
         return
     fi

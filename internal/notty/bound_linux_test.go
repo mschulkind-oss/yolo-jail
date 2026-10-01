@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -179,5 +180,89 @@ func TestMainReadsTheBoundFromItsFlags(t *testing.T) {
 		if got := Main("no-terminal", tc.args); got != tc.want {
 			t.Errorf("Main(%s) = %d, want %d", strings.Join(tc.args, " "), got, tc.want)
 		}
+	}
+}
+
+// procGone says whether pid has exited: no /proc entry, or a zombie its new parent has not reaped.
+func procGone(pid string) bool {
+	b, err := os.ReadFile("/proc/" + pid + "/stat")
+	if err != nil {
+		return true
+	}
+	// The state is the field after the parenthesized command name.
+	if i := strings.LastIndexByte(string(b), ')'); i >= 0 && i+2 < len(b) {
+		return b[i+2] == 'Z'
+	}
+	return false
+}
+
+// readPid waits for the command to have written a pid to path.
+func readPid(t *testing.T, path string) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) > 0 {
+			return strings.TrimSpace(string(b))
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no pid was written to %s", path)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// THE BOUND IS THE GROUP'S. A command that dies of its SIGTERM can leave behind a grandchild that
+// ignores it, still in the command's process group and still writing where the update writes once
+// the launcher has dropped its lock. The grace covers that grandchild too: it is killed when the
+// grace runs out, and the run has not returned while it lived.
+func TestABoundedRunKillsAGrandchildThatOutlivesTheCommand(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "grandchild")
+	c := exec.Command("sh", "-c", `(trap '' TERM; exec sleep 30) & echo $! > "$1"; wait`, "sh", pidFile)
+	var grandchild string
+	t.Cleanup(func() {
+		if grandchild != "" && !procGone(grandchild) {
+			if pid, err := strconv.Atoi(grandchild); err == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	took, err := runWithin(t, 10*time.Second, func() error {
+		return RunBounded(c, Bound{Timeout: 300 * time.Millisecond, KillAfter: 300 * time.Millisecond})
+	})
+	grandchild = readPid(t, pidFile)
+	var to *TimedOut
+	if !errors.As(err, &to) {
+		t.Fatalf("want a *TimedOut, got %v", err)
+	}
+	if !procGone(grandchild) {
+		t.Errorf("the grandchild %s that ignored SIGTERM outlived the bound", grandchild)
+	}
+	if took < 600*time.Millisecond {
+		t.Errorf("returned after %s, while the grandchild still had its grace to run", took)
+	}
+}
+
+// What the command leaves behind after a run NO SIGNAL ended is not the bound's: a vendor's own
+// background process keeps running, and the run returns when the command does.
+func TestABoundedRunLeavesTheGroupAloneWhenNoSignalEndedIt(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "background")
+	c := exec.Command("sh", "-c", `sleep 30 & echo $! > "$1"`, "sh", pidFile)
+	took, err := runWithin(t, 10*time.Second, func() error {
+		return RunBounded(c, Bound{Timeout: 5 * time.Second, KillAfter: time.Second})
+	})
+	background := readPid(t, pidFile)
+	t.Cleanup(func() {
+		if pid, err := strconv.Atoi(background); err == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+	if err != nil {
+		t.Fatalf("a command that exited 0 in time: %v", err)
+	}
+	if took > 2*time.Second {
+		t.Errorf("returned after %s: it waited on a process no signal was sent to", took)
+	}
+	if procGone(background) {
+		t.Errorf("a background process of a run no signal ended was killed")
 	}
 }

@@ -48,16 +48,24 @@ _YOLO_INTERRUPTED=0
 #                  with SIGTTOU (timeout(1) running it in a background group of the terminal is
 #                  how "claude install" hung) and a prompt cannot wait on the user. Its output
 #                  still reaches the terminal.
-#   BOUNDED        SIGTERM at UPDATE_TIMEOUT, SIGKILL UPDATE_GRACE seconds after; status 124.
+#   BOUNDED        SIGTERM at UPDATE_TIMEOUT, SIGKILL UPDATE_GRACE seconds after to what is left
+#                  of its process group, even once the program itself has exited; status 124.
 #   INTERRUPTIBLE  the terminal's Ctrl-C is forwarded to it, and it is killed UPDATE_GRACE seconds
 #                  later if it ignores it. What the launcher does next is _shielded's.
 # With no yolo that has the bounded verb (none on PATH, or one older than this launcher), GNU
 # timeout -k bounds it IN the terminal's foreground group (--foreground), where a Ctrl-C reaches
 # it and no SIGTTOU can; with no timeout(1) either it runs unbounded. Each fallback says so.
 _bounded() {
-    local rc=0
+    local rc=0 detach=0
     if command -v yolo >/dev/null 2>&1 &&
         YOLO_BYPASS_SHIMS=1 yolo internal ` + NoTerminalVerb + ` --timeout=1 --kill-after=1 -- true </dev/null >/dev/null 2>&1; then
+        detach=1
+    fi
+    # A Ctrl-C during that probe kills the probe, which then reads as "no yolo with the verb": the
+    # act would start in a fallback, on the terminal, AFTER the user asked for it to stop. It ends
+    # the act before it starts instead.
+    if [ "$_YOLO_INTERRUPTED" = 1 ]; then return 130; fi
+    if [ "$detach" = 1 ]; then
         YOLO_BYPASS_SHIMS=1 yolo internal ` + NoTerminalVerb + ` --timeout="$UPDATE_TIMEOUT" --kill-after="$UPDATE_GRACE" -- "$@" </dev/null || rc=$?
     elif command -v timeout >/dev/null 2>&1; then
         echo "  (yolo cannot detach $BIN's update from this terminal here; it runs with no stdin, under timeout)" >&2

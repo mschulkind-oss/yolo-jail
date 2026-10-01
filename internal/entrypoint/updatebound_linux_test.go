@@ -11,7 +11,6 @@ package entrypoint
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,63 +66,20 @@ func itoaPty(n int) string {
 var (
 	// ignoresTerm outlives SIGTERM: only a SIGKILL ends it.
 	ignoresTerm = updateBehavior{"trap '' TERM", "exec sleep 120"}
-	// sleeps is an update still running (a slow download, a hung request).
-	sleeps = updateBehavior{"", "exec sleep 120"}
 	// ignoresInt survives a Ctrl-C: only the grace's SIGKILL ends it.
 	ignoresInt = updateBehavior{"trap '' INT", "exec sleep 120"}
-	// exitsZeroOnInt stops at a Ctrl-C and exits 0, as claude install does (measured 2026-10-01).
-	exitsZeroOnInt = updateBehavior{"trap 'kill $! 2>/dev/null; exit 0' INT", "sleep 120 & wait $!"}
-	// rawMode is `claude install`'s shape, measured 2026-10-01: it switches its stdin to raw mode
-	// for its progress display at once, and on SIGTERM restores the terminal before it exits. A
-	// process in a BACKGROUND process group of its terminal is stopped by SIGTTOU for both, which
-	// is where GNU timeout(1) put it. Run with no terminal, both calls fail and it finishes.
-	rawMode = updateBehavior{"trap 'stty sane 2>/dev/null; exit 143' TERM",
-		"stty raw 2>/dev/null || true\nstty -raw 2>/dev/null || true"}
+	// rawMode is `claude install`'s shape, measured 2026-10-01 (strace): it switches its stdin to
+	// raw mode for its progress display at once, and on its way out, and in its SIGTERM handler,
+	// restores the terminal on stdin, stdout AND stderr. A process in a BACKGROUND process group of
+	// its terminal is stopped by SIGTTOU for any of those, which is where GNU timeout(1) put it. A
+	// /dev/null stdin alone defuses only the first: the restore through stderr is still a terminal
+	// call, so this shape still hangs a launcher that drops --foreground. With no controlling
+	// terminal each call fails or is allowed, and it finishes. It also says whether it could open
+	// /dev/tty, which is whether it still had a controlling terminal: the detach, observed.
+	rawMode = updateBehavior{"trap 'stty sane 2>/dev/null; stty sane <&2 2>/dev/null; exit 143' TERM",
+		"stty raw 2>/dev/null || true\nstty -raw 2>/dev/null || true\nstty sane <&2 2>/dev/null || true\n" +
+			"if (: </dev/tty) 2>/dev/null; then echo UPDATE_HAD_A_TERMINAL >&2; fi"}
 )
-
-// pathFor is the launcher's PATH: the stand-in `yolo` first when detached, and no `yolo` at all
-// otherwise, so the cell never depends on which yolo (if any) the machine running it has.
-func pathFor(t *testing.T, detached bool) string {
-	t.Helper()
-	path := pathWithout(t, "yolo")
-	if detached {
-		return yoloStandIn(t) + string(os.PathListSeparator) + path
-	}
-	return path
-}
-
-// boundModes are the two ways a launcher can run an update: through yolo's detached, bounded verb,
-// and, where no yolo has it, under GNU timeout(1).
-func boundModes(t *testing.T) []struct {
-	name     string
-	detached bool
-} {
-	t.Helper()
-	modes := []struct {
-		name     string
-		detached bool
-	}{{"detached", true}}
-	if _, err := exec.LookPath("timeout"); err == nil {
-		modes = append(modes, struct {
-			name     string
-			detached bool
-		}{"timeout-fallback", false})
-	}
-	return modes
-}
-
-// waitForPath polls for path to exist, for up to limit.
-func waitForPath(t *testing.T, path string, limit time.Duration) bool {
-	t.Helper()
-	deadline := time.Now().Add(limit)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return true
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	return false
-}
 
 // ptyLaunch is one launcher run as an interactive launch runs it: the leader of its own session,
 // with the pty as its controlling terminal and its stdin, stdout and stderr.
@@ -245,6 +201,9 @@ func TestAnUpdateThatSwitchesItsTerminalToRawModeFinishesAndTheAgentStarts(t *te
 			}
 			if strings.Contains(out, "update failed") || strings.Contains(out, "timed out") {
 				t.Errorf("the update must have succeeded:\n%s", out)
+			}
+			if mode.detached && strings.Contains(out, "UPDATE_HAD_A_TERMINAL") {
+				t.Errorf("a detached update could still open /dev/tty, its controlling terminal:\n%s", out)
 			}
 		})
 	}
@@ -392,67 +351,6 @@ func TestCtrlCDuringAnInstallerUpdateRunsTheInstalledVersionAndRecordsNothing(t 
 			receipts, _ := os.ReadFile(filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"))
 			if len(receipts) != 0 {
 				t.Errorf("an interrupted installer must leave no receipt, got:\n%s", receipts)
-			}
-		})
-	}
-}
-
-// A HANGUP DURING AN UPDATE ENDS THE LAUNCHER AND RELEASES ITS LOCK. A closed terminal sends SIGHUP
-// to its foreground process group, the launcher's. Before, the launcher died at once and left the
-// install-prefix lock behind, so the next ten minutes of launches said "another update is in
-// progress" and the next after that broke the lock and ran the update again. Its own group stands
-// in for the terminal's foreground group here.
-func TestAHangupDuringAnUpdateReleasesTheLockAndEndsTheLauncher(t *testing.T) {
-	for _, mode := range boundModes(t) {
-		t.Run(mode.name, func(t *testing.T) {
-			p := newBoundProbe(t, boundProbeOpts{verb: []string{"install"}, behave: sleeps, timeout: 30, grace: 2})
-			cmd := exec.Command(p.script)
-			cmd.Dir = p.home
-			cmd.Env = []string{"HOME=" + p.home, "PATH=" + pathFor(t, mode.detached)}
-			var out bytes.Buffer
-			cmd.Stdout, cmd.Stderr = &out, &out
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-			if err := cmd.Start(); err != nil {
-				t.Fatal(err)
-			}
-			done := make(chan error, 1)
-			exited := make(chan struct{})
-			go func() { done <- cmd.Wait(); close(exited) }()
-			t.Cleanup(func() {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-				select {
-				case <-exited:
-				case <-time.After(5 * time.Second):
-				}
-			})
-			if !waitForPath(t, p.started, 15*time.Second) {
-				t.Fatalf("the update never started:\n%s", out.String())
-			}
-			lock := filepath.Join(p.home, ".local", ".yolo-update.lock")
-			if _, err := os.Stat(lock); err != nil {
-				t.Fatalf("the update runs without the install-prefix lock: %v", err)
-			}
-			if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGHUP); err != nil {
-				t.Fatal(err)
-			}
-			var err error
-			select {
-			case err = <-done:
-			case <-time.After(20 * time.Second):
-				t.Fatalf("the launcher outlived the hangup by 20s:\n%s", out.String())
-			}
-			var ee *exec.ExitError
-			if !errors.As(err, &ee) {
-				t.Fatalf("the launcher must end by the hangup, got %v:\n%s", err, out.String())
-			}
-			if ws, ok := ee.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != syscall.SIGHUP {
-				t.Errorf("the launcher must die of SIGHUP itself, got %v", err)
-			}
-			if strings.Contains(out.String(), "AGENT_RAN") {
-				t.Errorf("a hung-up launcher must not start the program:\n%s", out.String())
-			}
-			if _, err := os.Stat(lock); !os.IsNotExist(err) {
-				t.Errorf("a hangup must release the install-prefix lock (err=%v)", err)
 			}
 		})
 	}

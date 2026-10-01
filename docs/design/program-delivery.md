@@ -306,7 +306,9 @@ to guess"* on 2026-09-09. One exception remains, stated where it arises — `cop
     on the user. Its progress output still reaches the terminal.
   - **Bounded, and the bound holds.** SIGTERM at `UPDATE_TIMEOUT` (60 s), each signal followed by a
     SIGCONT so that a stopped process can act on it, and SIGKILL `UPDATE_GRACE` (5 s) later to the
-    act's whole process group. The verb implements this itself (`internal/notty`), so it holds on
+    act's whole process group, including what is left of it once the act itself has exited (a
+    grandchild that ignored the SIGTERM); a process that left the group is out of reach. The verb
+    implements this itself (`internal/notty`), so it holds on
     `macos-user` too, where a stock macOS has no `timeout(1)` and the update used to run
     unbounded. Where no `yolo` has the verb, GNU `timeout --foreground -k` gives the same timeout
     and grace in the terminal's own group (killing the command, not its children), and with
@@ -315,10 +317,16 @@ to guess"* on 2026-09-09. One exception remains, stated where it arises — `cop
     ignores it. The Ctrl-C ends the act, **not the launch**: the launcher says the update was
     interrupted and runs the installed version, because the user typed the agent's name. It is
     not counted as an update even when the program then exits 0, as `claude install` does. An
-    interrupted re-run of the installer writes no receipt. A Ctrl-C at a **cold** install still ends
-    the launcher ([`PS-D7`](provisioner-sets.md#PS-D7)), since there is nothing to run.
+    interrupted re-run of the installer writes no receipt. A Ctrl-C while the launcher is still
+    probing for the verb starts no act at all. A Ctrl-C at a **cold** install still ends the launcher
+    ([`PS-D7`](provisioner-sets.md#PS-D7)), since there is nothing to run.
+  - **Not every update is an update act.** An npm package with no verb updates by `npm install -g`,
+    and an installer program with no verb by re-running its installer. Neither has a time bound,
+    and `npm install -g` also keeps the terminal. A Ctrl-C at either still ends the update and not
+    the launch, as above.
   - **The lock goes with it.** A SIGTERM or SIGHUP during the act (a closed terminal) still ends the
-    launcher by that signal, after releasing the install-prefix lock (or the refresh lock). Before
+    launcher by that signal, after releasing the install-prefix lock (or the refresh lock). A Ctrl-C at
+    `yolo pack update` releases it too, and that launcher then exits with a failure. Before
     this, the lock was left behind, so for ten minutes every launch said "another update is in
     progress", and the next launch after that broke the lock and hung again.
 - **Forbidden:** never resolve a *project* dependency; never write outside the program's own install
