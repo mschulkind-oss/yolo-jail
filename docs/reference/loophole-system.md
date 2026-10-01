@@ -574,8 +574,9 @@ an agent-writable target — including the ones no rule can see, like a Python d
 > being worked on, and the permission argument covers the rest. And the check is
 > deliberately conservative about what counts as a **relative** path (no whitespace, no shell
 > metacharacters), because a false positive refuses a working loophole at **every** launch.
-> An absolute path is read as a path whatever it contains: it lands in a tree only by
-> starting with that tree's own path, and a macOS home is often under a path with a space.
+> An absolute path is read as a path whatever whitespace or shell metacharacters it holds:
+> it lands in a tree only by starting with that tree's own path, and a macOS home is often
+> under a path with a space.
 
 > [!WARNING]
 > **A rule about how two REAL paths relate cannot be verified by a test that invents both of
