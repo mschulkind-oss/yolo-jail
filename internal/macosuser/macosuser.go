@@ -442,7 +442,8 @@ type homeLayout struct {
 }
 
 // macOSHomes is the layout a default macOS install has (docs/design/configurable-workspace-root.md
-// §5), and on a Mac homespelling_darwin_test.go checks both facts against the running machine.
+// §5). On a Mac, homespelling_darwin_test.go checks the firmlink against the running machine and
+// only logs whether its volume folds case, folding being the assumption below.
 //
 //   - /Users is a firmlink to /System/Volumes/Data/Users (macOS 10.15 split the boot volume into a
 //     read-only system volume and a Data volume, and firmlinks join the two).

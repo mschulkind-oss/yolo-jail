@@ -10,8 +10,9 @@ import (
 )
 
 // homespelling_darwin_test.go is the half of homespelling_test.go only a Mac can say: that the
-// facts macOSHomes asserts are true of the running machine, and that the check refuses every one
-// of those spellings of a REAL home after the launch's own resolution (resolvePathAbs, which on
+// firmlink macOSHomes names is the users root on the running machine (whether the volume folds
+// case is logged, not checked, because macOSHomes assumes it), and that the check refuses every
+// spelling that reaches a REAL home after the launch's own resolution (resolvePathAbs, which on
 // darwin is the platform's filepath.EvalSymlinks) has had its turn at it. It reads the filesystem
 // and writes nothing.
 

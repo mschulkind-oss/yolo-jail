@@ -553,6 +553,12 @@ sets, and a jail without pi no longer carries it.
   pass as neutral ground: a launch accepted it, and `yolo macos-fix-permissions` shared it with the
   sandbox user. The launch and `yolo check` now say the project is inside a home folder and how
   to move it, and `yolo macos-fix-permissions` refuses it.
+- On the `macos-user` backend, a project inside a home folder is now refused when its path
+  changes the case of `/Users`, such as `/USERS/you/project`, or goes through
+  `/System/Volumes/Data/Users`. Both reach the same folder on a standard Mac, but they used to pass
+  as outside every home folder: a launch accepted them, and `yolo macos-fix-permissions` shared
+  them with the sandbox user. The launch and `yolo check` now say the project is inside a home
+  folder and how to move it, and `yolo macos-fix-permissions` refuses it.
 - An agent's own install script can no longer stop and wait for an answer: in a jail, on its first
   use or when it updates, and at `yolo host apply --assert`, it now runs with no terminal and no
   input, so a question it asks takes its default or fails instead of waiting. At the host, that

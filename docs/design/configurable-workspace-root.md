@@ -3,7 +3,7 @@ title: "The configurable workspace root, and why the root is a deny prefix"
 date: 2026-09-16
 status: in-review
 tags: [macos-user, seatbelt, workspace, isolation, config, design]
-summary: "macos-user hardcodes /Users/Shared/yolo as the only place a workspace may live, and the obvious relaxation — let the user configure the root — silently removes the sandbox's only protection against reading their OTHER projects. The reason is that the Seatbelt profile's read policy is (allow default) with a deny on /Users, so sibling projects are hidden by WHERE they sit rather than by anything the root does. The proposal is to derive a second read-deny from the configured root, which makes an arbitrary root safe and also closes a hole that exists under today's default. Includes the four lexical bypasses the neutral-ground check had, two of which it now refuses, and the whitelist that closes all four."
+summary: "macos-user hardcodes /Users/Shared/yolo as the only place a workspace may live, and the obvious relaxation — let the user configure the root — silently removes the sandbox's only protection against reading their OTHER projects. The reason is that the Seatbelt profile's read policy is (allow default) with a deny on /Users, so sibling projects are hidden by WHERE they sit rather than by anything the root does. The proposal is to derive a second read-deny from the configured root, which makes an arbitrary root safe and also closes a hole that exists under today's default. Includes the four lexical bypasses the neutral-ground check had, three of which it now refuses, and the whitelist that closes all four."
 stage: DESIGN
 next: "Rule OQ-CW2 — the §5 whitelist waits on it, and should land before anyone relies on today's lexical home check"
 vantage:
@@ -197,7 +197,8 @@ volume, an account named `shared`.
 
 `internal/macosuser/homespelling_test.go` drives each spelling through every caller: the launch,
 `yolo check`, the plan invariants, `macos-fix-permissions` and the capture plan.
-`homespelling_darwin_test.go` checks both facts against the Mac it runs on, and refuses each
+`homespelling_darwin_test.go` checks the firmlink against the Mac it runs on, logs whether that
+Mac's volume folds case (the assumption above, so it does not fail either way), and refuses each
 spelling that reaches the running user's real home after the launch's own symlink resolution. As
 of 2026-09-30 it has not run on a Mac; the `check-macos` CI job runs it.
 
