@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -32,15 +33,15 @@ func skewRepo(t *testing.T) string {
 		full := append([]string{
 			"-c", "user.email=test@example.com",
 			"-c", "user.name=test",
-			"-c", "commit.gpgsign=false",
 		}, args...)
 		cmd := exec.Command("git", full...)
 		cmd.Dir = root
 		// CleanGitEnv: under a git hook git exports its own (worktree-
 		// relative, and ABSOLUTE from a linked worktree) state; without the strip
 		// this helper would commit into the COMMITTER's index, not this scratch
-		// repo (packsrc.CleanGitEnv's doc has the measurement).
-		cmd.Env = packsrc.CleanGitEnv(os.Environ())
+		// repo (packsrc.CleanGitEnv's doc has the measurement). HermeticGitEnv:
+		// the machine's git configuration, whose commit signing fails the commit.
+		cmd.Env = testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ()))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -171,7 +172,7 @@ func headCommit(t *testing.T, root string) string {
 	t.Helper()
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = root
-	cmd.Env = packsrc.CleanGitEnv(os.Environ()) // same strip as the helper above
+	cmd.Env = testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ())) // same strip as the helper above
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)

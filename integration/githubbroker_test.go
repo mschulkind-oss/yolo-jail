@@ -18,6 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // THE GITHUB BROKER, END TO END (docs/design/boundary-broker.md §11 step 1, §12).
@@ -67,7 +68,7 @@ func newGitHubBrokerFixture(t *testing.T) githubBrokerFixture {
 		t.Helper()
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = packsrc.CleanGitEnv(os.Environ())
+		cmd.Env = testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ()))
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
@@ -204,7 +205,7 @@ func (fx githubBrokerFixture) addRemote(t *testing.T, name, url string) {
 	t.Helper()
 	cmd := exec.Command("git", "remote", "add", name, url)
 	cmd.Dir = fx.dir
-	cmd.Env = packsrc.CleanGitEnv(os.Environ())
+	cmd.Env = testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ()))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("adding remote %s: %v\n%s", name, err, out)
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // forkbuild_test.go is the container-level cell for the fork route
@@ -39,7 +40,7 @@ func forkFixtureRepo(t *testing.T) (dir string, commit func(rev string)) {
 		cmd.Dir = dir
 		// Without git's own state variables: a hook-exported GIT_DIR would point this helper at
 		// the repository running the suite (packsrc.CleanGitEnv's reason).
-		cmd.Env = append(packsrc.CleanGitEnv(os.Environ()), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
+		cmd.Env = append(testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ())), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)

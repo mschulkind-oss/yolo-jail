@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // TestMain points HOME at an empty directory for the whole package.
@@ -30,7 +32,19 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("HOME", home); err != nil {
 		panic("config tests: setting HOME: " + err.Error())
 	}
+	// The same rule for git: an empty HOME hides ~/.gitconfig but not the system file, so a
+	// fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
+	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
+	testsupport.ArmGitConfigTripwire()
 	code := m.Run()
 	os.RemoveAll(home)
 	os.Exit(code)
+}
+
+// TestGitConfigTripwireIsArmedHere pins the TestMain call above: without it a fixture that
+// reads the machine's git configuration passes again on every machine that does not sign.
+func TestGitConfigTripwireIsArmedHere(t *testing.T) {
+	if !testsupport.GitConfigTripwireArmed() {
+		t.Fatal("the git configuration tripwire is not armed; this package's TestMain must call testsupport.ArmGitConfigTripwire")
+	}
 }

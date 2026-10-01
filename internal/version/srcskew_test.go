@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // gitRepo builds a throwaway repo and returns a commit helper. Identity is passed
@@ -23,14 +24,15 @@ func gitRepo(t *testing.T) (root string, commit func(relPath, content string) st
 		full := append([]string{
 			"-c", "user.email=test@example.com",
 			"-c", "user.name=test",
-			"-c", "commit.gpgsign=false",
 		}, args...)
 		cmd := exec.Command("git", full...)
 		cmd.Dir = root
 		// CleanGitEnv: under a git hook git exports its own
 		// (worktree-relative, ABSOLUTE from a linked worktree) state; without
 		// the strip this helper runs against the COMMITTER's repository.
-		cmd.Env = packsrc.CleanGitEnv(os.Environ())
+		// HermeticGitEnv: the machine's git configuration, whose commit signing
+		// or core.hooksPath refuses the commit.
+		cmd.Env = testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ()))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)

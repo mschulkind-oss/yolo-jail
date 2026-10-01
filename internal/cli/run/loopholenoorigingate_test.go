@@ -34,6 +34,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // fetchedLoopholePack builds a GIT pack (git+file://, so it is genuinely OriginFetched with
@@ -94,7 +95,7 @@ func fetchedLoopholePack(t *testing.T, home string) (sentinel string) {
 		cmd.Dir = repo
 		// CleanGitEnv first: hook-exported git state is ABSOLUTE from a linked
 		// worktree and would redirect this helper onto the committer's index.
-		cmd.Env = append(packsrc.CleanGitEnv(os.Environ()), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
+		cmd.Env = append(testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ())), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)

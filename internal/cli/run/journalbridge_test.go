@@ -57,6 +57,9 @@ func TestMain(m *testing.M) {
 	// A FRESH LAUNCH'S KEEPER RUNS IN-PROCESS HERE (keeper_test.go): the real spawner self-execs
 	// the binary, which here is the test binary, and it refuses to (errTestBinarySelfExec).
 	defaultKeeperSpawner = inProcessKeeper
+	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
+	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
+	testsupport.ArmGitConfigTripwire()
 	// Past every daemon dispatch above, so a re-exec'd child neither redirects nor stops
 	// anything: this package's launches spawn real host singletons, which get a private
 	// directory instead of the machine-wide /tmp/yolo-<name>.* (testsupport says why), and

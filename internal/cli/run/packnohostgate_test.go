@@ -40,6 +40,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 // fetchedPackWithClaims builds a git+file:// pack — genuinely OriginFetched, with no network —
@@ -66,7 +67,7 @@ func fetchedPackWithClaims(t *testing.T, home, contributes string) {
 		cmd.Dir = repo
 		// CleanGitEnv first: hook-exported git state is ABSOLUTE from a linked
 		// worktree and would redirect this helper onto the committer's index.
-		cmd.Env = append(packsrc.CleanGitEnv(os.Environ()), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
+		cmd.Env = append(testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ())), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
