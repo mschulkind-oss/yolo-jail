@@ -210,9 +210,57 @@ func TestYoloStateIsExcludedFromTheDelta(t *testing.T) {
 	if got, want := res.Manifest.Excluded, DefaultExcludes(); !equalStrings(got, want) {
 		t.Errorf("Manifest.Excluded = %v, want %v", got, want)
 	}
-	if got, want := DefaultExcludes(), []string{paths.GlobalStorageRel()}; !equalStrings(got, want) {
-		t.Errorf("DefaultExcludes() = %v, want the state dir %v — a second spelling of it "+
-			"is an exclusion that stops matching when the layout moves", got, want)
+	if got, want := DefaultExcludes(), []string{paths.GlobalStorageRel(), paths.JailDaemonLogsRel()}; !equalStrings(got, want) {
+		t.Errorf("DefaultExcludes() = %v, want the state dir and the jail daemons' log dir %v — "+
+			"a second spelling of either is an exclusion that stops matching when the layout moves", got, want)
+	}
+}
+
+// YOLO'S JAIL DAEMON LOGS ARE NEVER PART OF A CAPTURE EITHER. A capture jail boots like any
+// jail, so its supervised daemons log into `.local/state/yolo-jail-daemons` — inside the
+// `.local` surface — while the installer runs. MEASURED 2026-10-01 (docs/plans/install-capture.md,
+// the Linux claude capture): the entry held the capture jail's claude-oauth-broker.log, and a
+// later jail that materialized it had its own live log of that name replaced by the capture
+// jail's, twelve minutes stale.
+//
+// It runs the production path a capture-run takes: no Excludes, so DefaultExcludes applies. It
+// fails if the daemon log dir is dropped from DefaultExcludes.
+func TestYoloJailDaemonLogsAreExcludedFromTheDelta(t *testing.T) {
+	home, state := twoPathHome(t)
+	out := filepath.Join(t.TempDir(), "staging-1")
+	const daemonInstaller = `#!/bin/sh
+set -eu
+mkdir -p "$HOME/.local/share/vendor/1.2.3"
+printf 'the vendor binary\n' > "$HOME/.local/share/vendor/1.2.3/vendor"
+# A supervised daemon of the capture jail, logging while the install runs.
+mkdir -p "$HOME/.local/state/yolo-jail-daemons"
+printf 'oauth-broker-jail: listening\n' >> "$HOME/.local/state/yolo-jail-daemons/claude-oauth-broker.log"
+`
+	res, err := Run(Options{
+		Home: home, Out: out, SurfaceRoot: state,
+		Command: writeInstaller(t, daemonInstaller),
+	})
+	must(t, err)
+
+	if _, err := os.Lstat(filepath.Join(res.Tree, ".local", "share", "vendor", "1.2.3", "vendor")); err != nil {
+		t.Fatalf("the vendor's own file was not captured, so this test asserts nothing: %v", err)
+	}
+	for _, rel := range []string{
+		".local/state/yolo-jail-daemons",
+		".local/state/yolo-jail-daemons/claude-oauth-broker.log",
+	} {
+		if _, err := os.Lstat(filepath.Join(res.Tree, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Errorf("%s was captured — a capture jail's daemon log must not reach an entry, from "+
+				"where every jail materializing it would take that log in place of its own", rel)
+		}
+	}
+	for _, e := range res.Manifest.Entries {
+		if strings.HasPrefix(e.Path, ".local/state/yolo-jail-daemons") {
+			t.Errorf("the manifest records %s", e.Path)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(state, "local", "state", "yolo-jail-daemons", "claude-oauth-broker.log")); err != nil {
+		t.Errorf("the exclusion MOVED the daemon's log instead of leaving it alone: %v", err)
 	}
 }
 

@@ -595,6 +595,12 @@ sets, and a jail without pi no longer carries it.
 - When yolo cannot protect the jail's image from Nix's garbage collector, its warning no longer
   lands in the output of `yolo -- <command>`. It is printed with yolo's other launch messages, on
   standard error, so a script reading the command's output gets only that output.
+- An agent a jail installs from the machine's `yolo capture` of it no longer replaces that jail's
+  own log for the agent's login broker. A capture recorded the log the capture's own jail wrote
+  while the installer ran, so the first use of claude in each later jail swapped the jail's live
+  log for that stale copy, and a login problem was diagnosed from another jail's log. A capture
+  now leaves those logs out; one made by an earlier version still carries its copy until
+  `yolo capture claude` records it again.
 - opencode on a provider that states a context window but no output limit, such as z.ai and
   Cerebras, is no longer handed a model limit its config format rejects. opencode requires an
   output limit beside every context window, so yolo now writes opencode's own default for it, and

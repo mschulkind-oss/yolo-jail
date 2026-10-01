@@ -45,7 +45,8 @@ const (
 // It writes into `~/.local/share/yolo-jail`, which is INSIDE the `.local` capture surface
 // and is yolo's own state dir. Nothing about a fixture makes that write special: it stands
 // for the receipt a launcher appends and the boot step that finishes late, and the capture
-// must exclude it either way.
+// must exclude it either way. It also appends to a log under `~/.local/state/yolo-jail-daemons`,
+// standing for a supervised daemon of the capture jail, which the capture must exclude too.
 //
 // And it prints the INODE of what it created. That is the external oracle for "the move was
 // a rename": the number is observed by the installer inside the jail, and a bind mount
@@ -64,6 +65,11 @@ printf 'npm side\n' > "$HOME/.npm-global/lib/fixturetool-marker"
 # yolo's OWN state dir, inside the .local surface, written after the baseline walk.
 mkdir -p "$HOME/.local/share/yolo-jail"
 printf 'yolo state\n' > "$HOME/.local/share/yolo-jail/capture-fixture-marker"
+
+# A jail daemon's log, inside the .local surface too: the capture jail's supervised daemons
+# write there while an installer runs.
+mkdir -p "$HOME/.local/state/yolo-jail-daemons"
+printf 'daemon log\n' >> "$HOME/.local/state/yolo-jail-daemons/capture-fixture.log"
 
 printf 'FIXTURE_INODE %s\n' "$(ls -di "$HOME/.local/share/fixturetool" | awk '{print $1}')"
 
@@ -187,8 +193,14 @@ func TestCaptureRecordsAnInstallerIntoTheStore(t *testing.T) {
 	if got := str(m["platform"]); !strings.HasPrefix(got, "linux/") {
 		t.Errorf("manifest platform = %q, want the JAIL's linux/<arch>", got)
 	}
-	if got := strList(m["excluded"]); len(got) != 1 || got[0] != ".local/share/yolo-jail" {
-		t.Errorf("manifest excluded = %v, want yolo's state dir", got)
+	if got := strList(m["excluded"]); len(got) != 2 || got[0] != ".local/share/yolo-jail" ||
+		got[1] != ".local/state/yolo-jail-daemons" {
+		t.Errorf("manifest excluded = %v, want yolo's state dir and its jail daemons' log dir", got)
+	}
+	// The capture jail's own daemons log while the installer runs. Their logs stay out of the
+	// entry, or every jail materializing it takes them in place of its own.
+	if _, err := os.Lstat(filepath.Join(entry, "tree", ".local", "state", "yolo-jail-daemons")); !os.IsNotExist(err) {
+		t.Errorf("the entry carries the capture jail's daemon logs (%v)", err)
 	}
 
 	// 5. The receipt is beside the entry, in the same schema every other receipt uses.

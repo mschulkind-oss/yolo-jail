@@ -89,7 +89,7 @@ type Manifest struct {
 	// so the manifest says which those were rather than leaving a reader to assume.
 	Surfaces []string `json:"surfaces"`
 	// Excluded are the home-relative subtrees the delta never contains even though a
-	// surface covers them — DefaultExcludes(), which is yolo's own state dir.
+	// surface covers them — DefaultExcludes(): yolo's own state dir and its jail daemons' logs.
 	//
 	// Recorded for the same reason Surfaces is: a delta is honest only about what it
 	// looked at, and "the capture surfaces MINUS these" is the whole of what it looked

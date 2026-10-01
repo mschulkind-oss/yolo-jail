@@ -227,7 +227,14 @@ func Platform() string { return runtime.GOOS + "/" + runtime.GOARCH }
 // with prune (paths.InstalledProgramSurfaces) and means "where installed programs live" — which
 // `.local` is, state dir and all. Two subsystems reading one list, one of them subtracting
 // a subtree it owns, is the honest shape.
-func DefaultExcludes() []string { return []string{paths.GlobalStorageRel()} }
+//
+// The jail daemons' log dir is excluded for the same reason: a capture jail boots like any
+// jail, its supervised daemons log into `.local/state/yolo-jail-daemons` while the installer
+// runs, and an entry carrying those logs hands every jail that materializes it the capture
+// jail's log in place of its own (MEASURED 2026-10-01, docs/plans/install-capture.md).
+func DefaultExcludes() []string {
+	return []string{paths.GlobalStorageRel(), paths.JailDaemonLogsRel()}
+}
 
 // driver is one capture's resolved inputs.
 type driver struct {

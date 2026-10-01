@@ -499,6 +499,13 @@ func GlobalStorage() string { return GlobalStorageUnder(home()) }
 // suffix moved.
 func GlobalStorageRel() string { return globalStorageSuffix }
 
+// JailDaemonLogsRel is the in-jail supervisor's per-daemon log dir as a HOME-RELATIVE,
+// slash-separated path (".local/state/yolo-jail-daemons"), the one spelling
+// supervisor.LogDir joins onto a home and internal/capture excludes from an install capture,
+// for GlobalStorageRel's reason: a capture jail's daemons log there while the installer runs,
+// inside the `.local` capture surface.
+func JailDaemonLogsRel() string { return ".local/state/yolo-jail-daemons" }
+
 // GlobalStorageUnder returns the state dir under an EXPLICIT home, rather than the
 // process $HOME. It exists because a caller that has ALREADY resolved which home it is
 // writing into must not re-derive it from the environment: `yolo host apply` renders into a

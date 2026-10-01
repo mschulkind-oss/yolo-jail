@@ -2,7 +2,7 @@
 title: "Plan: capture-and-repackage for the installer class"
 status: accepted
 stage: DECIDED
-next: "Measure on Linux, as a proxy for the Mac fact H4 waits on: capture claude from the current tree in a nested jail and read whether its capture-manifest.json says relocatable:true"
+next: "Ask the maintainer to rule H4 (a) the session profile reads the store, (b) a neutral machine store, or (c) retire macos-user materialize; the Linux claude capture measured 2026-10-01 is relocatable:true, so H4 would buy claude something"
 tags: [plan, capture, installers, program-delivery, macos-user]
 ---
 
@@ -17,7 +17,10 @@ Written 2026-09-03.
 `macos-user` launch can read**, so no launch on that backend materializes a capture yet. H4 needs a
 ruling before it is built: every way to wire it changes what that backend's sandbox may read.
 Hand-off H2, the relocation rewrite, **landed 2026-09-26** and is measured on Linux only, against
-temp dirs standing in for the two macOS homes. Slices 1–5 and 7 are built and were measured in a
+temp dirs standing in for the two macOS homes. MEASURED 2026-10-01 on Linux, as the proxy for the
+fact H4 waits on: a real claude capture from this tree came out `relocatable:true`, with no
+reference to its home in any file ([H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)
+has the manifest), and it found the capture jail's daemon log in the entry, now excluded. Slices 1–5 and 7 are built and were measured in a
 nested jail on 2026-09-04; slice 6 built its recording half and, with H2, its rewrite. One
 confirmation of uid mapping on a real rootless host is still unrecorded
 ([Verification](#verification-honestly)). The sequencing below was
@@ -260,8 +263,11 @@ wrong one to sequence on.
    tree from anywhere else.
 
    **(b) The exclusion of yolo's own state needed a guard on the WHOLE-DIRECTORY MOVE, not only on
-   the paths a descent reaches.** `capture.DefaultExcludes()` is `[paths.GlobalStorageRel()]` —
-   `.local/share/yolo-jail` — recorded in the manifest's new `excluded` field. But a directory the
+   the paths a descent reaches.** `capture.DefaultExcludes()` was `[paths.GlobalStorageRel()]` —
+   `.local/share/yolo-jail` — recorded in the manifest's new `excluded` field. Since 2026-10-01 it
+   also holds `paths.JailDaemonLogsRel()`, `.local/state/yolo-jail-daemons`: the Linux claude
+   capture under [H4](#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it) recorded
+   the capture jail's daemon log there. But a directory the
    baseline never saw is moved in ONE rename (2(d)), and on a booted home `.local/share` is exactly
    such a directory: moved whole, it takes the state dir with it and the per-path check never runs.
    `driver.containsExcluded` is the guard. Found by the test, not by reading.
@@ -780,7 +786,42 @@ wrong one to sequence on.
    admitted a real claude capture and did not record whether its manifest came out
    `relocatable:true`. If claude's binary embeds the staging home, that entry is not relocatable,
    H2 refuses it, and H4 buys nothing for claude. `cat` the entry's `capture-manifest.json` on
-   that Mac first. Once ruled, the wiring is `buildBootstrapEnv` setting
+   that Mac first.
+
+   **MEASURED on Linux, 2026-10-01, as the proxy for that fact.** A nested podman launch of this
+   tree (`d4e435a3`, the binary `just build-go` made, `YOLO_REPO_ROOT` naming the tree, an
+   isolated `HOME` selecting `claude`) auto-captured claude 2.1.286 for `linux/amd64` with the
+   driver argv `yolo internal capture-run --out=/workspace/out
+   --surface-root=/workspace/.yolo/home --scan-content-refs -- env YOLO_INSTALL_ONLY=1 claude`.
+   The vendor installer ran inside the capture jail; no claude session ran and nothing logged
+   in. Its manifest:
+
+   ```json
+   {"home":"/home/agent","platform":"linux/amd64","refScan":"symlink-targets+file-content",
+    "relocatable":true,"notRelocatable":null,
+    "absoluteRefs":[{"path":".local/bin/claude","kind":"symlink-target",
+                     "value":"/home/agent/.local/share/claude/versions/2.1.286"}]}
+   ```
+
+   `rg -uuu -l -a -F /home/agent tree` and the same for `/nix/store` found nothing in the
+   14-path, 241.7 MB tree (two files; `-uuu`, because every capture surface is a dot-directory and
+   `rg` skips those by default). So the downloaded binary carries no reference to the home it was captured in,
+   and the one absolute reference is the launcher symlink H2 rewrites. INFERRED for the Mac: the
+   darwin binary is downloaded too, so it cannot carry `/Users/Shared/yolo-captures/claude/home`
+   unless the installer writes that path into a file, which on Linux it wrote into none. H4 would
+   buy claude something; the Mac `cat` is still the confirmation. v0.11.0's driver, which passed
+   no `--scan-content-refs` to a container capture, recorded the same install `relocatable:false`
+   for want of the scan, which is why a manifest from before that flag answers nothing here.
+
+   The same capture found a defect, fixed the same day: the entry held
+   `.local/state/yolo-jail-daemons/claude-oauth-broker.log`, the capture jail's own daemon log, and
+   a later jail that materialized the entry (`YOLO_INSTALL_ONLY=1 claude`, which printed
+   `Materialized claude from capture 082581e78e3474d2 by reflink (2 files, 241.7 MB)`) had its
+   live log of that name replaced by the capture jail's, twelve minutes stale.
+   `capture.DefaultExcludes` now leaves that directory out
+   (`TestYoloJailDaemonLogsAreExcludedFromTheDelta`).
+
+   Once ruled, the wiring is `buildBootstrapEnv` setting
    `entrypoint.CapturesDirEnv` to the path the sandbox reads. The launcher already bakes it and
    already passes `--home="$HOME"`, so H2 relocates from the staging home to `/Users/_yolojail`
    with no further change. Slice 7(a)'s container-only placement of auto-capture should be

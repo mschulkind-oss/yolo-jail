@@ -37,13 +37,14 @@ const (
 	restartBackoffMax     = 30.0
 )
 
-// LogDir returns ~/.local/state/yolo-jail-daemons.
+// LogDir returns ~/.local/state/yolo-jail-daemons (paths.JailDaemonLogsRel, which an install
+// capture excludes by the same spelling).
 func LogDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "/"
 	}
-	return filepath.Join(home, ".local", "state", "yolo-jail-daemons")
+	return filepath.Join(home, filepath.FromSlash(paths.JailDaemonLogsRel()))
 }
 
 // Spec is one daemon entry. restart defaults to "on-failure".
