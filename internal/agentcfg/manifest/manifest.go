@@ -202,9 +202,12 @@ type Surface struct {
 	// render moved from `~/.pi/agent/mcp.json` to `mcp-adapter.json` in 0.11.0 and back to
 	// `mcp.json` once pi had an MCP client of its own, so it now retires yolo's copy in
 	// `mcp-adapter.json` (docs/design/agent-directory-map.md, AM-R1's rule;
-	// docs/reference/mcp-configuration.md, Pi's MCP files). On a `stateful` surface "what the
-	// surface's own file holds now" includes what its first render adopted, so an old copy is
-	// retired only while the new file holds nothing of the user's beside yolo's render.
+	// docs/reference/mcp-configuration.md, Pi's MCP files). A `stateful` surface's file also
+	// holds what its first render adopted and what later boots captured, so on one the render
+	// a copy may match is either value: the file as this boot wrote it, or the same layers
+	// composed without the capture (entrypoint.layersAloneRender), which is what a `computed`
+	// surface over those layers wrote. Either holds nothing of the user's that the surface's
+	// own file does not still hold.
 	RetireIfMatchesRender []string
 
 	// WhenListed, when set, renders this surface ONLY while a list in another surface of the

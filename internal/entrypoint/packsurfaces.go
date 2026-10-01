@@ -631,8 +631,9 @@ func renderPlannedSurface(e *Env, pl surfacePlan, src jailLayerSource) error {
 		retireOrphanSidecars(e, surface)
 	}
 	// The old copies of a render that moved, which may carry a name someone else also writes,
-	// so each goes only while it holds exactly what this write just produced.
-	retireMatchingCopies(e, surface)
+	// so each goes only while it holds exactly yolo's render: what this write just produced,
+	// or, on a stateful surface, what the same layers produce without the captured edits.
+	retireMatchingCopies(e, surface, layers, contribs)
 	return nil
 }
 

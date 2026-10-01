@@ -63,6 +63,14 @@ evidence about those versions, not a claim about every version.
 So the file set a jail would have to consider is **four sources across two agents**, and yolo ever
 bound over exactly one of them.
 
+⚠ **pi has a project-scope reader since 0.99.0**, which this 2026-09-22 reading predates: pi's own
+MCP client reads `~/.pi/agent/mcp.json` and, only in a project pi trusts, the project's
+`.pi/mcp.json` (re-read 2026-10-01 in pi 0.99.2, `dist/extensions/mcp/config.js`, `loadMcpConfig`).
+In a jail the pi pack sets `defaultProjectTrust: "always"`, so a repository's `.pi/mcp.json`
+reaches pi there, which is [§1](#1-the-position)'s position applied to a fifth file; yolo's own
+table goes to `~/.pi/agent/mcp.json` and never to the project file ([pi's MCP
+files](../reference/mcp-configuration.md#pis-mcp-files)).
+
 ## 3. The removal (2026-09-22)
 
 `internal/cli/run/assemble.go` no longer emits `-v /dev/null:/workspace/.vscode/mcp.json:ro`. The

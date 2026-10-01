@@ -23,11 +23,11 @@ project's `yolo-jail.jsonc`, and a change reaches the agents at the jail's next 
 | agy | Yes | No: agy has no language-server support |
 
 pi has started MCP servers itself since version 0.99.0, so it needs no MCP extension. yolo writes
-your servers into pi's own MCP file, `~/.pi/agent/mcp.json`, beside any you add with
-`pi mcp add`, and what you change with pi's `/mcp` command stays. If you installed the
-`pi-mcp-adapter` extension for yolo's servers before, remove it: with both, pi starts every server
-twice. A subagent that lists `mcp:` tools needs `pi-subagents` 0.74.0 or later to run them without
-the adapter, so update `pi-subagents` first.
+your servers into pi's own MCP file, `~/.pi/agent/mcp.json`, beside any you add with `pi mcp add`,
+and what you change with pi's `/mcp` command stays. If you installed the `pi-mcp-adapter` extension
+for yolo's servers before, remove it: with both, pi can start a server twice, once through each. A
+subagent that lists `mcp:` tools needs `pi-subagents` 0.74.0 or later to run them without the
+adapter, so update `pi-subagents` first.
 
 ## MCP Presets
 

@@ -324,7 +324,7 @@ the rulings are [AM-R1 and AM-R2](../design/agent-directory-map.md#13-decision-l
 | :--- | :--- | :--- |
 | `~/.pi/agent/mcp.json` | pi's own MCP client, in every project; pi-subagents through 0.72, and 0.74.0 without pi-mcp-adapter, for an agent's `mcp:` tools | writes your servers at every boot, beside any server or setting already there (`stateful`, `pi/mcp`) |
 | `~/.config/mcp/mcp.json` | pi-subagents; also pi-mcp-adapter, as its shared global file | writes the same servers while pi-subagents is in pi's `packages`, and nothing otherwise (`pi/subagents-mcp`) |
-| `~/.pi/agent/mcp-adapter.json` | pi-mcp-adapter; pi-subagents 0.73.0 and later while the adapter runs its tools | never writes it; deletes it only while it holds exactly what `mcp.json` holds after the boot's write, which is the copy yolo 0.11 wrote there |
+| `~/.pi/agent/mcp-adapter.json` | pi-mcp-adapter; pi-subagents 0.73.0 and later while the adapter runs its tools | never writes it; deletes it only while it holds exactly yolo's render, which is the copy yolo 0.11 wrote there |
 
 **pi's own file.**
 
@@ -363,11 +363,18 @@ the rulings are [AM-R1 and AM-R2](../design/agent-directory-map.md#13-decision-l
   before anything is removed. Host apply deletes nothing, so a `mcp-adapter.json` at the host is
   left as it is.
 
-**pi-mcp-adapter duplicates pi's own client.** The two cannot share one server set: with the
-adapter still in pi's `packages`, each server yolo writes starts twice, pi's copy from
-`mcp.json` and the adapter's from `~/.config/mcp/mcp.json` while pi-subagents is selected, or
-from an `mcp-adapter.json` the boot kept. yolo does not install the adapter; take
-`npm:pi-mcp-adapter` out of whichever pack or settings file lists it.
+**pi-mcp-adapter duplicates pi's own client.** The two load side by side: pi leaves its own
+client out only for an extension that registers `/mcp` while extensions load
+(`omitReplacedExtensions`, pi 0.99.2 `dist/core/resource-loader.js`), and the adapter registers
+`/mcp-adapter` then, taking `/mcp` only at session start and only when it does not find pi's
+(pi-mcp-adapter 3.3.0 and 4.0.0, `index.ts`). Neither reads the other's file, so with the
+adapter still in pi's `packages` a server yolo writes starts twice whenever the adapter finds it
+too: in `~/.config/mcp/mcp.json` while pi-subagents is selected, or in an `mcp-adapter.json` the
+boot kept. yolo does not install the adapter; take `npm:pi-mcp-adapter` out of whichever pack or
+settings file lists it. Turning pi's own client off in `pi config` to keep the adapter instead
+leaves pi with yolo's servers only while pi-subagents is selected: of the files yolo writes for
+pi, the adapter reads only `~/.config/mcp/mcp.json` by default (INFERRED from the two readers
+above, not run).
 
 **pi-subagents' file.** Where pi-subagents finds the servers for an agent's `mcp:` tools
 depends on its version (`getConfigPaths` in its `src/runs/shared/mcp-direct-tool-allowlist`):
@@ -399,12 +406,13 @@ and it is still written. The rules for it:
   and this cross-tool file stays yours.
 
 **The retired copies.** 0.11.0 moved the render from `mcp.json` to `mcp-adapter.json`, and it has
-now moved back. A `mcp-adapter.json` holding exactly what `mcp.json` holds after the boot's write
-is yolo's own leftover and is deleted (`retireIfMatchesRender`). The comparison is on the decoded
-JSON, so key order and indentation do not decide it. A file with one more key, one different
-value or a server yolo no longer configures is kept, and so is every copy while `mcp.json` holds
-a server or setting of yours, since the two files then differ; pi-mcp-adapter keeps loading a
-kept copy until you remove it. The `mcp.json` yolo 0.10.0 wrote is the surface's own file again:
+now moved back. A `mcp-adapter.json` holding exactly yolo's render is yolo's own leftover and is
+deleted (`retireIfMatchesRender`). yolo's render is either what `mcp.json` holds after the boot's
+write or the same servers without anything of yours in it, which is what 0.11 wrote there, so a
+server you added to `mcp.json` or a server you turned off with `/mcp` does not keep the copy. The
+comparison is on the decoded JSON, so key order and indentation do not decide it. A file with one
+more key, one different value or a server yolo no longer configures is kept, and pi-mcp-adapter
+keeps loading a kept copy until you remove it. The `mcp.json` yolo 0.10.0 wrote is the surface's own file again:
 one that holds exactly yolo's render is adopted with nothing of yours in it, so its servers leave
 when the config drops them, while one written from MCP settings that have changed since is
 adopted as yours, and pi now starts its servers.

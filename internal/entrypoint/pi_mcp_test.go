@@ -110,6 +110,48 @@ func TestPiMcpKeepsAnAdapterFileThatIsNotYolosRender(t *testing.T) {
 	}
 }
 
+// YOUR OWN ENTRIES IN mcp.json DO NOT KEEP yolo's old copy alive. 0.11 rendered the adapter file
+// `computed`, so the copy it left holds yolo's servers and nothing else, and it goes even when
+// mcp.json holds more than yolo's render: a server you added with `pi mcp add` before the
+// upgrade, or one of yolo's that you turned off with /mcp after it. Matched against mcp.json
+// alone, the copy stayed in both cases, and a pi-mcp-adapter still installed went on starting
+// every server in it beside pi's own client. Your entries in mcp.json are untouched.
+func TestPiMcpRetiresYolosAdapterCopyBesideYourOwnEntries(t *testing.T) {
+	const yolos011 = `{"mcpServers":{"probe-mcp":{"command":"/bin/probe-mcp","args":["--stdio"]}}}`
+	t.Run("a server you added", func(t *testing.T) {
+		e, home := piMCPEnv(t)
+		plant(t, home, piMCPRel, `{"mcpServers":{"mine":{"command":"mine"}}}`)
+		adapter := plant(t, home, piAdapterRel, yolos011)
+		bootJail(t, e, shippedPi(t))
+		if _, err := os.Stat(adapter); !os.IsNotExist(err) {
+			t.Fatalf("mcp-adapter.json holds exactly yolo's render and survived the boot "+
+				"(stat err %v), because mcp.json also holds a server of yours", err)
+		}
+		servers := readRenderedJSON(t, home, piMCPRel)["mcpServers"].(map[string]any)
+		if _, ok := servers["mine"]; !ok {
+			t.Fatalf("your own server left mcp.json: %v", servers)
+		}
+	})
+	t.Run("a server of yolo's you turned off", func(t *testing.T) {
+		e, home := piMCPEnv(t)
+		bootJail(t, e, shippedPi(t))
+		m := readRenderedJSON(t, home, piMCPRel)
+		m["mcpServers"].(map[string]any)["probe-mcp"].(map[string]any)["enabled"] = false
+		data, _ := json.Marshal(m)
+		plant(t, home, piMCPRel, string(data))
+		adapter := plant(t, home, piAdapterRel, yolos011)
+		rebootPi(t, e, probeMCPServers)
+		if _, err := os.Stat(adapter); !os.IsNotExist(err) {
+			t.Fatalf("mcp-adapter.json holds exactly yolo's render and survived the boot "+
+				"(stat err %v), because you turned one of its servers off in mcp.json", err)
+		}
+		got, _ := readRenderedJSON(t, home, piMCPRel)["mcpServers"].(map[string]any)["probe-mcp"].(map[string]any)
+		if got["enabled"] != false {
+			t.Fatalf("probe-mcp in mcp.json after the boot = %#v, want it still off", got)
+		}
+	})
+}
+
 // YOUR OWN ENTRIES STAY. A server and a top-level setting already in mcp.json are adopted as
 // yours on the first boot; a server added later and a server disabled later — the edits
 // `pi mcp add` and /mcp make — survive the next boot; and a server yolo stops configuring

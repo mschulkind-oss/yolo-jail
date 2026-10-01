@@ -19,11 +19,17 @@ import (
 // failure, a decode failure, a missing record — by leaving the file where it is.
 
 // retireMatchingCopies deletes each of the surface's RetireIfMatchesRender siblings that holds
-// exactly what the surface's own file holds now, compared decoded with the surface's codec
+// exactly yolo's render, compared decoded with the surface's codec
 // (manifest.Surface.RetireIfMatchesRender states the rule and why it is the decoded value).
-// Its one caller runs it only after the surface's own write succeeded, so "what the surface
-// holds now" is this boot's render.
-func retireMatchingCopies(e *Env, surface manifest.Surface) {
+// Its one caller runs it only after the surface's own write succeeded.
+//
+// yolo's render is either of two values, and a copy matching either goes. The first is what the
+// surface's own file holds after this boot's write. The second, on a `stateful` surface only, is
+// what the same layers render without the edits captured from that file (layersAloneRender): a
+// stateful file also holds what its first render adopted and what a later boot captured, so a
+// user's own server in pi's mcp.json, or a /mcp disable of one of yolo's, would otherwise keep
+// the old copy forever, though the copy holds nothing but yolo's own output.
+func retireMatchingCopies(e *Env, surface manifest.Surface, l surfaceLayers, contribs *surfaceContribs) {
 	if len(surface.RetireIfMatchesRender) == 0 {
 		return
 	}
@@ -32,11 +38,15 @@ func retireMatchingCopies(e *Env, surface manifest.Surface) {
 	if !ok {
 		return
 	}
+	renders := []map[string]any{rendered}
+	if pure, ok := layersAloneRender(e, surface, l, contribs); ok {
+		renders = append(renders, pure)
+	}
 	dir := filepath.Dir(own)
 	for _, name := range surface.RetireIfMatchesRender {
 		path := filepath.Join(dir, name)
 		held, ok := decodedSurfaceFile(surface, path)
-		if !ok || !reflect.DeepEqual(held, rendered) {
+		if !ok || !matchesAnyRender(held, renders) {
 			continue
 		}
 		// Ignored for retireOrphanSidecars' reason: the copy is unread by the surface that
@@ -46,6 +56,37 @@ func retireMatchingCopies(e *Env, surface manifest.Surface) {
 				surface.Name + " render, which now lives at " + own)
 		}
 	}
+}
+
+// layersAloneRender is what a stateful surface's layers compose to without the capture: the
+// render a `computed` surface over the same layers writes, which is how the copy an older yolo
+// left at the render's old location was written. ok is false for any other mode, whose file
+// already is that render, and for a compose that fails or decodes to no object. The reserved
+// selection namespace is dropped rather than applied, which can only make a match rarer.
+func layersAloneRender(e *Env, surface manifest.Surface, l surfaceLayers,
+	contribs *surfaceContribs) (map[string]any, bool) {
+	if surface.ResolvedMode() != manifest.ModeStateful {
+		return nil, false
+	}
+	computed, _ := agentcfg.DropSelection(l.computed)
+	prepared, res, err := e.renderTarget().Compose(surface, render.Layers{
+		HostBytes: l.hostBytes, Overlays: contribs.overlayLayers(), Computed: computed,
+		ComputedInFull: l.inFull, Lists: contribs.listContribs()})
+	if err != nil || res == nil {
+		return nil, false
+	}
+	m := agentcfg.DecodeSurfaceObject(prepared.Codec, res.Encoded)
+	return m, m != nil
+}
+
+// matchesAnyRender reports whether held equals one of renders.
+func matchesAnyRender(held map[string]any, renders []map[string]any) bool {
+	for _, r := range renders {
+		if reflect.DeepEqual(held, r) {
+			return true
+		}
+	}
+	return false
 }
 
 // decodedSurfaceFile is path decoded as one of surface's files: its top-level object, with
