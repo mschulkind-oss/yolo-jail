@@ -3,7 +3,7 @@ title: "The wire bridge as the jail's model gateway: signing, routing by model a
 date: 2026-09-25
 status: accepted
 stage: DECIDED
-next: "Read AWS's documentation for whether bedrock-runtime serves Responses at /openai/v1/responses, which codex's via route to Bedrock signs for and nothing has confirmed"
+next: "A human with a Bedrock credential sends one codex turn under -p bedrock-bridge: AWS documents runtime's /openai/v1/responses for both shipped GPT ids (§2.3, read 2026-10-01), so only a live request can still refute the route"
 depends-on:
   - pi-codex-provider-shadowing.md#OQ-3
 tags: [wire-bridge, bedrock, aws, sigv4, routing, failover, models, allowlist, providers, subscription]
@@ -45,8 +45,11 @@ has never accepted one of its signatures. Nobody has sent a request to runtime's
 seen the subscription's usage-limit response. The
 via route is MEASURED in-process only: its tests run the real daemon, mux and signer against a
 stubbed upstream, and the pi, oh-omp and opencode derives against the real shipped `derive.lua`.
-No agent has sent a request through it, and whether `bedrock-runtime` serves Responses at
-`/openai/v1/responses` is unread, so a codex route to Bedrock is signed but unproven. That pi,
+No agent has sent a request through it. **SOURCED, 2026-10-01:** `bedrock-runtime` serves the
+OpenAI Responses API at `POST /openai/v1/responses`, by bearer API key or SigV4, for both GPT ids
+the `bedrock` pack ships, read from AWS's Bedrock User Guide and botocore's service model
+([§2.3](#23-responses-at-runtimes-openaiv1responses-sourced-2026-10-01)). So codex's route to
+Bedrock is real as configured on paper, and still unproven on the wire. That pi,
 opencode and codex keep a base URL's path is read
 from their installed client sources, and oh-omp's from its published package
 ([§4.1](#41-how-it-is-built)); none is observed on the wire.
@@ -361,8 +364,96 @@ The first three are MEASURED in-process only: the production boot over the shipp
 table, each served agent's key channel, and a stubbed upstream that records what was sent; so is the
 fourth, whose boot reads the tables as the launcher writes and the entrypoint decodes them. The
 fifth is the gate over those same tables. No
-request has reached AWS, and whether runtime serves Responses at `/openai/v1/responses` is still read
-from codex's binary, not observed.
+request has reached AWS. That runtime serves Responses at `/openai/v1/responses` was read from
+codex's binary until 2026-10-01, and is now read from AWS's documentation
+([§2.3](#23-responses-at-runtimes-openaiv1responses-sourced-2026-10-01)); it is still not observed.
+
+### 2.3 Responses at runtime's `/openai/v1/responses` (SOURCED 2026-10-01)
+
+**The answer: yes.** `bedrock-runtime` serves the OpenAI Responses API at
+`POST /openai/v1/responses`, and that is the URL the bridge's via route sends codex's requests to:
+`runtimeBaseURL` composes `https://bedrock-runtime.<region>.amazonaws.com/openai/v1`, and the
+bridge joins codex's `/responses` to it (pinned by `TestViaResponsesToBedrockIsSigned`,
+`internal/wirebridged/viaresponses_test.go:138` at `848a4980`). So codex's route to Bedrock is real
+as configured, as far as AWS's documentation goes. Everything below was read on 2026-10-01 from
+AWS's Bedrock User Guide (`latest`, whose pages carry no version) and botocore 1.43.106. No request
+was made to AWS.
+
+- **The route.** The *Responses API* page opens: *"Amazon Bedrock provides the OpenAI Responses
+  API on both the `bedrock-runtime` and `bedrock-mantle` endpoints. Use `bedrock-runtime` for new
+  applications."* Its base URL is `https://bedrock-runtime.{region}.amazonaws.com/openai/v1`, and
+  it serves `POST /openai/v1/responses` to create a response, plus `GET`, `DELETE` and
+  `POST …/cancel` on `/openai/v1/responses/{id}` for a stored one. The request and response format
+  is the same as on `bedrock-mantle`, so the OpenAI SDK works against either. SOURCED. The endpoints page lists Responses
+  as supported on both endpoints, and says *"The OpenAI-compatible APIs are called on the
+  /openai/v1 paths of this endpoint rather than through the AWS SDKs."*
+- **The SDK service model has no such route.** botocore's `bedrock-runtime` model (2023-09-30) has
+  11 operations, none under `/openai`, and the string `openai` nowhere in it. Its `signingName` is
+  `bedrock`, and its `auth` lists `aws.auth#sigv4` and `smithy.api#httpBearerAuth`. MEASURED
+  ([§11](#11-evidence)).
+- **Regions.** *"On the `bedrock-runtime` endpoint, the Responses API is available in every AWS
+  Region where that endpoint is available, including the AWS GovCloud (US) Regions."* A model is
+  callable only where its own inference profile serves. An **inference profile** is AWS's id for
+  a model together with the Regions a request may be routed to: a `us.` id routes within the US,
+  a `global.` id worldwide. SOURCED.
+- **Models.** The page says to choose a model whose model card lists Responses as supported on
+  runtime. The two OpenAI ids the `bedrock` pack ships both qualify. **GPT-6.1 Sol** lists
+  Responses, Chat Completions, Converse and Invoke on runtime, by `us.openai.gpt-6.1-sol` or
+  `global.openai.gpt-6.1-sol`; its card names no runtime source Region beyond "US geographic and
+  global inference". **GPT-6 Astra** lists Responses, Chat Completions and Converse, by
+  `us.openai.gpt-6-astra` from five North American Regions or `global.openai.gpt-6-astra` from
+  seventeen. **Claude Opus 5.5** lists no Responses on runtime (Messages, Converse and Invoke only),
+  which is why codex's derive offers codex OpenAI's models alone (`codexBedrockMakers`). SOURCED.
+  Three model rules apply on runtime. First, a closed-weight GPT model must be named by an inference
+  profile, never a foundation id, and in-Region invocation is not offered for it. Second, an
+  *application* inference profile is refused with a 400. Third, GPT OSS models serve no Responses
+  there at all.
+- **Authentication.** The prerequisites list *"Amazon Bedrock API key (required for OpenAI SDK)"*
+  and *"AWS credentials (supported for HTTP requests)"*, and the endpoints page marks SigV4 and
+  Bedrock API keys both supported on runtime. Every Responses example sends
+  `Authorization: Bearer <Bedrock API key>`, and none signs. The service name the bridge signs
+  `/openai/v1/responses` with, `bedrock`, is therefore INFERRED, from two SOURCED facts: the Chat
+  Completions page's SigV4 example signs `aws:amz:us-east-1:bedrock` against
+  `/openai/v1/chat/completions` on the same host, and botocore's `signingName` is `bedrock`. That is
+  the inference [§3](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled) made for
+  the Messages route. Until a signed request is accepted, both the bridge's SigV4 arm and the bearer
+  fallback rest on the documentation alone (Risk R6).
+- **Headers.** The examples send `Content-Type: application/json` and the bearer, and nothing
+  else. One header is constrained: *"The `OpenAI-Project` header is accepted only as `default` or
+  as your own default project ARN; any other value is rejected."* A **project** is AWS's
+  OpenAI-compatible container for stored responses and usage, and runtime serves only the
+  account's default one. SOURCED.
+- **IAM.** *"Creating a response authorizes two resources: `bedrock:InvokeModel` (or
+  `bedrock:InvokeModelWithResponseStream`) on the inference target … and `bedrock:InvokeModel` on
+  your account's default project."* The session policy in `packs/aws-auth/README.md`'s example,
+  both actions on `"*"`, covers both; a policy that names only model or profile ARNs must also
+  allow the default project. INFERRED from that sentence; no policy was evaluated.
+- **What runtime does not do, which a codex request could meet.** Requests are always synchronous,
+  so `background=true` is a 400. `model` is required on every request, even with
+  `previous_response_id`. Server-side and pre-configured tools are not available, web search
+  included. Guardrails do not apply to Responses. Runtime does not implement `GET /openai/v1/models`:
+  a via request whose path names neither wire goes to the route's one regional upstream
+  (`internal/wirebridged/via.go:182-187`, `requestWire` at `:262-269` and `viaWireSplit.ServeHTTP` at
+  `:282`, at `848a4980`), so a `/models` fetch through
+  codex's via route reaches a path AWS says runtime does not serve. SOURCED for AWS; whether codex
+  sends any of these (a web-search tool, a `/models` fetch, an `OpenAI-Project` header) is a fact
+  about codex's requests, unread here.
+- **Streaming.** The runtime examples set `stream: true` and iterate the OpenAI SDK's events, so
+  the stream is OpenAI's server-sent events. INFERRED from the client the page uses. The via route
+  relays the body untouched, so the framing changes nothing in the bridge.
+
+**What this decides, and what it leaves.** The documentation question this doc carried is closed:
+the route, both credentials and both shipped GPT ids are what AWS documents. It rules nothing.
+Still open, and not this reading's to close:
+
+- **No request has reached AWS** (UNMEASURED), so no signature or key has been accepted on this
+  route.
+- **codex's request shape against runtime's limits**, listed above, is unread.
+- **GPT-6.1 Sol's card now lists a global id.** `global.openai.gpt-6.1-sol` appears where
+  [`bedrock-plumbing.md` BR-D7](bedrock-plumbing.md#BR-D7) read on 2026-09-29 that `us.` was the
+  only runtime id AWS offered. The pack ships `us.openai.gpt-6.1-sol` as codex's start model
+  ([BR-D19](bedrock-plumbing.md#BR-D19)), which serves only from a source Region the US profile
+  covers. That premise is [`bedrock-plumbing.md`](bedrock-plumbing.md)'s to take up.
 
 ---
 
@@ -1500,6 +1591,24 @@ Re-check instructions:
 | SigV4 and Bedrock API keys both supported on `bedrock-runtime`; IAM `bedrock:InvokeModel`, and `bedrock:InvokeModelWithResponseStream` for streaming; prompt caching supported on runtime | Bedrock endpoints page, read 2026-09-29 |
 | Claude models that launched with cross-Region inference only have no CountTokens on `bedrock-runtime`; Anthropic's `count_tokens` is at `bedrock-mantle`'s `/anthropic/v1/messages/count_tokens` | *Monitor your token usage by counting tokens* page, read 2026-09-29 |
 | Only `AnthropicBedrock` (InvokeModel: `/model/{id}/invoke-with-response-stream`) overrides `_make_sse_decoder` with `AWSEventStreamDecoder`; `AnthropicBedrockMantle` keeps the default SSE `Stream` and signs as `bedrock-mantle` | anthropic-sdk-python `main`, `src/anthropic/lib/bedrock/_client.py`, `_stream_decoder.py`, `_mantle.py`, read 2026-09-29 |
+| *"Amazon Bedrock provides the OpenAI Responses API on both the `bedrock-runtime` and `bedrock-mantle` endpoints"*; runtime's base `https://bedrock-runtime.{region}.amazonaws.com/openai/v1`; `POST /openai/v1/responses`, and `GET`, `DELETE` and `POST …/cancel` on `/openai/v1/responses/{id}`; available in every Region runtime is, GovCloud included; GPT models named by an inference profile, an application profile a 400; `OpenAI-Project` only `default` or the default project ARN; `bedrock:InvokeModel` on the target and on the default project; synchronous only, no server-side tools, no `GET /openai/v1/models`, `model` on every request; GPT OSS has no Responses on runtime; every example a bearer, none signed | [*Responses API* page](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-responses-api.html), read 2026-10-01 |
+| Responses listed as supported on both endpoints; *"The OpenAI-compatible APIs are called on the /openai/v1 paths of this endpoint rather than through the AWS SDKs"* | [Bedrock endpoints page](https://docs.aws.amazon.com/bedrock/latest/userguide/endpoints.html), read 2026-10-01 |
+| On runtime: GPT-6.1 Sol serves Responses, Chat Completions, Converse and Invoke, as `us.openai.gpt-6.1-sol` or `global.openai.gpt-6.1-sol`, not in-Region; GPT-6 Astra serves Responses, Chat Completions and Converse, as `us.` from five Regions or `global.` from seventeen; Claude Opus 5.5 serves Messages, Converse and Invoke, and no Responses | the [GPT-6.1 Sol](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-sol.html), [GPT-6 Astra](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html) and [Claude Opus 5.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html) model cards, read 2026-10-01 |
+| The Chat Completions page still signs `--aws-sigv4 "aws:amz:us-east-1:bedrock"` against `/openai/v1/chat/completions`; the Responses page names SigV4 nowhere, and its five `curl` examples each send `Authorization: Bearer` | [Chat Completions page](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions.html) and the Responses page, read 2026-10-01 |
+
+**AWS's pages and SDK model, re-checked 2026-10-01** (MEASURED; the user guide also serves each
+page as Markdown at the same path with `.md`):
+
+```console
+$ curl -sSL https://docs.aws.amazon.com/bedrock/latest/userguide/inference-responses-api.md | rg -n 'POST /openai/v1/responses|AWS credentials \(supported'
+70:  + AWS credentials (supported for HTTP requests)
+328:+ `POST /openai/v1/responses` – create a response.
+330:+ `POST /openai/v1/responses/{id}/cancel` – cancel a response that is still in progress.
+$ curl -sSL https://docs.aws.amazon.com/bedrock/latest/userguide/inference-responses-api.md | rg -c -i 'sigv4'   # expect no output
+$ curl -sSL https://raw.githubusercontent.com/boto/botocore/1.43.106/botocore/data/bedrock-runtime/2023-09-30/service-2.json \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["metadata"]; ops=d["operations"].values(); print(m["signingName"], m["auth"], len(d["operations"]), sum("/openai" in o["http"]["requestUri"] for o in ops))'
+bedrock ['aws.auth#sigv4', 'smithy.api#httpBearerAuth'] 11 0
+```
 
 **Client sources**, read 2026-09-26; nothing was run:
 
