@@ -240,7 +240,11 @@ designs chose, not of what the maintainer ruled.
    the two large logs measured below are host-wide daemons' (`scope: "host"` in
    `packs/claude/loopholes/claude-oauth-broker/manifest.jsonc` and
    `packs/aws-auth/loopholes/aws-auth/manifest.jsonc`), which `broker.EnsureSingleton` spawns,
-   not the run pipeline. A launch that reuses a live host-wide daemon trims its log too
+   not the run pipeline. A fourth followed the same day: a launch-owned service's host half
+   (`launchservice.Start`, `internal/launchservice/launchservice.go`), whose
+   `launch-service-<service>.log` every `yolo host` or macos-user launch starting that service
+   appends to: the wire bridge, or a credential doorway
+   ([HS-D15](../design/host-notch-services.md#HS-D15)). A launch that reuses a live host-wide daemon trims its log too
    (`EnsureSingleton`'s reuse branch), because nothing reopens it. It is **copy and truncate, not
    crossings.log's rename**, because the writer is a child holding its own descriptor, and a
    per-jail daemon's log is keyed on the loophole's name, so every jail running it holds the same
@@ -251,7 +255,8 @@ designs chose, not of what the maintainer ruled.
    (`internal/packstage/loopholeowners.go`, `RetireLoopholeState`). Pinned by
    `TestAPortForwardLaunchCapsTheSocatLog` and `TestAHostDaemonLaunchCapsItsServiceLog`
    (`internal/cli/run/logcap_test.go`), `TestEnsureCapsTheLogOfALiveDaemonItReuses` and
-   `TestRealSpawnCapsTheDaemonLog` (`internal/broker/logcap_test.go`). The rest of this item is
+   `TestRealSpawnCapsTheDaemonLog` (`internal/broker/logcap_test.go`), and
+   `TestStartCapsTheServiceLog` (`internal/launchservice/logcap_test.go`). The rest of this item is
    the inventory as it was. The `host-service-<name>.log` files were opened `O_APPEND` with no
    bound (SOURCED at `51620f7e`: `internal/cli/run/loopholesruntime.go:1071-1073`), and so was
    each `<cname>-socat.log` (SOURCED at `51620f7e`: `network.go:35`). MEASURED in `/ctx/host-yolo-logs` on

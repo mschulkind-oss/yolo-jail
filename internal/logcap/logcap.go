@@ -1,8 +1,8 @@
 // Package logcap bounds a diagnostics log that ANOTHER PROCESS writes: the stdout and stderr
-// yolo hands a host daemon or a socat forward at spawn (host-service-<name>.log,
-// <cname>-socat.log, under GLOBAL_STORAGE/logs). Each was opened O_APPEND with no bound, so it
-// grew for as long as the machine kept launching (docs/research/central-yolo-watcher.md §2.6,
-// item 3).
+// yolo hands a host daemon, a socat forward or a launch-owned service's host half at spawn
+// (host-service-<name>.log, <cname>-socat.log, launch-service-<service>.log, under
+// GLOBAL_STORAGE/logs). Each was opened O_APPEND with no bound, so it grew for as long as the
+// machine kept launching (docs/research/central-yolo-watcher.md §2.6, item 3).
 //
 // # ONE ARCHIVED GENERATION, AS crossings.log HAS
 //

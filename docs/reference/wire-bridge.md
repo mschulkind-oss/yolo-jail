@@ -1121,7 +1121,7 @@ only place the values themselves are stated.
 | Host half input file | named by `YOLO_HOST_SERVICE_INPUT`, `0600` in a `0700` temp dir, removed once read | `launchservice.InputEnv`, `launchservice.Input` |
 | Host half lifeline | descriptor 4, named by `YOLO_HOST_SERVICE_LIFELINE_FD`; EOF ends the bridge | `launchservice.LifelineFDEnv`, `launchservice.Lifeline` |
 | Host half readiness wait, stop grace | 5 seconds; SIGTERM then SIGKILL after 2 seconds | `launchservice.ReadyTimeout`, `launchservice.StopGrace` |
-| Host half log | `~/.local/share/yolo-jail/logs/launch-service-wire-bridge.log`, appended by every launch | `launchservice.LogPath` |
+| Host half log | `~/.local/share/yolo-jail/logs/launch-service-wire-bridge.log`, appended by every launch; past 4 MiB the starting launch moves its newest lines to the one archive beside it, `.1`, and empties it | `launchservice.LogPath`; the bound `logcap.MaxBytes`, applied by `launchservice.Start` |
 | Selection inputs the daemon re-reads | the composed providers, use-profiles and resolved-profiles tables | `wirebridged.routeFor` |
 | `needs` entry fields | the pack name, and the bin condition | `internal/packdecl/needs.go` |
 | Manifest top-level keys | see [`pack-system.md`](pack-system.md)'s Current values | `packdecl.Manifest` |

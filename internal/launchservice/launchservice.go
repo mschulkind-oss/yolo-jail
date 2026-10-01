@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
+	"github.com/mschulkind-oss/yolo-jail/internal/logcap"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -481,7 +482,10 @@ func Start(plan *Plan, env map[string]string) (*Running, error) {
 		cleanup()
 		return nil, fail(err.Error())
 	}
-	logFile, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	// Bounded at open (internal/logcap), as the host-service and socat logs are: past the cap its
+	// newest lines move to the one archived generation beside it, rather than every launch that
+	// starts this service appending to it forever.
+	logFile, err := logcap.Open(logPath, 0o600)
 	if err != nil {
 		cleanup()
 		return nil, fail(err.Error())
