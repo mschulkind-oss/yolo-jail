@@ -18,7 +18,7 @@ run. One research lens ran the herdr 0.9.3 release binary as a headless named he
 scratch directory, with `sh` and `sleep` probes in its panes. Those results are marked MEASURED.
 Everything else about herdr comes from its source, docs and issue tracker. On 2026-10-01 a
 second lens measured [§6](#6-what-is-unmeasured) item 8, git in a container through a bind of a
-scratch repository's `.git`, on this jail's nested rootful podman
+scratch repository's `.git`, on a rootful podman nested in a jail
 ([§4.5](#45-option-4-git-in-herdrs-worktrees)). Four rulings are owed.
 
 > **In short.** herdr is tmux rebuilt for coding agents. herdr and yolo are two layers of one
@@ -998,7 +998,7 @@ in for the host.
 | :--- | :--- | :--- | :--- |
 | read-write, as Option 4 has it | exit 0 | exit 0, and the commits are on the `slug` branch outside | exit 0 |
 | read-only | exit 0, and silent with a stat-dirty index | exit 128, `--allow-empty` included: `fatal: Unable to create '/home/u/code/repo/.git/worktrees/slug/index.lock': Read-only file system` | exit 128 with `--detach`: `fatal: could not create directory of '/home/u/code/repo/.git/worktrees/wt3': Read-only file system`. Exit 255 with `-b`: `fatal: cannot lock ref 'refs/heads/wt2'` |
-| read-only, with `worktrees/slug` read-write over it | exit 0 | `git add` exit 128: `error: unable to create temporary file: Read-only file system`, then `fatal: adding files failed`, so nothing is staged to commit | as read-only |
+| read-only, with `worktrees/slug` read-write over it | exit 0 | `git add` exit 128: `error: unable to create temporary file: Read-only file system`, then `fatal: adding files failed`, so nothing is staged to commit. `git commit --allow-empty` exit 128: `fatal: failed to write commit object` | as read-only |
 | read-write, with `config` and `hooks` read-only over it | exit 0 | exit 0 | exit 0 |
 
 - **Only a writable `.git` commits.** The objects and refs live in the repository's `.git`
@@ -1006,8 +1006,8 @@ in for the host.
   keeps `status` and `log` working and refuses every write. `git hash-object -w` failed the same
   way, exit 128 with `error: unable to create temporary file: Read-only file system`. MEASURED.
 - **The jail sees its own checkout as prunable.** The `gitdir` file names the checkout's host
-  path, and the jail mounts the checkout at `/workspace` instead. So `git worktree list` marks it
-  `prunable gitdir file points to non-existent location`. With the bind read-write:
+  path, and the jail mounts the checkout at `/workspace` instead. So `git worktree list --porcelain`
+  marks it `prunable gitdir file points to non-existent location`. With the bind read-write:
   - `git worktree prune -v` printed
     `Removing worktrees/slug: gitdir file points to non-existent location`, exited 0, and the
     directory was gone outside the container too;
@@ -1028,10 +1028,15 @@ in for the host.
   a worktree jail, its own checkout included. INFERRED from the same listing.
 - **Two things kept the checkout.** Binding it a second time, at its host path beside
   `/workspace`, cleared `prunable`, and `git worktree prune -v` then removed nothing. Locking it
-  worked only by its host path: `git worktree lock --reason probe /home/u/.herdr/worktrees/repo/slug`
-  exited 0, and `prune -n -v` then named nothing. `git worktree lock /workspace` exited 128 with
-  `fatal: '/workspace' is not a working tree`. MEASURED. herdr does not lock the worktrees it
-  makes ([`worktree.rs`](https://github.com/herdrdev/herdr/blob/v0.9.3/src/worktree.rs#L239-L280)).
+  worked by the path git recorded, and not by the path the jail sees:
+  `git worktree lock --reason probe /home/u/.herdr/worktrees/repo/slug` exited 0, and
+  `prune -n -v` then named nothing. `git worktree lock slug` worked too. `git worktree lock /workspace`
+  exited 128 with `fatal: '/workspace' is not a working tree`, and `git worktree lock .` the same.
+  MEASURED. git accepts a unique trailing part of a worktree's recorded path as its name
+  ([`git-worktree.adoc`](https://github.com/git/git/blob/v2.55.0/Documentation/git-worktree.adoc#L289-L295),
+  git 2.55.0). herdr does not lock the worktrees it makes: its two `git worktree add` commands pass
+  no `--lock`
+  ([`worktree.rs`](https://github.com/herdrdev/herdr/blob/v0.9.3/src/worktree.rs#L239-L278)).
   SOURCED.
 - **A worktree made in the jail stays registered outside it.** `git worktree add -b wt2 /tmp/wt2`
   registered `worktrees/wt2` with the `gitdir` `/tmp/wt2/.git`, a path in the container's own
@@ -1042,12 +1047,18 @@ in for the host.
   `error: could not write config file /home/u/code/repo/.git/config: Device or resource busy`, and
   writing `hooks/post-commit` failed with `Read-only file system`. Then one `git config` outside the
   container, which replaces the file by renaming a new one over it, removed the jail's `config`
-  mount. The jail's next `git config jail.key 1` exited 0, and the line was in the outside file. The
-  `hooks` mount stayed. MEASURED, on Linux 7.2.7. The kernel drops a mount whose mountpoint is
-  deleted or renamed over from another mount namespace. INFERRED.
-- **Ownership.** Everything git wrote was owned by uid 0 outside, the uid the container ran as.
-  git left the `gitdir` file as it was, read back after the first read-write and read-only runs.
-  MEASURED. A rootless host maps uids differently and is unmeasured.
+  mount, and the jail's `/proc/self/mountinfo` no longer listed it. The jail's next
+  `git config jail.key 1` exited 0, and the line was in the outside file. The `hooks` mount
+  stayed. MEASURED, on Linux 7.2.7. The kernel refuses a rename onto a mountpoint of the caller's
+  own mount namespace with `EBUSY`, and after a rename from any other namespace detaches every
+  mount on the replaced file
+  (`vfs_rename`'s [refusal](https://github.com/torvalds/linux/blob/v7.2/fs/namei.c#L6040-L6042)
+  and [detach](https://github.com/torvalds/linux/blob/v7.2/fs/namei.c#L6079-L6086), Linux 7.2).
+  SOURCED.
+- **Ownership.** Everything git wrote was owned by uid 0 outside, the uid the container ran as and
+  the uid that owned the scratch repository, so these runs could not exercise git's ownership
+  check (`safe.directory`). git left the `gitdir` file as it was, read back after the first read-write and read-only
+  runs. MEASURED. A rootless host maps uids differently and is unmeasured.
 
 ### 4.6 Option 5: a narrow herdr door for jailed agents
 
