@@ -3,7 +3,7 @@ title: "Synced skill trees — implementation sketch"
 date: 2026-09-18
 status: accepted
 stage: BUILT
-next: "Nothing: the design's three steps shipped, and both defects this file records are fixed; what remains is the measurement synced-skill-trees.md cites"
+next: "Nothing here: the design's three steps shipped and the lint defect is fixed; the boot half of the dropped-entry remedy is diagnostics-past-the-boundary.md §3.1's"
 tags: [plan, sketch, skills, packs, host-notch, claude]
 summary: "The parking lot for `synced-skill-trees.md`: the measurement transcripts that doc cites, and the checks worth re-running against them. Not a hand-off artifact — no design decision is made here. The design's fence, notice and recovery report shipped 2026-09-22, so the build-side notes here are history; its last question, which belongs to the config-ownership axis, was decided on 2026-09-30."
 vantage:
@@ -208,8 +208,9 @@ design question — recorded here so they are not re-discovered.
   manifest itself decodes clean (`overlayProblems`, `internal/cli/pack.go`). So the body that
   collector decodes with `DecodeOverlay` is refused with `DecodeOverlay`'s own two lines, and an
   autonomy posture's `config` entry on another pack's surface, which it decodes with
-  `DecodePostureOverlay` and which lint passed the same way, is refused too. Pinned through
-  `yolo pack lint` by
+  `DecodePostureOverlay` and which lint passed the same way, is refused too, as is a
+  `config-overlay` or `config-list` whose `surface` is no `agent/name` identity (packdecl checks
+  only that one is present). Pinned through `yolo pack lint` by
   `TestPackLintRefusesAnOverlayBodyTheRenderRefuses`, and in the other direction by
   `TestPackLintPassesAnOverlayTheRenderAccepts` (`internal/cli/packlintoverlay_test.go`).
 

@@ -729,7 +729,8 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   refuse, and prints the same reasons they do. An overlay whose keys sat under `defaults` instead
   of `managed` passed lint and was listed as contributing keys, then contributed nothing, and an
   overlay is one of the fixes `yolo host apply` suggests when it drops an entry of yours. The
-  same holds for an `autonomy` posture's `config` entry on a surface another pack owns.
+  same holds for an `autonomy` posture's `config` entry on a surface another pack owns, and for
+  a `config-overlay` or `config-list` whose `surface` is not written as `agent/name`.
 
 ## [0.11.0] - 2026-09-28
 
