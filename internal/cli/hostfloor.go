@@ -282,6 +282,15 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 			continue
 		}
 		after, outcome, err := floor.Ensure(context.Background(), p)
+		if errors.Is(err, hostfloor.ErrNewerRecord) {
+			// Refused, not failed, in the dry run's words: a newer yolo's record, which Ensure
+			// does not install over. The run still does not complete, so it exits 1.
+			pr.Printf("  [red]%-20s %s: will not install it: %s[/red]", "host_floor", p.Bin(),
+				richtext.Escape(err.Error()))
+			survey.noteUnattributedFailure()
+			rc = 1
+			continue
+		}
 		if err != nil {
 			pr.Printf("  [red]%-20s %s: could not install it: %v[/red]", "host_floor", p.Bin(), err)
 			survey.noteUnattributedFailure()

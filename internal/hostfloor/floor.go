@@ -567,8 +567,16 @@ func (f *Floor) readRecord(bin string) (*Record, error) {
 	if rec.Schema > recordSchema {
 		// A newer yolo wrote it. The refusal names the way to that yolo, in the sentence every
 		// reader of a newer yolo's file prints (updatehint); it used to end at the two numbers.
+		//
+		// AND A SECOND STEP, because the first reaches a newer yolo only through THIS install's
+		// channel, while this prefix is one every yolo on the machine shares: a record a
+		// from-source build wrote beside a Homebrew yolo, or one left by a yolo the user went
+		// back from on purpose, is one `yolo update` finds nothing newer than (or undoes the
+		// choice), and every `yolo host -- <bin>` would refuse with no way on. Removing the
+		// record is the user's own act, so the floor still never writes over it.
 		return nil, newerRecordError{updatehint.NewerSchema("host floor record "+f.recordPath(bin),
-			rec.Schema, recordSchema).Error()}
+			rec.Schema, recordSchema).Error() + ". To run this yolo's own copy instead, remove " +
+			"that record: the next `yolo host -- " + bin + "` installs one"}
 	}
 	return &rec, nil
 }
@@ -576,7 +584,8 @@ func (f *Floor) readRecord(bin string) (*Record, error) {
 // ErrNewerRecord matches (errors.Is) the error for a record a newer yolo wrote, which Ensure
 // returns rather than install over it: a newer schema is refused, never rewritten, as a pack
 // lockfile's is (docs/design/host-tool-provisioning.md, HP-D8). The error's text is
-// updatehint.NewerSchema's, naming `yolo update`.
+// updatehint.NewerSchema's, naming `yolo update`, then the removal that installs this yolo's own
+// copy, for the machine whose update finds nothing newer.
 var ErrNewerRecord = errors.New("host floor record written by a newer yolo")
 
 // newerRecordError is ErrNewerRecord with the refusal's own words.

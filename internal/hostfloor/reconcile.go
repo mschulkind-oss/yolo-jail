@@ -1,6 +1,7 @@
 package hostfloor
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -103,7 +104,16 @@ func (f *Floor) floorBins() []string {
 
 // dropUnusedNode removes every Node release no record runs on, keeping the one the floor installs
 // on now: re-downloading it for the next npm program would cost what keeping it saves.
+//
+// NOTHING, while a record a newer yolo wrote is in the prefix: this yolo cannot read which Node
+// that yolo's program runs on, and Records leaves the record out, so its Node read as unused and
+// an --assert deleted it right after refusing to install over the program (HP-D8).
 func (f *Floor) dropUnusedNode() {
+	for _, bin := range f.floorBins() {
+		if _, err := f.readRecord(bin); errors.Is(err, ErrNewerRecord) {
+			return
+		}
+	}
 	inUse := map[string]bool{f.NodeVersion(): true}
 	for _, rec := range f.Records() {
 		if rec.Node != "" {

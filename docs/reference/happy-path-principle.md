@@ -22,6 +22,7 @@ covers:
   - internal/entrypoint/shims.go
   - internal/hostfloor/floor.go
   - internal/hostfloor/ensure.go
+  - internal/hostfloor/reconcile.go
   - internal/packsrc/lock.go
   - internal/prune/probes.go
   - internal/storage/nixinstall.go
@@ -237,7 +238,12 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    installed over a newer yolo's record, as a newer lockfile is never rewritten:
    `yolo host -- <agent>` and `yolo host apply --assert` refuse with that step, and `yolo check`
    no longer says the next launch installs it (`TestEnsureRefusesToInstallOverANewerYolosRecord`,
-   `TestCheckSendsANewerYolosFloorRecordToTheUpdate`).
+   `TestCheckSendsANewerYolosFloorRecordToTheUpdate`). The floor is one folder every yolo on the
+   machine shares, so the newer record can be another install's (a from-source build beside a
+   Homebrew one), or a yolo the user went back from on purpose, and then `yolo update` finds
+   nothing newer, or undoes that choice. So the refusal names a second step that works on every
+   channel: remove that record, and the next launch installs this yolo's own copy
+   (`TestTheRefusalOfANewerYolosRecordNamesAStepThatWorksWithoutIt`).
 
 ## Before and after
 
