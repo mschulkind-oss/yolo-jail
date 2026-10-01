@@ -69,9 +69,24 @@ func TestMain(m *testing.M) {
 	// directory instead of the machine-wide /tmp/yolo-<name>.* (testsupport says why), and
 	// the ones they started are stopped when the package ends.
 	release := testsupport.IsolateHostSingletons()
+	// EVERY TEST STARTS IN A HOME OF ITS OWN. Most fixtures set HOME; the host-service ones
+	// (startExternalServiceHarness and its neighbors) did not, and each wrote its log into the
+	// real ~/.local/share/yolo-jail/logs, beside the shipped host-processes and journal
+	// loopholes' own logs, which two of them appended to.
+	releaseHome := testsupport.IsolateHome()
 	code := m.Run()
+	releaseHome()
 	release()
 	os.Exit(code)
+}
+
+// TestThisPackageStartsInAHomeOfItsOwn fails if TestMain stops isolating HOME, which would put
+// every fixture that forgets to set its own back to writing under the real home.
+func TestThisPackageStartsInAHomeOfItsOwn(t *testing.T) {
+	home := testsupport.IsolatedHome()
+	if home == "" || os.Getenv("HOME") != home {
+		t.Errorf("HOME = %q at a test's start, want the home TestMain isolated (%q)", os.Getenv("HOME"), home)
+	}
 }
 
 // TestShippedJournalPackRunsBehindTheFront is what replaced TestResolveJournalMode,

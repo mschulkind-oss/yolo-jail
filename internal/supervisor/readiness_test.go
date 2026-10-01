@@ -16,6 +16,7 @@ import (
 // it through the next exec or the bridge can publish forever while boot waits on
 // a pipe no child can reach.
 func TestChildForwardsReadinessFD(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // isolate LogDir, which start writes the child's log under
 	read, write, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)

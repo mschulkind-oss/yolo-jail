@@ -455,6 +455,10 @@ func TestParseRunArgsBareProfileSelectsNothing(t *testing.T) {
 // answer help (exit 0, usage printed) is distinguishable from the run.Run failure (non-zero,
 // the config error on stderr, no container).
 func TestRunHelpNeverClaimsAHelpTokenAfterProfileName(t *testing.T) {
+	// The launch reads the user config and sets up yolo's state dir under HOME before it
+	// reaches the workspace config, so the home is the test's: the real one's config may not
+	// parse, and its state dir is no test's to write.
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "yolo-jail.jsonc"),
 		[]byte("{ this is not json"), 0o644); err != nil {

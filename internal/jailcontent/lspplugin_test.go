@@ -179,7 +179,9 @@ func TestPrepareSkillsRendersThePlugin(t *testing.T) {
 		SetLSPServers(nil)
 		SetPackSkillTargets(nil)
 	})
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// PrepareSkills stages under paths.AgentsDir(), which is $HOME's; no XDG variable moves it,
+	// so without this the staging tree lands in the real ~/.local/share/yolo-jail/agents.
+	t.Setenv("HOME", t.TempDir())
 	SetPackSkillTargets([]SkillTarget{{Agent: "claude", Staging: SkillStagingName("claude")}})
 	SetLSPServers(lspTable(t, `{"rust": {"command": "rust-analyzer"}}`))
 
