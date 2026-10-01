@@ -8,7 +8,7 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.1] - 2026-10-01
 
 Agent updates no longer hang a launch, `yolo check` gives the right Nix advice and names the fix
 for each problem, and `yolo host` runs yolo's own copy of your agents.
@@ -37,6 +37,10 @@ and briefings send agents' worktrees there instead of `/tmp`.
 
 **Read-write mounts.** In your user config, a `mounts` entry with `"mode": "rw"` is writable from
 the jail.
+
+**herdr shows a jailed agent as that agent.** In a [herdr](https://herdr.dev) pane,
+`yolo -- <agent>` registers the agent, so herdr's sidebar shows it working, blocked or done, and a
+split pane's border reads `🔒 JAIL <project>`. `YOLO_NO_HERDR=1` turns it off.
 
 **Your own fork of an agent.** A small pack names your fork and its build command; yolo builds the
 pinned commit once for every workspace. See
@@ -90,8 +94,8 @@ pinned commit once for every workspace. See
 
 ### Contributors
 
-Thanks to Kurt Galiatsatos ([@kurt-hs](https://github.com/kurt-hs)) for fixes to tests that failed
-on a Mac with Homebrew or in a full parallel run.
+Thanks to Kurt Galiatsatos ([@kurt-hs](https://github.com/kurt-hs)) for herdr support, and for
+fixes to tests that failed on a Mac with Homebrew or in a full parallel run.
 
 ## [0.11.0] - 2026-09-28
 
