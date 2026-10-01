@@ -2,7 +2,7 @@
 title: "Cache relocation — let a cache subdir live on other storage"
 status: in-review
 stage: DESIGN
-next: "Write the podman integration test the test plan now allows: place cache_relocations through isolateHome (integration/packs_test.go) and assert an in-jail write lands at the target; item 11 still waits on OQ-CR1"
+next: "Rule OQ-CR1 (with OQ-CR2, which resolves with it): whether cache_relocations is the right level, which is what item 11 (yolo cache relocate) waits on"
 tags: [plan, storage, cache]
 ---
 
@@ -10,9 +10,11 @@ tags: [plan, storage, cache]
 
 **Status:** 2026-07-21 — work items 1–10 landed and three questions are still live. Re-read in
 the tree 2026-09-30: `LoadCacheRelocations`, `EnsureCacheRelocations`, `validateCacheRelocations`
-and prune's `CacheRelocated` section are all there, and no podman integration test exercises the
-key (the one integration test naming it, `TestMacosUserSaysResourcesAndRelocationsAreIgnored`,
-covers the `macos-user` warning). The host-gated
+and prune's `CacheRelocated` section are all there. MEASURED on podman on 2026-10-01 at
+`d4e435a3`: `TestACacheRelocationReceivesTheJailsWrites`
+(`integration/cacherelocation_test.go`) reads a host-seeded file and writes one through the
+relocated subdir of a launched jail, and both are the target's
+([Test plan](#test-plan)). The host-gated
 acceptance step is now **done**: a real cross-filesystem HuggingFace-cache move
 to cold storage was verified on the maintainer's host (2026-07-22). Item 11
 (`yolo cache relocate`) is **held pending a design question, not merely
@@ -370,7 +372,16 @@ stub. So prune does not over-report freed bytes — it goes **blind**.
   and links the shared stores, so a test can place a `cache_relocations` key without
   touching the developer's own config
   ([`OQ-SC3`](../reference/storage-and-config.md#oq-sc3)). The argument above against
-  writing one no longer holds; nobody has written it.
+  writing one no longer holds.
+
+  ✅ **Written 2026-10-01: `TestACacheRelocationReceivesTheJailsWrites`**
+  (`integration/cacherelocation_test.go`, podman only; Apple Container and `macos-user` have their
+  own tests of what they say). The isolated user config relocates a per-process subdir to a temp
+  target seeded with one file. In the jail, `~/.cache/<subdir>/seed` reads the host's bytes, and a
+  file the jail writes there is at the target and not in the machine cache's own
+  `cache/<subdir>` mountpoint, which the test removes afterwards. MEASURED in a nested jail at
+  `d4e435a3`: it passed in 1.1 s. With the run pipeline handing the assembly no relocations
+  (`cacheRelocations` in `run.go`), all three assertions failed (revert-checked).
 - **Manual host acceptance** (cannot be done in-jail): a real cross-filesystem
   relocation of `huggingface`, confirming `df` on the root filesystem drops and
   an in-jail HF download lands on the HDD. **Done 2026-07-22** — the maintainer

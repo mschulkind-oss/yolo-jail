@@ -108,3 +108,56 @@ func TestConfigListSurvivesInJailEditsAndPackDrop(t *testing.T) {
 			"the in-jail edit kept", third)
 	}
 }
+
+// TestAPostureListRendersOnlyItsOwnSideOfTheLine is the launched-jail half of posture lists
+// (docs/design/notch-scoped-config-contributions.md §4.1): a pack's `autonomy` contribution
+// carries one `config-list` entry per posture, and a jail, whose notch selects the autonomous
+// posture, renders that posture's entry and not the guarded one's. Until this test, unit tests
+// and in-process chains were the only evidence; none of them booted a jail.
+//
+// The host half runs too, through the same isolated home, so the guarded entry's absence in
+// the jail cannot pass vacuously: `config render --at host` must show it, which proves the
+// fixture's guarded list is well-formed and placed, and that the jail dropped it by posture.
+func TestAPostureListRendersOnlyItsOwnSideOfTheLine(t *testing.T) {
+	requireJail(t)
+
+	const (
+		jailOnly = "npm:posture-jail-only"
+		hostOnly = "npm:posture-host-only"
+	)
+	pack := t.TempDir()
+	list := func(entry string) string {
+		return `{"lists": [{"surface": "pi/settings", "path": "/packages", "add": ["` + entry + `"]}]}`
+	}
+	manifest := `{
+  "name": "posture-list-fixture",
+  "description": "posture lists: one pi package for each side of the confinement line",
+  "contributes": [
+    {"kind": "autonomy", "autonomous": ` + list(jailOnly) + `, "guarded": ` + list(hostOnly) + `}
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["pi", "file://`+pack+`"]}`)
+
+	r := runYolo(t, dir, `echo "=== JAIL ==="; cat "$HOME/.pi/agent/settings.json"; echo "=== END ==="`)
+	if r.rc != 0 {
+		t.Fatalf("launch: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
+	}
+	inJail := configListPackages(t, r.stdout, "=== JAIL ===", "=== END ===")
+	if countEntry(inJail, jailOnly) != 1 || countEntry(inJail, hostOnly) != 0 {
+		t.Fatalf("in the jail, packages = %v; want the autonomous posture's %q once and the "+
+			"guarded posture's %q absent", inJail, jailOnly, hostOnly)
+	}
+
+	h := runYoloCLI(t, dir, "config", "render", "pi/settings", "--at", "host")
+	if h.rc != 0 {
+		t.Fatalf("config render --at host: rc %d\nstdout: %s\nstderr: %s", h.rc, h.stdout, h.stderr)
+	}
+	if !strings.Contains(h.stdout, hostOnly) || strings.Contains(h.stdout, jailOnly) {
+		t.Fatalf("the host preview must carry the guarded posture's %q and not the autonomous "+
+			"one's %q:\n%s", hostOnly, jailOnly, h.stdout)
+	}
+}

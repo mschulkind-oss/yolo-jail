@@ -3,7 +3,7 @@ title: "Host-only config contributions — the gate is missing, and the jail lea
 date: 2026-09-27
 status: accepted
 stage: BUILT
-next: "Show a posture list in a launched jail: an integration test beside TestConfigListSurvivesInJailEditsAndPackDrop (integration/configlist_test.go), whose file:// pack already contributes a list"
+next: "Step 2 of §5, the maintainer's by hand: add the guarded posture list to the matt pack, run yolo host apply --assert on the host, and confirm pi-automode loads there and in no jail"
 tags: [packs, notch, autonomy, host, config-list, config-overlay, pi, permissions]
 summary: "A pack could not declare a config-list entry for the host alone, because packoverlay.Collect placed every list at every notch. A host-applied entry coming back into a jail through a readsHost mount was already prevented on podman and Apple Container by the OQ-CR6 render mark, and happened only on macos-user. Recommended, and built on 2026-09-27 on OQ-5's leaning: posture-selected lists inside the autonomy kind, where standing rulings put confinement-conditional content, plus render-mark parity on macos-user (unit-tested only)."
 vantage:
@@ -30,9 +30,16 @@ decode and refusals, a second `autonomy` contribution on both decode paths, `Col
 bits, the jail boot loop, `yolo check`'s dry-run probe, `RenderHostPack` with its insert record,
 the real `yolo host apply --assert`, `yolo config render` and `yolo config ls` at both notches,
 the footprint, the notch line with a placed and an ownerless list, and one managed home driven
-from the assert through each backend's launcher label to the boot render. **UNMEASURED:**
-`macos-user` parity is unit-tested only — no Mac has run it. No real host, no launched jail and no
-nested jail has run a posture list.
+from the assert through each backend's launcher label to the boot render. **MEASURED on
+2026-10-01 in a launched jail** (podman, nested, at `d4e435a3`):
+`TestAPostureListRendersOnlyItsOwnSideOfTheLine` (`integration/configlist_test.go`) boots a jail
+selecting `pi` and a `file://` pack whose `autonomy` contribution lists `npm:posture-jail-only`
+under `autonomous` and `npm:posture-host-only` under `guarded`. The jail's
+`~/.pi/agent/settings.json` held the first once and not the second, and `yolo config render
+pi/settings --at host` from the same isolated home held the second and not the first. With the
+gate in `packoverlay.Collect` disabled, the jail held both and the test failed (revert-checked).
+**UNMEASURED:** `macos-user` parity is unit-tested only — no Mac has run it. No real host has run a
+posture list.
 
 > **In short.** What was missing is collection: `packoverlay.Collect` placed every `config-list`
 > at every notch, so no pack could declare an entry for the host alone. An `autonomy` posture's
@@ -466,8 +473,9 @@ included) and in no jail.
    production Go, 200–250 of tests, half a day to a day. **As built:** every listed test, plus
    the real `yolo host apply --assert`, the malformed and ownerless cases at both bits, and
    declaration order; `just check-ci` green at each commit. The nested-jail check was not run
-   (the build ran under a no-nested-jail constraint), so no launched jail has rendered a posture
-   list.
+   (the build ran under a no-nested-jail constraint). A launched jail first rendered a posture
+   list on 2026-10-01, in `TestAPostureListRendersOnlyItsOwnSideOfTheLine` (the status line has
+   what it read).
 2. **The host, by hand (no ruling; about 15 minutes).**
    1. `just install`, so the host yolo and the flake bundle both know the field.
    2. Add the [§4.1](#41-recommended-posture-lists-inside-autonomy) contribution to the `matt`

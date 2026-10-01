@@ -67,8 +67,11 @@ with a real binary in a temporary home, on 2026-08-04. The [`autonomy` section](
 the posture-list lines of the [`config-list` section](#adding-entries-to-an-array-config-list)
 were written on 2026-09-27 in the change that builds posture lists, and no later commit has
 verified them. MEASURED by unit tests that run the real verbs in temporary homes (`yolo host
-apply --assert`, `yolo config render` and `ls` at both notches, the jail boot loop).
-UNMEASURED: no launched jail and no real host has run a posture list.
+apply --assert`, `yolo config render` and `ls` at both notches, the jail boot loop). MEASURED
+in a launched jail on 2026-10-01: `TestAPostureListRendersOnlyItsOwnSideOfTheLine`
+(`integration/configlist_test.go`) reads the autonomous posture's entry, and not the guarded
+one's, in a booted jail's pi settings, and the reverse in `yolo config render --at host`.
+UNMEASURED: no real host has run a posture list.
 
 A **pack** is a directory of jail configuration — skills, briefing prose, composed config
 files, environment variables, and optionally a tool to install — that yolo delivers into
