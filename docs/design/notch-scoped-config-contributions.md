@@ -363,7 +363,14 @@ unit-tested only: `TestMacosUserLaunchLabelsAHostFileYoloHasRendered` drives a r
 the `macos-user` arm, and `TestHostLayerReportCarriesTheRenderLabel` reads the plan's wire back
 through the boot's reader. No Mac has run it. The same commit hides the machine's host-render
 mark in `TestMacosUserDeliversHostBytesByCopy` (NS-D9), which the label would otherwise turn red on
-the self-hosted Mac.
+the self-hosted Mac. **The Mac check is written** (2026-10-01):
+`TestMacosUserComposesARenderedHostFileAsABaseline`
+([`macosuserrendermark_test.go`](../../integration/macosuserrendermark_test.go)), which the
+scheduled `macos-user.yml` job runs on a GitHub-hosted Mac. It launches once with no mark, where
+the user's own key must reach the sandbox's `settings.json`, then plants this home's mark in a
+private state dir and launches again, where the key must not. It asserts bytes and no line,
+because the macos-user bootstrap keeps no boot log (`Env.LogOnly` is nil there), so the
+"baseline and not a layer" note is discarded on this backend. UNMEASURED until that job runs it.
 
 ### 4.4 Behavior at each target, and the degenerate cases
 

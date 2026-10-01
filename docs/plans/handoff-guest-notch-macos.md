@@ -2,7 +2,7 @@
 title: "Handoff: the `guest` notch, and the macOS work only a Mac can finish"
 status: accepted
 stage: DECIDED
-next: "Write §4's render-mark parity row as a TestMacosUser… check for the hosted macos-user.yml job (plant a host-render mark, launch, and assert the sandbox reads the file as a baseline; notch-scoped-config-contributions.md §4.3); the Cachix row is handoff-cachix-cache.md's own next"
+next: "Read §4's render-mark twin back from the scheduled macos-user.yml run (TestMacosUserComposesARenderedHostFileAsABaseline); the Cachix row is handoff-cachix-cache.md's own next"
 depends-on:
   - environment-manager-plan.md
 ---
@@ -18,8 +18,10 @@ ruling: all four of its questions are answered ([§9](#9-open-questions)). Phase
 has no code yet (a `guest` launch refuses: `refuseUnbuiltNotch`, `internal/cli/run/run.go`); its
 next step is owned by [`environment-manager-plan.md`](environment-manager-plan.md). Of
 [§4](#4-what-else-on-the-mac-is-gated-beyond-phase-7)'s Mac rows, render-mark parity and the
-Cachix download proof are the two with a Mac step ready to run; the agent-auth row could not be
-re-verified, and cache relocation is its own doc's. Written 2026-08-03 and
+Cachix download proof are the two with a Mac step ready to run, and render-mark parity's is now a
+`TestMacosUser…` test the scheduled `macos-user.yml` job runs (written 2026-10-01, UNMEASURED
+until it does); the agent-auth row could not be re-verified, and cache relocation is its own
+doc's. Written 2026-08-03 and
 restamped 2026-08-23; [§§1](#1-what-the-three-notches-are-and-why-the-middle-one-matters), 3, 7, 8
 are unchanged from the first date. `guest` is the one notch of three that does not work. Phases
 0–6, 8, and 9 of [`environment-manager-plan.md`](environment-manager-plan.md) are shipped;
@@ -201,7 +203,7 @@ have closed, one has changed shape, and one is new and blocks every other row on
 | **agent-auth macos-user parity** | 4 verified defects whose fixes need a Mac to verify. *(The "ROADMAP item 4" pointer is dead.)* ⚠ **Unverified 2026-09-30:** the agent-auth design doc no longer names four macos-user defects, so whether they were fixed or moved is not known from here | [`../design/agent-auth-modes.md`](../design/agent-auth-modes.md) |
 | **`cache_relocations`** | One real cross-filesystem move as an acceptance step. Its state and next step are that doc's own | [`cache-relocation.md`](cache-relocation.md) |
 | ~~**`yoloDarwinPackages` rename**~~ | **SHIPPED — see [§5](#5-the-nix-prerequisite--shipped-verified-2026-08-23).** No longer Mac-gated to write *or* to prove on Linux; only a `packages:` launch on a Mac would exercise it there | [`../design/provisioner-sets.md` §10](../design/provisioner-sets.md#10-alternatives-each-with-a-verdict) alternative H (formerly Option 1) |
-| **Render-mark parity on `macos-user`** | *New, 2026-09-27.* Built in `499a332f` and unit-tested only: a `readsHost` host file yolo has already rendered into the home must reach the sandbox as a baseline, not as the user's layer. On the Mac: `yolo host apply --assert`, add a key to `~/.claude/settings.json` by hand, launch, and confirm the sandbox's copy lacks it (the boot log says "baseline and not a layer"). `TestMacosUserDeliversHostBytesByCopy` must still pass there; it now hides the machine's own render mark | [`notch-scoped-config-contributions.md` §4.3](../design/notch-scoped-config-contributions.md#43-render-mark-parity-on-macos-user) |
+| **Render-mark parity on `macos-user`** | *New, 2026-09-27.* Built in `499a332f` and unit-tested only: a `readsHost` host file yolo has already rendered into the home must reach the sandbox as a baseline, not as the user's layer. On the Mac: `yolo host apply --assert`, add a key to `~/.claude/settings.json` by hand, launch, and confirm the sandbox's copy lacks it. ⚠ *Corrected 2026-10-01:* this cell also said the boot log reads "baseline and not a layer". It does not on this backend: that note goes through `Env.note`, which writes only to `Env.LogOnly`, and `runDarwinBootstrap` (`internal/cli/internal.go`) sets none, so macos-user keeps no boot log and the note is discarded. Only the bytes answer. **Twin written 2026-10-01**, for the scheduled job: `TestMacosUserComposesARenderedHostFileAsABaseline` (`integration/macosuserrendermark_test.go`) launches once with no mark (the user's key must arrive) and once with this home's own mark planted in a private state dir (the key must not). `TestMacosUserDeliversHostBytesByCopy` must still pass there; it now hides the machine's own render mark | [`notch-scoped-config-contributions.md` §4.3](../design/notch-scoped-config-contributions.md#43-render-mark-parity-on-macos-user) |
 | ~~**MCP wrappers on macOS**~~ | **CLOSED 2026-09-03 ([OQ-GN4](#9-open-questions), `d28f951f`): skipped on macOS, and said so.** The 2026-08-23 record: *New, found 2026-08-23.* `internal/entrypoint/darwin.go:59` runs `GenerateMCPWrappers` unconditionally, and the bodies are Linux-absolute — `/usr/bin/chromium` (`mcp_wrappers.go:39`), `exec /bin/node` (`:74`), `/etc/fonts` (`:26-27`). A macos-user home gets three wrappers pointing at paths macOS does not have. Harmless until one is exec'd | revival plan, Open decision #4 |
 
 ---
