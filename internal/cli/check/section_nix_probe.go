@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,11 +27,16 @@ const nixVersionTimeout = 15 * time.Second
 // before a launch trips on it. What stays macOS-only diagnoses the macOS Linux-builder
 // offload: the trusted-user verdict inside the daemon check, and the extra-platforms and
 // builder block below, which would be noise on Linux.
+//
+// TWO NIX DISTRIBUTIONS, ONE FIX EACH. Determinate Nix and upstream Nix keep user settings in
+// different files and run differently-labelled daemons on a Mac, so every hint below that names
+// a file or a restart asks which one this is (nixDistribution) and gives that machine's single
+// command, never a menu of both (docs/reference/happy-path-principle.md).
 func (o *Options) sectionNix(r *reporter) {
 	r.sectionHeader("Nix")
 	nixPath, hasNix := o.LookPath("nix")
 	if hasNix {
-		res := o.Exec([]string{"nix", "--version"}, "", nil, nixVersionTimeout)
+		res := o.nixVersionProbe()
 		switch {
 		case res.Timeout:
 			r.fail("nix found but `nix --version` did not answer within "+nixVersionTimeout.String(), "")
@@ -40,7 +46,7 @@ func (o *Options) sectionNix(r *reporter) {
 			r.fail(fmt.Sprintf("nix found but `nix --version` exited %d", res.RC),
 				strings.TrimSpace(res.Stderr))
 		default:
-			r.ok("nix: " + strings.TrimSpace(res.Stdout))
+			r.ok("Nix: " + storage.ParseNixVersion(res.Stdout).Describe())
 		}
 	} else {
 		r.fail("nix not found", "Install Nix: https://nixos.org/download/")
@@ -55,24 +61,118 @@ func (o *Options) sectionNix(r *reporter) {
 	r.blank()
 }
 
+// nixVersionProbe is `nix --version`'s answer, run once per check: the version row reads it,
+// and so does every hint that depends on which Nix this is (nixDistribution), the auto-GC
+// section's included.
+func (o *Options) nixVersionProbe() ExecResult {
+	if o.nixVersion == nil {
+		res := o.Exec([]string{"nix", "--version"}, "", nil, nixVersionTimeout)
+		o.nixVersion = &res
+	}
+	return *o.nixVersion
+}
+
+// nixDistribution is which Nix answered `nix --version`, storage.NixUnknown when it did not
+// answer or is neither distribution.
+//
+// INSIDE A JAIL IT IS THE JAIL'S OWN nix, the image's build, whatever the host runs: a jail
+// reaches the host's daemon through its socket but runs its own client. So nothing about the
+// host's config or daemon may be decided from it there. The hints that read it are macOS-only,
+// which a jail never is, and sectionAutoGC does not ask inside one.
+func (o *Options) nixDistribution() storage.NixDistribution {
+	res := o.nixVersionProbe()
+	if !res.Ran || res.Timeout || res.RC != 0 {
+		return storage.NixUnknown
+	}
+	return storage.ParseNixVersion(res.Stdout).Distribution
+}
+
+// nixHostPath is a host path (/etc/nix/nix.conf, /Library/LaunchDaemons) as this check reads
+// it: under nixHostRoot when a test set one. A hint prints the real path.
+func (o *Options) nixHostPath(p string) string {
+	if o.nixHostRoot == "" {
+		return p
+	}
+	return filepath.Join(o.nixHostRoot, p)
+}
+
+// nixSettingFile is the one file a `key = …` line appended to takes effect in on this host, so a
+// hint can give the fix as a command.
+//
+// Determinate Nix reads user settings from nix.custom.conf alone: determinate-nixd owns its
+// nix.conf and replaces it. Upstream Nix, and a Nix this check does not recognize, take the line
+// in nix.custom.conf only where nix.conf includes that file and does not set the key again below
+// the include (storage.NixCustomConfTakesEffect): that is the Determinate installer's layout.
+// Anywhere else the line goes in nix.conf itself, where an appended line is the last assignment
+// and so wins; the official nixos.org installer writes no include, so its users get nix.conf.
+// Nothing asks for an include line to be added first: on upstream Nix, appending to nix.conf works
+// by itself.
+func (o *Options) nixSettingFile(key string) string {
+	custom := filepath.Join(storage.NixConfDir, "nix.custom.conf")
+	if o.nixDistribution() == storage.NixDeterminate {
+		return custom
+	}
+	conf := filepath.Join(storage.NixConfDir, "nix.conf")
+	if effective, _ := storage.NixCustomConfTakesEffect(o.nixHostPath(conf), key); effective {
+		return custom
+	}
+	return conf
+}
+
+// nixDaemonLabel is the launchd label of this Mac's nix daemon: the plist of the daemon this
+// distribution runs when it is there (a switch between distributions can leave both daemons'
+// plists behind, and sorted order alone picked the upstream one), else whichever nix-daemon
+// plist is, else the distribution's known label. ok is false only for a Nix this check does not
+// recognize with no plist to read.
+func (o *Options) nixDaemonLabel() (string, bool) {
+	known := o.nixDistribution().DaemonLabel()
+	if label, ok := storage.NixDaemonLabelIn(o.nixHostPath(storage.LaunchDaemonsDir), known); ok {
+		return label, true
+	}
+	return known, known != ""
+}
+
+// nixMacRestartCmd is the command restarting this Mac's nix daemon, and where to find its label
+// when it cannot be named ("" when it can).
+func (o *Options) nixMacRestartCmd() (cmd, labelPointer string) {
+	label, ok := o.nixDaemonLabel()
+	if !ok {
+		return "sudo launchctl kickstart -k system/<label>",
+			"<label> is your *nix-daemon.plist's name without .plist: ls " + storage.LaunchDaemonsDir + "/"
+	}
+	return "sudo launchctl kickstart -k system/" + label, ""
+}
+
+// nixTrustHint is the untrusted-user fix for this Mac as the commands to paste: append the
+// trusted-users line to the file it takes effect in, and restart this Nix's daemon.
+func (o *Options) nixTrustHint() string {
+	cmd, labelPointer := o.nixMacRestartCmd()
+	hint := "Add your user to trusted-users and restart the Nix daemon:\n" +
+		`    echo "trusted-users = root $(whoami)" | sudo tee -a ` + o.nixSettingFile("trusted-users") + "\n" +
+		"    " + cmd
+	if labelPointer != "" {
+		hint += "\n" + labelPointer
+	}
+	return hint
+}
+
 // nixDaemonTimeout bounds `nix store info`, the daemon check's budget on every OS.
 const nixDaemonTimeout = 15 * time.Second
 
 // nixDaemonStoreCheck runs the `nix store info` daemon-connectivity block: its timeout and its
-// failure on every OS, each naming the restart for this OS's service manager
-// (nixDaemonRestart), and on macOS alone the trusted-user verdict (PS-D5).
+// failure on every OS, each naming the restart for this OS's service manager and, on a Mac, for
+// this Nix's daemon (nixDaemonRestart), and on macOS alone the trusted-user verdict (PS-D5).
 func (o *Options) nixDaemonStoreCheck(r *reporter) {
 	res := o.Exec(nixCmdArgv("store", "info"), "", nil, nixDaemonTimeout)
 	if res.Timeout {
-		if o.IsMacOS {
-			r.fail("Nix daemon: store operation timed out (daemon may be hung)",
-				"This is a known issue with determinate-nixd. "+
-					"Try: "+o.nixDaemonRestart()+" or switch to the vanilla nix-daemon")
-			return
+		note := "`nix store info` did not answer within " + nixDaemonTimeout.String() +
+			", and a launch builds its image through this daemon.\n" + o.nixDaemonRestart()
+		// Named only where it is the daemon: an upstream Nix user has no determinate-nixd.
+		if o.IsMacOS && o.nixDistribution() == storage.NixDeterminate {
+			note += "\nSome determinate-nixd versions hang like this. If a restart does not hold, " +
+				"userguide/guides/macos.md (Known Issue: Determinate Nix Daemon Hang) has the workaround."
 		}
-		r.fail("Nix daemon: store operation timed out (daemon may be hung)",
-			"`nix store info` did not answer within "+nixDaemonTimeout.String()+
-				", and a launch builds its image through this daemon. "+o.nixDaemonRestart())
+		r.fail("Nix daemon: store operation timed out (daemon may be hung)", note)
 		return
 	}
 	if !res.Ran {
@@ -95,32 +195,10 @@ func (o *Options) nixDaemonStoreCheck(r *reporter) {
 	case res.RC == 0 && strings.Contains(output, "Trusted: 1"):
 		r.ok("Nix daemon: connected, user is trusted")
 	case res.RC == 0:
-		included, includedKnown := storage.NixCustomConfIncluded()
-		label, ok := storage.DetectNixDaemonLabel()
-		if !ok {
-			label = "<label>"
-		}
-		restart := "sudo launchctl kickstart -k system/" + label
-		var hint string
-		if includedKnown && !included {
-			hint = "/etc/nix/nix.conf does not include nix.custom.conf. " +
-				"Either add it to the trusted-users line directly in " +
-				"/etc/nix/nix.conf, or add an include line once: " +
-				"echo '!include /etc/nix/nix.custom.conf' | " +
-				"sudo tee -a /etc/nix/nix.conf. Then add your user " +
-				"(trusted-users = root $(whoami)) and restart the " +
-				"daemon: " + restart
-		} else {
-			hint = "Add your user to trusted-users in " +
-				"/etc/nix/nix.custom.conf and restart the Nix daemon: " +
-				restart
-		}
-		r.warn("Nix daemon: connected but user is NOT trusted", hint)
-	case o.IsMacOS:
-		r.fail("Nix daemon: connection failed", firstLine(strings.TrimSpace(res.Stderr)))
+		r.warn("Nix daemon: connected but user is NOT trusted", o.nixTrustHint())
 	default:
-		// Off macOS the usual cause is a daemon that is not running, so the restart rides
-		// along with nix's own first line.
+		// The usual cause is a daemon that is not running, so the restart rides along with
+		// nix's own first line. On a Mac that line used to be the whole note: a dead end.
 		hint := firstLine(strings.TrimSpace(res.Stderr))
 		if hint != "" {
 			hint += " — "
@@ -145,18 +223,18 @@ func nixDaemonStoreURL(url string) bool {
 	return url == "daemon" || strings.HasPrefix(url, "unix://")
 }
 
-// nixDaemonRestart is the restart for this OS's service manager: launchd's kickstart on macOS
-// (with the daemon's label when it can be found), systemd's restart where `systemctl` is on
-// the PATH, and otherwise a sentence naming the service. A jail takes the last branch, since
-// it has no systemctl and the daemon it reaches is the host's.
+// nixDaemonRestart is the restart for this OS's service manager: launchd's kickstart on macOS,
+// for the daemon this Nix runs (nixMacRestartCmd), systemd's restart where `systemctl` is on the
+// PATH, and otherwise a sentence naming the service. Both distributions install the systemd unit
+// as nix-daemon, so the Linux command is the same for either. A jail takes the last branch,
+// since it has no systemctl and the daemon it reaches is the host's.
 func (o *Options) nixDaemonRestart() string {
 	if o.IsMacOS {
-		label, ok := storage.DetectNixDaemonLabel()
-		if !ok {
-			return "sudo launchctl kickstart -k system/<label>" +
-				" — check ls /Library/LaunchDaemons/ for your *nix-daemon.plist"
+		cmd, labelPointer := o.nixMacRestartCmd()
+		if labelPointer != "" {
+			return "Restart the Nix daemon: " + cmd + " (" + labelPointer + ")"
 		}
-		return "sudo launchctl kickstart -k system/" + label
+		return "Restart the Nix daemon: " + cmd
 	}
 	if _, ok := o.LookPath("systemctl"); ok {
 		return "Restart the Nix daemon: sudo systemctl restart nix-daemon"

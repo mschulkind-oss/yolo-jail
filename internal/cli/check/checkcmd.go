@@ -156,6 +156,14 @@ type Options struct {
 	// (internal/ioprio.Resolve, for sectionIOPriority). "" => the real root; tests point it
 	// at a fake tree.
 	ioSysRoot string
+	// nixHostRoot is the root the Nix sections read the host's nix config (/etc/nix) and launchd
+	// plists (/Library/LaunchDaemons) under, to name the file and the restart a hint gives; the
+	// hint still prints the real paths. "" => the real root; tests point it at a fake tree.
+	nixHostRoot string
+	// nixVersion is `nix --version`'s answer, asked once per check and read by the Nix
+	// section's version row and by every hint that depends on which Nix this is. nil until the
+	// first asks.
+	nixVersion *ExecResult
 
 	// BuildImage runs the real `nix build .#ociImage`
 	// and returns (storePath, stderrTail). storePath is "" on failure. nil =>

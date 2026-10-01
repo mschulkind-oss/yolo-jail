@@ -613,10 +613,16 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
 
 ### Fixed
 
-- On a Mac with Determinate Nix, `yolo check` no longer tells a user the Nix daemon does not trust to
-  add an include line to `/etc/nix/nix.conf`, the file Determinate Nix manages and replaces. It
-  misread that file's own `!include nix.custom.conf` line as missing; the hint now names
-  `nix.custom.conf`.
+- `yolo check` now names the right Nix config file and restart command for the Nix you have,
+  Determinate Nix or upstream Nix. When the Nix daemon does not trust you on a Mac, the fix is two
+  commands to paste: on Determinate Nix they add you in `nix.custom.conf` and restart Determinate's
+  daemon, and nothing tells you any more to edit the `nix.conf` Determinate Nix manages and
+  replaces; on upstream Nix they use the one file your install takes the setting from. A Mac whose
+  Nix daemon does not answer now gets the restart command too, and a hung daemon is blamed on
+  Determinate's daemon only when that is the one you run. Determinate Nix, which frees disk space on
+  its own, is no longer warned that its automatic garbage collection is off, and inside a jail that
+  row now says to check on your machine instead of reading the jail's own Nix settings as yours.
+  The Nix row also says which Nix you have.
 - `yolo prune --apply` now removes the old yolo store paths it lists on a Nix installed with the
   official installer and no `experimental-features` line. It used to fail on each one with "experimental
   Nix feature 'nix-command' is disabled".

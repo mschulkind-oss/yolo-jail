@@ -33,57 +33,106 @@ func TestLinuxMultilib(t *testing.T) {
 	}
 }
 
-func TestNixCustomConfIncluded(t *testing.T) {
+func TestNixCustomConfTakesEffect(t *testing.T) {
 	dir := t.TempDir()
+	const key = "trusted-users"
 	// Not present -> (false, false).
-	if inc, ok := nixCustomConfIncludedAt(filepath.Join(dir, "nope.conf")); inc || ok {
-		t.Errorf("missing file => (%v,%v), want (false,false)", inc, ok)
+	if eff, ok := NixCustomConfTakesEffect(filepath.Join(dir, "nope.conf"), key); eff || ok {
+		t.Errorf("missing file => (%v,%v), want (false,false)", eff, ok)
 	}
-	// Present with !include -> (true, true).
 	conf := filepath.Join(dir, "nix.conf")
-	must(t, os.WriteFile(conf, []byte("# comment\nexperimental-features = nix-command\n!include /etc/nix/nix.custom.conf\n"), 0o644))
-	if inc, ok := nixCustomConfIncludedAt(conf); !inc || !ok {
-		t.Errorf("!include => (%v,%v), want (true,true)", inc, ok)
+	cases := []struct {
+		name, body string
+		want       bool
+	}{
+		{"absolute !include", "# comment\nexperimental-features = nix-command\n!include /etc/nix/nix.custom.conf\n", true},
+		{"no include", "max-jobs = auto\n", false},
+		// Bare `include` (fatal-if-missing form) also matches.
+		{"bare include", "include /etc/nix/nix.custom.conf\n", true},
+		// The Determinate installer's own footer is RELATIVE, which nix resolves against the
+		// including file's directory. Reading it as "no include" sent every untrusted Determinate
+		// user to append a line to the nix.conf Determinate marks "do not modify".
+		{"relative !include", "# DETERMINATE NIX CONFIG\n!include nix.custom.conf\n", true},
+		{"dot-relative !include", "# DETERMINATE NIX CONFIG\n!include ./nix.custom.conf\n", true},
+		// A relative include of some OTHER file is still not the custom conf.
+		{"unrelated relative include", "!include machines.conf\n", false},
+		// nix keeps a setting's LAST assignment and reads an include where it stands, so nix.conf
+		// assigning the key itself after the include overrides the custom file's line. Measured on
+		// a real Mac: docs/plans/runbooks/mac-sandvault-session.md §5, item 2.
+		{"assigned again after the include", "!include /etc/nix/nix.custom.conf\ntrusted-users = root matt\n", false},
+		{"assigned again after the include, unspaced", "!include nix.custom.conf\ntrusted-users=root\n", false},
+		// Before the include, an `extra-` append, a comment or another key does not override it.
+		{"assigned before the include", "trusted-users = root\n!include nix.custom.conf\n", true},
+		{"extra- after the include", "!include nix.custom.conf\nextra-trusted-users = matt\n", true},
+		{"commented after the include", "!include nix.custom.conf\n# trusted-users = root\n", true},
+		{"another key after the include", "!include nix.custom.conf\ntrusted-substituters = x\n", true},
 	}
-	// Present without the include -> (false, true).
-	must(t, os.WriteFile(conf, []byte("max-jobs = auto\n"), 0o644))
-	if inc, ok := nixCustomConfIncludedAt(conf); inc || !ok {
-		t.Errorf("no include => (%v,%v), want (false,true)", inc, ok)
-	}
-	// Bare `include` (fatal-if-missing form) also matches.
-	must(t, os.WriteFile(conf, []byte("include /etc/nix/nix.custom.conf\n"), 0o644))
-	if inc, ok := nixCustomConfIncludedAt(conf); !inc || !ok {
-		t.Errorf("bare include => (%v,%v), want (true,true)", inc, ok)
-	}
-	// The Determinate installer's own footer is RELATIVE, which nix resolves against the
-	// including file's directory. Reading it as "no include" sent every untrusted Determinate
-	// user to append a line to the nix.conf Determinate marks "do not modify".
-	for _, line := range []string{"!include nix.custom.conf", "!include ./nix.custom.conf"} {
-		must(t, os.WriteFile(conf, []byte("# DETERMINATE NIX CONFIG\n"+line+"\n"), 0o644))
-		if inc, ok := nixCustomConfIncludedAt(conf); !inc || !ok {
-			t.Errorf("%q => (%v,%v), want (true,true)", line, inc, ok)
+	for _, tc := range cases {
+		must(t, os.WriteFile(conf, []byte(tc.body), 0o644))
+		if eff, ok := NixCustomConfTakesEffect(conf, key); eff != tc.want || !ok {
+			t.Errorf("%s: %q => (%v,%v), want (%v,true)", tc.name, tc.body, eff, ok, tc.want)
 		}
-	}
-	// A relative include of some OTHER file is still not the custom conf.
-	must(t, os.WriteFile(conf, []byte("!include machines.conf\n"), 0o644))
-	if inc, ok := nixCustomConfIncludedAt(conf); inc || !ok {
-		t.Errorf("unrelated relative include => (%v,%v), want (false,true)", inc, ok)
 	}
 }
 
-func TestDetectNixDaemonLabel(t *testing.T) {
+func TestNixDaemonLabelIn(t *testing.T) {
 	dir := t.TempDir()
 	// Empty dir -> not found.
-	if _, ok := detectNixDaemonLabelIn(dir); ok {
+	if _, ok := NixDaemonLabelIn(dir, ""); ok {
 		t.Error("empty dir should not find a daemon label")
 	}
-	// Determinate + official present; sorted order => determinate wins
-	// ("systems..." sorts after "org..."? no — 'o' < 's', so org wins).
+	// The installers' nix-hook plist is not a daemon.
+	must(t, os.WriteFile(filepath.Join(dir, "systems.determinate.nix-installer.nix-hook.plist"), nil, 0o644))
+	if label, ok := NixDaemonLabelIn(dir, DeterminateNixDaemonLabel); ok {
+		t.Errorf("the nix-hook plist is not a daemon, got %q", label)
+	}
+	// Only the upstream daemon's plist: it is found whatever is preferred.
 	must(t, os.WriteFile(filepath.Join(dir, "org.nixos.nix-daemon.plist"), nil, 0o644))
+	if label, ok := NixDaemonLabelIn(dir, DeterminateNixDaemonLabel); !ok || label != UpstreamNixDaemonLabel {
+		t.Errorf("label = %q,%v, want the only daemon there, %s", label, ok, UpstreamNixDaemonLabel)
+	}
+	// Both daemons' plists, which a switch between distributions leaves behind: the preferred one
+	// wins, and with no preference the first in sorted order.
 	must(t, os.WriteFile(filepath.Join(dir, "systems.determinate.nix-daemon.plist"), nil, 0o644))
-	label, ok := detectNixDaemonLabelIn(dir)
-	if !ok || label != "org.nixos.nix-daemon" {
-		t.Errorf("label = %q,%v (want org.nixos.nix-daemon, first sorted)", label, ok)
+	for prefer, want := range map[string]string{
+		DeterminateNixDaemonLabel: DeterminateNixDaemonLabel,
+		UpstreamNixDaemonLabel:    UpstreamNixDaemonLabel,
+		"":                        UpstreamNixDaemonLabel,
+	} {
+		if label, ok := NixDaemonLabelIn(dir, prefer); !ok || label != want {
+			t.Errorf("prefer %q: label = %q,%v, want %q", prefer, label, ok, want)
+		}
+	}
+}
+
+// `nix --version` names the distribution: Determinate Nix prints its own version and the Nix
+// version it is built from (nix-src src/libmain/shared.cc), upstream Nix only its own.
+func TestParseNixVersion(t *testing.T) {
+	cases := []struct {
+		out      string
+		dist     NixDistribution
+		describe string
+	}{
+		{"nix (Determinate Nix 3.22.5) 2.35.2\n", NixDeterminate, "Determinate Nix 3.22.5 (based on Nix 2.35.2)"},
+		{"nix (Nix) 2.34.7\n", NixUpstream, "2.34.7"},
+		{"nix (Nix) 2.3.16", NixUpstream, "2.3.16"},
+		{"nix (Lix, like Nix) 2.91.1\n", NixUnknown, "nix (Lix, like Nix) 2.91.1"},
+		{"", NixUnknown, ""},
+	}
+	for _, tc := range cases {
+		v := ParseNixVersion(tc.out)
+		if v.Distribution != tc.dist || v.Describe() != tc.describe {
+			t.Errorf("%q => %v %q, want %v %q", tc.out, v.Distribution, v.Describe(), tc.dist, tc.describe)
+		}
+	}
+	for dist, want := range map[NixDistribution]string{
+		NixDeterminate: DeterminateNixDaemonLabel,
+		NixUpstream:    UpstreamNixDaemonLabel,
+		NixUnknown:     "",
+	} {
+		if got := dist.DaemonLabel(); got != want {
+			t.Errorf("%v's daemon label = %q, want %q", dist, got, want)
+		}
 	}
 }
 
