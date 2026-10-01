@@ -2,7 +2,7 @@
 title: "Handoff: what the first macos-user hardware run left open"
 status: accepted
 stage: DECIDED
-next: "Write item 1's twin (§3): a TestMacosUser… launch asserting `whoami` is _yolojail and `pwd` is the workspace, for the macos-user CI job to run; nothing asserts whose sandbox a launch starts"
+next: "Write item 2's twin (§3): a TestMacosUser… launch whose probe reads a mode-0644 file the host user made for it, which the Seatbelt profile must refuse, for the macos-user CI job to run"
 date: 2026-09-12
 tags: [macos-user, handoff, lsp, integration, provisioning]
 summary: "The macos-user manual-checks runbook was run end to end on hardware for the first time on 2026-09-12. All ten items now have a measurement, three defects were found and fixed that day, and seven threads were opened. Four are left: one test-suite design flaw that only bites a persistent Mac and three automation gaps that are work nobody has done rather than problems. Three are closed: provider credentials on every argv this backend builds, the launch.log gap (fixed 2026-09-17), and the one product defect (lsp_servers installed nothing here) — wired on 2026-09-13, then closed by deletion on 2026-09-25 when yolo stopped installing language servers on any backend."
@@ -20,7 +20,10 @@ leftover links as self-healing (`ensureLayoutSymlink` repoints a link yolo wrote
 launch). [§3](#3-items-1-2-and-4-have-no-automated-twin) is partly covered since: the Seatbelt
 policy suite (`integration/macosuserseatbelt_test.go`, 2026-09-18) runs each deny against a bare
 control outside a launch, and `integration/macosusercontent_test.go` finds a staged skill in a
-real launch; item 1 still has no twin. [§4](#4-item-8s-two-named-halves-stay-manual-and-one-needs-a-seam)'s
+real launch. Item 1's twin was written on 2026-10-01,
+`TestMacosUserLaunchRunsAsTheSandboxAccountInTheWorkspace`
+(`integration/macosuseridentity_test.go`), for the scheduled `macos-user.yml` job; UNMEASURED
+until that job runs it on a Mac. [§4](#4-item-8s-two-named-halves-stay-manual-and-one-needs-a-seam)'s
 seam does not exist (`/usr/bin/sandbox-exec` is still spelled at each argv builder in
 `internal/macosuser`). [§6](#6-provider-secrets-rode-the-launch-argv--fixed-2026-09-13-and-the-framing-below-it-was-wrong)
 and [§7](#7-nothing-the-macos-user-backend-prints-reaches-launchlog--fixed-2026-09-17) are fixed
@@ -169,7 +172,7 @@ require:
 
 | Item | What the twin asserts | Note |
 | :--- | :--- | :--- |
-| 1 | `whoami` is `_yolojail` and `pwd` is the workspace | two assertions on one probe. Until it exists, the nightly launches sandboxes without ever asserting *whose* they are |
+| 1 | `whoami` is `_yolojail` and `pwd` is the workspace | **Written 2026-10-01**: `TestMacosUserLaunchRunsAsTheSandboxAccountInTheWorkspace` asserts both on one probe, plus `id -un`, the uid the host resolves for `_yolojail` and `$HOME`, and `TestMacosUserIdentityProbeParsesAnUnsandboxedRun` runs the same probe unsandboxed under `-short`. Not yet run on a Mac |
 | 2 | a Seatbelt denial | ⚠ **must not use either of the item's own probes** — it should have the host user create a **mode-0644 file** for the purpose, so "readable without a sandbox" is true by construction. `~/.ssh` returns `EACCES` from the POSIX layer on a machine with no sandbox at all, and `$(logname)` fails with no controlling terminal |
 | 4 | `~/.claude/skills` and the briefing's first line | needs a pack selected (`packHome` already does this for other twins) |
 
@@ -379,8 +382,9 @@ one observation: that a live launch's plan, profile and argv lines actually land
 
 1. **[§2](#2-the-twin-suite-poisons-itself-in-test-order--a-persistent-mac-only)** — cheap, off-Mac
    thinking, and it is what makes a second local suite run trustworthy.
-2. **[§3](#3-items-1-2-and-4-have-no-automated-twin)** — the highest coverage-per-hour left: three
-   items, one launch, and item 2 is the one that establishes the backend is a sandbox at all.
+2. **[§3](#3-items-1-2-and-4-have-no-automated-twin)** — the highest coverage-per-hour left:
+   items 2 and 4 (item 1's twin is written), and item 2 is the one that establishes the backend
+   is a sandbox at all.
 3. **[§7](#7-nothing-the-macos-user-backend-prints-reaches-launchlog--fixed-2026-09-17)** — off-Mac, small, and it
    is what makes every OTHER thread here reviewable after the fact.
    [§6](#6-provider-secrets-rode-the-launch-argv--fixed-2026-09-13-and-the-framing-below-it-was-wrong)

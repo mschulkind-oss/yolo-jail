@@ -1,17 +1,26 @@
+---
+title: "What only a Mac can verify"
+status: accepted
+stage: CURRENT
+next: "Write item 2's automated twin, a launch whose probe reads a mode-0644 file the host user made for it (§0.5)"
+---
+
 # What only a Mac can verify
 
-**Status:** CURRENT — what only a Mac can verify; six of the ten items now run unattended on the nightly CI job.
+**Status:** what only a Mac can verify; seven of the ten items now have an automated twin on the
+scheduled `macos-user.yml` job, item 1's written on 2026-10-01 and not yet run there.
 
 
 **Audience:** whoever has a Mac and five minutes — and, since 2026-09-12, a nightly CI
-job that stands in for them on six of the ten items below.
+job that stands in for them on seven of the ten items below (six until item 1's twin was
+written on 2026-10-01).
 
 > [!IMPORTANT]
 > **This file was called *What only a Mac with a password can verify*, and the title had
-> to go.** Six items now run unattended on a Mac with **no** password — a host with
+> to go.** Seven items now run unattended on a Mac with **no** password — a host with
 > passwordless `sudo`, which is what a GitHub-hosted macOS runner is. The password was
 > never a property of the backend; it was a property of the maintainer's laptop. What is
-> irreducible is the **Mac**, and for four items a **human at a keyboard**.
+> irreducible is the **Mac**, and for three items a **human at a keyboard**.
 
 **This file is the SPEC, and it stays the spec.** An automated twin makes an item cheap
 to re-check on a schedule; it does not retire the item, and it never observes everything
@@ -111,7 +120,7 @@ rather than by a list somebody maintains.
 
 | # | Automated twin | Still a human's, and why |
 |---|---|---|
-| 1 | none | all of it. Automatable on a passwordless host — nobody has written it ([§0.5](#05-what-would-close-items-1-4)) |
+| 1 | `TestMacosUserLaunchRunsAsTheSandboxAccountInTheWorkspace` (written 2026-10-01, not yet run on a Mac) | nothing of the item itself; the one sudo prompt is a human's only on a Mac whose sudo asks |
 | 2 | none | all of it — and ⚠ one of its two probes proves nothing; see the item |
 | 3 | partly: `TestMacosUserFloorReachesTheSandboxPath` makes the same re-prepend assertion for the packages the FLOOR declares | naming a package **your own config** declares, which is what the acceptance bar is about |
 | 4 | none | all of it. Needs a launch with a pack selected; nobody has written it |
@@ -122,8 +131,9 @@ rather than by a list somebody maintains.
 | 9 | `TestMacosUserDeclaredToolsArrive` (three subtests, one launch) | nothing. Its fourth subtest, `lsp_servers`, was deleted on 2026-09-25 with the LSP install recipes; see the item |
 | 10 | (a) `TestMacosUserLayoutRefusesAnOccupiedSidecarMirror` | (b) never, deliberately: it poisons an account home permanently |
 
-Six of the ten run unattended. **Four do not, and two of those four are the ones that
-establish the backend is a sandbox at all** (items 1 and 2).
+Seven of the ten run unattended, item 1's since its twin was written on 2026-10-01. **Three do
+not, and one of those three is the one that establishes the backend is a sandbox at all**
+(item 2).
 
 ### 0.2 The job that runs them
 
@@ -283,10 +293,12 @@ password prompt — `sudo` ran, the `-u` switch landed, and the staged binary
 self-exec'd as that user (`internal/macosuser/runplan.go` builds both argvs).
 
 > [!NOTE]
-> **No automated twin, and nothing structural stands in the way of one** — two assertions on
-> one probe, on the same passwordless host the six automated items already require
-> ([§0.5](#05-what-would-close-items-1-4)). Until somebody writes it, the nightly launches
-> sandboxes without ever asserting *whose* they are.
+> **The automated twin was written on 2026-10-01**:
+> `TestMacosUserLaunchRunsAsTheSandboxAccountInTheWorkspace`
+> (`integration/macosuseridentity_test.go`), on the same passwordless host the other twins
+> require ([§0.5](#05-what-would-close-items-1-4)). It asserts the item's two facts on one probe,
+> plus `id -un`, the uid the host resolves for `_yolojail`, and `$HOME`. UNMEASURED until the
+> scheduled job runs it on a Mac.
 
 ## 2. Seatbelt is actually applied
 
