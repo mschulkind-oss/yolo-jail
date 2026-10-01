@@ -108,10 +108,12 @@ yolo.env("copilot", function(ctx)
   -- credential, if it names one, is the one copilot sends (below).
   local ep
   -- AN ADDRESS COMPOSED FOR A VIA PROFILE (`for_via`, docs/design/wire-bridge-gateway.md WG-I39)
-  -- is copilot's only under a profile that routes through that service: the shipped `bedrock`
-  -- names a region and no address, and the wire bridge fronts it for `bedrock-bridge`. copilot has
-  -- no Bedrock client of its own, so on any other profile over such a provider it composes
-  -- nothing, as before, and the launch's profile line says the profile reaches nothing for it.
+  -- is copilot's only when its profile routes it through that service, which ctx.via_url says:
+  -- the shipped `bedrock` names a region and no address, and the wire bridge fronts it. copilot
+  -- has no Bedrock client of its own, so the bridge carries it on plain `-p bedrock` too, wherever
+  -- the bridge is in the launch (WG-I44, the profile's carrier), and hands it a via URL there as
+  -- `bedrock-bridge` does. With no via URL nothing serves the address, so copilot composes
+  -- nothing, and the launch's profile line says the profile reaches nothing for it.
   local viaOnly = p.endpoints and type(p.endpoints.anthropic) == "table" and p.endpoints.anthropic.for_via
   if viaOnly and (ctx.via_url or "") == "" then return {} end
   if p.endpoints and p.endpoints.anthropic and p.endpoints.anthropic.base_url then

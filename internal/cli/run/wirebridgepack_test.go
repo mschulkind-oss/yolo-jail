@@ -168,6 +168,67 @@ func TestAnActiveSetWhosePrimaryRoutesAtTheBridgeRegistersIt(t *testing.T) {
 	}
 }
 
+// TestPlainBedrockCarriesTheClientlessAgentsThroughTheBridge is the launch tier of the carrier
+// (docs/design/wire-bridge-gateway.md WG-I44; bedrock-plumbing.md OQ-BR1: `-p bedrock` reaches an
+// agent "through its own Bedrock client where it has one, and through the wire bridge where it has
+// none"). On plain `-p bedrock`, claude keeps its own Bedrock client, copilot is routed at the
+// bridge's adapter and oh-omp at its via route, the profile line says so with no warning, and the
+// launch registers the bridge with the witness and the boot's readiness wait, which the daemon,
+// reading the tables that crossed, agrees with. Before the carrier, copilot and oh-omp composed
+// nothing, the line warned that the selection reached nothing for them, and the bridge idled.
+func TestPlainBedrockCarriesTheClientlessAgentsThroughTheBridge(t *testing.T) {
+	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "copilot"), officialPack(t, "omp"),
+		officialPack(t, "bedrock"), officialPack(t, "aws-auth"), officialPack(t, "wire-bridge")}
+	cfg := bareConfig()
+	withBedrockRegion(cfg)
+	la := zaiLaunchAssembled(t, packs, cfg,
+		userEnvWith(map[string]string{"AWS_ACCESS_KEY_ID": "AKIDTEST", "AWS_SECRET_ACCESS_KEY": "secret"}),
+		func(o *Options) { o.ProfileName = "bedrock" })
+
+	// The bridge signs a carried agent's requests with the credential that agent's own env file
+	// holds, so the credential gate must deliver copilot the AWS keys as it does claude.
+	if _, agents := deliveredFiles(t, la.in.envChannel(la.o)); !strings.Contains(agents["copilot"], "AWS_ACCESS_KEY_ID") {
+		t.Errorf("copilot's env file, which the bridge signs its requests from, carries no AWS key:\n%s", agents["copilot"])
+	}
+	if v := la.channelEnv(t, "COPILOT_PROVIDER_BASE_URL"); len(v) != 1 ||
+		v[0] != "COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:8214" {
+		t.Errorf("copilot on -p bedrock must be routed at the bridge's adapter: %q", v)
+	}
+	if v := la.channelEnv(t, "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_BASE_URL"); len(v) != 1 ||
+		v[0] != "CLAUDE_CODE_USE_BEDROCK=1" {
+		t.Errorf("claude on -p bedrock must keep its own Bedrock client and no bridge address: %q", v)
+	}
+	crossed := entrypoint.NewEnv(la.in.envChannel(la.o).wireTableValues())
+	if via := packload.ViaURLFor(crossed.LoadProfiles()["bedrock"], "oh-omp"); via != "http://127.0.0.1:8216/agent/oh-omp" {
+		t.Errorf("oh-omp's via URL from the tables that crossed = %q, want its route on the bridge", via)
+	}
+	if !wirebridged.WillServe(crossed.LoadProviders(), crossed.LoadUseProfiles(), crossed.LoadProfiles()) {
+		t.Error("the bridge, reading what crossed, idles on -p bedrock beside copilot and oh-omp")
+	}
+	if v := envArgValues(la.argv, "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT"); len(v) != 1 ||
+		v[0] != "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT=/run/yolo-services/wire-bridge.endpoint" {
+		t.Errorf("a bridge that carries copilot must register its endpoint with the witness: %q", v)
+	}
+	if v := envArgValues(la.argv, paths.JailDaemonReadyNamesEnv); len(v) != 1 ||
+		v[0] != paths.JailDaemonReadyNamesEnv+"=wire-bridge" {
+		t.Errorf("a bridge that carries copilot must be a boot readiness dependency: %q", v)
+	}
+	line := profileLineChannel(t, packs, map[string]string{"claude": "bedrock", "copilot": "bedrock",
+		"oh-omp": "bedrock"}, emptyEnv())
+	for _, want := range []string{
+		`copilot → provider "bedrock", through pack "wire-bridge", which carries an agent with no "aws-bedrock" client of its own`,
+		`oh-omp → provider "bedrock", through pack "wire-bridge", which carries an agent with no "aws-bedrock" client of its own`,
+		`claude → provider "bedrock", through claude's own "aws-bedrock" client`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the profile line must say %q:\n%s", want, line)
+		}
+	}
+	if strings.Contains(line, "reaches nothing") {
+		t.Errorf("the profile line warns a carried agent reaches nothing:\n%s", line)
+	}
+}
+
 // TestLaunchWithoutTheBridgeRefusesThePairing: claude and cerebras, NO bridge pack.
 //
 // THIS TEST'S SUBJECT INVERTED, and the inversion is the point of protocol resolution.

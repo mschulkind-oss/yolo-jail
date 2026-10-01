@@ -524,11 +524,12 @@ func forViaService(entry *jsonx.OrderedMap, protocol string) string {
 	return entryString(m, ForViaKey)
 }
 
-// EndpointsForProfile is entry as an agent on a profile whose `via` is viaService (a pack name)
-// sees it: entry itself when no endpoint is marked for a via (ForViaKey) other than viaService, and
-// otherwise a copy without those endpoints, which are no address at all for that agent. A
-// profile with no via passes "", so every marked endpoint goes. Used by the profile line
-// (profileReach), which says where an agent's profile reaches it.
+// EndpointsForProfile is entry as an agent its profile routes through viaService (a pack name,
+// ResolvedProfile.ViaFor's answer for that agent) sees it: entry itself when no endpoint is marked
+// for a via (ForViaKey) other than viaService, and otherwise a copy without those endpoints, which
+// are no address at all for that agent. An agent routed through no service passes "", so every
+// marked endpoint goes. Used by the profile line (profileReach), which says where an agent's
+// profile reaches it.
 func EndpointsForProfile(entry *jsonx.OrderedMap, viaService string) *jsonx.OrderedMap {
 	if entry == nil {
 		return nil

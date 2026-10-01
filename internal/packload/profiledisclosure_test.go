@@ -36,10 +36,13 @@ func reachOf(t *testing.T, d ProfileDisclosure, agent string) ProfileReach {
 	return ProfileReach{}
 }
 
-// A BEDROCK PROVIDER IS REACHED ONLY BY A CLIENT OF THE AGENT'S OWN, which its pack declares it
-// binds (bindsPlatform): every shipped agent pack whose derive binds Bedrock needs packs/bedrock,
-// which ships a provider of that platform (awsauthneed_test.go pins that need to the derives).
-// copilot's needs no such pack, so the selection reaches nothing for it and says why, with the fix.
+// A BEDROCK PROVIDER IS REACHED BY A CLIENT OF THE AGENT'S OWN, which its pack declares it binds
+// (bindsPlatform): every shipped agent pack whose derive binds Bedrock needs packs/bedrock, which
+// ships a provider of that platform (awsauthneed_test.go pins that need to the derives). copilot's
+// needs no such pack, so it is reached only through the wire bridge, the carrier of an agent with
+// no client of the platform (carrier.go; bedrock-plumbing.md OQ-BR1), and the line says which.
+// With no bridge in the launch nothing carries copilot, so the selection reaches nothing for it
+// and the line says why, with the fix.
 func TestTheProfileDisclosureReadsEachAgentsPlatformBinding(t *testing.T) {
 	table := map[string]string{"claude": "bedrock", "pi": "bedrock", "codex": "bedrock",
 		"opencode": "bedrock", "copilot": "bedrock"}
@@ -54,14 +57,42 @@ func TestTheProfileDisclosureReadsEachAgentsPlatformBinding(t *testing.T) {
 			t.Errorf("%s: %+v, want provider bedrock through its own client and no warning", agent, r)
 		}
 	}
-	copilot := reachOf(t, d, "copilot")
+	carried := reachOf(t, d, "copilot")
+	if carried.Route != `through pack "wire-bridge", which carries an agent with no "aws-bedrock" client of its own` ||
+		len(carried.Warnings) != 0 {
+		t.Errorf("copilot beside the bridge: %+v, want it carried by the bridge and no warning", carried)
+	}
+	// No bridge: the closure is the packs named, so nothing joins one.
+	alone := disclose(t, []string{"pi", "copilot", "bedrock", "aws-auth"},
+		map[string]string{"pi": "bedrock", "copilot": "bedrock"}, nil)
+	copilot := reachOf(t, alone, "copilot")
 	if copilot.Route != "" || len(copilot.Warnings) != 1 ||
 		!strings.Contains(copilot.Warnings[0], `reaches nothing for copilot`) ||
 		!strings.Contains(copilot.Warnings[0], "`-p copilot=<name>`") {
-		t.Errorf("copilot: %+v, want one warning that the selection reaches nothing for it", copilot)
+		t.Errorf("copilot with no bridge: %+v, want one warning that the selection reaches nothing for it", copilot)
 	}
-	if !strings.Contains(d.Line(), `copilot → provider "bedrock", which it cannot use here (below)`) {
-		t.Errorf("the line must say copilot cannot use it: %s", d.Line())
+	if !strings.Contains(alone.Line(), `copilot → provider "bedrock", which it cannot use here (below)`) {
+		t.Errorf("the line must say copilot cannot use it: %s", alone.Line())
+	}
+}
+
+// A CARRIED AGENT NEEDS THE CREDENTIAL TOO: the bridge sends copilot's requests on with the AWS
+// credential that reaches copilot, so when none of the provider's claimed variables does, the
+// line says the carrier has none to send them with, though the address the carrier composed is
+// an endpoint of the entry copilot sees. One that reaches copilot silences it.
+func TestACarriedAgentIsToldWhenNoCredentialReachesIt(t *testing.T) {
+	names := []string{"claude", "copilot", "bedrock", "aws-auth", "wire-bridge"}
+	table := map[string]string{"claude": "bedrock", "copilot": "bedrock"}
+	none := disclose(t, names, table, func(string, string) bool { return false })
+	copilot := reachOf(t, none, "copilot")
+	if len(copilot.Warnings) != 1 || !strings.Contains(copilot.Warnings[0],
+		`delivers copilot no credential for provider "bedrock"`) || !strings.Contains(copilot.Warnings[0],
+		`so pack "wire-bridge", which sends copilot's requests on with the credential that reaches copilot, has none`) {
+		t.Errorf("copilot carried with no credential: %+v, want the carrier's credential warning", copilot)
+	}
+	some := disclose(t, names, table, func(agent, name string) bool { return name == "AWS_ACCESS_KEY_ID" })
+	if w := reachOf(t, some, "copilot").Warnings; len(w) != 0 {
+		t.Errorf("copilot carried with a key that reaches it is warned: %v", w)
 	}
 }
 

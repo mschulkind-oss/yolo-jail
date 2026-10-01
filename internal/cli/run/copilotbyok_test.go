@@ -139,7 +139,10 @@ func TestCopilotByokComposesNothingWithoutTheProfile(t *testing.T) {
 // TestCopilotByokComposesNothingForAnEndpointlessProvider: bedrock names no endpoint at
 // all (region facts only), and copilot's `azure` type is Azure OpenAI's deployment URL
 // shape, not a bedrock address — so the derive must leave BYOK un-armed rather than
-// guess. Runs against the real bedrock provider packs/bedrock ships.
+// guess. Runs against the real bedrock provider packs/bedrock ships, in a launch with no wire
+// bridge (the set is not closed over claude's needs): with the bridge, which carries copilot on
+// `-p bedrock` (wire-bridge-gateway.md WG-I44), copilot is armed at the bridge's adapter instead,
+// as TestPlainBedrockCarriesTheClientlessAgentsThroughTheBridge pins.
 func TestCopilotByokComposesNothingForAnEndpointlessProvider(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "copilot"), officialPack(t, "claude"), officialPack(t, "bedrock")}
 	la := zaiLaunchAssembled(t, packs, bareConfig(), emptyEnv(),

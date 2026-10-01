@@ -1117,7 +1117,13 @@ func (o *Options) checkViaRoutes(packs []*packload.Pack) error {
 		return nil
 	}
 	userProfiles, err := config.LoadProfiles(func(string) {})
-	if err != nil || len(packload.ActiveVias(packs, active, userProfiles)) == 0 {
+	// A PROFILE NAMING NO VIA STILL ROUTES AN AGENT THROUGH A SERVICE when the service fronts its
+	// provider's platform and the agent has no client of it (the carrier,
+	// packload.ResolvedProfile.ViaFor; wire-bridge-gateway.md WG-I44): copilot and oh-omp on
+	// `-p bedrock`. Which agents it carries is known only once the table composes, so a launch
+	// selecting such a service pays for the composition too, as `yolo check`, which runs this gate
+	// on every launch it predicts, always does.
+	if err != nil || (len(packload.ActiveVias(packs, active, userProfiles)) == 0 && !packload.FrontsAPlatform(packs)) {
 		return nil
 	}
 	// Composed as composePackChannel composes it, served set included, so a via this notch

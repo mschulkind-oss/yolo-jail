@@ -949,12 +949,14 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 		}
 
 		// AN ADDRESS COMPOSED FOR A VIA PROFILE (packload.ForViaKey, WG-I39) is the bridge's for an
-		// agent whose profile routes through this service, and nobody else's: the provider names
+		// agent whose profile routes it through this service, and nobody else's: the provider names
 		// no address of its own, and every other profile keeps an agent on its own client (claude
 		// on `-p bedrock`). Serving it for such a candidate would stand up a route nobody sends to,
 		// and one that must still find a credential and a region the agent's own client may take
-		// from somewhere the bridge does not read.
-		if forViaEndpoint(entry, "anthropic") && resolved[profileName].Via != ServiceName {
+		// from somewhere the bridge does not read. An agent with no client of the provider's
+		// platform is routed through this service on any profile over it, by the profile's
+		// carrier (packload.ResolvedProfile.ViaFor, WG-I44): copilot on `-p bedrock`.
+		if via, _ := resolved[profileName].ViaFor(agent); forViaEndpoint(entry, "anthropic") && via != ServiceName {
 			skip = "provider " + providerName + "'s anthropic endpoint is the bridge's for a profile " +
 				"that routes through " + ServiceName + " (via), and " + agent + "'s profile " + profileName +
 				" does not, so " + agent + " uses its own client"

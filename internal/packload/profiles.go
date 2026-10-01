@@ -26,6 +26,7 @@ package packload
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -82,6 +83,32 @@ type ResolvedProfile struct {
 	// (docs/design/model-lists-and-pickers.md MM-D5); the user's value wins over the
 	// pack-shipped one. Read it through ModelsEnforced.
 	EnforceModels *bool
+	// Carrier is the profile's CARRIER (a term coined in carrier.go; wire-bridge-gateway.md
+	// WG-I44): the service pack that reaches the profile's provider, which names no address of
+	// its own, for an agent with no client of the provider's platform, "" for none. Set only on
+	// a profile that names no via, since under a via every agent's traffic goes through that.
+	Carrier string
+	// CarrierBase is the carrier's declared `via_address`, as ViaBase is the via's.
+	CarrierBase string
+	// Carried is every agent of THIS launch the carrier carries on this profile, sorted: one a
+	// selected pack installs and that declares a protocol, with no client of the provider's
+	// platform (AgentBindsPlatform). Read it through ViaFor, never alone.
+	Carried []string
+}
+
+// ViaFor is the service agent's traffic on this profile goes through and that service's via
+// address: the profile's own `via` when it names one, else its carrier when agent is one the
+// carrier carries, else "" and "". It is THE per-agent answer, so a derive's ctx.via_url
+// (ViaURLFor), the launch's disclosure and the wire bridge's serve decision cannot disagree
+// about which agents a profile sends through a service.
+func (r ResolvedProfile) ViaFor(agent string) (via, base string) {
+	if r.Via != "" {
+		return r.Via, r.ViaBase
+	}
+	if r.Carrier != "" && agent != "" && slices.Contains(r.Carried, agent) {
+		return r.Carrier, r.CarrierBase
+	}
+	return "", ""
 }
 
 // ModelsEnforced reports whether r's switch is on: every refusal yolo installs for a list a
@@ -93,14 +120,16 @@ func ModelsEnforced(r ResolvedProfile) bool {
 }
 
 // ViaURLFor is the per-agent URL a via profile puts its agent on (OQ-WG4/WG7 (d)):
-// <via_address>/agent/<agent>, "" when the profile is not a via profile or its service
-// is not in the launch. One function, so the derive input and the daemon's route table
-// cannot spell the prefix differently.
+// <via_address>/agent/<agent>, "" when the profile routes agent through no service (ViaFor:
+// neither its own via nor a carrier that carries agent) or that service is not in the launch.
+// One function, so the derive input and the daemon's route table cannot spell the prefix
+// differently.
 func ViaURLFor(r ResolvedProfile, agent string) string {
-	if r.Via == "" || r.ViaBase == "" || agent == "" {
+	via, base := r.ViaFor(agent)
+	if via == "" || base == "" || agent == "" {
 		return ""
 	}
-	return strings.TrimRight(r.ViaBase, "/") + ViaAgentPrefix(agent)
+	return strings.TrimRight(base, "/") + ViaAgentPrefix(agent)
 }
 
 // ViaAPIKeyEnvNameFor is the variable an agent on a via route sends as its credential there
@@ -117,8 +146,9 @@ func ViaAPIKeyEnvNameFor(packs []*Pack, r ResolvedProfile, agent string) string 
 	if ViaURLFor(r, agent) == "" {
 		return ""
 	}
+	via, _ := r.ViaFor(agent)
 	for _, p := range packs {
-		if p == nil || p.Name != r.Via || p.Decl == nil {
+		if p == nil || p.Name != via || p.Decl == nil {
 			continue
 		}
 		for _, svc := range p.Decl.Services() {
@@ -265,8 +295,12 @@ func ResolveProfiles(packs []*Pack, user map[string]UserProfile,
 		if fromUser && userProf.EnforceModels != nil {
 			enforce = userProf.EnforceModels
 		}
-		out[name] = ResolvedProfile{Provider: provider, Options: opts, Via: via, ViaBase: viaBase,
+		r := ResolvedProfile{Provider: provider, Options: opts, Via: via, ViaBase: viaBase,
 			EnforceModels: enforce}
+		if via == "" {
+			r.Carrier, r.CarrierBase, r.Carried = carrierFor(packs, providerEntry(providers, provider))
+		}
+		out[name] = r
 	}
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("profiles: %s", strings.Join(problems, "\nprofiles: "))
@@ -422,6 +456,13 @@ const (
 	// WireEnforceModelsKey carries a profile's enforce_models, as "true" or "false", only
 	// when the profile states one; absent is the default, on.
 	WireEnforceModelsKey = "_enforce_models"
+	// WireCarrierKey, WireCarrierBaseKey and WireCarriedKey carry a profile's carrier
+	// (ResolvedProfile.Carrier, CarrierBase, Carried), the last as its agents joined by commas,
+	// since every value of the flat object is a string; only when the profile has a carrier
+	// that carries some agent.
+	WireCarrierKey     = "_carrier"
+	WireCarrierBaseKey = "_carrier_base"
+	WireCarriedKey     = "_carried"
 )
 
 // ProfilesWireTable renders the resolved table as the object that travels in
@@ -456,6 +497,15 @@ func ProfilesWireTable(resolved map[string]ResolvedProfile) *jsonx.OrderedMap {
 		// more option no derive asks for, and its derives see the default, on.
 		if r.EnforceModels != nil {
 			entry.Set(WireEnforceModelsKey, strconv.FormatBool(*r.EnforceModels))
+		}
+		// The carrier rides reserved keys for via's reason. An older entrypoint reads them as
+		// options no derive asks for, and carries nobody, as it did before the carrier existed.
+		if r.Carrier != "" && len(r.Carried) > 0 {
+			entry.Set(WireCarrierKey, r.Carrier)
+			if r.CarrierBase != "" {
+				entry.Set(WireCarrierBaseKey, r.CarrierBase)
+			}
+			entry.Set(WireCarriedKey, strings.Join(r.Carried, ","))
 		}
 		out.Set(name, entry)
 	}

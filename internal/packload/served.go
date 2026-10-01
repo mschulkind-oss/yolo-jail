@@ -341,6 +341,13 @@ func ViaServedAt(resolved map[string]ResolvedProfile, packs []*Pack,
 		// A served via answers at its served address, which on a shared network namespace
 		// is a port the launcher picked rather than the declared one.
 		r.ViaBase = served.ServedURL(r.ViaBase)
+		// A CARRIER this notch does not serve carries nobody here (carrier.go), and is not named
+		// as cleared: the profile names no via to clear, and the profile line already says, per
+		// agent, that the selection reaches nothing for an agent with no client of the platform.
+		if r.Carrier != "" && !served.Serves(viaServiceName(packs, r.Carrier)) {
+			r.Carrier, r.CarrierBase, r.Carried = "", "", nil
+		}
+		r.CarrierBase = served.ServedURL(r.CarrierBase)
 		out[name] = r
 	}
 	sort.Strings(cleared)

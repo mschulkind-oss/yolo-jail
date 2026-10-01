@@ -186,9 +186,11 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 			"for %s, so it reaches nothing for %s: give the profile a `provider`", quoted, agent, agent))
 		return r
 	}
-	// The provider as this profile sees it: an address composed for a via profile
-	// (ForViaKey) is none for a profile that routes through no such via.
-	entry := EndpointsForProfile(providerEntry(in.Providers, r.Provider), in.Resolved[profile].Via)
+	// The provider as this profile sees it for this agent: an address composed for a via profile
+	// (ForViaKey) is none for an agent the profile routes through no such via (ViaFor: the
+	// profile's own via, or the carrier of an agent with no client of the platform).
+	via, _ := in.Resolved[profile].ViaFor(agent)
+	entry := EndpointsForProfile(providerEntry(in.Providers, r.Provider), via)
 	if entry == nil {
 		r.Warnings = append(r.Warnings, fmt.Sprintf("Warning: profile %s selects provider %q for "+
 			"%s, and this launch's provider table does not hold it, so it reaches nothing for %s: "+
@@ -198,8 +200,13 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 	}
 	platform := entryString(entry, "platform")
 	switch res, err := ResolveProtocol(agent, owner.Decl.SpokenProtocols(agent), r.Provider, entry, nil); {
+	case ViaURLFor(in.Resolved[profile], agent) != "" && in.Resolved[profile].Via == "":
+		// THE CARRIER (carrier.go): the profile names no via, and the agent has no client of the
+		// provider's platform, so the service that fronts the platform carries it.
+		r.Route = fmt.Sprintf("through pack %q, which carries an agent with no %q client of its own",
+			via, platform)
 	case ViaURLFor(in.Resolved[profile], agent) != "":
-		r.Route = fmt.Sprintf("through pack %q's via route", in.Resolved[profile].Via)
+		r.Route = fmt.Sprintf("through pack %q's via route", via)
 	case err != nil:
 		first, _, _ := strings.Cut(err.Error(), "\n")
 		r.Warnings = append(r.Warnings, fmt.Sprintf("Warning: profile %s reaches nothing for %s: %s",
@@ -221,8 +228,18 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 	default:
 		r.Route = "on its own client, which the provider re-points nowhere (it names no endpoint)"
 	}
-	if r.Route != "" && !hasEndpoint(entry) && in.Reaches != nil {
-		if w := credentialWarning(in, agent, profile, r.Provider, entry); w != "" {
+	// FOR A CARRIED AGENT THE PROVIDER'S OWN ENDPOINTS decide the credential half, not the address
+	// the carrier composed for it: its requests go through the carrier (carrier.go), which sends
+	// them on with the credential that reaches the agent, so a provider naming no endpoint of its
+	// own still needs one delivered to it. An agent under a profile's own via keeps the rule it
+	// had, which reads the address composed for that via as an endpoint.
+	carrier := ""
+	if in.Resolved[profile].Via == "" {
+		carrier = via
+	}
+	ownless := !hasEndpoint(entry) || carrier != "" && !hasEndpoint(EndpointsForProfile(entry, ""))
+	if r.Route != "" && ownless && in.Reaches != nil {
+		if w := credentialWarning(in, agent, profile, r.Provider, carrier); w != "" {
 			r.Warnings = append(r.Warnings, w)
 		}
 	}
@@ -273,8 +290,11 @@ func bindsPlatform(packs []*Pack, owner *Pack, agent, platform string) bool {
 
 // credentialWarning is the warning for an agent none of whose provider's claimed credential
 // variables reaches it at this notch, "" when one does or the provider claims none.
-func credentialWarning(in ProfileDisclosureInput, agent, profile, provider string,
-	entry *jsonx.OrderedMap) string {
+//
+// carrier is the pack that carries agent's requests on this profile (carrier.go), "" when the
+// agent's own client sends them: a carrier sends them on with the credential that reaches the
+// agent, so with none it has nothing to send them with.
+func credentialWarning(in ProfileDisclosureInput, agent, profile, provider, carrier string) string {
 	var claims []string
 	for name, providers := range credentialClaims(in.Providers) {
 		for _, p := range providers {
@@ -301,9 +321,14 @@ func credentialWarning(in ProfileDisclosureInput, agent, profile, provider strin
 			break
 		}
 	}
+	consequence := fmt.Sprintf("so %s starts on a credential it finds itself or on none", agent)
+	if carrier != "" {
+		consequence = fmt.Sprintf("so pack %q, which sends %s's requests on with the credential "+
+			"that reaches %s, has none to send them with", carrier, agent, agent)
+	}
 	return fmt.Sprintf("Warning: profile %q delivers %s no credential for provider %q at this "+
-		"notch: none of %s reaches it, so %s starts on a credential it finds itself or on none. %s",
-		profile, agent, provider, strings.Join(claims, ", "), agent, fix)
+		"notch: none of %s reaches it, %s. %s",
+		profile, agent, provider, strings.Join(claims, ", "), consequence, fix)
 }
 
 // ActiveSetLines is one line per agent holding an ACTIVE SET of more than one profile

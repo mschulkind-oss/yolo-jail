@@ -60,7 +60,8 @@ func TestBedrockNeedsAWSAuth(t *testing.T) {
 
 // bedrockBinders is the agent packs whose derives bind Amazon Bedrock — through the agent's own
 // Bedrock client (docs/design/bedrock-plumbing.md §6.2). copilot and oh-omp have no native
-// client and reach Bedrock only through the wire bridge, under a via profile (`bedrock-bridge`),
+// client and reach Bedrock only through the wire bridge, under a via profile (`bedrock-bridge`)
+// or as the agents a plain profile's carrier carries (carrier.go, wire-bridge-gateway.md WG-I44),
 // and agy has no Bedrock transport at all, so none of the three binds it and none needs the pack.
 var bedrockBinders = []string{"claude", "codex", "opencode", "pi"}
 

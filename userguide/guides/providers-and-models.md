@@ -91,9 +91,12 @@ Two more come with the agent packs, with no extra pack to add:
   pi take every maker, Claude Code Anthropic's and codex OpenAI's):
   `"providers": {"bedrock": {"models": {"kimi": {"id": "global.moonshotai.kimi-k3", "vendor": "moonshotai"}}}}`.
   Copilot and oh-omp have no Bedrock support of their own, so they reach Bedrock only through
-  the wire bridge, with `-p bedrock-bridge` (below). Neither pack brings the `bedrock` pack in,
-  so beside them alone, list it in `packs`. No agent on Bedrock has yet been tested against a
-  real AWS account, through its own client or the bridge.
+  the wire bridge. `-p bedrock` sends them through it whenever the bridge is in the jail, as it is
+  beside Claude Code, and `-p bedrock-bridge` (below) brings the bridge in itself; either way the
+  bridge signs their requests with the credentials described below. Neither pack brings the
+  `bedrock` pack in, so beside them alone, list it in `packs`, and list `wire-bridge` too for
+  `-p bedrock`. No agent on Bedrock has yet been tested against a real AWS account, through its
+  own client or the bridge.
 
   With the `aws-auth` loophole on,
   it uses your host's `aws sso login`, narrowed to one role before it reaches the jail. The

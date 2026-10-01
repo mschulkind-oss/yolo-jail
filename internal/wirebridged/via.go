@@ -128,24 +128,28 @@ func viaRoutesFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 	for _, agent := range agents {
 		name := useProfiles[agent]
 		r, ok := resolved[name]
-		if !ok || r.Via != ServiceName {
+		// THE AGENT'S VIA, which is the profile's own or, for an agent with no client of the
+		// provider's platform, the profile's carrier (packload.ResolvedProfile.ViaFor, WG-I44):
+		// oh-omp on `-p bedrock` rides its via route as it does under `bedrock-bridge`.
+		via, viaBase := r.ViaFor(agent)
+		if !ok || via != ServiceName {
 			continue
 		}
-		if r.ViaBase == "" {
+		if viaBase == "" {
 			plan.Skipped = append(plan.Skipped, "profile "+name+" (active for "+agent+") names via "+
 				ServiceName+", but this launch resolved no via_address for it")
 			continue
 		}
-		addr, local := loopbackListenAddr(r.ViaBase)
+		addr, local := loopbackListenAddr(viaBase)
 		if !local {
-			plan.Skipped = append(plan.Skipped, "profile "+name+"'s via address ("+r.ViaBase+
+			plan.Skipped = append(plan.Skipped, "profile "+name+"'s via address ("+viaBase+
 				") is not jail-local")
 			continue
 		}
 		if plan.ListenAddr == "" {
 			plan.ListenAddr = addr
 		} else if plan.ListenAddr != addr {
-			plan.Skipped = append(plan.Skipped, "profile "+name+"'s via address ("+r.ViaBase+
+			plan.Skipped = append(plan.Skipped, "profile "+name+"'s via address ("+viaBase+
 				") differs from "+plan.ListenAddr+" — one daemon serves one via address")
 			continue
 		}

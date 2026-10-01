@@ -352,10 +352,14 @@ region, because a pack cannot know the region
 The address composed that way is marked on the endpoint, `"for_via": "<pack>"`
 (`packload.ForViaKey`), and the mark changes three answers:
 
-- **It is used only under a profile whose `via` names that pack.** An agent with its own
-  client for the platform keeps that client on every other profile, and the service serves the
-  address only for such a profile. The profile line reads the provider without the address for a
-  profile with no via (`packload.EndpointsForProfile`).
+- **It is used only for an agent its profile routes through that pack**: under a profile whose
+  `via` names it, or, on a profile naming no via, an agent with no client of the provider's
+  platform, which the pack then carries
+  ([`wire-bridge-gateway.md` WG-I44](../design/wire-bridge-gateway.md#WG-I44): copilot and oh-omp
+  on `-p bedrock`). An agent with its own client for the platform keeps that client on every
+  other profile, and the service serves the address only for an agent routed through it. The
+  profile line reads the provider without the address for any other agent
+  (`packload.EndpointsForProfile`).
 - **It never makes a pairing unspeakable.** The provider names no endpoint of its own, so an agent
   that cannot speak the marked protocol resolves as the nothing-to-settle case of a provider with
   no endpoints, as it did before the address was composed. codex, opencode and pi on `-p bedrock`,

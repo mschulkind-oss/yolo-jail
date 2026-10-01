@@ -107,9 +107,9 @@ func ViaRouteGate(packs []*packload.Pack, providers *jsonx.OrderedMap,
 				why = ". The bridge would serve it no route either: " + strings.Join(alone.Skipped, "; ")
 			}
 			notices = append(notices, fmt.Sprintf("profile %q (active for %s) routes %s through "+
-				"%s (via: %q), but %s's config does not point it at its via URL, %s, so the via "+
+				"%s %s, but %s's config does not point it at its via URL, %s, so the via "+
 				"has no effect on %s: its config is what it would be without via%s",
-				profile, agent, agent, ServiceName, r.Via, agent, url, agent, why))
+				profile, agent, agent, ServiceName, viaClause(r, agent), agent, url, agent, why))
 			continue
 		}
 		route, ok := served[agent]
@@ -126,11 +126,11 @@ func ViaRouteGate(packs []*packload.Pack, providers *jsonx.OrderedMap,
 					"fails", agent)
 			}
 			refusals = append(refusals, fmt.Errorf("profile %q (active for %s) routes %s through "+
-				"%s (via: %q), and %s's config points it at its via URL, %s, but the bridge will "+
+				"%s %s, and %s's config points it at its via URL, %s, but the bridge will "+
 				"serve no route for %s: %s. %s. Select a profile whose provider the via route can "+
-				"pass %s's requests to, or remove \"via\" from profile %q so %s uses its own client",
-				profile, agent, agent, ServiceName, r.Via, agent, url, agent,
-				strings.Join(alone.Skipped, "; "), fails, agent, profile, agent))
+				"pass %s's requests to, or %s",
+				profile, agent, agent, ServiceName, viaClause(r, agent), agent, url, agent,
+				strings.Join(alone.Skipped, "; "), fails, agent, viaWayOut(r, profile, agent)))
 			continue
 		}
 		missing := ""
@@ -150,11 +150,33 @@ func ViaRouteGate(packs []*packload.Pack, providers *jsonx.OrderedMap,
 		notices = append(notices, fmt.Sprintf("profile %q (active for %s) routes %s through %s, "+
 			"but provider %s declares no %s endpoint, so the bridge will refuse %s's %s requests "+
 			"at %s with a 404 (%s prefers %s: its first declared protocol is %q). Select a "+
-			"profile whose provider offers %s, or remove \"via\" from profile %q",
+			"profile whose provider offers %s, or %s",
 			profile, agent, agent, ServiceName, route.ProviderName, missing, agent, missing, url,
-			agent, missing, protocol, missing, profile))
+			agent, missing, protocol, missing, viaWayOut(r, profile, agent)))
 	}
 	return refusals, notices
+}
+
+// viaClause is how agent's profile comes to route it through this service, for the gate's lines:
+// the profile's own `via`, or, for an agent the profile's carrier carries
+// (packload.ResolvedProfile.ViaFor, docs/design/wire-bridge-gateway.md WG-I44), that the agent has
+// no client of the provider's platform.
+func viaClause(r packload.ResolvedProfile, agent string) string {
+	if r.Via != "" {
+		return fmt.Sprintf("(via: %q)", r.Via)
+	}
+	return fmt.Sprintf("(it has no client of provider %q's platform, so %s carries it)", r.Provider, ServiceName)
+}
+
+// viaWayOut is the gate's other remedy, after "select a profile whose provider the route serves":
+// drop the profile's own `via`, so the agent uses its own client, or, for a carried agent, which
+// has no client of the platform to fall back on, select another profile for it.
+func viaWayOut(r packload.ResolvedProfile, profile, agent string) string {
+	if r.Via != "" {
+		return fmt.Sprintf("remove \"via\" from profile %q so %s uses its own client", profile, agent)
+	}
+	return fmt.Sprintf("select another profile for %s (`-p %s=<name>`), since %s has no client of "+
+		"provider %q's platform of its own", agent, agent, agent, r.Provider)
 }
 
 // unroutedViaNotice is the notice for an agent that is NOT a via agent, one whose first declared
@@ -195,10 +217,15 @@ func unroutedViaNotice(packs []*packload.Pack, providers *jsonx.OrderedMap, useP
 	if err != nil || len(pointers) > 0 {
 		return ""
 	}
-	msg := fmt.Sprintf("profile %q (active for %s) routes %s through %s (via: %q), but no via route "+
+	msg := fmt.Sprintf("profile %q (active for %s) routes %s through %s %s, but no via route "+
 		"carries %s: it speaks %q, a wire the via route does not pass, and its config does not point "+
 		"it at its via URL, %s, so the via sends none of %s's requests through %s.", profile, agent,
-		agent, ServiceName, r.Via, agent, protocol, url, agent, ServiceName)
+		agent, ServiceName, viaClause(r, agent), agent, protocol, url, agent, ServiceName)
+	// A CARRIED AGENT has no client of the platform (packload.AgentBindsPlatform), so neither a
+	// platform switch below nor dropping a `via` the profile does not name is its way out.
+	if r.Via == "" {
+		return msg + " " + strings.ToUpper(viaWayOut(r, profile, agent)[:1]) + viaWayOut(r, profile, agent)[1:]
+	}
 	var entry *jsonx.OrderedMap
 	if providers != nil {
 		if v, ok := providers.Get(r.Provider); ok {

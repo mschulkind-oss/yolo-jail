@@ -1,6 +1,8 @@
 package entrypoint
 
 import (
+	"strings"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -114,6 +116,19 @@ func (e *Env) LoadProfiles() map[string]packload.ResolvedProfile {
 				continue
 			case packload.WireViaBaseKey:
 				p.ViaBase = s
+				continue
+			case packload.WireCarrierKey:
+				p.Carrier = s
+				continue
+			case packload.WireCarrierBaseKey:
+				p.CarrierBase = s
+				continue
+			case packload.WireCarriedKey:
+				for _, agent := range strings.Split(s, ",") {
+					if agent != "" {
+						p.Carried = append(p.Carried, agent)
+					}
+				}
 				continue
 			case packload.WireEnforceModelsKey:
 				// Anything but "false" is the default, on: a value this build cannot read must

@@ -113,6 +113,39 @@ func TestAViaWithNoRouteForItsAgentIsRefused(t *testing.T) {
 	}
 }
 
+// TestACarriedAgentWithNoRouteIsRefused pins the gate for an agent a profile's carrier carries
+// (packload.ResolvedProfile.ViaFor, docs/design/wire-bridge-gateway.md WG-I44): oh-omp on plain
+// `-p bedrock` is pointed at its via route, and a provider region the bridge composes no runtime
+// host from leaves that route unserved, so the launch refuses, naming oh-omp and the region, with
+// a carried agent's remedy: the profile names no via to drop and oh-omp has no Bedrock client to
+// fall back on. `yolo check` runs this gate on every launch it predicts, so the launch must run it
+// on a profile naming no via too, or the two disagree.
+func TestACarriedAgentWithNoRouteIsRefused(t *testing.T) {
+	home := packHome(t)
+	writeUserConfig(t, home, `{"packs": ["omp", "bedrock", "wire-bridge"]}`)
+	cfg, err := jsonx.Decode([]byte(`{"providers": {"bedrock": {"region": "us-central1"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := &Options{Workspace: t.TempDir(), Stdout: discardBuf(), Stderr: discardBuf(),
+		UseProfiles: map[string]string{"oh-omp": "bedrock"}, stagingCfg: cfg.(*jsonx.OrderedMap)}
+	_, _, _, err = o.stagePacks("yolo-test-carried-noroute")
+	if err == nil {
+		t.Fatal("a carried agent the bridge serves no route for must refuse the launch")
+	}
+	for _, want := range []string{`profile "bedrock" (active for oh-omp)`,
+		`it has no client of provider "bedrock"'s platform, so wire-bridge carries it`,
+		`its region "us-central1" is not an AWS region`, "http://127.0.0.1:8216/agent/oh-omp",
+		"select another profile for oh-omp (`-p oh-omp=<name>`)"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal must name %q:\n%v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), `remove "via"`) {
+		t.Errorf("the refusal offers to remove a via the profile does not name:\n%v", err)
+	}
+}
+
 // TestAViaRouteWithoutTheAgentsWireWarns pins WG-I14 at the launch: the provider offers only
 // Responses, pi prefers chat-completions, and which wire pi's client sends is not the
 // launcher's to observe — so the launch warns, naming the missing endpoint, and proceeds.

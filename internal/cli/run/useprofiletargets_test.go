@@ -328,7 +328,9 @@ func TestNoteUseProfilesSaysWhatEachAgentsSelectionReaches(t *testing.T) {
 }
 
 // WHERE THE SELECTION REACHES NOTHING, THE LINE SAYS SO AND NAMES THE FIX: copilot has no Bedrock
-// client of its own (its pack binds no aws-bedrock provider), so a bare `-p bedrock` keyed to it
+// client of its own (its pack binds no aws-bedrock provider), so in a launch with no wire bridge to
+// carry it (the pack set below is not closed over claude's needs; with the bridge, see
+// TestPlainBedrockCarriesTheClientlessAgentsThroughTheBridge) a bare `-p bedrock` keyed to it
 // configures nothing for it, which the line used to hide behind "received: …copilot…". And an
 // agent none of whose provider's credential variables reaches it is told so, naming the withheld
 // aws-auth pointer (its loophole is disabled here) as the channel that would carry one.

@@ -94,9 +94,10 @@ which its page states.
 | pi | every entry: its built-in `amazon-bedrock` provider drives Converse | Claude Opus 5.5 (Global) |
 
 copilot and oh-omp have no Bedrock client of their own, and reach Bedrock only through yolo's
-wire bridge, under `-p bedrock-bridge` (below); `-p bedrock` does not configure them, and a jail
-of them alone lists this pack in `packs` to have either profile. agy has no way to reach Bedrock
-at all.
+wire bridge: under `-p bedrock-bridge` (below), which brings the bridge in, and under `-p bedrock`
+whenever the bridge is already in the jail, as it is beside claude. A jail of them alone lists
+this pack in `packs` to have either profile, and `wire-bridge` too for `-p bedrock`. agy has no
+way to reach Bedrock at all.
 
 codex's client reads the region from `AWS_REGION` or `AWS_DEFAULT_REGION` itself, so yolo writes
 its `aws.region` only for a region you set on the provider. That order is INFERRED: the one

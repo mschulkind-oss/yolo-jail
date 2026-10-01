@@ -227,7 +227,9 @@ through the wire bridge instead, which reaches Bedrock in the agent's region and
 request with your AWS credentials itself. Under it Claude Code switches between Claude and every
 other model on the list in one session, keeping prompt caching for Claude models; codex,
 opencode, pi and oh-omp send their own requests through the bridge; and Copilot and oh-omp, which
-have no Bedrock support of their own, can use Bedrock through it. A
+have no Bedrock support of their own, can use Bedrock through it. Plain `-p bedrock` sends Copilot
+and oh-omp through the bridge too whenever the bridge is in the jail, as it is beside Claude Code,
+while the other agents keep their own Bedrock support. A
 Bedrock provider of your own at an address of its own, such as a FIPS or private endpoint, is
 signed there once its `platform` is `aws-bedrock`. See
 [the shipped Bedrock provider](docs/reference/providers.md#the-shipped-bedrock-provider).
@@ -389,9 +391,9 @@ listing every selected pack as having received the profile, `Profile bedrock: â€
 that declare it and, for each agent you selected it for, the provider it resolved to and how that
 agent reaches it, such as `pi â†’ provider "bedrock", through pi's own "aws-bedrock" client`. A
 warning follows when the profile configures nothing for an agent, as `-p bedrock` does for
-copilot, which has no Bedrock support of its own, and when no credential for the provider reaches
-the agent, naming the ones it looked for and the setting that would deliver one. The line reads
-the same in a jail and at `yolo host`. See
+copilot, which has no Bedrock support of its own, in a jail without the wire bridge, and when no
+credential for the provider reaches the agent, naming the ones it looked for and the setting that
+would deliver one. The line reads the same in a jail and at `yolo host`. See
 [what the launch checks and prints](docs/reference/providers.md#what-the-launch-checks-and-prints).
 
 - On a provider Claude Code reaches through yolo that lists its models, such as z.ai, Cerebras

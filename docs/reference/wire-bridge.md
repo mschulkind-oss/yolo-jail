@@ -413,12 +413,17 @@ such as the shipped `bedrock`, is reached at runtime's own
   address to be routed at. `packs/wire-bridge`'s `openai → anthropic` adapter declares
   `"from_platforms": ["aws-bedrock"]`, so composition gives such a provider the adapter's address
   and marks it `"for_via": "wire-bridge"` in the composed table. The mark means the address is
-  used only under a profile whose `via` names the bridge (`bedrock-bridge`): the daemon serves the
-  route only for such a profile, copilot's derive composes nothing without one, and on
-  `-p bedrock` claude keeps its own Bedrock client. An address with the mark never makes a
-  provider unspeakable to an agent that cannot use it, and is no endpoint at all for a profile
-  without the via, so codex, opencode and pi on `-p bedrock` are unchanged
-  ([protocol resolution](protocol-resolution.md#an-address-composed-for-a-via)).
+  used only for an agent its profile routes through the bridge: under a profile whose `via` names
+  the bridge (`bedrock-bridge`), or, on a profile naming no via, an agent with no client of the
+  provider's platform, which the bridge carries
+  ([WG-I44](../design/wire-bridge-gateway.md#WG-I44); copilot, and oh-omp on its via route, on
+  `-p bedrock`). The daemon serves the route only for such an agent, copilot's derive composes
+  nothing without one, and on `-p bedrock` claude keeps its own Bedrock client. An address with
+  the mark never makes a provider unspeakable to an agent that cannot use it, and is no endpoint
+  at all for an agent its profile does not route through the bridge, so codex, opencode and pi on
+  `-p bedrock` are unchanged ([protocol resolution](protocol-resolution.md#an-address-composed-for-a-via)).
+  Which agents a profile naming no via routes through the bridge crosses in `YOLO_PROFILES` under
+  `_carrier`, `_carrier_base` and `_carried`, beside the via pair's reserved keys.
 
 <a id="streamed-usage"></a>
 

@@ -141,6 +141,56 @@ echo "CODE=$code"`
 	}
 }
 
+// PLAIN -p bedrock CARRIES oh-omp THROUGH THE BRIDGE, at a real launch (docs/design/bedrock-plumbing.md
+// OQ-BR1: "through the wire bridge where it has none"; wire-bridge-gateway.md WG-I44). Beside
+// claude, whose pack brings the wire bridge in, oh-omp, which has no Bedrock client yolo drives,
+// has its models.yml row for `bedrock` pointed at its via route on the bridge, and the profile line
+// says so, while claude keeps its own Bedrock client. The URL is read from the row the jail
+// rendered, so the test follows whichever port the launcher gave the via listener. No AWS
+// credential is delivered, so oh-omp's route answers with a 503 naming runtime's URL composed from
+// the provider's region, which shows the route without calling AWS. Before the carrier, oh-omp's
+// row was absent and the line warned that the profile reached nothing for it.
+func TestPlainBedrockCarriesOmpThroughTheBridge(t *testing.T) {
+	requireJail(t)
+
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": ["claude", "omp"], "providers": {"bedrock": {"region": "us-east-1"}}}`)
+
+	script := `set -u
+url=$(sed -n 's|.*baseUrl: *\(http://[^ ]*/agent/oh-omp\).*|\1|p' "$HOME/.oh-omp/agent/models.yml" | head -n 1)
+echo "URL=$url"
+code=$(curl -sS -o /workspace/bedrock-omp.json -w '%{http_code}' "$url/chat/completions" \
+  -H 'content-type: application/json' -H "authorization: Bearer $YOLO_SERVICE_WIRE_BRIDGE_TOKEN" \
+  -d '{"model":"us.openai.gpt-6.1-sol","messages":[]}')
+echo "CODE=$code"`
+	r := runCommand(t, dir, append(jailRunArgs(), "-p", "bedrock", "--", "bash", "-lc", script))
+	if r.rc != 0 {
+		t.Fatalf("-p bedrock beside claude and oh-omp must start:\n%s", r.combined())
+	}
+	for _, want := range []string{
+		`oh-omp → provider "bedrock", through pack "wire-bridge", which carries an agent with no "aws-bedrock" client of its own`,
+		`claude → provider "bedrock", through claude's own "aws-bedrock" client`,
+	} {
+		if !strings.Contains(r.combined(), want) {
+			t.Errorf("the profile line must say %q:\n%s", want, r.combined())
+		}
+	}
+	if strings.Contains(r.combined(), `reaches nothing for oh-omp`) {
+		t.Errorf("the launch warns that -p bedrock reaches nothing for oh-omp, which the bridge carries:\n%s", r.combined())
+	}
+	if !regexp.MustCompile(`URL=http://127\.0\.0\.1:[0-9]+/agent/oh-omp`).MatchString(r.stdout) {
+		t.Fatalf("oh-omp's models.yml names no via route on the bridge for bedrock:\n%s", r.combined())
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "bedrock-omp.json"))
+	if err != nil {
+		t.Fatalf("oh-omp's request to its via route wrote nothing (%v):\n%s", err, r.combined())
+	}
+	if !strings.Contains(r.stdout, "CODE=503") ||
+		!strings.Contains(string(body), "goes to Bedrock (https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1)") {
+		t.Errorf("oh-omp's via route must answer 503 naming runtime's URL composed from us-east-1: %s\n%s", body, r.combined())
+	}
+}
+
 // OPENCODE AND AWS_DEFAULT_REGION, at a real launch (docs/design/bedrock-plumbing.md BR-D18):
 // opencode's Bedrock loader never reads AWS_DEFAULT_REGION and falls back to us-east-1, so a
 // `-p bedrock` launch whose only region is an env_sources AWS_DEFAULT_REGION is refused before

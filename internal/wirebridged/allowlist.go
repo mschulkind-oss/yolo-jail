@@ -289,7 +289,7 @@ func adapterAllowlist(rt route, providers *jsonx.OrderedMap, useProfiles map[str
 		if _, protocol, viaAgent := preferredViaWire(packs, agent); viaAgent || protocol == "" {
 			continue
 		}
-		if forViaEndpoint(entry, "anthropic") && r.Via != ServiceName {
+		if via, _ := r.ViaFor(agent); forViaEndpoint(entry, "anthropic") && via != ServiceName {
 			continue
 		}
 		if !packload.ModelsEnforced(r) {

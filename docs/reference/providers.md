@@ -291,7 +291,9 @@ lives in its own pack, [`packs/bedrock`](../../packs/bedrock/README.md), which i
 derive binds Bedrock `needs` that pack, so `"packs": ["codex"]` alone carries `-p bedrock`:
 claude, codex, opencode and pi. The pack in turn needs `aws-auth`. copilot, oh-omp and agy need
 neither, having no Bedrock client of their own, so a `-p bedrock` in a jail of them alone is
-refused as a profile nothing declares.
+refused as a profile nothing declares. Where the wire bridge is in the launch, as it is beside
+claude, `-p bedrock` sends copilot and oh-omp through it ([the carrier](#bedrock-through-the-bridge-on--p-bedrock)),
+and agy, whose transport takes no address, reaches nothing.
 
 - **The provider** declares `"platform": "aws-bedrock"`, `region_env_name` `AWS_REGION` and
   `AWS_DEFAULT_REGION`, a `region_file` naming `~/.aws/config`, the six AWS credential names
@@ -350,9 +352,26 @@ reaches `bedrock-runtime`'s own `/openai/v1` in the region, the provider's `regi
 served agent's `AWS_REGION` then `AWS_DEFAULT_REGION`, and signs every request itself
 ([WG-I37](../design/wire-bridge-gateway.md#WG-I37) to
 [WG-I39](../design/wire-bridge-gateway.md#WG-I39)). The address is marked `for_via` in the
-composed table: it is no endpoint for a profile without the via, so `-p bedrock` reaches each agent
-exactly as before, and codex, opencode and pi are not refused over an address they cannot speak.
-copilot, which has no Bedrock client, starts on the list's first model.
+composed table: it is no endpoint for an agent its profile does not route through the bridge, so
+on `-p bedrock` claude, codex, opencode and pi keep their own clients, and codex, opencode and pi are
+not refused over an address they cannot speak. copilot, which has no Bedrock client, starts on the
+list's first model.
+
+<a id="bedrock-through-the-bridge-on--p-bedrock"></a>
+
+**On plain `-p bedrock` the bridge carries the agents with no Bedrock client**
+([`OQ-BR1`](../design/bedrock-plumbing.md#OQ-BR1): *"through the wire bridge where it has none"*;
+[WG-I44](../design/wire-bridge-gateway.md#WG-I44)). The bridge is the profile's **carrier**, a term
+coined in that decision: the service an address of the provider is marked `for_via`, which carries
+every agent of the launch that declares a protocol and has no client of the provider's platform.
+On `-p bedrock` beside the bridge that is copilot, routed at the adapter address as under
+`bedrock-bridge`, and oh-omp, on its via route; claude, codex, opencode and pi keep their own
+Bedrock clients. The profile line says so per agent (`copilot → provider "bedrock", through pack
+"wire-bridge", which carries an agent with no "aws-bedrock" client of its own`), and the bridge is
+then registered with the reachability witness. The carrier joins no pack to a launch: with
+`bedrock` selected and no bridge, as in `"packs": ["copilot", "bedrock"]`, copilot and oh-omp still
+reach nothing and the line warns, where `-p bedrock-bridge` brings the bridge in through its `via`.
+A notch that does not serve the bridge, such as `yolo host`, carries nobody.
 
 ## The credential preflight
 
@@ -1724,14 +1743,17 @@ the line, naming why and the fix, in two cases:
 
 - the provider names no endpoint, only a platform, and no selected pack binds that platform for
   the agent, so the selection configures nothing for it (copilot under `-p bedrock`, which has no
-  Bedrock client of its own). `yolo host --` then opens no credential doorway for that agent
-  either ([HS-D23](../design/host-notch-services.md#HS-D23));
+  Bedrock client of its own, in a launch with no wire bridge to
+  [carry it](#bedrock-through-the-bridge-on--p-bedrock)). `yolo host --` then opens no credential
+  doorway for that agent either ([HS-D23](../design/host-notch-services.md#HS-D23));
 - the provider names no endpoint, so [the credential preflight](#the-credential-preflight) asks
   nothing of it, and none of the credential variables it claims reaches the agent at this notch.
   The warning names them, and names the withheld pointer that would carry one when there is one
   (aws-auth's, with its loophole off). "Reaches" is what that agent receives: in a jail its own
   delivery and a container's `-e` pairs, at `yolo host` the environment the exec hands it, the
-  shell included.
+  shell included. A carried agent ([the carrier](#bedrock-through-the-bridge-on--p-bedrock)) is
+  asked too, though the bridge's address is an endpoint of what it sees, because the bridge
+  sends its requests on with the credential that reaches it.
 
 It never says *honored* ([OQ-10](#pv-oq-10)): a binding is a declaration, and what a derive does
 with the string is unobservable from the launcher. The every-pack **received** list the line used
