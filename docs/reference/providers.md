@@ -21,6 +21,7 @@ covers:
   - internal/packload/providers.go
   - internal/packload/profiles.go
   - internal/packload/deriveenv.go
+  - internal/packload/modelroles.go
   - internal/agentcfg/selection.go
   - internal/agentcfg/staterender.go
   - internal/agentcfg/luahook/derive.go
@@ -1250,6 +1251,21 @@ vendor's model name ([model-lists-and-pickers §6](../design/model-lists-and-pic
 It is a convention with a warning, not an enum: a derive asking `yolo.model_for` for one the
 selected provider lacks gets `nil`, and the launch prints one warning naming the provider and
 the alias and proceeds. The list is `luahook.ConventionalModelAliases`.
+
+**Every program an agent starts can read them too**, as environment variables (added
+2026-10-01, [OQ-XM4](../research/extension-model-defaults.md#OQ-XM4); measured by tests only):
+`YOLO_MODEL_DEFAULT`, `YOLO_MODEL_FAST`, `YOLO_MODEL_BALANCED` and `YOLO_MODEL_FRONTIER`, each the
+model the agent's own selected provider names for that alias, as `<provider>/<id>`. They are per
+agent, composed by core beside the agent pack's env derive (`packload.ModelRoleVars`) and carried
+wherever that output goes: the agent's env file in a jail, its macos-user session, and the process
+`yolo host --` execs. So an extension or a script an agent starts can pick a tier without an
+adapter pack, and it follows the profile. A role the provider does not name is unset, so it is
+never inherited from an agent on another provider; a value you set yourself for one command
+still wins in a jail, as every profile-composed value does
+([the per-agent file's precedence](../design/provider-credential-scope.md#OQ-CN8)). A variable of
+the same name the agent's own pack sets wins over the composed one, and no warning is printed for
+a missing role, since nothing asked for it ([XM-D8](../research/extension-model-defaults.md#XM-D8),
+[XM-D9](../research/extension-model-defaults.md#XM-D9)).
 
 **claude reads three of them for its tiers** ([MM-D17](../design/model-lists-and-pickers.md#MM-D17)):
 `balanced` pins its Sonnet tier (`ANTHROPIC_DEFAULT_SONNET_MODEL`), `fast` its Haiku tier, and

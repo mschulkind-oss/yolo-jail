@@ -127,16 +127,34 @@ func resolveModelAlias(ctx *DeriveCtx, provider, alias string) (string, bool) {
 	if ctx == nil || provider == "" {
 		return "", false
 	}
-	row, isRow := ctx.Tables[sourceProviders][provider].(map[string]any)
+	if id, ok := ModelAliasID(ctx.Tables[sourceProviders], provider, alias); ok {
+		return id, true
+	}
+	if _, isRow := ctx.Tables[sourceProviders][provider].(map[string]any); !isRow {
+		return "", false
+	}
+	if isConventionalAlias(alias) && ctx.Warn != nil {
+		ctx.Warn(MissingTierAliasNote(provider, alias))
+	}
+	return "", false
+}
+
+// ModelAliasID is the one alias lookup, warning nobody: the id provider's `models` map names
+// under alias, in providers (a plain providers table, the shape ctx.providers is built in), or
+// ok=false when the provider has no row, no models or no such alias. yolo.model_for reads it,
+// and so does the role environment the env-derive runner composes for each agent
+// (packload.ModelRoleVars, OQ-XM4), so the two cannot answer an alias differently.
+func ModelAliasID(providers map[string]any, provider, alias string) (string, bool) {
+	if provider == "" {
+		return "", false
+	}
+	row, isRow := providers[provider].(map[string]any)
 	if !isRow {
 		return "", false
 	}
 	models, _ := row["models"].(map[string]any)
 	if id, isString := models[alias].(string); isString && id != "" {
 		return id, true
-	}
-	if isConventionalAlias(alias) && ctx.Warn != nil {
-		ctx.Warn(MissingTierAliasNote(provider, alias))
 	}
 	return "", false
 }

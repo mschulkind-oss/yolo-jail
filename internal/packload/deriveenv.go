@@ -100,10 +100,16 @@ func DerivedSurfaces(p *Pack) ([]manifest.SurfaceKey, error) {
 // profile selects (ctx.selected_provider, through ProviderFor — the one resolution rule
 // the surface path answers through too).
 //
+// Beside the producer's output it composes the ROLE ENVIRONMENT (ModelRoleVars, OQ-XM4):
+// YOLO_MODEL_<ROLE> for each conventional tier alias the agent's selected provider names, which
+// core composes for every agent whether or not its pack registers a producer, and which a
+// variable of the same name the producer sets overrides.
+//
 // The producer is discovered by bin ownership: the one selected pack that installs the
 // agent's CLI. Nothing composes when the inputs are inert — no profile at this agent's
-// CLI name, no pack installing the bin, or a pack whose derive.lua registers no yolo.env
-// for the agent all return (nil, nil), the identity. A selected provider the table does not
+// CLI name, or no pack installing the bin, returns (nil, nil), the identity, and so does a
+// pack whose derive.lua registers no yolo.env for the agent on a launch whose providers name
+// no tier alias. A selected provider the table does not
 // hold is NOT inert: the protocol gate refuses it, naming why (MissingProviderError), since
 // a profile composed into nothing is P1's silent no-op. A Lua error, or a producer that
 // sets a variable to something other than a string or ctx.tombstone, is a real error:
@@ -145,10 +151,38 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 	if err := refuseUnspeakableSetEntries(packs, owner, agent, profile, cfg, providers); err != nil {
 		return nil, err
 	}
-	script := DeriveScript(owner)
-	if script == "" {
-		return nil, nil
+	table := hydrateProviders(providers, lookup)
+	// THE ROLE ENVIRONMENT (modelroles.go, OQ-XM4) comes first and the derive's output second,
+	// so a variable the agent's own pack sets under the same name, a tombstone included, wins:
+	// the pack is the more specific statement about its own agent's process. Composed before
+	// the derive-script check, because the variables are core's and an agent whose pack ships
+	// no yolo.env producer is still an agent whose children want its provider's tiers.
+	composed := map[string]any{}
+	for _, v := range ModelRoleVars(table, selected) {
+		if v.Unset {
+			composed[v.Key] = nil
+		} else {
+			composed[v.Key] = v.Value
+		}
 	}
+	if script := DeriveScript(owner); script != "" {
+		out, err := deriveAgentEnv(script, owner, packs, providers, table, useProfiles, agent,
+			profile, selected, cfg)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range out {
+			composed[k] = v
+		}
+	}
+	return envVarsOf(composed, owner, agent)
+}
+
+// deriveAgentEnv runs the yolo.env producer of owner's derive.lua for agent, over table (the
+// hydrated providers view, hydrateProviders) and the selection AgentEnv resolved.
+func deriveAgentEnv(script string, owner *Pack, packs []*Pack, providers *jsonx.OrderedMap,
+	table map[string]any, useProfiles map[string]string, agent, profile, selected string,
+	cfg agentEnvOpts) (map[string]any, error) {
 	out, err := (luahook.GopherLuaVM{}).Derive(script, &luahook.DeriveCtx{
 		Agent:            agent,
 		Env:              true,
@@ -169,12 +203,21 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		// is the rule SelectedProvider and Profile above already follow.
 		NativeCapabilities: owner.Decl.NativeCapabilities(agent),
 		Tables: map[string]map[string]any{
-			manifest.SourceProviders:   hydrateProviders(providers, lookup),
+			manifest.SourceProviders:   table,
 			manifest.SourceUseProfiles: plainProfiles(useProfiles),
 		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pack %s: %s's env derive: %w", owner.Name, agent, err)
+	}
+	return out, nil
+}
+
+// envVarsOf lowers a composed name → value map (a string, or nil for a removal) into
+// agentenv.Vars, sorted by key. owner and agent name the producer in the one error.
+func envVarsOf(out map[string]any, owner *Pack, agent string) ([]agentenv.Var, error) {
+	if len(out) == 0 {
+		return nil, nil
 	}
 	names := make([]string, 0, len(out))
 	for name := range out {

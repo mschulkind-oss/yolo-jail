@@ -293,6 +293,12 @@ Claude runs its Sonnet tier on your `balanced` model and its Haiku tier, which i
 background work, on your `fast` one. If you name `sonnet` or `haiku` instead, Claude still uses
 them, and they win when you name both.
 
+Anything an agent starts can read the four too: its environment carries `YOLO_MODEL_DEFAULT`,
+`YOLO_MODEL_FAST`, `YOLO_MODEL_BALANCED` and `YOLO_MODEL_FRONTIER`, each the
+`<provider>/<model>` that agent's provider names for it. Each agent sees its own provider's, so
+an extension or script that picks a cheaper model for a side task follows your profile. A name your
+provider does not give is unset.
+
 When you run pi with a profile and the pi-subagents extension, a child agent starts on the same
 model as pi and can use only that provider's models: the ones you list in `models`, or any of the
 provider's models when you list none.
