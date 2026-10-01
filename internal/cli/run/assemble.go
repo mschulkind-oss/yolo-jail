@@ -833,7 +833,11 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	if !in.sealed {
 		userEnv = config.ResolveEnvSources(o.Workspace, cfg, nil)
 	}
-	miseDisabled := config.MergeMiseDisabledTools(mapGet(userEnv, "MISE_DISABLE_TOOLS"))
+	// The merged mise_tools go in beside the user's list because the jail withholds yolo's
+	// pnpm launcher for a declared mise pnpm, and mise must then be free to deliver it
+	// (MergeMiseDisabledTools; misepnpm_test.go drives both halves).
+	miseDisabled := config.MergeMiseDisabledTools(mapGet(userEnv, "MISE_DISABLE_TOOLS"),
+		config.MergeMiseTools(cfg))
 	runCmd = append(runCmd, "-e", "MISE_DISABLE_TOOLS="+miseDisabled)
 
 	// --- store-prune gate (host-only) --- handled by the lifecycle phase

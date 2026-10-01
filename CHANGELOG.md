@@ -592,6 +592,11 @@ sets, and a jail without pi no longer carries it.
 
 ### Fixed
 
+- A jail whose `mise_tools` has a `pnpm` entry now has that pnpm. On podman and Apple Container,
+  yolo kept mise from installing pnpm on every launch, because it installs pnpm itself when
+  nothing else provides it, and it also stepped aside for the pnpm you declared, so the jail had
+  no pnpm at all. mise now installs the version you declared, and a jail that declares none still
+  gets yolo's.
 - When yolo cannot protect the jail's image from Nix's garbage collector, its warning no longer
   lands in the output of `yolo -- <command>`. It is printed with yolo's other launch messages, on
   standard error, so a script reading the command's output gets only that output.

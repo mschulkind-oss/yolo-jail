@@ -115,3 +115,61 @@ func TestUnknownPlatformIsAConfigError(t *testing.T) {
 		t.Errorf("the error does not warn off the nix system-double spelling: %v", errs)
 	}
 }
+
+// TestMergeMiseDisabledToolsYieldsToADeclaredMiseTool pins the host half of the pnpm fix
+// (docs/design/program-delivery.md, OQ-PD12a): yolo keeps mise off pnpm only while its own
+// launcher delivers it. Both halves driven through their call sites together are
+// internal/cli/run/misepnpm_test.go.
+func TestMergeMiseDisabledToolsYieldsToADeclaredMiseTool(t *testing.T) {
+	tools := func(keys ...string) *jsonx.OrderedMap {
+		m := jsonx.NewOrderedMap()
+		for _, k := range keys {
+			m.Set(k, "9")
+		}
+		return m
+	}
+	for _, c := range []struct {
+		name  string
+		user  any
+		tools *jsonx.OrderedMap
+		want  string
+	}{
+		{"nothing declared keeps yolo's pnpm", nil, nil, "pnpm"},
+		{"an empty table keeps yolo's pnpm", nil, tools(), "pnpm"},
+		{"another tool keeps yolo's pnpm", nil, tools("node"), "pnpm"},
+		{"a bare pnpm key lifts it", nil, tools("pnpm"), ""},
+		{"a backend pnpm lifts it", nil, tools("npm:pnpm"), ""},
+		{"a registry path pnpm lifts it", nil, tools("aqua:pnpm/pnpm"), ""},
+		{"the user's own list is appended", "ruby, go", tools("node"), "pnpm,ruby,go"},
+		{"the user's own list survives the lift", "ruby", tools("pnpm"), "ruby"},
+		// Hiding a tool the user named is the user's call, whatever mise_tools says.
+		{"a user-named pnpm stays hidden", "pnpm", tools("pnpm"), "pnpm"},
+		{"a non-string user value is ignored", 7, tools("pnpm"), ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := MergeMiseDisabledTools(c.user, c.tools); got != c.want {
+				t.Errorf("MergeMiseDisabledTools(%v, %v) = %q, want %q", c.user,
+					c.tools, got, c.want)
+			}
+		})
+	}
+}
+
+// TestMiseToolBin pins the heuristic both halves of the pnpm decision share: the jail's
+// launcher check (entrypoint.declaredMiseBins) and the host's MISE_DISABLE_TOOLS.
+func TestMiseToolBin(t *testing.T) {
+	for key, want := range map[string]string{
+		"pnpm":                 "pnpm",
+		"npm:pnpm":             "pnpm",
+		"aqua:pnpm/pnpm":       "pnpm",
+		"cargo:ripgrep":        "ripgrep",
+		"npm:@scope/some-tool": "some-tool",
+		"":                     "",
+		"npm:":                 "",
+		"/":                    "",
+	} {
+		if got := MiseToolBin(key); got != want {
+			t.Errorf("MiseToolBin(%q) = %q, want %q", key, got, want)
+		}
+	}
+}
