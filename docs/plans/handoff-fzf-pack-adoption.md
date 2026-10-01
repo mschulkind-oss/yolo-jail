@@ -106,8 +106,9 @@ What the workaround was, and why it is gone. Declaring the tools the obvious way
 jail**: a `program` contribution generated a `~/.yolo-shims/<bin>` launcher that preceded
 `/bin` on PATH and execed only `$NPM_CONFIG_PREFIX/bin/<bin>` — never PATH — so a failed
 install made the baked `/bin/fzf` unreachable and the shim exited 1. Both tools **are** baked
-into the image (`flake.nix:658` for `fd`, `:721` for `fzf`), so omitting `program` was correct
-at the time and the pack worked. The cost was the two things this item flagged:
+into the image (`fd` through [`flake.nix`](../../flake.nix)'s `coreFloorNames`, `fzf` through
+its `fullPackages`), so omitting `program` was correct at the time and the pack worked. The
+cost was the two things this item flagged:
 
 - the pack carried **no `install_hints`**, so `apply --host` could not tell a host user to
   install `fd`/`fzf` — the exact capability Phase 8.3 had just added;
@@ -201,7 +202,7 @@ add it."** It is obsolete, and how it became obsolete is the interesting part.
 
 `claude/settings` is `stateful` (the default). Declaring `mode: "rmw"` on the same surface
 identity **silently replaced the whole surface definition** — `manifest.Merge` is last-writer-
-wins (`internal/agentcfg/manifest/load.go:124`, `byKey[k] = s`) — flipping claude's settings
+wins (`internal/agentcfg/manifest/load.go`, `byKey[k] = s`) — flipping claude's settings
 from `stateful` to `rmw` and **disabling in-jail edit capture for `~/.claude/settings.json`**
 with nothing reported.
 
