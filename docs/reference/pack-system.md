@@ -909,14 +909,14 @@ packs carry none.
 workspace-relative directories its agent reads skills from at project scope, in that agent's own
 precedence order (`"project_dirs": [".github/skills", ".agents/skills", ".claude/skills"]` for
 copilot). It is data about the agent, and it drives the jail's **workspace layer**
-([`workspace-skills.md`](../design/workspace-skills.md)): every shipped pack's declaration,
+([the workspace skills layer](agent-briefings.md#the-workspace-layer)): every shipped pack's declaration,
 selected or not, plus the selected packs' own, is the set of workspace directories mirrored into
 every destination as the lowest layer; and a destination whose own list names a directory gets no
 copy of it, because its agent reads it natively — nor a copy of any skill whose name that
 directory carries, from any other. Each entry must be clean, relative, inside the
 workspace and outside `.git` and `.yolo`; the field is refused on any other kind and on a content
 entry. The host notch ignores it — `yolo host apply` never writes a workspace's skills into a
-real home ([`OQ-WS5`](../design/workspace-skills.md#OQ-WS5)). What each shipped pack declares is
+real home ([`OQ-WS5`](agent-briefings.md#oq-ws5)). What each shipped pack declares is
 pinned in `internal/packload/projectskilldirs_test.go` and witnessed against the installed agent
 by `integration/agents_test.go`'s probe, wherever the agent's bundle names the path at project
 scope as text; the probe lists the rows it cannot witness and where each was measured instead.
@@ -2685,7 +2685,7 @@ a key that does nothing must not be accepted quietly.
   `mcp` entry, which is code that runs unconditionally at jail start in a home holding real
   credentials, so the rule has to say why that is acceptable or admit content kinds first and
   leave executable kinds to a second ruling. The ruling asks for
-  [`OQ-WS1`](../design/workspace-skills.md#OQ-WS1) (the same question for skills) to be ruled in
+  [`OQ-WS1`](agent-briefings.md#oq-ws1) (the same question for skills) to be ruled in
   the same sitting, and names R5 in [`loophole-system.md`](loophole-system.md#principles) as the
   wording it amends. It blocks building
   [`mcp-presets-removal.md`](../design/mcp-presets-removal.md): that doc's

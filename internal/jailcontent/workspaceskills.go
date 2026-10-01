@@ -1,7 +1,7 @@
 package jailcontent
 
 // workspaceskills.go is the WORKSPACE layer of the skills composition — the staged mirror of
-// docs/design/workspace-skills.md §4.1, as ruled on 2026-09-27 (OQ-WS1–WS4).
+// docs/reference/agent-briefings.md, the workspace layer, as ruled on 2026-09-27 (OQ-WS1–WS4).
 //
 // A repo that commits `.claude/skills/review/` has chosen its readers' agent for them: `claude`,
 // `copilot` and `opencode` read that path and `codex`, `pi` and `agy` do not. This layer closes

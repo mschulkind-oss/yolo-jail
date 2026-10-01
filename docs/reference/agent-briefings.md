@@ -27,7 +27,12 @@ summary: "Where the text an in-jail agent reads at session start comes from: the
 **Status:** CURRENT as of 2026-09-23, verified against `7ad8358c`. MEASURED: the audience
 model runs end to end in a real container in CI's integration jobs, which were green at that
 commit. [The workspace layer](#the-workspace-layer) was added on 2026-09-27 with the code that
-builds it. The Storage classes item and part 4's shipped-pack prose were brought up to date on
+builds it; its principles and rulings ([`OQ-WS1`](#oq-ws1) to [`OQ-WS7`](#oq-ws7)) moved in on
+2026-10-01, checked against `d4e435a3`, when the design `workspace-skills.md` graduated. That
+design's stub keeps the build record (`WS-D1` to `WS-D18`), the measured table of where each
+agent reads skills, and the deferred host half. UNMEASURED: no observed launch is recorded;
+`TestWorkspaceSkillsReachAContainerJail` and, on a Mac,
+`TestMacosUserWorkspaceSkillsArriveThroughTheComposedTree` are the instruments. The Storage classes item and part 4's shipped-pack prose were brought up to date on
 2026-09-29 with the code that changed them.
 
 Every coding agent reads an instruction file at session start. yolo **composes one per
@@ -634,7 +639,25 @@ audience admits, where the host narrows a content `into`
 ### The workspace layer
 
 A repo's committed skills reach every agent, not only the one whose path the repo chose
-([`workspace-skills.md`](../design/workspace-skills.md)). The **source set** is every
+([`OQ-WS1`](#oq-ws1)): the repo picks the content, never the agent. Five principles shape the
+layer. They are the workspace layer's `P1` to `P5`, anchored `ws-p1` to `ws-p5`, a namespace of
+their own beside [the audience principles](#the-audience-principles) above:
+
+- <a id="ws-p1"></a>**P1. The repo owns the content; yolo owns the reach.** A repo's skills are the
+  repo's business. Which agent its reader runs is not.
+- <a id="ws-p2"></a>**P2. Core knows no agent's paths.** Where an agent reads at project scope is
+  a fact about that agent, declared by its pack (`project_dirs`).
+- <a id="ws-p3"></a>**P3. Delivery, never selection.** The layer moves bytes already in the
+  workspace to a path an agent reads. It never fetches, never names a source outside the tree, and
+  never chooses which packs exist, which is the line that separates it from `packs`: no workspace
+  config selects a pack.
+- <a id="ws-p4"></a>**P4. What lands in the repo is visible in a diff, or is not written.** So in
+  a container and on macos-user nothing is ever written into the workspace.
+- <a id="ws-p5"></a>**P5. A cloned repo can never reach the host through this.** The staging runs
+  host-side, so any path that dereferenced a committed symlink would be a host read. This is
+  forbidden behavior, not a knob.
+
+The **source set** is every
 project-scope skills directory any agent pack declares on its skills destination
 (`project_dirs`, [the `skills` kind](pack-system.md#skills)) — the shipped packs' whether or not
 they are selected, then the selected packs' own. Today that is `.claude/skills`,
@@ -675,13 +698,14 @@ destination's staging dir, and nothing is ever written into the workspace.
   and what it would add; the skills copied before it stay, and a later one that still fits is
   delivered. Everything the layer writes counts, a refused skill's partial copy included, and
   every destination copies from that one scratch tree, so none receives more than the cap
-  ([`OQ-WS7`](../design/workspace-skills.md#OQ-WS7), where the numbers were measured).
+  ([`OQ-WS7`](#oq-ws7); the measurement behind the numbers is `WS-D18` in
+  [the design's record](../design/workspace-skills.md#12-decision-ledger)).
 - **Re-read on every invocation**, attach included, so an edit under a declared path reaches the
   next `yolo` command against a running jail — the same tree the agent there already reads live.
   Each source that delivered anything gets one `Workspace skills from <dir> mirrored into …` line.
 - **Containers and `macos-user` only.** macos-user receives it through the same composed tree it
   copies; the host notch never does, by ruling
-  ([`OQ-WS5`](../design/workspace-skills.md#OQ-WS5)).
+  ([`OQ-WS5`](#oq-ws5)).
 
 After both layers, yolo writes its **own LSP plugin** into every skills destination, rendered
 from `lsp_servers`, or removes it when that list is empty. This is not a third content layer: it
@@ -840,6 +864,12 @@ their own rules. The audience model's principles `P1`–`P5` are in the body, un
 | <a id="oq-ba5"></a>[`OQ-BA5`](#oq-ba5) | The fields are spelled **`agent`** (identity) and **`agents`** (audience), and the value is still the bin | The spelling follows what users call a launcher command and what a config surface already calls its owner. Renaming them to `bins` or `for` would change nothing about the namespace and break every manifest. |
 | <a id="oq-ba6"></a>[`OQ-BA6`](#oq-ba6) | The identity is **declared by the agent pack that owns the name**, and two packs claiming one name is **fatal**, through a pass of its own | The generic collision loop skips kinds that merge, which `briefing` and `skills` do by design, so folding this into it makes the collision invisible. |
 | <a id="oq-ba7"></a>[`OQ-BA7`](#oq-ba7) | Ownership is **per NAME, across kinds** ([P5](#ba-p5)) | `claude-official` and `claude-matt-fork` both launch as `claude` and cannot both be selected. A per-kind key would let one own the briefing and the other the program. `-p claude=<profile>`, `use_profiles.claude` and `agents: ["claude"]` would then each resolve to whichever declaration they happened to read. |
+| <a id="oq-ws1"></a>[`OQ-WS1`](#oq-ws1) | **The workspace may contribute skills**, in containers and on macos-user, at the lowest layer, with escaping symlinks refused ([P5](#ws-p5)) (2026-09-27) | The repo already reaches every agent by shipping every path, so the mirror grants no authority it lacked; it only spares the reader who brought another agent. |
+| <a id="oq-ws2"></a>[`OQ-WS2`](#oq-ws2) | **The workspace is the lowest layer**: it adds names and never shadows a built-in, shared-pack or local-pack skill, and every shadowed name is disclosed (2026-09-27) | It is the one source a clone populates and an agent edits, so it must never be able to replace a jail-management skill such as `configuring-the-jail`. |
+| <a id="oq-ws3"></a>[`OQ-WS3`](#oq-ws3) | **The source set is every shipped agent pack's declared project-scope path, whether or not the pack is selected**; core names none (2026-09-27) | The maintainer: *"I want it to be from the world of agents. Like if I clone an open source project and I trust that person, like I still want these skills."* Keying on the selected packs would miss a repo whose convention belongs to an agent nobody here runs. |
+| <a id="oq-ws4"></a>[`OQ-WS4`](#oq-ws4) | **The staged mirror alone**, in containers and on macos-user; in-workspace links are a host-notch tool only (2026-09-27) | A mirror writes nothing into the repo ([P4](#ws-p4)). The same ruling closed [`OQ-ACP2`](../plans/agent-config-packs.md#-oq-acp2--whether-opencodes-skills-gap-should-be-closed-by-writing-into-workspace): yolo does not write into the workspace for skills. |
+| <a id="oq-ws5"></a>[`OQ-WS5`](#oq-ws5) | **The host notch is out of v1** (2026-09-27); its one mechanism, links written into the repo, and how they are kept out of git ([`OQ-WS6`](../design/workspace-skills.md#OQ-WS6)) are deferred with it | A host render's content is a function of the user's configuration and installed packs, never of the directory it runs from, so a staged mirror into a real home is ruled out; a host half could only write links into the repo under `yolo host --`, which waits on its own ruling. |
+| <a id="oq-ws7"></a>[`OQ-WS7`](#oq-ws7) | **A per-launch cap on what the layer copies**, set where no real skill set meets it; a skill that would cross it is refused whole and named (2026-09-28) | Symlinks cost nothing to commit, so a clone could make a launch write many times its own size into every destination. |
 | <a id="ba-r1"></a>[`R1`](#ba-r1) | An addressed contribution that matches no destination of its kind is **reported, not refused** | The addressing pack's `agents` is correct; the fix belongs to the owning pack. Refusing would punish the wrong author, and the fatal half is P3's. Both notches print the report: `yolo host apply` and the jail launch ([two severities](#two-severities-an-unknown-name-is-fatal-an-unmatched-destination-is-reported)). |
 | <a id="ba-r2"></a>[`R2`](#ba-r2) | The destination enumeration and the staging-name encoding live in one place each, called by both halves | A mismatch does not fail the launch — podman binds an absent file source happily — so the failure is a *blank briefing*, which nothing reports. Coupling by comment had already let the two drift. |
 | <a id="ba-r3"></a>[`R3`](#ba-r3) | Each notch carries its own call-site pin for the audience | The two notches narrow in different places. A test of the shared predicate stays green when either call site is deleted, which is the shape this repo has shipped repeatedly. |

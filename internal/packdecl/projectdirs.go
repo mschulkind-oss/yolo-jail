@@ -1,7 +1,7 @@
 package packdecl
 
 // projectdirs.go is the `project_dirs` field of a `skills` destination: where the agent that
-// reads the destination ALSO reads skills at project scope (docs/design/workspace-skills.md §5).
+// reads the destination ALSO reads skills at project scope (docs/reference/agent-briefings.md, the workspace layer).
 // The field's semantics are in Contribution.ProjectDirs; this file holds its validation and the
 // one accessor every reader goes through.
 

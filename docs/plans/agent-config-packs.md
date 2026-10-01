@@ -1653,14 +1653,14 @@ becomes the dominant complaint, the right fix is upstream in opencode.
 > `~/.config/opencode/skills`, and `packs/opencode` has delivered pack skills there since
 > 2026-08-31. So there is no opencode gap left to close. What survives is the general half —
 > whether yolo ever writes into `/workspace` — and
-> [`workspace-skills.md`](../design/workspace-skills.md)'s
-> [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4) is filed to answer it and to record the
+> [the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer)'s
+> [`OQ-WS4`](../reference/agent-briefings.md#oq-ws4) is filed to answer it and to record the
 > answer here.
 
 <!-- vantage: oq id=OQ-ACP2 -->
 
 **Answer:**
-> **Never in containers or on `macos-user`**, ruled 2026-09-27 as [`OQ-WS4`](../design/workspace-skills.md#OQ-WS4): *"A alone in containers and on macos-user; B is a host-notch tool and nothing else — and this ruling closes [`OQ-ACP2`](#OQ-ACP2) in its own doc."* The workspace's skills reach every agent through the staged mirror, which writes nothing into `/workspace`; writing links into a repo is left to the host notch, deferred to v2 ([`OQ-WS5`](../design/workspace-skills.md#OQ-WS5)).
+> **Never in containers or on `macos-user`**, ruled 2026-09-27 as [`OQ-WS4`](../reference/agent-briefings.md#oq-ws4): *"A alone in containers and on macos-user; B is a host-notch tool and nothing else — and this ruling closes [`OQ-ACP2`](#OQ-ACP2) in its own doc."* The workspace's skills reach every agent through the staged mirror, which writes nothing into `/workspace`; writing links into a repo is left to the host notch, deferred to v2 ([`OQ-WS5`](../reference/agent-briefings.md#oq-ws5)).
 
 ### <a id="OQ-ACP4"></a>💬 [OQ-ACP4](#OQ-ACP4) — whether pruning needs usage telemetry to be anybody's job
 
@@ -1811,5 +1811,5 @@ until `include_if_found` distributes a baseline `packs` list.
 | The committable lockfile ships in phase 1 | **Yes**, beside the spec in `~/.config/yolo-jail/` | 2026-07-25 | [Answered questions](#whether-the-committable-lockfile-should-just-ship-in-phase-1) |
 | [**OQ-ACP3**](#-oq-acp3--whether-the-prism-should-become-a-standalone-tool-that-also-manages-host-configs) | **By reference: not a standalone tool; host configs yes, inside yolo** | 2026-07-27 | [`host-render-target.md` §2.3](../design/host-render-target.md#23-extraction-settled-and-the-answer-is-no) and [ruling 9.1](../design/host-render-target.md#decision-ledger) |
 | [**OQ-ACP1**](#OQ-ACP1) | **By reference: the running jail keeps the pack tree it booted with, and an attach with another pack set is told so** | 2026-09-26 | [`pack-system.md` OQ-PK2](../reference/pack-system.md#oq-pk2), option (c) |
-| [**OQ-ACP2**](#OQ-ACP2) | **Never write into `/workspace` in containers or on `macos-user`**; its opencode premise was already gone | 2026-09-27 | [`workspace-skills.md` OQ-WS4](../design/workspace-skills.md#OQ-WS4) |
+| [**OQ-ACP2**](#OQ-ACP2) | **Never write into `/workspace` in containers or on `macos-user`**; its opencode premise was already gone | 2026-09-27 | [`OQ-WS4`](../reference/agent-briefings.md#oq-ws4) |
 | [**OQ-ACP4**](#OQ-ACP4) | — open | — | — |

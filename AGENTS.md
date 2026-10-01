@@ -460,10 +460,10 @@ live, so edits are visible on the host instantly — there is no sync step.
   `config.LoadPacks`). The workspace term is every project-scope skills dir ANY agent pack declares
   (`project_dirs`, shipped packs whether or not selected), mirrored host-side into every destination except
   one whose agent reads that dir, or a same-named skill, natively; it fills only names nothing above took,
-  and each shadowed name is disclosed ([`workspace-skills.md`](docs/design/workspace-skills.md)). ⚠ **Its reader is
+  and each shadowed name is disclosed ([the workspace skills layer](docs/reference/agent-briefings.md#the-workspace-layer)). ⚠ **Its reader is
   [`workspaceskills.go`](internal/jailcontent/workspaceskills.go)'s `confinedTree`, NEVER the pack layers'
   writer (`hostskills.ComposeInto`)**: that copier follows symlinks, and on a cloned, agent-editable tree that
-  is a host-file read (P5). Nor an
+  is a host-file read ([the layer's P5](docs/reference/agent-briefings.md#ws-p5)). Nor an
   `os.Root` for the read itself: it follows a link that stays inside it, which a race turns into a read of
   the host's per-side bytes, so the bytes are read by an `O_NOFOLLOW` walk along the path `os.Root` classified. ⚠ The
   middle term is not "host user-level" — there is no such tree, and a skill in `~/.claude/skills` on the host

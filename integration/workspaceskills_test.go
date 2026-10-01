@@ -1,6 +1,6 @@
 package integration
 
-// workspaceskills_test.go is the workspace skills layer (docs/design/workspace-skills.md) end to
+// workspaceskills_test.go is the workspace skills layer (docs/reference/agent-briefings.md) end to
 // end in a real jail: a repo's committed skills reach the agents that do not read them natively,
 // at their :ro home-scope dirs; the agent that does read them gets no second copy; a committed
 // link to a host file outside the workspace delivers nothing and is named at launch; and the

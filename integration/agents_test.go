@@ -266,7 +266,7 @@ func TestJailConfigsPresent(t *testing.T) {
 	}
 }
 
-// projectDirsProbe is the `project_dirs` WITNESS (docs/design/workspace-skills.md §5, R5): the
+// projectDirsProbe is the `project_dirs` WITNESS (docs/reference/agent-briefings.md, the workspace layer): the
 // shell that asserts each project-scope skills directory the pack declares is named, AT PROJECT
 // SCOPE, in the agent it just installed. It pins nothing but strings and runs nothing — the
 // vendor's files are grepped, never executed (AGENTS.md's no-agent-tests rule) — so an agent that

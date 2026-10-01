@@ -191,7 +191,7 @@ type Contribution struct {
 	// claude, `.github/skills`, `.agents/skills` and `.claude/skills` for copilot. `skills`
 	// DESTINATIONS only (`agent` set) — refused anywhere else.
 	//
-	// # What it drives (docs/design/workspace-skills.md §5)
+	// # What it drives (docs/reference/agent-briefings.md, the workspace layer)
 	//
 	// Two things, and both are facts about the agent rather than choices of the user's:
 	//

@@ -1,6 +1,6 @@
 package jailcontent
 
-// workspaceskills_cap_test.go pins OQ-WS7's ruling (docs/design/workspace-skills.md): a per-launch
+// workspaceskills_cap_test.go pins OQ-WS7's ruling (docs/reference/agent-briefings.md): a per-launch
 // byte and entry cap on the workspace layer's scratch copy. A skill that would cross either is
 // refused and named, and the skills copied before it are delivered. Every test drives the real
 // composition, PrepareSkillsWith, the call a launch stages workspace skills through.

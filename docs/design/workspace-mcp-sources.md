@@ -26,7 +26,7 @@ recorded in [`../plans/retired-decisions.md`](../plans/retired-decisions.md#a-ja
 > and is never disclosed.
 
 **A sibling question with the same shape.** [§5](#5-what-this-does-not-propose) links
-[`workspace-skills.md`](workspace-skills.md), which asks whether a repo's own *skills* may reach
+[the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer), which asks whether a repo's own *skills* may reach
 whichever agent the reader chose. This doc is that question for MCP config, and the answer here is
 simpler only because a workspace MCP file is already the mechanism the agent reads — there is no
 composition to add.
@@ -126,7 +126,7 @@ avoids core having to know any agent's merge order, which the pack system forbid
   sources. That was the earlier candidate ("fix B") and it dissolves with [§1](#1-the-position)'s
   position: there is no isolation property to complete.
 - **Not core learning tool names.** A future mechanism that did want to act per-agent would have to
-  arrive as a pack declaration, exactly as [`workspace-skills.md`](workspace-skills.md) concludes for
+  arrive as a pack declaration, exactly as [the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer) concludes for
   skills.
 - **Not touching the `.overmind.sock` shadow**, which is a route concern
   ([§3](#3-the-removal-2026-09-22)).

@@ -7,7 +7,7 @@ import (
 )
 
 // `project_dirs` is decoded, validated per entry, and read back through the one accessor
-// (docs/design/workspace-skills.md §5).
+// (docs/reference/agent-briefings.md, the workspace layer).
 func TestProjectDirsIsReadFromASkillsDestination(t *testing.T) {
 	m, probs := Decode([]byte(`{"name":"acme","contributes":[
 	  {"kind":"skills","agent":"acme","into":".acme/skills","project_dirs":[".acme/skills",".agents/skills"]},

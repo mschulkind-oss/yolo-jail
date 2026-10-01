@@ -106,7 +106,7 @@ type SkillTarget struct {
 	Agent string
 	// ProjectDirs is where this destination's agent reads skills at PROJECT scope — the
 	// destination contribution's `project_dirs`, workspace-relative. It is the SKIP RULE of the
-	// workspace layer (docs/design/workspace-skills.md §5): a workspace source directory this
+	// workspace layer (docs/reference/agent-briefings.md): a workspace source directory this
 	// list resolves to is one the agent already reads natively, so this destination gets no
 	// copy of it. Empty receives every workspace source — the broadcast reading, as for Agent.
 	ProjectDirs []string
@@ -227,7 +227,7 @@ func PrepareSkills(cname, homeDir string, agentNames []string) (string, error) {
 }
 
 // PrepareSkillsWith is PrepareSkills with the WORKSPACE as one more source: the lowest layer of
-// every destination, never shadowing anything above it (docs/design/workspace-skills.md). ws nil
+// every destination, never shadowing anything above it (docs/reference/agent-briefings.md). ws nil
 // or with no Dirs stages exactly what PrepareSkills always did.
 //
 // The report is everything the launch must SAY about the composition — what the workspace layer

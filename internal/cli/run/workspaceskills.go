@@ -1,7 +1,7 @@
 package run
 
 // workspaceskills.go is the launcher's half of the workspace skills layer
-// (docs/design/workspace-skills.md): it decides WHICH workspace directories are skills sources
+// (docs/reference/agent-briefings.md): it decides WHICH workspace directories are skills sources
 // and how the jail sees the workspace, hands both to jailcontent.PrepareSkillsWith, and SAYS
 // what came of it.
 //

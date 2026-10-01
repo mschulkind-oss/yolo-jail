@@ -134,7 +134,7 @@ Each one pins a shape the inventory above could otherwise only describe two ways
 on anything in this file.** The ruling redraws the `packs` scope rule on **host reach** rather than on
 install, and that redrawing is [`OQ-PK1`](../reference/pack-system.md#oq-pk1), still open, which names
 [`loophole-system.md`](../reference/loophole-system.md#principles)'s `R5` as the wording it amends.
-[`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1), the same question
+[the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer)'s [`OQ-WS1`](../reference/agent-briefings.md#oq-ws1), the same question
 for skills, was ruled on 2026-09-27 as a staged mirror outside `packs`, so it did not redraw the rule.
 
 ## Documentation that describes the old behaviour

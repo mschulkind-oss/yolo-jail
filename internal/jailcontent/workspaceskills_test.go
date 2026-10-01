@@ -1,7 +1,7 @@
 package jailcontent
 
 // workspaceskills_test.go pins the workspace layer's reader and composition
-// (docs/design/workspace-skills.md). The CALL-SITE half — that a launch actually hands the
+// (docs/reference/agent-briefings.md). The CALL-SITE half — that a launch actually hands the
 // workspace to PrepareSkillsWith, with the shipped packs' declarations — is
 // internal/cli/run/workspaceskills_test.go; these fail if the layer itself stops holding.
 //

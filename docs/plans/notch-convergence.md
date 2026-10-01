@@ -120,7 +120,7 @@ serves:
   `${workspace}` binding stay jail-only. The `${workspace}` pruning at the host is ruled
   ([env-manager OQ-2](environment-manager-plan.md#open-questions-to-resolve-before-their-phase)) and
   becomes an input of the one render loop, not a branch. The workspace skills layer at the host is
-  [`OQ-WS5`](../design/workspace-skills.md#OQ-WS5)'s, ruled out of v1.
+  [`OQ-WS5`](../reference/agent-briefings.md#oq-ws5)'s, ruled out of v1.
 - **It does not revisit [`OQ-DP3`](../design/declaration-parity.md#decision-ledger).** A config value
   of `confinement: host` keeps refusing a launch. Only the `--at host` spellings converge
   ([§4](#4-the-ordered-build-list), item 10).

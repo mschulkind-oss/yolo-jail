@@ -64,7 +64,7 @@ host-read boundary instead.
 
 
 **Reads with:** [`synced-skill-trees-plan.md`](synced-skill-trees-plan.md) (the implementation
-sketch, and the measurement transcript), [`workspace-skills.md`](workspace-skills.md) (the same
+sketch, and the measurement transcript), [the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer) (the same
 composition one scope down), [`../reference/pack-system.md`](../reference/pack-system.md#skills)
 (the `skills` kind), [`../plans/setup-support-gaps.md`](../plans/setup-support-gaps.md) (G32 —
 [§11](#11-what-this-does-not-propose) says how they relate).
@@ -503,7 +503,7 @@ is left is what the fence and the notice must handle.
 notice must not grow into a copier: a synced item may contain a **symlink**, and the skills
 copiers **dereference** on both notches — an item holding a link to `~/.ssh/config` would become
 those bytes in a pack and then in every jail. The same caution
-[`workspace-skills.md`](workspace-skills.md) reached for the workspace source.
+[the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer) reached for the workspace source.
 
 ## 7. Homes that are already wrong
 

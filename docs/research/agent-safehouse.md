@@ -424,7 +424,7 @@ investigation, and `opentui` is the TUI library of the **TypeScript** opencode.
 `bin/opencode.exe` with per-platform optional dependencies, and is the TypeScript
 implementation. yolo's [`packs/opencode/pack.json`](../../packs/opencode/pack.json) declares
 `"package": "opencode-ai"` and a config path of `~/.config/opencode/opencode.json`, and
-[`workspace-skills.md`](../design/workspace-skills.md) records `opencode 1.18.31` measured from
+[the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer) records `opencode 1.18.31` measured from
 the installed bundle. **yolo tracks the current program; the investigation documents a
 superseded one, three major versions back.** Their *profile* tracks the current one too — it is
 only the prose that is behind.
@@ -750,8 +750,8 @@ found the direction inverted on three of five agents — yolo *writes* files the
 read-only and user-created.
 
 **The seam.** `docs/research/agent-config-distribution.md` is the existing home for
-cross-agent path knowledge, and [`workspace-skills.md`](../design/workspace-skills.md)
-[§5](../design/workspace-skills.md#5-the-pack-declares-what-its-agent-reads) — *"The pack declares what its agent reads"* — is the mechanism that would make the
+cross-agent path knowledge, and [the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer)
+[the workspace layer](../reference/agent-briefings.md#the-workspace-layer) — *"The pack declares what its agent reads"* — is the mechanism that would make the
 document's project-scope half machine-checkable, since it proposes the pack declare its agent's
 project-relative skills directories and pin them with a probe test. The prose document and that
 declaration are the two halves of one fact. **This is the candidate with a real cost**, and it

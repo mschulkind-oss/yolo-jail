@@ -121,7 +121,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 	// config itself.
 	jailcontent.SetLSPServers(cfgMap(cfg, "lsp_servers"))
 
-	// Skills staging — with the WORKSPACE as the lowest layer (docs/design/workspace-skills.md),
+	// Skills staging — with the WORKSPACE as the lowest layer (docs/reference/agent-briefings.md),
 	// re-read from the workspace as it stands on every entry, attach included, and disclosed on
 	// every one that has something to say.
 	staging, wsSkills, err := jailcontent.PrepareSkillsWith(cname, o.workspaceSkillsFor(cfg, rt, loadedPacks))
@@ -680,7 +680,7 @@ func packSkillTargets(loadedPacks []*packload.Pack) []jailcontent.SkillTarget {
 				continue
 			}
 			// ProjectDirs is the destination's SKIP RULE for the workspace layer: where its own
-			// agent already reads skills in a workspace (docs/design/workspace-skills.md §5).
+			// agent already reads skills in a workspace (docs/reference/agent-briefings.md, the workspace layer).
 			// Reserved is the destination's fence (packs/claude reserves `synced`): the
 			// composition withholds that child whichever layer ships it (OQ-NC11).
 			out = append(out, jailcontent.SkillTarget{

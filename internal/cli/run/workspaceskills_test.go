@@ -1,7 +1,7 @@
 package run
 
 // workspaceskills_test.go is the CALL-SITE half of the workspace skills layer
-// (docs/design/workspace-skills.md): every test here drives the REAL staging path — the shipped
+// (docs/reference/agent-briefings.md): every test here drives the REAL staging path — the shipped
 // packs' own pack.json files, stagePacks, then refreshJailBriefings, which every launch, every
 // attach and the macos-user arm call — and reads what landed in the staging dirs a jail binds.
 // internal/jailcontent/workspaceskills_test.go pins the reader itself; these fail if the launcher

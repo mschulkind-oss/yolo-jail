@@ -53,7 +53,7 @@ Ledger](#decision-ledger)). Five were ruled; [`OQ-MP4`](#OQ-MP4) was **dissolved
 tree, its premise being false. ⚠ One ruling ([`OQ-MP7`](#OQ-MP7)) reversed its leaning and opened
 a larger question that lives elsewhere: the `packs` workspace-scope rule should be redrawn on
 host-reach rather than on install, which bears on
-[`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1) and on
+[the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer)'s [`OQ-WS1`](../reference/agent-briefings.md#oq-ws1) and on
 [`loophole-system.md`](../reference/loophole-system.md#principles)'s `R5`.
 
 **Reads with:** [`mcp-configuration.md`](../reference/mcp-configuration.md) (the pipeline as built,
@@ -656,7 +656,7 @@ Observable outcomes a human can check, not test names:
    each reaches the machine. But an `mcp` entry, and content kinds generally, do not.
 
    ⚠ **AND THIS IS PROBABLY THE ANSWER TO A SECOND DOC.**
-   [`workspace-skills.md`](workspace-skills.md)'s [`OQ-WS1`](workspace-skills.md#OQ-WS1) — *may a
+   [the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer)'s [`OQ-WS1`](../reference/agent-briefings.md#oq-ws1) — *may a
    workspace contribute skills at all?* — is the same question one kind over, and the ruling's
    reasoning applies to it more strongly than to MCP: a repo that commits skills is shipping
    **inert content the agent reads**, and you already trusted that repo's code by launching a jail
@@ -674,7 +674,7 @@ Observable outcomes a human can check, not test names:
 
    **What this obliges, beyond this doc:** R5's wording in
    [`loophole-system.md`](../reference/loophole-system.md#principles) is the rule being amended,
-   so it cannot stay as written; and [`workspace-skills.md`](workspace-skills.md) should be ruled
+   so it cannot stay as written; and [the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer) should be ruled
    in the same sitting rather than separately, because two docs deciding one boundary from
    opposite sides is how this corpus grew its asymmetries in the first place.
 

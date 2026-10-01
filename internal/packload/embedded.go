@@ -13,7 +13,7 @@ package packload
 //	internal/entrypoint  which mise tool tokens to retire (core's list today; reads no pack)
 //	internal/cli/run     which workspace directories are skills sources: every shipped
 //	                     pack's `project_dirs`, selected or not (workspaceSkillDirs; OQ-WS3 of
-//	                     docs/design/workspace-skills.md)
+//	                     docs/reference/agent-briefings.md)
 //
 // NAME RESERVATION IS NOT ONE OF THEM ANY MORE. Which home roots a host_files entry needs no
 // staging under, and which path segments writable_home_dirs may not claim, were read from

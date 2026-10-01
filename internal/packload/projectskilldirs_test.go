@@ -1,7 +1,7 @@
 package packload_test
 
 // projectskilldirs_test.go pins what each shipped agent pack declares as the project-scope skills
-// directories its agent reads (`project_dirs`, docs/design/workspace-skills.md §5). The
+// directories its agent reads (`project_dirs`, docs/reference/agent-briefings.md, the workspace layer). The
 // declaration is DATA about a vendor's binary, so this is a census: the rows are what the agents
 // installed on 2026-09-27 read (design §2.1), and a new agent pack fails here until somebody
 // measures its agent. Whether an installed agent still names a row as text is
