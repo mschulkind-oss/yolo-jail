@@ -216,13 +216,9 @@ const nixDaemonTimeout = 15 * time.Second
 func (o *Options) nixDaemonStoreCheck(r *reporter) {
 	res := o.Exec(nixCmdArgv("store", "info"), "", nil, nixDaemonTimeout)
 	if res.Timeout {
+		// nixDaemonRestart names this Nix's own daemon, Determinate's included.
 		note := "`nix store info` did not answer within " + nixDaemonTimeout.String() +
 			", and a launch builds its image through this daemon.\n" + o.nixDaemonRestart()
-		// Named only where it is the daemon: an upstream Nix user has no determinate-nixd.
-		if o.IsMacOS && o.nixDistribution() == storage.NixDeterminate {
-			note += "\nSome determinate-nixd versions hang like this. If a restart does not hold, " +
-				"userguide/guides/macos.md (Known Issue: Determinate Nix Daemon Hang) has the workaround."
-		}
 		r.fail("Nix daemon: store operation timed out (daemon may be hung)", note)
 		return
 	}

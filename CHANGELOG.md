@@ -636,7 +636,7 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   the jail's account rather than whoever pastes it. Where nix-darwin or NixOS generates your Nix
   config, the trust and garbage-collection fixes say to set the option in your system
   configuration and rebuild. A Mac whose Nix daemon does not answer now gets the restart command
-  too, and a hung daemon is blamed on Determinate's daemon only when that is the one you run.
+  too, and a hung daemon gets the restart command for the daemon you run.
   Determinate Nix, which frees disk space on its own, is no longer warned that its automatic
   garbage collection is off, and inside a podman or Apple Container jail that row now says to
   check on your machine instead of reading the jail's own Nix settings as yours.

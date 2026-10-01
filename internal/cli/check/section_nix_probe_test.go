@@ -667,11 +667,12 @@ func TestTheMacNixDaemonTimeoutNamesTheDaemonItIs(t *testing.T) {
 	if !ok || f.Status != "fail" {
 		t.Fatalf("no timeout FAIL:\n%s", out)
 	}
-	for _, want := range []string{"sudo launchctl kickstart -k system/" + storage.DeterminateNixDaemonLabel,
-		"determinate-nixd"} {
-		if !strings.Contains(f.Note, want) {
-			t.Errorf("the Determinate Nix remedy lacks %q:\n%s", want, f.Note)
-		}
+	if want := "sudo launchctl kickstart -k system/" + storage.DeterminateNixDaemonLabel; !strings.Contains(f.Note, want) {
+		t.Errorf("the Determinate Nix remedy lacks %q:\n%s", want, f.Note)
+	}
+	// The guide no longer covers Determinate Nix, so a pointer into it is a dead end.
+	if strings.Contains(f.Note, "userguide/") {
+		t.Errorf("the Determinate Nix remedy points into the guide, which no longer covers it:\n%s", f.Note)
 	}
 
 	r, out = nixMachine{mac: true, version: upstreamNixVersion, store: ExecResult{Ran: true, Timeout: true},
