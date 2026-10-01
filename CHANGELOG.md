@@ -107,9 +107,9 @@ can move between Claude and another maker's model. The maker is the list entry's
 declares it (one your organization ships, or your local pack), and so does a model you add under
 `providers` in its object form, `{"id": "…", "vendor": "anthropic"}`. A model you add as a plain
 id is translated, and so is a pack's short name you point at a different model, unless your entry
-names that model's maker. This works for a Bedrock provider whose `openai` endpoint is Bedrock's
-`/openai/v1` address; the shipped `bedrock` provider does not go through the bridge yet. Claude
-Code still counts tokens with its own estimate there. See
+names that model's maker. This works under the shipped `bedrock-bridge` profile, and for a Bedrock
+provider of your own whose `openai` endpoint is Bedrock's `/openai/v1` address. Claude Code still
+counts tokens with its own estimate there. See
 [the Messages pass-through](docs/reference/wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream).
 
 **Every jail now has a place for work that survives a restart: `$YOLO_DURABLE_DIR`.** Each launch
@@ -196,10 +196,7 @@ now: `"profiles": {"bedrock-sso": {"provider": "bedrock"}}` works like `-p bedro
 Bedrock provider you declare yourself by adding `"platform": "aws-bedrock"` to it in your user
 config. Either one runs Claude Code in Bedrock mode with the jail's AWS credentials, and hands the
 agents on it the AWS keys in your `env_sources`, as `bedrock` does. A profile of your own over the
-ChatGPT subscription (`openai-codex`) signs pi and Claude Code in the way `-p codex` does. Claude
-Code cannot reach Bedrock through the wire bridge yet, so in a jail a profile that adds `"via":
-"wire-bridge"` to a Bedrock provider leaves Claude Code on its own login, and the launch now says
-so. See [what service a provider is](docs/reference/providers.md#the-platform-what-service-a-provider-is).
+ChatGPT subscription (`openai-codex`) signs pi and Claude Code in the way `-p codex` does. See [what service a provider is](docs/reference/providers.md#the-platform-what-service-a-provider-is).
 
 **`-p bedrock` now sets up codex, opencode and pi for AWS Bedrock, not only Claude Code.** yolo
 configures each agent to use its own Bedrock support, which signs requests with your AWS

@@ -560,6 +560,10 @@ read by the rule `supports_usage_in_streaming` is: only the exact spelling `"max
 cap off the default, and an absent or unrecognized value keeps `max_completion_tokens`. The bridge
 reads it from the selected profile's resolved options, so a provider of your own declares it in
 the user config: `{"providers": {"<name>": {"options": {"max_tokens_field": "max_tokens"}}}}`.
+On a provider that declared no `options` before, that list becomes its whole set of options, so a
+profile over it that sets any other option, such as `model`, is then refused by name. List those
+too, with `null` where there is no default:
+`{"options": {"max_tokens_field": "max_tokens", "model": null}}`.
 No shipped provider the route reaches declares it.
 
 **The shipped upstreams accept `max_completion_tokens`** (READ 2026-10-01; Bedrock also MEASURED
