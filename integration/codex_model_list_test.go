@@ -16,10 +16,6 @@ package integration
 
 import (
 	"encoding/json"
-	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -105,14 +101,11 @@ func TestCodexProfileRendersOneModelListForEveryAgent(t *testing.T) {
 	// then authenticates with the ambient OPENAI_API_KEY. This launch composes openai-codex and no
 	// other provider, so with the exclusion in place pi's catalog is empty (`"providers": {}`,
 	// observed 2026-10-01), and without it the openai-codex row is the whole catalog (revert-checked
-	// the same day). An absent file is no row either, so it passes too.
-	if raw, err := os.ReadFile(filepath.Join(dir, ".yolo", "home", "pi", "agent", "models.json")); err == nil {
-		catalog, _ := decode("pi models.json", raw)["providers"].(map[string]any)
-		if row, shadow := catalog["openai-codex"]; shadow {
-			t.Errorf("pi models.json catalogs openai-codex, shadowing pi's built-in subscription client: %v", row)
-		}
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("reading pi's models.json: %v", err)
+	// the same day). The file must exist: read where it is not written, this assertion would pass
+	// for a launch that wrote the row somewhere else.
+	catalog, _ := decode("pi models.json", renderedSurface(t, dir, "pi", "agent", "models.json"))["providers"].(map[string]any)
+	if row, shadow := catalog["openai-codex"]; shadow {
+		t.Errorf("pi models.json catalogs openai-codex, shadowing pi's built-in subscription client: %v", row)
 	}
 
 	config := string(renderedSurface(t, dir, "codex", "config.toml"))
