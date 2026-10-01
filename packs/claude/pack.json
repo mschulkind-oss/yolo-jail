@@ -134,7 +134,6 @@
             "codec": "json",
             "managed": {
               "permissions": {
-                "additionalDirectories": [],
                 "defaultMode": "default"
               },
               "skipDangerousModePermissionPrompt": false

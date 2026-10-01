@@ -166,7 +166,7 @@ func TestHostRenderReportsOverwrites(t *testing.T) {
 
 	// A file that already matches the managed value reports NO overwrite (idempotent).
 	if err := os.WriteFile(settings,
-		[]byte(`{"permissions":{"additionalDirectories":[],"defaultMode":"default"},`+
+		[]byte(`{"permissions":{"defaultMode":"default"},`+
 			`"skipDangerousModePermissionPrompt":false}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -175,5 +175,62 @@ func TestHostRenderReportsOverwrites(t *testing.T) {
 		if r.Surface == "claude/settings" && len(r.Overwrites) > 0 {
 			t.Errorf("an identical value must not be reported as an overwrite: %v", r.Overwrites)
 		}
+	}
+}
+
+// NO SHIPPED PACK'S HOST POSTURE REPLACES A LIST. The posture the host profile selects renders
+// its `config` into the real home's files: on the pack's own surface as managed keys, and on
+// another pack's as a posture overlay. In both, an array replaces the file's array whole (RFC
+// 7386). In a user's own config file that empties or overwrites the user's list at every apply,
+// which is what claude's guarded `permissions.additionalDirectories: []` did until it was
+// removed. A pack that wants an entry in a host list declares a posture `lists` entry, which
+// appends and keeps the user's own entries (docs/reference/pack-system.md#autonomy).
+//
+// A walk over the shipped manifests, so it covers every pack at once. The behavior it guards is
+// pinned through `yolo host apply` by internal/cli's hostguardeddirs_test.go.
+func TestNoShippedHostPostureReplacesAList(t *testing.T) {
+	packs, err := embeddedPackSet()
+	if err != nil {
+		t.Fatalf("embedded packs: %v", err)
+	}
+	hostAutonomy := render.ProfileFor(render.KindHost).AgentAutonomy
+	var walk func(pack, at string, v any)
+	walk = func(pack, at string, v any) {
+		switch x := v.(type) {
+		case []any:
+			t.Errorf("pack %s's host posture sets the array %s = %v, which replaces the user's "+
+				"own list in their real config file at every `yolo host apply`. Add entries with "+
+				"a posture `lists` entry, or leave the key to the user.", pack, at, x)
+		case map[string]any:
+			for k, sub := range x {
+				walk(pack, at+"."+k, sub)
+			}
+		}
+	}
+	checked := 0
+	for _, p := range packs {
+		if p.Decl == nil {
+			continue
+		}
+		posture := p.Decl.PostureFor(hostAutonomy)
+		if posture == nil || len(posture.Config) == 0 {
+			continue
+		}
+		var entries []struct {
+			Agent   string `json:"agent"`
+			Name    string `json:"name"`
+			Managed any    `json:"managed"`
+		}
+		if err := json.Unmarshal(posture.Config, &entries); err != nil {
+			t.Fatalf("pack %s: decode the host posture's config: %v", p.Name, err)
+		}
+		for _, e := range entries {
+			walk(p.Name, e.Agent+"/"+e.Name, e.Managed)
+			checked++
+		}
+	}
+	// Fixture guard: with no host posture to walk, this would pass having checked nothing.
+	if checked == 0 {
+		t.Fatal("no shipped pack declares a host posture config entry, so this checked nothing")
 	}
 }

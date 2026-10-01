@@ -1590,6 +1590,18 @@ posture may be absent. A posture has three halves, and each reaches a different 
 | `launch` | Flags for one binary. A posture is the only place a launch flag can be declared | — |
 | `lists` | **Posture lists**: `config-list` bodies appended only while this posture is selected | Any selected pack's, through the [`config-list`](#adding-entries-to-an-array-config-list) path |
 
+**A posture's `config` key replaces the value it lands on, and an array replaces the whole
+array**, as every `managed` and overlay key does (JSON Merge Patch, RFC 7386). At the host the
+file is the user's own, so a `guarded` array empties or overwrites the user's list at every
+`yolo host apply`, whether `host_management` is `assert` or `own`. Claude's guarded posture did
+that to `permissions.additionalDirectories` with an empty list until it was removed. It now keeps
+prompts on with `defaultMode` and `skipDangerousModePermissionPrompt` alone and leaves the user's
+permission lists to the user, which is what the environment-manager plan asks of every guarded block
+([§9.0](../plans/environment-manager-plan.md#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs),
+step 9.4: *"prompts on, no allow/deny clobber"*). A posture adds entries with `lists` instead, and
+no shipped pack's host posture sets an array (`TestNoShippedHostPostureReplacesAList`,
+`internal/entrypoint`).
+
 A **posture list** *(a term coined by
 [the design](../design/notch-scoped-config-contributions.md#41-recommended-posture-lists-inside-autonomy))*
 is how a pack declares an entry for one side of the confinement line. The motivating case is

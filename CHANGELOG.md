@@ -876,6 +876,13 @@ sets, and a jail without pi no longer carries it.
   as long as you keep launching. Once one passes 4 MiB, the next launch keeps its newest 4 MiB in
   one older copy beside it, replacing the last one, and empties the log. A helper that stays
   running across launches keeps writing to the same log.
+- `yolo host apply` no longer empties the folders you gave Claude Code access to in your own
+  settings (`permissions.additionalDirectories`). Every apply wrote an empty list over yours,
+  whether `host_management` was `assert` or `own`, and a folder you added back was gone again
+  after the next apply. Your list now stays as you wrote it, and Claude Code's permission prompts
+  stay on as before. A list an earlier apply emptied is not restored, so add your folders back
+  once. With `own`, the copy of your file that the first apply archived, and named in its report,
+  holds the list you had then.
 
 ## [0.11.0] - 2026-09-28
 

@@ -2,7 +2,7 @@
 title: "Backlog — the one implementable list"
 status: in-review
 stage: CURRENT
-next: "Rule E5: the 2026-10-01 survey found no managed or defaults array that needs an append, so the call left is whether E5 closes and the guarded posture's emptied additionalDirectories gets a question of its own"
+next: "Rule E5: the 2026-10-01 survey found no managed or defaults array that needs an append, and the guarded posture's emptied additionalDirectories was fixed without a ruling, so the one call left is whether E5 closes"
 tags: [backlog, packs, composed-config]
 ---
 
@@ -272,7 +272,7 @@ carries none, deliberately.
 | **E2** | `readonly` as a real `:ro` mount instead of `0o444` | **open** — one decision with E1 + OQ-B |
 | ✅ E3 | Capture timing | **SHIPPED 2026-08-15** — both halves. See below |
 | ✅ E4 | Comment preservation on `json`/`toml` surfaces | **mostly shipped 2026-08-12**; the one live residue is [`OQ-E4`](#OQ-E4) |
-| **E5** | `managed`/`defaults` array-append pinning | **open** — speculative; the named trigger has not fired |
+| **E5** | `managed`/`defaults` array-append pinning | **open** — surveyed 2026-10-01: no surface needs the append, so the call is whether E5 closes |
 | ✅ S5 | A jail resolves a skill-name collision silently | **ANSWERED 2026-09-28 by [OQ-NC11](notch-convergence.md#OQ-NC11)** — a launch refusal, built. See below |
 | **OQ-CO** | Two packs writing one `config-overlay` key | **open** — nothing blocked; no shipped pack collides |
 | **OQ-S4** | Should the jail narrow its skills fan-out to match the host? | **open** — a product call about what `into` promises |
@@ -423,14 +423,16 @@ from `packs/*/pack.json`, by walking every `managed` and `defaults` object):
 | :--- | :--- | :--- |
 | `claude/settings`, autonomous posture, `managed` | `permissions.additionalDirectories: ["/"]`, `permissions.allow: []`, `permissions.deny: []` | a **replace**, which is the point: the autonomous posture applies in a jail, and AGENTS.md states that `allow: []` is not an allowlist mechanism |
 | `agy/settings`, autonomous posture, `managed` | `trustedWorkspaces: ["/workspace"]` | a replace, for the same reason |
-| `claude/settings`, guarded posture, `managed` | `permissions.additionalDirectories: []` | the **opposite of an append**. The guarded posture is what the host notch renders (MEASURED: host apply writes `[]`, [`notch-convergence.md`](notch-convergence.md) row D5), and RFC 7386 replaces the array, so a user's own `additionalDirectories` in the real `~/.claude/settings.json` is emptied with it (READ from `mergeValue`, `internal/agentcfg/engine.go`, not run). Its commit, `9a7b4d88`, says the posture *"resets defaultMode/additionalDirectories/skipDangerous to prompts-on (leaving allow/deny alone — no clobber)"*: the intent is to take out the `/` grant, which is a per-entry **removal**, and no declarative op removes an entry ([OQ-LT2](../reference/pack-system.md#oq-lt2)) |
+| `claude/settings`, guarded posture, `managed` | `permissions.additionalDirectories: []`, **removed 2026-10-01** | was the **opposite of an append**. The guarded posture is what the host notch renders, and RFC 7386 replaces the array, so every `yolo host apply` emptied the user's own `additionalDirectories` in the real `~/.claude/settings.json`, under `host_management` `assert` and `own` alike, and emptied a directory added back by hand at the next apply (MEASURED 2026-10-01 through `applyHost` in a temp home: `TestHostApplyKeepsTheUsersOwnAdditionalDirectories` and `TestHostApplyKeepsADirectoryAddedAfterAnApply` failed before the removal). Its commit, `9a7b4d88`, says the posture *"resets defaultMode/additionalDirectories/skipDangerous to prompts-on (leaving allow/deny alone — no clobber)"*: the intent was to take out the jail's `/` grant, a per-entry **removal** no declarative op makes ([OQ-LT2](../reference/pack-system.md#oq-lt2)). The removal needed no ruling. The environment-manager plan gives claude's guarded block `defaultMode` alone and asks of every guarded block *"prompts on, no allow/deny clobber"* ([§9.0 and step 9.4](environment-manager-plan.md#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs)), and no published version wrote `/` into a host file: `yolo host apply` first shipped in v0.8.0, whose guarded posture already held the empty list, so the list only ever removed the user's own entries |
 | `opencode/tui`, `defaults` | `plugin: ["./yolo/footer.js"]` | an append, and `config-list` is its shape rather than this one: a `defaults` value only fills an absent key, so a user who has a `plugin` list of their own gets no yolo footer (READ, not run) |
 
 So E5's `managed`/`defaults` subject is empty, and the survey left two facts for other homes. The
-guarded posture's empty array is a removal that has no declarative form, which is [OQ-LT2](../reference/pack-system.md#oq-lt2)'s
-accepted gap meeting a shipped case. And opencode's footer entry is a `config-list` candidate on
-its owner's own surface. What is left to decide here is one call: close E5, and file the guarded
-posture's clobber as a question of its own, or keep E5 open for it.
+guarded posture's empty array was a removal with no declarative form, [OQ-LT2](../reference/pack-system.md#oq-lt2)'s
+accepted gap, but no published state needed the removal, so the array was deleted rather than
+given a new op, and [OQ-LT2](../reference/pack-system.md#oq-lt2) is left with no shipped case. `TestNoShippedHostPostureReplacesAList`
+(`internal/entrypoint`) now fails on any array in a shipped pack's host posture. And opencode's
+footer entry is a `config-list` candidate on its owner's own surface. What is left to decide here
+is one call: whether E5 closes.
 
 **Answer:**
 > _(empty — fill in when decided)_

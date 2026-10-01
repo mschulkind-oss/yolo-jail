@@ -204,8 +204,9 @@ func TestHostSideCaptureStaysRefusedUnderOwn(t *testing.T) {
 // Asserted against the POSTURE's own keys rather than against a second composition, so this
 // cannot pass by both halves sharing one bug: `allow`, `deny`, `acceptEdits`,
 // `additionalDirectories: ["/"]` and `skipDangerousModePermissionPrompt: true` are declared
-// by packs/claude/pack.json's `autonomous` block and by nothing else, and the `guarded` block
-// declares the three values wanted below.
+// by packs/claude/pack.json's `autonomous` block and by nothing else. The `guarded` block
+// declares the defaultMode and skipDangerousModePermissionPrompt values wanted below, and no
+// additionalDirectories, which at the host is the user's own list (hostguardeddirs_test.go).
 func TestHostSideResetTruncatesToTheGuardedPosture(t *testing.T) {
 	_, _, surfacePath := hostResetFixture(t, "own")
 
