@@ -28,7 +28,19 @@ func TestExitDirCandidatesRootfulAndRootless(t *testing.T) {
 	}
 }
 
+// standInMachineRoot points machineRoot at an empty directory for the rest of t, so detection
+// reads no /run or containers.conf of the machine running the test, and returns it.
+func standInMachineRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	prev := machineRoot
+	machineRoot = root
+	t.Cleanup(func() { machineRoot = prev })
+	return root
+}
+
 func TestDetectExitDirPicksTheFirstThatExists(t *testing.T) {
+	standInMachineRoot(t)
 	xdg := t.TempDir()
 	env := envOf(map[string]string{"XDG_RUNTIME_DIR": xdg, "HOME": t.TempDir(), "TMPDIR": t.TempDir()})
 	if _, ok := DetectExitDir(1000, env); ok {
@@ -40,6 +52,39 @@ func TestDetectExitDirPicksTheFirstThatExists(t *testing.T) {
 	}
 	if got, ok := DetectExitDir(1000, env); !ok || got != want {
 		t.Errorf("DetectExitDir = %q, %v; want %q", got, ok, want)
+	}
+}
+
+// TestDetectExitDirReadsTheMachineWideLocations: the per-uid runtime dir under /run/user, the
+// rootful /run/libpod, and a system containers.conf's tmp_dir are each found under the machine
+// root, in the order ExitDirCandidates gives. It fails if detection reads those locations
+// anywhere but machineRoot, which is what lets every test here own them.
+func TestDetectExitDirReadsTheMachineWideLocations(t *testing.T) {
+	root := standInMachineRoot(t)
+	env := envOf(map[string]string{"HOME": t.TempDir(), "TMPDIR": t.TempDir()})
+	mkdir := func(p string) string {
+		t.Helper()
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	runUser := mkdir(filepath.Join(root, "run", "user", "1000", "libpod", "tmp", "exits"))
+	if got, ok := DetectExitDir(1000, env); !ok || got != runUser {
+		t.Errorf("rootless with no XDG_RUNTIME_DIR: DetectExitDir = %q, %v; want %q", got, ok, runUser)
+	}
+	rootful := mkdir(filepath.Join(root, "run", "libpod", "exits"))
+	if got, ok := DetectExitDir(0, env); !ok || got != rootful {
+		t.Errorf("rootful: DetectExitDir = %q, %v; want %q", got, ok, rootful)
+	}
+	confTmp := t.TempDir()
+	conf := filepath.Join(mkdir(filepath.Join(root, "etc", "containers")), "containers.conf")
+	if err := os.WriteFile(conf, []byte("[engine]\ntmp_dir = \""+confTmp+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := mkdir(filepath.Join(confTmp, "exits"))
+	if got, ok := DetectExitDir(1000, env); !ok || got != want {
+		t.Errorf("with the system containers.conf's tmp_dir: DetectExitDir = %q, %v; want %q", got, ok, want)
 	}
 }
 

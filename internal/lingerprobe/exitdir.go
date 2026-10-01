@@ -23,6 +23,12 @@ import (
 // ("no_exit_dir") rather than a guess. podman creates the directory when its
 // runtime initializes, so by the time a container is running it exists.
 
+// machineRoot is the directory the machine-wide locations this file names (/run/libpod,
+// /run/user/<uid>, the system containers.conf files) are read under: / in production. A var
+// only so a test reads folders it made: on a machine whose uid 1000 runs rootless podman,
+// /run/user/1000/libpod/tmp/exits exists, and no environment a test sets moves it.
+var machineRoot = "/"
+
 // ExitDirCandidates lists the directories conmon may write exit files into,
 // most specific first. euid 0 is rootful podman; anything else is rootless.
 func ExitDirCandidates(euid int, getenv func(string) string, confTmpDir string) []string {
@@ -31,13 +37,13 @@ func ExitDirCandidates(euid int, getenv func(string) string, confTmpDir string) 
 		out = append(out, filepath.Join(confTmpDir, "exits"))
 	}
 	if euid == 0 {
-		return append(out, "/run/libpod/exits")
+		return append(out, filepath.Join(machineRoot, "run", "libpod", "exits"))
 	}
 	uid := strconv.Itoa(euid)
 	if x := getenv("XDG_RUNTIME_DIR"); x != "" {
 		out = append(out, filepath.Join(x, "libpod", "tmp", "exits"))
 	}
-	out = append(out, filepath.Join("/run/user", uid, "libpod", "tmp", "exits"))
+	out = append(out, filepath.Join(machineRoot, "run", "user", uid, "libpod", "tmp", "exits"))
 	tmp := getenv("TMPDIR")
 	if tmp == "" {
 		tmp = "/tmp"
@@ -62,7 +68,8 @@ func containersConfFiles(euid int, getenv func(string) string) []string {
 	if c := getenv("CONTAINERS_CONF"); c != "" {
 		return []string{c}
 	}
-	files := []string{"/usr/share/containers/containers.conf", "/etc/containers/containers.conf"}
+	files := []string{filepath.Join(machineRoot, "usr", "share", "containers", "containers.conf"),
+		filepath.Join(machineRoot, "etc", "containers", "containers.conf")}
 	if euid != 0 {
 		cfg := getenv("XDG_CONFIG_HOME")
 		if cfg == "" {
