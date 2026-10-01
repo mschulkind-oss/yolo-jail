@@ -3,7 +3,7 @@ title: "Composed-file postures — the three questions left open"
 date: 2026-07-25
 status: in-review
 stage: DESIGN
-next: "Draft CFP-2's degradation rows from the tree — which Derived surfaces lose :ro on macos-user and on Apple Container below 1.1.0 — so its ruling prices a real table"
+next: "Rule CFP-2: its degradation rows were drafted from the tree on 2026-10-01, so the ruling prices a real table (two rows stand out: below Apple Container 1.1.0 a files directory is a writable bind into the staged pack tree, and macos-user puts no write deny on the git identity or the per-agent env files)"
 tags: [config, prism, permissions, open-questions]
 summary: "A stub. The taxonomy, the postures, the 0o444 finding and the writer-class split graduated to docs/reference/composed-file-permissions.md; what stays here is the three open questions (CFP-1…CFP-3), which are consequence questions about shipped mechanisms rather than gaps."
 ---
@@ -65,6 +65,35 @@ IDs (`CFP-*`) minted 2026-08-23.
    tabulates this per config key and per setup (`host_files`, `mounts`, `workspace_readonly`),
    which covers the host-file half of the question. It has no per-surface rows for composed
    (Derived) surfaces, so the question stays open.
+
+   *Rows drafted 2026-10-01, from the tree at `d4e435a3`.* Every Derived surface a podman launch
+   binds `:ro` into the home, and what the other backends do with it. READ from code, not run:
+   every cell outside the podman column is a Mac question.
+
+   | Derived surface | podman | Apple Container below 1.1.0 | Apple Container 1.1.0 and later | macos-user |
+   | :--- | :--- | :--- | :--- | :--- |
+   | A `skills` destination | `:ro` bind of the launch's staging dir | the same bind, `:ro` ignored: writable onto the host's staging dir, which the next launch re-stages | `:ro` honored | copied in by the home overlay; Seatbelt denies writes at the physical path and anchors every directory above it |
+   | A `briefing` destination | `:ro` bind of the staged file | a copy in the home, writable, rewritten each fresh launch | the same copy, kept on every version | home overlay and Seatbelt deny |
+   | A `files` directory | `:ro` bind of the directory in the launch's pack tree | the same bind, `:ro` ignored: writable into the staged pack tree an attach reads | `:ro` honored | home overlay and Seatbelt deny |
+   | A `files` single file | `:ro` bind | a copy, writable, rewritten each fresh launch | the same copy | home overlay and Seatbelt deny |
+   | Git identity, `~/.config/git/config` and `~/.config/git/ignore` | composed on the host, `:ro` bind | written into the home, writable, rewritten each fresh launch | the same | `~/.gitconfig`, which the bootstrap writes from `YOLO_GIT_NAME` and `YOLO_GIT_EMAIL`: writable and kept, with the identity re-set each launch; no Seatbelt deny |
+   | Per-agent env files, `~/.config/yolo-agent-env/` | `:ro` bind of a directory the launcher rewrites on every entry | written into the home on every entry, writable | the same | written into the workspace sidecar on every launch; no Seatbelt deny |
+   | The home root | the per-jail skeleton, bound `:ro` at `/home/agent` | the workspace state dir, bound writable over the whole home | the same | the sandbox account's home, writable except where the profile denies |
+
+   Where each row comes from: the skills, briefing, pack-tree and agent-env arms of `assemble.go`
+   (`internal/cli/run`), whose skills loop asks no `roBindsUnsupported` question;
+   `packFilesMountArgs` (`packfiles.go`); the git arm of `assemble_parts.go`, and
+   `podmanBaseMounts` for the home root; `deliverChannel` (`agentenvfiles.go`); and for
+   macos-user, the overlay builder (`macoshomeoverlay.go`, whose destinations are the skills,
+   briefing and `files` lists only), `ResolveHomeReadonly` (`internal/macosuser/homereadonly.go`),
+   `configureGit` (`internal/entrypoint/identity.go`) and `writeMacosUserAgentEnvFiles`.
+
+   Two rows matter more than the rest. The `files` directory row is a write into the very tree
+   the pack-tree arm copies rather than binds, because a writable bind of it is *"precisely the
+   'an agent that could rewrite a manifest could grant its own pack a host file' escalation"*
+   (`acMaterializeTree`); a `files` directory holds no manifest, but it is inside that tree. And on
+   macos-user the git identity and the per-agent env files get no Seatbelt deny. The env files
+   are rewritten at every launch, while `~/.gitconfig` keeps whatever else is written to it.
 
    _Leaning:_ yes, per-surface, but only when `macos-user` is next worked on — writing it earlier
    means maintaining a table against a backend nobody is touching. (As of 2026-09-24 `macos-user`
