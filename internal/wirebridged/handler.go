@@ -60,8 +60,8 @@ func NewHandler(upstreamBaseURL, apiKey string) http.Handler {
 }
 
 // newChatHandler is NewHandler for an upstream whose ChatOptions are not the
-// defaults (route.OmitStreamUsage, from the provider's declared
-// supports_usage_in_streaming).
+// defaults (route.chatOptions: OmitStreamUsage from the provider's declared
+// supports_usage_in_streaming, CapAsMaxTokens from its max_tokens_field).
 func newChatHandler(upstreamBaseURL, apiKey string, opts wirebridge.ChatOptions) http.Handler {
 	return newHandler(upstreamBaseURL, "/chat/completions", apiKey,
 		func(body []byte) ([]byte, error) { return wirebridge.TranslateRequestWith(body, opts) },

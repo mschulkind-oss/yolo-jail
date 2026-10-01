@@ -2,6 +2,8 @@ package wirebridged
 
 import (
 	"encoding/json"
+	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +58,14 @@ func TestTheShippedBedrockBridgeSendsGPTModelsTheirCapAsMaxCompletionTokens(t *t
 // and returns the body the upstream received.
 func capThroughShippedRoute(t *testing.T, user, profile, keyLine string) []byte {
 	t.Helper()
+	_, body := capRequestThroughShippedRoute(t, user, profile, keyLine, "m")
+	return body
+}
+
+// capRequestThroughShippedRoute is capThroughShippedRoute for a named model, returning the
+// upstream request as well as its body, so a caller can tell which handler served it.
+func capRequestThroughShippedRoute(t *testing.T, user, profile, keyLine, model string) (*http.Request, []byte) {
+	t.Helper()
 	clearAWS(t)
 	for _, v := range []string{"CEREBRAS_API_KEY", "KILO_API_KEY"} {
 		t.Setenv(v, "")
@@ -72,11 +82,11 @@ func capThroughShippedRoute(t *testing.T, user, profile, keyLine string) []byte 
 	p.adapter.ListenAddr = freeLoopback(t)
 	startPlan(t, p, home)
 	resp, body := postTo(t, "http://"+p.adapter.ListenAddr+"/v1/messages",
-		`{"model":"m","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`, nil)
+		`{"model":"`+model+`","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`, nil)
 	if resp.StatusCode != 200 || up.calls() != 1 {
 		t.Fatalf("claude on %s: status %d, upstream calls %d: %s", profile, resp.StatusCode, up.calls(), body)
 	}
-	return up.bodies[0]
+	return up.requests[0], up.bodies[0]
 }
 
 // TestTheShippedChatCompletionsUpstreamsGetMaxCompletionTokens: the other two providers a shipped
@@ -108,6 +118,29 @@ func TestAProviderDeclaringMaxTokensGetsItsCapAsMaxTokens(t *testing.T) {
 	if completion, legacy := capFields(t, sent); completion != nil || string(legacy) != "16" {
 		t.Errorf("max_completion_tokens %s, max_tokens %s; want the cap as max_tokens 16 alone:\n%s",
 			completion, legacy, sent)
+	}
+}
+
+// TestASignedBedrockRouteHonorsTheDeclaredMaxTokensField: the declared fact reaches the SIGNED
+// chat-completions handler too, the one a Bedrock upstream is served by, and not only the keyed
+// one TestAProviderDeclaringMaxTokensGetsItsCapAsMaxTokens reaches. No shipped provider declares
+// the option on Bedrock, where GPT-6.1 Sol refuses `max_tokens`; this declares it anyway, on the
+// shipped bedrock-bridge, because the default cap field cannot show which options the signed
+// handler was handed. It fails if adapterHandler's signed call site stops passing the route's
+// options (route.chatOptions) and hands that handler the defaults.
+func TestASignedBedrockRouteHonorsTheDeclaredMaxTokensField(t *testing.T) {
+	sent, body := capRequestThroughShippedRoute(t,
+		`{"bedrock": {"options": {"max_tokens_field": "max_tokens"}}}`,
+		"bedrock-bridge", awsPair("AKIDCLAUDE", "us-east-1"), "us.openai.gpt-6.1-sol")
+	if got := sent.URL.String(); got != "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions" {
+		t.Fatalf("the request went to %s, want runtime's chat-completions", got)
+	}
+	if auth := sent.Header.Get("Authorization"); !strings.HasPrefix(auth, "AWS4-HMAC-SHA256 Credential=AKIDCLAUDE/") {
+		t.Fatalf("Authorization %q: the request was not served by the signed handler", auth)
+	}
+	if completion, legacy := capFields(t, body); completion != nil || string(legacy) != "16" {
+		t.Errorf("max_completion_tokens %s, max_tokens %s; want the cap as max_tokens 16 alone, as the "+
+			"provider declares:\n%s", completion, legacy, body)
 	}
 }
 
