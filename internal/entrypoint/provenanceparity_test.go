@@ -1,7 +1,7 @@
 package entrypoint
 
 // provenanceparity_test.go is the SHARED-CORPUS PARITY TABLE for the two "which layer won"
-// derivations (proposed-fixes-open-findings.md §8).
+// derivations (docs/reference/pack-system.md#two-provenance-derivations).
 //
 // There are two of them, on purpose, and unification is RULED-DEFERRED until a third exists:
 //

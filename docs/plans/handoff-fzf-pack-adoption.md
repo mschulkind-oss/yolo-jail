@@ -250,7 +250,7 @@ reading only the pack would miss these.
 > **All three are fixed, checked 2026-09-30.** (1) No launcher is written for a name the image
 > already provides (`internal/entrypoint/launchercollision.go`, the generation-time half of
 > [`OQ-PD12a`](../design/program-delivery.md#decision-ledger)). (2) Every `program` in a pack installs
-> ([`proposed-fixes-open-findings.md` #3](proposed-fixes-open-findings.md#3-only-the-first-program-per-pack-installs-112--fix-the-loop)).
+> ([`pack-system.md`'s Q2.1](../reference/pack-system.md#q2-1)).
 > (3) Each launch stages a new pack tree holding only the selected packs
 > (`internal/cli/run/packtree.go`, `b2e796a7`). The list below is the 2026-08-02 record.
 

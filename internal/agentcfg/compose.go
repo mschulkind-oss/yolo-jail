@@ -365,7 +365,7 @@ func layerAbsent(data any) bool {
 // because an rmw render never folds and so never produces a Result to read provenance off.
 //
 // The duplication is DELIBERATE and was ruled on
-// (docs/plans/proposed-fixes-open-findings.md §8): the two answer the same question about
+// (docs/reference/pack-system.md#two-provenance-derivations): the two answer the same question about
 // genuinely different mechanisms, and collapsing them means either giving rmw a synthetic
 // layer stack it does not have or making this function simulate sequential writes.
 //

@@ -1095,9 +1095,10 @@ func readProvenanceRecord(e *Env, agent, name string) map[string]string {
 // ── SECOND OF TWO "which layer won" derivations. UNIFY AT THE THIRD, not before. ──
 //
 // The other is agentcfg.Compose (internal/agentcfg/compose.go), which folds the layer stack.
-// The duplication is DELIBERATE and was ruled on (docs/plans/proposed-fixes-open-findings.md
-// §8): forcing one implementation means either handing RMW a synthetic layer stack it does not
-// have, or making Compose simulate sequential writes — both more fiction than the duplication.
+// The duplication is DELIBERATE and was ruled on
+// (docs/reference/pack-system.md#two-provenance-derivations): forcing one implementation means
+// either handing RMW a synthetic layer stack it does not have, or making Compose simulate
+// sequential writes — both more fiction than the duplication.
 //
 // What keeps them honest meanwhile is the shared-corpus parity table
 // (provenanceparity_test.go): one set of layer/key fixtures asserted against BOTH, so a

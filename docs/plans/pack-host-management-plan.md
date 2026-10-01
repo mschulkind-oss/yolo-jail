@@ -782,8 +782,9 @@ exact install line, without running anything.
 
 ## Phase 11 — three `program`/staging defects found by building the real pack  *(SHIPPED)*
 
-> **All three are fixed.** The proposals and rulings are in
-> [`proposed-fixes-open-findings.md`](proposed-fixes-open-findings.md). **11.3** shipped
+> **All three are fixed.** The rulings that survive are in
+> [`pack-system.md`'s why-appendix](../reference/pack-system.md#q1-3) (`Q1.3`, `Q2.1`, `Q3.1`); the
+> proposals were a findings index, retired on 2026-10-01. **11.3** shipped
 > 2026-08-02: a pack dropped from `packs` has its staged tree pruned, contents only. **11.2**
 > shipped 2026-08-03: `InstallContributions` returns every `program`, so each one gets a
 > launcher. **11.1** was first fixed on 2026-08-02 by moving installers after `/bin`. It is now

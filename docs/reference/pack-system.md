@@ -42,7 +42,9 @@ commit since that touches a path this doc covers was re-checked against `f491d19
 [concurrent-launch section](#concurrent-launches-of-one-workspace) was written on 2026-09-26 in
 the change that fixes the staging race it describes, and rewritten the same day with
 [`OQ-PK2`](#oq-pk2), in the change that builds one pack tree per launch; neither is verified by a
-later commit. MEASURED in CI at `7ad8358c`
+later commit. The [two provenance derivations](#two-provenance-derivations) warning and its
+ruling were added on 2026-10-01 from the retired findings index, checked against `d4e435a3`.
+MEASURED in CI at `7ad8358c`
 (run 35820702335): a pack's `briefing/` prose reaches a real container and its root `AGENTS.md`
 does not (`TestPackDeliversSkillAndBriefing`). UNMEASURED: no launched jail has been observed
 routing one pack's `briefing/` files to *different* agents. The container audience test routes a
@@ -2169,6 +2171,20 @@ An `rmw` or `computed` surface writes no provenance sidecar by design, and that 
 "winner unknown — this surface's mode keeps no provenance sidecar" rather than as a loss:
 sending a user to investigate a by-design absence is its own kind of misreport.
 
+<a id="two-provenance-derivations"></a>
+
+> [!WARNING]
+> **Two derivations answer "which layer won", on purpose, and one table holds them to one
+> answer.** A fold (`agentcfg.Compose`) records the last named layer to touch each top-level
+> key; an `rmw` render never folds, so `entrypoint.rmwProvenance` derives the same answer by
+> replaying the write order. One `yolo config diff` reader annotates from both records, so they
+> owe each other the same outcome, not merely the same shape. The shared-corpus parity table
+> (`TestProvenanceParityAcrossBothDerivations`, `internal/entrypoint`) asserts one set of
+> layer and key fixtures against both, and records the two places the renders really differ.
+> Change the fold order, a layer name or the tombstone handling in one and that table is what
+> says the other notch now disagrees. Do not unify them before a third derivation exists
+> ([the ruling](#two-provenance-derivations-row)); the `guest` notch is the likely third.
+
 ## Composed-file posture: what "writable" means
 
 Every composed file has a read/write posture, from a three-way taxonomy:
@@ -3353,9 +3369,10 @@ in the config-overlay comments (R2, R3) it means the R1–R5 table below, never
 | <a id="oq-pf1"></a>[**OQ-PF1**](#oq-pf1) — a launch fetches and refreshes git packs itself, and the ref decides what moves: a pack not in the store is fetched, a commit or tag is never re-fetched, a branch is re-fetched at most hourly, and every move is disclosed ([fetch, refresh, lock](#fetch-refresh-lock)). Maintainer ruling, 2026-09-25: *"yes, I want this"* | Both reasons for keeping the fetch in `yolo pack install` were gone. The approval prompt that had to run there was deleted by [`OQ-TP9`](../design/trust-paths.md#decision-ledger). The claim that a launch is offline was false: every launch already reaches the network for the nix build, the bootstrap npm installs and the agent launchers' evergreen updates. What the old rule really protected is that host-side content (loophole daemons, `reads-host` reads, `yolo host apply` renders into the real home) never moves silently. The ref rule keeps that: a tag or commit pin still does not move until an explicit `yolo pack install` or `yolo pack update`. The `Fetched pack` and `Updated pack` lines say when anything did. |
 | **[OQ-1](providers.md#pv-oq-1)** (profiles) — `autonomy` and `profile` stay two kinds | The confinement-conditional keys live in `autonomy` "and nowhere else", and the selectors are asymmetric: autonomy keys off the constructor-only fail-closed notch, profile names arrive through a merge an agent can edit. |
 | **[OQ-16](providers.md#pv-oq-16)/[OQ-17](providers.md#pv-oq-17)** (profiles) — the `profile` gate on `config-overlay` reads user-scope config at the HOST notch | A gated overlay rewrites real-home keys and a workspace config is agent-editable; inside a jail the blast radius is the disposable home, so the jail notch uses the full effective table. |
-| **Q1.3** — `requires` is its own kind, CombineShared | Install and presence are different claims; conflating them made a pack either lie about a baked binary or lose its `install_hints` entirely. `requires` owns no path, so many packs requiring one binary is not a collision. |
-| **Q2.1** — several `program` contributions per pack, each with its own launcher | Exclusivity is per `bin`; `shellcheck` + `shfmt` in one pack is ordinary, and there is no case for constricting packs. |
-| **Q3.1** — prune only unconfigured slugs, contents-only; keep the unresolvable. **Superseded by [OQ-PK2](#oq-pk2)**: each launch stages a tree of its own, so there is no shared tree to prune | Clear-then-restage would discard a pack the user still wants because it could not be fetched; the staging root's inode is captured by a live jail's bind. Both still hold, and per-launch trees meet them by construction: no launch writes another's tree. |
+| <a id="q1-3"></a>**Q1.3** — `requires` is its own kind, CombineShared | Install and presence are different claims; conflating them made a pack either lie about a baked binary or lose its `install_hints` entirely. `requires` owns no path, so many packs requiring one binary is not a collision. |
+| <a id="q2-1"></a>**Q2.1** — several `program` contributions per pack, each with its own launcher | Exclusivity is per `bin`; `shellcheck` + `shfmt` in one pack is ordinary, and there is no case for constricting packs. |
+| <a id="q3-1"></a>**Q3.1** — prune only unconfigured slugs, contents-only; keep the unresolvable. **Superseded by [OQ-PK2](#oq-pk2)**: each launch stages a tree of its own, so there is no shared tree to prune | Clear-then-restage would discard a pack the user still wants because it could not be fetched; the staging root's inode is captured by a live jail's bind. Both still hold, and per-launch trees meet them by construction: no launch writes another's tree. |
+| <a id="two-provenance-derivations-row"></a>[**Two provenance derivations**](#two-provenance-derivations) (findings index #8, ruled 2026-08-02) — `agentcfg.Compose`'s fold and `entrypoint.rmwProvenance`'s write-order replay both answer "which layer won", and stay two until a third derivation exists | They answer one question about different mechanisms: a fold has every layer in hand, and an `rmw` write has no fold, its precedence being write order. One implementation would need a synthetic layer stack for `rmw` or a simulated write order for the fold. Maintainer ruling: *"yes, wait for 3 to unify."* The shared-corpus parity table is what holds the two to one answer meanwhile. |
 | **[OQ-PK2](#oq-pk2)** — one immutable pack tree per launch, plus a notice on attach; built 2026-09-26 | An attach that re-staged handed a running jail pack contracts its binaries may not read (v0.10.0 cannot boot on this tree's claude and pi), and left a live jail inconsistent after a changed-config attach. |
 | **WB-D9..D12** — `needs` names an embedded pack, resolves before staging, joins user selection, and always prints | A fetched pack needs-ing another would make selection a supply-chain channel; a silent join is the one forbidden behavior. |
 | <a id="oq-pb1"></a>[**OQ-PB1**](#oq-pb1) (briefing defaults) — shipped prose lives in a `briefing/` directory of `*.md` files at the pack root, read one level deep, ordered per pack and never globally | A root `BRIEFING.md` would be shipped content spelled in the repository's grammar (uppercase root Markdown), which is how `AGENTS.md` got its second reader, and one file cannot be the unit per-file governance routes. A global sort across packs would let one pack's filenames reorder another pack's rules. |
