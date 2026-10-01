@@ -599,6 +599,10 @@ sets, and a jail without pi no longer carries it.
 
 ### Fixed
 
+- On a Mac with Determinate Nix, `yolo check` no longer tells a user the Nix daemon does not trust to
+  add an include line to `/etc/nix/nix.conf`, the file Determinate Nix manages and replaces. It
+  misread that file's own `!include nix.custom.conf` line as missing; the hint now names
+  `nix.custom.conf`.
 - `yolo prune --apply` now removes the old yolo store paths it lists on a Nix installed with the
   official installer and no `experimental-features` line. It used to fail on each one with "experimental
   Nix feature 'nix-command' is disabled".

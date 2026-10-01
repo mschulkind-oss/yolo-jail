@@ -55,6 +55,20 @@ func TestNixCustomConfIncluded(t *testing.T) {
 	if inc, ok := nixCustomConfIncludedAt(conf); !inc || !ok {
 		t.Errorf("bare include => (%v,%v), want (true,true)", inc, ok)
 	}
+	// The Determinate installer's own footer is RELATIVE, which nix resolves against the
+	// including file's directory. Reading it as "no include" sent every untrusted Determinate
+	// user to append a line to the nix.conf Determinate marks "do not modify".
+	for _, line := range []string{"!include nix.custom.conf", "!include ./nix.custom.conf"} {
+		must(t, os.WriteFile(conf, []byte("# DETERMINATE NIX CONFIG\n"+line+"\n"), 0o644))
+		if inc, ok := nixCustomConfIncludedAt(conf); !inc || !ok {
+			t.Errorf("%q => (%v,%v), want (true,true)", line, inc, ok)
+		}
+	}
+	// A relative include of some OTHER file is still not the custom conf.
+	must(t, os.WriteFile(conf, []byte("!include machines.conf\n"), 0o644))
+	if inc, ok := nixCustomConfIncludedAt(conf); inc || !ok {
+		t.Errorf("unrelated relative include => (%v,%v), want (false,true)", inc, ok)
+	}
 }
 
 func TestDetectNixDaemonLabel(t *testing.T) {

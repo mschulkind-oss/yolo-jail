@@ -73,7 +73,14 @@ func nixCustomConfIncludedAt(confPath string) (bool, bool) {
 		for _, prefix := range []string{"!include", "include"} {
 			if strings.HasPrefix(stripped, prefix) {
 				rest := strings.TrimLeft(stripped[len(prefix):], " \t\r\f\v")
-				if rest == "/etc/nix/nix.custom.conf" {
+				// nix resolves a relative include against the including file's directory,
+				// and the Determinate installer writes exactly that: `!include nix.custom.conf`.
+				target := rest
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(filepath.Dir(confPath), target)
+				}
+				if rest == "/etc/nix/nix.custom.conf" ||
+					filepath.Clean(target) == filepath.Join(filepath.Dir(confPath), "nix.custom.conf") {
 					return true, true
 				}
 			}
