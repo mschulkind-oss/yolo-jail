@@ -246,7 +246,7 @@ func TestACopyThroughAPrefixKeepsTheChildsOwnWords(t *testing.T) {
 	argsFile := filepath.Join(dir, "args")
 	wrapper := writeScript(t, filepath.Join(dir, "wrapper"), `shift 2; exec "$@"`)
 	copier := writeScript(t, filepath.Join(dir, "skopeo"),
-		"printf '%s\\n' \"$@\" > "+argsFile+"\n"+
+		"printf '%s\\n' \"$@\" > "+shWord(argsFile)+"\n"+
 			"echo 'time=... level=fatal msg=\"copying layers: broken pipe\"' >&2\nexit 1")
 
 	var out bytes.Buffer
@@ -330,7 +330,7 @@ func TestARefusedNamespaceIsNotRetried(t *testing.T) {
 			dir := t.TempDir()
 			counter := filepath.Join(dir, "n")
 			copier := writeScript(t, filepath.Join(dir, "skopeo"),
-				"printf x >> "+counter+"; echo '"+tc.stderr+"' >&2; exit 1")
+				"printf x >> "+shWord(counter)+"; echo '"+tc.stderr+"' >&2; exit 1")
 			var out bytes.Buffer
 			if copyImageWithRetry(copyArgv(nil, copier, "/nix/store/a.json",
 				"containers-storage:x:y"), &out) {

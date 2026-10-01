@@ -254,7 +254,7 @@ func TestTheLayoutCopyAsksForUncompressedLayers(t *testing.T) {
 	// Record argv, then write the minimal layout a real copier would, so the tar
 	// and the load that follow have something to read.
 	copier := writeScript(t, filepath.Join(dir, "skopeo"),
-		"printf '%s\\n' \"$@\" > "+argsFile+"\n"+
+		"printf '%s\\n' \"$@\" > "+shWord(argsFile)+"\n"+
 			"for a in \"$@\"; do last=$a; done\n"+
 			"d=${last#oci:}; d=${d%%:*}\n"+
 			"mkdir -p \"$d/blobs/sha256\" && echo '{}' > \"$d/index.json\" && echo '{}' > \"$d/oci-layout\"\n")

@@ -229,7 +229,7 @@ func TestTheDefaultSeamReadsPodmanInfoOnceAndCopiesIntoItsStore(t *testing.T) {
 	}
 	calls := filepath.Join(dir, "podman-info-calls")
 	writeScript(t, filepath.Join(bin, "podman"),
-		`[ "$1" = info ] || exit 1`+"\nprintf x >> "+calls+"\ncat <<'EOF'\n"+rootlessInfo+"\nEOF")
+		`[ "$1" = info ] || exit 1`+"\nprintf x >> "+shWord(calls)+"\ncat <<'EOF'\n"+rootlessInfo+"\nEOF")
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	storePath := storeManifest(t, "conf-image")

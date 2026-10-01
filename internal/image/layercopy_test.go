@@ -32,6 +32,14 @@ func writeScript(t *testing.T, path, body string) string {
 	return path
 }
 
+// shWord is s as ONE /bin/sh word, for splicing a fixture path into a writeScript body. The
+// paths spliced are under t.TempDir(), which the machine chooses: bare, a TMPDIR with a space
+// in it makes `printf x >> <path>` append to the path's first word and hand printf the rest,
+// so the recorder writes beside the test's directory and the test reads nothing.
+func shWord(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // TestTheDestinationsCarryTheirTransportAndTheirName pins the two destination
 // spellings, because they are the whole of "the image is named on the way in"
 // and each is a string skopeo parses rather than a struct anyone type-checks.
@@ -77,7 +85,7 @@ func TestTheCopierArgvIsWhatSkopeoNeeds(t *testing.T) {
 	dir := t.TempDir()
 	argsFile := filepath.Join(dir, "args")
 	copier := writeScript(t, filepath.Join(dir, "skopeo"),
-		"printf '%s\\n' \"$@\" > "+argsFile)
+		"printf '%s\\n' \"$@\" > "+shWord(argsFile))
 
 	var out bytes.Buffer
 	ok, _ := copyImage(copyArgv(nil, copier, "/nix/store/abc-image.json",
@@ -138,8 +146,8 @@ func TestACopyIsRetriedExactlyOnce(t *testing.T) {
 		dir := t.TempDir()
 		counter := filepath.Join(dir, "n")
 		copier := writeScript(t, filepath.Join(dir, "skopeo"),
-			"printf x >> "+counter+"; test -s "+counter+" && "+
-				"[ $(wc -c < "+counter+") -gt 1 ]")
+			"printf x >> "+shWord(counter)+"; test -s "+shWord(counter)+" && "+
+				"[ $(wc -c < "+shWord(counter)+") -gt 1 ]")
 		var out bytes.Buffer
 		if !copyImageWithRetry(copyArgv(nil, copier, "/nix/store/a.json",
 			"containers-storage:x:y"), &out) {
@@ -157,7 +165,7 @@ func TestACopyIsRetriedExactlyOnce(t *testing.T) {
 		dir := t.TempDir()
 		counter := filepath.Join(dir, "n")
 		copier := writeScript(t, filepath.Join(dir, "skopeo"),
-			"printf x >> "+counter+"; exit 1")
+			"printf x >> "+shWord(counter)+"; exit 1")
 		var out bytes.Buffer
 		if copyImageWithRetry(copyArgv(nil, copier, "/nix/store/a.json",
 			"containers-storage:x:y"), &out) {
