@@ -2,7 +2,7 @@
 title: "Handoff — finishing the fzf pack, and what changed under it"
 status: accepted
 stage: DECIDED
-next: "Move the example pack's briefing out of AGENTS.md (docs/examples/claude-fzf-pack/pack.json and its README's snippet): `yolo pack lint --allow-exec docs/examples/claude-fzf-pack` has refused the pack since d7178caf"
+next: "The maintainer, on the host: copy the real finder over bin/file-suggestion.sh, then copy the pack out and select it at user scope (§6); nothing is left in the tree"
 ---
 
 # Handoff — finishing the fzf pack, and what changed under it
@@ -14,16 +14,11 @@ adopting it by hand).
 ([§7](#7-how-to-verify-after-any-change)). Re-checked against the tree 2026-09-30: of the four
 things this handoff said were not done, the `requires` declaration shipped
 ([§2.2](#22-no-program-contribution--a-workaround-not-a-design-choice--adopted-requires-2026-08-03)),
-and the two host-side copies ([§6](#6-checklist-for-a-successor)) are the maintainer's. **The
-pack no longer lints**, which is the work left in the tree (below).
-
-> [!WARNING]
-> **Measured 2026-09-30: `yolo pack lint --allow-exec docs/examples/claude-fzf-pack` exits 1.**
-> The pack's `briefing` contribution reads `"from": "AGENTS.md"`, and since `d7178caf`
-> (2026-09-23) a pack may not ship a file named `AGENTS.md` as prose, because agent tools read
-> that name at any depth (`internal/packdecl/contributes.go`). The refusal names its own fix:
-> move the prose under `briefing/` and point `from` at it. The README's adoption snippet carries
-> the same `from`, so a copy made from it fails the same way.
+and the two host-side copies ([§6](#6-checklist-for-a-successor)) are the maintainer's. The
+pack stopped linting on 2026-09-23 and lints clean again from 2026-09-30, its prose moved under
+`briefing/` and addressed to claude by name; the unit suite now lints every example pack, so the
+next schema change that would strand it fails there first
+([§2.5](#25-the-pack-does-not-lint--fixed-2026-09-30)). Nothing is left in the tree.
 
 The pack's own README (`docs/examples/claude-fzf-pack/README.md`) covers what it contains and
 how to adopt it — read that first, and do not duplicate it here. This doc is only what a
@@ -166,6 +161,37 @@ The conversion landed **with** Option 1 rather than before it, deliberately: the
 form is no longer merely discouraged — selecting it alongside `claude` refuses the launch, so
 leaving the example on Layout B would have shipped a pack that cannot start a jail.
 
+### 2.5 ~~The pack does not lint~~ — FIXED 2026-09-30
+
+From `d7178caf` (2026-09-23) until this fix, `yolo pack lint docs/examples/claude-fzf-pack`
+exited 1, and so would every launch selecting a copy, since a `packload.LoadDir` problem is fatal
+there. The `briefing` contribution read `"from": "AGENTS.md"`, and a pack may no longer ship a
+file named `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` as prose, because agent tools read those names
+as a repository's own instructions at any depth
+([P1 (briefing defaults)](../reference/pack-system.md#briefing-p1); the refusal is
+`packdecl.ReservedBriefingSourceProblem`). Nothing in the suite read the example, so the commit
+that added the refusal stayed green while the one pack the docs hold up as the worked example
+stopped loading.
+
+The fix moves the prose to `briefing/claude-fzf.md` and declares it as
+`{"kind": "briefing", "from": "briefing/claude-fzf.md", "agents": ["claude"]}`. The `into:
+".claude/CLAUDE.md"` it carried is replaced by `agents`, not kept: a content `into` narrows only
+at `yolo host apply` and is a broadcast in a jail
+([the note under the briefing rules](../reference/pack-system.md#briefing-non-goals)), and lint
+says so and suggests `agents`, so keeping it would have left the example drawing lint's own
+advice. The README's snippet and file table moved with it.
+
+`TestExamplePacksLintClean` (`internal/cli/packexamples_test.go`) is the guard: it runs
+`yolo pack lint`'s own entry point over every directory under `docs/examples/` and fails on a
+refusal or on any advice line. Before the fix it failed with the refusal above. With the old
+`into` kept and only the file moved, it fails on the advice.
+
+MEASURED 2026-09-30 at the host notch, in-process on a throwaway home selecting `claude` and a
+copy of the pack: `--assert` delivers the script at `0o555`, the `fileSuggestion` key and the
+prose in `~/.claude/CLAUDE.md`, and a second `--assert` writes nothing. UNMEASURED: the jail
+notch since the move ([§7](#7-how-to-verify-after-any-change) steps 5 and 6). The `agents` shape
+is the one the claude pack's own `briefing/worktrees.md` uses in every jail.
+
 ---
 
 ## 3. The trap that was defused by convention, and is now closed by the mechanism
@@ -192,7 +218,7 @@ mechanism stayed able to do the same damage through the next pack anyone wrote.
   `yolo host apply`, and in `yolo pack footprint`/`yolo check`, naming both packs and the
   conversion.
 
-Verified state: `yolo pack lint --allow-exec <dir>` reports
+Verified state: `yolo pack lint <dir>` reports
 `config-overlay claude/settings contributes keys (owner still wins)`, and the in-jail capture
 sidecars are present *and populated* (`rmw` writes none at all, so their presence is the proof)
 with `fileSuggestion → config-overlay:claude-fzf` in the provenance record.
@@ -207,11 +233,11 @@ reading only the pack would miss these.
 | change | why it matters to this pack |
 |---|---|
 | **`files` kind implemented** (jail + host) | the pack's script delivery *only just started working*; before, `files` was inert at every target while `pack lint` reported it fine |
-| **exec bit now survives** `packstage`/`copyTree`/`host_files` | the script arrives `0o555`/`0o755` instead of `0o644`; `allow_exec` now grants the bit THROUGH, not just admission |
-| **`allow_exec` is a CONSUMER opt-in** | the pack cannot self-grant it; the config entry needs `"allow_exec": true` or staging refuses. The error message now says so and names `~/.config/yolo-jail/config.jsonc` |
+| **exec bit now survives** `packstage`/`copyTree`/`host_files` | the script arrives `0o555`/`0o755` instead of `0o644`; `allow_exec` then granted the bit THROUGH, not just admission. Since 2026-08-30 there is no gate: the bit stages through with no opt-in |
+| **`allow_exec` is a CONSUMER opt-in** | the pack cannot self-grant it; the config entry needed `"allow_exec": true` or staging refused. **Retired 2026-08-30**: a config entry still carrying `allow_exec` is now refused as an unknown key |
 | **briefing is a delimited managed block** | the pack's prose is re-asserted idempotently inside markers; the user's own prose outside them is untouched |
 | **`files` → `.claude` would shadow the settings surface** | why `into` is `.claude/bin`. A `files` tree is a `:ro` mount, so claiming the whole dir makes the boot refuse with "read-only file system". Now caught in pre-flight |
-| **mount dedup for briefing + skills** | two packs at one destination used to fail with podman's duplicate-mount-destination; that is why this pack can declare a briefing at `.claude/CLAUDE.md` alongside the claude pack |
+| **mount dedup for briefing + skills** | two packs at one destination used to fail with podman's duplicate-mount-destination; that is why this pack could declare a briefing at `.claude/CLAUDE.md` alongside the claude pack. It now addresses claude by `agents` instead ([§2.5](#25-the-pack-does-not-lint--fixed-2026-09-30)) |
 | **`install_hints` on all six shipped packs** (8.3) | the model this pack should follow once [§2.2](#22-no-program-contribution--a-workaround-not-a-design-choice--adopted-requires-2026-08-03) unblocks — and the reason its absence is a gap rather than a non-issue |
 | **manifests read tolerantly in-jail** (`DecodeTolerant`) | a new `pack.json` field no longer bricks a jail running an older baked image |
 
@@ -249,9 +275,10 @@ lists them as work items. Summarized so a successor does not rediscover them:
       2026-08-02: no bug.** It reads stdin via `jq -r '.query // ""'` and already satisfies
       the whole contract ([§1](#1-the-one-thing-that-must-be-checked-on-the-host-before-adoption)).
 - [ ] Copy the real script over `bin/file-suggestion.sh`, keep the filename and the exec bit,
-      re-run `yolo pack lint --allow-exec <dir>`.
+      re-run `yolo pack lint <dir>`.
 - [ ] Copy the pack to `~/.dotfiles/claude-fzf/` (or wherever personal packs live) and add the
-      config entry from the README — **including `"allow_exec": true`**.
+      config entry from the README. **Not** `"allow_exec": true`, which this list used to ask
+      for: the key was retired 2026-08-30 and is now refused as unknown.
 - [x] ~~Do NOT add `mode` to the `config` contribution~~ — moot: the pack declares
       `config-overlay`, which cannot set `mode` at all ([§3](#3-the-trap-that-was-defused-by-convention-and-is-now-closed-by-the-mechanism)).
 - [x] ~~When `config-overlay` lands, convert the `config` contribution to it~~ — **done
@@ -267,12 +294,14 @@ lists them as work items. Summarized so a successor does not rediscover them:
 The sequence used originally, all against a throwaway `$HOME` under `mktemp -d` — **never a
 real home**:
 
-1. `yolo pack lint --allow-exec <pack dir>` → clean, and confirm it says
+1. `yolo pack lint <pack dir>` → clean with no `ℹ` advice line, and confirm it says
    **`config-overlay claude/settings`** — a `config` claim there would mean the pack regressed
-   to Layout B, which now refuses the launch.
+   to Layout B, which now refuses the launch. For the copy in this repository,
+   `TestExamplePacksLintClean` checks the first half (clean, no advice) on every unit-suite
+   run.
 2. `yolo host apply` (observe) → writes nothing.
 3. `yolo host apply --assert` → script at `0o555`, `fileSuggestion` present alongside
-   claude's own `preferences`/`permissions`, briefing block written, and **exactly one**
+   claude's own `permissions`, briefing block written, and **exactly one**
    `claude/settings rendered` line (two would be the R4 tell, and is now impossible).
 4. **Second `--assert` → byte-identical.** This is the test that catches an accumulating
    render; run it every time.

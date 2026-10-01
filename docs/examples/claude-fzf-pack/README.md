@@ -11,11 +11,13 @@ existed to enable, and the worked example behind
 
 **It is an EXAMPLE, not something yolo ships.** It deliberately does not live in
 `packs/` — that directory holds the official packs baked into the binary, and
-adding one would change the shipped product. *(That count has moved twice since this was
-written: `packs/` held **ten** on 2026-08-23 and holds **twelve** as of 2026-09-02 — six
-install an agent; five of the other six ship a loophole, `audio` also shipping an `env`
-block; and `zai` ships neither. The argument is unaffected; the number was.)* Copy this directory to
+adding one would change the shipped product. Copy this directory to
 `~/.dotfiles/claude-fzf/` (or anywhere) and point your config at it.
+
+It is still checked: the unit suite runs `yolo pack lint` over every pack under
+`docs/examples/` and fails on a refusal or on any of lint's advice
+(`TestExamplePacksLintClean`), so a schema change that would strand a copy of
+this pack is caught here first.
 
 ---
 
@@ -25,7 +27,7 @@ block; and `zai` ships neither. The argument is unaffected; the number was.)* Co
 |---|---|
 | [`pack.json`](pack.json) | the manifest: five contributions (two `requires`, `files`, `config-overlay`, `briefing`) |
 | [`bin/file-suggestion.sh`](bin/file-suggestion.sh) | the finder itself — **a reference implementation to replace** |
-| [`AGENTS.md`](AGENTS.md) | briefing prose telling the agent the finder exists and not to edit it in place |
+| [`briefing/claude-fzf.md`](briefing/claude-fzf.md) | briefing prose telling the agent the finder exists and not to edit it in place |
 
 ### ⚠ [`bin/file-suggestion.sh`](bin/file-suggestion.sh) is a starting point, not your script
 
@@ -174,9 +176,9 @@ has no record of writing.
 
 The `claude` pack stays the **sole owner** of `~/.claude/settings.json`; this pack
 is explicitly a **contributor**. It names the surface by identity and contributes
-one key, folding in *below* the owner's `managed` layer — so claude's own
-`preferences`, and its `permissions` from the `autonomy` kind, all coexist, and
-the owner still wins a genuine conflict.
+one key, folding in *below* the owner's `managed` layer — so claude's own keys
+(its `statusLine`, and the `permissions` its `autonomy` contribution sets) all
+coexist, and the owner still wins a genuine conflict.
 
 **What a contributor cannot do, mechanically:** the overlay body may carry only
 `managed`. Every field that would redefine the *surface* — `agent`, `name`,
@@ -218,8 +220,29 @@ were fighting over it (ruling R4).
 ### `briefing` → telling the agent it exists
 
 ```jsonc
-{ "kind": "briefing", "from": "AGENTS.md", "into": ".claude/CLAUDE.md" }
+{ "kind": "briefing", "from": "briefing/claude-fzf.md", "agents": ["claude"] }
 ```
+
+**The prose lives under `briefing/`, not in a root `AGENTS.md`.** Agent tools read
+`AGENTS.md`, `CLAUDE.md` and `GEMINI.md` as a *repository's own* instructions, and a
+pack is often a repository, so yolo never ships a file with one of those names as
+pack prose and refuses a `from` naming one
+([P1 (briefing defaults)](../../reference/pack-system.md#briefing-p1)). This pack
+named its root `AGENTS.md` until 2026-09-30, so from 2026-09-23, when that refusal
+landed, a copy of it did not load: `yolo pack lint` refused it, and so did every
+launch selecting it.
+
+**`agents: ["claude"]`, not `into: ".claude/CLAUDE.md"`.** The prose is about
+claude's own settings and directory, so it is addressed to claude by name, and that
+narrows delivery at both notches. A content `into` narrows only at `yolo host apply`:
+in a jail every agent's briefing receives it
+([the note under the briefing rules](../../reference/pack-system.md#briefing-non-goals)),
+and `yolo pack lint` says so and suggests this spelling. Naming the agent rather than
+its path also leaves where claude reads its briefing to the claude pack, the one pack
+that can keep that path current. The cost is that the pack now needs `claude`
+selected, since an `agents` entry naming an agent no selected pack provides refuses
+the launch; the rest of the pack assumes claude already, its `files` and
+`config-overlay` both acting on claude's own directory and settings.
 
 **Worth including, for one specific reason:** both paths this pack owns are
 *traps for an agent that does not know they are managed*. `~/.claude/bin/` is a
@@ -250,8 +273,12 @@ $ fd --type f .
   ⚠ fd not available                  # the real /bin/fd is now unreachable
 ```
 
-Launchers now live in `~/.yolo-launchers`, ordered **after** `/bin`, so an
-installer is reached only when nothing else provides the name.
+Launchers then moved to `~/.yolo-launchers`, ordered **after** `/bin`, so an
+installer was reached only when nothing else provided the name. They have since
+moved again, to `~/.yolo/bin/launch`, ahead of the install prefixes so a launcher
+stays reachable after its first install; the shadowing is now prevented when the
+launcher is generated instead, since none is written for a name `/bin` or
+`/usr/bin` already provides.
 
 **2. Only the first `program` per pack installed** (fixed 2026-08-03).
 `InstallContributions()` returned inside its loop, so a pack declaring `fd` *and*
@@ -295,6 +322,17 @@ The guarded-posture check also passes: at the host notch,
 `skipDangerousModePermissionPrompt` is `false` and `permissions.defaultMode` is
 `default`, so claude's jail-bypass keys do **not** reach the real home.
 
+**Re-verified 2026-09-30**, after the prose moved to [`briefing/claude-fzf.md`](briefing/claude-fzf.md)
+and was addressed with `agents: ["claude"]`, in-process against the tree's own
+code on a throwaway `$HOME` with `"packs": ["claude", "file://<copy>"]`, for the
+host half of the table. Lint is clean with no advice, still 4 files and 6 claims, and lists
+`briefing/claude-fzf.md → claude` under `delivers:`. `--assert` writes the script at
+`0o555`, `fileSuggestion` beside claude's `permissions`,
+`skipDangerousModePermissionPrompt` and `statusLine` (no `preferences` key any
+more), the prose into `~/.claude/CLAUDE.md`, and one `claude/settings rendered`
+line. A second `--assert` writes nothing ("this home is up to date"). Rows 4 and 5,
+the jail, were not re-run.
+
 **Counterfactual, now enforced rather than merely documented** — the pre-conversion
 `config` form (or any second `config` declaration of `claude/settings`) refuses the
 launch:
@@ -315,9 +353,12 @@ Reported, not fixed (they live in files under concurrent development):
 
 1. **A `program` contribution shadows an image-provided binary and breaks it.**
    ~~The generated `~/.yolo-shims/<bin>` launcher precedes `/bin` on PATH~~ —
-   **FIXED 2026-08-02 by splitting the dir**: launchers now live in
-   `~/.yolo-launchers`, ordered after `/bin`, so an installer is unreachable while
-   a real binary of that name exists. Neither candidate fix was needed (fall
+   **FIXED 2026-08-02 by splitting the dir**: launchers moved to
+   `~/.yolo-launchers`, ordered after `/bin`, so an installer was unreachable while
+   a real binary of that name existed (they have since moved to `~/.yolo/bin/launch`,
+   with the same protection made when a launcher is generated; see
+   [Host deps](#host-deps-fd-fzf-now-declared-as-requires--and-why-they-were-not)
+   above). Neither candidate fix was needed (fall
    through on failure / skip generation) — removing the shadowing removed the
    cause. The launcher's exit-1 tail is unchanged and still right for a genuinely
    absent tool. Original symptom, verified for both `fd` and `fzf`: a pack

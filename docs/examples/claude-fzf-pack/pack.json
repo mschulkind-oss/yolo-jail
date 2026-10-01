@@ -31,8 +31,8 @@
     },
     {
       "kind": "briefing",
-      "from": "AGENTS.md",
-      "into": ".claude/CLAUDE.md"
+      "from": "briefing/claude-fzf.md",
+      "agents": ["claude"]
     }
   ]
 }
