@@ -418,20 +418,74 @@ func StageEmptyCtxCommands(cname, sd string) [][]string {
 // ---------------------------------------------------------------------------
 // HomeContaining returns the user-home dir that contains `workspace`, or ""
 // when the workspace is on neutral ground. A "home" is a direct
-// child of /Users other than /Users/Shared. Pure and path-only. The bool is
-// false when no home contains the workspace.
-func HomeContaining(workspace, usersRoot string) (string, bool) {
-	if usersRoot == "" {
-		usersRoot = "/Users"
-	}
-	// Check the workspace itself, then each ancestor up to the root.
+// child of /Users other than /Users/Shared, under any spelling of /Users a
+// default macOS install resolves to that directory (macOSHomes). Pure and
+// path-only, and the same on every OS: a dry-run on Linux prints the macOS plan.
+// The bool is false when no home contains the workspace; the home is returned
+// in the workspace's own spelling, so a refusal names a path the reader typed.
+func HomeContaining(workspace string) (string, bool) {
+	return macOSHomes.containing(workspace)
+}
+
+// homeLayout is what the neutral-ground check needs to know about the filesystem the homes live
+// on. The check stays LEXICAL — a workspace need not exist yet, and the plan is built on Linux
+// for a dry-run — so the facts that make two spellings one directory are inputs rather than
+// syscalls, which is also what lets a Linux test state each fact on its own.
+type homeLayout struct {
+	// usersRoot is the directory whose direct children are homes.
+	usersRoot string
+	// aliases are other paths that ARE usersRoot: the far end of a firmlink, which
+	// filepath.EvalSymlinks does not resolve because a firmlink is not a symlink.
+	aliases []string
+	// foldCase says the volume compares names case-insensitively, so `/USERS` is usersRoot.
+	foldCase bool
+}
+
+// macOSHomes is the layout a default macOS install has (docs/design/configurable-workspace-root.md
+// §5), and on a Mac homespelling_darwin_test.go checks both facts against the running machine.
+//
+//   - /Users is a firmlink to /System/Volumes/Data/Users (macOS 10.15 split the boot volume into a
+//     read-only system volume and a Data volume, and firmlinks join the two).
+//   - APFS is case-insensitive by default. Folding is ASSUMED rather than probed because the
+//     error only runs one way: on a case-sensitive volume a folded match can only refuse MORE (a
+//     path like `/USERS/x`, which is no home there), never accept a path a byte comparison with
+//     usersRoot refused.
+//
+// The exemption for Shared is NOT folded: see containing.
+var macOSHomes = homeLayout{
+	usersRoot: "/Users",
+	aliases:   []string{"/System/Volumes/Data/Users"},
+	foldCase:  true,
+}
+
+// sharedHomeName is the one child of the users root that is not a home.
+const sharedHomeName = "Shared"
+
+// containing is HomeContaining against layout l. It checks the workspace itself, then each
+// ancestor up to the root.
+//
+// The Shared exemption is matched BYTE FOR BYTE even when l folds case, so this check can only
+// ever refuse more than a byte comparison with usersRoot did, never less: `/Users/SHARED` stays a
+// refused home. Folding it would accept a spelling the rest of the plan does not treat as the
+// shared root (ancestorLiterals keys on "/Users/Shared/"), and on a case-sensitive volume a real
+// account named "shared".
+func (l homeLayout) containing(workspace string) (string, bool) {
 	for _, p := range append([]string{workspace}, pathParents(workspace)...) {
-		parent := pathParent(p)
-		if parent == usersRoot && pathName(p) != "Shared" {
+		if l.isUsersRoot(pathParent(p)) && pathName(p) != sharedHomeName {
 			return p, true
 		}
 	}
 	return "", false
+}
+
+// isUsersRoot reports whether dir is a spelling of l's users root.
+func (l homeLayout) isUsersRoot(dir string) bool {
+	for _, root := range append([]string{l.usersRoot}, l.aliases...) {
+		if dir == root || (l.foldCase && strings.EqualFold(dir, root)) {
+			return true
+		}
+	}
+	return false
 }
 
 // inHomeWorkspaceRefusal is the launch's refusal for a workspace under `home`, and it names

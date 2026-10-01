@@ -77,19 +77,20 @@ func TestBuildRunPlanResolvesTheWorkspaceIntoTheSeatbeltProfile(t *testing.T) {
 // through a real `--dry-run`, which accepted `/Users/Shared/yolo/homelink` →
 // `/Users/matt/sbprobe-home/proj` with `✓ all plan invariants hold`.
 //
-// Spelled against an injected users root so it runs on the Linux machine that develops this
-// repo, where `/Users` does not exist — the call site passes "" and gets `/Users`.
+// Spelled against an injected users root (a homeLayout) so it runs on the Linux machine that
+// develops this repo, where `/Users` does not exist — HomeContaining itself uses macOSHomes.
 func TestHomeContainingIsOnlyAsGoodAsThePathsSpelling(t *testing.T) {
 	const users = "/FakeUsers"
+	layout := homeLayout{usersRoot: users}
 	linkSpelling := users + "/Shared/yolo/homelink"
 	targetSpelling := users + "/matt/sbprobe-home/proj"
 
-	if _, ok := HomeContaining(linkSpelling, users); ok {
+	if _, ok := layout.containing(linkSpelling); ok {
 		t.Fatalf("precondition changed: %q should read as neutral ground", linkSpelling)
 	}
-	home, ok := HomeContaining(targetSpelling, users)
+	home, ok := layout.containing(targetSpelling)
 	if !ok || home != users+"/matt" {
-		t.Fatalf("HomeContaining(%q) = (%q, %v), want (%q, true) — this is the pair that makes "+
+		t.Fatalf("containing(%q) = (%q, %v), want (%q, true) — this is the pair that makes "+
 			"resolving before the check load-bearing", targetSpelling, home, ok, users+"/matt")
 	}
 }

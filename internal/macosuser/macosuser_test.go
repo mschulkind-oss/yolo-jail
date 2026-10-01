@@ -217,16 +217,16 @@ func TestNextFreeID(t *testing.T) {
 }
 
 func TestHomeContaining(t *testing.T) {
-	if h, ok := HomeContaining("/Users/matt/code/proj", ""); !ok || h != "/Users/matt" {
+	if h, ok := HomeContaining("/Users/matt/code/proj"); !ok || h != "/Users/matt" {
 		t.Errorf("= %q %v", h, ok)
 	}
-	if h, ok := HomeContaining("/Users/matt", ""); !ok || h != "/Users/matt" {
+	if h, ok := HomeContaining("/Users/matt"); !ok || h != "/Users/matt" {
 		t.Errorf("home itself = %q %v", h, ok)
 	}
-	if _, ok := HomeContaining("/Users/Shared/yolo/proj", ""); ok {
+	if _, ok := HomeContaining("/Users/Shared/yolo/proj"); ok {
 		t.Error("shared is neutral")
 	}
-	if _, ok := HomeContaining("/opt/yolo/proj", ""); ok {
+	if _, ok := HomeContaining("/opt/yolo/proj"); ok {
 		t.Error("non-/Users is neutral")
 	}
 }

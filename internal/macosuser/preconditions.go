@@ -188,20 +188,20 @@ func LaunchPreconditions() []Precondition {
 			ID: PreconditionNeutralGround, Name: "the workspace's location",
 			Requires: []string{PreconditionMacOS},
 			holds: func(_ LaunchProbes, ws string) bool {
-				_, inHome := HomeContaining(ws, "")
+				_, inHome := HomeContaining(ws)
 				return !inHome
 			},
 			Ready: func(ws string) string { return "Workspace " + ws + " is outside every user's home" },
 			Unmet: func(ws string) string {
-				home, _ := HomeContaining(ws, "")
+				home, _ := HomeContaining(ws)
 				return "Workspace " + ws + " is inside the home folder " + home
 			},
 			Fix: func(ws string) string {
-				home, _ := HomeContaining(ws, "")
+				home, _ := HomeContaining(ws)
 				return inHomeWorkspaceFix(ws, home)
 			},
 			Refusal: func(ws string) string {
-				home, _ := HomeContaining(ws, "")
+				home, _ := HomeContaining(ws)
 				return inHomeWorkspaceRefusal(ws, home)
 			},
 		},

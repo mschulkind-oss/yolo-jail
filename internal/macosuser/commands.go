@@ -256,7 +256,7 @@ func MacosFixPermissions(deps Deps, path string) int {
 		out.printf("[bold red]Not a directory:[/bold red] %s", target)
 		return 1
 	}
-	if _, inHome := HomeContaining(target, ""); inHome {
+	if _, inHome := HomeContaining(target); inHome {
 		out.printf("[bold red]%s is inside a user home[/bold red] — the "+
 			"macos-user backend only manages ACLs on neutral ground "+
 			"(under %s or another non-home root).", target, SharedRootDefault())

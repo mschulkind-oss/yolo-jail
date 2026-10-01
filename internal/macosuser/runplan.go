@@ -414,7 +414,7 @@ func BuildRunPlanWithDaemons(workspace string, cfg *jsonx.OrderedMap, agents, ag
 	bootstrapEnv.Set(paths.ContextDirEnv, contextDir)
 
 	stagedYolo := StagedYoloPath("")
-	offendingHome, offendingSet := HomeContaining(workspace, "")
+	offendingHome, offendingSet := HomeContaining(workspace)
 
 	// THE PROVISIONING STAGE (docs/design/macos-user-provisioning.md half two), composed
 	// here so the dry-run plan shows it and PlanInvariants can check it — the two things

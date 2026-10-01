@@ -547,6 +547,12 @@ sets, and a jail without pi no longer carries it.
   while `yolo check` on the same machine reports nix missing. They now offer nix's command only
   where nix is on the PATH, as they already did for Homebrew, apt, dnf and pacman, and on a
   machine with none of these they say so instead of offering a command that cannot run.
+- On the `macos-user` backend, a project inside a home folder is now refused however its path is
+  spelled. A path that changes the case of `/Users`, such as `/USERS/you/project`, or that goes
+  through `/System/Volumes/Data/Users` reaches the same folder on a standard Mac, but it used to
+  pass as neutral ground: a launch accepted it, and `yolo macos-fix-permissions` shared it with the
+  sandbox user. The launch and `yolo check` now say the project is inside a home folder and how
+  to move it, and `yolo macos-fix-permissions` refuses it.
 - An agent's own install script can no longer stop and wait for an answer: in a jail, on its first
   use or when it updates, and at `yolo host apply --assert`, it now runs with no terminal and no
   input, so a question it asks takes its default or fails instead of waiting. At the host, that

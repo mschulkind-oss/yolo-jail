@@ -3,7 +3,7 @@ title: "The configurable workspace root, and why the root is a deny prefix"
 date: 2026-09-16
 status: in-review
 tags: [macos-user, seatbelt, workspace, isolation, config, design]
-summary: "macos-user hardcodes /Users/Shared/yolo as the only place a workspace may live, and the obvious relaxation — let the user configure the root — silently removes the sandbox's only protection against reading their OTHER projects. The reason is that the Seatbelt profile's read policy is (allow default) with a deny on /Users, so sibling projects are hidden by WHERE they sit rather than by anything the root does. The proposal is to derive a second read-deny from the configured root, which makes an arbitrary root safe and also closes a hole that exists under today's default. Includes the four lexical bypasses in the current neutral-ground check and the whitelist that closes them."
+summary: "macos-user hardcodes /Users/Shared/yolo as the only place a workspace may live, and the obvious relaxation — let the user configure the root — silently removes the sandbox's only protection against reading their OTHER projects. The reason is that the Seatbelt profile's read policy is (allow default) with a deny on /Users, so sibling projects are hidden by WHERE they sit rather than by anything the root does. The proposal is to derive a second read-deny from the configured root, which makes an arbitrary root safe and also closes a hole that exists under today's default. Includes the four lexical bypasses the neutral-ground check had, two of which it now refuses, and the whitelist that closes all four."
 stage: DESIGN
 next: "Rule OQ-CW2 — the §5 whitelist waits on it, and should land before anyone relies on today's lexical home check"
 vantage:
@@ -15,10 +15,12 @@ vantage:
 **Status:** 2026-09-16 — four questions open, all in [§8](#8-open-questions). The finding in
 [§3](#3-the-finding-reads-are-allow-default) is what makes this a design rather than a config-key
 ticket, and it is verified against the profile generator rather than reasoned from the docs.
-Nothing in [§4](#4-the-proposal-derive-a-second-deny-from-the-root) or
-[§5](#5-the-tightening-is-separable-and-cheaper) is built (re-checked 2026-09-30):
-`HomeContaining` still compares a path's parent with `/Users` lexically, and `ancestorLiterals`
-still starts from the constant `/Users/Shared/`.
+Neither [§4](#4-the-proposal-derive-a-second-deny-from-the-root)'s derived deny nor
+[§5](#5-the-tightening-is-separable-and-cheaper)'s whitelist is built (re-checked 2026-09-30): the
+launch check is still the blacklist, and `ancestorLiterals` still starts from the constant
+`/Users/Shared/`. The one part of §5 that no question gates is built: since 2026-09-30
+`HomeContaining` folds case and knows the `/Users` firmlink, so the first two rows of §5's table
+are refused and `/var/root` still passes ([what was built](#51-built-the-two-spellings-the-blacklist-can-know)).
 
 **Needs your ruling:** [OQ-CW1](#OQ-CW1), [OQ-CW2](#OQ-CW2), [OQ-CW3](#OQ-CW3), [OQ-CW4](#OQ-CW4).
 
@@ -151,16 +153,16 @@ argument for the doc is that nobody would have known to make them.
 
 Independently of the key, the workspace check is an **open blacklist** — *"is this path inside a user
 home?"* — where it wants to be a **closed whitelist** — *"is this path under the root?"*. A
-blacklist admits anything nobody thought to exclude, and `HomeContaining` is a pure lexical compare
-(`parent == "/Users"`), so four spellings pass it today. All four are confirmed by reading the
+blacklist admits anything nobody thought to exclude, and `HomeContaining` was a pure lexical compare
+(`parent == "/Users"`), so four spellings passed it. All four were confirmed by reading the
 function; that each reaches the same bytes on real macOS is reasoned from platform behaviour and has
 not been measured on hardware:
 
-| Spelling | Why it passes | Why it is the same directory |
-|---|---|---|
-| `/USERS/alice/x`, `/users/alice/x` | `"/USERS" != "/Users"` | APFS is case-insensitive by default |
-| `/System/Volumes/Data/Users/alice/x` | the parent is `/System/Volumes/Data/Users` | `/Users` is a firmlink to it |
-| `/var/root/x` | not under `/Users` at all | it is root's home, which the check does not know about |
+| Spelling | Why it passed | Why it is the same directory | Since 2026-09-30 |
+|---|---|---|---|
+| `/USERS/alice/x`, `/users/alice/x` | `"/USERS" != "/Users"` | APFS is case-insensitive by default | refused |
+| `/System/Volumes/Data/Users/alice/x` | the parent is `/System/Volumes/Data/Users` | `/Users` is a firmlink to it | refused |
+| `/var/root/x` | not under `/Users` at all | it is root's home, which the check does not know about | **still passes** |
 
 A whitelist closes all four at once and cannot be bypassed by a new spelling of a home, because it
 stops asking about homes. `HomeContaining` still has work to do elsewhere and should stay for those
@@ -173,6 +175,34 @@ that a tightened workspace check would refuse.
 > launches today, so tightening later withdraws something people may already have built a workflow
 > on. Landing the whitelist while the accepted set is still the default root costs nobody anything;
 > landing it afterwards is a breaking change.
+
+### 5.1 Built: the two spellings the blacklist can know
+
+`HomeContaining` keeps the callers named above after any whitelist lands, so the case and firmlink
+rows are closed in it rather than left for the whitelist. It stays lexical, because a workspace
+need not exist yet and a dry-run builds the macOS plan on Linux. The two facts that make those
+spellings one directory are therefore inputs to the comparison (`homeLayout`, with `macOSHomes` as
+the default macOS layout), not syscalls:
+
+- **The firmlink.** `/System/Volumes/Data/Users` is another spelling of `/Users`. A firmlink is
+  not a symlink, so the launch's symlink resolution has nothing to rewrite there (reasoned, like
+  the table).
+- **Case.** Names compare case-insensitively. This is assumed rather than probed, because the error
+  runs one way: on a case-sensitive volume a folded match can only refuse more.
+
+**The `Shared` exemption is matched exactly**, so the change only ever moves a path from accepted
+to refused: `/Users/SHARED/yolo/x` stays refused as a home, as it was before. Folding it would
+accept a spelling `ancestorLiterals` does not treat as the shared root and, on a case-sensitive
+volume, an account named `shared`.
+
+`internal/macosuser/homespelling_test.go` drives each spelling through every caller: the launch,
+`yolo check`, the plan invariants, `macos-fix-permissions` and the capture plan.
+`homespelling_darwin_test.go` checks both facts against the Mac it runs on, and refuses each
+spelling that reaches the running user's real home after the launch's own symlink resolution. As
+of 2026-09-30 it has not run on a Mac; the `check-macos` CI job runs it.
+
+`/var/root` (the third row) is not closed, and neither is any spelling of a home this layout does
+not list. Both wait on the whitelist, and so on [OQ-CW2](#OQ-CW2).
 
 ## 6. What else the key touches
 

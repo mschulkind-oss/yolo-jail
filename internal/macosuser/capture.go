@@ -264,7 +264,7 @@ func BuildCapturePlan(opts CaptureOptions) CapturePlan {
 	bootstrapEnv := buildBootstrapEnv(stagingRoot, opts.Config, gitIdentity, opts.SandboxEnv,
 		packRoot, "", "", HostContext{}, "", stagingHome, darwinPrefix, opts.BlockedTools)
 	stagedYolo := StagedYoloPath("")
-	offendingHome, offendingSet := HomeContaining(stagingRoot, "")
+	offendingHome, offendingSet := HomeContaining(stagingRoot)
 
 	// The session env file, keyed on this capture's own cname — never a launch's, which is
 	// what keeps a capture from reading (or sweeping) the environment of a session running
