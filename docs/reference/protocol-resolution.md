@@ -208,10 +208,11 @@ would make the gate depend on a file's existence.
 > **Do not move this gate to the run pre-flight, and do not add a copy there.** It looks like the
 > capability gate's neighbour and it cannot be. The gate needs a resolved SELECTION — it refuses a
 > pairing this launch actually asked for, and says nothing about the providers merely sitting in
-> the table — and the run pre-flight reads the MERGED USER CONFIG only. It cannot see a
-> pack-shipped provider's endpoints at all, so a copy there would refuse a different set of
-> launches than the one that ships. `internal/packload/protocolresolution.go` states this where
-> the gate is, and `preflight.go`'s own ⚠ records the same boundary for its census.
+> the table — and the run pre-flight resolves no profile. Its capability census counts every
+> source the config and the selected packs declare, whichever one a profile makes active
+> (`internal/config/capabilities.go`), so a copy there would refuse a different set of launches
+> than the one that ships. `internal/packload/protocolresolution.go` states this where the gate
+> is.
 
 The resolution runs BEFORE the derives and its result is an input to them, so a derive can no
 longer reach a state where it has a key and no address. That is what let claude's derive delete
@@ -227,12 +228,11 @@ a launch that never announces a gate it did not trip; inputs that will not assem
 naming why, never silence.
 
 > [!IMPORTANT]
-> **This is not a second copy, and the difference from `capabilities.go` is the point.** That file
-> restates the launch's capability census because reaching the real one would mean exporting a
-> method on `run.Options` and dragging its printer in. Nothing of the kind applies here — the gate
-> is a free function over inputs a caller can assemble — so `check` calls
-> `packload.PairingRefusals`, which is the gate `AgentEnv` applies, through the same owner lookup
-> and the same resolver. Two copies of a pairing rule could disagree; there is one.
+> **This is not a second copy.** The gate is a free function over inputs a caller can assemble, so
+> `check` calls `packload.PairingRefusals`, which is the gate `AgentEnv` applies, through the same
+> owner lookup and the same resolver. Two copies of a pairing rule could disagree; there is one.
+> The capability gate's prediction in `check`'s `capabilities.go` was such a copy until
+> 2026-09-30, and now calls the launch's census, `config.UnmetCapabilities`, the same way.
 >
 > **What IS duplicated is the input assembly** — composing the providers and resolving the
 > profiles the way a launch does — and that is the honest residue. Get one of those wrong and the

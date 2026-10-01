@@ -1937,17 +1937,19 @@
     inner jail inherits).
     ENFORCED: a launch that declares a capability nothing satisfies is REFUSED
     (docs/design/agent-auth-modes.md OQ-CAP2).  A capability is satisfied by a
-    declaration — `providers.<name>.capabilities` naming it, or an `mcp_servers.<name>`
-    entry whose "provides" is it — or by the baseline every agent meets
-    (code_editing, command_execution), which needs no declaration.  A server set to
-    null satisfies nothing: the jail deletes it.
-    The refusal runs above the backend dispatch, so it fires on every backend.
-    YOLO_ALLOW_UNMET_CAPABILITIES=1 launches anyway, loudly.  It is there because
-    this gate reads YOUR config and nothing else: a pack DOES state its agent's and
-    its provider's native capabilities, but those join the launch below this check,
-    so a capability you really have can still read as unsatisfied here — not because
-    the gate is wrong.  Writing the same name under `providers.<name>.capabilities`
-    states it in the place this gate reads.
+    declaration — `providers.<name>.capabilities` naming it, an `mcp_servers.<name>`
+    entry whose "provides" is it, or a SELECTED pack that declares it for the agent
+    it installs (claude and agy search the web on their own login) or for a provider
+    it ships (your `providers.<name>` entry overrides that, and null removes it) —
+    or by the baseline every agent meets (code_editing, command_execution), which
+    needs no declaration.  A server set to null satisfies nothing: the jail deletes
+    it.  Any one of these counts for the whole launch, whether or not a profile
+    makes it the source an agent runs on.
+    The refusal runs above the backend dispatch, so it fires on every backend, and
+    `yolo check` predicts it.
+    YOLO_ALLOW_UNMET_CAPABILITIES=1 launches anyway, loudly.  It is there for a
+    capability you really have that nothing declares — an agent whose pack does not
+    state what its login does, or a tool it reaches some way yolo does not deliver.
     The key is no longer exported to the jail: nothing in a jail read
     YOLO_REQUIRED_CAPABILITIES, and the check it stood in for now happens on the host
     before the launch.

@@ -1063,7 +1063,12 @@ func packProviderNameConflicts(loaded []*packload.Pack) []string {
 //
 // Embedded is left unset: config.SelectPacks fills it from the process's one materialization.
 func (o *Options) launchSelection() packload.Selection {
-	cfg := o.stagingCfg
+	return o.launchSelectionFor(o.stagingCfg)
+}
+
+// launchSelectionFor is launchSelection over a config handed in directly, for the one reader
+// that runs before o.stagingCfg is set: the capability gate, inside the config gate itself.
+func (o *Options) launchSelectionFor(cfg *jsonx.OrderedMap) packload.Selection {
 	if cfg == nil {
 		cfg = jsonx.NewOrderedMap()
 	}

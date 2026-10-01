@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 )
 
@@ -85,20 +84,6 @@ func capabilityWorkspace(t *testing.T, body string) string {
 		t.Fatal(err)
 	}
 	return ws
-}
-
-// mustDecodeConfig parses a config literal into the merged-config shape the gate reads.
-func mustDecodeConfig(t *testing.T, s string) *jsonx.OrderedMap {
-	t.Helper()
-	v, err := jsonx.Decode([]byte(s))
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, ok := v.(*jsonx.OrderedMap)
-	if !ok {
-		t.Fatalf("not an object: %T", v)
-	}
-	return m
 }
 
 const gotPastTheGate = "Cannot find yolo-jail repo root"
@@ -235,21 +220,160 @@ func TestTheCapabilityHatchContinuesLoudly(t *testing.T) {
 	}
 }
 
-// TestUnmetCapabilitiesReportsInDeclarationOrderWithoutRepeats is the one direct test
-// here, and it is a SUPPLEMENT to the Run()-level cases above rather than a substitute:
-// it pins what the refusal SAYS (order and de-duplication), which the call-site tests
-// deliberately do not assert.
-func TestUnmetCapabilitiesReportsInDeclarationOrderWithoutRepeats(t *testing.T) {
-	cfg := mustDecodeConfig(t, `{
+// TestTheRefusalNamesEachGapOnceInDeclarationOrder pins what the refusal SAYS, which the
+// cases above deliberately do not assert: web_search is provided and code_editing is
+// baseline, so only image_generation is named, once although it is declared twice. The census
+// itself is config.UnmetCapabilities, whose own tests pin its rows.
+func TestTheRefusalNamesEachGapOnceInDeclarationOrder(t *testing.T) {
+	ws := capabilityWorkspace(t, `{
 	  "required_capabilities": ["image_generation", "web_search", "image_generation", "code_editing"],
 	  "mcp_servers": {"tavily": {"command": "npx", "provides": "web_search"}}
 	}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
 
-	got := unmetCapabilities(cfg)
+	Run(*o)
 
-	want := []string{"image_generation"}
-	if len(got) != len(want) || got[0] != want[0] {
-		t.Errorf("unmetCapabilities() = %v, want %v (web_search is provided, code_editing is "+
-			"baseline, and a name declared twice is one gap)", got, want)
+	if !strings.Contains(stderr.String(), "declares 'image_generation', and nothing") {
+		t.Errorf("the refusal must name image_generation alone, once (web_search is provided, "+
+			"code_editing is baseline, and a name declared twice is one gap):\n%s", stderr.String())
+	}
+}
+
+// --- A SELECTED PACK'S OWN DECLARATIONS (agent-auth-modes.md §6.1 clause 1) ---
+//
+// The cases above pin the census of the user's config. These pin its third surface: a pack
+// declares what its agent's built-in login does (`capabilities` on its `program`) and what the
+// providers it ships do (`capabilities` on its `provider`), and a launch that SELECTS that pack
+// has those capabilities. Until 2026-09-30 the gate read the merged user config alone, so
+// requiring `web_search` with claude selected refused the launch although claude searches
+// natively, and the only way through was the hatch.
+//
+// Each case selects packs through the user config, exactly as a launch does, and drives Run(),
+// so deleting the pack half of the census, or resolving a different pack set than the launch
+// selects, fails a case here rather than only a helper's test.
+
+// capabilityPackHome writes the user config into capabilityWorkspace's HOME: `packs` is
+// user-scope only, so a selection can only be written there.
+func capabilityPackHome(t *testing.T, userBody string) {
+	t.Helper()
+	writeUserConfig(t, os.Getenv("HOME"), userBody)
+}
+
+// refusedForTheCapability reports whether stderr carries the capability gate's own refusal: a
+// control case must refuse for THIS reason, not because something else in its config was wrong.
+func refusedForTheCapability(stderr string) bool {
+	return strings.Contains(stderr, "Refusing to launch: config.required_capabilities declares")
+}
+
+// TestASelectedPacksAgentCapabilitySatisfiesARequiredCapability is the roadmap's case: claude is
+// selected, its pack declares web_search for claude's built-in login, and the launch must not be
+// refused for wanting search.
+func TestASelectedPacksAgentCapabilitySatisfiesARequiredCapability(t *testing.T) {
+	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
+	capabilityPackHome(t, `{"packs": ["claude"]}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
+
+	Run(*o)
+
+	if !strings.Contains(stderr.String(), gotPastTheGate) {
+		t.Errorf("claude is selected and its pack declares web_search, yet the launch did not "+
+			"get past the capability gate:\nstdout:\n%s\nstderr:\n%s",
+			stdout.String(), stderr.String())
+	}
+}
+
+// TestAPacksProgramCapabilitySatisfiesAlone isolates the `program` half: agy needs no other pack,
+// so nothing but its own built-in login's declaration can satisfy the name.
+func TestAPacksProgramCapabilitySatisfiesAlone(t *testing.T) {
+	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
+	capabilityPackHome(t, `{"packs": ["agy"]}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
+
+	Run(*o)
+
+	if !strings.Contains(stderr.String(), gotPastTheGate) {
+		t.Errorf("agy's pack declares web_search on its program, and nothing else in this "+
+			"launch could satisfy it, so the gate ignores a program's declaration:\n"+
+			"stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+}
+
+// TestAPacksProviderCapabilitySatisfiesAlone isolates the `provider` half: zai installs no agent
+// and needs no pack, and the provider it ships declares web_search. It reaches the launch through
+// the composed providers table, the one every derive reads.
+func TestAPacksProviderCapabilitySatisfiesAlone(t *testing.T) {
+	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
+	capabilityPackHome(t, `{"packs": ["zai"]}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
+
+	Run(*o)
+
+	if !strings.Contains(stderr.String(), gotPastTheGate) {
+		t.Errorf("zai's pack ships a provider declaring web_search, yet the launch did not get "+
+			"past the capability gate:\nstdout:\n%s\nstderr:\n%s",
+			stdout.String(), stderr.String())
+	}
+}
+
+// TestAUserOverrideOfAPacksProviderCapabilitiesWins is the control that makes the provider half
+// the launch's COMPOSITION rather than a walk over pack declarations: the user's
+// `providers.zai.capabilities` replaces the pack's list, as it does in the table the launch
+// delivers, so an empty list there declares nothing and the launch refuses.
+func TestAUserOverrideOfAPacksProviderCapabilitiesWins(t *testing.T) {
+	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
+	capabilityPackHome(t, `{"packs": ["zai"], "providers": {"zai": {"capabilities": []}}}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
+
+	rc := Run(*o)
+
+	if rc != 1 || !refusedForTheCapability(stderr.String()) {
+		t.Errorf("the user's providers.zai.capabilities: [] overrides the pack's list in the "+
+			"composed table, so nothing provides web_search and the gate must refuse "+
+			"(rc=%d):\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+}
+
+// TestACensusThatCouldNotReadAPackDoesNotRefuse: the one selected pack cannot be read, so it may
+// be the satisfier, and pack staging refuses this launch itself, naming the pack. The gate must
+// neither refuse first (the second fault named first) nor stay silent about what it skipped.
+func TestACensusThatCouldNotReadAPackDoesNotRefuse(t *testing.T) {
+	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
+	capabilityPackHome(t, `{"packs": ["`+filepath.Join(t.TempDir(), "no-such-pack")+`"]}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
+
+	Run(*o)
+
+	if refusedForTheCapability(stderr.String()) {
+		t.Errorf("a selected pack could not be read, so the census proves nothing, and the "+
+			"gate refused anyway:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "cannot tell whether anything satisfies required "+
+		"capability 'web_search'") {
+		t.Errorf("the gate skipped its census silently; it must say what it could not check:\n"+
+			"stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+}
+
+// TestAnUnselectedPacksCapabilitySatisfiesNothing is the selection control: copilot is selected,
+// declares no capability for its own login and needs no pack that does, so a census reading
+// every pack yolo SHIPS (agy, claude, zai) instead of the ones this launch selects would let this
+// launch through.
+func TestAnUnselectedPacksCapabilitySatisfiesNothing(t *testing.T) {
+	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
+	capabilityPackHome(t, `{"packs": ["copilot"]}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
+
+	rc := Run(*o)
+
+	if rc != 1 || !refusedForTheCapability(stderr.String()) {
+		t.Errorf("nothing selected declares web_search, so the gate must refuse "+
+			"(rc=%d):\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
 	}
 }

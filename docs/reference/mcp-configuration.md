@@ -204,9 +204,11 @@ opt in. Which packs declare which capabilities is pack data: `rg -n web_search p
 answers it, and no list here does.
 
 **It is not `required_capabilities`**, though the two share one vocabulary: both read an
-`mcp_servers.<name>.provides` and a `providers.<name>.capabilities`, so a change to either
-declaration moves both. `required_capabilities` refuses a launch whose declared requirement
-nothing satisfies. This rule chooses among things that already work. Config validation refuses
+`mcp_servers.<name>.provides`, a `providers.<name>.capabilities` in the composed table, and the
+`capabilities` a pack declares for its agent's built-in login, so a change to any of those
+declarations moves both. `required_capabilities` refuses a launch whose declared requirement
+nothing satisfies, counting every source the launch carries rather than the one a profile
+selects. This rule chooses among things that already work. Config validation refuses
 two `mcp_servers` entries that declare the same `provides`, which keeps that choice unambiguous.
 
 Then `provides` itself is stripped from every surviving entry, unconditionally: it is yolo's

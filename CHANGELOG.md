@@ -528,6 +528,11 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
 
 ### Fixed
 
+- A config whose `required_capabilities` asks for web search is no longer refused when an agent you
+  selected searches on its own, such as Claude Code or Antigravity, or when a selected pack's
+  provider does, such as z.ai. The launch used to count only what your own config declared, so the
+  only way through was `YOLO_ALLOW_UNMET_CAPABILITIES=1`; it now counts what your selected packs
+  declare too, and `yolo check` agrees with it.
 - An agent's own install script can no longer stop and wait for an answer: in a jail, on its first
   use or when it updates, and at `yolo host apply --assert`, it now runs with no terminal and no
   input, so a question it asks takes its default or fails instead of waiting. At the host, that

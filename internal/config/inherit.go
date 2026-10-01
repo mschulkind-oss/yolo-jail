@@ -168,8 +168,8 @@ var inheritCensus = map[string]keyDisposition{
 	// and its preflight seat on SHAPE ALONE — the distinction matters to whoever
 	// re-decides it, and it stopped being "shape alone on both sides" on 2026-09-17.
 	// OQ-CAP2's fatal refusal (docs/design/agent-auth-modes.md, which config_ref.txt
-	// cites for exactly this key) is BUILT: a LAUNCH now refuses when nothing the config
-	// declares satisfies a required name, from inside the config gate
+	// cites for exactly this key) is BUILT: a LAUNCH now refuses when nothing the config or
+	// its selected packs declare satisfies a required name, from inside the config gate
 	// (internal/cli/run/preflight.go refuseUnmetCapabilities), which is why the key has
 	// to reach an inner launcher — it composes a jail the same gate judges. The
 	// PREFLIGHT seat is still shape alone, because the in-jail read-only commands are

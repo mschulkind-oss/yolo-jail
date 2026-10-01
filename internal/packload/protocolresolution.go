@@ -25,9 +25,9 @@ package packload
 // both notches reduce through. The gate has to see a SELECTION — §4.1 refuses a pairing this
 // launch actually asked for and says nothing about the providers it merely has on the shelf
 // — and the selection is resolved into the profile table AgentEnv already receives. The
-// run pre-flight, where the capability gate sits, reads the merged user config only and
-// cannot see a pack-shipped provider's endpoints at all (preflight.go's own ⚠ records that
-// boundary for its census), so a copy there would refuse a different set of launches.
+// run pre-flight, where the capability gate sits, resolves no profile: its census counts
+// every source the config and the selected packs declare, whichever one a profile makes
+// active (config/capabilities.go), so a copy there would refuse a different set of launches.
 
 import (
 	"errors"
@@ -706,9 +706,8 @@ func hasPackNamed(packs []*Pack, name string) bool {
 //
 // EXTRACTED so AgentEnv and PairingRefusals cannot grow two answers to "whose agent is
 // this". The gate below predicts the gate AgentEnv applies, and a prediction that found a
-// different owner would predict a different launch — which is the failure mode the
-// capability gate's own second copy documents and deliberately accepts. Here it is
-// avoidable, so it is avoided.
+// different owner would predict a different launch — the failure mode the capability gate's
+// second copy carried until its census moved to one function both callers share.
 func binOwner(packs []*Pack, bin string) *Pack {
 	for _, p := range packs {
 		if p.installsBin(bin) {
@@ -727,12 +726,12 @@ func binOwner(packs []*Pack, bin string) *Pack {
 // still refused at launch — the one thing `check` exists to prevent. That is the exact
 // defect capabilities.go was written to fix for the capability gate, one feature later.
 //
-// ⚠ IT IS THE SAME FUNCTION, NOT A MIRROR OF IT. capabilities.go's copy is a copy because
-// reaching the launch's gate would mean exporting a method on run.Options and dragging its
-// printer along; that cost is real and its ⚠ records what the copy buys and what it risks.
-// Nothing of the kind applies here: the gate is already a free function in this package
-// over inputs a caller can assemble, so exporting an entry point is strictly cheaper than
-// restating twelve lines of pairing rules somewhere they can drift.
+// ⚠ IT IS THE SAME FUNCTION, NOT A MIRROR OF IT. capabilities.go's census was a copy until
+// 2026-09-30, because reaching the launch's gate meant exporting a method on run.Options and
+// dragging its printer along; it is now one free function both call
+// (config.UnmetCapabilities), which is the shape this gate had from the start: a free
+// function in this package over inputs a caller can assemble, so exporting an entry point is
+// strictly cheaper than restating twelve lines of pairing rules somewhere they can drift.
 //
 // # What the caller still has to get right, and what it therefore cannot promise
 //
