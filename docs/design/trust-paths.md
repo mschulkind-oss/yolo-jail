@@ -3,14 +3,14 @@ title: "Every path by which someone else's content runs in your jail"
 date: 2026-09-06
 status: accepted
 stage: DECIDED
-next: "Build the jail_daemon half of the TP10 ruling: first give the producer behind notePackLoopholesInert a per-launch answer to whether a declared jail daemon will run (internal/cli/run), then disclose it"
+next: "The boot.log itemization the TP10 ruling named: it needs a host-side sink for detail-only lines, which the launcher's tee does not have (`yolo pack footprint` stands in for it meanwhile)"
 tags: [trust, packs, security, inventory]
-summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. Pinning changes an outcome in three of them, because every gate keys on a declaration and none on content. All ten questions are settled — the fetched-pack approval prompt among them, deleted as theatre, and last the disclosure hole that deletion opened: a wrapped plugin's hooks get their own disclosure class, rendered as one counted line per pack."
+summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. Pinning changes an outcome in three of them, because every gate keys on a declaration and none on content. All ten questions are settled — the fetched-pack approval prompt among them, deleted as theatre, and last the disclosure hole that deletion opened: a wrapped plugin's hooks get their own disclosure class, rendered as one counted line per pack, which also names each loophole jail daemon the launch runs."
 ---
 
 # Every path by which someone else's content runs in your jail
 
-**Status:** 2026-09-23 — an inventory, first written 2026-08-17 and **compacted 2026-09-06
+**Status:** 2026-09-30 — an inventory, first written 2026-08-17 and **compacted 2026-09-06
 and again 2026-09-14.** Ten questions filed and **all ten settled** (seven ruled, three retired), so
 what is owed is work, not a ruling.
 
@@ -21,7 +21,8 @@ what is owed is work, not a ruling.
 > [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner).
 > Its plugin half **shipped 2026-09-17** (`c28bfde7`): a wrapped plugin's hooks and servers get a
 > fourth disclosure class, `disclosureJailExec`, rendered as one counted line per pack at the spawn
-> boundary. **Its `jail_daemon` half is not built**, and the `boot.log` itemization it named has no
+> boundary. **Its `jail_daemon` half shipped 2026-09-30**: the same line names each loophole jail
+> daemon the launch's jail runs. What is left is the `boot.log` itemization it named, which has no
 > host-side sink. Everything else here is settled record. [Outstanding work](#outstanding-work) has
 > what a builder of the remaining half needs.
 
@@ -74,7 +75,7 @@ against exactly one threat, the silent update.
 | **OQ-TP6** | **A refused contribution is a refused launch.** No partial packs — fix the pack, remove the pack, or approve it. **Built 2026-08-18 (`6385dfbb`)**. ⚠ **Its subject was deleted 2026-09-04** by [`OQ-TP9`](#decision-ledger): nothing produces a refusal any more, so the rule stands with nothing to apply to, and binds any future refusal source | 2026-08-18 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 | **OQ-TP7** | **RETIRED, not answered — [`OQ-TP9`](#decision-ledger) deleted its subject.** *"`yolo check` reports PASS on a config the launch refuses, and the refusal's APPROVE option needs a tty and a network."* Every refusal source gated on the deleted `MayAccessHost`, so there is no refusal to predict and no approve path to be unreachable — both gaps dissolved rather than closed. **Preserved:** the third-gate trap — a preflight that predicts a launch refusal must SHARE the gate, never copy it; the test that pinned *two* gates by name could be satisfied vacuously by a third, and now pins *zero* | 2026-09-04 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) (the third-gate warning) |
 | **OQ-TP8** | **Ungated, both halves — a recorded ruling, not an accident.** Pack `derive.lua` runs with no origin check, in-jail at boot and host-side under `yolo host -- <cmd>`. The leaning's host-half gate failed a parity check: the same command folds each pack's **static** `kind: "env"` keys into the process environment one step EARLIER, ungated, so the derive computes a field the manifest can already state literally — gating the computed path while the literal one is open is theatre. The disclosure is the commit pin ([`OQ-LP8`](../reference/loophole-system.md#oq-lp8)), not a claim line. Reopens if the VM gains I/O, exec, network or an unbudgeted loop, or if `ctx` grows a field static `env` cannot carry | 2026-09-04 | [§2](#2-the-inventory), [the pack-Lua section](#pack-shipped-lua-is-ungated-on-both-sides-and-that-is-the-ruling) |
-| **OQ-TP10** | **(a) — plugin claims get their own disclosure class,** so a wrapped plugin's `hooks` and `mcpServers` render on the launch banner beside mounts and host reads. TP9's argument was about AUTHORITY and says nothing about VISIBILITY; disclosure is the half TP9 kept precisely because it is not consent, so a hole in it is the shape this census exists to catch. **The rendering is not invented here — [`../reference/report-tiers.md`](../reference/report-tiers.md) already decides it**: [P5](../reference/report-tiers.md#principles) (*named, not itemized — "appearing once is appearing"*), [P6](../reference/report-tiers.md#principles) (*count what the reader cares about — hooks and servers, not files*) and [P1](../reference/report-tiers.md#principles) (*a property of the pack set is stated once per set*) together make it ONE line per pack naming counts by kind, with the itemization landing in `boot.log` through the same tee the boot catalog uses. So (a) costs one line, not one per hook — which is what makes it compatible with the startup-density work rather than in tension with it. [P4](../reference/report-tiers.md#principles) then forbids gating that line, which is the same sentence that keeps the host-access banner. **Covers `jail_daemon` too** ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)): it is a claim-free crossing to supervised in-jail execution, which is the same disclosure question with no claim to hang it on, and a class that renders counts can carry a zero-claim crossing by name.<br><br>**BUILT 2026-09-17**, and it settled the ⚠ this row left open — *which* class. The answer is a FOURTH one, `disclosureJailExec`: the first three are axes of HOST crossing, and this claim's honest answer to "what does it do to your machine" is *nothing*. `KindSkills` stays `disclosureSkip` as the ruling requires (candidate (c) stays rejected); the override is per-claim, keyed on a `plugin:` target that `RunsCode`, mirroring the per-claim split the loophole kinds already use. **Two halves of this row did NOT ship.** The itemization does not reach `boot.log` — that split is `Env.LogOnly` in the ENTRYPOINT, and the launcher's tee copies both streams verbatim, so no host-side detail-only sink exists; `yolo pack footprint` is the itemization pointer instead. And `jail_daemon` is not yet carried: naming a declared daemon without the per-launch "will it actually run" answer would be the overclaim the `autonomy` and `profile` rows refuse | 2026-09-14 | [the launch stream](../reference/report-tiers.md#the-launch-stream) |
+| **OQ-TP10** | **(a) — plugin claims get their own disclosure class,** so a wrapped plugin's `hooks` and `mcpServers` render on the launch banner beside mounts and host reads. TP9's argument was about AUTHORITY and says nothing about VISIBILITY; disclosure is the half TP9 kept precisely because it is not consent, so a hole in it is the shape this census exists to catch. **The rendering is not invented here — [`../reference/report-tiers.md`](../reference/report-tiers.md) already decides it**: [P5](../reference/report-tiers.md#principles) (*named, not itemized — "appearing once is appearing"*), [P6](../reference/report-tiers.md#principles) (*count what the reader cares about — hooks and servers, not files*) and [P1](../reference/report-tiers.md#principles) (*a property of the pack set is stated once per set*) together make it ONE line per pack naming counts by kind, with the itemization landing in `boot.log` through the same tee the boot catalog uses. So (a) costs one line, not one per hook — which is what makes it compatible with the startup-density work rather than in tension with it. [P4](../reference/report-tiers.md#principles) then forbids gating that line, which is the same sentence that keeps the host-access banner. **Covers `jail_daemon` too** ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)): it is a claim-free crossing to supervised in-jail execution, which is the same disclosure question with no claim to hang it on, and a class that renders counts can carry a zero-claim crossing by name.<br><br>**BUILT 2026-09-17**, and it settled the ⚠ this row left open — *which* class. The answer is a FOURTH one, `disclosureJailExec`: the first three are axes of HOST crossing, and this claim's honest answer to "what does it do to your machine" is *nothing*. `KindSkills` stays `disclosureSkip` as the ruling requires (candidate (c) stays rejected); the override is per-claim, keyed on a `plugin:` target that `RunsCode`, mirroring the per-claim split the loophole kinds already use. **One half of this row did NOT ship.** The itemization does not reach `boot.log` — that split is `Env.LogOnly` in the ENTRYPOINT, and the launcher's tee copies both streams verbatim, so no host-side detail-only sink exists; `yolo pack footprint` is the itemization pointer instead.<br><br>**`jail_daemon` BUILT 2026-09-30.** It waited on the per-launch "will it actually run" answer, because naming a declared daemon without one would be the overclaim the `autonomy` and `profile` rows refuse. That answer existed by then: the launch's composed jail-daemon payload (`jailDaemonsFor`, hoisted above the backend dispatch for macos-user), split by `loopholes.JailDaemonsRunIn` into what this runtime's jail runs — the value the container argv serializes and the macos-user guest's supervisor is handed. The pack's jail-code line names each such daemon by its loophole, counted (`1 jail daemon runs in the jail — <name>`); the header's footprint pointer is printed only when a line counts a plugin, since a jail daemon has no claim to itemize. A pack **service's** jail daemon is not covered: its claim is the `service` row's, classified skip, and this ruling does not reach it | 2026-09-14 | [the launch stream](../reference/report-tiers.md#the-launch-stream) |
 | **OQ-TP9** | **The fetched-pack approval prompt is THEATRE — deleted.** Selecting a pack means writing user-scope config as the host user (`packs` is inexpressible at workspace scope *by construction*), so the gate refused an actor who had already passed a stronger one — [`gate-placement-principle.md`](../reference/gate-placement-principle.md) [Test 1](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it), already applied this way to the sibling `--user-layer` route. Its original containment rationale was refuted in-house ([`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate) [§2](../reference/pack-system.md#why-there-is-no-approval-gate)). **Kept:** `packs` user-scope-only (that half PASSES Test 1) and the startup disclosure banner, onto which [`pack-execution-trust.md`](../reference/pack-system.md#why-there-is-no-approval-gate) [§6](../reference/pack-system.md#why-there-is-no-approval-gate) is retargeted. **Corrected same day:** the pin is effectively honored already (a launch resolves from the local mirror, which only moves at `pack install`), so the follow-on was [`OQ-LP8`](../reference/loophole-system.md#oq-lp8)'s two documentation requirements (delivered 2026-09-04), not enforcement; the lockfile is write-only at launch, and G2b is moot. *(Its premise that the mirror moves only at `pack install` was retired 2026-09-25 by [`OQ-PF1`](../reference/pack-system.md#oq-pf1): a host launch now fetches a missing pack and re-fetches a branch hourly, while a tag or commit pin still never moves without an explicit `yolo pack install` or `update`.)* Retires [`OQ-TP7`](#decision-ledger); opens [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) | 2026-09-04 | [§3.1](#31-a-refused-contribution-refuses-the-launch-) |
 
 > [!WARNING]
@@ -377,7 +378,7 @@ pre-spawn block for host execution, `yolo pack footprint` on demand.
 | 16 | **`.yolo/handover.md`** | agent context, framed as an authoritative task list | **never** — no key, no prompt, no validation, no attribution | **yes, continuously** — an ordinary file any agent can write |
 | 17 | fetched pack — **content** (skills, briefing, files, config-overlay, config-list) | agent context | **never** — no claim, no disclosure | yes, on every mechanism at once |
 | 18 | fetched pack — `env` | in-jail exec in practice (no key allowlist, so `LD_PRELOAD` etc.) | **never**, explicitly; disclosed on the banner every launch | yes; the banner shows the value, nothing compares it |
-| 19 | **fetched pack — loophole with only a `jail_daemon`** | in-jail exec, supervised, restart-policied, UID 0 | **never** — and it produces **no claim at all**, so no footprint line and no launch line ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)) | yes trivially; nobody is told it exists |
+| 19 | **fetched pack — loophole with only a `jail_daemon`** | in-jail exec, supervised, restart-policied, UID 0 | **never** — and it produces **no claim at all**, so no footprint line; **named on its pack's launch line since 2026-09-30** whenever this launch's jail runs it ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)) | yes trivially; the launch names it, by loophole, and nothing pins what it runs |
 | 20 | **fetched pack — `program via installer`** | in-jail exec as UID 0 | **never, since 2026-09-04** ([`OQ-TP9`](#decision-ledger)) — honored like an embedded pack's, disclosed on the banner as a review-worthy host read | yes — unpinned URL, plus the declared update verb at the user's invocation |
 | 21 | fetched pack — wrapped agent plugin (hooks / MCP / LSP) | in-jail exec at lifecycle events | **never, since 2026-09-04** — but **disclosed since 2026-09-17**: one counted line per pack at the spawn boundary ([`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)) | **yes — still the weakest claim string in the system**, a constant with no path or digest. It is now SHOWN, which is a different property from being CHECKED |
 | 22 | fetched pack — `reads-host` / `mount` / host-prepending `briefing` | host read | **never, since 2026-09-04**; disclosed on the banner every launch | yes — a moved ref changes the bytes under an unchanged banner line |
@@ -624,6 +625,20 @@ restart-policied process running as UID 0 in the jail. This is the same disclosu
 is open on — in-jail code that arrives with nothing said — with one difference worth a ruling's
 attention: TP10's hooks *have* a claim in the wrong class, where this crossing has none to classify.
 
+**The launch line closed on 2026-09-30; the footprint line did not, deliberately.** Each loophole
+jail daemon this launch's jail runs is named on its pack's line in the block for pack code that
+runs inside the jail (`packJailCodeLines` in
+[`packloopholes.go`](../../internal/cli/run/packloopholes.go)), read from the launch's composed
+payload rather than from the manifests, so a daemon whose loophole is off or which the backend
+declines is not announced. It is still claim-free: a jail daemon gets no crossing claim, by the
+[reference's rule](../reference/loophole-system.md#what-is-deliberately-not-a-gate), so
+`yolo pack footprint` still shows nothing for it, and the launch line is where a user learns it
+exists. Pinned by `TestALoopholeJailDaemonIsDisclosedAtTheSpawnBoundary`,
+`TestADisabledLoopholesJailDaemonIsNotDisclosed`,
+`TestMacosUserLaunchDisclosesTheJailDaemonsItsGuestRuns` and
+`TestTheContainerArmDisclosesTheJailDaemonsItsArgvCarries`
+([`jaildaemondisclosure_test.go`](../../internal/cli/run/jaildaemondisclosure_test.go)).
+
 ### 3.3 The config gate is closed, and the scope model it leaves
 
 **This finding was CLOSED on 2026-08-29** (`27b335ce`, built the day it was ruled —
@@ -722,17 +737,23 @@ code. It renders through `packJailCodeLines`, **one counted line per pack**, as
 `TestWrappedPluginCodeDisclosureCannotBeSuppressed`
 ([`packloopholes_test.go`](../../internal/cli/run/packloopholes_test.go)).
 
-**Not built — two halves.**
+**`jail_daemon` built 2026-09-30.** The ruling covers it
+([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)): a loophole
+declaring only a `jail_daemon` produces zero claims, and a class that renders counts can name a
+zero-claim crossing where one rendering claims could not. It waited on the per-launch answer to
+*"will it actually run"*, since a daemon whose loophole is disabled, or which the backend declines,
+starts nothing. That answer is the launch's composed payload (`jailDaemonsFor` in
+[`packservices.go`](../../internal/cli/run/packservices.go)), split by `loopholes.JailDaemonsRunIn`
+into what this runtime's jail runs: the value the container argv serializes and the macos-user
+guest's supervisor is handed, so the disclosure makes no second selection. Both arms hand it to the
+spawn boundary's disclosure (`discloseLoopholes`), and the pack's jail-code line reads, for example,
+`acme: 1 jail daemon runs in the jail — acme-relay`, after the plugin counts when the pack has both.
+The header's `yolo pack footprint` pointer prints only when a line counts a plugin, because a jail
+daemon has no claim for the footprint to itemize. Not covered, because this ruling does not reach
+it: a pack **service's** jail daemon, whose claim the `service` row classifies as skip.
 
-- **`jail_daemon`.** The ruling covers it
-  ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)): a loophole
-  declaring only a `jail_daemon` produces zero claims, so a supervised in-jail process is named
-  nowhere, and a class that renders counts can name a zero-claim crossing where one rendering
-  claims could not. What it needs first is the per-launch answer to *"will it actually run"* — a
-  declared daemon whose loophole is disabled, or whose backend is inert, starts nothing, and
-  announcing it anyway is the overclaim the `autonomy` and `profile` rows refuse. That answer
-  belongs to the producer behind `notePackLoopholesInert`, not to a second selection written in the
-  renderer; `macos-user` already has it (it declines every entry by name).
+**Not built — one half.**
+
 - **The `boot.log` itemization.** That split is `Env.LogOnly` in the entrypoint, and the launcher's
   tee copies both streams verbatim, so no host-side detail-only sink exists. `yolo pack footprint`
   is the itemization pointer instead.

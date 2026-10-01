@@ -85,7 +85,7 @@ func TestWrappedPluginCodeIsOneCountedLinePerPack(t *testing.T) {
 		"acme-search": `{"name":"acme-search","skills":["./"],"hooks":{"Stop":[]},"mcpServers":{"s":{}}}`,
 	})
 
-	lines := packJailCodeLines([]*packload.Pack{p})
+	lines := packJailCodeLines([]*packload.Pack{p}, nil)
 	if len(lines) != 1 {
 		t.Fatalf("two plugins in one pack produced %d lines, want 1 — P1 states a property "+
 			"of the pack set once per set, and P5's invariant is NAMED, not itemized:\n%s",
@@ -120,7 +120,7 @@ func TestSkillsOnlyPluginIsNotDisclosedAsJailCode(t *testing.T) {
 		"acme-prose": `{"name":"acme-prose","skills":["./"],"commands":"cmds",` +
 			`"outputStyles":"styles"}`,
 	})
-	if lines := packJailCodeLines([]*packload.Pack{p}); len(lines) != 0 {
+	if lines := packJailCodeLines([]*packload.Pack{p}, nil); len(lines) != 0 {
 		t.Errorf("a plugin that runs nothing was announced as jail code:\n%s\n"+
 			"That is option (c) by another route — every prose tree on the banner, with the "+
 			"hooks buried in it", renderLines(lines))
@@ -157,7 +157,7 @@ func TestWrappedPluginCodeIsDisclosedOnNeitherHostAxis(t *testing.T) {
 		t.Errorf("a plugin hook is disclosed as a host READ — nothing of the user's is "+
 			"read:\n%s", renderLines(lines))
 	}
-	if lines := packJailCodeLines(packs); len(lines) != 1 {
+	if lines := packJailCodeLines(packs, nil); len(lines) != 1 {
 		t.Fatalf("...and it is not in the jail block either, so it is disclosed nowhere: %d "+
 			"lines", len(lines))
 	}
@@ -191,7 +191,8 @@ func TestWrappedPluginCodeDisclosureCannotBeSuppressed(t *testing.T) {
 			// The spawn boundary's disclosure half, which a fresh container launch runs in its
 			// terminal before it spawns the keeper that starts the services.
 			boundary = fn
-		case "notePackJailCode", "packJailCodeLines", "jailCodeSummary":
+		case "notePackJailCode", "packJailCodeLines", "jailCodeSummary", "pluginJailCodeSummary",
+			"packJailDaemonNames", "jailDaemonSummary":
 			// A dial read anywhere in the disclosure's own body is a quiet mode with no
 			// flag — the shape P4 forbids, reached without touching runFlags at all.
 			ast.Inspect(fn, func(n ast.Node) bool {
@@ -259,7 +260,7 @@ func TestWrappedPluginCodeDisclosureCannotBeSuppressed(t *testing.T) {
 		}
 		return ""
 	}
-	o.notePackJailCode([]*packload.Pack{p})
+	o.notePackJailCode("podman", []*packload.Pack{p}, nil)
 	if !strings.Contains(errBuf.String(), "runs code in the jail") {
 		t.Errorf("an environment that asks for quiet suppressed the disclosure. "+
 			"YOLO_NO_BANNER is narrow on purpose — the version line, nothing else — and a "+

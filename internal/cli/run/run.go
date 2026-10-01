@@ -1772,8 +1772,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// is told it is sealed. A sealed launch still spawns its keeper, which holds only the container,
 	// its records and its teardown (FP-D15). The services come from the one function the keeper
 	// checks the plan with, which plans none under the seal in either process.
+	//
+	// jailDaemons is the payload this launch's argv already carries (assembleInput.jailDaemons),
+	// so the jail daemons the disclosure names are the ones the jail's supervisor will run.
 	if !o.Sealed {
-		o.discloseLoopholes(rt, cfg, loadedPacks)
+		o.discloseLoopholes(rt, cfg, loadedPacks, jailDaemons)
 	}
 	services := o.plannedLoopholeNames(rt, cfg)
 	var forwards []PortForward

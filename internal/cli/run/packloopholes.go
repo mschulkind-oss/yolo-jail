@@ -113,22 +113,19 @@ const (
 	// set) make it ONE COUNTED LINE PER PACK — so handing this class to the per-claim renderer
 	// would print the line-per-hook shape the ruling costed out and rejected.
 	//
-	// ⚠ A LOOPHOLE'S `jail_daemon` IS NOT CARRIED YET, and the ruling says this class covers
-	// it: trust-paths.md §3.2 measured that a loophole declaring only a `jail_daemon` produces
-	// ZERO claims, so a supervised UID-0 process in the jail is named nowhere, and a class
-	// that renders COUNTS can name a zero-claim crossing where one rendering claims could not.
-	// What it needs first is the per-launch answer to "will it actually run" — a declared
-	// daemon whose loophole is disabled, or whose backend is inert, starts nothing — and that
-	// answer belongs to notePackLoopholesInert's producer (loopholeinert.go), not to a second
-	// selection written here. Announcing a daemon that never starts is the overclaim the
-	// `autonomy` and `profile` rows below refuse to make.
+	// A LOOPHOLE'S `jail_daemon` IS CARRIED TOO, and NOT AS A CLAIM. trust-paths.md §3.2
+	// measured that a loophole declaring only a `jail_daemon` produces ZERO claims, so a
+	// supervised process in the jail was named nowhere; the ruling says this class covers it,
+	// because a class that renders COUNTS can name a zero-claim crossing where one rendering
+	// claims could not. packJailCodeLines names each one by its loophole, in the pack's line.
 	//
-	// ONE BACKEND HAS THAT ANSWER NOW, which is where a reader should start rather than
-	// re-deriving it: the composed payload is hoisted above the backend dispatch
-	// (packservices.go's jailDaemonsFor), and macos-user reads it to decline every entry by
-	// name (jaildaemondecline.go). What is still missing for this class is the answer for a
-	// backend that DOES run them, which is the per-launch "will it actually run" the paragraph
-	// above is waiting on.
+	// THE SET IS THE LAUNCH'S OWN ANSWER, never a selection over manifests: the payload
+	// jailDaemonsFor composed (the value the container argv serializes and the macos-user
+	// guest's supervisor is handed — enabled, active on this machine, admitted by this
+	// runtime, selected by a profile where one gates it), split by loopholes.JailDaemonsRunIn
+	// into what the jail runs. A daemon whose loophole is off, or which this backend declines,
+	// starts nothing, and announcing it would be the overclaim the `autonomy` and `profile`
+	// rows below refuse to make.
 	disclosureJailExec
 )
 
@@ -334,6 +331,9 @@ type disclosureLine struct {
 	// kind is the claim's kind, so a backend that delivers none of a kind can leave its
 	// lines out (notePackHostAccessExcept). Zero for a line that summarizes several claims.
 	kind packdecl.Kind
+	// countsPlugins says a jail-code line (packJailCodeLines) counts wrapped plugins, whose
+	// itemization is in `yolo pack footprint`, so the block's header points there.
+	countsPlugins bool
 }
 
 // disclosedClaims collects the claims of the given class across the loaded packs.
@@ -502,38 +502,88 @@ func (o *Options) notePackHostExec(packs []*packload.Pack) {
 // schema (pluginpack.Manifest keeps every component as a RawMessage, so that their next
 // release is not yolo's parse error), so the entry count is a fact this build does not have —
 // and a count that looked like one would be worse than the honest one.
-func packJailCodeLines(packs []*packload.Pack) []disclosureLine {
+//
+// A LOOPHOLE'S JAIL DAEMON JOINS ITS PACK'S LINE, counted and NAMED (trust-paths.md OQ-TP10,
+// whose ruling covers `jail_daemon`): inJail is what this launch's jail runs — the payload
+// jailDaemonsFor composed, split by loopholes.JailDaemonsRunIn — and each entry is attributed to
+// the selected pack that ships the loophole of its name (a name two selected packs ship refuses
+// the launch before this, run.PackLoopholeNameConflicts). Named rather than pointed at, because
+// no claim carries it: `yolo pack footprint` has nothing to itemize for a jail daemon. A pack
+// SERVICE's daemon is not counted here; its claim is classified by the `service` row above.
+func packJailCodeLines(packs []*packload.Pack, inJail []loopholes.JailDaemonSpec) []disclosureLine {
 	var lines []disclosureLine
 	for _, p := range packs {
-		disclosed := map[string]bool{}
-		for _, c := range packload.FootprintOf(p).Claims {
-			if disclosureClassOfClaim(c) != disclosureJailExec {
-				continue
-			}
-			disclosed[strings.TrimPrefix(c.Target, pluginClaimTargetPrefix)] = true
+		var parts []string
+		plugins := pluginJailCodeSummary(p)
+		if plugins != "" {
+			parts = append(parts, plugins)
 		}
-		if len(disclosed) == 0 {
+		if daemons := packJailDaemonNames(p, inJail); len(daemons) > 0 {
+			parts = append(parts, jailDaemonSummary(daemons))
+		}
+		if len(parts) == 0 {
 			continue
 		}
-		var order []string
-		counts := map[string]int{}
-		for _, pl := range p.Plugins() {
-			if !disclosed[pl.Name()] {
-				continue
-			}
-			for _, comp := range pl.Components() {
-				if !comp.RunsCode {
-					continue
-				}
-				if counts[comp.Name] == 0 {
-					order = append(order, comp.Name)
-				}
-				counts[comp.Name]++
-			}
-		}
-		lines = append(lines, disclosureLine{pack: p.Name, claim: jailCodeSummary(len(disclosed), order, counts)})
+		lines = append(lines, disclosureLine{pack: p.Name, claim: strings.Join(parts, "; "),
+			countsPlugins: plugins != ""})
 	}
 	return lines
+}
+
+// pluginJailCodeSummary is the wrapped-plugin half of p's line, "" when no plugin of p runs code.
+func pluginJailCodeSummary(p *packload.Pack) string {
+	disclosed := map[string]bool{}
+	for _, c := range packload.FootprintOf(p).Claims {
+		if disclosureClassOfClaim(c) != disclosureJailExec {
+			continue
+		}
+		disclosed[strings.TrimPrefix(c.Target, pluginClaimTargetPrefix)] = true
+	}
+	if len(disclosed) == 0 {
+		return ""
+	}
+	var order []string
+	counts := map[string]int{}
+	for _, pl := range p.Plugins() {
+		if !disclosed[pl.Name()] {
+			continue
+		}
+		for _, comp := range pl.Components() {
+			if !comp.RunsCode {
+				continue
+			}
+			if counts[comp.Name] == 0 {
+				order = append(order, comp.Name)
+			}
+			counts[comp.Name]++
+		}
+	}
+	return jailCodeSummary(len(disclosed), order, counts)
+}
+
+// packJailDaemonNames is the names, in payload order, of the jail daemons in inJail that are
+// p's loopholes'. A pack service's daemon is skipped, whatever its name.
+func packJailDaemonNames(p *packload.Pack, inJail []loopholes.JailDaemonSpec) []string {
+	ships := map[string]bool{}
+	for _, lp := range packLoopholes(p) {
+		ships[lp.Name] = true
+	}
+	var names []string
+	for _, s := range inJail {
+		if !s.Service && ships[s.Name] {
+			names = append(names, s.Name)
+		}
+	}
+	return names
+}
+
+// jailDaemonSummary is the jail-daemon half of a pack's line: the count, then each name.
+func jailDaemonSummary(names []string) string {
+	s := "1 jail daemon runs in the jail"
+	if len(names) != 1 {
+		s = strconv.Itoa(len(names)) + " jail daemons run in the jail"
+	}
+	return s + " — " + strings.Join(names, ", ")
 }
 
 // jailCodeSummary is one pack's counted line. The component order is the manifest's own
@@ -567,6 +617,12 @@ func jailCodeSummary(plugins int, order []string, counts map[string]int) string 
 // footprint report, and the spelling is deliberately left bare: `yolo pack footprint <name>`
 // resolves an EMBEDDED pack, while a pack the user fetched or wrote is footprinted by its
 // local path — a distinction that belongs in that command's help, not in a launch line.
+// It names PLUGINS and is printed only when a line counts one: a jail daemon has no claim for
+// the footprint to itemize, which is why its line names it instead.
+//
+// payload is the launch's composed jail-daemon payload (jailDaemonsFor), and what the line
+// names of it is what loopholes.JailDaemonsRunIn says this runtime's jail runs: a daemon the
+// macos-user guest declines is said by that arm's decline report, never here.
 //
 // IT CANNOT BE GATED, and no flag may be added that could gate it (report-tiers.md P4, the
 // launch stream's "a launch has no quiet mode"; AGENTS.md states the same invariant). The
@@ -580,15 +636,24 @@ func jailCodeSummary(plugins int, order []string, counts map[string]int) string 
 // question, since every selected pack's plugins reach that backend's agent too. The arm now
 // routes through this wrapper with the whole pack set, so the gap closed by removal rather
 // than by the second call site the caveat proposed. Nothing here is backend-conditional, and
-// nothing about it should become so: a plugin's hooks run inside whatever the jail is.
-func (o *Options) notePackJailCode(packs []*packload.Pack) {
-	lines := packJailCodeLines(packs)
+// nothing about it should become so: a plugin's hooks run inside whatever the jail is. (The
+// jail-daemon half reads the runtime only to ask which daemons that jail runs.)
+func (o *Options) notePackJailCode(rt string, packs []*packload.Pack, payload []loopholes.JailDaemonSpec) {
+	inJail, _ := loopholes.JailDaemonsRunIn(rt, payload)
+	lines := packJailCodeLines(packs, inJail)
 	if len(lines) == 0 {
 		return
 	}
+	header := "This launch delivers pack code that runs inside the jail:"
+	for _, l := range lines {
+		if l.countsPlugins {
+			header = "This launch delivers pack code that runs inside the jail " +
+				"(`yolo pack footprint` names each plugin):"
+			break
+		}
+	}
 	out := o.pr(o.Stderr)
-	out.print("[yellow]This launch delivers pack code that runs inside the jail " +
-		"(`yolo pack footprint` names each one):[/yellow]")
+	out.print("[yellow]" + header + "[/yellow]")
 	for _, l := range lines {
 		out.print("[yellow]  " + l.pack + ": " + l.claim + "[/yellow]")
 	}
@@ -615,10 +680,10 @@ func (o *Options) notePackJailCode(packs []*packload.Pack) {
 // last boundary both arms cross after a spawn and before the jail takes the terminal, so what
 // a started daemon says will fail for this launch prints here or nowhere. payload is the
 // launch's composed jail-daemon payload (jailDaemonsFor), which says whose jail daemon this
-// launch serves.
+// launch serves, and which of the jail daemons it names the jail runs.
 func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMap,
 	packs []*packload.Pack, payload []loopholes.JailDaemonSpec) []loopholeDaemon {
-	o.discloseLoopholes(rt, cfg, packs)
+	o.discloseLoopholes(rt, cfg, packs, payload)
 	return o.startPlannedLoopholes(cname, rt, cfg, payload)
 }
 
@@ -626,14 +691,17 @@ func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMa
 // a launch's host services start. startLoopholesDisclosed runs it right before its start; a fresh
 // CONTAINER launch runs it itself, in its terminal, before it spawns the keeper that starts them
 // (docs/design/jail-lifetime-last-session-wins.md §9.6's warning, JL-D6): the keeper has no terminal,
-// and a line it printed after its spawn would be a notification rather than a disclosure.
-func (o *Options) discloseLoopholes(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack) {
+// and a line it printed after its spawn would be a notification rather than a disclosure. payload
+// is the launch's composed jail-daemon payload (jailDaemonsFor), the one both arms run.
+func (o *Options) discloseLoopholes(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack,
+	payload []loopholes.JailDaemonSpec) {
 	o.notePackHostExec(packs)
 	// The JAIL half of the same question — pack code that runs, on the other side of the
 	// boundary — and it prints here because this wrapper is the last host-side moment before
-	// the container takes the terminal. A hook fires on the agent's lifecycle, which is after
-	// every line printed here, so a disclosure at this point still precedes what it names.
-	o.notePackJailCode(packs)
+	// the container takes the terminal. A hook fires on the agent's lifecycle, and a jail
+	// daemon starts at the jail's boot, both after every line printed here, so a disclosure at
+	// this point still precedes what it names.
+	o.notePackJailCode(rt, packs, payload)
 	// The other half of the same honesty: on a backend whose jail cannot reach a host
 	// service, say so rather than leaving an exec disclosure to imply that starting the
 	// daemon was the whole job.

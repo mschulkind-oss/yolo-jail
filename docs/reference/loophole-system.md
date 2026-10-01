@@ -595,7 +595,10 @@ an agent-writable target — including the ones no rule can see, like a Python d
   recognize as theirs; and a `requires` probe is a `stat` that crosses nothing, so a disclosure
   line for it would dilute a surface whose whole value is that every line is a real capability.
   `requires` is **path-scoped** instead, because the answer is readable even though nothing
-  crosses.
+  crosses. A jail daemon is still **named at launch**: each one the launch's jail runs appears on
+  its pack's line in the block for pack code that runs inside the jail
+  ([`OQ-TP10`](../design/trust-paths.md#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)),
+  which is a launch line, not a claim, so `yolo pack footprint` still shows nothing for it.
 
 > [!WARNING]
 > **The install-time approval prompt for a fetched pack is GONE, together with its lockfile

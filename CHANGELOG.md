@@ -720,6 +720,11 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   error made every pack checkout fail. And with `core.fsmonitor = true`, checking a pack out no
   longer leaves a `git fsmonitor--daemon` running for it after yolo exits. The rest of your git
   config, such as credential helpers and `insteadOf` rewrites, still applies to pack downloads.
+- A launch now names each program a pack's loophole runs inside the jail, on that pack's line
+  under `This launch delivers pack code that runs inside the jail`, for example
+  `acme: 1 jail daemon runs in the jail — acme-relay`. A loophole that runs only such a program
+  used to start it with nothing said. A loophole you switched off, or a program `macos-user` does
+  not run, is not named.
 
 ## [0.11.0] - 2026-09-28
 
