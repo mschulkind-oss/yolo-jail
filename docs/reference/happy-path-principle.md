@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-10-01
-verified_commit: 0b9cff0d
+verified_commit: 3f5d9819
 summary: "When yolo can't do what the user asked, it does the work itself, offers one command that does it, gives exact instructions for this platform, or names who can act. It never just reports the problem."
 covers:
   - internal/cli/check/
@@ -31,7 +31,7 @@ tags: [principle, cli, ux, errors, diagnostics]
 
 # The Happy Path Principle: every stop leads back to the happy path
 
-**Status:** PRINCIPLE, current as of 2026-10-01, verified against `0b9cff0d` and the next-step
+**Status:** PRINCIPLE, current as of 2026-10-01, verified against `3f5d9819` and the next-step
 fixes landed with this revision.
 
 **Author:** Matt Schulkind, the maintainer; adopted 2026-10-01. This name used to belong to the
