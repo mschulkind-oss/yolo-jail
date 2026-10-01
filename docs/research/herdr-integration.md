@@ -982,6 +982,17 @@ herdr 0.7.5 leaves the outer terminal's `TERM_PROGRAM` set and does not set `HER
 MEASURED in a herdr 0.7.5 pane on macOS. `YOLO_NO_HERDR=1` turns all of it off. A failed report
 prints one line, and the launch continues with only the hint.
 
+**First real run, 2026-09-30, herdr 0.7.5, podman on macOS, iTerm2.** A `yolo -- claude` built
+from this slice made herdr's sidebar show Claude's status, the same result as the hand-written
+wrapper. MEASURED. **The pane label was not seen.** herdr 0.7.5 accepts
+`report-metadata --title`: it exits 0, and the pane's `herdr pane get` record gains a `title`
+field, separate from `terminal_title`. But a probe title held for 60 seconds showed nowhere in the
+sidebar, the pane chrome or the tab. MEASURED. The display behavior in [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) was read from 0.9.3's
+source, so 0.7.5 may store the label without showing it. A run on 0.9.3 or later would settle
+this. Not yet tested: the label and status clearing after a normal quit and after Ctrl-C, and the
+hint on the podman client (`ps eww`). So this run does not tell whether the status came from the
+hint or from the self-report.
+
 ### 4.4 Option 3: resume after a herdr restart
 
 - **The idea.** The launcher reports a resume command it builds itself:
@@ -1343,12 +1354,14 @@ Two of its claims are corrected by this doc's evidence:
 
 ## 6. What is unmeasured
 
-1. **A real `yolo -- claude` in a host herdr pane.** No agent was run. Four things are owed on a
-   real host:
-   - whether a hint on the runtime client makes herdr pick Claude's manifest;
+1. **A real `yolo -- claude` in a host herdr pane.** One run on herdr 0.7.5 showed the status but
+   not the label ([first real run](#built-2026-09-30)). Still owed on a real host:
+   - whether the hint on the runtime client alone makes herdr pick Claude's manifest (that run
+     also self-reported, so it cannot tell);
    - how long the idle window lasts during boot;
    - what the screen rules make of Claude under `--dangerously-skip-permissions`;
-   - whether Option 2's label and its `--agent` guard behave as the docs say.
+   - whether the label and its `--agent` guard show on herdr 0.9.3 or later, since 0.7.5 stores
+     the label without showing it.
 2. **Rootless podman.** Whether herdr can read `HERDR_AGENT` from a rootless podman process that
    has re-entered its user namespace, and whether host `/proc` shows a jailed agent's process
    group at all. A nested jail runs rootful and cannot show either. Only a real rootless host can.
