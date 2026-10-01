@@ -365,11 +365,13 @@ delivered yet. See
 cannot point opencode at it". The first launch without a login prints the browser link once for
 the whole machine, as Codex and pi do, and yolo hands opencode the shared login's current token,
 so opencode never refreshes the login itself and cannot use up the refresh Codex and pi share.
-opencode's `/models` shows the models yolo lists for the subscription, the ones Claude Code, Codex
-and pi show, including the 1M-context variants, and runs no other one there while the profile's
-`enforce_models` is on. Any other OpenAI login you make in opencode, its own ChatGPT login or an
-API key, stays opencode's. On your own machine, `yolo host -p codex -- opencode` offers the shared
-login as "ChatGPT Plus/Pro (yolo shared login)" in opencode's `/connect`. See
+opencode's `/models` shows the list yolo keeps for the subscription, the one Claude Code, Codex and
+pi use, with each 1M-context variant as a model of its own, and runs no other model there while
+the profile's `enforce_models` is on. In a jail, a launch on the subscription replaces the OpenAI
+login opencode stored in that project, its own ChatGPT login or an API key, and says which. On your
+own machine yolo leaves opencode's logins alone: `yolo host -p codex -- opencode` offers the shared
+login as "ChatGPT Plus/Pro (yolo shared login)" in opencode's `/connect`, and says so at each
+launch until you pick it. See
 [A shared ChatGPT login](userguide/guides/authentication.md#a-shared-chatgpt-login-for-codex-and-pi).
 
 ### Changed

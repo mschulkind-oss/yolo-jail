@@ -83,7 +83,7 @@ func TestWriteOpencodeAuthRefusesAnIncompleteView(t *testing.T) {
 		`{"access_token":"a","generation":2}`,
 		`{"access_token":"a","expires_at":4102444800000}`,
 	} {
-		if err := WriteOpencodeAuth(authPath, json.RawMessage(response)); err == nil {
+		if _, err := WriteOpencodeAuth(authPath, json.RawMessage(response)); err == nil {
 			t.Errorf("WriteOpencodeAuth accepted %s", response)
 		}
 	}
@@ -99,5 +99,64 @@ func TestRunRefusesTwoViewFlags(t *testing.T) {
 		func(string) string { return "" }, &stdout, &stderr)
 	if rc != 2 || !strings.Contains(stderr.String(), "mutually exclusive") {
 		t.Fatalf("rc=%d stderr=%q, want 2 and the refusal", rc, stderr.String())
+	}
+}
+
+// A VIEW THAT REPLACES A LOGIN OF THE USER'S OWN SAYS SO. opencode files its own ChatGPT login and
+// an OpenAI API key under the same `openai` key the view takes, so the write replaces either one.
+// The launch then says what it replaced, where, and how to get an API key back: it never
+// replaces one silently. Its own earlier view, and an empty store, replace nothing worth a line.
+func TestRunTokenSaysWhenTheOpencodeViewReplacesALoginOfTheUsersOwn(t *testing.T) {
+	endpoint := clientEndpoint(t, func(s *hostservice.Session) {
+		_ = s.JSON(map[string]any{"access_token": "access-oc", "expires_at": int64(4_102_444_800_000), "generation": int64(3)})
+		s.Exit(0)
+	})
+	for _, tc := range []struct {
+		name, existing string
+		want           []string
+	}{
+		{"no store", "", nil},
+		{"yolo's earlier view", `{"openai":{"type":"oauth","refresh":"yolo-broker:2","access":"old","expires":1}}`, nil},
+		{"another provider only", `{"anthropic":{"type":"api","key":"keep"}}`, nil},
+		{"an API key", `{"openai":{"type":"api","key":"sk-users-own"}}`,
+			[]string{"replaced an OpenAI API key", "/connect"}},
+		{"opencode's own ChatGPT login", `{"openai":{"type":"oauth","refresh":"rt-users-own","access":"a","expires":1}}`,
+			[]string{"replaced opencode's own ChatGPT login"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			authPath := filepath.Join(t.TempDir(), "opencode", "auth.json")
+			if tc.existing != "" {
+				if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(authPath, []byte(tc.existing), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout, stderr bytes.Buffer
+			rc := Run([]string{"token", "--opencode-auth", authPath}, func(name string) string {
+				if name == EndpointEnv {
+					return endpoint
+				}
+				return ""
+			}, &stdout, &stderr)
+			if rc != 0 {
+				t.Fatalf("rc=%d stderr=%q", rc, stderr.String())
+			}
+			if len(tc.want) == 0 {
+				if stderr.Len() != 0 {
+					t.Errorf("replacing nothing of the user's printed %q", stderr.String())
+				}
+				return
+			}
+			for _, want := range append(tc.want, authPath, "shared ChatGPT login") {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("the replacement notice lacks %q:\n%s", want, stderr.String())
+				}
+			}
+			if strings.Contains(stderr.String(), "sk-users-own") || strings.Contains(stderr.String(), "rt-users-own") {
+				t.Errorf("the notice printed the replaced secret: %s", stderr.String())
+			}
+		})
 	}
 }

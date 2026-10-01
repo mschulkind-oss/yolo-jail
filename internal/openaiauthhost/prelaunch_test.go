@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -113,6 +114,72 @@ func TestPrepareServesOpencodeTheHostSocket(t *testing.T) {
 	}
 	if strings.Join(actions, ",") != "status" {
 		t.Errorf("broker actions = %v, want the login check alone", actions)
+	}
+}
+
+// AT THE HOST THE LAUNCH SAYS WHICH LOGIN opencode WILL RUN ON. yolo never writes the user's own
+// opencode auth store there, so the shared login reaches opencode only once the user picks it in
+// /connect. Until then the launch, which has just proved (or made) the shared login, would hand
+// opencode a socket it never uses: opencode runs on its own ChatGPT login, or on nothing and fails.
+// So the launch names the store and the /connect method, honoring XDG_DATA_HOME as opencode does,
+// and says nothing once the store holds yolo's view.
+func TestPrepareTellsTheHostsOpencodeWhichLoginItRunsOn(t *testing.T) {
+	for _, tc := range []struct {
+		name, stored, xdg string
+		want              []string
+	}{
+		{"nothing stored", "", "", []string{"ChatGPT Plus/Pro (yolo shared login)", "/connect", "fail"}},
+		{"an API key", `{"openai":{"type":"api","key":"sk-users-own"}}`, "", []string{"ChatGPT Plus/Pro (yolo shared login)", "/connect"}},
+		{"opencode's own ChatGPT login", `{"openai":{"type":"oauth","refresh":"rt-users-own","access":"a","expires":1}}`, "",
+			[]string{"its own ChatGPT login", "not on yolo's shared one", "ChatGPT Plus/Pro (yolo shared login)"}},
+		{"yolo's view", `{"openai":{"type":"oauth","refresh":"yolo-broker:3","access":"a","expires":1}}`, "", nil},
+		{"yolo's view under XDG_DATA_HOME", `{"openai":{"type":"oauth","refresh":"yolo-broker:3","access":"a","expires":1}}`, "xdg", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			data := filepath.Join(home, ".local", "share")
+			env := map[string]string{}
+			if tc.xdg != "" {
+				data = filepath.Join(home, tc.xdg)
+				env["XDG_DATA_HOME"] = data
+			}
+			store := filepath.Join(data, "opencode", "auth.json")
+			if tc.stored != "" {
+				if err := os.MkdirAll(filepath.Dir(store), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(store, []byte(tc.stored), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			d := deps{
+				ensure: func(io.Writer) (string, error) { return "/tmp/broker.host", nil },
+				request: func(string, any, io.Writer) (json.RawMessage, error) {
+					return json.RawMessage(`{"logged_in":true}`), nil
+				},
+				home:   func() string { return home },
+				getenv: func(k string) string { return env[k] },
+			}
+			var stderr bytes.Buffer
+			launch, err := prepare(d, opencodePrelaunch, &stderr)
+			if err != nil || launch == nil {
+				t.Fatalf("launch = %v, err = %v", launch, err)
+			}
+			if len(tc.want) == 0 {
+				if stderr.Len() != 0 {
+					t.Errorf("opencode on yolo's view was told %q", stderr.String())
+				}
+				return
+			}
+			for _, want := range append(tc.want, store) {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("the host's opencode line lacks %q:\n%s", want, stderr.String())
+				}
+			}
+			if strings.Contains(stderr.String(), "-users-own") {
+				t.Errorf("the line printed a stored secret: %s", stderr.String())
+			}
+		})
 	}
 }
 

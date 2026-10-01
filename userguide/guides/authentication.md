@@ -76,10 +76,13 @@ the host when it can. After that one login, Codex, pi and opencode in every proj
 the service handles refreshing it; opencode never refreshes it itself.
 
 opencode uses it only on the `codex` profile (`yolo -p codex -- opencode`, or a `profile` that
-selects `codex` for opencode). Any other OpenAI login you make in opencode, a ChatGPT login of
-its own or an API key, stays opencode's and stays in that project. On your own machine,
-`yolo host -p codex -- opencode` offers the shared login as **ChatGPT Plus/Pro (yolo shared
-login)** in opencode's `/connect` for OpenAI; pick it once.
+selects `codex` for opencode). opencode keeps its own ChatGPT login and an OpenAI API key in the
+same place, so in a jail that launch replaces either one stored in that project with the shared
+login, and says which; enter an API key again in opencode's `/connect` to use it off the `codex`
+profile. On your own machine yolo leaves opencode's logins alone: `yolo host -p codex -- opencode`
+offers the shared login as **ChatGPT Plus/Pro (yolo shared login)** in opencode's `/connect` for
+OpenAI, and says so at each launch until you pick it once. Until then opencode runs on its own
+ChatGPT login, or, with none, its requests fail.
 
 ```bash
 yolo openai-auth status                     # whose login, and when it expires

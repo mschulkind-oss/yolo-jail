@@ -121,13 +121,15 @@ unauthorized response, because pi gives an extension no way to see one
 
 opencode receives Pi's view, under its own `openai` key in its own `auth.json`: the current access
 token, its expiry and account, and the `yolo-broker:<generation>` marker as the refresh value
-([OA-D1](#OA-D1)). opencode's built-in ChatGPT support keys on that `oauth` entry, but its own
-request `fetch` refreshes against a hard-coded `auth.openai.com` and stores the refresh token it
-gets back, and no config key or variable redirects it. So yolo's opencode plugin replaces that
-fetch, which opencode allows, since a later plugin's auth loader outranks a built-in one. The
-plugin asks the broker for the access token, again only within five minutes of its expiry, and
-opencode never sends a refresh. A plugin that failed to load leaves opencode's own fetch to send
-the marker, which is no credential, once the token expires.
+([OA-D1](#OA-D1)). opencode files its own ChatGPT login and an OpenAI API key under that same key,
+so the view replaces either one, and the launch names what it replaced. opencode's built-in
+ChatGPT support keys on that `oauth` entry, but its own request `fetch` refreshes against a
+hard-coded `auth.openai.com` and stores the refresh token it gets back, and no config key or
+variable redirects it. So yolo's opencode plugin replaces that fetch, which opencode allows, since
+a later plugin's auth loader outranks a built-in one. The plugin asks the broker for the access
+token, again only within five minutes of its expiry, and opencode never sends a refresh. A plugin
+that failed to load leaves opencode's own fetch to send the marker, which is no credential, once
+the token expires.
 
 > [!NOTE]
 > **Why Pi has no ask-once-more after an unauthorized response ([OQ-OA7](#OQ-OA7), decided
@@ -206,7 +208,8 @@ as the Codex parent and closes that adapter as soon as Codex exits. `yolo host -
 pi` and the Pi extension use the private socket directly, and so do
 `yolo host -p codex -- opencode` and yolo's opencode plugin, which offers the
 shared login in opencode's `/connect` because the host's opencode `auth.json`
-is the user's own and yolo does not write it. Generated wrappers delegate to
+is the user's own and yolo does not write it; until that file holds the view,
+each such launch says so. Generated wrappers delegate to
 these same host launch paths.
 
 ## 5. Failure and recovery

@@ -131,9 +131,13 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		}
 		response, _ = json.Marshal(map[string]any{"auth_path": piAuth})
 	} else if opencodeAuth != "" {
-		if err := WriteOpencodeAuth(opencodeAuth, response); err != nil {
+		replaced, err := WriteOpencodeAuth(opencodeAuth, response)
+		if err != nil {
 			fmt.Fprintln(stderr, "openai-auth-client:", err)
 			return 1
+		}
+		if notice := opencodeReplacedNotice(replaced, opencodeAuth); notice != "" {
+			fmt.Fprintln(stderr, notice)
 		}
 		response, _ = json.Marshal(map[string]any{"auth_path": opencodeAuth})
 	}

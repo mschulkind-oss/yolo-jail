@@ -46,6 +46,9 @@ type deps struct {
 	// procs is how the managed Codex home's one-time daemon retirement reads and signals a
 	// process (codexdaemon.go); nil takes ps and kill.
 	procs *daemonProcs
+	// getenv reads the launch's environment, for XDG_DATA_HOME (opencodeHostAuthPath); nil reads
+	// nothing.
+	getenv func(string) string
 }
 
 // daemonProcs is d.procs, or the real ps and kill.
@@ -124,7 +127,7 @@ func Prepare(p Prelaunch, stderr io.Writer) (*Launch, error) {
 	d := deps{
 		ensure: ensureSingleton, request: openauthclient.RequestUnix,
 		listen: net.Listen, home: paths.Home, storage: paths.GlobalStorage,
-		workspace: os.Getwd, newToken: svcendpoint.NewToken,
+		workspace: os.Getwd, newToken: svcendpoint.NewToken, getenv: os.Getenv,
 	}
 	return prepare(d, p, stderr)
 }
@@ -141,9 +144,10 @@ func Prepare(p Prelaunch, stderr io.Writer) (*Launch, error) {
 //   - THE VIEW, served the host's way: the pi and opencode views are the host credential socket
 //     their yolo extension and plugin read (a jail writes each one's auth file into the jail's
 //     home instead; at the host that file is the user's own, and opencode's plugin offers the
-//     shared login in its /connect so the user stores the view themselves), the codex view a
-//     managed CODEX_HOME keyed on the declaring pack, with its refresh adapter. A login-only
-//     prelaunch proves the login and writes nothing.
+//     shared login in its /connect so the user stores the view themselves, which the launch
+//     says until they have: opencodeHostLoginNotice), the codex view a managed CODEX_HOME keyed
+//     on the declaring pack, with its refresh adapter. A login-only prelaunch proves the login
+//     and writes nothing.
 func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 	if !p.Declared() {
 		return nil, nil
@@ -165,7 +169,12 @@ func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 	switch p.Flag {
 	case "":
 		return nil, nil
-	case PiViewFlag, OpencodeViewFlag:
+	case PiViewFlag:
+		return &Launch{vars: map[string]string{openauthclient.HostSocketEnv: socket}}, nil
+	case OpencodeViewFlag:
+		if notice := opencodeHostLoginNotice(d); notice != "" {
+			fmt.Fprintln(stderr, notice)
+		}
 		return &Launch{vars: map[string]string{openauthclient.HostSocketEnv: socket}}, nil
 	}
 	launch := &Launch{vars: map[string]string{openauthclient.HostSocketEnv: socket}}
@@ -221,6 +230,47 @@ func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 	launch.vars["CODEX_HOME"] = managedHome
 	launch.vars["CODEX_REFRESH_TOKEN_URL_OVERRIDE"] = "http://" + listener.Addr().String() + "/oauth/token"
 	return launch, nil
+}
+
+// opencodeHostAuthPath is the auth store opencode reads at the host, the one yolo's opencode
+// plugin reads too: $XDG_DATA_HOME/opencode/auth.json, else ~/.local/share/opencode/auth.json
+// (opencode 1.18.34's src/auth/index.ts, through xdg-basedir). "" without a home.
+func opencodeHostAuthPath(d deps) string {
+	if d.home == nil {
+		return ""
+	}
+	data := ""
+	if d.getenv != nil {
+		data = d.getenv("XDG_DATA_HOME")
+	}
+	if data == "" {
+		data = filepath.Join(d.home(), ".local", "share")
+	}
+	return filepath.Join(data, "opencode", "auth.json")
+}
+
+// opencodeHostLoginNotice is the line `yolo host` prints for opencode on the ChatGPT subscription
+// while the user's own opencode auth store does not hold yolo's view, or "". At the host yolo
+// never writes that store, so the shared login the launch just proved reaches opencode only once
+// the user picks it in /connect (packs/opencode/plugins/yolo-openai-auth.js): until then opencode
+// runs on its own ChatGPT login, or, with none, on the derive's non-key, and its requests fail.
+// The launch says which, rather than leave a proved shared login to read as the one in use.
+func opencodeHostLoginNotice(d deps) string {
+	path := opencodeHostAuthPath(d)
+	if path == "" {
+		return ""
+	}
+	const pick = `pick "ChatGPT Plus/Pro (yolo shared login)" for OpenAI in opencode's /connect`
+	switch openauthclient.ReadOpencodeLogin(path) {
+	case openauthclient.OpencodeSharedLogin:
+		return ""
+	case openauthclient.OpencodeOwnLogin:
+		return "  opencode: runs on its own ChatGPT login, stored in " + path + ", not on yolo's shared one; " +
+			pick + " to switch."
+	}
+	return "  opencode: to run on yolo's shared ChatGPT login, " + pick + " once; yolo does not write " +
+		"opencode's logins at the host (" + path + "), and until then opencode's requests on the " +
+		"subscription fail."
 }
 
 // serveAdapter is THE HOST-SIDE CODEX REFRESH ADAPTER: Codex's token endpoint on an

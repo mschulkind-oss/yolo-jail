@@ -1114,10 +1114,14 @@ and pi's do ([OQ-1, OQ-2](../design/pi-codex-provider-shadowing.md#10-decision-l
   `YOLO_AUTH_PRELAUNCH_OPENCODE_PATH=.local/share/opencode/auth.json` whenever `openai-codex` is in
   opencode's active set (keyed on the provider, as pi's are). In a jail the launcher writes the
   broker's view there under `openai`, merged beside the other providers' logins: the access token
-  and the generation marker `yolo-broker:<n>` as the refresh value, never the refresh token. At the
-  host (`yolo host -p codex -- opencode`) the launch hands opencode the broker's host socket
-  instead, and the shared login is the "ChatGPT Plus/Pro (yolo shared login)" method of
-  opencode's `/connect` for OpenAI, beside its API-key method.
+  and the generation marker `yolo-broker:<n>` as the refresh value, never the refresh token.
+  `openai` is also where opencode files its own ChatGPT login and an OpenAI API key, so the view
+  replaces either one, and the launch names what it replaced and where. At the host
+  (`yolo host -p codex -- opencode`) yolo writes no view into the user's own store: the launch hands
+  opencode the broker's host socket instead, and the shared login is the "ChatGPT Plus/Pro (yolo
+  shared login)" method of opencode's `/connect` for OpenAI, beside its API-key method. Until the
+  store holds that view, the launch says so: opencode runs on its own ChatGPT login, or, with
+  none, on the non-key above, and its requests fail.
 - **yolo's plugin serves every request.** packs/opencode delivers
   `~/.config/opencode/plugins/yolo-openai-auth.js`, which opencode loads after its own plugins. On
   yolo's credential its `fetch` replaces opencode's own ChatGPT fetch: it asks the broker for the
