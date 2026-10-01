@@ -209,9 +209,9 @@ yolo -p oh-omp=zai,openrouter -- oh-omp
   exactly the listed providers and hides every other one, and it orders its picker itself. A
   provider you declared with a key and no address, which means the agent's own service, is
   opencode's built-in provider of the same name, so give it opencode's name for that service
-  (`anthropic`, `openai`). oh-omp's picker offers every listed provider; when a company list
-  narrows one of them, it shows that list and every model of the other listed providers, and
-  nothing else.
+  (`anthropic`, `openai`). oh-omp's picker offers every listed provider; when a pack's `only`
+  ([a company's model list](#model-menus-and-a-companys-model-list)) narrows one of them, it shows
+  that list and every model of the other listed providers, and nothing else.
 - **Every listed provider needs its key.** If one is missing, the launch stops and names that
   provider and its place in the list; it never starts the agent on the rest.
 - On the command line a comma continues the list of the agent named before it:
