@@ -37,15 +37,16 @@ import (
 // the two ask the user to do different things.
 //
 // A HELD LOCK IS KEPT YOUNG BY A HEARTBEAT, because the stale break reads nothing but the
-// lock's age. On the container backends `timeout 60` already keeps every refresh far shorter
-// than STALE_LOCK, but _bounded has no timeout(1) on a stock macOS, so on macos-user a live
-// refresh stalled on a slow registry can outlast STALE_LOCK — and without the heartbeat a
-// second launcher would break its lock and start a second writer in the same store. The
-// heartbeat touches the lock every REFRESH_HEARTBEAT seconds while the launcher that took it
-// is alive and the lock still carries that launcher's token, so "older than STALE_LOCK"
-// means "the launcher that took it is gone" on every backend. It does NOT bound the refresh:
-// on macos-user a hung refresh still hangs the launch that ran it, as the program's own
-// update already does there, and while it hangs other launches skip their refresh.
+// lock's age. _bounded (updatebound.go) keeps every refresh to UPDATE_TIMEOUT plus UPDATE_GRACE,
+// far shorter than STALE_LOCK, wherever the launcher's yolo has the bounded no-terminal verb or
+// timeout(1) is on PATH, macos-user included since the verb took the bound over from timeout(1).
+// A launcher with neither runs the refresh unbounded, and a live refresh stalled on a slow
+// registry there can outlast STALE_LOCK — without the heartbeat a second launcher would then
+// break its lock and start a second writer in the same store. The heartbeat touches the lock
+// every REFRESH_HEARTBEAT seconds while the launcher that took it is alive and the lock still
+// carries that launcher's token, so "older than STALE_LOCK" means "the launcher that took it is
+// gone" in every case. It does NOT bound the refresh: where nothing bounds it, a hung refresh
+// still hangs the launch that ran it, and while it hangs other launches skip their refresh.
 //
 // THE RESIDUAL RACE, stated because the lock cannot close it: breaking a STALE lock is a
 // check-then-act. Two launchers that both judge one lock stale in the same instant can each
@@ -258,7 +259,10 @@ _prelaunch_refresh() {
     _start_refresh_heartbeat
     # stdin from /dev/null: a refresh must never read the user's terminal. stdout to stderr: a
     # piped launch ("$BIN -p … | consumer") must receive the program's output and nothing else.
-    _bounded __YOLO_EXEC_PREFIX__"$REAL_BIN" "${REFRESH_ARGV[@]}" </dev/null >&2 || rc=$?
+    # _shielded, as the program's own update is: a Ctrl-C ends the refresh and the program still
+    # runs, and a SIGTERM or SIGHUP releases the lock before it ends the launcher.
+    _shielded '_stop_refresh_heartbeat; _drop_refresh_lock' \
+        _bounded __YOLO_EXEC_PREFIX__"$REAL_BIN" "${REFRESH_ARGV[@]}" </dev/null >&2 || rc=$?
     _stop_refresh_heartbeat
     # Stamped on EVERY outcome (§4.1 invariant 3): an offline hour must not retry per launch.
     _refresh_touch || true
@@ -266,11 +270,15 @@ _prelaunch_refresh() {
     # launch retries the install under the lock instead of leaving it to the program.
     [ "$rc" != 0 ] || _refresh_record_seen || true
     _drop_refresh_lock
-    case "$rc" in
-        0) ;;
-        124) echo "  ⚠ $BIN: the pre-launch refresh timed out after ${UPDATE_TIMEOUT}s — running what is installed." >&2 ;;
-        *) echo "  ⚠ $BIN: the pre-launch refresh failed (status $rc) — running what is installed." >&2 ;;
-    esac
+    if [ "$rc" = 0 ]; then
+        :
+    elif [ "$_YOLO_INTERRUPTED" = 1 ]; then
+        echo "  ⚠ $BIN: the pre-launch refresh was interrupted (Ctrl-C) — running what is installed." >&2
+    elif [ "$rc" = 124 ]; then
+        echo "  ⚠ $BIN: the pre-launch refresh timed out after ${UPDATE_TIMEOUT}s — running what is installed." >&2
+    else
+        echo "  ⚠ $BIN: the pre-launch refresh failed (status $rc) — running what is installed." >&2
+    fi
     return 0
 }
 

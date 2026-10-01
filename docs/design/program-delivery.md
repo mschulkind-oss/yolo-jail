@@ -287,6 +287,40 @@ to guess"* on 2026-09-09. One exception remains, stated where it arises — `cop
   killed.**
 - **Timeout:** 60 seconds for the update attempt, after which the launcher proceeds with whatever is
   installed. A hung vendor updater must not hang the command the user actually typed.
+  ⚠ **AMENDED 2026-10-01 ([OQ-PD22](#decision-ledger)): a SIGTERM at 60 s was not a bound, and the
+  terminal was the reason.** The maintainer's `claude` sat on `Updating claude...` for over five
+  minutes, and Ctrl-C did nothing. Measured in nested jails the same day (claude 2.1.286): the
+  launcher ran `claude install` under GNU `timeout 60`, which puts its command in a process group of
+  its own on the user's terminal. About 20 ms in, before any network call, `claude install` switched
+  that terminal to raw mode, and the kernel stops a process outside the terminal's foreground group
+  that does so (SIGTTOU). At 60 s `timeout` sent SIGTERM. claude's handler restores the terminal, so
+  it was usually stopped again inside the handler, and with no `-k` `timeout` went on waiting: one
+  run was still stopped at 157 s, and four of five trials with a 5 s bound hung. The Ctrl-C reached
+  only the launcher's group. No prompt, download, lock or intercepted host was involved: given the
+  terminal (`timeout --foreground`) the same update finished in 2.8 s, and with no terminal and a
+  `/dev/null` stdin in 2.9 s. The cause is the bound's, so the fix is too. Every **update act** (a term coined here on 2026-10-01: a pack's update verb, or its
+  pre-launch refresh) now has these properties, in all three launcher templates:
+  - **Detached.** It runs with no controlling terminal and a `/dev/null` stdin, through
+    `yolo internal no-terminal`, as the vendor installers already did
+    ([`PS-D1`](provisioner-sets.md#PS-D1)). No terminal call can stop it and no prompt can wait
+    on the user. Its progress output still reaches the terminal.
+  - **Bounded, and the bound holds.** SIGTERM at `UPDATE_TIMEOUT` (60 s), each signal followed by a
+    SIGCONT so that a stopped process can act on it, and SIGKILL `UPDATE_GRACE` (5 s) later to the
+    act's whole process group. The verb implements this itself (`internal/notty`), so it holds on
+    `macos-user` too, where a stock macOS has no `timeout(1)` and the update used to run
+    unbounded. Where no `yolo` has the verb, GNU `timeout --foreground -k` gives the same timeout
+    and grace in the terminal's own group (killing the command, not its children), and with
+    neither the act runs unbounded. The launcher says which.
+  - **Interruptible.** The verb forwards a Ctrl-C to the act and kills it `UPDATE_GRACE` later if it
+    ignores it. The Ctrl-C ends the act, **not the launch**: the launcher says the update was
+    interrupted and runs the installed version, because the user typed the agent's name. It is
+    not counted as an update even when the program then exits 0, as `claude install` does. An
+    interrupted re-run of the installer writes no receipt. A Ctrl-C at a **cold** install still ends
+    the launcher ([`PS-D7`](provisioner-sets.md#PS-D7)), since there is nothing to run.
+  - **The lock goes with it.** A SIGTERM or SIGHUP during the act (a closed terminal) still ends the
+    launcher by that signal, after releasing the install-prefix lock (or the refresh lock). Before
+    this, the lock was left behind, so for ten minutes every launch said "another update is in
+    progress", and the next launch after that broke the lock and hung again.
 - **Forbidden:** never resolve a *project* dependency; never write outside the program's own install
   prefix; never run for a pack the config does not select; **never block on the network when a
   working binary is already present.**
@@ -467,6 +501,8 @@ against the same prefix.
 > [!IMPORTANT]
 > **The contention rule, and the one thing it must not do.** Updates serialize on a lock held at the
 > install prefix. An invocation that cannot take the lock **proceeds WITHOUT updating** and says so.
+> A launcher a SIGTERM or SIGHUP ends mid-update releases the lock first (the *Timeout* bullet
+> above, [OQ-PD22](#decision-ledger)), so a closed terminal does not hold it for `STALE_LOCK`.
 > It must **not** wait long and must **not** fail: the user typed an agent's name, and making them
 > wait — or refusing — because another shell is mid-update would be worse than running the version
 > already on disk. Under B2 this is cheap to state because the failure is already scoped to one
@@ -1802,6 +1838,7 @@ needed it, which was the point.
 | **OQ-PD16** | **Jail-only here; the host notch is owned by [`provisioner-sets.md`](provisioner-sets.md)** — ⚠ **AMENDED 2026-09-11**: this row named [`noncontainer-nix-environment.md`](noncontainer-nix-environment.md), which was **merged into [`provisioner-sets.md`](provisioner-sets.md) and retired that day**; the host notch moved with it, and the six live questions it kept are now four under an `NX` prefix plus two folded into that doc's own ([its id map](provisioner-sets.md#question-id-map-old-spelling--new)). The original ruling is unchanged in substance: the host notch is not this doc's. The mechanism is already built and already named for the axis: `flake.nix`'s `yoloNoncontainerPackages` buildEnv, whose callers today are `macos-user` and the Linux store-delivered package farm (`YOLO_STORE_PACKAGES=1`); the host notch would be a third consumer of an existing attribute, not a new mechanism. ⚠ **Not a `devShell`** — `print-dev-env` puts the whole stdenv ahead of the host userland ([the four nix mechanisms compared](provisioner-evidence.md#32-the-four-nix-mechanisms-compared-and-why-never-a-devshell), measured at 22 PATH entries and 121 variables; it moved to the evidence doc in the 2026-09-20 split), so the shape is a profile and "shell" names the user-facing verb at most. Until that work lands the host stays **enumerated as unmanaged** per [§5.5](#55-a5--do-nothing-and-say-so). | 2026-09-03 · amended 2026-09-11 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03), [`provisioner-sets.md`](provisioner-sets.md) |
 | **OQ-PD17** | **No unreferenced oracle — the reap rule is the COMPLEMENT OF THE RESOLVER.** Reclaiming a capture entry is never a correctness event (measured: a reflinked destination survives its source's unlink byte-identical), and the resolver already picks *newest-by-receipt-time per (bin, platform)* — so every other entry is already unreachable by the only reader. Delete what the resolver would not select; `K = 1`. Retires all three candidates (materialize receipts, a store-side reference list, `FIEMAP`), **and** `K = 2` and the age floor, which this doc had proposed. ✅ **SHIPPED** `46874f2d` as `capture.PruneSupersededCaptures`, reached through `yolo prune`. ⚠ Surfaced [OQ-PD18](#decision-ledger): nothing populated the store automatically, so materialize had never hit on any machine. | 2026-09-04 · shipped 2026-09-04 | [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) *As built*, [`agent-cli-copies.md` §4.2](../reference/agent-cli-copies.md#reclaiming-a-capture-entry-is-never-unsafe) |
 | **OQ-PD18** | **(d), DEFAULT ON — auto-capture on first launch, host-side, in the throwaway jail, no knob to turn it on.** Nothing populated the store before this: `yolo capture` was its only writer, no launch path called it, and it had never been run. ⚠ **Default-on makes a stale entry actively harmful** — the workspace pays a copy AND a download, and is left holding a dead version the vendor updater will not remove — so **A7's V-axis prune is a prerequisite, not a companion** (landed first, `5fe5ba5c`), and [OQ-CP4](../reference/agent-cli-copies.md#oq-cp4) became load-bearing (ruled the same day). On ext4 capture costs `+S` at every N and buys `N−1` avoided downloads; the ext4 share of real installs is the unmeasured number that would revisit the default. ✅ **SHIPPED 2026-09-04** (merge `18524ff9`): the trigger in `internal/cli/run/autocapture.go`, the miss decision in `internal/cli/autocapture.go`, `YOLO_NO_AUTO_CAPTURE=1` the opt-out; verified in a real nested jail. | 2026-09-04 · shipped 2026-09-04 | [§6.3](#63-installers-that-just-do-whatever-capture-the-install-then-treat-the-capture-as-the-package) *As built*, [`agent-cli-copies.md` §4.1](../reference/agent-cli-copies.md#the-ext4-inversion) |
+| **OQ-PD22** | *Implementation decision, reversible, inside [OQ-PD12](#decision-ledger)'s 60-second bound:* **an UPDATE ACT (a pack's update verb, or its pre-launch refresh) runs DETACHED from the terminal, under a bound that HOLDS, and a Ctrl-C ends the act, not the launch.** The act runs through `yolo internal no-terminal --timeout=60 --kill-after=5` (no controlling terminal, a `/dev/null` stdin, SIGTERM then SIGCONT at 60 s, SIGKILL to its process group 5 s later, and a forwarded Ctrl-C escalated after the same 5 s; status 124 for a timeout), spliced once into all three launcher templates (`internal/entrypoint/updatebound.go`). The launcher traps the Ctrl-C around the act, says the update was interrupted, and runs the installed version; a SIGTERM or SIGHUP releases the act's lock before ending the launcher by that signal; an interrupted installer re-run writes no receipt. GNU `timeout --foreground -k` is the fallback where no `yolo` has the verb. **Why:** GNU `timeout 60` was the hang it was meant to prevent. Its own process group on the user's terminal made `claude install`'s raw-mode switch stop it with SIGTTOU, its SIGTERM without `-k` could not end a process stopped again inside its handler, and the terminal's Ctrl-C never reached it (measured 2026-10-01, the *Timeout* bullet in [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)). The vendor's updater did nothing wrong that a terminal-less run does not absorb, so the fix is yolo's. The bound is the verb's rather than `timeout -k`'s because a stock macOS has no `timeout(1)`. **Narrows [`PS-D7`](provisioner-sets.md#PS-D7)** for the update path only: a Ctrl-C at a cold install still ends the launcher. | 2026-10-01 | [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03) |
 
 ---
 
@@ -1810,7 +1847,8 @@ needed it, which was the point.
 **Open: [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split), [OQ-PD20](#oq-pd20) and [OQ-PD21](#oq-pd21).** Every other question is ruled and in the [Decision Ledger](#decision-ledger):
 the 2026-08-24 set, the 2026-09-03 amendment's rulings with its B2 revision and the two questions
 it opened, and the two from 2026-09-04 (the capture build opened [OQ-PD17](#decision-ledger), and
-ruling it surfaced [OQ-PD18](#decision-ledger)). Their deliberation scaffolding was compacted 2026-09-06; the reasoning that
+ruling it surfaced [OQ-PD18](#decision-ledger)). [OQ-PD22](#decision-ledger), recorded 2026-10-01, was an
+implementation decision rather than a question. Their deliberation scaffolding was compacted 2026-09-06; the reasoning that
 survives is in the body sections each ledger row names, and the headings of the three questions
 sibling docs link to are kept at the end of this section as anchors.
 

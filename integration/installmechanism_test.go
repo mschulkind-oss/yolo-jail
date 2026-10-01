@@ -209,3 +209,87 @@ chmod +x "$HOME/.local/bin/` + bin + `"
 			r.stdout, r.stderr)
 	}
 }
+
+// TestAnUpdateVerbRunsDetachedUnderTheBoundInTheJail is the update half of the mechanism cell
+// above (docs/design/program-delivery.md §3.5, OQ-PD22): a program due its update runs the
+// pack's declared verb through the jail's own `yolo internal no-terminal`, under the bound, in a
+// session of its own with a /dev/null stdin. A verb run on the user's terminal under GNU
+// timeout(1) is what hung `claude install` on 2026-10-01. The unit tier runs the verb through a
+// stand-in yolo under a pty; this is the jail's real yolo, launcher and PATH, with no terminal,
+// so what it pins is the route and the real binary's flags, not the SIGTTOU.
+func TestAnUpdateVerbRunsDetachedUnderTheBoundInTheJail(t *testing.T) {
+	requireJail(t)
+	const (
+		packName = "local-update-fixture"
+		bin      = "yolo-update-fixture"
+		sentinel = "update-fixture-ran"
+	)
+	pack := t.TempDir()
+	// The installed tool's `self-update` records how it was run: its stdin, whether it leads a
+	// session (its session id is its pid), and its parent's argv, which is the verb's.
+	installer := `#!/bin/bash
+set -euo pipefail
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/` + bin + `" <<'TOOL'
+#!/bin/bash
+if [ "${1:-}" = self-update ]; then
+  printf 'stdin=%s session-leader=%s\n' "$(readlink /proc/$$/fd/0)" \
+    "$([ "$(cut -d' ' -f6 /proc/$$/stat)" = "$$" ] && echo yes || echo no)" > "$HOME/.local/update-run"
+  printf 'parent=%s\n' "$(tr '\0' ' ' < /proc/$PPID/cmdline)" >> "$HOME/.local/update-run"
+  exit 0
+fi
+echo "` + sentinel + `"
+TOOL
+chmod +x "$HOME/.local/bin/` + bin + `"
+`
+	if err := os.WriteFile(filepath.Join(pack, "install.sh"), []byte(installer), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{
+  "name": "` + packName + `",
+  "description": "native update-verb mechanism, from the pack's own tree",
+  "contributes": [
+    {"kind": "program", "bin": "` + bin + `", "via": "installer",
+     "url": "file:///ctx/packs/` + packName + `/install.sh", "update": ["self-update"]}
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(pack, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := writeProject(t, `{}`)
+	packHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "`+packName+`"}]}`)
+
+	// The first run installs (and stamps); backdating the stamp past UPDATE_INTERVAL makes the
+	// second run the update.
+	stamp := `"$HOME/.cache/yolo-agent-stamps/` + bin + `.stamp"`
+	script := strings.Join([]string{
+		bin,
+		`touch -d '2 hours ago' ` + stamp,
+		`echo "=== UPDATE ==="`,
+		bin,
+		`echo "=== HOW ==="`,
+		`cat "$HOME/.local/update-run"`,
+	}, "; ")
+	r := runYolo(t, dir, script)
+	if r.rc != 0 {
+		t.Fatalf("update fixture failed: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
+	}
+	if got := section(r.stdout, "=== UPDATE ===", "=== HOW ==="); !strings.Contains(got, sentinel) {
+		t.Errorf("the program did not run after its update: %q\nstderr: %s", got, r.stderr)
+	}
+	if !strings.Contains(r.stderr, "Updating "+bin+"...") {
+		t.Errorf("the second run did not update:\n%s", r.stderr)
+	}
+	how := section(r.stdout, "=== HOW ===", "")
+	for _, want := range []string{"stdin=/dev/null", "session-leader=yes", "internal no-terminal",
+		"--timeout=60", "--kill-after=5", "self-update"} {
+		if !strings.Contains(how, want) {
+			t.Errorf("the update verb must run detached, under the bound (want %q), got %q\nstderr: %s",
+				want, how, r.stderr)
+		}
+	}
+	if strings.Contains(r.stdout+r.stderr, "cannot detach") {
+		t.Errorf("the jail's own yolo lacked the bounded no-terminal verb, so the launcher fell back:\n%s%s",
+			r.stdout, r.stderr)
+	}
+}

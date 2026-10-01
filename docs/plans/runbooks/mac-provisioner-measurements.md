@@ -136,7 +136,10 @@ the platform has one* — `shims.go` says in as many words that the image bakes 
 stock macOS does not, and this Mac confirms it (no `/usr/bin/timeout`; Homebrew's `gtimeout` is off
 `SandboxPath` and denied by the profile besides). So the update ran **unbounded** and 124 is
 `claude install`'s own exit status. Worth knowing before reading 124 as a bound anywhere on this
-backend: **there is no wall-clock bound on a guest update at all**, by the ruling in that comment. (3) **Two installers write into the generated home** and one of them reorders PATH:
+backend: **there is no wall-clock bound on a guest update at all**, by the ruling in that comment.
+⚠ *Superseded 2026-10-01 by [OQ-PD22](../../design/program-delivery.md#decision-ledger):* the bound
+is now `yolo internal no-terminal`'s, which needs no `timeout(1)`, so on a launcher of that build a
+124 on this backend may now be the bound's. (3) **Two installers write into the generated home** and one of them reorders PATH:
 see [what a vendor installer does to the generated home](#what-a-vendor-installer-does-to-the-generated-home).
 
 ## M2 — does the generated Brewfile actually apply, casks included?

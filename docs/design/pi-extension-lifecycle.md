@@ -285,14 +285,16 @@ transitive MCP/LSP step runs `yolo internal refresh-servers` before the agent's 
 > - **Two redirections were added.** stdin comes from `/dev/null`, so the refresh can never read
 >   the user's terminal. stdout goes to stderr, so a piped launch (`pi -p … | consumer`) receives
 >   only Pi's own output.
-> - **Failure is reported and the launch goes ahead.** Exit status 124 (`timeout(1)`'s expiry) is
->   reported as a timeout, and any other non-zero status by its number. Both are stamped, and in
->   every case Pi still launches. The bound is the launcher's `_bounded`, which means
->   `timeout UPDATE_TIMEOUT` (60 s) where `timeout(1)` exists. ⚠ A stock macOS has no `timeout(1)`,
->   so on `macos-user` the refresh runs **unbounded**. This is the same trade the program's own
->   update already makes there. The lock's heartbeat ([§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion))
->   stops an unbounded refresh from letting a second one into the store, but it does not bound the
->   launch that is waiting on it.
+> - **Failure is reported and the launch goes ahead.** Exit status 124 (the bound's expiry) is
+>   reported as a timeout, a Ctrl-C as an interruption, and any other non-zero status by its
+>   number. All are stamped, and in every case Pi still launches. The bound is the launcher's
+>   `_bounded`, the same one the program's own update runs under
+>   ([program-delivery.md OQ-PD22](program-delivery.md#decision-ledger), 2026-10-01): no
+>   controlling terminal, SIGTERM at `UPDATE_TIMEOUT` (60 s) and SIGKILL 5 s later, through
+>   `yolo internal no-terminal`, which bounds it on `macos-user` too. Only a launcher with neither
+>   that verb nor `timeout(1)` runs the refresh **unbounded**. The lock's heartbeat
+>   ([§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion)) stops an unbounded refresh from
+>   letting a second one into the store, but it does not bound the launch that is waiting on it.
 > - **The refresh does not run in two places.** `yolo pack update` (`YOLO_PACK_UPDATE=1`) exits
 >   before reaching it, and so does the launcher's re-entry path.
 >

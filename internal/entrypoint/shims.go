@@ -1258,17 +1258,7 @@ _do_install() {
     return "$rc"
 }
 
-# _bounded runs its argv under a wall-clock bound where the platform has one. timeout(1)
-# is GNU coreutils: the image bakes it, a stock macOS does not, and running unbounded is a
-# better answer there than not updating at all.
-_bounded() {
-    if command -v timeout >/dev/null 2>&1; then
-        YOLO_BYPASS_SHIMS=1 timeout "$UPDATE_TIMEOUT" "$@"
-    else
-        YOLO_BYPASS_SHIMS=1 "$@"
-    fi
-}
-
+` + updateBoundShellFn + `
 # _take_lock is a NON-BLOCKING mkdir, and both halves of that are §3.5's ruling rather than
 # an implementation shortcut: there is no flock in the image and none on a stock macOS, and
 # an invocation that cannot take the lock must PROCEED WITHOUT UPDATING and say so.
@@ -1295,15 +1285,21 @@ _update_due() {
 }
 
 # _locked_update holds the install-prefix lock across the whole act, and is the only caller
-# on the launch path.
+# on the launch path. The act is _shielded: a Ctrl-C ends it and the launch goes on, and a
+# SIGTERM or SIGHUP drops the lock before it ends the launcher. The verb branch says its own
+# outcome; an interrupted "npm install" is said here, since npm's own output does not say the
+# launch goes on.
 _locked_update() {
     local rc=0
     if ! _take_lock; then
         echo "  $BIN: another update is in progress — running the installed version." >&2
         return 0
     fi
-    _update || rc=$?
+    _shielded _drop_lock _update || rc=$?
     _drop_lock
+    if [ "$_YOLO_INTERRUPTED" = 1 ] && [ "$HAS_UPDATE_VERB" != "1" ]; then
+        _say_not_updated update "$rc"
+    fi
     return "$rc"
 }
 
@@ -1345,6 +1341,7 @@ _update() {
         local vrc=0
         _bounded "$REAL_BIN" "${UPDATE_VERB[@]}" >&2 || vrc=$?
         touch "$STAMP"
+        if [ "$vrc" != 0 ]; then _say_not_updated update "$vrc"; fi
         return "$vrc"
     fi
     INSTALLED=$(_installed_version)
@@ -1518,13 +1515,14 @@ const CapturesDirEnv = "YOLO_CAPTURES_DIR"
 // It used to run `"$REAL_BIN" install` on an hourly stamp — one hardcoded verb, with no
 // status, no timeout, no lock and no policy — which is a no-op for every vendor whose verb
 // is spelled something else. What replaces it is the pack's DECLARED verb (UPDATE_VERB),
-// with the four properties §3.5 requires of an update: bounded (UPDATE_TIMEOUT),
-// serialized against the other writers of this install prefix (LOCK_DIR), scoped to the
-// invocation rather than to the jail, and not run at all when the jail's `agent_updates`
-// policy says so (UPDATES_ENABLED). A7's V-axis prune rides the same success paths
-// (_prune_versions), because the act that creates a version is the one that knows to
-// delete the one it superseded, and runs once more on every launch path (_locked_prune, L7),
-// so the versions no install or update of this workspace superseded go too.
+// with the four properties §3.5 requires of an update: bounded (UPDATE_TIMEOUT, and the rest of
+// the update bound in updatebound.go: detached from the terminal, killed UPDATE_GRACE after its
+// SIGTERM, ended by a Ctrl-C without ending the launch), serialized against the other writers of
+// this install prefix (LOCK_DIR), scoped to the invocation rather than to the jail, and not run
+// at all when the jail's `agent_updates` policy says so (UPDATES_ENABLED). A7's V-axis prune
+// rides the same success paths (_prune_versions), because the act that creates a version is the
+// one that knows to delete the one it superseded, and runs once more on every launch path
+// (_locked_prune, L7), so the versions no install or update of this workspace superseded go too.
 const nativeLauncherTemplate = `#!/bin/bash
 # Lazy-update launcher — installs/updates on first use, not at boot. BIN names the program.
 set -euo pipefail
@@ -1608,17 +1606,7 @@ export _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE:-}:$BIN"
 mkdir -p "$STAMP_DIR"
 mkdir -p "$HOME/.local"
 ` + stampMtimeFn + receiptShellFns + `
-# _bounded runs its argv under a wall-clock bound where the platform has one. timeout(1)
-# is GNU coreutils: the image bakes it, a stock macOS does not, and running unbounded is a
-# better answer there than not updating at all.
-_bounded() {
-    if command -v timeout >/dev/null 2>&1; then
-        YOLO_BYPASS_SHIMS=1 timeout "$UPDATE_TIMEOUT" "$@"
-    else
-        YOLO_BYPASS_SHIMS=1 "$@"
-    fi
-}
-
+` + updateBoundShellFn + `
 # _take_lock is a NON-BLOCKING mkdir, and both halves of that are the ruling rather than an
 # implementation shortcut. There is no flock in the image and none on a stock macOS; and an
 # invocation that cannot take the lock must PROCEED WITHOUT UPDATING and say so — the user
@@ -1901,6 +1889,12 @@ _run_installer() {
     _run_without_terminal bash "$script" 2>&1 || true
     rm -f "$script"
     touch "$STAMP"
+    # A Ctrl-C stopped the installer partway, so what it left is not an install a receipt may
+    # vouch for (PS-D7). Only an UPDATE gets here interrupted: a cold install runs outside
+    # _shielded, so its Ctrl-C ends this launcher instead, there being nothing to run.
+    if [ "$_YOLO_INTERRUPTED" = 1 ]; then
+        return 130
+    fi
     # A receipt only for a run that LEFT SOMETHING, and the same test is the status. An
     # installer can fail loudly (exit 1, nothing downloaded) or quietly (exit 0, the binary
     # under a prefix this launcher never looks at); the LANDING PATH is what separates both
@@ -1961,7 +1955,7 @@ _update() {
     if [ "$rc" = 0 ]; then
         _prune_versions
     else
-        echo "  ⚠ $BIN: update failed (status $rc) — running the installed version." >&2
+        _say_not_updated update "$rc"
     fi
     return "$rc"
 }
@@ -1977,14 +1971,16 @@ _update_due() {
 
 # _locked_update holds the install-prefix lock across the whole act, and is the only caller
 # on the launch path. Both the "cannot take it" message and the drop live here so the two
-# entry points cannot come to disagree about them.
+# entry points cannot come to disagree about them. The act is _shielded: a Ctrl-C ends it and
+# the launch goes on with the installed version, and a SIGTERM or SIGHUP drops the lock before
+# it ends the launcher.
 _locked_update() {
     local rc=0
     if ! _take_lock; then
         echo "  $BIN: another update is in progress — running the installed version." >&2
         return 0
     fi
-    _update || rc=$?
+    _shielded _drop_lock _update || rc=$?
     _drop_lock
     return "$rc"
 }
@@ -2035,7 +2031,7 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     if [ ! -x "$REAL_BIN" ]; then
         _do_install || _rc=$?
     elif _take_lock; then
-        _update || _rc=$?
+        _shielded _drop_lock _update || _rc=$?
         _drop_lock
     else
         echo "  ⚠ $BIN: another update holds the install-prefix lock — nothing refreshed." >&2

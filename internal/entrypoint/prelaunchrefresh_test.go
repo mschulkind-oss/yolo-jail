@@ -81,6 +81,9 @@ type prelaunchProbe struct {
 	// stderrWatch, when set, also receives the launcher's stderr AS IT IS WRITTEN, so a cell
 	// can act on what the launcher says at the moment it says it rather than after a sleep.
 	stderrWatch io.Writer
+	// path, when set, is the launcher's PATH in place of this process's, so a cell can say
+	// which yolo, if any, _bounded finds.
+	path string
 }
 
 // newPrelaunchProbe seeds a fake program at REAL_BIN (so the launch path, not the cold-install
@@ -165,6 +168,9 @@ func (p *prelaunchProbe) run(t *testing.T, pathPrefix string, env ...string) (st
 	cmd := exec.Command(p.script)
 	cmd.Dir = p.home
 	path := os.Getenv("PATH")
+	if p.path != "" {
+		path = p.path
+	}
 	if pathPrefix != "" {
 		path = pathPrefix + ":" + path
 	}
@@ -379,39 +385,66 @@ func TestPrelaunchRefreshFailureStillLaunches(t *testing.T) {
 	assertProgramLaunched(t, log, stdout)
 }
 
-// TestPrelaunchRefreshIsBoundedByUpdateTimeout: the refresh goes through the launcher's
-// `timeout UPDATE_TIMEOUT` (§3.2 step 4), and an expiry — timeout(1)'s status 124 — is said as
-// a timeout. A fake timeout records its argv, then either runs the command or reports expiry.
+// TestPrelaunchRefreshIsBoundedByUpdateTimeout: the refresh is an update act, run through the
+// launcher's _bounded (updatebound.go, §3.2 step 4), and an expiry — status 124 — is said as a
+// timeout. DETACHED, yolo's bounded no-terminal verb (the stand-in runs the real one) ends a
+// refresh that would block for twenty seconds once the shortened bound has passed. With no yolo,
+// the FALLBACK is GNU timeout with the same grace, in the terminal's foreground group: a fake
+// timeout records its argv, then either runs the command or reports expiry.
 func TestPrelaunchRefreshIsBoundedByUpdateTimeout(t *testing.T) {
-	p := newPrelaunchProbe(t, false)
-	fake := filepath.Join(p.home, "fakebin")
-	if err := os.MkdirAll(fake, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	tlog := filepath.Join(p.home, "timeout.log")
-	body := "#!/bin/bash\nprintf '%s\\n' \"$*\" >> " + shellQuoteForTest(tlog) + "\n" +
-		"if [ -n \"${FAKE_TIMEOUT_EXPIRE:-}\" ]; then exit 124; fi\nshift\nexec \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(fake, "timeout"), []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	p.run(t, fake)
-	got, _ := os.ReadFile(tlog)
-	if want := "60 " + p.realBin + " update --extensions"; !strings.Contains(string(got), want) {
-		t.Errorf("the refresh must run under `timeout 60`:\n got %q\nwant it to contain %q", got, want)
-	}
+	t.Run("detached", func(t *testing.T) {
+		p := newPrelaunchProbe(t, false)
+		p.path = yoloStandIn(t) + ":" + pathWithout(t, "yolo")
+		p.bodyPatch = map[string]string{"\nUPDATE_TIMEOUT=60 ": "\nUPDATE_TIMEOUT=1 ", "\nUPDATE_GRACE=5\n": "\nUPDATE_GRACE=1\n"}
+		begun := time.Now()
+		stdout, stderr := p.run(t, "", "FAKE_REFRESH_WAIT="+filepath.Join(p.home, "never"))
+		if took := time.Since(begun); took > 12*time.Second {
+			t.Errorf("the refresh outlived its 1s bound by %s", took)
+		}
+		if !strings.Contains(stderr, "timed out after 1s") {
+			t.Errorf("an expired bound must be reported as a timeout:\n%s", stderr)
+		}
+		if _, err := os.Stat(p.lockPath()); !os.IsNotExist(err) {
+			t.Errorf("a timed-out refresh must release the lock (err=%v)", err)
+		}
+		assertProgramLaunched(t, p.logLines(t), stdout)
+	})
+	t.Run("timeout-fallback", func(t *testing.T) {
+		p := newPrelaunchProbe(t, false)
+		p.path = pathWithout(t, "yolo")
+		fake := filepath.Join(p.home, "fakebin")
+		if err := os.MkdirAll(fake, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		tlog := filepath.Join(p.home, "timeout.log")
+		body := "#!/bin/bash\nprintf '%s\\n' \"$*\" >> " + shellQuoteForTest(tlog) + "\n" +
+			"if [ -n \"${FAKE_TIMEOUT_EXPIRE:-}\" ]; then exit 124; fi\n" +
+			"while [ \"${1#-}\" != \"$1\" ]; do [ \"$1\" = -k ] && shift; shift; done\nshift\nexec \"$@\"\n"
+		if err := os.WriteFile(filepath.Join(fake, "timeout"), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, stderr := p.run(t, fake)
+		got, _ := os.ReadFile(tlog)
+		if want := "--foreground -k 5 60 " + p.realBin + " update --extensions"; !strings.Contains(string(got), want) {
+			t.Errorf("the refresh must run under `timeout --foreground -k 5 60`:\n got %q\nwant it to contain %q", got, want)
+		}
+		if !strings.Contains(stderr, "yolo cannot detach tool's update from this terminal here") {
+			t.Errorf("the fallback must say it could not detach the refresh:\n%s", stderr)
+		}
 
-	backdatePath(t, p.stampPath(), 2*time.Hour)
-	if err := os.Remove(p.log); err != nil {
-		t.Fatal(err)
-	}
-	stdout, stderr := p.run(t, fake, "FAKE_TIMEOUT_EXPIRE=1")
-	if !strings.Contains(stderr, "timed out after 60s") {
-		t.Errorf("an expired bound must be reported as a timeout:\n%s", stderr)
-	}
-	if _, err := os.Stat(p.lockPath()); !os.IsNotExist(err) {
-		t.Errorf("a timed-out refresh must release the lock (err=%v)", err)
-	}
-	assertProgramLaunched(t, p.logLines(t), stdout)
+		backdatePath(t, p.stampPath(), 2*time.Hour)
+		if err := os.Remove(p.log); err != nil {
+			t.Fatal(err)
+		}
+		stdout, stderr := p.run(t, fake, "FAKE_TIMEOUT_EXPIRE=1")
+		if !strings.Contains(stderr, "timed out after 60s") {
+			t.Errorf("an expired bound must be reported as a timeout:\n%s", stderr)
+		}
+		if _, err := os.Stat(p.lockPath()); !os.IsNotExist(err) {
+			t.Errorf("a timed-out refresh must release the lock (err=%v)", err)
+		}
+		assertProgramLaunched(t, p.logLines(t), stdout)
+	})
 }
 
 // TestPrelaunchRefreshLeavesAStolenLockAlone: when another launcher broke this one's lock as
@@ -550,10 +583,10 @@ const (
 
 // TestALiveRefreshKeepsItsLockFresh: the stale break reads only the lock's age, so a LIVE
 // refresh that runs longer than STALE_LOCK must keep its lock young, or a second launcher
-// breaks it and two refreshes write one store. On the container backends `timeout 60` keeps
-// every refresh far shorter than STALE_LOCK; on macos-user `_bounded` has no timeout(1), and
-// a refresh stalled on a slow registry (npm retries a fetch for minutes) outlives it. So the
-// holder heartbeats the lock. Backdating A's lock past STALE_LOCK stands in for the ten
+// breaks it and two refreshes write one store. `_bounded` keeps every refresh far shorter than
+// STALE_LOCK wherever yolo's bounded verb or timeout(1) is on PATH; a launcher with neither runs
+// it unbounded, and a refresh stalled on a slow registry (npm retries a fetch for minutes) then
+// outlives it. So the holder heartbeats the lock. Backdating A's lock past STALE_LOCK stands in for the ten
 // minutes; the heartbeat must bring it back, and B must then see it HELD, not stale.
 func TestALiveRefreshKeepsItsLockFresh(t *testing.T) {
 	a, b := newSharedStorePair(t)

@@ -167,15 +167,7 @@ esac
 export _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE:-}:$BIN"
 
 mkdir -p "$STAMP_DIR"
-` + stampMtimeFn + `
-_bounded() {
-    if command -v timeout >/dev/null 2>&1; then
-        YOLO_BYPASS_SHIMS=1 timeout "$UPDATE_TIMEOUT" "$@"
-    else
-        YOLO_BYPASS_SHIMS=1 "$@"
-    fi
-}
-
+` + stampMtimeFn + updateBoundShellFn + `
 # A FORK HAS NO UPDATE MODE: its pin moves it, on the host, and the next launch builds the new
 # revision. "yolo pack update" reaches this and is told so.
 if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
