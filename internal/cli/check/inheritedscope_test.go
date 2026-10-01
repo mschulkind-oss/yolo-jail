@@ -101,6 +101,10 @@ func maskTempPaths(s string) string {
 	for i := 0; i < len(s); {
 		if strings.HasPrefix(s[i:], tmp) {
 			b.WriteString("<tmp>")
+			// Past the temp dir first: TMPDIR may itself contain a space, so the path
+			// ends at the first one AFTER it. What follows is built from the test's
+			// name, in which t.Run has already turned every space into an underscore.
+			i += len(tmp)
 			for i < len(s) && s[i] != ' ' && s[i] != '\n' {
 				i++
 			}

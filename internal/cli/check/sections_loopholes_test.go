@@ -3,6 +3,7 @@ package check
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"io"
 	"net"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
@@ -778,14 +780,31 @@ func selfCheckModule(t *testing.T, parent, name string, argv []string) string {
 	body := `"name":"` + name + `","description":"` + name + `","transport":"none",` +
 		`"default_enabled":true`
 	if len(argv) > 0 {
-		body += `,"doctor_cmd":["` + strings.Join(argv, `","`) + `"]`
+		body += `,` + doctorCmdField(t, argv)
 	}
 	return writeLoopholeManifest(t, parent, name, body)
 }
 
+// doctorCmdField is argv as a manifest's `"doctor_cmd":[…]` field, JSON-encoded rather
+// than spliced between quotes: the elements carry temp paths, and a temp path holds
+// whatever TMPDIR does.
+func doctorCmdField(t *testing.T, argv []string) string {
+	t.Helper()
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(argv); err != nil {
+		t.Fatal(err)
+	}
+	return `"doctor_cmd":` + strings.TrimSuffix(b.String(), "\n")
+}
+
 // touchAndSay is a doctor_cmd argv that records having run and prints one graded line.
+// The sentinel is shell-quoted because it is a temp path: under a TMPDIR with a space,
+// an unquoted `touch` makes two wrong files and never the sentinel the test stats, so
+// "it ran" fails and "it did not run" passes for the wrong reason.
 func touchAndSay(sentinel, line string) []string {
-	return []string{"/bin/sh", "-c", "touch " + sentinel + "; echo '" + line + "'"}
+	return []string{"/bin/sh", "-c", "touch " + shquote.Quote(sentinel) + "; echo " + shquote.Quote(line)}
 }
 
 // recordPackModule records mod as this process's only pack-contributed loophole module,
@@ -910,7 +929,7 @@ func TestCheckLoopholesWarnsOnWorkspaceEnable(t *testing.T) {
 	wsonRan := filepath.Join(sentinels, "wson-ran")
 	writeLoopholeManifest(t, bundled, "wson",
 		`"name":"wson","description":"wson","transport":"none","default_enabled":false,`+
-			`"doctor_cmd":["/bin/sh","-c","touch `+wsonRan+`; echo 'OK: wson wiring present'"]`)
+			doctorCmdField(t, touchAndSay(wsonRan, "OK: wson wiring present")))
 	// The control, and the constraint that keeps the new row worth reading: a
 	// loophole that is on because its own MANIFEST says so, which no workspace file
 	// mentions. It must draw no disclosure — a line under every default-on loophole
@@ -987,14 +1006,14 @@ func TestCheckLoopholesResolvesUserScopeSwitch(t *testing.T) {
 	onRan := filepath.Join(sentinels, "on-ran")
 	writeLoopholeManifest(t, bundled, "useron",
 		`"name":"useron","description":"useron","transport":"none","default_enabled":false,`+
-			`"doctor_cmd":["/bin/sh","-c","touch `+onRan+`; echo 'OK: useron wiring present'"]`)
+			doctorCmdField(t, touchAndSay(onRan, "OK: useron wiring present")))
 	// ON in the manifest, OFF in the user config: the broker case, where reporting the
 	// author's default as fact means running (and grading) a self-check for a loophole
 	// that will not be there.
 	offRan := filepath.Join(sentinels, "off-ran")
 	writeLoopholeManifest(t, bundled, "useroff",
 		`"name":"useroff","description":"useroff","transport":"none","default_enabled":true,`+
-			`"doctor_cmd":["/bin/sh","-c","touch `+offRan+`; echo 'FAIL: useroff is broken'"]`)
+			doctorCmdField(t, touchAndSay(offRan, "FAIL: useroff is broken")))
 
 	userCfgDir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
 	if err := os.MkdirAll(userCfgDir, 0o755); err != nil {
@@ -1309,7 +1328,7 @@ func TestCheckLoopholesDoesNotGradeAnInertLoopholeAsLive(t *testing.T) {
 	writeLoopholeManifest(t, moduleRoot, "acme-refresh",
 		`"name":"acme-refresh","description":"d","transport":"none","default_enabled":true,`+
 			`"serves":["acme-oauth-refresh"],`+
-			`"doctor_cmd":["/bin/sh","-c","touch `+supersededRan+`; echo 'OK: refresher healthy'"]`)
+			doctorCmdField(t, touchAndSay(supersededRan, "OK: refresher healthy")))
 	recordSupersessions(t, loopholes.PackSupersession{Pack: "acme-bedrock",
 		Capability: "acme-oauth-refresh", Because: "Bedrock needs no OAuth refresh"})
 
@@ -1317,7 +1336,7 @@ func TestCheckLoopholesDoesNotGradeAnInertLoopholeAsLive(t *testing.T) {
 	writeLoopholeManifest(t, moduleRoot, "acme-elsewhere",
 		`"name":"acme-elsewhere","description":"d","transport":"none","default_enabled":true,`+
 			`"platforms":["`+otherPlatform()+`"],`+
-			`"doctor_cmd":["/bin/sh","-c","touch `+platformRan+`; echo 'OK: daemon healthy'"]`)
+			doctorCmdField(t, touchAndSay(platformRan, "OK: daemon healthy")))
 
 	r, out := runCheckLoopholes(t, t.TempDir())
 
