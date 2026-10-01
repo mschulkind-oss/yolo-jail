@@ -75,6 +75,10 @@ func TestMacosUserQ3SandboxStepBuildsTheFloorFirst(t *testing.T) {
 	}
 }
 
+// nixBuildCmdRe captures one `nix build` command with its backslash continuations, the shape
+// machineInitRe reads a `podman machine init` with.
+var nixBuildCmdRe = regexp.MustCompile(`(?m)^[ \t]*nix build\b(?:[^\n]*\\\n)*[^\n]*`)
+
 // TestMacosUserQ3CacheMissStepRebuildsAFloorPackage pins Q3's CACHE-MISS step the same way, from
 // Linux under -short. The floor step above has never built a floor package (every run
 // substituted them), so this one forces one with `nix build --rebuild`, and the ways it could
@@ -104,10 +108,31 @@ func TestMacosUserQ3CacheMissStepRebuildsAFloorPackage(t *testing.T) {
 		t.Errorf("the Q3 cache-miss step rebuilds %q, which is not in darwinpkg.FloorNames(): it "+
 			"would measure a builder no macos-user launch runs. Pick a floor entry", m[1])
 	}
+	// THE FLAGS ARE READ OFF THE REBUILD'S OWN COMMAND, not the step: the summary's echo lines
+	// spell `--rebuild` and `--option sandbox true` too, so a step-wide search passed with both
+	// gone from the nix invocation.
+	var rebuild string
+	for _, c := range nixBuildCmdRe.FindAllString(step, -1) {
+		if strings.Contains(c, "--rebuild") {
+			rebuild = c
+			break
+		}
+	}
+	if rebuild == "" {
+		t.Fatalf("the Q3 cache-miss step runs no `nix build … --rebuild`, so it never builds the "+
+			"package and every run would read VOID:\n%s", step)
+	}
 	for _, want := range []struct{ text, why string }{
 		{"--inputs-from .", "the package must resolve from this flake's locked nixpkgs, the set the floor reads"},
-		{`inst="nixpkgs#${pkg}^*"`, "every output must be realized, or --rebuild refuses to check the derivation"},
 		{"--option sandbox true", "without it the rebuild says nothing about the sandbox"},
+		{`"$inst"`, "the rebuild must name the installable the step realized, every output of it"},
+	} {
+		if !strings.Contains(rebuild, want.text) {
+			t.Errorf("the Q3 cache-miss rebuild lacks %q: %s.\ncommand:\n%s", want.text, want.why, rebuild)
+		}
+	}
+	for _, want := range []struct{ text, why string }{
+		{`inst="nixpkgs#${pkg}^*"`, "every output must be realized, or --rebuild refuses to check the derivation"},
 		{"aarch64-darwin", "the step must say VOID on a system whose floor reads another nixpkgs input"},
 		{"ignoring the client-specified setting 'sandbox'", "an unsandboxed rebuild must read as VOID, not as a result"},
 		{"continue-on-error: true", "a refusal is the answer, and must not turn the macos-user verdict red"},
