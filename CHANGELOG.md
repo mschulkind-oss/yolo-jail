@@ -444,10 +444,12 @@ See [troubleshooting](userguide/guides/troubleshooting.md#installing-and-launchi
   [tier aliases](docs/reference/providers.md#tier-aliases).
 - GPT-6.1 Sol replaces GPT-6 Sol for every agent on the ChatGPT subscription (`-p codex`): it is the default and the first entry in the model menus, and GPT-6 Sol is no longer listed. If you had picked GPT-6 Sol yourself, pick a model again.
 - A pack's `install_hints` value may now hold only package names before its one optional
-  ` && <command>` step, since `yolo host apply --assert` runs the hint after one prompt. A hint
-  with `;`, `|` or `$(…)` among its package names, or a second `&&`, is refused when the pack
-  loads, naming the pack, the tool and the character, and saying to put the extra step after a
-  single ` && `.
+  ` && <command>` step, since `yolo check-deps` and `yolo host apply` print it for you to run and
+  write it into the Brewfile or package list they generate. A hint with `;`, `|` or `$(…)` among
+  its package names, a name starting with `.` or ending in `-` (which apt reads as "remove"), a
+  second `&&`, or a step holding characters a terminal does not show as themselves, is refused
+  when the pack loads, naming the pack, the tool and the character, and saying what to write
+  instead. A `nix` hint naming several packages now installs each of them from nixpkgs.
 
 **The launch's profile line now says what your selection reached for each agent.** Instead of
 listing every selected pack as having received the profile, `Profile bedrock: …` names the packs

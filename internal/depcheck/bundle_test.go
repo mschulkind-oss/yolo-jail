@@ -170,3 +170,44 @@ func TestUnbundledNamesEverySelfInstall(t *testing.T) {
 		t.Errorf("bundle body = %q, want plain-apt alone", body)
 	}
 }
+
+// TestANixHintNamingSeveralPackagesInstallsEachFromNixpkgs: a hint's package part may name
+// several packages (packdecl's InstallHints convention), and on nix each one is an INSTALLABLE,
+// so each needs its `nixpkgs#`. Only the first used to get one: `hello ripgrep` became
+// `nix profile install nixpkgs#hello ripgrep`, where `ripgrep` is a flake reference rather than
+// a package, and a token such as `.` or `github:owner/repo` installed the current directory's
+// flake or a repository's. The printed remedy is RUN, through a shell, against stubs, so what
+// nix receives is the evidence; a step after ` && ` is left as written.
+func TestANixHintNamingSeveralPackagesInstallsEachFromNixpkgs(t *testing.T) {
+	results := Check([]Requirement{
+		{Bin: "one", Hints: map[string]string{"nix": "fd"}},
+		{Bin: "several", Hints: map[string]string{"nix": "hello ripgrep"}},
+		{Bin: "spaced", Hints: map[string]string{"nix": "  hello  ripgrep  "}},
+		{Bin: "stepped", Hints: map[string]string{"nix": "hello ripgrep && ln -sf a b"}},
+	}, only("nix"))
+	byBin := map[string]Result{}
+	for _, r := range results {
+		byBin[r.Bin] = r
+	}
+	for bin, want := range map[string]string{
+		"one":     "nix profile install nixpkgs#fd",
+		"several": "nix profile install nixpkgs#hello nixpkgs#ripgrep",
+		"spaced":  "nix profile install nixpkgs#hello nixpkgs#ripgrep",
+		"stepped": "nix profile install nixpkgs#hello nixpkgs#ripgrep && ln -sf a b",
+	} {
+		if got := byBin[bin].Remedy; got != want {
+			t.Errorf("%s remedy = %q, want %q", bin, got, want)
+		}
+	}
+	// The one-package hint is still a bundle line; a hint of several is still printed beside
+	// the bundle, which lists one token per dependency.
+	if name, body := Manifest(results); name != "nix-packages.txt" || body != "nixpkgs#fd\n" {
+		t.Errorf("bundle = %q %q, want nix-packages.txt holding nixpkgs#fd alone", name, body)
+	}
+
+	path, log := stubManagers(t)
+	if got, want := runShell(t, byBin["stepped"].Remedy, path, log),
+		"nix profile install nixpkgs#hello nixpkgs#ripgrep\nln -sf a b\n"; got != want {
+		t.Errorf("the nix remedy ran %q, want %q", got, want)
+	}
+}

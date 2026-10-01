@@ -291,10 +291,34 @@ func installCmd(flavor, pkg string) string {
 	case "pacman":
 		return "sudo pacman -S --noconfirm " + pkg
 	case "nix":
-		return "nix profile install nixpkgs#" + pkg
+		return "nix profile install " + nixInstallables(pkg)
 	default:
 		return ""
 	}
+}
+
+// hintStepSeparator is where a hint's packages end and its one step begins, the convention
+// packdecl's InstallHints states and its decoder enforces. Spelled here as well because this
+// package takes no packdecl dependency (Requirement); nixInstallables is its one reader.
+const hintStepSeparator = " && "
+
+// nixInstallables spells a hint's package part as nix INSTALLABLES, `nixpkgs#<package>` for
+// EACH package, and leaves a step after the separator as written. Every other manager takes
+// package names as its arguments, so only nix needs this: concatenating the prefix onto the
+// whole hint gave the first package alone a `nixpkgs#`, and `nix profile install` read every
+// later one as a flake reference — `ripgrep` a registry lookup, `.` the current directory's
+// flake. The empty hint keeps the bare prefix, which bundleToken strips to recover a token.
+func nixInstallables(hint string) string {
+	pkgs, step, chained := strings.Cut(hint, hintStepSeparator)
+	names := strings.Fields(pkgs)
+	if len(names) == 0 {
+		return "nixpkgs#" + hint
+	}
+	out := "nixpkgs#" + strings.Join(names, " nixpkgs#")
+	if chained {
+		out += hintStepSeparator + step
+	}
+	return out
 }
 
 // Missing returns the results that are absent, remedy or not — every declared binary this host

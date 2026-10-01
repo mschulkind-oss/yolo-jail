@@ -161,13 +161,22 @@ type Contribution struct {
 	//
 	// The rule, same ruling, checked on every manifest read (installHintProblem): the value
 	// splits at its FIRST ` && `. The PACKAGE PART before it is one or more space-separated
-	// tokens spelled only from ASCII letters, digits and `. _ + - @ / : =` — enough for
-	// `owner/tap/name`, `python@3.12`, `pkg:amd64` and `pkg=1.2` — and no token may start
-	// with "-". So the slot the install command is built around cannot smuggle shell, and
-	// the only way to chain a step is the visible ` && `: `yolo host apply --assert` runs a
-	// remedy through `sh -c` after one confirm (internal/cli/applyhostdepgate.go). The STEP
-	// after it is free shell, because the remedy is shown in full before anything runs, but
-	// it must be non-empty, on one line, and the only one: a second `&&` is refused.
+	// package NAMES spelled only from ASCII letters, digits and `. _ + - @ / : =` — enough
+	// for `owner/tap/name`, `python@3.12`, `pkg:amd64` and `pkg=1.2` — and no token may start
+	// with "-" (an option) or "." (a path), or end with "-" (apt's suffix for REMOVE).
+	//
+	// Why the slot is that narrow: the value reaches a shell or a manager's own file
+	// verbatim. `yolo check-deps` and `yolo host apply` print it as a remedy for the user to
+	// run, and a one-package hint is written into the bundle file — a package list the
+	// printed command expands with `$(cat …)`, or a Brewfile, which `brew bundle` evaluates as
+	// Ruby (internal/depcheck's Manifest), so a brew hint `x";system("id");"` would be a
+	// Brewfile line that runs `id`. The only way to chain a step is the visible ` && `. The
+	// STEP after it is free shell, because the remedy is printed whole for the user to read,
+	// but it must be non-empty, on one line, in printable ASCII (so a terminal shows exactly
+	// what the hint holds), and the only one: a second `&&` is refused.
+	//
+	// On nix every package is an installable, so internal/depcheck spells each one
+	// `nixpkgs#<package>`.
 	//
 	// The allowlist is skew-sensitive on the TOLERANT path, like skills_tier: a widened set
 	// staged for an older entrypoint is refused there. Whoever widens it lets DecodeTolerant

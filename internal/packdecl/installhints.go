@@ -48,11 +48,14 @@ func installHintsProblems(label string, c Contribution) []string {
 // follows `install_hints "<key>" for bin "<bin>"` and ends with the next step.
 //
 // The value splits at its FIRST ` && `. Before it is the package part: one or more
-// space-separated tokens spelled from the allowlist above, none starting with "-" (the
-// package manager would read that as an option, and yolo writes the install command's flags
-// itself). After it, if present, is the step: free shell, since the whole remedy is shown
-// before anything runs, but non-empty, on one line, and the only one — a second `&&` is
-// refused.
+// space-separated tokens spelled from the allowlist above, each one a package NAME rather
+// than something a manager reads as an instruction. So none starts with "-" (an option, and
+// yolo writes the install command's flags itself) or with "." (a path: apt and dnf install a
+// `./<file>` as given), and none ends with "-" (apt's suffix for REMOVE: `apt install fd-find
+// ufw-` takes ufw away). After it, if present, is the step: free shell, since the whole remedy
+// is printed for the user to read and run, but non-empty, on one line, spelled in printable
+// ASCII so the terminal shows exactly what the hint holds (firstUnprintable), and the only
+// one — a second `&&` is refused.
 func installHintProblem(value string) string {
 	pkgs, step, chained := strings.Cut(value, hintStepSeparator)
 	// A trailing `&&` with nothing after it never matches the separator, which needs the
@@ -81,11 +84,21 @@ func installHintProblem(value string) string {
 		return "names no package — give the package that provides it on this manager, or drop the key"
 	}
 	for _, tok := range tokens {
-		if strings.HasPrefix(tok, "-") {
+		switch {
+		case strings.HasPrefix(tok, "-"):
 			return fmt.Sprintf("has %q in its package part, which starts with \"-\" and so would "+
 				"reach the package manager as an option — name the packages alone (yolo writes "+
 				"the install command and its flags; a Homebrew cask is the \"brew-cask\" key), and "+
 				"put extra steps after a single %q", tok, hintStepSeparator)
+		case strings.HasPrefix(tok, "."):
+			return fmt.Sprintf("has %q in its package part, which starts with \".\" and so is a "+
+				"path, never a package name (apt and dnf install a \"./<file>\" as given, and \".\" "+
+				"or \"..\" is a directory) — name the packages alone, and put extra steps after a "+
+				"single %q", tok, hintStepSeparator)
+		case strings.HasSuffix(tok, "-"):
+			return fmt.Sprintf("has %q in its package part, which ends with \"-\" — apt reads that "+
+				"as \"remove this package\", not install it — name the packages alone, and put "+
+				"extra steps after a single %q", tok, hintStepSeparator)
 		}
 	}
 	if !chained {
@@ -97,12 +110,33 @@ func installHintProblem(value string) string {
 			"or drop the %q", hintStepSeparator, hintStepSeparator)
 	case strings.ContainsAny(step, "\r\n"):
 		return fmt.Sprintf("has a step after %q that spans more than one line — the remedy is "+
-			"printed whole, on one line, before it runs; write the step on one line",
+			"printed whole, on one line, for you to read and run; write the step on one line",
 			hintStepSeparator)
+	case firstUnprintable(step) >= 0:
+		return fmt.Sprintf("has %q in its step after %q — the step is spelled in printable ASCII, "+
+			"since the remedy is printed for you to read and run, and a control character, an "+
+			"invisible or direction-changing one, or a lookalike letter can make what a terminal "+
+			"shows differ from what runs; write the step in printable ASCII",
+			string(firstUnprintable(step)), hintStepSeparator)
 	case strings.Contains(step, "&&"):
 		return fmt.Sprintf("chains a second \"&&\" — a hint takes ONE step after its packages "+
 			"(\"<package> [<package>…] && <command>\"); write that step as one command, after "+
 			"the first %q", hintStepSeparator)
 	}
 	return ""
+}
+
+// firstUnprintable returns the first rune of s that is not printable ASCII (a space through
+// "~"), or -1 when there is none. That is the step's alphabet because everything outside it
+// can show a reader a different command from the one the hint holds: a backspace overwrites
+// what came before it, an escape sequence can conceal the rest of the line while a copy taken
+// from the terminal still carries it, a direction override reorders it, a zero-width character
+// or a tab hides what sits between, and a lookalike letter names a different program.
+func firstUnprintable(s string) rune {
+	for _, r := range s {
+		if r < ' ' || r > '~' {
+			return r
+		}
+	}
+	return -1
 }
