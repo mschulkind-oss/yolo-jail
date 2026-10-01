@@ -1,9 +1,8 @@
 ---
 status: current
 stage: CURRENT
-next: "Re-verify the body against HEAD with the system-doc skill and move its 2026-09-23 stamp; the sections added since each carry their own date and measurement"
-verified: 2026-09-23
-verified_commit: 7ad8358c
+verified: 2026-10-01
+verified_commit: d4e435a3
 covers:
   - internal/packdecl/contributes.go
   - internal/packdecl/envnames.go
@@ -28,6 +27,9 @@ covers:
   - internal/entrypoint/packsurfaces.go
   - internal/entrypoint/prism.go
   - internal/config/profiles.go
+  - internal/config/profileselection.go
+  - internal/packload/via.go
+  - internal/packload/profiledisclosure.go
   - internal/packoverlay/packoverlay.go
   - internal/cli/run/profilechannel.go
   - internal/cli/run/providerpreflight.go
@@ -41,6 +43,7 @@ covers:
   - packs/cerebras/pack.json
   - packs/claude/pack.json
   - packs/openrouter/pack.json
+  - packs/bedrock/pack.json
   - packs/kilo/pack.json
   - packs/llamacpp/pack.json
   - packs/aws-auth/pack.json
@@ -53,84 +56,40 @@ tags: [providers, profiles, packs, derives, selection, deselection, zai, cerebra
 
 # The provider system — catalog, composition, and selection
 
-**Status:** verified 2026-09-23 against `7ad8358c`. It is also the as-built home
+**Status:** verified 2026-10-01 against `d4e435a3`, the whole doc. It is also the as-built home
 of the profile-variant design (`profiles-as-pack-variants.md`, retired): its surviving rulings
-are [the profile-variant rows](#the-profile-variant-rulings) of the appendix. MEASURED: each
-section was re-read against the code at `7ad8358c` — the profile and preflight sections line by
-line, the per-agent spellings by spot check against the derives. UNMEASURED: Bedrock mode end to end — see
-[the Bedrock example](#two-channels-split-by-payload-type).
+are [the profile-variant rows](#the-profile-variant-rulings) of the appendix. What has been
+watched running, by area:
 
-**The deselection rule is newer than that stamp.** [Deselection](#deselection-clear-what-yolo-wrote-keep-what-the-user-wrote),
-[the host-layer override](#a-selection-outranks-a-host-layer-value) and
-[codex's `openai-codex` selection](#selecting-openai-codex-for-codex) came from the provider-switching design
-(`provider-switching.md`, graduated 2026-09-26), and they were verified against `ca86d945` on 2026-09-26.
-The rest of the doc keeps its `7ad8358c` stamp. MEASURED: the clear, its boot-log record and
-the host-layer override are pinned through the boot render by unit tests in `internal/entrypoint`.
-The adopting-boot failure was reproduced through the same render at `ca86d945`, and the fix that
-[the clear on an adopting boot](#a-clear-holds-on-an-adopting-boot-too) describes is pinned the same
-way, newer than that stamp. UNMEASURED: no live agent session has been watched across a deselect.
-
-**The host notch's grant is newer too** (2026-09-27): the disclosure wording and the
-refusal of a selection key naming a command no pack installs at `yolo host` (a `use_profiles`
-key then, a `profile` key since [PP-D10](../design/providers-and-profiles-redesign.md#PP-D10)), described under
-[the credential gate](#the-credential-gate), come from
-[`credential-sources-separation.md`](../design/credential-sources-separation.md) ES-D2 to ES-D5, and
-the remedy's corrections from ES-D10 to ES-D12. The `--with-credentials` grant is from the same
-day's ruling of that doc's [OQ-ES5](../design/credential-sources-separation.md#OQ-ES5) host
-half, built as ES-D13 to ES-D17. Newer still (2026-09-28), a bare `-p` reaches agent CLIs only at
-the host as in a jail, `--with-credentials` being an ad-hoc command's one grant
-([OQ-NC5](../plans/notch-convergence.md#OQ-NC5), which retired ES-D1).
-MEASURED: pinned through `hostMain` by unit tests in `internal/cli`. UNMEASURED: no real host has
-run it.
-
-**The platform and the provider-keyed gates are newest** (2026-09-29): a provider says what
-service it is ([the platform](#the-platform-what-service-a-provider-is),
-[`OQ-BR2`](../design/providers-and-profiles-redesign.md#OQ-BR2)), every shipped provider fact keys
-on the provider rather than on a profile's name
-([`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8)), the region preflight keys on
-the platform and asks each agent ([the region preflight](#the-region-preflight)), and a Bedrock
-switch in the user's own Claude settings that no Bedrock provider serves is named at launch
-([a switch in the agent's own config](#a-switch-in-the-agents-own-config)). MEASURED BY TESTS
-ONLY: each is pinned through the credential gate and the shipped derives, and each launch arm's
-call site through the code a launch runs. UNMEASURED: no launch was run and no agent started.
-
-**One Bedrock provider for every agent is newer still** (2026-09-29, later that day):
-[the shipped Bedrock provider](#the-shipped-bedrock-provider) moved into its own pack with a
-model list of every maker, and codex, opencode and pi are bound to their own Bedrock clients
-([`OQ-BR9`](../design/bedrock-plumbing.md#OQ-BR9), [`OQ-BR1`](../design/bedrock-plumbing.md#OQ-BR1)).
-MEASURED BY TESTS ONLY: each binding through the boot render, and claude's through the assembled
-launch channel. The agents' Bedrock clients were read from their installed builds and never
-run. UNMEASURED: no request has reached Bedrock.
-
-**Active sets came the same day** (2026-09-29): an agent may run on an ordered list of profiles
-([an active set](#an-active-set-several-profiles-for-one-agent),
-[`active-provider-sets.md`](../design/active-provider-sets.md),
-[`OQ-AP1`](../design/active-provider-sets.md#OQ-AP1) to
-[`OQ-AP3`](../design/active-provider-sets.md#OQ-AP3)). MEASURED: the
-grammar, every refusal, the gate's delivery and pi's render are pinned by unit tests, every call
-site the review cut to the set's first entry now fails one, and two integration launches in a
-real jail rendered pi's files and environment for `-p pi=zai,openrouter` and
-`-p pi=zai,bedrock`. The build first spelled the config list under `use_profiles`, and was
-re-expressed on the `profile` key when it landed after that rename
-([PP-D10](../design/providers-and-profiles-redesign.md#PP-D10)). UNMEASURED: no pi session was run,
-so none switched providers. opencode took a set on 2026-09-30
-([AP-D15](../design/active-provider-sets.md#AP-D15)), MEASURED the same way: unit tests over its
-render, the jail's channel and `yolo host`, and two integration launches rendering its file for
-`-p opencode=zai,openrouter` and `-p opencode=zai,bedrock`; no opencode session was run.
-
-**opencode on the ChatGPT subscription is newest** (2026-10-01): packs/opencode ships a `codex`
-profile, declares `openai-responses`, and runs `openai-codex` on opencode's own `openai` client
-and ChatGPT support, with yolo's plugin handing that client the shared login's access token
-([selecting `openai-codex` for opencode](#selecting-openai-codex-for-opencode)). Until then a bare
-`-p codex` with opencode selected refused the whole launch, opencode speaking only chat
-completions. MEASURED: unit tests over the launch's channel composition, the boot render, the
-view writer, the host prelaunch and the shipped plugin under node with a fake `yolo`; a real
-`-p codex` launch of claude, codex, opencode and pi in a nested jail, which rendered opencode's
-file (`TestCodexProfileRendersOneModelListForEveryAgent`) and delivered the plugin to opencode's
-plugin directory; and `yolo host -p codex -- opencode` against a stand-in `opencode`. opencode's
-own behavior (its plugin loader, its auth store, its SDK choice) was read from the installed
-1.18.34 binary and upstream source, never run. UNMEASURED: no opencode session has sent a
-request on the subscription, and no login was made.
+- **Deselection and the host-layer override.** MEASURED: the clear, its boot-log record and the
+  override are pinned through the boot render by unit tests in `internal/entrypoint`, and the
+  adopting-boot failure was reproduced through the same render before
+  [its fix](#a-clear-holds-on-an-adopting-boot-too). UNMEASURED: no live agent session has been
+  watched across a deselect.
+- **The host notch's grant and refusals** ([the credential gate](#the-credential-gate)).
+  MEASURED: pinned through `hostMain` by unit tests in `internal/cli`. UNMEASURED: no real host
+  has run them.
+- **The platform and the provider-keyed gates.** MEASURED BY TESTS ONLY: through the credential
+  gate, the shipped derives and each launch arm's call site. No launch was run and no agent
+  started.
+- **One Bedrock provider for every agent.** MEASURED BY TESTS ONLY: each binding through the boot
+  render, and claude's through the assembled launch channel; the agents' Bedrock clients were
+  read from their installed builds and never run. claude's Bedrock mode on real credentials is
+  MEASURED ([the note](#two-channels-split-by-payload-type)). UNMEASURED: a request from codex,
+  opencode or pi reaching Bedrock.
+- **Active sets.** MEASURED: the grammar, every refusal, the gate's delivery and pi's and
+  opencode's renders by unit tests, and integration launches in a real jail rendering pi's files
+  and environment for `-p pi=zai,openrouter` and `-p pi=zai,bedrock`, and opencode's file for
+  `-p opencode=zai,openrouter` and `-p opencode=zai,bedrock`. UNMEASURED: no pi or opencode
+  session was run, so none switched providers.
+- **opencode on the ChatGPT subscription.** MEASURED: unit tests over the launch's channel
+  composition, the boot render, the view writer, the host prelaunch and the shipped plugin under
+  node with a fake `yolo`; a real `-p codex` launch of claude, codex, opencode and pi in a nested
+  jail, which rendered opencode's file (`TestCodexProfileRendersOneModelListForEveryAgent`) and
+  delivered the plugin to opencode's plugin directory; and `yolo host -p codex -- opencode`
+  against a stand-in `opencode`. opencode's own behavior was read from the installed 1.18.34
+  binary and upstream source, never run. UNMEASURED: no opencode session has sent a request on
+  the subscription, and no login was made.
 
 A **provider** is a declaration of a service's facts — where its endpoints are, which wire
 protocol each speaks, which model aliases it offers, which environment variable holds its
@@ -870,14 +829,18 @@ table, string, math libraries only; no `os`, no `io`). Two registrations and one
 > path built into the boot loop alone composes nothing for `yolo host`, which has no jail to
 > boot.
 
-The derive context (`DeriveCtx`) carries: the live tables (`mcp_servers`, `lsp_servers`,
-`providers`, and `use_profiles`, the folded CLI-keyed selection, which kept its name when the
-config key became `profile`), `agent` and `surface`, `profile_name` (the profile active at this
-agent's CLI name), `selected_provider` (the provider it resolves to), `selected_platform` (that
-provider's [`platform`](#the-platform-what-service-a-provider-is), read off its row in the table,
-"" when it declares none), `profile` (that profile's
-resolved options — always a table, empty when no profile is active), and `tombstone`, the one
-spelling of a removal (a Lua `nil` omits a key; it does not remove one). `mcp_servers` is the
+The derive context (`DeriveCtx`) carries, among others: the live tables (`mcp_servers`,
+`lsp_servers`, `providers`, and `use_profiles`, the folded CLI-keyed selection, which kept its
+name when the config key became `profile`), `agent` and `surface`, `profile_name` (the profile
+active at this agent's CLI name), `selected_provider` (the provider it resolves to),
+`selected_platform` (that provider's [`platform`](#the-platform-what-service-a-provider-is), read
+off its row in the table, "" when it declares none), `profile` (that profile's resolved options —
+always a table, empty when no profile is active), `active_set`
+([an active set](#an-active-set-several-profiles-for-one-agent)), `via_url`
+([`via`](#routing-a-profile-through-the-bridge-via)), `enforce_models`
+([model lists](#model-lists-shaped-by-packs)), and `tombstone`, the one spelling of a removal (a
+Lua `nil` omits a key; it does not remove one). `buildDeriveCtxTable` in
+`internal/agentcfg/luahook` is the full set. `mcp_servers` is the
 one table filtered before a derive sees it: a server whose job the active authentication source
 already performs is dropped. **Selection resolution is one rule**: the resolved `YOLO_PROFILES`
 table (`ProviderFor`) feeds both the surface path and the env path —
@@ -1945,8 +1908,11 @@ environment.
 - **No profile on launch flags.** The `launch` kind is retired; a pack's launch flags live only
   in its autonomy postures, where the confinement notch can withhold them, and a
   profile-switched flag would be one no notch could take away.
-- **No stacking.** One profile per CLI per launch; two profiles active for one CLI would need
-  a precedence rule between two variants on one key, and no use case has asked for one.
+- **No stacking of variants.** An [active set](#an-active-set-several-profiles-for-one-agent)
+  gives an agent several providers to switch between, but nothing composes two profiles onto one
+  key: each entry is its own provider's, the primary decides what a fresh session starts on, and
+  a set refuses two entries on one provider or one regional platform. Merging two variants on a
+  key would need a precedence rule between them, and no use case has asked for one.
 - **No provider registry or discovery.** Providers are shipped by packs or written by hand.
 - **No secrets scanner.** The schema is the mechanism; a user who wants a content tripwire runs
   one in CI over the same files.
@@ -2030,11 +1996,7 @@ row says what replaced it.
 
 ## Current values
 
-Verified at `7ad8358c`, except the deselection rows for the boot log and the id-writing
-surfaces with a host layer, verified at `ca86d945`, and the rows the `openai-codex` model list
-touched (the clear's log line, codex's `openai-codex` default, the list and pi's copy of it),
-verified at `2a34a176`, except pi's copy of the list, verified 2026-09-30 against the tree that added its `enforce`, and the
-tier-alias and pi-subagents rows, verified at `58fc65ce`, and the rows the provider-keyed gates added (the platform, the shipped Bedrock provider, the region requirement, both gates, the platform switches and llamacpp's attribution header), verified 2026-09-29 against the tree that shipped the platform switch, and the Bedrock rows the one-provider build rewrote or added (the shipped Bedrock provider, its model list, the vendor, the makers, the built-in ids, `bedrock-bridge`, the region requirement, pi-subagents'), verified 2026-09-29 against the tree that shipped `packs/bedrock`'s model list. The prose
+Verified at `d4e435a3`. The prose
 above explains what each is for; this table is the only place the exact spellings are stated.
 
 | Value | Setting | Defined in |
@@ -2044,7 +2006,7 @@ above explains what each is for; this table is the only place the exact spelling
 | Selection table env var | `YOLO_USE_PROFILES` | same |
 | Resolved-profiles env var | `YOLO_PROFILES` | same |
 | Selection namespace key | `selection` | `agentcfg.SelectionKey` |
-| Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` in a jail; the state dir's host-capture store at the host notch under `host_management: own` | `render.Target.SelectionPath` |
+| Selection record path | `<workspace>/.yolo/prism/<agent>-<name>.selection.json` in a jail; at the host notch, the state dir's host-capture store under `host_management: own` and the provenance dir under `assert` ([OQ-HC3](../design/host-computed-layer.md#OQ-HC3)); none under `none` | `render.Target.SelectionPath` |
 | Deselection clear's log line | `selection: cleared <agent>/<surface> <key> (was <value as JSON>): yolo's selection no longer sets it`, one per cleared key whose value left the file, the value cut at 200 bytes with a trailing `…`. A key is cleared when its profile is deselected, or when a derive stops naming it while the profile stays active | `entrypoint.noteSelectionClears` |
 | Where that line goes | `<workspace>/.yolo/boot.log` (the previous boot's is `boot.log.prev`); never the terminal | `entrypoint.bootLogName`, `Env.note` |
 | Id-writing surfaces with a host layer | pi's `settings` (`~/.pi/agent/settings.json`) only; codex's `config.toml` and opencode's `opencode.json` declare no `readsHost` | `packs/{pi,codex,opencode}/pack.json` |
@@ -2055,7 +2017,7 @@ above explains what each is for; this table is the only place the exact spelling
 | User config keys | `providers` (merged-scope — **except the ADDRESS**), `profiles` / `profile` (user-scope-only); `use_profiles` and `agent_profiles` refused by name as old spellings of `profile` | `internal/config` |
 | Provider credential-routing scope | Every provider field that decides where a credential goes is **USER-SCOPE ONLY**: a workspace `yolo-jail.jsonc` or `yolo-jail.local.jsonc` carrying one is a fatal config error naming the field and the user config. The address, `endpoints.<protocol>.base_url`, since 2026-09-17 ([`OQ-LM3`](../research/local-model-endpoints.md#oq-lm3)). Since 2026-09-28 ([OQ-NC6](../plans/notch-convergence.md#OQ-NC6), the field list [NC-D63](../plans/notch-convergence.md#NC-D63)) also the rest of `endpoints` in any form (a protocol with no URL, a `wire_api`, a null removing an endpoint or the map), `api_key_env_name` (a value re-points the claim, a null unclaims the key so every process receives it), and a null provider or null `providers`, which remove claims. Since 2026-09-29 also `platform`, which decides which agents a pack's credential pointer reaches ([PP-D7](../design/providers-and-profiles-redesign.md#PP-D7)). `models`, `options`, `region` and `capabilities` still merge from either scope, a `region` only as one DNS label ([a region is a host-name part](#a-region-is-a-host-name-part)). The reason is the workspace file is AGENT-EDITABLE, and these fields decide where a credential and the inference behind it go. The entry-level `base_url` shorthand is refused at any scope | `internal/config/validate.go` (`validateProviderCredentialScope`, `validateProviderRegion`) |
 | Missing-provider hatch | `YOLO_ALLOW_MISSING_PROVIDERS=1`, for the credential and the region preflights | `internal/paths` |
-| Provider platform | `platform`, one token, open vocabulary; `aws-bedrock` is the one value read today (claude's derive, aws-auth's gate, the region preflight); a derive reads the selected provider's as `ctx.selected_platform` | `packdecl.PlatformProblem`, `luahook` (`selectedPlatform`) |
+| Provider platform | `platform`, one token, open vocabulary; `aws-bedrock` is the one value read today (the claude, codex, opencode and pi derives, aws-auth's gate, the region preflight); a derive reads the selected provider's as `ctx.selected_platform` | `packdecl.PlatformProblem`, `luahook` (`selectedPlatform`) |
 | The shipped Bedrock provider | `bedrock` in the bedrock pack: `"platform": "aws-bedrock"`, no endpoints, no region, no options, the six AWS credential names under `api_key_env_name`; needed by claude, codex, opencode and pi, and needing aws-auth | `packs/bedrock/pack.json`, each agent pack's `needs` |
 | The Bedrock model list | `global.anthropic.claude-opus-5-5` (vendor `anthropic`, order 1), `us.openai.gpt-6.1-sol` (`openai`, 2), `global.openai.gpt-6-astra` (`openai`, 3); each keyed by its id, with `name`, `context_window`, `max_tokens` and `input` (and `reasoning` for Opus) in `model_options`; no `default` alias; no Region detection, so codex starts on GPT-6.1 Sol in every Region and opencode and pi on Claude Opus 5.5, and GPT-6 Sol is not shipped ([BR-D19](../design/bedrock-plumbing.md#BR-D19), superseding [BR-D17](../design/bedrock-plumbing.md#BR-D17)'s global-first pick). Read from each AWS model card on 2026-09-29 | `packs/bedrock/pack.json`, `packs/bedrock/README.md` |
 | Model vendor | `vendor`, one lowercase token (`[a-z0-9][a-z0-9._-]*`), in a pack's `model_options.<alias>` or a user's object-form `models.<alias>`; an entry with none is offered to every agent | `packdecl.ValidModelVendor`, `config.validateModelEntry`, `packload.flattenModelFacts` |
