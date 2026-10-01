@@ -576,6 +576,9 @@ sets, and a jail without pi no longer carries it.
 
 ### Fixed
 
+- When yolo cannot protect the jail's image from Nix's garbage collector, its warning no longer
+  lands in the output of `yolo -- <command>`. It is printed with yolo's other launch messages, on
+  standard error, so a script reading the command's output gets only that output.
 - opencode on a provider that states a context window but no output limit, such as z.ai and
   Cerebras, is no longer handed a model limit its config format rejects. opencode requires an
   output limit beside every context window, so yolo now writes opencode's own default for it, and

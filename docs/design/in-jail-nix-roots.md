@@ -312,7 +312,8 @@ none of them is a trigger for a user's links:
 - **The consumers.** `gcRooter` gives a host launch `nix-store --add-root` and an in-jail one the
   translated root, for four roots: the image's, the prefix's, the image extras' and the
   store-delivered packages' profile. A jail whose launcher stated no map gets none of them, the
-  old skip. Of every failure, only the daemon refusing the root prints, as a warning.
+  old skip. Of every failure, only the daemon refusing the root prints, as a warning on the
+  launch stream.
 
 The tests drive each of the four call sites against a fake daemon
 ([`translatedroots_test.go`](../../internal/cli/run/translatedroots_test.go)).

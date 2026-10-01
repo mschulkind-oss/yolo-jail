@@ -108,10 +108,14 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 // `nix-store --add-root` is pruned as stale by the host daemon, because it sends the
 // jail's spelling of the link, so a jail used to get nil here; it still does when its
 // launcher stated no host path map.
+//
+// Its warnings go to STDERR, the launch stream, for the reason Report does above: stdout is
+// the jailed command's. They went to stdout until 2026-10-01
+// (TestAnImageRootRefusalGoesToTheLaunchStream).
 func (o *Options) rootImageFn() func(string) {
 	root := o.gcRooter()
 	if root == nil {
 		return nil
 	}
-	return func(storePath string) { _, _ = image.RegisterImageRoot(storePath, root, o.Stdout) }
+	return func(storePath string) { _, _ = image.RegisterImageRoot(storePath, root, o.Stderr) }
 }

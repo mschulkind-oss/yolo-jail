@@ -114,6 +114,30 @@ func TestTheRunPathRootsTheImageFromAJail(t *testing.T) {
 	f.assertRooted(t, image.ImageRootLink(f.storePath))
 }
 
+// The image root's one reportable failure goes to the LAUNCH STREAM, stderr, like every other
+// launch line: stdout is the jailed command's, and `yolo -- <cmd>` passes it through untouched
+// (TestTheRunPathSendsImageDisclosuresToStderr has the incident).
+func TestAnImageRootRefusalGoesToTheLaunchStream(t *testing.T) {
+	f := newJailRootFixture(t, nixrootstest.Options{Reject: "no roots for you"})
+	var got image.AutoLoadOptions
+	var stdout, stderr bytes.Buffer
+	o := goldenOptions(t.TempDir(), f.home)
+	o.Stdout, o.Stderr = &stdout, &stderr
+	o.Getenv = f.getenv
+	o.autoLoad = func(opts image.AutoLoadOptions) image.LoadResult {
+		got = opts
+		return image.LoadResult{OK: true}
+	}
+	o.autoLoadImage(jsonx.NewOrderedMap(), "podman", t.TempDir(), storePackagesPlan{})
+	got.RegisterRoot(f.storePath)
+	if !strings.Contains(stderr.String(), "no roots for you") {
+		t.Errorf("the daemon's refusal is not on the launch stream:\nstderr=%q", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("the image root wrote to the jailed command's stdout: %q", stdout.String())
+	}
+}
+
 // A jail whose launcher stated no map — every jail an older launcher started, and macos-user
 // — keeps today's behavior: no registrar at all.
 func TestAJailWithNoHostPathMapGetsNoImageRootRegistrar(t *testing.T) {
