@@ -18,8 +18,8 @@ ticket, and it is verified against the profile generator rather than reasoned fr
 Neither [§4](#4-the-proposal-derive-a-second-deny-from-the-root)'s derived deny nor
 [§5](#5-the-tightening-is-separable-and-cheaper)'s whitelist is built (re-checked 2026-09-30): the
 launch check is still the blacklist, and `ancestorLiterals` still starts from the constant
-`/Users/Shared/`. The one part of §5 that no question gates is built: since 2026-09-30
-`HomeContaining` folds case and knows the `/Users` firmlink, so the first two rows of §5's table
+`/Users/Shared/`. The one part of [§5](#5-the-tightening-is-separable-and-cheaper) that no question gates is built: since 2026-09-30
+`HomeContaining` folds case and knows the `/Users` firmlink, so the first two rows of [§5](#5-the-tightening-is-separable-and-cheaper)'s table
 are refused and `/var/root` still passes ([what was built](#51-built-the-two-spellings-the-blacklist-can-know)).
 
 **Needs your ruling:** [OQ-CW1](#OQ-CW1), [OQ-CW2](#OQ-CW2), [OQ-CW3](#OQ-CW3), [OQ-CW4](#OQ-CW4).
