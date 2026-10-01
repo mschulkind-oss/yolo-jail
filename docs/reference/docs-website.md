@@ -116,11 +116,22 @@ A local preview needs no build: `uvx --from vantage-md vantage userguide/` serve
 
 ## Serving
 
-`docs-wrangler.toml` and `docs-worker.js` are Vantage's, with the Worker's name changed. The Worker
-is one line that hands each request to its static assets. An unmatched path is meant to be served
+`docs-wrangler.toml` and `docs-worker.js` are Vantage's, with the Worker's name changed and the
+`[assets]` table's `binding = "ASSETS"` added. The Worker is one line that hands each request to its
+static assets through that binding. An unmatched path is meant to be served
 as the app, with a 200 (`not_found_handling = "single-page-application"`), so the viewer can
 route it. The `workers.dev` address stays enabled beside the custom domain, as Vantage keeps its
 own. Branch preview URLs are off: a branch build is a check, not a published preview.
+
+**The binding is a fix Vantage's copy also needs.** Without it `env.ASSETS` is undefined, and the
+Worker threw on each request that reached it. A browser never saw that: its navigation request
+carries `Sec-Fetch-Mode: navigate`, which the single-page-application fallback answers before the
+Worker runs. Every other request for a page that is not a file got Cloudflare error 1101, a 500:
+curl, a link checker, a crawler, a link preview. MEASURED 2026-10-01: `/guides/macos` returned 500 to
+a plain GET and 200 with the navigate header, here and on `docs.vantageapp.dev`; `wrangler dev`
+showed `TypeError: Cannot read properties of undefined (reading 'fetch')` at `docs-worker.js:3`, and
+200 for both once the binding was added. `scripts/check-site-output-dir.py` now refuses a Worker
+that reads a binding its config does not declare.
 
 ## Deploying
 
