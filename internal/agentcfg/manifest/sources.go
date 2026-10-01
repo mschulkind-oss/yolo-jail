@@ -23,3 +23,18 @@ const (
 	// table, which is unchanged, so a pack derive reading it did not move.
 	SourceUseProfiles = "use_profiles"
 )
+
+// EntryKindHomes is where each kind of named entry a derive builds a table from is declared in
+// yolo config, as the remedy for a dropped entry names it: "an MCP server under `mcp_servers`,
+// an LSP server under `lsp_servers`, a provider under `providers`". It names every kind because
+// no declaration tells core which of these a pack's derive reads for a given table.
+//
+// ONE SPELLING for the two reporters of that loss — the host apply's remedy (internal/cli,
+// mcpEntryRemedy) and the jail boot's drop notice (internal/entrypoint,
+// noteDroppedManagedEntries) — because they give the same loss class the same fix (HC-D20), and
+// a list kept twice is the drift hostapplyremedy.go's header records. No full stop: both embed
+// it mid-sentence.
+func EntryKindHomes() string {
+	return "an MCP server under `" + SourceMCPServers + "`, an LSP server under `" +
+		SourceLSPServers + "`, a provider under `" + SourceProviders + "`"
+}

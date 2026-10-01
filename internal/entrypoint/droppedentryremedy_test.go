@@ -80,6 +80,10 @@ func TestTheBootDropNoticeNamesTheRemedyForATableThatIsNotMCP(t *testing.T) {
 		t.Errorf("the remedy for an entry dropped from lspServers must name lsp_servers, where an "+
 			"LSP server is declared; got %q", remedy)
 	}
+	if !strings.Contains(remedy, manifest.EntryKindHomes()) {
+		t.Errorf("the boot's list of where each kind is declared is not the one the host apply's "+
+			"remedy gives (manifest.EntryKindHomes, %q); got %q", manifest.EntryKindHomes(), remedy)
+	}
 	if !strings.Contains(remedy, "lspServers") {
 		t.Errorf("the remedy must name the table it is the remedy for, so it reads as this "+
 			"table's and not a stock line; got %q", remedy)

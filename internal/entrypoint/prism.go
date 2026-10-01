@@ -1411,7 +1411,8 @@ func regenerateManagedTables(e *Env, surface manifest.Surface, obj *jsonx.Ordere
 // declaration that keeps a dropped entry is in the config table its kind lives in. Core
 // cannot say which table a pack's derive reads for a key — no declaration says so, and
 // core knows no vendor's key names — so the remedy names the dropped table and each kind's
-// home, the remedy-contract form the host's mcpEntryRemedy gives the same loss class
+// home (manifest.EntryKindHomes, the one spelling the host's mcpEntryRemedy shares), the
+// remedy-contract form the host gives the same loss class
 // (docs/reference/report-tiers.md, the remedy contract; HC-D20). It used to hardcode
 // `mcp_servers` whatever table it named, which keeps nothing for an LSP or provider table
 // (docs/design/diagnostics-past-the-boundary.md §3.1).
@@ -1438,10 +1439,9 @@ func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, des
 	// config table is called.
 	fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (not in config): %s "+
 		"— yolo rebuilds %s from its config at every boot; to keep it, declare it in "+
-		"yolo-jail.jsonc (an MCP server under `%s`, an LSP server under `%s`, a provider "+
-		"under `%s`), reaching every agent\n",
+		"yolo-jail.jsonc (%s), reaching every agent\n",
 		surface.Agent, surface.Name, key, strings.Join(dropped, ", "), key,
-		manifest.SourceMCPServers, manifest.SourceLSPServers, manifest.SourceProviders)
+		manifest.EntryKindHomes())
 }
 
 // sortedKeys returns layer's keys in a deterministic order, so a re-render writes

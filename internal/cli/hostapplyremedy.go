@@ -46,6 +46,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -528,7 +529,8 @@ func mcpEntryRemedyKey(home string) string { return userConfigPathIn(home) }
 // declaration is the user config's own table — `mcp_servers` for an MCP server, `lsp_servers`
 // for an LSP server, `providers` for a provider — because since OQ-HC1 host apply runs each
 // agent's derive over those tables, so one entry reaches every agent's host file as it reaches a
-// jail's (HC-D20). The per-surface `config-overlay` stays named as the alternative for an entry
+// jail's (HC-D20). That list is manifest.EntryKindHomes, the one spelling the jail boot's drop
+// notice shares. The per-surface `config-overlay` stays named as the alternative for an entry
 // meant for one agent's file alone; it is what HC-D2 named while those tables reached no host
 // file.
 //
@@ -560,14 +562,13 @@ func mcpEntryRemedy(home string, tables []droppedTable) string {
 		scope = fmt.Sprintf(" — one for each of %s, under the table key its loss line names (%s)",
 			joinWords(surfaces, "and"), joinWords(keys, "or"))
 	}
-	return fmt.Sprintf("declare it in %s — an MCP server under `mcp_servers`, an LSP server "+
-		"under `lsp_servers`, a provider under `providers` — which reaches every agent's files "+
+	return fmt.Sprintf("declare it in %s — %s — which reaches every agent's files "+
 		"here as it reaches a jail's; or, for one agent's file alone, add a `config-overlay` to "+
 		"the `contributes` list in %s, for example "+
 		`{"kind": "config-overlay", "surface": %q, "config": {"managed": `+
 		`{%q: {"<name>": {…}}}}}`+
-		"%s", userConfigPathIn(home), localPackManifestPathIn(home), example.Surface,
-		example.Table, scope)
+		"%s", userConfigPathIn(home), manifest.EntryKindHomes(), localPackManifestPathIn(home),
+		example.Surface, example.Table, scope)
 }
 
 // joinWords lists items the way a sentence does: "a", "a and b", "a, b and c".

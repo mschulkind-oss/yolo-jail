@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 )
 
 // codexHandmadeHome is a home selecting the shipped codex pack whose ~/.codex/config.toml holds
@@ -49,6 +51,10 @@ func TestTheHostMCPRemedyNamesWhatReachesTheHost(t *testing.T) {
 	if len(groups) != 1 {
 		t.Errorf("the dropped entry is not one group keyed on the file the remedy names (%s): %+v",
 			mcpEntryRemedyKey(home), hostApplyRemedyGroups(survey, home, false))
+	}
+	if !strings.Contains(remedy, manifest.EntryKindHomes()) {
+		t.Errorf("the host's list of where each kind is declared is not the one the jail boot's "+
+			"drop notice gives (manifest.EntryKindHomes, %q): %q", manifest.EntryKindHomes(), remedy)
 	}
 	if !strings.Contains(remedy, "`mcp_servers`") {
 		t.Errorf("the remedy does not name `mcp_servers`, which reaches every host MCP "+
