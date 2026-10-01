@@ -197,8 +197,22 @@ func floorDepClause(st hostfloor.Status) string {
 	if st.Disposition == hostfloor.Provisioned {
 		return "yolo's floor copy " + st.Record.Version + " at " + homeTilde(st.Launcher)
 	}
+	if st.Newer {
+		// No install of this yolo's replaces a newer yolo's record (Ensure refuses), so the
+		// clause is that refusal, whose next step is `yolo update`.
+		return "yolo's floor will not install it: " + richtext.Escape(st.Reason)
+	}
 	return "yolo's floor installs it (`yolo host apply --assert`, or the first `yolo host -- " +
 		st.Program.Bin() + "`)"
+}
+
+// floorDepMark is the mark a dependency line gives a program the floor answers for: a pass,
+// except for a newer yolo's record, which nothing here installs (floorDepClause says why).
+func floorDepMark(st hostfloor.Status) string {
+	if st.Newer {
+		return "[yellow]![/yellow]"
+	}
+	return "[green]✓[/green]"
 }
 
 // applyHostFloor is `yolo host apply`'s floor stage: every program the selected packs declare,
@@ -237,6 +251,14 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 		case st.Disposition == hostfloor.NoEntry:
 			pr.Printf("  [cyan]%-20s[/cyan] %s: no floor entry — %s; `yolo host -- %s` runs the one on "+
 				"your PATH", "host_floor", p.Bin(), st.Reason, p.Bin())
+			note(row)
+			continue
+		case !write && st.Newer:
+			// A newer yolo's record, which the --assert refuses to install over (Ensure): said
+			// as that, with the refusal's own next step, never as an install.
+			pr.Printf("  [cyan]%-20s[/cyan] %s: will not install it: %s", "host_floor", p.Bin(),
+				richtext.Escape(st.Reason))
+			row.Action = "would refuse"
 			note(row)
 			continue
 		case !write && st.Disposition == hostfloor.Provisioned && st.Pending == "":
@@ -398,6 +420,12 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 		// from before `host_floor` left the pack out is a deselected entry, not what "no copy" may
 		// run.
 		return onPath()
+	case errors.Is(err, hostfloor.ErrNewerRecord):
+		// Refused, not failed: the floor holds a newer yolo's copy, and the refusal names the
+		// update that runs it.
+		fmt.Fprintf(errw, "yolo host: will not install %s over a newer yolo's copy in yolo's floor: %v\n",
+			cmd0, err)
+		return hostTarget{}, 127
 	case err != nil:
 		fmt.Fprintf(errw, "yolo host: could not install %s into yolo's floor: %v\n", cmd0, err)
 		return hostTarget{}, 127

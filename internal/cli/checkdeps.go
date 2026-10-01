@@ -74,7 +74,7 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 	}
 	sort.Strings(floorBins)
 	for _, bin := range floorBins {
-		pr.Printf("[green]✓[/green] %-16s %s", bin, floorDepClause(floor[bin]))
+		pr.Printf("%s %-16s %s", floorDepMark(floor[bin]), bin, floorDepClause(floor[bin]))
 	}
 	if len(reqs) == 0 && len(floor) > 0 {
 		if len(unresolved) > 0 {
@@ -227,7 +227,9 @@ func printRecheck(pr richtext.Printer) {
 // printed to be pasted, and the markup printer cannot carry every command through: unescaped, a
 // bracketed style word in it (`acme[red]`) is read as markup and dropped, and escaped
 // (richtext.Escape), the bracket is kept by an invisible U+2060 after it, which a pasted command
-// carries into the install, so the install fails on a name the pack never wrote.
+// carries into the install, so the install fails on a name the pack never wrote. Every command a
+// report prints to be pasted goes through it: this verb's, and `yolo host apply`'s remedy groups
+// (printRemedyGroups) and the command its dependency gate runs (gateHostDeps).
 func printVerbatim(pr richtext.Printer, head, text, tail string) {
 	fmt.Fprintln(pr.W, richtext.Render(head, pr.Color)+text+richtext.Render(tail, pr.Color))
 }

@@ -94,7 +94,7 @@ func runPiLauncherAgainstBusyAuthLock(t *testing.T, stdin *os.File, loginFirst b
 	if err := os.WriteFile(realPi, []byte("#!/usr/bin/env node\nconsole.log(\"PI_RAN\");\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	launcher := npmAgentLauncher(install, filepath.Join(home, "stamps"), filepath.Join(home, "receipts"), false, launcherServers{}, nil)
+	launcher := npmAgentLauncher("probe", install, filepath.Join(home, "stamps"), filepath.Join(home, "receipts"), false, launcherServers{}, nil)
 	launcherPath := filepath.Join(home, "launch-pi")
 	if err := os.WriteFile(launcherPath, []byte(launcher), 0o755); err != nil {
 		t.Fatal(err)

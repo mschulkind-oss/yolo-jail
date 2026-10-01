@@ -131,13 +131,13 @@ func (p *prelaunchProbe) write(t *testing.T) {
 	t.Helper()
 	var body string
 	if p.native {
-		body = nativeAgentLauncher(
+		body = nativeAgentLauncher("probe",
 			&packdecl.Install{Kind: "native", Bin: "tool",
 				InstallerURL: "https://example.invalid/never-fetched.sh", Refresh: p.refresh},
 			p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"), "",
 			p.updates, launcherServers{}, nil)
 	} else {
-		body = npmAgentLauncher(
+		body = npmAgentLauncher("probe",
 			&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", Refresh: p.refresh},
 			p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"),
 			p.updates, launcherServers{}, nil)

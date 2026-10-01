@@ -1,0 +1,142 @@
+package entrypoint
+
+// launchermisplaced_test.go pins the line a generated launcher prints when its install REPORTED
+// SUCCESS and left nothing where the launcher runs the program from: npm exited 0, or the vendor
+// installer did, and the program is not at the launcher's path. Those launchers used to print
+// the failed-install line, "its install failed, above. Run <name> again to retry the install",
+// which was false (nothing above failed) and sent the user round a loop, since the next run
+// installs the same way. The line now says what happened and who can act on it: the pack's
+// author, or yolo's issue tracker for a pack yolo ships (docs/reference/happy-path-principle.md,
+// rung 4). Every launcher here is the one the boot's generator writes, so the pack name in the
+// line is the generator's.
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// misplacedFixture is a jail home whose pack root holds pack acme declaring contribution, and a
+// fake npm on PATH whose `install` exits 0 and writes nothing. It returns the Env, the PATH a
+// launcher runs with, and the npm call log.
+func misplacedFixture(t *testing.T, contribution string) (*Env, string, string) {
+	t.Helper()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found")
+	}
+	home := t.TempDir()
+	packRoot := filepath.Join(t.TempDir(), "packs")
+	writeTestFile(t, filepath.Join(packRoot, "acme", "pack.json"),
+		`{"name":"acme","contributes":[`+contribution+`]}`)
+	fakeBin := filepath.Join(home, "fakebin")
+	logPath := filepath.Join(home, "npm.log")
+	writeTestFile(t, filepath.Join(fakeBin, "npm"), "#!/bin/bash\nprintf '%s\\n' \"$*\" >> \""+logPath+"\"\n"+
+		"echo \"added 1 package in 0s\"\nexit 0\n")
+	if err := os.Chmod(filepath.Join(fakeBin, "npm"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot,
+		"YOLO_WORKSPACE": filepath.Join(home, "ws")})
+	if err := GenerateAgentLaunchers(e); err != nil {
+		t.Fatal(err)
+	}
+	if err := GeneratePackageManagerLaunchers(e); err != nil {
+		t.Fatal(err)
+	}
+	return e, fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"), logPath
+}
+
+// runGeneratedLauncher runs the launcher for bin from e's launch dir, with HOME and PATH set.
+func runGeneratedLauncher(t *testing.T, e *Env, pathEnv, bin string) (string, int) {
+	t.Helper()
+	cmd := exec.Command(filepath.Join(e.LaunchDir(), bin))
+	cmd.Env = []string{"HOME=" + e.Home, "PATH=" + pathEnv}
+	out, err := cmd.CombinedOutput()
+	if ee, ok := err.(*exec.ExitError); ok {
+		return string(out), ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("running the %s launcher: %v\n%s", bin, err, out)
+	}
+	return string(out), 0
+}
+
+// assertNoRetryLoop fails when out tells the user to run the program again, or says an install
+// failed, neither of which is what happened.
+func assertNoRetryLoop(t *testing.T, out, bin string) {
+	t.Helper()
+	for _, wrong := range []string{"its install failed", "again to retry", "retries it"} {
+		if strings.Contains(out, wrong) {
+			t.Errorf("the launcher says %q, though the install reported success:\n%s", wrong, out)
+		}
+	}
+}
+
+// The npm agent launcher: npm exits 0 and the package provides no misnpm.
+func TestAnNpmInstallThatLandsNothingSaysSoAndNamesThePacksAuthor(t *testing.T) {
+	e, pathEnv, _ := misplacedFixture(t,
+		`{"kind":"program","bin":"misnpm","via":"npm","package":"misnpm-pkg"}`)
+	out, rc := runGeneratedLauncher(t, e, pathEnv, "misnpm")
+	if rc == 0 {
+		t.Fatalf("a launcher with nothing to run reported success:\n%s", out)
+	}
+	realBin := filepath.Join(e.Home, ".npm-global", "bin", "misnpm")
+	want := "  ⚠ misnpm not available: npm reported installing misnpm-pkg@latest, but there is no misnpm " +
+		"at " + realBin + ", where this launcher runs it from.\n" +
+		"    Pack acme's install for misnpm does not put it there: tell that pack's author, or, if yolo " +
+		"ships pack acme, report it at " + IssuesURL + ".\n"
+	if !strings.HasSuffix(out, want) {
+		t.Errorf("the launcher does not end with\n%s\ngot:\n%s", want, out)
+	}
+	assertNoRetryLoop(t, out, "misnpm")
+}
+
+// The native agent launcher: the vendor installer exits 0 and puts nothing at ~/.local/bin.
+func TestAnInstallerThatLandsNothingSaysSoAndNamesThePacksAuthor(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl not found")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("#!/bin/bash\nmkdir -p \"$HOME/elsewhere\"\n" +
+			"printf '#!/bin/sh\\n' > \"$HOME/elsewhere/misnative\"\necho installed\nexit 0\n"))
+	}))
+	t.Cleanup(srv.Close)
+	url := srv.URL + "/install.sh"
+	e, pathEnv, _ := misplacedFixture(t,
+		`{"kind":"program","bin":"misnative","via":"installer","url":"`+url+`"}`)
+	out, rc := runGeneratedLauncher(t, e, pathEnv, "misnative")
+	if rc == 0 {
+		t.Fatalf("a launcher with nothing to run reported success:\n%s", out)
+	}
+	realBin := filepath.Join(e.Home, ".local", "bin", "misnative")
+	want := "  ⚠ misnative not available: its installer, " + url + ", reported success, but there is no " +
+		"misnative at " + realBin + ", where this launcher runs it from.\n" +
+		"    Pack acme's install for misnative does not put it there: tell that pack's author, or, if " +
+		"yolo ships pack acme, report it at " + IssuesURL + ".\n"
+	if !strings.HasSuffix(out, want) {
+		t.Errorf("the launcher does not end with\n%s\ngot:\n%s", want, out)
+	}
+	assertNoRetryLoop(t, out, "misnative")
+}
+
+// The pnpm launcher: npm exits 0 and leaves no pnpm. pnpm is yolo's own install, not a pack's, so
+// the line names yolo's issue tracker, and no retry: the next run would install the same way.
+func TestAPnpmInstallThatLandsNothingSaysSoAndNamesYolosTracker(t *testing.T) {
+	e, pathEnv, _ := misplacedFixture(t,
+		`{"kind":"program","bin":"misnpm","via":"npm","package":"misnpm-pkg"}`)
+	out, rc := runGeneratedLauncher(t, e, pathEnv, "pnpm")
+	if rc == 0 {
+		t.Fatalf("a launcher with nothing to run reported success:\n%s", out)
+	}
+	realBin := filepath.Join(e.Home, ".npm-global", "bin", "pnpm")
+	want := "  ⚠ pnpm not available: npm reported installing pnpm@latest, but there is no pnpm at " +
+		realBin + ", where this launcher runs it from.\n" +
+		"    yolo's install for pnpm does not put it there: report it at " + IssuesURL + ".\n"
+	if !strings.HasSuffix(out, want) {
+		t.Errorf("the launcher does not end with\n%s\ngot:\n%s", want, out)
+	}
+	assertNoRetryLoop(t, out, "pnpm")
+}

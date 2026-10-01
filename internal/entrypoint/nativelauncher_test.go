@@ -65,7 +65,7 @@ func runNativeLauncherWithReceipts(t *testing.T, url string) (int, string, []map
 	// A parent that does not exist yet: the receipt writer must create it, because
 	// macos-user stages no <ws>/.yolo.
 	receipts := filepath.Join(home, "ws", ".yolo", "receipts.jsonl")
-	body := nativeAgentLauncher(
+	body := nativeAgentLauncher("probe",
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
 		filepath.Join(home, "stamps"),
 		receipts,

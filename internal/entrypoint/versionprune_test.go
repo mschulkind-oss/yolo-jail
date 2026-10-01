@@ -279,7 +279,7 @@ func TestVersionPruneRunsOnTheColdInstallPathToo(t *testing.T) {
 		`chmod +x "$v/probetool"`,
 		`ln -sf "$v/probetool" "$HOME/.local/bin/probetool"`,
 	}, "\n")+"\n")
-	body := nativeAgentLauncher(
+	body := nativeAgentLauncher("probe",
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
 		p.stamps, filepath.Join(p.home, "ws", ".yolo", "receipts.jsonl"), "", true, launcherServers{}, nil)
 	if err := os.WriteFile(p.script, []byte(body), 0o755); err != nil {

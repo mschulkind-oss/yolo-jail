@@ -362,7 +362,8 @@ func (h *hostDeps) depLine(c packdecl.Contribution) string {
 			label, c.Bin)
 	case depPresent:
 		if st, ok := h.floor[c.Bin]; ok {
-			return fmt.Sprintf("  [dim]%-10s[/dim] [green]✓[/green] %-16s %s", label, r.Bin, floorDepClause(st))
+			return fmt.Sprintf("  [dim]%-10s[/dim] %s %-16s %s", label, floorDepMark(st), r.Bin,
+				floorDepClause(st))
 		}
 		return fmt.Sprintf("  [dim]%-10s[/dim] [green]✓[/green] %-16s present at %s",
 			label, r.Bin, r.Path)

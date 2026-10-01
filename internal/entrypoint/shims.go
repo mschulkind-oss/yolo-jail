@@ -444,7 +444,7 @@ func GenerateAgentLaunchers(e *Env) error {
 			var launcher string
 			switch inst.Kind {
 			case "npm":
-				segments := npmAgentLauncherSegments(inst, stampDir, receiptsFile(e),
+				segments := npmAgentLauncherSegments(p.Name, inst, stampDir, receiptsFile(e),
 					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(e, packs, inst.Bin))
 				prefix := nodeExecPrefix(inst.NodeFloor)
 				launcher = strings.Join(segments, prefix)
@@ -456,7 +456,7 @@ func GenerateAgentLaunchers(e *Env) error {
 					}
 				}
 			case "native":
-				launcher = nativeAgentLauncher(inst, stampDir, receiptsFile(e), capturesDir(e),
+				launcher = nativeAgentLauncher(p.Name, inst, stampDir, receiptsFile(e), capturesDir(e),
 					agentUpdatesAllows(e, p.Name), servers, launchFlagsFor(e, packs, inst.Bin))
 			case packdecl.InstallKindSource:
 				// A FORK's program (docs/design/forked-programs-as-packs.md): built from source
@@ -518,9 +518,12 @@ func GenerateAgentLaunchers(e *Env) error {
 // bool, so Quote is the identity on every input it can ever receive. It is quoted anyway so
 // the contract has no exemptions for a reader to memorize; a mutation run will report it as
 // a survivor, and that report is correct.
-func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
+//
+// pack is the name of the pack that declares inst, which the launcher's line for an install that
+// lands nowhere names (packOwnerLine).
+func npmAgentLauncher(pack string, inst *packdecl.Install, stampDir, receiptsPath string,
 	updates bool, servers launcherServers, flags *packload.LaunchInjection) string {
-	return strings.Join(npmAgentLauncherSegments(inst, stampDir, receiptsPath, updates, servers, flags),
+	return strings.Join(npmAgentLauncherSegments(pack, inst, stampDir, receiptsPath, updates, servers, flags),
 		nodeExecPrefix(inst.NodeFloor))
 }
 
@@ -533,7 +536,7 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
 //
 // The split point is a token no value can hold: random per render, so a pack value that happens
 // to spell the template's sentinel cannot become a place the interpreter is spliced.
-func npmAgentLauncherSegments(inst *packdecl.Install, stampDir, receiptsPath string,
+func npmAgentLauncherSegments(pack string, inst *packdecl.Install, stampDir, receiptsPath string,
 	updates bool, servers launcherServers, flags *packload.LaunchInjection) []string {
 	token := execPrefixToken()
 	binName := inst.Bin
@@ -551,6 +554,7 @@ func npmAgentLauncherSegments(inst *packdecl.Install, stampDir, receiptsPath str
 	// carrier that forgot one would drop a pack's flags silently.
 	r := strings.NewReplacer(append([]string{
 		"__YOLO_BIN__", shquote.Quote(binName),
+		"__YOLO_PACK__", shquote.Quote(pack),
 		"__YOLO_PKG__", shquote.Quote(pkgName),
 		"__YOLO_SPEC__", shquote.Quote(npmInstallSpec(pkgName, pkgVersion)),
 		"__YOLO_PINNED__", shquote.Quote(pinned),
@@ -637,13 +641,15 @@ func capturesDir(e *Env) string {
 	return dir
 }
 
-func nativeAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath, capturesPath string,
+func nativeAgentLauncher(pack string, inst *packdecl.Install, stampDir, receiptsPath, capturesPath string,
 	updates bool, servers launcherServers, flags *packload.LaunchInjection) string {
 	binName := inst.Bin
 	installerURL := inst.InstallerURL
 	r := strings.NewReplacer(append([]string{
 		"__YOLO_BIN__", shquote.Quote(binName),
 		"__YOLO_URL__", shquote.Quote(installerURL),
+		// The declaring pack, named by the line for an install that lands nowhere (packOwnerLine).
+		"__YOLO_PACK__", shquote.Quote(pack),
 		"__YOLO_STAMP_DIR__", shquote.Quote(stampDir),
 		"__YOLO_RECEIPTS_FILE__", shquote.Quote(receiptsPath),
 		"__YOLO_CAPTURES_DIR__", shquote.Quote(capturesPath),
@@ -776,8 +782,39 @@ func pkgManagerLauncher(bin, pkg, stampDir, receiptsPath string,
 // failure and stops (docs/reference/happy-path-principle.md, rule 6). Neither launcher throttles
 // its cold install (the stamp throttles updates only), so the next run retries it, and the line
 // says so. The pnpm launcher does throttle a failed install, and says something else
-// (pkgManagerLauncherTemplate).
+// (pkgManagerLauncherTemplate). An install that REPORTED SUCCESS and left nothing to run is not a
+// failed one, and gets _say_misplaced instead (misplacedShellFn).
 const installFailedLine = `echo "  ⚠ $BIN not available: its install failed, above. Run $BIN again to retry the install." >&2`
+
+// IssuesURL is where a fault that is yolo's own, or a pack yolo ships, is reported: the
+// launchers name it, and so do `yolo check`'s notes for a yolo bug (check.issuesURL, which a test
+// pins to go.mod's module path).
+const IssuesURL = "https://github.com/mschulkind-oss/yolo-jail/issues"
+
+// misplacedShellFn is `_say_misplaced REPORTED OWNER`, every launcher's last word when its install
+// REPORTED SUCCESS and left no $BIN at $REAL_BIN: npm, or the vendor's installer, exited 0, and
+// the program is not where the launcher runs it from (a package whose bin is named otherwise, an
+// installer that writes to another prefix). Those launchers used to print installFailedLine,
+// "its install failed, above. Run <name> again", which was false and sent the user round a loop:
+// the next run installs the same way. REPORTED says what reported success; OWNER says who can act
+// (packOwnerLine, yoloOwnerLine), since only the install's author can (rung 4 of
+// docs/reference/happy-path-principle.md). It reads the template's BIN and REAL_BIN.
+const misplacedShellFn = `
+# _say_misplaced REPORTED OWNER: the install reported success and left nothing to run here.
+_say_misplaced() {
+    echo "  ⚠ $BIN not available: $1, but there is no $BIN at $REAL_BIN, where this launcher runs it from." >&2
+    echo "    $2" >&2
+}
+`
+
+// packOwnerLine is _say_misplaced's OWNER for a pack's program: the pack's install puts it
+// somewhere else, which its author fixes, or yolo for a pack it ships. The jail cannot tell which
+// a pack is (packsurfaces.go keeps it ignorant), so the line names both. It reads PACK and BIN.
+const packOwnerLine = `Pack $PACK's install for $BIN does not put it there: tell that pack's author, or, if yolo ` +
+	`ships pack $PACK, report it at ` + IssuesURL + `.`
+
+// yoloOwnerLine is _say_misplaced's OWNER for a program yolo itself declares (pnpm).
+const yoloOwnerLine = `yolo's install for $BIN does not put it there: report it at ` + IssuesURL + `.`
 
 // stampMtimeFn is the `_stamp_mtime` helper every launcher template embeds, and it exists
 // because `stat -c %Y` is GNU-only.
@@ -1125,10 +1162,14 @@ set -euo pipefail
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 BIN=__YOLO_BIN__
+# The pack that declares BIN, which the line for an install that lands nowhere names.
+PACK=__YOLO_PACK__
 STAMP_DIR=__YOLO_STAMP_DIR__
 STAMP="$STAMP_DIR/$BIN.stamp"
 SPEC_FILE="$STAMP_DIR/$BIN.spec"
 REAL_BIN="$NPM_CONFIG_PREFIX/bin/$BIN"
+# 1 once an "npm install" this run made exited 0 and left no $REAL_BIN (_say_misplaced).
+_YOLO_MISPLACED=0
 # PKG is the package NAME alone; SPEC is what "npm install" is handed. They differ whenever
 # the pack declared a version, and the two are NOT interchangeable: only PKG may index
 # node_modules or be passed to "npm view", and only SPEC may be installed.
@@ -1190,7 +1231,7 @@ export _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE:-}:$BIN"
 
 mkdir -p "$STAMP_DIR"
 mkdir -p "$NPM_CONFIG_PREFIX"
-` + stampMtimeFn + receiptShellFns + `
+` + stampMtimeFn + receiptShellFns + misplacedShellFn + `
 _installed_version() {
     jq -r '.version' "$NPM_CONFIG_PREFIX/lib/node_modules/$PKG/package.json" 2>/dev/null || echo "0"
 }
@@ -1259,7 +1300,12 @@ _do_install() {
         local act=install
         if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then act=update; fi
         _yolo_receipt __YOLO_RECEIPT_HEAD__ "$SPEC" "$(_resolved_version)" "" "$act" "$REAL_BIN"
+        # npm agreeing is not the program being where this launcher runs it from: a package
+        # whose bin is named otherwise lands elsewhere, and the last line says that, never
+        # "its install failed" (_say_misplaced).
+        if [ -x "$REAL_BIN" ]; then _YOLO_MISPLACED=0; else _YOLO_MISPLACED=1; fi
     else
+        _YOLO_MISPLACED=0
         rc=1
     fi
     touch "$STAMP"
@@ -1460,6 +1506,9 @@ if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     _yolo_model_menu
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
+elif [ "$_YOLO_MISPLACED" = 1 ]; then
+    _say_misplaced "npm reported installing $SPEC" "` + packOwnerLine + `"
+    exit 1
 else
     ` + installFailedLine + `
     exit 1
@@ -1535,9 +1584,13 @@ const nativeLauncherTemplate = `#!/bin/bash
 set -euo pipefail
 BIN=__YOLO_BIN__
 URL=__YOLO_URL__
+# The pack that declares BIN, which the line for an install that lands nowhere names.
+PACK=__YOLO_PACK__
 STAMP_DIR=__YOLO_STAMP_DIR__
 STAMP="$STAMP_DIR/$BIN.stamp"
 REAL_BIN="$HOME/.local/bin/$BIN"
+# 1 once the vendor installer this run started exited 0 and left no $REAL_BIN (_say_misplaced).
+_YOLO_MISPLACED=0
 UPDATE_INTERVAL=3600
 # A hung vendor updater must not hang the command the user actually typed (§3.5): after
 # this many seconds the launcher proceeds with whatever is already installed.
@@ -1612,7 +1665,7 @@ export _YOLO_LAUNCHER_ACTIVE="${_YOLO_LAUNCHER_ACTIVE:-}:$BIN"
 
 mkdir -p "$STAMP_DIR"
 mkdir -p "$HOME/.local"
-` + stampMtimeFn + receiptShellFns + `
+` + stampMtimeFn + receiptShellFns + misplacedShellFn + `
 ` + updateBoundShellFn + `
 # _take_lock is a NON-BLOCKING mkdir, and both halves of that are the ruling rather than an
 # implementation shortcut. There is no flock in the image and none on a stock macOS; and an
@@ -1899,7 +1952,8 @@ _run_installer() {
         touch "$STAMP"
         return 1
     fi
-    _run_without_terminal bash "$script" 2>&1 || true
+    local irc=0
+    _run_without_terminal bash "$script" 2>&1 || irc=$?
     rm -f "$script"
     touch "$STAMP"
     # A Ctrl-C stopped the installer partway, so what it left is not an install a receipt may
@@ -1911,10 +1965,13 @@ _run_installer() {
     # A receipt only for a run that LEFT SOMETHING, and the same test is the status. An
     # installer can fail loudly (exit 1, nothing downloaded) or quietly (exit 0, the binary
     # under a prefix this launcher never looks at); the LANDING PATH is what separates both
-    # from a real install.
+    # from a real install. The quiet one is not a failed install, and the last line says what
+    # it is (_say_misplaced): its exit status is kept for that alone.
     if [ ! -x "$REAL_BIN" ]; then
+        if [ "$irc" = 0 ]; then _YOLO_MISPLACED=1; fi
         return 1
     fi
+    _YOLO_MISPLACED=0
     # $REAL_BIN twice, and the two arguments are different questions: the fourth is the
     # file to DIGEST (the resolved identity), the sixth is the LANDING PATH (§6's tuple).
     # They coincide here because an installer's only observable output is the binary it
@@ -2107,6 +2164,9 @@ if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     _yolo_model_menu
     exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
+elif [ "$_YOLO_MISPLACED" = 1 ]; then
+    _say_misplaced "its installer, $URL, reported success" "` + packOwnerLine + `"
+    exit 1
 else
     ` + installFailedLine + `
     exit 1
@@ -2141,11 +2201,13 @@ LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
 ` + launchFlagsShellFn + `
 
 mkdir -p "$STAMP_DIR"
-` + stampMtimeFn + receiptShellFns + `
+` + stampMtimeFn + receiptShellFns + misplacedShellFn + `
 if [ ! -x "$REAL_BIN" ]; then
     # Throttle repeated install attempts after a failure — without this, every
-    # invocation would re-hit npm registry when offline / install is broken.
+    # invocation would re-hit npm registry when offline / install is broken. The stamp is a
+    # failed install's alone (below).
     SHOULD_INSTALL=1
+    pm_rc=1  # npm install's status; stays 1 when this run does not install
     if [ -f "$STAMP" ]; then
         STAMP_AGE=$(( $(date +%s) - $(_stamp_mtime "$STAMP") ))
         if [ "$STAMP_AGE" -lt "$RETRY_INTERVAL" ]; then
@@ -2169,14 +2231,25 @@ if [ ! -x "$REAL_BIN" ]; then
             # The omission says "unknown" rather than inventing a version — the same rule
             # _resolved_version follows in the agent launcher.
             _yolo_receipt __YOLO_RECEIPT_HEAD__ "$SPEC" "" "" install "$REAL_BIN"
+            # THE STAMP RECORDS A FAILURE, AND NOTHING ELSE, so the throttled line below is
+            # true whenever it prints. It was touched after a success too, so a pnpm removed
+            # within the hour of its install was not installed again, and the run said its
+            # install had failed.
+            rm -f "$STAMP"
+        else
+            touch "$STAMP"
         fi
-        touch "$STAMP"
     fi
 fi
 
 if [ -x "$REAL_BIN" ]; then
     _yolo_launch_argv "$@"
     exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
+elif [ "${pm_rc:-1}" = 0 ]; then
+    # npm said it installed SPEC and left no $REAL_BIN: not a failed install, and not one a
+    # retry fixes, since the next run installs the same way (_say_misplaced).
+    _say_misplaced "npm reported installing $SPEC" "` + yoloOwnerLine + `"
+    exit 1
 else
     # THE THROTTLE DECIDES WHAT THE NEXT STEP IS. Unlike the agent launchers, a failed install
     # here is retried only RETRY_INTERVAL after the last attempt, so "run it again" would be

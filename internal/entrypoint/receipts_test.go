@@ -503,7 +503,7 @@ func TestNativeFailurePathsLeaveNoReceipt(t *testing.T) {
 // no verb, yolo runs the install itself and does record it, with act "update". Both are
 // asserted here so the pair cannot drift into one rule.
 func TestNativeLauncherVendorSelfUpdateEmitsNoReceipt(t *testing.T) {
-	body := nativeAgentLauncher(
+	body := nativeAgentLauncher("probe",
 		&packdecl.Install{
 			Kind: "native", Bin: "probetool", InstallerURL: "https://x.invalid/i.sh",
 			UpdateVerb: []string{"update"},
@@ -824,9 +824,9 @@ func TestBootstrapReceiptPathIsBakedNotRead(t *testing.T) {
 // natively, under env -i.
 func TestLauncherReceiptPathIsBakedNotRead(t *testing.T) {
 	for name, body := range map[string]string{
-		"npm": npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "t", Package: "t"},
+		"npm": npmAgentLauncher("probe", &packdecl.Install{Kind: "npm", Bin: "t", Package: "t"},
 			"/stamps", "/ws/.yolo/receipts.jsonl", true, launcherServers{}, nil),
-		"native": nativeAgentLauncher(&packdecl.Install{Kind: "native", Bin: "t", InstallerURL: "u"},
+		"native": nativeAgentLauncher("probe", &packdecl.Install{Kind: "native", Bin: "t", InstallerURL: "u"},
 			"/stamps", "/ws/.yolo/receipts.jsonl", "", true, launcherServers{}, nil),
 	} {
 		if !strings.Contains(body, "_YOLO_RECEIPTS=/ws/.yolo/receipts.jsonl") {

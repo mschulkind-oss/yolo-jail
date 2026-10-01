@@ -53,7 +53,7 @@ exit 1
 	if err := os.WriteFile(realBin, []byte("#!/bin/bash\necho AGENT_RAN\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	launcher := nativeAgentLauncher(
+	launcher := nativeAgentLauncher("probe",
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: "https://example.invalid/unused"},
 		filepath.Join(home, "stamps"), filepath.Join(home, "receipts.jsonl"), "",
 		false, launcherServers{}, nil,
@@ -99,7 +99,7 @@ exit 1
 }
 
 func TestNativeLauncherAuthHookIsScopedToDeclaredBinary(t *testing.T) {
-	body := nativeAgentLauncher(
+	body := nativeAgentLauncher("probe",
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: "https://example.invalid/unused"},
 		"/tmp/stamps", "/tmp/receipts", "", false, launcherServers{}, nil,
 	)

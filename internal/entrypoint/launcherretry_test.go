@@ -62,7 +62,7 @@ func TestAFailedNativeFirstInstallSaysRunningItAgainRetries(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	home := t.TempDir()
-	body := nativeAgentLauncher(
+	body := nativeAgentLauncher("probe",
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: srv.URL + "/install.sh"},
 		filepath.Join(home, "stamps"), filepath.Join(home, "ws", ".yolo", "receipts.jsonl"),
 		"", true, launcherServers{}, nil)

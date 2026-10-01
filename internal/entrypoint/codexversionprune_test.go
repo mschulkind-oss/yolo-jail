@@ -115,7 +115,7 @@ func seedCodexReleases(t *testing.T, names []string, liveIdx int) *codexProbe {
 		t.Fatal(err)
 	}
 
-	launcher := nativeAgentLauncher(shippedCodexInstall(t), filepath.Join(home, "stamps"),
+	launcher := nativeAgentLauncher("probe", shippedCodexInstall(t), filepath.Join(home, "stamps"),
 		filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), "", true, launcherServers{}, nil)
 	if err := os.WriteFile(p.script, []byte(launcher), 0o755); err != nil {
 		t.Fatal(err)

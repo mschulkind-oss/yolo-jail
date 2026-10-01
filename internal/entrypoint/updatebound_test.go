@@ -111,14 +111,14 @@ func newBoundProbe(t *testing.T, o boundProbeOpts) *boundProbe {
 	if o.npm {
 		inst.Kind, inst.Package = "npm", "probetool"
 		p.realBin = filepath.Join(home, ".npm-global", "bin", "probetool")
-		body = npmAgentLauncher(inst, stamps, receipts, true, launcherServers{}, nil)
+		body = npmAgentLauncher("probe", inst, stamps, receipts, true, launcherServers{}, nil)
 	} else {
 		inst.Kind, inst.InstallerURL = "native", o.installerURL
 		if inst.InstallerURL == "" {
 			inst.InstallerURL = "https://example.invalid/never-fetched.sh"
 		}
 		p.realBin = filepath.Join(home, ".local", "bin", "probetool")
-		body = nativeAgentLauncher(inst, stamps, receipts, "", true, launcherServers{}, nil)
+		body = nativeAgentLauncher("probe", inst, stamps, receipts, "", true, launcherServers{}, nil)
 	}
 	if !strings.Contains(body, "\nUPDATE_TIMEOUT=60") {
 		t.Fatal("the launcher no longer bakes UPDATE_TIMEOUT=60, so this cell cannot shorten it")
@@ -175,9 +175,9 @@ func (p *boundProbe) killUpdate() {
 func TestEveryLauncherTemplateCarriesTheOneUpdateBound(t *testing.T) {
 	refresh := &packdecl.Refresh{Argv: []string{"refresh"}, Lock: ".store/.lock"}
 	rendered := map[string]string{
-		"npm": npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", Refresh: refresh},
+		"npm": npmAgentLauncher("probe", &packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", Refresh: refresh},
 			"/stamps", "/receipts.jsonl", true, launcherServers{}, nil),
-		"native": nativeAgentLauncher(&packdecl.Install{Kind: "native", Bin: "tool",
+		"native": nativeAgentLauncher("probe", &packdecl.Install{Kind: "native", Bin: "tool",
 			InstallerURL: "https://x.invalid/i.sh", Refresh: refresh},
 			"/stamps", "/receipts.jsonl", "", true, launcherServers{}, nil),
 		"source": strings.Join(sourceAgentLauncherSegments(&packdecl.Install{Kind: "source", Bin: "tool",

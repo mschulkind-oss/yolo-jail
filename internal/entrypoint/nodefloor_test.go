@@ -144,7 +144,7 @@ func TestNoFloorRendersAByteIdenticalLauncher(t *testing.T) {
 	fakeMiseStore(t, "24.19.0")
 	inst := &packdecl.Install{Kind: "npm", Bin: "thing", Package: "thing"}
 
-	got := npmAgentLauncher(inst, "/stamps", "/receipts", false, launcherServers{}, nil)
+	got := npmAgentLauncher("probe", inst, "/stamps", "/receipts", false, launcherServers{}, nil)
 	// EVERY exec path, not just the tail: npmLauncherTemplate has two — the main one and the
 	// re-entry guard's — and a prefix applied to only one leaves a re-entrant launch unwrapped.
 	for _, line := range execLinesOf(got) {
@@ -163,7 +163,7 @@ func TestAFloorBakesTheResolvedInterpreter(t *testing.T) {
 	fakeMiseStore(t)
 	inst := &packdecl.Install{Kind: "npm", Bin: "thing", Package: "thing", NodeFloor: "22.19"}
 
-	got := npmAgentLauncher(inst, "/stamps", "/receipts", false, launcherServers{}, nil)
+	got := npmAgentLauncher("probe", inst, "/stamps", "/receipts", false, launcherServers{}, nil)
 	lines := execLinesOf(got)
 	if len(lines) < 2 {
 		t.Fatalf("expected both exec paths (main + re-entry guard), found %d: %v", len(lines), lines)
@@ -183,7 +183,7 @@ func TestAnUnsatisfiableFloorStillRendersAPlainExec(t *testing.T) {
 	fakeMiseStore(t, "20.20.2")
 	inst := &packdecl.Install{Kind: "npm", Bin: "thing", Package: "thing", NodeFloor: "99.0"}
 
-	got := npmAgentLauncher(inst, "/stamps", "/receipts", false, launcherServers{}, nil)
+	got := npmAgentLauncher("probe", inst, "/stamps", "/receipts", false, launcherServers{}, nil)
 	for _, line := range execLinesOf(got) {
 		if !strings.Contains(line, `exec "$REAL_BIN" `) {
 			t.Errorf("want a plain exec when nothing satisfies; got: %s", line)

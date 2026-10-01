@@ -84,7 +84,7 @@ func TestClaudeLauncherEnsuresTheOpenAILoginOnCodex(t *testing.T) {
 			if err := os.WriteFile(realBin, []byte("#!/bin/bash\necho CLAUDE_RAN\n"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			launcher := nativeAgentLauncher(install, filepath.Join(home, "stamps"),
+			launcher := nativeAgentLauncher("probe", install, filepath.Join(home, "stamps"),
 				filepath.Join(home, "receipts.jsonl"), "", false, launcherServers{}, nil)
 			launcherPath := filepath.Join(home, "launch-claude")
 			if err := os.WriteFile(launcherPath, []byte(launcher), 0o755); err != nil {

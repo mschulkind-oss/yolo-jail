@@ -67,6 +67,12 @@ func (o *Options) sectionHostFloor(r *reporter) {
 				r.dim(fmt.Sprintf("%s: the next `yolo host -- %s` reinstalls it — %s", p.Bin(), p.Bin(), st.Pending))
 			}
 		case hostfloor.Missing:
+			if st.Newer {
+				// A newer yolo's record, which no launch of this yolo installs over (Ensure
+				// refuses): the reason is that refusal, and its step is `yolo update`.
+				r.dim(fmt.Sprintf("%s — %s", p.Bin(), st.Reason))
+				break
+			}
 			r.dim(fmt.Sprintf("%s — not in the floor yet (%s): the first `yolo host -- %s`, or `yolo host "+
 				"apply --assert`, installs it", p.Bin(), st.Reason, p.Bin()))
 		case hostfloor.NoEntry:

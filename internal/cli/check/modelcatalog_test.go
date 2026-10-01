@@ -163,6 +163,28 @@ func TestCheckDoesNotReadAFloorCopyYoloHostDoesNotRun(t *testing.T) {
 	}
 }
 
+// A floor record a newer yolo wrote is one no launch of this yolo installs over
+// (hostfloor.Floor.Ensure refuses), so the skip names `yolo update`, never a launch that installs.
+func TestCheckSendsANewerYolosFloorRecordToTheUpdateForItsCatalog(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	floorDir := t.TempDir()
+	rec := filepath.Join(floorDir, "records", "agentx.json")
+	if err := os.MkdirAll(filepath.Dir(rec), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rec, []byte(`{"schema": 99, "bin": "agentx"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := runHostCatalogCheck(t, &hostfloor.Floor{Dir: floorDir, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH})
+	if !strings.Contains(out, "agentx: not readable by this yolo: host floor record "+rec) ||
+		!strings.Contains(out, "run `yolo update`") {
+		t.Errorf("the skip must name the newer record and `yolo update`:\n%s", out)
+	}
+	if strings.Contains(out, "installs it") {
+		t.Errorf("no launch of this yolo installs over a newer yolo's record:\n%s", out)
+	}
+}
+
 // provisionAgentx makes agentx a PROVISIONED floor entry under floorDir, the copy `yolo host --
 // agentx` runs: a record whose Exec and launcher exist, over a fixture install whose catalog
 // names ids.

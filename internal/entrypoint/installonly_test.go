@@ -28,7 +28,7 @@ func runNativeLauncherWithEnv(t *testing.T, url string, extraEnv ...string) (rc 
 		t.Skip("curl not found")
 	}
 	home = t.TempDir()
-	body := nativeAgentLauncher(
+	body := nativeAgentLauncher("probe",
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
 		filepath.Join(home, "stamps"),
 		filepath.Join(home, "ws", ".yolo", "receipts.jsonl"),
@@ -129,7 +129,7 @@ func TestInstallOnlyFailsWhenNothingWasInstalled(t *testing.T) {
 // construction (the template splices InstallOnlyEnv in), and this is the assertion that
 // keeps a future edit from re-typing it.
 func TestInstallOnlyEnvIsSplicedIntoTheTemplate(t *testing.T) {
-	body := nativeAgentLauncher(
+	body := nativeAgentLauncher("probe",
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: "https://example.invalid/i.sh"},
 		"/stamps", "/ws/.yolo/receipts.jsonl", "", true, launcherServers{},
 		nil)

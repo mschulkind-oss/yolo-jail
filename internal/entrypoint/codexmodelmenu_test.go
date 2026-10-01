@@ -145,7 +145,7 @@ func runCodexMenuLauncher(t *testing.T, home string, extraEnv []string, args ...
 		t.Fatal(err)
 	}
 	_ = os.Remove(argvLog)
-	body := nativeAgentLauncher(shippedCodexInstall(t), filepath.Join(home, "stamps"),
+	body := nativeAgentLauncher("probe", shippedCodexInstall(t), filepath.Join(home, "stamps"),
 		filepath.Join(home, "receipts.jsonl"), "", false, launcherServers{}, nil)
 	script := filepath.Join(home, "codex-launcher")
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {

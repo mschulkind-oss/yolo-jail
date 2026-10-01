@@ -84,7 +84,8 @@ const (
 	// Provisioned: in the prefix. It is the copy `yolo host` runs.
 	Provisioned Disposition = "provisioned"
 	// Missing: the floor can hold it and does not yet. The next `yolo host -- <bin>` or
-	// `yolo host apply --assert` installs it (HP-D3).
+	// `yolo host apply --assert` installs it (HP-D3), unless a newer yolo wrote its record
+	// (Status.Newer), which nothing here installs over.
 	Missing Disposition = "missing"
 	// NoEntry: the floor cannot hold it on this machine. Status.Reason says why; what
 	// `yolo host` runs instead is OQ-HE11's question, and today it is the launch's PATH.
@@ -104,6 +105,10 @@ type Status struct {
 	// declaration moved; its interpreter no longer meets the pack's node_floor). The current
 	// install serves until the new one succeeds.
 	Pending string
+	// Newer is set on a Missing entry whose record a newer yolo wrote. Nothing installs it: Ensure
+	// refuses to install over that record, and Reason is the refusal (updatehint.NewerSchema),
+	// whose next step is `yolo update`.
+	Newer bool
 	// Launcher is where bin/<bin> is or would be.
 	Launcher string
 }
@@ -417,6 +422,13 @@ func (f *Floor) Status(p Program) Status {
 		return st
 	}
 	rec, err := f.readRecord(p.Bin())
+	if errors.Is(err, ErrNewerRecord) {
+		// Not this yolo's to install: Ensure refuses to install over the record (HP-D8), so no
+		// line may say a launch or an --assert installs it. Not offered to provisionable either,
+		// whose answer is about what this machine could install.
+		st.Disposition, st.Reason, st.Newer = Missing, err.Error(), true
+		return st
+	}
 	if err != nil || rec == nil {
 		st.Disposition, st.Reason = Missing, "not installed yet"
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -555,10 +567,23 @@ func (f *Floor) readRecord(bin string) (*Record, error) {
 	if rec.Schema > recordSchema {
 		// A newer yolo wrote it. The refusal names the way to that yolo, in the sentence every
 		// reader of a newer yolo's file prints (updatehint); it used to end at the two numbers.
-		return nil, updatehint.NewerSchema("host floor record "+f.recordPath(bin), rec.Schema, recordSchema)
+		return nil, newerRecordError{updatehint.NewerSchema("host floor record "+f.recordPath(bin),
+			rec.Schema, recordSchema).Error()}
 	}
 	return &rec, nil
 }
+
+// ErrNewerRecord matches (errors.Is) the error for a record a newer yolo wrote, which Ensure
+// returns rather than install over it: a newer schema is refused, never rewritten, as a pack
+// lockfile's is (docs/design/host-tool-provisioning.md, HP-D8). The error's text is
+// updatehint.NewerSchema's, naming `yolo update`.
+var ErrNewerRecord = errors.New("host floor record written by a newer yolo")
+
+// newerRecordError is ErrNewerRecord with the refusal's own words.
+type newerRecordError struct{ msg string }
+
+func (e newerRecordError) Error() string        { return e.msg }
+func (e newerRecordError) Is(target error) bool { return target == ErrNewerRecord }
 
 // writeRecord replaces bin's record atomically, so a reader never sees half of one.
 func (f *Floor) writeRecord(rec *Record) error {

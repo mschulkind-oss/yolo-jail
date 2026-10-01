@@ -8,6 +8,8 @@ covers:
   - internal/cli/run/srcskew.go
   - internal/cli/run/hostloopback.go
   - internal/cli/applyhostdepgate.go
+  - internal/cli/hostapplyremedy.go
+  - internal/cli/hostfloor.go
   - internal/cli/hostapplyverdict.go
   - internal/cli/checkdeps.go
   - internal/cli/hintcommands_test.go
@@ -19,6 +21,7 @@ covers:
   - internal/depcheck/
   - internal/entrypoint/shims.go
   - internal/hostfloor/floor.go
+  - internal/hostfloor/ensure.go
   - internal/packsrc/lock.go
   - internal/prune/probes.go
   - internal/storage/nixinstall.go
@@ -169,7 +172,10 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    byte, as the pack wrote it, square brackets included, where a bracketed word the output's color
    markup reads as a style used to vanish from the command. Escaping the bracket for the markup is
    not enough: it keeps an invisible character after the `[`, which a pasted command carries into
-   the install (`TestCheckDepsPrintsABracketedCommandAsWritten`).
+   the install (`TestCheckDepsPrintsABracketedCommandAsWritten`). `yolo host apply` prints its
+   remedies the same way, and the command its install prompt runs, where the printer used to drop
+   the bracket from both (`TestHostApplyPrintsABracketedRemedyAsWritten`,
+   `TestHostApplyGatePrintsTheCommandItRunsAsWritten`).
    **yolo does not yet enforce rule 3 for a pack's
    `install_hints`:** a pack records no source for them, except the `guardrails` pack, whose
    comments cite where each of its names came from, and no test checks that an entry has a
@@ -208,9 +214,17 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    *In yolo:* a failed auto-capture says `The next launch retries.`, and a launcher whose update is
    busy or fails runs the installed version. An agent's launcher whose first-use install fails
    ends `⚠ <name> not available: its install failed, above. Run <name> again to retry the install.`,
-   and the next run does retry it. The pnpm launcher retries a failed install only an hour after
-   the last try, so it says when a run retries and prints the command that retries now
-   (`launcherretry_test.go` runs each launcher again, and the pnpm command as printed).
+   and the next run does retry it. An install that reports success (npm, or the vendor's
+   installer, exits 0) and leaves nothing where the launcher runs the program from is not one a
+   second run fixes, so its line says what happened and names who can act instead: the pack's
+   author, or yolo's issue tracker for a pack yolo ships, and for pnpm yolo's tracker (rung 4;
+   `launchermisplaced_test.go`). It used to get the failed-install line, which sent the user round
+   that loop. The pnpm launcher retries a failed install only an hour after the last failure, so it
+   says when a run retries and prints the command that retries now. Only a failure starts that
+   hour, a successful install clearing it, so a pnpm removed after it installed is installed again
+   on the next run, where the line used to say its install had failed
+   (`launcherretry_test.go` runs each launcher again, and the pnpm command as printed;
+   `pnpmthrottle_test.go` runs both orders).
 7. **Don't send the user to find something yolo could figure out itself.** If yolo can work out the
    value, fork it from an existing copy or fetch it, it does that instead of asking the user to go
    and get it.
@@ -219,7 +233,11 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    found, and a pack lockfile, a fork lock, a capture or a host floor record written by a newer
    yolo names `yolo update`, which knows this install's channel, or in a jail says to run it on the
    host and relaunch the jail, which keeps the yolo it was launched with until then. `yolo update`
-   itself, run in a jail, says the same.
+   itself, run in a jail, says the same. yolo's own copy of an agent (the host floor) is never
+   installed over a newer yolo's record, as a newer lockfile is never rewritten:
+   `yolo host -- <agent>` and `yolo host apply --assert` refuse with that step, and `yolo check`
+   no longer says the next launch installs it (`TestEnsureRefusesToInstallOverANewerYolosRecord`,
+   `TestCheckSendsANewerYolosFloorRecordToTheUpdate`).
 
 ## Before and after
 

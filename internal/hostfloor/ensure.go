@@ -54,16 +54,20 @@ const (
 
 // Ensure makes p runnable from the floor and returns its status afterwards: a Provisioned status
 // whose Launcher is what `yolo host` execs. A program the floor cannot hold returns ErrNoEntry
-// (wrapped, with the reason); a first install that fails returns its error.
+// (wrapped, with the reason); one whose record a newer yolo wrote returns ErrNewerRecord's
+// refusal, installing nothing; a first install that fails returns its error.
 func (f *Floor) Ensure(ctx context.Context, p Program) (Status, Outcome, error) {
 	st := f.Status(p)
-	switch st.Disposition {
-	case NoEntry:
+	switch {
+	case st.Disposition == NoEntry:
 		return st, "", fmt.Errorf("%w for %s: %s", ErrNoEntry, p.Bin(), st.Reason)
-	case Provisioned:
-		if st.Pending == "" {
-			return f.refresh(ctx, p, st)
-		}
+	case st.Newer:
+		// REFUSED, never installed over (HP-D8): replacing a newer yolo's launcher and record
+		// with this one's would hand that yolo a floor it did not write, while `yolo check`
+		// tells the user to run `yolo update`. Reason is that refusal.
+		return st, "", newerRecordError{st.Reason}
+	case st.Disposition == Provisioned && st.Pending == "":
+		return f.refresh(ctx, p, st)
 	}
 	if err := f.ensureDir("bin", "programs", "records", "locks"); err != nil {
 		return st, "", err
@@ -77,6 +81,10 @@ func (f *Floor) Ensure(ctx context.Context, p Program) (Status, Outcome, error) 
 	defer lk.release()
 	// Re-checked UNDER the lock: the holder we waited for may have installed exactly this.
 	st = f.Status(p)
+	if st.Newer {
+		// A newer yolo installed it while this one waited.
+		return st, "", newerRecordError{st.Reason}
+	}
 	if st.Disposition == Provisioned && st.Pending == "" {
 		return st, Current, nil
 	}
@@ -258,14 +266,17 @@ func (f *Floor) newerThan(ctx context.Context, p Program, rec *Record) (string, 
 // The caller holds p's lock.
 func (f *Floor) install(ctx context.Context, p Program) (*Record, error) {
 	bin := p.Bin()
-	prev, _ := f.readRecord(bin)
+	prev, err := f.readRecord(bin)
+	if errors.Is(err, ErrNewerRecord) {
+		// Never written over, whoever calls (Ensure refuses before it gets here).
+		return nil, err
+	}
 	f.removeIncomplete(bin, prev)
 	dir := filepath.Join(f.programsDir(bin), installID(f))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	var rec *Record
-	var err error
 	switch p.Install.Kind {
 	case "npm":
 		rec, err = f.installNpm(ctx, p, dir)

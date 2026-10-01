@@ -162,11 +162,12 @@ func TestLauncherTemplatesParseWithHostileValues(t *testing.T) {
 	// every field carries the payload.
 	menu := &packdecl.ModelMenu{Catalog: []string{v}, List: v, Into: v, Flag: []string{v + "{into}"},
 		Entries: v, ID: v, Order: v, Name: v, Clear: []string{v}, Set: map[string]string{v: v}}
-	assertParses(t, npmAgentLauncher(
+	// The declaring pack's name is a value too (__YOLO_PACK__, packOwnerLine).
+	assertParses(t, npmAgentLauncher(v,
 		&packdecl.Install{Kind: "npm", Bin: v, Package: v, Flags: []string{v, "--plain"},
 			UpdateVerb: []string{v, "--self"}, Refresh: refresh, ModelMenu: menu},
 		v, v, true, srv, inj), "npm launcher")
-	assertParses(t, nativeAgentLauncher(
+	assertParses(t, nativeAgentLauncher(v,
 		&packdecl.Install{Kind: "native", Bin: v, InstallerURL: v, UpdateVerb: []string{v, "--self"},
 			Refresh: refresh, ModelMenu: menu},
 		v, v, v, true, srv, inj), "native launcher")
@@ -295,7 +296,7 @@ fi`)
 
 	url := "https://example.invalid/install.sh?" + hostileValue("-url")
 	receipts := hostileReceiptsPath(home, "-nativereceipts")
-	body := nativeAgentLauncher(
+	body := nativeAgentLauncher("probe",
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
 		filepath.Join(home, "stamps"), receipts, "", true, launcherServers{}, nil)
 
@@ -346,7 +347,7 @@ if [ "${1:-}" = view ]; then echo 9.9.9; fi`)
 	spec := "tool@1.0.0-" + hostileValue("-spec")
 	flag := "--flag=" + hostileValue("-flag")
 	receipts := hostileReceiptsPath(home, "-npmreceipts")
-	body := npmAgentLauncher(
+	body := npmAgentLauncher("probe",
 		&packdecl.Install{Kind: "npm", Bin: "tool", Package: spec, Flags: []string{flag, "--plain"}},
 		filepath.Join(home, "stamps"), receipts, true, launcherServers{}, nil)
 
@@ -403,7 +404,7 @@ func TestNpmLauncherQuotesThePackageName(t *testing.T) {
 	pkg := "pkg-" + hostileValue("-pkgname")
 	seedInstalled(t, filepath.Join(home, ".npm-global", "bin"), "tool")
 
-	body := npmAgentLauncher(
+	body := npmAgentLauncher("probe",
 		&packdecl.Install{Kind: "npm", Bin: "tool", Package: pkg},
 		filepath.Join(home, "stamps"),
 		filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), true, launcherServers{}, nil)
@@ -499,7 +500,7 @@ func TestLaunchersQuoteTheBinNameAndStampDir(t *testing.T) {
 		seedInstalled(t, npmBin, bin)
 		seedFreshStamp(t, stamps, bin)
 
-		body := npmAgentLauncher(
+		body := npmAgentLauncher("probe",
 			&packdecl.Install{Kind: "npm", Bin: bin, Package: "pkg@1.0.0"},
 			stamps, filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), true, launcherServers{}, nil)
 		out, rc := runLauncher(t, home, "launcher", body, filepath.Join(home, "nonexistent-bin"))
@@ -517,7 +518,7 @@ func TestLaunchersQuoteTheBinNameAndStampDir(t *testing.T) {
 		seedInstalled(t, filepath.Join(home, ".local", "bin"), bin)
 		seedFreshStamp(t, stamps, bin)
 
-		body := nativeAgentLauncher(
+		body := nativeAgentLauncher("probe",
 			&packdecl.Install{Kind: "native", Bin: bin, InstallerURL: "https://example.invalid/i.sh"},
 			stamps, filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), "", true, launcherServers{}, nil)
 		out, rc := runLauncher(t, home, "launcher", body, filepath.Join(home, "nonexistent-bin"))

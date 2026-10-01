@@ -102,6 +102,30 @@ func TestCheckReportsAMissingFloorEntryAndInstallsNothing(t *testing.T) {
 	}
 }
 
+// TestCheckSendsANewerYolosFloorRecordToTheUpdate: a record a newer yolo wrote is one this yolo
+// refuses to install over (hostfloor.Floor.Ensure), so the row names `yolo update` and no longer
+// says the first `yolo host -- <bin>` installs it, which that launch refuses to do.
+func TestCheckSendsANewerYolosFloorRecordToTheUpdate(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	o, floor, _, _ := hostFloorCheckFixture(t, `{}`)
+	rec := filepath.Join(floor.Dir, "records", "floorcli.json")
+	if err := os.MkdirAll(filepath.Dir(rec), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rec, []byte(`{"schema": 99, "bin": "floorcli"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := runHostFloorSection(o)
+	for _, want := range []string{"floorcli — ", rec, "a newer yolo wrote it", "run `yolo update`"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("section lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "installs it") {
+		t.Errorf("the row says a launch installs it, which the launch refuses to do:\n%s", out)
+	}
+}
+
 // TestCheckReportsAProvisionedEntryItsOtherCopiesAndALeftover.
 func TestCheckReportsAProvisionedEntryItsOtherCopiesAndALeftover(t *testing.T) {
 	o, floor, _, hand := hostFloorCheckFixture(t, `{}`)

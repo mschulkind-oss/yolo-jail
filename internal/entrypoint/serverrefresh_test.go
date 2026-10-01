@@ -541,7 +541,7 @@ fi`)
 	// once: the value must be data, and the list must still arrive as ONE argument (the
 	// Go side splits it, not the shell).
 	npmList := hostileValue("-srvnpm") + " second-pkg"
-	body := npmAgentLauncher(
+	body := npmAgentLauncher("probe",
 		&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool"},
 		filepath.Join(home, "stamps"),
 		filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), true,

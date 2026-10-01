@@ -75,7 +75,7 @@ func TestTheNpmLauncherHandsItsProgramAModelMenuToo(t *testing.T) {
 	}
 	menu := &packdecl.ModelMenu{Catalog: []string{"catalog"}, List: ".tool/list.json",
 		Into: ".tool/menu.json", Flag: []string{"--menu={into}"}, Entries: "entries", ID: "key"}
-	body := npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", ModelMenu: menu},
+	body := npmAgentLauncher("probe", &packdecl.Install{Kind: "npm", Bin: "tool", Package: "tool", ModelMenu: menu},
 		filepath.Join(home, "stamps"), filepath.Join(home, "receipts.jsonl"), false, launcherServers{}, nil)
 	out, rc := runLauncher(t, home, "tool-launcher", body, fakeBin)
 	if rc != 0 {

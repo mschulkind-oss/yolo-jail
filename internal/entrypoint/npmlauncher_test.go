@@ -92,7 +92,7 @@ func TestNpmLauncherBodyCarriesNameAndSpecSeparately(t *testing.T) {
 		{"foo@>=1.0.0 <2.0.0", "foo", "foo@>=1.0.0 <2.0.0", "1"},
 	}
 	for _, tc := range cases {
-		body := npmAgentLauncher(&packdecl.Install{Kind: "npm", Bin: "foo", Package: tc.pkg},
+		body := npmAgentLauncher("probe", &packdecl.Install{Kind: "npm", Bin: "foo", Package: tc.pkg},
 			"/stamps", filepath.Join(t.TempDir(), "receipts.jsonl"), true, launcherServers{}, nil)
 		for _, want := range []string{
 			"\nPKG=" + shquote.Quote(tc.wantPKG) + "\n",
@@ -313,7 +313,7 @@ func (p *npmProbe) runOut(t *testing.T, bin, pkg string, env ...string) ([]strin
 // outcome as success.
 func (p *npmProbe) runStatus(t *testing.T, bin, pkg string, env ...string) ([]string, string, int) {
 	t.Helper()
-	body := npmAgentLauncher(
+	body := npmAgentLauncher("probe",
 		&packdecl.Install{Kind: "npm", Bin: bin, Package: pkg, UpdateVerb: p.verb},
 		filepath.Join(p.home, "stamps"),
 		// The receipts path is BAKED at generation time, so a harness that let it

@@ -211,7 +211,9 @@ func gateHostDeps(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	lp := survey.launchPATH()
 	env := depInstallEnviron(lp)
 	for _, b := range offer {
-		pr.Printf("  [cyan]→ %s[/cyan]", b.Remedy)
+		// Verbatim, as the groups above print it: the command as the pack wrote it, which is
+		// the command that runs (printVerbatim).
+		printVerbatim(pr, "  [cyan]→ ", b.Remedy, "[/cyan]")
 		if err := depInstallRun(b.Remedy, env, out, b.NoTerminal); err != nil {
 			// A STOP IS A STOP. An install run with no terminal is out of the terminal's
 			// foreground group, so a Ctrl-C (or a hangup, or a kill) reaches this process, which

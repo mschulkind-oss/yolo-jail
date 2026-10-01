@@ -471,9 +471,12 @@ func printRemedyGroups(pr richtext.Printer, groups []remedyGroup) {
 		}
 		switch {
 		case g.Remedy != "":
-			pr.Printf("    [cyan]→ %s[/cyan]", g.Remedy)
+			// VERBATIM (printVerbatim): the remedy and its alternative are printed to be pasted,
+			// and through the printer a bracketed style word in a pack's command (`acme[red]`)
+			// was read as markup and dropped, and an unclosed `[` ran on into the closing tag.
+			printVerbatim(pr, "    [cyan]→ ", g.Remedy, "[/cyan]")
 			if g.Alt != "" {
-				pr.Printf("      [dim]%s[/dim]", g.Alt)
+				printVerbatim(pr, "      [dim]", g.Alt, "[/dim]")
 			}
 		case g.NoRemedy != "":
 			pr.Printf("    [dim]no remedy: %s[/dim]", g.NoRemedy)

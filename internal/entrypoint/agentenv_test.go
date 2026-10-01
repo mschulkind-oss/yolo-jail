@@ -58,12 +58,12 @@ func TestTheInstallerLaunchersSourceTheAgentsOwnEnvFile(t *testing.T) {
 			case "npm":
 				inst.Package = "probe-pkg"
 				realBin = filepath.Join(home, ".npm-global", "bin", "probe")
-				body = npmAgentLauncher(inst, filepath.Join(home, "stamps"),
+				body = npmAgentLauncher("probe", inst, filepath.Join(home, "stamps"),
 					filepath.Join(home, "receipts"), false, launcherServers{}, nil)
 			case "native":
 				inst.InstallerURL = "http://127.0.0.1:9/install.sh" // never fetched: the bin exists
 				realBin = filepath.Join(home, ".local", "bin", "probe")
-				body = nativeAgentLauncher(inst, filepath.Join(home, "stamps"),
+				body = nativeAgentLauncher("probe", inst, filepath.Join(home, "stamps"),
 					filepath.Join(home, "receipts"), "", false, launcherServers{}, nil)
 			}
 			envReporter(t, realBin, logPath)
@@ -182,12 +182,12 @@ func probeLauncher(t *testing.T, home, kind, logPath string, servers launcherSer
 	case "npm":
 		inst.Package = "probe-pkg"
 		realBin = filepath.Join(home, ".npm-global", "bin", "probe")
-		body = npmAgentLauncher(inst, filepath.Join(home, "stamps"), filepath.Join(home, "receipts"),
+		body = npmAgentLauncher("probe", inst, filepath.Join(home, "stamps"), filepath.Join(home, "receipts"),
 			false, servers, nil)
 	case "native":
 		inst.InstallerURL = "http://127.0.0.1:9/i.sh" // never fetched: the bin exists
 		realBin = filepath.Join(home, ".local", "bin", "probe")
-		body = nativeAgentLauncher(inst, filepath.Join(home, "stamps"), filepath.Join(home, "receipts"),
+		body = nativeAgentLauncher("probe", inst, filepath.Join(home, "stamps"), filepath.Join(home, "receipts"),
 			"", false, servers, nil)
 	}
 	envReporter(t, realBin, logPath)

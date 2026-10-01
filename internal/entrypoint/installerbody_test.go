@@ -290,7 +290,7 @@ func TestTheGoAndShellChecksAgree(t *testing.T) {
 	if err != nil {
 		t.Skip("no bash on PATH")
 	}
-	tmpl := nativeAgentLauncher(
+	tmpl := nativeAgentLauncher("probe",
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: "https://example.invalid/i.sh"},
 		"/stamps", "/receipts", "", true, launcherServers{}, nil)
 	start := strings.Index(tmpl, "_installer_body_kind() (")
@@ -329,7 +329,7 @@ func TestTheGoAndShellChecksAgree(t *testing.T) {
 // file to bash. The run cells above prove the behavior; this cell says where it lives, so a
 // refactor that moved the bash call ahead of the check fails by name.
 func TestNativeLauncherClassifiesTheBodyBeforeRunningIt(t *testing.T) {
-	body := nativeAgentLauncher(
+	body := nativeAgentLauncher("probe",
 		&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: "https://example.invalid/i.sh"},
 		"/stamps", "/ws/.yolo/receipts.jsonl", "", true, launcherServers{},
 		nil)

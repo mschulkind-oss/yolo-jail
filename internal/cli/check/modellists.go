@@ -261,6 +261,10 @@ func (o *Options) declaredCatalogs(packs []*packload.Pack) []declaredCatalog {
 			case hostfloor.Missing:
 				c.missing = "not in yolo's host floor yet (" + st.Reason + "): the first `yolo host -- " +
 					inst.Bin + "`, or `yolo host apply --assert`, installs it"
+				if st.Newer {
+					// Nothing this yolo runs installs over a newer yolo's record (Ensure refuses).
+					c.missing = "not readable by this yolo: " + st.Reason
+				}
 			default:
 				c.missing = "no floor entry: " + st.Reason + ". `yolo host -- " + inst.Bin +
 					"` runs the one on the PATH it is started with, whose catalog this check does not read"

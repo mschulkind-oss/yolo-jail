@@ -51,7 +51,7 @@ func runInstallerLauncher(t *testing.T, url, path string, env ...string) (string
 		t.Skip("curl not found")
 	}
 	home := t.TempDir()
-	launcher := nativeAgentLauncher(&packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
+	launcher := nativeAgentLauncher("probe", &packdecl.Install{Kind: "native", Bin: "probetool", InstallerURL: url},
 		filepath.Join(home, "stamps"), filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), "",
 		true, launcherServers{}, nil)
 	script := filepath.Join(home, "probetool-launcher")

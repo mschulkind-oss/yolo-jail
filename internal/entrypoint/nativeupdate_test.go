@@ -56,7 +56,7 @@ func newUpdateProbe(t *testing.T, verb []string, updates bool, install bool) *up
 			t.Fatal(err)
 		}
 	}
-	launcher := nativeAgentLauncher(
+	launcher := nativeAgentLauncher("probe",
 		&packdecl.Install{
 			Kind: "native", Bin: "probetool",
 			InstallerURL: "https://example.invalid/never-fetched.sh",

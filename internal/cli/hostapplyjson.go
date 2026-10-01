@@ -96,7 +96,9 @@ type hostApplyDocFloorEntry struct {
 	// "deselected" for an entry the floor no longer keeps (its pack deselected, or `host_floor` now
 	// leaving it out), which an --assert removes.
 	Disposition string `json:"disposition"`
-	// Action is what an --assert would do: "none", "would install", or "would remove".
+	// Action is what an --assert would do: "none", "would install", "would remove", or "would
+	// refuse" for an entry whose record a newer yolo wrote, which it does not install over
+	// (Reason says so and names `yolo update`).
 	Action string `json:"action"`
 	// Reason is why, when the action or the disposition has one.
 	Reason string `json:"reason,omitempty"`

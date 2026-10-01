@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -25,9 +26,10 @@ import (
 // recheck ends a next step: after a fix, check again rather than take it on faith (rule 5).
 const recheck = "then: yolo check"
 
-// issuesURL is where a fault that is yolo's own is reported. TestIssuesURLIsThisModulesRepo
-// pins it to go.mod's module path, so a moved repository fails a test instead of the link.
-const issuesURL = "https://github.com/mschulkind-oss/yolo-jail/issues"
+// issuesURL is where a fault that is yolo's own is reported: the one spelling the jail's
+// launchers name too (entrypoint.IssuesURL). TestIssuesURLIsThisModulesRepo pins it to go.mod's
+// module path, so a moved repository fails a test instead of the link.
+const issuesURL = entrypoint.IssuesURL
 
 // yoloBugNote is rung 4 for a fault no setup change can fix: it says so and names who can act.
 func yoloBugNote(what string) string {
