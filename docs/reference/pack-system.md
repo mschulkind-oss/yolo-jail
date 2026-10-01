@@ -2804,9 +2804,10 @@ a key that does nothing must not be accepted quietly.
     either. So for a workspace-selected MCP entry the new grant is the install its pack carries,
     not the execution.
   - **Every source but a bare name reaches the host.** A `git+` entry makes the host fetch with
-    the user's own git credentials ([fetch](#fetch-refresh-lock)), and a `file://` entry reads a
-    host directory outside the workspace. On [OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7)'s axis, host reach rather than install, only
-    a pack yolo ships, named by its bare name, reaches nothing at selection.
+    the user's own git credentials ([fetch](#fetch-refresh-lock)), and a `file://` entry reads
+    whatever host directory it names. On [OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7)'s
+    axis, host reach rather than install, only a pack yolo ships, named by its bare name, reaches
+    nothing at selection.
   - **The skills half is already ruled another way.** [`OQ-WS1`](../design/workspace-skills.md#OQ-WS1)
     was ruled on 2026-09-27: the workspace became a skills source of its own, at the lowest
     layer, read by a confined reader rather than through a pack. So the same-sitting request is
