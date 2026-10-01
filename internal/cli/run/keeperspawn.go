@@ -38,10 +38,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
-// keeperSpawner starts a keeper for launch with a plan file and its three descriptors (the launch
-// lock may be nil) and returns a wait for its exit status. The spawner's copies of the descriptors
-// are the caller's to close once it returns.
-type keeperSpawner func(launch *Options, planPath string, progress, lifeline, lock *os.File) (wait func() int, err error)
+// keeperSpawner starts a keeper for launch with a plan file and its descriptors (the launch lock
+// may be nil, and reserved, the jail's reserved ports, empty) and returns a wait for its exit
+// status. The spawner's copies of the descriptors are the caller's to close once it returns.
+type keeperSpawner func(launch *Options, planPath string, progress, lifeline, lock *os.File,
+	reserved []*os.File) (wait func() int, err error)
 
 // defaultKeeperSpawner is how every fresh launch spawns its keeper: realSpawnKeeper. A package's
 // tests swap it for a keeper run in-process, since a test binary must never self-exec as the keeper
@@ -49,11 +50,13 @@ type keeperSpawner func(launch *Options, planPath string, progress, lifeline, lo
 var defaultKeeperSpawner keeperSpawner = realSpawnKeeper
 
 // realSpawnKeeper is the production spawner: the running binary, in a session of its own, stdio on
-// /dev/null, the three descriptors as fds 3 to 5 (startDetached's shape, JL-D29). On Linux it is
-// exec'd from /proc/self/exe, which still names this binary after `just install` replaced its file
-// (JL-D5); elsewhere from its path, and a keeper of another build refuses the plan.
-func realSpawnKeeper(_ *Options, planPath string, progress, lifeline, lock *os.File) (func() int, error) {
-	argv := keeperArgv(planPath, lock != nil)
+// /dev/null, the three descriptors as fds 3 to 5 and the reserved ports after them
+// (startDetached's shape, JL-D29). On Linux it is exec'd from /proc/self/exe, which still names
+// this binary after `just install` replaced its file (JL-D5); elsewhere from its path, and a
+// keeper of another build refuses the plan.
+func realSpawnKeeper(_ *Options, planPath string, progress, lifeline, lock *os.File,
+	reserved []*os.File) (func() int, error) {
+	argv := keeperArgv(planPath, lock != nil, len(reserved))
 	if exe := keeperSelfExe(); exe != "" {
 		argv[0] = exe
 	} else {
@@ -68,6 +71,7 @@ func realSpawnKeeper(_ *Options, planPath string, progress, lifeline, lock *os.F
 	if lock != nil {
 		cmd.ExtraFiles = append(cmd.ExtraFiles, lock)
 	}
+	cmd.ExtraFiles = append(cmd.ExtraFiles, reserved...)
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -112,10 +116,13 @@ func (o *Options) startKeeper(plan *keeperPlan) (*keeperProcess, error) {
 	if o.launchLock != nil && !o.launchLock.isClosed() {
 		lockFile = o.launchLock.f
 	}
-	// The ports this launch reserved for the jail's daemons go free before the keeper, which
-	// starts the container whose supervisor binds them (servedaddresses.go).
+	// THE JAIL'S RESERVED PORTS GO TO THE KEEPER (NC-D70; servedaddresses.go): it fronts the jail's
+	// host services, each on a port-0 listener, before it starts the container whose daemons bind
+	// them, so it holds them until then. This launch's own copies close once the keeper has its
+	// own, or once it could not be spawned.
+	reserved := o.reservedPortFiles()
+	wait, err := defaultKeeperSpawner(o, planPath, progW, lifeR, lockFile, reserved)
 	o.releaseReservedPorts()
-	wait, err := defaultKeeperSpawner(o, planPath, progW, lifeR, lockFile)
 	_ = progW.Close()
 	_ = lifeR.Close()
 	if err != nil {

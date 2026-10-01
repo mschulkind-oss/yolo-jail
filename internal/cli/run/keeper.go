@@ -17,6 +17,8 @@ package run
 //  3. It starts what the launch disclosed, today's code in today's order: the port forwards, the
 //     loophole services and the launch check, the credential view, then the container's main
 //     process, whose output it relays to the launch until pid 1's boot is done (keeperframe.go).
+//     The ports the launch reserved for the jail's daemons are held until just before that main
+//     process (NC-D70).
 //     It releases the launch lock the launch handed it once the container is seen running.
 //  4. It ends on one of three observations, never on a timer (JL-D17): before ready, the launch's
 //     lifeline closing or a start that failed; its exclusive take of the SESSION LOCK, which is zero
@@ -69,33 +71,45 @@ const (
 )
 
 // keeperArgv is the keeper's command line; "yolo" is replaced by the running binary at the spawn.
-// withLock says the spawn hands it the launch lock as fd 5.
-func keeperArgv(planPath string, withLock bool) []string {
+// withLock says the spawn hands it the launch lock as fd 5, and reserved is how many reserved
+// ports it hands it after that, one `--reserved-fd` each (keeperspawn.go's startKeeper).
+func keeperArgv(planPath string, withLock bool, reserved int) []string {
 	argv := []string{"yolo", "internal", "daemon", KeeperVerb, "--plan", planPath,
 		"--progress-fd", strconv.Itoa(keeperProgressFD), "--lifeline-fd", strconv.Itoa(keeperLifelineFD)}
+	next := keeperLockFD
 	if withLock {
 		argv = append(argv, "--lock-fd", strconv.Itoa(keeperLockFD))
+		next++
+	}
+	for i := 0; i < reserved; i++ {
+		argv = append(argv, "--reserved-fd", strconv.Itoa(next+i))
 	}
 	return argv
 }
 
 // KeeperMain is `yolo internal daemon jail-keeper --plan <file> --progress-fd 3 --lifeline-fd 4
-// [--lock-fd 5]`. Its caller is a fresh container launch (keeperspawn.go), never a person.
+// [--lock-fd 5] [--reserved-fd <n>]...`. Its caller is a fresh container launch (keeperspawn.go),
+// never a person.
 func KeeperMain(args []string, seams KeeperSeams) int {
 	planPath := ""
 	fds := map[string]int{}
+	var reservedFDs []int
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--plan" && i+1 < len(args):
 			planPath = args[i+1]
 			i++
-		case (a == "--progress-fd" || a == "--lifeline-fd" || a == "--lock-fd") && i+1 < len(args):
+		case (a == "--progress-fd" || a == "--lifeline-fd" || a == "--lock-fd" || a == "--reserved-fd") && i+1 < len(args):
 			fd, err := strconv.Atoi(args[i+1])
 			if err != nil || fd < 3 {
 				fmt.Fprintf(os.Stderr, "yolo internal daemon %s: bad %s %q\n", KeeperVerb, a, args[i+1])
 				return 2
 			}
-			fds[a] = fd
+			if a == "--reserved-fd" {
+				reservedFDs = append(reservedFDs, fd)
+			} else {
+				fds[a] = fd
+			}
 			i++
 		default:
 			fmt.Fprintf(os.Stderr, "yolo internal daemon %s: unexpected argument %q\n", KeeperVerb, a)
@@ -105,13 +119,16 @@ func KeeperMain(args []string, seams KeeperSeams) int {
 	// A refused argv adopts nothing: an *os.File made for a descriptor this process may not own
 	// would close it from its finalizer at some later collection.
 	if planPath == "" {
-		fmt.Fprintf(os.Stderr, "usage: yolo internal daemon %s --plan <file> --progress-fd <n> --lifeline-fd <n> [--lock-fd <n>]\n", KeeperVerb)
+		fmt.Fprintf(os.Stderr, "usage: yolo internal daemon %s --plan <file> --progress-fd <n> --lifeline-fd <n> [--lock-fd <n>] [--reserved-fd <n>]...\n", KeeperVerb)
 		return 2
 	}
 	// FIRST: no child the keeper starts may hold what it inherited (JL-D29). A Go child receives
 	// ExtraFiles without close-on-exec, by convention, so socat, the fronted daemons, the runtime
 	// client and the scratch remover would otherwise each keep the pipe and the lock alive.
 	for _, fd := range fds {
+		syscall.CloseOnExec(fd)
+	}
+	for _, fd := range reservedFDs {
 		syscall.CloseOnExec(fd)
 	}
 	file := func(flag, name string) *os.File {
@@ -123,6 +140,10 @@ func KeeperMain(args []string, seams KeeperSeams) int {
 	progress := file("--progress-fd", "keeper-progress")
 	lifeline := file("--lifeline-fd", "keeper-lifeline")
 	lock := file("--lock-fd", "keeper-launch-lock")
+	var reserved []*os.File
+	for _, fd := range reservedFDs {
+		reserved = append(reserved, os.NewFile(uintptr(fd), "keeper-reserved-port"))
+	}
 	// SIGHUP and SIGPIPE are received and dropped, SIGINT and SIGTERM end the jail in order: through
 	// signal.Notify and never signal.Ignore, whose SIG_IGN every child would inherit (JL-D24, JL-D29).
 	signals := make(chan os.Signal, 8)
@@ -135,16 +156,18 @@ func KeeperMain(args []string, seams KeeperSeams) int {
 		}
 		return 2
 	}
-	rc := runKeeper(plan, seams, progress, lifeline, lock, signals, nil)
+	rc := runKeeper(plan, seams, progress, lifeline, lock, reserved, signals, nil)
 	packload.ReleaseEmbedded()
 	return rc
 }
 
-// runKeeper runs one keeper to its end. tune, when non-nil, adjusts the keeper's Options once they
+// runKeeper runs one keeper to its end. reserved is the jail's reserved ports the launch handed
+// over (keeper.releaseReservedPorts). tune, when non-nil, adjusts the keeper's Options once they
 // are built: a unit test's fakes, never a production caller.
-func runKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os.File,
+func runKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os.File, reserved []*os.File,
 	signals <-chan os.Signal, tune func(*Options)) int {
 	k := newKeeper(plan, seams, progress, lifeline, lock, signals)
+	k.reserved = reserved
 	if tune != nil {
 		tune(k.o)
 	}
@@ -159,8 +182,14 @@ type keeper struct {
 
 	progress   *os.File
 	launchLock *os.File
-	lockOnce   sync.Once
-	signals    <-chan os.Signal
+	// reserved is the jail's RESERVED PORTS (internal/launchservice's reserve.go; NC-D70): the
+	// sockets the launch bound to the ports it composed the jail's daemons' clients with, held
+	// here while this keeper fronts the host services, each on a port-0 listener the kernel could
+	// otherwise hand one of those ports, and closed just before the container starts.
+	reserved     []*os.File
+	reservedOnce sync.Once
+	lockOnce     sync.Once
+	signals      <-chan os.Signal
 	// lifelineGone closes when the launch's lifeline reads EOF: the launch is gone.
 	lifelineGone chan struct{}
 
@@ -247,10 +276,23 @@ func (k *keeper) releaseLaunchLock() {
 	k.lockOnce.Do(func() { releaseLock(k.launchLock) })
 }
 
+// releaseReservedPorts closes the jail's reserved ports, so the container's daemons can bind
+// them: once every listener of the keeper's own is bound, immediately before the container's main
+// process, or at any end before that. Once.
+func (k *keeper) releaseReservedPorts() {
+	k.reservedOnce.Do(func() {
+		for _, f := range k.reserved {
+			_ = f.Close()
+		}
+	})
+}
+
 // run is the keeper's life. Its status matters only before ready, when the launch reads it: after
 // ready nothing waits on the keeper's exit but the lock its death frees.
 func (k *keeper) run() int {
 	o, p := k.o, k.plan
+	// Every end before the container's start lets the jail's reserved ports go too.
+	defer k.releaseReservedPorts()
 	k.pid = o.Getpid()
 	o.initPerf(p.Cname)
 	scope, line := o.moveKeeperIntoScope(p.Cname)
@@ -306,6 +348,11 @@ func (k *keeper) run() int {
 	// Each of them is watched from here on: one that ends while the jail is up is recorded, for the
 	// sessions in it and the arrivals after (keeperwatch.go, JL-D19).
 	k.watchServices()
+
+	// THE JAIL'S PORTS GO FREE HERE, and no earlier (NC-D70): every listener of the keeper's own is
+	// bound, so none can be handed a port the jail's daemons were composed at, and the container
+	// those daemons boot in starts next.
+	k.releaseReservedPorts()
 
 	// THE CONTAINER. The launch's argv, with the services' endpoint pairs inserted before the image,
 	// exactly where the fresh path used to insert them.

@@ -598,6 +598,11 @@ sets, and a jail without pi no longer carries it.
   nothing else provides it, and it also stepped aside for the pnpm you declared, so the jail had
   no pnpm at all. mise now installs the version you declared, and a jail that declares none still
   gets yolo's.
+- With `network.mode: "host"`, and in a jail started from inside another jail, a launch is no
+  longer refused once in a while because a service inside the jail found its port taken
+  ("address already in use"). yolo picks those ports before the jail starts, and could then hand
+  the same port to one of the services it starts on your machine for that jail; it now keeps each
+  port to itself until the jail starts.
 - When yolo cannot protect the jail's image from Nix's garbage collector, its warning no longer
   lands in the output of `yolo -- <command>`. It is printed with yolo's other launch messages, on
   standard error, so a script reading the command's output gets only that output.

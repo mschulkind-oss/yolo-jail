@@ -219,7 +219,7 @@ func TestAKeeperWhoseLaunchDiedBeforeReadyLetsTheLaunchLockGoFirst(t *testing.T)
 	}
 	done := make(chan int, 1)
 	go func() {
-		done <- runKeeper(plan, KeeperSeams{}, progW, lifeR, os.NewFile(uintptr(handed), "lock"), make(chan os.Signal), func(ko *Options) {
+		done <- runKeeper(plan, KeeperSeams{}, progW, lifeR, os.NewFile(uintptr(handed), "lock"), nil, make(chan os.Signal), func(ko *Options) {
 			ko.Exec = jail.exec
 			ko.PIDAlive = func(int) bool { return false }
 			ko.LookPath = func(string) (string, bool) { return "", false }

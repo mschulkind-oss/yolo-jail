@@ -26,14 +26,16 @@ package run
 // other's declared ports, but whether the port is free in the VM is unproven there.
 // sharesLauncherNetns classifies that setup as shared, which is the same blind spot (NC-D43).
 //
-// HELD UNTIL ITS SERVER HAS IT (NC-D69). This launch binds listeners of its own after the pick,
-// each host service's front on port 0, and a pick that let its port go could be handed to one of
-// them, so the daemon's own bind failed. So each reservation stays held: a doorway this launch
-// opens itself is handed it (takeReservedPort, launchservice.PlanAt), and every other one is
-// released only immediately before the process that starts the jail's daemons (releaseReservedPorts).
-// From then until the daemon binds, only a process outside this launch can take the port, and that
-// fails closed: the daemon cannot bind, and its clients are refused by whichever daemon holds the
-// port, for the wrong caller token (NC-D43).
+// HELD UNTIL ITS SERVER HAS IT (NC-D69, NC-D70). This launch binds listeners of its own after the
+// pick, each host service's front on port 0, and a pick that let its port go could be handed to
+// one of them, so the daemon's own bind failed. So each reservation stays held: a doorway this
+// launch opens itself is handed it (takeReservedPort, launchservice.PlanAt); the macos-user arm
+// releases the rest immediately before the sandbox starts (releaseReservedPorts); and a container
+// launch hands them to its keeper (reservedPortFiles), which fronts the host services and lets
+// them go immediately before the container starts. From then until the daemon binds, only a
+// process outside this launch can take the port, and that fails closed: the daemon cannot bind,
+// and its clients are refused by whichever daemon holds the port, for the wrong caller token
+// (NC-D43).
 //
 // LIFETIME. Settled once per process, like the caller tokens, so the two compositions one
 // launch runs cannot hand one jail two ports. An ATTACH never picks: the running jail's
@@ -45,6 +47,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -184,10 +187,27 @@ func (o *Options) takeReservedPort(addr string) *launchservice.Reserved {
 	return r
 }
 
+// reservedPortFiles is the socket of every reservation this launch holds, in address order, for
+// the container's keeper to be handed (startKeeper, NC-D70). They stay this launch's to release.
+func (o *Options) reservedPortFiles() []*os.File {
+	addrs := make([]string, 0, len(o.served.held))
+	for a := range o.served.held {
+		addrs = append(addrs, a)
+	}
+	sort.Strings(addrs)
+	files := make([]*os.File, 0, len(addrs))
+	for _, a := range addrs {
+		if f := o.served.held[a].File(); f != nil {
+			files = append(files, f)
+		}
+	}
+	return files
+}
+
 // releaseReservedPorts releases every reservation this launch still holds: its jail daemons'
-// ports, immediately before the process that starts those daemons (the macos-user sandbox, the
-// container's keeper), and whatever a launch that started nothing left, and every launch-owned
-// service and doorway plan the launch never started.
+// ports, immediately before the macos-user sandbox starts and once the container's keeper holds
+// its own copies, and whatever a launch that started nothing left, and every launch-owned service
+// and doorway plan the launch never started.
 func (o *Options) releaseReservedPorts() {
 	launchservice.ReleaseAll(o.served.held)
 	o.served.held = nil

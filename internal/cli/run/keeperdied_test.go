@@ -22,7 +22,7 @@ func TestALaunchWhoseKeeperDiesBeforeItStartsSaysSo(t *testing.T) {
 	ws := t.TempDir()
 	saved := defaultKeeperSpawner
 	t.Cleanup(func() { defaultKeeperSpawner = saved })
-	defaultKeeperSpawner = func(_ *Options, planPath string, _, _, _ *os.File) (func() int, error) {
+	defaultKeeperSpawner = func(_ *Options, planPath string, _, _, _ *os.File, _ []*os.File) (func() int, error) {
 		removeKeeperPlan(planPath)
 		return func() int { return 3 }, nil
 	}

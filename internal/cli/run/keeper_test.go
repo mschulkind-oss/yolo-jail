@@ -38,7 +38,8 @@ import (
 // pipe's end, and the launch hangs (TestTheSealFixtureCrossesUnsealed did, for the package's whole
 // timeout). The dup and the flag are one step under syscall.ForkLock, so no fork between them can
 // take the descriptor either.
-func inProcessKeeper(launch *Options, planPath string, progress, lifeline, lock *os.File) (func() int, error) {
+func inProcessKeeper(launch *Options, planPath string, progress, lifeline, lock *os.File,
+	reserved []*os.File) (func() int, error) {
 	dup := func(f *os.File) (*os.File, error) {
 		if f == nil {
 			return nil, nil
@@ -69,12 +70,29 @@ func inProcessKeeper(launch *Options, planPath string, progress, lifeline, lock 
 		_ = l.Close()
 		return nil, err
 	}
-	plan, err := readKeeperPlan(planPath)
+	// The jail's reserved ports, each its own descriptor, as a spawned keeper's are: the launch
+	// closes its copies once the spawn returns.
+	var held []*os.File
+	for _, f := range reserved {
+		d, derr := dup(f)
+		if derr != nil {
+			err = derr
+			break
+		}
+		held = append(held, d)
+	}
+	var plan *keeperPlan
+	if err == nil {
+		plan, err = readKeeperPlan(planPath)
+	}
 	if err != nil {
 		_ = p.Close()
 		_ = l.Close()
 		if k != nil {
 			_ = k.Close()
+		}
+		for _, f := range held {
+			_ = f.Close()
 		}
 		return nil, err
 	}
@@ -84,7 +102,7 @@ func inProcessKeeper(launch *Options, planPath string, progress, lifeline, lock 
 		if c := launch.CaptureOnTerminate; c != nil {
 			seams.CaptureOnTerminate = func(ws, rt string, _ func(string)) { c(ws, rt) }
 		}
-		rc := runKeeper(plan, seams, p, l, k, make(chan os.Signal), func(ko *Options) { adoptLaunchSeams(ko, launch) })
+		rc := runKeeper(plan, seams, p, l, k, held, make(chan os.Signal), func(ko *Options) { adoptLaunchSeams(ko, launch) })
 		_ = p.Close()
 		done <- rc
 	}()
@@ -222,7 +240,7 @@ func startKeeperFixtureWith(t *testing.T, ready bool, tune func(*keeperPlan), tu
 	}
 	f.progR, f.lifeW = progR, lifeW
 	go func() {
-		rc := runKeeper(f.plan, KeeperSeams{}, progW, lifeR, nil, f.signals, func(o *Options) {
+		rc := runKeeper(f.plan, KeeperSeams{}, progW, lifeR, nil, nil, f.signals, func(o *Options) {
 			o.Exec = f.jail.exec
 			o.PIDAlive = func(int) bool { return false }
 			o.LookPath = func(string) (string, bool) { return "", false }
@@ -475,7 +493,7 @@ func TestTheKeepersPlanIsReadOnceFromAPrivateFile(t *testing.T) {
 	if _, err := readKeeperPlan(path); err == nil {
 		t.Error("a plan was read twice")
 	}
-	if !strings.Contains(strings.Join(keeperArgv(path, true), " "), "--plan "+path) {
+	if !strings.Contains(strings.Join(keeperArgv(path, true, 0), " "), "--plan "+path) {
 		t.Error("the keeper's argv does not name the plan's file")
 	}
 }
@@ -925,6 +943,8 @@ func TestKeeperMainRefusesABadArgv(t *testing.T) {
 	for _, args := range [][]string{
 		{"--progress-fd", "1", "--plan", "/x"},
 		{"--lifeline-fd", "four", "--plan", "/x"},
+		{"--reserved-fd", "2", "--plan", "/x"},
+		{"--reserved-fd", "five", "--plan", "/x"},
 		{"--progress-fd", "3"},
 		{"--whatever"},
 	} {

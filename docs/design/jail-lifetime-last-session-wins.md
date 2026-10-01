@@ -1043,20 +1043,23 @@ per workspace at each, under [OQ-JL5](#OQ-JL5)'s ruling.
   remover it starts at a teardown days later would run the replaced binary. macOS has no such
   file, so there a keeper of another build refuses the launch's plan by its build stamp rather
   than running it ([JL-D20](#JL-D20)).
-- **With four things handed to it:**
+- **With four things handed to it, and a fifth on a shared network namespace:**
   - one **plan**, everything the launch computed for the services and the container, which is
     the value its disclosure was printed from ([JL-D20](#JL-D20)). It names packs by identity,
     never by a path into the launch's own per-process trees ([JL-D35](#JL-D35));
   - a **progress pipe** back to the launch;
   - a **lifeline**, whose EOF before the jail is ready means the launch died during boot;
   - the workspace **launch lock**, which the keeper releases once the container is seen running
-    or before any unwind ([JL-D31](#JL-D31)).
+    or before any unwind ([JL-D31](#JL-D31));
+  - the **reserved ports** of the jail's daemons, one `--reserved-fd` each: the sockets holding
+    the ports the launch composed those daemons' clients with, which the keeper closes just
+    before it starts the container ([NC-D70](../plans/notch-convergence.md#NC-D70)).
 - **Its descriptors are set, not inherited by accident** ([JL-D29](#JL-D29)).
   - Its stdin, stdout and stderr are `/dev/null`, as `startDetached` gives its child.
-  - The progress pipe, the lifeline and the launch lock arrive as `ExtraFiles`, and the keeper
-    marks each close-on-exec first thing. A Go child receives them without that flag, by
-    convention: *"Programs that know they inherit fds >= 3 will need to set them
-    close-on-exec"* (`syscall/exec_linux.go`, SOURCED). Without it every long-lived child the
+  - The progress pipe, the lifeline, the launch lock and the reserved ports arrive as
+    `ExtraFiles`, and the keeper marks each close-on-exec first thing. A Go child receives them
+    without that flag, by convention: *"Programs that know they inherit fds >= 3 will need to
+    set them close-on-exec"* (`syscall/exec_linux.go`, SOURCED). Without it every long-lived child the
     keeper starts would hold them: socat, the fronted daemons, the runtime client, the scratch
     remover. A keeper that died before ready would then leave the pipe open, and a leaked lock
     would keep a jail or a keeper looking alive.

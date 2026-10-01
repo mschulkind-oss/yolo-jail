@@ -48,6 +48,11 @@ func TestMain(m *testing.M) {
 	if len(os.Args) >= 4 && os.Args[1] == "-settings-echo-child" {
 		os.Exit(settingsEchoChildMain(os.Args[2], os.Args[3]))
 	}
+	// `<test-binary> -bind-probe-child <host:port>` binds the address once, as a jail daemon does
+	// at boot, and says whether it could (keeperreservedports_test.go).
+	if len(os.Args) >= 3 && os.Args[1] == "-bind-probe-child" {
+		os.Exit(bindProbeChildMain(os.Args[2]))
+	}
 	// THE PODMAN READINESS GATE REFUSES BY DEFAULT HERE (podmanready.go). Its real attempt
 	// runner starts `podman info` on whatever PATH the test process has, and a test that
 	// reached the gate without a fake would then pass or fail on the machine's podman. A

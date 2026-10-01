@@ -242,7 +242,7 @@ func TestTheFreshLaunchHandsItsLaunchLockToItsKeeper(t *testing.T) {
 	saved := defaultKeeperSpawner
 	t.Cleanup(func() { defaultKeeperSpawner = saved })
 	var handed *os.File
-	defaultKeeperSpawner = func(_ *Options, planPath string, _, _, lock *os.File) (func() int, error) {
+	defaultKeeperSpawner = func(_ *Options, planPath string, _, _, lock *os.File, _ []*os.File) (func() int, error) {
 		removeKeeperPlan(planPath)
 		fd, err := syscall.Dup(int(lock.Fd()))
 		if err != nil {
