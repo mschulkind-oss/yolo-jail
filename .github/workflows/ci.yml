@@ -112,6 +112,20 @@ jobs:
           go install honnef.co/go/tools/cmd/staticcheck@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # The short suite runs the JavaScript yolo ships for agents (the footer
+      # adapters, the pi extensions) under node, and a test that needs node
+      # SKIPS when node is absent, so a from-source `go test -short` on a
+      # machine without it stays green. That skip is safe only while CI has
+      # node. This job installs none (the runner image ships it), so this step
+      # makes an image that stops shipping node a red job rather than a suite
+      # that quietly stops running those tests. check-macos has the same step.
+      - name: Node is on PATH (the short suite's node tests skip without it)
+        run: |
+          node --version || {
+            echo "::error::node is not on PATH, so the short suite would SKIP every test that runs yolo's shipped JavaScript instead of running it" >&2
+            exit 1
+          }
+
       - name: Quality gate (vet + staticcheck + gofmt + short tests)
         run: just check-ci
 
@@ -135,6 +149,14 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+
+      # Why this job asserts node before the suite: check-go's step of the same name.
+      - name: Node is on PATH (the short suite's node tests skip without it)
+        run: |
+          node --version || {
+            echo "::error::node is not on PATH, so the short suite would SKIP every test that runs yolo's shipped JavaScript instead of running it" >&2
+            exit 1
+          }
 
       - name: Unit tests (macOS)
         run: go test -short ./...

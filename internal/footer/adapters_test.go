@@ -459,10 +459,11 @@ type extensionRun struct {
 // when node is not on PATH. A skip, not a failure: node is a runtime of the agents these
 // adapters ship for, not of yolo's own build, and a from-source `go test -short ./...` on a
 // machine without it must not go red over an absent interpreter. What keeps the skip from
-// hiding a regression is that CI's two short-suite jobs (check-go on ubuntu-latest,
-// check-macos on macos-latest, .github/workflows/ci.yml) both run with node on PATH — neither
-// installs it; each runner image ships it, and internal/entrypoint's
-// pi_openai_auth_extension_test.go, which execs node unconditionally, is green on both.
+// hiding a regression is CI: its two short-suite jobs (check-go on ubuntu-latest, check-macos
+// on macos-latest, .github/workflows/ci.yml) each run a "Node is on PATH" step before the
+// suite, which fails the job when `node --version` does. Neither job installs node; each
+// runner image ships it, and that step is what turns an image that stops shipping it into a
+// red job rather than a suite that silently skips this test.
 //
 // Called AFTER a test's static assertions, never at the top, so the manifest and source
 // checks that need no interpreter still run without one.
