@@ -167,3 +167,78 @@ func TestANarrowedBedrockListGovernsTheCarriedAgents(t *testing.T) {
 			adapterLine, b.logs())
 	}
 }
+
+// TestACarriedAgentWhoseAdapterRouteAnotherProviderHoldsIsRefused: the daemon serves one adapter
+// route, the first candidate in agent order (routeFor), and claude sorts before copilot. So beside
+// claude on a provider the adapter fronts at the same address (cerebras), copilot carried on
+// `-p bedrock` would send its requests to cerebras with claude's key, and beside claude on the
+// Codex subscription, whose route listens on another port, to nothing at all. Before the carrier
+// copilot reached nothing there and kept its own login; the launch now refuses, naming both
+// agents and both providers (adapterTakenRefusal). The same holds for copilot under the
+// bridge-forcing profile, and nothing is refused where the route claude takes is copilot's own
+// provider.
+func TestACarriedAgentWhoseAdapterRouteAnotherProviderHoldsIsRefused(t *testing.T) {
+	for _, tc := range []struct {
+		use  map[string]string
+		want []string
+	}{
+		{map[string]string{"claude": "cerebras", "copilot": "bedrock"}, []string{
+			`profile "bedrock" (active for copilot)`,
+			`it has no client of provider "bedrock"'s platform, so wire-bridge carries it`,
+			"the bridge's adapter address for provider bedrock, 127.0.0.1:8214",
+			`this launch gives it to claude on provider cerebras (profile "cerebras")`,
+			"would reach provider cerebras, with the credential that reaches claude, and not provider bedrock",
+			"another profile for copilot (`-p copilot=<name>`)"}},
+		{map[string]string{"claude": "codex", "copilot": "bedrock"}, []string{
+			`this launch gives it to claude on provider openai-codex (profile "codex")`,
+			"which listens at 127.0.0.1:8215, so nothing listens at 127.0.0.1:8214"}},
+		{map[string]string{"claude": "cerebras", "copilot": "bedrock-bridge"}, []string{
+			`profile "bedrock-bridge" (active for copilot) routes copilot through wire-bridge (via: "wire-bridge")`,
+			"would reach provider cerebras"}},
+	} {
+		providers, resolved, use := plainBedrockEnv(t, tc.use)
+		refusals, _ := ViaRouteGate(packload.Embedded(), providers, use, resolved)
+		if len(refusals) != 1 {
+			t.Errorf("%v: refusals %v, want one, for copilot", tc.use, refusals)
+			continue
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(refusals[0].Error(), want) {
+				t.Errorf("%v: the refusal must say %q:\n%v", tc.use, want, refusals[0])
+			}
+		}
+	}
+	for _, use := range []map[string]string{
+		{"claude": "bedrock", "copilot": "bedrock"},
+		{"claude": "bedrock-bridge", "copilot": "bedrock"},
+		{"claude": "cerebras", "copilot": "cerebras"},
+	} {
+		providers, resolved, use := plainBedrockEnv(t, use)
+		if refusals, _ := ViaRouteGate(packload.Embedded(), providers, use, resolved); len(refusals) != 0 {
+			t.Errorf("%v: refused %v, though the adapter route is copilot's own provider's", use, refusals)
+		}
+	}
+}
+
+// TestACarriedAgentTheAdapterCannotServeIsToldToSelectAnotherProfile: copilot carried on a Bedrock
+// provider whose region the bridge composes no host from is served no adapter route, so its
+// requests go nowhere, and the notice says so with a carried agent's remedy, another profile:
+// the profile names no via to remove (unroutedViaNotice's carried branch).
+func TestACarriedAgentTheAdapterCannotServeIsToldToSelectAnotherProfile(t *testing.T) {
+	providers, resolved := shippedBridgeTables(t, `{"bedrock": {"region": "us-central1"}}`)
+	use := map[string]string{"copilot": "bedrock"}
+	refusals, notices := ViaRouteGate(packload.Embedded(), providers, use, resolved)
+	if len(refusals) != 0 || len(notices) != 1 {
+		t.Fatalf("refusals %v notices %v, want one notice for copilot", refusals, notices)
+	}
+	for _, want := range []string{`profile "bedrock" (active for copilot)`,
+		`it has no client of provider "bedrock"'s platform, so wire-bridge carries it`,
+		"Select another profile for copilot (`-p copilot=<name>`)"} {
+		if !strings.Contains(notices[0], want) {
+			t.Errorf("the notice must say %q:\n%s", want, notices[0])
+		}
+	}
+	if strings.Contains(notices[0], `Remove "via"`) {
+		t.Errorf("the notice offers to remove a via the profile does not name:\n%s", notices[0])
+	}
+}

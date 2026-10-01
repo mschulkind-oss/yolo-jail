@@ -62,6 +62,10 @@ import (
 //   - an agent whose via URL is empty (packload.ViaURLFor): no via, or its service is not
 //     in this launch, which the host notch's inert table always gives. An agent that is not
 //     re-pointed cannot be refused at a prefix.
+//
+// One refusal reaches an agent that is not a via agent: adapterTakenRefusal's, for an agent the
+// bridge would serve on the adapter route alone while this launch gives that one route to
+// another agent's provider.
 func ViaRouteGate(packs []*packload.Pack, providers *jsonx.OrderedMap,
 	useProfiles map[string]string, resolved map[string]packload.ResolvedProfile) (refusals []error, notices []string) {
 	plan := viaRoutesFor(providers, useProfiles, resolved)
@@ -78,6 +82,10 @@ func ViaRouteGate(packs []*packload.Pack, providers *jsonx.OrderedMap,
 	for _, agent := range agents {
 		wire, protocol, viaAgent := preferredViaWire(packs, agent)
 		if !viaAgent {
+			if err := adapterTakenRefusal(providers, useProfiles, resolved, agent); err != nil {
+				refusals = append(refusals, err)
+				continue
+			}
 			if n := unroutedViaNotice(packs, providers, useProfiles, resolved, agent, protocol); n != "" {
 				notices = append(notices, n)
 			}
@@ -155,6 +163,49 @@ func ViaRouteGate(packs []*packload.Pack, providers *jsonx.OrderedMap,
 			agent, missing, protocol, missing, viaWayOut(r, profile, agent)))
 	}
 	return refusals, notices
+}
+
+// adapterTakenRefusal is the refusal for agent when its active profile routes it through this
+// service (the profile's own `via`, or its carrier: packload.ResolvedProfile.ViaFor,
+// docs/design/wire-bridge-gateway.md WG-I44), the daemon would serve agent the adapter route were
+// agent the launch's only candidate, and this launch gives that one route to another agent's
+// provider instead. The daemon serves ONE adapter route, the first candidate in agent order
+// (routeFor), and agent's derive points its client at its own provider's adapter address, so its
+// requests would reach the other agent's provider with that agent's credential, or, where that
+// route listens elsewhere, nothing at all. Copilot carried on `-p bedrock` beside claude on
+// cerebras is the shape: both providers' anthropic address is the adapter's. nil for an agent
+// routed through no service, one the daemon would serve no adapter route even alone (the
+// notices say what that means), and one the launch's route serves on its own provider.
+func adapterTakenRefusal(providers *jsonx.OrderedMap, useProfiles map[string]string,
+	resolved map[string]packload.ResolvedProfile, agent string) error {
+	profile := useProfiles[agent]
+	r := resolved[profile]
+	if via, _ := r.ViaFor(agent); via != ServiceName || packload.ViaURLFor(r, agent) == "" {
+		return nil
+	}
+	own, why := routeFor(providers, map[string]string{agent: profile}, resolved)
+	if why != "" {
+		return nil
+	}
+	taken, why := routeFor(providers, useProfiles, resolved)
+	if why != "" || taken.Agent == agent ||
+		(taken.ProviderName == own.ProviderName && taken.ListenAddr == own.ListenAddr) {
+		return nil
+	}
+	fails := fmt.Sprintf("so every request %s sends there would reach provider %s, with the "+
+		"credential that reaches %s, and not provider %s", agent, taken.ProviderName, taken.Agent,
+		own.ProviderName)
+	if taken.ListenAddr != own.ListenAddr {
+		fails = fmt.Sprintf("which listens at %s, so nothing listens at %s and every request %s "+
+			"sends there is refused a connection", taken.ListenAddr, own.ListenAddr, agent)
+	}
+	return fmt.Errorf("profile %q (active for %s) routes %s through %s %s, and %s's config points "+
+		"it at the bridge's adapter address for provider %s, %s, but the bridge serves one adapter "+
+		"route, and this launch gives it to %s on provider %s (profile %q), %s. Select profiles "+
+		"over one provider for %s and %s, or another profile for %s (`-p %s=<name>`)",
+		profile, agent, agent, ServiceName, viaClause(r, agent), agent, own.ProviderName,
+		own.ListenAddr, taken.Agent, taken.ProviderName, useProfiles[taken.Agent], fails,
+		agent, taken.Agent, agent, agent)
 }
 
 // viaClause is how agent's profile comes to route it through this service, for the gate's lines:

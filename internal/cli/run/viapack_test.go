@@ -146,6 +146,34 @@ func TestACarriedAgentWithNoRouteIsRefused(t *testing.T) {
 	}
 }
 
+// TestACarriedAgentWhoseAdapterRouteIsTakenIsRefused pins WG-I45 at the launch
+// (docs/design/wire-bridge-gateway.md): the bridge serves one adapter route, and claude on
+// cerebras takes it, so copilot carried on plain `-p bedrock`, pointed at the same adapter
+// address, would send its requests to cerebras with claude's key. Before the carrier copilot
+// reached nothing there and the launch started; it now refuses, naming both agents and both
+// providers.
+func TestACarriedAgentWhoseAdapterRouteIsTakenIsRefused(t *testing.T) {
+	home := packHome(t)
+	writeUserConfig(t, home, `{"packs": ["claude", "copilot", "cerebras"]}`)
+	cfg, err := jsonx.Decode([]byte(`{"providers": {"bedrock": {"region": "us-east-1"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := &Options{Workspace: t.TempDir(), Stdout: discardBuf(), Stderr: discardBuf(),
+		UseProfiles: map[string]string{"claude": "cerebras", "copilot": "bedrock"}, stagingCfg: cfg.(*jsonx.OrderedMap)}
+	_, _, _, err = o.stagePacks("yolo-test-carried-taken")
+	if err == nil {
+		t.Fatal("copilot carried at an adapter route claude's cerebras holds must refuse the launch")
+	}
+	for _, want := range []string{`profile "bedrock" (active for copilot)`,
+		`this launch gives it to claude on provider cerebras (profile "cerebras")`,
+		"would reach provider cerebras", "another profile for copilot (`-p copilot=<name>`)"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal must name %q:\n%v", want, err)
+		}
+	}
+}
+
 // TestAViaRouteWithoutTheAgentsWireWarns pins WG-I14 at the launch: the provider offers only
 // Responses, pi prefers chat-completions, and which wire pi's client sends is not the
 // launcher's to observe — so the launch warns, naming the missing endpoint, and proceeds.

@@ -237,9 +237,9 @@ the bridge log carries it.
 
 ### 2.2 How the Bedrock upstream is chosen (built 2026-09-30)
 
-**BUILT 2026-09-30**, from [OQ-WG1](#OQ-WG1)'s follow-up and [§8](#8-build-order) step 1. Four
+**BUILT 2026-09-30**, from [OQ-WG1](#OQ-WG1)'s follow-up and [§8](#8-build-order) step 1. Five
 implementation decisions, the fourth carrying the agents with no Bedrock client of their own on
-plain `-p bedrock`:
+plain `-p bedrock` and the fifth refusing a launch where the one adapter route is another agent's:
 
 1. <a id="WG-I37"></a>**[WG-I37](#WG-I37)**: **the signer keys on the provider's `platform`, and
    the host rule decides only for a provider that declares no Bedrock platform.** A provider whose
@@ -340,10 +340,27 @@ plain `-p bedrock`:
    ([BR-D15](bedrock-plumbing.md#BR-D15)). An implementation decision: the behavior is
    [OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s ruling. Lives in `packload.carrierFor`,
    `packload.ResolvedProfile.ViaFor` and `packload.ViaServedAt`.
+5. <a id="WG-I45"></a>**[WG-I45](#WG-I45)**: **the via gate refuses an agent routed through the
+   bridge whose adapter route the launch gives another agent's provider.** The daemon serves one
+   adapter route, the first candidate in agent order (`routeFor`), and claude sorts before copilot.
+   So copilot carried on `-p bedrock` ([WG-I44](#WG-I44)) beside claude on cerebras, whose
+   anthropic address is the same adapter's, was pointed at a listener serving cerebras with
+   claude's key, and beside claude on the Codex subscription, whose route listens on another port,
+   at nothing; neither launch said a word, where before the carrier copilot reached nothing and the
+   profile line warned. The gate now refuses such an agent, routed through the bridge by its
+   profile's own `via` or by the carrier, naming both agents and both providers, with the remedy:
+   profiles over one provider for both, or another profile for the refused agent. **Why a refusal
+   and not a fallback:** the profile asked for Bedrock, and the gate already refuses an agent the
+   bridge will serve no route ([WG-I13](#WG-I13)); a route to another provider is worse than none.
+   **What it does not reach:** two agents neither of which the bridge routes by a via or a carrier,
+   such as claude on cerebras beside copilot on kilo, whose anthropic addresses are also the one
+   adapter's; that class predates the carrier and is not this decision's. An implementation
+   decision. Lives in `wirebridged.adapterTakenRefusal`.
 
 The first three are MEASURED in-process only: the production boot over the shipped packs' composed
 table, each served agent's key channel, and a stubbed upstream that records what was sent; so is the
-fourth, whose boot reads the tables as the launcher writes and the entrypoint decodes them. No
+fourth, whose boot reads the tables as the launcher writes and the entrypoint decodes them. The
+fifth is the gate over those same tables. No
 request has reached AWS, and whether runtime serves Responses at `/openai/v1/responses` is still read
 from codex's binary, not observed.
 
@@ -1448,7 +1465,8 @@ Three earlier non-licenses are reopened here by name:
 | WG-I41 | **A program whose background traffic is not on the list declares `unlisted_background_models`, and the bridge admits every model it sends, logging an off-list one; packs/codex and packs/copilot declare it.** An implementation decision, from [`model-lists-and-pickers.md` §14.3](model-lists-and-pickers.md#143-the-bridges-part-and-get-v1models)'s precondition | 2026-09-30 | [WG-I41](#WG-I41) | 2026-09-30: `packdecl.Contribution.UnlistedBackgroundModels`, `SendsUnlistedModels`; `TestUnlistedBackgroundModelsIsAProgramsFact`, `TestTheShippedAgentsSayWhoseBackgroundModelsAreOffTheList`, `TestAnAgentWhoseBackgroundModelsAreOffTheListIsAdmitted` |
 | WG-I42 | **The daemon reads that declaration from the jail's staged pack tree, only when a list is narrowed, and refuses no model when it cannot read one.** An implementation decision | 2026-09-30 | [WG-I42](#WG-I42) | 2026-09-30: `wirebridged.allowlistsFor` over `entrypoint.LoadJailPacks`; the no-tree half of `TestAnAgentWhoseBackgroundModelsAreOffTheListIsAdmitted` |
 | WG-I43 | **The refusal is a 400 `invalid_request_error` in the route's protocol naming the model, the provider, the list and the switch; a body naming `model` twice is refused.** An implementation decision | 2026-09-30 | [WG-I43](#WG-I43) | 2026-09-30: `modelAllowlist.checks`, `requestModel`; `TestAViaRouteRefusesAModelOffANarrowedList`, `TestTheAdapterRouteRefusesOnlyWhatEverySharerWouldBeRefused`, `TestAModelKeySpelledInAnotherCaseIsTheModel` |
-| WG-I44 | **On a profile naming no via, the service that fronts the provider's platform (its *carrier*, the pack the provider's `for_via` address names) carries every agent of the launch that declares a protocol and has no client of the platform, and `YOLO_PROFILES` says which (`_carrier`, `_carrier_base`, `_carried`).** Every reader asks `ResolvedProfile.ViaFor`, so the derives, the daemon's routes and allowlists, the witness, the region pre-flight, the via gate and the profile line agree; the via gate now runs on a launch with a fronting service, and the profile line's credential warning asks a carried agent too. It pulls no pack into a launch. [OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s *"through the wire bridge where it has none"*, closing what [WG-I39](#WG-I39) left. An implementation decision | 2026-09-30 | [WG-I44](#WG-I44) | 2026-09-30: `packload.carrierFor`, `packload.FrontsAPlatform`, `ResolvedProfile.ViaFor`, `packload.ViaServedAt`, `packload.profileReach`, `entrypoint.Env.LoadProfiles`, `wirebridged.routeFor`, `viaRoutesFor`, `adapterAllowlist`, `run.checkViaRoutes`; `TestPlainBedrockCarriesOnlyTheAgentsWithNoClientOfTheirOwn` and `TestPlainBedrockReachesRuntimeForCopilotAndOmp` (the boot over the tables as they cross), `TestANarrowedBedrockListGovernsTheCarriedAgents`, `TestCopilotReachesBedrockThroughTheBridgeOnEitherProfile`, `TestOmpReachesBedrockThroughTheBridgeOnPlainBedrock`, `TestTheCarrierCarriesOnlyTheAgentsWithNoClientOfThePlatform`, `TestNoCarrierWithoutAServiceThatFrontsThePlatform`, `TestTheProfileDisclosureReadsEachAgentsPlatformBinding`, `TestACarriedAgentIsToldWhenNoCredentialReachesIt`, and at the launch `TestPlainBedrockCarriesTheClientlessAgentsThroughTheBridge` and `TestACarriedAgentWithNoRouteIsRefused` |
+| WG-I44 | **On a profile naming no via, the service that fronts the provider's platform (its *carrier*, the pack the provider's `for_via` address names) carries every agent of the launch that declares a protocol and has no client of the platform, and `YOLO_PROFILES` says which (`_carrier`, `_carrier_base`, `_carried`).** Every reader asks `ResolvedProfile.ViaFor`, so the derives, the daemon's routes and allowlists, the witness, the region pre-flight, the via gate and the profile line agree; the via gate now runs on a launch with a fronting service, and the profile line's credential warning asks a carried agent too. It pulls no pack into a launch. [OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s *"through the wire bridge where it has none"*, closing what [WG-I39](#WG-I39) left. An implementation decision | 2026-09-30 | [WG-I44](#WG-I44) | 2026-09-30: `packload.carrierFor`, `packload.FrontsAPlatform`, `ResolvedProfile.ViaFor`, `packload.ViaServedAt`, `packload.profileReach`, `entrypoint.Env.LoadProfiles`, `wirebridged.routeFor`, `viaRoutesFor`, `adapterAllowlist`, `run.checkViaRoutes`; `TestPlainBedrockCarriesOnlyTheAgentsWithNoClientOfTheirOwn` and `TestPlainBedrockReachesRuntimeForCopilotAndOmp` (the boot over the tables as they cross), `TestANarrowedBedrockListGovernsTheCarriedAgents`, `TestCopilotReachesBedrockThroughTheBridgeOnEitherProfile`, `TestOmpReachesBedrockThroughTheBridgeOnPlainBedrock`, `TestTheCarrierCarriesOnlyTheAgentsWithNoClientOfThePlatform`, `TestNoCarrierWithoutAServiceThatFrontsThePlatform`, `TestTheProfileDisclosureReadsEachAgentsPlatformBinding`, `TestACarriedAgentIsToldWhenNoCredentialReachesIt`, `TestACarriedAgentAnswersAtTheBridgesServedAddress`, `TestACarriedAgentTheAdapterCannotServeIsToldToSelectAnotherProfile`, and at the launch `TestPlainBedrockCarriesTheClientlessAgentsThroughTheBridge` and `TestACarriedAgentWithNoRouteIsRefused` |
+| WG-I45 | **The via gate refuses an agent routed through the bridge, by its profile's `via` or by the carrier, whose adapter route the launch gives another agent's provider**: the daemon serves one adapter route, so copilot carried on `-p bedrock` beside claude on cerebras would reach cerebras with claude's key, and beside claude on the Codex subscription nothing. The refusal names both agents and both providers. Two agents neither routed by a via nor a carrier are not reached. An implementation decision | 2026-09-30 | [WG-I45](#WG-I45) | 2026-09-30: `wirebridged.adapterTakenRefusal`, read by `ViaRouteGate`; `TestACarriedAgentWhoseAdapterRouteAnotherProviderHoldsIsRefused`, and at the launch `TestACarriedAgentWhoseAdapterRouteIsTakenIsRefused` |
 | OQ-WG2 | **All-traffic mode is a property of the profile**, opt-in and off by default; one active profile per agent decides how it reaches the world | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |
 | OQ-WG3 | **One list** (the picker's effective list after an `only`), **and a separate enforcement switch** on the profile, **default on**; off means the list only shapes pickers | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | 2026-09-30, [§6.1](#61-how-the-allowlist-is-built): the bridge refuses a model off a narrowed list while `enforce_models` is on ([WG-I40](#WG-I40)–[WG-I43](#WG-I43)) |
 | OQ-WG4 | **A path prefix per agent on the one listen port**, written by each derive; an unknown prefix is refused; a port per agent only for an agent measured to drop a base URL's path (delegated, decided in review) | 2026-09-25 | [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design) | — |

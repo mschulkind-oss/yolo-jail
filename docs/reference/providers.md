@@ -371,7 +371,10 @@ Bedrock clients. The profile line says so per agent (`copilot → provider "bedr
 then registered with the reachability witness. The carrier joins no pack to a launch: with
 `bedrock` selected and no bridge, as in `"packs": ["copilot", "bedrock"]`, copilot and oh-omp still
 reach nothing and the line warns, where `-p bedrock-bridge` brings the bridge in through its `via`.
-A notch that does not serve the bridge, such as `yolo host`, carries nobody.
+A notch that does not serve the bridge, such as `yolo host`, carries nobody. The bridge serves one
+adapter route, and claude takes it first, so a launch that puts claude on another provider the
+route serves, such as `-p claude=cerebras -p copilot=bedrock`, is refused, naming both agents and
+both providers, rather than sending copilot's requests to cerebras ([WG-I45](../design/wire-bridge-gateway.md#WG-I45)).
 
 ## The credential preflight
 

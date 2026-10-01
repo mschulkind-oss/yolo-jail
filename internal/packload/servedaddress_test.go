@@ -83,6 +83,29 @@ func TestAViaAnswersAtItsServedAddress(t *testing.T) {
 	}
 }
 
+// A CARRIED AGENT ANSWERS AT THE BRIDGE'S SERVED ADDRESS TOO (carrier.go, wire-bridge-gateway.md
+// WG-I44): on a shared network namespace the launcher moves the bridge's ports, and oh-omp, which
+// the bridge carries on `-p bedrock`, must be pointed where the via listener binds, as a via
+// profile's agent is, and copilot at the moved adapter address its provider entry composes.
+func TestACarriedAgentAnswersAtTheBridgesServedAddress(t *testing.T) {
+	packs := embeddedNamed(t, "claude", "copilot", "omp", "bedrock", "aws-auth", "wire-bridge")
+	providers, _, err := ComposeProvidersAt(nil, packs, nil, movedBridge())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := ViaServedAt(resolved, packs, movedBridge())
+	if got := ViaURLFor(out["bedrock"], "oh-omp"); got != "http://127.0.0.1:48216/agent/oh-omp" {
+		t.Errorf("oh-omp carried on -p bedrock: via URL %q, want it under the served address", got)
+	}
+	if got := anthropicBase(t, providers, "bedrock"); got != "http://127.0.0.1:48214" {
+		t.Errorf("bedrock's adapter address for copilot = %q, want the served 127.0.0.1:48214", got)
+	}
+}
+
 // A POINTER NAMING {listen} IS COMPOSED FROM ITS DAEMON'S SERVED ADDRESS, and withheld, named,
 // where that daemon declares none.
 func TestAListenPointerComposesItsDaemonsServedAddress(t *testing.T) {
