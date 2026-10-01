@@ -1,7 +1,7 @@
 ---
 status: current
-verified: 2026-09-09
-verified_commit: d14bdab7
+verified: 2026-10-01
+verified_commit: d4e435a3
 covers:
   - internal/cli/run/assemble.go
   - internal/cli/run/assemble_parts.go
@@ -14,6 +14,13 @@ covers:
   - internal/cli/run/storagehelpers.go
   - internal/cli/run/wsstatebeneath.go
   - internal/cli/run/servicessession.go
+  - internal/cli/run/persistencemap.go
+  - internal/cli/run/keeper.go
+  - internal/cli/run/keeperspawn.go
+  - internal/cli/run/lifecycle.go
+  - internal/cli/run/sessionlock.go
+  - internal/entrypoint/jailmain.go
+  - internal/entrypoint/sharedlink.go
   - internal/storage/
   - internal/paths/homeskeleton.go
   - internal/paths/statefile.go
@@ -28,19 +35,15 @@ covers:
   - internal/entrypoint/packhooks.go
 tags: [home, mounts, overlays, storage, entrypoint, path]
 stage: CURRENT
-next: "Re-verify against the tree with the system-doc skill: only the home root was re-checked when the per-jail skeleton landed, and the stamp is d14bdab7"
+next: "Rule OQ-JH1, whether a user may relocate .yolo or .yolo/home with a symbolic link: options (a) keep the refusal and document a bind mount, (b) accept a link whose target is recorded host-side, (c) a YOLO_ALLOW_* hatch; leaning (a)"
 summary: "How /home/agent is composed: a per-jail read-only skeleton, per-workspace writable overlays punched through it, staged :ro content on top, and files the entrypoint regenerates into the overlays on every boot. Covers the mount stack, the write rules that keep bind mounts alive, PATH, what is shared at which scope, and how the three backends differ."
 ---
 
 # The jail home — how `/home/agent` is composed
 
-**Status:** verified 2026-09-09 against `d14bdab7`. The home root was
-rewritten 2026-09-25 for the per-jail skeleton, the machine store, name reservation and the
-Apple Container seed ([`base-home-legacy-state.md`](../design/base-home-legacy-state.md)),
-against the working tree of that build; the rest was not re-verified then. The rule for host
-code in jail-writable state
-([Host code in jail-writable state](#host-code-in-jail-writable-state)) was added the same day,
-against the working tree of that build.
+**Status:** verified 2026-10-01 against `d4e435a3`, the whole doc. One question is open,
+[`OQ-JH1`](#OQ-JH1), on relocating `.yolo` with a symbolic link. The Apple Container seed fix is
+UNMEASURED on hardware, as [the claude.json seed](#the-claudejson-seed) says.
 
 `/home/agent` is not a directory that exists anywhere as a whole. It is composed at
 container create out of four ingredients: a **read-only home skeleton of this jail's own**
@@ -68,6 +71,7 @@ workspace, or one per boot?**
 | PATH | `internal/entrypoint` (`BootPath`, `Env.BlockDir`, `Env.LaunchDir`), `internal/macosuser` (`SandboxPath`) |
 | Shared-credential, shared-directory and per-jail-history hooks | `internal/entrypoint` (`Env.linkSharedCredential`, `Env.linkSharedDirectory`, `Env.linkIntoSharedDir`, `Env.linkThroughShared`, `Env.isolateHistoryFile`) |
 | The claude.json seed sync | `internal/storage` (`SyncClaudeJSONSeed`) |
+| The jail's keeper, the hold main process and the session count | `internal/cli/run` (`KeeperMain`, `startKeeper`, `reapOrphanedJails`, `sessionlock.go`), `internal/entrypoint` (`jailmain.go`) |
 
 **Reads with:** [`storage-and-config.md`](storage-and-config.md) (which host directory has
 which lifetime, and the config scopes), [`pack-system.md`](pack-system.md) (a pack's
@@ -338,21 +342,20 @@ orientation, not an inventory.
   `/run/yolo-services`. It holds each host service's
   [endpoint file](loophole-transport.md#the-endpoint-file-is-a-credential), the cgroup
   delegate's socket, and the socket of a config loophole that declares no transport. The
-  spawn (`startLoopholesMatching`) creates it,
-  `0700`, and nothing earlier in the launch does, so a launch refused before its host
-  services start leaves no directory behind. The launch's teardown (`stopLoopholes`)
-  removes it only once the runtime answers that no container of that name exists, running
-  or not. It stays in place while a relaunch holds the workspace lock, while a container of
+  spawn (`startLoopholesMatching`), which runs in the jail's
+  [keeper](#lifecycle), creates it, `0700`, and nothing earlier in the launch does, so a
+  launch refused before its host services start leaves no directory behind. The keeper's
+  teardown (`stopLoopholes`) removes it only once the runtime answers that no container of
+  that name exists, running or not. It stays in place while a relaunch holds the workspace lock, while a container of
   that name still exists, and when the runtime cannot be asked, and the next launch of the
   workspace reuses it. "Exists" rather than "runs" because a relaunch releases the
   workspace lock when its bounded wait for a running container gives up, so its container
   can still be only created while its endpoint files are already here. No host-wide
   daemon writes here, because a singleton's socket is keyed by the loophole name
-  (`paths.HostSingletonSocket`). A launch that dies without its teardown (`SIGKILL`, OOM,
-  or Ctrl-C at the reclaim prompt, which follows the spawn and precedes the launch's
-  signal handler) leaves the directory behind. If its jail outlived it, the next launch on
-  the machine reaps that jail (`reapOrphanedJails`) and removes the directory through the
-  same checks.
+  (`paths.HostSingletonSocket`). A keeper that dies without its teardown (`SIGKILL`, OOM)
+  leaves the directory behind. If its jail outlived it, the next launch on the machine reaps
+  that jail once no session is left in it (`reapOrphanedJails`) and removes the directory
+  through the same checks.
   ⚠ If the jail is gone too, nothing sweeps the directory until that workspace's next
   launch ends, or the host reboots.
 - **On macos-user, one host-services directory per session** (`HSD-4`). A session is one
@@ -514,11 +517,11 @@ The pre-rename generated-script dirs are emptied for the same reason.
 
 | Scope | What lives there |
 | :--- | :--- |
-| **Per machine, all workspaces** | the machine store `<global storage>/home` (the machine-scope shared dirs, rw, and the Claude login seed); the mise store at `/mise`; the cache at `~/.cache`; the image-load cache; the layout-version marker; the user config |
+| **Per machine, all workspaces** | the machine store `<global storage>/home` (the machine-scope shared dirs, rw, and the Claude login seed); the mise store at `/mise`; the cache at `~/.cache`; the image build dir (load sentinel, GC roots); the layout-version marker; the user config |
 | **Per workspace** | everything under `<workspace>/.yolo/home` — the rw overlays, the single-file bind sources, each pack's workspace-scope state dir, the writable-home backing dirs, the venv shadows |
-| **Per jail (container name)** | the podman home skeletons; container tracking files, the briefing and skills staging tree, the socat log, the broker relay log |
+| **Per jail (container name)** | the podman home skeletons and each launch's pack tree; container tracking files, the briefing and skills staging tree, the socat log; the keeper's log, liveness lock, start record and session lock |
 | **Per host workspace, inside one home** | the agent history file, keyed on a hash of the host workspace path |
-| **Per boot** | `/tmp`, `/run`, `/dev/shm`, anonymous volumes, PID files |
+| **Per container** (the jail's start to its stop) | `/tmp`, `/run`, `/dev/shm`, the per-launch scratch volumes, PID files, the session records |
 | **Host-only, never mounted** | the host's own mise data, and host credentials generally |
 
 **One vendor key in the shared cache is shared across workspaces, and is left that way.** Claude
@@ -616,6 +619,14 @@ directory the pack did not also declare as a shared dir. The link decision itsel
 
 The rule is **schema-blind: the shared file always wins.** A pre-existing local file is
 copied out only if the shared one is *empty*, and otherwise discarded.
+
+For Claude, two launches change what the link carries. Since
+[CL-D22](../design/claude-login-without-interception.md#CL-D22) every jail launch points
+Claude's credential store at the shared directory itself, so Claude opens the real file there and
+reads nothing through the link. A launch that opts into the credential view
+(`YOLO_CLAUDE_CREDENTIAL_VIEW=1`) skips Claude's hook altogether: the broker writes a regular
+file at that path, and a link would put the machine's refresh token back in front of Claude
+([`agent-credentials.md`](agent-credentials.md#the-claude-oauth-broker)).
 
 > [!WARNING]
 > **Do not reintroduce a credential merge.** The old one picked a winner by comparing an
@@ -919,14 +930,32 @@ podman opens by descriptor, which it does not offer.
 **Fresh launch.** `EnsureGlobalStorage` runs first, before config load. Then: config-change
 approval, the per-workspace launch `flock`, removal of a stale stopped container, image
 autoload, `prepareWsState`, `prepareHostFiles`, the selected packs' shared-dir sources and a
-new home skeleton (podman), argv assembly, and the container run. The in-container command
-is wrapped with provisioning — `mise install` (install only; resolution happens there, not
-on an upgrade), the bootstrap script, the venv precreate script, an optional store prune
-gated on an env var and on no other jail being live — and then the target command.
+new home skeleton (podman), and argv assembly. The launch then spawns the jail's **keeper**
+(the term is [`jail-lifetime-last-session-wins.md`](../design/jail-lifetime-last-session-wins.md)'s):
+one background host process per running container jail, `yolo internal daemon jail-keeper`,
+handed a `0600` plan file, the launch lock, a progress pipe and a lifeline. The keeper starts
+what the launch disclosed, in order: the port forwards, the host services and their launch
+check, the credential view, and then the container.
+
+**The container's main process is a hold, and every session is an exec.** Pid 1 boots and then
+only keeps the container running, until a SIGTERM. Every session, the first included, enters
+with `<runtime> exec`. The first runs the provisioning stage on its own terminal, under an
+in-jail `flock`, and records one outcome. The stage is an optional store prune, gated on an env
+var the launcher sets only when no other jail is live; `mise install` (install only; resolution
+happens there, not on an upgrade); the venv precreate script; and the bootstrap script last,
+since it alone may refuse the launch, over a Node floor a selected pack declares
+(`internal/provision`). Every later session waits for that outcome before its own boot pass,
+and a refusal refuses it too.
+
+**The keeper ends the jail.** Each session's launcher holds the jail's host-side session lock
+shared; when the keeper can take it exclusively, the last session is gone, and the keeper stops
+the container and runs the teardown. It ends the same way when the container ends some other
+way or on a SIGTERM, and never on a timer. It restarts nothing and nothing restarts it: an
+arrival at a jail whose keeper died is refused and names `yolo stop`.
 
 **Reuse and attach.** An `exec` into the running container: no `prepareWsState`, no new
-skeleton, no provisioning wrapper, no mount changes. The entrypoint still re-runs its whole generator
-sequence inside the exec, which is safe because every generator is convergent. The
+skeleton, no provisioning of its own, no mount changes. The entrypoint still re-runs its whole
+generator sequence inside the exec, which is safe because every generator is convergent. The
 jail-daemon supervisor is guarded by a tmpfs PID-file liveness probe, and port forwarding
 skips already-bound ports.
 
@@ -984,8 +1013,10 @@ separately.
   workspace demands a fresh login. The tell that separates the two tiers is which *side* of
   the mount the argv reads from — the workspace state dir means the bind already covers it,
   the machine store means it does not.
-- **Single-file binds are unsupported**, so those cases are *materialized* into the
-  workspace state dir instead. Anything added as a single-file mount needs an AC arm.
+- **Single-file binds are copied rather than bound**, *materialized* into the workspace state
+  dir. That is a choice: `container` 1.1.0 binds a single regular file and honors `:ro`
+  (measured 2026-09-14), and the copy is kept because it needs no version gate (`acMaterialize`
+  states the trade). Anything added as a single-file mount needs an AC arm.
 - **`cache_relocations` are skipped** with one warning for the whole set — not because the
   backend cannot nest a bind, but because relocation is unverified on real hardware, and a
   relocation that silently did not take leaves the jail writing the very bytes the user
@@ -997,8 +1028,11 @@ separately.
   about the nested directory.
 
 **macos-user** has no mounts at all. Its home is a staging directory the launch **copies**
-into, its sandbox profile allows writes to the whole sandbox home, and it therefore carries
-only the source-less half of `host_files`. It reaches the same two tiers by a different
+into, and its sandbox profile allows writes to the whole sandbox home except the staged skills
+and briefings, which it write-protects as the container backends' `:ro` binds do. Host files
+cross by copy too: a source-bearing `host_files` file and each pack's `reads-host` grant are
+copied into a root-owned `/ctx` tree the launch stages (`YOLO_CTX_ROOT`), and a directory
+`source` is skipped with a warning. It reaches the same two tiers by a different
 primitive: every directory the podman argv binds from `<workspace>/.yolo/home` is a SYMLINK
 from the sandbox account home into that same sidecar, and each pack-declared `scope: machine`
 directory stays in the account home and is mirrored back into the sidecar so the relative
@@ -1031,9 +1065,8 @@ credential link above still resolves. See
 
 ## Current values
 
-Verified at `d14bdab7`; the home-root rows were updated 2026-09-25 with the skeleton. The
-prose above explains what each of these is for; this table is the only place the values
-themselves are stated.
+Verified at `d4e435a3`. The prose above explains what each of these is for; this table is the
+only place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
