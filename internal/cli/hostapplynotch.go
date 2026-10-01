@@ -1,8 +1,9 @@
 package cli
 
 // hostapplynotch.go says docs/reference/report-tiers.md's TIER-1 facts ONCE per run: which
-// contribution kinds DO NOT APPLY at the host notch, and which autonomy posture this notch
-// renders.
+// contribution kinds and which of your config keys DO NOT APPLY at the host notch, and which
+// autonomy posture this notch renders. Both halves are render.FieldSet's census answers (the
+// keys since docs/design/declaration-parity.md OQ-DP5's second half: InertKeys).
 //
 // A tier-1 fact is true of the NOTCH rather than of the home, so it is the same sentence on
 // every machine — and the report printed it per CONTRIBUTION. Measured in this jail on
@@ -42,6 +43,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
@@ -83,10 +85,83 @@ type notchFacts struct {
 	// view folds that fact into the tier-1 line rather than printing describe's own line for it
 	// (reportHostPackages); 0 otherwise.
 	InertPackages int
-	// InertConfig names the config keys this notch leaves inert (OQ-NC8): `host_files` entries
-	// with a source, by destination, and `mise_tools` (hostUserFiles.inertNames). Both render in
-	// every jail, so at the host they are named, never silently skipped.
+	// InertConfig names the `host_files` entries this notch leaves inert (OQ-NC8): the ones with
+	// a source, by destination (hostUserFiles.inertNames). The key itself is honored here, so
+	// the config-key census cannot name them; this is the per-entry half.
 	InertConfig []string
+	// InertKeys names every top-level key the user-scope config declares that the config-key
+	// census (render's configkeys.go, OQ-DP5's second half) says this notch leaves undone —
+	// not applicable here, or not built here yet — sorted. It is the census's answer, never a
+	// list kept here: a key added to the schema is classified there or the build fails, and
+	// once classified it is named here with no new call (inertConfigKeys).
+	InertKeys []string
+}
+
+// inertConfigKeys is the config-key half of the survey: each top-level key cfg DECLARES whose
+// census disposition at fields' target is left undone (render.KeyDisposition.LeftUndone),
+// sorted. cfg is the user scope, the only config a host apply reads (NC-D30).
+//
+// A key present with a value that declares nothing — null, false, an empty string, list or
+// object — is not named: the notch failing to do nothing is no gap, and `"kvm": false` or
+// `"mounts": []` would otherwise read as something the host left undone.
+func inertConfigKeys(cfg *jsonx.OrderedMap, fields render.FieldSet) []string {
+	if cfg == nil {
+		return nil
+	}
+	var out []string
+	for _, k := range cfg.Keys() {
+		v, _ := cfg.Get(k)
+		if !declaresSomething(v) {
+			continue
+		}
+		if d, _ := fields.ConfigKey(k); d.LeftUndone() {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// declaresSomething reports whether a config value asks for anything (inertConfigKeys).
+func declaresSomething(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return x
+	case string:
+		return x != ""
+	case []any:
+		return len(x) > 0
+	case *jsonx.OrderedMap:
+		return x != nil && x.Len() > 0
+	}
+	return true
+}
+
+// notchConfigNames is every config name the notch line states, in the order it states them:
+// inert `packages:` from the effective config's own reporter, the census's keys, then the
+// source-bearing `host_files` entries. A name two of them give (`packages`, which the census
+// classifies and reportHostPackages counts) is stated once.
+func (f notchFacts) notchConfigNames() []string {
+	seen := map[string]bool{}
+	var names []string
+	add := func(n string) {
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	if f.InertPackages > 0 {
+		add("packages")
+	}
+	for _, k := range f.InertKeys {
+		add(k)
+	}
+	for _, n := range f.InertConfig {
+		add(n)
+	}
+	return names
 }
 
 // surveyNotchFacts walks every contribution the resolved pack set declares and collects the
@@ -162,11 +237,7 @@ func notchInapplicable(fields render.FieldSet, k packdecl.Kind) bool {
 func printNotchFacts(pr richtext.Printer, f notchFacts) {
 	if !reportVerbose() {
 		var parts []string
-		var names []string
-		if f.InertPackages > 0 {
-			names = append(names, "packages")
-		}
-		names = append(names, f.InertConfig...)
+		names := f.notchConfigNames()
 		for _, k := range f.Inapplicable {
 			names = append(names, string(k))
 		}
@@ -190,10 +261,16 @@ func printNotchFacts(pr richtext.Printer, f notchFacts) {
 			len(names), plural(len(names), "kind", "kinds"),
 			plural(len(names), "does not apply", "do not apply"), strings.Join(names, ", "))
 	}
-	if len(f.InertConfig) > 0 {
-		pr.Printf("  [dim]config that does not apply at the host notch: %s (each renders in a "+
-			"jail; a source-bearing entry mirrors a host file that is already yours here)[/dim]",
-			strings.Join(f.InertConfig, ", "))
+	// In --verbose `packages` can be named here AND on its own reporter's line, which prints in
+	// full at this verbosity (reportHostPackages): this line states the notch fact, that one the
+	// detail (how many entries, and a resolved profile's path when there is one).
+	if names := f.notchConfigNames(); len(names) > 0 {
+		why := "each takes effect in a jail"
+		if len(f.InertConfig) > 0 {
+			why += "; a source-bearing entry mirrors a host file that is already yours here"
+		}
+		pr.Printf("  [dim]config that does not apply at the host notch: %s (%s)[/dim]",
+			strings.Join(names, ", "), why)
 	}
 	if f.Autonomy {
 		where := "folded into the config surfaces below"

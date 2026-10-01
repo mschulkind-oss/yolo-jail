@@ -195,7 +195,8 @@ What to look for:
   Afterwards, add a skill to `~/.config/yolo-jail/local/skills/`, not to an agent's own folder,
   or the next apply will offer to move it again.
 - **What does not apply at the host.** Some kinds, such as `state`, `mount` and `loophole`, only
-  mean something in a jail. The report names them in one line.
+  mean something in a jail, and so do settings in your user config such as `mounts`, `network`,
+  `resources` and `packages`. The report names them all in one line.
 
 `--verbose` lists every file it checked. The dry run names the keys it would overwrite but does not
 print the full content, so before your first `--assert` read what your packs manage:

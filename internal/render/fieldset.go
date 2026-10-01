@@ -34,11 +34,16 @@ func NotchUnbuilt(verb string) string {
 //
 // The census (host-render-target.md §2.1, restated for the twelve contributes[] kinds):
 // only the composed-config kinds are target-independent; the provisioning kinds mean
-// nothing without a container.
+// nothing without a container. Since OQ-DP5's second half it also classifies every
+// top-level CONFIG KEY (configkeys.go, ConfigKey), because a key is a declaration too and
+// the kinds-only census could not see one.
 type FieldSet struct {
 	// applies is the set of kinds this target honors. A kind absent from the map is
 	// refused by name (Refuse below).
 	applies map[packdecl.Kind]bool
+	// keys is the config-key half of the census (configkeys.go): every top-level config key
+	// with what this target does with it and why. Nil states no key census (ConfigKey).
+	keys map[string]keyCensusEntry
 }
 
 // Honors reports whether the target renders this kind. A kind the FieldSet does not
@@ -284,7 +289,9 @@ func HostFields() FieldSet {
 		// NOT carry over though — see internal/entrypoint/hostfilestree.go.
 		packdecl.KindFiles: true,
 	}
-	return FieldSet{applies: honored}
+	// The config-key census rides the same FieldSet (configkeys.go, OQ-DP5's second half), so
+	// the one value the apply's survey reads answers for kinds and keys alike.
+	return FieldSet{applies: honored, keys: hostConfigKeys}
 }
 
 // Fields returns the FieldSet for this target's kind.

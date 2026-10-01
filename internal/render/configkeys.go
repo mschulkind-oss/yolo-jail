@@ -1,0 +1,173 @@
+package render
+
+// configkeys.go extends the census from contribution kinds to CONFIG KEYS
+// (docs/design/declaration-parity.md, OQ-DP5's second half, ruled 2026-09-13; DP-B31).
+//
+// THE GAP IT CLOSES. FieldSet was the machinery built to guarantee that nothing a pack declares
+// is silently absent at a target, and it was keyed on packdecl.Kind alone. A top-level config
+// key is not a kind, so the census could not see `packages`, `mounts`, `network` or `resources`
+// at all: `yolo host apply` was taught to name `packages` and `mise_tools` by two hand-written
+// calls, and every other key a host does nothing with went unsaid. A hand-written call closes
+// one instance; the next key added to the schema got no better treatment.
+//
+// THE SHAPE IS internal/config/inherit.go's, as the ruling asked: one entry per top-level key,
+// each with a disposition AND a reason, exhaustive over the schema by test
+// (TestHostConfigKeyCensusIsTotal), so a key added to the config fails the build until it is
+// classified here. The reason is written for the reader who re-decides the key when its
+// consumers change; like the kinds' reasons (render.refusalReasons, render.hostUnimplemented),
+// NO TERMINAL VIEW PRINTS IT. The report names the key and stops.
+//
+// THE UNIT IS THE NOTCH, NOT ONE COMMAND. A key is KeyHonored at the host when ANY host-notch
+// verb acts on it — `yolo host apply`, `yolo host -- <cmd>`, `yolo host env`, the host floor,
+// or a host-side command such as `yolo check` or `yolo prune` reading a setting of this
+// machine's. That differs on purpose from the kinds' honored-but-unbuilt map, which is a
+// limit of the APPLY command (`env` is there because apply never starts a process, though
+// `yolo host --` delivers it): a config key the report names is one no host verb honors, so
+// "does not apply at the host" is true of every key it prints. `env_sources` and `adapters`,
+// which only `yolo host --` reads, are therefore honored here and never named by the apply.
+
+// KeyDisposition is what a target does with one top-level config key.
+type KeyDisposition int
+
+const (
+	// KeyUnclassified is the zero value: the census states nothing for the key at this target
+	// (a jail's FieldSet, or a key the schema does not have).
+	KeyUnclassified KeyDisposition = iota
+	// KeyHonored: some verb at this target acts on the key. The reason names the reader.
+	KeyHonored
+	// KeyNotApplicable: the key has no meaning at this target, and the reason is terminal —
+	// OQ-DP5's shape (a), a decline yolo decides, said in one line.
+	KeyNotApplicable
+	// KeyUnbuilt: the key applies at this target and nothing honors it yet — OQ-DP5's shape
+	// (c), held as data. Like render.hostUnimplemented, an entry leaves this disposition the
+	// day its reader is built, and none left is the end state.
+	KeyUnbuilt
+)
+
+// LeftUndone reports whether a declaration of the key does nothing at the target, which is
+// the question the report asks: both a key with no meaning here and one not built yet.
+func (d KeyDisposition) LeftUndone() bool {
+	return d == KeyNotApplicable || d == KeyUnbuilt
+}
+
+// keyCensusEntry is one key's classification at one target.
+type keyCensusEntry struct {
+	at KeyDisposition
+	// reason explains the classification in one sentence, in terms of the reader (honored) or
+	// of why there is none. Required for every entry, honored ones included, for inherit.go's
+	// reason: a classification with no stated reason is indistinguishable from a guess.
+	reason string
+}
+
+// ConfigKey returns what this FieldSet's target does with a top-level config key, and the
+// census reason. KeyUnclassified, "" when the target states no key census (JailFields: a jail
+// launch is the maximal target, and its readers are the launch pipeline itself) or the key is
+// not one the schema has.
+//
+// Target.Fields() hands the host's FieldSet to `guest`, `preview` and an unset target too, so
+// those get the host's key answers, exactly as they get its kind answers (DP-B28's caveat,
+// which applies here unchanged).
+func (f FieldSet) ConfigKey(key string) (KeyDisposition, string) {
+	e, ok := f.keys[key]
+	if !ok {
+		return KeyUnclassified, ""
+	}
+	return e.at, e.reason
+}
+
+// hostConfigKeys classifies every LIVE top-level config key at the host notch. THIS IS THE
+// CENSUS for config keys; HostFields carries it. Retired spellings are not here: validation
+// refuses them before any target is reached, so a disposition for one would be data nothing
+// reads.
+//
+// Every honored entry names its reader, and each was checked against the tree when written
+// (2026-10-01); re-check one before relying on it, because a reader that moves is exactly what
+// turns an entry false without touching this file.
+var hostConfigKeys = map[string]keyCensusEntry{
+	// ---- Honored: some host-notch verb acts on the key ---------------------------------
+	"packs": {KeyHonored, "the selection `yolo host apply` renders and `yolo host --` launches from"},
+	"profile": {KeyHonored, "the selection the host composes for each agent, applied edge-triggered " +
+		"by `yolo host apply` and resolved by `yolo host --`"},
+	"profiles":  {KeyHonored, "user-declared profiles the host resolves the selection over"},
+	"providers": {KeyHonored, "the provider table the host's derives and `yolo host --` compose"},
+	"adapters": {KeyHonored, "the address an adapted provider is reached at, read by `yolo host --`'s " +
+		"provider composition (LoadAdapterAddresses)"},
+	"env_sources": {KeyHonored, "the dotenv files and values `yolo host --` and `yolo host env` " +
+		"deliver through the credential gate"},
+	"loopholes": {KeyHonored, "`yolo host --` opens an enabled loophole's doorway for the agent whose " +
+		"selection asks for one (PlanHostDoorways), and a loophole's settings feed the region fill; " +
+		"the jail daemons themselves have no client off-container"},
+	"mcp_servers": {KeyHonored, "composed into every agent's MCP files by `yolo host apply` " +
+		"(composeHostInputs), less an entry naming a path only a jail has, which it names"},
+	"lsp_servers": {KeyHonored, "composed into every agent's LSP files by `yolo host apply` " +
+		"(composeHostInputs), less an entry naming a path only a jail has, which it names"},
+	"host_files": {KeyHonored, "a source-less entry is written into your real home by `yolo host " +
+		"apply`; one with a source mirrors a host file into a jail and is named by destination"},
+	"host_management": {KeyHonored, "the ownership contract `yolo host apply` renders your real " +
+		"home under (hostOwnership)"},
+	"host_apply_on_launch": {KeyHonored, "gates the apply a wrapped `yolo host -- <agent>` runs " +
+		"before it execs (hostapplygate.go)"},
+	"host_wrappers": {KeyHonored, "the launch wrappers `yolo host apply` writes for the host's PATH"},
+	"host_floor": {KeyHonored, "which selected packs' programs the host floor installs " +
+		"(HostFloorWire)"},
+	"host_path":     {KeyHonored, "folders `yolo host`'s tool lookup searches after its own PATH"},
+	"agent_updates": {KeyHonored, "the host floor's update policy, as it is a jail launcher's"},
+	"agents_md_extra": {KeyHonored, "prose `yolo host apply` appends to the briefing it writes " +
+		"(applyhostbriefings.go)"},
+	"briefing_provenance": {KeyHonored, "shapes the text of the briefing `yolo host apply` writes"},
+	"confinement": {KeyHonored, "`yolo apply` reads it to pick its notch, so `confinement: host` is " +
+		"what makes a bare `yolo apply` render at the host"},
+	"runtime": {KeyHonored, "the backend the host floor's `yolo capture` boots its jail on " +
+		"(captureRuntime), and what `yolo host apply` reads to say whether a darwin package " +
+		"profile can be materialized"},
+	"include_if_found": {KeyHonored, "resolved by the loader into the user scope every host verb reads"},
+	"update_check":     {KeyHonored, "gates this machine's own update check (UpdateCheckEnabled)"},
+	"promotion_target": {KeyHonored, "where `yolo config promote`, a host-side command, writes " +
+		"captured settings"},
+	"prune": {KeyHonored, "the free-disk threshold `yolo check`'s disk section warns at, on this " +
+		"machine"},
+
+	// ---- Not applicable: the key means nothing off-container -------------------------
+	"mounts": {KeyNotApplicable, "a mount needs a mount namespace, which is unavailable without a " +
+		"container; at the host the folder is already where you are"},
+	"workspace_readonly": {KeyNotApplicable, "locks workspace paths read-only inside a jail; at the " +
+		"host the workspace is your own directory"},
+	"per_side_paths": {KeyNotApplicable, "shadow-mounts a jail's own copy over workspace paths, so " +
+		"host and jail keep separate ones; at the host there is only the one side"},
+	"writable_home_dirs": {KeyNotApplicable, "names jail-writable home subtrees; off-container the " +
+		"home simply is writable"},
+	"ephemeral_storage": {KeyNotApplicable, "the backing for a container's /tmp, /var/tmp and " +
+		"/var/lib/containers; the host's are your own"},
+	"cache_relocations": {KeyNotApplicable, "moves a jail's cache segments onto host paths; " +
+		"off-container the caches are already yours (host-side, `yolo stores` and `yolo prune` " +
+		"read it only to account for the relocated segments)"},
+	"network": {KeyNotApplicable, "a container's network mode, published ports and forwarded host " +
+		"ports; a host process is already on your network"},
+	"resources": {KeyNotApplicable, "the memory, CPU and disk I/O limits a jail is run under; " +
+		"yolo bounds no process it does not contain"},
+	"devices": {KeyNotApplicable, "passes host devices into a container; at the host they are " +
+		"already yours"},
+	"gpu": {KeyNotApplicable, "passes the host GPU into a container; at the host it is already yours"},
+	"kvm": {KeyNotApplicable, "passes /dev/kvm into a container; at the host it is already yours"},
+	"macos_log": {KeyNotApplicable, "dials what the macos-user sandbox's yolo-log helper may read; " +
+		"the host notch runs no sandbox and installs no helper"},
+	"security": {KeyNotApplicable, "its blocked tools are shims at the head of a JAIL's PATH; " +
+		"off-container yolo owns no PATH entry to put one in"},
+	"mise_tools": {KeyNotApplicable, "a jail composes mise's config from it, and nothing at the " +
+		"host manages your own mise"},
+	"mcp_presets": {KeyNotApplicable, "a preset's command is a wrapper only a jail's boot writes " +
+		"(HC-D6), so `yolo host apply` writes none and names each one it leaves out"},
+	"perf_logging": {KeyNotApplicable, "times a jail launch's phases; `yolo host --` records no " +
+		"spans and refuses --timing as a jail-launch flag with no meaning there"},
+	"programs": {KeyNotApplicable, "`programs.autoprune` lets a jail's boot delete the orphaned " +
+		"agent binaries in its home; the host floor removes a deselected program on `yolo host " +
+		"apply --assert` whatever this key says (HP-D8)"},
+
+	// ---- Unbuilt: the key applies at the host and nothing honors it yet ---------------
+	"packages": {KeyUnbuilt, "delivered by a baked image or the boot-written store farm, neither of " +
+		"which the host notch has; materializing a darwin profile here (darwinpkg.MaterializeAt) " +
+		"has no caller at this notch yet (DP-L16)"},
+	"required_capabilities": {KeyUnbuilt, "OQ-CAP2 refuses a launch whose required capability " +
+		"nothing satisfies, and the gate runs in a jail launch's config path " +
+		"(refuseUnmetCapabilities); `yolo host --` launches without asking it"},
+}

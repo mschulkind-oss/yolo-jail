@@ -402,6 +402,10 @@ refused and pointed at `yolo stop`, and the last terminal to quit cleans the jai
 podman and Apple Container; a macos-user sandbox never shared a jail between terminals.
 See [troubleshooting](userguide/guides/troubleshooting.md#installing-and-launching).
 
+- `yolo host apply` now names every setting in your user config that has no effect at the host,
+  such as `mounts`, `network`, `resources`, `gpu` or `cache_relocations`, on the line that
+  already lists the pack contents that do not apply there. It used to name only `packages` and
+  say nothing about the others.
 - Re-entering a jail with `YOLO_ALLOW_ATTACH_SKEW=1` now also tells the agent, in its briefing,
   which yolo the jail was started with and which settings of the profile you selected did not
   reach it, so the agent can explain a missing login instead of guessing. On Apple Container the

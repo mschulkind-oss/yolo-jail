@@ -317,8 +317,12 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// host_files and mise_tools HERE TOO, for `packages:`' reason: they are config keys, not
 		// pack kinds, and a jail with no pack still renders them (OQ-NC8). The inert ones are
 		// named by the same notch printer the main branch uses; the rest render below.
-		userFiles := readHostUserFiles(config.UserScopeConfigOrEmpty())
-		printNotchFacts(pr, notchFacts{InertConfig: userFiles.inertNames()})
+		userCfg := config.UserScopeConfigOrEmpty()
+		userFiles := readHostUserFiles(userCfg)
+		// And every other config key the host leaves undone, from the census (OQ-DP5): a jail
+		// with no pack still honors `mounts` or `mise_tools`, so at the host they are named here.
+		printNotchFacts(pr, notchFacts{InertConfig: userFiles.inertNames(),
+			InertKeys: inertConfigKeys(userCfg, render.HostFields())})
 		// The BRANCH, recorded: "no packs are configured" and "every configured pack changed
 		// nothing" are different results with different next actions, and both reach the
 		// survey as an empty changed set. Nothing can derive it downstream, so it is stated
@@ -402,9 +406,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// "where do my tools come from here?" would never reach it. Inert, it is folded into the
 	// one tier-1 line below instead (reportHostPackages).
 	inertPackages := reportHostPackages(pr, errw, home)
-	// host_files and mise_tools, from user scope (OQ-NC8, applyhostuserfiles.go): the
-	// source-less entries render below, the rest are named in the notch line.
-	userFiles := readHostUserFiles(config.UserScopeConfigOrEmpty())
+	// host_files, from user scope (OQ-NC8, applyhostuserfiles.go): the source-less entries
+	// render below, the rest are named in the notch line.
+	userCfg := config.UserScopeConfigOrEmpty()
+	userFiles := readHostUserFiles(userCfg)
 
 	hostFields := render.HostFields()
 	rc := 0
@@ -691,6 +696,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	notch := surveyNotchFacts(loaded, hostFields, overlays)
 	notch.InertPackages = inertPackages
 	notch.InertConfig = userFiles.inertNames()
+	// THE CONFIG-KEY CENSUS (docs/design/declaration-parity.md OQ-DP5's second half, DP-B31):
+	// every key the user scope declares that the host's FieldSet says this notch leaves undone
+	// is named on the same line as the kinds, from the same FieldSet the kinds are read off.
+	notch.InertKeys = inertConfigKeys(userCfg, hostFields)
 	survey.noteNotch(notch)
 	printNotchFacts(pr, notch)
 

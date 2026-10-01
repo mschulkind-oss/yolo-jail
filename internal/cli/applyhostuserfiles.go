@@ -18,26 +18,25 @@ import (
 // declared `host_management`, and is reported by the rows a pack surface gets
 // (reportConfigResult). An entry that leaves the config has what the earlier apply wrote removed,
 // on the provenance record that apply kept (entrypoint.RetireHostUserFiles). A source-bearing
-// entry and `mise_tools` do nothing here, and the notch line names both.
+// entry does nothing here, and the notch line names it by destination; `mise_tools`, which does
+// nothing here either, is named there by the config-key census (render's configkeys.go), with
+// every other key the host leaves undone.
 //
 // USER SCOPE ONLY, as `agents_md_extra` is at the host (NC-D30): host apply reads no workspace.
 
-// hostUserFiles is what the user config declares that this file answers for.
+// hostUserFiles is what the user config's `host_files` declares that this file answers for.
 type hostUserFiles struct {
 	// render are the source-less entries this notch writes.
 	render []config.HostFileEntry
 	// inert are the source-bearing entries (a directory entry is always one): each mirrors a
 	// host file INTO a jail, and at the host that file is already the user's.
 	inert []config.HostFileEntry
-	// miseTools is whether `mise_tools` declares a tool: the jail composes mise's config from
-	// it, and nothing at the host manages the user's own mise.
-	miseTools bool
 	// cfg is the user-scope config the entries were read from, so a refusal names an entry by
 	// its place in it (config.SurfaceCollisions).
 	cfg *jsonx.OrderedMap
 }
 
-// readHostUserFiles reads host_files and mise_tools from the user-scope config.
+// readHostUserFiles reads host_files from the user-scope config.
 func readHostUserFiles(cfg *jsonx.OrderedMap) hostUserFiles {
 	f := hostUserFiles{cfg: cfg}
 	for _, e := range config.HostFilesIn(cfg) {
@@ -47,17 +46,10 @@ func readHostUserFiles(cfg *jsonx.OrderedMap) hostUserFiles {
 		}
 		f.render = append(f.render, e)
 	}
-	if cfg != nil {
-		if v, ok := cfg.Get("mise_tools"); ok {
-			if m, isMap := v.(*jsonx.OrderedMap); isMap && m.Len() > 0 {
-				f.miseTools = true
-			}
-		}
-	}
 	return f
 }
 
-// inertNames are the config keys this notch leaves inert, for the tier-1 notch line
+// inertNames are the host_files entries this notch leaves inert, for the tier-1 notch line
 // (notchFacts.InertConfig): the source-bearing entries named by destination, because the key
 // is the unit a reader looks for and the destination is which of their entries it means.
 func (f hostUserFiles) inertNames() []string {
@@ -68,9 +60,6 @@ func (f hostUserFiles) inertNames() []string {
 			dests[i] = "~/" + e.Path
 		}
 		out = append(out, "host_files with a source ("+strings.Join(dests, ", ")+")")
-	}
-	if f.miseTools {
-		out = append(out, "mise_tools")
 	}
 	return out
 }
