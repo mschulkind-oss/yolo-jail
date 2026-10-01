@@ -49,6 +49,26 @@ func ForkPins(forks []Fork, lock *packsrc.ForkLock) []ForkPin {
 	return out
 }
 
+// LoadForkPins is ForkPins over the fork lock at lockPath, for every reader that asks the file
+// rather than a lock it already holds: a launch, `yolo capture <forked bin>` and the host floor. A
+// lock that cannot be read pins NOTHING, and every fork carries the read error as its reason — a
+// broken lock is a missing tool, never a refused launch (forked-programs-as-packs.md §9). One
+// spelling, so the host and a jail can never disagree about which forks a broken lock pins.
+func LoadForkPins(forks []Fork, lockPath string) []ForkPin {
+	if len(forks) == 0 {
+		return nil
+	}
+	lock, err := packsrc.LoadForkLock(lockPath)
+	if err != nil {
+		pins := ForkPins(forks, nil)
+		for i := range pins {
+			pins[i].Reason = "the fork lock cannot be read (" + err.Error() + ")"
+		}
+		return pins
+	}
+	return ForkPins(forks, lock)
+}
+
 // Line is the pin's one-line disclosure, the line OQ-FP6 rules on: a source-built program names the
 // REVISION it is built at, never only the ref, because the commit that produced the binary on the
 // PATH is the one fact nothing else keeps.

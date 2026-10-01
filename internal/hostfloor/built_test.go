@@ -38,8 +38,9 @@ func forkProgram() Program {
 	}}
 }
 
-// buildStore is a fake capture store of fork builds, one per (bin, commit) — what ResolveBuild
-// answers with the hit check (the pin's commit, nothing else).
+// buildStore is a fake capture store of fork builds, one per (bin, commit, recipe) — what
+// ResolveBuild answers with the hit check: the pin's commit and the fork's current recipe, nothing
+// else.
 type buildStore struct {
 	t      *testing.T
 	store  *capture.Store
@@ -57,8 +58,42 @@ func newBuildStore(t *testing.T) *buildStore {
 // the reference a relocation rewrites. relocatable false records it the way a build embedding the
 // home in a binary is recorded.
 func (b *buildStore) add(bin, commit string, relocatable bool) *capture.Entry {
+	b.t.Helper()
+	p := forkProgram()
+	p.Install.Bin = bin
+	return b.addFor(p, commit, relocatable)
+}
+
+// addFor is add for p's recipe: the build p's declaration asks for at commit.
+func (b *buildStore) addFor(p Program, commit string, relocatable bool) *capture.Entry {
+	b.t.Helper()
+	bin := p.Bin()
+	return b.addShapedFor(p, commit, func(m *capture.Manifest) {
+		if !relocatable {
+			m.Relocatable = false
+			m.NotRelocatable = []string{".npm-global/lib/node_modules/" + bin + "/addon.node is not text and embeds /home/agent"}
+		}
+	})
+}
+
+// addShaped is add with the manifest handed to shape before it is written: a build whose own
+// account of itself says something add's never does.
+func (b *buildStore) addShaped(bin, commit string, shape func(*capture.Manifest)) *capture.Entry {
+	b.t.Helper()
+	p := forkProgram()
+	p.Install.Bin = bin
+	return b.addShapedFor(p, commit, shape)
+}
+
+// keyOf is the fake store's key for p's build at commit: the bin, the commit and p's recipe.
+func (b *buildStore) keyOf(p Program, commit string) string {
+	return p.Bin() + "@" + commit + "@" + p.Install.SourceRecipe()
+}
+
+func (b *buildStore) addShapedFor(p Program, commit string, shape func(*capture.Manifest)) *capture.Entry {
 	t := b.t
 	t.Helper()
+	bin := p.Bin()
 	staged, err := b.store.Stage(bin + "-" + commit[:8])
 	must(t, err)
 	tree := capture.TreeDir(staged)
@@ -87,19 +122,16 @@ func (b *buildStore) add(bin, commit string, relocatable bool) *capture.Entry {
 		AbsoluteRefs: []capture.AbsoluteRef{{Path: pkg + "/config.json", Kind: capture.RefFileContent, Value: "/home/agent"}},
 		RefScan:      capture.RefScanFull, Relocatable: true,
 	}
-	if !relocatable {
-		m.Relocatable = false
-		m.NotRelocatable = []string{pkg + "/addon.node is not text and embeds /home/agent"}
-	}
+	shape(m)
 	must(t, capture.WriteManifest(staged, m))
 	entry, err := b.store.AdmitEntry(staged)
 	must(t, err)
-	b.byPin[bin+"@"+commit] = entry
+	b.byPin[b.keyOf(p, commit)] = entry
 	return entry
 }
 
 func (b *buildStore) resolve(p Program, commit string) (*capture.Entry, error) {
-	if e, ok := b.byPin[p.Bin()+"@"+commit]; ok {
+	if e, ok := b.byPin[b.keyOf(p, commit)]; ok {
 		return e, nil
 	}
 	return nil, fmt.Errorf("nothing in %s records a build of %s at %s", b.store.Dir, p.Bin(), commit)
@@ -122,7 +154,7 @@ func forkWorld(t *testing.T, pin *string) (*world, *buildStore) {
 	w.floor.ResolveBuild = bs.resolve
 	w.floor.Build = func(p Program, commit string) (*capture.Entry, error) {
 		bs.builds = append(bs.builds, commit)
-		return bs.add(p.Bin(), commit, true), nil
+		return bs.addFor(p, commit, true), nil
 	}
 	return w, bs
 }
@@ -228,7 +260,7 @@ func TestAForkBuildThatCannotLeaveTheJailHomeIsNoFloorEntry(t *testing.T) {
 	// The same refusal when it is the install's own build that turns out unmovable.
 	fresh, fbs := forkWorld(t, &pin)
 	fresh.floor.Build = func(p Program, commit string) (*capture.Entry, error) {
-		return fbs.add(p.Bin(), commit, false), nil
+		return fbs.addFor(p, commit, false), nil
 	}
 	st, _, err := fresh.floor.Ensure(context.Background(), p)
 	if !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry || !strings.Contains(st.Reason, "/home/agent") {
@@ -282,13 +314,189 @@ func TestAFailedBuildAtAMovedPinDoesNotKeepTheOldBuildServing(t *testing.T) {
 	w.floor.Build = func(Program, string) (*capture.Entry, error) {
 		return nil, errors.New("npm ERR! the build failed")
 	}
-	_, outcome, err := w.floor.Ensure(context.Background(), p)
+	st, outcome, err := w.floor.Ensure(context.Background(), p)
 	if err == nil || outcome == Kept || outcome == Current {
 		t.Fatalf("Ensure = %s, %v: a build of the old pin served after the new one failed", outcome, err)
 	}
 	if !strings.Contains(err.Error(), "the build failed") ||
-		!strings.Contains(w.out.String(), "is not the build fork pack forkpack asks for, so it does not run") {
+		!strings.Contains(w.out.String(), "the installed commit 111111111111 is not the build the pack now asks for, so the floor no longer runs it") {
 		t.Errorf("err %v\n%s", err, w.out.String())
+	}
+	// NOT SERVED BY ANY ROUTE: the launcher leaves bin/, which ends every host agent's PATH, so an
+	// agent's own `forkcli` does not find the old commit there either; and the floor says missing.
+	if _, lerr := os.Lstat(w.floor.Launcher("forkcli")); !os.IsNotExist(lerr) {
+		t.Errorf("the old build's launcher is still in bin/ (%v): every host agent's PATH still runs it", lerr)
+	}
+	if st.Disposition == Provisioned || st.Record != nil {
+		t.Errorf("Ensure's status after the failure = %s %+v, want the old build not reported as held", st.Disposition, st.Record)
+	}
+	if st := w.floor.Status(p); st.Disposition != Missing {
+		t.Errorf("Status after the failure = %s (%s), want missing", st.Disposition, st.Reason)
+	}
+}
+
+// THE NEAR-MISS RULE IS ABOUT WHICH BUILD, both ways round. A fork's build at its pin that is pending
+// only for a raised node_floor IS the build the lock names, so a failed reinstall keeps it serving,
+// as an npm program keeps its version. And a fork's build left in the floor once the program is the
+// base's again (the fork pack dropped) is not what the pack asks for, so a failed install of the
+// base's own package does not leave it running under the base's name.
+func TestAFailedReinstallKeepsAForkBuildOnlyWhenItIsThePinsBuild(t *testing.T) {
+	pin := forkCommitOne
+	w, _ := forkWorld(t, &pin)
+	p := forkProgram()
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	raised := p
+	raised.Install.NodeFloor = "99.1"
+	w.floor.NodeFloor = "99.1"
+	w.floor.Node.BaseURL = "http://127.0.0.1:1" // nothing listens: the new Node cannot be fetched
+	st, outcome, err := w.floor.Ensure(context.Background(), raised)
+	if err != nil || outcome != Kept || st.Record == nil || st.Record.Revision != forkCommitOne {
+		t.Fatalf("a raised node_floor whose reinstall failed: %s %v %+v, want the pin's build kept\n%s",
+			outcome, err, st.Record, w.out.String())
+	}
+	if _, lerr := os.Stat(w.floor.Launcher("forkcli")); lerr != nil {
+		t.Errorf("the pin's build lost its launcher: %v", lerr)
+	}
+
+	dropped, _ := forkWorld(t, &pin)
+	if _, _, err := dropped.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	base := npmProgram("basepack", "forkcli", "forkcli-unpublished") // the registry has no such package
+	st, outcome, err = dropped.floor.Ensure(context.Background(), base)
+	if err == nil || outcome == Kept {
+		t.Fatalf("the base's install failed over a fork's build: %s %v — the fork's build kept serving", outcome, err)
+	}
+	if _, lerr := os.Lstat(dropped.floor.Launcher("forkcli")); !os.IsNotExist(lerr) {
+		t.Errorf("the dropped fork's build is still in bin/: %v", lerr)
+	}
+	if st.Disposition == Provisioned {
+		t.Errorf("status after the failure = %s, want the fork's build not reported as held", st.Disposition)
+	}
+
+	// And the fork's own two near-misses: a build from an edited recipe, and the base's upstream
+	// program installed before the fork was selected — never run under the fork's name.
+	failing := func(Program, string) (*capture.Entry, error) { return nil, errors.New("npm ERR! the build failed") }
+	edited, _ := forkWorld(t, &pin)
+	if _, _, err := edited.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	edited.floor.Build = failing
+	recipe := p
+	recipe.Install.Build = "make install"
+	if _, outcome, err := edited.floor.Ensure(context.Background(), recipe); err == nil || outcome == Kept {
+		t.Errorf("an edited recipe whose build failed: %s %v, want the old recipe's build not kept", outcome, err)
+	}
+	upstream, _ := forkWorld(t, &pin)
+	upstream.publish("forkcli-pkg", "1.0.0", "bin=forkcli")
+	if _, _, err := upstream.floor.Ensure(context.Background(), npmProgram("basepack", "forkcli", "forkcli-pkg")); err != nil {
+		t.Fatalf("installing the base's own package: %v\n%s", err, upstream.out.String())
+	}
+	upstream.floor.Build = failing
+	if _, outcome, err := upstream.floor.Ensure(context.Background(), p); err == nil || outcome == Kept {
+		t.Errorf("a fork whose build failed over the base's package: %s %v, want the base's package not run as the fork", outcome, err)
+	}
+	if _, lerr := os.Lstat(upstream.floor.Launcher("forkcli")); !os.IsNotExist(lerr) {
+		t.Errorf("the base's package is still in bin/ under the fork's program: %v", lerr)
+	}
+}
+
+// A MOVED PIN ON A MACHINE THAT CANNOT BUILD is what a fork the floor never held is there: no floor
+// entry, with the reason, so `yolo host` runs the PATH copy — never a build act started with no
+// runtime, and never the old commit.
+func TestAMovedForkPinOnAMachineThatCannotBuildIsNoFloorEntry(t *testing.T) {
+	pin := forkCommitOne
+	w, bs := forkWorld(t, &pin)
+	p := forkProgram()
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	pin = forkCommitTwo
+	w.floor.CaptureUnavailable = func() string { return "no container runtime (podman) is on PATH" }
+	st, _, err := w.floor.Ensure(context.Background(), p)
+	if !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry ||
+		!strings.Contains(st.Reason, "there is no build of forkcli at commit 222222222222 on this machine, and no container runtime") {
+		t.Fatalf("Ensure = %s (%s), %v; want no floor entry naming the missing runtime", st.Disposition, st.Reason, err)
+	}
+	if len(bs.builds) != 1 {
+		t.Errorf("builds = %v: a build act ran on a machine that cannot build", bs.builds)
+	}
+	if _, lerr := os.Lstat(w.floor.Launcher("forkcli")); !os.IsNotExist(lerr) {
+		t.Errorf("the old build's launcher is still in bin/: %v", lerr)
+	}
+}
+
+// A fork's node_floor RAISES THE FLOOR'S NODE, as an npm program's does: its Node script starts on
+// the floor's interpreter (HighestNodeFloor counts it). Above the Node the floor runs on, the
+// install refuses rather than starting it on an older one, and a provisioned build whose
+// node_floor rose is pending.
+func TestAForksNodeFloorIsTheFloorsToMeet(t *testing.T) {
+	pin := forkCommitOne
+	w, _ := forkWorld(t, &pin)
+	p := forkProgram()
+	p.Install.NodeFloor = "99.1"
+	w.floor.NodeFloor = HighestNodeFloor([]Program{p, npmProgram("x", "x", "x")})
+	if got := w.floor.NodeVersion(); got != "99.1.0" {
+		t.Fatalf("NodeVersion = %s, want 99.1.0: a fork's node_floor is the floor's too", got)
+	}
+	st, _, err := w.floor.Ensure(context.Background(), p)
+	if err != nil || st.Record.Node != "99.1.0" {
+		t.Fatalf("Ensure: %+v %v\n%s", st.Record, err, w.out.String())
+	}
+
+	below, _ := forkWorld(t, &pin)
+	if _, _, err := below.floor.Ensure(context.Background(), p); err == nil ||
+		!strings.Contains(err.Error(), "below the pack's node_floor 99.1") {
+		t.Errorf("a floor whose Node is below the fork's node_floor: %v", err)
+	}
+
+	raised, _ := forkWorld(t, &pin)
+	plain := forkProgram()
+	if _, _, err := raised.floor.Ensure(context.Background(), plain); err != nil {
+		t.Fatal(err)
+	}
+	if st := raised.floor.Status(p); st.Disposition != Provisioned ||
+		!strings.Contains(st.Pending, "below the pack's node_floor 99.1") {
+		t.Errorf("a node_floor raised past the installed build's Node: %s pending %q", st.Disposition, st.Pending)
+	}
+}
+
+// What the build's own manifest says can keep it off the floor, read before anything is
+// materialized: no runnable program at the fork's program path, and a claim to be relocatable that
+// the relocating materialize does not honor (a scan that was not the full one), which is the same
+// "built for the jail's home" answer as a build that says it cannot move.
+func TestAForkBuildsManifestCanKeepItOffTheFloor(t *testing.T) {
+	pin := forkCommitOne
+	w, bs := forkWorld(t, &pin)
+	w.floor.Build = func(Program, string) (*capture.Entry, error) {
+		t.Fatal("the floor rebuilt a build the store already holds at the pin")
+		return nil, nil
+	}
+	bs.addShaped("forkcli", forkCommitOne, func(m *capture.Manifest) {
+		for i, e := range m.Entries {
+			if e.Path == ".npm-global/bin/forkcli" {
+				m.Entries[i].Target = "../lib/node_modules/forkcli/gone.js"
+			}
+		}
+	})
+	p := forkProgram()
+	if st := w.floor.Status(p); st.Disposition != NoEntry ||
+		!strings.Contains(st.Reason, "cannot run outside a jail") || !strings.Contains(st.Reason, "gone.js") {
+		t.Errorf("a build whose bin links to nothing it recorded: %s (%s)", st.Disposition, st.Reason)
+	}
+
+	claims, cbs := forkWorld(t, &pin)
+	claims.floor.Build = w.floor.Build
+	cbs.addShaped("forkcli", forkCommitOne, func(m *capture.Manifest) { m.RefScan = capture.RefScanSymlinks })
+	st, _, err := claims.floor.Ensure(context.Background(), p)
+	if !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry ||
+		!strings.Contains(st.Reason, "built for the jail's home, /home/agent") {
+		t.Errorf("a relocatable claim the materialize refuses: %s (%s), %v", st.Disposition, st.Reason, err)
+	}
+	if _, lerr := os.Lstat(claims.floor.Launcher("forkcli")); !os.IsNotExist(lerr) {
+		t.Errorf("a build the materialize refused has a launcher: %v", lerr)
 	}
 }
 
@@ -413,7 +621,7 @@ func TestAForkBuildThatIsNotANodeScriptIsStartedAsItself(t *testing.T) {
 		}))
 		entry, err := bs.store.AdmitEntry(staged)
 		must(t, err)
-		bs.byPin[p.Bin()+"@"+commit] = entry
+		bs.byPin[bs.keyOf(p, commit)] = entry
 		return entry, nil
 	}
 	st, _, err := w.floor.Ensure(context.Background(), p)

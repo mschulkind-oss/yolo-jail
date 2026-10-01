@@ -876,10 +876,14 @@ relocating materialize an installer's capture takes. A Node script is started by
 Node. `yolo host -- <bin>` and `yolo host apply --assert` are where that happens. A fork has no
 floor entry, and `yolo host` runs the copy on PATH with one line saying why, when it has no usable
 pin, when its build's manifest says it cannot move out of the jail's home (the reason names that
-home), when the store has no build and no container runtime is on PATH to make one, and on any
-macOS host. The floor never runs a build the fork lock does not name
-([FP-D17](../design/forked-programs-as-packs.md#FP-D17)): a moved pin or an edited `build` or
-`produces` reinstalls, a failed reinstall does not keep the older build running, and a fork is
+home), when the store has no build at the pin and no container runtime is on PATH to make one
+(a moved pin included), and on any macOS host. `yolo host` never runs a build the fork lock does
+not name ([FP-D17](../design/forked-programs-as-packs.md#FP-D17)): a moved pin or an edited `build`
+or `produces` reinstalls, and a failed reinstall takes the older build's launcher out of the floor
+rather than keeping it running, so a host agent's PATH does not find it either. The same holds for
+the base's own program installed before the fork was selected, and for a fork's build once the fork
+is dropped. A fork whose pin is
+gone keeps its floor copy, unrun, until the next `yolo host apply --assert` removes it. A fork is
 never polled for an update.
 
 #### `requires`

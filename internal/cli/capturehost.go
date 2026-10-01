@@ -18,7 +18,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -239,11 +238,7 @@ func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 
 // forkPinOf reads f's pin from the fork lock.
 func forkPinOf(f packload.Fork) packload.ForkPin {
-	lock, err := packsrc.LoadForkLock(forkLockPath())
-	if err != nil {
-		return packload.ForkPin{Fork: f, Reason: "the fork lock cannot be read (" + err.Error() + ")"}
-	}
-	return packload.ForkPins([]packload.Fork{f}, lock)[0]
+	return packload.LoadForkPins([]packload.Fork{f}, forkLockPath())[0]
 }
 
 // captureJailPlatform is the platform a container capture jail on this machine reports: linux, on

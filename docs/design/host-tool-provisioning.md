@@ -367,12 +367,15 @@ said per row.
 - Two first launches of one program started together produce one install and one receipt.
   **Built.** `TestTwoFirstLaunchesTogetherProduceOneInstallAndOneReceipt`.
 - A selected fork's program, pinned by `yolo pack install`, runs from the prefix as the build of
-  its pinned commit: built once in the sealed jail on the first `yolo host -- <bin>`, relocated
-  out of the jail's home, and rebuilt only when `yolo pack update` moves the pin.
+  its pinned commit: built once in the sealed jail on the first `yolo host -- <bin>` unless a jail
+  launch already built that commit, relocated out of the jail's home, and built again only for a
+  moved pin or an edited recipe.
   **Built** 2026-10-01 ([FP-D16](forked-programs-as-packs.md#FP-D16)):
   `TestHostLaunchOfAPinnedForkBuildsItAndRunsTheFloorsCopy` drives a real local git repository
   through the pin, the build act, a launch that builds, one that does not, and a moved pin, with
   the build jail stood in for;
+  `TestHostLaunchRunsTheBuildAJailLaunchMadeOnAMachineThatCannotBuild` runs the build a jail
+  launch's own build call made, with no second build;
   `TestHostApplyProvisionsAPinnedForkAndRemovesItWhenThePinGoes` and the floor's own
   `built_test.go` cover the rest. **Needs a real host:** a real fork's build, made in a real
   sealed jail, running from the prefix. The 2026-10-01 stand-in

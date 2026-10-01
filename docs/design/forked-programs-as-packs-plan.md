@@ -242,6 +242,19 @@ design as [FP-D10](forked-programs-as-packs.md#FP-D10) onward.
   gate's to find on PATH (HP-D9), so a `yolo host apply --assert` with none there refuses before
   its floor stage runs. `TestHostApplyProvisionsAPinnedForkAndRemovesItWhenThePinGoes` puts a copy
   on PATH to reach the removal.
+- Review, after step 7: a failed reinstall at a moved pin left the old build's launcher in the
+  floor's `bin/`, which ends every host agent's PATH, so an agent's own `<bin>` still ran the commit
+  the lock no longer names. `Ensure` now removes that launcher and its record
+  ([FP-D17](forked-programs-as-packs.md#FP-D17)), deciding by which build is installed
+  (`servesANearMiss`) rather than by the recipe kind: the first spelling refused to keep a build
+  at the pin whose only change was a raised `node_floor`, and kept a dropped fork's build running
+  as the base's program when the base's own install failed. A moved pin on a machine with no container
+  runtime started a build act that could only fail, and refused the launch; it is now no floor
+  entry, as a first install there is. The floor's pin reader was a third copy of the launch's
+  lock-read rule; the launch, `yolo capture` and the floor now share `packload.LoadForkPins`. And
+  the floor's store lookup could be deleted with every test green, because the build act's own
+  hit check answered for it: `TestHostLaunchRunsTheBuildAJailLaunchMadeOnAMachineThatCannotBuild`
+  pins it, and that the floor finds the build a jail launch's own call made.
 
 ## Build order
 

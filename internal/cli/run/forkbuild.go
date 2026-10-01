@@ -94,23 +94,11 @@ func (o *Options) noteMacosUserForks() {
 	}
 }
 
-// forkPins reads the pin of every fork packs carry from the fork lock beside the user config. A
-// lock that cannot be read pins nothing, and every fork then carries the read error as its reason:
-// a broken lock is a missing tool, never a refused launch (§9).
+// forkPins reads the pin of every fork packs carry from the fork lock beside the user config
+// (packload.LoadForkPins: a lock that cannot be read pins nothing, and every fork then carries the
+// read error as its reason, since a broken lock is a missing tool, never a refused launch, §9).
 func forkPins(packs []*packload.Pack) []packload.ForkPin {
-	forks := packload.Forks(packs)
-	if len(forks) == 0 {
-		return nil
-	}
-	lock, err := packsrc.LoadForkLock(packsrc.ForkLockPath(paths.UserConfigPath()))
-	if err != nil {
-		pins := packload.ForkPins(forks, nil)
-		for i := range pins {
-			pins[i].Reason = "the fork lock cannot be read (" + err.Error() + ")"
-		}
-		return pins
-	}
-	return packload.ForkPins(forks, lock)
+	return packload.LoadForkPins(packload.Forks(packs), packsrc.ForkLockPath(paths.UserConfigPath()))
 }
 
 // noteForkPins prints, on every launch that carries a fork, the line OQ-FP6 rules on: the REVISION

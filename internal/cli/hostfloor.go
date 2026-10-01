@@ -18,7 +18,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -128,9 +127,9 @@ func floorForkBuild(p hostfloor.Program, commit string) forkBuild {
 	}
 }
 
-// floorForkPins reads the fork lock once for every source-built program among progs, keyed by bin:
-// what a launch reads (run.forkPins), so the host and a jail ask for one commit. A lock that cannot
-// be read pins nothing, and each fork carries the read error as its reason.
+// floorForkPins reads the fork lock once for every source-built program among progs, keyed by bin,
+// through the reader a launch uses (packload.LoadForkPins, as run.forkPins), so the host and a jail
+// ask for one commit and a lock that cannot be read pins nothing for either.
 func floorForkPins(progs []hostfloor.Program) map[string]packload.ForkPin {
 	var forks []packload.Fork
 	for _, p := range progs {
@@ -138,16 +137,9 @@ func floorForkPins(progs []hostfloor.Program) map[string]packload.ForkPin {
 			forks = append(forks, floorForkBuild(p, "").Fork)
 		}
 	}
-	if len(forks) == 0 {
-		return nil
-	}
-	lock, err := packsrc.LoadForkLock(forkLockPath())
-	pins := packload.ForkPins(forks, lock)
+	pins := packload.LoadForkPins(forks, forkLockPath())
 	out := make(map[string]packload.ForkPin, len(pins))
 	for _, pin := range pins {
-		if err != nil {
-			pin = packload.ForkPin{Fork: pin.Fork, Reason: "the fork lock cannot be read (" + err.Error() + ")"}
-		}
 		out[pin.Fork.Bin] = pin
 	}
 	return out

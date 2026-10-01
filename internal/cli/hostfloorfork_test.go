@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -235,6 +237,53 @@ func TestHostLaunchOfAPinnedForkBuildsItAndRunsTheFloorsCopy(t *testing.T) {
 	assertFloorRuns(t, launcher, rec.Entry, "# second")
 	if !strings.Contains(errw.String(), "now pins it at commit "+head2[:12]) {
 		t.Errorf("the reinstall does not say the pin moved:\n%s", errw.String())
+	}
+}
+
+// THE HOST AND A JAIL ASK FOR ONE BUILD: a fork a jail launch built (its own pin reader and its own
+// build call, buildForksForLaunch) is the floor's copy at the host with no second build — found by
+// the floor's hit check, which keys the store on the same commit, recipe and platform — even on a
+// machine with no container runtime to build one. Without that hit the floor would have no build,
+// no way to make one, and the launch would look for forkcli on a PATH that has none.
+func TestHostLaunchRunsTheBuildAJailLaunchMadeOnAMachineThatCannotBuild(t *testing.T) {
+	if goruntime.GOOS != "linux" {
+		t.Skip("a jail launch's build is of linux/" + goruntime.GOARCH + ", which only a Linux host's floor holds")
+	}
+	forkFloorHome(t)
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"install"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("pack install rc=%d\n%s\n%s", rc, out.String(), errw.String())
+	}
+	dist := withForkFloor(t)
+	dist.Publish("forkcli-pkg", "1.0.0", "bin=forkcli")
+	runs := 0
+	withFakeCaptureJail(t, forkFloorBuildJail(t, &runs, true))
+
+	sel := selectConfiguredHostPacks()
+	pins := packload.LoadForkPins(packload.Forks(sel.packs), forkLockPath())
+	delivered := buildForksForLaunch(pins, captureJailPlatform(), io.Discard, io.Discard, false)
+	if d := delivered["forkcli"]; d.Key == "" || runs != 1 {
+		t.Fatalf("the jail launch's build: %+v, %d builds", d, runs)
+	}
+
+	orig := newHostFloor
+	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+		f := orig(out, progs)
+		f.CaptureUnavailable = func() string { return "no container runtime (podman) is on PATH" }
+		return f
+	}
+	t.Cleanup(func() { newHostFloor = orig })
+	got := captureHostExec(t)
+	launcher := filepath.Join(paths.HostFloorDir(), "bin", "forkcli")
+	errw.Reset()
+	if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 0 || got.target != launcher {
+		t.Fatalf("rc=%d target=%s, want the floor's copy %s\n%s", rc, got.target, launcher, errw.String())
+	}
+	if runs != 1 {
+		t.Errorf("the host built the fork again (%d builds in all)\n%s", runs, errw.String())
+	}
+	if rec := floorRecord(t, "forkcli"); rec.Capture != delivered["forkcli"].Key {
+		t.Errorf("the floor runs entry %s, want the one the jail launch built, %s", rec.Capture, delivered["forkcli"].Key)
 	}
 }
 

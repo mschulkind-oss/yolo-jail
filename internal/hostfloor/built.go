@@ -54,11 +54,15 @@ func (f *Floor) buildProvisionable(st Status) Status {
 		return st
 	}
 	if why := f.cannotBuild(); why != "" {
-		st.Disposition = NoEntry
-		st.Reason = "there is no build of " + p.Bin() + " at " + buildVersion(commit) +
-			" on this machine, and " + why
+		st.Disposition, st.Reason = NoEntry, noBuildReason(p.Bin(), commit, why)
 	}
 	return st
+}
+
+// noBuildReason is the no-floor-entry reason for a fork the store has no build of at commit, on a
+// machine that cannot run the build act (why): the one spelling Status and an install share.
+func noBuildReason(bin, commit, why string) string {
+	return "there is no build of " + bin + " at " + buildVersion(commit) + " on this machine, and " + why
 }
 
 // buildUnusable says why the store's build entry of p at commit cannot be the floor's copy, "" when
@@ -107,9 +111,12 @@ func (f *Floor) installFromBuild(ctx context.Context, p Program, dir string) (*R
 	}
 	entry, err := f.ResolveBuild(p, commit)
 	if err != nil {
-		if f.Build == nil {
-			return nil, fmt.Errorf("no build of %s at %s on this machine (%v), and this machine cannot run "+
-				"a fork's build", bin, buildVersion(commit), err)
+		// NO BUILD AND NOTHING TO BUILD ONE WITH is no floor entry here, as provisionable answers
+		// for a fork the floor does not hold yet. It is asked again because a reinstall at a moved
+		// pin never comes through provisionable, and a build act started with no runtime would
+		// only fail, turning "the PATH copy, with the reason" into a refused launch.
+		if why := f.cannotBuild(); why != "" {
+			return nil, &noEntryError{reason: noBuildReason(bin, commit, why)}
 		}
 		f.say("no build of %s at %s on this machine yet; building it from fork pack %s's source in a sealed "+
 			"jail (once per commit per machine, and every jail on this machine reuses it)",

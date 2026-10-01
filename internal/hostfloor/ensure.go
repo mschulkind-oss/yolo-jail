@@ -87,18 +87,28 @@ func (f *Floor) Ensure(ctx context.Context, p Program) (Status, Outcome, error) 
 	f.say("installing %s into yolo's floor (%s): %s", p.Bin(), why, f.describeRecipe(p))
 	rec, err := f.install(ctx, p)
 	if err != nil {
-		if st.Disposition == Provisioned && p.Install.Kind != packdecl.InstallKindSource {
+		if st.Disposition == Provisioned && !f.servesANearMiss(p, st.Record) {
 			// A reinstall failed, and the previous install is intact: it keeps serving.
 			f.say("could not reinstall %s (%v); running the installed %s", p.Bin(), err, st.Record.Version)
 			return st, Kept, nil
 		}
 		if st.Disposition == Provisioned {
-			// A FORK'S BUILD IS NEVER KEPT PAST ITS PIN: the installed build is of another commit
-			// or recipe, which is a near-miss (forked-programs-as-packs.md §9), so it does not
-			// serve while the build the fork now asks for is missing — the jail's source launcher
-			// refuses an older build in its home for the same reason.
-			f.say("could not install %s (%v); the installed %s is not the build fork pack %s asks for, "+
-				"so it does not run", p.Bin(), err, st.Record.Version, p.Install.ForkedBy)
+			// A FORK'S BUILD IS NEVER KEPT PAST ITS PIN (servesANearMiss): the installed copy is not
+			// the build the pack now asks for, which is a near-miss (forked-programs-as-packs.md §9),
+			// so it does not serve while that build is missing — the jail's source launcher refuses
+			// an older build in its home for the same reason. Not serving means its launcher LEAVES
+			// bin/, which ends every host agent's PATH (HE-D1): `yolo host` would not exec it, and an
+			// agent's own `<bin>` would still have found it there. The record goes with it, so the
+			// next Status says missing, and the install directory stays for the next install to
+			// prune: unlinking a launcher stops no agent already running.
+			f.say("could not install %s (%v); the installed %s is not the build the pack now asks for, "+
+				"so the floor no longer runs it", p.Bin(), err, st.Record.Version)
+			_ = os.Remove(f.Launcher(p.Bin()))
+			_ = os.Remove(f.recordPath(p.Bin()))
+			f.appendReceipt(receipt{Act: "remove", Bin: p.Bin(), Pack: p.Pack, Version: st.Record.Version,
+				Dir: st.Record.Dir})
+			st.Disposition, st.Record, st.Pending = Missing, nil, ""
+			st.Reason = "the install the pack now asks for failed, and the installed copy was not it"
 		}
 		if why := noEntryReasonOf(err); why != "" {
 			// Not a failed install: the install learned the floor cannot hold this program here
@@ -109,6 +119,22 @@ func (f *Floor) Ensure(ctx context.Context, p Program) (Status, Outcome, error) 
 	}
 	f.say("installed %s %s → %s", p.Bin(), rec.Version, f.Launcher(p.Bin()))
 	return f.Status(p), Installed, nil
+}
+
+// servesANearMiss reports whether rec, provisioned for p, would serve a fork's build the pack does
+// not now ask for, were a failed reinstall to keep it (forked-programs-as-packs.md FP-D17, from §9's
+// "never serve a near-miss"): for a fork's program, an installed copy that is not its build at the
+// pin and the current recipe — another commit, another recipe, or the base's own upstream program
+// from before the fork was selected; and for any other program, an installed fork's build, left
+// from when a fork delivered it. A fork's build at the pin that is pending only for a raised
+// node_floor is the build the lock names, and keeps serving as an npm program's version does.
+func (f *Floor) servesANearMiss(p Program, rec *Record) bool {
+	if p.Install.Kind != packdecl.InstallKindSource {
+		return rec.Via == packdecl.ViaSource
+	}
+	commit, _ := f.forkPin(p)
+	return rec.Via != packdecl.ViaSource || rec.Declared != declared(p.Install) || rec.Revision != commit ||
+		rec.Recipe != p.Install.SourceRecipe()
 }
 
 // describeRecipe says what an install will run, for the line that starts it.

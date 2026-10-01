@@ -445,8 +445,9 @@ func (f *Floor) Status(p Program) Status {
 
 // buildPending is why a provisioned fork build is not the one its fork asks for now, "" when it
 // is: A MOVED PIN, a changed recipe, or a Node script below the node_floor. Each reinstalls on the
-// next Ensure — and, unlike any other recipe's, a failed reinstall does not keep the installed
-// build serving (Ensure), since a build of another commit is a near-miss (§9).
+// next Ensure — and, unlike any other recipe's, a failed reinstall at a moved pin or recipe does
+// not keep the installed build serving (Ensure, servesANearMiss), since a build of another commit
+// is a near-miss (§9). One pending only for the node_floor is the pin's build, and is kept.
 func (f *Floor) buildPending(p Program, rec *Record) string {
 	in := p.Install
 	commit, _ := f.forkPin(p)
