@@ -544,8 +544,9 @@ func TestGitHubBrokerAWideningEntryAdmitsARepositoryForOneWorkspace(t *testing.T
 	if got := kvLine(r.stdout, "RCA"); got != "0" || !strings.Contains(r.stdout, "fake gh ran: pr view --repo=yolo-lib/lib 3") {
 		t.Errorf("the widened repository answered %q:\n%s%s", got, out, brokerDaemonLog(t))
 	}
-	if got := kvLine(r.stdout, "RCB"); got != "64" || !strings.Contains(out, `{"repos": ["yolo-other/x"]}`) ||
-		!strings.Contains(out, filepath.Base(fx.dir)) {
+	// The entry is keyed by THIS workspace: its folder's name closes the key the refusal spells.
+	if got := kvLine(r.stdout, "RCB"); got != "64" ||
+		!strings.Contains(out, filepath.Base(fx.dir)+`": {"repos": ["yolo-other/x"]}`) {
 		t.Errorf("a repository outside the scope answered %q, want 64 naming the widening entry for this workspace:\n%s",
 			got, out)
 	}
