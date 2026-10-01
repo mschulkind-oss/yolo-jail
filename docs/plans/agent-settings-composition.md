@@ -2,7 +2,7 @@
 title: "Generated-config composition — layered regeneration + Lua transforms"
 status: deprecated
 stage: SUPERSEDED
-next: "Nothing is built from this doc now; the one unbuilt piece, §4's workspace layer, has no owner — find whether host_files and config-overlay already cover its case, then retire it or file it where the compose engine is described"
+next: "Nothing: the one unbuilt piece, §4's workspace layer, is filed in pack-system.md's compose-engine section, where OQ-PK1 decides whether anything ever fills it"
 ---
 
 # Generated-config composition — layered regeneration + Lua transforms
@@ -11,11 +11,16 @@ next: "Nothing is built from this doc now; the one unbuilt piece, §4's workspac
 the system as built by
 [`pack-system.md`'s compose-engine section](../reference/pack-system.md#config-surfaces-and-the-compose-engine),
 as the 2026-09-24 postscript below says, and kept for the argument: why config regenerates, the
-layer order, and the capture overlay. Re-checked against the tree 2026-09-30: the one piece this
+layer order, and the capture overlay. Re-checked against the tree 2026-10-01: the one piece this
 doc decided that was never built is [§4](#4-layers-and-scope)'s `workspace` layer.
 `agentcfg.Inputs.Workspace` exists (`internal/agentcfg/compose.go`) and no caller sets it, and no
-`agent_config` config key exists; no other doc owns that work. The paragraph below is the
-2026-07-20 status, kept as written.
+`agent_config` config key exists. It is filed, not retired, in
+[`pack-system.md`'s compose-engine section](../reference/pack-system.md#config-surfaces-and-the-compose-engine):
+neither `host_files` nor `config-overlay` covers its case, since a `host_files` entry may not write
+a selected pack's surface and a workspace config may not select a pack, and
+[`OQ-PK1`](../reference/pack-system.md#oq-pk1) is the open question that decides whether a
+workspace may declare such keys at all. The paragraph below is the 2026-07-20 status, kept as
+written.
 
 The design was **finalized** on 2026-07-20 (all [§9](#9-decisions-all-settled) *composition*
 questions resolved). Supersedes the exploratory RFC that carried a menu of models
@@ -72,7 +77,9 @@ workspace-widenable) and both keys hard-error.
 >   ruled 2026-09-23). That refines [§5](#5-surviving-regeneration--the-capture-diff-overlay)'s
 >   capture at those paths only.
 > - **The `workspace` layer is still unwired**, as [§4](#4-layers-and-scope)'s table says. A pack's
->   `config-overlay` and `config-list` fold above it, below the capture overlay.
+>   `config-overlay` and `config-list` fold above it, below the capture overlay. Since 2026-10-01
+>   the slot is described, with what it waits on, in
+>   [`pack-system.md`](../reference/pack-system.md#config-surfaces-and-the-compose-engine).
 
 > [!IMPORTANT]
 > **Postscript, 2026-09-11 — the Lua transform in this doc's title is REMOVED.** [§1](#1-the-decision-in-one-paragraph)–[§10](#10-retiring-the-host__files-keys-decided---implemented-2026-07-23)
@@ -345,7 +352,7 @@ precedence):
 |---|---|---|---|
 | `defaults` | manifest data (image) | global | yolo builtin, user-overridable |
 | `host` | staged host files, parsed fresh each boot (`:ro`) | per-host | the user's host config |
-| `workspace` | **DECIDED BUT UNWIRED** — no `agent_config.<agent>` key exists; `Inputs.Workspace` is a real engine slot every caller currently passes nil for. The user-declared jail-only config that DID ship is `host_files` (its own surfaces, not a layer on an agent's) | per-workspace | jail-only config the user declares |
+| `workspace` | **DECIDED BUT UNWIRED** — no `agent_config.<agent>` key exists; `Inputs.Workspace` is a real engine slot every caller currently passes nil for. The user-declared jail-only config that DID ship is `host_files` (its own surfaces, not a layer on an agent's). Filed 2026-10-01 in [`pack-system.md`](../reference/pack-system.md#config-surfaces-and-the-compose-engine), where [`OQ-PK1`](../reference/pack-system.md#oq-pk1) decides whether anything fills it | per-workspace | jail-only config the user declares |
 | `runtime` overlay | capture-diff sidecar ([§5](#5-surviving-regeneration--the-capture-diff-overlay)) | per-workspace | what changed in-jail |
 | `managed` | manifest data (image) | global | yolo's asserted keys — win the merge, applied after the Lua hook (a precedence guarantee in the generated file, not an OS enforcement — [§9](#9-decisions-all-settled)) |
 

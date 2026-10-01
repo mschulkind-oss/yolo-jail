@@ -79,6 +79,9 @@ in a launched jail on 2026-10-01: `TestAPostureListRendersOnlyItsOwnSideOfTheLin
 (`integration/configlist_test.go`) reads the autonomous posture's entry, and not the guarded
 one's, in a booted jail's pi settings, and the reverse in `yolo config render --at host`.
 UNMEASURED: no real host has run a posture list.
+The compose-engine section's [`workspace` bullet](#config-surfaces-and-the-compose-engine)
+was added on 2026-10-01, read against `d4e435a3`; it describes a slot nothing fills, so there is
+nothing to observe running.
 
 A **pack** is a directory of jail configuration — skills, briefing prose, composed config
 files, environment variables, and optionally a tool to install — that yolo delivers into
@@ -1804,6 +1807,24 @@ defaults < host < workspace < config-overlay < config-list < capture-overlay < l
   [`internal/packload/hostlayer.go`](../../internal/packload/hostlayer.go) carries its own warning
   that no backend emits `unsupported` unconditionally any more. What that backend still does not
   emit is the render LABEL, so a managed home's host file composes there as a layer.
+- **`workspace`** is a slot in the engine that nothing fills. `agentcfg.Inputs.Workspace` folds
+  above `host` and below every `config-overlay`, but neither render entry sets it
+  (`Target.Compose` and `Target.ComposeStateful` in [`surface.go`](../../internal/render/surface.go)),
+  `render.Layers` has no field for it, and no config key feeds it. It was settled on 2026-07-20 as
+  the layer for keys a user declares on an agent's file for one workspace's jail
+  ([`agent-settings-composition.md` §4](../plans/agent-settings-composition.md#4-layers-and-scope)),
+  and nothing else gives a workspace that today. A `host_files` entry may not write a selected
+  pack's surface path (`selectedSurfacePaths` in [`hostfiles.go`](../../internal/config/hostfiles.go),
+  [`OQ-BH15`](../design/base-home-legacy-state.md#OQ-BH15)), and a `config-overlay` comes only from
+  a pack, which a workspace config may not select (`validatePacks` in
+  [`packs.go`](../../internal/config/packs.go)). What a workspace can do instead is commit the
+  agent's own project-scope file, which the agent also reads outside the jail, or edit a
+  `stateful` surface inside the jail, which the capture overlay keeps for that workspace without
+  any config declaring it. The slot is kept rather than deleted because
+  [`OQ-PK1`](#oq-pk1), which packs a workspace config may declare, is the open question that
+  decides whether a workspace may declare such keys at all. Whoever gives it a producer also owns
+  [`OQ-CO8`](../design/config-ownership-and-promotion.md#13-decision-ledger)'s condition: a
+  workspace config is writable from inside the jail, so this layer must never reach a real home.
 - **`config-overlay`** carries the keys OTHER packs contribute to a surface this one owns, in
   the one pack order (later wins): `packs`-list order, then the packs a `needs` pulled in, then
   the local pack, at every notch ([OQ-NC4](../plans/notch-convergence.md#OQ-NC4)). Below
@@ -2712,8 +2733,10 @@ a key that does nothing must not be accepted quietly.
   wording it amends. It blocks building
   [`mcp-presets-removal.md`](../design/mcp-presets-removal.md): that doc's
   [§13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) steps 1–3 wait on it,
-  because that ruling moved the workspace-scope boundary they build against. *PK* stands for the
-  `packs` key; the prefix is new with this question.
+  because that ruling moved the workspace-scope boundary they build against. Its answer also
+  decides whether the compose engine's `workspace` layer, which nothing fills today, ever gets a
+  producer ([the layer](#config-surfaces-and-the-compose-engine)). *PK* stands for the `packs`
+  key; the prefix is new with this question.
 
   <!-- vantage: oq id=OQ-PK1 -->
 
@@ -3442,7 +3465,7 @@ only place the values themselves are stated.
 | Host staging root | `<global storage>/agents/<container>/packs/<slug>` | `paths.AgentsDir`, `PackEntry.Slug` |
 | Lockfile | `~/.config/yolo-jail/packs.lock.json` (beside the user config) | `packsrc/lock.go` |
 | Conventional local pack | `~/.config/yolo-jail/local` (`briefing/`, `skills/`) | `paths.LocalPackDir` |
-| Config-surface layer order | `defaults < host < workspace < config-overlay < config-list < capture-overlay < list-capture < computed`, then the managed floor | `internal/agentcfg` (`Compose`, `listcontrib.go`) |
+| Config-surface layer order | `defaults < host < workspace < config-overlay < config-list < capture-overlay < list-capture < computed`, then the managed floor; nothing fills `workspace` ([why](#config-surfaces-and-the-compose-engine)) | `internal/agentcfg` (`Compose`, `listcontrib.go`) |
 | `config-list` records | `stateful`: `<agent>-<name>.list-capture.json` beside the overlay; `rmw`: `<agent>-<name>.list-record.json` under the provenance directory. Each is written only for a surface with a list path | `render.Target` (`ListCapturePath`, `ListRecordPath`) |
 | Managed null | JSON: assigned (renders `null`); TOML: deletes the key | `agentcfg.enforceManaged`, `agentcfg.enforceManagedTOML` |
 | Derive VM run budget | 5s wall clock | `luahook.DefaultTimeout` |
