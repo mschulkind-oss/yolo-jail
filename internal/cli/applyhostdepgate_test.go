@@ -28,6 +28,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/notty"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // gateConfigJSON is the fixture's CONFIG surface — the destination the render LOOP writes.
@@ -463,8 +464,9 @@ func TestRunDepInstallCommandGoesThroughAShell(t *testing.T) {
 	out := filepath.Join(dir, "out")
 
 	var log bytes.Buffer
-	// A PIPE and a REDIRECT: both are shell syntax, and both are shapes real hints have.
-	if err := runDepInstallCommand("echo installed | tr a-z A-Z > "+out, os.Environ(), &log, false); err != nil {
+	// A PIPE and a REDIRECT: both are shell syntax, and both are shapes real hints have. The
+	// command is a shell line, so a path spliced into it is quoted as one word.
+	if err := runDepInstallCommand("echo installed | tr a-z A-Z > "+shquote.Quote(out), os.Environ(), &log, false); err != nil {
 		t.Fatalf("a well-formed command must succeed: %v (%s)", err, log.String())
 	}
 	body, err := os.ReadFile(out)
@@ -488,7 +490,7 @@ func TestRunDepInstallCommandGoesThroughAShell(t *testing.T) {
 	// THE ENVIRONMENT IT IS HANDED is the one it runs with — the gate hands it the launch PATH
 	// (HE-D6) — and not this process's own.
 	marked := filepath.Join(dir, "marked")
-	if err := runDepInstallCommand(`printf '%s|%s' "$YOLO_TEST_INSTALL_MARK" "$PATH" > `+marked,
+	if err := runDepInstallCommand(`printf '%s|%s' "$YOLO_TEST_INSTALL_MARK" "$PATH" > `+shquote.Quote(marked),
 		[]string{"YOLO_TEST_INSTALL_MARK=handed", "PATH=/launch/path/bin"}, &log, false); err != nil {
 		t.Fatalf("the marked command failed: %v (%s)", err, log.String())
 	}

@@ -26,7 +26,8 @@ import (
 // would call.
 
 // relocInstallerScript is a vendor installer that embeds its own HOME the two ways a relocation
-// has to undo: an absolute symlink, and the path spelled inside a text shim.
+// has to undo: an absolute symlink, and the path spelled inside a text shim. The shim quotes the
+// path, as a working launcher does, so it runs from a home whose path holds a space.
 const relocInstallerScript = `#!/bin/sh
 set -eu
 v="$HOME/.local/share/vendor/1.0.0"
@@ -34,7 +35,7 @@ mkdir -p "$v" "$HOME/.local/bin"
 printf '#!/bin/sh\necho "vendor ran as $0"\n' > "$v/vendor"
 chmod 755 "$v/vendor"
 ln -s "$v/vendor" "$HOME/.local/bin/vendor"
-printf '#!/bin/sh\nexec %s/.local/share/vendor/1.0.0/vendor "$@"\n' "$HOME" > "$HOME/.local/bin/vendor-shim"
+printf '#!/bin/sh\nexec "%s/.local/share/vendor/1.0.0/vendor" "$@"\n' "$HOME" > "$HOME/.local/bin/vendor-shim"
 chmod 755 "$HOME/.local/bin/vendor-shim"
 `
 

@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // packupdate_test.go pins the INSTALL/UPDATE split (docs/design/trust-paths.md §1 row 1).
@@ -191,7 +192,7 @@ func TestUpdateReachesTheLauncherInUpdateMode(t *testing.T) {
 	}
 	record := filepath.Join(t.TempDir(), "handed-env")
 	if err := os.WriteFile(filepath.Join(e.LaunchDir(), "npmtool"),
-		[]byte("#!/bin/sh\nprintf '%s' \"${"+launcherUpdateEnv+":-<unset>}\" > "+record+"\n"),
+		[]byte("#!/bin/sh\nprintf '%s' \"${"+launcherUpdateEnv+":-<unset>}\" > "+shquote.Quote(record)+"\n"),
 		0o755); err != nil {
 		t.Fatal(err)
 	}

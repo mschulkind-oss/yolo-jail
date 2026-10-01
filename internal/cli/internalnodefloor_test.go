@@ -2,11 +2,13 @@ package cli
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // internalnodefloor_test.go pins `yolo internal node-floor-satisfied`'s one output: when it
@@ -40,14 +42,16 @@ func TestNodeFloorSatisfiedNamesWhatIsAvailableWhenItSaysNo(t *testing.T) {
 // bootstrap's regeneration of a met floor's launchers. Driven through runInternal, so the verb's
 // dispatch is under test: a floor-pending record for floor 99, a mise store holding a node 99.0.0
 // (MISE_DATA_DIR, the variable the stage carries), and the launcher the verb writes is the
-// record's segments joined with that interpreter.
+// record's segments joined with that interpreter, spelled as one shell word so the launcher
+// runs that node from a store whose path holds a space.
 func TestNodeFloorLaunchersFinishesAPendingLauncher(t *testing.T) {
 	data := t.TempDir()
 	node := filepath.Join(data, "installs", "node", "99.0.0", "bin", "node")
 	if err := os.MkdirAll(filepath.Dir(node), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(node, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	ran := filepath.Join(t.TempDir(), "node-ran")
+	if err := os.WriteFile(node, []byte("#!/bin/sh\n: > "+shquote.Quote(ran)+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MISE_DATA_DIR", data)
@@ -65,8 +69,14 @@ func TestNodeFloorLaunchersFinishesAPendingLauncher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "exec " + node + " \"$REAL_BIN\"\n"; string(got) != want {
+	if want := "exec " + shquote.Quote(node) + " \"$REAL_BIN\"\n"; string(got) != want {
 		t.Errorf("launcher = %q, want %q", got, want)
+	}
+	// The bytes are only half of it: the launcher must RUN that node, wherever the store is.
+	if out, err := exec.Command("/bin/sh", filepath.Join(launch, "thing")).CombinedOutput(); err != nil {
+		t.Errorf("running the regenerated launcher: %v\n%s", err, out)
+	} else if _, err := os.Stat(ran); err != nil {
+		t.Errorf("the regenerated launcher did not run the floor's node: %v", err)
 	}
 	for _, args := range [][]string{
 		{"node-floor-launchers"},
