@@ -64,7 +64,7 @@ func TestSelfCheckOnAFreshHomeIsNotAFailure(t *testing.T) {
 	if len(lines) != 1 || lines[0].Grade != nixdiag.GradeNote {
 		t.Fatalf("want exactly one graded NOTE line, got %+v:\n%s", lines, out)
 	}
-	for _, want := range []string{"no OpenAI subscription login", "yolo host codex",
+	for _, want := range []string{"no OpenAI subscription login", "`yolo -- codex`",
 		"yolo openai-auth import"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the fresh-home note does not say %q:\n%s", want, out)
@@ -83,7 +83,7 @@ func TestSelfCheckGradesAGrantThatNeedsLogin(t *testing.T) {
 		t.Errorf("rc = %d, want 1:\n%s", rc, out)
 	}
 	if len(lines) == 0 || lines[0].Grade != nixdiag.GradeFail ||
-		!strings.Contains(out, "refresh_token_reused") || !strings.Contains(out, "yolo host codex") {
+		!strings.Contains(out, "refresh_token_reused") || !strings.Contains(out, "`yolo -- codex`") {
 		t.Errorf("a login-required grant is not a graded FAIL naming the code and the "+
 			"remedy: %+v\n%s", lines, out)
 	}

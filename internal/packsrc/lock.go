@@ -22,6 +22,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/updatehint"
 )
 
 // LockSchema is the on-disk format version. Bumped only for a breaking change; an
@@ -75,14 +77,11 @@ type Lock struct {
 // than this build reads: a newer yolo wrote it, and this one must not guess at it.
 //
 // It names `yolo update` rather than saying "upgrade yolo", because the reader cannot be
-// expected to know how this copy was installed and `yolo update` does: it upgrades a
-// Homebrew or from-source install, prints the download link for a release archive, names
-// the binary's own updater for go install, pipx and uv, and in a jail says to run it on
-// the host (internal/cli/update.go; docs/reference/happy-path-principle.md, rule 7).
+// expected to know how this copy was installed and `yolo update` does; in a jail it says to
+// run it on the host. The sentence is updatehint's, which the capture manifest's refusal
+// shares (docs/reference/happy-path-principle.md, rule 7).
 func newerSchemaError(path string, got, want int) error {
-	return fmt.Errorf("%s: schema %d is newer than this yolo understands (%d), so a newer "+
-		"yolo wrote it; run `yolo update` rather than letting this one misread the file",
-		path, got, want)
+	return updatehint.NewerSchema(path, got, want)
 }
 
 // LockPath returns the lockfile path beside a user config path.

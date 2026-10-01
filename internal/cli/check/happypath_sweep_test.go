@@ -24,15 +24,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// notSwept is the files of this package another change owns: their findings get their next
-// steps there, and this guard does not read them until it lands.
-var notSwept = map[string]bool{
-	"section_nix_probe.go": true,
-	"sections_nix.go":      true,
-	"sections_macos.go":    true,
-	"section_autogc.go":    true,
-}
-
 // No r.fail or r.warn in this package passes a literal empty note: a [FAIL] or [WARN] with no
 // note reports a problem and stops, the dead end the principle forbids. A finding that truly has
 // no step the user can take names who can act instead (rung 4).
@@ -43,7 +34,7 @@ func TestNoFindingIsWrittenWithAnEmptyNote(t *testing.T) {
 	}
 	fset := token.NewFileSet()
 	for _, name := range files {
-		if strings.HasSuffix(name, "_test.go") || notSwept[name] {
+		if strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		f, err := parser.ParseFile(fset, name, nil, 0)

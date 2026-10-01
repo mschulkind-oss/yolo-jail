@@ -96,8 +96,7 @@ func (o *Options) checkMacosUserBackend(r *reporter) {
 	} else {
 		r.fail("nix not found",
 			"Every macos-user launch builds its tools (git, node, mise and anything in "+
-				"`packages:`) with the host's nix, and refuses without it. Install it: "+
-				"https://nixos.org/download")
+				"`packages:`) with the host's nix, and refuses without it.\n"+o.nixInstallNote())
 	}
 	repoRes, ok := o.RepoRoot()
 	repoRoot := repoRes.Root

@@ -1,0 +1,129 @@
+package check
+
+// nixinstall_test.go pins the next step `yolo check` gives for a machine with no Nix, or one whose
+// nix will not start. Both used to stop short: "nix not found" pointed at https://nixos.org/download/,
+// a page that leaves the choice of installer to the reader, and "nix found but could not be run"
+// had no note at all (docs/reference/happy-path-principle.md, rules 1 and 3). The install each
+// now prints is the getting-started guide's for this machine.
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/storage"
+)
+
+// TestNixInstallHintsMatchTheGuide: every command the hints print is a line of
+// userguide/getting-started.md, the guide that recommends it, so the two cannot drift apart.
+func TestNixInstallHintsMatchTheGuide(t *testing.T) {
+	guide, err := os.ReadFile(filepath.Join("..", "..", "..", "userguide", "getting-started.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := map[string]bool{}
+	for _, l := range strings.Split(string(guide), "\n") {
+		lines[strings.TrimSpace(l)] = true
+	}
+	for _, intel := range []bool{false, true} {
+		_, cmds := storage.NixInstall(intel)
+		for _, c := range cmds {
+			if !lines[c] {
+				t.Errorf("no line of userguide/getting-started.md is %q (intel Mac: %v)", c, intel)
+			}
+		}
+	}
+	for _, want := range []string{storage.NixInstallerUninstall, storage.NixUninstallManual} {
+		if !strings.Contains(string(guide), want) {
+			t.Errorf("userguide/getting-started.md does not name %q", want)
+		}
+	}
+}
+
+// nixSection runs the Nix section with nix at nixPath ("" for none) and `nix --version` failing
+// to start, and returns its output.
+func nixSection(t *testing.T, mod func(*Options), nixPath string) string {
+	t.Helper()
+	var out bytes.Buffer
+	o := &Options{Stdout: &out, IsTTYStdout: func() bool { return false },
+		Getenv: func(string) string { return "" }}
+	o.LookPath = func(name string) (string, bool) { return nixPath, name == "nix" && nixPath != "" }
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: false} }
+	o.PathExists = func(string) bool { return false }
+	mod(o)
+	fillDefaults(o)
+	o.sectionNix(newReporter(&out, false))
+	return stripANSI(out.String())
+}
+
+// TestNixNotFoundNamesThisMachinesInstall: the note is the guide's install for this machine, then
+// the re-check in a new terminal, where nix is on the PATH. Inside a container jail the nix is the
+// image's, so the step is a relaunch.
+func TestNixNotFoundNamesThisMachinesInstall(t *testing.T) {
+	const recheck = "then, in a new terminal: yolo check"
+	for _, tc := range []struct {
+		name string
+		mod  func(*Options)
+		want []string
+	}{
+		{"linux", func(o *Options) { o.Machine = "x86_64" }, []string{storage.NixInstallerCommand, recheck}},
+		{"apple silicon", func(o *Options) { o.IsMacOS, o.Machine = true, "arm64" },
+			[]string{storage.NixInstallerCommand, recheck}},
+		{"intel mac", func(o *Options) { o.IsMacOS, o.Machine = true, "x86_64" },
+			append(append([]string{}, storage.NixIntelMacCommands...), recheck)},
+		{"container jail", func(o *Options) {
+			o.Getenv = func(k string) string { return map[string]string{"YOLO_VERSION": "9.9.9-test"}[k] }
+		}, []string{"comes from the jail's image", "relaunch the jail, then: yolo check", "is a yolo bug"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := nixSection(t, tc.mod, "")
+			if !strings.Contains(got, "[FAIL] nix not found") {
+				t.Fatalf("no [FAIL] for a machine with no nix:\n%s", got)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("the note lacks %q:\n%s", want, got)
+				}
+			}
+			if strings.Contains(got, "nixos.org/download") {
+				t.Errorf("the note still sends the reader to choose an installer:\n%s", got)
+			}
+		})
+	}
+}
+
+// TestANixThatWillNotStartNamesItsErrorAndTheReinstall: the [FAIL] had no note. It now names the
+// command that shows nix's own error, quoted for a shell, and the reinstall: the installer's own
+// uninstall where its receipt is, else where the steps for the nixos.org script's install are.
+func TestANixThatWillNotStartNamesItsErrorAndTheReinstall(t *testing.T) {
+	const nixPath = "/opt/my nix/bin/nix"
+	for _, tc := range []struct {
+		name    string
+		receipt bool
+		want    string
+	}{
+		{"installer receipt", true, storage.NixInstallerUninstall},
+		{"no receipt", false, storage.NixUninstallManual},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := nixSection(t, func(o *Options) {
+				o.Machine = "x86_64"
+				o.PathExists = func(p string) bool { return tc.receipt && p == storage.NixInstallerReceipt }
+			}, nixPath)
+			for _, want := range []string{
+				"[FAIL] nix found but could not be run: " + nixPath,
+				"'/opt/my nix/bin/nix' --version",
+				tc.want,
+				storage.NixInstallerCommand,
+				"then, in a new terminal: yolo check",
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("the finding lacks %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}

@@ -1,7 +1,7 @@
 ---
 status: current
 verified: 2026-10-01
-verified_commit: eb415c7c
+verified_commit: 0b9cff0d
 summary: "When yolo can't do what the user asked, it does the work itself, offers one command that does it, gives exact instructions for this platform, or names who can act. It never just reports the problem."
 covers:
   - internal/cli/check/
@@ -10,14 +10,18 @@ covers:
   - internal/cli/applyhostdepgate.go
   - internal/cli/hostapplyverdict.go
   - internal/cli/checkdeps.go
+  - internal/cli/hintcommands_test.go
   - internal/cli/init.go
   - internal/cli/update.go
   - internal/cli/autocapture.go
+  - internal/capture/manifest.go
   - internal/config/packs.go
   - internal/depcheck/
   - internal/entrypoint/shims.go
   - internal/packsrc/lock.go
   - internal/prune/probes.go
+  - internal/storage/nixinstall.go
+  - internal/updatehint/
   - cmd/yolo-ps/main.go
   - cmd/yolo-serial/main.go
   - cmd/yolo-cglimit/main.go
@@ -27,7 +31,8 @@ tags: [principle, cli, ux, errors, diagnostics]
 
 # The Happy Path Principle: every stop leads back to the happy path
 
-**Status:** PRINCIPLE, current as of 2026-10-01, verified against `eb415c7c`.
+**Status:** PRINCIPLE, current as of 2026-10-01, verified against `0b9cff0d` and the next-step
+fixes landed with this revision.
 
 **Author:** Matt Schulkind, the maintainer; adopted 2026-10-01. This name used to belong to the
 fill-the-matrix principle ([`fill-the-matrix-principle.md`](fill-the-matrix-principle.md)), renamed
@@ -78,9 +83,9 @@ on a standard term:
   back onto it. Usually the happy path is described and tested on its own. This principle is about
   everything *off* it: each failure is a way back onto the happy path, not the end of it.
 - **Dead end** *(coined here)*: the failure this principle prevents. It is any point where yolo
-  stops and the user has no concrete next step. `nix found but could not be run: <path>`.
-  `yolo-serial: endpoint file <path> is malformed.` Each reports a problem accurately and then
-  leaves the user to work out the fix on their own.
+  stops and the user has no concrete next step. Two that yolo printed until 2026-10-01:
+  `nix found but could not be run: <path>`, and `yolo-serial: endpoint file <path> is malformed.`
+  Each reported a problem accurately and then left the user to work out the fix on their own.
 - **Next step** *(coined here)*: something the user can do right away without any research. It is
   either a command they can copy and paste, or exact instructions written for their platform.
   "Install it with your package manager" is **not** a next step. It points the user at a task
@@ -116,7 +121,7 @@ rung 4. Cite rungs and rules by number, and never renumber them.
 | :--- | :--- | :--- |
 | **1. Do it** | Fixes the missing piece itself when that's safe, cheap and can be undone, and says what it did. When the fix needs the user's OK, it asks first, then does it. | A [pack](pack-system.md)'s agent installs the first time it runs: its launcher prints `Installing <package>...`, then runs it. A rootless podman whose pasta cannot forward the host's loopback is launched on slirp4netns instead, with a note on what changed, what it costs and how to get back. |
 | **2. Offer it as one command** | Names a single command that makes the fix. | `yolo prune` is a dry run ending `Re-run with --apply to execute.` A yolo older than its source tree refuses with `Fix:  (cd <repoRoot> && just install)`. |
-| **3. Give exact instructions** | Prints the exact command or config line for *this* platform when yolo can't run it (it needs sudo, a package manager, or an edit to the user's config). | `yolo check-deps` prints `sudo dnf install -y <pkg>` on a dnf host and `brew install --cask <pkg>` for a cask. With no packs, a launch says to add `"packs": ["claude"]` to `~/.config/yolo-jail/config.jsonc`. |
+| **3. Give exact instructions** | Prints the exact command or config line for *this* platform when yolo can't run it (it needs sudo, a package manager, or an edit to the user's config). | `yolo check-deps` prints `sudo dnf install -y <pkg>` on a dnf host and `brew install --cask <pkg>` for a cask. With no packs, a launch says to add `"packs": ["claude"]` to `~/.config/yolo-jail/config.jsonc`. With no nix, `yolo check` prints the install the [getting-started guide](../../userguide/getting-started.md) gives for this machine. |
 | **4. Name the owner** | When the user's own action can't fix it, says why and who or what can. | In a jail, `yolo update` says it is the jail's copy of the host's yolo and to run `yolo update` on the host. A rootful podman can't forward loopback, and yolo says so and names the two setups that work instead. |
 
 When a step is expensive, yolo says what it will cost before doing it. A launch's auto-capture
@@ -130,47 +135,55 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    *In yolo:* the refusal for a yolo older than its source tree (`refuseOnSourceSkew`) is the model:
    the fix, what to try if it doesn't take, then the `YOLO_ALLOW_SOURCE_SKEW=1` hatch (the
    variable that overrules the refusal). A hatch alone is not a next step, because it goes on
-   without what was refused. Dead ends remain: `yolo check`'s
-   `[FAIL] Could not resolve the yolo-jail repo root` has no note, though the launch's refusal for
-   the same fault prints the fix, and `yolo-serial` stops where `yolo-ps` says "relaunch the jail."
+   without what was refused. No `yolo check` finding may be written with a literal empty note
+   (`TestNoFindingIsWrittenWithAnEmptyNote`), and `nix found but could not be run` now names the
+   command that shows nix's own error, then the reinstall. The in-jail clients name one too:
+   `yolo-serial` says to relaunch the jail, as `yolo-ps` does, and `yolo-cglimit` names the two
+   config lines that turn on the cgroup delegate.
 2. **Every success points forward too.** A command that finishes normally ends by naming the likely
    next command. Without that, a successful run is a dead end as well: it leaves the user on the
    happy path but gives no next step along it.
-   *In yolo:* `yolo init` names the next command (`Tell them to run: yolo -- claude`).
-   `yolo init-user-config` ends at `Created <path>`, though the template it writes selects no
-   packs. A successful `yolo host apply --assert` ends at its verdict and counts and names no next
-   command; a line naming one would belong to its
+   *In yolo:* `yolo init` names the next command (`Tell them to run: yolo -- claude`), and
+   `yolo init-user-config` ends with the line that selects an agent, `yolo check`, and the
+   command that launches it. A successful `yolo host apply --assert` ends at its verdict and
+   counts and names no next command; a line naming one would belong to its
    [verdict block](report-tiers.md#the-verdict-block).
 3. **Advice must be specific and verified.** Give the exact package name, flag or path for the
    user's platform. Generic advice can be just as wrong as no advice. Every platform-specific entry
    records where its name came from, and a test rejects any entry that doesn't.
    *In yolo:* the mechanism is tested: no remedy names a package manager the lookup did not find
-   (`TestNixIsOfferedOnlyWhereTheLookupFindsIt`, `TestEveryProbeReadsTheCallersLookup`). **yolo
-   does not yet enforce rule 3 for the names themselves:** a pack's `install_hints` record no
-   source, and no test checks the package names they give. The `guardrails` apt hint for `fd` is
-   `fd-find`, which Debian installs as `fdfind`, so following it leaves `fd` missing (per Debian's
-   packaging, not measured here). And for a missing runtime `yolo check` offers "your package
-   manager, e.g. `sudo apt install podman`", which is wrong on Fedora or Arch.
+   (`TestNixIsOfferedOnlyWhereTheLookupFindsIt`, `TestEveryProbeReadsTheCallersLookup`). The
+   install lines `yolo check` prints for a missing container runtime and for a missing nix are
+   read against the getting-started guide they come from (`TestPodmanInstallHintsMatchTheGuide`,
+   `TestNixInstallHintsMatchTheGuide`). **yolo does not yet enforce rule 3 for a pack's
+   `install_hints`:** a pack records no source for them, except the `guardrails` pack, whose
+   comments cite where each of its names came from, and no test checks that an entry has a
+   source or that the names it gives are right.
 4. **Hints are tested so they can't go stale.** A test checks that every command a hint prints is a
    real command. A hint naming a deleted command is a dead end that *looks* like a next step, which
    is worse than no hint.
-   *In yolo:* help is tested: every command's help carries an example that routes to that command
+   *In yolo:* every backticked `yolo …` command in a string literal under `internal/` and `cmd/`,
+   and every one-command line of a command's help examples, is resolved against the dispatchers'
+   own source:
+   its command through the router `yolo` dispatches with, its verb in that command's verb switch,
+   and each `--flag` after it in what that command parses (`TestEveryHintedYoloCommandExists`,
+   `TestEveryHelpExampleExists`, in `internal/cli/hintcommands_test.go`). It caught `yolo host codex`
+   and `yolo host check-deps`, neither a command, and a help example for a `yolo programs` verb
+   that does not exist. Every command's help carries an example that routes to that command
    (`TestEveryCommandShowsACopyableExample`), and every `docs/` path or anchor cited from Go
-   resolves (`TestEveryDocCitationFromGoResolves`). **yolo does not yet enforce rule 4 for
-   messages:** no test checks that a command named in a refusal or a check note exists, or that it
-   does what the hint says. The tests that read such a hint pin its string. So `yolo check` tells a
-   pipe to remove orphaned jails with `yolo prune --apply`, but those jails are running and prune
-   removes only stopped containers, and its test checks only that the string is there. And
-   `yolo-cglimit` says the host runs the cgroup delegate "automatically," though the delegate is
-   now an opt-in [loophole](loophole-system.md) shipped by the `cgroup-delegate` pack, and
-   `TestMissingSocketFailsClosed` pins that word.
+   resolves (`TestEveryDocCitationFromGoResolves`). **No test checks that a named command does what
+   the hint says:** that is each hint's own test. `yolo check`'s piped orphan note used to name
+   `yolo prune --apply`, a real command that removes only stopped containers, so the running jails
+   it listed stayed. Its test now follows the removal the note names, against a fake runtime, and
+   then the re-check (`TestPipedOrphanHintRemovesWhatTheTerminalsYesRemoves`).
 5. **Re-check after a fix, and never report OK over broken.** After a repair yolo checks again for
    real and doesn't take the fix on faith. A false green sends the user down the wrong path with
    full confidence.
    *In yolo:* `yolo host apply --assert` re-probes each binary it installed and refuses if one is
    still missing ([the dependency rule](report-tiers.md#the-dependency-rule);
    `TestApplyHostAssertRefusesWhenTheInstallProducesNothing`), and `yolo check` counts `[SKIP]`
-   apart from passes ([`OQ-3`](claude-oauth-interposition.md#oq-3); `TestSkipIsNotAPass`).
+   apart from passes ([`OQ-3`](claude-oauth-interposition.md#oq-3); `TestSkipIsNotAPass`). Every
+   `yolo check-deps` run that finds something missing ends with `yolo check-deps` to check again.
 6. **Re-running is always safe.** The next step for nearly any interrupted command is to run it
    again, and that only works if a second run can't make things worse.
    *In yolo:* a failed auto-capture says `The next launch retries.`, and a launcher whose update is
@@ -180,45 +193,61 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    value, fork it from an existing copy or fetch it, it does that instead of asking the user to go
    and get it.
    *In yolo:* the macOS nix-daemon restart reads the daemon's label from `/Library/LaunchDaemons`.
-   Dead ends remain: `yolo check-deps` writes a package list and says to install it "with the
-   command for your manager," though it knows the manager, and a lockfile from a newer yolo says
-   `upgrade yolo`, though `yolo update` knows this install's channel.
+   `yolo check-deps` ends with the command that installs its package list for the manager it
+   found, and a pack lockfile, a fork lock or a capture written by a newer yolo names
+   `yolo update`, which knows this install's channel, or in a jail says to run it on the host.
 
 ## Before and after
 
-Each pair shows what yolo prints today, then a target. **No target below is current output.** The
-nix target names the installer the [getting-started guide](../../userguide/getting-started.md)
-recommends for Linux and Apple silicon Macs; an Intel Mac takes the nixos.org script instead.
+Each pair below shows what yolo printed before 2026-10-01, then what it prints now. **Each "Now"
+is current output.** The last pair is still open: its "Target" is not yet what yolo prints.
 
-**Today:** `yolo check` on a Linux host with no nix (`sectionNix`):
+**Before:** `yolo check` on a Linux host with no nix (`sectionNix`):
 
 ```text
   [FAIL] nix not found
        -> Install Nix: https://nixos.org/download/
 ```
 
-**Target:**
+**Now:** the install the [getting-started guide](../../userguide/getting-started.md) recommends
+for Linux and Apple silicon Macs. An Intel Mac gets the guide's nixos.org script and its two
+trust lines instead.
 
 ```text
   [FAIL] nix not found
-       -> Install Nix: curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install
+       -> Install Nix with the NixOS Nix installer (its --extra-conf makes the Nix daemon trust you):
+            curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --extra-conf "extra-trusted-users = $(whoami)"
           then, in a new terminal: yolo check
 ```
 
-**Today:** `yolo check` with its output piped, and two running jails it judges orphaned
-(`nonTTYOrphansLine`):
+**Before:** `yolo check` with its output piped, and two running jails it judges orphaned:
 
 ```text
   2 orphaned jail(s) are still here. Run `yolo prune --apply` to remove them; this check will not.
 ```
 
-**Target:** the same removal a terminal's `y` makes. That answer also records why each jail
-stopped, which a bare `rm -f` does not.
+**Now:** the same removal a terminal's `y` makes (`nonTTYOrphansNote`). That answer also records
+why each jail stopped, which a removal from outside yolo cannot.
 
 ```text
-  2 orphaned jail(s) are still here; this check will not remove them.
-     fix:  podman rm -f yolo-api-3f2a91c0 yolo-web-9c1d47e2
-     then: yolo check
+  [WARN] 2 orphaned jail(s)
+       -> These containers are stuck or have lost their workspace, and this check removes them
+          only when a terminal answers its question:
+          fix:  podman rm -f yolo-api-3f2a91c0 yolo-web-9c1d47e2
+          then: yolo check
+```
+
+**Today, still open:** a jail's first `codex` whose install fails (the launcher in
+`~/.yolo/bin/launch`):
+
+```text
+  ⚠ codex not available
+```
+
+**Target:** the launcher installs again on the next run, so it says so.
+
+```text
+  ⚠ codex not available: its install failed, above. Run codex again to retry the install.
 ```
 
 ## Review checklist
@@ -252,6 +281,9 @@ Parts of this principle are already written down in yolo-jail:
   dead end: no message at all.
 - In code: the refusal for a yolo older than its source tree
   ([`srcskew.go`](../../internal/cli/run/srcskew.go)), `depcheck`'s per-manager install lines
-  ([`depcheck.go`](../../internal/depcheck/depcheck.go)), the slirp4netns fallback note
-  ([`hostloopback.go`](../../internal/cli/run/hostloopback.go)) and `yolo-ps`'s three-step message
-  for when the host-processes loophole is not turned on ([`main.go`](../../cmd/yolo-ps/main.go)).
+  ([`depcheck.go`](../../internal/depcheck/depcheck.go)), the guide's Nix install
+  ([`nixinstall.go`](../../internal/storage/nixinstall.go)), the slirp4netns fallback note
+  ([`hostloopback.go`](../../internal/cli/run/hostloopback.go)), `yolo-ps`'s three-step message
+  for when the host-processes loophole is not turned on ([`main.go`](../../cmd/yolo-ps/main.go)),
+  and rule 4's check of every hinted command
+  ([`hintcommands_test.go`](../../internal/cli/hintcommands_test.go)).

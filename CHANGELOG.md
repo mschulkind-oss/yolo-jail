@@ -665,7 +665,11 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   repo root` gives the fix a launch gives for it. A check that could not get an answer names the
   command to run yourself, a config error names where to fix it, and a problem in a pack that ships
   with yolo says it is a yolo bug and where to report it. A missing yolo state folder now says why
-  yolo could not create it, instead of promising the first launch would.
+  yolo could not create it, instead of promising the first launch would. With no Nix, `yolo check`
+  and `yolo macos-setup` now give the install command
+  [Getting Started](userguide/getting-started.md#step-1-install-nix) recommends for your machine,
+  where they linked to nixos.org's download page, and a Nix that will not start names the command
+  that shows Nix's own error and how to reinstall it.
 - `yolo-cglimit` in a jail without the cgroup delegate now says how to turn it on: the two lines
   that select the `cgroup-delegate` pack and enable it in `~/.config/yolo-jail/config.jsonc`, then
   a restart of the jail. It used to say yolo starts the delegate automatically, which stopped being
@@ -674,18 +678,27 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   when the bridge stopped on your machine, where its log is. In that case `yolo-serial list` and the
   other commands used to print nothing and exit 0, as if they had worked; they now exit 1.
   `yolo-serial pty` also exits with the bridge's code now, so a device the bridge refuses no longer
-  ends in success.
+  ends in success. Its options now work after the device, where its help puts them:
+  `yolo-serial read /dev/ttyUSB0 --baud 9600` used to read at 115200, and an `--endpoint` written
+  there was ignored.
 - `yolo init-user-config` now ends with the next steps: the line to add that chooses your agent,
   `yolo check`, and the command that launches it. Run on a file that selects no packs yet, it
   prints the same steps.
 - `yolo check-deps` now ends with the command that installs the package list it writes for your
   package manager, such as `brew bundle --file=…` for a Brewfile, then `yolo check-deps` to check
-  again, instead of "install with the command for your manager".
+  again, instead of "install with the command for your manager". A tool with its own installer is
+  left out of that list and its installer's command is printed beside it, as each tool's own line
+  already advised, since that installer keeps it current. A run that writes no list, with
+  `--no-manifest` or with nothing a list can hold, now ends with each command and the re-check too.
 - On Debian and Ubuntu, the guardrails pack's install command for `fd` now leaves `fd` on your
   PATH. The package it named installs the program under other names, so following it left `fd`
   missing; the command now also links it into `/usr/local/bin`.
-- A pack lockfile written by a newer yolo now tells you to run `yolo update`, which knows how this
-  yolo was installed, instead of only "upgrade yolo".
+- A pack lockfile, or a machine's `yolo capture` of a program, written by a newer yolo now tells
+  you to run `yolo update`, which knows how this yolo was installed, or in a jail to run it on your
+  machine, instead of only "upgrade yolo".
+- Two commands yolo told you to run did not exist. The OpenAI login check said to sign in with
+  `yolo host codex`, and now says `yolo -- codex`; `yolo programs --help` showed a
+  `remove-undeclared` verb, which is `yolo programs remove`.
 - `yolo prune --apply` now removes the old yolo store paths it lists on a Nix installed with the
   official installer and no `experimental-features` line. It used to fail on each one with "experimental
   Nix feature 'nix-command' is disabled".

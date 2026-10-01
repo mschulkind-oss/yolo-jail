@@ -17,7 +17,9 @@ Container Runtime
 
 Nix
   [FAIL] nix not found
-       -> Install Nix: https://nixos.org/download/
+       -> Install Nix with the NixOS Nix installer (its --extra-conf makes the Nix daemon trust you):
+            curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --extra-conf "extra-trusted-users = $(whoami)"
+          then, in a new terminal: yolo check
 
 Global Storage
   [WARN] Home directory missing: $HOME/.local/share/yolo-jail/home

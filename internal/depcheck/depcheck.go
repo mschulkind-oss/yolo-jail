@@ -134,11 +134,9 @@ type Result struct {
 	// Fallback is the package-manager remedy for a dep whose primary Remedy came from the
 	// pack's own installer — reported as an alternative rather than dropped, since a user
 	// who would rather go through their package manager should still see the token. Empty
-	// whenever Remedy already IS the manager's command. FallbackFlavor is its hint key,
-	// carried rather than re-derived because Manifest needs the brew formula/cask verb and
-	// recovering that from a command string would be a second, guessing implementation.
-	Fallback       string
-	FallbackFlavor string
+	// whenever Remedy already IS the manager's command. It is printed and never bundled:
+	// Manifest leaves such a dep out (planBundle says why).
+	Fallback string
 	// NoTerminal is whether Remedy must run with no controlling terminal and a /dev/null stdin:
 	// it is the pack's own installer script (Requirement.SelfInstallNoTerminal). False for a
 	// package-manager remedy, and for a binary with no remedy.
@@ -232,7 +230,7 @@ func Check(reqs []Requirement, look Lookup) []Result {
 			res.Remedy, res.Flavor = r.SelfInstall, selfInstallFlavor
 			res.NoTerminal = r.SelfInstallNoTerminal
 			if pkg, flavor, ok := hintFor(r.Hints, mgr); ok {
-				res.Fallback, res.FallbackFlavor = installCmd(flavor, pkg), flavor
+				res.Fallback = installCmd(flavor, pkg)
 			}
 		default:
 			if pkg, flavor, ok := hintFor(r.Hints, mgr); ok {
@@ -321,15 +319,16 @@ func Missing(results []Result) []Result {
 // hint came from brewCaskHint gets the `cask` verb, because `brew bundle` on a `brew` line
 // naming a cask token fails looking for a formula that does not exist.
 //
-// A dep whose remedy is the PACK'S OWN installer contributes its Fallback token if it has
-// one, and otherwise nothing: a bundle file is a list of package-manager tokens, and there
-// is no way to spell `curl … | sh` in one. Splicing the URL in as a token would produce a
-// Brewfile that fails on a line the user cannot fix; the printed remedy already names the
-// command, so nothing is lost by leaving it out of the bundle.
+// A dep whose remedy is the PACK'S OWN installer contributes nothing, even when it has a
+// package-manager Fallback: its remedy leads with that installer because the tool's own
+// updater keeps it current (selfInstallFlavor), and a bundle listing the distro package
+// would install the copy the per-line advice steers the user away from. It used to list the
+// Fallback token. Nor is there a way to spell `curl … | sh` in a bundle file, which is a list
+// of package-manager tokens.
 //
-// So does a hint that is a package PLUS A STEP (bundleToken), and for the same reason. Each
-// dep left out is one Unbundled returns, so a caller can print its command beside the
-// bundle's rather than let the bundle read as the whole install.
+// Nor does a hint that is a package PLUS A STEP (bundleToken). Each dep left out is one
+// Unbundled returns, so a caller can print its command beside the bundle's rather than let
+// the bundle read as the whole install.
 func Manifest(results []Result) (filename, body string) {
 	b := planBundle(results)
 	if len(b.pkgs)+len(b.casks) == 0 {
@@ -379,9 +378,9 @@ func BundleInstall(results []Result, path string) string {
 }
 
 // Unbundled returns the missing results that HAVE a remedy and are not in the bundle Manifest
-// renders: a pack's own installer with no manager fallback, or a hint that is a package plus a
-// step. Their printed remedies are still the whole command; a caller naming BundleInstall's
-// command names these beside it, or running the bundle would leave them missing.
+// renders: a pack's own installer, with or without a manager fallback, or a hint that is a
+// package plus a step. Their printed remedies are still the whole command; a caller naming
+// BundleInstall's command names these beside it, or running the bundle would leave them missing.
 func Unbundled(results []Result) []Result {
 	return planBundle(results).left
 }
@@ -402,8 +401,9 @@ func planBundle(results []Result) bundle {
 		}
 		remedy, flavor := r.Remedy, r.Flavor
 		if flavor == selfInstallFlavor {
-			// Only the manager fallback can go in a bundle.
-			remedy, flavor = r.Fallback, r.FallbackFlavor
+			// The tool's own installer stays the remedy, beside the bundle (Manifest says why).
+			b.left = append(b.left, r)
+			continue
 		}
 		if flavor == "" {
 			flavor = r.Manager // Flavor is the manager for every hint but a cask (Result.Flavor)

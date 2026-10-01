@@ -128,33 +128,78 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 		return 0
 	}
 
+	bundle := ""
 	if writeManifest {
 		if name, body := depcheck.Manifest(results); name != "" {
 			p := filepath.Join(depManifestDir(), name)
-			if err := os.MkdirAll(depManifestDir(), 0o755); err == nil &&
-				os.WriteFile(p, []byte(body), 0o644) == nil {
-				printBundleSteps(pr, results, p)
+			err := os.MkdirAll(depManifestDir(), 0o755)
+			if err == nil {
+				err = os.WriteFile(p, []byte(body), 0o644)
+			}
+			if err != nil {
+				// Said, not swallowed: the steps below then name each command on its own.
+				pr.Printf("[yellow]![/yellow] could not write the bundle %s: %s", richtext.Escape(p),
+					richtext.Escape(err.Error()))
+			} else {
+				bundle = p
 			}
 		}
 	}
+	printInstallSteps(pr, results, bundle)
 	// Missing deps are a non-zero exit so a CI or a caller can gate on it.
 	return 1
 }
 
-// printBundleSteps ends the report once the bundle is written at p: the one command that
-// installs it, then each missing dep's command the bundle cannot hold, then the re-check.
-// Every line is a shell command, the notes after `#` included, so the block can be pasted
-// whole. It used to end at "install with the command for your manager", though depcheck had
-// just picked the manager (docs/reference/happy-path-principle.md, rule 7), and running the
-// bundle alone would leave a dep it leaves out still missing (depcheck.Unbundled).
-func printBundleSteps(pr richtext.Printer, results []depcheck.Result, p string) {
+// printInstallSteps ends every report that found something missing: the commands that install
+// it, then the re-check. With the bundle written at bundle, the commands are the one that
+// installs the bundle and each missing dep's command the bundle cannot hold
+// (depcheck.Unbundled), among them every tool with its own installer. With no bundle
+// (--no-manifest, a failed write, or nothing that fits one), they are each missing dep's own
+// command. Every line is a shell command, the notes after `#` included, so the block can be
+// pasted whole.
+//
+// It used to end at "install with the command for your manager", though depcheck had just
+// picked the manager (docs/reference/happy-path-principle.md, rule 7), and a run with no
+// bundle ended at its last MISSING line, with no re-check (rule 5).
+func printInstallSteps(pr richtext.Printer, results []depcheck.Result, bundle string) {
+	var lines []string
+	note := ""
+	if bundle != "" {
+		lines = append(lines, richtext.Escape(depcheck.BundleInstall(results, bundle)))
+		note = " (not in the file)"
+	}
+	for _, r := range installedApart(results, bundle != "") {
+		lines = append(lines, richtext.Escape(r.Remedy)+"  [dim]# "+richtext.Escape(r.Bin)+note+"[/dim]")
+	}
 	pr.Printf("")
-	pr.Printf("wrote %s. To install what is missing, run:", richtext.Escape(p))
-	pr.Printf("  %s", richtext.Escape(depcheck.BundleInstall(results, p)))
-	for _, r := range depcheck.Unbundled(results) {
-		pr.Printf("  %s  [dim]# %s (not in the file)[/dim]", richtext.Escape(r.Remedy), richtext.Escape(r.Bin))
+	switch {
+	case bundle != "":
+		pr.Printf("wrote %s. To install what is missing, run:", richtext.Escape(bundle))
+	case len(lines) > 0:
+		pr.Printf("To install what is missing, run:")
+	default:
+		// Nothing here has a command to name: each MISSING line above says why.
+		pr.Printf("Once the tools above are installed, run:")
+	}
+	for _, l := range lines {
+		pr.Printf("  %s", l)
 	}
 	pr.Printf("  yolo check-deps  [dim]# check again[/dim]")
+}
+
+// installedApart is the missing deps whose command printInstallSteps prints on its own line:
+// those the bundle leaves out when there is one, and otherwise every missing dep with a remedy.
+func installedApart(results []depcheck.Result, bundled bool) []depcheck.Result {
+	if bundled {
+		return depcheck.Unbundled(results)
+	}
+	var out []depcheck.Result
+	for _, r := range depcheck.Missing(results) {
+		if r.Remedy != "" {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // depManifestDir is the fixed, user-scoped home for the generated dep manifest
@@ -373,7 +418,9 @@ const checkDepsUsage = `yolo check-deps — probe the host for binaries the conf
 Below the jail notch yolo bakes no image, so a pack's tools become a question about the
 host. This probes for each declared binary and, for the missing ones, prints the install
 command for your package manager and writes a bundle manifest (~/.config/yolo/Brewfile
-and kin) you can run in one step.
+and kin) you can run in one step. A tool with its own installer is installed with that,
+which keeps it current, so it is left out of the manifest and its command is printed
+beside the manifest's. The report ends with every command to run, then the re-check.
 
   yolo check-deps               probe + write the manifest for missing deps
   yolo check-deps --no-manifest probe only, write nothing

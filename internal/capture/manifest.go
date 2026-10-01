@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/updatehint"
 )
 
 // ManifestName is the delta manifest's filename inside an ENTRY-SHAPED directory — the
@@ -227,7 +229,7 @@ func WriteManifest(root string, m *Manifest) error {
 
 // ReadManifest reads the manifest from an entry-shaped directory.
 //
-// A manifest written by a NEWER yolo is a hard error naming the upgrade, never a
+// A manifest written by a NEWER yolo is a hard error naming `yolo update`, never a
 // best-effort parse: see ManifestSchema.
 func ReadManifest(root string) (*Manifest, error) {
 	b, err := os.ReadFile(ManifestPath(root))
@@ -239,9 +241,10 @@ func ReadManifest(root string) (*Manifest, error) {
 		return nil, fmt.Errorf("capture manifest %s: %w", ManifestPath(root), err)
 	}
 	if m.Schema > ManifestSchema {
-		return nil, fmt.Errorf("capture manifest %s is schema %d and this yolo understands "+
-			"%d — upgrade yolo rather than reading it partially",
-			ManifestPath(root), m.Schema, ManifestSchema)
+		// `yolo update`, never "upgrade yolo": the reader cannot be expected to know how this
+		// copy was installed, and `yolo update` does (updatehint, which the pack lockfile's
+		// refusal shares).
+		return nil, updatehint.NewerSchema("capture manifest "+ManifestPath(root), m.Schema, ManifestSchema)
 	}
 	return &m, nil
 }

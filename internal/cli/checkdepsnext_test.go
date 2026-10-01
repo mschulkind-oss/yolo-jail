@@ -124,3 +124,94 @@ func TestGuardrailsFdHintLeavesFdOnPath(t *testing.T) {
 		t.Errorf("the fd remedy ran %q, want %q", got, want)
 	}
 }
+
+// selfInstallPack is a pack whose program has its own installer (`via: npm`) and an apt hint
+// beside it, plus a plain requirement only apt installs. The user config it is used with sets
+// `host_floor: false`, so the host floor does not answer for the program and check-deps probes it
+// as a dependency.
+func selfInstallPack(t *testing.T) string {
+	t.Helper()
+	pack := filepath.Join(floortest.ResolvedTemp(t), "selfpack")
+	writeFile(t, filepath.Join(pack, "pack.json"), `{"name":"selfpack","contributes":[`+
+		`{"kind":"program","bin":"yolo-cd-self","via":"npm","package":"yolo-cd-self-pkg",`+
+		`"install_hints":{"apt":"yolo-cd-self-apt"}},`+
+		`{"kind":"requires","bin":"yolo-cd-plain","install_hints":{"apt":"yolo-cd-plain-pkg"}}]}`)
+	return pack
+}
+
+// TestCheckDepsLeavesAFirstPartyInstallerOutOfTheBundle: a dep whose tool has its own installer
+// gets that installer as its remedy, because the tool's own updater keeps it current and a distro
+// package pins whatever that repo has (depcheck's selfInstallFlavor). The bundle used to list the
+// distro package anyway, through the remedy's apt fallback, so the closing command installed the
+// copy the per-line advice had just steered the user away from. The bundle now leaves such a dep
+// out, and the closing lines print its own installer beside the bundle's command.
+func TestCheckDepsLeavesAFirstPartyInstallerOutOfTheBundle(t *testing.T) {
+	pack := selfInstallPack(t)
+	home := checkDepsHome(t, `{"host_floor": false, "packs":[{"source":"file://`+pack+`","name":"selfpack"}]}`, "apt")
+
+	rc, report := runCheckDepsWritingTheBundle(t)
+	if rc != 1 {
+		t.Fatalf("rc = %d with two deps missing, want 1:\n%s", rc, report)
+	}
+	if !strings.Contains(report, "MISSING → npm install -g yolo-cd-self-pkg\n") {
+		t.Fatalf("the program's line does not lead with its own installer:\n%s", report)
+	}
+	bundle := filepath.Join(home, ".config", "yolo", "apt-packages.txt")
+	if got := readFileT(t, bundle); got != "yolo-cd-plain-pkg\n" {
+		t.Errorf("bundle = %q, want the plain requirement alone: the program has its own installer", got)
+	}
+	_, closing, _ := strings.Cut(report, "To install what is missing, run:")
+	if !strings.Contains(closing, "\n  npm install -g yolo-cd-self-pkg  # yolo-cd-self (not in the file)\n") {
+		t.Errorf("the closing lines do not name the program's own installer beside the bundle:\n%s", report)
+	}
+	if strings.Contains(closing, "yolo-cd-self-apt") {
+		t.Errorf("the closing lines still install the distro package for a tool with its own installer:\n%s", report)
+	}
+}
+
+// TestCheckDepsEndsWithTheRecheckWithoutABundle: every run that finds something missing ends
+// with the re-check the bundle path ends with, `yolo check-deps`. A `--no-manifest` run, and a
+// run whose missing deps fit no bundle, used to end at the last MISSING line.
+func TestCheckDepsEndsWithTheRecheckWithoutABundle(t *testing.T) {
+	const recheck = "\n  yolo check-deps  # check again\n"
+	pack := func(t *testing.T, name, contributes string) string {
+		dir := filepath.Join(floortest.ResolvedTemp(t), name)
+		writeFile(t, filepath.Join(dir, "pack.json"), `{"name":"`+name+`","contributes":[`+contributes+`]}`)
+		return `{"host_floor": false, "packs":[{"source":"file://` + dir + `","name":"` + name + `"}]}`
+	}
+	for _, tc := range []struct {
+		name, packName, contributes string
+		args                        []string
+		want                        string
+	}{
+		{"no manifest", "needpack",
+			`{"kind":"requires","bin":"yolo-cd-one","install_hints":{"apt":"yolo-cd-one-pkg"}},` +
+				`{"kind":"requires","bin":"yolo-cd-two"}`,
+			[]string{"--no-manifest"},
+			"\nTo install what is missing, run:\n  sudo apt install -y yolo-cd-one-pkg  # yolo-cd-one\n"},
+		{"nothing fits a bundle", "solo",
+			`{"kind":"program","bin":"yolo-cd-solo","via":"npm","package":"yolo-cd-solo-pkg"}`,
+			nil,
+			"\nTo install what is missing, run:\n  npm install -g yolo-cd-solo-pkg  # yolo-cd-solo\n"},
+		{"no remedy at all", "bare", `{"kind":"requires","bin":"yolo-cd-bare"}`, nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := checkDepsHome(t, pack(t, tc.packName, tc.contributes), "apt")
+			var out, errw bytes.Buffer
+			rc := checkDepsMain(tc.args, &out, &errw, false)
+			report := out.String() + errw.String()
+			if rc != 1 {
+				t.Fatalf("rc = %d with a dep missing, want 1:\n%s", rc, report)
+			}
+			if !strings.HasSuffix(report, recheck) {
+				t.Errorf("the report does not end with the re-check %q:\n%s", recheck, report)
+			}
+			if tc.want != "" && !strings.Contains(report, tc.want) {
+				t.Errorf("the report is missing %q:\n%s", tc.want, report)
+			}
+			if entries, _ := os.ReadDir(filepath.Join(home, ".config", "yolo")); len(entries) != 0 {
+				t.Errorf("a run with no bundle wrote %d file(s) under ~/.config/yolo", len(entries))
+			}
+		})
+	}
+}

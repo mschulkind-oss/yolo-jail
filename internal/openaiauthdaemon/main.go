@@ -152,7 +152,7 @@ func selfCheck(statePath string, output io.Writer) int {
 	state, err := openaiauth.ReadState(statePath)
 	if errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintln(output, "NOTE: no OpenAI subscription login on this machine yet (no "+
-			"credential state at "+statePath+") — `yolo host codex` signs in through the "+
+			"credential state at "+statePath+") — `yolo -- codex` signs in through the "+
 			"browser, or `yolo openai-auth import --from <auth.json>` installs an existing "+
 			"Codex login")
 		return 0
@@ -168,7 +168,7 @@ func selfCheck(statePath string, output io.Writer) int {
 			code = "no error code recorded"
 		}
 		fmt.Fprintln(output, "FAIL: OpenAI refused to refresh the machine-wide grant ("+code+
-			"), so every jail borrowing it fails — log in again with `yolo host codex`, or "+
+			"), so every jail borrowing it fails — log in again with `yolo -- codex`, or "+
 			"`yolo openai-auth import --from <auth.json>`")
 		return 1
 	}

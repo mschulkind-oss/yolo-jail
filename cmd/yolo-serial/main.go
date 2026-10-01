@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -75,8 +76,62 @@ Options:
   --endpoint PATH    Override endpoint file (default: $YOLO_SERVICE_SERIAL_ENDPOINT)
   --baud RATE        Baud rate (default: 115200)
   --timeout DURATION Read timeout (e.g. 2s, 500ms; default: 2s)
+  --max-bytes N      Most bytes a read returns (default: 65536)
+  --no-newline       Send the data without a trailing newline
   --json             Format device list as JSON
+
+Options go before or after the device and data. Put -- before data that starts
+with a dash: yolo-serial write /dev/ttyUSB0 -- -x
 `)
+}
+
+// parseArgs is fs.Parse with the flags read wherever they are written, and returns the arguments
+// that are not flags, in order. The usage text puts each subcommand's flags after its device and
+// data (`read <device> [--baud RATE]`), and flag.Parse alone stops at the first argument that is
+// not a flag, so a flag written there was never read: `read /dev/ttyUSB0 --baud 9600` read at the
+// default rate, and an `--endpoint` after the device was ignored. A `--` ends the flags, so data
+// that starts with a dash is written after it: `write <device> -- -x`.
+//
+// Each flag is handed to fs.Parse alone, with its value when it takes the next argument, so a
+// value is never mistaken for a flag or an argument, and an unknown flag is refused wherever it
+// sits, as fs.Parse refuses one.
+func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for len(args) > 0 {
+		a := args[0]
+		switch {
+		case a == "--":
+			return append(positional, args[1:]...), nil
+		case len(a) < 2 || a[0] != '-':
+			positional = append(positional, a)
+			args = args[1:]
+			continue
+		}
+		n := min(flagTokens(fs, a), len(args))
+		if err := fs.Parse(args[:n]); err != nil {
+			return nil, err
+		}
+		args = args[n:]
+	}
+	return positional, nil
+}
+
+// flagTokens is how many arguments the flag a spells takes: two for one whose value is the next
+// argument, one for `-name=value`, a boolean flag, or a flag fs does not have, which fs.Parse
+// then refuses.
+func flagTokens(fs *flag.FlagSet, a string) int {
+	name := strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-")
+	if strings.Contains(name, "=") {
+		return 1
+	}
+	f := fs.Lookup(name)
+	if f == nil {
+		return 1
+	}
+	if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+		return 1
+	}
+	return 2
 }
 
 func resolveEndpoint(custom string) (string, error) {
@@ -102,7 +157,7 @@ func runList(args []string) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	jsonFormat := fs.Bool("json", false, "Output in JSON format")
 	endpoint := fs.String("endpoint", "", "Override endpoint file")
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseArgs(fs, args); err != nil {
 		return 2
 	}
 
@@ -125,11 +180,10 @@ func runRead(args []string) int {
 	timeout := fs.Duration("timeout", 2*time.Second, "Read timeout duration")
 	maxBytes := fs.Int("max-bytes", 65536, "Max bytes to read")
 	endpoint := fs.String("endpoint", "", "Override endpoint file")
-	if err := fs.Parse(args); err != nil {
+	remaining, err := parseArgs(fs, args)
+	if err != nil {
 		return 2
 	}
-
-	remaining := fs.Args()
 	if len(remaining) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: yolo-serial read <device> [options]")
 		return 2
@@ -156,11 +210,10 @@ func runWrite(args []string) int {
 	baud := fs.Int("baud", 115200, "Baud rate")
 	noNewline := fs.Bool("no-newline", false, "Do not append newline to data")
 	endpoint := fs.String("endpoint", "", "Override endpoint file")
-	if err := fs.Parse(args); err != nil {
+	remaining, err := parseArgs(fs, args)
+	if err != nil {
 		return 2
 	}
-
-	remaining := fs.Args()
 	if len(remaining) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: yolo-serial write <device> <data> [options]")
 		return 2
@@ -186,11 +239,10 @@ func runMonitor(args []string) int {
 	fs := flag.NewFlagSet("monitor", flag.ContinueOnError)
 	baud := fs.Int("baud", 115200, "Baud rate")
 	endpoint := fs.String("endpoint", "", "Override endpoint file")
-	if err := fs.Parse(args); err != nil {
+	remaining, err := parseArgs(fs, args)
+	if err != nil {
 		return 2
 	}
-
-	remaining := fs.Args()
 	if len(remaining) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: yolo-serial monitor <device> [options]")
 		return 2
@@ -215,11 +267,10 @@ func runPty(args []string) int {
 	baud := fs.Int("baud", 115200, "Baud rate")
 	link := fs.String("link", "", "Symlink path to create pointing to the PTY (e.g. /tmp/ttyUSB0)")
 	endpoint := fs.String("endpoint", "", "Override endpoint file")
-	if err := fs.Parse(args); err != nil {
+	remaining, err := parseArgs(fs, args)
+	if err != nil {
 		return 2
 	}
-
-	remaining := fs.Args()
 	if len(remaining) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: yolo-serial pty <device> [--link PATH] [--baud RATE]")
 		return 2

@@ -110,7 +110,7 @@ func forkBaseFields(c Contribution) []forkBaseField {
 		{"versions_dir", "it is where a vendor installer keeps its releases, which a build has none of",
 			c.VersionsDir != ""},
 		{"install_hints", "a host package manager's package is the UPSTREAM program, which a " +
-			"`yolo host check-deps` remedy would then install in the fork's place", c.InstallHints != nil},
+			"`yolo check-deps` remedy would then install in the fork's place", c.InstallHints != nil},
 		{"model_catalog", "its entries name files inside an npm package's directory, and a fork " +
 			"installs no npm package", c.ModelCatalog != nil},
 		{"refresh", base, c.Refresh != nil},

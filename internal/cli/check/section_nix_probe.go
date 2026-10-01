@@ -40,9 +40,10 @@ func (o *Options) sectionNix(r *reporter) {
 		res := o.nixVersionProbe()
 		switch {
 		case res.Timeout:
-			r.fail("nix found but `nix --version` did not answer within "+nixVersionTimeout.String(), "")
+			r.fail("nix found but `nix --version` did not answer within "+nixVersionTimeout.String(),
+				probeNote("nix", "--version"))
 		case !res.Ran:
-			r.fail("nix found but could not be run: "+nixPath, "")
+			r.fail("nix found but could not be run: "+nixPath, o.nixBrokenNote(nixPath))
 		case res.RC != 0:
 			r.fail(fmt.Sprintf("nix found but `nix --version` exited %d", res.RC),
 				strings.TrimSpace(res.Stderr))
@@ -50,7 +51,7 @@ func (o *Options) sectionNix(r *reporter) {
 			r.ok("Nix: " + storage.ParseNixVersion(res.Stdout).Describe())
 		}
 	} else {
-		r.fail("nix not found", "Install Nix: https://nixos.org/download/")
+		r.fail("nix not found", o.nixInstallNote())
 	}
 
 	if hasNix {
@@ -223,7 +224,7 @@ func (o *Options) nixDaemonStoreCheck(r *reporter) {
 		return
 	}
 	if !res.Ran {
-		r.warn("Could not verify Nix daemon connectivity: exec failed", "")
+		r.warn("Could not verify Nix daemon connectivity: exec failed", probeNote(nixCmdArgv("store", "info")...))
 		return
 	}
 	output := res.Stdout + res.Stderr

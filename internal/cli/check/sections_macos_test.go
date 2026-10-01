@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
+	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
 // macMachine is a Mac a macos-user launch would accept, as the section's seams see it, plus a
@@ -195,13 +196,28 @@ func TestTheMacosUserSectionDoesNotProbeTheSharingOfAWorkspaceInAHome(t *testing
 }
 
 // The build step: every launch builds the sandbox's tools with the host's nix and refuses
-// without it.
+// without it. The fix is the getting-started guide's install for this Mac's chip, then the
+// re-check; it used to be a link to https://nixos.org/download, which leaves the choice of
+// installer to the reader.
 func TestTheMacosUserSectionFailsAMachineWithNoNix(t *testing.T) {
-	m := newMacMachine(t)
-	m.opts.LookPath = func(n string) (string, bool) { return "/usr/bin/" + n, n == "sandbox-exec" }
-	got := m.run()
-	if !strings.Contains(got, "[FAIL] nix not found") || !strings.Contains(got, "https://nixos.org/download") {
-		t.Errorf("no nix FAIL row with its fix:\n%s", got)
+	for _, tc := range []struct {
+		machine string
+		want    string
+	}{
+		{"arm64", storage.NixInstallerCommand},
+		{"x86_64", storage.NixIntelMacCommands[0]},
+	} {
+		t.Run(tc.machine, func(t *testing.T) {
+			m := newMacMachine(t)
+			m.opts.Machine = tc.machine
+			m.opts.LookPath = func(n string) (string, bool) { return "/usr/bin/" + n, n == "sandbox-exec" }
+			got := m.run()
+			for _, want := range []string{"[FAIL] nix not found", tc.want, "then, in a new terminal: yolo check"} {
+				if !strings.Contains(got, want) {
+					t.Errorf("the nix FAIL row lacks %q:\n%s", want, got)
+				}
+			}
+		})
 	}
 }
 

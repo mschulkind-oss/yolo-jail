@@ -117,9 +117,8 @@ func TestSelfInstallBeatsAManagerHint(t *testing.T) {
 		t.Errorf("flavor = %q, want %q so Manifest knows to keep it out of the bundle",
 			claude.Flavor, selfInstallFlavor)
 	}
-	if claude.Fallback != "brew install --cask claude-code" || claude.FallbackFlavor != brewCaskHint {
-		t.Errorf("the manager hint must survive as the fallback (with its verb), got %q/%q",
-			claude.Fallback, claude.FallbackFlavor)
+	if claude.Fallback != "brew install --cask claude-code" {
+		t.Errorf("the manager hint must survive as the fallback (with its verb), got %q", claude.Fallback)
 	}
 	if solo := byBin["solo"]; solo.Remedy != "npm install -g solo-pkg" || solo.Fallback != "" {
 		t.Errorf("a self-installer with no hint has no fallback: %+v", solo)
@@ -128,20 +127,23 @@ func TestSelfInstallBeatsAManagerHint(t *testing.T) {
 		t.Errorf("with no self-installer the hint is still the remedy: %+v", fzf)
 	}
 
-	// The BUNDLE carries the fallback token, never the curl line — there is no way to spell
-	// a curl-to-shell in a Brewfile, and splicing the URL in as a token would produce a file
-	// that fails on a line the user cannot fix.
+	// The BUNDLE carries neither the curl line nor claude's cask fallback: there is no way to
+	// spell a curl-to-shell in a Brewfile, and the cask is the copy the remedy steers away from,
+	// since the tool's own updater keeps the installer's copy current. Both self-installed deps
+	// are left for the caller to print beside the bundle (Unbundled).
 	name, body := Manifest(res)
 	if name != "Brewfile" {
 		t.Fatalf("manifest name = %q, want Brewfile", name)
 	}
-	if strings.Contains(body, "curl") || strings.Contains(body, "npm install") {
-		t.Errorf("a Brewfile must not contain an installer command:\n%s", body)
+	if want := "brew \"fzf\"\n"; body != want {
+		t.Errorf("Brewfile =\n%s\nwant\n%s (fzf alone: claude and solo have their own installers)", body, want)
 	}
-	want := "brew \"fzf\"\ncask \"claude-code\"\n"
-	if body != want {
-		t.Errorf("Brewfile =\n%s\nwant\n%s (claude via its cask fallback; `solo` has no "+
-			"manager token at all so it contributes no line)", body, want)
+	var left []string
+	for _, r := range Unbundled(res) {
+		left = append(left, r.Bin)
+	}
+	if strings.Join(left, " ") != "claude solo" {
+		t.Errorf("Unbundled = %v, want claude and solo, whose own installers are printed beside the bundle", left)
 	}
 }
 
@@ -300,7 +302,7 @@ func TestNixIsOfferedOnlyWhereTheLookupFindsIt(t *testing.T) {
 	if r := Check([]Requirement{{Bin: "bare"}}, only())[0]; r.Hinted {
 		t.Errorf("a requirement with no hint reported Hinted: %+v", r)
 	}
-	if r := none[1]; r.Remedy != "npm install -g vendored" || r.Fallback != "" || r.FallbackFlavor != "" {
+	if r := none[1]; r.Remedy != "npm install -g vendored" || r.Fallback != "" {
 		t.Errorf("no manager on the lookup: vendored = %+v, want its own installer and no fallback", r)
 	}
 	if got := len(Missing(none)); got != 2 {

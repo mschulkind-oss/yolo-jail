@@ -735,7 +735,11 @@ for the binary and emit a runnable manifest. One key names an installer *flavor*
 a manager: **`brew-cask`**, because a Brewfile `brew` line naming a cask token fails and
 bare `brew install <token>` silently prefers a same-named *formula* — brew's `copilot`
 formula is AWS's deprecated ECS CLI, not the CLI this pack means. `brew-cask` wins over
-`brew` when a pack declares both; the detected manager stays plain `brew`.
+`brew` when a pack declares both; the detected manager stays plain `brew`. A `program` with its
+own installer (`via: npm` or `via: installer`) is left out of that manifest even when it declares
+`install_hints`, and `check-deps` prints the installer's command beside the manifest's, because
+the tool's own updater keeps that copy current and a distro package pins whatever its repository
+has (an implementation choice, recorded 2026-10-01 by the maintainer's orchestrator).
 
 > [!WARNING]
 > **Do not add `nix` hints to a pack whose tool ships its own installer and updater.** The

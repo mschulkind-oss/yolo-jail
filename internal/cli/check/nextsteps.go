@@ -1,8 +1,8 @@
 package check
 
 // nextsteps.go holds the next steps several `yolo check` findings share: the re-check, the
-// repo-root fix, the container runtime's install line for this host, and the note for a fault
-// that is yolo's own. A next step is something the user can do at once with no research — a
+// repo-root fix, the container runtime's and Nix's install lines for this host, and the note for
+// a fault that is yolo's own. A next step is something the user can do at once with no research — a
 // command, or exact instructions for this platform — and a finding without one is a dead end;
 // both terms are coined in docs/reference/happy-path-principle.md, the rule this file applies.
 
@@ -19,6 +19,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
 // recheck ends a next step: after a fix, check again rather than take it on faith (rule 5).
@@ -150,6 +151,56 @@ func (o *Options) podmanMachineInit() string {
 	}}
 	cmd := defaults.MachineInitCommand(defaults.Unreachable(o.machineShareSources(), runtime.ResolveThroughExisting))
 	return strings.Replace(cmd, "podman machine init", "podman machine init "+macPodmanMachineFlags, 1)
+}
+
+// nixRecheck ends a Nix install's next step: the installer puts nix on the PATH of new shells
+// only, so the check that sees it runs in a new terminal.
+const nixRecheck = "then, in a new terminal: yolo check"
+
+// containerJailNixNote is the next step for a nix missing or broken inside a container jail: the
+// jail's nix comes from its image, so an install inside it does not outlast the jail.
+var containerJailNixNote = "This nix comes from the jail's image, so installing one here does not last:\n" +
+	"relaunch the jail, then: yolo check\nIf that does not fix it, " + yoloBugNote("a jail image without a working nix")
+
+// inContainerJail is whether this check runs inside a podman or Apple Container jail, whose tools
+// are the image's. A macos-user jail runs the host's own nix, so it is not one.
+func (o *Options) inContainerJail() bool { return o.inJail() && !o.IsMacOS }
+
+// nixInstallLines is the getting-started guide's install of Nix for this machine
+// (storage.NixInstall: the nixos.org script on an Intel Mac, the NixOS Nix installer elsewhere),
+// introduced and indented as a note's commands.
+func (o *Options) nixInstallLines() string {
+	intro, cmds := storage.NixInstall(o.IsMacOS && o.Machine != "arm64")
+	return intro + ":\n  " + strings.Join(cmds, "\n  ") + "\n"
+}
+
+// nixInstallNote is the next step for a machine with no nix: this machine's install, then the
+// re-check. It used to be "Install Nix: https://nixos.org/download/", a page that leaves the
+// choice of installer to the reader.
+func (o *Options) nixInstallNote() string {
+	if o.inContainerJail() {
+		return containerJailNixNote
+	}
+	return o.nixInstallLines() + nixRecheck
+}
+
+// nixBrokenNote is the next step for a nix the lookup found and that would not start: the command
+// that shows nix's own error, then the reinstall. The NixOS Nix installer, and the Determinate
+// installer it grew from, remove their own install (storage.NixInstallerReceipt); a nix from the
+// nixos.org script, which has no uninstaller, or from a distribution's package is removed the way
+// it was installed.
+func (o *Options) nixBrokenNote(nixPath string) string {
+	see := "Run it yourself to see nix's own error:\n  " + shquote.Join([]string{nixPath, "--version"}) + "\n"
+	if o.inContainerJail() {
+		return see + containerJailNixNote
+	}
+	if o.PathExists(storage.NixInstallerReceipt) {
+		return see + "If the install is broken, remove it and install Nix again:\n  " +
+			storage.NixInstallerUninstall + "\n" + o.nixInstallLines() + nixRecheck
+	}
+	return see + "If the install is broken, remove it the way it was installed (for the nixos.org script,\n" +
+		"which has no uninstaller: " + storage.NixUninstallManual + "), then install Nix again.\n" +
+		o.nixInstallLines() + nixRecheck
 }
 
 // configNote is the next step for a config finding: where to edit, and the re-check. A message

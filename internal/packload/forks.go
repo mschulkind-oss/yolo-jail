@@ -221,7 +221,7 @@ func copyPackDecl(p *Pack) *Pack {
 // `via`, `package`, `url`, `flags`, `update`, `versions_dir`, `install_hints`, `platforms` and
 // `model_catalog`, plus the fork's own `source`, `build` and `produces`. Those say how the bytes
 // ARRIVE. An inherited `update` would let the launcher's hourly self-update replace the pinned
-// build with the vendor's release; an inherited install hint would tell `yolo host check-deps` to
+// build with the vendor's release; an inherited install hint would tell `yolo check-deps` to
 // install the upstream program; an inherited `model_catalog` names files inside an npm package a
 // fork does not install.
 //

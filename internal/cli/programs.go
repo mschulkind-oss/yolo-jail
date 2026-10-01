@@ -63,8 +63,8 @@ catalogs. It is off by default and it is not reversible — read an 'ls' first.
 
 Examples:
   yolo programs ls                    # what is installed here, and what declares it
-  yolo programs remove-undeclared     # the dry run: what WOULD go
-  yolo programs remove-undeclared --apply   # actually remove them`
+  yolo programs remove                # the dry run: what WOULD go
+  yolo programs remove --apply        # actually remove them`
 
 // runPrograms is the registry entry point. args INCLUDES the subcommand name, like every
 // other handler.

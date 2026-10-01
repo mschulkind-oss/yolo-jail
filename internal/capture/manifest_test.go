@@ -53,8 +53,8 @@ func TestReadManifestRefusesAHigherSchema(t *testing.T) {
 	must(t, os.WriteFile(ManifestPath(root), raw, 0o644))
 
 	_, rerr := ReadManifest(root)
-	if rerr == nil || !strings.Contains(rerr.Error(), "upgrade yolo") {
-		t.Fatalf("want a refusal naming the upgrade, got %v", rerr)
+	if rerr == nil || !strings.Contains(rerr.Error(), "run `yolo update`") {
+		t.Fatalf("want a refusal naming `yolo update`, got %v", rerr)
 	}
 }
 

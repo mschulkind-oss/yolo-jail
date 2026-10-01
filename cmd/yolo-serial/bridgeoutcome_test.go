@@ -31,17 +31,24 @@ import (
 // machine. It returns the published endpoint file.
 func liveBridgeFront(t *testing.T) string {
 	t.Helper()
-	dir := privateDir(t)
-	sock := filepath.Join(dir, "bridge.sock")
 	cfg := serialdaemon.Settings{
 		AllowedDevices: []string{"/dev/yolo-serial-test-none-*"},
 		DefaultBaud:    115200,
 	}
+	return frontFor(t, serialdaemon.BuildHandler(cfg))
+}
+
+// frontFor runs handler as the bridge behind a real front and returns the published endpoint
+// file.
+func frontFor(t *testing.T, handler hostservice.Handler) string {
+	t.Helper()
+	dir := privateDir(t)
+	sock := filepath.Join(dir, "bridge.sock")
 	stop := make(chan struct{})
 	served := make(chan struct{})
 	go func() {
 		defer close(served)
-		_ = hostservice.ServeFrontedUnix(serialdaemon.BuildHandler(cfg), sock, stop)
+		_ = hostservice.ServeFrontedUnix(handler, sock, stop)
 	}()
 	deadline := time.Now().Add(10 * time.Second)
 	for {

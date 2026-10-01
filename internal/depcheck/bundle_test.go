@@ -152,18 +152,21 @@ func TestAHintWithAStepIsPrintedWholeAndLeftOutOfTheBundle(t *testing.T) {
 	}
 }
 
-// TestUnbundledNamesASelfInstallWithNoFallback: a pack's own installer has never been
-// bundleable, and Unbundled says so; one with a manager fallback is in the bundle through it.
-func TestUnbundledNamesASelfInstallWithNoFallback(t *testing.T) {
+// TestUnbundledNamesEverySelfInstall: a pack's own installer is never bundled, with or
+// without a manager fallback, and Unbundled names both. The one with a fallback used to be in
+// the bundle through it, so running the bundle installed the distro package the remedy steers
+// away from (Manifest says why).
+func TestUnbundledNamesEverySelfInstall(t *testing.T) {
 	results := Check([]Requirement{
 		{Bin: "solo", SelfInstall: "npm install -g solo-pkg"},
 		{Bin: "both", SelfInstall: "npm install -g both-pkg", Hints: map[string]string{"apt": "both-apt"}},
+		{Bin: "plain", Hints: map[string]string{"apt": "plain-apt"}},
 	}, only("apt"))
 	left := Unbundled(results)
-	if len(left) != 1 || left[0].Bin != "solo" {
-		t.Errorf("Unbundled = %+v, want solo alone", left)
+	if len(left) != 2 || left[0].Bin != "both" || left[1].Bin != "solo" {
+		t.Errorf("Unbundled = %+v, want both and solo", left)
 	}
-	if _, body := Manifest(results); body != "both-apt\n" {
-		t.Errorf("bundle body = %q, want both-apt through its fallback", body)
+	if _, body := Manifest(results); body != "plain-apt\n" {
+		t.Errorf("bundle body = %q, want plain-apt alone", body)
 	}
 }

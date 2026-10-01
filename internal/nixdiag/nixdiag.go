@@ -256,7 +256,7 @@ const linuxBuilderRemedyText = "The jail image is a Linux image, and a package i
 	"A normal `yolo` run handles that for you AUTOMATICALLY: it offloads the " +
 	"build to a tiny Linux builder CONTAINER on whichever runtime is already up " +
 	"(podman or Apple Container), then tears it down when the build finishes — " +
-	"no sudo, no VM, no `yolo builder` command, and zero idle RAM.\n" +
+	"no sudo, no VM, nothing for you to set up, and zero idle RAM.\n" +
 	"\n" +
 	"This message means that automatic offload could not run or the offloaded " +
 	"build failed.  The usual cause is that your container runtime isn't running " +

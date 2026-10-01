@@ -1,7 +1,10 @@
 package macosuser
 
 import (
+	"runtime"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
 // MacosSetup creates the dedicated sandbox account (one-time, needs admin).
@@ -126,11 +129,16 @@ func MacosSetup(deps Deps) int {
 	// REFUSED host-side, so the old wording told the owner of an empty
 	// `yolo-jail.jsonc` they were ready when no launch could start.
 	if !deps.Which("nix") {
+		// The getting-started guide's install for this Mac's chip, the one `yolo check` names
+		// too (storage.NixInstall). It used to be a link to nixos.org's download page, which
+		// leaves the choice of installer to the reader.
+		intro, cmds := storage.NixInstall(runtime.GOARCH == "amd64")
 		warnings = append(warnings,
 			"nix not found on PATH — every launch materializes the package floor "+
 				"(mise, node, git, ripgrep, …) plus any `packages:` via native "+
 				"nix, so without it NO launch starts, not just one that declares "+
-				"packages; install it (https://nixos.org/download).")
+				"packages. "+intro+", then open a new terminal so nix is on its PATH:\n      "+
+				strings.Join(cmds, "\n      "))
 		out.print("• nix (native package floor; required by every launch): " +
 			"[yellow]not found[/yellow]")
 	} else {
