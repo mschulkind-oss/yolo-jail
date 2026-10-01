@@ -14,6 +14,6 @@ package run
 // one mechanism, one message rendering). A line here would be the second half-message
 // that section exists to prevent — and it would be unreachable besides, since an
 // inactive loophole never reaches startCgroupDelegate.
-func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(), bool) {
-	return nil, false
+func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(), serviceEnd, bool) {
+	return nil, serviceEnd{}, false
 }

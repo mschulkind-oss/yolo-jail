@@ -385,7 +385,9 @@ done; Ctrl-C stops showing it and leaves the shutdown to finish. `yolo stop` sti
 terminal at once, and now returns only once the shutdown is done. What makes this work is a small
 background process, `yolo internal daemon jail-keeper`, one per running jail: every launch names
 it, it holds the jail's logins through yolo, port forwards and cgroup delegate, and it ends with
-the jail. If it is killed, the terminals already in the jail carry on without those services, a
+the jail. It restarts none of them, so one that stops while the jail is up is reported instead:
+each terminal that was in the jail is told as it quits, and one that joins later is told as it
+enters, with the service's log and that `yolo stop`, then a launch, starts it again. If it is killed, the terminals already in the jail carry on without those services, a
 new terminal is refused and pointed at `yolo stop`, and the last terminal to quit cleans the jail
 up. This is podman and Apple Container; a macos-user sandbox never shared a jail between terminals.
 See [troubleshooting](userguide/guides/troubleshooting.md#installing-and-launching).

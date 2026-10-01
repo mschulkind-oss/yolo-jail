@@ -387,11 +387,23 @@ func TestExternalServiceWarnsOnReadinessTimeout(t *testing.T) {
 // mode "line": read one newline-terminated request, answer "pong\n" to "ping".
 // mode "eof": read the request TO EOF (the request_end:"eof" daemon shape),
 // answer "got:<request>".
+// mode "dies": as "line", and exit 3 once the file $YJ_FRONT_CHILD_DIE names
+// exists: a daemon that goes down on its own while its jail is up (keeperwatch_test.go).
 func frontUpstreamChildMain(mode, socketPath string) int {
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "front-upstream-child:", err)
 		return 1
+	}
+	if die := os.Getenv("YJ_FRONT_CHILD_DIE"); mode == "dies" && die != "" {
+		go func() {
+			for {
+				if _, err := os.Stat(die); err == nil {
+					os.Exit(3)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+		}()
 	}
 	for {
 		conn, err := ln.Accept()

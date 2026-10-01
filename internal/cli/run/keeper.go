@@ -36,7 +36,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"slices"
 	"sort"
@@ -171,7 +170,7 @@ type keeper struct {
 	mu       sync.Mutex
 	sessions *os.File // the session lock, held exclusively once the keeper drained
 
-	socat   []*exec.Cmd
+	socat   []*forwardProc
 	handles []loopholeDaemon
 	jm      *jailMain
 	running chan struct{} // closed once the container was seen running, or the wait gave up
@@ -181,6 +180,15 @@ type keeper struct {
 	// jailLeft is a container the keeper's stop did not end: the keeper leaves it UNKEPT, its
 	// owner-PID file and start record in place, rather than a container nothing owns (endJail).
 	jailLeft bool
+
+	// THE RECORD OF WHAT WENT DOWN (keeperwatch.go, JL-D19). recMu guards the three: record is the
+	// start record as written, which a death rewrites with its Down list grown; recorded says the
+	// keeper holds its jail's name, so the record is its to write; stopping is the keeper's own
+	// teardown begun, after which no service's end is a death.
+	recMu    sync.Mutex
+	record   keeperRecord
+	recorded bool
+	stopping bool
 }
 
 // newKeeper builds a keeper and its Options from a plan.
@@ -264,10 +272,15 @@ func (k *keeper) run() int {
 	}
 	k.sink.logOnlyf("%s", line)
 	o.writeOwnerPID(p.Cname)
-	if err := writeKeeperRecord(p.Cname, keeperRecord{PID: k.pid, Started: time.Now(),
+	k.recMu.Lock()
+	k.record = keeperRecord{PID: k.pid, Started: time.Now(),
 		Workspace: p.Workspace, Runtime: p.Runtime, Skeleton: p.Skeleton, PackTree: p.PackTree,
 		ScratchVolumes: p.ScratchVolumes, ForwardDir: p.ForwardDir, SocketsDir: p.SocketsDir,
-		Scope: k.scope, Log: keeperLogPath(p.Cname)}); err != nil {
+		Scope: k.scope, Log: keeperLogPath(p.Cname)}
+	k.recorded = true
+	err = writeKeeperRecord(p.Cname, k.record)
+	k.recMu.Unlock()
+	if err != nil {
 		k.sink.logf("keeper: could not write its start record (%v); if it dies, its jail's last session cannot reap what only it knew the names of", err)
 	}
 	k.sink.event(frameStarted, strconv.Itoa(k.pid))
@@ -290,6 +303,9 @@ func (k *keeper) run() int {
 		sp.End()
 		o.registerClaudeCredentialView(p.Runtime, p.Cname, cfg)
 	}
+	// Each of them is watched from here on: one that ends while the jail is up is recorded, for the
+	// sessions in it and the arrivals after (keeperwatch.go, JL-D19).
+	k.watchServices()
 
 	// THE CONTAINER. The launch's argv, with the services' endpoint pairs inserted before the image,
 	// exactly where the fresh path used to insert them.
@@ -606,6 +622,8 @@ func (k *keeper) awaitNotRunning(done func()) {
 // jail's owner dead, and its hold would keep it running for good.
 func (k *keeper) endJail(reason string, stop bool) {
 	o, p := k.o, k.plan
+	// From here every service's end is this keeper's own act (keeperwatch.go).
+	k.beginStopping()
 	if stop && k.jm != nil {
 		sp := o.Perf.Span("keeper.stop_jail")
 		o.stopJail(p.Cname, p.Runtime, reason)
@@ -695,6 +713,7 @@ func (k *keeper) finish(rc int, drained <-chan struct{}) int {
 // runtime-not-found branch did (JL-D31: release the lock, then clean up).
 func (k *keeper) unwindUnstarted(rc int) int {
 	o, p := k.o, k.plan
+	k.beginStopping()
 	k.releaseLaunchLock()
 	cleanupPortForwarding(k.socat, p.ForwardDir)
 	discardUnheldSkeleton(p.Cname, p.Skeleton)

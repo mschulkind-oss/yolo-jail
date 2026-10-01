@@ -39,6 +39,11 @@ type loopholeDaemon struct {
 	launchCheck   bool
 	hasJailDaemon bool
 	hostWide      bool
+	// end is how the keeper sees this service go, by its own fault or by its stop, and log the file
+	// the service writes, which the keeper's record of an end it did not cause names
+	// (keeperwatch.go, JL-D19). A zero end watches nothing; log is "" for none.
+	end serviceEnd
+	log string
 }
 
 // markLaunchCheck copies the two facts the launch check reads from lp onto h.
@@ -716,7 +721,7 @@ func (o *Options) stopLoopholes(handles []loopholeDaemon, socketsDir, cname, rt 
 // service off loopback-TLS on the platform where it DOES run.
 func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDaemon, bool) {
 	sockPath := filepath.Join(socketsDir, paths.CgdSocketName)
-	stop, ok := o.startCgroupDelegateInProc(cname, rt, sockPath)
+	stop, end, ok := o.startCgroupDelegateInProc(cname, rt, sockPath)
 	if !ok {
 		return loopholeDaemon{}, false
 	}
@@ -728,6 +733,7 @@ func (o *Options) startCgroupDelegate(cname, rt, socketsDir string) (loopholeDae
 		// SO_PEERCRED argument above the function.
 		envVarName: hostServiceSocketEnvVar(paths.BuiltinCgroupLoopholeName),
 		stop:       stop,
+		end:        end,
 	}, true
 }
 
@@ -1106,6 +1112,10 @@ func (o *Options) startHostSingleton(
 		name:     name,
 		hostPath: hostPath,
 		jailPath: hostServiceEndpointPath(name),
+		// THE FRONT'S END, and only the front's: the daemon behind it is the machine's, serving
+		// other jails, and no keeper's child, so a keeper watches only the half it runs.
+		end: frontEnd(frontDone, frontFailed),
+		log: deps.LogPath,
 		stop: func() {
 			// Close the front and WAIT for its listener's Close, which unlinks the
 			// endpoint file and retires this jail's credential. Bounded, for the
@@ -1208,8 +1218,10 @@ func (o *Options) startExternalService(
 	_ = os.MkdirAll(logDir, 0o755)
 	logPath := filepath.Join(logDir, "host-service-"+name+".log")
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+	serviceLog := ""
 	if lf, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		cmd.Stdout, cmd.Stderr = lf, lf
+		serviceLog = logPath
 	} else {
 		// THE DAEMON STILL STARTS — its log is diagnostics, not a dependency — but
 		// every failure line below ends in "see <logPath>", and sending a reader to a
@@ -1265,6 +1277,9 @@ func (o *Options) startExternalService(
 	// which waitServiceReady reads and reports ("exited at startup (<status>)").
 	// Reporting both would say one exit twice, in two wordings.
 	go func() { _ = cmd.Wait(); close(exited) }()
+	// What the keeper watches (keeperwatch.go): the process, and below, for a fronted daemon, the
+	// front too, since either going leaves the jail's clients with nothing.
+	end := serviceEnd{done: exited, how: func() string { return "its process " + exitPhrase(cmd) }}
 
 	// Wait for the service to become reachable. Real wall clock inside,
 	// deliberately NOT o.Now() — see waitServiceReady.
@@ -1361,6 +1376,7 @@ func (o *Options) startExternalService(
 				logPath + "[/yellow]")
 			return loopholeDaemon{}, false
 		}
+		end = firstEnd(end, frontEnd(frontDone, frontFailed))
 		stop = func() {
 			// Close the front FIRST — its listener's Close unlinks the endpoint
 			// file, retiring the jail's credential — then the daemon group, then
@@ -1385,6 +1401,8 @@ func (o *Options) startExternalService(
 		jailPath:   jailPath,
 		envVarName: envVar,
 		stop:       stop,
+		end:        end,
+		log:        serviceLog,
 	}, true
 }
 

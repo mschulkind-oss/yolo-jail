@@ -3,7 +3,6 @@ package run
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1968,7 +1967,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 // whole life (the old single-Total block's comment recorded the debt), and a chain this repo cannot
 // unit-test is a chain whose spans can silently stop being emitted. Deleting any span below fails
 // TestTeardownChainEmitsShutdownSpans.
-func (o *Options) teardownAfterExit(socatProcs []*exec.Cmd, portSocketDir string,
+func (o *Options) teardownAfterExit(socatProcs []*forwardProc, portSocketDir string,
 	hostServices []loopholeDaemon, socketsDir, cname, rt, skeleton string, rc int) {
 	// FIRST: the scratch volumes' deletion, started detached and never awaited
 	// (scratchremoval.go). The proxy has returned, so the child is reaped and the termios
@@ -2405,6 +2404,10 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// And what it did not APPLY: a host-wide daemon's settings the config has changed since it
 	// started. Reported, never restarted, from an attach (noteSingletonSettingsDrift).
 	o.noteSingletonSettingsDrift(cfg)
+	// And what its keeper recorded DOWN since the jail started (keeperwatch.go, JL-D19): the keeper
+	// restarts nothing, and this session was not in when it went, so its keeper's line never
+	// reached this terminal.
+	o.noteServicesDown(cname, rt)
 	// Attach gets the notice too, and that is not symmetry for its own sake: once a
 	// jail is up, attaching is how a user re-enters it, so a fresh-launch-only notice
 	// is one a user with a long-lived jail may never see.

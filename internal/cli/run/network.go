@@ -32,13 +32,14 @@ func (o *Options) planPortForwards(forwardHostPorts []any) []PortForward {
 // container so the socket files exist when the container-side socat connects.
 //
 // cname keys the socat log; socketDir is the per-jail /tmp/yolo-fwd-<cname> dir. Returns the socat
-// *exec.Cmd handles.
+// handles, each reaped by a goroutine of its own from its start, so its end is seen the moment it
+// happens: the keeper records a forward that ends while its jail is up (keeperwatch.go, JL-D19).
 //
 // THE WHOLE DIR GOES FIRST, not just the sockets about to be forwarded (JL-D32). It is bind-mounted
 // read-write into the workspace's next jail, and a socat a SIGKILLed launch or keeper left behind
 // for a forward the config has since dropped would stay reachable from that jail through its socket.
 // And each socat a keeper starts gets the kernel's death signal, so none outlives the keeper.
-func (o *Options) startPortForwards(parsed []PortForward, cname string, socketDir string) []*exec.Cmd {
+func (o *Options) startPortForwards(parsed []PortForward, cname string, socketDir string) []*forwardProc {
 	if len(parsed) == 0 {
 		return nil
 	}
@@ -49,9 +50,10 @@ func (o *Options) startPortForwards(parsed []PortForward, cname string, socketDi
 	}
 	logDir := filepath.Join(paths.GlobalStorage(), "logs")
 	_ = os.MkdirAll(logDir, 0o755)
-	logFile, _ := os.OpenFile(filepath.Join(logDir, cname+"-socat.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	logPath := socatLogPath(cname)
+	logFile, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 
-	var procs []*exec.Cmd
+	var procs []*forwardProc
 	var expected []string
 	for _, pf := range parsed {
 		sockPath := SocketPath(socketDir, pf.LocalPort)
@@ -71,7 +73,12 @@ func (o *Options) startPortForwards(parsed []PortForward, cname string, socketDi
 				"Install socat (e.g., nix-shell -p socat, apt install socat).")
 			break
 		}
-		procs = append(procs, cmd)
+		fp := &forwardProc{cmd: cmd, forward: pf, exited: make(chan struct{})}
+		if logFile != nil {
+			fp.log = logPath
+		}
+		go func() { _ = cmd.Wait(); close(fp.exited) }()
+		procs = append(procs, fp)
 		expected = append(expected, sockPath)
 	}
 
@@ -102,20 +109,38 @@ func (o *Options) startPortForwards(parsed []PortForward, cname string, socketDi
 	return procs
 }
 
+// forwardProc is one port forward's socat: its process, the forward it serves, the channel its
+// reaper closes once it has exited, and its log ("" when the log could not be opened).
+type forwardProc struct {
+	cmd     *exec.Cmd
+	forward PortForward
+	exited  chan struct{}
+	log     string
+}
+
+// end is the forward's end, as the keeper watches it (serviceEnd).
+func (fp *forwardProc) end() serviceEnd {
+	return serviceEnd{done: fp.exited, how: func() string { return "its socat " + exitPhrase(fp.cmd) }}
+}
+
+// socatLogPath is cname's port forwards' shared log.
+func socatLogPath(cname string) string {
+	return filepath.Join(paths.GlobalStorage(), "logs", cname+"-socat.log")
+}
+
 // cleanupPortForwarding SIGTERMs each socat (SIGKILL on timeout) and removes the
-// socket dir. Best-effort.
-func cleanupPortForwarding(procs []*exec.Cmd, socketDir string) {
-	for _, cmd := range procs {
-		if cmd == nil || cmd.Process == nil {
+// socket dir. Best-effort. Each socat is reaped in one place, the goroutine its start began, whose
+// close of exited is what this waits on.
+func cleanupPortForwarding(procs []*forwardProc, socketDir string) {
+	for _, fp := range procs {
+		if fp == nil || fp.cmd == nil || fp.cmd.Process == nil {
 			continue
 		}
-		_ = cmd.Process.Signal(syscall.SIGTERM) // terminate() == SIGTERM
-		done := make(chan struct{})
-		go func(c *exec.Cmd) { _ = c.Wait(); close(done) }(cmd)
+		_ = fp.cmd.Process.Signal(syscall.SIGTERM) // terminate() == SIGTERM
 		select {
-		case <-done:
+		case <-fp.exited:
 		case <-time.After(2 * time.Second):
-			_ = cmd.Process.Kill()
+			_ = fp.cmd.Process.Kill()
 		}
 	}
 	if socketDir != "" && fileExists(socketDir) {

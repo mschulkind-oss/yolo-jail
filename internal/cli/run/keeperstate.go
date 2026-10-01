@@ -17,6 +17,9 @@ package run
 //     keeper that died.
 //   - the KEEPER'S LOG (keeperframe.go).
 //
+// The start record also carries what the keeper saw go down while its jail was up (keeperwatch.go),
+// which is why the keeper rewrites it after its start: an arrival reads it there.
+//
 // WHO ACTS ON A FREE LIVENESS LOCK holds it: the reaper, a quitting session that reaps, and
 // `yolo stop` each take it exclusively, and the session lock after it, before they touch the jail
 // (JL-D7, JL-D30). So an arrival meanwhile finds it held and waits, as for a draining keeper.
@@ -124,6 +127,10 @@ type keeperRecord struct {
 	Scope string `json:"scope,omitempty"`
 	// Log is the keeper's log, for the lines that name it.
 	Log string `json:"log,omitempty"`
+	// Down is each host service the keeper runs that ended while its jail was up, in the order it
+	// saw them (keeperwatch.go, JL-D19): the keeper rewrites the record as each is seen, and an
+	// arrival prints them (noteServicesDown).
+	Down []keeperServiceDown `json:"down,omitempty"`
 }
 
 // keeperRecordPath is cname's start record.

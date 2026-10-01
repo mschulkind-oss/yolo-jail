@@ -15,7 +15,8 @@ import (
 // startCgroupDelegateInProc runs the builtin cgroup delegate as an IN-PROCESS
 // goroutine: bind the socket, chmod 0777, and serve single-line JSON requests,
 // LAZILY resolving the container cgroup on the first request (the container is
-// up by then). Reuses the internal/cgd handler. Returns a stop func + true, or
+// up by then). Reuses the internal/cgd handler. Returns a stop func, the end the keeper watches
+// (its accept loop returning, keeperwatch.go) and true, or
 // false when cgroup v2 is unavailable.
 //
 // EVERY `false` RETURN SAYS WHY, and this is the place the manifest already points
@@ -25,11 +26,11 @@ import (
 // false` that the caller turned into a loophole the user switched ON and that then
 // simply was not there. Which decline it was decides the register; see
 // noteCgroupDelegateUnavailable and noteCgroupDelegateFailed.
-func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(), bool) {
+func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(), serviceEnd, bool) {
 	if o.IsMacOS || !o.PathExists("/sys/fs/cgroup/cgroup.controllers") {
 		o.noteCgroupDelegateUnavailable("this kernel exposes no cgroup v2 " +
 			"(/sys/fs/cgroup/cgroup.controllers is absent)")
-		return nil, false
+		return nil, serviceEnd{}, false
 	}
 	// Discarded: ENOENT is the normal case, and a stale socket that survives fails
 	// the ListenUnix below with EADDRINUSE, which IS reported — with the error, which
@@ -38,7 +39,7 @@ func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(),
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: sockPath, Net: "unix"})
 	if err != nil {
 		o.noteCgroupDelegateFailed("could not bind " + sockPath + ": " + err.Error())
-		return nil, false
+		return nil, serviceEnd{}, false
 	}
 	ln.SetUnlinkOnClose(false)
 	if cerr := os.Chmod(sockPath, 0o777); cerr != nil {
@@ -68,11 +69,17 @@ func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(),
 		containerCgroup string
 		resolved        bool
 		done            = make(chan struct{})
+		// ended closes when the accept loop returns, which is the delegate gone, whether its stop
+		// ended it or an accept failed: the keeper tells the two apart (keeperwatch.go).
+		ended     = make(chan struct{})
+		acceptErr error
 	)
 	go func() {
+		defer close(ended)
 		for {
 			conn, aerr := ln.AcceptUnix()
 			if aerr != nil {
+				acceptErr = aerr
 				return
 			}
 			select {
@@ -143,7 +150,13 @@ func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(),
 		}
 		_ = ln.Close()
 	}
-	return stop, true
+	end := serviceEnd{done: ended, how: func() string {
+		if acceptErr != nil {
+			return "its listener stopped accepting connections (" + acceptErr.Error() + ")"
+		}
+		return "its listener stopped accepting connections"
+	}}
+	return stop, end, true
 }
 
 // noteCgroupDelegateUnavailable and noteCgroupDelegateFailed are how the in-process
