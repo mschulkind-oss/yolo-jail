@@ -538,10 +538,10 @@ The three constructors are the whole API surface. **`HostLayer` is the subtle fi
 composition a fixpoint over its own result. That is why every host-target surface is `rmw`.
 
 > **The `Tables` line's premise is re-argued in [`host-computed-layer.md`](host-computed-layer.md#3-why-the-computed-layer-is-jail-only--the-stated-reasons-and-which-hold)** (2026-09-27): of the four derive inputs, only `mcp_servers` carries jail paths, through the MCP presets.
-> **And it is superseded** (2026-09-28, [OQ-HC1](host-computed-layer.md#OQ-HC1)): the host
+> **And it is superseded** (2026-09-28, [OQ-HC1](../reference/host-agent-environment.md#oq-hc1)): the host
 > target now gets a computed layer, from the same derives over tables composed at user scope,
 > with no preset, and a surface whose output names a jail path is refused
-> ([what was built](host-computed-layer.md#14-what-was-built)).
+> ([what each surface gets at the host](../reference/host-agent-environment.md#what-each-surface-gets-at-the-host)).
 
 ### 3.4 What this buys immediately, before any host target exists
 

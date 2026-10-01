@@ -440,7 +440,7 @@ func (t Target) LastRenderPath(agent, name string) string {
 // SelectionPath is the selection record: the values yolo's SELECTION mechanism last wrote.
 //
 // In the capture store where there is one. A HOST under `assert` keeps none, and since OQ-HC3
-// (docs/design/host-computed-layer.md) its apply writes the `profile` selection by the
+// (docs/reference/host-agent-environment.md) its apply writes the `profile` selection by the
 // jail's edge-triggered rule, which needs the record: so there it goes under ProvenanceDir,
 // beside the provenance and config-list insert records, which are there for the same reason
 // (rmw is that contract's only mechanism). `none` writes nothing and keeps no record.

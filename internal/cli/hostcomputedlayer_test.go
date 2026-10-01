@@ -1,6 +1,6 @@
 package cli
 
-// hostcomputedlayer_test.go pins OQ-HC1 at the CLI's front doors (docs/design/host-computed-layer.md):
+// hostcomputedlayer_test.go pins OQ-HC1 at the CLI's front doors (docs/reference/host-agent-environment.md):
 // `yolo host apply --assert`, the automatic apply a wrapped launch runs (`host_apply_on_launch`),
 // and `yolo config render|ls --at host` all compose the host's derive inputs (composeHostInputs)
 // and hand them to the render, so your MCP servers, LSP servers, providers and selected model

@@ -1185,7 +1185,7 @@ end
 --
 -- In a jail it renders WHETHER OR NOT a profile is active, because the extension registers
 -- the provider on every launch. `yolo host apply` renders it too, from the provider table it
--- composes at user scope (docs/design/host-computed-layer.md OQ-HC1, which superseded ML-D8),
+-- composes at user scope (docs/reference/host-agent-environment.md OQ-HC1, which superseded ML-D8),
 -- so host pi registers the same list. Each entry carries only what yolo declares — id, the [1m]
 -- variant's base, the display name and the context window; the extension takes every
 -- pi-dialect fact (cost tiers, thinking levels, compat) from pi's own catalog, looked up

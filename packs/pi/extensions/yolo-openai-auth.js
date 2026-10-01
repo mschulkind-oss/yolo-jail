@@ -105,7 +105,7 @@ async function brokerLogin(signal) {
 // (docs/design/model-lists-and-pickers.md ML-D1, ML-D3). The file sits beside extensions/,
 // outside pi's extension discovery and outside this file's own read-only delivery.
 // `yolo host apply` renders the same file into a real home from the provider table it composes
-// there (docs/design/host-computed-layer.md OQ-HC1, superseding ML-D8), so host pi registers
+// there (docs/reference/host-agent-environment.md OQ-HC1, superseding ML-D8), so host pi registers
 // the same list.
 const CODEX_LIST_FILE = join(homedir(), ".pi", "agent", "yolo-openai-codex-models.json");
 

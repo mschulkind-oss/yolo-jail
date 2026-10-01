@@ -154,7 +154,7 @@ var hostUnimplemented = map[packdecl.Kind]string{
 		"would mean editing your shell rc, a much larger claim than a pack's env " +
 		"contribution asks for. `yolo host -- <program>` delivers them at launch instead, " +
 		"to that process only",
-	// `provider` WAS HERE, and is built (OQ-HC1, docs/design/host-computed-layer.md): `yolo
+	// `provider` WAS HERE, and is built (OQ-HC1, docs/reference/host-agent-environment.md): `yolo
 	// host apply` composes the providers table at user scope and runs the derives over it, so
 	// a shipped provider's facts reach pi/models, pi/codex-models, codex/config,
 	// opencode/config and oh-omp/models at the host as in a jail. Like config-overlay it

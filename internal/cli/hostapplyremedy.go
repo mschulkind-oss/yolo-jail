@@ -516,7 +516,7 @@ const (
 // file the remedy names first, which is the point of the remedy contract's "group by remedy key":
 // one file to edit is what makes three agents' worth of losses one group.
 //
-// It was the local pack's manifest from HC-D2 until OQ-HC1 (docs/design/host-computed-layer.md):
+// It was the local pack's manifest from HC-D2 until OQ-HC1 (docs/reference/host-agent-environment.md):
 // while host apply ran no derive for content, a `config-overlay` there was the one declaration
 // that reached a host table. The host now runs the jail's derives over the user's own
 // `mcp_servers`, `lsp_servers` and `providers`, so the user config is that file again (HC-D20).

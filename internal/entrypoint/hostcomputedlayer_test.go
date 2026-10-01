@@ -1,6 +1,6 @@
 package entrypoint
 
-// hostcomputedlayer_test.go pins OQ-HC1–HC3 (docs/design/host-computed-layer.md, ruled
+// hostcomputedlayer_test.go pins OQ-HC1–HC3 (docs/reference/host-agent-environment.md, ruled
 // 2026-09-28): `yolo host apply` runs the SAME derives a jail runs, over inputs composed at user
 // scope, and lands their output per key (HC-D10). Every test here renders through
 // RenderHostPack, the one host entry, with a HostInputs built the way internal/cli's

@@ -225,9 +225,9 @@ type Surface struct {
 	// printed as that surface's `skipped:` row. The jail boot and `yolo check` are unaffected.
 	//
 	// For a surface whose whole content is a derive's, at a path the user also keeps outside
-	// any jail. Host apply renders no derive's content (docs/design/host-computed-layer.md),
-	// so there such a surface could only create an empty file in the user's home or re-encode
-	// the one they keep. Shipped use: pi's `subagents-mcp`, whose file,
+	// any jail. Host apply runs the derives (docs/reference/host-agent-environment.md, OQ-HC1),
+	// so without this a host render would write a file another tool owns in the user's home,
+	// or re-encode the one they keep. Shipped use: pi's `subagents-mcp`, whose file,
 	// `~/.config/mcp/mcp.json`, is a cross-tool location (AM-R2).
 	NotAtHost string
 }

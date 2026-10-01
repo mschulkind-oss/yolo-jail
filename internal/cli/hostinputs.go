@@ -1,7 +1,7 @@
 package cli
 
-// hostinputs.go composes the HOST notch's derive inputs (docs/design/host-computed-layer.md
-// §6.2), once per invocation, for every host-target reader of that invocation (HC-D11): `yolo
+// hostinputs.go composes the HOST notch's derive inputs (docs/reference/host-agent-environment.md,
+// the computed layer at the host), once per invocation, for every host-target reader of that invocation (HC-D11): `yolo
 // host apply`'s dry run, --assert and --format json, the launch gate a wrapped `yolo host --`
 // runs, and `yolo config render --at host`. The render side is entrypoint.HostInputs.
 //

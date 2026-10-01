@@ -177,7 +177,7 @@ func HostAssertModes() ModeSet {
 //     "until a real example argues otherwise", and the real examples arrived — pi/models,
 //     pi/codex-models, pi/mcp, copilot/mcp, copilot/lsp, agy/mcp, oh-omp/models — with the
 //     `assert` retirement about to leave them no host path at all. OQ-HC2 (2026-09-28,
-//     docs/design/host-computed-layer.md) rules it rendered THROUGH `stateful`: the capture
+//     docs/reference/host-agent-environment.md) rules it rendered THROUGH `stateful`: the capture
 //     overlay is exactly the adoption path it lacked, so the first owned render adopts the
 //     file rather than replacing it. Stated as `coerce`, because this census has two composing
 //     mechanisms and Mechanism's fallback coerces only onto a sole one. A KEYLESS computed

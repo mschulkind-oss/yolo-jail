@@ -607,7 +607,7 @@ func TestCodexModelListHelperIsIdenticalInEveryDerive(t *testing.T) {
 	}
 }
 
-// THE HOST NOTCH GETS THE DECLARED LIST (OQ-HC1, docs/design/host-computed-layer.md, which
+// THE HOST NOTCH GETS THE DECLARED LIST (OQ-HC1, docs/reference/host-agent-environment.md, which
 // supersedes docs/design/model-lists-and-pickers.md ML-D8). `yolo host apply` runs pi's derive
 // over the provider table it composes at user scope, so pi/codex-models holds the openai-codex
 // declaration's expansion at the host too — rendered under `assert`, and under `own` through

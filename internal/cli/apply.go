@@ -619,7 +619,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// THE HOST'S DERIVE INPUTS, composed ONCE for this invocation (HC-D11) and handed to every
 	// render below — the loss pre-flight's observe pass and the render loop — so the prompt and
 	// the write derive from one composition (OQ-HC1: the host runs the jail's derives over
-	// inputs composed at user scope, docs/design/host-computed-layer.md §6.2). A composition
+	// inputs composed at user scope, docs/reference/host-agent-environment.md). A composition
 	// that fails refuses the apply before anything is written, in both postures (HC-D7): it is
 	// an input every derived surface shares.
 	inputs, cerr := composeHostInputs(config.UserScopeConfigOrEmpty(), loaded, home)

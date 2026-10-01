@@ -272,7 +272,7 @@ func TestModesIsAFunctionOfTheNotchAlone(t *testing.T) {
 		},
 		// `own` has TWO, so its fallback coerces nothing: each declaration it runs runs as
 		// itself. `computed` is the one EXPLICIT coercion, onto `stateful` (OQ-HC2,
-		// docs/design/host-computed-layer.md): the capture overlay is the adoption path a
+		// docs/reference/host-agent-environment.md): the capture overlay is the adoption path a
 		// wholesale `computed` render lacks, so the first owned render adopts the file.
 		OwnershipOwn: {
 			manifest.ModeStateful:   manifest.ModeStateful,

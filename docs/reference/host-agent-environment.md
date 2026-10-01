@@ -9,6 +9,12 @@ covers:
   - internal/hostwrap/
   - internal/hostpath/
   - internal/cli/check/section_hostwrappers.go
+  - internal/cli/hostinputs.go
+  - internal/cli/configrenderhost.go
+  - internal/entrypoint/hostinputs.go
+  - internal/entrypoint/hostcomputed.go
+  - internal/entrypoint/hostleafrecord.go
+  - internal/render/leafrecord.go
 tags: [host, env, packs, profiles, wrappers]
 summary: "The two channels that deliver a pack's environment to an agent running on the HOST — configuration into the agent's native config surface, environment into the process via `yolo host` — plus the opt-in wrapper directory that makes both reachable from a bare command or an absolute path."
 ---
@@ -31,7 +37,10 @@ folders and the launch PATH every host check reads are from 2026-09-30
 ([host-launch-environment.md's HE-DIR1](../design/host-launch-environment.md#he-dir1)), pinned by
 unit tests through `hostExec`, `checkDepsMain`, `applyHost` and the launch gate. Step 3's wire
 tables are from 2026-09-30 ([FT-D2](../design/agent-footer.md#FT-D2)), pinned by unit tests
-through `hostMain`.
+through `hostMain`. [What `yolo host apply` renders into a derived surface](#what-yolo-host-apply-renders-into-a-derived-surface)
+was written against `d4e435a3` on 2026-10-01, when the design `host-computed-layer.md` graduated
+into it, with [`OQ-HC1`](#oq-hc1) to [`OQ-HC3`](#oq-hc3) in [Why it's this way](#why-its-this-way);
+its implementation decisions, `HC-D1` to `HC-D25`, stay in that design's stub as the build record.
 
 Inside a jail, injecting environment is trivial: yolo controls the process spawn, so it passes
 `-e KEY=VAL` and PID 1 has the exact environment. On the host it controls nothing — the user
@@ -60,6 +69,8 @@ and why "just use wrappers for everything" does not collapse the problem.
 | The apply stage that writes them | `internal/cli` (`applyHostWrappers`) |
 | The refusal left where `--shell-init` was | `internal/cli` (`refuseShellInit`) |
 | The every-run `PATH`, precedence and completeness observations | `internal/cli/check` (`section_hostwrappers.go`) |
+| The host's derive inputs, composed once per invocation | `internal/cli` (`composeHostInputs`, `hostinputs.go`); the render side `internal/entrypoint` (`HostInputs`, `JailPathsIn`) |
+| The host render of a derive's output: the per-key write, the selection, the computed-leaf record | `internal/entrypoint` (`hostrender.go`, `hostcomputed.go`, `hostleafrecord.go`), `internal/render` (`leafrecord.go`) |
 | Where the directory lives | `internal/paths` (`WrapDir`, `WrapDirUnder`, `GeneratedBinDir`) |
 
 **Reads with:** [`providers.md`](providers.md) (what a provider declares, and which agent reads
@@ -340,6 +351,129 @@ runs on it directly
 ([`wire-bridge.md`](wire-bridge.md#at-the-host-notch),
 [`host-notch-services.md`](../design/host-notch-services.md)).
 
+## What `yolo host apply` renders into a derived surface
+
+<a id="the-computed-layer-at-the-host"></a>
+
+The configuration channel writes more than the layers a manifest declares. **The host runs the
+jail's own derives** (a pack's `yolo.derive` functions, whose output is a surface's **computed
+layer**) over inputs composed at user scope, and lands their output in the real files
+([`OQ-HC1`](#oq-hc1): *"we're trying for host parity with the same handling"*). There is no
+per-surface opt-in and no derive branches on the notch: what differs between the notches is only
+how the inputs are composed. So host pi registers yolo's `openai-codex` list, and your
+`mcp_servers`, `lsp_servers` and providers reach the real agent files as they reach a jail's.
+
+**One composition per invocation, read by every host-target reader** (`composeHostInputs`,
+`internal/cli`): `yolo host apply`'s dry run, its `--assert` and `--format json`, the
+[launch gate](host-apply-staleness.md#the-launch-gate) a wrapped `yolo host --` runs, and
+`yolo config render --at host`; `yolo config ls --at host` lists each derived surface's
+computed layer from the derive registrations. A reader that skipped the composition would render
+catalogs without providers, and the launch gate would undo an apply's rows or report them as
+drift at every wrapped launch. The inputs travel as the jail's own wire tables, in the host
+environment's variables, so the readers a jail's boot uses read the host composition unchanged.
+
+**The inputs**, every one from your user config and the selected packs, never from a workspace:
+
+| Input | At the host |
+| :--- | :--- |
+| `providers` | your `providers` entries over the selected packs' provider facts, the table `yolo host --` composes, with no address a pack's own service serves; the packs' `models` contributions shape the lists |
+| `profiles`, `profile` | your profiles resolved over that table, every `via` address cleared, since no jail daemon serves one here; the selection is the `profile` key alone, since host apply has no `-p`. A selection the host cannot serve (a profile only the wire bridge reaches, an active set one of whose entries the host refuses) is left out and named |
+| `mcp_servers`, `lsp_servers` | your own entries, less any whose command or arguments name a jail-only path, each named. An MCP preset is never expanded: its command is a wrapper only a jail's boot writes, and the report says to declare the server under `mcp_servers` instead. A pack's `mcp` declaration is never an input |
+
+<a id="what-each-surface-gets-at-the-host"></a>
+
+What each shipped derived surface gets at the host, as built (`358f877d`; the per-surface
+account the design recorded):
+
+| Surface | What the host render writes |
+| :--- | :--- |
+| `pi/models` | a row per pi-reachable provider in the composed table, never `openai-codex`, as in a jail |
+| `pi/codex-models` | the declared `openai-codex` list, which the delivered extension registers |
+| `pi/mcp`, `copilot/mcp`, `agy/mcp` | your `mcp_servers`, filtered per agent |
+| `copilot/lsp` | your `lsp_servers` |
+| `oh-omp/models` | provider rows |
+| `claude/config` | your `mcp_servers` as `mcpServers`, so yolo owns `~/.claude.json`'s user-scope server list at the host as in a jail: a server added with `claude mcp add` is a loss the first apply confirms |
+| `claude/settings` | `env.ENABLE_LSP_TOOL` beside your own variables |
+| `codex/config`, `opencode/config` | your MCP servers, a row for each provider the agent can reach, and the selected profile's model |
+| `pi/settings` | the selected profile's `defaultProvider` and `defaultModel`, and the pi-subagents policy |
+
+**An MCP server is filtered per agent, as in a jail.** Its `requires_env` is asked of the
+environment `yolo host env --agent <agent>` would compose, so a provider credential scoped to
+one agent ([the credential gate](providers.md#the-credential-gate)) writes the server for that
+agent only, and the report names the agents that got it. Its `provides` is checked against each
+agent's own native capabilities, so a `provides: "web_search"` server reaches neither claude's
+nor agy's files. ⚠ A server written this way resolves its `${VAR}` from the agent's own
+environment, so an agent started outside `yolo host`, from an IDE or directly, lacks a variable
+that came from `env_sources` and that one server fails when the agent spawns it.
+
+<a id="the-host-write-is-per-key"></a>
+
+**A derive's output reaches a real file per key, never through a tombstone** (`HC-D10` in
+[the design's record](../design/host-computed-layer.md#HC-D10)):
+
+1. a table the derive declares in full (`ctx.in_full`) is yolo's, and is written wholesale;
+2. any other object a derive returns asserts only the leaves it names, and the rest of that
+   object stays as your file holds it: with an LSP server, `claude/settings` gains
+   `env.ENABLE_LSP_TOOL` beside your own variables;
+3. a tombstone is dropped before either arm sees it, because at the host the only layer below a
+   derive is your real file, so a tombstone could only delete a key you wrote;
+4. a leaf yolo stops asserting is **cleared** when the file still holds the value yolo wrote
+   there. The rmw arm keeps a **computed-leaf record** (a term the design coined: the value yolo
+   wrote at each leaf's RFC 6901 pointer, beside the provenance record), and records a leaf only
+   when yolo's write is what put that value in the file. So moving claude off Bedrock removes the
+   `CLAUDE_CODE_USE_BEDROCK` an earlier apply wrote, while a value you set before yolo asserted
+   it, or changed after, stays. A launch reads the same record to tell a switch yolo wrote from
+   one you wrote.
+
+> [!WARNING]
+> **Do not hand a derive's output to the jail's `rmw` table writer.** That writer
+> (`regenerateManagedTables`) clears and rewrites every object-valued computed key, declared in
+> full or not: given `claude/settings`' derive output over empty inputs, it turned a file's
+> `{"env": {"MY_VAR": "x"}}` into `{"env": {}}` (measured while the design was argued). Rule 2 is
+> an obligation on the writer, not a property of the old one.
+
+**A jail path never reaches a real home.** The output of every derive is checked, keys and
+values, for a jail-only root: the jail render target's home and workspace, and the mounts every
+container launch supplies (the context root, the install prefix, `/run/yolo`, the service
+endpoint directory). A root counts only as a whole path token, and one the rendered home lies at
+or under is not a jail path there, which covers a host apply run inside a jail. A surface whose
+output names one is refused by name (`entrypoint.JailPathsIn`, which also omits a user's server
+entry at composition, so one bad entry costs only that entry).
+
+**The `profile` key's selection is written with the jail's edge-triggered rule**
+([`OQ-HC3`](#oq-hc3)): yolo writes it when the chosen profile changes and clears only what it
+wrote ([`OQ-PSW2`](providers.md#oq-psw2)), so a later `/model` pick of yours stands. At the host
+the real file is the only layer below, so a file value the selection record does not hold is
+outranked by the first activation, and a recorded key whose value differs is your own pick.
+Under `assert` the selection record lives beside the provenance record; under `own`, in the
+capture store.
+
+**Under `host_management: own`, a `computed` surface renders through `stateful`**
+([`OQ-HC2`](#oq-hc2)), so the first owned render adopts the file rather than replacing it; a
+keyless `computed` surface is still refused.
+
+**The catalogs change owner.** A provider catalog a derive declares in full is a yolo-owned table
+at the host, so a provider added by hand to a real file is dropped at the next apply. The first
+host apply that makes a table yolo's in a home asks before dropping an entry in it, and the
+dropped-entry remedy names your `mcp_servers`, `lsp_servers` and `providers` first, with a
+per-surface `config-overlay` as the one-agent alternative.
+
+**Failures stay local where they can.** A derive that raises an error refuses that surface only,
+naming the error, and leaves its file alone. A provider or profile table that cannot be composed
+refuses the whole apply before anything is written, as `yolo host --` refuses on it.
+
+**Not built:** `yolo config reset --at host` under `own` still truncates a surface to its declared
+layers, and the next apply restores the computed layer over it. And a computed leaf that changes a
+value of yours (a first activation over an earlier `defaultModel`) is counted as a change, not
+reported as an overwrite, because the overwrite report reads the declared layers only.
+
+MEASURED after the build (2026-09-28): `yolo config render --at host` for `codex` and `opencode`
+(codex's selected model, opencode's provider row, `model` and `small_model`), and each of the
+build's tests failing with its call site removed. UNMEASURED: no agent has been started against a
+file a host apply wrote, and whether `oh-omp/models` (a yaml surface) renders under `assert` is
+unchecked: the build's account said its `rmw` arm had no yaml encoder, and the tree at `d4e435a3`
+registers a yaml object codec that arm accepts.
+
 ## apply reports actions, check reports state
 
 - **`apply` prints the `PATH` line when it created or changed the wrapper directory** — a
@@ -436,6 +570,9 @@ line, pasted by the user. yolo offers no writer for it ([HE-D1](#he-d1)).
 
 | Ruling | Why it holds |
 | :--- | :--- |
+| <a id="oq-hc1"></a>[**OQ-HC1**](#oq-hc1) — **the host runs the jail's derives over user-scope inputs**, in `yolo host apply` and in a wrapped launch's automatic apply, with no per-surface opt-in and no notch branch (maintainer, 2026-09-28: *"yes of course host apply and the auto one in a wrapper should generate this content. we're trying for host parity with the same handling."*) | The obstacle was the inputs, not the derives: only the MCP presets carried a jail path, so composing host inputs and checking the output for a jail path answers what a per-surface opt-in would have guarded. It superseded the earlier "for now" ruling that host apply renders no `openai-codex` list ([ML-D8](../design/model-lists-and-pickers.md#ML-D8)). |
+| <a id="oq-hc2"></a>[**OQ-HC2**](#oq-hc2) — **under `own`, a `computed` surface renders through `stateful`**, adopting the file on the first owned render (2026-09-28, by [OQ-HC1](#oq-hc1)'s parity) | Without it those files have no host path once `assert` retires. |
+| <a id="oq-hc3"></a>[**OQ-HC3**](#oq-hc3) — **host apply writes the `profile` key's selection with the jail's edge-triggered rule** (2026-09-28, by [OQ-HC1](#oq-hc1)'s parity) | So a direct or IDE launch of pi starts on the chosen provider and model, and a later `/model` pick of the user's still stands. Before it, the selection did nothing at the host for an agent that reads no yolo environment. |
 | <a id="he-p1"></a>[**HE-P1**](#he-p1) — split by payload type, not by agent, and not as a preference order | The first design was a config-first ladder with process env as a fallback for the one agent that could do no better. A config file *routes* a credential and cannot *deliver* one, so the ladder had the load-bearing case backwards. |
 | <a id="he-p2"></a>[**HE-P2**](#he-p2) — keep wrappers, as a three-line `exec` into `yolo host` | Consistency without a second env-composition implementation to drift. |
 | <a id="oq-1"></a>[**OQ-1**](#oq-1) — copilot BYOK needs no per-agent advisory | Under P1 the need is a property of the provider, so copilot is the ordinary path rather than a special case; one statement covers every agent at once. |

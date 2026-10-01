@@ -1,7 +1,7 @@
 package entrypoint
 
-// hostinputs.go is the HOST notch's half of the derive inputs (docs/design/host-computed-layer.md
-// §6.2, OQ-HC1): what a host render runs every derive over, and the check that keeps a
+// hostinputs.go is the HOST notch's half of the derive inputs (docs/reference/host-agent-environment.md,
+// the computed layer at the host, OQ-HC1): what a host render runs every derive over, and the check that keeps a
 // jail-only path out of the real home.
 //
 // THE RULING IS PARITY WITH THE SAME HANDLING (OQ-HC1, 2026-09-28): "host apply and the auto one

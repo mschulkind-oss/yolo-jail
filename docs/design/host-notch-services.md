@@ -432,7 +432,7 @@ parent of both processes (`launchservice.RunAgent`). This is [OQ-HS3](#OQ-HS3)'s
 | `yolo host -- <agent>`, `yolo -p <p> host -- <agent>`, `yolo --at host …` | starts the service |
 | the host wrappers (`exec yolo host -- <bin>`, [`hostwrap.go`](../../internal/hostwrap/hostwrap.go)) | the same front door, so the same result |
 | `yolo host env` | refuses a bridged profile, naming the `yolo host -p <p> -- <agent>` spelling: an env script cannot own a service's lifetime ([OQ-HS3](#OQ-HS3)). For the same reason it opens no credential doorway: it exports no pointer at one and names the launch that opens it ([HS-D21](#HS-D21)) |
-| `yolo host apply` | renders no bridged address, since a per-launch address cannot sit in a file, and says a bridged `profile` selection takes effect only through `yolo host --` or the wrappers ([OQ-HS3](#OQ-HS3), [OQ-HC3](host-computed-layer.md#OQ-HC3)). The key was `use_profiles` until [PP-D10](providers-and-profiles-redesign.md#PP-D10) |
+| `yolo host apply` | renders no bridged address, since a per-launch address cannot sit in a file, and says a bridged `profile` selection takes effect only through `yolo host --` or the wrappers ([OQ-HS3](#OQ-HS3), [OQ-HC3](../reference/host-agent-environment.md#oq-hc3)). The key was `use_profiles` until [PP-D10](providers-and-profiles-redesign.md#PP-D10) |
 | a direct launch (an IDE, cron, a shell with no wrappers) | gets only the rendered files, so it runs on the login. claude's host status line reads the config's selection ([OQ-FT6](agent-footer.md#OQ-FT6)). At `1baf1fd4` it says `codex (bridge) · host` there (row 3 of [§2](#2-what-the-host-does-today-measured)); FT-D1 leaves a selection the host refuses out of it, so it names the login. Once the host composes a bridged selection, the line would name the bridge again while a direct launch runs on its login. That is [`agent-footer.md`](agent-footer.md)'s to settle |
 | a container jail | the caller secret, by NC-D2 (the bridge part is built, [WB-D18](../reference/wire-bridge.md#wb-d18)) |
 | a `macos-user` jail | [§4.7](#47-macos-user) |
@@ -718,7 +718,7 @@ option A and are moot under its option B.
    launch, [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A as worded, and the managed Codex adapter's shipped shape.
    Concurrency and version skew cannot arise. **What follows:** `yolo host apply` renders no
    bridged address and says a bridged `use_profiles` selection needs `yolo host --` or the
-   wrappers. If [OQ-HC3](host-computed-layer.md#OQ-HC3) renders the rest of that variant, such as
+   wrappers. If [OQ-HC3](../reference/host-agent-environment.md#oq-hc3) renders the rest of that variant, such as
    the model list, the address still stays out. `yolo host env` refuses a bridged profile. A
    direct launch runs on its login. **Cost:** an IDE that starts claude itself cannot be bridged
    unless its `PATH` carries the wrappers. **The alternative,** a long-lived host service, could
@@ -826,7 +826,7 @@ HS-D25 fixing one that named the wrong cause.
 | [`host-daemon-ownership.md`](host-daemon-ownership.md#HD-R1) | [HD-R1](host-daemon-ownership.md#HD-R1), the no-singleton ruling [HS-P2](#HS-P2) reads for the host, and [HD-D1](host-daemon-ownership.md#HD-D1)'s per-session dir on `macos-user` |
 | [`agent-credentials.md`'s OpenAI service](../reference/agent-credentials.md#oq-oa6) | [OQ-OA6](../reference/agent-credentials.md#oq-oa6), which [OQ-NC1](../plans/notch-convergence.md#OQ-NC1)'s option A answers with its route (b) |
 | [`declaration-parity.md`](declaration-parity.md#1-the-principle-and-what-it-does-not-say) | P1, which [HS-P1](#HS-P1) applies, and [OQ-DP8](declaration-parity.md#OQ-DP8) and [OQ-DP9](declaration-parity.md#OQ-DP9), which [§4.7](#47-macos-user) narrows |
-| [`host-computed-layer.md`](host-computed-layer.md#OQ-HC3) | [OQ-HC3](host-computed-layer.md#OQ-HC3), what host apply renders for a `profile` selection (then spelled `use_profiles`) |
+| [`host-agent-environment.md`'s computed layer at the host](../reference/host-agent-environment.md#oq-hc3) | [OQ-HC3](../reference/host-agent-environment.md#oq-hc3), what host apply renders for a `profile` selection (then spelled `use_profiles`) |
 | [`wire-bridge-gateway.md`](wire-bridge-gateway.md#WG-I8) | [WG-I8](wire-bridge-gateway.md#WG-I8), which [HS-D1](#HS-D1) revises, and [WG-I12](wire-bridge-gateway.md#WG-I12), which it keeps |
 
 ## Appendix A — the measured runs

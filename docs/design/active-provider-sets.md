@@ -313,7 +313,7 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
 | `macos-user` | The same per-agent env file, written by the same writer, and the per-invocation plan env for the launched program. [HS-D14](host-notch-services.md#HS-D14)'s "every profiled agent's pairing counts" reads each entry |
 | `yolo host -- <agent>` | The one command's set: a pair naming that command, or the `profile` key. A bridged entry starts its launch-owned service as today, within the limit of one ([§4.8](#48-via-and-the-wire-bridge)) |
 | `yolo host env --agent <agent>` | Exports every entry's key and shape for that agent. A bridged entry is refused, as a bridged profile is today ([OQ-HS3](host-notch-services.md#OQ-HS3)) |
-| `yolo host apply` | Renders the `profile` key's set into the agent's files, as the host runs the jail's derives ([OQ-HC1](host-computed-layer.md#OQ-HC1)). Keys are not in files, so an agent started without yolo sees the union and holds only the keys its own shell exports, which the [OQ-HS3](host-notch-services.md#OQ-HS3) ruling accepts |
+| `yolo host apply` | Renders the `profile` key's set into the agent's files, as the host runs the jail's derives ([OQ-HC1](../reference/host-agent-environment.md#oq-hc1)). Keys are not in files, so an agent started without yolo sees the union and holds only the keys its own shell exports, which the [OQ-HS3](host-notch-services.md#OQ-HS3) ruling accepts |
 
 ### 4.10 State that already exists
 

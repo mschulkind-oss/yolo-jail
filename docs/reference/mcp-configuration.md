@@ -97,7 +97,7 @@ destination rather than asking which one is Claude's.
 
 `yolo host apply`, and the automatic apply a wrapped launch runs, run the same pipeline from the
 derive boundary on, with the same derives
-([OQ-HC1](../design/host-computed-layer.md#OQ-HC1)). The tables come from the USER config alone,
+([OQ-HC1](host-agent-environment.md#oq-hc1)). The tables come from the USER config alone,
 composed in `internal/cli`'s `composeHostInputs` and handed to the render as the same wire
 variables a launch exports ([HC-D13](../design/host-computed-layer.md#HC-D13)). Three things
 differ, each named in the report:
@@ -317,7 +317,7 @@ writes the first, the one both extensions read:
   render with no edit captured in it.
 - **At the host**, `yolo host apply` skips it with a stated reason, under every
   `host_management` value (`notAtHost`). Host apply writes your `mcp_servers` into pi's own
-  `mcp-adapter.json` there ([`host-computed-layer.md`](../design/host-computed-layer.md#14-what-was-built)),
+  `mcp-adapter.json` there ([`host-agent-environment.md`'s computed layer at the host](host-agent-environment.md#what-each-surface-gets-at-the-host)),
   and this cross-tool file stays yours.
 - **pi-mcp-adapter sees each server twice**, once here and once in `mcp-adapter.json`, with
   identical definitions. It merges them by name, the adapter file winning, and its setup panel

@@ -270,7 +270,7 @@ it, while one you wrote or changed yourself stays. MCP presets and servers whose
 that exists only inside a jail are not written to your machine, and the report names each one. Under `host_management: own`,
 the files yolo writes whole (pi's, Copilot's and Antigravity's MCP files, Copilot's LSP file, and
 pi's and oh-omp's model files) are now written too, keeping what they already hold, where they
-used to be refused. See [what a host apply writes](docs/design/host-computed-layer.md#14-what-was-built).
+used to be refused. See [what a host apply writes](docs/reference/host-agent-environment.md#what-each-surface-gets-at-the-host).
 
 **A pack can set another pack's settings for one confinement only.** An `autonomy` posture's
 `config` can now name a config file another pack owns, and its keys apply only where that
