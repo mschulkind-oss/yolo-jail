@@ -375,17 +375,18 @@ edit, so each step's proof is its own CI cell on both arches.
    ([Blockers](#blockers)). The flip makes `isSea()` true, and the unobserved download-and-replace
    starts with it.
 
-   **Two other agents already work this way.** `claude` and `agy` are installer packs whose vendor
-   self-updaters run in jails today, and the program-delivery design lists both as Unmanaged
+   **Two other agents already work this way.** `claude` and `agy` are installer packs, and the
+   program-delivery design lists both vendor self-updaters as Unmanaged
    ([its tier table](../design/program-delivery.md#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)).
-   claude's was observed: it went from 2.1.220 to 2.1.260 within hours of a stuck capture being
-   cleared on 2026-09-03
-   ([per-agent facts](../design/program-delivery.md#per-agent-facts-verified-2026-09-03)). So an
-   agent CLI updating itself unobserved is already how two jailed agents behave, and this question
-   decides whether copilot joins them.
+   claude's was observed in a jail: it went from 2.1.220 to 2.1.260 within hours of a stuck
+   capture being cleared on 2026-09-03
+   ([per-agent facts](../design/program-delivery.md#per-agent-facts-verified-2026-09-03)). agy's
+   is inferred from its binary's `AUTO_UPDATE` strings and has not been watched. So an agent CLI
+   updating itself unobserved is already how claude behaves in a jail, and this question decides
+   whether copilot joins it.
 
    - **(A) Flip with the flag still dropped.** copilot's updater replaces its binary on its own
-     schedule, as claude's and agy's do, and any update verb the pack declares runs beside it. *You see:*
+     schedule, as claude's does, and any update verb the pack declares runs beside it. *You see:*
      copilot current with nothing for yolo to do. *You lose:* a record of which copilot ran.
      Drift becomes the reconcile's to report, which is what Unmanaged means.
    - **(B) Flip, and put `--no-auto-update` back for the native build only.** The launcher's
@@ -398,13 +399,13 @@ edit, so each step's proof is its own CI cell on both arches.
      single native binary and `VERSION=` pinning, which is what
      [OQ-PD13](../design/program-delivery.md#decision-ledger) chose native installers for.
 
-   <!-- vantage: oq id=OQ-NI1 leaning="(A): flip with the flag still dropped. It is the maintainer's 2026-09-12 position, and claude and agy already self-update unobserved in jails, so copilot would match them rather than open a new class. (B) is the choice only if yolo should be the one writer of every agent binary, and then claude and agy owe the same." -->
+   <!-- vantage: oq id=OQ-NI1 leaning="(A): flip with the flag still dropped. It is the maintainer's 2026-09-12 position, and claude already self-updates unobserved in jails (observed), with agy listed the same way, so copilot would match them rather than open a new class. (B) is the choice only if yolo should be the one writer of every agent binary, and then claude and agy owe the same." -->
 
-   _Leaning:_ **(A).** It is the maintainer's 2026-09-12 position, and claude and agy already
-   self-update unobserved in every jail, so (A) makes copilot match them rather than opening a
-   new class. The question stayed open only because under npm the update it is about could not
-   happen, and nothing found since argues against it. (B) is the choice if yolo is to be the one
-   writer of every agent binary, and then claude and agy owe the same flag.
+   _Leaning:_ **(A).** It is the maintainer's 2026-09-12 position, and claude already updates
+   itself unobserved in jails, with agy listed the same way, so (A) makes copilot match them
+   rather than opening a new class. The question stayed open only because under npm the update it
+   is about could not happen, and nothing found since argues against it. (B) is the choice if yolo
+   is to be the one writer of every agent binary, and then claude and agy owe the same flag.
 
    **Answer:**
    > _(empty — fill in when decided)_
