@@ -331,14 +331,18 @@ func TestWorkspaceEnableInstalledIsDisclosed(t *testing.T) {
 		t.Errorf("disclosure %q does not say the file is agent-editable, which is the "+
 			"whole reason the direction is worth a line", hits[0])
 	}
+	// The words are looked for in the line's own prose: the workspace path it names (twice,
+	// once as the location it leads with) is the machine's, and a TMPDIR spelled with one of
+	// them would fail this on that machine alone.
+	prose := strings.ReplaceAll(hits[0], ws, "<workspace>")
 	for _, claim := range []string{"approv", "review", "confirm", "consent"} {
-		if strings.Contains(hits[0], claim) {
+		if strings.Contains(prose, claim) {
 			t.Errorf("disclosure %q claims %q; this line is readability, not a record "+
 				"that anyone signed off", hits[0], claim)
 		}
 	}
 	// And it must not be mistakable for its opposite at a glance.
-	if strings.Contains(hits[0], "disabled by") {
+	if strings.Contains(prose, "disabled by") {
 		t.Errorf("the ON disclosure reads like the OFF one: %q", hits[0])
 	}
 }
