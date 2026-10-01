@@ -117,9 +117,11 @@ func TestUnknownPlatformIsAConfigError(t *testing.T) {
 }
 
 // TestMergeMiseDisabledToolsYieldsToADeclaredMiseTool pins the host half of the pnpm fix
-// (docs/design/program-delivery.md, OQ-PD12a): yolo keeps mise off pnpm only while its own
-// launcher delivers it. Both halves driven through their call sites together are
-// internal/cli/run/misepnpm_test.go.
+// (docs/design/program-delivery.md, OQ-PD12a): the list never names a declared `mise_tools`
+// key, which is what mise matches it against. A backend spelling of pnpm was never hidden by
+// it, so for those the list is unchanged: lifting it there would only stop hiding a
+// project's own bare pnpm pin, which is OQ-PD19's to decide. Both halves driven through
+// their call sites together are internal/cli/run/misepnpm_test.go.
 func TestMergeMiseDisabledToolsYieldsToADeclaredMiseTool(t *testing.T) {
 	tools := func(keys ...string) *jsonx.OrderedMap {
 		m := jsonx.NewOrderedMap()
@@ -138,8 +140,9 @@ func TestMergeMiseDisabledToolsYieldsToADeclaredMiseTool(t *testing.T) {
 		{"an empty table keeps yolo's pnpm", nil, tools(), "pnpm"},
 		{"another tool keeps yolo's pnpm", nil, tools("node"), "pnpm"},
 		{"a bare pnpm key lifts it", nil, tools("pnpm"), ""},
-		{"a backend pnpm lifts it", nil, tools("npm:pnpm"), ""},
-		{"a registry path pnpm lifts it", nil, tools("aqua:pnpm/pnpm"), ""},
+		{"a bare pnpm key among others lifts it", nil, tools("node", "pnpm"), ""},
+		{"a backend pnpm, never hidden, leaves it", nil, tools("npm:pnpm"), "pnpm"},
+		{"a registry path pnpm, never hidden, leaves it", nil, tools("aqua:pnpm/pnpm"), "pnpm"},
 		{"the user's own list is appended", "ruby, go", tools("node"), "pnpm,ruby,go"},
 		{"the user's own list survives the lift", "ruby", tools("pnpm"), "ruby"},
 		// Hiding a tool the user named is the user's call, whatever mise_tools says.
@@ -152,24 +155,5 @@ func TestMergeMiseDisabledToolsYieldsToADeclaredMiseTool(t *testing.T) {
 					c.tools, got, c.want)
 			}
 		})
-	}
-}
-
-// TestMiseToolBin pins the heuristic both halves of the pnpm decision share: the jail's
-// launcher check (entrypoint.declaredMiseBins) and the host's MISE_DISABLE_TOOLS.
-func TestMiseToolBin(t *testing.T) {
-	for key, want := range map[string]string{
-		"pnpm":                 "pnpm",
-		"npm:pnpm":             "pnpm",
-		"aqua:pnpm/pnpm":       "pnpm",
-		"cargo:ripgrep":        "ripgrep",
-		"npm:@scope/some-tool": "some-tool",
-		"":                     "",
-		"npm:":                 "",
-		"/":                    "",
-	} {
-		if got := MiseToolBin(key); got != want {
-			t.Errorf("MiseToolBin(%q) = %q, want %q", key, got, want)
-		}
 	}
 }

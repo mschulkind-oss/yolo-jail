@@ -1,7 +1,6 @@
 package config
 
 import (
-	"path"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -106,24 +105,30 @@ func MergeMiseTools(config *jsonx.OrderedMap) *jsonx.OrderedMap {
 // user-supplied tools (comma/space separated), deduped, comma-joined.
 // Non-string userValue is ignored.
 //
-// A YOLO-MANAGED TOOL IS LEFT OUT WHEN A DECLARED MISE TOOL PROVIDES ITS NAME. miseTools is
+// A YOLO-MANAGED TOOL IS LEFT OUT WHEN A DECLARED `mise_tools` KEY IS ITS NAME. miseTools is
 // the merged `mise_tools` (MergeMiseTools), the same table the jail reads as YOLO_MISE_TOOLS.
-// pnpm is kept from mise only because yolo's own lazy launcher delivers it, and the jail
-// writes no launcher for a name a declared mise tool provides
-// (internal/entrypoint/launchercollision.go, OQ-PD12a in docs/design/program-delivery.md).
-// Kept in the list there, it hid the declared tool too, and that jail had no pnpm at all.
-// Both halves ask MiseToolBin, so they give one answer to "does yolo deliver pnpm here".
+// The jail writes no pnpm launcher for a declared mise pnpm of any spelling
+// (internal/entrypoint/launchercollision.go, OQ-PD12a in docs/design/program-delivery.md),
+// so mise must be free to deliver it. mise matches this list against a tool's KEY as
+// written (MEASURED, mise 2026.8.6): `pnpm` here hid a declared `pnpm` key, and that jail had
+// no pnpm at all, while `npm:pnpm` and `aqua:pnpm/pnpm` were never hidden.
+//
+// EXACTLY THE KEY, NOT THE BINARY IT PROVIDES, because that is the whole of what the list
+// hid. Lifting pnpm for a backend spelling too would change nothing about the declared tool
+// and one thing beside it: a project's own bare `pnpm` pin in mise.toml would stop being
+// hidden, and whether it should is OQ-PD19's open question, not this fix's. A declared bare
+// key cannot avoid that, the project's pin being the same key.
+//
 // A tool the USER names stays in the list whatever mise_tools says: hiding it is their call.
 func MergeMiseDisabledTools(userValue any, miseTools *jsonx.OrderedMap) string {
-	declared := map[string]bool{}
-	if miseTools != nil {
-		for _, key := range miseTools.Keys() {
-			declared[MiseToolBin(key)] = true
-		}
-	}
 	var tools []string
 	for _, tool := range defaultMiseDisabledTools {
-		if !declared[tool] && !containsStr(tools, tool) {
+		if miseTools != nil {
+			if _, declared := miseTools.Get(tool); declared {
+				continue
+			}
+		}
+		if !containsStr(tools, tool) {
 			tools = append(tools, tool)
 		}
 	}
@@ -135,26 +140,6 @@ func MergeMiseDisabledTools(userValue any, miseTools *jsonx.OrderedMap) string {
 		}
 	}
 	return strings.Join(tools, ",")
-}
-
-// MiseToolBin is the binary name a `mise_tools` key provides: the key's last `:` segment,
-// then its last path element, so `pnpm`, `npm:pnpm` and `aqua:pnpm/pnpm` all name `pnpm`.
-// "" for a key that names none.
-//
-// A HEURISTIC, AND THE RIGHT DIRECTION TO BE WRONG IN. Its callers are the jail's launcher
-// check (declaredMiseBins) and MergeMiseDisabledTools above: over-naming a bin costs one yolo
-// launcher not written and one mise exclusion lifted, while under-naming it costs a project
-// dependency shadowed by yolo's launcher.
-func MiseToolBin(key string) string {
-	name := key
-	if i := strings.LastIndex(name, ":"); i >= 0 {
-		name = name[i+1:]
-	}
-	name = path.Base(name)
-	if name == "." || name == "/" {
-		return ""
-	}
-	return name
 }
 
 // grepDefaults / findDefaults supply the default block messages for

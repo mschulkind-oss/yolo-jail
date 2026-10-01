@@ -367,14 +367,17 @@ check is `internal/entrypoint/launchercollision.go`.
 > host still put `pnpm` in `MISE_DISABLE_TOOLS` on every launch, and mise neither lists nor installs
 > a tool whose key that list names. MEASURED 2026-10-01 in a nested jail from a throwaway workspace
 > declaring `mise_tools` `{"pnpm": "9.12.0"}`: no launcher, an empty `mise ls --current`, and
-> `pnpm: command not found`. `config.MergeMiseDisabledTools` now leaves pnpm out of the list
-> whenever a declared mise tool provides the name, asking the same `config.MiseToolBin` the
-> launcher check asks, so exactly one of the two delivers pnpm. The same jail then installed
-> pnpm 9.12.0 through mise and ran it, and a workspace declaring no mise pnpm still got the
-> launcher and `MISE_DISABLE_TOOLS=pnpm`. `internal/cli/run/misepnpm_test.go` drives both call
-> sites together. Only the bare `pnpm` key was hidden: mise matches the list against a tool's key
-> as written, so `npm:pnpm` and `aqua:pnpm/pnpm` were listed all along (MEASURED, mise 2026.8.6),
-> and the list now drops pnpm for those spellings too, since yolo delivers no pnpm there either.
+> `pnpm: command not found`. Only the bare `pnpm` key was hidden: mise matches the list against
+> a tool's key as written, so `npm:pnpm` and `aqua:pnpm/pnpm` were listed all along (MEASURED,
+> mise 2026.8.6). `config.MergeMiseDisabledTools` now leaves pnpm out of the list when a
+> declared `mise_tools` key is `pnpm`, so for every spelling the launcher check stands down
+> for, nothing hides the declared tool from mise. The same jail then installed pnpm 9.12.0
+> through mise and ran it, and a workspace declaring no mise pnpm still got the launcher and
+> `MISE_DISABLE_TOOLS=pnpm`. `internal/cli/run/misepnpm_test.go` drives both call sites
+> together. For a backend spelling the list still names pnpm, where it hides nothing but a
+> project's own bare `pnpm` pin: whether it should hide that is
+> [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)'s
+> question. A declared bare key does unhide that pin, the pin being the same key.
 
 ##### The four things an implementer would otherwise have to guess
 
@@ -1881,10 +1884,10 @@ jail with mise 2026.8.6:
   user who declared `mise_tools` pnpm got no pnpm at all, the opposite of
   [`OQ-PD12a`](#decision-ledger)'s *"a `mise_tools` pnpm keeps its name"*. MEASURED end to end
   in a nested jail before the fix, and closed under that ruling rather than this question: the
-  list now leaves pnpm out whenever a declared mise tool provides the name
-  ([the pnpm note](#why-the-launcher-and-what-b2-changes-about-path)). The exclusion still
-  applies to every jail that declares no mise pnpm, a project's own pin included, so the first
-  bullet stands.
+  list now leaves pnpm out when a declared `mise_tools` key is `pnpm`, the one spelling it hid
+  ([the pnpm note](#why-the-launcher-and-what-b2-changes-about-path)). That also unhides a
+  project's own pin in such a jail, the pin being the same key. The exclusion still applies to
+  every other jail, a project's own pin included, so the first bullet stands for them.
 - **What mise would install instead.** mise resolves `pnpm` to `aqua:pnpm/pnpm`, then
   `npm:pnpm` (`mise registry`), so a pin through mise is an ordinary versioned tool.
 

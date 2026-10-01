@@ -27,9 +27,8 @@ package entrypoint
 // situation").
 
 import (
+	"path/filepath"
 	"strings"
-
-	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
 
 // imageProbeBase is the image's own bin dirs. A var only so a test that runs the boot path
@@ -119,17 +118,25 @@ func underJailHome(e *Env, dir string) bool {
 // which is what P6 forbids (§3.5's `pnpm` note is the live case).
 //
 // A mise tool key may carry a backend prefix (`npm:pnpm`, `cargo:ripgrep`); the bin is the
-// last segment (config.MiseToolBin, which says why that heuristic errs the right way).
+// last segment. That is a heuristic and it is the RIGHT direction to be wrong in: over-
+// naming a bin costs one launcher that is not written, while under-naming it costs a
+// shadowed project dependency.
 //
-// THE HOST ASKS THE SAME QUESTION OF THE SAME TABLE. config.MergeMiseDisabledTools drops
-// pnpm from MISE_DISABLE_TOOLS for exactly the declarations that withhold the pnpm launcher
-// here, so mise delivers the declared tool. Before it did, a declared `pnpm` key lost both
-// doors: no launcher, and mise told to hide it.
+// WHAT THIS WITHHOLDS, THE HOST MUST LEAVE MISE FREE TO DELIVER. A declared `pnpm` key
+// once lost both doors: no launcher here, and the host's MISE_DISABLE_TOOLS telling mise to
+// hide it. config.MergeMiseDisabledTools now leaves pnpm out of that list for a declared
+// `pnpm` key, the one spelling the list hides, and internal/cli/run/misepnpm_test.go drives
+// both halves together.
 func declaredMiseBins(e *Env) map[string]struct{} {
 	out := map[string]struct{}{}
 	tools := loadInjectedTools(e)
 	for _, key := range tools.Keys() {
-		if name := config.MiseToolBin(key); name != "" {
+		name := key
+		if i := strings.LastIndex(name, ":"); i >= 0 {
+			name = name[i+1:]
+		}
+		name = filepath.Base(name)
+		if name != "" && name != "." && name != "/" {
 			out[name] = struct{}{}
 		}
 	}

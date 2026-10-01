@@ -64,39 +64,46 @@ func pnpmDoors(t *testing.T, cfg *jsonx.OrderedMap) (miseHides []string, launche
 }
 
 // TestADeclaredMisePnpmIsDeliveredByMise is the defect: every spelling of a declared mise
-// pnpm gets no yolo launcher (OQ-PD12a), so mise must be left free to deliver it.
+// pnpm gets no yolo launcher (OQ-PD12a), so the launch must not tell mise to hide it.
 //
 // mise matches MISE_DISABLE_TOOLS against a tool's KEY as written, not the binary it provides:
 // MEASURED 2026-10-01 with mise 2026.8.6, `pnpm` in the list hides a `pnpm` key from
 // `mise ls --current` and leaves `npm:pnpm` and `aqua:pnpm/pnpm` listed. So the bare key is
-// the spelling that lost pnpm outright, which the second assertion names. The third holds for
-// every spelling: the exclusion is there for a package manager YOLO
-// manages, and where the jail withholds yolo's launcher yolo manages none, so the host must
-// not keep mise off the name either. The two halves then give one answer to "who delivers
-// pnpm here".
+// the spelling that lost pnpm outright, and the assertion that names the declared key holds
+// for every spelling. For the backend spellings the list keeps pnpm, as it always did: there
+// it hides only a project's own bare `pnpm` pin, and whether it should is OQ-PD19's
+// question, which a fix that lifted it on the binary name would answer for them.
 func TestADeclaredMisePnpmIsDeliveredByMise(t *testing.T) {
-	for _, key := range []string{"pnpm", "npm:pnpm", "aqua:pnpm/pnpm"} {
-		t.Run(key, func(t *testing.T) {
+	for _, c := range []struct {
+		key       string
+		listsPnpm bool
+	}{
+		{"pnpm", false},
+		{"npm:pnpm", true},
+		{"aqua:pnpm/pnpm", true},
+	} {
+		t.Run(c.key, func(t *testing.T) {
 			tools := jsonx.NewOrderedMap()
-			tools.Set(key, "9.12.0")
+			tools.Set(c.key, "9.12.0")
 			cfg := bareConfig()
 			cfg.Set("mise_tools", tools)
 
 			hides, launcher := pnpmDoors(t, cfg)
 			if launcher {
 				t.Errorf("yolo wrote its pnpm@latest launcher over a declared mise_tools %q: "+
-					"an agent-class launcher shadowing a project dependency (OQ-PD12a)", key)
+					"an agent-class launcher shadowing a project dependency (OQ-PD12a)", c.key)
 			}
-			if slices.Contains(hides, key) {
+			if slices.Contains(hides, c.key) {
 				t.Errorf("the launch hides the declared mise_tools %q from mise "+
 					"(MISE_DISABLE_TOOLS=%s) while the jail withholds yolo's launcher for it, "+
-					"so the jail has no pnpm at all", key, strings.Join(hides, ","))
+					"so the jail has no pnpm at all", c.key, strings.Join(hides, ","))
 			}
-			if slices.Contains(hides, "pnpm") {
-				t.Errorf("MISE_DISABLE_TOOLS=%s still keeps mise off pnpm in a jail where "+
-					"yolo's launcher stands down for the declared mise_tools %q: the "+
-					"exclusion exists for a package manager yolo manages, and here it "+
-					"manages none", strings.Join(hides, ","), key)
+			if got := slices.Contains(hides, "pnpm"); got != c.listsPnpm {
+				t.Errorf("for a declared mise_tools %q, MISE_DISABLE_TOOLS=%s names pnpm: %v, "+
+					"want %v. The list hides only the bare key, so it is lifted for that key "+
+					"alone; lifting it for another spelling would stop hiding a project's own "+
+					"pnpm pin, which OQ-PD19 has not decided",
+					c.key, strings.Join(hides, ","), got, c.listsPnpm)
 			}
 		})
 	}
