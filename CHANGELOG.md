@@ -865,11 +865,11 @@ sets, and a jail without pi no longer carries it.
   split the path of the builder's key at the space and refused the builder, so the build failed.
   A path with a `;` or a `#` in it was cut short at that character, so Nix could not reach the
   builder either.
-- The logs yolo keeps on your machine for host services, such as the Claude and AWS credential
-  helpers, and for forwarded ports no longer grow for as long as you keep launching. Once one
-  passes 4 MiB, the next launch keeps its newest 4 MiB in one older copy beside it, replacing the
-  last one, and empties the log. A helper that stays running across launches keeps writing to the
-  same log.
+- The logs yolo keeps on your machine for the host services you declare and the loopholes packs
+  ship, such as the Claude and AWS credential helpers, and for forwarded ports, no longer grow for
+  as long as you keep launching. Once one passes 4 MiB, the next launch keeps its newest 4 MiB in
+  one older copy beside it, replacing the last one, and empties the log. A helper that stays
+  running across launches keeps writing to the same log.
 
 ## [0.11.0] - 2026-09-28
 
