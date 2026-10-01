@@ -333,7 +333,9 @@ against them.
 - **Don't add a crossing claim for `jail_daemon`.** It is claim-free by ruling
   ([what is deliberately not a gate](../reference/loophole-system.md#what-is-deliberately-not-a-gate)).
   The banner class that would carry it is `disclosureJailExec`, and the per-launch "will it
-  actually run" answer it was waiting on is what step 2 produces — a follow-up, not this work.
+  actually run" answer it was waiting on is what step 2 produces — a follow-up, not this work,
+  and since built: the launch names each loophole jail daemon its jail runs
+  ([`OQ-TP10`](trust-paths.md#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)).
 - **Don't reach for `SO_PEERCRED`** to replace the ACL grant: peer credentials verify, file
   permissions restrict, and restriction is the half a boundary needs
   ([threat model](../reference/loophole-transport.md#threat-model)).
