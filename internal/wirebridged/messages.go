@@ -10,16 +10,18 @@ package wirebridged
 // wrote them. Every other model is translated to chat-completions exactly as before
 // (handler.go): one route, two upstreams, chosen per request by the model id.
 //
-// THE MEASUREMENT §3 LEFT TO THE BUILDER (SOURCED 2026-09-29, never called): the route is
-// `POST https://bedrock-runtime.<region>.amazonaws.com/anthropic/v1/messages`, taking the
-// first-party body (`model` and `stream` in it, `anthropic-version: 2023-06-01` as a header),
-// and it streams Anthropic server-sent events, not AWS's binary event stream. AWS's Messages
-// API page drives it with the plain Anthropic SDK (`Anthropic(base_url=".../anthropic")`,
+// THE MEASUREMENT §3 LEFT TO THE BUILDER (SOURCED 2026-09-29; MEASURED 2026-10-01, once): the
+// route is `POST https://bedrock-runtime.<region>.amazonaws.com/anthropic/v1/messages`, taking
+// the first-party body (`model` and `stream` in it, `anthropic-version: 2023-06-01` as a
+// header), and it streams Anthropic server-sent events, not AWS's binary event stream. AWS's
+// Messages API page drives it with the plain Anthropic SDK (`Anthropic(base_url=".../anthropic")`,
 // `client.messages.stream`), whose stream decoder is the SSE one; in that SDK only the
 // InvokeModel client (`/model/{id}/invoke-with-response-stream`) swaps in the AWS event-stream
-// decoder. So the stream is relayed byte for byte, and an answer framed as
-// application/vnd.amazon.eventstream is refused by name rather than relayed as bytes claude
-// cannot parse (WG-I30).
+// decoder. The first live request through this pass-through, a streamed Claude Opus 5.5 turn
+// in us-east-1 signed by the bridge, was answered 200 as text/event-stream carrying Anthropic's
+// events (docs/design/wire-bridge-gateway.md §2.4, request 7). So the stream is relayed byte for
+// byte, and an answer framed as application/vnd.amazon.eventstream is refused by name rather
+// than relayed as bytes claude cannot parse (WG-I30).
 //
 // What the route adds is the credential and nothing else: the same SigV4 signer and chain as
 // the route's chat-completions upstream (one credential cache for both), or, when the chain's
@@ -251,8 +253,9 @@ func (m *messagesPassthrough) serve(rec *statusRecorder, in *http.Request, body 
 	}
 	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if mediaType == awsEventStreamType {
-		// The measurement is SOURCED, not observed (WG-I30). If the route ever frames its
-		// stream the other way, the agent gets a named failure, never bytes it cannot parse.
+		// One live answer was SSE (§2.4), and the framing is otherwise SOURCED (WG-I30). If the
+		// route ever frames its stream the other way, the agent gets a named failure, never
+		// bytes it cannot parse.
 		logf("upstream %s answered with AWS's binary event stream (%s), where the route's "+
 			"documentation promises Anthropic server-sent events; refusing it with a 502 (WG-I30)",
 			m.url, awsEventStreamType)

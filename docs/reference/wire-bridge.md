@@ -27,15 +27,19 @@ summary: "A translating reverse proxy, in a jail or run for one host or macos-us
 **Status:** verified 2026-10-01 against `d4e435a3`, the whole doc. What has been watched
 running, by area:
 
-- **The adapter routes, and [streamed usage](#streamed-usage).** UNMEASURED against the live
-  upstreams: the usage mapping is read from Claude Code's bundled script and the providers' SDKs,
-  and tested in-process. On the host that reported the listen-port collision, that the
+- **The adapter routes, and [streamed usage](#streamed-usage).** The usage mapping is read from
+  Claude Code's bundled script and the providers' SDKs, and tested in-process; against a live
+  upstream it is MEASURED only on Bedrock, as below, and unmeasured on Cerebras and Kilo. On the host that reported the listen-port collision, that the
   provider-table fix ends it is inferred from an in-process reproduction, and no launch there has
   been observed succeeding
-  ([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)). One
-  translated request reached a live upstream, on 2026-10-01, and was refused: Bedrock's GPT-6.1
-  Sol answers the `max_tokens` the translation sends with a 400
+  ([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)). The
+  first translated request to reach a live upstream, on 2026-10-01, was refused: Bedrock's GPT-6.1
+  Sol answered the `max_tokens` the translation then sent with a 400. Since the route sends
+  [the output cap](#the-output-cap) as `max_completion_tokens`, Sol and GPT-6 Astra answered four
+  requests the same day, streamed and not, and each streamed answer's `message_delta` carried the
+  upstream's input and output counts
   ([`wire-bridge-gateway.md` §2.4](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)).
+  No agent sent them.
 - **[The via route](#the-via-route--one-route-per-agent-under-agentname)**, both wires. MEASURED
   in-process against a stubbed upstream, and its Responses wire against real Bedrock on
   2026-10-01 with a request shaped like codex's
@@ -290,7 +294,7 @@ The bridge implements **what the agent sends**, not the whole Anthropic API.
 | thinking config and beta headers | chat-completions route: **strip**; Responses route: translate `enabled` budget to a conservative effort, while every non-budget mode leaves the provider default | documented Responses reasoning option, when explicit |
 | response retention and token cap | Codex subscription Responses route: set `store: false` and omit Claude's token cap; other Responses routes preserve their documented cap mapping | ChatGPT subscription endpoint requires no retention and rejects `max_output_tokens` |
 | upstream reasoning content | **drop, do not surface** | plain text deltas only |
-| token and stop-sequence limits | map | the upstream's equivalents |
+| token and stop-sequence limits | map; on the chat-completions route the token limit goes as `max_completion_tokens`, or as `max_tokens` for a provider that declares `max_tokens_field` `"max_tokens"` ([the output cap](#the-output-cap)) | the upstream's equivalents |
 | stop reasons | map onto the upstream's finish reasons | finish reason |
 | usage | map into Anthropic's terms: the upstream's prompt count **minus** its cached count is `input_tokens`, the cached count is `cache_read_input_tokens`, completion tokens are `output_tokens`; streamed, all three ride `message_delta` ([streamed usage](#streamed-usage)) | usage |
 | the stream flag, on the chat-completions route | pass it, and also ask for `stream_options.include_usage`, unless the provider declares `supports_usage_in_streaming` `"false"` | the upstream's final usage chunk |
@@ -506,10 +510,10 @@ The fix is to declare the option `"false"` for that provider, in the user config
 `{"providers": {"<name>": {"options": {"supports_usage_in_streaming": "false"}}}}`. That value
 reaches the provider's resolved profiles (checked 2026-09-25 against `kilo`).
 
-**The shipped upstreams accept it.** The two chat-completions providers the shipped packs route
-through the bridge are `cerebras` (`https://api.cerebras.ai/v1`) and `kilo`
-(`https://api.kilo.ai/api/gateway`). Neither is gated, for these reasons (READ 2026-09-25, not
-measured against the live services):
+**The shipped upstreams accept it.** The chat-completions providers the shipped packs route
+through the bridge are `cerebras` (`https://api.cerebras.ai/v1`), `kilo`
+(`https://api.kilo.ai/api/gateway`) and `bedrock`. None is gated. For the first two the reasons
+were READ 2026-09-25, not measured against the live services:
 
 - **Cerebras.** Its official Python SDK, which is generated from its API definition, declares
   `stream_options` with `include_usage` on chat completions
@@ -521,6 +525,10 @@ measured against the live services):
   sets `supportsStore: false` for its chat-completions models and leaves `supportsUsageInStreaming`
   at pi's default, so Kilo's own client sends the field to the same base URL. Kilo's API reference
   does not list the parameter, and documents usage as present "only in the final chunk".
+- **Bedrock.** MEASURED on 2026-10-01: two streamed requests carrying `stream_options.include_usage`, to GPT-6.1 Sol and
+  GPT-6 Astra on runtime's chat completions, were answered 200, and the bridge's `message_delta`
+  for each carried 13 input and 5 output tokens
+  ([`wire-bridge-gateway.md` §2.4](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)).
 
 **The Responses route needs no opt-in.** Its terminal event always carries the usage. That event is
 `response.completed`, or `response.incomplete` when the output limit stopped the answer, which maps
@@ -531,6 +539,43 @@ turns only a finished answer (`end_turn`) into `tool_use`, because the call's ar
 truncated JSON that Claude would otherwise try to run. The chat-completions route maps
 `finish_reason` `"length"` to `max_tokens` whatever is open, and the non-streamed Responses answer
 follows the same rule as the stream.
+
+### The output cap
+
+Every Anthropic Messages request carries `max_tokens`, which that API requires. The
+chat-completions route sends it upstream as `max_completion_tokens`, OpenAI's current name for the
+field. OpenAI's reference says of `max_tokens`: *"This value is now deprecated in favor of
+`max_completion_tokens`, and is not compatible with o-series models"*
+([create chat completion](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)).
+The route used to send `max_tokens`, and on 2026-10-01 GPT-6.1 Sol on Bedrock refused it with a
+400, so every Claude Code and Copilot turn on that model failed. Since the change, Sol and GPT-6
+Astra on Bedrock answered it, streamed and not
+([`wire-bridge-gateway.md` §2.4](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)).
+
+**A provider that takes only `max_tokens` says so.** A provider that declares the option
+`max_tokens_field` as `"max_tokens"` gets the cap under that field alone. That is the same
+service fact pi's derive reads as `maxTokensField`
+([`packs/llamacpp/README.md`](../../packs/llamacpp/README.md#the-compat-facts--what-this-server-does-and-does-not-support)),
+read by the rule `supports_usage_in_streaming` is: only the exact spelling `"max_tokens"` moves the
+cap off the default, and an absent or unrecognized value keeps `max_completion_tokens`. The bridge
+reads it from the selected profile's resolved options, so a provider of your own declares it in
+the user config: `{"providers": {"<name>": {"options": {"max_tokens_field": "max_tokens"}}}}`.
+No shipped provider the route reaches declares it.
+
+**The shipped upstreams accept `max_completion_tokens`** (READ 2026-10-01; Bedrock also MEASURED
+that day):
+
+| Upstream | What it takes | Source |
+| :--- | :--- | :--- |
+| Bedrock runtime's chat completions, for the OpenAI models on `bedrock`'s list | `max_completion_tokens`. GPT-6.1 Sol refuses `max_tokens` | AWS's [OpenAI models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-openai.html) page writes every request body with `max_completion_tokens` and maps it to Converse's `maxTokens`. MEASURED for Sol and Astra |
+| Cerebras (`cerebras`) | both. `max_tokens` is *"An alias for `max_completion_tokens`. Do not send both parameters in the same request."* | Cerebras's [chat completions reference](https://inference-docs.cerebras.ai/api-reference/chat-completions) |
+| Kilo's gateway (`kilo`) | `max_completion_tokens`, by Kilo's own client | Kilo's [API reference](https://kilo.ai/docs/gateway/api-reference) lists only `max_tokens`. Kilo's own pi provider for the same base URL (`src/models.ts` in `Kilo-Org/kilo-pi-provider`) sets no `maxTokensField`, so pi sends its default, `max_completion_tokens` (pi-ai's `openai-completions.js`, which picks `max_tokens` only for a list of other hosts) |
+
+`llamacpp` and `zai` declare an Anthropic endpoint of their own, so the route does not reach them as
+shipped. llama-server's request schema takes both fields, as aliases of `n_predict`
+(`tools/server/server-schema.cpp` in `ggml-org/llama.cpp`). `packs/llamacpp` still declares
+`max_tokens_field` `"max_tokens"`, pi's statement about that server, and the route honors it for
+a user who removes the Anthropic endpoint.
 
 ## The via route — one route per agent under `/agent/<name>/`
 
@@ -1131,6 +1176,7 @@ only place the values themselves are stated.
 | Via request body limit | 64 MiB; larger is a 413 | `wirebridged.maxViaBody` |
 | Upstream timeout | 10 minutes, the one timeout the daemon adds. The adapter routes bound the whole exchange; a via route bounds only the wait for response headers, and a timeout there is a 504 | `wirebridged.upstreamTimeout`; `wirebridged.viaHeaderTimeout` |
 | Streamed-usage request field, chat-completions route | `"stream_options": {"include_usage": true}` on every streamed request; left off when the selected profile's `supports_usage_in_streaming` is `"false"` | `wirebridge.TranslateRequestWith`, `wirebridge.ChatOptions`; the option read in `wirebridged.routeFor` |
+| Output-cap request field, chat-completions route | `max_completion_tokens`; `max_tokens` alone when the selected profile's `max_tokens_field` is `"max_tokens"` | `wirebridge.TranslateRequestWith`, `wirebridge.ChatOptions.CapAsMaxTokens`; the option read in `wirebridged.routeFor` |
 | Upstream error mapping | 4xx same-status; every 5xx, timeout or dial failure → 502 | `bridgeHandler.relayUpstreamError` |
 | Endpoint variable | `YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT`, emitted only when the daemon will serve | `run.serviceEndpointEnvArgs`, `wirebridged.WillServe` |
 | Ready-required daemons | `YOLO_JAIL_DAEMON_READY_NAMES=wire-bridge`, emitted beside the endpoint variable | `paths.JailDaemonReadyNamesEnv` |

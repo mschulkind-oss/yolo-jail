@@ -15,9 +15,10 @@ import (
 // into the arguments string); tool_result becomes a role:"tool" message with
 // its content flattened (is_error gets nothing special upstream); tools
 // rename input_schema to parameters and never set strict (WB-D6); thinking
-// config and cache_control strip (WB-D15); max_tokens maps, stop_sequences
-// becomes stop, temperature and top_p map, top_k drops, the stream flag and
-// the model id pass through verbatim. A streamed request also asks for
+// config and cache_control strip (WB-D15); max_tokens becomes
+// max_completion_tokens (ChatOptions.CapAsMaxTokens), stop_sequences becomes
+// stop, temperature and top_p map, top_k drops, the stream flag and the model
+// id pass through verbatim. A streamed request also asks for
 // stream_options.include_usage, because an OpenAI-compatible upstream reports
 // no usage in a stream unless asked, and Claude's cost and context figures are
 // built from it (TranslateRequestWith, ChatOptions.OmitStreamUsage).
@@ -56,6 +57,14 @@ type ChatOptions struct {
 	// for its turns stay zero: the price of an upstream that would otherwise
 	// refuse the request.
 	OmitStreamUsage bool
+	// CapAsMaxTokens writes the request's output cap as `max_tokens` instead of
+	// `max_completion_tokens`, for an upstream whose provider declares the option
+	// max_tokens_field as "max_tokens" (the daemon reads it). The default is
+	// OpenAI's current field: OpenAI deprecated `max_tokens` for it and its
+	// reasoning models refuse the old one, as GPT-6.1 Sol on Bedrock did
+	// (docs/design/wire-bridge-gateway.md §2.4), and every chat-completions
+	// upstream a shipped pack routes through the bridge accepts it.
+	CapAsMaxTokens bool
 }
 
 // TranslateRequestWith is TranslateRequest for an upstream whose ChatOptions
@@ -87,7 +96,11 @@ func TranslateRequestWith(body []byte, opts ChatOptions) ([]byte, error) {
 		}
 		out.Tools = append(out.Tools, tool)
 	}
-	out.MaxTokens = req.MaxTokens
+	if opts.CapAsMaxTokens {
+		out.MaxTokens = req.MaxTokens
+	} else {
+		out.MaxCompletionTokens = req.MaxTokens
+	}
 	out.Temperature = req.Temperature
 	out.TopP = req.TopP
 	out.Stop = req.StopSequences
@@ -137,17 +150,19 @@ type anthropicTool struct {
 }
 
 // openaiRequest is the output shape. Field order is the wire order; there is
-// deliberately no strict and no reasoning_effort field anywhere below it.
+// deliberately no strict and no reasoning_effort field anywhere below it, and at
+// most one of the two cap fields is set (ChatOptions.CapAsMaxTokens).
 type openaiRequest struct {
-	Model         string               `json:"model,omitempty"`
-	Messages      []openaiMessage      `json:"messages,omitempty"`
-	Tools         []openaiTool         `json:"tools,omitempty"`
-	MaxTokens     *int                 `json:"max_tokens,omitempty"`
-	Temperature   *float64             `json:"temperature,omitempty"`
-	TopP          *float64             `json:"top_p,omitempty"`
-	Stop          []string             `json:"stop,omitempty"`
-	Stream        *bool                `json:"stream,omitempty"`
-	StreamOptions *openaiStreamOptions `json:"stream_options,omitempty"`
+	Model               string               `json:"model,omitempty"`
+	Messages            []openaiMessage      `json:"messages,omitempty"`
+	Tools               []openaiTool         `json:"tools,omitempty"`
+	MaxCompletionTokens *int                 `json:"max_completion_tokens,omitempty"`
+	MaxTokens           *int                 `json:"max_tokens,omitempty"`
+	Temperature         *float64             `json:"temperature,omitempty"`
+	TopP                *float64             `json:"top_p,omitempty"`
+	Stop                []string             `json:"stop,omitempty"`
+	Stream              *bool                `json:"stream,omitempty"`
+	StreamOptions       *openaiStreamOptions `json:"stream_options,omitempty"`
 }
 
 type openaiStreamOptions struct {

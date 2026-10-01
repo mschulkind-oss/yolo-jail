@@ -166,9 +166,11 @@ shipped file rather than copying either.
 
 Today **pi** is the only agent whose derive reads them. An agent that does not is
 unaffected: an option nobody consumes is inert, not invalid. One more reader is not an
-agent: the wire bridge reads `supports_usage_in_streaming` for a provider it bridges, and
-does not ask a `"false"` one for streamed usage
-([`wire-bridge.md`](../../docs/reference/wire-bridge.md#streamed-usage)).
+agent: the wire bridge reads two of them for a provider it bridges. It does not ask a
+`supports_usage_in_streaming` `"false"` one for streamed usage
+([`wire-bridge.md`](../../docs/reference/wire-bridge.md#streamed-usage)), and it sends a
+`max_tokens_field` `"max_tokens"` one the output cap as `max_tokens` instead of
+`max_completion_tokens` ([the output cap](../../docs/reference/wire-bridge.md#the-output-cap)).
 
 A build of `llama-server` that supports more is one key in your config, because
 `providers.llamacpp.options` merges over this pack per field:

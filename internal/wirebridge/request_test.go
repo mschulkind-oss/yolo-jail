@@ -36,22 +36,22 @@ func TestTranslateRequestRows(t *testing.T) {
 		{
 			name: "system as string",
 			in:   `{"model":"qwen-3.8-27b","max_tokens":256,"system":"You are helpful.","messages":[{"role":"user","content":[{"type":"text","text":"Hi"}]}]}`,
-			want: `{"model":"qwen-3.8-27b","messages":[{"role":"system","content":"You are helpful."},{"role":"user","content":[{"type":"text","text":"Hi"}]}],"max_tokens":256}`,
+			want: `{"model":"qwen-3.8-27b","messages":[{"role":"system","content":"You are helpful."},{"role":"user","content":[{"type":"text","text":"Hi"}]}],"max_completion_tokens":256}`,
 		},
 		{
 			name: "system as block array flattens to one system message, cache_control stripped",
 			in:   `{"model":"m","max_tokens":5,"system":[{"type":"text","text":"Part one.","cache_control":{"type":"ephemeral"}},{"type":"text","text":"Part two."}],"messages":[{"role":"user","content":"Hello"}]}`,
-			want: `{"model":"m","messages":[{"role":"system","content":"Part one.\n\nPart two."},{"role":"user","content":"Hello"}],"max_tokens":5}`,
+			want: `{"model":"m","messages":[{"role":"system","content":"Part one.\n\nPart two."},{"role":"user","content":"Hello"}],"max_completion_tokens":5}`,
 		},
 		{
 			name: "in-conversation system text preserves its position",
 			in:   `{"model":"m","max_tokens":5,"messages":[{"role":"user","content":"before"},{"role":"system","content":[{"type":"text","text":"Use the repository conventions."}]},{"role":"user","content":"after"}]}`,
-			want: `{"model":"m","messages":[{"role":"user","content":"before"},{"role":"system","content":"Use the repository conventions."},{"role":"user","content":"after"}],"max_tokens":5}`,
+			want: `{"model":"m","messages":[{"role":"user","content":"before"},{"role":"system","content":"Use the repository conventions."},{"role":"user","content":"after"}],"max_completion_tokens":5}`,
 		},
 		{
 			name: "text and image blocks become content parts",
 			in:   `{"model":"m","max_tokens":9,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}},{"type":"text","text":"what is this?"}]}]}`,
-			want: `{"model":"m","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}},{"type":"text","text":"what is this?"}]}],"max_tokens":9}`,
+			want: `{"model":"m","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}},{"type":"text","text":"what is this?"}]}],"max_completion_tokens":9}`,
 		},
 		{
 			name: "tool_use and tool_result map bidirectionally, input_schema renamed",
@@ -64,44 +64,44 @@ func TestTranslateRequestRows(t *testing.T) {
 				`{"role":"user","content":[{"type":"text","text":"run it"}]},` +
 				`{"role":"assistant","content":null,"tool_calls":[{"id":"toolu_01","type":"function","function":{"name":"run","arguments":"{\"path\":\"a.go\",\"line\":3}"}}]},` +
 				`{"role":"tool","tool_call_id":"toolu_01","content":"ok\n"}` +
-				`],"tools":[{"type":"function","function":{"name":"run","description":"Run a thing","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}],"max_tokens":10}`,
+				`],"tools":[{"type":"function","function":{"name":"run","description":"Run a thing","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}],"max_completion_tokens":10}`,
 		},
 		{
 			name: "tool_result with block content flattens, is_error ignored, following text kept",
 			in: `{"model":"m","max_tokens":2,"messages":[{"role":"user","content":[` +
 				`{"type":"tool_result","tool_use_id":"t9","is_error":true,"content":[{"type":"text","text":"line1"},{"type":"text","text":"line2"}]},` +
 				`{"type":"text","text":"and then?"}]}]}`,
-			want: `{"model":"m","messages":[{"role":"tool","tool_call_id":"t9","content":"line1\nline2"},{"role":"user","content":[{"type":"text","text":"and then?"}]}],"max_tokens":2}`,
+			want: `{"model":"m","messages":[{"role":"tool","tool_call_id":"t9","content":"line1\nline2"},{"role":"user","content":[{"type":"text","text":"and then?"}]}],"max_completion_tokens":2}`,
 		},
 		{
-			name: "sampling maps temperature/top_p, stop_sequences/max_tokens map, stream passes and asks for usage",
+			name: "sampling maps temperature/top_p, stop_sequences becomes stop, max_tokens becomes max_completion_tokens, stream passes and asks for usage",
 			in:   `{"model":"m","max_tokens":8,"temperature":0.7,"top_p":0.9,"top_k":40,"stop_sequences":["END","STOP"],"stream":true,"thinking":{"type":"disabled"},"messages":[{"role":"user","content":"go"}]}`,
-			want: `{"model":"m","messages":[{"role":"user","content":"go"}],"max_tokens":8,"temperature":0.7,"top_p":0.9,"stop":["END","STOP"],"stream":true,"stream_options":{"include_usage":true}}`,
+			want: `{"model":"m","messages":[{"role":"user","content":"go"}],"max_completion_tokens":8,"temperature":0.7,"top_p":0.9,"stop":["END","STOP"],"stream":true,"stream_options":{"include_usage":true}}`,
 		},
 		{
 			name: "an explicit non-stream request asks for no stream options",
 			in:   `{"model":"m","max_tokens":8,"stream":false,"messages":[{"role":"user","content":"go"}]}`,
-			want: `{"model":"m","messages":[{"role":"user","content":"go"}],"max_tokens":8,"stream":false}`,
+			want: `{"model":"m","messages":[{"role":"user","content":"go"}],"max_completion_tokens":8,"stream":false}`,
 		},
 		{
 			name: "model id passes through verbatim",
 			in:   `{"model":"Qwen/qwen3-27b-not-a-real-id","max_tokens":1,"messages":[{"role":"user","content":"x"}]}`,
-			want: `{"model":"Qwen/qwen3-27b-not-a-real-id","messages":[{"role":"user","content":"x"}],"max_tokens":1}`,
+			want: `{"model":"Qwen/qwen3-27b-not-a-real-id","messages":[{"role":"user","content":"x"}],"max_completion_tokens":1}`,
 		},
 		{
 			name: "model id strips [1m] suffix and normalizes bare deepseek prefix",
 			in:   `{"model":"deepseek/deepseek-v4.1-flash[1m]","max_tokens":1,"messages":[{"role":"user","content":"x"}]}`,
-			want: `{"model":"deepseek/deepseek-v4.1-flash","messages":[{"role":"user","content":"x"}],"max_tokens":1}`,
+			want: `{"model":"deepseek/deepseek-v4.1-flash","messages":[{"role":"user","content":"x"}],"max_completion_tokens":1}`,
 		},
 		{
 			name: "bare deepseek model id prefixes deepseek/",
 			in:   `{"model":"deepseek-v4.1-flash","max_tokens":1,"messages":[{"role":"user","content":"x"}]}`,
-			want: `{"model":"deepseek/deepseek-v4.1-flash","messages":[{"role":"user","content":"x"}],"max_tokens":1}`,
+			want: `{"model":"deepseek/deepseek-v4.1-flash","messages":[{"role":"user","content":"x"}],"max_completion_tokens":1}`,
 		},
 		{
 			name: "bare deepseek model id with [1m] suffix normalizes to deepseek/*",
 			in:   `{"model":"deepseek-v4.1-flash[1m]","max_tokens":1,"messages":[{"role":"user","content":"x"}]}`,
-			want: `{"model":"deepseek/deepseek-v4.1-flash","messages":[{"role":"user","content":"x"}],"max_tokens":1}`,
+			want: `{"model":"deepseek/deepseek-v4.1-flash","messages":[{"role":"user","content":"x"}],"max_completion_tokens":1}`,
 		},
 	}
 	for _, tc := range cases {
@@ -122,9 +122,35 @@ func TestTranslateRequestWithOmitStreamUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"model":"m","messages":[{"role":"user","content":"go"}],"max_tokens":8,"stream":true}`
+	want := `{"model":"m","messages":[{"role":"user","content":"go"}],"max_completion_tokens":8,"stream":true}`
 	if string(out) != want {
 		t.Errorf("TranslateRequestWith(OmitStreamUsage)\n got: %s\nwant: %s", out, want)
+	}
+}
+
+// TestTranslateRequestWithCapAsMaxTokens: an upstream whose provider declares
+// max_tokens_field "max_tokens" gets the cap under that field alone, streamed or
+// not, and nothing else about the request changes. A request with no cap sends
+// neither field.
+func TestTranslateRequestWithCapAsMaxTokens(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{`{"model":"m","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"go"}]}`,
+			`{"model":"m","messages":[{"role":"user","content":"go"}],"max_tokens":8,"stream":true,"stream_options":{"include_usage":true}}`},
+		{`{"model":"m","max_tokens":8,"messages":[{"role":"user","content":"go"}]}`,
+			`{"model":"m","messages":[{"role":"user","content":"go"}],"max_tokens":8}`},
+		{`{"model":"m","messages":[{"role":"user","content":"go"}]}`,
+			`{"model":"m","messages":[{"role":"user","content":"go"}]}`},
+	} {
+		out, err := TranslateRequestWith([]byte(tc.in), ChatOptions{CapAsMaxTokens: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(out) != tc.want {
+			t.Errorf("TranslateRequestWith(CapAsMaxTokens)\n got: %s\nwant: %s", out, tc.want)
+		}
+	}
+	if out := mustTranslateRequest(t, `{"model":"m","messages":[{"role":"user","content":"go"}]}`); strings.Contains(out, "max_") {
+		t.Errorf("a request with no cap must send no cap field, got %s", out)
 	}
 }
 

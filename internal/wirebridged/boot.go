@@ -306,8 +306,7 @@ func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, strin
 				"the aws-auth pointer AWS_CONTAINER_CREDENTIALS_FULL_URI, or AWS_BEARER_TOKEN_BEDROCK — "+
 				"in %s", route.ProviderName, route.UpstreamBaseURL, keySources(e, route.Agent))
 		}
-		h := newSignedChatHandler(route.UpstreamBaseURL,
-			wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage},
+		h := newSignedChatHandler(route.UpstreamBaseURL, route.chatOptions(),
 			&bedrockSigner{region: route.SignRegion, chain: &sigv4.Chain{Env: env}}, route.AnthropicModels)
 		return h, signingDescription(route.SignRegion, route.RegionSource) + ", from " + env.String(), ""
 	}
@@ -317,8 +316,7 @@ func adapterHandler(route route, e *entrypoint.Env) (http.Handler, string, strin
 			"neither in %s — the bridge never serves unauthenticated upstream traffic "+
 			"(wire-bridge.md §5)", route.ProviderName, route.KeyEnvName, keySources(e, route.Agent))
 	}
-	return newChatHandler(route.UpstreamBaseURL, key,
-		wirebridge.ChatOptions{OmitStreamUsage: route.OmitStreamUsage}), keySource, ""
+	return newChatHandler(route.UpstreamBaseURL, key, route.chatOptions()), keySource, ""
 }
 
 // listener is one bound address and what it serves.
@@ -649,6 +647,13 @@ type route struct {
 	// by the same rule: only the JSON spelling "false" turns it off, and an
 	// absent or unrecognized value keeps the default, which asks for usage.
 	OmitStreamUsage bool
+	// CapAsMaxTokens is the route's other request-shape fact: the selected profile's
+	// max_tokens_field option is "max_tokens", so the output cap goes upstream under that
+	// field and not under max_completion_tokens, the default (wirebridge.ChatOptions). It is
+	// the service fact pi's derive reads as maxTokensField (packs/pi/derive.lua), declared by
+	// the provider and read by the rule OmitStreamUsage's is: only that exact spelling turns
+	// the default off, so an absent or unrecognized value keeps OpenAI's current field.
+	CapAsMaxTokens bool
 	// SignRegion is the region the route signs every request for with SigV4, instead of
 	// carrying a bearer key (signing.go), when bedrockSigning says the upstream is Bedrock's
 	// (WG-I37): the runtime host's region, else the provider's own `region`, else, once the
@@ -684,6 +689,17 @@ func (r route) bedrock() bool { return r.SignRegion != "" || r.RegionFromEnv }
 // accepts stream_options.include_usage (packs/llamacpp/README.md, "The compat
 // facts").
 const streamUsageOption = "supports_usage_in_streaming"
+
+// maxTokensFieldOption is the provider option that names the request field an upstream
+// takes the output cap in, "max_tokens" or "max_completion_tokens" (packs/llamacpp/README.md,
+// "The compat facts").
+const maxTokensFieldOption = "max_tokens_field"
+
+// chatOptions is the translation's request shape for this route's chat-completions upstream,
+// built in one place so the signed and the keyed handler cannot be handed different facts.
+func (r route) chatOptions() wirebridge.ChatOptions {
+	return wirebridge.ChatOptions{OmitStreamUsage: r.OmitStreamUsage, CapAsMaxTokens: r.CapAsMaxTokens}
+}
 
 func credentialDescription(route route, source string) string {
 	if route.CodexAccessToken || route.bedrock() {
@@ -972,6 +988,7 @@ func routeFor(providers *jsonx.OrderedMap, useProfiles map[string]string,
 			// upstream signs from the AWS names instead (SignRegion).
 			KeyEnvName:      packload.KeyEnvName(entry),
 			OmitStreamUsage: resolved[profileName].Options[streamUsageOption] == "false",
+			CapAsMaxTokens:  resolved[profileName].Options[maxTokensFieldOption] == "max_tokens",
 		}
 		openaiURL := endpointBaseURL(entry, "openai")
 		switch {

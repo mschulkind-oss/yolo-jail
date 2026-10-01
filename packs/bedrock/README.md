@@ -183,8 +183,14 @@ pointer, or a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`), and never a profile 
   model, since the list names no `default`.
 
 No agent quietly falls back to its own Bedrock client, since the profile asked for the bridge. At
-`yolo host`, which has no bridge, the profile uses each agent's own client. No request has reached
-Bedrock through the bridge yet; see [the wire bridge](../../docs/reference/wire-bridge.md#which-upstream-is-bedrocks).
+`yolo host`, which has no bridge, the profile uses each agent's own client. Requests sent through
+the bridge on 2026-10-01, from a jail in `us-east-1`, were answered on three of these routes:
+Claude Opus 5.5 on claude's untranslated Messages route, GPT-6.1 Sol and GPT-6 Astra, streamed
+and not, on the translating route claude and copilot share, and a request shaped like codex's on
+codex's Responses route. No agent sent them, and the chat-completions route pi, opencode and oh-omp use has not
+been sent one. See
+[the first live requests](../../docs/design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)
+and [the wire bridge](../../docs/reference/wire-bridge.md#which-upstream-is-bedrocks).
 
 ## Why it needs `aws-auth`
 

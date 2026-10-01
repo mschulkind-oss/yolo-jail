@@ -95,7 +95,8 @@ func TestNonStreamRoundTrip(t *testing.T) {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
-		MaxTokens int `json:"max_tokens"`
+		MaxCompletionTokens int  `json:"max_completion_tokens"`
+		MaxTokens           *int `json:"max_tokens"`
 	}
 	if err := json.Unmarshal(up.gotBody, &translated); err != nil {
 		t.Fatalf("upstream body is not openai JSON: %v\n%s", err, up.gotBody)
@@ -103,8 +104,9 @@ func TestNonStreamRoundTrip(t *testing.T) {
 	if translated.Model != "qwen-3.8-27b" {
 		t.Errorf("model must pass through verbatim, got %q", translated.Model)
 	}
-	if translated.MaxTokens != 64 {
-		t.Errorf("max_tokens must map, got %d", translated.MaxTokens)
+	if translated.MaxCompletionTokens != 64 || translated.MaxTokens != nil {
+		t.Errorf("max_tokens must map to max_completion_tokens alone, got %d and max_tokens %v",
+			translated.MaxCompletionTokens, translated.MaxTokens)
 	}
 	if len(translated.Messages) != 3 ||
 		translated.Messages[0].Role != "system" || translated.Messages[0].Content != "be brief" ||

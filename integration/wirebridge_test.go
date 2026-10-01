@@ -17,9 +17,12 @@ import (
 // upstreamBody is the openai-shaped request the bridge is expected to make: the
 // fields this test asserts on, and no more.
 type upstreamBody struct {
-	Model     string `json:"model"`
-	MaxTokens int    `json:"max_tokens"`
-	Messages  []struct {
+	Model string `json:"model"`
+	// The cap goes as max_completion_tokens; cerebras declares no max_tokens_field, so
+	// max_tokens must be absent (wire-bridge.md, "The output cap").
+	MaxCompletionTokens int  `json:"max_completion_tokens"`
+	MaxTokens           *int `json:"max_tokens"`
+	Messages            []struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	} `json:"messages"`
@@ -223,9 +226,11 @@ true`
 		t.Errorf("the caller token (%q) must stop at the bridge; upstream Authorization = %q",
 			callerToken, upstream.Authorization)
 	}
-	if upstream.Body.Model != "qwen-3.8-27b" || upstream.Body.MaxTokens != 32 {
-		t.Errorf("upstream body model/max_tokens = %q/%d, want the passthrough pair",
-			upstream.Body.Model, upstream.Body.MaxTokens)
+	if upstream.Body.Model != "qwen-3.8-27b" || upstream.Body.MaxCompletionTokens != 32 ||
+		upstream.Body.MaxTokens != nil {
+		t.Errorf("upstream body model/max_completion_tokens/max_tokens = %q/%d/%v, want the model "+
+			"passed through and the cap as max_completion_tokens alone",
+			upstream.Body.Model, upstream.Body.MaxCompletionTokens, upstream.Body.MaxTokens)
 	}
 	if len(upstream.Body.Messages) != 1 || upstream.Body.Messages[0].Role != "user" ||
 		upstream.Body.Messages[0].Content != "say bridge" {

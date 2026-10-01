@@ -615,6 +615,13 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
 
 ### Fixed
 
+- Claude Code and Copilot can use GPT-6.1 Sol on Amazon Bedrock through the wire bridge, where
+  every turn failed with "Unsupported parameter: 'max_tokens' is not supported with this model".
+  The bridge now sends a turn's output limit to an OpenAI-style provider as
+  `max_completion_tokens`, OpenAI's current name for it, which OpenAI's own reasoning models also
+  require. A provider of your own that accepts only `max_tokens` says so with
+  `"max_tokens_field": "max_tokens"` in its `options`. See
+  [the output cap](docs/reference/wire-bridge.md#the-output-cap).
 - `yolo check` now names the right Nix config file and restart command for the Nix you have,
   Determinate Nix or upstream Nix. When the Nix daemon does not trust you on a Mac, the fix is two
   commands to paste: on Determinate Nix they add you in `nix.custom.conf` and restart Determinate's

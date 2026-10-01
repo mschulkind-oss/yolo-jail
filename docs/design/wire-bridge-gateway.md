@@ -3,11 +3,11 @@ title: "The wire bridge as the jail's model gateway: signing, routing by model a
 date: 2026-09-25
 status: accepted
 stage: DECIDED
-next: "Make the translating route send an output cap runtime's GPT models accept: GPT-6.1 Sol refused its max_tokens with a 400 at the translating route's first live request (§2.4, MEASURED 2026-10-01; re-run the same day with the same answer), so claude's everything profile and copilot fail every turn on that model"
+next: "A human sends one claude turn and one copilot turn on GPT-6.1 Sol under -p bedrock-bridge, Part 2's done-condition: since the translating route sends the cap as max_completion_tokens, Sol and GPT-6 Astra answer it on the wire, streamed and not (§2.4's re-check, MEASURED 2026-10-01), so only what an agent adds to a request can still refute the route"
 depends-on:
   - pi-codex-provider-shadowing.md#OQ-3
 tags: [wire-bridge, bedrock, aws, sigv4, routing, failover, models, allowlist, providers, subscription]
-summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled: it signs its own AWS requests with SigV4 (built, keyed on the provider's platform marker since 2026-09-30), routes claude's everything profile by model id so Claude models reach Bedrock's own Messages route untranslated (built), offers a sign-only OpenAI chat-completions route (built), and carries claude's subscription with opt-in per-model failover to Bedrock (unbuilt). The first live requests, 2026-10-01, found AWS accepting the bridge's signatures on runtime's Messages and Responses routes, and GPT-6.1 Sol refusing the translating route's max_tokens. A Bedrock provider named by region alone is reached at runtime's own URL composed from the region (built 2026-09-30), so the shipped bedrock-bridge profile carries every agent, and plain bedrock carries copilot and oh-omp, which have no Bedrock client of their own (WG-I44). A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default; built 2026-09-30) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, is decided (WG-I36, 2026-09-30: pi's client sends a placeholder bearer and only the bridge signs) and not built; where pi's re-pointing row may live waits on pi-codex-provider-shadowing's OQ-3."
+summary: "What the wire bridge may do once it stands in front of an agent's model traffic. Four parts are ruled: it signs its own AWS requests with SigV4 (built, keyed on the provider's platform marker since 2026-09-30), routes claude's everything profile by model id so Claude models reach Bedrock's own Messages route untranslated (built), offers a sign-only OpenAI chat-completions route (built), and carries claude's subscription with opt-in per-model failover to Bedrock (unbuilt). The first live requests, 2026-10-01, found AWS accepting the bridge's signatures on runtime's Messages and Responses routes, and GPT-6.1 Sol refusing the translating route's max_tokens; the route has sent the cap as max_completion_tokens since, which Sol and GPT-6 Astra answered the same day. A Bedrock provider named by region alone is reached at runtime's own URL composed from the region (built 2026-09-30), so the shipped bedrock-bridge profile carries every agent, and plain bedrock carries copilot and oh-omp, which have no Bedrock client of their own (WG-I44). A fifth part, ruled 2026-09-25: a profile can send its agent's traffic through the bridge (native pass-through or translated) instead of the agent's own client, so the bridge can enforce the picker's model list (on by default; built 2026-09-30) and route each agent by a per-agent path prefix. The via route passes OpenAI chat-completions and Responses through (codex rides the second); Converse, the last native wire, is decided (WG-I36, 2026-09-30: pi's client sends a placeholder bearer and only the bridge signs) and not built; where pi's re-pointing row may live waits on pi-codex-provider-shadowing's OQ-3."
 vantage:
   status-chip: true
 ---
@@ -19,7 +19,9 @@ provider, what may it do? It could sign for AWS, choose an upstream per model or
 fail over when a subscription runs out, or refuse a model that is not on a list.
 
 **Status:** 2026-10-01 — the bridge's first live requests reached Bedrock from a jail
-([§2.4](#24-the-first-live-requests-measured-2026-10-01)). Ruled 2026-09-25; the one question opened since, [OQ-WG8](#OQ-WG8), was decided as an implementation choice on 2026-09-30 ([WG-I36](#WG-I36)) — the SigV4 signer, [OQ-WG6](#OQ-WG6), [OQ-WG7](#OQ-WG7) and Part 3's sign-only route are built, and the via route's Responses wire for codex is built (2026-09-26, [WG-I20](#WG-I20)). Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
+([§2.4](#24-the-first-live-requests-measured-2026-10-01)), and after the output-cap fix the same
+day its translating route carried GPT-6.1 Sol and GPT-6 Astra
+([the re-check](#re-check-after-the-fix-measured-2026-10-01)). Ruled 2026-09-25; the one question opened since, [OQ-WG8](#OQ-WG8), was decided as an implementation choice on 2026-09-30 ([WG-I36](#WG-I36)) — the SigV4 signer, [OQ-WG6](#OQ-WG6), [OQ-WG7](#OQ-WG7) and Part 3's sign-only route are built, and the via route's Responses wire for codex is built (2026-09-26, [WG-I20](#WG-I20)). Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
 day, carrying its bridge questions with their ids unchanged. **Part 1 (signing) is built,
 2026-09-25** ([§2](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)), with the
 region-composed upstream URL and the re-key on the provider's platform marker built 2026-09-30
@@ -46,7 +48,9 @@ jail in `us-east-1`, under the SSO credential `aws-auth` serves, AWS accepted th
 SigV4 signatures on runtime's Messages route, where Claude Opus 5.5 went untranslated and streamed
 Anthropic server-sent events, and on its Responses route, where a streamed request shaped like
 codex's reached GPT-6.1 Sol on codex's via route. GPT-6.1 Sol refused the translating route's
-request with a 400, because it carries `max_tokens`. **UNMEASURED:** a Bedrock API key and a
+request with a 400, because it carried `max_tokens`; the route now sends the cap as
+`max_completion_tokens`, and a re-check the same day had Sol and GPT-6 Astra answer it, streamed
+and not ([§2.4](#24-the-first-live-requests-measured-2026-10-01)). **UNMEASURED:** a Bedrock API key and a
 static key pair, which that jail does not hold; any request an agent sends; the via route's
 chat-completions wire; the subscription's usage-limit response. The via route's tests run the real
 daemon, mux and signer against a stubbed upstream, and the pi, oh-omp and opencode derives against
@@ -556,12 +560,13 @@ and drew the same 400 and message in 0.23 s. It is not counted among the eleven.
   uncounted. The via route relays the upstream's bytes unchanged, so the framing is runtime's.
   How OpenAI's own Responses stream is framed was not read for this doc, and whether codex reads
   the `[DONE]` line without complaint is unread.
-- **The translating route cannot carry a turn to GPT-6.1 Sol** (request 8). It sends the
+- **The translating route could not carry a turn to GPT-6.1 Sol** (request 8; fixed the same
+  day, [the re-check](#re-check-after-the-fix-measured-2026-10-01) below). It sent the
   Anthropic request's cap as chat-completions' `max_tokens` (the `MaxTokens` field in
   `internal/wirebridge/request.go`), and the model refuses that field. Every Anthropic Messages
   request carries `max_tokens`, which that API requires, so claude's everything profile, and
-  copilot on either Bedrock profile, fail every request for GPT-6.1 Sol. GPT-6 Astra was not sent
-  through the translation. That is
+  copilot on either Bedrock profile, failed every request for GPT-6.1 Sol. GPT-6 Astra was not
+  sent through the translation. That is
   [Risk R7](#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled), met at the
   first request.
 
@@ -579,6 +584,39 @@ and drew the same 400 and message in 0.23 s. It is not counted among the eleven.
 - **What an agent adds**: codex's own headers and its hosted `web_search` tool, claude's
   `anthropic-beta` values, `thinking` and `cache_control` on the pass-through, and the via route's
   chat-completions wire, which no request used.
+
+#### Re-check after the fix (MEASURED 2026-10-01)
+
+**The translating route now sends the cap as `max_completion_tokens`**, OpenAI's current name for
+it, unless the provider declares `max_tokens_field` as `"max_tokens"`
+([the output cap](../reference/wire-bridge.md#the-output-cap)). Four bridge requests checked the
+change the same day, by request 8's method: the same kind of throwaway test, deleted after the run,
+on `eb415c7c` with the fix not yet committed, under the same `aws-auth` container credential in
+`us-east-1`. Each carried the prompt *"Reply with the one word: pong"* and `max_tokens: 16` to the
+adapter route, `POST 127.0.0.1:8214/v1/messages`, as claude's and copilot's requests reach it. A
+recording transport in the test printed each upstream request's path, its body's field names and
+its cap fields, and no header. The bridge re-sends a request only when AWS refuses its credential
+as expired, which none of the four logged, so four HTTP requests reached AWS. Times are UTC.
+
+| # | Time | Model | Streamed | Sent upstream, to `POST /openai/v1/chat/completions` | Status | Answer, trimmed |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 9 | 17:25:36 | `us.openai.gpt-6.1-sol` | no | `model`, `messages`, `max_completion_tokens: 16` | **200**, 0.81 s | `stop_reason` `end_turn`; usage 13 in, 5 out; text `pong` |
+| 10 | 17:25:43 | `global.openai.gpt-6-astra` | no | the same fields | **200**, 1.54 s | the same |
+| 11 | 17:25:52 | `us.openai.gpt-6.1-sol` | yes | the same, plus `stream` and `stream_options` | **200**, headers in 0.79 s, `text/event-stream` | `message_start` through `message_stop`; `message_delta` `end_turn`, 13 in, 5 out; text `pong`; ended at 0.82 s |
+| 12 | 17:26:00 | `global.openai.gpt-6-astra` | yes | the same as request 11 | **200**, headers in 0.64 s | the same; ended at 0.68 s |
+
+**What it decides.**
+
+- **The translating route carries a request to both OpenAI models on the shipped list**, streamed
+  and not. No request carried `max_tokens`, and request 8's 400 did not recur.
+- **Runtime's chat completions honors `stream_options.include_usage`** for both models: each
+  streamed answer's `message_delta` carried the upstream's counts, so Claude's figures on this
+  route are not zero.
+
+**What it leaves open.** An agent's own request: claude's tools, system prompt and betas, and
+copilot's. So Part 2's done-condition is still unmet
+([§3.1](#31-how-it-is-built)). Also a cap above 16, and why none of these four drew the 500 that
+Responses requests 1 and 2 did with no reasoning effort set, since none of the four set one either.
 
 ---
 
@@ -638,8 +676,10 @@ confirms or refutes the rest ([§3.1](#31-how-it-is-built)). The first live requ
 reasoning, or a vendor's streaming quirk. The bridge already fails closed on an unknown block
 type ([WB-D5](../reference/wire-bridge.md#wb-d5)). Measure one turn per vendor in the org's list
 before shipping that vendor in a company pack. MEASURED 2026-10-01 for OpenAI's GPT-6.1 Sol: the
-first translated request failed with a 400, because the translation sends `max_tokens`, which the
-model refuses ([§2.4](#24-the-first-live-requests-measured-2026-10-01), request 8).
+first translated request failed with a 400, because the translation sent `max_tokens`, which the
+model refuses ([§2.4](#24-the-first-live-requests-measured-2026-10-01), request 8). The
+translation sends `max_completion_tokens` since, and GPT-6.1 Sol and GPT-6 Astra answered it the
+same day ([the re-check](#re-check-after-the-fix-measured-2026-10-01)).
 
 **Done-condition** (carried from [`bedrock-plumbing.md`](bedrock-plumbing.md)'s done-condition
 6). It waited on [OQ-BR9](bedrock-plumbing.md#OQ-BR9) and
@@ -755,10 +795,13 @@ concurrent build numbered its own from WG-I26 on ([WG-I26](#WG-I26)):
   [`bedrock-web-search.md`](bedrock-web-search.md#measured-live-2026-10-01-runtime-refuses-claudes-search-tool)).
   The tests run the production boot, handler, signer and relay against a fake upstream that serves
   the documented format.
-- **GPT-6.1 Sol on the translating route fails at its first request** (MEASURED 2026-10-01). The
-  route sends the cap as `max_tokens`, and the model refuses it with a 400
-  ([§2.4](#24-the-first-live-requests-measured-2026-10-01), request 8). So the everything profile
-  has not completed a turn against a non-Anthropic model, which is this part's done-condition.
+- ~~**GPT-6.1 Sol on the translating route fails at its first request**~~ (MEASURED 2026-10-01).
+  The route sent the cap as `max_tokens`, and the model refused it with a 400
+  ([§2.4](#24-the-first-live-requests-measured-2026-10-01), request 8). It sends
+  `max_completion_tokens` since, and the same day Sol and GPT-6 Astra answered four requests
+  through it, streamed and not ([the re-check](#re-check-after-the-fix-measured-2026-10-01)). No
+  agent sent them, so the everything profile has still not completed an agent's turn against a
+  non-Anthropic model, which is this part's done-condition.
 
 ---
 
@@ -1803,6 +1846,18 @@ go run(ctx, entrypoint.NewEnv(vars), time.Hour) // the body Main runs
 $ ZZ_LIVE_BEDROCK=1 ZZ_REQS=adapter-messages-opus-stream go test -count=1 -run TestZZLiveBedrock -v ./internal/wirebridged/
 wire-bridge: POST /v1/messages 200 1.481s (model global.anthropic.claude-opus-5-5 is Anthropic's on the provider's list: untranslated to https://bedrock-runtime.us-east-1.amazonaws.com/anthropic/v1/messages)
 ```
+
+The re-check after the fix (requests 9 to 12) ran the same boot, with the test's transport
+wrapping the real one to print what each upstream request carried, one request per run:
+
+```console
+$ ZZ_LIVE_BEDROCK=1 ZZ_REQS=adapter-translated-sol go test -count=1 -run '^TestZZLiveBedrock$' -v ./internal/wirebridged/
+  upstream POST /openai/v1/chat/completions fields=[max_completion_tokens messages model] max_completion_tokens=16 max_tokens= model="us.openai.gpt-6.1-sol"
+wire-bridge: POST /v1/messages 200 810ms
+```
+
+The other three runs named `adapter-translated-astra`, `adapter-translated-sol-stream` and
+`adapter-translated-astra-stream`.
 
 **Client sources**, read 2026-09-26; nothing was run:
 
