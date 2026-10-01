@@ -253,7 +253,7 @@ a non-event:
 
 Both need the **Nix daemon to trust your user**: Nix uses a project's own cache, and hands a build
 to another machine, only for a trusted user. That is one line and a restart, in
-[Let yolo use its binary cache](../getting-started.md#let-yolo-use-its-binary-cache).
+[Trust your user](../getting-started.md#trust-your-user-required-on-a-mac).
 
 > [!WARNING]
 > **Do not set `extra-platforms = aarch64-linux` in your Nix config.** It tells Nix to run Linux
@@ -301,7 +301,7 @@ store volume, the runtime, and whether any package must be built from source.
 It is only a warning, but fix it before your first launch: an untrusted user cannot use yolo's
 binary cache or the temporary builder, so parts of the image cannot be built on a Mac. Add yourself
 to `trusted-users` and restart the daemon, as in
-[Let yolo use its binary cache](../getting-started.md#let-yolo-use-its-binary-cache):
+[Trust your user](../getting-started.md#trust-your-user-required-on-a-mac):
 
 ```bash
 echo "trusted-users = root $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
@@ -313,9 +313,14 @@ With the official Nix installer, the line goes in `/etc/nix/nix.conf` and the da
 
 ### `yolo check` reports "Nix daemon: connection failed"
 
-The check needs Nix's `nix-command` feature. The Determinate installer turns it on; the official
-installer does not. Add `experimental-features = nix-command flakes` to `/etc/nix/nix.conf` and
-restart the daemon, as in [Other ways to get Nix](../getting-started.md#other-ways-to-get-nix).
+The Nix daemon did not answer, and the rest of the row is Nix's own error. It is not a sign that
+flakes are off: `yolo check` turns them on for its own probe. Restart the daemon:
+
+```bash
+sudo launchctl kickstart -k system/systems.determinate.nix-daemon
+```
+
+With the official Nix installer, the daemon is `system/org.nixos.nix-daemon`.
 
 ### Known Issue: Determinate Nix Daemon Hang
 

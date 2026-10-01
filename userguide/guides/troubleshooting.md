@@ -27,7 +27,7 @@ older image.
 
 - Check that Nix is on your PATH: `nix --version`.
 - On a Mac, the Nix daemon must trust your user; see
-  [Let yolo use its binary cache](../getting-started.md#let-yolo-use-its-binary-cache). A package in
+  [Trust your user](../getting-started.md#trust-your-user-required-on-a-mac). A package in
   no binary cache is built in a temporary container, so keep your runtime running.
 
 **The jail will not start.**
