@@ -339,6 +339,23 @@ func configValue(raw string) string {
 
 var segmentRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
+// ValidRepo reports whether s is exactly `owner/repo`: two segments, each a forge name of
+// letters, digits, `_`, `.` and `-`, neither "." nor "..". It is the one shape a remote
+// reduces to (RepoFromRemoteURL) and the one a user-scope widening entry may list
+// (config.BrokeredWidening), so a repository reaches a scope file in no other spelling.
+func ValidRepo(s string) bool {
+	owner, repo, ok := strings.Cut(s, "/")
+	if !ok || strings.Contains(repo, "/") {
+		return false
+	}
+	for _, seg := range []string{owner, repo} {
+		if seg == "." || seg == ".." || !segmentRE.MatchString(seg) {
+			return false
+		}
+	}
+	return true
+}
+
 // RepoFromRemoteURL reduces a remote URL on host to `owner/repo`, in the https, `ssh://`
 // and scp-like `git@host:` forms, and returns "" for any other URL.
 func RepoFromRemoteURL(raw, host string) string {
@@ -371,11 +388,9 @@ func RepoFromRemoteURL(raw, host string) string {
 	if len(parts) != 2 {
 		return ""
 	}
-	owner, repo := parts[0], strings.TrimSuffix(parts[1], ".git")
-	for _, s := range []string{owner, repo} {
-		if s == "." || s == ".." || !segmentRE.MatchString(s) {
-			return ""
-		}
+	r := parts[0] + "/" + strings.TrimSuffix(parts[1], ".git")
+	if !ValidRepo(r) {
+		return ""
 	}
-	return owner + "/" + repo
+	return r
 }

@@ -130,7 +130,7 @@ func newBroker(sf brokerscope.File, spawnCwd string, log io.Writer) (*Broker, fu
 	sweepRunDirs()
 	runDir := newRunDir()
 	b := &Broker{
-		scope:     NewScope(append(append([]string(nil), sf.Repos...), sf.Widened...)),
+		scope:     NewScope(append(append([]string(nil), sf.Repos...), sf.Widened...)).ForWorkspace(sf.Workspace),
 		workspace: sf.Workspace,
 		audit: brokeraudit.Open(paths.BrokerAuditLog(), func(msg string) {
 			fmt.Fprintln(log, "github-broker:", msg)

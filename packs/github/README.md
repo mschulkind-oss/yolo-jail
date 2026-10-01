@@ -32,13 +32,21 @@ of a workspace with a GitHub remote asks once, in its config-change prompt, to a
 `.git/config`. With no terminal, pass `--accept-config-changes`, or run
 `yolo check --accept-config-changes` on the host first.
 
+To add a repository the workspace has no remote for, list it for that one workspace in the
+user config, in what yolo calls a **widening entry**; the launch names what it added, and
+`yolo config-ref` documents the key:
+
+```jsonc
+"brokered": { "github": { "workspaces": { "~/code/app": { "repos": ["org/lib"] } } } }
+```
+
 ## What runs
 
 | | |
 | :--- | :--- |
 | Runs | the read-only set, against an approved repository: `pr view/list/diff/status/checks`, `issue view/list/status`, `run view/list/watch`, `workflow view/list`, `repo view/read-file/read-dir`, `release view/list`, `label list`, `secret list`, `search` with an in-scope `--repo`, `api` GET under `repos/OWNER/REPO`, and more |
 | Exit 77 | every write: it needs an approval this version cannot ask for |
-| Exit 64 | anything that could print the credential or reach the host (`auth token`, `--jq`, `--web`, `api` to a URL, host-file arguments, …), and anything outside the workspace's repositories, including account-wide commands such as an unqualified `search` or any GraphQL call |
+| Exit 64 | anything that could print the credential or reach the host (`auth token`, `--jq`, `--web`, `api` to a URL, host-file arguments, …), and anything outside the repository scope, including account-wide commands such as an unqualified `search` or any GraphQL call, which no widening entry admits |
 | Exit 69 | no broker in this jail, or no `gh` or login on the host |
 
 stdout, stderr and the exit code of a command that runs cross verbatim. The repository is

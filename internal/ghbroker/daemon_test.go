@@ -321,3 +321,59 @@ func TestTheBrokersLogNamesNoWorkspaceRepositoryOrHostPath(t *testing.T) {
 		t.Fatalf("log %q", log.String())
 	}
 }
+
+// §12 done criterion 17, the broker's half, through newBroker from a launch's scope file: a
+// repository the widening entry added runs like a remote's, a repository outside the scope is
+// refused naming the widening entry that would admit it, keyed by THIS workspace, and an
+// account-wide command is refused saying no widening entry admits one.
+func TestTheBrokerRunsAWidenedRepositoryAndNamesTheEntryForAnother(t *testing.T) {
+	root := resolvedDir(t)
+	gh := fakeGH(t, filepath.Join(root, "fake"), "2.101.0")
+	cfg := filepath.Join(root, "host-gh-config")
+	if err := os.MkdirAll(cfg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "hosts.yml"), []byte("github.com:\n    user: me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := resolvedDir(t)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("PATH", filepath.Dir(gh)+":/usr/bin:/bin")
+	t.Setenv("GH_CONFIG_DIR", cfg)
+	ws := filepath.Join(resolvedDir(t), "app")
+	b, cleanup := newBroker(brokerscope.File{Workspace: ws, Repos: []string{"o/r"},
+		Widened: []string{"org/lib"}}, ws, &bytes.Buffer{})
+	defer cleanup()
+	if b.runner == nil {
+		t.Fatal("no runner")
+	}
+	serve := func(argv ...string) (int, string, string) {
+		var out, errOut bytes.Buffer
+		code := b.Serve(Request{Argv: argv}, "jail-1", func(p []byte) { out.Write(p) }, func(p []byte) { errOut.Write(p) })
+		return code, out.String(), errOut.String()
+	}
+
+	if code, out, errOut := serve("pr", "view", "1", "-R", "org/lib"); code != 0 || out != "ran pr view --repo=org/lib 1\n" {
+		t.Fatalf("a widened repository: code %d out %q err %q", code, out, errOut)
+	}
+
+	code, _, errOut := serve("pr", "view", "1", "-R", "other/private")
+	entry := `"brokered": {"github": {"workspaces": {"` + ws + `": {"repos": ["other/private"]}}}}`
+	if code != ExitUsage || !strings.Contains(errOut, entry) ||
+		!strings.Contains(errOut, paths.UserConfigPath()) || !strings.Contains(errOut, "next fresh launch") {
+		t.Fatalf("a repository outside the scope: code %d, want 64 naming %s in %s:\n%s",
+			code, entry, paths.UserConfigPath(), errOut)
+	}
+	if !strings.Contains(errOut, "(o/r, org/lib)") {
+		t.Errorf("the refusal does not name the scope, widened repository included:\n%s", errOut)
+	}
+
+	for _, argv := range [][]string{{"search", "code", "foo"}, {"search", "code", "foo repo:x/y", "--repo", "o/r"}} {
+		code, _, errOut = serve(argv...)
+		if code != ExitUsage || !strings.Contains(strings.ToLower(errOut), "no widening entry") ||
+			strings.Contains(errOut, `"workspaces"`) {
+			t.Errorf("gh %v: code %d, want 64 saying no widening entry admits it, naming none:\n%s", argv, code, errOut)
+		}
+	}
+}

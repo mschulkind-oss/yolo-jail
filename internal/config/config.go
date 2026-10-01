@@ -67,7 +67,7 @@ var knownTopLevelConfigKeys = set(
 	"runtime", "confinement", "repo_path", "agents", "packages", "mounts", "workspace_readonly",
 	"per_side_paths", "network", "security", "mise_tools", "lsp_servers",
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
-	"loopholes", "host_processes", "journal",
+	"loopholes", "brokered", "host_processes", "journal",
 	"kvm", "prune", "programs", "ephemeral_storage", "macos_log", "include_if_found", "agents_md_extra",
 	"briefing_provenance",
 	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers",

@@ -83,6 +83,7 @@ func ValidateConfig(config *jsonx.OrderedMap, workspace string, resolver Loophol
 	validatePerSidePaths(config, errs)
 	validateLoopholes(config, workspace, resolver, errs, warns)
 	validateBrokerMountFence(config, workspace, resolver, errs, warns)
+	validateBrokered(config, workspace, resolver, errs, warns)
 	validateJournalRetired(config, errs, warns)
 	validateKVM(config, errs)
 	validateEphemeralStorage(config, errs)

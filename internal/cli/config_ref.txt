@@ -349,6 +349,39 @@
     but how the endpoint file crosses into an AC guest is an unmade decision, so
     host services stay explicitly DEFERRED there rather than quietly enabled.
 
+  [bold]brokered[/bold] (object, [bold]USER SCOPE ONLY[/bold]): More repositories for one
+    workspace's brokered loophole, such as the github pack's github-broker.
+    A brokered loophole runs your host login's commands for the jail, but only
+    against the workspace's own repositories: its git remotes, which every fresh
+    launch reads and asks you to approve.  A [bold]widening entry[/bold] adds
+    repositories to ONE workspace's set, keyed by that workspace's path:
+      "brokered": {
+        "github": {
+          "workspaces": {
+            "~/code/app": { "repos": ["org/lib", "org/docs"] }
+          }
+        }
+      }
+    • The source key is the one the loophole's manifest declares as
+      `brokered.source`; the github pack's is "github".  A source no selected
+      pack brokers is a `yolo check` warning.
+    • A workspace key is an absolute path or starts with ~/; a relative path,
+      ~user/ and anything with `$` in it are refused.  It is matched with
+      symlinks resolved, so a link to the workspace and the path behind it are
+      the same entry.  It applies to that folder alone, not to folders under it.
+    • Each repos entry is OWNER/REPO, with no host.  A listed repository is in
+      scope exactly as a remote is: its reads run, and its writes need the same
+      approval.  No entry admits a command across your whole account, such as a
+      search with no repository.
+    It takes effect at the next fresh launch, which prints one line naming what
+    it added: "github-broker: scope widened by user config: org/lib, org/docs".
+    It is not in the config-change prompt: only you write this file.  A jail
+    refuses a repository outside its scope, and its message names the entry
+    that would admit it.
+    USER SCOPE ONLY.  A workspace may never widen its own reach, and a workspace
+    config is agent-editable, so a workspace value is a `yolo check` error, and
+    is never read.
+
   [bold]host_processes[/bold] (object): REMOVED — a config carrying it is REFUSED.
     Its keys moved to the host-processes loophole's own "settings" block, where they
     are declared by that loophole's manifest rather than by yolo's config schema:

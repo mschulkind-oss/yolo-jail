@@ -15,9 +15,10 @@ import (
 )
 
 // file.go is the per-launch scope file (BB-D32): once the config-change gate passes, the
-// fresh launch writes the approved scope to broker/<source>/scope/<launch-id>.json and only
-// then spawns the daemon, handing it the file's name. The daemon reads that file alone —
-// never the remotes, never the approval record — so neither a host pre-approval nor another
+// fresh launch writes the approved scope, and what the user's widening entry adds, to
+// broker/<source>/scope/<launch-id>.json and only then spawns the daemon, handing it the
+// file's name. The daemon reads that file alone — never the remotes, never the approval
+// record, never the user config — so no host pre-approval, user config edit or other
 // session's launch changes a running daemon's scope.
 //
 // Keyed by a random launch id, never the workspace or the container name: on macos-user
@@ -40,9 +41,10 @@ type File struct {
 	// Repos is the approved scope: the workspace's remotes on the forge, as a human
 	// approved them in this launch's config-change gate.
 	Repos []string `json:"repos"`
-	// Widened is what a user-scope widening entry added for this workspace (OQ-BB6). As
-	// OQ-BB9 ruled (A), its repositories join the scope for every set, which is how the
-	// broker reads them. No build writes it yet: the widening entry is step 2.
+	// Widened is what a user-scope widening entry added for this workspace beyond Repos
+	// (OQ-BB6, BB-D33): the launch reads it from the user config (config.BrokeredWidening),
+	// never from the workspace, and needs no approval for it. As OQ-BB9 ruled (A), its
+	// repositories join the scope for every set, which is how the broker reads them.
 	Widened []string `json:"widened,omitempty"`
 }
 

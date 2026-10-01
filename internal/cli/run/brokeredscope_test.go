@@ -273,6 +273,111 @@ func TestAFreshLaunchHandsTheApprovedScopeToTheBroker(t *testing.T) {
 	}
 }
 
+// readHandedScope reads back the scope file the fixture daemon was handed.
+func readHandedScope(t *testing.T, marker string, out *strings.Builder) brokerscope.File {
+	t.Helper()
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("the daemon was never handed a scope file (%v); output:\n%s", err, out.String())
+	}
+	var f brokerscope.File
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// writeWidening writes the user config's widening entry for the fixture's source and workspace.
+func writeWidening(t *testing.T, key string, repos ...string) {
+	t.Helper()
+	list, _ := json.Marshal(repos)
+	keyJSON, _ := json.Marshal(key)
+	cfg := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"brokered": {"gbsrc": {"workspaces": {` + string(keyJSON) + `: {"repos": ` + string(list) + `}}}}}`
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// §12 done criterion 17, the launch's half (BB-D33): the user config's widening entry for this
+// workspace reaches the broker in the scope file's `widened` list, beside the approved remotes
+// and without them, and the launch discloses it on its own line. It is absent from the gate:
+// the scope block does not name it and the approval record does not hold it, since user config
+// never prompts. An entry for another workspace adds nothing here.
+func TestAWideningEntryJoinsTheScopeFileAndIsDisclosed(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the fixture daemon is /bin/cp")
+	}
+	o, buf, marker := brokeredFixture(t)
+	// Keyed through `~/`, as a user writes it: the fixture's home and workspace are siblings.
+	if filepath.Dir(os.Getenv("HOME")) != filepath.Dir(o.Workspace) {
+		t.Fatalf("the fixture's home %s and workspace %s are not siblings", os.Getenv("HOME"), o.Workspace)
+	}
+	writeWidening(t, "~/../"+filepath.Base(o.Workspace), "org/lib", "O/R")
+	o.AcceptConfigChanges = true
+	if !o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman") {
+		t.Fatalf("an accepted gate refused:\n%s", buf.String())
+	}
+	if got := config.ApprovedScope(o.Workspace, "gbsrc"); strings.Join(got, ",") != "o/r" {
+		t.Fatalf("the approval record holds %v, want the remote alone: a widening entry is not approved", got)
+	}
+	if strings.Contains(buf.String(), "org/lib") {
+		t.Fatalf("the gate showed the widening entry, which is user config and never in the diff:\n%s", buf.String())
+	}
+
+	handles := o.startLoopholes("yolo-brokered-widen", "podman", jsonx.NewOrderedMap())
+	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-widen", false), "", "") })
+	f := readHandedScope(t, marker, buf)
+	if strings.Join(f.Repos, ",") != "o/r" || strings.Join(f.Widened, ",") != "org/lib" {
+		t.Fatalf("scope file repos %v widened %v, want [o/r] and [org/lib]: the remote a widening entry "+
+			"repeats is not widened", f.Repos, f.Widened)
+	}
+	out := buf.String()
+	for _, want := range []string{"gb: scope for this workspace: o/r", "gb: scope widened by user config: org/lib"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch did not disclose %q:\n%s", want, out)
+		}
+	}
+}
+
+// With no remote, the widening entry alone is the scope; and a spawn whose gate recorded no
+// scope still carries it, the entry needing no approval. An entry keyed by another workspace
+// adds nothing.
+func TestAWideningEntryWithNoRemoteAndNoApproval(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the fixture daemon is /bin/cp")
+	}
+	o, buf, marker := brokeredFixture(t)
+	writeWidening(t, o.Workspace, "org/lib")
+	handles := o.startLoopholes("yolo-brokered-widen2", "podman", jsonx.NewOrderedMap())
+	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-widen2", false), "", "") })
+	f := readHandedScope(t, marker, buf)
+	if len(f.Repos) != 0 || strings.Join(f.Widened, ",") != "org/lib" {
+		t.Fatalf("scope file repos %v widened %v, want none and [org/lib]", f.Repos, f.Widened)
+	}
+	out := buf.String()
+	for _, want := range []string{"no repository scope was approved", "gb: this workspace has no approved remote on github.com",
+		"gb: scope widened by user config: org/lib"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the launch did not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "repository scope is empty") {
+		t.Errorf("a widened scope was called empty:\n%s", out)
+	}
+
+	o, buf, marker = brokeredFixture(t)
+	writeWidening(t, filepath.Join(filepath.Dir(o.Workspace), "elsewhere"), "org/lib")
+	handles = o.startLoopholes("yolo-brokered-widen3", "podman", jsonx.NewOrderedMap())
+	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-widen3", false), "", "") })
+	if f := readHandedScope(t, marker, buf); len(f.Widened) != 0 || strings.Contains(buf.String(), "widened") {
+		t.Fatalf("another workspace's entry widened this one: %v\n%s", f.Widened, buf.String())
+	}
+}
+
 // A launch whose gate recorded no scope hands the daemon an EMPTY one and says so.
 func TestASpawnWithNoApprovedScopeFailsClosed(t *testing.T) {
 	if runtime.GOOS != "linux" {

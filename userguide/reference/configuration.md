@@ -57,6 +57,7 @@ project config and names the file to move them to:
 - a `host_files` entry that names a `source` file on your host
 - a host service's `command`, `env` and `doctor_cmd`, and any loophole setting its pack marks as
   user-only
+- `brokered`, which adds repositories to one project's [GitHub access](../guides/github.md#adding-a-repository-the-project-has-no-remote-for)
 
 ## A starting point
 

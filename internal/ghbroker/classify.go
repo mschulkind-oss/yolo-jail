@@ -151,13 +151,15 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 	}
 	d.Repos = sr.repos
 	if sr.account {
+		// No widening entry admits an account-wide command (OQ-BB9, ruled A: an entry adds
+		// whole repositories), so the message says so rather than naming one.
 		d.Outcome, d.AccountWide = OutcomeOutOfScope, true
 		d.Reason = "`gh " + p.cmd.path + "` names no repository the broker can check: it reads or " +
-			"writes across the account, which no scope admits. This jail's repository scope is " +
-			scope.describe() + "."
+			"writes across the account, which no scope admits and no widening entry can add. This " +
+			"jail's repository scope is " + scope.describe() + "."
 		if sr.why != "" {
-			d.Reason = "`gh " + p.cmd.path + "`: " + sr.why + ". This jail's repository scope is " +
-				scope.describe() + "."
+			d.Reason = "`gh " + p.cmd.path + "`: " + sr.why + ". No widening entry admits a command " +
+				"across the account. This jail's repository scope is " + scope.describe() + "."
 		}
 		return d
 	}
@@ -165,8 +167,7 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 		if !scope.Contains(r) {
 			d.Outcome = OutcomeOutOfScope
 			d.Reason = r + " is outside this jail's repository scope (" + scope.describe() + "). " +
-				"The scope is this workspace's GitHub remotes, approved at a fresh launch; this " +
-				"version has no way to widen it."
+				scope.widenAdvice(r)
 			return d
 		}
 	}

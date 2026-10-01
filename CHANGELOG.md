@@ -83,6 +83,10 @@ and neither does anything outside the project's repositories, including a search
 reach another one. Which repositories those are comes from the project's git remotes, and yolo
 asks you to approve that list in the launch's usual config-change prompt, shown first and
 labeled, whenever it changes; `yolo check --accept-config-changes` approves it ahead of time.
+To reach a repository the project has no remote for, such as a library it depends on, list it for
+that one project under a new user-config key, `brokered`: the next launch says what it added, a
+project cannot add one through its own config, and when the agent asks for a repository outside
+the list, the refusal names the entry that would add it.
 Every command a jail sends is recorded on your machine, and the new `yolo audit` lists them. The
 service runs only a `gh` installed outside the project, and with the pack selected a project may
 not mount the service's directory or your `gh` login into the jail. See

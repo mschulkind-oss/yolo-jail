@@ -1,20 +1,28 @@
 package ghbroker
 
 import (
+	"encoding/json"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // scope.go is the repository scope as the broker holds it: the `owner/repo` list its
-// launch approved (docs/design/boundary-broker.md §5.6, BB-D32). The broker never reads a
-// remote or an approval record; it is handed this list in the launch's scope file and
+// launch approved, plus what the user-scope widening entry added for the workspace
+// (docs/design/boundary-broker.md §5.6, BB-D32, BB-D33). The broker never reads a remote, an
+// approval record or the user config; it is handed this list in the launch's scope file and
 // checks every command against it.
 
 // Scope is the set of repositories a jail's brokered calls may touch.
 type Scope struct {
 	repos []string
+	// workspace is the host workspace a widening entry for this jail is keyed by (BB-D33),
+	// for the out-of-scope message alone; "" when the broker was handed none. It admits
+	// nothing.
+	workspace string
 }
 
 // NewScope builds a scope from `owner/repo` names, dropping malformed ones.
@@ -30,6 +38,13 @@ func NewScope(repos []string) Scope {
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
 	return Scope{repos: out}
+}
+
+// ForWorkspace returns s naming the host workspace its launch ran in, so the refusal of a
+// repository outside the scope can spell the widening entry that would admit it.
+func (s Scope) ForWorkspace(workspace string) Scope {
+	s.workspace = workspace
+	return s
 }
 
 // Repos is the scope's repositories, sorted.
@@ -49,28 +64,34 @@ func (s Scope) Contains(repo string) bool {
 // describe renders the scope for a message.
 func (s Scope) describe() string {
 	if len(s.repos) == 0 {
-		return "empty: this workspace has no GitHub remote"
+		return "empty: this workspace has no GitHub remote, and no widening entry adds a repository"
 	}
 	return strings.Join(s.repos, ", ")
 }
 
-// nameRE is one GitHub owner or repository name segment.
-var nameRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+// widenAdvice is the one way a repository outside the scope gets in (OQ-BB6, BB-D33): a
+// widening entry in the HOST user's config, keyed by this workspace's host path, which only
+// the host user writes and the next fresh launch reads. No answer the jail gives and no
+// notification widens the scope, so the advice names the entry, spelled as `yolo config-ref`
+// documents it, and who writes it. The workspace is the host path the jail is already told
+// (YOLO_HOST_DIR); JSON-quoting it writes any control character in it as an escape.
+func (s Scope) widenAdvice(repo string) string {
+	ws := s.workspace
+	if ws == "" {
+		ws = "<this workspace's host path>"
+	}
+	key, _ := json.Marshal(ws)
+	return "The scope is this workspace's GitHub remotes, approved at a fresh launch, plus what a " +
+		"widening entry in the host user's config adds for this workspace. To admit " + repo +
+		", the host user adds it to " + paths.UserConfigPath() + " as \"brokered\": {\"" + Source +
+		"\": {\"workspaces\": {" + string(key) + ": {\"repos\": [\"" + repo + "\"]}}}}, and it is " +
+		"in scope from the next fresh launch; nothing the jail sends widens the scope."
+}
 
 // ValidRepo reports whether s is exactly `owner/repo`: two segments, each a GitHub name,
 // neither "." nor "..". A three-segment `HOST/owner/repo` is not valid: it sends the call,
 // with a token, to the host it names (H1 in the design's Appendix B).
-func ValidRepo(s string) bool {
-	owner, repo, ok := strings.Cut(s, "/")
-	if !ok || strings.Contains(repo, "/") {
-		return false
-	}
-	return validSegment(owner) && validSegment(repo)
-}
-
-func validSegment(s string) bool {
-	return s != "." && s != ".." && nameRE.MatchString(s)
-}
+func ValidRepo(s string) bool { return brokerscope.ValidRepo(s) }
 
 // repoFromGitHubURL returns the `owner/repo` an https://github.com URL names, or "" when
 // the URL is not one.
@@ -83,9 +104,9 @@ func repoFromGitHubURL(raw string) string {
 	if len(parts) < 2 {
 		return ""
 	}
-	repo := strings.TrimSuffix(parts[1], ".git")
-	if !validSegment(parts[0]) || !validSegment(repo) {
+	repo := parts[0] + "/" + strings.TrimSuffix(parts[1], ".git")
+	if !ValidRepo(repo) {
 		return ""
 	}
-	return parts[0] + "/" + repo
+	return repo
 }

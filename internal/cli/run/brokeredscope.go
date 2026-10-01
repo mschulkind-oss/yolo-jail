@@ -70,8 +70,13 @@ func (o *Options) recordApprovedScopes(check *config.ScopeCheck) {
 // filters nothing, so it cannot drift from the predicate the gate asked with.
 //
 // FAIL CLOSED: a loophole whose gate did not record an approved scope — a spawn path that
-// skipped the gate — gets an EMPTY scope, so its broker runs only commands that name no
-// repository, and the launch says so.
+// skipped the gate — gets none of the workspace's remotes, so its broker runs only commands
+// that name no repository and any the widening entry admits, and the launch says so.
+//
+// THE WIDENING ENTRY (BB-D33) is the user config's, read here at the fresh launch and never at
+// an attach, which writes no scope file. It needs no approval, user config never prompting, so
+// it is no part of the gate the fail-closed rule guards; it is disclosed instead, on its own
+// line, naming only what it adds beyond the approved remotes.
 func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) {
 	out := o.pr(o.Stdout)
 	for _, lp := range brokered {
@@ -79,15 +84,16 @@ func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) 
 		repos, approved := o.approvedScopes[lp.Name]
 		if !approved {
 			out.print("[yellow]" + lp.Name + ": no repository scope was approved for this launch, " +
-				"so its scope is empty[/yellow]")
+				"so its scope holds none of this workspace's remotes[/yellow]")
 		}
+		widened := beyond(config.BrokeredWidening(lp.Brokered.Source, o.Workspace), repos)
 		id, err := brokerscope.NewLaunchID()
 		if err != nil {
 			out.print("[yellow]" + lp.Name + ": cannot draw a launch id: " + err.Error() + "[/yellow]")
 			continue
 		}
 		path, err := brokerscope.Write(brokerscope.File{Source: lp.Brokered.Source, LaunchID: id,
-			PID: os.Getpid(), Container: cname, Workspace: o.Workspace, Repos: repos})
+			PID: os.Getpid(), Container: cname, Workspace: o.Workspace, Repos: repos, Widened: widened})
 		if err != nil {
 			out.print("[yellow]" + lp.Name + ": cannot write this launch's scope file: " + err.Error() +
 				" — the loophole will not start[/yellow]")
@@ -97,14 +103,38 @@ func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) 
 			o.scopeFiles = map[string]string{}
 		}
 		o.scopeFiles[lp.Name] = path
-		// The disclosure of what the broker starts with (§5.6).
-		if len(repos) == 0 {
+		// The disclosure of what the broker starts with (§5.6). Every name printed is
+		// OWNER/REPO, checked by brokerscope.ValidRepo, so none carries markup.
+		switch {
+		case len(repos) == 0 && len(widened) == 0:
 			out.printf("[dim]%s: this workspace has no approved remote on %s, so its repository scope "+
 				"is empty; only commands that name no repository run[/dim]", lp.Name, lp.Brokered.RemoteHost)
-		} else {
+		case len(repos) == 0:
+			out.printf("[dim]%s: this workspace has no approved remote on %s[/dim]", lp.Name, lp.Brokered.RemoteHost)
+		default:
 			out.printf("[dim]%s: scope for this workspace: %s[/dim]", lp.Name, strings.Join(repos, ", "))
 		}
+		if len(widened) > 0 {
+			out.printf("%s: scope widened by user config: %s", lp.Name, strings.Join(widened, ", "))
+		}
 	}
+}
+
+// beyond is widened less every repository already in approved, compared as GitHub compares
+// names, without case: what the widening entry adds, which is what the scope file's `widened`
+// list and the disclosure name.
+func beyond(widened, approved []string) []string {
+	have := map[string]bool{}
+	for _, r := range approved {
+		have[strings.ToLower(r)] = true
+	}
+	var out []string
+	for _, r := range widened {
+		if !have[strings.ToLower(r)] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // scopeTokenArg substitutes a loophole's scope file into one argv word, reporting false
