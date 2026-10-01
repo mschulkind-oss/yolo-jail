@@ -603,6 +603,11 @@ sets, and a jail without pi no longer carries it.
   ("address already in use"). yolo picks those ports before the jail starts, and could then hand
   the same port to one of the services it starts on your machine for that jail; it now keeps each
   port to itself until the jail starts.
+- With `network.mode: "host"`, and in a jail started from inside another jail, a launch no longer
+  fails now and then because one of the jail's own services finds its port already taken
+  ("address already in use"). yolo picks those ports before the jail starts, and a service it
+  started on your machine for the same jail could take one first; yolo now holds each port until
+  the jail starts.
 - When yolo cannot protect the jail's image from Nix's garbage collector, its warning no longer
   lands in the output of `yolo -- <command>`. It is printed with yolo's other launch messages, on
   standard error, so a script reading the command's output gets only that output.

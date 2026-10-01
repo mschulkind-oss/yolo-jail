@@ -13,9 +13,8 @@ package launchservice
 // not held, so the kernel could hand it to whatever bound port 0 next, and the service's own bind
 // then failed with "address already in use", refusing the launch. What bound next was usually the
 // same launch: it fronts its host services, each on a port-0 listener, between the pick and the
-// service's start. Seen as a flake in this package's callers' tests, and once in a macos-user
-// launch, whose Codex doorway lost its port to the claude broker's front
-// (docs/plans/test-suite-speed.md).
+// service's start. Seen as unit-test flakes; the one recorded (docs/plans/test-suite-speed.md) is
+// a macos-user launch under test whose Codex doorway lost its port to the claude broker's front.
 //
 // THE PORT CHANGES HANDS WITHOUT BEING FREE:
 //
