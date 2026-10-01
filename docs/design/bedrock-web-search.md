@@ -191,10 +191,10 @@ MEASURED at `6f21b82c`, from the code and [`mcp-configuration.md`](../reference/
   agy program contributions, the `zai` provider, and `openai-codex` in `packs/openai-auth`).
   claude's `bedrock` provider declares no capabilities, so under `-p bedrock` such a server already
   reaches claude. INFERRED from the resolver; not run.
-- **pi projects the table** into `~/.pi/agent/mcp-adapter.json`, which pi reads only through an MCP adapter
-  extension yolo does not install ([`mcp-configuration.md`](../reference/mcp-configuration.md#unbuilt)).
-  ⚠ Read 2026-10-01: pi has had its own MCP client since 0.99.0, and it reads
-  `~/.pi/agent/mcp.json`, a file the pi pack does not write
+- **pi projects the table** into `~/.pi/agent/mcp.json`, the file pi's own MCP client (0.99.0 and
+  later) reads ([pi's MCP files](../reference/mcp-configuration.md#pis-mcp-files)). Until
+  2026-10-01 the pack wrote `~/.pi/agent/mcp-adapter.json` instead, which pi read only through an
+  adapter extension yolo does not install, so pi's own client started none of yolo's servers
   ([D7 (b)](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)).
 
 ## 4. The shape
@@ -377,7 +377,7 @@ the credential variables and the gateway URL. The planned entry names each in it
 | codex 0.158.0 | `~/.codex/config.toml` `[mcp_servers]` | **no**: an empty environment plus `HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`, `__CF_USER_TEXT_ENCODING`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR` and `TZ`, codex's custom-CA variables such as `SSL_CERT_FILE`, the names in the entry's `env_vars` key, and `env` | **not resolved**: `env` reaches the server as written |
 | copilot 1.0.48 | `~/.copilot/mcp-config.json` | **yes**, minus copilot's own agent and provider variables | **resolved**: `${VAR}`, `${VAR:-default}` and `$VAR` |
 | opencode 1.18.34 | `~/.config/opencode/opencode.json` `mcp`, with `env` renamed `environment` | **yes**: the process environment, then `environment` over it | **not resolved**: opencode substitutes `{env:VAR}` in its config text, so `${VAR}` stays literal and **replaces** the inherited value of that variable |
-| pi 0.99.2 | `~/.pi/agent/mcp-adapter.json` | its own MCP client, **yes** | its own client **resolves** `${VAR}`, `$VAR` and `!command`, **but it reads `~/.pi/agent/mcp.json` and a trusted project's `.pi/mcp.json`**, and the pi pack writes neither. It deletes an `mcp.json` that holds exactly its own render, the file's location before yolo 0.11.0 (`retireIfMatchesRender`; [AM-R1](agent-directory-map.md#AM-R1)). So pi's own client sees none of yolo's table. A user-installed `pi-mcp-adapter` (3.3.0 in this jail) reads `mcp-adapter.json`, inherits the environment and resolves `${VAR}` |
+| pi 0.99.2 | `~/.pi/agent/mcp.json` (until 2026-10-01, `~/.pi/agent/mcp-adapter.json`) | its own MCP client, **yes** | its own client **resolves** `${VAR}`, `$VAR` and `!command` in `env` and `headers` values, reading `~/.pi/agent/mcp.json` and a trusted project's `.pi/mcp.json`. When this row was read the pi pack wrote neither, so pi's own client saw none of yolo's table; the pack now writes the first ([AM-D20](agent-directory-map.md#AM-D20)). A user-installed `pi-mcp-adapter` (3.3.0 in this jail) reads `mcp-adapter.json`, inherits the environment and resolves `${VAR}` |
 | oh-omp 0.15.3 | none of its own; it reads claude's and codex's files above, among others ((a)) | **yes**: the process environment, then the entry's `env` over it | **resolved**, with `${VAR:-default}`, in an entry read from `~/.claude.json`. **Not resolved** in one read from `~/.codex/config.toml`, where it adds the names in `env_vars` from its own environment |
 
 All SOURCED. MEASURED in this jail, the user's Tavily entry as each agent's config carries it:

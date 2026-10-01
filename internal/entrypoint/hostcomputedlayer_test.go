@@ -145,9 +145,9 @@ func TestTheHostRendersEachDerivedSurfaceClass(t *testing.T) {
 				}
 			}},
 		{name: "pi/mcp carries your mcp_servers", pack: "pi", surface: "pi/mcp",
-			rel: ".pi/agent/mcp-adapter.json", mcp: tavily(), ownership: render.OwnershipAssert,
+			rel: ".pi/agent/mcp.json", mcp: tavily(), ownership: render.OwnershipAssert,
 			check: func(t *testing.T, home string) {
-				jsonAt(t, home, ".pi/agent/mcp-adapter.json", "mcpServers", "tavily", "command")
+				jsonAt(t, home, ".pi/agent/mcp.json", "mcpServers", "tavily", "command")
 			}},
 		{name: "copilot/mcp carries your mcp_servers", pack: "copilot", surface: "copilot/mcp",
 			rel: ".copilot/mcp-config.json", mcp: tavily(), ownership: render.OwnershipAssert,
@@ -243,7 +243,7 @@ func TestTheHostRefusesAComputedLayerThatNamesAJailPath(t *testing.T) {
 		!strings.Contains(r.Action, "mcpServers.wrapped.command") {
 		t.Fatalf("pi/mcp with a jail path: %q, want a refusal naming the key and the path", r.Action)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".pi", "agent", "mcp-adapter.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, ".pi", "agent", "mcp.json")); !os.IsNotExist(err) {
 		t.Errorf("a refused surface's file was written (err=%v)", err)
 	}
 }
@@ -259,7 +259,7 @@ func TestTheHostNeverExpandsAnMCPPreset(t *testing.T) {
 	if r := hostRenderWith(t, home, render.OwnershipAssert, in, "pi", "pi/mcp"); r.Action != "rendered" {
 		t.Fatalf("pi/mcp: %q", r.Action)
 	}
-	servers := jsonAt(t, home, ".pi/agent/mcp-adapter.json", "mcpServers").(map[string]any)
+	servers := jsonAt(t, home, ".pi/agent/mcp.json", "mcpServers").(map[string]any)
 	if _, has := servers["chrome-devtools"]; has || len(servers) != 1 {
 		t.Errorf("the host expanded a preset: %v", servers)
 	}
@@ -299,22 +299,23 @@ func TestJailPathsInMatchesWholePathTokensOnly(t *testing.T) {
 }
 
 // UNDER `own` A COMPUTED SURFACE RENDERS THROUGH `stateful` AND ADOPTS THE FILE (OQ-HC2). It
-// was refused there, which left pi/mcp and its six siblings no host path once `assert` retires.
+// was refused there, which left copilot/mcp and its siblings no host path once `assert` retires.
 // The first owned render keeps a key of yours outside the in-full table and writes the table.
+// (pi/mcp was this test's surface until it became `stateful` in its own right, on pi's mcp.json.)
 func TestAnOwnedHostRenderAdoptsAComputedSurface(t *testing.T) {
 	t.Setenv("YOLO_CTX_ROOT", t.TempDir())
 	home := t.TempDir()
-	adapter := filepath.Join(home, ".pi", "agent", "mcp-adapter.json")
-	writeTestFile(t, adapter, `{"settings": {"idleTimeout": 30}}`)
-	in := hostTestInputs(t, testPacksForAgent(t, "pi"), nil, tavily(), nil)
-	r := hostRenderWith(t, home, render.OwnershipOwn, in, "pi", "pi/mcp")
+	config := filepath.Join(home, ".copilot", "mcp-config.json")
+	writeTestFile(t, config, `{"settings": {"idleTimeout": 30}}`)
+	in := hostTestInputs(t, testPacksForAgent(t, "copilot"), nil, tavily(), nil)
+	r := hostRenderWith(t, home, render.OwnershipOwn, in, "copilot", "copilot/mcp")
 	if strings.HasPrefix(r.Action, "refused") || r.Action == "" {
-		t.Fatalf("pi/mcp under own: %q, want it rendered through stateful", r.Action)
+		t.Fatalf("copilot/mcp under own: %q, want it rendered through stateful", r.Action)
 	}
-	if got := jsonAt(t, home, ".pi/agent/mcp-adapter.json", "settings", "idleTimeout"); got != float64(30) {
+	if got := jsonAt(t, home, ".copilot/mcp-config.json", "settings", "idleTimeout"); got != float64(30) {
 		t.Errorf("the first owned render did not adopt your key: %v", got)
 	}
-	jsonAt(t, home, ".pi/agent/mcp-adapter.json", "mcpServers", "tavily")
+	jsonAt(t, home, ".copilot/mcp-config.json", "mcpServers", "tavily")
 	if r.Archived == "" {
 		t.Errorf("an adopting owned render keeps the one-time archive (OQ-CO7); none was named")
 	}
@@ -454,7 +455,7 @@ func TestTheHostMCPInputIsFilteredPerSurfaceAgent(t *testing.T) {
 	claude := resultFor(t, render1("claude"), "claude/config")
 	render1("pi")
 	claudeServers := jsonAt(t, home, ".claude.json", "mcpServers").(map[string]any)
-	piServers := jsonAt(t, home, ".pi/agent/mcp-adapter.json", "mcpServers").(map[string]any)
+	piServers := jsonAt(t, home, ".pi/agent/mcp.json", "mcpServers").(map[string]any)
 	if _, has := claudeServers["search"]; has {
 		t.Errorf("a web_search server reached claude, whose own login performs it: %v", claudeServers)
 	}

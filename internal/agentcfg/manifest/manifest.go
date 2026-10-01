@@ -199,8 +199,12 @@ type Surface struct {
 	//
 	// It runs after every write, whatever the mode, since a delete that needs a match cannot
 	// take anything a later boot would want. Shipped use: the pi pack's `mcp` surface, whose
-	// render moved from `~/.pi/agent/mcp.json` to `mcp-adapter.json` in 0.11.0
-	// (docs/design/agent-directory-map.md, AM-R1).
+	// render moved from `~/.pi/agent/mcp.json` to `mcp-adapter.json` in 0.11.0 and back to
+	// `mcp.json` once pi had an MCP client of its own, so it now retires yolo's copy in
+	// `mcp-adapter.json` (docs/design/agent-directory-map.md, AM-R1's rule;
+	// docs/reference/mcp-configuration.md, Pi's MCP files). On a `stateful` surface "what the
+	// surface's own file holds now" includes what its first render adopted, so an old copy is
+	// retired only while the new file holds nothing of the user's beside yolo's render.
 	RetireIfMatchesRender []string
 
 	// WhenListed, when set, renders this surface ONLY while a list in another surface of the

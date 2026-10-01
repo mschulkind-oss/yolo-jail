@@ -31,7 +31,7 @@ for personal defaults, and the project's `yolo-jail.jsonc` for what one project 
 | Setting | Claude Code | Codex | Copilot | opencode | pi | agy |
 |---|---|---|---|---|---|---|
 | Skills and house rules from packs | Yes | Yes | Yes | Yes | Yes | Yes |
-| MCP servers (`mcp_presets`, `mcp_servers`) | Yes | Yes | Yes | Yes | Yes, through an MCP adapter extension you install in pi | Yes |
+| MCP servers (`mcp_presets`, `mcp_servers`) | Yes | Yes | Yes | Yes | Yes | Yes |
 | Language servers (`lsp_servers`) | Yes | No: Codex has no LSP support | Yes | Not yet | Not yet | No: agy has no LSP support |
 | Model provider and profile (`-p`) | Yes | Yes | Yes | Yes | Yes | No |
 | Permission prompts off in a jail | Yes | Yes | Yes | Yes | Yes | Yes |

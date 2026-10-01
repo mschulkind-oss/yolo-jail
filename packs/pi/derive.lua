@@ -1,6 +1,6 @@
 -- pi: render ~/.pi/agent/models.json from declared providers, write the selection
 -- pair into ~/.pi/agent/settings.json when a profile is active at pi's CLI name, and
--- project canonical mcp_servers into ~/.pi/agent/mcp-adapter.json.
+-- project canonical mcp_servers into ~/.pi/agent/mcp.json, the file pi's own MCP client reads.
 
 -- The DIALECT MAP (docs/reference/providers.md §3.4 / OQ-PT1): yolo's canonical wire_api
 -- → the value pi reads from providers.<id>.api. Every row is a measured fact about pi,
@@ -1295,20 +1295,34 @@ yolo.derive("pi", "model-lists", function(ctx)
   return { providers = in_full(ctx, lists) }
 end)
 
--- mcp: passthrough — canonical mcp_servers lands verbatim under mcpServers
--- in ~/.pi/agent/mcp-adapter.json, where pi-mcp-adapter / pi-mcp-extension consumes it.
+-- mcp: passthrough — canonical mcp_servers lands verbatim under mcpServers in
+-- ~/.pi/agent/mcp.json, the global file pi's own MCP client reads (pi 0.99.0 and later,
+-- dist/extensions/mcp/config.js), whatever the project's trust. It was mcp-adapter.json,
+-- pi-mcp-adapter's file, until pi had a client of its own; the surface retires yolo's copy
+-- there while it still holds exactly this render (retireIfMatchesRender).
+--
+-- NOT declared in full (CO13), because pi writes this file itself (`pi mcp add`, and /mcp's
+-- enable and exposure changes), so a user keeps servers of their own here. In a jail the
+-- stateful render's first boot adopts the servers already in the file as the user's, and a
+-- later edit is captured; at the host the table is asserted per key rather than owned whole
+-- (docs/reference/host-agent-environment.md, the host write is per key). A server yolo stops
+-- configuring still leaves the jail's file, because the capture baseline knows it was yolo's.
 yolo.derive("pi", "mcp", function(ctx)
-  return { mcpServers = in_full(ctx, ctx.mcp_servers) }
+  return { mcpServers = ctx.mcp_servers }
 end)
 
 -- subagents-mcp (~/.config/mcp/mcp.json): the same servers again, for pi-subagents, which
 -- resolves an agent's `mcp:` direct tools from ~/.config/mcp/mcp.json, agentDir/mcp.json and
 -- the project's .mcp.json and .pi/mcp.json, and never from mcp-adapter.json (pi-subagents
--- 0.35.1, src/runs/shared/mcp-direct-tool-allowlist.ts, getConfigPaths). The surface renders
--- only while pi-subagents is in pi's packages (its `whenListed`), and never at the host (its
--- `notAtHost`); docs/design/agent-directory-map.md AM-R2 records why this path.
+-- 0.35.1, src/runs/shared/mcp-direct-tool-allowlist.ts, getConfigPaths). 0.73.0 reads
+-- mcp-adapter.json where it read agentDir/mcp.json, and 0.74.0 with no pi-mcp-adapter loaded
+-- takes the tools from pi's own client instead, so ~/.config/mcp/mcp.json is the one file every
+-- version reads while the adapter runs them. The surface renders only while pi-subagents is in
+-- pi's packages (its `whenListed`), and never at the host (its `notAtHost`);
+-- docs/design/agent-directory-map.md AM-R2 records why this path. Whether it is still needed
+-- once pi's own client serves the tools is open (docs/reference/mcp-configuration.md, Unbuilt).
 --
--- NOT declared in full, unlike the mcp surface above, and on purpose: the file is a
+-- NOT declared in full, like the mcp surface above: the file is a
 -- cross-tool location a user may already keep (pi-mcp-adapter's own setup writes it), so the
 -- stateful render's first boot must adopt the servers already there as the user's rather than
 -- claim the whole table as yolo's previous output (CO13). A server yolo stops configuring

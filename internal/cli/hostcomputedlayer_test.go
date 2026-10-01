@@ -69,9 +69,14 @@ func TestYoloHostApplyAssertWritesTheComputedLayer(t *testing.T) {
 	if len(models) == 0 {
 		t.Errorf("pi/codex-models holds no openai-codex list at the host")
 	}
-	servers, _ := readJSONAt(t, home, ".pi/agent/mcp-adapter.json")["mcpServers"].(map[string]any)
+	servers, _ := readJSONAt(t, home, ".pi/agent/mcp.json")["mcpServers"].(map[string]any)
 	if _, ok := servers["tavily"]; !ok {
-		t.Errorf("your mcp_servers entry did not reach pi/mcp: %v", servers)
+		t.Errorf("your mcp_servers entry did not reach pi/mcp (~/.pi/agent/mcp.json, the "+
+			"file pi's own MCP client reads): %v", servers)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".pi", "agent", "mcp-adapter.json")); !os.IsNotExist(err) {
+		t.Errorf("host apply wrote pi-mcp-adapter's mcp-adapter.json (stat err %v): pi's MCP "+
+			"servers go to mcp.json now", err)
 	}
 	for _, absent := range []string{"jailed", "sequential-thinking"} {
 		if _, ok := servers[absent]; ok {

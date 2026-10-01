@@ -121,18 +121,17 @@
           "defaults": {
             "mcpServers": {}
           },
-          "mode": "computed",
           "name": "mcp",
-          "path": "~/.pi/agent/mcp-adapter.json",
+          "path": "~/.pi/agent/mcp.json",
           "retireIfMatchesRender": [
-            "mcp.json"
+            "mcp-adapter.json"
           ]
         },
         {
           "agent": "pi",
           "codec": "json",
           "name": "subagents-mcp",
-          "notAtHost": "~/.config/mcp/mcp.json is a cross-tool MCP file you keep, and `yolo host apply` renders no MCP servers, so it would carry none of yours; it is written only in a jail",
+          "notAtHost": "~/.config/mcp/mcp.json is a cross-tool MCP file you keep, and at the host your MCP servers go to pi's own ~/.pi/agent/mcp.json instead; it is written only in a jail",
           "path": "~/.config/mcp/mcp.json",
           "whenListed": {
             "matches": "(^npm:|/)pi-subagents(@[^/]*)?(\\.git)?$",

@@ -1,16 +1,15 @@
 package entrypoint
 
-// pi_subagents_mcp_test.go pins the maintainer's two rulings of 2026-09-28 on pi's MCP files
-// (docs/design/agent-directory-map.md, AM-R1 and AM-R2), end to end through the boot's own
-// loop (ConfigurePackSurfaces) over the SHIPPED pi pack, so deleting either the pack's
-// declaration or the render's call site fails a test here:
+// pi_subagents_mcp_test.go pins the maintainer's ruling of 2026-09-28 on pi-subagents' MCP file
+// (docs/design/agent-directory-map.md, AM-R2), end to end through the boot's own loop
+// (ConfigurePackSurfaces) over the SHIPPED pi pack, so deleting either the pack's declaration or
+// the render's call site fails a test here: while pi-subagents is in pi's `packages`, the
+// configured MCP servers are also rendered into `~/.config/mcp/mcp.json`, the file pi-subagents
+// reads; without it, nothing is written there, and a file the user keeps there is merged into,
+// never replaced.
 //
-//   - AM-R1: the `~/.pi/agent/mcp.json` a v0.10.0 boot wrote is retired, because it holds
-//     exactly what the pi/mcp surface renders; a copy that holds anything else is left alone.
-//   - AM-R2: while pi-subagents is in pi's `packages`, the configured MCP servers are also
-//     rendered into `~/.config/mcp/mcp.json`, the file pi-subagents reads; without it,
-//     nothing is written there, and a file the user keeps there is merged into, never
-//     replaced.
+// AM-R1's half, the `~/.pi/agent/mcp.json` a v0.10.0 boot wrote, moved to pi_mcp_test.go when
+// that file became the pi/mcp surface's own render.
 
 import (
 	"encoding/json"
@@ -25,7 +24,6 @@ import (
 
 const (
 	subagentsMCPRel = ".config/mcp/mcp.json"
-	piLegacyMCPRel  = ".pi/agent/mcp.json"
 	probeMCPServers = `{"probe-mcp":{"command":"/bin/probe-mcp","args":["--stdio"]}}`
 )
 
@@ -78,56 +76,6 @@ func plant(t *testing.T, home, rel, content string) string {
 	return path
 }
 
-// ── AM-R1: retire the v0.10.0 copy of mcp.json, and only that ──────────────────────────────
-
-// v0.10.0's pi pack rendered its `mcp` surface to ~/.pi/agent/mcp.json as
-// `{ mcpServers = ctx.mcp_servers }` over `defaults: {mcpServers: {}}`, with no marker (a JSON
-// surface carries no banner). So a v0.10.0 copy is recognizable only by holding what the same
-// surface renders today from the same servers. The planted copy spells its keys in a
-// different order and indentation from today's encoder, because the match is on the decoded
-// value: formatting is not ownership.
-func TestPiRetiresTheV0100McpJSONItsOwnRenderMatches(t *testing.T) {
-	e, home := piMCPEnv(t)
-	legacy := plant(t, home, piLegacyMCPRel,
-		"{\n    \"mcpServers\": {\n        \"probe-mcp\": {\n            \"args\": [\"--stdio\"],\n"+
-			"            \"command\": \"/bin/probe-mcp\"\n        }\n    }\n}\n")
-	bootJail(t, e, shippedPi(t))
-
-	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
-		t.Fatalf("~/.pi/agent/mcp.json holds exactly the pi/mcp render (what v0.10.0 wrote "+
-			"there) and survived the boot (stat err %v): the pi pack's mcp surface must "+
-			"declare it under retireIfMatchesRender, and the boot must run that retire", err)
-	}
-	got := readRenderedJSON(t, home, ".pi/agent/mcp-adapter.json")
-	if want := map[string]any{"mcpServers": probeMCPTable()}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("mcp-adapter.json = %#v, want %#v", got, want)
-	}
-}
-
-// Anything but yolo's exact render stays, byte for byte: a changed server, an added one, or
-// a key yolo never writes (`settings`, which pi-subagents and pi-mcp-adapter both read).
-func TestPiKeepsAnMcpJSONThatIsNotYolosRender(t *testing.T) {
-	for name, content := range map[string]string{
-		"extra key":      `{"mcpServers":{"probe-mcp":{"command":"/bin/probe-mcp","args":["--stdio"]}},"settings":{"directTools":true}}`,
-		"changed server": `{"mcpServers":{"probe-mcp":{"command":"/bin/probe-mcp","args":["--http"]}}}`,
-		"extra server":   `{"mcpServers":{"probe-mcp":{"command":"/bin/probe-mcp","args":["--stdio"]},"mine":{"command":"mine"}}}`,
-		"not json":       `{"mcpServers": `,
-	} {
-		t.Run(name, func(t *testing.T) {
-			e, home := piMCPEnv(t)
-			path := plant(t, home, piLegacyMCPRel, content)
-			bootJail(t, e, shippedPi(t))
-			got, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("the boot deleted a ~/.pi/agent/mcp.json that is not yolo's render: %v", err)
-			}
-			if string(got) != content {
-				t.Fatalf("the boot rewrote ~/.pi/agent/mcp.json:\n got %s\nwant %s", got, content)
-			}
-		})
-	}
-}
-
 // ── AM-R2: the subagents file, while pi-subagents is selected ──────────────────────────────
 
 func TestPiSubagentsSelectedRendersTheConfiguredServersIntoTheSharedMCPFile(t *testing.T) {
@@ -136,7 +84,7 @@ func TestPiSubagentsSelectedRendersTheConfiguredServersIntoTheSharedMCPFile(t *t
 	got := readRenderedJSON(t, home, subagentsMCPRel)
 	if want := map[string]any{"mcpServers": probeMCPTable()}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("~/.config/mcp/mcp.json = %#v, want %#v — pi-subagents reads this file "+
-			"(getConfigPaths) and never mcp-adapter.json", got, want)
+			"(getConfigPaths)", got, want)
 	}
 }
 

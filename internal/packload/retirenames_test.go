@@ -16,7 +16,9 @@ import (
 //
 // retireIfMatchesRender is where such a name goes instead: it deletes a file only while it
 // holds exactly the surface's own render, so nobody else's content can be in it. Its names
-// carry no prefix rule, and the test requires the shipped pi use to stay in that form (AM-R1).
+// carry no prefix rule, and the test requires the shipped pi use to stay in that form: pi/mcp
+// now renders pi's own mcp.json and retires yolo's copy in pi-mcp-adapter's mcp-adapter.json,
+// a file the adapter's users also write (the AM-R1 rule, applied to the render's second move).
 func TestShippedRetireNamesAreYolosOwn(t *testing.T) {
 	var checked, guarded int
 	piLegacyGuarded := false
@@ -38,7 +40,7 @@ func TestShippedRetireNamesAreYolosOwn(t *testing.T) {
 			}
 			for _, name := range s.RetireIfMatchesRender {
 				guarded++
-				if s.Key().String() == "pi/mcp" && name == "mcp.json" {
+				if s.Key().String() == "pi/mcp" && name == "mcp-adapter.json" {
 					piLegacyGuarded = true
 				}
 			}
@@ -48,7 +50,8 @@ func TestShippedRetireNamesAreYolosOwn(t *testing.T) {
 		t.Fatal("no shipped surface declares retireOnFirstRender, so this test checks nothing")
 	}
 	if guarded == 0 || !piLegacyGuarded {
-		t.Fatal("pi/mcp no longer retires mcp.json through retireIfMatchesRender: the copy " +
-			"0.10.0 wrote there stays forever (AM-R1). Keep it, in the match-guarded form")
+		t.Fatal("pi/mcp no longer retires mcp-adapter.json through retireIfMatchesRender: the " +
+			"copy yolo 0.11 wrote there stays, and a pi-mcp-adapter still installed keeps " +
+			"starting those servers beside pi's own client. Keep it, in the match-guarded form")
 	}
 }

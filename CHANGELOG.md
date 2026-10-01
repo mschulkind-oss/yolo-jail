@@ -264,12 +264,13 @@ agent's files on your own machine, and so does the automatic apply a wrapped lau
 now offers the same `openai-codex` models a jail's pi does. As in a jail, yolo writes an agent's
 server and provider lists whole, so an entry you added through the agent itself is dropped unless
 your config declares it; each is named, and yolo asks before dropping one the first time it writes
-a list. The selected model is written when your selection changes, and a model you pick later in
+a list. pi's MCP servers are the exception: yolo adds yours beside the ones you added with
+`pi mcp add`, which stay. The selected model is written when your selection changes, and a model you pick later in
 the agent stays. A setting yolo wrote for your configuration, such as Claude Code's Bedrock switch
 or its LSP switch, is removed again by the next apply once your configuration stops calling for
 it, while one you wrote or changed yourself stays. MCP presets and servers whose command is a path
 that exists only inside a jail are not written to your machine, and the report names each one. Under `host_management: own`,
-the files yolo writes whole (pi's, Copilot's and Antigravity's MCP files, Copilot's LSP file, and
+the files yolo writes whole (Copilot's and Antigravity's MCP files, Copilot's LSP file, and
 pi's and oh-omp's model files) are now written too, keeping what they already hold, where they
 used to be refused. See [what a host apply writes](docs/reference/host-agent-environment.md#what-each-surface-gets-at-the-host).
 
@@ -596,6 +597,17 @@ starts it.** A jail used to set `PI_TELEMETRY=0` whether or not pi was selected,
 `yolo host -- pi` never set it. The pi pack now sets it, so it is there whenever pi is selected,
 `yolo host -- pi` and `yolo host env` included, the jail launch lists it among what the pi pack
 sets, and a jail without pi no longer carries it.
+
+**pi now starts your MCP servers itself, with no extension to install.** pi has had MCP support
+of its own since version 0.99, reading pi's own MCP file, `~/.pi/agent/mcp.json`, and yolo now
+writes your `mcp_presets` and `mcp_servers` there, in a jail and with `yolo host apply`, rather
+than into the file the `pi-mcp-adapter` extension reads, which pi itself never read. pi writes that
+file too, so yolo adds its servers beside yours: a server you add with `pi mcp add`, and a server
+you turn off with `/mcp`, stay, and in a jail a server you drop from your config leaves. A jail
+removes the copy yolo wrote for `pi-mcp-adapter` while it still holds exactly yolo's servers. If
+you installed `pi-mcp-adapter` for yolo's servers, take it out of pi's packages, or pi starts each
+server twice; a subagent that lists `mcp:` tools needs pi-subagents 0.74 or later to run them
+without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-files).
 
 ### Fixed
 

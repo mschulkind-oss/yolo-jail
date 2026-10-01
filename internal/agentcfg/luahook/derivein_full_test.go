@@ -232,7 +232,10 @@ func TestShippedDerivesDeclareTheirInFullTables(t *testing.T) {
 		// Its only output is the selection's enabledModels, an array: no table to declare.
 		"oh-omp/settings": nil,
 		"opencode/config": {"mcp", "provider"},
-		"pi/mcp":          {"mcpServers"},
+		// pi's own global MCP file (~/.pi/agent/mcp.json), which pi writes itself (`pi mcp add`,
+		// /mcp), so a first render adopts the servers there as the user's and the host asserts
+		// the table per key instead of owning it whole.
+		"pi/mcp": nil,
 		// A cross-tool file the user may already keep (~/.config/mcp/mcp.json), so its first
 		// render adopts the servers there as the user's instead of claiming the table (AM-R2).
 		"pi/subagents-mcp": nil,
@@ -251,7 +254,8 @@ func TestShippedDerivesDeclareTheirInFullTables(t *testing.T) {
 	notInFull := map[string][]string{
 		"claude/settings": {"env", "modelPicker"},
 		"pi/settings":     {"subagents"},
-		// Tracks a live table, yet is left undeclared on purpose: see its entry in want.
+		// Each tracks a live table, yet is left undeclared on purpose: see its entry in want.
+		"pi/mcp":           {"mcpServers"},
 		"pi/subagents-mcp": {"mcpServers"},
 	}
 	paths, err := filepath.Glob("../../../packs/*/derive.lua")

@@ -33,13 +33,14 @@ func mcpConfigWithAgents(extra string) string {
 }
 
 // TestCustomMcpServerConfigPropagates confirms custom MCP servers from
-// yolo-jail.jsonc reach both agent configs (copilot mcp-config.json and codex
-// settings.json).
+// yolo-jail.jsonc reach each agent's config: copilot's mcp-config.json, codex's
+// config.toml, and pi's own ~/.pi/agent/mcp.json, the file pi's built-in MCP
+// client reads (pi 0.99.0 and later), with nothing written for pi-mcp-adapter.
 func TestCustomMcpServerConfigPropagates(t *testing.T) {
 	requireJail(t)
 	dir := writeProjectWithPacks(t, mcpConfigWithAgents(
 		`"mcp_servers": {"probe-mcp": {"command": "/workspace/probe-mcp.py", "args": ["--stdio"]}}`),
-		"copilot", "codex", "claude")
+		"copilot", "codex", "claude", "pi")
 	if err := os.WriteFile(filepath.Join(dir, "probe-mcp.py"), []byte("#!/usr/bin/env python3\n"), 0o644); err != nil {
 		t.Fatalf("writing probe-mcp.py: %v", err)
 	}
@@ -49,15 +50,22 @@ import json
 from pathlib import Path
 copilot = json.loads(Path('/home/agent/.copilot/mcp-config.json').read_text())
 codex = Path('/home/agent/.codex/config.toml').read_text()
+pi = json.loads(Path('/home/agent/.pi/agent/mcp.json').read_text())
 print(copilot['mcpServers']['probe-mcp']['command'])
 # codex is TOML; assert the command lands rather than parsing it.
 print([l for l in codex.splitlines() if 'probe-mcp.py' in l][0].split('"')[1])
+print(pi['mcpServers']['probe-mcp']['command'])
+print('PI_ADAPTER_FILE=' + str(Path('/home/agent/.pi/agent/mcp-adapter.json').exists()))
 PY`)
 	if r.rc != 0 {
 		t.Fatalf("expected rc 0, got %d\n%s", r.rc, r.stderr)
 	}
-	if n := strings.Count(r.stdout, "/workspace/probe-mcp.py"); n != 2 {
-		t.Fatalf("expected probe-mcp command in both agent configs (count 2), got %d\nstdout=%q", n, r.stdout)
+	if n := strings.Count(r.stdout, "/workspace/probe-mcp.py"); n != 3 {
+		t.Fatalf("expected probe-mcp command in all three agent configs (count 3), got %d\nstdout=%q", n, r.stdout)
+	}
+	if !strings.Contains(r.stdout, "PI_ADAPTER_FILE=False") {
+		t.Fatalf("the jail wrote pi-mcp-adapter's mcp-adapter.json; pi's servers belong in "+
+			"mcp.json alone\nstdout=%q", r.stdout)
 	}
 }
 

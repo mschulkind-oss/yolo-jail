@@ -401,7 +401,8 @@ account the design recorded):
 | :--- | :--- |
 | `pi/models` | a row per pi-reachable provider in the composed table, never `openai-codex`, as in a jail |
 | `pi/codex-models` | the declared `openai-codex` list, which the delivered extension registers |
-| `pi/mcp`, `copilot/mcp`, `agy/mcp` | your `mcp_servers`, filtered per agent |
+| `pi/mcp` | your `mcp_servers`, filtered per agent, into pi's own `~/.pi/agent/mcp.json` per server (rule 2 below), so a server you added with `pi mcp add` stays; a server dropped from `mcp_servers` leaves an emptied entry pi reports and skips ([pi's MCP files](mcp-configuration.md#pis-mcp-files)) |
+| `copilot/mcp`, `agy/mcp` | your `mcp_servers`, filtered per agent |
 | `copilot/lsp` | your `lsp_servers` |
 | `oh-omp/models` | provider rows |
 | `claude/config` | your `mcp_servers` as `mcpServers`, so yolo owns `~/.claude.json`'s user-scope server list at the host as in a jail: a server added with `claude mcp add` is a loss the first apply confirms |

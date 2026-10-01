@@ -37,6 +37,8 @@ MEASURED on 2026-10-01 in a nested jail at `d4e435a3`: claude's rendered `mcpSer
 ([the recording](#a-launch-with-a-provides-server-recorded-2026-10-01)). The same launches found
 the boot's drop notice naming the wrong remedy for that drop, fixed the same day: a withheld
 server now gets a line of its own (MEASURED in a nested jail at `1493ac51`, the same two launches).
+[Pi's MCP files](#pis-mcp-files) were re-checked on 2026-10-01 against pi 0.99.2's installed
+source, when the pi pack moved its render to pi's own `mcp.json`.
 
 MCP config is **pack-declarative**. Core builds **one** canonical server table in-jail from
 the user's config — presets expanded, custom entries merged, `requires_env` gates applied —
@@ -303,28 +305,82 @@ projection has to get right:
 - One flattens `command` plus `args` into a single argv **array** and renames `env`.
 - One tool's MCP goes in a *different file* from its permissions, so its projection writes two
   surfaces.
-- Pi projects the canonical table into `~/.pi/agent/mcp-adapter.json` (`mcpServers`), where adapter
-  extensions like `pi-mcp-adapter` or `pi-mcp-extension` read it. See
-  [Pi's MCP files](#pis-mcp-files) for the second file it writes and the one it retires.
+- Pi projects the canonical table into `~/.pi/agent/mcp.json` (`mcpServers`), the file pi's own
+  MCP client reads. It is also a file pi writes itself, so the projection merges into it rather
+  than replacing it. See [Pi's MCP files](#pis-mcp-files) for the second file it writes and the
+  one it retires.
 
 ### Pi's MCP files
 
-Pi's MCP servers are read by two of its extensions, from different files, so the pi pack writes
-up to two and cleans up a third. Each rule below is a surface field in
-[`packs/pi/pack.json`](../../packs/pi/pack.json), documented on `manifest.Surface` in
-[`manifest.go`](../../internal/agentcfg/manifest/manifest.go); the rulings are
-[AM-R1 and AM-R2](../design/agent-directory-map.md#13-decision-ledger).
+Pi has had its own MCP client since 0.99.0. It reads `~/.pi/agent/mcp.json` always, and a
+project's `.pi/mcp.json` only while pi trusts the project (pi 0.99.2,
+`dist/extensions/mcp/config.js`, `loadMcpConfig`). The pi pack writes the first file, writes a
+second while pi-subagents is selected, and cleans up the file it wrote before pi had a client.
+Each rule below is a surface field in [`packs/pi/pack.json`](../../packs/pi/pack.json),
+documented on `manifest.Surface` in [`manifest.go`](../../internal/agentcfg/manifest/manifest.go);
+the rulings are [AM-R1 and AM-R2](../design/agent-directory-map.md#13-decision-ledger).
 
 | File | Read by | What yolo does |
 | :--- | :--- | :--- |
-| `~/.pi/agent/mcp-adapter.json` | pi-mcp-adapter (its global override) | writes the full server table at every boot (`computed`, `pi/mcp`) |
-| `~/.config/mcp/mcp.json` | pi-subagents, for an agent's `mcp:` tools; also pi-mcp-adapter, as its shared global file | writes the same servers while pi-subagents is in pi's `packages`, and nothing otherwise (`pi/subagents-mcp`) |
-| `~/.pi/agent/mcp.json` | pi-subagents; pi-mcp-adapter only to show a migration notice | never writes it; deletes it only while it holds exactly what `mcp-adapter.json` now holds, which is the copy yolo 0.10.0 wrote there |
+| `~/.pi/agent/mcp.json` | pi's own MCP client, in every project; pi-subagents through 0.72, and 0.74.0 without pi-mcp-adapter, for an agent's `mcp:` tools | writes your servers at every boot, beside any server or setting already there (`stateful`, `pi/mcp`) |
+| `~/.config/mcp/mcp.json` | pi-subagents; also pi-mcp-adapter, as its shared global file | writes the same servers while pi-subagents is in pi's `packages`, and nothing otherwise (`pi/subagents-mcp`) |
+| `~/.pi/agent/mcp-adapter.json` | pi-mcp-adapter; pi-subagents 0.73.0 and later while the adapter runs its tools | never writes it; deletes it only while it holds exactly what `mcp.json` holds after the boot's write, which is the copy yolo 0.11 wrote there |
 
-**pi-subagents' file.** pi-subagents 0.35.1 resolves `mcp:` tools from
-`~/.config/mcp/mcp.json`, `~/.pi/agent/mcp.json`, the project's `.mcp.json` and `.pi/mcp.json`,
-and never from `mcp-adapter.json` (`getConfigPaths` in its `mcp-direct-tool-allowlist.ts`). yolo
-writes the first, the one both extensions read:
+**pi's own file.**
+
+- **It is merged into, never replaced.** pi writes this file too: `pi mcp add` and
+  `pi mcp remove`, and `/mcp`'s enable, disable and exposure changes. So the surface is
+  `stateful` and its table is not declared in full
+  ([CO13](../design/config-ownership-and-promotion.md#co13--how-a-derive-says-it-fills-a-computed-table-in-full--decided)).
+  The first boot adopts the servers and top-level settings it finds there as yours; a server or
+  setting you change later is captured and survives the next boot; a server yolo stops
+  configuring leaves. For a field yolo writes in one of its own servers, the config wins.
+  ⚠ A server of yolo's that you disable with `/mcp` and then drop from the config leaves
+  `{"enabled": false}` behind, which pi reports as a server with no `command` and skips
+  (MEASURED 2026-10-01 with a scratch test through the boot loop, `ConfigurePackSurfaces`; the
+  report is pi's `validateMcpServerConfig`, read in pi 0.99.2's `dist/core/mcp-servers.js`).
+- **pi never gates this file on trust.** Only a project's `.pi/mcp.json` waits for trust, so the
+  servers yolo writes start in every project. yolo never writes a project's `.pi/mcp.json`;
+  whether pi loads a repository's own is the pi pack's project-trust posture:
+  `defaultProjectTrust: "always"` in a jail, the container being the boundary
+  ([`workspace-mcp-sources.md` §1](../design/workspace-mcp-sources.md)), and `"ask"` at the host,
+  where a pi with no terminal to ask on treats the project as untrusted (pi 0.99.2,
+  `dist/core/project-trust.js`).
+- **Variables are pi's to expand, in fewer places than pi-mcp-adapter expands them.** yolo writes
+  the table verbatim ([no `${VAR}` interpolation](#the-rules-the-one-loader-enforces)). pi
+  expands `${VAR}` and `$VAR` in `env` and `headers` values only, and a variable that is not set
+  stops that one server with a named error; in `command`, `args` and `cwd` it expands only a
+  leading `~/` (`dist/extensions/mcp/runtime.js`). pi-mcp-adapter also expanded `${VAR}` in
+  `args`, to an empty string when unset, so a server that relied on that behaves differently.
+- **At the host**, `yolo host apply` writes your `mcp_servers` here per server, beside the
+  servers you added with `pi mcp add`, which stay
+  ([the host write is per key](host-agent-environment.md#the-host-write-is-per-key)). Under
+  `host_management: assert`, a server you drop from `mcp_servers` loses the fields yolo wrote, and
+  its emptied entry, `{}`, stays, which pi reports and skips as above (MEASURED 2026-10-01 with a
+  scratch test through `RenderHostPack`). ⚠ `yolo host apply --revert` removes the whole
+  `mcpServers` key, your servers with yolo's, because its record is kept per top-level key
+  (MEASURED the same way, through `RevertHostRender`); its dry run lists `pi/mcp` `mcpServers`
+  before anything is removed. Host apply deletes nothing, so a `mcp-adapter.json` at the host is
+  left as it is.
+
+**pi-mcp-adapter duplicates pi's own client.** The two cannot share one server set: with the
+adapter still in pi's `packages`, each server yolo writes starts twice, pi's copy from
+`mcp.json` and the adapter's from `~/.config/mcp/mcp.json` while pi-subagents is selected, or
+from an `mcp-adapter.json` the boot kept. yolo does not install the adapter; take
+`npm:pi-mcp-adapter` out of whichever pack or settings file lists it.
+
+**pi-subagents' file.** Where pi-subagents finds the servers for an agent's `mcp:` tools
+depends on its version (`getConfigPaths` in its `src/runs/shared/mcp-direct-tool-allowlist`):
+
+- **Through 0.72** it reads `~/.config/mcp/mcp.json`, then `~/.pi/agent/mcp.json`, then the
+  project's `.mcp.json` and `.pi/mcp.json`, merged by name, and runs the tools only through
+  pi-mcp-adapter (read in 0.35.1 and in a 0.71.0 fork).
+- **0.73.0** reads `mcp-adapter.json` where it read `mcp.json`, still through the adapter.
+- **0.74.0**, with no adapter loaded, takes the tools from pi's own client, whose servers come
+  from `mcp.json`; with the adapter loaded it behaves as 0.73.0 (its CHANGELOG).
+
+So `~/.config/mcp/mcp.json` is the one file every version reads while the adapter runs the tools,
+and it is still written. The rules for it:
 
 - **Selected** means an entry of pi/settings' `packages` whose name is `pi-subagents`: `npm:`
   with or without a version, a git or URL source ending in `/pi-subagents` (a fork counts), or a
@@ -339,18 +395,19 @@ writes the first, the one both extensions read:
   render with no edit captured in it.
 - **At the host**, `yolo host apply` skips it with a stated reason, under every
   `host_management` value (`notAtHost`). Host apply writes your `mcp_servers` into pi's own
-  `mcp-adapter.json` there ([`host-agent-environment.md`'s computed layer at the host](host-agent-environment.md#what-each-surface-gets-at-the-host)),
+  `mcp.json` there ([`host-agent-environment.md`'s computed layer at the host](host-agent-environment.md#what-each-surface-gets-at-the-host)),
   and this cross-tool file stays yours.
-- **pi-mcp-adapter sees each server twice**, once here and once in `mcp-adapter.json`, with
-  identical definitions. It merges them by name, the adapter file winning, and its setup panel
-  counts each as a same-name conflict.
 
-**The retired copy.** 0.11.0 moved the render from `mcp.json` to `mcp-adapter.json`. A
-`mcp.json` holding exactly what `mcp-adapter.json` holds after the boot's write is yolo's own
-leftover and is deleted (`retireIfMatchesRender`). The comparison is on the decoded JSON, so key
-order and indentation do not decide it. A file with one more key, one different value or a
-server yolo no longer configures is kept, which also keeps a 0.10.0 copy written from MCP
-settings that have since changed.
+**The retired copies.** 0.11.0 moved the render from `mcp.json` to `mcp-adapter.json`, and it has
+now moved back. A `mcp-adapter.json` holding exactly what `mcp.json` holds after the boot's write
+is yolo's own leftover and is deleted (`retireIfMatchesRender`). The comparison is on the decoded
+JSON, so key order and indentation do not decide it. A file with one more key, one different
+value or a server yolo no longer configures is kept, and so is every copy while `mcp.json` holds
+a server or setting of yours, since the two files then differ; pi-mcp-adapter keeps loading a
+kept copy until you remove it. The `mcp.json` yolo 0.10.0 wrote is the surface's own file again:
+one that holds exactly yolo's render is adopted with nothing of yours in it, so its servers leave
+when the config drops them, while one written from MCP settings that have changed since is
+adopted as yours, and pi now starts its servers.
 
 **Convergence — how a dropped server disappears** — is the composition engine's job, not a
 per-tool one:
@@ -617,11 +674,14 @@ change in one place rather than a call-site hunt.
 **Removing the `sequential-thinking` preset** is ruled and not built —
 [`OQ-MP1`](../design/mcp-presets-removal.md#decision-ledger).
 
-Auto-installing or bundling an MCP adapter extension for Pi: `packs/pi` projects the canonical
-server table into `~/.pi/agent/mcp-adapter.json`, which `pi-mcp-adapter` and `pi-mcp-extension` consume
-natively, but yolo does not auto-install either extension at boot. Deciding whether to bundle
-a standalone extension in `kind: "files"`, auto-install via a hook, or leave it to user
-configuration is a choice about Pi's minimal posture against boot-time network dependencies.
+**Open for pi's MCP files**, not yet ruled: whether `~/.config/mcp/mcp.json` is still written now
+that pi-subagents 0.74.0 runs `mcp:` tools from pi's own client; whether yolo does anything for a
+pi-mcp-adapter user beyond saying the two clients duplicate each other; whether pi gets a version
+floor, since a pi older than 0.99.0 has no client and starts none of these servers; whether the
+host owns `mcp.json`'s server table whole, as it owns `~/.claude.json`'s, which would end the
+emptied entries above and make `--revert`'s whole-table removal take only yolo's, at the cost of
+the servers you add with `pi mcp add`; and whether
+`yolo host apply` retires a host `mcp-adapter.json` by the same exact-match rule a jail boot uses.
 
 ## Current values
 
