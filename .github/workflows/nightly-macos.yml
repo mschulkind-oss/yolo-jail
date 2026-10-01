@@ -629,6 +629,11 @@ jobs:
         # setting from flake config is honored — but no run has been instrumented
         # to show a substitution rather than a build. TestExtraPackageLibFarm still
         # spends up to its 40-minute budget here, which is the symptom to explain.
+        # The instrument exists since 2026-10-01 and lands in one shard by the computed
+        # partition: TestMacImageSubstitutesFromCachix
+        # (integration/maccachixsubstitution_test.go) dry-runs the stock, zbar and
+        # libsodium.dev images and logs a `CACHIX <variant>:` line naming what nix would
+        # build and how many fetched paths yolo-jail.cachix.org serves.
         #
         # `internal/image/stockimage.go` gives the launch a question to ask
         # first: does the runtime already hold the STOCK image — the default

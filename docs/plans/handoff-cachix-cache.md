@@ -2,7 +2,7 @@
 title: "Handoff — publish the prebuilt image to a Cachix cache"
 status: accepted
 stage: BUILT
-next: "Show a Mac substituting instead of building: add a step to the macOS nightly that reports whether its shards fetch the image paths from yolo-jail.cachix.org (nightly-macos.yml's stock-tag step says no run has shown it), or run the Final test below on a Mac"
+next: "Read the CACHIX lines TestMacImageSubstitutesFromCachix logs in the next macOS nightly into this status line, or run the Final test below on a Mac"
 ---
 
 # Handoff — publish the prebuilt image to a Cachix cache
@@ -14,7 +14,10 @@ macOS nightly pushes on every run as well (`.github/workflows/nightly-macos.yml`
 `build-image` and `push-arm-image-cache` jobs). MEASURED: CI pushes both Linux arches and
 substitutes the four this-repo-source paths back from the cache (run `31749547095`, below).
 UNMEASURED: the Mac-side download — no Mac, human or CI runner, has been shown substituting these
-paths rather than building them ("Final test" below).
+paths rather than building them ("Final test" below). The instrument for it was written on
+2026-10-01 and has not run yet: `TestMacImageSubstitutesFromCachix`
+([`maccachixsubstitution_test.go`](../../integration/maccachixsubstitution_test.go)), which falls
+into one shard of the macOS nightly's computed partition.
 **Settled 2026-09-02 from the Actions log**, which closes the disagreement this doc
 carried against [`README.md`](README.md): README's *"CI has already pushed data"* was
 the correct sentence.
@@ -123,6 +126,17 @@ VM.
    defaults to `yolo-jail` in CI).
 
 ## Final test (on a Mac, no builder needed)
+
+**The unattended half, written 2026-10-01.** `TestMacImageSubstitutesFromCachix` runs on any
+darwin host with nix, which makes it part of the macOS nightly's sharded run on the hosted
+`macos-26-intel` runners. For the stock image and the two `packages:` variants `build-image`
+pushes for the shards (`["zbar"]`, `["libsodium.dev"]`) it runs `nix build --dry-run` of
+`.#ociImage` with `--accept-flake-config`, names each derivation nix would BUILD with its system,
+and asks `yolo-jail.cachix.org` for each path nix would FETCH (`<hash>.narinfo`; the URL is read
+from `flake.nix`'s `nixConfig`). It logs one `CACHIX <variant>:` line each (SUBSTITUTES, WOULD
+BUILD, NOTHING TO DO when an earlier test already realized it, or VOID when nix ignored the cache
+for an untrusted user) and builds nothing. A measurement: only a dry run that planned nothing
+fails it. It does not replace the run below, which is the one a user's own Mac makes.
 
 This is the whole point — a macOS user with NO builder should get the image
 by download (if it *did* have to build, it would offload to a container on the
