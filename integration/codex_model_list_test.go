@@ -16,6 +16,10 @@ package integration
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -93,6 +97,22 @@ func TestCodexProfileRendersOneModelListForEveryAgent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(scope["allow"], wantAllow) {
 		t.Errorf("pi subagents.modelScope.allow = %v, want %v", scope["allow"], wantAllow)
+	}
+
+	// pi's catalog never shadows its built-in openai-codex provider
+	// (docs/design/pi-codex-provider-shadowing.md OQ-1, OQ-2): a models.json row written from the
+	// Responses address packs/openai-auth declares replaces pi's own subscription client, which
+	// then authenticates with the ambient OPENAI_API_KEY. This launch composes openai-codex and no
+	// other provider, so with the exclusion in place pi's catalog is empty (`"providers": {}`,
+	// observed 2026-10-01), and without it the openai-codex row is the whole catalog (revert-checked
+	// the same day). An absent file is no row either, so it passes too.
+	if raw, err := os.ReadFile(filepath.Join(dir, ".yolo", "home", "pi", "agent", "models.json")); err == nil {
+		catalog, _ := decode("pi models.json", raw)["providers"].(map[string]any)
+		if row, shadow := catalog["openai-codex"]; shadow {
+			t.Errorf("pi models.json catalogs openai-codex, shadowing pi's built-in subscription client: %v", row)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("reading pi's models.json: %v", err)
 	}
 
 	config := string(renderedSurface(t, dir, "codex", "config.toml"))

@@ -2,17 +2,17 @@
 title: "Implementation sketch: Pi Codex provider shadowing"
 date: 2026-09-27
 status: accepted
-stage: DECIDED
-next: "Close the verification checklist's nested-jail step with a real-jail check: assert, in TestCodexProfileRendersOneModelListForEveryAgent (integration/codex_model_list_test.go), that pi's rendered models.json has no openai-codex row"
+stage: BUILT
+next: "Nothing here unless OQ-3 rules the broad reading, which grows §2's exclusion into a per-agent list of natively implemented providers"
 depends-on:
   - pi-codex-provider-shadowing.md#OQ-3
 tags: [providers, codex, pi, openai-auth, shadowing, plan]
-summary: "File targets and verification for pi-codex-provider-shadowing.md: the openai-codex exclusion in pi's derive and the needs-closure test helper are built; the nested-jail check has not run, and a broad reading of OQ-3 would widen the exclusion."
+summary: "File targets and verification for pi-codex-provider-shadowing.md: the openai-codex exclusion in pi's derive and the needs-closure test helper are built, and a real -p codex launch asserts pi's models.json has no openai-codex row; a broad reading of OQ-3 would widen the exclusion."
 ---
 
 # Implementation Sketch: Pi Codex Provider Shadowing
 
-**Status:** 2026-09-27 — [§2](#2-pi-derive-changes) and [§3](#3-entrypoint-test-alignment) are built (`92c20cc6`, and the 2026-09-27 test helper); [§5](#5-verification-checklist)'s nested-jail step has not run. Unstable while [OQ-3](pi-codex-provider-shadowing.md#OQ-3) is open, which decides whether the exclusion widens past `openai-codex`.
+**Status:** 2026-10-01 — [§2](#2-pi-derive-changes) and [§3](#3-entrypoint-test-alignment) are built (`92c20cc6`, and the 2026-09-27 test helper), and [§5](#5-verification-checklist)'s last step is an integration launch, a container jail the suite starts, rather than a hand-run one. MEASURED: `TestCodexProfileRendersOneModelListForEveryAgent` ([`codex_model_list_test.go`](../../integration/codex_model_list_test.go)) launches `-p codex` over pi, claude, codex and opencode and finds pi's rendered `models.json` holding no `openai-codex` row beside `defaultProvider = "openai-codex"`; with the exclusion removed the same launch rendered that row and the test failed (revert-checked 2026-10-01). UNMEASURED: no pi session was run, so no request reached the subscription. Unstable while [OQ-3](pi-codex-provider-shadowing.md#OQ-3) is open, which decides whether the exclusion widens past `openai-codex`.
 
 This sketch holds implementation notes, file targets, and test verification details for
 [`pi-codex-provider-shadowing.md`](pi-codex-provider-shadowing.md). The design doc wins on
@@ -121,9 +121,12 @@ Once the design is decided and ready to implement:
 3. **Run unit tests:**
    `go test -short ./internal/entrypoint -run TestPiCodex`
    `just test-fast`
-4. **Nested jail verification:**
-   `just build-go`
-   Launch a nested jail with profile `codex`:
-   `YOLO_REPO_ROOT=/workspace /workspace/dist-go/linux-$(go env GOARCH)/yolo -p codex -- pi -c`
-   Verify `~/.pi/agent/models.json` has no `openai-codex` row, while `~/.pi/agent/settings.json`
-   has `defaultProvider = "openai-codex"`.
+4. **Launch verification:** ✅ 2026-10-01, as an integration launch instead of a hand-run
+   nested jail. `TestCodexProfileRendersOneModelListForEveryAgent`
+   ([`codex_model_list_test.go`](../../integration/codex_model_list_test.go)) launches `-p codex`
+   and asserts both halves: `~/.pi/agent/models.json` has no `openai-codex` row, and
+   `~/.pi/agent/settings.json` has `defaultProvider = "openai-codex"`. It runs `true` rather than
+   `pi -c`, since no test starts an agent. The launch composes `openai-codex` alone, so the passing
+   file is an empty catalog (`"providers": {}`); with the `native` check in
+   `packs/pi/derive.lua`'s catalog loop set to `false`, the same launch wrote the row and the
+   assertion failed.
