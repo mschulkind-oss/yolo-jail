@@ -18,9 +18,12 @@ package render
 // NO TERMINAL VIEW PRINTS IT. The report names the key and stops.
 //
 // THE UNIT IS THE NOTCH, NOT ONE COMMAND. A key is KeyHonored at the host when ANY host-notch
-// verb acts on it — `yolo host apply`, `yolo host -- <cmd>`, `yolo host env`, the host floor,
-// or a host-side command such as `yolo check` or `yolo prune` reading a setting of this
-// machine's. That differs on purpose from the kinds' honored-but-unbuilt map, which is a
+// verb does what it declares — `yolo host apply`, `yolo host -- <cmd>`, `yolo host env`, the
+// host floor, or a host-side command acting on a setting of this machine's, as `yolo check`
+// warns at the `prune` threshold. A command that only READS a key to account for its effect in
+// a jail does not honor it: `yolo stores` and `yolo prune` read `cache_relocations` to find the
+// segments it moved, and what the key declares, a jail's cache on a host path, is still a
+// jail's. That differs on purpose from the kinds' honored-but-unbuilt map, which is a
 // limit of the APPLY command (`env` is there because apply never starts a process, though
 // `yolo host --` delivers it): a config key the report names is one no host verb honors, so
 // "does not apply at the host" is true of every key it prints. `env_sources` and `adapters`,
@@ -162,11 +165,15 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	"programs": {KeyNotApplicable, "`programs.autoprune` lets a jail's boot delete the orphaned " +
 		"agent binaries in its home; the host floor removes a deselected program on `yolo host " +
 		"apply --assert` whatever this key says (HP-D8)"},
+	// Not unbuilt: host-tool-provisioning.md's HP-DIR3 (2026-09-29) rules that at the host yolo
+	// manages the agent's environment and never the workspace's runtime, which is what
+	// `packages:` declares, so provisioner-sets.md's OQ-PS1 gives darwinpkg.MaterializeAt no host
+	// caller and OQ-NX8 calls the key permanently inert here.
+	"packages": {KeyNotApplicable, "the workspace's runtime, which a jail gets from its image or the " +
+		"boot-written store farm; at the host yolo never provisions it (HP-DIR3), and the tools " +
+		"there are the ones on your own PATH"},
 
 	// ---- Unbuilt: the key applies at the host and nothing honors it yet ---------------
-	"packages": {KeyUnbuilt, "delivered by a baked image or the boot-written store farm, neither of " +
-		"which the host notch has; materializing a darwin profile here (darwinpkg.MaterializeAt) " +
-		"has no caller at this notch yet (DP-L16)"},
 	"required_capabilities": {KeyUnbuilt, "OQ-CAP2 refuses a launch whose required capability " +
 		"nothing satisfies, and the gate runs in a jail launch's config path " +
 		"(refuseUnmetCapabilities); `yolo host --` launches without asking it"},

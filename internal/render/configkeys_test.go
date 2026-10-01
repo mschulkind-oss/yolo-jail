@@ -86,3 +86,13 @@ func TestLeftUndoneIsTheTwoDeclines(t *testing.T) {
 		}
 	}
 }
+
+// `packages` is NOT applicable at the host, never unbuilt there: host-tool-provisioning.md's
+// HP-DIR3 rules that at the host yolo never provisions the workspace's runtime, so
+// provisioner-sets.md's OQ-PS1 gives the darwin materializer no host caller. KeyUnbuilt would
+// say a reader is coming, which is the build that ruling declines.
+func TestPackagesIsNotApplicableAtTheHost(t *testing.T) {
+	if d, _ := HostFields().ConfigKey("packages"); d != KeyNotApplicable {
+		t.Errorf("HostFields().ConfigKey(packages) = %v, want KeyNotApplicable (HP-DIR3)", d)
+	}
+}
