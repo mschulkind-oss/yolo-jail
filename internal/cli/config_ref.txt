@@ -368,7 +368,9 @@
     • A workspace key is an absolute path or starts with ~/; a relative path,
       ~user/ and anything with `$` in it are refused.  It is matched with
       symlinks resolved, so a link to the workspace and the path behind it are
-      the same entry.  It applies to that folder alone, not to folders under it.
+      the same entry.  It applies to that folder alone, not to folders under it,
+      and never through a folder or link inside the workspace, which its agent
+      can change: an entry for ~/code/app/sub never widens ~/code/app.
     • Each repos entry is OWNER/REPO, with no host.  A listed repository is in
       scope exactly as a remote is: its reads run, and its writes need the same
       approval.  No entry admits a command across your whole account, such as a

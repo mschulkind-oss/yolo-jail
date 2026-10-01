@@ -75,6 +75,54 @@ func TestBrokeredWideningIsTheUserEntryForThisWorkspaceAlone(t *testing.T) {
 	}
 }
 
+// TestAWideningKeyThatRunsThroughTheWorkspaceNeverMatchesIt: BB-P9 against symlinks. What lies
+// inside a workspace is its agent's to change, so a key whose resolution passes through the
+// workspace's own tree must not match the workspace, however the agent points the links there.
+// An entry for `app/sub`, or for a link of the user's own reaching `sub`, stays `sub`'s once the
+// agent in `app` turns `sub` into a link back to `app`; a link the user made outside `app`,
+// pointing at it, still matches `app`.
+func TestAWideningKeyThatRunsThroughTheWorkspaceNeverMatchesIt(t *testing.T) {
+	userCfg := hostFloorHome(t)
+	home, err := filepath.EvalSymlinks(paths.Home())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := filepath.Join(home, "code", "app")
+	sub := filepath.Join(app, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{"via-sub": sub, "app-link": app} {
+		if err := os.Symlink(target, filepath.Join(home, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(t, userCfg, `{"brokered": {"github": {"workspaces": {
+	  "~/code/app": {"repos": ["org/app"]},
+	  "~/app-link": {"repos": ["org/app-link"]},
+	  "~/code/app/sub": {"repos": ["org/sub"]},
+	  "~/via-sub": {"repos": ["org/via-sub"]}
+	}}}}`)
+	if got := strings.Join(BrokeredWidening("github", sub), ","); got != "org/sub,org/via-sub" {
+		t.Fatalf("BrokeredWidening(sub) = %s, want org/sub,org/via-sub", got)
+	}
+	if got := strings.Join(BrokeredWidening("github", app), ","); got != "org/app,org/app-link" {
+		t.Fatalf("BrokeredWidening(app) = %s, want org/app,org/app-link", got)
+	}
+
+	// The agent in app points sub back at its own workspace.
+	if err := os.Remove(sub); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(".", sub); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(BrokeredWidening("github", app), ","); got != "org/app,org/app-link" {
+		t.Errorf("after the agent linked sub to its own workspace, BrokeredWidening(app) = %s, want "+
+			"org/app,org/app-link: an entry for sub, or reaching sub, must not widen app", got)
+	}
+}
+
 // TestValidateBrokeredRefusesEachBadShapeAndAWorkspaceValue: a well-formed entry passes; each shape
 // the reader would leave out is a named error at its path; and a workspace spelling is refused by
 // name with the user config it belongs in (BB-P9).
