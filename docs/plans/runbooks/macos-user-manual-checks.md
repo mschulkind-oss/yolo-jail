@@ -12,12 +12,13 @@ scheduled `macos-user.yml` job, item 1's written on 2026-10-01 and not yet run t
 
 
 **Audience:** whoever has a Mac and five minutes — and, since 2026-09-12, a nightly CI
-job that stands in for them on seven of the ten items below (six until item 1's twin was
-written on 2026-10-01).
+job that stands in for them on six of the ten items below, with a seventh twin (item 1's,
+written 2026-10-01) scheduled there and not yet run.
 
 > [!IMPORTANT]
 > **This file was called *What only a Mac with a password can verify*, and the title had
-> to go.** Seven items now run unattended on a Mac with **no** password — a host with
+> to go.** Six items run unattended on a Mac with **no** password, and item 1's twin is
+> written for the same host — a host with
 > passwordless `sudo`, which is what a GitHub-hosted macOS runner is. The password was
 > never a property of the backend; it was a property of the maintainer's laptop. What is
 > irreducible is the **Mac**, and for three items a **human at a keyboard**.
@@ -131,9 +132,9 @@ rather than by a list somebody maintains.
 | 9 | `TestMacosUserDeclaredToolsArrive` (three subtests, one launch) | nothing. Its fourth subtest, `lsp_servers`, was deleted on 2026-09-25 with the LSP install recipes; see the item |
 | 10 | (a) `TestMacosUserLayoutRefusesAnOccupiedSidecarMirror` | (b) never, deliberately: it poisons an account home permanently |
 
-Seven of the ten run unattended, item 1's since its twin was written on 2026-10-01. **Three do
-not, and one of those three is the one that establishes the backend is a sandbox at all**
-(item 2).
+Seven of the ten have an unattended twin, item 1's written on 2026-10-01 and not yet run on a
+Mac. **Three do not, and one of those three is the one that establishes the backend is a
+sandbox at all** (item 2).
 
 ### 0.2 The job that runs them
 

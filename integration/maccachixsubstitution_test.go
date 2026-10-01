@@ -40,7 +40,7 @@ import (
 // would BUILD and the paths it would FETCH. Each to-be-built derivation is named with its system
 // (`nix derivation show`), since a darwin build is fine on a Mac and a Linux one needs a builder
 // the Intel runner does not have. Each to-be-fetched path is asked of the project's cache
-// directly (`GET <cache>/<hash>.narinfo`; the cache URL is read from flake.nix's nixConfig, the
+// directly (`HEAD <cache>/<hash>.narinfo`; the cache URL is read from flake.nix's nixConfig, the
 // one place it is declared), so the record says how many come from it.
 //
 // THE VARIANTS are the stock image and the two `packages:` lists the nightly's `build-image`
