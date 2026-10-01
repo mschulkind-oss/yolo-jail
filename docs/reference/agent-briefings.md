@@ -50,6 +50,7 @@ here too.
 | The one enumeration of destinations and staging names | `internal/cli/run` (`briefingDestinations`, `briefingStagingName`, `briefingDest`) |
 | A pack's prose entries | `internal/cli/run` (`packBriefingProses`) |
 | The in-jail read-back refusal on the host prepend | `internal/cli/run` (`mayPrependHostBriefing`) |
+| The launch line for a host prepend that is there and cannot be read | `internal/cli/run` (`prependHostBriefing`, `unreadHostSource`); the link-chain walk is `entrypoint.FindDanglingLink` |
 | The audience fields and their validation | `internal/packdecl` (`Contribution.Agent`, `Contribution.Agents`) |
 | The fatal unknown-name gate, and the agent vocabulary | `internal/packload` (`AgentAudienceProblems`, `AgentNames`) |
 | One owner per agent name | `internal/packload` (`AgentNameCollisions`) |
@@ -89,7 +90,11 @@ the declaring contribution's `after: "host:<path>"`. If that host file exists **
 not compose it itself**, its content comes first, separated from the rest by a `---` rule.
 This is how a user's global instructions reach every jail *on a machine where the host notch
 has never run*. The mapping is filename-exact: a `CLAUDE.md` destination reads `CLAUDE.md`,
-and variants like `CLAUDE.local.md` are not picked up.
+and variants like `CLAUDE.local.md` are not picked up. An absent host file is the normal case and
+says nothing. One that is there and cannot be read is left out with one launch line naming it, and
+the briefing composes without it: a symlink to nothing (the file's own link or a link on a
+directory above it, named with its target), something that is not a regular file, or a read that
+fails ([agent-directory-map.md §4.2](../design/agent-directory-map.md#42-each-verb)).
 
 > [!WARNING]
 > **The jail must not read yolo's own host output back in.** Once `yolo host apply` made the

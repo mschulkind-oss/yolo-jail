@@ -1751,7 +1751,9 @@ defaults < host < workspace < config-overlay < config-list < capture-overlay < l
   read **fails closed**: the launcher reports what it delivered, and a host file the launch
   says it delivered that the jail cannot read refuses the boot rather than composing the
   file without the user's settings. The states that are not a delivery fault compose without it
-  and refuse nothing: the user has no such file, the launch carried no host layers, the launcher
+  and refuse nothing: the user has no such file (a host file that is there and cannot be read,
+  such as a symlink to nothing, is not delivered either, and the launch names it in one line:
+  [agent-directory-map.md §4.2](../design/agent-directory-map.md#42-each-verb)), the launch carried no host layers, the launcher
   is older than the report, or — since 2026-09-18 — the bytes are LABELLED A RENDER, meaning yolo
   composed them itself and they are a baseline rather than a layer
   ([`config-target-resolution.md`](config-target-resolution.md#the-host-layer--a-staged-copy-a-baseline-or-nothing)).

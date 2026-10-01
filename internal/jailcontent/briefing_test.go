@@ -270,3 +270,30 @@ func TestJailBriefingStillClaimsAContainerWhenThereIsOne(t *testing.T) {
 		t.Errorf("the container header changed for container backends:\n%s", got)
 	}
 }
+
+// An ABSENT host briefing is the normal state and no error; one that is there and cannot be read
+// is an error the caller names, with the jail content still returned. It used to be swallowed with
+// absence, so the briefing silently lost the user's own instructions.
+func TestPrependHostBriefingReportsAReadFailureButNotAbsence(t *testing.T) {
+	dir := t.TempDir()
+	const jail = "JAIL CONTENT\n"
+
+	got, err := PrependHostBriefing(filepath.Join(dir, "absent.md"), jail)
+	if err != nil || got != jail {
+		t.Errorf("absent host briefing: got (%q, %v), want (%q, nil)", got, err, jail)
+	}
+
+	notAFile := filepath.Join(dir, "AGENTS.md")
+	must(t, os.Mkdir(notAFile, 0o755))
+	got, err = PrependHostBriefing(notAFile, jail)
+	if err == nil || got != jail {
+		t.Errorf("unreadable host briefing: got (%q, %v), want (%q, an error)", got, err, jail)
+	}
+
+	readable := filepath.Join(dir, "CLAUDE.md")
+	must(t, os.WriteFile(readable, []byte("MINE\n"), 0o644))
+	got, err = PrependHostBriefing(readable, jail)
+	if want := "MINE\n\n---\n\n" + jail; err != nil || got != want {
+		t.Errorf("readable host briefing: got (%q, %v), want (%q, nil)", got, err, want)
+	}
+}

@@ -60,6 +60,11 @@ func (o *Options) hostFileArgs(in *assembleInput) []string {
 				// NOT RECORDED as delivered, which is the whole of what makes the jail's
 				// read able to fail closed: this is the one case where nothing arriving is
 				// correct, and it is decided HERE, by the half that can see the user's home.
+				//
+				// Anything else isFile rejects — a dangling link above all — is NAMED
+				// (hostsourceunread.go), since only this half can see why.
+				o.noteUnreadHostSource(hostFileSubject(p.Name, hf.From),
+					"The jail composes without it", unreadHostSource(hostFile))
 				continue
 			}
 			// packload.CtxPath is THE definition of where this lands, shared with the

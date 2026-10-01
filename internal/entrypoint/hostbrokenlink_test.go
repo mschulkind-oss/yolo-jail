@@ -196,3 +196,63 @@ func TestABrokenLinkBriefingDestinationIsRefusedAndTheOthersStillWrite(t *testin
 		}
 	}
 }
+
+// THE READ SIDE (FindDanglingLink): the write-through exemption is gone, a loop counts, and the
+// shapes that must never be reported — a file there through a link that resolves, a regular
+// file, and a plain missing file — are not.
+func TestADanglingLinkIsAnyLinkAReadCannotFollow(t *testing.T) {
+	dir := t.TempDir()
+	existingDir := filepath.Join(dir, "dotfiles")
+	if err := os.MkdirAll(existingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The write-through case FindBrokenLink exempts: a read of it reads nothing.
+	through := filepath.Join(dir, "through.json")
+	missing := filepath.Join(existingDir, "x.json")
+	if err := os.Symlink(missing, through); err != nil {
+		t.Fatal(err)
+	}
+	if link, target, ok := FindDanglingLink(through); !ok || link != through || target != missing {
+		t.Errorf("a link to a missing file in an existing directory: got (%q, %q, %v), want (%q, %q, true)",
+			link, target, ok, through, missing)
+	}
+
+	// An ancestor link to nowhere is named as the link that explains the missing file.
+	dirLink := filepath.Join(dir, "agent")
+	gone := filepath.Join(dir, "gone", "agent")
+	if err := os.Symlink(gone, dirLink); err != nil {
+		t.Fatal(err)
+	}
+	if link, target, ok := FindDanglingLink(filepath.Join(dirLink, "settings.json")); !ok || link != dirLink || target != gone {
+		t.Errorf("a file under a dangling directory link: got (%q, %q, %v), want (%q, %q, true)",
+			link, target, ok, dirLink, gone)
+	}
+
+	// A loop resolves to nothing either.
+	loopA, loopB := filepath.Join(dir, "a.json"), filepath.Join(dir, "b.json")
+	if err := os.Symlink(loopB, loopA); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(loopA, loopB); err != nil {
+		t.Fatal(err)
+	}
+	if link, _, ok := FindDanglingLink(loopA); !ok || link != loopA {
+		t.Errorf("a link loop: got (%q, %v), want (%q, true)", link, ok, loopA)
+	}
+
+	// Never reported: a link that resolves, a regular file, and a plain missing file.
+	real := filepath.Join(existingDir, "real.json")
+	if err := os.WriteFile(real, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolves := filepath.Join(dir, "resolves.json")
+	if err := os.Symlink(real, resolves); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{resolves, real, filepath.Join(dir, "absent", "deeper", "file.json")} {
+		if link, target, ok := FindDanglingLink(p); ok {
+			t.Errorf("%s reported dangling: (%q, %q)", p, link, target)
+		}
+	}
+}

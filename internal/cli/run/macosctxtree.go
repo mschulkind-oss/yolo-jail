@@ -147,7 +147,11 @@ func (o *Options) buildMacosCtxTree(staging string, packs []*packload.Pack,
 			if !isFile(src) {
 				// NOT RECORDED as delivered, and that is the whole of what lets the
 				// jail's read fail closed: this is the one case where nothing arriving is
-				// correct, and it is decided HERE, by the half that can see the home.
+				// correct, and it is decided HERE, by the half that can see the home. The
+				// container arm's line names anything but an absent file, a dangling link
+				// above all (hostsourceunread.go), and so does this one.
+				o.noteUnreadHostSource(hostFileSubject(p.Name, hf.From),
+					"The sandbox composes without it", unreadHostSource(src))
 				continue
 			}
 			if err := copyCtxFile(src, tree, dest); err != nil {

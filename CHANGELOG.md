@@ -747,6 +747,11 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   launch warnings about an explicit network mode, and about `"host"` on Apple Container, now
   name `--network` when the flag chose the mode, instead of pointing at a `network.mode` you
   may not have set.
+- A jail launch now tells you when it could not read one of your own agent files it brings in,
+  such as pi's or Claude Code's `settings.json` or the instructions you keep for an agent in your
+  home, instead of starting without it in silence. A dotfiles manager that leaves `~/.pi/agent/settings.json` as a link into a folder
+  you deleted now gets one line naming the link and where it points. The jail still starts,
+  without that file, and a file you never created still says nothing.
 
 ## [0.11.0] - 2026-09-28
 

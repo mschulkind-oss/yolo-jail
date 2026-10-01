@@ -248,7 +248,7 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// Not under the seal (seal.go): a fork build reads no file of the host's home.
 		if hostOverlay := briefingHostOverlay(d.After); hostOverlay != "" && !o.Sealed {
 			if src := filepath.Join(home, hostOverlay); mayPrependHostBriefing(src, home, dests, generated) {
-				content = jailcontent.PrependHostBriefing(src, content)
+				content = o.prependHostBriefing(src, hostOverlay, d.Into, content)
 			}
 		}
 		if err := jailcontent.WriteBriefing(

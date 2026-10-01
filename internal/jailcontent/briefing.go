@@ -879,12 +879,21 @@ func ComposeBriefing(jailContent, extra string) string {
 // PrependHostBriefing produces one agent's final briefing: the host briefing
 // file's content + "\n---\n\n" + jailContent when the host file exists, else
 // jailContent alone.
-func PrependHostBriefing(hostBriefingPath, jailContent string) string {
+//
+// The error is a read that failed for any reason but absence, with jailContent
+// returned beside it: the briefing still composes, and the caller says what was
+// left out. It used to be swallowed with absence, so a host briefing that existed
+// and could not be read vanished from the jail without a word. A dangling link
+// reads as absent here (ENOENT); the caller names that one before it calls.
+func PrependHostBriefing(hostBriefingPath, jailContent string) (string, error) {
 	data, err := os.ReadFile(hostBriefingPath)
 	if err != nil {
-		return jailContent
+		if os.IsNotExist(err) {
+			return jailContent, nil
+		}
+		return jailContent, err
 	}
-	return string(data) + "\n---\n\n" + jailContent
+	return string(data) + "\n---\n\n" + jailContent, nil
 }
 
 type portKind int

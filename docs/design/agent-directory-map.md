@@ -7,7 +7,7 @@ summary: "yolo manages an agent's directory only where some pack happens to name
 vantage:
   status-chip: true
 stage: DESIGN
-next: "Build the jail-launch line for a dangling readsHost or after: host: source (§6.4 item 5, which rests on no open question): start at hostFileArgs in internal/cli/run/packhostgrants.go"
+next: "Fix Appendix B's two core rows, which rest on no open question: the configuring-the-jail skill's pi overlay path, and core's PI_TELEMETRY export, which belongs to the pi pack's env. The rest of the pi slice waits on OQ-AM1 to OQ-AM10"
 ---
 
 # Every path in an agent's directory gets a class, and yolo names the ones that fit none
@@ -16,10 +16,10 @@ next: "Build the jail-launch line for a dangling readsHost or after: host: sourc
 `directory` kind). Two rulings on pi's MCP files that the
 surveys raised are built, in `a4cc690b` ([AM-R1, AM-R2](#13-decision-ledger)). Evidence read at
 `daac6eb4`. The jail-launch line ([§6.4](#64-exactly-what-ships-in-the-pi-slice) item 5) is
-independent of the map and of every question below, and is not built either: re-checked
-2026-09-30, `hostFileArgs` still skips a source `isFile` rejects with no line, and `isFile` is an
-`os.Stat`, so a dangling link is dropped silently; `PrependHostBriefing` still returns the jail
-content on any read error. Pi, claude, codex, opencode, copilot, agy and omp were surveyed read-only the same day
+independent of the map and of every question below, and is **built** (2026-09-30,
+[AM-D19](#AM-D19)): a jail launch names a `readsHost`, `reads-host` or `after: host:` source that
+is there and cannot be read, a dangling link above all, on podman, Apple Container and macos-user,
+and still starts. Pi, claude, codex, opencode, copilot, agy and omp were surveyed read-only the same day
 ([Appendix A](#appendix-a-evidence)).
 
 > **In short.** yolo should own each agent directory's **map**, meaning what every path in it is,
@@ -151,7 +151,7 @@ Checked against `daac6eb4`:
 | Config surface destinations | rendered at boot | rendered at boot | rendered by `yolo host apply`. A destination behind a broken link is refused by name ([`hostbrokenlink.go`](../../internal/entrypoint/hostbrokenlink.go), `9ca34974`) |
 | `files`, `skills`, `briefing` destinations | `:ro` binds, whose mountpoints are recorded only for `files` ([`packfiles.go`](../../internal/cli/run/packfiles.go)) | copies, listed in the overlay manifest | written where an ownership record shows they are yolo's |
 | Hook paths (`shared_credentials`, `shared_directory`, `unshare_directory`, `per_jail_history`) | acted on at every boot | acted on at every boot | **refused**: hooks are jail provisioning ([`fieldset.go`](../../internal/render/fieldset.go)) |
-| Host files a jail reads (a surface's `readsHost`, a briefing's `after: host:`) | an absent **or dangling** source is skipped **silently** (`isFile` in [`probes.go`](../../internal/cli/run/probes.go); `PrependHostBriefing` in [`briefing.go`](../../internal/jailcontent/briefing.go)) | same | — |
+| Host files a jail reads (a surface's `readsHost`, a briefing's `after: host:`) | an absent **or dangling** source is skipped **silently** (`isFile` in [`probes.go`](../../internal/cli/run/probes.go); `PrependHostBriefing` in [`briefing.go`](../../internal/jailcontent/briefing.go)). ✅ Since [AM-D19](#AM-D19) only an absent one is | same | — |
 | Credential writers before a launch | pi's and codex's `auth.json` under the `codex` profile ([`pi.go`](../../internal/openauthclient/pi.go)); the Claude login seed synced into the workspace's `claude.json` | same | codex's managed home only ([§7.3](#73-codex)) |
 | Reclaimers | `yolo prune` age-purges `copilot/logs` and `gemini/tmp` in each workspace sidecar, from a hand-written list ([`agentlogs.go`](../../internal/prune/agentlogs.go)); the launcher keeps two versions under `~/.local/share/<bin>/versions` | same | the launcher's version prune |
 | **Every other path** | **nothing reads, checks or reports it** | **nothing** | **nothing** |
@@ -169,7 +169,7 @@ moved into the maintainer's content pack, and rcm left three links into it:
 
 | Link | What pi does with it | What yolo saw |
 | :--- | :--- | :--- |
-| `~/.pi/agent/settings.json` | reads it, and rewrites fields under a lock | Host apply failed the whole pi pack, then the launch gate refused an unrelated claude launch. Since `9ca34974` host apply refuses that one destination by name. **A jail launch still composes without the host layer, and says nothing** |
+| `~/.pi/agent/settings.json` | reads it, and rewrites fields under a lock | Host apply failed the whole pi pack, then the launch gate refused an unrelated claude launch. Since `9ca34974` host apply refuses that one destination by name. **A jail launch still composes without the host layer, and says nothing**. ✅ It now says so in one line ([AM-D19](#AM-D19)) |
 | `~/.pi/agent/models-store.json` | `ensureFileExists` writes through the link, and the write fails with `ENOENT` | nothing, because no surface names the file |
 | `~/.pi/agent/npm/` | `ensureNpmProject` writes `npm/package.json` through the link, and **pi crashes** | nothing. At the host the `shared_directory` hook is refused, so this path is pi's own and no contribution names it |
 
@@ -347,7 +347,7 @@ rule: an unselected pack is treated as if it does not exist.
 | `yolo check` (host, and in-jail) | One section per root. Every finding is a WARN row: dangling links, wrong types, shadows, relocations and **every** unexplained entry. A header line gives counts by class. Findings also appear in the JSON report | changes the exit code for a finding. Prints file contents |
 | `yolo host apply` | Renders what it renders today. After the verdict block it adds one group, *"In your agent directories"*, itemizing dangling links, shadows and relocations, and **new** unexplained entries up to 5 per root, then *"and N more — `yolo check`"*. Its remedy is stated once, and the same findings appear in the `--format json` document | changes the verdict token or the exit code for a map finding. Map findings are not tier-3 blockers ([the tiers](../reference/report-tiers.md#the-tiers)) |
 | `yolo host -- <agent>` preflight | Evaluates only the roots of the pack whose program is `<agent>`, plus entries other selected packs add under them. It prints structural findings and new unexplained entries (capped as above) to stderr and the launch log, **before** the launch gate, so a dangling link it names can explain a refusal the gate goes on to make. It never depends on the gate's result. Budget: **250 ms**. On overrun it prints one line naming the skip ([AM-D11](#AM-D11)) | refuses, blocks, prompts, or sits inside the `host_apply_on_launch` gate's refusal path ([the gate](../reference/host-apply-staleness.md#the-launch-gate)) |
-| Jail launch (host side) | **One new line, independent of the map:** a `readsHost` or `after: host:` source that is a dangling link is named, saying the jail composes without it | walks the host's agent directories: the jail uses nothing else from them |
+| Jail launch (host side) | **One new line, independent of the map:** a `readsHost` or `after: host:` source that is a dangling link is named, saying the jail composes without it. ✅ Built ([AM-D19](#AM-D19)) | walks the host's agent directories: the jail uses nothing else from them |
 | Jail boot | nothing new ([OQ-AM6](#OQ-AM6)) | runs the walk as a `genStep`, which would turn a finding into a refused boot |
 | `yolo pack map <pack>` (new, read-only) | The full evaluated map at this notch. Every present entry is listed with its class, marks, derived status and size, and the root ends with a **wipe answer** ([§4.4](#44-the-wipe-answer)). It also says which notch it evaluated ([AM-D9](#AM-D9)) | opens a file. Offers to delete anything |
 | `yolo config ls` | Unchanged per row, since it lists surfaces, which are all composed. A surface whose destination is shadowed says so. One footer line appears when the map has findings: *"~/.pi: 1 dangling link, 1 unexplained — `yolo pack map pi`"* | lists non-surface paths |
@@ -656,7 +656,8 @@ adds the package ([OQ-AM1](#OQ-AM1)); for the maintainer, that is the personal c
    personal content pack. That pack lives outside this repository, and adding its entries is the
    maintainer's step.
 5. **The jail-launch line** for a dangling `readsHost` or `after: host:` source. It is independent of
-   the map, but it is the incident's jail half, so it ships here.
+   the map, but it is the incident's jail half, so it ships here. ✅ **Built** 2026-09-30, ahead of
+   the rest of the slice ([AM-D19](#AM-D19)).
 6. **Tests**: a fixture tree recorded from the measured layout, including the incident's three
    links, and the partial move: `npm -> dot/npm` with `dot/` present and `dot/npm` absent. And a test that **fails if a call site is deleted** (the preflight, check, apply), per
    [AGENTS.md's rule](../../AGENTS.md#testing) that pinning the callee alone is not a test.
@@ -1133,6 +1134,7 @@ first row and are independent of the map.
 | <a id="AM-D16"></a>AM-D16 | [AM-R2](#AM-R2)'s file is **`~/.config/mcp/mcp.json`**, as the maintainer named it, and not `~/.pi/agent/mcp.json`. The pi-local file would put pi-mcp-adapter 3.1.0's "no longer reads … Merge … then remove" notice in front of the user at every session, because the adapter reserves that name for pi's future built-in MCP, and it would undo [AM-R1](#AM-R1). Who else reads the cross-tool path was measured by searching every installed agent CLI in this jail (Claude Code, Codex, Copilot, opencode, agy, pi) and the shared pi extension store: only pi-mcp-adapter and pi-subagents name it. pi-mcp-adapter reads it at the lowest precedence, below `mcp-adapter.json`, so it sees each server twice with one definition and its setup panel counts a same-name conflict. Because its setup panel's "Add globally" writes there and a user may keep one, the surface is **`stateful` and not declared in full**: a file already there is adopted and merged into, and a later edit is captured, never replaced. A deselect removes only yolo's own unedited render | 2026-09-28 | [§6.1](#61-the-roots) | `a4cc690b` |
 | <a id="AM-D17"></a>AM-D17 | **"Selected" is pi's own `packages` list** in `pi/settings`, read from the settings file as the same render left it: a pack's `config-list` (the maintainer's fork arrives that way), the host's settings and an in-jail `pi install` all count. The match is a regular expression the pack declares, covering `npm:pi-subagents` with or without a version, a git or URL source ending in `/pi-subagents`, and a package-filter object's `source`. No existing condition fit: `when_bins` is about installed binaries, a profile about the active variant, and a derive cannot see another surface or write nothing. So one small generic field, `whenListed`, gates a surface on a list another surface of the **same pack, declared earlier**, holds (packload refuses anything else, since a later one would be read a boot stale) | 2026-09-28 | [Pi's MCP files](../reference/mcp-configuration.md#pis-mcp-files) | `a4cc690b` |
 | <a id="AM-D18"></a>AM-D18 | **At the host the surface is never rendered**, under every `host_management` value, and host apply prints the reason. Host apply renders no derive's content ([`host-computed-layer.md`](host-computed-layer.md)), so the file could hold none of yolo's servers there. Measured before this field existed: with pi-subagents in the host's pi settings, both `assert` and `own` re-encoded the user's real `~/.config/mcp/mcp.json`. The mechanism is a generic surface field, `notAtHost`, carrying its reason. `mcp-adapter.json`'s host behavior is unchanged | 2026-09-28 | [Pi's MCP files](../reference/mcp-configuration.md#pis-mcp-files) | `a4cc690b` |
+| <a id="AM-D19"></a>AM-D19 | *Implementation decision.* The jail-launch line covers **every source a launch was declared to read and did not, except an absent one**: a dangling link, which is the file's own link or a link on a directory above it (a dotfiles manager that linked the whole directory leaves the file's path absent), named with the end of its chain; something that is not a regular file; and a stat or read that fails. An absent file stays silent, since it is the normal state. It covers a pack's `reads-host` grants and `readsHost` surfaces on podman and Apple Container (`hostFileArgs`) and macos-user (`buildMacosCtxTree`), and a briefing's `after: host:` file (`refreshJailBriefings`), which also reads only once that check passes, so a FIFO there can no longer stall the launch. `PrependHostBriefing` now returns a read error instead of swallowing it. The read-side predicate is `entrypoint.FindDanglingLink`, beside `FindBrokenLink` and on its chain walk, with no write-through exemption: a read through a link to a missing file fails whether or not the target's directory exists ([AM-D5](#AM-D5)). Never a refusal, and the user's own `host_files` config key is not covered (it has its own probe) | 2026-09-30 | [§4.2](#42-each-verb) | built: `run.unreadHostSource`, `run.prependHostBriefing`, `entrypoint.FindDanglingLink`, pinned by `TestAJailLaunchNamesADanglingHostSettingsLink`, `TestAJailLaunchNamesADanglingAncestorLink`, `TestAMacosUserLaunchNamesADanglingHostSettingsLink`, `TestAJailLaunchNamesADanglingHostBriefingLink` and `TestAJailLaunchNamesAHostBriefingThatIsNotAFile` |
 
 ---
 

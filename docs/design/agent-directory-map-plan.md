@@ -5,7 +5,7 @@ status: draft
 tags: [plan, sketch, packs, agent-directories, pi]
 summary: "The parking lot for the agent directory map's implementation-level material: where the kind, the evaluator, the reporting and pi's map probably land, what each derived status reads, and the traps to check before relying on anything here. Not a hand-off; nobody builds from it while it is a sketch."
 stage: SKETCH
-next: "Nothing to hand off yet: §4, the jail-launch line, rests on no question and is what the design builds first; the rest waits on the design's rulings"
+next: "Nothing to hand off yet: §4, the jail-launch line, is built (the design's AM-D19); the rest waits on the design's rulings"
 depends-on:
   - agent-directory-map.md
 ---
@@ -114,6 +114,11 @@ them**, because an `implementation-plan` pass owns turning this into a hand-off.
   ([§4.5](agent-directory-map.md#45-print-when-new)). There is no in-jail record.
 
 ## 4. The jail-launch line (independent of the map)
+
+✅ **Built** 2026-09-30, as the design's [AM-D19](agent-directory-map.md#AM-D19) records. The
+import-cycle worry in [§2](#2-the-evaluator) did not arise: `internal/cli/run` already imports
+`internal/entrypoint`, so the read-side predicate, `entrypoint.FindDanglingLink`, sits beside
+`FindBrokenLink` on the one chain walk. The bullets below are what it was built from.
 
 - `hostFileArgs` in `internal/cli/run/packhostgrants.go`: when `isFile` is false, ask whether the
   source is a dangling link (the map's predicate, not `FindBrokenLink`'s: a read through a dangling

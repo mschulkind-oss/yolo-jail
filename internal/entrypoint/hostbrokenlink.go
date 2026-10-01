@@ -26,6 +26,11 @@ package entrypoint
 // (hostcreatedfile_test.go's dangling-link case, reported as a change). A plain missing
 // destination, with or without its parent directories, is created. Only the case the writer cannot
 // complete without inventing a directory is refused.
+//
+// THE READ SIDE IS FindDanglingLink, in this file because it walks the same chain (linkChainEnd)
+// and a second walker is what docs/design/agent-directory-map.md AM-D5 rules out. A file yolo
+// READS has no write-through exemption: a link to a missing file reads nothing whether or not the
+// target's directory exists.
 
 import (
 	"fmt"
@@ -93,6 +98,52 @@ func FindBrokenLink(path string) *BrokenLink {
 		parent := filepath.Dir(p)
 		if parent == p {
 			return nil
+		}
+		p = parent
+	}
+}
+
+// FindDanglingLink reports the symlink that keeps a file yolo READS from being read: a link on
+// path's way to the filesystem — path itself or one of its parent directories — whose chain ends
+// at nothing, or loops. ok is false when path resolves, when it fails for a reason that is not a
+// link to nowhere, and when nothing is there and no link explains it: a plain missing file, which
+// is the user not having created it.
+//
+// It walks up from path exactly as FindBrokenLink does, because a dotfiles manager that linked a
+// whole directory leaves the file's own path absent and the link one or more levels up. Unlike
+// FindBrokenLink it exempts nothing: the write-through case (a missing target in a directory that
+// exists) is a write's, and a read of it fails all the same.
+func FindDanglingLink(path string) (link, target string, ok bool) {
+	p := filepath.Clean(path)
+	for {
+		fi, err := os.Lstat(p)
+		if err == nil {
+			if fi.Mode()&os.ModeSymlink == 0 {
+				return "", "", false
+			}
+			_, serr := os.Stat(p)
+			if serr == nil {
+				return "", "", false
+			}
+			end, chained := linkChainEnd(p)
+			switch {
+			case !chained:
+				// A loop, or a chain longer than the kernel follows: nothing at its end either.
+				return p, firstHop(p), true
+			case os.IsNotExist(serr):
+				return p, end, true
+			default:
+				// Resolves to something that cannot be read for another reason (EACCES on the
+				// way, say): the caller's to report as itself.
+				return "", "", false
+			}
+		}
+		if !os.IsNotExist(err) {
+			return "", "", false
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return "", "", false
 		}
 		p = parent
 	}
