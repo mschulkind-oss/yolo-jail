@@ -726,7 +726,7 @@ Observable, on a machine that upgrades onto this:
 | R4 | **An offer on a non-TTY is silently a "no" forever.** | Correct by design (never an implicit yes), and the printed line names `yolo prune --apply`. A CI host has no backlog worth an offer. |
 | R5 | **A cache purge re-fetches something expensive** (pants, uv). | That is why it is offered, once, with the size, and why the 30 d rule is unchanged. |
 | R6 | **The walk itself costs minutes on a 369 k-file cache.** | Runs only in the slot, debounced 24 h, under a 60 s budget with a partial figure. |
-| R7 | **The in-jail out-link is not a root and never was**, so a nested jail's prefix is unrooted from birth. | Gate `BuildJailPrefix`'s rooting the way `RegisterRoot` is gated, and have the *host* root what nested jails run — or accept it as nested-only, which is today's state. Part of [OQ-BF4](#OQ-BF4). |
+| R7 | **The in-jail out-link is not a root and never was**, so a nested jail's prefix was unrooted from birth. | Gate `BuildJailPrefix`'s rooting the way `RegisterRoot` is gated, and have the *host* root what nested jails run — or accept it as nested-only. Part of [OQ-BF4](#OQ-BF4). **Since 2026-10-01** an in-jail launch registers the prefix root under the host's spelling of its link wherever the jail's launcher states a host path map ([`in-jail-nix-roots.md` NR-D2](in-jail-nix-roots.md#NR-D2)); the out-link itself is still not a root. |
 | R8 | **One-machine measurement.** | Stated in [§2.4](#24-caveats); the design rests on shapes, not magnitudes. |
 
 ---

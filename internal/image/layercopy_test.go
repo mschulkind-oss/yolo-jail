@@ -592,6 +592,50 @@ func TestImageCopierOutLinkIsOutOfBothReapersReach(t *testing.T) {
 	}
 }
 
+// THE COPIER'S ROOT HOOK, through the default BuildCopier AutoLoadImage installs: once the
+// build succeeds, RootCopier is handed the out-link and the store path nix put behind it,
+// which is how a jail roots the copier under the host's spelling (in-jail-nix-roots.md
+// NR-D2). A failed build hands nothing over. `nix` is a stand-in on PATH that writes the
+// out-link it is given. Delete the hand-off in fill() or the call in BuildImageCopier and
+// this fails.
+func TestTheDefaultCopierBuildHandsItsOutLinkToRootCopier(t *testing.T) {
+	withBuildDir(t)
+	const sp = "/nix/store/0123456789abcdfghijklmnpqrsvwxyz-skopeo-1.24.0"
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	build := func(nixBody string) (string, [][2]string) {
+		writeScript(t, filepath.Join(bin, "nix"), nixBody)
+		var rooted [][2]string
+		o := &AutoLoadOptions{RepoRoot: t.TempDir(), RootCopier: func(link, storePath string) {
+			rooted = append(rooted, [2]string{link, storePath})
+		}}
+		o.fill()
+		got, _ := o.BuildCopier(o.RepoRoot)
+		for i := range rooted {
+			if rooted[i][0] != ImageCopierOutLink(o.RepoRoot) {
+				t.Errorf("RootCopier was handed %q, not the copier's out-link %q",
+					rooted[i][0], ImageCopierOutLink(o.RepoRoot))
+			}
+		}
+		return got, rooted
+	}
+
+	got, rooted := build(`while [ $# -gt 0 ]; do
+  if [ "$1" = --out-link ]; then ln -sfn '` + sp + `' "$2"; fi
+  shift
+done`)
+	if got != ImageCopierBinary(sp) {
+		t.Fatalf("BuildCopier = %q, want %q", got, ImageCopierBinary(sp))
+	}
+	if len(rooted) != 1 || rooted[0][1] != sp {
+		t.Errorf("RootCopier calls = %q, want one for %s", rooted, sp)
+	}
+
+	if got, rooted := build("exit 1"); got != "" || len(rooted) != 0 {
+		t.Errorf("a failed build returned %q and rooted %q", got, rooted)
+	}
+}
+
 // TestImageCopierBinaryNamesSkopeoInsideTheStorePath pins the layout the attr
 // produces, because image-staging-vs-baking.md#delivering-into-the-runtime's rule is that a PATH lookup is never the
 // answer: an unpatched skopeo rejects the `nix:` transport in a way that reads as

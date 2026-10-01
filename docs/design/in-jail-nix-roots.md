@@ -14,10 +14,10 @@ vantage:
 
 **Status:** 2026-10-01; questions triaged 2026-09-30. yolo's own in-jail roots are translated
 roots, [NR-D2](#NR-D2)'s consumer, which needed only [§4](#4-the-translated-root): a launch that
-mounts the host nix daemon states the map, and an in-jail `yolo` registers its image, prefix and
-store-delivered profile roots under the host's spelling ([§8](#8-what-is-built)). A link a user
-or an agent makes is still not a root, and the briefing still says so. That needs a trigger,
-which is [OQ-NR1](#OQ-NR1)'s. Two questions are open, [OQ-NR1](#OQ-NR1) and [OQ-NR2](#OQ-NR2).
+mounts the host nix daemon states the map, and an in-jail `yolo` registers its image, prefix,
+store-delivered profile and image-copier roots under the host's spelling
+([§8](#8-what-is-built)). A link a user or an agent makes is still not a root, and the briefing
+still says so. That needs a trigger, which is [OQ-NR1](#OQ-NR1)'s. Two questions are open, [OQ-NR1](#OQ-NR1) and [OQ-NR2](#OQ-NR2).
 [OQ-NR3](#OQ-NR3) and [OQ-NR4](#OQ-NR4) were decided as implementation choices
 ([NR-D1](#NR-D1), [NR-D2](#NR-D2)), and both are built. MEASURED: every mechanism claim in
 [§3](#3-measured-in-this-jail), against the maintainer's host daemon (Nix 2.35.2) from an
@@ -311,12 +311,18 @@ none of them is a trigger for a user's links:
   translate is left uncreated, and the daemon is not dialled.
 - **The consumers.** `gcRooter` gives a host launch `nix-store --add-root` and an in-jail one the
   translated root, for four roots: the image's, the prefix's, the image extras' and the
-  store-delivered packages' profile. A jail whose launcher stated no map gets none of them, the
-  old skip. Of every failure, only the daemon refusing the root prints, as a warning on the
-  launch stream.
+  store-delivered packages' profile. A fifth is in-jail only: the image copier's `--out-link`,
+  which is its root on the host, is registered again as a translated root after an in-jail
+  build (`AutoLoadOptions.RootCopier`). A jail whose launcher stated no map gets none of them,
+  the old skip. In a jail two failures print, as a warning on the launch stream: the daemon
+  refusing the root, and a roots directory that cannot be made. Every other failure is silent,
+  and none fails the launch.
 
-The tests drive each of the four call sites against a fake daemon
-([`translatedroots_test.go`](../../internal/cli/run/translatedroots_test.go)).
+The tests drive each of the five call sites against a fake daemon
+([`translatedroots_test.go`](../../internal/cli/run/translatedroots_test.go),
+[`jailprefix_test.go`](../../internal/cli/run/jailprefix_test.go)), and the image package's
+default copier build against a stand-in `nix`
+([`layercopy_test.go`](../../internal/image/layercopy_test.go)).
 
 MEASURED 2026-10-01, from this jail against the host daemon (Nix 2.35.2, `Trusted: 0`). This
 jail's own launcher predates the map, so every run that needed one was handed
@@ -331,13 +337,15 @@ jail's own launcher predates the map, so every run that needed one was handed
 - the nested jail's own map translated only its `~/.cache`, whose source lay under the workspace.
   Its `/workspace` and `~/.local`, whose sources lay under `/tmp`, were masks, as
   [NR-D1](#NR-D1) intends;
-- with no map handed over, the nested launch made no root links and set no map in its jail.
+- with no map handed over, the nested launch made no root links and set no map in its jail;
+- the image copier's build, driven directly with the registrar as its root hook rather than
+  through a nested launch, rooted its out-link under the host's spelling. `--query --roots`
+  listed it beside the host's own copier root for the same store path, and dropped it once the
+  link was deleted.
 
-**Not translated, and not one of the four:** the `--out-link` that yolo's own in-jail
-`nix build`s write (`image.JailPrefixOutLink`, `image.ImageCopierOutLink`) still registers under the
-jail's spelling, dead as before. The prefix's is backed by the prefix root above. Nothing backs
-the image copier's, so unless the host roots the same copier for itself, a host GC can still cost
-a nested launch a rebuild of it.
+**Not translated:** the prefix's `--out-link` (`image.JailPrefixOutLink`) still registers under
+the jail's spelling, dead as before. The prefix root above backs the same store path, so a
+translated copy of it would root nothing more.
 
 ## Open Questions
 
@@ -420,7 +428,7 @@ implementation decisions, and both are built.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="NR-D1"></a>NR-D1 | *Implementation decision, [OQ-NR3](#OQ-NR3).* **Binds only: the map holds the binds the launcher itself wrote, and the anonymous `/tmp` and `/var/tmp` volumes do not translate.** Those volumes are per-launch scratch that yolo deletes once the jail exits, so a root there could outlive nothing but the launch. A running process that uses the store path is already kept by runtime and temp roots ([§2.3](#23-what-already-protects-a-jail)). A nested launcher cannot learn a volume's host path, while the host launcher could from `podman volume inspect`, so translating volumes would give one link two answers depending on who launched. A nested jail's own roots are [NR-D2](#NR-D2)'s. Reversible: the host launcher can add its volumes to the map later | 2026-09-30 | [§4](#4-the-translated-root), [§7](#7-non-goals) | 2026-10-01: the map holds every mount the argv makes, and a volume, a tmpfs or a read-only bind is a mask, so a link under `/tmp` or `/var/tmp` translates to nothing ([§8](#8-what-is-built)). MEASURED in a nested launch: its `/tmp` workspace was a mask |
-| <a id="NR-D2"></a>NR-D2 | *Implementation decision, [OQ-NR4](#OQ-NR4).* **Yes: yolo's own in-jail roots become translated roots, the first consumer of the protocol client in [§4](#4-the-translated-root).** Three skips go, not the two the question names: `rootImageFn` (the image root, [`imageload.go`](../../internal/cli/run/imageload.go)), the in-jail skip of `image.RegisterPrefixRoot` ([`jailprefix.go`](../../internal/cli/run/jailprefix.go)), and the in-jail skip of `rootExtrasProfile` for the store-delivered packages' extras profile ([`storepackages.go`](../../internal/cli/run/storepackages.go)). All three root under `paths.BuildDir()`, which in a jail is inside `/home/agent/.local`, a mapped bind, so each one translates. This consumer needs no trigger from [OQ-NR1](#OQ-NR1), because yolo registers its own links directly. **Reaping stays with the existing reapers, run where the links live.** A translated root dies with its link. A nested launcher's `yolo prune` sweeps its own `build/roots` and `build/prefix-roots` under the same retention rules the host's sweep follows ([`OQ-LS1`](../reference/image-retention.md#why-its-this-way)'s week, [`OQ-LS4`](../reference/image-retention.md#why-its-this-way)'s liveness), so nothing new reaps. The leaning's concern holds, and it is why this is so: the host's reapers never walk a workspace's home overlay, so the jail that made a link reaps it. What remains is [§4](#4-the-translated-root)'s *who can hold host disk*: a nested jail's root holds its closure until that jail's own sweep removes the link. Reversible: keep the skips | 2026-09-30 | [OQ-NR4](#OQ-NR4) | 2026-10-01: `internal/nixroots` and `gcRooter` ([§8](#8-what-is-built)). Four skips went, not three: the store-delivered packages' own profile root (`storeProfileRootLink`) was skipped in-jail too. MEASURED for the image and prefix roots in a nested launch; the two profile roots are pinned by the unit tests only. Nothing reaps `build/package-roots`, on the host or in a jail, so a nested jail's two profile roots last until their links are deleted, as the host's do |
+| <a id="NR-D2"></a>NR-D2 | *Implementation decision, [OQ-NR4](#OQ-NR4).* **Yes: yolo's own in-jail roots become translated roots, the first consumer of the protocol client in [§4](#4-the-translated-root).** Three skips go, not the two the question names: `rootImageFn` (the image root, [`imageload.go`](../../internal/cli/run/imageload.go)), the in-jail skip of `image.RegisterPrefixRoot` ([`jailprefix.go`](../../internal/cli/run/jailprefix.go)), and the in-jail skip of `rootExtrasProfile` for the store-delivered packages' extras profile ([`storepackages.go`](../../internal/cli/run/storepackages.go)). All three root under `paths.BuildDir()`, which in a jail is inside `/home/agent/.local`, a mapped bind, so each one translates. This consumer needs no trigger from [OQ-NR1](#OQ-NR1), because yolo registers its own links directly. **Reaping stays with the existing reapers, run where the links live.** A translated root dies with its link. A nested launcher's `yolo prune` sweeps its own `build/roots` and `build/prefix-roots` under the same retention rules the host's sweep follows ([`OQ-LS1`](../reference/image-retention.md#why-its-this-way)'s week, [`OQ-LS4`](../reference/image-retention.md#why-its-this-way)'s liveness), so nothing new reaps. The leaning's concern holds, and it is why this is so: the host's reapers never walk a workspace's home overlay, so the jail that made a link reaps it. What remains is [§4](#4-the-translated-root)'s *who can hold host disk*: a nested jail's root holds its closure until that jail's own sweep removes the link. Reversible: keep the skips | 2026-09-30 | [OQ-NR4](#OQ-NR4) | 2026-10-01: `internal/nixroots` and `gcRooter` ([§8](#8-what-is-built)). Four skips went, not three: the store-delivered packages' own profile root (`storeProfileRootLink`) was skipped in-jail too. A fifth root is the same principle: the image copier's out-link, dead in a jail, is registered again as a translated root after an in-jail build (`AutoLoadOptions.RootCopier`). MEASURED for the image and prefix roots in a nested launch, and for the copier's root with its build driven directly; the two profile roots are pinned by the unit tests only. Nothing reaps `build/package-roots`, on the host or in a jail, so a nested jail's two profile roots last until their links are deleted, as the host's do |
 
 ## Appendix: reproducing M4 and M6
 

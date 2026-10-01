@@ -263,7 +263,11 @@ func ImageCopierOutLink(repoRoot string) string {
 // flag is on every flake-evaluating invocation via NixFlakeFlags, but the copier
 // builds from source with the project substituter absent, which is what makes
 // the cache an optimization rather than a dependency).
-func BuildImageCopier(repoRoot string, out io.Writer) (string, []string) {
+//
+// rootOutLink, when non-nil, is handed the out-link and the store path once the
+// build succeeds: the root the host honors where nix's own --out-link registration
+// is not one (AutoLoadOptions.RootCopier says where that is).
+func BuildImageCopier(repoRoot string, out io.Writer, rootOutLink func(link, storePath string)) (string, []string) {
 	if out == nil {
 		out = io.Discard
 	}
@@ -276,6 +280,9 @@ func BuildImageCopier(repoRoot string, out io.Writer) (string, []string) {
 		repoRoot, os.Environ(), outLink, out)
 	if storePath == "" {
 		return "", tail
+	}
+	if rootOutLink != nil {
+		rootOutLink(outLink, storePath)
 	}
 	return ImageCopierBinary(storePath), tail
 }

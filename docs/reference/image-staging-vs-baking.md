@@ -1465,7 +1465,7 @@ values themselves are stated.
 | Layer budget | base tier 90, extras tier 1 (omitted when `packages:` is empty), top tier 1 — at most 92 layers | `baseTier`, `extrasTier`, `n2c.buildImage` in `mkOciImage` (`flake.nix`) |
 | Image creation time | absent, so nix2container's constant `0001-01-01T00:00:00Z` | `mkOciImage` (`flake.nix`) |
 | The copier | `.#imageCopier` = nix2container's `skopeo-nix2container`, built against this flake's own nixpkgs | `packages.imageCopier` (`flake.nix`); `image.ImageCopierAttr` |
-| Copier out-link (its GC root) | `build/image-copier-<sha16 of repo root>` | `image.ImageCopierOutLink` |
+| Copier out-link (its GC root) | `build/image-copier-<sha16 of repo root>`; in a jail nix registers it under the jail's spelling, so it is registered again as a translated root ([`in-jail-nix-roots.md` §8](../design/in-jail-nix-roots.md#8-what-is-built)) | `image.ImageCopierOutLink`; `AutoLoadOptions.RootCopier` |
 | Copy argv | `[<runtime> unshare --] <copier> --insecure-policy copy [--dest-oci-accept-uncompressed-layers] nix:<image.json> <dest>`, the flag on an `oci:` layout destination only | `copyArgv`, `StoreWritePrefix` |
 | podman/Linux destination | `containers-storage:[<driver>@<graphRoot>+<runRoot>[:<driver options>]]<ref>` from `podman info`'s `store` (on the launch path, the readiness gate's answer); on a rootless podman only; bare `containers-storage:<ref>` when rootful, unknown, or the store is not reported or not spellable | `ContainersStorageDestFor`, `ParsePodmanStoreFacts`, `run.storeFactsFromGate` |
 | Copy retries | at most 1, immediate; none for a denylisted cause; no timeout | `copyImageWithRetry`, `retryWouldHelp` |

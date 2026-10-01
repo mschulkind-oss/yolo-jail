@@ -90,7 +90,10 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		// Storage-lifecycle §1: root the running image's closure so a
 		// `nix-collect-garbage` at any moment can't delete live binaries — on the
 		// host with nix-store, in a jail as a translated root (rootImageFn).
-		RegisterRoot:     o.rootImageFn(),
+		RegisterRoot: o.rootImageFn(),
+		// The image copier's own root, which nix's --out-link is on the host and is not
+		// in a jail (rootCopierFn).
+		RootCopier:       o.rootCopierFn(),
 		LockHousekeeping: o.lockHousekeepingFn(),
 		// The assembler's own predicate for mounting the host store, not a second
 		// reading of it: a jail that will resolve its /bin/* through the host
@@ -118,4 +121,23 @@ func (o *Options) rootImageFn() func(string) {
 		return nil
 	}
 	return func(storePath string) { _, _ = image.RegisterImageRoot(storePath, root, o.Stderr) }
+}
+
+// rootCopierFn registers the image copier's out-link as a translated root in a jail
+// (docs/design/in-jail-nix-roots.md NR-D2), or is nil. On the host nix's own
+// `--out-link` registration is the copier's root already; in a jail that registration
+// carries the jail's spelling of the link, which the host daemon prunes as stale, and a
+// jail whose launcher stated no host path map has no root the host would honor at all.
+func (o *Options) rootCopierFn() func(link, storePath string) {
+	if !o.inJail() {
+		return nil
+	}
+	root := o.gcRooter()
+	if root == nil {
+		return nil
+	}
+	return func(link, storePath string) {
+		_ = root(link, storePath, o.Stderr, "could not register a GC root for the image copier "+
+			"(a nix-collect-garbage could cost the next launch a rebuild of it)")
+	}
 }

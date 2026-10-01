@@ -114,6 +114,51 @@ func TestTheRunPathRootsTheImageFromAJail(t *testing.T) {
 	f.assertRooted(t, image.ImageRootLink(f.storePath))
 }
 
+// THE IMAGE COPIER, the out-link nix writes for yolo's own skopeo build: on the host that
+// out-link is the root, and in a jail nix registers it under the jail's spelling, which the
+// host prunes, so the run path hands AutoLoadImage the translated root for it. Delete
+// `RootCopier: o.rootCopierFn()` and this fails.
+func TestTheRunPathRootsTheImageCopierFromAJail(t *testing.T) {
+	f := newJailRootFixture(t)
+	repo := t.TempDir()
+	loadWith := func(getenv func(string) string) image.AutoLoadOptions {
+		var got image.AutoLoadOptions
+		o := goldenOptions(t.TempDir(), f.home)
+		o.Stdout, o.Stderr = &bytes.Buffer{}, &bytes.Buffer{}
+		o.Getenv = getenv
+		o.autoLoad = func(opts image.AutoLoadOptions) image.LoadResult {
+			got = opts
+			return image.LoadResult{OK: true}
+		}
+		o.autoLoadImage(jsonx.NewOrderedMap(), "podman", repo, storePackagesPlan{})
+		return got
+	}
+
+	got := loadWith(f.getenv)
+	if got.RootCopier == nil {
+		t.Fatal("a jail with a host path map got no image-copier root")
+	}
+	link := image.ImageCopierOutLink(repo)
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil { // BuildImageCopier makes it
+		t.Fatal(err)
+	}
+	got.RootCopier(link, f.storePath)
+	f.assertRooted(t, link)
+
+	if loadWith(func(string) string { return "" }).RootCopier != nil {
+		t.Error("a host launch was handed a copier root beside nix's own out-link")
+	}
+	noMap := func(k string) string {
+		if k == "YOLO_VERSION" {
+			return "9.9.9"
+		}
+		return ""
+	}
+	if loadWith(noMap).RootCopier != nil {
+		t.Error("a jail with no host path map was handed a copier root it cannot register")
+	}
+}
+
 // The image root's one reportable failure goes to the LAUNCH STREAM, stderr, like every other
 // launch line: stdout is the jailed command's, and `yolo -- <cmd>` passes it through untouched
 // (TestTheRunPathSendsImageDisclosuresToStderr has the incident).

@@ -158,6 +158,16 @@ type AutoLoadOptions struct {
 	// them would put a potential 2m27s skopeo compile in front of every warm
 	// start.
 	BuildCopier func(repoRoot string) (string, []string)
+	// RootCopier registers the image copier's out-link (ImageCopierOutLink) as a GC
+	// root the host honors, once the default BuildCopier has built it. nil => nothing
+	// beyond nix's own --out-link registration, which IS the root on the host.
+	//
+	// In a jail it is not: nix there registers the jail's spelling of the link, which
+	// the host daemon resolves on the host, finds missing and prunes as stale, so the
+	// run slice hands the translated root (docs/design/in-jail-nix-roots.md NR-D2) —
+	// or nil, where the jail's launcher stated no host path map. Unrooted, a host GC
+	// can cost the next nested launch a from-source rebuild of skopeo.
+	RootCopier func(link, storePath string)
 	// PresentDigests reports the layer digests the runtime's store already holds.
 	// nil => the real probe: PresentLayerDigests for podman, the delivery record
 	// (recordedPresentDigests) for Apple Container.
@@ -307,7 +317,7 @@ func (o *AutoLoadOptions) fill() {
 	}
 	if o.BuildCopier == nil {
 		o.BuildCopier = func(repoRoot string) (string, []string) {
-			return BuildImageCopier(repoRoot, o.nixOut())
+			return BuildImageCopier(repoRoot, o.nixOut(), o.RootCopier)
 		}
 	}
 	if o.PresentDigests == nil {
