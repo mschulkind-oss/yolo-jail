@@ -3,7 +3,7 @@ title: "A pack gives pi a whole package, not a list of files: delivering pi exte
 date: 2026-09-25
 status: in-review
 stage: DESIGN
-next: "Rule OQ-PR1: the register field, the core-emitted packages entries and pi's slot all wait on it, and nothing else does"
+next: "Rule OQ-PR1: the register field, the core-emitted packages entries and pi's slot all wait on it, and nothing else does; the local-package loader rows it rests on were observed in pi 0.99.2 on 2026-10-01"
 tags: [pi, packs, files, slots, extensions, themes, config-list]
 summary: "A content pack that ships pi extensions today writes one `files` entry per file, each naming a path inside pi. pi's own loader explains why: a top-level file in ~/.pi/agent/extensions is an extension, but a subdirectory there loads only through a manifest listing exact paths or an index.ts. pi's `packages` setting has the shape the pack wants: a local directory with conventional extensions/, themes/, skills/ and prompts/ folders loads with no list at all. So pi's pack declares a slot outside auto-discovery, and the slot declaration tells core to register every tree that lands there as a local pi package, appended beside the user's own packages. A content pack then writes one entry and no pi path. One ruling owed: adopting this route."
 ---
@@ -14,8 +14,11 @@ summary: "A content pack that ships pi extensions today writes one `files` entry
 `packs/pi` declares no slot at `.pi/agent/yolo-packs`). pi's behavior read from `@earendil-works/pi-coding-agent`
 0.87.1 as installed in this jail (`dist/core/package-manager.js`, `dist/core/pi-manifest.js`,
 `dist/core/extensions/loader.js`, `docs/packages.md`, `docs/settings.md`, `docs/extensions.md`); yolo
-claims read against the working tree on this date. **MEASURED:** nothing. The pi claims come from
-reading its source, not from running it.
+claims read against the working tree on this date. **MEASURED** 2026-10-01, against pi 0.99.2 as
+now installed in this jail: pi's own package resolver, run once offline on scratch local packages
+with no agent session, resolved them as [§1](#1-what-pi-loads-from-where-and-in-what-form)'s
+local-package rows say. The rest of that section, and everything about loading an extension once it is
+resolved, is still read from source rather than run.
 
 > **In short.** The maintainer's pack repeats seven entries because pi's extensions folder can't take
 > a folder of files, only single files or a folder with a manifest. pi's `packages` setting can: a
@@ -79,6 +82,24 @@ Everything here is pi 0.87.1, read from source. The function names are pi's.
 | A package whose `package.json` has a **`pi` key** | Loads **only** the resource arrays that key lists, for **every** type. Arrays expand globs and accept `!` exclusions. A type the manifest does not list loads nothing, **even if its conventional folder exists** | **Yes** | `collectPackageResources`, `collectFilesFromManifestEntries`, `readPiManifest` |
 | A package **without** a `pi` key (no `package.json`, or one without `pi`) | Loads each **conventional folder** that exists: `extensions/` (every top-level `.ts`/`.js`, plus subdirectories by the row-2 rule), `themes/`, `skills/`, `prompts/`. No list needed | Not needed | `collectPackageResources`, `collectResourceFiles` |
 | A local package directory with **neither** a `pi` key nor any conventional folder | Loads **the directory itself** as one extension, which fails unless it has an index | — | `resolveLocalExtensionSource` |
+
+**Observed 2026-10-01: the local-package rows hold in pi 0.99.2.** The run called pi's
+`DefaultPackageManager.resolve()` over an in-memory `SettingsManager` (`SettingsManager.inMemory`)
+with `PI_OFFLINE=1`, a scratch agent and project directory, and four `packages` entries. No agent
+session started and no model was called. What it resolved:
+
+- **A package with no `pi` key** gave every top-level file of `extensions/`, `themes/` and
+  `prompts/`, and its `skills/<name>/SKILL.md`. It did not give `extensions/sub/c.ts`, a
+  subdirectory with neither a manifest nor an index (rows 2 and 8).
+- **A package whose `pi` key lists only `./extensions/*.ts`** gave the file the glob matched and
+  not its `themes/` file (row 7).
+- **A path that does not exist** was skipped, and the missing-source callback was never called
+  (row 6).
+- **The same local path listed twice** was resolved once.
+- **Nothing was written** to the agent or project directory.
+
+Not run: loading an extension through jiti, and `~` expansion in a user setting. Both stay read
+from source.
 
 Four more facts decide the design:
 
