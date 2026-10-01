@@ -1441,10 +1441,16 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// never reach stopLoopholes, so each refused launch left an empty
 	// /tmp/yolo-host-services-<8hex> behind (TestARefusedFreshLaunchLeavesNoHostServicesDir,
 	// and TestOnlyTheSpawnCreatesTheHostServicesDir keeps the spawn the only creator).
-	// Every RETURN after the spawn reaches stopLoopholes. A process death does not: no
-	// signal handler is installed until runWithProxy, so Ctrl-C at the reclaim prompt
-	// (maybeOfferReclaim) between the spawn and the proxy exits with the dir in place,
-	// the same outcome as a SIGKILLed launch (docs/reference/jail-home.md).
+	//
+	// ON THIS PATH THE SPAWN IS THE KEEPER'S (keeper.go's run, through startPlannedLoopholes),
+	// and this process never creates the dir. The keeper starts at startKeeper, below the
+	// reclaim prompt (maybeOfferReclaim), so Ctrl-C at that prompt finds no dir to leave
+	// behind. Once the keeper has made it, the keeper's teardown removes it (stopLoopholes,
+	// through teardownAfterExit from endJail, or from unwindUnstarted, under stopLoopholes'
+	// container checks), and this launch dying before the jail is ready reaches that teardown
+	// too: the keeper hears the lifeline close and ends the jail (beforeReady). Only a keeper
+	// that dies without its teardown (SIGKILL, OOM) leaves the dir in place
+	// (docs/reference/jail-home.md).
 	socketsDir := hostServiceSocketsDir(cname, o.IsMacOS)
 	// Not under the seal (seal.go): a fork build starts no host service.
 	if rt != "container" && brokerLoopholeActive(cfg) && !o.Sealed {
