@@ -2,7 +2,7 @@
 title: "Plan: macOS revival + source-distribution fix (post-ejection)"
 status: in-review
 stage: BUILT
-next: "Write A2's missing twin: a TestMacosUser… launch whose `packages:` names a package with no darwin build must abort naming it, for the macos-user CI job to run — the hard error has never fired live"
+next: "Read A2's twin back from the scheduled macos-user.yml run: TestMacosUserAPackageWithNoDarwinBuildAbortsTheLaunch must show the hard error firing on iptables and a Linux-only entry launching"
 ---
 
 # Plan: macOS revival + source-distribution fix (post-ejection)
@@ -23,7 +23,9 @@ part 2**, the GitHub access-scoping proxy, is now
 [OQ-SH-1](#oq-sh-1--is-macos-user-self-hosting-worth-pursuing-at-all-maintainer), and it blocks
 nothing. MEASURED: the four runbook items on 2026-09-10 and the full run on 2026-09-12, on the
 maintainer's Mac ([`runbooks/macos-user-manual-checks.md`](runbooks/macos-user-manual-checks.md)).
-UNMEASURED: A2's hard error has never fired live on a package with no darwin build; the Cachix
+UNMEASURED: A2's hard error has never fired live on a package with no darwin build (its twin,
+`TestMacosUserAPackageWithNoDarwinBuildAbortsTheLaunch`, was written on 2026-10-01 for the
+scheduled macos-user job and has not run there yet); the Cachix
 download on a Mac ([`handoff-cachix-cache.md`](handoff-cachix-cache.md)); and Track L part 1's
 jail daemons on a Mac, which their own plan owns. The original header's closing claim —
 *"nothing engineering-side fully open"* — was **false**; it is retracted in §*Retracted claims*
@@ -352,7 +354,13 @@ opportunistically if cheap. Closes Open item #2 in the design doc.
 >   decides) is unchanged, only the attr names and line numbers moved.
 >
 > **Also still true:** the darwin no-build path has never been exercised on Mac
-> hardware, so the Track M checklist line this item asks for is still unwritten.
+> hardware. **Its automated twin was written on 2026-10-01** in place of the Track M
+> checklist line this item asks for: `TestMacosUserAPackageWithNoDarwinBuildAbortsTheLaunch`
+> (`integration/macosuserunavailablepackage_test.go`), run by `macos-user.yml`'s
+> `-run '^TestMacosUser'` step. It declares `iptables`, the one image-core package with no
+> build on either darwin system (`darwinpkg.FloorExcludedUnbuildable`), asserts the launch
+> refuses before any sandbox starts with the line naming it and the `platforms` hatch, then
+> launches the same package marked `platforms: ["linux"]`. UNMEASURED until that job runs it.
 
 > **Decided 2026-07-23: implement the designed behavior** (resolves Open Decision
 > #5 in favor of the written design, retiring the shipped warn-and-skip). A silently
