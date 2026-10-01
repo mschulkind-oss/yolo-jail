@@ -374,8 +374,9 @@ check is `internal/entrypoint/launchercollision.go`.
 > for, nothing hides the declared tool from mise. The same jail then installed pnpm 9.12.0
 > through mise and ran it, and a workspace declaring no mise pnpm still got the launcher and
 > `MISE_DISABLE_TOOLS=pnpm`. `internal/cli/run/misepnpm_test.go` drives both call sites
-> together. For a backend spelling the list still names pnpm, where it hides nothing but a
-> project's own bare `pnpm` pin: whether it should hide that is
+> together, and `integration/misepnpm_test.go` pins the key matching on the image's own mise,
+> which the rule depends on. For a backend spelling the list still names pnpm, where it hides
+> nothing but a project's own bare `pnpm` pin: whether it should hide that is
 > [OQ-PD19](#-oq-pd19--do-steps-three-and-five-still-have-a-subject-after-the-agentproject-split)'s
 > question. A declared bare key does unhide that pin, the pin being the same key.
 
