@@ -193,7 +193,7 @@ func runPiModelListsExtension(t *testing.T, lists []byte, allJS, compatJS string
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command("node", "harness.mjs")
+	cmd := exec.Command(requireNode(t, "the pi model-lists extension"), "harness.mjs")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	out, err := cmd.Output()

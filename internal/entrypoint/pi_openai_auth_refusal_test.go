@@ -173,7 +173,7 @@ func runPiCodexRefusal(t *testing.T, list []byte, allJS, compatJS string, probe 
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("node", "harness.mjs")
+	cmd := exec.Command(requireNode(t, "the pi openai-auth extension"), "harness.mjs")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "HOME="+home, "PROBE_IDS="+string(probeJSON))
 	out, err := cmd.Output()

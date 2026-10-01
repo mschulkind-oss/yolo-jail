@@ -69,7 +69,7 @@ process.stdout.write(process.env.PI_SUBAGENTS_WORKTREE_DIR ?? "<unset>");
 		{"no durable dir", nil, "<unset>"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := exec.Command("node", harness)
+			cmd := exec.Command(requireNode(t, "the pi durable-worktrees extension"), harness)
 			cmd.Dir = dir
 			var env []string
 			for _, kv := range os.Environ() {

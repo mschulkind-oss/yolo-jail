@@ -523,7 +523,7 @@ console.log(JSON.stringify((registration.config.models ?? []).map((m) => m.id)))
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("node", "harness.mjs")
+	cmd := exec.Command(requireNode(t, "the shipped pi extension"), "harness.mjs")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	out, err := cmd.Output()
@@ -651,7 +651,7 @@ console.log(JSON.stringify((registration.config.models || []).map((m) => m.id)))
 `), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			cmd := exec.Command("node", harness)
+			cmd := exec.Command(requireNode(t, "the host-delivered pi extension"), harness)
 			cmd.Env = append(os.Environ(), "HOME="+home, "EXT="+ext)
 			out, err := cmd.Output()
 			if err != nil {

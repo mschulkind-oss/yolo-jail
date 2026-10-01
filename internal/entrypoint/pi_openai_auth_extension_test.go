@@ -119,7 +119,7 @@ if (oauth.getApiKey(second) !== "access-3") throw new Error("access token not re
 		t.Fatal(err)
 	}
 	calls := filepath.Join(dir, "calls")
-	cmd := exec.Command("node", harness)
+	cmd := exec.Command(requireNode(t, "the pi openai-auth extension"), harness)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls,
 		// A temp HOME: the extension reads its model list from HOME, and a developer's real
@@ -172,7 +172,7 @@ if (result.access !== "access" || result.refresh !== "yolo-broker:1") throw new 
 		t.Fatal(err)
 	}
 	calls := filepath.Join(dir, "calls")
-	cmd := exec.Command("node", filepath.Join(dir, "harness.mjs"))
+	cmd := exec.Command(requireNode(t, "the pi openai-auth extension"), filepath.Join(dir, "harness.mjs"))
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls,
 		// A temp HOME: the extension reads its model list from HOME, and a developer's real
@@ -267,7 +267,7 @@ func (f piExtensionFixture) run(t *testing.T, harness string) {
 	if err := os.WriteFile(filepath.Join(f.dir, "harness.mjs"), []byte(harness), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("node", "harness.mjs")
+	cmd := exec.Command(requireNode(t, "the pi openai-auth extension"), "harness.mjs")
 	cmd.Dir = f.dir
 	cmd.Env = append(os.Environ(), "HOME="+f.home)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -408,7 +408,7 @@ func (f piExtensionFixture) runWarningHarness(t *testing.T, hasUI bool) (notifie
 	if hasUI {
 		ui = "1"
 	}
-	cmd := exec.Command("node", "harness.mjs")
+	cmd := exec.Command(requireNode(t, "the pi openai-auth extension"), "harness.mjs")
 	cmd.Dir = f.dir
 	cmd.Env = append(os.Environ(), "HOME="+f.home, "PI_HAS_UI="+ui)
 	out, err := cmd.Output()

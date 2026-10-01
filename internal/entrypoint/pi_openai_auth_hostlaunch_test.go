@@ -94,10 +94,7 @@ console.log(JSON.stringify(out));
 	if err := os.WriteFile(filepath.Join(f.dir, "harness.mjs"), []byte(harness), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node is not installed")
-	}
+	node := requireNode(t, "the host-launched pi openai-auth extension")
 	cmd := exec.Command(node, "harness.mjs")
 	cmd.Dir = f.dir
 	// A CLEAN environment, never os.Environ(): a developer's jail carries YOLO_VERSION and

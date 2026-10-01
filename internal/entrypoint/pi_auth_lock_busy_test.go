@@ -38,9 +38,7 @@ func runPiLauncherAgainstBusyAuthLock(t *testing.T, stdin *os.File, loginFirst b
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not found")
 	}
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("node not found")
-	}
+	requireNode(t, "the pi launcher against a busy auth lock")
 	pi := shippedPiPack(t)
 	var install *packdecl.Install
 	installs, _ := pi.HonoredInstalls()
