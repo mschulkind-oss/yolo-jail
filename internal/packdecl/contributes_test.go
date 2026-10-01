@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The legacy-shaped projections re-derive the per-field views the read paths
@@ -435,12 +437,13 @@ func TestTheInstallerRemedyDownloadsChecksThenRuns(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			log := filepath.Join(dir, "log")
+			qlog := shquote.Quote(log) // one shell word in the fakes, wherever the temp dir is
 			for name, body := range map[string]string{
 				// curl writes an installer that reports whether it has input, and where it ran.
-				"curl": "#!/bin/sh\necho \"curl $*\" >> " + log + "\nout=\nwhile [ $# -gt 0 ]; do " +
-					"[ \"$1\" = -o ] && out=$2; shift; done\necho \"temp=$out\" >> " + log + "\n" +
+				"curl": "#!/bin/sh\necho \"curl $*\" >> " + qlog + "\nout=\nwhile [ $# -gt 0 ]; do " +
+					"[ \"$1\" = -o ] && out=$2; shift; done\necho \"temp=$out\" >> " + qlog + "\n" +
 					"printf '#!/bin/sh\\nif read -r x; then echo RAN-WITH-INPUT; else echo RAN-NO-INPUT; fi\\n' > \"$out\"\n",
-				"yolo": "#!/bin/sh\necho \"yolo $1 $2 $3 $4-is-file:$([ -f \"$4\" ] && echo yes)\" >> " + log +
+				"yolo": "#!/bin/sh\necho \"yolo $1 $2 $3 $4-is-file:$([ -f \"$4\" ] && echo yes)\" >> " + qlog +
 					"\n" + tc.check + "\n",
 			} {
 				if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
