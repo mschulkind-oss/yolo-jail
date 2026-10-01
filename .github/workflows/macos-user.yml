@@ -179,6 +179,78 @@ jobs:
           } | tee -a "$summary"
           exit "$rc"
 
+      # Q3, THE CACHE-MISS HALF (docs/design/macos-user-build-step-threat-model.md#Q3). ALSO A
+      # MEASUREMENT, and it can never fail this job either.
+      #
+      # THE STEP ABOVE HAS NEVER BUILT A FLOOR PACKAGE. Every run so far substituted every path
+      # from cache.nixos.org and built only the profile's buildEnv, so it cannot say whether a
+      # package's own builder works under the sandbox. This step makes one do so: `nix build
+      # --rebuild` builds an ALREADY-VALID derivation again, here, and compares the result with
+      # the copy it has. Its inputs stay substituted, so the one package's builder is the only
+      # thing that runs, under `--option sandbox true`.
+      #
+      # THE PACKAGE is jq: a floor entry (darwinpkg.FloorNames();
+      # integration/macosusersandboxstep_test.go fails if the name below stops being one), small,
+      # and a real compile (a C build against oniguruma) rather than a wrapper. It is spelled
+      # `nixpkgs#jq` with `--inputs-from .`, i.e. against THIS flake's locked `nixpkgs` input,
+      # which is the package set the floor reads on aarch64-darwin (flake.nix: hostNixpkgs). On
+      # any other system the floor reads a different input, so the step says VOID instead of
+      # measuring a package no launch here uses.
+      #
+      # `^*`, because --rebuild checks EVERY output of the derivation and refuses when one is not
+      # valid yet, so the first build realizes them all. A "may not be deterministic" error is a
+      # build that RAN and finished under the sandbox with output differing from the cache's,
+      # which is a reproducibility fact rather than a sandbox refusal, and the summary says so.
+      - name: Q3 — rebuild one floor package from source with the nix build sandbox ON (measurement only)
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          set -uo pipefail
+          pkg=jq
+          inst="nixpkgs#${pkg}^*"
+          sys="$(nix eval --impure --raw --expr builtins.currentSystem)"
+          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          echo "### Q3 (cache miss): \`${pkg}\` rebuilt from source with \`--option sandbox true\` (measurement only)" | tee -a "$summary"
+          echo "" | tee -a "$summary"
+          if [ "$sys" != "aarch64-darwin" ]; then
+            echo "- ⚠ **VOID** on ${sys}: the floor reads this flake's \`nixpkgs\` input only on aarch64-darwin, so this would rebuild a package no launch here uses." | tee -a "$summary"
+            exit 0
+          fi
+          if ! nix build --inputs-from . --accept-flake-config --no-link "$inst" 2> /tmp/q3m-fetch.err; then
+            tail -n 40 /tmp/q3m-fetch.err
+            echo "- could not realize \`${inst}\` to rebuild it, so nothing was measured." | tee -a "$summary"
+            exit 1
+          fi
+          start=$(date +%s)
+          rc=0
+          nix build --inputs-from . --accept-flake-config --no-link --rebuild \
+            --option sandbox true --keep-going "$inst" 2> /tmp/q3m.err || rc=$?
+          took=$(( $(date +%s) - start ))
+          tail -n 80 /tmp/q3m.err
+          ran="$(grep -oE "(checking outputs of|building) '/nix/store/[^']+[.]drv'" /tmp/q3m.err | sort -u || true)"
+          {
+            echo "- installable: \`${inst}\` (this flake's locked \`nixpkgs\`), --rebuild rc=${rc}, ${took}s"
+            if grep -q "ignoring the client-specified setting 'sandbox'" /tmp/q3m.err; then
+              echo "- ⚠ **VOID**: the daemon ignored \`sandbox\` (a restricted setting, and this user is not trusted), so this rebuild ran UNSANDBOXED and says nothing about Q3."
+            elif [ -z "$ran" ]; then
+              echo "- ⚠ **VOID**: nix printed no build of the derivation, so no builder ran here and this answers nothing."
+            elif [ "$rc" -eq 0 ]; then
+              echo "- **BUILT under the sandbox**, and the output is identical to the substituted one."
+            elif grep -q "may not be deterministic" /tmp/q3m.err; then
+              echo "- **BUILT under the sandbox**; the output differs from the substituted one (not reproducible here), which is not a sandbox refusal."
+            elif grep -q "not allowed when 'sandbox'" /tmp/q3m.err; then
+              echo "- **REFUSED by the sandbox policy**: $(grep -m1 "not allowed when 'sandbox'" /tmp/q3m.err)"
+            else
+              echo "- **FAILED under the sandbox**: $(grep -m1 -E "(builder for|Cannot build) '/nix/store/[^']+[.]drv'" /tmp/q3m.err || echo "see the log above")"
+            fi
+            echo "- what ran:"
+            if [ -n "$ran" ]; then printf '%s\n' "$ran" | sed 's/^/  - /'; else echo "  - nothing"; fi
+            echo ""
+          } | tee -a "$summary"
+          # A non-reproducible output is an ANSWER (it built), so it does not mark the step failed.
+          if [ -n "$ran" ] && grep -q "may not be deterministic" /tmp/q3m.err; then exit 0; fi
+          exit "$rc"
+
       # The account the whole backend runs as. The suite will NOT create it — a test
       # run must not silently add a system account to somebody's Mac — so it is an
       # explicit step here, where the machine is ephemeral and the mutation is

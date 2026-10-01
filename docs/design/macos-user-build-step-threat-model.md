@@ -2,7 +2,7 @@
 title: "Threat model: the macos-user host-side nix build step"
 status: in-review
 stage: DESIGN
-next: "Measure Q3 on a cache miss: extend macos-user.yml's Q3 step to build one floor package from source with the sandbox on, since every run so far substituted all but the profile"
+next: "Read the Q3 cache-miss step's summary from the next macos-user.yml runs (jq rebuilt from source with the sandbox on) into §Q3's run record; Q2 and Q3 are the maintainer's to rule"
 ---
 
 # Threat model: the macos-user host-side nix build step
@@ -340,7 +340,22 @@ build is the `buildEnv`, and that passed four times.
 
 Still UNMEASURED:
 
-- a floor package built from source on darwin, which happens only when the cache misses;
+- a floor package built from source on darwin, which happens only when the cache misses. **The
+  step that measures it was added on 2026-10-01** and has not run yet:
+  `Q3 — rebuild one floor package from source with the nix build sandbox ON (measurement only)`,
+  right after the floor step in [`macos-user.yml`](../../.github/workflows/macos-user.yml). It
+  realizes `nixpkgs#jq^*` from this flake's locked `nixpkgs` input (`--inputs-from .`, the set
+  the floor reads on aarch64-darwin), then runs `nix build --rebuild --option sandbox true` on it,
+  which builds that one derivation here, from source, with its inputs still substituted. Its
+  summary says whether jq BUILT under the sandbox (with an identical or a non-reproducible
+  output), FAILED, or was REFUSED by the sandbox policy, and says VOID when the daemon ignored
+  `sandbox`, when no build ran, or on a system whose floor reads another input. It is
+  `continue-on-error` with a 30-minute cap, and
+  `TestMacosUserQ3CacheMissStepRebuildsAFloorPackage`
+  ([`macosusersandboxstep_test.go`](../../integration/macosusersandboxstep_test.go)) fails under
+  `-short` if the package stops being a `darwinpkg.FloorNames()` entry or the step loses its
+  flags, its VOID checks, its `continue-on-error` or its cap. One package answers for one
+  builder, not for the floor;
 - every `packages:` a workspace declares, which the step leaves out by clearing
   `YOLO_EXTRA_PACKAGES`. That includes
   [Vector A](#vector-a--poisoned-packages-via-yolo_extra_packages)'s object-form pins, which

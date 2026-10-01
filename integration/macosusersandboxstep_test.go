@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -70,5 +72,53 @@ func TestMacosUserQ3SandboxStepBuildsTheFloorFirst(t *testing.T) {
 		t.Errorf("the Q3 step runs AFTER the macos-user launches. They realize the same floor " +
 			"unsandboxed, so the sandboxed build would find nothing left to build and report " +
 			"a clean result that measured nothing. Move it before the tests.")
+	}
+}
+
+// TestMacosUserQ3CacheMissStepRebuildsAFloorPackage pins Q3's CACHE-MISS step the same way, from
+// Linux under -short. The floor step above has never built a floor package (every run
+// substituted them), so this one forces one with `nix build --rebuild`, and the ways it could
+// stop measuring that are visible from here:
+//
+//   - the package could stop being a floor entry, and the step would then measure a builder no
+//     macos-user launch runs;
+//   - it could resolve the package from a nixpkgs other than this flake's locked input, or drop
+//     the sandbox flag, the rebuild, the VOID checks, its `continue-on-error` or its cap.
+//
+// Its position is checked too, though a --rebuild builds whether or not the launches realized
+// the package first: before the tests is where its summary sits beside the floor step's.
+func TestMacosUserQ3CacheMissStepRebuildsAFloorPackage(t *testing.T) {
+	wf := uncommentedYAML(readWorkflow(t, "macos-user.yml"))
+	const needle = "--rebuild"
+	step, ok := stepContaining(wf, needle)
+	if !ok {
+		t.Fatalf("macos-user.yml has no step running `nix build %s`, so Q3's cache-miss "+
+			"measurement is gone (docs/design/macos-user-build-step-threat-model.md#Q3)", needle)
+	}
+	m := regexp.MustCompile(`(?m)^\s*pkg=([A-Za-z0-9_.+-]+)\s*$`).FindStringSubmatch(step)
+	if m == nil {
+		t.Fatalf("the Q3 cache-miss step no longer names its package as `pkg=<name>`, so this "+
+			"test cannot check it is a floor entry:\n%s", step)
+	}
+	if !slices.Contains(darwinpkg.FloorNames(), m[1]) {
+		t.Errorf("the Q3 cache-miss step rebuilds %q, which is not in darwinpkg.FloorNames(): it "+
+			"would measure a builder no macos-user launch runs. Pick a floor entry", m[1])
+	}
+	for _, want := range []struct{ text, why string }{
+		{"--inputs-from .", "the package must resolve from this flake's locked nixpkgs, the set the floor reads"},
+		{`inst="nixpkgs#${pkg}^*"`, "every output must be realized, or --rebuild refuses to check the derivation"},
+		{"--option sandbox true", "without it the rebuild says nothing about the sandbox"},
+		{"aarch64-darwin", "the step must say VOID on a system whose floor reads another nixpkgs input"},
+		{"ignoring the client-specified setting 'sandbox'", "an unsandboxed rebuild must read as VOID, not as a result"},
+		{"continue-on-error: true", "a refusal is the answer, and must not turn the macos-user verdict red"},
+		{"timeout-minutes:", "a wedged compile must not spend the job's whole budget"},
+	} {
+		if !strings.Contains(step, want.text) {
+			t.Errorf("the Q3 cache-miss step lacks %q: %s.\nstep:\n%s", want.text, want.why, step)
+		}
+	}
+	if i, tests := strings.Index(wf, needle), strings.Index(wf, "-run '^TestMacosUser'"); tests < 0 || i > tests {
+		t.Errorf("the Q3 cache-miss step does not run before the macos-user tests (rebuild at %d, "+
+			"tests at %d)", i, tests)
 	}
 }
