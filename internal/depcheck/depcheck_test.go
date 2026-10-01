@@ -238,27 +238,29 @@ func TestPresentReprobesThroughTheSeam(t *testing.T) {
 	}
 }
 
+// only is a Lookup that finds exactly the named binaries, at /launch/path/<name>.
+func only(have ...string) Lookup {
+	return func(bin string) (string, error) {
+		for _, h := range have {
+			if h == bin {
+				return "/launch/path/" + bin, nil
+			}
+		}
+		return "", errors.New("not found")
+	}
+}
+
 // TestEveryProbeReadsTheCallersLookup: the presence probe, the package-manager guess and the
 // re-probe all go through the lookup the caller hands them (host-launch-environment.md §3's
 // dependency-probe and detectManager rows), never LookPath or a bare exec.LookPath beside it. A
-// manager only the lookup can see names the remedy; with a lookup that sees none, the remedy
-// falls to nix whatever the machine's own PATH holds.
+// manager only the lookup can see names the remedy; with a lookup that sees none, no manager is
+// named, whatever the machine's own PATH holds.
 func TestEveryProbeReadsTheCallersLookup(t *testing.T) {
 	real := LookPath
 	t.Cleanup(func() { LookPath = real })
 	LookPath = func(bin string) (string, error) {
 		t.Errorf("LookPath(%q) consulted although the caller passed a lookup", bin)
 		return "", errors.New("not found")
-	}
-	only := func(have ...string) Lookup {
-		return func(bin string) (string, error) {
-			for _, h := range have {
-				if h == bin {
-					return "/launch/path/" + bin, nil
-				}
-			}
-			return "", errors.New("not found")
-		}
 	}
 	req := []Requirement{{Bin: "tool", Hints: map[string]string{"pacman": "tool-pkg", "nix": "tool-nix"}},
 		{Bin: "have", Hints: map[string]string{"pacman": "have-pkg"}}}
@@ -269,10 +271,51 @@ func TestEveryProbeReadsTheCallersLookup(t *testing.T) {
 	if res[1].Manager != "pacman" || res[1].Remedy != "sudo pacman -S --noconfirm tool-pkg" {
 		t.Errorf("tool = %+v, want pacman's remedy: pacman is on the lookup's PATH", res[1])
 	}
-	if res := Check(req, only()); res[1].Manager != "nix" {
-		t.Errorf("with a lookup that sees no manager, manager = %q, want nix", res[1].Manager)
+	if res := Check(req, only()); res[1].Manager != "" || res[1].Remedy != "" {
+		t.Errorf("with a lookup that sees no manager, manager/remedy = %q/%q, want none",
+			res[1].Manager, res[1].Remedy)
 	}
 	if p, ok := Present("have", only("have")); !ok || p != "/launch/path/have" {
 		t.Errorf("Present = %q/%v, want the lookup's answer", p, ok)
+	}
+}
+
+// TestNixIsOfferedOnlyWhereTheLookupFindsIt: nix is probed like every other manager, never reached
+// by elimination (docs/design/provisioner-sets.md, OQ-PS9's answer). A lookup that finds no
+// manager names none, so a host without nix is never told to run `nix profile install` while
+// `yolo check` reports nix missing; the binary is still missing, with no remedy and no bundle. A
+// lookup that finds nix, and no manager ahead of it, names nix's remedy as before.
+func TestNixIsOfferedOnlyWhereTheLookupFindsIt(t *testing.T) {
+	req := []Requirement{
+		{Bin: "tool", Hints: map[string]string{"nix": "tool-nix"}},
+		// The pack's own installer needs no package manager: it still leads, with no
+		// package-manager fallback to name.
+		{Bin: "vendored", SelfInstall: "npm install -g vendored", Hints: map[string]string{"nix": "vendored"}},
+	}
+
+	none := Check(req, only())
+	if r := none[0]; r.Manager != "" || r.Remedy != "" || r.Flavor != "" {
+		t.Errorf("no manager on the lookup: tool = %+v, want no manager and no remedy", r)
+	}
+	if r := none[1]; r.Remedy != "npm install -g vendored" || r.Fallback != "" || r.FallbackFlavor != "" {
+		t.Errorf("no manager on the lookup: vendored = %+v, want its own installer and no fallback", r)
+	}
+	if got := len(Missing(none)); got != 2 {
+		t.Errorf("Missing() = %d, want 2: a binary with no remedy is still missing", got)
+	}
+	if n, b := Manifest(none); n != "" || b != "" {
+		t.Errorf("no manager → no bundle, got %q/%q", n, b)
+	}
+
+	withNix := Check(req, only("nix"))
+	if r := withNix[0]; r.Manager != "nix" || r.Remedy != "nix profile install nixpkgs#tool-nix" {
+		t.Errorf("nix on the lookup: tool = %+v, want nix's remedy", r)
+	}
+	if r := withNix[1]; r.Fallback != "nix profile install nixpkgs#vendored" {
+		t.Errorf("nix on the lookup: vendored fallback = %q, want nix's", r.Fallback)
+	}
+	// Last, not first: a manager ahead of nix in the probe order still wins.
+	if r := Check(req, only("nix", "apt"))[0]; r.Manager != "apt" {
+		t.Errorf("apt and nix on the lookup: manager = %q, want apt", r.Manager)
 	}
 }

@@ -714,8 +714,9 @@ formula is AWS's deprecated ECS CLI, not the CLI this pack means. `brew-cask` wi
 > **Do not add `nix` hints to a pack whose tool ships its own installer and updater.** The
 > agent packs dropped theirs: routing a user through nixpkgs hands them whatever that
 > repo has, with nothing in the output to say so (measured once at 16 releases behind), and
-> `detectManager` reaches `nix` only by *elimination*, so a user cannot select it
-> deliberately anyway. `nix` hints belong on genuine third-party dependencies where the
+> `detectManager` names `nix` only where nix is on the PATH and no other manager is, so a user
+> with brew, apt, dnf or pacman cannot select it deliberately anyway. A PATH with no manager
+> names none, so no hint is offered there. `nix` hints belong on genuine third-party dependencies where the
 > user's own package manager is the right answer. A `via: installer` program's remedy is a
 > download-check-run command, never a pipe into `sh`: it fetches the script to a temporary file,
 > `yolo internal installer-check` refuses a web page or a binary naming the URL, and only then

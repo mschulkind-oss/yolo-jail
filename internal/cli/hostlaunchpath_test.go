@@ -417,7 +417,8 @@ func TestTheManagerGuessReadsHostPath(t *testing.T) {
 	}
 	cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
 	writeFile(t, cfg, strings.Replace(readFileT(t, cfg), `,"host_path":["~/mgr/bin"]`, "", 1))
-	if _, report := runCheckDepsT(t); !strings.Contains(report, "no install hint for this host") {
+	if _, report := runCheckDepsT(t); !strings.Contains(report, "MISSING, no package manager yolo knows is on this PATH") ||
+		strings.Contains(report, "sudo pacman") {
 		t.Errorf("with no manager on the launch PATH, the remedy should be absent:\n%s", report)
 	}
 }

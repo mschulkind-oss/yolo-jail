@@ -8,7 +8,7 @@ package cli
 //
 // Determinism: PATH is replaced by a temp dir holding exactly the fake binaries a case
 // wants, so both the bin probe AND depcheck's package-manager detection (which probes PATH
-// for apt/dnf/pacman/brew) resolve from the test's own fixture rather than the machine's.
+// for apt/dnf/pacman/brew/nix) resolve from the test's own fixture rather than the machine's.
 // The depcheck seams (LookPath/DetectManager) are deliberately NOT stubbed here: stubbing
 // them would test this file's formatting while leaving the reuse of check-deps' probe —
 // the actual Phase 8 requirement — unexercised.
@@ -189,6 +189,59 @@ func TestApplyHostReportsHintsForAnotherManager(t *testing.T) {
 	// Deterministic, sorted, and naming the covered managers — not the absent one.
 	if !strings.Contains(report, "install_hints cover brew/dnf but not apt") {
 		t.Errorf("the line should name the covered managers and this host's:\n%s", report)
+	}
+}
+
+// TestApplyHostOffersNoManagerThePathLacks: on a launch PATH holding no package manager, a binary
+// whose only hint is nix's is missing with no remedy, and the line says no manager is on the PATH,
+// rather than offering `nix profile install` on a host where `yolo check` reports nix missing
+// (docs/design/provisioner-sets.md, OQ-PS9's answer). A hint-less `requires` names no manager
+// either. With nix on the PATH the same hint is the remedy. Put nix back as the manager reached by
+// elimination, and the first half fails.
+func TestApplyHostOffersNoManagerThePathLacks(t *testing.T) {
+	nixOnly := `{"kind":"requires","bin":"nixonlybin","install_hints":{"nix":"nixonly-pkg"}}`
+	fakeBinDir(t) // nothing on PATH: no manager, no bin
+	report := runApplyHostForDeps(t, nixOnly, `{"kind":"requires","bin":"bareneed"}`)
+
+	if !strings.Contains(report, "nixonlybin") || !strings.Contains(report, "MISSING") {
+		t.Fatalf("the bin must be named as missing:\n%s", report)
+	}
+	if strings.Contains(report, "nix profile install") {
+		t.Errorf("a PATH with no nix was offered nix's remedy:\n%s", report)
+	}
+	if !strings.Contains(report, "install_hints cover nix, but no package manager yolo knows is on this PATH") {
+		t.Errorf("the line should say no package manager is on the PATH:\n%s", report)
+	}
+	if strings.Contains(report, "yourself for nix") {
+		t.Errorf("a hint-less requires named a manager the PATH lacks:\n%s", report)
+	}
+
+	fakeBinDir(t, "nix")
+	if report := runApplyHostForDeps(t, nixOnly); !strings.Contains(report, "nix profile install nixpkgs#nixonly-pkg") {
+		t.Errorf("with nix on the PATH, nix's hint should be the remedy:\n%s", report)
+	}
+}
+
+// TestCheckDepsOffersNoManagerThePathLacks is check-deps' half of the test above: with no package
+// manager on the launch PATH, a nix-only hint prints no `nix profile install`, and the line says no
+// manager is on the PATH; with nix there, nix's command is the remedy.
+func TestCheckDepsOffersNoManagerThePathLacks(t *testing.T) {
+	launchPathFixture(t, "", `{"kind":"requires","bin":"nixonlybin","install_hints":{"nix":"nixonly-pkg"}}`)
+	fakeBinDir(t) // a PATH with no manager at all
+	rc, report := runCheckDepsT(t)
+	if rc != 1 {
+		t.Errorf("check-deps rc=%d, want 1: the binary is still missing\n%s", rc, report)
+	}
+	if strings.Contains(report, "nix profile install") {
+		t.Errorf("a PATH with no nix was offered nix's remedy:\n%s", report)
+	}
+	if !strings.Contains(report, "nixonlybin       MISSING, no package manager yolo knows is on this PATH") {
+		t.Errorf("the line should say no package manager is on the PATH:\n%s", report)
+	}
+
+	fakeBinDir(t, "nix")
+	if _, report := runCheckDepsT(t); !strings.Contains(report, "MISSING → nix profile install nixpkgs#nixonly-pkg") {
+		t.Errorf("with nix on the PATH, nix's hint should be the remedy:\n%s", report)
 	}
 }
 

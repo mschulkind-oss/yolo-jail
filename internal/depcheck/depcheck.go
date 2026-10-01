@@ -94,9 +94,13 @@ func hintKeys(mgr string) []string {
 }
 
 // hintFor picks the package name and the install FLAVOR for a detected manager, or ok=false
-// when no hint covers it. flavor is the key installCmd/Manifest switch on — "brew-cask"
-// where the pack declared a cask, otherwise the manager itself.
+// when no hint covers it — always so when no manager was detected (mgr ""). flavor is the key
+// installCmd/Manifest switch on — "brew-cask" where the pack declared a cask, otherwise the
+// manager itself.
 func hintFor(hints map[string]string, mgr string) (pkg, flavor string, ok bool) {
+	if mgr == "" {
+		return "", "", false
+	}
 	for _, k := range hintKeys(mgr) {
 		if p, found := hints[k]; found {
 			return p, k, true
@@ -112,8 +116,10 @@ type Result struct {
 	Path    string // resolved path when present
 	// Remedy is the install command for the detected host package manager, or "" when
 	// no hint covers it (reported as unprobeable-remedy, never as satisfied).
-	Remedy  string
-	Manager string // the detected manager the remedy is for
+	Remedy string
+	// Manager is the detected manager the remedy is for, "" when the lookup found none (NoManager
+	// says so in words).
+	Manager string
 	// Flavor is the hint KEY the remedy came from — the same as Manager except for
 	// brewCaskHint and selfInstallFlavor. Carried per-result rather than per-manifest because
 	// one brew host can need both verbs: a Brewfile mixing `brew "postgresql@16"` and
@@ -157,9 +163,21 @@ func lookupOrDefault(look Lookup) Lookup {
 	return func(bin string) (string, error) { return LookPath(bin) }
 }
 
-// DetectManager returns the host package manager to prefer for remedies, found through look.
-// Overridable in tests. Order: on macOS prefer brew; on Linux probe apt/dnf/pacman in turn; nix
-// last as the always-available fallback (it is the jail's manager too).
+// managers is every host package manager this package knows, in the order detectManager probes
+// them (macOS asks brew first). nix is LAST and PROBED like the rest: it used to be returned by
+// elimination, unlooked-for, so a host with no manager was told to run `nix profile install` while
+// `yolo check` reported nix missing (docs/design/provisioner-sets.md, OQ-PS9's answer).
+var managers = []string{"apt", "dnf", "pacman", "brew", "nix"}
+
+// NoManager is why a missing binary has no package-manager remedy when the lookup found none of
+// managers (Result.Manager ""): the words both reports print, so `yolo check-deps` and
+// `yolo host apply` cannot disagree about it.
+var NoManager = "no package manager yolo knows is on this PATH (" +
+	strings.Join(managers[:len(managers)-1], ", ") + " or " + managers[len(managers)-1] + ")"
+
+// DetectManager returns the host package manager to prefer for remedies, found through look, or ""
+// when the lookup finds none of them: a remedy never names a manager this PATH lacks. Overridable in
+// tests. Order: on macOS prefer brew; then apt/dnf/pacman/brew in turn; nix last.
 //
 // Through the CALLER'S lookup, not a bare exec.LookPath: a launcher whose PATH lacks
 // /opt/homebrew/bin has no `brew` on the PATH the dependency probe reads either, and naming
@@ -169,17 +187,16 @@ var DetectManager = detectManager
 
 func detectManager(look Lookup) string {
 	look = lookupOrDefault(look)
+	order := managers
 	if runtime.GOOS == "darwin" {
-		if _, err := look("brew"); err == nil {
-			return "brew"
-		}
+		order = append([]string{"brew"}, managers...)
 	}
-	for _, m := range []string{"apt", "dnf", "pacman", "brew"} {
+	for _, m := range order {
 		if _, err := look(m); err == nil {
 			return m
 		}
 	}
-	return "nix"
+	return ""
 }
 
 // Check probes every requirement through look and returns the results in Bin order. It

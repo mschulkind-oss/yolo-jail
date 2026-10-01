@@ -542,6 +542,11 @@ sets, and a jail without pi no longer carries it.
   config declared, so you had to restate the capability there or launch with
   `YOLO_ALLOW_UNMET_CAPABILITIES=1`; it now counts what your selected packs declare for the source
   each agent runs on, and `yolo check` agrees with it.
+- `yolo check-deps` and `yolo host apply` no longer tell a machine without nix to install a tool
+  with `nix profile install`, as the remedy or as the alternative beside an agent's own installer,
+  while `yolo check` on the same machine reports nix missing. They now offer nix's command only
+  where nix is on the PATH, as they already did for Homebrew, apt, dnf and pacman, and on a
+  machine with none of these they say so instead of offering a command that cannot run.
 - An agent's own install script can no longer stop and wait for an answer: in a jail, on its first
   use or when it updates, and at `yolo host apply --assert`, it now runs with no terminal and no
   input, so a question it asks takes its default or fails instead of waiting. At the host, that

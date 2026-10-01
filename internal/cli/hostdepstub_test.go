@@ -96,7 +96,7 @@ const testAsYoloArg = "-yolo-cli-test-as-yolo"
 
 // stubBins prepends a temp dir holding an executable stub per name to PATH, and returns it.
 //
-// PREPENDED, never replacing PATH: depcheck.DetectManager probes for apt/dnf/pacman/brew and
+// PREPENDED, never replacing PATH: depcheck.DetectManager probes for apt/dnf/pacman/brew/nix and
 // the install runner needs a shell, so a fixture that owned the whole PATH would be answering
 // a different question from the one a run asks. (fakeBinDir, in applyhostdeps_test.go, DOES
 // replace PATH — that is its job: pinning exactly one detected manager.)

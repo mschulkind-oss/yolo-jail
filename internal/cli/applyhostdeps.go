@@ -109,7 +109,7 @@ func isDepKind(k packdecl.Kind) bool {
 
 // resolveHostDeps probes the host for every binary this pack's program/requires
 // contributions declare. A pack with neither probes nothing — depcheck.DetectManager
-// shells out looking for apt/dnf/pacman/brew, and that cost should not be paid by the many
+// shells out looking for apt/dnf/pacman/brew/nix, and that cost should not be paid by the many
 // packs that declare no host dep at all.
 //
 // Every binary the floor does not answer for is looked up on lp, the LAUNCH PATH (the PATH this
@@ -391,16 +391,26 @@ func (h *hostDeps) depLine(c packdecl.Contribution) string {
 // so having a via means having a remedy. What is left here is a `requires` (which installs
 // nothing by definition) or a program whose via/package is malformed, and `pack lint` is the
 // verb for the second.
+//
+// mgr is "" when the launch PATH holds no package manager depcheck knows. Then no hint can be the
+// remedy, whatever the pack declares, and no sentence names a manager the host does not have.
 func noRemedyReason(c packdecl.Contribution, mgr string) string {
 	if len(c.InstallHints) > 0 {
-		return fmt.Sprintf("install_hints cover %s but not %s (this host's manager)",
-			strings.Join(sortedHintManagers(c.InstallHints), "/"), mgr)
+		covered := strings.Join(sortedHintManagers(c.InstallHints), "/")
+		if mgr == "" {
+			return fmt.Sprintf("install_hints cover %s, but %s", covered, depcheck.NoManager)
+		}
+		return fmt.Sprintf("install_hints cover %s but not %s (this host's manager)", covered, mgr)
+	}
+	forMgr := ""
+	if mgr != "" {
+		forMgr = " for " + mgr
 	}
 	if c.Kind == packdecl.KindRequires {
-		return fmt.Sprintf("the pack declares no install_hints for it, and a `requires` "+
-			"binary is never installed by yolo — install it yourself for %s", mgr)
+		return "the pack declares no install_hints for it, and a `requires` " +
+			"binary is never installed by yolo — install it yourself" + forMgr
 	}
-	return fmt.Sprintf("the pack declares no install_hints, so there is nothing to run for %s", mgr)
+	return "the pack declares no install_hints, so there is nothing to run" + forMgr
 }
 
 // sortedHintManagers keeps the hint list deterministic — this line is compared in tests and

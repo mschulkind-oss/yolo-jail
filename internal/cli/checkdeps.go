@@ -103,6 +103,10 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 			if r.Fallback != "" {
 				pr.Printf("  [dim]or via %s: %s[/dim]", r.Manager, r.Fallback)
 			}
+		case r.Manager == "":
+			// No manager on this PATH, so no hint could be the remedy: say that, rather than
+			// blame the pack's hints or name a manager the host does not have.
+			pr.Printf("[yellow]?[/yellow] %-16s MISSING, %s", r.Bin, richtext.Escape(depcheck.NoManager))
 		default:
 			pr.Printf("[yellow]?[/yellow] %-16s MISSING, no install hint for this host", r.Bin)
 		}
