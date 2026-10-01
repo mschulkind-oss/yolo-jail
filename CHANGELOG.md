@@ -443,6 +443,11 @@ See [troubleshooting](userguide/guides/troubleshooting.md#installing-and-launchi
   `sonnet` and `haiku` still work, and win when a provider names both. See
   [tier aliases](docs/reference/providers.md#tier-aliases).
 - GPT-6.1 Sol replaces GPT-6 Sol for every agent on the ChatGPT subscription (`-p codex`): it is the default and the first entry in the model menus, and GPT-6 Sol is no longer listed. If you had picked GPT-6 Sol yourself, pick a model again.
+- A pack's `install_hints` value may now hold only package names before its one optional
+  ` && <command>` step, since `yolo host apply --assert` runs the hint after one prompt. A hint
+  with `;`, `|` or `$(…)` among its package names, or a second `&&`, is refused when the pack
+  loads, naming the pack, the tool and the character, and saying to put the extra step after a
+  single ` && `.
 
 **The launch's profile line now says what your selection reached for each agent.** Instead of
 listing every selected pack as having received the profile, `Profile bedrock: …` names the packs

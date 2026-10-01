@@ -149,11 +149,29 @@ type Contribution struct {
 	// formula is AWS's deprecated ECS CLI). "brew-cask" wins over "brew" when a pack
 	// declares both; internal/depcheck holds the lookup order.
 	//
-	// A value may be a package PLUS A STEP, `<package> && <command>`, for a package that
-	// does not put Bin on PATH by itself: Debian's fd-find installs `fd` as
-	// /usr/lib/cargo/bin/fd, so the guardrails pack's apt hint links it into /usr/local/bin.
+	// # The value is a convention, and the decoder enforces it
+	//
+	// A value is `<package> [<package>…]`, optionally followed by ONE ` && <command>` step —
+	// a CONVENTION on this field rather than a second declared field, by the maintainer's
+	// ruling of 2026-10-01. The step is for a package that does not put Bin on PATH by
+	// itself: Debian's fd-find installs `fd` as /usr/lib/cargo/bin/fd, so the guardrails
+	// pack's apt hint is `fd-find && sudo ln -sf /usr/lib/cargo/bin/fd /usr/local/bin/fd`.
 	// The printed remedy is the whole command; a bundle file cannot hold the step, so the
 	// dep is left out of it and printed beside it (internal/depcheck's bundleToken).
+	//
+	// The rule, same ruling, checked on every manifest read (installHintProblem): the value
+	// splits at its FIRST ` && `. The PACKAGE PART before it is one or more space-separated
+	// tokens spelled only from ASCII letters, digits and `. _ + - @ / : =` — enough for
+	// `owner/tap/name`, `python@3.12`, `pkg:amd64` and `pkg=1.2` — and no token may start
+	// with "-". So the slot the install command is built around cannot smuggle shell, and
+	// the only way to chain a step is the visible ` && `: `yolo host apply --assert` runs a
+	// remedy through `sh -c` after one confirm (internal/cli/applyhostdepgate.go). The STEP
+	// after it is free shell, because the remedy is shown in full before anything runs, but
+	// it must be non-empty, on one line, and the only one: a second `&&` is refused.
+	//
+	// The allowlist is skew-sensitive on the TOLERANT path, like skills_tier: a widened set
+	// staged for an older entrypoint is refused there. Whoever widens it lets DecodeTolerant
+	// pass unknown characters first, in its own change, and only then the characters.
 	InstallHints map[string]string `json:"install_hints,omitempty"`
 
 	// --- skills / briefing / files (staged trees) ---
@@ -3503,6 +3521,7 @@ func validateContribution(label string, c Contribution) []string {
 	case KindProgram:
 		req("bin", c.Bin)
 		problems = binProblem(problems, label+".bin", c.Bin)
+		problems = append(problems, installHintsProblems(label, c)...)
 		// An EMPTY word in the verb is refused rather than dropped. The launcher passes
 		// the list to the program as argv, so an empty element reaches the vendor as a
 		// zero-length argument — which `claude ""` and friends read as a malformed
@@ -3555,6 +3574,7 @@ func validateContribution(label string, c Contribution) []string {
 	case KindRequires:
 		req("bin", c.Bin)
 		problems = binProblem(problems, label+".bin", c.Bin)
+		problems = append(problems, installHintsProblems(label, c)...)
 		// `via`/`package`/`url` belong to program, and a `requires` carrying one is the
 		// author confusing the two kinds — which is worth saying, because the mistake is
 		// silent otherwise (the fields are simply never read, and the tool never installs).

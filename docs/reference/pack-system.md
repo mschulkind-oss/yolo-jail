@@ -731,11 +731,15 @@ does not narrow the agent's menu there, naming the agent, the provider, the prof
 
 `install_hints` maps a host package manager to the package that provides `bin` there. Used
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
-for the binary and emit a runnable manifest. One key names an installer *flavor* rather than
-a manager: **`brew-cask`**, because a Brewfile `brew` line naming a cask token fails and
-bare `brew install <token>` silently prefers a same-named *formula* — brew's `copilot`
-formula is AWS's deprecated ECS CLI, not the CLI this pack means. `brew-cask` wins over
-`brew` when a pack declares both; the detected manager stays plain `brew`. A `program` with its
+for the binary and emit a runnable manifest. A value is `<package> [<package>…]`, optionally
+followed by one ` && <command>` step, and the package part may hold only ASCII letters, digits
+and `. _ + - @ / : =`, so a hint that puts shell there, or chains a second `&&`, is refused when
+the pack loads (the maintainer's ruling of 2026-10-01; the `InstallHints` doc comment in
+[`contributes.go`](../../internal/packdecl/contributes.go) states the rule). One key names an
+installer *flavor* rather than a manager: **`brew-cask`**, because a Brewfile `brew` line naming
+a cask token fails and bare `brew install <token>` silently prefers a same-named *formula* —
+brew's `copilot` formula is AWS's deprecated ECS CLI, not the CLI this pack means. `brew-cask`
+wins over `brew` when a pack declares both; the detected manager stays plain `brew`. A `program` with its
 own installer (`via: npm` or `via: installer`) is left out of that manifest even when it declares
 `install_hints`, and `check-deps` prints the installer's command beside the manifest's, because
 the tool's own updater keeps that copy current and a distro package pins whatever its repository
