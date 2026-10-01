@@ -2,15 +2,15 @@
 title: "CLI visual polish — color to guide the eye"
 status: accepted
 stage: DECIDED
-next: "Build Group A's second item, yolo loopholes list: color its state labels and names through the Deps.Color the front door already sets (List in internal/loopholes/loopholescmd.go)"
+next: "Group A is done. Build Group B's config --help item: color configUsage's headers, subcommand tokens and flags through the decision the yolo config dispatch already takes (configUsage in internal/cli/config.go)"
 tags: [plan, cli, color, polish]
 ---
 
 # Plan: CLI visual polish — color to guide the eye
 
-**Status:** 2026-07-20 — in progress. **One checklist item moved on 2026-10-01**, Group A's
-`yolo loopholes status`, which colors through `Deps.Color` and a `richtext.Printer` now; Group A's
-`loopholes list` is still flat. Before that no item had moved since 2026-07-21 (re-checked
+**Status:** 2026-07-20 — in progress. **Group A is done as of 2026-10-01**: `yolo loopholes
+status` and then `yolo loopholes list` color through `Deps.Color` and a `richtext.Printer` now,
+`ps` having landed earlier. Before 2026-10-01 no item had moved since 2026-07-21 (re-checked
 2026-09-24, when this doc's line-number anchors were replaced by symbol names because they had
 drifted, and again 2026-09-30). `broker status` below is now `yolo host-daemon status`; the `broker` spelling
 survives as an alias for the Claude broker (2026-09-20). One item in
@@ -188,11 +188,23 @@ Highest value, low risk (text stays byte-identical after strip).
   `TestStatusColorsItsStateVocabulary` pins the colors and that the colored report without its
   escapes is the plain one byte for byte; `TestEveryCommandHonorsNoColor` drives the front door's
   decision with and without `NO_COLOR`.
-- [ ] **`yolo loopholes list`** (`List` in `internal/loopholes/loopholescmd.go`) —
-  **Impact: high · Effort: med** (same Deps plumbing as status). Color the status
-  label green `active` / yellow `inactive (reason)` / dim `disabled`; bold the
-  loophole Name so each row anchors; dim the `(source/transport/lifecycle)` tags
-  and the `transport=`/`intercepts=` metadata; dim the description continuation; bold the `• bundled/user/workspace` empty-state bullet labels.
+- [x] **`yolo loopholes list`** (`List` in `internal/loopholes/loopholescmd.go`) —
+  **DONE 2026-10-01**, through the `Deps.Color` that `runLoopholes` already set for `status`.
+  The state label takes its color from `listStateStyle`: `active`→green, `inactive (reason)`→yellow,
+  `disabled`→dim, and the one reason this item did not name, `inactive (superseded)`→dim, the
+  color `status` gives the same fact as `[superseded]` (a selected pack's choice). The loophole
+  name is bold, the `(source/transport/lifecycle)` tags and the `transport=`/`intercepts=` metadata
+  are dim, and so is the description line. The empty state's bullets are `pack:` and `config:`
+  now (the `bundled` source is gone), and those two labels are bold. The label column is padded
+  outside the label's tags, from the plain label's own `%-36s` padding, so the colored column
+  lines up as the plain one does, and a label longer than the column still gets no padding.
+  The name, tags, metadata, label, description and the two paths are `richtext.Escape`d, as in
+  `status`. The supersession and `settings.` lines are not colored, so they are written outside
+  the renderer, as before, and need no escaping. `TestListColorsItsStateVocabulary` pins each
+  state's color and that the colored report without its escapes is the plain one byte for byte;
+  `TestListEmptyStateColorsItsSourceLabels` does the same for the empty state, and the
+  `loopholes list` row in `TestEveryCommandHonorsNoColor` drives the front door's decision for
+  this verb.
 - [x] **`yolo ps`** (ps.go + runtime/display.go RenderPsTable) — **DONE
   (d71dba3), listed in the Status header.** A color gate + `richtext.Printer`
   are now wired into `psDeps` (ps.go: `richtext.Printer{W: deps.Out, Color:
@@ -297,9 +309,9 @@ golden update — call it out for human sign-off, don't fold it in silently.
 
 1. ~~Richtext palette extension (magenta/blue)~~ **SHIPPED (6be7884)** — and
    `--explain` took the one-hue-per-layer route (59568e4).
-2. Group A (loopholes status → loopholes list → ps): highest value, self-
-   contained plumbing, no goldens. (`ps` done — d71dba3; `loopholes status` done
-   2026-10-01.)
+2. ~~Group A (loopholes status → loopholes list → ps)~~: highest value, self-
+   contained plumbing, no goldens. **DONE** (`ps` — d71dba3; `loopholes status`
+   and `loopholes list` — 2026-10-01.)
 3. ~~`--help`~~ + config surfaces (the structural renderer-routing change), then
    ~~`--explain`~~ — `--help` and `--explain` both landed (59568e4); the
    `config --help`/`configUsage` string remains plain.

@@ -415,10 +415,13 @@ See [troubleshooting](userguide/guides/troubleshooting.md#installing-and-launchi
   such as `mounts`, `network`, `resources`, `gpu` or `cache_relocations`, on the line that
   already lists the pack contents that do not apply there. It used to name only `packages` and
   say nothing about the others.
-- `yolo loopholes status` now uses color on a terminal: each check's state is green when it
-  passed, red when it failed, yellow when the loophole needs attention and dim when it is off or
-  declares no check, and each loophole's name is bold. Piped output, and output with `NO_COLOR`
-  set, is the same text with no color.
+- `yolo loopholes status` and `yolo loopholes list` now use color on a terminal. In `status`,
+  each check's state is green when it passed, red when it failed, yellow when the loophole needs
+  attention and dim when it is off or declares no check. In `list`, a loophole's state is green
+  when it is active, yellow when something about this machine keeps it inactive, and dim when
+  it is turned off or a selected pack replaced it, with its details and description dim. Each
+  loophole's name is bold in both. Piped output, and output with `NO_COLOR` set, is the same
+  text with no color.
 - Re-entering a jail with `YOLO_ALLOW_ATTACH_SKEW=1` now also tells the agent, in its briefing,
   which yolo the jail was started with and which settings of the profile you selected did not
   reach it, so the agent can explain a missing login instead of guessing. On Apple Container the

@@ -181,6 +181,12 @@ func List(deps Deps) int {
 	if outfmt.IsJSON(deps.Format) {
 		return listJSON(deps, all)
 	}
+	// COLOR IS ADDITIVE (docs/plans/cli-visual-polish.md), as in Status: a colored line is the
+	// plain report's text wrapped in style tags, and what yolo did not write in it (a loophole's
+	// name, tags, intercept hosts, description, an unmet requirement's reason, a path) is
+	// Escaped, so a style tag inside it prints as text in both forms. A line that carries no
+	// color is written as before, outside the renderer, and so needs no escaping.
+	p := richtext.Printer{W: deps.Out, Color: deps.Color}
 	if len(all) == 0 {
 		fmt.Fprintln(deps.Out, "No loopholes installed.")
 		// TWO SOURCES, not three. There used to be a `bundled:` line naming
@@ -190,11 +196,11 @@ func List(deps Deps) int {
 		// to look in a directory yolo does not read (docs/design/broker-as-a-pack.md
 		// OQ-BP4). Every loophole yolo ships is a pack's now, so `packs:` is the
 		// answer to "why is this list empty".
-		fmt.Fprintf(deps.Out, "  • pack: a `loophole` contribution from a selected pack; "+
-			"%s is selected implicitly when it exists\n", paths.LocalPackDir())
-		fmt.Fprintf(deps.Out, "  • config: loopholes: block in %s "+
+		p.Printf("  • [bold]pack:[/bold] a `loophole` contribution from a selected pack; "+
+			"%s is selected implicitly when it exists", richtext.Escape(paths.LocalPackDir()))
+		p.Printf("  • [bold]config:[/bold] loopholes: block in %s "+
 			"(install-shaped keys are user-scope only; a workspace "+
-			"yolo-jail.jsonc may set enabled/jail_env)\n", paths.UserConfigPath())
+			"yolo-jail.jsonc may set enabled/jail_env)", richtext.Escape(paths.UserConfigPath()))
 		return 0
 	}
 	for _, lh := range all {
@@ -207,7 +213,8 @@ func List(deps Deps) int {
 		// The state and its reason are computed by listState (jsonreport.go), which
 		// `--format json` reads too. One computation, two renderings: the states this
 		// column shows and the states the document reports cannot drift apart.
-		label := listLabel(listState(lh))
+		state, reason := listState(lh)
+		label := listLabel(state, reason)
 		// Interception is a property of the intercept list, not of the transport
 		// string — see RuntimeArgsFor. The `transport=` fallback still prints for
 		// every non-intercepting loophole, which is what makes the active transport
@@ -223,9 +230,16 @@ func List(deps Deps) int {
 			extra = "transport=" + lh.Transport
 		}
 		tags := lh.Source + "/" + lh.Transport + "/" + lh.Lifecycle
-		fmt.Fprintf(deps.Out, "  %-36s  %s  (%s)  %s\n", label, lh.Name, tags, extra)
+		// The pad is measured on the PLAIN label and written after its closing tag. A width
+		// on the tagged string would count the tags, and one on the rendered string the
+		// escapes, and either would short the column. Taking the pad from fmt's own %-36s
+		// keeps the width rule the plain report always had: a longer label gets none.
+		pad := fmt.Sprintf("%-36s", label)[len(label):]
+		style := listStateStyle(state, reason)
+		p.Printf("  [%s]%s[/%s]%s  [bold]%s[/bold]  [dim](%s)  %s[/dim]", style, richtext.Escape(label), style,
+			pad, richtext.Escape(lh.Name), richtext.Escape(tags), richtext.Escape(extra))
 		if lh.Description != "" {
-			fmt.Fprintf(deps.Out, "      %s\n", lh.Description)
+			p.Printf("      [dim]%s[/dim]", richtext.Escape(lh.Description))
 		}
 		// ANYTHING THAT TURNS SOMETHING OFF MUST NAME WHO DID IT AND WHY
 		// (docs/reference/pack-system.md §5). An unexplained disappearance is the
@@ -325,6 +339,24 @@ var doctorStateStyle = map[string]string{
 	"disabled":   "dim",
 	"superseded": "dim",
 	"no-check":   "dim",
+}
+
+// listStateStyle is the color of the state label `yolo loopholes list` prints for listState's
+// pair, by the same convention as doctorStateStyle and with the color `status` gives the same
+// fact: green for an active loophole, yellow for one a fact about this machine keeps inactive (an
+// unmet requirement, a platform it does not run on, a binary not fetched yet), which `status`
+// reports yellow as `[inactive]`, and dim for one turned off or superseded, where off is the
+// expected answer — superseded being the user's own pack selection, which `status` reports dim
+// as `[superseded]`.
+func listStateStyle(state, reason string) string {
+	switch {
+	case state == "active":
+		return "green"
+	case state == "inactive" && reason != "superseded":
+		return "yellow"
+	default:
+		return "dim"
+	}
 }
 
 // CmdSetEnabled runs `yolo loopholes enable|disable <name>`. It TOGGLES NOTHING

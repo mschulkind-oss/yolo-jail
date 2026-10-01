@@ -62,6 +62,15 @@ var noColorEntryPoints = []struct {
 		loopholes.ResetPackModules()
 		t.Cleanup(loopholes.ResetPackModules)
 	}, run: func() int { return runLoopholes([]string{"loopholes", "status"}) }},
+	// The same loophole, which list labels `active` in green. Nothing runs: list executes no
+	// doctor_cmd.
+	{name: "loopholes list", setup: func(t *testing.T) {
+		t.Setenv("YOLO_VERSION", "")
+		os.Unsetenv("YOLO_VERSION")
+		writeUserConfig(t, `{"loopholes": {"probe": {"description": "d", "command": ["/bin/true"]}}}`)
+		loopholes.ResetPackModules()
+		t.Cleanup(loopholes.ResetPackModules)
+	}, run: func() int { return runLoopholes([]string{"loopholes", "list"}) }},
 	// No boot baseline in a fresh cwd, which drift reports in color.
 	{name: "config", run: func() int { return runConfig([]string{"config", "drift"}) }},
 	// A configured pack that cannot resolve is reported in color, before any probe.
