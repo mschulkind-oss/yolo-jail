@@ -118,6 +118,23 @@ func TestTheBootDropRemedyDeclaresOnlyUnderAConfigTable(t *testing.T) {
 	}
 }
 
+// The remedy leads with the user config, the one file every kind may be declared in whole: a
+// workspace config refuses a provider's endpoints, key variable and platform, so naming
+// yolo-jail.jsonc alone sent a dropped provider to a refusal. The workspace file follows, for an
+// MCP or LSP server, which it accepts.
+func TestTheBootDropRemedyNamesTheUserConfigFirst(t *testing.T) {
+	notice, _ := bootLSPTable(t, "")
+	remedy := notice[strings.Index(notice, "handmade"):]
+	user := strings.Index(remedy, "~/.config/yolo-jail/config.jsonc on the host")
+	workspace := strings.Index(remedy, "this workspace's yolo-jail.jsonc")
+	if user < 0 {
+		t.Fatalf("the remedy does not name the user config on the host; got %q", remedy)
+	}
+	if workspace < 0 || workspace < user {
+		t.Errorf("the remedy must name the workspace config after the user config; got %q", remedy)
+	}
+}
+
 // The remedy is one a reader can follow: the entry declared where the notice says goes back
 // into the table, and the next boot drops nothing.
 func TestFollowingTheBootDropRemedyKeepsTheEntry(t *testing.T) {

@@ -32,6 +32,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/codec"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonptr"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
@@ -1400,6 +1401,10 @@ func regenerateManagedTables(e *Env, surface manifest.Surface, obj *jsonx.Ordere
 	}
 }
 
+// dropRemedyUserConfig is the user config as the boot drop notice names it: the host path, as
+// a reader on the host types it, beside the workspace's config.WorkspaceConfigName.
+const dropRemedyUserConfig = "~/.config/yolo-jail/config.jsonc"
+
 // noteDroppedManagedEntries prints a one-line boot notice for each entry in the
 // existing managed block that config does not (re)assert — the visible-drop
 // requirement of OQ12 (d). Quiet when nothing is dropped. Not a warning: dropping
@@ -1437,11 +1442,19 @@ func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, des
 	// The table is named as what yolo rebuilds, never as where to declare: "under the table
 	// <key>" read as an instruction to add the agent's own key to yolo-jail.jsonc, which no
 	// config table is called.
+	//
+	// THE USER CONFIG FIRST, as the host's remedy and the remedy contract's group key have it:
+	// it is the one file every kind may be declared in whole. A workspace config refuses a
+	// provider's endpoints, key variable and platform (config.validateProviderCredentialScope),
+	// so naming yolo-jail.jsonc alone sent a dropped provider to a refusal. The workspace file
+	// stays named, because an MCP or LSP server is accepted there and it is the one an agent in
+	// the jail can edit. The user config is spelled as the host path: in a jail, ~/.config is
+	// the jail's own copy, not the file the launch reads.
 	fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (not in config): %s "+
 		"— yolo rebuilds %s from its config at every boot; to keep it, declare it in "+
-		"yolo-jail.jsonc (%s), reaching every agent\n",
+		"%s on the host, or in this workspace's %s (%s), reaching every agent\n",
 		surface.Agent, surface.Name, key, strings.Join(dropped, ", "), key,
-		manifest.EntryKindHomes())
+		dropRemedyUserConfig, config.WorkspaceConfigName, manifest.EntryKindHomes())
 }
 
 // sortedKeys returns layer's keys in a deterministic order, so a re-render writes

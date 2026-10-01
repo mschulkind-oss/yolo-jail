@@ -251,12 +251,17 @@ shipped packs the wrong remedy was reachable only from a pack that declares such
 
 **Fixed 2026-10-01.** The notice now reads *"`<agent>/<surface>`: dropping from `<table>` (not in
 config): `<names>` — yolo rebuilds `<table>` from its config at every boot; to keep it, declare it
-in yolo-jail.jsonc (an MCP server under `mcp_servers`, an LSP server under `lsp_servers`, a
-provider under `providers`), reaching every agent"* (`noteDroppedManagedEntries`,
-`internal/entrypoint/prism.go`). The table is named as what yolo rebuilds and never as where to
-declare: the first wording, *"declare it in yolo-jail.jsonc under the table `<table>` is built
-from"*, read as an instruction to add the agent's own key to the config. It names each kind's
-config table rather than one,
+in ~/.config/yolo-jail/config.jsonc on the host, or in this workspace's yolo-jail.jsonc (an MCP
+server under `mcp_servers`, an LSP server under `lsp_servers`, a provider under `providers`),
+reaching every agent"* (`noteDroppedManagedEntries`, `internal/entrypoint/prism.go`). The table
+is named as what yolo rebuilds and never as where to declare: the first wording, *"declare it in
+yolo-jail.jsonc under the table `<table>` is built from"*, read as an instruction to add the
+agent's own key to the config. The user config comes first, as the host's remedy and the
+[remedy contract](../reference/report-tiers.md#the-remedy-contract)'s group key have it, because
+a workspace config refuses a provider's endpoints, key variable and platform
+(`validateProviderCredentialScope`), so the first wording's yolo-jail.jsonc alone sent a dropped
+provider to a refusal; the workspace file stays named, for an MCP or LSP server, which it
+accepts and an agent in the jail can edit. It names each kind's config table rather than one,
 because no declaration tells core which config table a pack's derive builds a table from, and
 that is the form the host's twin, `mcpEntryRemedy`, already gives the same loss class
 ([HC-D20](host-computed-layer.md#HC-D20)). It offers no `config-overlay`, unlike the host's: in a
@@ -265,6 +270,7 @@ regenerates (`applyRMWLayers`, `internal/entrypoint/prism.go`), so an overlay's 
 under one is dropped and announced like any other. Pinned through the boot loop by
 `TestTheBootDropNoticeNamesTheRemedyForATableThatIsNotMCP`,
 `TestTheBootDropRemedyDeclaresOnlyUnderAConfigTable`,
+`TestTheBootDropRemedyNamesTheUserConfigFirst`,
 `TestFollowingTheBootDropRemedyKeepsTheEntry` and
 `TestTheBootDropNoticeForClaudesMCPTableStillNamesMCPServers`
 (`internal/entrypoint/droppedentryremedy_test.go`).
