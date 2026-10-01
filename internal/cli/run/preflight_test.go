@@ -41,7 +41,6 @@ func capabilityGateOptions(t *testing.T, ws string, env map[string]string,
 	t.Helper()
 	o := &Options{
 		Workspace: ws,
-		Network:   "bridge",
 		IsLinux:   true,
 		Stdout:    stdout,
 		Stderr:    stderr,

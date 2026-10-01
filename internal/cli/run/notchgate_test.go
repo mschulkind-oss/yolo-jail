@@ -36,7 +36,6 @@ func notchGateOptions(t *testing.T, ws string, stdout, stderr *bytes.Buffer) *Op
 	t.Helper()
 	o := &Options{
 		Workspace: ws,
-		Network:   "bridge",
 		IsLinux:   true,
 		Stdout:    stdout,
 		Stderr:    stderr,

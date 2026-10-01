@@ -52,6 +52,12 @@ type ExecResult struct {
 // filled with real implementations by fillDefaults.
 type Options struct {
 	// --- CLI surface (typer options + ctx.args) ---
+	//
+	// Network is `--network <mode>` as typed on THIS launch, and it beats the config's
+	// `network.mode`. "" means the flag was not given: the config decides, and with no
+	// key the launch runs bridged. Never read it as the mode — resolveNetMode is the one
+	// reader, and nothing (NewDefaultOptions, fillDefaults) may fill it in, because a
+	// filled-in default is indistinguishable from a typed `--network bridge` (G25).
 	Network string
 	// Notch is `--at <jail|guest|host>` as typed on THIS launch: the confinement
 	// notch this invocation asks for, overriding the config's `confinement` key.
@@ -789,9 +795,8 @@ func TimingLogFor(ws string, getenv func(string) string, stderr io.Writer) *perf
 }
 
 func fillDefaults(o *Options) {
-	if o.Network == "" {
-		o.Network = "bridge"
-	}
+	// o.Network is deliberately NOT defaulted: "" is "no --network typed", and the
+	// bridge default belongs to resolveNetMode, below the config (G25).
 	if o.Now == nil {
 		o.Now = time.Now
 	}
@@ -941,9 +946,11 @@ func isTTY(f *os.File) bool {
 }
 
 // NewDefaultOptions returns Options with the real platform predicate — the
-// shape the CLI front door passes (then overrides the flags).
+// shape the CLI front door passes (then overrides the flags). It sets no flag:
+// Network stays "" so a launch that typed no --network leaves the mode to the
+// config (G25).
 func NewDefaultOptions() Options {
-	return Options{Network: "bridge", IsMacOS: paths.IsMacOS, IsLinux: paths.IsLinux}
+	return Options{IsMacOS: paths.IsMacOS, IsLinux: paths.IsLinux}
 }
 
 // RunWithProxy launches argv under the platform-appropriate TTY proxy (Linux:

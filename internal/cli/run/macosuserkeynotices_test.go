@@ -144,7 +144,7 @@ func TestMacosUserNamesThePortKeys(t *testing.T) {
 // TestMacosUserSaysNothingAboutPortKeysNobodyDeclared is the other control, and it is the
 // exact condition §5.1.1 (2) states: non-empty only. Neither key has a default — which is
 // what makes a notice safe here where a `network.mode` refusal would not be, since
-// NewDefaultOptions gives every launch `Network: "bridge"`.
+// resolveNetMode gives every launch that names no mode "bridge".
 func TestMacosUserSaysNothingAboutPortKeysNobodyDeclared(t *testing.T) {
 	for _, cfg := range []string{`{}`, `{"network": {"mode": "bridge"}}`, `{"network": {"ports": []}}`} {
 		got := macosUserNoticeRun(t, cfg)

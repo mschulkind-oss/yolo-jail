@@ -52,7 +52,6 @@ func dispatchOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 	t.Cleanup(housekeepingSlots.Wait)
 	o := &Options{
 		Workspace: workspace,
-		Network:   "bridge",
 		IsLinux:   true,
 		Stdout:    stdout,
 		Stderr:    stderr,

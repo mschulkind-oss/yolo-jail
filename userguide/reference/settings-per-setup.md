@@ -356,7 +356,7 @@ Two things to read before the table:
 
 Terms: **rootless podman** runs as your own user with no root daemon; **Podman Machine** is the Linux VM podman uses on macOS; **CDI** is the Container Device Interface, a host-side YAML/JSON file describing a GPU; a **remap** is a port entry whose two numbers differ (`5432:3306`).
 
-The `--network` CLI flag does **not** override the config: a `network.mode` in `yolo-jail.jsonc` wins over `yolo --network …`, with no warning. And the validator's warning that the port keys are "ignored when `network.mode` is `'host'`" — the one network message that does fire on any entry — is **false on `container`** (which runs bridged and keeps the ports) and misleading on `macos-user` (both keys are ignored whatever the mode).
+The `--network` CLI flag overrides the config for one launch: `yolo --network bridge …` runs bridged whatever `network.mode` says in `yolo-jail.jsonc`, and with no flag the key decides. The validator's warning that the port keys are "ignored when `network.mode` is `'host'`" — the one network message that does fire on any entry — is **false on `container`** (which runs bridged and keeps the ports) and misleading on `macos-user` (both keys are ignored whatever the mode).
 
 **Can the jail reach a service on your host's `127.0.0.1` with no port setting?** `podman` / Linux (rootless): yes, at `host.containers.internal`; a rootful podman warns that it cannot. `podman` / macOS: yes, at `host.containers.internal`. Apple Container: no, and `forward_host_ports` stops the launch there [^acfwd]. `macos-user`: yes, at `localhost`.
 

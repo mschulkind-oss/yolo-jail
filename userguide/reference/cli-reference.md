@@ -24,7 +24,7 @@ Launch flags, placed before `--`:
 |---|---|
 | `-p <profile>`, `--profile <profile>` | Select a provider profile for this launch; see [Providers and Models](../guides/providers-and-models.md) |
 | `--accept-config-changes` | Approve a changed project config on a launch with no terminal, such as CI; see [Approving config changes](configuration.md#approving-config-changes) |
-| `--network bridge\|host` | Choose the network mode for this launch, when the config does not set one |
+| `--network bridge\|host` | Choose the network mode for this launch, overriding the config's `network.mode` |
 | `--at jail\|host` | Choose where to run: `--at host` is the same as `yolo host` |
 | `--timing` | Report where the launch spent its time |
 

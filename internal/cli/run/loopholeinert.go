@@ -497,9 +497,9 @@ func deviceLabels(entries []any) []string {
 // The message is the whole deliverable.
 //
 // ⚠ ONLY WHEN NON-EMPTY, and that is what makes this safe where a `network.mode` refusal
-// would not be. Neither key has a default (run.NewDefaultOptions sets Network: "bridge",
-// which is why `mode` is APPLIED as host rather than refused), so this cannot fire on a
-// launch that never mentioned networking.
+// would not be. Neither key has a default (resolveNetMode answers "bridge" for a launch
+// that names no mode, which is why `mode` is APPLIED as host rather than refused), so this
+// cannot fire on a launch that never mentioned networking.
 func (o *Options) noteMacosUserPortKeys(cfg *jsonx.OrderedMap) {
 	netSec := cfgMap(cfg, "network")
 	if netSec == nil {

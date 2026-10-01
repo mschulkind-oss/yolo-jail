@@ -52,8 +52,8 @@ Flags:
                      does, wherever the flag sits ('yolo run --at host -- <cmd>'
                      included). 'guest' is not built (env-manager plan Phase 7),
                      so it is refused rather than silently downgraded to a jail.
-  --network <mode>   Override the network mode for this launch
-                     (also --network=<mode>).
+  --network <mode>   Override the network mode for this launch, whatever the
+                     config's 'network.mode' says (also --network=<mode>).
   --profile <sel>   Select the active profile for this launch (also -p <sel>,
                      --profile=<sel>, -p=<sel>). Two spellings of the value: a bare
                      NAME selects it for every agent CLI the selected packs install

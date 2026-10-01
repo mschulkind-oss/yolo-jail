@@ -52,8 +52,18 @@ func markLaunchCheck(h loopholeDaemon, lp *loopholes.Loophole) loopholeDaemon {
 	return h
 }
 
-// resolveNetMode returns the container network mode this launch will use, resolved
-// the same way the assembler resolves it (config `network.mode` overrides the flag).
+// resolveNetMode returns the container network mode this launch will use, and is the
+// one place it is resolved: a typed `--network` (o.Network) beats the config's
+// `network.mode`, which beats the default bridge.
+//
+// THE FLAG WINS because `yolo run --help` calls it an override, and it used to lose: the
+// config won whenever it named a mode, since o.Network defaulted to "bridge" and a launch
+// that typed no flag could not be told from one that typed `--network bridge` (G25 in
+// docs/plans/setup-support-gaps.md). So o.Network is the flag AS TYPED — "" for none, as
+// Notch is — and the default lives here, below both, rather than in NewDefaultOptions or
+// fillDefaults. What the answer is NOT is a second owner of the host-loopback decision:
+// a flag that selects bridge gets hostloopback.go's forwarding like the default does, and
+// an explicit non-bridge mode is never overridden by it (OQ-R1), from either source.
 //
 // UNDER THE SEAL it is always the runtime's own bridge (seal.go, FP-D13): `network.mode: "host"`
 // would put a fork's build in the host's network namespace, where every service the host binds to
@@ -64,13 +74,15 @@ func (o *Options) resolveNetMode(cfg *jsonx.OrderedMap) string {
 	if o.Sealed {
 		return "bridge"
 	}
-	netMode := o.Network
+	if o.Network != "" {
+		return o.Network
+	}
 	if netSec := cfgMap(cfg, "network"); netSec != nil {
 		if m := mapStr(netSec, "mode"); m != "" {
-			netMode = m
+			return m
 		}
 	}
-	return netMode
+	return "bridge"
 }
 
 // advertiseHostFor returns the host name a loopback-TLS daemon should PUBLISH for

@@ -150,6 +150,22 @@ func TestParseRunArgsFlags(t *testing.T) {
 		t.Errorf("--network=none → %q, want none", opts.Network)
 	}
 
+	// THE FRONT DOOR'S OWN OPTIONS, as runRun builds them: a launch that typed no
+	// --network hands over no mode, so `network.mode` decides, and a typed one is the
+	// override `yolo run --help` promises (G25). When NewDefaultOptions said "bridge" the
+	// two were the same state, and the config beat the flag because it had to.
+	opts = run.NewDefaultOptions()
+	parseRunArgs(strings.Fields("run -- true"), &opts)
+	if opts.Network != "" {
+		t.Errorf("no --network → %q, want none: the launch would override the config's "+
+			"network.mode with a mode nobody typed", opts.Network)
+	}
+	opts = run.NewDefaultOptions()
+	parseRunArgs(strings.Fields("run --network bridge -- true"), &opts)
+	if opts.Network != "bridge" {
+		t.Errorf("--network bridge → %q, want bridge", opts.Network)
+	}
+
 	// --timing names nothing and selects no profile: it is the renamed startup-timing
 	// report (OQ-PT5), the flag the old bare --profile used to be.
 	opts = run.Options{}

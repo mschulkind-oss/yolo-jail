@@ -35,7 +35,6 @@ func runFatalOptions(t *testing.T, workspace, ytoRuntime string, stdout, stderr 
 	t.Helper()
 	o := &Options{
 		Workspace:   workspace,
-		Network:     "bridge",
 		IsLinux:     true,
 		Stdout:      stdout,
 		Stderr:      stderr,

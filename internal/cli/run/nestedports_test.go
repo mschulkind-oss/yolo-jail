@@ -56,8 +56,8 @@ func hasSysctl(argv []string, spec string) bool {
 }
 
 // portsConfig is a config declaring both port keys under the default bridge mode
-// (mode left unset, so resolveNetMode answers with o.Network — "bridge" in
-// goldenOptions). The nested drop must be driven by the LAUNCH, not by anything the
+// (mode left unset and no --network in goldenOptions, so resolveNetMode answers its
+// default "bridge"). The nested drop must be driven by the LAUNCH, not by anything the
 // user wrote here.
 func portsConfig() *jsonx.OrderedMap {
 	sec := jsonx.NewOrderedMap()

@@ -38,8 +38,10 @@ type keeperPlan struct {
 	Workspace string `json:"workspace"`
 	Cname     string `json:"cname"`
 	Runtime   string `json:"runtime"`
-	// Network is the launch's `--network` flag (Options.Network): with the config it decides
-	// what a loopback-TLS daemon advertises (advertiseHostFor).
+	// Network is the launch's `--network` flag as typed (Options.Network), "" when none was:
+	// with the config it decides what a loopback-TLS daemon advertises (advertiseHostFor),
+	// through resolveNetMode, so the keeper resolves the mode its launch resolved only if
+	// "" survives the trip rather than arriving as a typed bridge (G25).
 	Network string `json:"network"`
 	// Color is whether the launch renders color on its stream, which the keeper's lines reach
 	// through the relay.

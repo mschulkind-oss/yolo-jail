@@ -731,6 +731,10 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
   overlay is one of the fixes `yolo host apply` suggests when it drops an entry of yours. The
   same holds for an `autonomy` posture's `config` entry on a surface another pack owns, and for
   a `config-overlay` or `config-list` whose `surface` is not written as `agent/name`.
+- `yolo --network <mode>` now overrides the project's `network.mode` for that launch, as
+  `yolo run --help` says it does. The config used to win whenever it named a mode, so
+  `yolo --network bridge -- bash` in a project set to `"host"` started a host-networked jail
+  without a word. With no `--network`, the config decides as before.
 
 ## [0.11.0] - 2026-09-28
 

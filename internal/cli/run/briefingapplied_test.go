@@ -431,8 +431,8 @@ func briefingHeaderOf(t *testing.T, briefing string) string {
 // inverted, since here a loopback listener IS the host's.
 //
 // Driven from a config that asks for BRIDGE and declares both port keys, because that is
-// the live shape: run.NewDefaultOptions is `Network: "bridge"`, so the wrong answer is the
-// default one and a launch that never mentioned networking got it.
+// the live shape: resolveNetMode answers "bridge" for a launch that names no mode, so the
+// wrong answer is the default one and a launch that never mentioned networking got it.
 func TestMacosUserBriefingSaysHostNetworkingAndAdvertisesNoPorts(t *testing.T) {
 	netSec := jsonx.NewOrderedMap()
 	netSec.Set("mode", "bridge")

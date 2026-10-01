@@ -83,7 +83,7 @@ func skewOptions(t *testing.T, repoRoot string, env map[string]string, stdout, s
 		}
 		return env[k]
 	}
-	o := &Options{Workspace: t.TempDir(), Network: "bridge", IsLinux: true}
+	o := &Options{Workspace: t.TempDir(), IsLinux: true}
 	fillDefaults(o)
 	o.Stdout = stdout
 	o.Stderr = stderr

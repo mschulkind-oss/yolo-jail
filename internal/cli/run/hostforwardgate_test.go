@@ -60,8 +60,8 @@ sleep 30
 }
 
 // forwardsConfig declares one `forward_host_ports` entry, with `network.mode` set only
-// when mode is non-empty — an unset key leaves resolveNetMode answering with o.Network
-// ("bridge" in goldenOptions), which is the default every ordinary jail launches under
+// when mode is non-empty — an unset key, with no --network in goldenOptions, leaves
+// resolveNetMode answering its default "bridge", which every ordinary jail launches under
 // and the one a nested launch silently overrides.
 func forwardsConfig(mode string) *jsonx.OrderedMap {
 	net := jsonx.NewOrderedMap()

@@ -207,7 +207,7 @@ func startKeeperFixtureWith(t *testing.T, ready bool, tune func(*keeperPlan), tu
 		t.Fatal(err)
 	}
 	f.plan = &keeperPlan{Build: keeperBuildStamp(), Workspace: t.TempDir(), Cname: cname, Runtime: "podman",
-		Network: "bridge", Config: cfg, SocketsDir: hostServiceSocketsDir(cname, false),
+		Config: cfg, SocketsDir: hostServiceSocketsDir(cname, false),
 		RunCmd: f.jail.mainArgv(ready), ImageRef: "the-image"}
 	if tune != nil {
 		tune(f.plan)

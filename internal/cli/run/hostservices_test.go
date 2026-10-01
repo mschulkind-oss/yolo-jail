@@ -1177,7 +1177,7 @@ func TestAdvertiseHostFollowsTheNetworkNamespace(t *testing.T) {
 		o := &Options{}
 		fillDefaults(o)
 		o.IsMacOS = false
-		o.Network = "bridge"
+		// No --network typed, so the config's mode decides (G25).
 		o.PathExists = func(string) bool { return tc.inContainer }
 		if got := o.advertiseHostFor(tc.rt, tc.cfg); got != tc.want {
 			t.Errorf("%s: advertiseHostFor = %q, want %q", tc.name, got, tc.want)

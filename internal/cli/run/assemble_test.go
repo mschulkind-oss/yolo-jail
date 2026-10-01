@@ -67,7 +67,8 @@ func newConfig(pairs ...any) *jsonx.OrderedMap {
 // paths.IsMacOS — or the golden argv silently diverges off Linux.
 func goldenOptions(workspace, home string) *Options {
 	o := &Options{
-		Network:     "bridge",
+		// No Network: a launch that typed no --network, as NewDefaultOptions leaves it, so
+		// a fixture's `network.mode` decides (G25). A test of the flag sets it.
 		IsMacOS:     false,
 		IsLinux:     true,
 		Workspace:   workspace,

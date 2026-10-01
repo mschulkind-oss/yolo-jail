@@ -1133,6 +1133,7 @@
     "host": the jail shares the host's network stack.  The two loopbacks become
       one, so `localhost` works in both directions and NEITHER port key is
       needed — both are ignored, with a warning from `yolo check`.
+    `yolo --network <mode>` overrides this key for one launch.
 
   [bold]network.ports[/bold] (array of strings): [bold]HOST → JAIL.[/bold] Publish a
     server running INSIDE the jail so the host (and its browser) can reach it.
