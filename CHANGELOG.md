@@ -734,7 +734,11 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
 - `yolo --network <mode>` now overrides the project's `network.mode` for that launch, as
   `yolo run --help` says it does. The config used to win whenever it named a mode, so
   `yolo --network bridge -- bash` in a project set to `"host"` started a host-networked jail
-  without a word. With no `--network`, the config decides as before.
+  without a word. With no `--network`, the config decides as before. The flag applies when a
+  jail starts: re-entering one that is already running keeps the network it started with. The
+  launch warnings about an explicit network mode, and about `"host"` on Apple Container, now
+  name `--network` when the flag chose the mode, instead of pointing at a `network.mode` you
+  may not have set.
 
 ## [0.11.0] - 2026-09-28
 

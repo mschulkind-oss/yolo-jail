@@ -265,7 +265,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// resolves the mode the same way to decide what each host daemon PUBLISHES
 	// (advertiseHostFor), and the two now feed one shared predicate
 	// (sharesLauncherNetns) whose whole value is that they cannot disagree.
-	netMode := o.resolveNetMode(cfg)
+	// Its source names the key or the flag in the warnings below, which must send the user to
+	// whichever one chose the mode.
+	netMode, netModeSource := o.resolveNetModeSource(cfg)
 
 	// --- nested-container detection ---
 	// o.inContainer() rather than a second copy of the same two probes, for the
@@ -578,10 +580,14 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		// AC gives each container its own vmnet netns), so warning on the default would
 		// be noise on every launch.
 		if netMode == "host" {
-			out.print("[yellow]Warning: network.mode \"host\" is NOT honored on Apple Container[/yellow] — " +
+			asked, remedy := `network.mode "host"`, "Remove the key"
+			if netModeSource == netModeFromFlag {
+				asked, remedy = "--network host", "Drop the flag"
+			}
+			out.print("[yellow]Warning: " + asked + " is NOT honored on Apple Container[/yellow] — " +
 				"the backend manages networking itself, so the jail does not share your host's " +
 				"network stack (published ports and forward_host_ports still apply: this backend " +
-				"runs bridged either way). Remove the key, or use YOLO_RUNTIME=podman for host " +
+				"runs bridged either way). " + remedy + ", or use YOLO_RUNTIME=podman for host " +
 				"networking.")
 		}
 	} else if rt == "podman" && inContainer {
@@ -608,7 +614,9 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		// 2.080s on a real host with no way to see which of its exec probes that
 		// was (2026-09-08). Assembly is otherwise pure string work.
 		hlsp := o.Perf.Span("assemble.host_loopback_probe")
-		hostLoopback = decideHostLoopback(o.hostLoopbackFactsFor(rt, netMode))
+		facts := o.hostLoopbackFactsFor(rt, netMode)
+		facts.modeFromFlag = netModeSource == netModeFromFlag
+		hostLoopback = decideHostLoopback(facts)
 		hlsp.End()
 		runCmd = append(runCmd, hostLoopback.args...)
 		if hostLoopback.warning != "" {

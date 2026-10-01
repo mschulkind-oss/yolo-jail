@@ -305,7 +305,8 @@ func TestAssembleRunCmdExplicitModeKeepsOnlyItsOwnFlag(t *testing.T) {
 	if !slices.Equal(got, []string{"--net=none"}) {
 		t.Errorf("an explicit mode must be the only selector, got %v", got)
 	}
-	if !strings.Contains(stderr.String(), "network.mode is set to 'none'") {
+	// The flag chose the mode, so the warning names the flag (TestTheModeWarningsNameWhatChoseIt).
+	if !strings.Contains(stderr.String(), "--network none was given") {
 		t.Errorf("the user keeps the bug and must be told so, got:\n%s", stderr.String())
 	}
 }

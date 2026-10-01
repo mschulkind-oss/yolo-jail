@@ -71,18 +71,34 @@ func markLaunchCheck(h loopholeDaemon, lp *loopholes.Loophole) loopholeDaemon {
 // at the selector, so the assembler, the briefing and the shared-network disclosure, which all read
 // this one answer, agree that a build is bridged.
 func (o *Options) resolveNetMode(cfg *jsonx.OrderedMap) string {
+	mode, _ := o.resolveNetModeSource(cfg)
+	return mode
+}
+
+// The sources resolveNetModeSource names: where the mode a launch runs under came from.
+const (
+	netModeFromDefault = "" // the default bridge, and the seal's
+	netModeFromFlag    = "--network"
+	netModeFromConfig  = "network.mode"
+)
+
+// resolveNetModeSource is resolveNetMode with the source of its answer, for a message that
+// tells the user what to change: a warning about a typed `--network` that said "network.mode
+// is set to" sent them to a key that was not the cause, and could say a bridge key was set to
+// host. The one implementation of the precedence; resolveNetMode reads it.
+func (o *Options) resolveNetModeSource(cfg *jsonx.OrderedMap) (mode, source string) {
 	if o.Sealed {
-		return "bridge"
+		return "bridge", netModeFromDefault
 	}
 	if o.Network != "" {
-		return o.Network
+		return o.Network, netModeFromFlag
 	}
 	if netSec := cfgMap(cfg, "network"); netSec != nil {
 		if m := mapStr(netSec, "mode"); m != "" {
-			return m
+			return m, netModeFromConfig
 		}
 	}
-	return "bridge"
+	return "bridge", netModeFromDefault
 }
 
 // advertiseHostFor returns the host name a loopback-TLS daemon should PUBLISH for

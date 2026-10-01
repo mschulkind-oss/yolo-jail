@@ -26,6 +26,7 @@ package run
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -231,6 +232,66 @@ func TestTheKeeperResolvesTheNetworkModeItsLaunchResolved(t *testing.T) {
 			if got := k.o.resolveNetMode(keeperCfg); got != tc.want {
 				t.Errorf("the keeper resolves %q where its launch resolved %q — the daemons it "+
 					"starts would advertise for a different namespace than the jail's", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestTheModeWarningsNameWhatChoseIt pins the two launch warnings about an explicit mode to
+// whichever source chose it. Once a typed `--network` beats `network.mode` (G25), a warning
+// that always said "network.mode" sends the user to the wrong place, and on Apple Container
+// it told someone whose key says bridge that their key says host and to remove it.
+//
+// The explicit-mode warning on a pasta host is reachable only through the flag, since the
+// validator refuses a key other than bridge or host and host is silent there, so its row is
+// a flag over a config bridge. The Apple Container warning has a row for each source.
+func TestTheModeWarningsNameWhatChoseIt(t *testing.T) {
+	cases := []struct {
+		name, rt, flagMode, configMode string
+		want, notWant                  []string
+	}{{
+		name: "a typed explicit mode is named as the flag",
+		rt:   "podman", flagMode: "none", configMode: "bridge",
+		want:    []string{"Warning: --network none was given, so yolo is not requesting"},
+		notWant: []string{"network.mode is set to"},
+	}, {
+		name: "a typed host on Apple Container is named as the flag",
+		rt:   "container", flagMode: "host", configMode: "bridge",
+		want:    []string{"Warning: --network host is NOT honored on Apple Container", "Drop the flag"},
+		notWant: []string{"network.mode", "Remove the key"},
+	}, {
+		name: "a configured host on Apple Container is named as the key",
+		rt:   "container", flagMode: "", configMode: "host",
+		want:    []string{`Warning: network.mode "host" is NOT honored on Apple Container`, "Remove the key"},
+		notWant: []string{"--network host", "Drop the flag"},
+	}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			emptyLoopholeDirs(t)
+			o, _ := pastaHostOptions(t, "/ws", home, false)
+			o.Network = tc.flagMode
+			var stderr strings.Builder
+			o.Stderr = &stderr
+
+			in := relocationInput(t, tc.rt, t.TempDir(), nil)
+			netSec := jsonx.NewOrderedMap()
+			netSec.Set("mode", tc.configMode)
+			in.cfg.Set("network", netSec)
+			o.assembleRunCmd(in)
+
+			got := stderr.String()
+			for _, w := range tc.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("stderr lacks %q:\n%s", w, got)
+				}
+			}
+			for _, w := range tc.notWant {
+				if strings.Contains(got, w) {
+					t.Errorf("stderr names %q, which did not choose this launch's mode:\n%s", w, got)
+				}
 			}
 		})
 	}

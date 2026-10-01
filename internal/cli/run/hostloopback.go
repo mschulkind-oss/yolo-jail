@@ -292,6 +292,11 @@ type hostLoopbackFacts struct {
 	// netMode is the effective network mode. "bridge" is the default path — the
 	// only one yolo may take ownership of (OQ-R1).
 	netMode string
+	// modeFromFlag is a netMode the launch's typed `--network` chose rather than
+	// `network.mode` (resolveNetModeSource), so the explicit-mode warning names the
+	// flag. In practice that warning is reachable only through the flag: the
+	// validator refuses any key other than bridge or host, and host is silent.
+	modeFromFlag bool
 	// backend is `podman info` host.rootlessNetworkCmd, verbatim. "" when it
 	// could not be read, which is treated exactly like an unrecognised backend.
 	backend string
@@ -479,8 +484,12 @@ func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
 		if f.netMode == "host" || !mappableBackend(f.backend) {
 			return hostLoopbackPlan{}
 		}
-		return hostLoopbackPlan{warning: "[yellow]Warning: network.mode is set to '" + f.netMode +
-			"', so yolo is not requesting host-loopback forwarding for it.\n" +
+		chose := "network.mode is set to '" + f.netMode + "'"
+		if f.modeFromFlag {
+			chose = "--network " + f.netMode + " was given"
+		}
+		return hostLoopbackPlan{warning: "[yellow]Warning: " + chose +
+			", so yolo is not requesting host-loopback forwarding for it.\n" +
 			"  On the default 'bridge' mode yolo asks " + f.backend + " to forward the host's\n" +
 			"  loopback into the jail; with an explicit mode that is your call to make, and\n" +
 			"  without it jail-facing services (Claude OAuth broker, yolo-ps,\n" +
