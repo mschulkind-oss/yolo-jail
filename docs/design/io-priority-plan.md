@@ -3,7 +3,7 @@ title: "Implementation sketch: disk I/O priority, build steps 5 and 6"
 date: 2026-09-27
 status: draft
 stage: SKETCH
-next: "Write step 5's first measurement as an experiment test in macos-user.yml's job: set IOPOL_THROTTLE, launch through LaunchArgv, and read getiopolicy_np inside the sandbox"
+next: "Read step 5's measurement from the scheduled macos-user.yml run: the IOPOL VERDICT line TestMacosUserIOPolicyAcrossTheLaunchArgv logs, then record it at IO-D7"
 depends-on:
   - io-priority.md#OQ-IO7
 tags: [sketch, plan, io, resources, cgroups, implementation]
@@ -15,10 +15,13 @@ vantage:
 # Implementation sketch: disk I/O priority, build steps 5 and 6
 
 **Status:** 2026-09-27 — incomplete, and unstable while questions are open. Build steps 1
-to 4 landed, and their plan went with them; this file's own history has it. Noted 2026-09-30:
-step 5's measurement can be written from a Linux jail as a `TestMacosUser…` experiment, since the
-scheduled `macos-user.yml` job runs that prefix on a Mac runner with the sandbox account set up,
-the way [`host-daemon-ownership.md` OQ-HD10](host-daemon-ownership.md#OQ-HD10)'s experiment runs.
+to 4 landed, and their plan went with them; this file's own history has it. Step 5's
+measurement was written on 2026-10-01 as a `TestMacosUser…` experiment,
+`TestMacosUserIOPolicyAcrossTheLaunchArgv`
+([`macosuseriopolicy_test.go`](../../integration/macosuseriopolicy_test.go)), which the scheduled
+`macos-user.yml` job runs on a Mac runner with the sandbox account set up, the way
+[`host-daemon-ownership.md` OQ-HD10](host-daemon-ownership.md#OQ-HD10)'s experiment runs.
+UNMEASURED until that job runs it.
 
 > [!IMPORTANT]
 > This is the companion sketch for [`io-priority.md`](io-priority.md), and it is not a hand-off:
@@ -38,7 +41,13 @@ Blocked on a Mac measurement: whether `setiopolicy_np` set by the launcher survi
 | `internal/ioprio` | a darwin `sys_darwin.go` beside `sys_other.go`, which `!linux` covers today |
 
 - The measurement to run first: set `IOPOL_THROTTLE`, launch through the real `LaunchArgv`, and
-  read `getiopolicy_np` from inside the sandbox.
+  read `getiopolicy_np` from inside the sandbox. **Written 2026-10-01** as
+  `TestMacosUserIOPolicyAcrossTheLaunchArgv`: a wrapper sets `IOPOL_THROTTLE` on itself at
+  process scope and execs `yolo` (the harness's `withLauncherPrefix`), standing in for the
+  launcher call this step would add, and Python's `ctypes` over libSystem's
+  `setiopolicy_np`/`getiopolicy_np` sets and reads it. A direct exec is the control and must read
+  `IOPOL_THROTTLE`; `sudo` alone and `sandbox-exec` alone are read beside the whole launch, so a
+  lost policy names its hop. Every answer passes; it logs one `IOPOL VERDICT:` line.
 
 ## Step 6: a cgroup half
 

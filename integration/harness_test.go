@@ -697,6 +697,9 @@ func (r result) combined() string { return r.stdout + r.stderr }
 type runConfig struct {
 	timeout time.Duration
 	env     []string
+	// prefix is a wrapper argv the yolo binary runs UNDER (withLauncherPrefix). Empty runs
+	// yolo directly, which is every caller but one.
+	prefix []string
 }
 
 type runOption func(*runConfig)
@@ -720,6 +723,25 @@ func withEnv(pairs ...string) runOption {
 	return func(c *runConfig) { c.env = append(c.env, pairs...) }
 }
 
+// withLauncherPrefix runs the built yolo binary UNDER a wrapper argv: the command becomes
+// `<prefix…> <yoloBin> <args…>`, so the wrapper must exec its trailing arguments. It exists for
+// a property of the LAUNCHER PROCESS that no env var or config key can set, the one a
+// measurement needs to vary: macOS's process I/O policy, which a wrapper sets on itself before
+// it execs yolo (macosuseriopolicy_test.go). Everything else runCommand does is unchanged.
+func withLauncherPrefix(argv ...string) runOption {
+	return func(c *runConfig) { c.prefix = append(c.prefix, argv...) }
+}
+
+// launchCommand is the program and argv runCommand starts: yoloBin with args, or the
+// configured prefix with yoloBin and args appended to it.
+func launchCommand(cfg runConfig, bin string, args []string) (string, []string) {
+	if len(cfg.prefix) == 0 {
+		return bin, args
+	}
+	argv := append(append(append([]string{}, cfg.prefix[1:]...), bin), args...)
+	return cfg.prefix[0], argv
+}
+
 // runCommand runs the built yolo binary with the given args in dir, capturing
 // stdout and stderr separately. The run is bounded by jailTimeout() (overridable
 // via withTimeout); on deadline expiry it force-removes the workspace's
@@ -735,7 +757,8 @@ func runCommand(t *testing.T, dir string, args []string, opts ...runOption) resu
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, yoloBin, args...)
+	name, argv := launchCommand(cfg, yoloBin, args)
+	cmd := exec.CommandContext(ctx, name, argv...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	cmd.Env = append(cmd.Env, childRepoRootEnv()...)

@@ -3,7 +3,7 @@ title: "Yielding the disk: which kernel lever reaches a jail build's I/O, and on
 date: 2026-09-27
 status: in-review
 stage: DESIGN
-next: "Write the Mac measurement step 5 waits on as an experiment test in macos-user.yml's job: set IOPOL_THROTTLE, launch through LaunchArgv, and read getiopolicy_np inside the sandbox"
+next: "Read the Mac measurement step 5 waits on from the scheduled macos-user.yml run (TestMacosUserIOPolicyAcrossTheLaunchArgv's IOPOL VERDICT line) and record it at IO-D7"
 tags: [resources, io, cgroups, bfq, storage, latency, podman, performance]
 summary: "A jail build can saturate the host disk and stall the desktop. Process I/O priority is free to set and reaches every program the jail runs, but only their reads and synchronous writes, and only on BFQ or mq-deadline disks; buffered writeback answers to the cgroup io controller alone, which a stock rootless host neither delegates nor enables. The design sets a declared resources.io.priority on every thread of the jail and names, at launch and in yolo check, each place it does nothing, and that much is built. Of three filed questions, one is decided and two are answered from existing rulings; four stay open: the default, a per-command flag, the host notch, and whether any cgroup half ships."
 vantage:
@@ -12,8 +12,9 @@ vantage:
 
 # Yielding the disk — which kernel lever reaches a jail build's I/O, and on which scheduler
 
-**Status:** 2026-09-27. Build steps 1 to 4 are built; step 5 waits on a Mac, and step 6
-on [OQ-IO7](#OQ-IO7). MEASURED: in a jail nested in a rootless podman jail on Linux 7.1.8, every
+**Status:** 2026-09-27. Build steps 1 to 4 are built; step 5 waits on a Mac, whose measurement
+was written on 2026-10-01 for the scheduled `macos-user.yml` job, and step 6 on
+[OQ-IO7](#OQ-IO7). MEASURED: in a jail nested in a rootless podman jail on Linux 7.1.8, every
 thread but PID 1 read `be/7` after a launch and after an attach, and both named the Kyber NVMe
 under LUKS. UNMEASURED: a BFQ disk's latency under load, and both macOS VM backends. Kernel
 source read at v7.1.
@@ -481,7 +482,11 @@ Example output:
   /usr/bin/sandbox-exec -f <profile> -- <agent>` (`LaunchArgv`,
   [`macosuser.go`](../../internal/macosuser/macosuser.go)). The man page says only that *"the I/O
   policy of a newly created process is inherited from its parent process"*. Whether it survives a
-  setuid `sudo` and `sandbox-exec` needs a Mac, and that measurement is this step.
+  setuid `sudo` and `sandbox-exec` needs a Mac, and that measurement is this step. It is written
+  (2026-10-01) as an experiment the scheduled `macos-user.yml` job runs,
+  `TestMacosUserIOPolicyAcrossTheLaunchArgv`
+  ([`macosuseriopolicy_test.go`](../../integration/macosuseriopolicy_test.go)), and has not run
+  yet; [the plan's step 5](io-priority-plan.md#step-5-macos-user) says how it reads the policy.
 - **Until then it is Warned** by the existing line, which already names `io`. Once it ships, the
   cell becomes HonoredBy `setiopolicy_np`, and that line stops naming the priority.
 - [DP-D1](declaration-parity.md#7-ruled-divergent-and-the-ones-i-would-re-open) does not rule this
