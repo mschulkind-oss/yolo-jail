@@ -158,8 +158,10 @@ func TestAliasWithAQuotedFlagStaysValidShell(t *testing.T) {
 	if err := os.MkdirAll(stubDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stub := "#!/bin/bash\nfor a in \"$@\"; do printf '%s\\n' \"$a\" >> \"$YoloStubOut\"; done\n"
-	stub = strings.ReplaceAll(stub, "$YoloStubOut", shquote.Quote(argvFile))
+	// The path is spliced in quoted and bare: inside double quotes as well, a quoted path
+	// is a file name with the single quotes in it.
+	stub := "#!/bin/bash\nfor a in \"$@\"; do printf '%s\\n' \"$a\" >> " +
+		shellSingleQuote(argvFile) + "; done\n"
 	if err := os.WriteFile(filepath.Join(stubDir, "quotepack"), []byte(stub), 0o755); err != nil {
 		t.Fatal(err)
 	}

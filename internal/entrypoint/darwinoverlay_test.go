@@ -279,7 +279,7 @@ func TestOverlayInstallRefusesALinkAboveADestinationThatTheLayoutDidNotLay(t *te
 	}
 
 	err := f.install(t)
-	if err == nil || !strings.Contains(err.Error(), "sudo rm "+agentDir) {
+	if err == nil || !offers(t, err.Error(), "sudo", "rm", agentDir) {
 		t.Fatalf("InstallHomeOverlay = %v, want a refusal naming the link at %s", err, agentDir)
 	}
 	requireFile(t, filepath.Join(outside, "skills", "theirs", "SKILL.md"), "someone else's")

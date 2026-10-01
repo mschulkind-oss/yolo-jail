@@ -27,6 +27,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 )
 
 // WriteInPlace writes data to path by TRUNCATING the existing file in place
@@ -56,14 +58,22 @@ func WriteStringInPlace(path, data string, perm os.FileMode) error {
 
 // IsMountPoint returns true if path is a mount point inside the container.
 func IsMountPoint(path string) bool {
-	clean := filepath.Clean(path)
 	data, err := os.ReadFile("/proc/self/mountinfo")
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	return mountPointIn(string(data), path)
+}
+
+// mountPointIn reports whether path is the mount point of a line of mountinfo. The kernel
+// writes a space, tab, newline or backslash in that field as an octal escape (\040, \011,
+// \012, \134) — which is what lets a line be split on whitespace at all — so the field is
+// decoded before it is compared, or a mount at a path with a space in it is never one.
+func mountPointIn(mountinfo, path string) bool {
+	clean := filepath.Clean(path)
+	for _, line := range strings.Split(mountinfo, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) >= 5 && fields[4] == clean {
+		if len(fields) >= 5 && ioprio.UnescapeMountinfo(fields[4]) == clean {
 			return true
 		}
 	}

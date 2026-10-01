@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // darwinoverlay.go installs the macos-user HOME OVERLAY: the skills and briefings the host
@@ -258,7 +259,8 @@ func (l overlayLinks) route(home, dest string) (pastLink bool, err error) {
 				"account home that is not one of this launch's layout links to a directory — "+
 				"typically another workspace's, for a pack this launch does not select — and "+
 				"delivering through it would land where the session's sandbox profile does not "+
-				"protect. Remove the link (what it points at is left alone):\n  sudo rm %s", cur, cur)
+				"protect. Remove the link (what it points at is left alone):\n  sudo rm %s", cur,
+				shquote.Quote(cur))
 		}
 		if last {
 			return true, nil
@@ -266,7 +268,8 @@ func (l overlayLinks) route(home, dest string) (pastLink bool, err error) {
 		return true, fmt.Errorf("nothing was delivered at ~/%s: %s, on its way through the "+
 			"workspace sidecar, is a symbolic link the layout did not lay, and delivering "+
 			"through it would land where the session's sandbox profile does not protect. "+
-			"Remove the link (what it points at is left alone):\n  sudo rm %s", dest, cur, cur)
+			"Remove the link (what it points at is left alone):\n  sudo rm %s", dest, cur,
+			shquote.Quote(cur))
 	}
 	return pastLink, nil
 }

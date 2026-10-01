@@ -168,11 +168,11 @@ func parseMountinfoLine(line string) (mount, bool) {
 	if len(pre) < 5 || len(post) < 2 {
 		return mount{}, false
 	}
-	return mount{point: unescapeMountinfo(pre[4]), fstype: post[0], source: unescapeMountinfo(post[1]), dev: pre[2]}, true
+	return mount{point: UnescapeMountinfo(pre[4]), fstype: post[0], source: UnescapeMountinfo(post[1]), dev: pre[2]}, true
 }
 
-// unescapeMountinfo undoes the kernel's octal escapes (\040 for a space, \011, \012, \134).
-func unescapeMountinfo(s string) string {
+// UnescapeMountinfo undoes the kernel's octal escapes (\040 for a space, \011, \012, \134).
+func UnescapeMountinfo(s string) string {
 	if !strings.Contains(s, `\`) {
 		return s
 	}

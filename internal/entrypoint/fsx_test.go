@@ -3,8 +3,53 @@ package entrypoint
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// THE KERNEL ESCAPES A MOUNT POINT'S SPACE. /proc/self/mountinfo writes a space in a path as
+// \040 (and a tab, a newline and a backslash as \011, \012, \134), so a mount at a path with
+// a space in it was compared escaped against the path unescaped and never matched: the render
+// went on to write a surface through the bind mount it is meant to leave alone.
+func TestAMountPointWithASpaceIsAMountPoint(t *testing.T) {
+	const mountinfo = "22 1 0:21 / /proc rw,nosuid - proc proc rw\n" +
+		"605 590 0:44 /src /home/agent/.config/Some\\040App/config.json ro - btrfs /dev/x rw\n" +
+		"606 590 0:44 /src /home/agent/back\\134slash ro - btrfs /dev/x rw\n"
+	for _, p := range []string{"/proc", "/home/agent/.config/Some App/config.json", `/home/agent/back\slash`} {
+		if !mountPointIn(mountinfo, p) {
+			t.Errorf("%q is a mount point in\n%s", p, mountinfo)
+		}
+	}
+	for _, p := range []string{"/home/agent/.config/Some", `/home/agent/.config/Some\040App/config.json`, "/home"} {
+		if mountPointIn(mountinfo, p) {
+			t.Errorf("%q is not a mount point in\n%s", p, mountinfo)
+		}
+	}
+}
+
+// IsMountPoint reads the real table: every mount point this process can see is one. Delete the
+// read and this fails. Only the unescaped lines are taken, so the expectation is the kernel's
+// own spelling rather than this package's decoding of it; the escapes are
+// TestAMountPointWithASpaceIsAMountPoint's.
+func TestIsMountPointReadsTheProcessMountTable(t *testing.T) {
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		t.Skip("no /proc/self/mountinfo on this OS")
+	}
+	n := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if f := strings.Fields(line); len(f) >= 5 && !strings.Contains(f[4], `\`) {
+			p := f[4]
+			if !IsMountPoint(p) {
+				t.Errorf("IsMountPoint(%q) = false for a line of the process's own table:\n%s", p, line)
+			}
+			n++
+		}
+	}
+	if n == 0 {
+		t.Fatal("the process's mount table lists no mount point")
+	}
+}
 
 func TestWriteInPlacePreservesInode(t *testing.T) {
 	dir := t.TempDir()

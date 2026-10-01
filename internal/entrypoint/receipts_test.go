@@ -871,11 +871,32 @@ func TestGenerateAgentLaunchersBakesTheWorkspaceReceiptsPath(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := "_YOLO_RECEIPTS=" + filepath.Join(ws, ".yolo", "receipts.jsonl")
-		if !strings.Contains(string(data), want) {
-			t.Errorf("%s launcher must bake %q:\n%s", bin, want, data)
+		want := filepath.Join(ws, ".yolo", "receipts.jsonl")
+		if got, ok := bakedShellValue(t, string(data), "_YOLO_RECEIPTS"); !ok || got != want {
+			t.Errorf("%s launcher must bake _YOLO_RECEIPTS=%q, a shell reads %q (assigned: %v):\n%s",
+				bin, want, got, ok, data)
 		}
 	}
+}
+
+// bakedShellValue is the value a shell gives name after the script's first line assigning it,
+// and whether there is one. A shell reads the line, rather than this helper comparing text:
+// the path is baked quoted, how it is quoted is the splice contract's business
+// (launchersplice_test.go), and this caller asks only which path the launcher holds. Compared
+// as text, that answer would turn on the quoting the moment the path held a space.
+func bakedShellValue(t *testing.T, script, name string) (string, bool) {
+	t.Helper()
+	for _, line := range strings.Split(script, "\n") {
+		if !strings.HasPrefix(line, name+"=") {
+			continue
+		}
+		out, err := exec.Command("/bin/sh", "-c", line+"\nprintf '%s' \"$"+name+"\"").Output()
+		if err != nil {
+			t.Fatalf("the baked assignment %q does not run in a shell: %v", line, err)
+		}
+		return string(out), true
+	}
+	return "", false
 }
 
 // TestReceiptPrefixEscapesTheDeclaration: the head is rendered in Go with encoding/json for

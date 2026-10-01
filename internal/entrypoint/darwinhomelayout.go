@@ -279,10 +279,11 @@ func occupiedLayoutError(home string, inHome []string, inSidecar []DarwinHomeLin
 		for _, p := range inHome {
 			fmt.Fprintf(&b, "  %s\n", p)
 		}
-		fmt.Fprintf(&b, "Move what you want to keep, then reset the account:\n  sudo rm -rf %s\n", home)
+		fmt.Fprintf(&b, "Move what you want to keep, then reset the account:\n  sudo rm -rf %s\n",
+			shquote.Quote(home))
 	}
 	if len(inSidecar) > 0 {
-		b.WriteString("\nIn the WORKSPACE SIDECAR — and `sudo rm -rf " + home +
+		b.WriteString("\nIn the WORKSPACE SIDECAR — and `sudo rm -rf " + shquote.Quote(home) +
 			"` does NOT touch these, so resetting the account would lose your credentials " +
 			"and leave the launch refusing:\n")
 		for _, ln := range inSidecar {
@@ -292,7 +293,7 @@ func occupiedLayoutError(home string, inHome []string, inSidecar []DarwinHomeLin
 			"belongs — a copy stranded by a container-era launch, whose live original is the " +
 			"path in parentheses. Remove the WORKSPACE copy:\n")
 		for _, ln := range inSidecar {
-			fmt.Fprintf(&b, "  sudo rm -rf %s\n", ln.Path)
+			fmt.Fprintf(&b, "  sudo rm -rf %s\n", shquote.Quote(ln.Path))
 		}
 	}
 	return fmt.Errorf("%s", strings.TrimRight(b.String(), "\n"))
@@ -476,7 +477,7 @@ func (e *LinkedSidecarError) Error() string {
 		"directory each link points at, then remove the LINK, which leaves that directory " +
 		"alone; yolo recreates the directory on the next launch:\n")
 	for _, p := range e.Links {
-		fmt.Fprintf(&b, "  sudo rm %s\n", p)
+		fmt.Fprintf(&b, "  sudo rm %s\n", shquote.Quote(p))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

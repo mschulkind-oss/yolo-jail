@@ -252,8 +252,7 @@ func TestDarwinHomeLayoutRefusesALinkInTheWorkspaceSidecar(t *testing.T) {
 			if !errors.As(err, &linked) || !equalStrings(linked.Links, []string{link}) {
 				t.Fatalf("Apply = %v, want a LinkedSidecarError naming exactly %s", err, link)
 			}
-			if !strings.Contains(err.Error(), "sudo rm "+link+"\n") &&
-				!strings.HasSuffix(err.Error(), "sudo rm "+link) {
+			if !offers(t, err.Error(), "sudo", "rm", link) {
 				t.Errorf("the refusal does not offer removing the link itself:\n%s", err)
 			}
 			if strings.Contains(err.Error(), "rm -rf") {
@@ -375,7 +374,7 @@ func TestDarwinBootstrapOverlayLeavesAPathTheLayoutRefusedAlone(t *testing.T) {
 	writeTreeFile(t, keep, "a previous era's transcript")
 
 	err := f.boot(map[string]string{".claude/skills/demo/SKILL.md": "delivered"})
-	if err == nil || !strings.Contains(err.Error(), "rm -rf "+f.home) {
+	if err == nil || !offers(t, err.Error(), "sudo", "rm", "-rf", f.home) {
 		t.Fatalf("the layout did not refuse the real ~/.claude: %v", err)
 	}
 	if !strings.Contains(err.Error(), "install_home_overlay") {
@@ -402,7 +401,7 @@ func TestDarwinBootstrapWillNotDeliverThroughAnotherLaunchsLink(t *testing.T) {
 	err := f.boot(map[string]string{".claude/skills/demo/SKILL.md": "workspace B"})
 	userLink := filepath.Join(f.home, ".claude")
 	if err == nil || !strings.Contains(err.Error(), "install_home_overlay") ||
-		!strings.Contains(err.Error(), "sudo rm "+userLink) {
+		!offers(t, err.Error(), "sudo", "rm", userLink) {
 		t.Fatalf("the overlay step did not refuse another launch's link at %s: %v", userLink, err)
 	}
 	if got, _ := os.ReadFile(aSkill); string(got) != "workspace A" {

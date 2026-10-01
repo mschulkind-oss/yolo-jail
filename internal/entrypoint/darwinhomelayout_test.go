@@ -361,7 +361,7 @@ func TestDarwinHomeLayoutRefusesToReplaceRealDirectories(t *testing.T) {
 			t.Errorf("the refusal does not name %s:\n%s", want, err)
 		}
 	}
-	if !strings.Contains(err.Error(), "rm -rf "+home) {
+	if !offers(t, err.Error(), "sudo", "rm", "-rf", home) {
 		t.Errorf("the refusal does not name the reset:\n%s", err)
 	}
 	if _, statErr := os.Stat(keep); statErr != nil {
@@ -687,7 +687,7 @@ func TestDarwinHomeLayoutRefusalPrescribesARemedyThatReachesTheOccupiedPath(t *t
 						"path is in the way:\n%s", p, msg)
 				}
 			}
-			got := layoutRemedyPaths(msg)
+			got := layoutRemedyPaths(t, msg)
 			if !equalStrings(got, wantRemedies) {
 				t.Errorf("the refusal offers these commands:\n  rm -rf %v\nand the paths it "+
 					"must be able to fix are:\n  %v\n\nA remedy naming a path that is not "+
@@ -704,19 +704,18 @@ func TestDarwinHomeLayoutRefusalPrescribesARemedyThatReachesTheOccupiedPath(t *t
 // layoutRemedyPaths returns the path argument of every `rm -rf` the refusal OFFERS — the
 // indented command lines, not a path merely mentioned in prose. The distinction is the
 // test's whole subject: the mirror case has to NAME the account home (to warn that
-// resetting it does not help) while not PRESCRIBING it.
-func layoutRemedyPaths(msg string) []string {
+// resetting it does not help) while not PRESCRIBING it. The words are a shell's
+// (offeredCommands), so a path the message left unquoted comes back as the pieces the
+// reader's shell would remove, and fails the comparison.
+func layoutRemedyPaths(t *testing.T, msg string) []string {
+	t.Helper()
 	var out []string
-	for _, line := range strings.Split(msg, "\n") {
-		if line == strings.TrimLeft(line, " \t") {
-			continue // not an indented command line
+	for _, argv := range offeredCommands(t, msg, "sudo", "rm") {
+		if argv[0] == "sudo" {
+			argv = argv[1:]
 		}
-		trimmed := strings.TrimSpace(line)
-		for _, prefix := range []string{"sudo rm -rf ", "rm -rf "} {
-			if rest, ok := strings.CutPrefix(trimmed, prefix); ok {
-				out = append(out, rest)
-				break
-			}
+		if len(argv) > 2 && argv[0] == "rm" && argv[1] == "-rf" {
+			out = append(out, argv[2:]...)
 		}
 	}
 	return out

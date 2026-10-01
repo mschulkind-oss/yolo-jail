@@ -92,16 +92,18 @@ func gitAsAnotherOwner(home, dir string, args ...string) (string, int) {
 	return string(out), 0
 }
 
-// safeDirectories is the global config's safe.directory list, in file order.
+// safeDirectories is the global config's safe.directory list, in file order. Each value is
+// read whole, NUL-terminated (--null): an entry is a path, and a path may hold a space, so a
+// split on whitespace would report one workspace as two entries.
 func safeDirectories(t *testing.T, home string) []string {
 	t.Helper()
-	cmd := exec.Command(gitBin, "config", "--global", "--get-all", "safe.directory")
+	cmd := exec.Command(gitBin, "config", "--global", "--null", "--get-all", "safe.directory")
 	cmd.Env = append(os.Environ(), "HOME="+home, "GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"))
 	out, err := cmd.Output()
 	if err != nil {
 		return nil // exit 1: no entry at all
 	}
-	return strings.Fields(strings.TrimSpace(string(out)))
+	return strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
 }
 
 // TestConfigureGitTrustsAWorkspaceAnotherAccountOwns is the day-one failure and its fix: the
@@ -228,12 +230,8 @@ func TestAFailedSafeDirectoryWriteIsReported(t *testing.T) {
 	if out, err := sh.CombinedOutput(); err != nil {
 		t.Fatalf("the printed remedy %q fails in a shell: %v\n%s", remedy, err, out)
 	}
-	// Line by line, not safeDirectories' fields: the one right answer has a space in it.
-	cmd := exec.Command(gitBin, "config", "--global", "--get-all", "safe.directory")
-	cmd.Env = append(os.Environ(), "HOME="+home, "GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"))
-	out, err := cmd.Output()
-	if got := strings.Split(strings.TrimSpace(string(out)), "\n"); err != nil || !slices.Equal(got, []string{ws}) {
-		t.Errorf("the printed remedy %q set safe.directory to %q (%v), want exactly [%q]", remedy, got, err, ws)
+	if got := safeDirectories(t, home); !slices.Equal(got, []string{ws}) {
+		t.Errorf("the printed remedy %q set safe.directory to %q, want exactly [%q]", remedy, got, ws)
 	}
 }
 

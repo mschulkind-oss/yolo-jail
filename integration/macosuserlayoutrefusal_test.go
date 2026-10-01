@@ -2,6 +2,7 @@ package integration
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -145,6 +146,12 @@ func TestMacosUserLayoutRefusesAnOccupiedSidecarMirror(t *testing.T) {
 // it does not help here) while not PRESCRIBING it. Parsing commands rather than matching the
 // message's prose also survives a rewording, which a refusal this long will get.
 //
+// A SHELL SPLITS THE LINE, as it does for the reader who pastes it: the refusal quotes a
+// path with a space in it, and a reader cutting the line on its prefix would hand back the
+// quotes, while one splitting on spaces would hand back the pieces. `rm` is a shell function
+// printing its own argv, so nothing the line names is removed. A line no shell can parse is
+// returned whole, so the comparison fails naming it.
+//
 // Its Linux-side twin is layoutRemedyPaths in internal/entrypoint — deliberately a second,
 // tiny reader rather than an exported helper, because what crosses from that package to this
 // one is the rendered bytes of a launch, and a shared parser would hide a reflow.
@@ -155,12 +162,17 @@ func macosUserLayoutRemedyPaths(out string) []string {
 			continue // not an indented command line
 		}
 		trimmed := strings.TrimSpace(line)
-		for _, prefix := range []string{"sudo rm -rf ", "rm -rf "} {
-			if rest, ok := strings.CutPrefix(trimmed, prefix); ok {
-				paths = append(paths, strings.TrimSpace(rest))
-				break
-			}
+		if !strings.HasPrefix(trimmed, "sudo rm -rf ") && !strings.HasPrefix(trimmed, "rm -rf ") {
+			continue
 		}
+		words, err := exec.Command("/bin/sh", "-c",
+			"sudo() { \"$@\"; }\nrm() { printf '%s\\0' \"$@\"; }\n"+trimmed).Output()
+		if err != nil {
+			paths = append(paths, trimmed)
+			continue
+		}
+		args := strings.Split(strings.TrimSuffix(string(words), "\x00"), "\x00")
+		paths = append(paths, args[1:]...) // past the -rf
 	}
 	return paths
 }
@@ -173,13 +185,17 @@ func macosUserLayoutRemedyPaths(out string) []string {
 // abort — and that the launch stops. Whether the reader can parse the bytes does not need a
 // Mac, so it is measured here, against a refusal produced by the real layout.
 //
+// The workspace sits under "My Projects", so the path the refusal prescribes has a space in
+// it and reaches the reader quoted: the form a Mac workspace takes as often as not, and the
+// one a prefix-cutting reader misread.
+//
 // Not behind requireMacosUser and so not in the vacuity ledger: it exercises no backend. It
 // carries the TestMacosUser prefix so `-run '^TestMacosUser'` selects it on the macOS job
 // too.
 func TestMacosUserLayoutRemedyParserReadsARealRefusal(t *testing.T) {
 	base := t.TempDir()
 	home := filepath.Join(base, "home")
-	sidecar := filepath.Join(base, "ws", ".yolo", "home")
+	sidecar := filepath.Join(base, "My Projects", "ws", ".yolo", "home")
 	mirror := filepath.Join(sidecar, ".claude-shared-credentials")
 	if err := os.MkdirAll(mirror, 0o755); err != nil {
 		t.Fatal(err)

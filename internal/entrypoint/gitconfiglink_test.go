@@ -118,10 +118,13 @@ func TestConfigureGitWritesOnlyThroughTheLayoutsOwnLinks(t *testing.T) {
 				t.Fatalf("the bootstrap wrote another workspace's .git/config through a link the "+
 					"agent planted at %s:\n%s", link, after)
 			}
-			for _, want := range []string{link, "sudo rm " + link, "no safe.directory entry"} {
+			for _, want := range []string{link, "no safe.directory entry"} {
 				if !strings.Contains(said, want) {
 					t.Errorf("the refusal does not say %q:\n%s", want, said)
 				}
+			}
+			if !offers(t, said, "sudo", "rm", link) {
+				t.Errorf("the refusal does not offer `sudo rm %s` as a shell reads it:\n%s", link, said)
 			}
 		})
 	}
