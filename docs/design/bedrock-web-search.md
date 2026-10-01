@@ -3,7 +3,7 @@ title: "Web search on every Bedrock profile: the AgentCore MCP preset"
 date: 2026-09-25
 status: in-review
 stage: DESIGN
-next: "Measure D7, build step 9.1, from the agents' shipped packages: which offer a native search tool on a Bedrock profile, and which resolve ${VAR} in an MCP server's env; it needs no ruling, while OQ-BR19 is the first one owed"
+next: "Rule OQ-BR19, the first owed, then OQ-BR23 and OQ-BR20. D7, read 2026-10-01 from the shipped packages, bears on OQ-BR19 (codex and opencode do not resolve ${VAR} in an MCP server's env) and widens OQ-BR23 (on -p bedrock-bridge claude and codex offer a search runtime cannot serve; copilot and oh-omp search outside the MCP table)"
 depends-on:
   - mcp-presets-removal.md
 tags: [bedrock, aws, agentcore, mcp, web-search, tavily, packs, providers]
@@ -12,14 +12,19 @@ summary: "No agent has native web search on bedrock-runtime, the one Bedrock end
 
 # Web search on every Bedrock profile: the AgentCore MCP preset
 
-**Status:** 2026-09-25. The direction is ruled ([DIR-BR4](#DIR-BR4)). On 2026-09-29
-[OQ-BR21](#OQ-BR21) was decided and [OQ-BR22](#OQ-BR22) answered; three questions remain. None of the
-search feature is built; the signer it reuses is. Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) on 2026-09-25, where it was section 6.9;
-question ids are unchanged. **MEASURED:** yolo's MCP pipeline, read at `6f21b82c` ([§3](#3-what-yolos-mcp-pipeline-does-today)).
-**UNMEASURED:** no one has called an AgentCore gateway, and whether each agent offers a native
-search tool it cannot use, or passes its environment to an MCP server, is unread
-([D7](#d7-unmeasured-two-search-traps-a-derive-can-walk-into)). Every AWS fact is SOURCED from
-AWS's pages on the date given in the [evidence appendix](#evidence-and-how-to-re-check-it).
+**Status:** 2026-10-01. The direction is ruled ([DIR-BR4](#DIR-BR4)). On 2026-09-29
+[OQ-BR21](#OQ-BR21) was decided and [OQ-BR22](#OQ-BR22) answered; three questions remain. On
+2026-10-01 both traps in [D7](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into) were
+read from the agents' shipped packages and found real: they bear on [OQ-BR19](#OQ-BR19)'s option A
+and widen [OQ-BR23](#OQ-BR23). None of the search feature is built; the signer it reuses is. Split
+out of [`bedrock-plumbing.md`](bedrock-plumbing.md) on 2026-09-25, where it was section 6.9;
+question ids are unchanged. **MEASURED:** yolo's MCP pipeline, read at `6f21b82c`
+([§3](#3-what-yolos-mcp-pipeline-does-today)); the bridge refusing Claude's search server tool on
+its translating route, and the `${VAR}` references this jail's own agent configs carry (D7).
+**UNMEASURED:** no one has called an AgentCore gateway or started an agent. Every per-agent fact
+in D7 is read from shipped code, not run, and what runtime answers to a server tool it does not
+serve is undocumented. Every AWS fact is SOURCED from AWS's pages on the date given in the
+[evidence appendix](#evidence-and-how-to-re-check-it).
 
 **The question this doc answers.** When an agent talks to Bedrock, how does it search the web,
 and when a user's own Tavily search server is also eligible, which one does it get?
@@ -41,6 +46,11 @@ and when a user's own Tavily search server is also eligible, which one does it g
   standard-library SigV4 signer the wire bridge has used since 2026-09-25 (commit `226d2b3a`;
   [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-BR10)). It already exports the AgentCore
   service name and gateway-host matcher for this proxy.
+- **Read 2026-10-01** ([D7](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)): on
+  `-p bedrock-bridge`, claude and codex each offer a search that runtime cannot serve; codex and
+  opencode pass a `${VAR}` in an MCP server's `env` through as literal text; pi's own MCP client
+  reads a file yolo does not write. AWS documents Bedrock's server-side web search for none of the
+  three models `packs/bedrock` lists, on either endpoint.
 
 **Needs your ruling:** [OQ-BR19](#OQ-BR19), [OQ-BR20](#OQ-BR20), [OQ-BR23](#OQ-BR23).
 
@@ -88,14 +98,19 @@ the AWS credential comes from, and owner of `packs/aws-auth`'s README).
 
 | Source of search | On a Bedrock profile |
 | :--- | :--- |
-| Bedrock's built-in Web Search | **mantle only**: a server-side tool on mantle's Responses API, for `openai.gpt-5.4`, `openai.gpt-5.5` and the three GPT-5.6 models, in `us-east-1`, `us-east-2` and `us-west-2`. Runtime serves no server-side or pre-configured tools |
-| Claude Code's WebSearch tool | **absent**: *"The WebSearch tool is not available on Amazon Bedrock"* ([Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock)) |
-| codex's search | AWS documents it on mantle only (*"Codex … connects to Amazon Bedrock through the `bedrock-mantle` endpoint and can use Web Search"*, CLI 0.147.0 or later) |
-| opencode, pi, copilot | nothing Bedrock-specific that has been read |
-| Tavily | works anywhere, as a user's own `mcp_servers` entry with a Tavily key ([§3](#3-what-yolos-mcp-pipeline-does-today)) |
+| Bedrock's built-in Web Search | **mantle only**: a server-side tool on mantle's Responses API, for `openai.gpt-5.4`, `openai.gpt-5.5` and the three GPT-5.6 models, in `us-east-1`, `us-east-2` and `us-west-2` (and three of them in `us-gov-west-1`). Runtime serves no server-side or pre-configured tools. **None of the three models `packs/bedrock` lists is among them** ([D7](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)) |
+| Amazon Nova Web Grounding | the one server-side search AWS documents on runtime: a Converse `systemTool`, `nova_grounding`, for Nova models on US cross-Region profiles only. yolo lists no Nova model, and no agent yolo ships sends it |
+| Claude Code's WebSearch tool | **absent in Bedrock mode**: *"The WebSearch tool is not available on Amazon Bedrock"* ([Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock)). **Offered, and cannot work, on `-p bedrock-bridge`** (D7 (a)) |
+| codex's search | AWS documents it on mantle only (*"Codex … connects to Amazon Bedrock through the `bedrock-mantle` endpoint and can use Web Search"*, CLI 0.147.0 or later). codex 0.158.0 turns it off for its runtime provider and **sends it on `-p bedrock-bridge`**, where runtime cannot serve it (D7 (a)) |
+| copilot | nothing from Bedrock; GitHub's hosted `web_search` MCP tool whenever copilot holds a GitHub login (D7 (a)) |
+| opencode, pi | nothing, unless the user turns on opencode's Exa or Parallel search or installs a pi search package (D7 (a)) |
+| oh-omp | nothing from Bedrock; its own `web_search` through whichever third-party search credential it finds (D7 (a)) |
+| Tavily | works anywhere, as a user's own `mcp_servers` entry with a Tavily key ([§3](#3-what-yolos-mcp-pipeline-does-today)), **except that codex and opencode hand the server the literal text `${TAVILY_API_KEY}`** (D7 (b)) |
 
-So on runtime **no agent has native search, whatever its model**, and search is one mechanism for
-every agent that projects yolo's MCP table. SOURCED 2026-09-25 from AWS's endpoints and Web Search pages.
+So on runtime **no agent gets search from Bedrock, whatever its model**. What search an agent has
+there comes from a service outside Bedrock (GitHub for copilot, a third-party key for oh-omp) or
+from yolo's MCP table. SOURCED 2026-09-25 from AWS's endpoints and Web Search pages, re-read
+2026-10-01 with the three listed models' cards and Nova's Web Grounding page.
 
 **There is no search under a Bedrock API key alone.** The mechanism below signs, a bearer cannot
 sign, and whether AgentCore accepts a Bedrock API key at all is unknown: AWS's API-key actions
@@ -160,6 +175,8 @@ MEASURED at `6f21b82c`, from the code and [`mcp-configuration.md`](../reference/
   ruled is not built.
 - **`${VAR}` is never interpolated by yolo.** It is written verbatim, and the agent that launches
   the server resolves it ([`mcp-configuration.md`](../reference/mcp-configuration.md#the-rules-the-one-loader-enforces)).
+  ⚠ Read 2026-10-01: claude and copilot resolve it; codex and opencode do not
+  ([D7 (b)](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)).
 - **Capability-driven MCP delivery** — the rule, and the term **authentication source**, are both
   defined in [`mcp-configuration.md`](../reference/mcp-configuration.md#what-the-derive-boundary-removes). A server
   whose `provides` names a capability the launch's authentication source already has is dropped.
@@ -176,6 +193,9 @@ MEASURED at `6f21b82c`, from the code and [`mcp-configuration.md`](../reference/
   reaches claude. INFERRED from the resolver; not run.
 - **pi projects the table** into `~/.pi/agent/mcp-adapter.json`, which pi reads only through an MCP adapter
   extension yolo does not install ([`mcp-configuration.md`](../reference/mcp-configuration.md#unbuilt)).
+  ⚠ Read 2026-10-01: pi has had its own MCP client since 0.99.0, and it reads
+  `~/.pi/agent/mcp.json`, a file the pi pack does not write
+  ([D7 (b)](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)).
 
 ## 4. The shape
 
@@ -322,21 +342,84 @@ policy narrows only as far as the role allows, so the role behind `aws-auth` mus
 `InvokeGateway` too. SOURCED from AWS's endpoints and AgentCore gateway pages, 2026-09-24 and
 2026-09-25; the denial is INFERRED, since no request was made.
 
-### D7 (unmeasured): two search traps a derive can walk into
+### D7 (read 2026-10-01): two search traps a derive can walk into
 
-Measure both before the preset ships (build step 9.1).
+Both traps are real. They were read on 2026-10-01 (build step 9.1) from the packages installed in
+this jail and from codex's source at the tag of the binary yolo installs. oh-omp, which is not
+installed here, was read from its npm package. No agent was started and nothing was called. Each
+row names the version read. The labels: **SOURCED** is read from that version's code or AWS's
+pages, **MEASURED** was run here, **INFERRED** follows from the two. How to re-read each one is
+under [Shipped-package re-checks](#shipped-package-re-checks).
 
-- **(a) An agent may offer a native search tool its transport cannot serve.** Claude Code's
-  WebSearch is unavailable in Bedrock mode, but claude's everything profile is not Bedrock mode: it
-  is `ANTHROPIC_BASE_URL` pointed at the bridge. Whether claude then still offers WebSearch, and
-  sends that server tool through the bridge to Bedrock, is unread. So is whether codex's
-  `amazon-bedrock-runtime` provider sends Bedrock's `web_search` tool to runtime, which serves no
-  server-side tools. Either would fail at the first search, or give the agent two search tools.
-- **(b) An agent's MCP client may not pass the jail's environment to the proxy.** The proxy needs
-  the credential variables and the gateway URL, and some MCP clients spawn a stdio server with an
-  allowlisted environment. So the entry names every variable it needs in its `env`, as `${VAR}`
-  references the agent resolves (yolo interpolates nothing), the shape a Tavily entry already
-  takes. Whether each of the six projecting agents resolves `${VAR}` in an MCP `env` is unmeasured.
+**(a) An agent may offer a search its transport cannot serve.** Claude Code's WebSearch is off in
+Bedrock mode, but claude's `-p bedrock-bridge` is not Bedrock mode: it is `ANTHROPIC_BASE_URL`
+pointed at the bridge. codex's runtime provider might also send Bedrock's `web_search` tool to
+runtime, which serves none. Either fails at the first search, or gives the agent two search
+tools.
+
+| Agent, version read | Its own search on a Bedrock profile |
+| :--- | :--- |
+| claude 2.1.286 | **`-p bedrock`: none.** SOURCED: WebSearch's `isEnabled` is true only when Claude Code's provider is `firstParty`, `anthropicAws`, `anthropicGoogleCloud`, `foundry` or `vertex`, and false for `bedrock` and `mantle`. **`-p bedrock-bridge`: offered, and it cannot work.** SOURCED: yolo sets `ANTHROPIC_BASE_URL` and no `CLAUDE_CODE_USE_BEDROCK` there (`nativeBedrock` in `packs/claude/derive.lua`), so the provider is `firstParty`. A WebSearch call is a second Messages request to the main model, carrying Anthropic's server tool `web_search_20250305`. For a model the list marks `"vendor": "anthropic"` (Claude Opus 5.5), the bridge forwards that request unchanged to runtime's Messages route ([wire-bridge.md](../reference/wire-bridge.md#the-messages-pass-through-on-a-bedrock-upstream)), and Anthropic documents web search as *"not available on Amazon Bedrock"*. MEASURED for any other model: the bridge's translating route refuses it, which the daemon answers with a named 400 ([WB-D5](../reference/wire-bridge.md#wb-d5)). INFERRED: runtime refuses the forwarded tool too, though AWS documents no answer |
+| codex 0.158.0 | **`-p bedrock`: none.** SOURCED: the `amazon-bedrock-runtime` provider reports the capability `web_search: false` (true only for the mantle endpoint). That suppresses both the hosted `web_search` tool and codex's standalone search. **`-p bedrock-bridge`: sent, and runtime cannot serve it.** SOURCED: the via row is an ordinary provider named `bedrock`, not one of codex's two Bedrock names, so it takes the default capabilities (`web_search: true`). Unless its `web_search` mode is `"disabled"`, codex adds the hosted `{"type": "web_search", …}` tool to every Responses request. The via route forwards the body unchanged to runtime's `/openai/v1/responses`, where *"server-side tool use and pre-configured tools aren't available, including web search"*. INFERRED: a 400 or a silently ignored tool; AWS does not say which |
+| copilot 1.0.48 | **Nothing from Bedrock.** SOURCED: its requests through the bridge carry no server tool, since the package names no `web_search_20…` type. Its `web_search` is a tool of GitHub's hosted MCP server (`api.githubcopilot.com/mcp`, toolset `web_search`), offered unless the model's catalog entry says it searches natively. copilot connects that server only with a GitHub login (a saved login, the `gh` CLI or a token variable), and never in offline mode. INFERRED: on Bedrock, copilot searches through GitHub whenever it holds such a login, outside yolo's MCP table. Whether a yolo launch of copilot on Bedrock carries one was not read |
+| opencode 1.18.34 | **None by default.** SOURCED: its `websearch` tool is registered only for the providers `opencode` and `opencode-go`, or when `OPENCODE_ENABLE_EXA`, `OPENCODE_ENABLE_PARALLEL` or `OPENCODE_EXPERIMENTAL` is set. It then calls Exa's or Parallel's hosted MCP endpoint from the opencode process. No call site adds a provider's own search tool to a request. No shipped pack sets those variables |
+| pi 0.99.2 | **None.** SOURCED: pi ships no search tool, and its Bedrock client (`amazon-bedrock`, the Converse API) sends only the session's own tools. This jail's user installed `pi-web-access` 0.33.0, a pi package that searches through Exa and other services from the pi process. It is the user's install, not one yolo ships |
+| oh-omp 0.15.3 | **Nothing from Bedrock.** SOURCED: its own `web_search` tool uses the first search service whose credential it finds, in this order: Tavily, Perplexity, Brave, Jina, Kimi, Anthropic, Gemini, Codex, Z.ai, Exa, Parallel, Kagi, Synthetic. None of these is Bedrock. Its derive projects no MCP table, so a preset would not reach it |
+| agy | **Never on a Bedrock profile.** SOURCED: its `program` declares no protocol (`packs/agy/pack.json`), so no profile routes it to Bedrock |
+
+**(b) An agent's MCP client may not pass the jail's environment to the proxy.** The proxy needs
+the credential variables and the gateway URL. The planned entry names each in its `env` as a
+`${VAR}` reference for the agent to resolve, the shape a Tavily entry already takes.
+
+| Agent, version read | File yolo writes | Server inherits the agent's environment? | `${VAR}` in `env` |
+| :--- | :--- | :--- | :--- |
+| claude 2.1.286 | `~/.claude.json` `mcpServers` | **yes**, minus Claude Code's own credentials | **resolved**, with `${VAR:-default}`, in `command`, `args` and `env` |
+| codex 0.158.0 | `~/.codex/config.toml` `[mcp_servers]` | **no**: an empty environment plus `HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`, `__CF_USER_TEXT_ENCODING`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR` and `TZ`, the names in the entry's `env_vars` key, and `env` | **not resolved**: `env` reaches the server as written |
+| copilot 1.0.48 | `~/.copilot/mcp-config.json` | **yes**, minus copilot's own agent and provider variables | **resolved**: `${VAR}`, `${VAR:-default}` and `$VAR` |
+| opencode 1.18.34 | `~/.config/opencode/opencode.json` `mcp`, with `env` renamed `environment` | **yes**: the process environment, then `environment` over it | **not resolved**: opencode substitutes `{env:VAR}` in its config text, so `${VAR}` stays literal and **replaces** the inherited value of that variable |
+| pi 0.99.2 | `~/.pi/agent/mcp-adapter.json` | its own MCP client, **yes** | its own client **resolves** `${VAR}`, `$VAR` and `!command`, **but it reads `~/.pi/agent/mcp.json` and a trusted project's `.pi/mcp.json`**, and the pi pack writes neither. It deletes an `mcp.json` that holds exactly its own render, the file's location before yolo 0.11.0 (`retireIfMatchesRender`; [AM-R1](agent-directory-map.md#AM-R1)). So pi's own client sees none of yolo's table. A user-installed `pi-mcp-adapter` (3.3.0 in this jail) reads `mcp-adapter.json`, inherits the environment and resolves `${VAR}` |
+
+All SOURCED. MEASURED in this jail, the user's Tavily entry as each agent's config carries it:
+
+```console
+$ rg -n 'TAVILY_API_KEY' ~/.codex/config.toml ~/.config/opencode/opencode.json ~/.claude.json ~/.pi/agent/mcp-adapter.json
+/home/agent/.claude.json:1278:        "TAVILY_API_KEY": "${TAVILY_API_KEY}"
+/home/agent/.pi/agent/mcp-adapter.json:23:        "TAVILY_API_KEY": "${TAVILY_API_KEY}"
+/home/agent/.codex/config.toml:26:TAVILY_API_KEY = "${TAVILY_API_KEY}"
+/home/agent/.config/opencode/opencode.json:30:        "TAVILY_API_KEY": "${TAVILY_API_KEY}"
+```
+
+INFERRED: under codex and opencode, that Tavily server receives the literal text
+`${TAVILY_API_KEY}` as its key, so every Tavily search there fails. That contradicts
+[`mcp-configuration.md`](../reference/mcp-configuration.md#the-rules-the-one-loader-enforces)'s
+premise that *"the consuming agent can resolve `${VAR}` itself"* for two of the agents it
+projects to. That doc owns the rule; this one only records the reading.
+
+**What the readings mean.** Each point is INFERRED from the two tables, and none is a ruling.
+
+- **For the preset's entry (build steps 9.2 and 9.3).** Listing each variable in `env` as `${VAR}`
+  works for claude and copilot. It breaks codex, where the proxy gets literal text and no AWS
+  variable at all, and opencode, where literal text overwrites credentials the proxy would
+  otherwise inherit. It reaches pi only through a user's adapter. An entry that lists no AWS
+  variable in `env` reaches them by inheritance under claude, copilot and opencode, and not under
+  codex, which forwards only the names in its own `env_vars` key. No derive writes that key today.
+- **For trap (a).** On `-p bedrock-bridge`, claude's WebSearch and codex's hosted search sit beside
+  any preset, and both fail. The capability rule cannot drop them, because the `bedrock` provider
+  declares no `web_search`, and that row is all the rule reads.
+- **[OQ-BR19](#OQ-BR19).** Option A's last step, *"the proxy reads the URL from the variable the
+  entry's `env` names"*, holds under claude and copilot. Under codex the variable never reaches
+  the proxy unless the codex derive also names it in `env_vars`. Under opencode the reference
+  overwrites the real value. Under B or C the URL is a value a derive could write into the entry
+  itself, so it would not depend on how each agent resolves a reference. The credentials have the
+  per-agent problem under all three options.
+- **[OQ-BR20](#OQ-BR20).** Nothing read bears on it.
+- **[OQ-BR23](#OQ-BR23).** Its leaning, *"one search tool per render"*, acts on the MCP table
+  alone. On a Bedrock profile the readings find search outside that table: claude's and codex's
+  on `-p bedrock-bridge` (broken), copilot's through GitHub whenever it holds a login, oh-omp's
+  through a third-party key, opencode's through Exa or Parallel when its flag is set, and a user's
+  pi package. Under any option, "queries stay in AWS" also needs those turned off per agent.
+  Today the user's Tavily entry is broken under codex and opencode, so on those agents "both
+  eligible" means one search tool that works and one that does not.
 
 ## 9. What done looks like
 
@@ -379,9 +462,11 @@ Measure both before the preset ships (build step 9.1).
 9. **Search, after [OQ-BR19](#OQ-BR19), [OQ-BR20](#OQ-BR20) and [OQ-BR23](#OQ-BR23) rule.** The
    bridge's signer it builds on shipped 2026-09-25 as `internal/sigv4` (bedrock-plumbing's build
    step 8.1; [`wire-bridge-gateway.md`](wire-bridge-gateway.md#OQ-BR10)):
-   1. measure [D7](#d7-unmeasured-two-search-traps-a-derive-can-walk-into) first: which agents
-      offer a native search tool on a Bedrock profile, and which pass `${VAR}` references in an MCP
-      `env`;
+   1. ~~measure [D7](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into) first: which
+      agents offer a native search tool on a Bedrock profile, and which pass `${VAR}` references in
+      an MCP `env`~~ — read 2026-10-01 from the shipped packages, not run. Both traps are real, and
+      [what the readings mean](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into) names
+      what steps 2 and 3 meet. Watching a real search run is still done-condition 12's job;
    2. the signing proxy ([OQ-BR21](#OQ-BR21)), a hidden `yolo` subcommand on the shared signer;
    3. the preset and its Bedrock gate ([OQ-BR22](#OQ-BR22)), with a boot-render test that fails when
       the gate's call site is deleted, and that covers `-p bedrock-bridge` (the shipped profile that forces the wire bridge,
@@ -407,7 +492,14 @@ Measure both before the preset ships (build step 9.1).
     | **C.** A new top-level config key | Core would learn an AWS service by name |
 
     Under A, "no URL, no preset, and say so" is `requires_env`'s existing behavior. The proxy reads
-    the URL from the variable the entry's `env` names ([D7](#d7-unmeasured-two-search-traps-a-derive-can-walk-into)).
+    the URL from the variable the entry's `env` names ([D7](#d7-read-2026-10-01-two-search-traps-a-derive-can-walk-into)).
+
+    ⚠ New since the leaning was written (2026-10-01, D7 (b)): that last step holds under claude and
+    copilot only. codex passes `env` through unresolved and starts the server with an empty
+    environment, and opencode leaves a `${VAR}` reference as literal text over the inherited value.
+    Under B or C a derive could write the URL into the entry as a plain value. The credentials have
+    the per-agent problem under every option. The leaning is unchanged; this changes what A costs to
+    build.
 
     _Leaning:_ A. It is the one home a company pack and a user can both write today, and it needs
     no new gate. The launch discloses the gateway host whenever the preset is delivered.
@@ -422,6 +514,8 @@ Measure both before the preset ships (build step 9.1).
     `bedrock-agentcore-control` permissions, an IAM role with a trust policy, and an account-level
     decision about who may search. Stakes: first-use friction against yolo holding control-plane
     permissions and writing into an organization's AWS account.
+
+    Nothing in D7's 2026-10-01 reading bears on this question.
 
     _Leaning:_ No. It is an organization's resource, made once per company, and yolo consumes AWS
     rather than administering it. The pack README carries the three calls that make one (a gateway
@@ -545,6 +639,14 @@ Measure both before the preset ships (build step 9.1).
     | **B.** Both are delivered | Two search tools; the agent picks per call, and queries may leave AWS unpredictably |
     | **C.** The user's Tavily entry wins | Honors the user's explicit entry, but a company's "search stays in AWS" is one config line from undone, silently |
 
+    ⚠ New since the leaning was written (2026-10-01, D7): the two MCP entries are not the only
+    search tools on a Bedrock profile. On `-p bedrock-bridge`, claude's WebSearch and codex's
+    hosted search are offered and fail. copilot searches through GitHub whenever it holds a login,
+    oh-omp through any third-party key it finds, and opencode through Exa when its flag is set. None
+    of these is an MCP entry, so no option here drops them. Under codex and opencode the user's
+    Tavily entry is broken today, because neither resolves `${TAVILY_API_KEY}`. The leaning is
+    unchanged. Its *"queries stay in AWS"* holds only if those per-agent tools are also turned off.
+
     _Leaning:_ A. One search tool per render, matching the rule `validate.go` already enforces, and
     queries stay in AWS. A user who prefers Tavily removes the preset by name, visibly, in their own
     config.
@@ -586,6 +688,13 @@ this table maps each to its source.
 | GA posted 2026-06-19; `aws_iam_streamablehttp_client(endpoint=gateway_url, aws_region="us-east-1", aws_service="bedrock-agentcore")` from `mcp_proxy_for_aws`; the URL form; queries served in an AWS service account | AWS Machine Learning Blog, [*Introducing Web Search on Amazon Bedrock AgentCore*](https://aws.amazon.com/blogs/machine-learning/introducing-web-search-on-amazon-bedrock-agentcore) |
 | MCP Proxy for AWS: stdio to the client, SigV4 to the server, the boto3 chain, fresh credentials per request, Apache-2.0, `uvx mcp-proxy-for-aws-cli@latest <endpoint>` | the [`aws/mcp-proxy-for-aws`](https://github.com/aws/mcp-proxy-for-aws) README |
 | `aws-auth`'s example policy and the IAM-per-use table | [Bedrock endpoints](https://docs.aws.amazon.com/bedrock/latest/userguide/endpoints.html) and the [AgentCore gateway target configuration](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-add-target-api-target-config.html) and [inbound authorization](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-inbound-auth.html) pages, 2026-09-24 and 2026-09-25 |
+| 2026-10-01: Web Search still lists `openai.gpt-5.4`, `openai.gpt-5.5` and `openai.gpt-5.6-sol`, `-terra`, `-luna` in three commercial US Regions, and `openai.gpt-5.6-terra`, `-luna` and `openai.gpt-5.4` in `us-gov-west-1`. No GPT-6 model and no Claude model is listed | [Bedrock Web Search](https://docs.aws.amazon.com/bedrock/latest/userguide/web-search.html) |
+| 2026-10-01: in the endpoints page's capability table, *"Server-side tool use"* and *"Pre-configured ready-to-use tools"* are marked not supported on `bedrock-runtime` and supported on `bedrock-mantle`. The runtime Responses API: *"Server-side tool use and pre-configured tools aren't available, including web search"* | [Bedrock endpoints](https://docs.aws.amazon.com/bedrock/latest/userguide/endpoints.html), [Responses API](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-responses-api.html) |
+| 2026-10-01: Claude Opus 5.5's card lists no web search and no server-side tool on either endpoint (computer use is its one Anthropic tool type). Bedrock's tool-use page names the Anthropic tool types `computer_*`, `bash_*`, `text_editor_*` and `memory_*`, and no `web_search_*` | [Claude Opus 5.5 card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html), [Use a tool](https://docs.aws.amazon.com/bedrock/latest/userguide/tool-use.html) |
+| 2026-10-01: GPT-6.1 Sol's card lists *"Server-side system tools"* as not supported. GPT-6 Astra's lists *"Server-side tool use"* as not supported on `bedrock-runtime` and *"Server-side tool calling"* as supported on `bedrock-mantle` | [GPT-6.1 Sol card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-sol.html), [GPT-6 Astra card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html) |
+| 2026-10-01: Nova's Web Grounding is the `nova_grounding` `systemTool` of the runtime Converse API, *"only available in US regions and supported only by US CRIS profiles"* | [Amazon Nova 2, Web Grounding](https://docs.aws.amazon.com/nova/latest/nova2-userguide/web-grounding.html) |
+| 2026-10-01: Mantle's server-side `mcp` tool accepts an AgentCore gateway ARN as its `connector_id`, so Bedrock calls the gateway for the model. That path is mantle's, so it is out of scope with mantle | [Server-side tool use](https://docs.aws.amazon.com/bedrock/latest/userguide/tool-use-server-side.html) |
+| 2026-10-01: *"Web search is not available on Amazon Bedrock"*; *"Amazon Bedrock doesn't expose the server-side web search tool"* | Anthropic, [Web search tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool); Claude Code, [Tools reference](https://code.claude.com/docs/en/tools-reference#websearch-tool-behavior) |
 
 **Repo re-checks:**
 
@@ -594,3 +703,114 @@ this table maps each to its source.
   and entry keys.
 - `rg -n 'mcp-server' internal/packdecl/kinds_test.go` — no MCP contribution kind yet.
 - `rg -n InvokeModel packs/aws-auth/README.md` — D6's policy text.
+
+### Shipped-package re-checks
+
+D7's readings, 2026-10-01. The JavaScript bundles are minified, so a helper's name such as `Pe`
+or `St` belongs to the version read. Search for the string, not the name. Each command was run
+here, and its output follows it.
+
+**claude 2.1.286** (`~/.local/bin/claude`, which points at this file):
+
+```console
+$ C=~/.local/share/claude/versions/2.1.286
+$ rg -a -o 'isEnabled\(\)\{let e=Pe\(\);if\(e==="firstParty"[^}]*\}' $C
+isEnabled(){let e=Pe();if(e==="firstParty"||fH(e))return!0;if(e==="gateway")return!1;if(e==="vertex")return kWr(Ue(et()));if(e==="foundry")return!0;return!1}
+$ rg -a -o 'function fH\(e=Pe\(\)\)\{[^}]*\}' $C
+function fH(e=Pe()){return e==="anthropicAws"||e==="anthropicGoogleCloud"}
+$ rg -a -o 'function Pe\(\)\{if\(no\(\)[^}]*\}' $C
+function Pe(){if(no()||A2t()||C2t())return"gateway";return a.CLAUDE_CODE_USE_BEDROCK?"bedrock":a.CLAUDE_CODE_USE_FOUNDRY?"foundry":a.CLAUDE_CODE_USE_ANTHROPIC_AWS?"anthropicAws":a.CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD?"anthropicGoogleCloud":a.CLAUDE_CODE_USE_MANTLE?"mantle":a.CLAUDE_CODE_USE_VERTEX?"vertex":"firstParty"}
+$ rg -a -o 'C=\{type:"web_search_20250305"[^}]*\}' $C
+C={type:"web_search_20250305",name:"web_search",allowed_domains:r.allowed_domains,blocked_domains:r.blocked_domains,max_uses:8,...k&&{search_profile:k}
+$ rg -a -o 'function Ru\(e,\{expandVars:n=!0\}=\{\}\)' $C
+function Ru(e,{expandVars:n=!0}={})
+$ rg -a -o 'case"stdio":\{let S=e;h=\{\.\.\.S,command:g\(S\.command\)[^}]*\}' $C
+case"stdio":{let S=e;h={...S,command:g(S.command),args:S.args.map((w)=>g(w)),env:S.env?qr(S.env,(w)=>g(w)):void 0}
+```
+
+`"gateway"` is Claude Code's own cloud-gateway login (`credentialSlots.gatewayAuth`), not a
+custom `ANTHROPIC_BASE_URL`. A stdio server's environment is the process environment minus the
+names Claude Code withholds as its own credentials, and none of them is an `AWS_*` variable.
+
+**codex 0.158.0** (`~/.codex/packages/standalone/current/codex-package.json` says `"version":
+"0.158.0"`). It was read from `openai/codex` at the tag `rust-v0.158.0`, under `codex-rs/`:
+
+- `model-provider/src/amazon_bedrock/mod.rs`, `AmazonBedrockModelProvider::capabilities`:
+  `web_search: self.endpoint == BedrockEndpoint::Mantle`. Its own tests are named
+  `runtime_capabilities_disable_web_search_and_support_v2_remote_compaction` and
+  `capabilities_enable_web_search_but_disable_image_generation`.
+- `model-provider/src/provider.rs`: `ProviderCapabilities::default()` has `web_search: true`, and
+  `create_model_provider` builds the Bedrock provider only when `is_amazon_bedrock()` is true. In
+  `model-provider-info/src/lib.rs` that tests `name` against `"Amazon Bedrock"` and
+  `"Amazon Bedrock Runtime"`.
+- `core/src/tools/spec_plan.rs`, `hosted_model_tool_specs` and `standalone_web_search_enabled`:
+  both require `turn_context.provider.capabilities().web_search`.
+- `rmcp-client/src/utils.rs`, `create_env_for_mcp_server` and `DEFAULT_ENV_VARS`;
+  `utils/pty/src/child_command.rs`, `Command::new` calls `.env_clear()`;
+  `codex-mcp/src/rmcp_client.rs` passes `env` through with no expansion.
+- The binary carries the same strings:
+  `rg -a -c 'unsupported env_vars source' ~/.codex/packages/standalone/current/bin/codex` prints
+  `1`.
+
+**copilot 1.0.48** (`~/.npm-global/lib/node_modules/@github/copilot/app.js`):
+
+```console
+$ A=~/.npm-global/lib/node_modules/@github/copilot/app.js
+$ rg -o 'Ogr="github-mcp-server-web_search",Mgr="web_search"' $A
+Ogr="github-mcp-server-web_search",Mgr="web_search"
+$ rg -c 'web_search_20[0-9]{6}' $A; echo "exit=$?"
+exit=1
+$ rg -o 'iWe=/[^;]{0,110}' $A
+iWe=/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_])/g
+$ rg -o 'envInheritMode:"inherit"' $A | head -1
+envInheritMode:"inherit"
+```
+
+**opencode 1.18.34** (`opencode-ai/node_modules/opencode-linux-x64/bin/opencode`):
+
+```console
+$ O=~/.npm-global/lib/node_modules/opencode-ai/node_modules/opencode-linux-x64/bin/opencode
+$ rg -a -o 'function St\(o,e=\{exa:!1,parallel:!1\}\)\{[^}]*\}' $O
+function St(o,e={exa:!1,parallel:!1}){return o===oe.ID.opencode||o===oe.ID.make("opencode-go")||e.exa||e.parallel}
+$ rg -a -o 'env:\{\.\.\.process\.env,\.\.\.Z==="opencode"\?\{BUN_BE_BUN:"1"\}:\{\},\.\.\.F\.environment\}' $O
+env:{...process.env,...Z==="opencode"?{BUN_BE_BUN:"1"}:{},...F.environment}
+$ rg -a -o 'o\.text\.replace\(/\\\{env:\(\[\^\}\]\+\)\\\}/g' $O
+o.text.replace(/\{env:([^}]+)\}/g
+```
+
+**pi 0.99.2** (`@earendil-works/pi-coding-agent`; its MCP client came in 0.99.0, dated 2026-09-29
+in its `CHANGELOG.md`):
+
+```console
+$ P=~/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent
+$ rg -n '"mcp.json"' $P/dist/extensions/mcp/config.js
+79:    readConfigFile(join(options.agentDir, "mcp.json"), "global", state);
+81:        readConfigFile(join(options.cwd, CONFIG_DIR_NAME, "mcp.json"), "project", state);
+$ rg -n 'inheritEnv === false' $P/node_modules/@earendil-works/pi-mcp/dist/transports/stdio.js
+75:        const env = this.options.inheritEnv === false ? { ...this.options.env } : { ...process.env, ...this.options.env };
+$ rg -c mcp-adapter $P/dist; echo "exit=$?"
+exit=1
+```
+
+**oh-omp 0.15.3**: not installed in this jail. Its npm package carries the binary in
+`@oh-labs/oh-omp-linux-x64`:
+
+```console
+$ curl -sSL https://registry.npmjs.org/@oh-labs/oh-omp-linux-x64/-/oh-omp-linux-x64-0.15.3.tgz | tar -xz
+$ rg -a -A14 'SEARCH_PROVIDER_ORDER = \[' package/oh-omp | tr -d ' \n'
+SEARCH_PROVIDER_ORDER=["tavily","perplexity","brave","jina","kimi","anthropic","gemini","codex","zai","exa","parallel","kagi","synthetic"];
+```
+
+**The bridge refusing Claude's search tool** (MEASURED): a throwaway test, deleted after the run
+and not committed, in `internal/wirebridge`:
+
+```go
+body := `{"model":"us.openai.gpt-6.1-sol","max_tokens":64,"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":8}],"messages":[{"role":"user","content":"x"}]}`
+_, err := TranslateRequest([]byte(body))
+t.Logf("chat-completions route: err=%v", err)
+```
+
+```console
+$ go test -count=1 -run TestZZProbeClaudeWebSearch -v ./internal/wirebridge/
+    zz_probe_test.go:8: chat-completions route: err=wirebridge: unrecognized tool type "web_search_20250305" (the bridge translates custom tools only — wire-bridge.md §4)
+```
