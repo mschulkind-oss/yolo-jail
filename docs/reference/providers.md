@@ -87,11 +87,13 @@ watched running, by area:
   read from their installed builds and never run. claude's Bedrock mode on real credentials is
   MEASURED ([the note](#two-channels-split-by-payload-type)). UNMEASURED: a request from codex,
   opencode or pi reaching Bedrock.
-- **Active sets.** MEASURED: the grammar, every refusal, the gate's delivery and pi's and
-  opencode's renders by unit tests, and integration launches in a real jail rendering pi's files
-  and environment for `-p pi=zai,openrouter` and `-p pi=zai,bedrock`, and opencode's file for
-  `-p opencode=zai,openrouter` and `-p opencode=zai,bedrock`. UNMEASURED: no pi or opencode
-  session was run, so none switched providers.
+- **Active sets.** MEASURED: the grammar, every refusal, the gate's delivery and pi's,
+  opencode's and oh-omp's renders by unit tests, and integration launches in a real jail rendering
+  pi's files and environment for `-p pi=zai,openrouter` and `-p pi=zai,bedrock`, opencode's file
+  for `-p opencode=zai,openrouter` and `-p opencode=zai,bedrock`, and oh-omp's keys and
+  `models.yml` for `-p oh-omp=zai,openrouter`, with `-p oh-omp=zai,bedrock` refused (oh-omp's set
+  added 2026-10-01, [AP-D18](../design/active-provider-sets.md#AP-D18)). UNMEASURED: no pi,
+  opencode or oh-omp session was run, so none switched providers.
 - **opencode on the ChatGPT subscription.** MEASURED: unit tests over the launch's channel
   composition, the boot render, the view writer, the host prelaunch and the shipped plugin under
   node with a fake `yolo`; a real `-p codex` launch of claude, codex, opencode and pi in a nested

@@ -17,6 +17,7 @@ covers:
   - internal/cli/run/persistencemap.go
   - internal/cli/run/keeper.go
   - internal/cli/run/keeperspawn.go
+  - internal/cli/run/keeperwatch.go
   - internal/cli/run/lifecycle.go
   - internal/cli/run/sessionlock.go
   - internal/entrypoint/jailmain.go
@@ -951,7 +952,13 @@ and a refusal refuses it too.
 shared; when the keeper can take it exclusively, the last session is gone, and the keeper stops
 the container and runs the teardown. It ends the same way when the container ends some other
 way or on a SIGTERM, and never on a timer. It restarts nothing and nothing restarts it: an
-arrival at a jail whose keeper died is refused and names `yolo stop`.
+arrival at a jail whose keeper died is refused and names `yolo stop`. Since 2026-10-01 it says
+when a host service it started ends on its own while the jail is up: one line in its log and an
+entry in its start record, which each session that was in prints at its quit and every later
+arrival as it enters, naming how the service ended, its log, and `yolo stop` then a launch as
+what starts it again. A host-wide daemon is the machine's and is not watched, and a daemonizing
+wrapper's clean exit that leaves its service reachable is not recorded
+([JL-D71](../design/jail-lifetime-last-session-wins.md#JL-D71)).
 
 **Reuse and attach.** An `exec` into the running container: no `prepareWsState`, no new
 skeleton, no provisioning of its own, no mount changes. The entrypoint still re-runs its whole
@@ -1086,7 +1093,7 @@ only place the values themselves are stated.
 | The container's main process, and how a session enters | `yolo-entrypoint --yolo-hold-main '<stage>'` as pid 1's child, with `YOLO_JAIL_MAIN=hold`, started by the jail's keeper and ended only by a SIGTERM; every session by `<runtime> exec`, the first with `--yolo-first-session`; every podman `run` and `exec` with `--detach-keys=`, which turns the detach sequence off | `internal/entrypoint/jailmain.go`, `internal/cli/run/jailmain.go`, `runtime.DetachKeysArgs` |
 | A session's record, in-jail, and its hangup | `/run/yolo/sessions/<id>`, the session's pid and start time, named by the `YOLO_SESSION_ID` its launcher passes its exec, the first session's included; the session's signal arm runs `yolo-entrypoint --yolo-hangup-session <id>`, which sends SIGHUP then SIGCONT to that session's processes and never stops the jail. For an attach, only in a jail whose `YOLO_CONTRACT_TAGS` has `session-hangup` | `internal/entrypoint/sessionhangup.go`, `internal/cli/run/sessionhangup.go` |
 | The jail's keeper | `yolo internal daemon jail-keeper`, one per running container jail, spawned by the fresh launch with a `0600` plan file, a progress pipe, a lifeline and the launch lock; it owns the host services and the container, and ends when the session lock says the last session is gone or the runtime says the container is | `internal/cli/run/keeper.go`, `internal/cli/run/keeperspawn.go` |
-| The keeper's host state | its liveness lock `locks/<container name>.keeper`, held exclusively for its life; its start record `owners/<container name>.keeper.json` (`0600`), which a jail whose keeper died is reaped from; its log `logs/jail-keeper-<container name>.log`, truncated at each keeper's start once it holds the liveness lock and mirrored into `launch.log` once the jail is ready | `internal/cli/run/keeperstate.go`, `internal/cli/run/keeperframe.go` |
+| The keeper's host state | its liveness lock `locks/<container name>.keeper`, held exclusively for its life; its start record `owners/<container name>.keeper.json` (`0600`), which a jail whose keeper died is reaped from and which lists each host service that ended while the jail was up; its log `logs/jail-keeper-<container name>.log`, truncated at each keeper's start once it holds the liveness lock and mirrored into `launch.log` once the jail is ready | `internal/cli/run/keeperstate.go`, `internal/cli/run/keeperframe.go`, `internal/cli/run/keeperwatch.go` |
 | The jail's main-process and provisioning state, in-jail | `/run/yolo/main/`: `boot`, `provision.sh`, `provision.lock`, `provision.claimed`, `provision.outcome`, `first-session` | `internal/entrypoint/jailmain.go` (`jailMainDir`) |
 | The session lock | one host-side `flock` per container name, `locks/<container name>.sessions`, held shared by every session's launcher, and taken exclusively by the keeper, which then ends the jail | `internal/cli/run/sessionlock.go` |
 | The owner-PID file | `owners/<container name>`, naming the jail's keeper; removed only while it still names whoever removes it, and kept, with the keeper's start record, when the keeper's stop did not end the container, so the jail left behind reads as one whose keeper is gone | `internal/cli/run/lifecycle.go`, `internal/cli/run/keeper.go` |

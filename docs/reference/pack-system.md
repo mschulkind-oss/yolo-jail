@@ -2808,7 +2808,7 @@ a key that does nothing must not be accepted quietly.
     whatever host directory it names. On [OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7)'s
     axis, host reach rather than install, only a pack yolo ships, named by its bare name, reaches
     nothing at selection.
-  - **The skills half is already ruled another way.** [`OQ-WS1`](../design/workspace-skills.md#OQ-WS1)
+  - **The skills half is already ruled another way.** [`OQ-WS1`](agent-briefings.md#oq-ws1)
     was ruled on 2026-09-27: the workspace became a skills source of its own, at the lowest
     layer, read by a confined reader rather than through a pack. So the same-sitting request is
     overtaken, and a repository's own skills need no pack.
