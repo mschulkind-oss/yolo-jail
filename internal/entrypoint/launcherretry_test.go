@@ -140,7 +140,13 @@ fi
 	}
 	launcher := []string{filepath.Join(e.LaunchDir(), "pnpm")}
 	stamp := filepath.Join(home, ".cache", "yolo-package-manager-stamps", "pnpm.stamp")
-	retryNow := "    To retry the install now: rm -f " + stamp + " && pnpm\n"
+	// The launcher spells the path with bash's printf %q, so a path with a space pastes as one
+	// word; build the expectation the same way rather than assuming the path needs no quoting.
+	quoted, err := exec.Command("bash", "-c", `printf '%q' "$1"`, "_", stamp).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryNow := "    To retry the install now: rm -f " + string(quoted) + " && pnpm\n"
 
 	out, rc := run(launcher, "FAKE_INSTALL_FAIL=1")
 	if rc == 0 {
