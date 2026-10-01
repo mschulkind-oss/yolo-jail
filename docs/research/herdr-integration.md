@@ -21,6 +21,11 @@ second lens measured [§6](#6-what-is-unmeasured) item 8, git in a container thr
 scratch repository's `.git`, on a rootful podman nested in a jail
 ([§4.5](#45-option-4-git-in-herdrs-worktrees)). Four rulings are owed.
 
+**Update, 2026-09-30.** Option 2 is built in core, ahead of [OQ-HR1](#OQ-HR1)'s ruling, which
+leans the same way ([built note](#built-2026-09-30)). A second design written in parallel,
+`terminal-multiplexer-integration.md`, is folded into [§4.9](#49-folded-in-the-terminal-multiplexer-design)
+rather than kept beside this doc.
+
 > **In short.** herdr is tmux rebuilt for coding agents. herdr and yolo are two layers of one
 > setup: herdr owns the terminals, and yolo owns what runs in them. `yolo host` already works in
 > herdr. A jailed agent shows up as a plain terminal, because herdr looks for it among host
@@ -952,6 +957,31 @@ INFERRED.
 **What it fixes:** status and the label. **What it does not fix:** pane close, restore and
 worktrees.
 
+#### Built, 2026-09-30
+
+[`herdragent.go`](../../internal/cli/run/herdragent.go), called from `run.Run` above the backend
+dispatch. It does what this section describes, with three differences:
+
+- **A self-report as well as the hint.** It also runs `herdr pane report-agent <pane> --source
+  yolo-jail --agent <bin> --state unknown`, and `release-agent` at exit. That identifies the pane
+  from the start of the launch, and on macos-user, where no runtime client carries the hint. The
+  `yolo-jail` source matches a hand-written wrapper some users already run, so a machine running
+  both ends up with one registration. Whether herdr accepts `report-agent-session` on a pane identified
+  this way, without the hint, is unmeasured ([§2.4](#24-hooks-self-reports-and-resume-commands)
+  measured only the hint), so Option 3 should rely on the hint.
+- **Which panes it acts in.** Only a launch whose command is a program a selected pack installs
+  (`Pack.InstallBins`) gets the hint, the report or the label. `yolo -- bash` and bare `yolo` get
+  none of them, as [HR-D8](#HR-D8) scopes the label. Core still names no agent.
+- **The narrower variant.** It runs the `herdr` found on `PATH`, never the ambient
+  `HERDR_BIN_PATH`.
+
+Also built: the hint goes on `runtimeClientEnv`, which only `runArmedSession` reads, so it reaches
+each session's runtime client and nothing else ([HR-D3](#HR-D3)). The kitty arm stands down in a
+herdr pane ([HR-D5](#HR-D5)), detected by `HERDR_ENV=1` as well as `TERM_PROGRAM=herdr`, because
+herdr 0.7.5 leaves the outer terminal's `TERM_PROGRAM` set and does not set `HERDR_BIN_PATH`.
+MEASURED in a herdr 0.7.5 pane on macOS. `YOLO_NO_HERDR=1` turns all of it off. A failed report
+prints one line, and the launch continues with only the hint.
+
 ### 4.4 Option 3: resume after a herdr restart
 
 - **The idea.** The launcher reports a resume command it builds itself:
@@ -1106,6 +1136,58 @@ Each of these has one sensible answer, so none is asked.
 | <a id="HR-D8"></a>HR-D8 | *Implementation decision.* **The pane label carries the `--agent` guard and is cleared at exit,** so a killed launcher does not leave a stale jail title. **Scope:** herdr shows a guarded label only while the pane's detected agent matches it, so the label appears only for agents herdr recognizes. A jail running bare `yolo`, `yolo -- bash` or an unrecognized command gets no herdr marker. The non-agent case is a follow-up, with one candidate: an unguarded label with `--ttl-ms`, refreshed by the launcher, so a killed launcher's label expires | [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) |
 | <a id="HR-D9"></a>HR-D9 | *Implementation decision.* **herdr's host `SessionStart` hook reaching jail Claude is a follow-up for the claude pack's host-layer composition, not part of the herdr slice.** It crosses today through the `readsHost` settings layer, which folds host keys with no filter ([§3.6](#36-two-writers-on-one-agent-config-file)). First measure what the user sees ([§6](#6-what-is-unmeasured) item 5). Then either drop, and disclose, a host-layer hook command whose absolute host path does not exist in the jail, or accept the failing hook and document it. The choice covers every host hook, not only herdr's, so it belongs with the pack's composition rules | [§3.6](#36-two-writers-on-one-agent-config-file) |
 
+### 4.9 Folded in: the terminal-multiplexer design
+
+A second design, `terminal-multiplexer-integration.md` (its questions [OQ-TM1](#OQ-TM1) to [OQ-TM4](#OQ-TM4), anchored in the table below), was written on
+2026-09-30 on a branch that started before this doc landed. It shipped with the first version of
+the registration above. Its useful parts are recorded here, and the doc itself is not carried, so
+there is one place for herdr questions.
+
+**Other multiplexers.** Both of these are read from code and docs, and neither was run:
+
+- **mato** decides a tab is active from output recency alone and has no API.
+- **cmux** reads terminal notification escapes (OSC 9, 99 and 777). Its socket can also send input
+  and read screens, so it must never be relayed, for the reason [§3.8](#38-the-socket-is-full-control-of-the-host)
+  gives for herdr's.
+
+On Linux the TTY proxy copies output bytes unchanged
+([`ttyproxy.go`](../../internal/ttyproxy/ttyproxy.go)), and elsewhere the runtime writes to the
+launcher's own stdout. So both should work with a jail as they are. herdr is the only one with a
+registration API, so no general multiplexer abstraction is built.
+
+**Its jail-side pack, and where each part belongs here.** It proposed an opt-in `herdr` pack with
+four parts: hook entries in each agent's generated config, a `yolo internal herdr-hook` client
+inside the jail, a loophole forwarding herdr's report calls for the launching pane, and resume.
+
+| Its question | What it asked | Where it belongs here |
+| :--- | :--- | :--- |
+| <a id="OQ-TM1"></a>[OQ-TM1](#OQ-TM1) | Build the jail side now, or wait | [OQ-HR2](#OQ-HR2) and [OQ-HR4](#OQ-HR4). Its leaning, wait, matches theirs |
+| <a id="OQ-TM2"></a>[OQ-TM2](#OQ-TM2) | What a resume command reported from a jail becomes | [OQ-HR2](#OQ-HR2) C, **under [HR-D7](#HR-D7)**. See the correction below |
+| <a id="OQ-TM3"></a>[OQ-TM3](#OQ-TM3) | What the loophole forwards | [OQ-HR4](#OQ-HR4) B. Its report-only allowlist is the same as herdr#2434's listener |
+| <a id="OQ-TM4"></a>[OQ-TM4](#OQ-TM4) | Where per-agent hook entries live | [HR-D9](#HR-D9), and the deliverer question in [`agent-event-watchers.md`](../design/agent-event-watchers.md). Its leaning, entries in each agent's pack, agrees with that doc |
+
+> [!WARNING]
+> **Its resume design broke [HR-D7](#HR-D7), and it is corrected here.** It had the in-jail
+> `herdr-hook` client rewrite the resume command to `yolo -- <agent> --resume <id>` *"before it
+> leaves the jail"*, then forward it through the loophole. herdr types a stored resume command into
+> a host shell at its next restart. That was MEASURED with an `sh -c` command
+> ([§2.4](#24-hooks-self-reports-and-resume-commands)). So a resume command built inside the jail
+> is a way for the jail to run host commands, whatever rewrite the jail claims to have done. Under
+> HR-D7 the jail supplies a session id at most. The host checks it against a strict character set
+> and builds the command from the agent pack's resume template
+> ([§4.4](#44-option-3-resume-after-a-herdr-restart)). A loophole that forwards
+> `report_agent_session` from a jail must refuse any resume command the jail supplies.
+
+Two of its claims are corrected by this doc's evidence:
+
+- *"herdr's own hook integrations cannot close the gap: `herdr integration install claude` writes
+  the HOST's `~/.claude`, which the jail never reads."* Jail Claude does read host keys: the
+  `SessionStart` entry crosses through the unfiltered `readsHost` settings layer
+  ([§3.6](#36-two-writers-on-one-agent-config-file), [HR-D9](#HR-D9)). The conclusion still holds:
+  the hook exits without `HERDR_*` and reports nothing.
+- *"herdr's full command set was not checked."* It was. [§3.8](#38-the-socket-is-full-control-of-the-host)
+  lists four ways to run host commands through the socket.
+
 ---
 
 ## 5. Open questions
@@ -1122,6 +1204,9 @@ Each of these has one sensible answer, so none is asked.
    covers: that a jail launch decides from its launcher's `HERDR_ENV` and runs a host program, as
    the tmux and kitty arms already do from `TMUX` and `KITTY_PID`
    ([§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside)). C does not.
+
+   **A was built on 2026-09-30, ahead of this ruling** ([built note](#built-2026-09-30)). Ruling B
+   or C means removing it.
 
    - **A. In core, beside the tmux and kitty indicators.** *You see:* every herdr pane running
      `yolo -- <agent>` shows that agent's status and "🔒 JAIL &lt;project&gt;", with no config.
