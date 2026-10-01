@@ -1,7 +1,7 @@
 ---
 title: "Bedrock plumbing: which transport reaches Bedrock in each agent, and what you type"
 date: 2026-09-04
-status: accepted
+status: in-review
 stage: DECIDED
 next: "Write §12 step 7: the hand-written API-key provider and mantle recipes in the user guide, with P1 stated where users hit it"
 depends-on:
@@ -66,11 +66,8 @@ agent can read it.
 - UNMEASURED: no request has reached Bedrock from any agent, through the bridge, or with any of
   the three credentials.
 
-**Needs your ruling:** one question, raised 2026-09-30 when the bridge began carrying copilot
-and oh-omp on plain `-p bedrock` ([BR-D15](#BR-D15)'s amendment): should those two packs need
-`bedrock` and `wire-bridge`, so `"packs": ["copilot"]` alone gets `-p bedrock` as
-`"packs": ["codex"]` does ([OQ-BR9](#OQ-BR9)'s ruling), at the price of the provider, `aws-auth`
-and an idle bridge in every such jail? Both re-asks were answered 2026-09-29. [BR-D17](#BR-D17)'s is
+**Needs your ruling:** [OQ-BR24](#OQ-BR24), raised 2026-09-30 when the bridge began carrying
+copilot and oh-omp on plain `-p bedrock` ([BR-D15](#BR-D15)'s amendment). Both re-asks were answered 2026-09-29. [BR-D17](#BR-D17)'s is
 ruled ([BR-D19](#BR-D19)): GPT-6.1 Sol everywhere, with no Region detection. [OQ-BR6](#OQ-BR6)'s is
 directed ([BR-DIR1](#BR-DIR1)): yolo reads the effective profile's region from `~/.aws/config` and
 delivers it the same way at `yolo host` and in a jail. Both were built 2026-09-29. [OQ-BR9](#OQ-BR9) and [OQ-BR1](#OQ-BR1) were ruled 2026-09-29:
@@ -947,6 +944,23 @@ R6 to R11 moved with the bridge, model-list and search designs.
    the bridge. Built 2026-09-29 as a transport check
    ([PP-D4](providers-and-profiles-redesign.md#PP-D4)): claude's derive sets the switch only for a
    profile that routes through no via service, and aws-auth's pointer keys on the platform alone.
+
+7. 💬 <a id="OQ-BR24"></a>[**OQ-BR24**](#OQ-BR24): **Do copilot and oh-omp need `bedrock` and `wire-bridge`,
+   so either alone gets `-p bedrock`?** Since 2026-09-30 the bridge carries both on plain
+   `-p bedrock`, because neither has a Bedrock client of its own
+   ([`wire-bridge-gateway.md` WG-I44](wire-bridge-gateway.md#WG-I44)). But it carries them only
+   where another selected pack already brings the provider, `aws-auth` and the bridge in, since
+   neither pack needs them ([BR-D15](#BR-D15)). So `"packs": ["copilot"]` alone gets nothing on
+   `-p bedrock`, while `"packs": ["codex"]` alone does, by [OQ-BR9](#OQ-BR9)'s ruling that every
+   agent binding Bedrock needs the pack. Needing them puts the Bedrock provider, `aws-auth` and an
+   idle bridge into every copilot or oh-omp jail, Bedrock or not.
+
+   <!-- vantage: oq id=OQ-BR24 leaning="Yes: both need bedrock and wire-bridge, so one pack alone works on -p bedrock the way codex does, at the cost of an idle bridge in each such jail." -->
+
+   _Leaning:_ yes, as [OQ-BR9](#OQ-BR9) ruled for the agents with their own client: a user should
+   not have to select a second agent to make `-p bedrock` work for the first.
+
+   > **Answer:**
 
 ### Decision Ledger
 

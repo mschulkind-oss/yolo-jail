@@ -1,7 +1,7 @@
 ---
 title: "Every path by which someone else's content runs in your jail"
 date: 2026-09-06
-status: accepted
+status: in-review
 stage: DECIDED
 next: "The boot.log itemization the TP10 ruling named: it needs a host-side sink for detail-only lines, which the launcher's tee does not have (`yolo pack footprint` stands in for it meanwhile)"
 tags: [trust, packs, security, inventory]
@@ -14,7 +14,7 @@ summary: "Twenty-six paths, enumerated from the code, each with when trust is ex
 and again 2026-09-14.** Ten questions filed and **all ten settled** (seven ruled, three retired), so
 what is owed is work, not a ruling.
 
-**Needs your ruling:** None.
+**Needs your ruling:** [OQ-TP11](#OQ-TP11), whether the jail-daemon disclosure reaches a pack service's daemon.
 
 > [!IMPORTANT]
 > **ONE RULING IS PARTLY BUILT, and it is the only outstanding item:**
@@ -711,13 +711,30 @@ code" — but it is worth building in the three places of [§1](#1-the-verdict) 
 ## Outstanding work
 
 > [!NOTE]
-> **No question is open — all ten are ruled or retired ([Decision Ledger](#decision-ledger)).** This
+> **One question is open, [OQ-TP11](#OQ-TP11), filed 2026-09-30 below; the first ten are ruled or
+> retired ([Decision Ledger](#decision-ledger)).** This
 > section used to hold four heading stubs kept "because other docs link to those headings by slug".
 > That was measured false on 2026-09-14: all 47 inbound links reach
 > [`#decision-ledger`](#decision-ledger) and not one reaches a per-question slug, so the stubs were
 > deleted and the ledger is the record. Do not re-add a stub without checking the same way.
 
 **One ruling is partly built**, and it is the only outstanding item in this document.
+
+### 💬 <a id="OQ-TP11"></a>[OQ-TP11](#OQ-TP11) — does the jail-daemon disclosure reach a pack service's daemon?
+
+Since 2026-09-30 a launch names each program a pack's loophole runs inside the jail, on that pack's
+line. A `service` contribution's `jail_daemon` also runs a supervised program in the jail (the
+wire bridge is the shipped one), and no line names it: its claim is classified skip, so it reaches
+no block. [OQ-TP10](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)'s argument
+was about the loophole's claim-free daemon, and the [inventory](#2-the-inventory) has no row for a
+service, so the ruling does not say.
+
+<!-- vantage: oq id=OQ-TP11 leaning="Yes: a service's in-jail daemon is named on its pack's line like a loophole's, since disclosure is the whole trust boundary today and the line costs nothing." -->
+
+_Leaning:_ yes. Disclosure is today's whole trust boundary, and a supervised program running in
+the jail is the same exposure whichever contribution kind starts it.
+
+> **Answer:**
 
 ### [`OQ-TP10`](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) — a wrapped plugin's hooks reach the agent's lifecycle and appear in no launch banner
 
@@ -760,8 +777,8 @@ daemon has no claim for the footprint to itemize.
   row's, classified skip, so it reaches no block, and the jail-daemon line above skips every
   service's entry. The ruling's argument is the loophole's *claim-free* daemon
   ([§3.2](#32-jail_daemon-is-a-claim-free-crossing-to-supervised-in-jail-execution)), and the
-  [inventory](#2-the-inventory) has no row for this path, so whether TP10 reaches it is not
-  recorded here.
+  [inventory](#2-the-inventory) has no row for this path, so whether TP10 reaches it is
+  [OQ-TP11](#OQ-TP11).
 - **The `boot.log` itemization.** That split is `Env.LogOnly` in the entrypoint, and the launcher's
   tee copies both streams verbatim, so no host-side detail-only sink exists. `yolo pack footprint`
   is the itemization pointer instead.
