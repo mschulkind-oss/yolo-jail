@@ -15,15 +15,12 @@ program that runs the jail; and **yolo** itself. On a Mac the recommended runtim
 **Mac with Apple silicon**, with [Homebrew](https://brew.sh/) installed:
 
 ```bash
-# 1. Nix — then open a new terminal
-curl -fsSL https://install.determinate.systems/nix | sh -s -- install
-# 2. Trust your user, so Nix can fetch or build the jail's Linux parts (required on a Mac)
-echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
-sudo launchctl kickstart -k system/systems.determinate.nix-daemon
-# 3. Apple Container — answer Y when it offers to install a kernel
+# 1. Nix, trusting your user (required on a Mac) — then open a new terminal
+curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --extra-conf "extra-trusted-users = $(whoami)"
+# 2. Apple Container — answer Y when it offers to install a kernel
 brew install container
 container system start
-# 4. yolo
+# 3. yolo
 brew install mschulkind-oss/tap/yolo-jail
 yolo check
 ```
@@ -32,17 +29,17 @@ yolo check
 [Homebrew](#homebrew) installed:
 
 ```bash
-# 1. Nix — then open a new terminal
-curl -fsSL https://install.determinate.systems/nix | sh -s -- install
-# 2. Optional on Linux: trust your user, so Nix can use yolo's prebuilt downloads
-echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
-sudo systemctl restart nix-daemon
-# 3. Podman
+# 1. Nix, trusting your user (optional on Linux) — then open a new terminal
+curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --extra-conf "extra-trusted-users = $(whoami)"
+# 2. Podman
 sudo apt-get update && sudo apt-get install -y podman passt slirp4netns uidmap
-# 4. yolo
+# 3. yolo
 brew install mschulkind-oss/tap/yolo-jail
 yolo check
 ```
+
+The Nix installer asks for your password itself, so do not put `sudo` in front of it. Pressing
+Enter at each of its questions is fine.
 
 `yolo check` ends with a Summary line. A few `[WARN]` rows are expected at this point, including
 `No packs are configured`, because you have not chosen an agent yet; any `[FAIL]` row names its fix.
@@ -58,7 +55,7 @@ other ways to install yolo.
 
 | | Mac, Apple silicon | Mac, Intel | Linux (x86_64 or arm64) |
 |---|---|---|---|
-| **Nix** | [Determinate installer](#step-1-install-nix) | [Official installer](#other-ways-to-get-nix) | [Determinate installer](#step-1-install-nix) |
+| **Nix** | [NixOS Nix installer](#step-1-install-nix) | [Install script on nixos.org](#other-ways-to-get-nix) | [NixOS Nix installer](#step-1-install-nix) |
 | **Container runtime** | [Apple Container](#macos-apple-container-recommended) on macOS 26 or later; [Podman](#macos-podman) otherwise | [Podman](#macos-podman) | [Podman](#linux-podman), rootless |
 | **yolo** | [Homebrew](#homebrew) | A [release archive](#other-ways-to-install), or [Homebrew](#homebrew) | [Homebrew](#homebrew) or a [release archive](#other-ways-to-install) |
 
@@ -74,7 +71,7 @@ On a Mac you have three ways to run the jail, and yolo supports all three:
   setup once it is finished. [About `macos-user` →](guides/macos.md#the-macos-user-backend)
 
 > [!NOTE]
-> **Intel Macs work today, but support is ending.** Apple Container, Podman 6 and the Determinate Nix
+> **Intel Macs work today, but support is ending.** Apple Container, Podman 6 and the NixOS Nix
 > installer have all dropped Intel Macs, and the Nix packages yolo uses on an Intel Mac stop receiving
 > fixes at the end of 2026. Homebrew no longer builds packages for Intel Macs either, so a Homebrew
 > install there can compile yolo and its Go toolchain from source; the
@@ -83,21 +80,37 @@ On a Mac you have three ways to run the jail, and yolo supports all three:
 ## Step 1: Install Nix
 
 yolo uses Nix to build the jail's contents, so every setup needs it. Install it with the
-[Determinate Nix installer](https://github.com/DeterminateSystems/nix-installer), which works on
-Apple silicon Macs and on x86_64 and arm64 Linux, keeps working across macOS updates, supports
-Fedora's SELinux, and uninstalls cleanly:
+[NixOS Nix installer](https://github.com/NixOS/nix-installer), the official installer the NixOS
+community maintains. It works on Apple silicon Macs and on x86_64 and arm64 Linux, keeps Nix working
+across macOS updates, supports Fedora's SELinux, and uninstalls cleanly. On an Intel Mac, see
+[Other ways to get Nix](#other-ways-to-get-nix).
+
+**Mac with Apple silicon.** A Mac requires the Nix daemon to trust your user, so the command does
+that too ([why](#trust-your-user-required-on-a-mac)):
 
 ```bash
-curl -fsSL https://install.determinate.systems/nix | sh -s -- install
+curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --extra-conf "extra-trusted-users = $(whoami)"
 ```
 
-On a Mac you can use its
-[graphical installer](https://install.determinate.systems/determinate-pkg/stable/Universal) instead.
-Open a new terminal when it finishes, so `nix` is on your PATH.
+It needs macOS 14 (Sonoma) or later, and it will not run in a terminal that runs under Rosetta,
+Apple's translator for Intel programs.
 
-Determinate Nix has **flakes**, the Nix feature yolo's build is written in, always on. Its
-`/etc/nix/nix.conf` is managed and replaced on upgrade, so do not
-edit it; your own settings go in `/etc/nix/nix.custom.conf`.
+**Linux** with systemd, the service manager most distributions use, such as Ubuntu, Debian and
+Fedora. Trusting your user is optional on Linux, and the second command does it in the same step:
+
+```bash
+curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install
+# or, trusting your user too:
+curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --extra-conf "extra-trusted-users = $(whoami)"
+```
+
+It stops on a system without systemd, on NixOS, on WSL 1 (the first version of Windows' Linux
+layer), and where Nix is already installed. With SELinux, the security layer Fedora turns on by
+default, it needs the `semodule` and `restorecon` commands, and installs an SELinux policy for Nix.
+
+Run the installer as yourself, without `sudo`: it asks for your password when it needs it, and asks
+you to confirm before it changes anything. Pressing Enter at each of its questions is fine. Open a
+new terminal when it finishes, so `nix` is on your PATH.
 
 ### Trust your user (required on a Mac)
 
@@ -107,11 +120,17 @@ Linux container, and the **Nix daemon** (the background service that does Nix's 
 both only for a user it trusts. Without this step the first launch on a Mac fails. On Linux it is
 optional and only saves building those parts yourself the first time.
 
+The install commands above that carry `--extra-conf` do this for you. If you installed without it,
+or with the [install script on nixos.org](#other-ways-to-get-nix), add the line yourself and restart
+the daemon:
+
 ```bash
-echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
-sudo launchctl kickstart -k system/systems.determinate.nix-daemon   # macOS
-sudo systemctl restart nix-daemon                                   # Linux
+echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.conf
+sudo launchctl kickstart -k system/org.nixos.nix-daemon   # macOS
+sudo systemctl restart nix-daemon                         # Linux
 ```
+
+`extra-trusted-users` adds you to the users the daemon already trusts, rather than replacing them.
 
 A trusted user can change how the daemon builds, which the
 [Nix manual](https://nix.dev/manual/nix/latest/command-ref/conf-file) calls essentially equivalent to
@@ -119,62 +138,53 @@ root access. Add only your own account, on a computer you control.
 
 ### Check that Nix works
 
+In a new terminal:
+
 ```bash
-nix store info    # "Trusted: 1" once the daemon trusts you
+nix --version    # prints "nix (Nix)" and a version number
 ```
 
-If it prints a version and `Trusted: 1`, Nix is ready. `Trusted: 0` is fine on Linux if you
-skipped the step above. Do not go by `nix config show experimental-features`: on Determinate Nix
-it prints nothing, because flakes are not an experimental feature there, and yolo turns on the
-features it needs for every Nix command it runs anyway.
+Once yolo is installed in [Step 3](#step-3-install-yolo), `yolo check` checks the rest: that the
+Nix daemon answers, and on a Mac that it trusts you, shown as
+`Nix daemon: connected, user is trusted`.
 
 ### Other ways to get Nix
 
-- **Intel Mac.** The Determinate installer no longer supports Intel Macs. Use the
-  [official installer](https://nixos.org/download/), then turn on flakes and trust yourself in its
-  config file:
+- **Intel Mac.** The NixOS Nix installer has no build for Intel Macs, so use the
+  [install script on nixos.org](https://nixos.org/download/). On a Mac it sets up the Nix daemon
+  by default. Then trust yourself and restart the daemon:
 
   ```bash
   curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh
-  echo "experimental-features = nix-command flakes" | sudo tee -a /etc/nix/nix.conf
   echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.conf
   sudo launchctl kickstart -k system/org.nixos.nix-daemon
   ```
 
-  The same two config lines apply if you prefer the official installer anywhere else. On Linux, run
-  it as `sh -s -- --daemon` and restart with `sudo systemctl restart nix-daemon`. The official
-  installer keeps flakes off, and the `experimental-features` line turns them on for the `nix`
-  commands you run yourself, such as `nix store info` above.
-- **Ubuntu and Debian.** Use the Determinate installer above. The distribution's own `nix-bin`
-  package is far behind on Ubuntu 24.04 (Nix 2.18), and on every release it leaves flakes and your
-  trusted user for you to configure.
-- **Fedora.** Use the Determinate installer above. The official installer sets up a single-user Nix
-  on systems with SELinux, Fedora's default, and a single-user Nix gives the jail no `nix` command
-  of its own.
-- **Arch Linux.** Arch ships Nix as a regular package. Install it, start its daemon, then add the two
-  config lines and restart:
+  Open a new terminal afterwards. This script has no uninstaller; see [Uninstall](#uninstall).
+- **Ubuntu's and Debian's own `nix-bin` package.** It is far behind on Ubuntu 24.04 (Nix 2.18), so
+  use the NixOS Nix installer above instead.
+- **Arch Linux.** Arch ships Nix as a regular package. Install it and start its daemon; the last two
+  lines trust your user, which is optional on Linux:
 
   ```bash
   sudo pacman -S nix
   sudo systemctl enable --now nix-daemon.service
-  echo "experimental-features = nix-command flakes" | sudo tee -a /etc/nix/nix.conf
   echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.conf
   sudo systemctl restart nix-daemon
   ```
 
   Older guides also add you to a `nix-users` group; the current package has none, so skip that. You
   need no Nix channel either. See the [ArchWiki](https://wiki.archlinux.org/title/Nix).
-- **NixOS.** Nix is already installed. Add these to `/etc/nixos/configuration.nix` (the last line is
-  Step 2), then run `sudo nixos-rebuild switch`:
+- **NixOS.** Nix is already installed. Add these to `/etc/nixos/configuration.nix`, then run
+  `sudo nixos-rebuild switch`. The first line trusts your user, which is optional on Linux; the
+  second is Step 2:
 
   ```nix
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.settings.trusted-users = [ "root" "your-username" ];
   virtualisation.podman.enable = true;
   ```
 
-  See the NixOS wiki on [flakes](https://wiki.nixos.org/wiki/Flakes) and
-  [Podman](https://wiki.nixos.org/wiki/Podman).
+  See the NixOS wiki on [Podman](https://wiki.nixos.org/wiki/Podman).
 
 ## Step 2: Install a container runtime
 
@@ -451,7 +461,7 @@ And these need fixing before you launch:
 | Row | Fix |
 |---|---|
 | `nix not found` | [Step 1](#step-1-install-nix), then open a new terminal |
-| On a Mac: `Nix daemon: connection failed` | The daemon did not answer; the rest of the row is Nix's own error. Restart it: `sudo launchctl kickstart -k system/systems.determinate.nix-daemon`, or `system/org.nixos.nix-daemon` with the official installer |
+| On a Mac: `Nix daemon: connection failed` or `Nix daemon: store operation timed out` | The daemon did not answer; the rest of the row is Nix's own error. Restart it with the command the note names, usually `sudo launchctl kickstart -k system/org.nixos.nix-daemon` |
 | On a Mac: `Nix daemon: connected but user is NOT trusted` | [Trust your user](#trust-your-user-required-on-a-mac). It is only a `[WARN]`, but the first launch needs it |
 | On Linux: `Nix daemon: store operation timed out` or `Nix daemon: connection failed` | Restart the daemon with the command the note names, usually `sudo systemctl restart nix-daemon`. The launch builds its image through it |
 | `No container runtime installed`, or `… installed but not started` | [Step 2](#step-2-install-a-container-runtime), or the start command the note names |
@@ -585,6 +595,7 @@ or `git pull && just deploy` in your clone, and then `yolo broker restart`.
 4. **Remove the jail images** from your runtime: `podman images` or `container image list` shows
    them, named `yolo-jail`.
 5. **Remove the runtime and Nix** if nothing else uses them. For Apple Container, `brew uninstall
-   container`; for Podman on a Mac, `podman machine rm`, then uninstall Podman. Determinate Nix
-   uninstalls with `/nix/nix-installer uninstall`; for the official installer, follow the
-   [Nix manual](https://nix.dev/manual/nix/latest/installation/uninstall).
+   container`; for Podman on a Mac, `podman machine rm`, then uninstall Podman. Nix from the NixOS
+   Nix installer uninstalls with `/nix/nix-installer uninstall`, which asks for your password
+   itself. The install script on nixos.org has no uninstaller: follow the macOS steps in the
+   [Nix manual](https://nix.dev/manual/nix/latest/installation/uninstall) instead.

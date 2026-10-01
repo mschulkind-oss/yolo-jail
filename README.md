@@ -31,10 +31,9 @@ how it works, and its [feature index](userguide/features.md) lists everything yo
 
 Three things on the host, whichever way you install:
 
-- **[Nix](https://nixos.org/download/)**, a reproducible package builder, which builds the jail
-  image. yolo turns on flakes for its own builds. On a Mac, the Nix daemon must also trust your user,
-  so that it can download yolo's prebuilt image pieces and build anything uncached in a temporary
-  container.
+- **[Nix](userguide/getting-started.md#step-1-install-nix)**, a reproducible package builder, which
+  builds the jail image. On a Mac, the Nix daemon must also trust your user, so that it can download
+  yolo's prebuilt image pieces and build anything uncached in a temporary container.
 - **A container runtime**: [Apple Container](https://github.com/apple/container) on a Mac with Apple
   silicon and macOS 26 or later (the Mac default), or [Podman](https://podman.io/) — rootless on
   Linux, or with its Podman Machine VM on any Mac.
@@ -47,7 +46,7 @@ Platforms:
   **arm64** Linux container with no emulation. The `macos-user` sandbox, which needs no container
   runtime, is coming. See the [macOS guide](userguide/guides/macos.md).
 - **macOS, Intel** — Podman Machine only, and ending: Apple Container, Podman 6, Homebrew's
-  prebuilt packages and the Determinate Nix installer have dropped Intel Macs, and the Nix packages
+  prebuilt packages and the NixOS Nix installer have dropped Intel Macs, and the Nix packages
   yolo uses there stop receiving fixes at the end of 2026. Install yolo there from a
   [release archive](https://github.com/mschulkind-oss/yolo-jail/releases) rather than Homebrew.
 

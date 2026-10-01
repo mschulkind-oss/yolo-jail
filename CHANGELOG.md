@@ -427,6 +427,12 @@ See [troubleshooting](userguide/guides/troubleshooting.md#installing-and-launchi
   text with no color.
 - `yolo check`'s Nix row now says which Nix you have: Determinate Nix with the Nix version it is
   built from, or upstream Nix's version.
+- [Getting Started](userguide/getting-started.md#step-1-install-nix) now installs upstream Nix,
+  the open-source Nix the NixOS project releases, in place of Determinate Nix: with the NixOS Nix
+  installer on Apple silicon Macs and Linux, and with the install script on nixos.org on an Intel
+  Mac. The install command also trusts your user, so an Apple silicon Mac needs no separate trust
+  step or daemon restart. The guide no longer asks you to turn on Nix's experimental features
+  either: yolo turns on what it needs for every Nix command it runs.
 - Re-entering a jail with `YOLO_ALLOW_ATTACH_SKEW=1` now also tells the agent, in its briefing,
   which yolo the jail was started with and which settings of the profile you selected did not
   reach it, so the agent can explain a missing login instead of guessing. On Apple Container the

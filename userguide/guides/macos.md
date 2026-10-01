@@ -252,8 +252,8 @@ a non-event:
    names any package that must be built this way.
 
 Both need the **Nix daemon to trust your user**: Nix uses a project's own cache, and hands a build
-to another machine, only for a trusted user. That is one line and a restart, in
-[Trust your user](../getting-started.md#trust-your-user-required-on-a-mac).
+to another machine, only for a trusted user. The recommended Nix install command does this for you;
+[Trust your user](../getting-started.md#trust-your-user-required-on-a-mac) has the details.
 
 > [!WARNING]
 > **Do not set `extra-platforms = aarch64-linux` in your Nix config.** It tells Nix to run Linux
@@ -300,49 +300,31 @@ store volume, the runtime, and whether any package must be built from source.
 
 It is only a warning, but fix it before your first launch: an untrusted user cannot use yolo's
 binary cache or the temporary builder, so parts of the image cannot be built on a Mac. Add yourself
-to `trusted-users` and restart the daemon, as in
+to the daemon's trusted users and restart it, as in
 [Trust your user](../getting-started.md#trust-your-user-required-on-a-mac):
 
 ```bash
-echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
-sudo launchctl kickstart -k system/systems.determinate.nix-daemon
+echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.conf
+sudo launchctl kickstart -k system/org.nixos.nix-daemon
 ```
 
-With the official Nix installer, the line goes in `/etc/nix/nix.conf` and the daemon is
-`system/org.nixos.nix-daemon`.
+The row's note gives the fix for the Nix your Mac runs, with your account name filled in.
 
 ### `yolo check` reports "Nix daemon: connection failed"
 
-The Nix daemon did not answer, and the rest of the row is Nix's own error. It is not a sign that
-flakes are off: `yolo check` turns them on for its own probe. Restart the daemon:
+The Nix daemon did not answer, and the rest of the row is Nix's own error. Restart the daemon:
 
 ```bash
-sudo launchctl kickstart -k system/systems.determinate.nix-daemon
+sudo launchctl kickstart -k system/org.nixos.nix-daemon
 ```
 
-With the official Nix installer, the daemon is `system/org.nixos.nix-daemon`.
-
-### Known Issue: Determinate Nix Daemon Hang
-
-Some versions of the Determinate Nix daemon have hung on store operations for non-root users.
-`yolo check` shows it as `store operation timed out`, and `nix store info` does not answer within
-a couple of seconds. Restart the daemon:
-
-```bash
-sudo launchctl kickstart -k system/systems.determinate.nix-daemon
-```
-
-If it keeps hanging, replace it with the standard Nix daemon until the next reboot:
-
-```bash
-sudo pkill determinate-nixd
-sudo /nix/var/nix/profiles/default/bin/nix-daemon &
-```
+Do the same when the row says `store operation timed out` instead, which means the daemon may be
+hung. The row's note names the restart for the daemon your Mac runs.
 
 ### A build fails or hangs
 
-1. Check the daemon answers: `nix store info` should return within two seconds. If not, see
-   [the daemon hang](#known-issue-determinate-nix-daemon-hang).
+1. Run `yolo check`. If it says the Nix daemon does not answer,
+   [restart the daemon](#yolo-check-reports-nix-daemon-connection-failed).
 2. If `yolo check` says a package must be built from source, make sure your runtime is running
    (`container system start` or `podman machine start`) and run `yolo` again.
 3. A failed build stops the launch and shows Nix's own error; yolo never falls back to an older
@@ -422,7 +404,7 @@ If a launch cannot load the image and you are working from a clone of yolo's rep
 build and load it yourself. There is no `yolo build` command; call Nix directly from the clone:
 
 ```bash
-nix build --impure --accept-flake-config .#ociImage .#imageCopier
+nix --extra-experimental-features 'nix-command flakes' build --impure --accept-flake-config .#ociImage .#imageCopier
 
 # Podman:
 ./result-1/bin/skopeo --insecure-policy copy \
