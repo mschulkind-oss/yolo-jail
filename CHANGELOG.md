@@ -181,7 +181,8 @@ that carry the token of the launch that started it, which any program in that la
 can read, and stops when the command exits; the AWS one starts only when an agent's profile is
 `bedrock`. The launch names each helper it starts, and names, with the reason,
 the ones it will not run, such as the one that shares one Claude login between sandboxes; if a
-helper fails to start, the launch stops and says where its log is. A helper that a pack of your
+helper fails to start, the launch stops and says where its log is. Each of these helpers' logs,
+and the wire bridge's, is kept to 4 MiB the way yolo's other logs are. A helper that a pack of your
 own asks to run inside a container runs inside the macOS sandbox instead, confined by the same
 sandbox profile as the agent and as the sandbox's own user; the launch says it started only once
 it confirms it. Homebrew and the release archives ship what those need for both Apple Silicon and
@@ -887,10 +888,9 @@ sets, and a jail without pi no longer carries it.
   A path with a `;` or a `#` in it was cut short at that character, so Nix could not reach the
   builder either.
 - The logs yolo keeps on your machine for the host services you declare and the loopholes packs
-  ship, such as the Claude and AWS credential helpers, for forwarded ports, and for the helpers
-  `yolo host` and the macOS sandbox start for one command, such as the wire bridge, no longer grow
-  for as long as you keep launching. Once one passes 4 MiB, the next launch keeps its newest 4 MiB
-  in one older copy beside it, replacing the last one, and empties the log. A helper that stays
+  ship, such as the Claude and AWS credential helpers, and for forwarded ports, no longer grow for
+  as long as you keep launching. Once one passes 4 MiB, the next launch keeps its newest 4 MiB in
+  one older copy beside it, replacing the last one, and empties the log. A helper that stays
   running across launches keeps writing to the same log.
 - `yolo host apply` no longer empties the folders you gave Claude Code access to in your own
   settings (`permissions.additionalDirectories`). Every apply wrote an empty list over yours,
