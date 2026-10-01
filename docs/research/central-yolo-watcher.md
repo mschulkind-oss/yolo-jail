@@ -12,7 +12,7 @@ vantage:
 
 # What a central yolo watcher would buy, and why the answer is mostly a scheduler
 
-**Status:** Exploration: **nothing here is proposed for implementation now**, and nothing is
+**Status:** Exploration: **nothing here is proposed for implementation now**, and no watcher is
 built. Evidence verified at `51620f7e` (2026-09-29), and the review corrections re-checked at
 `bfb79a6e`. No ruling is owed: [OQ-YW1](#OQ-YW1) was ruled 2026-09-29, and [YW-D7](#YW-D7)
 records why the direction needs none. Since then the sibling below was built at the container
@@ -228,15 +228,15 @@ designs chose, not of what the maintainer ruled.
    with no watcher**, as [§5.5](#55-logs-and-registrations) said it could be. Each open now goes
    through `internal/logcap`, which bounds the log the way `crossings.log` is bounded: past 4 MiB
    its newest 4 MiB, from a whole line, replace the one archived generation, `<log>.1`, and the log
-   is emptied (SOURCED: `internal/logcap/logcap.go:55-58`, `Trim` at `:76-104`). The opens are the
-   per-jail daemon's (`internal/cli/run/loopholesruntime.go:1215`), each socat's
-   (`internal/cli/run/network.go:55`) and a host-wide daemon's spawn
-   (`internal/broker/brokerlifecycle.go:775`). That third site was missing from this item: the two
-   large logs measured below are host-wide daemons' (`scope: "host"` in
-   `packs/claude/loopholes/claude-oauth-broker/manifest.jsonc:117` and
-   `packs/aws-auth/loopholes/aws-auth/manifest.jsonc:146`), which `broker.EnsureSingleton` spawns,
+   is emptied (SOURCED: `MaxBytes`, `ArchiveSuffix` and `Trim` in `internal/logcap/logcap.go`). The
+   opens are the per-jail daemon's (`startExternalService`, `internal/cli/run/loopholesruntime.go`),
+   each socat's (`startPortForwards`, `internal/cli/run/network.go`) and a host-wide daemon's spawn
+   (`realSpawn`, `internal/broker/brokerlifecycle.go`). That third site was missing from this item:
+   the two large logs measured below are host-wide daemons' (`scope: "host"` in
+   `packs/claude/loopholes/claude-oauth-broker/manifest.jsonc` and
+   `packs/aws-auth/loopholes/aws-auth/manifest.jsonc`), which `broker.EnsureSingleton` spawns,
    not the run pipeline. A launch that reuses a live host-wide daemon trims its log too
-   (`brokerlifecycle.go:470`), because nothing reopens it. It is **copy and truncate, not
+   (`EnsureSingleton`'s reuse branch), because nothing reopens it. It is **copy and truncate, not
    crossings.log's rename**, because the writer is a child holding its own descriptor, and a
    per-jail daemon's log is keyed on the loophole's name, so every jail running it holds the same
    file: a rename would leave each writing into the archive. So a log holds at most 4 MiB plus what
