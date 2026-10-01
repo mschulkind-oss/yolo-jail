@@ -231,7 +231,7 @@ func packageFloorNodesOn(loginPath, home string) []string {
 
 // PackageFloorMeets reports whether a node the resolution's first macos-user candidate reads (the
 // package floor's: each runnable `node` in an entry of loginPath outside home, packageFloorNodes)
-// has a readable version meeting floor. It is the HOST half of docs/design/agent-program-runtimes.md
+// has a readable version meeting floor. It is the HOST half of docs/reference/agent-program-runtimes.md
 // AR-L3: macos-user has no mount namespace, so the host reads the same paths the sandbox will, and
 // a declared floor this answers yes for needs no provisioning stage.
 //

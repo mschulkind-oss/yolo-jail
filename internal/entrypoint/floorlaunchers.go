@@ -1,6 +1,6 @@
 package entrypoint
 
-// floorlaunchers.go is docs/design/agent-program-runtimes.md AR-L5: after the provisioning stage
+// floorlaunchers.go is docs/reference/agent-program-runtimes.md AR-L5: after the provisioning stage
 // installs a node that meets a declared floor, the launchers of the programs declaring that floor
 // are regenerated, so the launch that installed the interpreter already execs its program under it.
 //

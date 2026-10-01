@@ -326,7 +326,7 @@ func TestMiseInstallIsVerboseOnlyWhenSomethingIsMissing(t *testing.T) {
 	}
 }
 
-// Stage (AR-L4, docs/design/agent-program-runtimes.md) runs the bootstrap whatever the steps
+// Stage (AR-L4, docs/reference/agent-program-runtimes.md) runs the bootstrap whatever the steps
 // before it did, and its status is the one the wrapper needs: the refusal first, then the
 // steps' failure, then the bootstrap's own. Run in BOTH shapes, the bare body macos-user runs
 // and the container's `sh -c '…'` wrapping, so a quote that breaks the wrapping fails too.

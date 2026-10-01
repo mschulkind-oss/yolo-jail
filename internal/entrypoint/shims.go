@@ -526,7 +526,7 @@ func npmAgentLauncher(inst *packdecl.Install, stampDir, receiptsPath string,
 
 // npmAgentLauncherSegments is npmAgentLauncher split at every place the exec prefix goes, so
 // joining the segments with a prefix IS the launcher rendered with it, byte for byte. It exists
-// for AR-L5 (docs/design/agent-program-runtimes.md): a launcher whose declared floor resolved to
+// for AR-L5 (docs/reference/agent-program-runtimes.md): a launcher whose declared floor resolved to
 // nothing at generation keeps these segments (writeFloorPending), and the provisioning stage joins
 // them with the interpreter it has just installed (RegenerateFloorLaunchers), so every other byte
 // of the regenerated launcher is the one the boot rendered.

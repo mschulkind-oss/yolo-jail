@@ -1,11 +1,13 @@
 ---
 status: current
-verified: 2026-09-30
-verified_commit: e31c282c
+stage: CURRENT
+verified: 2026-10-01
+verified_commit: d4e435a3
 covers:
   - internal/packdecl/nodefloor.go
   - internal/entrypoint/nodefloor.go
   - internal/entrypoint/floorlaunchers.go
+  - internal/entrypoint/forklauncher.go
   - internal/entrypoint/shims.go
   - internal/entrypoint/shell.go
   - internal/provision/provision.go
@@ -21,11 +23,13 @@ summary: "Which Node runs an npm-delivered program. A `program` contribution may
 
 # Agent program runtimes — which Node runs an npm-delivered program
 
-**Status:** CURRENT as of 2026-09-30, verified against `e31c282c`. The three gaps the design stub
-recorded ([`../design/agent-program-runtimes.md`](../design/agent-program-runtimes.md)) were closed
-that day: macos-user starts its stage for a floor the host cannot show met, a failed `mise install`
-no longer skips the floor check, and the stage regenerates the launchers of a floor it met
-([Where the refusal did not reach](#where-the-refusal-did-not-reach)). **UNMEASURED:** no run of
+**Status:** verified 2026-10-01 against `d4e435a3`. The three gaps a design stub recorded after
+the first graduation were closed on 2026-09-30: macos-user starts its stage for a floor the host
+cannot show met, a failed `mise install` no longer skips the floor check, and the stage
+regenerates the launchers of a floor it met
+([Where the refusal did not reach](#where-the-refusal-did-not-reach)). Their decisions,
+[`OQ-AR5`](#oq-ar5)–[`OQ-AR7`](#oq-ar7) and [`AR-L3`](#ar-l3)–[`AR-L7`](#ar-l7), moved into
+[Why it's this way](#why-its-this-way) on 2026-10-01, when that stub graduated too. **UNMEASURED:** no run of
 the shipped behavior on a real workload is recorded. The failure it prevents was measured in a jail
 on 2026-09-21. The refusal's launch and the Node 20 pin's launch passed as integration tests on
 2026-09-30 in a nested jail, the second with its `pi --version` cell skipped
@@ -43,7 +47,7 @@ still does not, the launch **refuses**: the jail does not start.
 | :--- | :--- |
 | The `node_floor` field, its validation, the version comparison | `internal/packdecl` (`Contribution.NodeFloor`, `Install.NodeFloor`, `ValidNodeFloor`, `SatisfiesNodeFloor`, `CompareVersions`) |
 | Interpreter resolution and the availability report | `internal/entrypoint` (`ResolveNodeForFloor`, `AvailableNodes`, `DescribeAvailableNodes`) |
-| The launcher splice | `internal/entrypoint` (`npmAgentLauncher`, `nodeExecPrefix`, `npmLauncherTemplate`) |
+| The launcher splice | `internal/entrypoint` (`npmAgentLauncher`, `nodeExecPrefix`, `npmLauncherTemplate`; a fork's `sourceAgentLauncherSegments`, `sourceLauncherTemplate`) |
 | The eager install and the refusal | `internal/entrypoint` (`GenerateBootstrapScript`, `declaredNodeFloors`, `nodeFloorChecks`) |
 | The predicate the bootstrap calls | `yolo internal node-floor-satisfied` (`runNodeFloorSatisfied`, `internal/cli`) |
 | The launchers finished once the stage meets a floor | `internal/entrypoint` (`floorlaunchers.go`: `writeFloorPending`, `RegenerateFloorLaunchers`; `npmAgentLauncherSegments`), called as `yolo internal node-floor-launchers` (`runNodeFloorLaunchers`, `internal/cli`) |
@@ -57,8 +61,7 @@ the package floor), [`../research/tool-provisioning.md`](../research/tool-provis
 other Node-resolution layer, and why there are several),
 [`../design/program-delivery.md`](../design/program-delivery.md) (the launcher and its evergreen
 update), [`mise-node-dynamic-linking.md`](mise-node-dynamic-linking.md) (why the image has one node by
-default). The three gaps the design stub recorded, and how each was closed, are in
-[`../design/agent-program-runtimes.md`](../design/agent-program-runtimes.md).
+default).
 
 ---
 
@@ -120,8 +123,11 @@ could never be validated.
 would break it.
 
 The field is projected onto `packdecl.Install` for every `via`, because it describes the
-program's entrypoint rather than how the program arrived. Only the npm launcher consumes it. A
-native installer's binary is not run through an interpreter.
+program's entrypoint rather than how the program arrived. Two launchers consume it: the npm
+launcher, and the **source launcher** of a fork's program (a `program` delivered `via: "source"`,
+built from a pinned source address; [`../design/forked-programs-as-packs.md`](../design/forked-programs-as-packs.md)),
+which execs the built program through the same prefix. A native installer's binary is not run
+through an interpreter.
 
 ## Resolution
 
@@ -142,8 +148,8 @@ installs into the mise store, and the stage's check asks the resolver again afte
 
 > [!NOTE]
 > **A stage-installed interpreter reaches the launcher on the launch that installs it, because
-> the stage finishes the launcher** ([AR-L5](../design/agent-program-runtimes.md#AR-L5),
-> [AR-L6](../design/agent-program-runtimes.md#AR-L6)). The launcher's interpreter is resolved
+> the stage finishes the launcher** ([AR-L5](#ar-l5),
+> [AR-L6](#ar-l6)). The launcher's interpreter is resolved
 > once, when the launcher is generated, and generation is a boot step (`generate_agent_launchers`
 > in `internal/entrypoint`'s `boot.go`, and in `darwin.go` on macos-user) that runs *before* the
 > provisioning stage. Until 2026-09-30 that left the launch that installed a satisfying node with
@@ -240,7 +246,10 @@ in `internal/entrypoint` holds it.
 The program's **pre-launch refresh** (a pack-declared step the launcher runs just before the
 exec, [`../design/pi-extension-lifecycle.md`](../design/pi-extension-lifecycle.md)) also runs
 under the same prefix, so a `#!/usr/bin/env node` program is refreshed under the interpreter it
-is launched under. The native launcher renders the prefix empty everywhere.
+is launched under. So does the program's **model menu** query, which runs the program once to
+read its own model catalog before the exec
+([`../design/model-lists-and-pickers.md`](../design/model-lists-and-pickers.md)). The native
+launcher renders the prefix empty everywhere.
 
 The resolved path is `shquote`'d into a bare position like every other spliced value
 (`nodeExecPrefix`), so a path with a space stays one word.
@@ -302,7 +311,7 @@ How it works, on both backends:
 script, and the bootstrap is the last step of the stage on both backends. So a refusal costs no
 unrelated work: the MCP preset installs above it still run, and the container's venv step runs
 before the bootstrap rather than after it. **And the bootstrap runs whatever the steps before it
-did** (`provision.Stage`, [AR-L4](../design/agent-program-runtimes.md#AR-L4)): those steps are
+did** (`provision.Stage`, [AR-L4](#ar-l4)): those steps are
 joined with `&&` among themselves, so a failed `mise install` still skips the venv step, but it
 no longer skips the floor check. The stage's status is `RefusedStatus` when the bootstrap
 refused, and otherwise the first failure, so a failed `mise install` with no refusal degrades
@@ -331,10 +340,10 @@ tests for the refusal before it would prompt.
 ### Where the refusal did not reach
 
 Two cases started a jail the ruling says should not start, and a third started one whose launcher
-did not yet honor the floor. All three were closed on 2026-09-30; the design stub holds the
-decisions ([AR-L3](../design/agent-program-runtimes.md#AR-L3)–[AR-L7](../design/agent-program-runtimes.md#AR-L7)):
+did not yet honor the floor. All three were closed on 2026-09-30, by the decisions
+[AR-L3](#ar-l3)–[AR-L7](#ar-l7) in [Why it's this way](#why-its-this-way):
 
-- [`OQ-AR5`](../design/agent-program-runtimes.md#OQ-AR5): **macos-user started no provisioning
+- [`OQ-AR5`](#oq-ar5): **macos-user started no provisioning
   stage without `mise_tools`**, so a workspace selecting a floor-declaring pack with no
   `mise_tools` got neither the install nor the refusal. `ProvisionNeeded` now also starts the stage
   for a declared floor the host cannot show met: before the sandbox exists, the host reads the
@@ -342,10 +351,10 @@ decisions ([AR-L3](../design/agent-program-runtimes.md#AR-L3)–[AR-L7](../desig
   home meets each (`floorStageFor`, `entrypoint.PackageFloorMeets`). Every doubt starts the stage,
   which asks the full resolution again
   ([`macos-user-provisioning.md`](macos-user-provisioning.md#what-the-stage-runs-and-what-it-does-not)).
-- [`OQ-AR6`](../design/agent-program-runtimes.md#OQ-AR6): **a failed `mise install` skipped the
+- [`OQ-AR6`](#oq-ar6): **a failed `mise install` skipped the
   bootstrap**, through the `&&` join, so no floor was checked. The bootstrap now runs whatever the
   steps before it did ([above](#the-refusal)).
-- [`OQ-AR7`](../design/agent-program-runtimes.md#OQ-AR7): **the launch that installed a
+- [`OQ-AR7`](#oq-ar7): **the launch that installed a
   satisfying interpreter passed the check with a launcher that did not exec it.** The stage now
   finishes that launcher
   ([the note under Resolution](#a-stage-installed-interpreter-reaches-the-launcher-one-boot-late)).
@@ -378,7 +387,7 @@ still marks the npm route there as not measured on hardware. No backend-specific
 added, and nothing has shown whether one is needed. Settle it on a Mac, with a floor-declaring
 program, before building anything backend-shaped here. The one backend-shaped piece that exists,
 the host's check of whether a declared floor starts the stage
-([AR-L3](../design/agent-program-runtimes.md#AR-L3)), rests on the same inference and was
+([AR-L3](#ar-l3)), rests on the same inference and was
 written for it: if the package floor's node is where `flake.nix` says, the host shows pi's floor
 met and no stage starts, and if it is not, the stage starts and asks again.
 
@@ -418,6 +427,11 @@ comments and sibling docs cite it.
 | <a id="oq-ar2"></a>[`OQ-AR2`](#oq-ar2): the install is **eager, in the provisioning stage; there is no lazy path**, and resolution is split from installation | An interpreter is environment, and the environment is provisioned before the agent runs. The generator cannot install because it also runs under `yolo check` and before the CA bundle exists. This governs *readiness* and does not reverse [`OQ-PD12a`](../design/program-delivery.md#decision-ledger), which governs whether the program's own binary is current. |
 | <a id="oq-ar3"></a>[`OQ-AR3`](#oq-ar3): an unsatisfiable floor **refuses the launch**, naming pack, program, floor and what is available, with **no escape hatch** | If a pack is selected, the jail must be able to run what it declares. It is the one fatal in a class whose neighbours all degrade, and both that cost and the residual objection ([The refusal](#the-refusal)) were accepted rather than engineered away. |
 | <a id="oq-ar4"></a>[`OQ-AR4`](#oq-ar4): the floor is **declared** in the manifest, not read from the installed package | Core does not guess, and the package does not exist when `yolo check` runs, so a derived floor could never be validated. |
+| <a id="oq-ar5"></a><a id="ar-l3"></a>[`OQ-AR5`](#oq-ar5), decided as [`AR-L3`](#ar-l3): on macos-user, **a declared floor starts the provisioning stage unless the host can show it met**, and every doubt starts it | [`OQ-AR3`](#oq-ar3)'s refusal has to reach this backend, and counting every floor would charge every launch a privileged stage for a node that is probably there. The host can answer before the sandbox exists because macos-user has no mount namespace: it reads the same package-floor nodes the sandbox's candidate 1 reads. A wrong host answer therefore costs one stage and never skips a refusal. Counting every floor instead is a one-line change to `ProvisionNeeded`. |
+| <a id="oq-ar6"></a><a id="ar-l4"></a>[`OQ-AR6`](#oq-ar6), decided as [`AR-L4`](#ar-l4): **the bootstrap runs whether or not `mise install` succeeded**, on both backends, and the stage's status is the refusal when it refused and otherwise the first failure | A workspace's broken `mise.toml` silencing the refusal would be an escape hatch nobody chose. Only the bootstrap stops depending on the steps before it: they stay joined with `&&` among themselves, so a failed `mise install` still skips the venv step and still degrades as before. The accepted cost is AR3's own: an offline boot whose floor nothing meets refuses. |
+| <a id="oq-ar7"></a><a id="ar-l5"></a>[`OQ-AR7`](#oq-ar7), decided as [`AR-L5`](#ar-l5): **after a floor is met in the stage, the bootstrap regenerates the launchers of the programs declaring it**, through `yolo internal node-floor-launchers`, run where the bootstrap already runs | Resolution stays at generation, where it is a baked, readable path, and a launch that installs nothing does no extra work. Resolving in the launcher instead costs a `--version` exec on every invocation, refusing turns a working install into a refusal, and leaving it runs the program under the wrong node on the one launch that knew better. Dropping the call brings back the one-boot lag. |
+| <a id="ar-l6"></a>[`AR-L6`](#ar-l6): **the regeneration finishes the boot's own render** (the floor-pending record), and runs whenever the floor is met in the stage while a record waits | A floor is met in the stage by more than its own install: the workspace's `mise install`, which runs first, can install a satisfying node. Keeping the boot's render means the verb needs no copy of the generator's inputs, which macos-user's `env -i` stage would otherwise have to be handed one by one, and the result is the next boot's launcher byte for byte. A record's split point is a random token, so a pack value spelling the template's sentinel cannot become a place the interpreter lands. |
+| <a id="ar-l7"></a>[`AR-L7`](#ar-l7): **the host reads the declared floors from the staged pack tree, strictly, and asks only the resolution's first candidate** | The binary that staged the tree reads it the way the staging did. The jail's tolerant manifest decoding is process-wide and must not switch on in the host process. The mise store, candidate 2, lives in the sandbox home and is left to the stage, so a candidate the host cannot see costs one stage, never a skipped refusal. |
 
 ## Current values
 

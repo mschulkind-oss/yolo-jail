@@ -192,7 +192,7 @@ func TestARefusedFloorSkipsNoUnrelatedStep(t *testing.T) {
 	}
 }
 
-// TestAFailedMiseInstallStillRunsTheBootstrap is AR-L4 (docs/design/agent-program-runtimes.md)
+// TestAFailedMiseInstallStillRunsTheBootstrap is AR-L4 (docs/reference/agent-program-runtimes.md)
 // on the container: a failed `mise install` used to skip the bootstrap through the `&&` join, so
 // a workspace's broken mise.toml silenced the Node floor's refusal. The bootstrap now runs
 // whatever `mise install` did. Its refusal still stops the launch; with no refusal the stage

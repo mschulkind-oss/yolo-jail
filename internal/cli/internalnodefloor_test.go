@@ -38,7 +38,7 @@ func TestNodeFloorSatisfiedNamesWhatIsAvailableWhenItSaysNo(t *testing.T) {
 	}
 }
 
-// `yolo internal node-floor-launchers` (AR-L5, docs/design/agent-program-runtimes.md) is the
+// `yolo internal node-floor-launchers` (AR-L5, docs/reference/agent-program-runtimes.md) is the
 // bootstrap's regeneration of a met floor's launchers. Driven through runInternal, so the verb's
 // dispatch is under test: a floor-pending record for floor 99, a mise store holding a node 99.0.0
 // (MISE_DATA_DIR, the variable the stage carries), and the launcher the verb writes is the

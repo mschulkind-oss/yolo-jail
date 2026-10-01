@@ -374,7 +374,7 @@ func buildPlan(deps Deps, opts Options, darwin *Darwin) RunPlan {
 	if deps.SelfExe != nil {
 		selfExe = deps.SelfExe()
 	}
-	// AR-L3 (docs/design/agent-program-runtimes.md): a Node floor the staged packs declare starts
+	// AR-L3 (docs/reference/agent-program-runtimes.md): a Node floor the staged packs declare starts
 	// the provisioning stage unless the host can show it met. Asked HERE, host-side, because the
 	// plan builder below is pure and this backend has no mount namespace: the package-floor
 	// nodes the sandbox's resolution reads first are the same files on the sandbox's PATH that

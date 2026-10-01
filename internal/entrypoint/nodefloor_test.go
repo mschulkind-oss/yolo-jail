@@ -419,7 +419,7 @@ func TestANodeWhoseNameSaysNothingIsAskedByExec(t *testing.T) {
 	}
 }
 
-// PackageFloorMeets is AR-L3's host half (docs/design/agent-program-runtimes.md): the HOST asks,
+// PackageFloorMeets is AR-L3's host half (docs/reference/agent-program-runtimes.md): the HOST asks,
 // of a named sandbox PATH and home rather than its own environment, whether the package floor's
 // node meets a floor. It reads the resolution's first macos-user candidate and nothing else: a
 // node under the home (the mise shims, whose node is the workspace's pin) never answers, and every

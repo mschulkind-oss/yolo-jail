@@ -80,7 +80,7 @@ func StartupLog(workspace string) string {
 // used to run the venv step AFTER it, so a refused floor would also have skipped venv
 // creation — a step that has nothing to do with Node.
 //
-// AND NO STEP BEFORE IT GATES IT (docs/design/agent-program-runtimes.md AR-L4). A failed
+// AND NO STEP BEFORE IT GATES IT (docs/reference/agent-program-runtimes.md AR-L4). A failed
 // `mise install` (offline, or a broken workspace mise.toml) used to skip the bootstrap through
 // the `&&` join, so no Node floor was checked and the launch degraded like any failed stage:
 // a workspace's own file silencing a refusal OQ-AR3 ruled has no escape hatch. Stage runs the

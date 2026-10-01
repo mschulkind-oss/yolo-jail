@@ -203,7 +203,7 @@ func ProvisionBootstrapScript(workspace string) string {
 // script too. Counting presets here would start a stage whose only work is a download
 // nothing can exec.
 //
-// A DECLARED NODE FLOOR THE HOST CANNOT SHOW MET IS ONE (docs/design/agent-program-runtimes.md
+// A DECLARED NODE FLOOR THE HOST CANNOT SHOW MET IS ONE (docs/reference/agent-program-runtimes.md
 // AR-L3), which floors carries. The floor's eager install and its refusal live in the generated
 // bootstrap, so before AR-L3 they ran here only when `mise_tools` happened to start a stage: a
 // workspace selecting a floor-declaring pack with no `mise_tools` got neither. Counting EVERY

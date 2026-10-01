@@ -33,8 +33,8 @@ were updated on 2026-09-25 for the deletion of the LSP install recipes
 ([`mcp-configuration.md`](mcp-configuration.md#binaries-are-the-users)): yolo installs no
 language server on any backend now, so that key no longer starts, feeds or is checked by the
 stage. The skip rule, the bootstrap's place in the stage and the installer-prompt warning were
-updated on 2026-09-30 for [AR-L3](../design/agent-program-runtimes.md#AR-L3),
-[AR-L4](../design/agent-program-runtimes.md#AR-L4) and
+updated on 2026-09-30 for [AR-L3](agent-program-runtimes.md#ar-l3),
+[AR-L4](agent-program-runtimes.md#ar-l4) and
 [PS-D1](../design/provisioner-sets.md#PS-D1), read from code and unit tests only.
 
 A container jail gets its tools from two places: an image **floor** that exists before any
@@ -272,12 +272,12 @@ decisions with stated reasons:
 | :--- | :--- | :--- | :--- |
 | prune dangling store symlinks | ✅ | ❌ | gated on `YOLO_STORE_PRUNE_OK`, which the container's launcher sets only after proving no other jail is live. Nothing here computes that proof, so the step would be permanently inert — a line that reads like a feature and is one only on the other backend. |
 | announce + `mise install` (verbose only when `mise ls --missing` lists a tool) | ✅ | ✅ | the announce lines are steps, not decoration: a tee'd `startup.log` shows a reader the last thing that *started*, and a cold install's own line-per-step progress follows them. |
-| announce + the generated bootstrap script | ✅ | ✅ | by **absolute path**, not `~/.yolo-bootstrap.sh` — see below. It runs **whether or not the steps above it succeeded** (`provision.Stage`, [AR-L4](../design/agent-program-runtimes.md#AR-L4)), so a failed `mise install` cannot skip a Node floor's check; the stage's status is the bootstrap's refusal when it refused, and otherwise the first failure |
+| announce + the generated bootstrap script | ✅ | ✅ | by **absolute path**, not `~/.yolo-bootstrap.sh` — see below. It runs **whether or not the steps above it succeeded** (`provision.Stage`, [AR-L4](agent-program-runtimes.md#ar-l4)), so a failed `mise install` cannot skip a Node floor's check; the stage's status is the bootstrap's refusal when it refused, and otherwise the first failure |
 | `~/.yolo-venv-precreate.sh` | ✅ | ❌ | its body tests `/workspace/mise.toml` and shells out to `/bin/python3`, so on a Mac it would find neither and exit 0 on every launch — a step that reports success having never run. Nothing generates it here either. **A Mac workspace configuring `_.python.venv` gets no pre-created venv.** |
 
 **The skip rule** (`ProvisionNeeded`): the stage runs when `mise_tools` is non-empty, or when a
 selected pack declares a Node floor the host cannot show met
-([AR-L3](../design/agent-program-runtimes.md#AR-L3)), so a bare `yolo -- bash` in a workspace that
+([AR-L3](agent-program-runtimes.md#ar-l3)), so a bare `yolo -- bash` in a workspace that
 declares no tools pays nothing — no extra privileged step, no sudo, no `mise install` against an
 empty config. `lsp_servers` counted too until the LSP install recipes were deleted; it only
 renders config now, so a stage started for it would do nothing. The plan carries no stage argv

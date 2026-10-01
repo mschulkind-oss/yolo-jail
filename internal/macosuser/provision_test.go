@@ -278,7 +278,7 @@ func TestStageTakesFourOfTheSixSteps(t *testing.T) {
 	}
 }
 
-// AR-L4 (docs/design/agent-program-runtimes.md) on this backend: the stage body RUNS its
+// AR-L4 (docs/reference/agent-program-runtimes.md) on this backend: the stage body RUNS its
 // bootstrap after a failed `mise install`, which used to skip it through the `&&` join and so
 // check no Node floor. The body's status is the refusal when the bootstrap refused, and
 // `mise install`'s failure otherwise, so the failure still degrades as it did. The body runs
@@ -343,7 +343,7 @@ func floorPackRoot(t *testing.T, floor string) string {
 	return root
 }
 
-// AR-L3 (docs/design/agent-program-runtimes.md): with no `mise_tools`, a Node floor a selected
+// AR-L3 (docs/reference/agent-program-runtimes.md): with no `mise_tools`, a Node floor a selected
 // pack declares starts the provisioning stage unless the host shows it met. Before it, this
 // backend started the stage for `mise_tools` alone, so such a workspace got neither the floor's
 // install nor its refusal. Driven through buildPlan, the orchestrator's composition RunMacosUser

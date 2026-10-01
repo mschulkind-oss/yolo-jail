@@ -114,7 +114,7 @@ func runInternal(args []string) int {
 		// refusal to name), 2 = misuse.
 		return runNodeFloorSatisfied(args[1:], os.Stdout)
 	case "node-floor-launchers":
-		// AR-L5 (docs/design/agent-program-runtimes.md), called by the GENERATED BOOTSTRAP SCRIPT
+		// AR-L5 (docs/reference/agent-program-runtimes.md), called by the GENERATED BOOTSTRAP SCRIPT
 		// once a Node floor is met: it regenerates the launchers that floor's programs were
 		// generated with before the stage installed their interpreter
 		// (entrypoint.RegenerateFloorLaunchers). Hidden: it rewrites launchers in the home it is

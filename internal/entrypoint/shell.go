@@ -660,7 +660,7 @@ func declaredNodeFloors(e *Env) []nodeFloorDecl {
 
 // DeclaredNodeFloorsAt is the distinct Node floors the packs staged at packRoot declare, sorted:
 // the floors the bootstrap generated from that tree will check (declaredNodeFloors). It is the
-// HOST-side read macos-user's stage decision needs (docs/design/agent-program-runtimes.md AR-L3),
+// HOST-side read macos-user's stage decision needs (docs/reference/agent-program-runtimes.md AR-L3),
 // so it loads the tree strictly (loadPackRoot) and returns the error rather than an empty list:
 // a caller that cannot tell whether a floor is declared must start the stage, which checks again.
 // An empty packRoot is a launch that staged no packs, and declares nothing.
