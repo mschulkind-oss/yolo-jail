@@ -5,7 +5,7 @@ status: in-review
 tags: [design, disk, prune, images, podman, nix]
 summary: "Every reclaimer yolo owned was correct, tested, and reachable only from a human typing `yolo prune` — so 404 GiB of regenerable image tars sat unreclaimed under a hint that had been true for a month. The fix is not a better sweeper: it is moving the delete into the process that made the bytes. Three of the four questions are ruled and in the tree — the tar is never written, the podman reap fires on its own, and it touches only images yolo can prove are its own. OQ-DF4, whether the byte budget is ever written down as a number, is the one live question."
 stage: DESIGN
-next: "Before OQ-DF4 is ruled, check whether mise's own tracked-configs record (what mise prune reads) already supplies the version-use signal option (A) says does not exist, since that decides (A)'s cost"
+next: "Rule OQ-DF4: the 2026-10-01 check found mise's tracked-configs record holds (A)'s signal per workspace, so (A)'s cost is a launch-written list of the workspaces that used the store"
 vantage:
   status-chip: true
 ---
@@ -760,8 +760,9 @@ are [§11.1](#111-decision-ledger) rows.
      [`disk-levers-and-backfill.md` §5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping):
      once 1 GiB of tool versions no jail has used for 30 days piles up, a launch offers to remove
      them, and a `y` makes it automatic, as the cache age-purge already works. Unbuilt, and it
-     owes a signal that does not exist yet: nothing records which versions a launch used, and a
-     reaper that cannot tell declines rather than sweeping. The cost is a re-download for a
+     owes a signal yolo does not collect yet: nothing yolo writes records which versions a launch
+     used (mise records it per workspace, as the check below found), and a reaper that cannot
+     tell declines rather than sweeping. The cost is a re-download for a
      workspace that comes back to an old version.
    - **(B) Policy, and `mise/` is the human's.** No budget key and no reclaimer. `yolo stores`
      keeps listing it as a store nothing reclaims, and removing old versions stays the user's
@@ -770,6 +771,31 @@ are [§11.1](#111-decision-ledger) rows.
      against, the contract [§4.1](#41-candidate-invariants-weighed)c adopted. The cost is a key to
      validate, inherit into nested jails and defend, and a ceiling can only evict what the next
      launch rebuilds or downloads again ([§9](#9-risks) R5).
+
+   **Checked 2026-10-01: mise's own record holds (A)'s signal, one workspace at a time, and
+   nothing joins the pieces.** MEASURED in this jail, mise 2026.8.6:
+
+   - **The record exists.** mise keeps one link per config file it has used, in
+     `~/.local/state/mise/tracked-configs`, and `mise prune` deletes every installed version that
+     no tracked config names as its latest (`mise prune --help`).
+   - **It is per workspace, and the store is not.** That state directory is under the jail's
+     `~/.local`, which is the workspace's own `<workspace>/.yolo/home/local` on the host, while
+     `MISE_DATA_DIR` is `/mise`, the one store every jail on the machine shares. So a
+     `mise prune` in any one jail decides from that workspace's configs alone. Here,
+     `mise ls --prunable` named 24 of the 31 installed versions. Whether another workspace uses
+     any of them cannot be seen from inside this jail.
+   - **Its links name jail paths and go stale.** They point at `/workspace/…`, which is a
+     different directory in every workspace, and 469 of this workspace's 623 links dangled: 309
+     into `/tmp`, which a restart empties, and most of the rest into removed worktrees.
+   - **No list of workspaces exists to join them over.** The only one yolo has is the running
+     jails' (`prune.FindYoloWorkspaces`): a launch runs its container with `--rm`, so a workspace
+     whose jail has exited is not in it. A reaper that cannot see a workspace has to decline, as
+     the tri-state rule requires.
+
+   So (A)'s cost is now a known shape: a record, written at each launch, of every workspace that
+   has used the store, read host-side with each `/workspace` link mapped to that workspace's host
+   path, and declining whenever a recorded workspace cannot be read. mise supplies the per-config
+   half; what is missing is the list of workspaces.
 
    _Leaning:_ **(A).** Policy, not a number: if the write path bounds itself, the budget is a property of the design rather than a dial, and "minimal" is not a number a user should have to discover. The condition I held this open for — *"a residual that only a ceiling catches"* — is now observable, and it is one named store, which is the case a ceiling is worst at. Between the two policies, (B) is a reclaimer that waits for a human, which is the defect this doc is named for, and the ruling it executes says *"we need to use minimal disk space"* ([§1](#1-the-ruling-and-what-the-bug-actually-is)).
 
