@@ -114,6 +114,7 @@ func TestNoLauncherForAProgramTheVendorDoesNotPublishHere(t *testing.T) {
 // build for this machine" (run.loopholeinert's "BACKEND BEATS PLATFORM" reasoning, one
 // mechanism, one rendering).
 func TestUnpublishedProgramsStillDeclineWhenTheImageProvidesTheName(t *testing.T) {
+	useProductionImageBins(t)
 	home := t.TempDir()
 	e := NewEnv(map[string]string{
 		"JAIL_HOME": home,

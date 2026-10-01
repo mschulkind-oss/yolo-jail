@@ -48,6 +48,7 @@ func writePackWithProgram(t *testing.T, name string, bins ...string) string {
 // that wrote NO launchers at all, which is the other way to make the shadowing impossible
 // and the wrong way.
 func TestNoLauncherForANameTheImageProvides(t *testing.T) {
+	useProductionImageBins(t)
 	home := t.TempDir()
 	e := NewEnv(map[string]string{
 		"JAIL_HOME":      home,
@@ -184,6 +185,7 @@ func TestTheCollisionCheckNeverConsidersTheInstallPrefixes(t *testing.T) {
 // TestImageProbePathDropsThePerHomePrefixes pins the scope directly, which the cell above
 // pins through behaviour. Two readings of one rule, because the rule is the feature.
 func TestImageProbePathDropsThePerHomePrefixes(t *testing.T) {
+	useProductionImageBins(t)
 	home := "/home/agent"
 	e := NewEnv(map[string]string{
 		"JAIL_HOME":         home,

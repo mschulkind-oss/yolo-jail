@@ -114,6 +114,10 @@ func launchGateJail(t *testing.T, packNames []string, tune func(*Options)) (*gat
 	// The jail's generator switches this process to tolerant manifest reads, as the boot
 	// does; hand the next test a strict host process back.
 	t.Cleanup(packload.OverrideSkewTolerance(false))
+	// The image's bin dirs are an empty folder this test made, not the machine's /bin and
+	// /usr/bin: a host whose /usr/bin holds claude, codex or pi otherwise gets no launcher for
+	// it, and every gate test reading that launcher fails there.
+	t.Cleanup(entrypoint.OverrideImageProbeBase(t.TempDir()))
 	if err := entrypoint.GenerateAgentLaunchers(e); err != nil {
 		t.Fatalf("GenerateAgentLaunchers: %v", err)
 	}

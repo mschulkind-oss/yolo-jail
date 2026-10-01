@@ -161,6 +161,7 @@ func TestAShadowedNameGetsAWrapperAndNOTAnInstaller(t *testing.T) {
 // the credential gate wrote it an env file this entry, which only an agent a profile selects
 // has (TestAShadowedAgentWithoutLaunchFlagsStillSourcesItsOwnFile).
 func TestTheCollisionCheckStillRefusesTheInstaller(t *testing.T) {
+	useProductionImageBins(t)
 	home := t.TempDir()
 	e := NewEnv(map[string]string{
 		"JAIL_HOME":      home,

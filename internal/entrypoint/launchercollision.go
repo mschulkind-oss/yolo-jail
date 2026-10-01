@@ -32,9 +32,21 @@ import (
 )
 
 // imageProbeBase is the image's own bin dirs. A var only so a test that runs the boot path
-// on a HOST can point it away from the host's /bin: a host with codex or pi installed
-// system-wide otherwise suppresses exactly the launchers that test asserts are written.
+// on a HOST can point it away from the host's /bin (OverrideImageProbeBase): a host with
+// codex, pi or pnpm installed system-wide otherwise suppresses exactly the launchers that test
+// asserts are written.
 var imageProbeBase = "/bin:/usr/bin"
+
+// OverrideImageProbeBase points the image dirs the collision check searches at dirs, a PATH
+// value, and returns the function that restores the previous value. A TEST SEAM, for a test
+// in another package that drives the launcher generators on a host (internal/cli/run's
+// credential-gate jail); this package's own tests start from an empty stand-in that TestMain
+// installs. Production code never calls it: a boot searches the image's /bin and /usr/bin.
+func OverrideImageProbeBase(dirs string) (restore func()) {
+	prev := imageProbeBase
+	imageProbeBase = dirs
+	return func() { imageProbeBase = prev }
+}
 
 // imageProbePath is the PATH the collision check searches: what the IMAGE provides, with
 // every per-home install prefix removed.
