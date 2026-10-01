@@ -1,9 +1,8 @@
 ---
 status: current
 stage: CURRENT
-next: "Re-verify against the tree: the stamp is 7ad8358c, and the sections added from 2026-09-25 to 2026-09-30 were never checked under it"
-verified: 2026-09-23
-verified_commit: 7ad8358c
+verified: 2026-10-01
+verified_commit: d4e435a3
 covers:
   - internal/wirebridge/
   - internal/wirebridged/
@@ -14,6 +13,10 @@ covers:
   - internal/launchservice/
   - internal/cli/run/providerlocal.go
   - internal/cli/run/hostports.go
+  - internal/cli/run/callertokens.go
+  - internal/sigv4/
+  - internal/packload/via.go
+  - internal/packload/carrier.go
   - packs/wire-bridge/
 tags: [packs, providers, services, claude, translation, needs, networking, diagnosis]
 summary: "A translating reverse proxy, in a jail or run for one host or macos-user launch, that manufactures an Anthropic-Messages endpoint on the jail's loopback for OpenAI chat-completions providers and Claude's Codex Responses profile, and passes a via agent's own OpenAI chat-completions or Responses traffic through to its provider — plus the `service` contribution kind and `needs`, a pack dependency resolved at selection."
@@ -21,24 +24,27 @@ summary: "A translating reverse proxy, in a jail or run for one host or macos-us
 
 # The wire bridge — an Anthropic endpoint on the jail's loopback
 
-**Status:** Verified 2026-09-23 against `7ad8358c`; [streamed usage](#streamed-usage)
-was rewritten 2026-09-25, after that verification, and is UNMEASURED against the live upstreams. UNMEASURED on the host that
-reported the listen-port collision: that the provider-table fix ends it is inferred from an
-in-process reproduction, and no launch there has been observed succeeding
-([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)).
-[The via route](#the-via-route--one-route-per-agent-under-agentname) was added 2026-09-25, and its
-Responses wire 2026-09-26. It is MEASURED in-process only, against a stubbed upstream; no agent has
-sent a request through it. [The host half](#at-the-host-notch) is newer still (2026-09-28): it is
-MEASURED through `hostMain` in `internal/cli`'s unit tests, a real host half serving a fake agent
-against a stubbed upstream and a fake host broker, and the macos-user arm by unit tests with the
-start stubbed. No agent CLI and no Mac have run it. [The Messages
-pass-through](#the-messages-pass-through-on-a-bedrock-upstream) was added 2026-09-29. Its route
-and stream framing are SOURCED from AWS's documentation and the Anthropic SDK's source, and it is
-MEASURED in-process only, against a fake upstream serving that documented format. No request has
-reached Bedrock through it. [Which upstream is Bedrock's](#which-upstream-is-bedrocks), the
-region-composed upstream and [the model allowlist](#the-model-allowlist) were added 2026-09-30,
-and are MEASURED the same way: the production boot over the shipped packs, against a stubbed
-upstream, and no request to AWS.
+**Status:** verified 2026-10-01 against `d4e435a3`, the whole doc. What has been watched
+running, by area:
+
+- **The adapter routes, and [streamed usage](#streamed-usage).** UNMEASURED against the live
+  upstreams: the usage mapping is read from Claude Code's bundled script and the providers' SDKs,
+  and tested in-process. On the host that reported the listen-port collision, that the
+  provider-table fix ends it is inferred from an in-process reproduction, and no launch there has
+  been observed succeeding
+  ([what can hold the listen port](#what-can-hold-the-listen-port-before-the-bridge-does)).
+- **[The via route](#the-via-route--one-route-per-agent-under-agentname)**, both wires. MEASURED
+  in-process only, against a stubbed upstream; no agent has sent a request through it.
+- **[The host half](#at-the-host-notch).** MEASURED through `hostMain` in `internal/cli`'s unit
+  tests, a real host half serving a fake agent against a stubbed upstream and a fake host broker,
+  and the macos-user arm by unit tests with the start stubbed. No agent CLI and no Mac have run it.
+- **[The Messages pass-through](#the-messages-pass-through-on-a-bedrock-upstream).** Its route
+  and stream framing are SOURCED from AWS's documentation and the Anthropic SDK's source, and it
+  is MEASURED in-process only, against a fake upstream serving that documented format. No request
+  has reached Bedrock through it.
+- **[Which upstream is Bedrock's](#which-upstream-is-bedrocks), the region-composed upstream and
+  [the model allowlist](#the-model-allowlist).** MEASURED the same way: the production boot over
+  the shipped packs, against a stubbed upstream, and no request to AWS.
 
 A **wire bridge** *(coined here)* is a daemon that manufactures, on the agent's loopback, a wire
 protocol a provider does not natively serve, by translating to one it does. It runs in the jail,
@@ -120,9 +126,11 @@ witness that makes an unpublishable endpoint fatal).
 - **Not a gateway.** One upstream, chosen by the launch's own selection machinery. No routing
   tables, no failover, no budgets, no model remapping beyond what translation requires. A gateway
   is a product; a bridge is a shim. That was the bridge as first built. SigV4 signing for a
-  Bedrock upstream is now built ([Auth](#the-protocol-surface)), and so is routing by model id
-  on one ([the Messages pass-through](#the-messages-pass-through-on-a-bedrock-upstream)); opt-in
-  failover and an all-traffic mode are ruled and unbuilt, all in
+  Bedrock upstream is now built ([Auth](#the-protocol-surface)), and so are routing by model id
+  on one ([the Messages pass-through](#the-messages-pass-through-on-a-bedrock-upstream)), the
+  all-traffic mode a profile's `via` selects
+  ([the via route](#the-via-route--one-route-per-agent-under-agentname)) and its
+  [model allowlist](#the-model-allowlist); opt-in failover is ruled and unbuilt, all in
   [`wire-bridge-gateway.md`](../design/wire-bridge-gateway.md).
 
 ## `kind: "service"` — the vocabulary it landed as
@@ -279,10 +287,12 @@ The bridge implements **what the agent sends**, not the whole Anthropic API.
 **Auth.** Inbound: the launch's **caller token**, which every request must carry and which the
 bridge checks and never forwards ([caller authentication](#caller-authentication),
 [WB-D18](#wb-d18); until 2026-09-28 this was "none"). Outbound: a bearer header carrying the
-provider's key, read once at boot, for every upstream but one kind. An upstream whose host is
-`bedrock-runtime.<region>.amazonaws.com` is **signed with SigV4** instead (`internal/sigv4`,
-built 2026-09-25), because the decision keys on the upstream host
-([OQ-WG1](../design/wire-bridge-gateway.md#OQ-WG1)). Its credential chain is the AWS SDK's order:
+provider's key, read once at boot, for every upstream but one kind. A Bedrock upstream is
+**signed with SigV4** instead (`internal/sigv4`, built 2026-09-25): one on a provider whose
+`platform` is `aws-bedrock`, at any `https` address, or one whose host is
+`bedrock-runtime.<region>.amazonaws.com` on any provider
+([which upstream is Bedrock's](#which-upstream-is-bedrocks),
+[OQ-WG1](../design/wire-bridge-gateway.md#OQ-WG1)). Its credential chain is the AWS SDK's order:
 a static `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` pair, then the `aws-auth` pointer
 `AWS_CONTAINER_CREDENTIALS_FULL_URI`, then `AWS_BEARER_TOKEN_BEDROCK` sent unsigned as a bearer.
 Exactly one is used per request, so a signature and a bearer never travel together.
@@ -294,9 +304,9 @@ Exactly one is used per request, so a signature and a bearer never travel togeth
   `aws sso login`; `aws-auth`'s own refusal is a 401 carrying its message.
 - AWS refusing a signature or session token as expired gets one refresh and one retry. Any other
   AWS error is relayed with AWS's own message.
-- A Bedrock address the pattern does not name, such as a FIPS or VPC endpoint, is sent unsigned
-  and fails with AWS's error, until [OQ-BR2](../design/providers-and-profiles-redesign.md#OQ-BR2)'s
-  marker lets the signer key on the provider instead.
+- A FIPS or VPC endpoint, or a proxy, is signed when its provider declares the platform; on a
+  provider that declares none, an address the runtime-host pattern does not name carries the
+  provider's bearer key, as any other upstream does.
 
 > [!WARNING]
 > **`count_tokens` refuses rather than answering.** No estimate, no zero-stub. A measured
@@ -634,8 +644,8 @@ for a jail with its own loopback. Three setups break it:
 - **A nested jail** shares its parent jail's loopback, because a nested podman is forced onto
   `--net=host`. That is the host's loopback only when the parent jail is itself on host mode.
 - **A `macos-user` launch** has no loopback of its own: its sandbox runs on the host. That backend
-  starts no jail daemon, so it runs the bridge's [host half](#at-the-host-notch) instead, on a
-  port the launch picked and behind this token. Until 2026-09-28 the launch pointed claude at
+  declines a pack service's jail daemon, so it runs the bridge's [host half](#at-the-host-notch)
+  instead, on a port the launch picked and behind this token. Until 2026-09-28 the launch pointed claude at
   the bridge's declared host ports, which nothing of yolo's ever bound and any local user could
   take first.
 
@@ -739,8 +749,10 @@ receives a token that is good only against this launch's bridge.
   rather than silently skipped. The Codex route reads no key at all: it asks the OpenAI credential
   service for an access-only token view per request, and a 401 gets exactly one fresh view before
   the refusal is relayed. So the route needs the machine's OpenAI login to exist before claude's
-  first request, and claude's launcher ensures it: the claude pack gates
-  `YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN=1` on its `codex` profile, and the launcher then asks the
+  first request, and claude's launcher ensures it: claude's env derive emits
+  `YOLO_AUTH_PRELAUNCH_CLAUDE_LOGIN=1` whenever claude's selected provider is `openai-codex` and
+  its anthropic address resolves, keyed on the provider rather than on a profile named `codex`
+  ([`OQ-BR8`](../design/providers-and-profiles-redesign.md#OQ-BR8)), and the launcher then asks the
   credential service for that token view before claude starts, writing no file, and starts the
   OpenAI login at a terminal when there is none, as the codex and pi launchers do
   ([ES-D28](../design/credential-sources-separation.md#10-decision-ledger)).
@@ -1079,7 +1091,7 @@ Rulings a future change would otherwise undo, with their original IDs.
 
 ## Current values
 
-Verified at `7ad8358c`. The prose above explains what each of these is for; this table is the
+Verified at `d4e435a3`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -1088,15 +1100,15 @@ only place the values themselves are stated.
 | Endpoint file | `wire-bridge.endpoint` under the jail services dir; it names the first listener bound — the adapter route's when one serves, else the via address | `wirebridged.EndpointFile`, `wirebridged.servePlan` |
 | Listen address, `openai → anthropic` | `http://127.0.0.1:8214` — the adapter's declared `address`, composed into each eligible provider's `endpoints.anthropic.base_url` and parsed back out by the daemon. On a jail sharing its launcher's network namespace (`network.mode: "host"`, or nested) the launch composes a port it picked instead, and the daemon parses that one back out ([NC-D41](../plans/notch-convergence.md#NC-D41)). A user-scope `adapters.openai->anthropic.address` replaces it | `packs/wire-bridge/pack.json`, read by `wirebridged.routeFor` |
 | Listen address, `openai-responses → anthropic` (the Codex route) | `http://127.0.0.1:8215` — the adapter's declared `address`, composed into `openai-codex`'s `endpoints.anthropic.base_url` and parsed back out by the daemon, exactly as the row above, a picked port included; `wirebridged.CodexResponsesListenAddr` is the DEFAULT when the entry names no anthropic endpoint, not a bypass of it | `packs/wire-bridge/pack.json`, read by `wirebridged.routeFor`; default in `wirebridged.CodexResponsesListenAddr` |
-| Listen address, via routes (added 2026-09-25, after the commit this table was verified at) | `http://127.0.0.1:8216` — the service's declared `via_address`, or a port the launch picked on a jail sharing its launcher's network namespace, as above; every via agent's base URL is the served address plus `/agent/<agent>` | `packs/wire-bridge/pack.json`, read by `packload.ViaServiceAddress`; served by `wirebridged.viaRoutesFor` |
+| Listen address, via routes | `http://127.0.0.1:8216` — the service's declared `via_address`, or a port the launch picked on a jail sharing its launcher's network namespace, as above; every via agent's base URL is the served address plus `/agent/<agent>` | `packs/wire-bridge/pack.json`, read by `packload.ViaServiceAddress`; served by `wirebridged.viaRoutesFor` |
 | Address override key | `adapters.<from>-><to>.address`, **user scope only** | `internal/config/adapters.go`, `yolo config-ref` |
-| Caller token (added 2026-09-28) | `YOLO_SERVICE_WIRE_BRIDGE_TOKEN`: 64 lowercase hex characters, 256 bits from `crypto/rand`, one per launch; accepted as `Authorization: Bearer` or `x-api-key`; anything else is `401` | `paths.ServiceCallerTokenEnv`, `run.launchCallerTokens`, `svcendpoint.NewToken`; checked in `wirebridged/auth.go` |
+| Caller token | `YOLO_SERVICE_WIRE_BRIDGE_TOKEN`: 64 lowercase hex characters, 256 bits from `crypto/rand`, one per launch; accepted as `Authorization: Bearer` or `x-api-key`; anything else is `401` | `paths.ServiceCallerTokenEnv`, `run.launchCallerTokens`, `svcendpoint.NewToken`; checked in `wirebridged/auth.go` |
 | Restart policy | on failure | `packs/wire-bridge/pack.json` |
-| Served path | adapter routes: `POST /v1/messages` and nothing else; via routes: any canonical path under `/agent/<agent>/` (no `.`, `..` or empty segment, no encoded `?` or `#`; added 2026-09-26) | `internal/wirebridged/handler.go`; `wirebridged.viaMux`, `wirebridged.canonicalViaTail` |
+| Served path | adapter routes: `POST /v1/messages` and nothing else; via routes: any canonical path under `/agent/<agent>/` (no `.`, `..` or empty segment, no encoded `?` or `#`) | `internal/wirebridged/handler.go`; `wirebridged.viaMux`, `wirebridged.canonicalViaTail` |
 | Upstream path | the provider's `openai` base URL plus `/chat/completions`; on the Codex route, the composed `openai-codex` entry's `openai-responses` base URL (the subscription's, as shipped) plus `/responses`; on a via route, the provider's chat-completions or Responses base URL (the one the path names) plus the path after the prefix | `wirebridged.NewHandler`, `wirebridged.CodexResponsesBaseURL`, `wirebridged.viaUpstreams`, `wirebridged.passthroughHandler` |
-| Via request body limit (added 2026-09-25) | 64 MiB; larger is a 413 | `wirebridged.maxViaBody` |
-| Upstream timeout | 10 minutes, the one timeout the daemon adds. The adapter routes bound the whole exchange; a via route bounds only the wait for response headers (added 2026-09-26), and a timeout there is a 504 | `wirebridged.upstreamTimeout`; `wirebridged.viaHeaderTimeout` |
-| Streamed-usage request field, chat-completions route (added 2026-09-25, after the commit this table was verified at) | `"stream_options": {"include_usage": true}` on every streamed request; left off when the selected profile's `supports_usage_in_streaming` is `"false"` | `wirebridge.TranslateRequestWith`, `wirebridge.ChatOptions`; the option read in `wirebridged.routeFor` |
+| Via request body limit | 64 MiB; larger is a 413 | `wirebridged.maxViaBody` |
+| Upstream timeout | 10 minutes, the one timeout the daemon adds. The adapter routes bound the whole exchange; a via route bounds only the wait for response headers, and a timeout there is a 504 | `wirebridged.upstreamTimeout`; `wirebridged.viaHeaderTimeout` |
+| Streamed-usage request field, chat-completions route | `"stream_options": {"include_usage": true}` on every streamed request; left off when the selected profile's `supports_usage_in_streaming` is `"false"` | `wirebridge.TranslateRequestWith`, `wirebridge.ChatOptions`; the option read in `wirebridged.routeFor` |
 | Upstream error mapping | 4xx same-status; every 5xx, timeout or dial failure → 502 | `bridgeHandler.relayUpstreamError` |
 | Endpoint variable | `YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT`, emitted only when the daemon will serve | `run.serviceEndpointEnvArgs`, `wirebridged.WillServe` |
 | Ready-required daemons | `YOLO_JAIL_DAEMON_READY_NAMES=wire-bridge`, emitted beside the endpoint variable | `paths.JailDaemonReadyNamesEnv` |
@@ -1105,7 +1117,7 @@ only place the values themselves are stated.
 | Host forward log | `~/.local/share/yolo-jail/logs/<cname>-socat.log`, created only when a launch forwards a port | `internal/cli/run/network.go` |
 | In-jail forward log | `~/.yolo-socat.log` | `entrypoint.startContainerPortForwarding` |
 | Hold a refused boot open | `YOLO_HOLD_ON_REFUSAL=1` | `paths.HoldOnRefusalEnv` |
-| Host half argv (added 2026-09-28) | `yolo internal daemon wire-bridge`, resolved to the launch's own binary | `packs/wire-bridge/pack.json`; `wirebridged.HostMain`; `launchservice.SelfExec` |
+| Host half argv | `yolo internal daemon wire-bridge`, resolved to the launch's own binary | `packs/wire-bridge/pack.json`; `wirebridged.HostMain`; `launchservice.SelfExec` |
 | Host half input file | named by `YOLO_HOST_SERVICE_INPUT`, `0600` in a `0700` temp dir, removed once read | `launchservice.InputEnv`, `launchservice.Input` |
 | Host half lifeline | descriptor 4, named by `YOLO_HOST_SERVICE_LIFELINE_FD`; EOF ends the bridge | `launchservice.LifelineFDEnv`, `launchservice.Lifeline` |
 | Host half readiness wait, stop grace | 5 seconds; SIGTERM then SIGKILL after 2 seconds | `launchservice.ReadyTimeout`, `launchservice.StopGrace` |
