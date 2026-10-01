@@ -21,6 +21,11 @@ func withBuildDir(t *testing.T) string {
 	return bd
 }
 
+// rootfulStore is a StoreFacts seam answering for a rootful podman, so a test that copies
+// an image never runs the machine's `podman info`: left nil, the seam asks the real podman
+// on PATH, and a wedged one (podman after a reboot, a stopped machine VM) hangs the test.
+func rootfulStore() PodmanStoreFacts { return PodmanStoreFacts{Rootless: RootlessNo} }
+
 func TestAutoLoadImageFreshLoad(t *testing.T) {
 	withBuildDir(t)
 	manifest := storeManifest(t, "abc-image")
@@ -40,6 +45,7 @@ func TestAutoLoadImageFreshLoad(t *testing.T) {
 		LayerCopy:      f.layerCopy,
 		BuildCopier:    func(string) (string, []string) { return "/nix/store/fake-skopeo/bin/skopeo", nil },
 		PresentDigests: func() map[string]struct{} { return nil },
+		StoreFacts:     rootfulStore,
 	}
 	if !AutoLoadImage(opts).OK {
 		t.Fatalf("AutoLoadImage = false; out=%q", out.String())
@@ -165,6 +171,7 @@ func TestRevertedConfigReusesItsOwnImageInsteadOfReloading(t *testing.T) {
 			LayerCopy:      f.layerCopy,
 			BuildCopier:    func(string) (string, []string) { return "/nix/store/fake-skopeo/bin/skopeo", nil },
 			PresentDigests: func() map[string]struct{} { return nil },
+			StoreFacts:     rootfulStore,
 		}
 	}
 
@@ -238,6 +245,7 @@ func TestAutoLoadImageRegistersRoot(t *testing.T) {
 		BuildCopier:    func(string) (string, []string) { return "/nix/store/fake-skopeo/bin/skopeo", nil },
 		PresentDigests: func() map[string]struct{} { return nil },
 		RegisterRoot:   func(p string) { rooted = append(rooted, p) },
+		StoreFacts:     rootfulStore,
 	}
 	if !AutoLoadImage(optsFresh).OK {
 		t.Fatal("fresh load = false")
