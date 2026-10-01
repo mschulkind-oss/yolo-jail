@@ -219,11 +219,12 @@ What you give up:
   when it exits. The Claude login's in-jail half needs a container, and
   the launch names it on one `Declined:` line.
 - **`mounts` only from folders outside every home.** A `mounts` entry, or a pack's `mount`, works
-  when its folder is a read-only one under `/Users/Shared` or outside `/Users` (such as `/opt`), or
-  a read-write one under `/Users/Shared/yolo`. The agent finds it under `$YOLO_CONTEXT_DIR`, not
-  `/ctx`, as a link to the folder itself, so tools that resolve paths show the real path, and a
-  subfolder the sandbox account may not read stays unreadable. Any other folder, one in your home
-  included, stops the launch and says why: move it, or use a container setup for that workspace.
+  when its folder is a read-only one under `/Users/Shared` or elsewhere on the startup disk (such as
+  `/opt`), or a read-write one under `/Users/Shared/yolo`. The agent finds it under
+  `$YOLO_CONTEXT_DIR`, not `/ctx`, as a link to the folder itself, so tools that resolve paths show
+  the real path, and a subfolder the sandbox account may not read stays unreadable. Any other
+  folder, including one in your home, on another disk, in the project or under `/tmp`, stops the
+  launch and says why: move it, or use a container setup for that workspace.
   This has not yet been tried on a Mac. Folder sources in `host_files` are not delivered; single
   files are.
 - **No `per_side_paths`**: a `.venv` or `node_modules` in the project is shared between your Mac and

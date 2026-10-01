@@ -561,9 +561,12 @@ are false:
 The third is fixed (`a639394d`); ~~the first two are live~~ — **[§6](#6-the-second-shared-fix-compose-the-briefing-from-what-was-applied) SHIPPED the same day this doc
 was last edited** (`28ddea11`, 2026-08-24, *"fix(run): compose the briefing from what the launch
 applies, not the config"* — its commit message names this section), and this paragraph was never
-updated. `appliedNetMode`, `appliedCtxMounts` and `appliedResourceLimits` live in
+updated. `appliedNetMode` and `appliedResourceLimits` live in
 `internal/cli/run/backendcaps.go`, wired through `assemble.go` and `prepare.go`, which is exactly the
 "feed `BriefingContent` from what `assembleRunCmd` actually emitted" fix this section asked for.
+The third, `appliedCtxMounts`, was deleted on 2026-10-01: the context-mount list is now decided per
+entry by the same functions the argv uses (`internal/cli/run/ctxmounts.go`), and on macos-user by
+that backend's own decider ([`context-mounts.md` CX-D20](context-mounts.md#CX-D20)).
 *(Verified 2026-09-02. No `Cell`/`Disposition` TYPE exists anywhere in the tree, and that is no
 longer the same statement as "the census is unbuilt": since 2026-09-14 the dispositions are
 enforced as line annotations instead — [§4.1](#41-what-shipped-instead-the-census-as-an-annotation).)*

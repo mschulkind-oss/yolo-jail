@@ -327,10 +327,12 @@ are now a `yolo check` error that names both and how to move one. The
 agent's briefing now says which of its context mounts are read-only and which read-write, lists a
 pack's mounts too, and names `$YOLO_CONTEXT_DIR`, which every launch now sets to the folder those
 mounts appear under (`/ctx` in a container). On `macos-user`, a `mounts` entry or a pack's `mount`
-now works for a folder outside every home: a read-only one under `/Users/Shared` or outside `/Users`,
-a read-write one under `/Users/Shared/yolo`. The agent finds it under `$YOLO_CONTEXT_DIR`, the launch
-first checks that the sandbox account can reach it, and any other folder, one in your home included,
-stops the launch with the reason instead of being skipped behind a warning (not yet tried on a Mac).
+now works for a folder outside every home (not yet tried on a Mac): a read-only one under
+`/Users/Shared` or elsewhere on the startup disk, such as `/opt`, and a read-write one under
+`/Users/Shared/yolo`. The agent finds it under `$YOLO_CONTEXT_DIR`, and the launch first checks that
+the sandbox account can reach it. Any other folder, including one in your home, on another disk, in
+the project or under `/tmp`, stops the launch with the reason instead of being skipped behind a
+warning.
 See [Workspace, mounts, and host files](userguide/reference/settings-per-setup.md#workspace-mounts-and-host-files).
 
 **`yolo check` warns when a model list names a model no installed agent knows.** Every model in a
