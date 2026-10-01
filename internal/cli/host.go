@@ -705,7 +705,8 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 	// WHAT THIS NOTCH WITHHOLDS BECAUSE NOTHING HERE SERVES IT (notch convergence item 2),
 	// after the managed launch is prepared, because that launch serves one of them itself:
 	// `yolo host -- codex` runs its own refresh adapter and sets the URL the codex pack's
-	// pointer names, so that one is not missing and is not named.
+	// pointer names, so that one is not missing and is not named. When that launch did not
+	// start (no login, no terminal), the URL is named with that reason, the launch's own.
 	printHostLines(errw, launch.unservedLines(managedHostVars(managed)))
 	environ := launch.childEnviron(childPath)
 	// THE LAUNCH-OWNED SERVICES (docs/design/host-notch-services.md §4.4): started after the
@@ -1266,14 +1267,17 @@ func (c *hostComposition) regionLines() []string {
 // variable pointing at a jail daemon, a profile's via (P4, notch convergence item 2) — in the
 // words every notch prints (packload.UnservedLines). Header first, like the disclosure.
 //
-// servedByLaunch is what the launch serves itself (managedHostVars), nil for none.
-func (c *hostComposition) unservedLines(servedByLaunch func(string) bool) []string {
-	return packload.UnservedLines(c.scope, c.unservedVias, servedByLaunch)
+// byLaunch is the managed launch's word on each variable (managedHostVars), nil for none.
+func (c *hostComposition) unservedLines(byLaunch packload.LaunchServes) []string {
+	return packload.UnservedLines(c.scope, c.unservedVias, byLaunch)
 }
 
-// managedHostVars reports the variables a managed host launch sets from a server of its own
-// (openaiauthhost's Codex adapter), nil when there is no managed launch.
-func managedHostVars(managed managedOpenAIHostLaunch) func(string) bool {
+// managedHostVars is a managed host launch's word on each withheld variable: served for one it
+// sets from a server of its own (openaiauthhost's Codex adapter), and otherwise the launch's own
+// reason when it did not start that server (NotServed: no login and no terminal), so the line
+// names the cause the launch knows rather than the notch's (docs/design/host-notch-services.md
+// HS-D20, HS-D22). nil when there is no managed launch.
+func managedHostVars(managed managedOpenAIHostLaunch) packload.LaunchServes {
 	if managed == nil {
 		return nil
 	}
@@ -1283,7 +1287,12 @@ func managedHostVars(managed managedOpenAIHostLaunch) func(string) bool {
 			set[k] = true
 		}
 	}
-	return func(name string) bool { return set[name] }
+	return func(name string) (bool, string) {
+		if set[name] {
+			return true, ""
+		}
+		return false, managed.NotServed(name)
+	}
 }
 
 // processHolds answers, for this composition, whether and whence the process it composes holds

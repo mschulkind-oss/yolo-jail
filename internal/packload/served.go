@@ -107,6 +107,8 @@ func (s ServedDaemons) notServedWhy(daemon string) string {
 		// Every daemon a host launch's selection asks for carries the launch's own reason
 		// (run.PlanHostDoorways), so what reaches this clause is a daemon whose pointer is not
 		// gated on the agent's selection, the Codex refresh adapter's: no selection opens it.
+		// A managed launch that serves that pointer itself and did not start gives its own
+		// reason instead (LaunchServes).
 		return "which `yolo host --` opens for no selection: at the host a jail daemon runs " +
 			"only as a doorway opened for the one agent a launch runs, and only when every " +
 			"pointer to it is gated on that agent's selected profile or provider, which this " +
@@ -354,17 +356,25 @@ func ViaServedAt(resolved map[string]ResolvedProfile, packs []*Pack,
 	return out, cleared
 }
 
+// LaunchServes is a launch's own word on a pack env variable the gate withheld because no jail
+// daemon at its notch serves it, from a launch that serves such a variable from a server of its
+// own: `yolo host -- codex` runs its own refresh adapter and sets
+// CODEX_REFRESH_TOKEN_URL_OVERRIDE to it (internal/openaiauthhost). served reports that the
+// launch sets name itself, so name is not missing and goes unnamed. Otherwise why, when not "",
+// is why the launch's own server did not start, which the line gives for name in place of the
+// notch's clause (ServedDaemons.notServedWhy): that server, not the notch, decided it. A nil
+// LaunchServes says nothing of any variable.
+type LaunchServes func(name string) (served bool, why string)
+
 // UnservedLines is what a launch says it withheld because nothing at its notch serves it, in
 // the one wording every notch prints: a header line, then one indented line per pack env
 // variable group the gate withheld (CredentialScope.UnservedEnvLines) and per profile whose via
 // ViaServedAt cleared. nil when nothing was withheld, which is every container launch whose
 // selected loopholes are enabled.
 //
-// servedByLaunch reports a variable the launch sets itself from a server of its own, which is
-// therefore not missing: `yolo host -- codex` runs its own refresh adapter and sets
-// CODEX_REFRESH_TOKEN_URL_OVERRIDE to it (internal/openaiauthhost). nil for none.
-func UnservedLines(scope *CredentialScope, unservedVias []string, servedByLaunch func(string) bool) []string {
-	details := scope.UnservedEnvLines(servedByLaunch)
+// byLaunch is the launch's own word on each withheld variable (LaunchServes), nil for none.
+func UnservedLines(scope *CredentialScope, unservedVias []string, byLaunch LaunchServes) []string {
+	details := scope.UnservedEnvLines(byLaunch)
 	for _, profile := range unservedVias {
 		details = append(details, "profile "+strconv.Quote(profile)+"'s via — its service does "+
 			"not run here, so its agents keep their own clients rather than routing through it")

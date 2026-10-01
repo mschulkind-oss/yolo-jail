@@ -47,21 +47,51 @@ func TestPrepareDoesNothingWhenNoPrelaunchIsDeclared(t *testing.T) {
 }
 
 // A LOGIN ONLY AT A TERMINAL: off one, no login starts, the jail launcher's two lines are printed,
-// and the launch continues without the credential.
+// and the launch continues without the credential. The codex view's launch starts nothing and sets
+// nothing, and names the refresh URL a started one serves as unset for want of that login, with
+// the same remedy; every other prelaunch has nothing of its own to name.
 func TestPrepareNeverLogsInWithoutATerminal(t *testing.T) {
 	for _, p := range []Prelaunch{codexPrelaunch, piPrelaunch, opencodePrelaunch, {Bin: "claude", Login: true, Pack: "claude"}} {
 		p.Interactive = false
 		var actions []string
 		var stderr bytes.Buffer
 		launch, err := prepare(loggedOutDeps(&actions), p, &stderr)
-		if err != nil || launch != nil {
-			t.Fatalf("%s: launch = %v, err = %v", p.Bin, launch, err)
+		if err != nil {
+			t.Fatalf("%s: err = %v", p.Bin, err)
+		}
+		if p.Flag != CodexViewFlag && launch != nil {
+			t.Fatalf("%s: launch = %v, want none", p.Bin, launch)
+		}
+		if p.Flag == CodexViewFlag {
+			if launch == nil {
+				t.Fatalf("%s: no launch to say why the refresh URL is unset", p.Bin)
+			}
+			argv := []string{p.Bin, "exec"}
+			if env := launch.Environ(nil); len(env) != 0 {
+				t.Errorf("%s: a launch that did not start set %v", p.Bin, env)
+			}
+			if _, handled := launch.Run("/bin/false", argv, nil, nil, io.Discard, io.Discard); handled {
+				t.Errorf("%s: a launch that did not start stays resident", p.Bin)
+			}
+			if got, disclosure := launch.Argv(argv); len(got) != len(argv) || disclosure != nil {
+				t.Errorf("%s: a launch that did not start rewrote the command: %v %v", p.Bin, got, disclosure)
+			}
+			why := launch.NotServed(RefreshURLEnv)
+			for _, want := range []string{"did not start", "no OpenAI login", "not an interactive terminal",
+				"run 'yolo host -- " + p.Bin + "' once from a terminal to log in", "HS-D20"} {
+				if !strings.Contains(why, want) {
+					t.Errorf("%s: the refresh URL's reason must say %q: %q", p.Bin, want, why)
+				}
+			}
+			if other := launch.NotServed("CODEX_HOME"); other != "" {
+				t.Errorf("%s: a variable other than the refresh URL was given a reason: %q", p.Bin, other)
+			}
 		}
 		if strings.Contains(strings.Join(actions, ","), "login") {
 			t.Errorf("%s: a login started with no terminal: %v", p.Bin, actions)
 		}
 		for _, want := range []string{p.Bin + ": OpenAI login is required, and this is not an interactive terminal",
-			"run '" + p.Bin + "' once from a terminal to log in; continuing without a credential"} {
+			"run 'yolo host -- " + p.Bin + "' once from a terminal to log in; continuing without a credential"} {
 			if !strings.Contains(stderr.String(), want) {
 				t.Errorf("%s: stderr must say %q:\n%s", p.Bin, want, stderr.String())
 			}

@@ -810,6 +810,10 @@ sets, and a jail without pi no longer carries it.
 - The guidance yolo gives agents in every jail now says pi's per-workspace folder is
   `<workspace>/.yolo/home/pi` (`.yolo/home/.pi` on Apple Container). It named
   `.yolo/state/pi`, a folder that does not exist, so an agent could send you looking for it.
+- `yolo host -- codex` with no OpenAI login and no terminal now gives the real reason Codex
+  starts without `CODEX_REFRESH_TOKEN_URL_OVERRIDE`: there is no login for yolo's managed Codex
+  launch to share, and running it once from a terminal logs you in. The line used to put it down
+  to a helper yolo does not start at the host, which no setting could change.
 
 ## [0.11.0] - 2026-09-28
 

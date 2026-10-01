@@ -71,7 +71,14 @@ type Launch struct {
 	// noDaemon is set on a managed Codex launch, whose argv gets `--no-daemon` (Argv,
 	// codexdaemon.go): Codex's background server stays off in a launch yolo manages (OQ-CDX1).
 	noDaemon bool
+	// notServed is why a launch that did not start leaves unset each variable a started one sets
+	// from a server of its own, keyed by variable (notStarted, NotServed). It sets nothing.
+	notServed map[string]string
 }
+
+// RefreshURLEnv is the variable Codex reads its token-refresh URL from, which a managed Codex
+// launch points at its own adapter (prepare) and the codex pack points at the in-jail one.
+const RefreshURLEnv = "CODEX_REFRESH_TOKEN_URL_OVERRIDE"
 
 // PrelaunchPrefix begins every variable of the declarative OpenAI prelaunch a pack's `env`
 // declares for one launcher binary: YOLO_AUTH_PRELAUNCH_<BIN>_FLAG (the credential client's
@@ -121,8 +128,10 @@ type Prelaunch struct {
 // Declared reports whether the launch asks for a prelaunch at all.
 func (p Prelaunch) Declared() bool { return p.Flag != "" || p.Login }
 
-// Prepare runs the launch's declarative OpenAI prelaunch, and returns nil when it declares none,
-// or when no login exists and none can be asked for.
+// Prepare runs the launch's declarative OpenAI prelaunch, and returns nil when it declares none.
+// When no login exists and none can be asked for it starts nothing, and returns nil or, for a
+// view whose managed launch would set a variable from a server of its own (the codex view's
+// refresh adapter), a launch that sets nothing and says why that variable is unset (NotServed).
 func Prepare(p Prelaunch, stderr io.Writer) (*Launch, error) {
 	d := deps{
 		ensure: ensureSingleton, request: openauthclient.RequestUnix,
@@ -141,6 +150,7 @@ func Prepare(p Prelaunch, stderr io.Writer) (*Launch, error) {
 //   - A LOGIN ONLY AT A TERMINAL. With no login and no terminal, it says what is missing and
 //     lets the command run without the credential, in the jail launcher's words: a browser
 //     login nobody can open only hangs, and plenty of invocations need no credential at all.
+//     What it would have served itself is named as unset for that reason (notStarted).
 //   - THE VIEW, served the host's way: the pi and opencode views are the host credential socket
 //     their yolo extension and plugin read (a jail writes each one's auth file into the jail's
 //     home instead; at the host that file is the user's own, and opencode's plugin offers the
@@ -163,8 +173,11 @@ func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 		return nil, err
 	}
 	loggedIn, err := ensureLogin(socket, d.request, p, stderr)
-	if err != nil || !loggedIn {
+	if err != nil {
 		return nil, err
+	}
+	if !loggedIn {
+		return notStarted(p), nil
 	}
 	switch p.Flag {
 	case "":
@@ -228,7 +241,7 @@ func prepare(d deps, p Prelaunch, stderr io.Writer) (*Launch, error) {
 	launch.listener = listener
 	launch.adapterEnd = end
 	launch.vars["CODEX_HOME"] = managedHome
-	launch.vars["CODEX_REFRESH_TOKEN_URL_OVERRIDE"] = "http://" + listener.Addr().String() + "/oauth/token"
+	launch.vars[RefreshURLEnv] = "http://" + listener.Addr().String() + "/oauth/token"
 	return launch, nil
 }
 
@@ -271,6 +284,40 @@ func opencodeHostLoginNotice(d deps) string {
 	return "  opencode: to run on yolo's shared ChatGPT login, " + pick + " once; yolo does not write " +
 		"opencode's logins at the host (" + path + "), and until then opencode's requests on the " +
 		"subscription fail."
+}
+
+// notStarted is what prepare returns when no login exists and none can be asked for: nil, or for
+// the codex view a launch that sets nothing and names why the refresh URL a started one serves
+// is unset. That URL's doorway is closed at the host because the managed launch serves it
+// itself (docs/design/host-notch-services.md HS-D20, HS-D22), so with that launch not started,
+// the missing login is the reason, and logging in is the fix, in ensureLogin's own words. pi's
+// view and a login alone serve no such variable.
+func notStarted(p Prelaunch) *Launch {
+	if p.Flag != CodexViewFlag {
+		return nil
+	}
+	return &Launch{notServed: map[string]string{RefreshURLEnv: "whose part yolo's managed " + p.Bin +
+		" launch plays at the host with an adapter of its own (docs/design/host-notch-services.md " +
+		"HS-D20), and that launch did not start: there is no OpenAI login, and this is not an " +
+		"interactive terminal to log in at (" + loginRemedy(p.Bin) + ")"}}
+}
+
+// NotServed is why this launch, not started, leaves name unset where a started one sets it from
+// a server of its own, "" for any other variable and for every variable of a launch that started:
+// the clause a launch's `Not set at this notch` line gives for name (packload.LaunchServes).
+func (l *Launch) NotServed(name string) string {
+	if l == nil {
+		return ""
+	}
+	return l.notServed[name]
+}
+
+// loginRemedy is what a launch with no login and no terminal is told to do, by ensureLogin and by
+// the launch that did not start for want of one (notStarted), so the two say one thing. It names
+// `yolo host -- <bin>`, not the bare program the jail launcher's line names: at the host a bare
+// program reaches yolo's login only through a wrapper the user may not have installed.
+func loginRemedy(bin string) string {
+	return "run 'yolo host -- " + bin + "' once from a terminal to log in"
 }
 
 // serveAdapter is THE HOST-SIDE CODEX REFRESH ADAPTER: Codex's token endpoint on an
@@ -435,7 +482,7 @@ func ensureLogin(socket string, request requestFunc, p Prelaunch, stderr io.Writ
 	}
 	if !p.Interactive {
 		fmt.Fprintf(stderr, "  %s: OpenAI login is required, and this is not an interactive terminal\n", p.Bin)
-		fmt.Fprintf(stderr, "  → run '%s' once from a terminal to log in; continuing without a credential.\n", p.Bin)
+		fmt.Fprintf(stderr, "  → %s; continuing without a credential.\n", loginRemedy(p.Bin))
 		return false, nil
 	}
 	fmt.Fprintf(stderr, "  %s: OpenAI login is required.\n", p.Bin)

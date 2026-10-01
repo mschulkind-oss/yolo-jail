@@ -12,6 +12,10 @@ type managedOpenAIHostLaunch interface {
 	// unchanged): a managed Codex launch adds --no-daemon (openaiauthhost's codexdaemon.go).
 	Argv([]string) ([]string, []string)
 	Run(string, []string, []string, io.Reader, io.Writer, io.Writer) (int, bool)
+	// NotServed is why the launch, not started, leaves a variable unset that a started one sets
+	// from a server of its own, "" for any other: a managed Codex launch that did not start for
+	// want of a login names the refresh URL (openaiauthhost's notStarted). managedHostVars reads it.
+	NotServed(string) string
 }
 
 // hostPrelaunch is the declarative OpenAI prelaunch a host launch carries.

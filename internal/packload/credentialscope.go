@@ -370,32 +370,49 @@ func (s *CredentialScope) FoldFor(agent string) []EnvFoldEntry {
 // says). nil when nothing was withheld. Names only: the value is an address, but the line is
 // about what is absent, and a reader acts on the variable.
 //
-// servedByLaunch leaves out a variable the launch sets itself from a server of its own
-// (UnservedLines); nil leaves out none.
-func (s *CredentialScope) UnservedEnvLines(servedByLaunch func(string) bool) []string {
+// byLaunch is the launch's own word on each variable (LaunchServes): one it sets itself is left
+// out, and one whose own server did not start gets the reason byLaunch gives. nil says nothing.
+// The lines group a daemon's variables by the reason given, so a variable with a reason of its
+// own never shares a line with one that has the notch's.
+func (s *CredentialScope) UnservedEnvLines(byLaunch LaunchServes) []string {
 	if s == nil || (len(s.unservedEnv) == 0 && len(s.unlistenedEnv) == 0 && len(s.untokenedEnv) == 0) {
 		return nil
 	}
-	byDaemon := map[string][]string{}
-	var daemons []string
+	type reason struct{ daemon, why string }
+	byReason := map[reason][]string{}
+	var reasons []reason
 	for k, daemon := range s.unservedEnv {
-		if servedByLaunch != nil && servedByLaunch(k) {
-			continue
+		why := ""
+		if byLaunch != nil {
+			served, launchWhy := byLaunch(k)
+			if served {
+				continue
+			}
+			why = launchWhy
 		}
-		if _, seen := byDaemon[daemon]; !seen {
-			daemons = append(daemons, daemon)
+		if why == "" {
+			// The served set's: the launch's reason for the daemon when it gave one
+			// (WithNotServedWhy), else the notch's (ServedDaemons.notServedWhy).
+			why = s.served.notServedWhy(daemon)
 		}
-		byDaemon[daemon] = append(byDaemon[daemon], k)
+		r := reason{daemon, why}
+		if _, seen := byReason[r]; !seen {
+			reasons = append(reasons, r)
+		}
+		byReason[r] = append(byReason[r], k)
 	}
-	sort.Strings(daemons)
+	sort.Slice(reasons, func(i, j int) bool {
+		if reasons[i].daemon != reasons[j].daemon {
+			return reasons[i].daemon < reasons[j].daemon
+		}
+		return reasons[i].why < reasons[j].why
+	})
 	var lines []string
-	for _, daemon := range daemons {
-		vars := byDaemon[daemon]
+	for _, r := range reasons {
+		vars := byReason[r]
 		sort.Strings(vars)
-		// The launch's own reason when it gave one, else the notch's (ServedDaemons.notServedWhy).
 		lines = append(lines, strings.Join(vars, ", ")+" — points at the "+
-			strconv.Quote(daemon)+" jail daemon, "+s.served.notServedWhy(daemon)+
-			", so nothing would answer it")
+			strconv.Quote(r.daemon)+" jail daemon, "+r.why+", so nothing would answer it")
 	}
 	unlistened := map[string][]string{}
 	var bare []string

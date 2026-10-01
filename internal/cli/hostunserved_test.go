@@ -14,7 +14,12 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
+	"github.com/mschulkind-oss/yolo-jail/internal/openaiauthhost"
 )
 
 func hostUnservedHome(t *testing.T, cfg string) {
@@ -41,6 +46,8 @@ func (f setsVarManagedLaunch) Environ(base []string) []string {
 }
 
 func (setsVarManagedLaunch) Argv(argv []string) ([]string, []string) { return argv, nil }
+
+func (setsVarManagedLaunch) NotServed(string) string { return "" }
 
 func (setsVarManagedLaunch) Run(string, []string, []string, io.Reader, io.Writer, io.Writer) (int, bool) {
 	return 23, true
@@ -69,6 +76,66 @@ func TestAHostLaunchThatServesThePointerItselfDoesNotNameIt(t *testing.T) {
 			t.Errorf("serves=%v: the launch named the withheld refresh URL = %v, want %v:\n%s",
 				serves, named, !serves, errw.String())
 		}
+	}
+}
+
+// A MANAGED LAUNCH THAT DID NOT START SAYS SO, and not HS-D22's reason. `yolo host -p codex --
+// codex` with no OpenAI login and no terminal starts no managed launch (openaiauthhost logs in
+// only where a human can answer), so codex runs without the refresh URL. Its line used to give
+// the reason that holds for an agent other than codex, that `yolo host --` opens the doorway for
+// no selection (HS-D22); for codex the doorway is closed because the managed launch serves the
+// URL itself (HS-D20), and what is missing is that launch, for want of a login. pi under the
+// same conditions keeps HS-D22's clause: no managed launch of pi's serves that URL.
+//
+// Through the real hostMain and the real prelaunch, against the real OpenAI credential service
+// holding no login in this test's home (spawned in this package's private singleton dir, and
+// stopped here), so deleting the reason where the prelaunch decides or where the host prints
+// fails it. No login starts: there is no terminal.
+func TestAHostLaunchWhoseManagedLaunchDidNotStartSaysWhy(t *testing.T) {
+	for _, tc := range []struct {
+		agent        string
+		managedVoice bool
+	}{{"codex", true}, {"pi", false}} {
+		t.Run(tc.agent, func(t *testing.T) {
+			hostUnservedHome(t, `{"packs": ["codex", "pi"]}`)
+			setGateTTY(t, false)
+			t.Cleanup(func() {
+				broker.BrokerKill(broker.SingletonDeps(openaiauthhost.BrokerName, nil), syscall.SIGTERM, 5*time.Second)
+			})
+			rc, execed, errs := hostExecRun(t, tc.agent, "-p", "codex")
+			if rc != 0 || !execed {
+				t.Fatalf("yolo host -p codex -- %s: rc=%d exec'd=%v\n%s", tc.agent, rc, execed, errs)
+			}
+			if !strings.Contains(errs, tc.agent+": OpenAI login is required, and this is not an interactive terminal") {
+				t.Fatalf("the fixture is not the no-login, no-terminal launch:\n%s", errs)
+			}
+			var line string
+			for _, l := range strings.Split(errs, "\n") {
+				if strings.Contains(l, "CODEX_REFRESH_TOKEN_URL_OVERRIDE — points at") {
+					line = l
+				}
+			}
+			if line == "" {
+				t.Fatalf("the withheld refresh URL is not named:\n%s", errs)
+			}
+			managed := []string{"no OpenAI login", "not an interactive terminal",
+				"run 'yolo host -- " + tc.agent + "' once from a terminal to log in", "HS-D20"}
+			hsd22 := []string{"opens for no selection", "HS-D22"}
+			want, not := hsd22, managed[:1]
+			if tc.managedVoice {
+				want, not = managed, hsd22
+			}
+			for _, w := range want {
+				if !strings.Contains(line, w) {
+					t.Errorf("the refresh URL's line must say %q:\n%s", w, line)
+				}
+			}
+			for _, n := range not {
+				if strings.Contains(line, n) {
+					t.Errorf("the refresh URL's line says %q, the wrong reason for %s:\n%s", n, tc.agent, line)
+				}
+			}
+		})
 	}
 }
 

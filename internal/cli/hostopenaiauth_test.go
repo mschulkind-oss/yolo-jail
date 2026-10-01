@@ -26,6 +26,8 @@ func (f *fakeManagedHostLaunch) Argv(argv []string) ([]string, []string) {
 	return out, []string{"yolo CHANGED the command you asked for: (the managed launch's fake rewrite)"}
 }
 
+func (*fakeManagedHostLaunch) NotServed(string) string { return "" }
+
 func TestGeneratedCodexWrapperReachesManagedHostLaunch(t *testing.T) {
 	if body := hostwrap.Body("codex"); !strings.Contains(body, `exec yolo host -- codex "$@"`) {
 		t.Fatalf("Codex wrapper bypasses managed host launch:\n%s", body)

@@ -167,6 +167,38 @@ func TestAPointerIsDeliveredOnlyWhereItsDaemonIsServed(t *testing.T) {
 	if strings.Contains(l, "never at the host") {
 		t.Errorf("the host's disclosure says no jail daemon runs at the host:\n%s", l)
 	}
+	// THE LAUNCH'S OWN WORD (LaunchServes), per variable: one it serves itself goes unnamed, one
+	// whose own server did not start carries that reason on a line of its own, and a variable of
+	// the same daemon it says nothing of keeps the served set's clause.
+	const launchWhy = "which this launch's own server serves, and it did not start"
+	byLaunch := func(name string) (bool, string) {
+		switch name {
+		case refresh:
+			return true, ""
+		case awsURI:
+			return false, launchWhy
+		}
+		return false, ""
+	}
+	launchLines := UnservedLines(s, nil, byLaunch)
+	var uriLine, tokenLine string
+	for _, line := range launchLines {
+		if strings.Contains(line, refresh) {
+			t.Errorf("a variable the launch serves itself is named: %s", line)
+		}
+		if strings.Contains(line, awsURI) {
+			uriLine = line
+		}
+		if strings.Contains(line, awsToken) {
+			tokenLine = line
+		}
+	}
+	if !strings.Contains(uriLine, launchWhy) || strings.Contains(uriLine, awsToken) {
+		t.Errorf("%s must carry the launch's reason on a line of its own: %q", awsURI, uriLine)
+	}
+	if !strings.Contains(tokenLine, `loophole "aws-auth" is disabled`) || strings.Contains(tokenLine, launchWhy) {
+		t.Errorf("%s must keep the served set's clause: %q", awsToken, tokenLine)
+	}
 	doorway := ServedByLaunch([]string{"aws-auth"}).
 		WithListen(map[string]string{"aws-auth": "127.0.0.1:40123"}).AtHost()
 	served := ServedByLaunch(nil).Plus(doorway)
