@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
@@ -630,7 +631,7 @@ func RunMacosUser(deps Deps, opts Options) int {
 	}
 	for _, cmd := range plan.StageCommands {
 		if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
-			out.printf("[bold red]Could not stage entrypoint (%s).[/bold red]", strings.Join(cmd, " "))
+			out.printf("[bold red]Could not stage entrypoint (%s).[/bold red]", shquote.JoinDisplay(cmd))
 			return 1
 		}
 	}
@@ -839,28 +840,28 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		"[dim]sudo may prompt for your password; it's forwarded through the " +
 		"TTY proxy so you can answer inline.[/dim]")
 	for _, cmd := range plan.StageCommands {
-		p.print("  sudo " + strings.Join(cmd, " "))
+		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
 	// The env-file steps, in the order they run and NAMED — the directory's mode and the
 	// sandbox's read ACE are the whole of what keeps this file private, so a dry run that
 	// hid them would hide the security property it is being read to check.
 	for _, cmd := range plan.EnvFileCommands {
-		p.print("  sudo " + strings.Join(cmd, " "))
+		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
 	if plan.EnvFile != "" {
-		p.printf("  sudo %s %s  [dim](content on stdin, never argv)[/dim]", teeBin, plan.EnvFile)
-		p.printf("  sudo %s 0600 %s", chmodBin, plan.EnvFile)
+		p.printf("  sudo %s %s  [dim](content on stdin, never argv)[/dim]", teeBin, shquote.QuoteDisplay(plan.EnvFile))
+		p.printf("  sudo %s 0600 %s", chmodBin, shquote.QuoteDisplay(plan.EnvFile))
 	}
 	for _, cmd := range plan.EnvFileGrantCommands {
-		p.print("  sudo " + strings.Join(cmd, " "))
+		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
-	p.print("  sudo " + strings.Join(plan.BootstrapArgv[1:], " "))
+	p.print("  sudo " + shquote.JoinDisplay(plan.BootstrapArgv[1:]))
 	// NAMED EVEN WHEN THERE IS NO STAGE, for the reason the pack line above is: "this
 	// launch installs nothing" and "this backend cannot install anything" were
 	// indistinguishable until half two, and a dry run that simply omitted the step would
 	// keep them that way.
 	if len(plan.ProvisionArgv) > 0 {
-		p.print("  sudo " + strings.Join(plan.ProvisionArgv[1:], " "))
+		p.print("  sudo " + shquote.JoinDisplay(plan.ProvisionArgv[1:]))
 	}
 	p.print("")
 
@@ -871,7 +872,7 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 	}
 	section("Seatbelt profile", plan.Seatbelt)
 	p.print("[bold]── bootstrap argv (self-exec as sandbox) ──[/bold]")
-	p.print("  " + strings.Join(plan.BootstrapArgv, " "))
+	p.print("  " + shquote.JoinDisplay(plan.BootstrapArgv))
 	p.print("")
 	if len(plan.ProvisionArgv) == 0 {
 		p.print("[bold]── provisioning stage ──[/bold]")
@@ -882,16 +883,16 @@ func PrintPlan(w io.Writer, plan RunPlan, problems []string) {
 		if why := plan.ProvisionFloors.Reason(); why != "" {
 			p.print("  [dim]runs for: " + why + "[/dim]")
 		}
-		p.print("  " + strings.Join(plan.ProvisionArgv, " "))
+		p.print("  " + shquote.JoinDisplay(plan.ProvisionArgv))
 	}
 	p.print("")
 	if len(plan.JailDaemonArgv) > 0 {
 		p.print("[bold]── jail-daemon supervisor (confined, beside the agent) ──[/bold]")
-		p.print("  " + strings.Join(plan.JailDaemonArgv, " "))
+		p.print("  " + shquote.JoinDisplay(plan.JailDaemonArgv))
 		p.print("")
 	}
 	p.print("[bold]── launch argv ──[/bold]")
-	p.print("  " + strings.Join(plan.LaunchArgv, " "))
+	p.print("  " + shquote.JoinDisplay(plan.LaunchArgv))
 	p.print("")
 	if len(problems) > 0 {
 		p.print("[bold red]plan invariant violations:[/bold red]")

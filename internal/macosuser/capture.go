@@ -69,6 +69,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 const (
@@ -659,7 +660,7 @@ func RunCapturePlan(deps Deps, plan CapturePlan) int {
 		for _, cmd := range group[1].([][]string) {
 			if deps.Run(append([]string{"sudo"}, cmd...)) != 0 {
 				out.printf("[bold red]Could not %s (%s).[/bold red]",
-					group[0].(string), strings.Join(cmd, " "))
+					group[0].(string), shquote.JoinDisplay(cmd))
 				return 1
 			}
 		}
@@ -730,24 +731,24 @@ func PrintCapturePlan(w io.Writer, plan CapturePlan, problems []string) {
 	p.print("[bold]── privileged commands (run via sudo) ──[/bold]")
 	for _, cmd := range append(append(append([][]string{}, plan.PrepareCommands...),
 		plan.StageCommands...), plan.EnvFileCommands...) {
-		p.print("  sudo " + strings.Join(cmd, " "))
+		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
 	if plan.EnvFile != "" {
-		p.printf("  sudo %s %s  [dim](content on stdin, never argv)[/dim]", teeBin, plan.EnvFile)
-		p.printf("  sudo %s 0600 %s", chmodBin, plan.EnvFile)
+		p.printf("  sudo %s %s  [dim](content on stdin, never argv)[/dim]", teeBin, shquote.QuoteDisplay(plan.EnvFile))
+		p.printf("  sudo %s 0600 %s", chmodBin, shquote.QuoteDisplay(plan.EnvFile))
 	}
 	for _, cmd := range plan.EnvFileGrantCommands {
-		p.print("  sudo " + strings.Join(cmd, " "))
+		p.print("  sudo " + shquote.JoinDisplay(cmd))
 	}
 	p.print("")
 	p.print("[bold]── capture Seatbelt profile ──[/bold]")
 	p.print(strings.TrimRight(plan.Seatbelt, "\n"))
 	p.print("")
 	p.print("[bold]── bootstrap argv (staging home) ──[/bold]")
-	p.print("  " + strings.Join(plan.BootstrapArgv, " "))
+	p.print("  " + shquote.JoinDisplay(plan.BootstrapArgv))
 	p.print("")
 	p.print("[bold]── capture driver argv ──[/bold]")
-	p.print("  " + strings.Join(plan.DriverArgv, " "))
+	p.print("  " + shquote.JoinDisplay(plan.DriverArgv))
 	p.print("")
 	if len(problems) > 0 {
 		p.print("[bold red]plan invariant violations:[/bold red]")
