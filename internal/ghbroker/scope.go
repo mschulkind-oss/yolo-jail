@@ -74,17 +74,22 @@ func (s Scope) describe() string {
 // the host user writes and the next fresh launch reads. No answer the jail gives and no
 // notification widens the scope, so the advice names the entry, spelled as `yolo config-ref`
 // documents it, and who writes it. The workspace is the host path the jail is already told
-// (YOLO_HOST_DIR); JSON-quoting it writes any control character in it as an escape.
+// (YOLO_HOST_DIR); JSON-quoting it writes any control character in it as an escape, and
+// leaves `&`, `<` and `>` as they are, so the key reads as the folder's own name.
 func (s Scope) widenAdvice(repo string) string {
 	ws := s.workspace
 	if ws == "" {
 		ws = "<this workspace's host path>"
 	}
-	key, _ := json.Marshal(ws)
+	var quoted strings.Builder
+	enc := json.NewEncoder(&quoted)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(ws)
+	key := strings.TrimSuffix(quoted.String(), "\n")
 	return "The scope is this workspace's GitHub remotes, approved at a fresh launch, plus what a " +
 		"widening entry in the host user's config adds for this workspace. To admit " + repo +
 		", the host user adds it to " + paths.UserConfigPath() + " as \"brokered\": {\"" + Source +
-		"\": {\"workspaces\": {" + string(key) + ": {\"repos\": [\"" + repo + "\"]}}}}, and it is " +
+		"\": {\"workspaces\": {" + key + ": {\"repos\": [\"" + repo + "\"]}}}}, and it is " +
 		"in scope from the next fresh launch; nothing the jail sends widens the scope."
 }
 

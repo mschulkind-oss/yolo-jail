@@ -341,7 +341,9 @@ func TestTheBrokerRunsAWidenedRepositoryAndNamesTheEntryForAnother(t *testing.T)
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("PATH", filepath.Dir(gh)+":/usr/bin:/bin")
 	t.Setenv("GH_CONFIG_DIR", cfg)
-	ws := filepath.Join(resolvedDir(t), "app")
+	// A folder name with `&` and a space: the entry the refusal spells must be the folder's
+	// own name, which JSON's HTML escaping would write as \u0026.
+	ws := filepath.Join(resolvedDir(t), "R&D app")
 	b, cleanup := newBroker(brokerscope.File{Workspace: ws, Repos: []string{"o/r"},
 		Widened: []string{"org/lib"}}, ws, &bytes.Buffer{})
 	defer cleanup()
