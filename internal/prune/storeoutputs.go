@@ -109,9 +109,10 @@ func SupersededStoreOutputs(storeDir string, rootDirs []string, inUse map[string
 // StoreDeleteCmd is the argv that removes one store path, and it is spelled here
 // so a reader can see what is NOT in it: no `--ignore-liveness`, no `gc`, no
 // `--all`. `nix store delete` refuses a path that is still live, and that
-// refusal is a feature of this design rather than an obstacle to it.
+// refusal is a feature of this design rather than an obstacle to it. It turns on
+// nix-command itself, as RunNixStoreGC does, because the official installer leaves it off.
 func StoreDeleteCmd(path string) []string {
-	return []string{"nix", "store", "delete", path}
+	return []string{"nix", "--extra-experimental-features", "nix-command flakes", "store", "delete", path}
 }
 
 // rootedTargets is the symlink targets of every root under rootDirs: the store paths yolo

@@ -92,8 +92,18 @@ func TestStoreDeleteCmdNeverIgnoresLiveness(t *testing.T) {
 				"this design's SECOND veto, behind yolo's own rooting", forbidden, argv)
 		}
 	}
-	if !strings.HasPrefix(argv, "nix store delete ") {
+	if !strings.Contains(argv, " store delete /nix/store/") || !strings.HasPrefix(argv, "nix ") {
 		t.Fatalf("StoreDeleteCmd = %q, want a single named `nix store delete`", argv)
+	}
+}
+
+// TestStoreDeleteCmdTurnsOnNixCommand: `nix store delete` is a nix-command verb, which the
+// official installer leaves off, so without the flag the deletion fails there with "experimental
+// Nix feature 'nix-command' is disabled" — RunNixStoreGC beside it has always carried it.
+func TestStoreDeleteCmdTurnsOnNixCommand(t *testing.T) {
+	argv := StoreDeleteCmd("/nix/store/x-yolo-jail-install-prefix")
+	if len(argv) < 3 || argv[1] != "--extra-experimental-features" || !strings.Contains(argv[2], "nix-command") {
+		t.Fatalf("StoreDeleteCmd = %q, want `nix --extra-experimental-features nix-command …`", argv)
 	}
 }
 

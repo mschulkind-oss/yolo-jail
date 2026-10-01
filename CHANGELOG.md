@@ -599,6 +599,9 @@ sets, and a jail without pi no longer carries it.
 
 ### Fixed
 
+- `yolo prune --apply` now removes the old yolo store paths it lists on a Nix installed with the
+  official installer and no `experimental-features` line. It used to fail on each one with "experimental
+  Nix feature 'nix-command' is disabled".
 - A jail whose `mise_tools` has a `pnpm` entry now has that pnpm. On podman and Apple Container,
   yolo kept mise from installing pnpm on every launch, because it installs pnpm itself when
   nothing else provides it, and it also stepped aside for the pnpm you declared, so the jail had
