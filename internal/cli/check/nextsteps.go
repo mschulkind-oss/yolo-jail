@@ -201,25 +201,33 @@ func (o *Options) nixInstallNote() string {
 }
 
 // nixBrokenNote is the next step for a nix the lookup found and that would not start, or that
-// exited non-zero on `nix --version` (sectionNix prints nix's stderr above it): the command that
-// shows nix's own error, then the reinstall. The NixOS Nix installer, and the Determinate
-// installer it grew from, remove their own install (storage.NixInstallerReceipt); a nix from the
-// nixos.org script, which has no uninstaller, or from a distribution's package is removed the way
-// it was installed.
+// exited non-zero on `nix --version` and printed nothing: the command that shows nix's own error,
+// then the reinstall (nixRepairNote).
 func (o *Options) nixBrokenNote(nixPath string) string {
-	see := "Run it yourself to see nix's own error:\n  " + shquote.Join([]string{nixPath, "--version"}) + "\n"
+	return "Run it yourself to see nix's own error:\n  " + shquote.Join([]string{nixPath, "--version"}) + "\n" +
+		o.nixRepairNote()
+}
+
+// nixRepairNote is the reinstall that ends nixBrokenNote, alone, for a nix whose own error is
+// already in the note (sectionNix prints the stderr of a `nix --version` that exited non-zero
+// above it), where a line saying to run nix to see that error would send the reader to fetch what
+// they are reading (docs/reference/happy-path-principle.md, rule 7). The NixOS Nix installer, and
+// the Determinate installer it grew from, remove their own install (storage.NixInstallerReceipt);
+// a nix from the nixos.org script, which has no uninstaller, or from a distribution's package is
+// removed the way it was installed.
+func (o *Options) nixRepairNote() string {
 	switch {
 	case o.inContainerJail():
-		return see + containerJailNixNote
+		return containerJailNixNote
 	case o.inJail():
-		return see + "This nix is the host's, which this account cannot repair or reinstall, so\n" +
+		return "This nix is the host's, which this account cannot repair or reinstall, so\n" +
 			macosUserJailNixFix
 	}
 	if o.PathExists(storage.NixInstallerReceipt) {
-		return see + "If the install is broken, remove it and install Nix again:\n  " +
+		return "If the install is broken, remove it and install Nix again:\n  " +
 			storage.NixInstallerUninstall + "\n" + o.nixInstallLines() + nixRecheck
 	}
-	return see + "If the install is broken, remove it the way it was installed (for the nixos.org script,\n" +
+	return "If the install is broken, remove it the way it was installed (for the nixos.org script,\n" +
 		"which has no uninstaller: " + storage.NixUninstallManual + "), then install Nix again.\n" +
 		o.nixInstallLines() + nixRecheck
 }

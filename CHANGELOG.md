@@ -698,10 +698,11 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   left out of that list and its installer's command is printed beside it, as each tool's own line
   already advised, since that installer keeps it current. A run that writes no list, with
   `--no-manifest` or with nothing a list can hold, now ends with each command and the re-check too.
-  A pack it could not read is now followed by its fix, as `yolo check` words it, and then the
-  re-check, where the run used to stop there with exit 1. An install command with square brackets
-  in it now prints exactly as the pack wrote it; one whose brackets held a word such as `red` lost
-  it, and so named another package.
+  A pack it could not read is now followed by its fix, as `yolo check` words it, and the run ends
+  with the re-check, where it used to stop there with exit 1. A user config it cannot parse is now
+  reported the same way, where the run said there was nothing to check and exited 0. An install
+  command with square brackets in it now prints exactly as the pack wrote it, so it can be pasted;
+  one whose brackets held a word such as `red` lost it, and so named another package.
 - An agent whose first install in a jail fails now ends with `Run <agent> again to retry the
   install.`, where it stopped at "⚠ codex not available". pnpm, which yolo installs on first use
   and tries again only an hour after a failed install, says when it will try again and gives the

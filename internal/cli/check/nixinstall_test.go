@@ -130,11 +130,14 @@ func TestANixThatWillNotStartNamesItsErrorAndTheReinstall(t *testing.T) {
 
 // TestANixThatExitsNonzeroNamesItsErrorAndTheReinstall: a nix that started and exited non-zero on
 // `nix --version` got nix's own stderr as its note and nothing else, or an empty note when nix
-// printed nothing. It keeps that stderr and now adds the next step a nix that will not start gets
-// (nixBrokenNote): the command that shows the error, then the reinstall. In a container jail that
-// step is the relaunch, since the jail's nix is the image's.
+// printed nothing. It keeps that stderr and now adds the reinstall a nix that will not start gets
+// (nixBrokenNote). The command that shows nix's own error comes only when nix printed none: with
+// the error already on the line above, "run it yourself to see nix's own error" sent the reader
+// to fetch what yolo had just shown them (rule 7). In a container jail the step is the relaunch,
+// since the jail's nix is the image's.
 func TestANixThatExitsNonzeroNamesItsErrorAndTheReinstall(t *testing.T) {
 	const nixPath = "/opt/my nix/bin/nix"
+	const see = "'/opt/my nix/bin/nix' --version"
 	exits := func(stderr string) func(*Options) {
 		return func(o *Options) {
 			o.Exec = func([]string, string, []string, time.Duration) ExecResult {
@@ -143,20 +146,22 @@ func TestANixThatExitsNonzeroNamesItsErrorAndTheReinstall(t *testing.T) {
 		}
 	}
 	for _, tc := range []struct {
-		name   string
-		mod    func(*Options)
-		stderr string
-		want   []string
+		name    string
+		mod     func(*Options)
+		stderr  string
+		want    []string
+		without []string
 	}{
 		{"with an error", func(o *Options) { o.Machine = "x86_64" }, "error: libstore is broken\n",
-			[]string{"error: libstore is broken", "'/opt/my nix/bin/nix' --version",
-				storage.NixUninstallManual, storage.NixInstallerCommand, "then, in a new terminal: yolo check"}},
+			[]string{"error: libstore is broken", storage.NixUninstallManual, storage.NixInstallerCommand,
+				"then, in a new terminal: yolo check"},
+			[]string{see, "Run it yourself"}},
 		{"silent", func(o *Options) { o.Machine = "x86_64" }, "",
-			[]string{"'/opt/my nix/bin/nix' --version", storage.NixInstallerCommand}},
+			[]string{"Run it yourself to see nix's own error", see, storage.NixInstallerCommand}, nil},
 		{"container jail", func(o *Options) {
 			o.Getenv = func(k string) string { return map[string]string{"YOLO_VERSION": "9.9.9-test"}[k] }
-		}, "error: boom\n", []string{"error: boom", "'/opt/my nix/bin/nix' --version",
-			"relaunch the jail, then: yolo check"}},
+		}, "error: boom\n", []string{"error: boom", "relaunch the jail, then: yolo check"},
+			[]string{see, "Run it yourself"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := nixSection(t, func(o *Options) { tc.mod(o); exits(tc.stderr)(o) }, nixPath)
@@ -166,6 +171,11 @@ func TestANixThatExitsNonzeroNamesItsErrorAndTheReinstall(t *testing.T) {
 			for _, want := range tc.want {
 				if !strings.Contains(got, want) {
 					t.Errorf("the finding lacks %q:\n%s", want, got)
+				}
+			}
+			for _, not := range tc.without {
+				if strings.Contains(got, not) {
+					t.Errorf("the finding still sends the reader to see an error it printed (%q):\n%s", not, got)
 				}
 			}
 		})

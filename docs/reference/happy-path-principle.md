@@ -139,12 +139,13 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    without what was refused. No `yolo check` finding may be written with a literal empty note
    (`TestNoFindingIsWrittenWithAnEmptyNote`), and `nix found but could not be run` now names the
    command that shows nix's own error, then the reinstall. A nix whose `nix --version` exits
-   non-zero gets the same step after nix's own error, where it got that error alone, or nothing
-   when nix printed none (`TestANixThatExitsNonzeroNamesItsErrorAndTheReinstall`). In a
-   `macos-user` jail, whose nix is the host's and which that jail's account cannot reinstall, both
-   name `yolo check` on the host and a relaunch instead (rung 4). `yolo check-deps` follows each
-   pack it could not resolve with that pack's fix, in the words `yolo check` gives for it, and then
-   `yolo check-deps` to check again; it used to exit 1 after the problem alone
+   non-zero gets the reinstall after nix's own error, where it got that error alone, or nothing
+   when nix printed none; only when nix printed none does the command that shows the error come
+   first (`TestANixThatExitsNonzeroNamesItsErrorAndTheReinstall`). In a `macos-user` jail, whose
+   nix is the host's and which that jail's account cannot reinstall, both name `yolo check` on the
+   host and a relaunch instead (rung 4). `yolo check-deps` follows each pack it could not resolve
+   with that pack's fix, in the words `yolo check` gives for it, and ends with `yolo check-deps` to
+   check again, once; it used to exit 1 after the problem alone
    (`TestCheckDepsNamesTheFixForAnUnresolvedPack`). The in-jail clients name one too:
    `yolo-serial` says to relaunch the jail, as `yolo-ps` does, and `yolo-cglimit` names the two
    config lines that turn on the cgroup delegate.
@@ -164,9 +165,11 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    (`TestNixIsOfferedOnlyWhereTheLookupFindsIt`, `TestEveryProbeReadsTheCallersLookup`). The
    install lines `yolo check` prints for a missing container runtime and for a missing nix are
    read against the getting-started guide they come from (`TestPodmanInstallHintsMatchTheGuide`,
-   `TestNixInstallHintsMatchTheGuide`). `yolo check-deps` prints each install command as the pack
-   wrote it, square brackets included, where a bracketed word the output's color markup reads as a
-   style used to vanish from the command (`TestCheckDepsPrintsABracketedCommandAsWritten`).
+   `TestNixInstallHintsMatchTheGuide`). `yolo check-deps` prints each install command byte for
+   byte, as the pack wrote it, square brackets included, where a bracketed word the output's color
+   markup reads as a style used to vanish from the command. Escaping the bracket for the markup is
+   not enough: it keeps an invisible character after the `[`, which a pasted command carries into
+   the install (`TestCheckDepsPrintsABracketedCommandAsWritten`).
    **yolo does not yet enforce rule 3 for a pack's
    `install_hints`:** a pack records no source for them, except the `guardrails` pack, whose
    comments cite where each of its names came from, and no test checks that an entry has a
@@ -196,7 +199,10 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    still missing ([the dependency rule](report-tiers.md#the-dependency-rule);
    `TestApplyHostAssertRefusesWhenTheInstallProducesNothing`), and `yolo check` counts `[SKIP]`
    apart from passes ([`OQ-3`](claude-oauth-interposition.md#oq-3); `TestSkipIsNotAPass`). Every
-   `yolo check-deps` run that finds something missing ends with `yolo check-deps` to check again.
+   `yolo check-deps` run that finds something missing, or a pack it could not resolve, ends with
+   `yolo check-deps` to check again. A user config it cannot parse is one of those problems: the
+   run used to say there was nothing to check and exit 0
+   (`TestCheckDepsRefusesAnUnreadableUserConfig`).
 6. **Re-running is always safe.** The next step for nearly any interrupted command is to run it
    again, and that only works if a second run can't make things worse.
    *In yolo:* a failed auto-capture says `The next launch retries.`, and a launcher whose update is

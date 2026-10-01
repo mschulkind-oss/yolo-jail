@@ -53,7 +53,8 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 	pr := richtext.Printer{W: out, Color: color}
 	// NAMED, NEVER SKIPPED: a pack this probe could not resolve declares deps nobody looked
 	// at, so "nothing missing" would be a claim about binaries it never checked. Each is followed
-	// by its fix, then the re-check: the exit 1 used to be the run's only answer to it.
+	// by its fix, and the report ends with the re-check (printRecheck, or printInstallSteps when
+	// a dep is missing too): the exit 1 used to be the run's only answer to it.
 	for _, u := range unresolved {
 		pr.Printf("[red]✗[/red] pack %s could not be resolved, so its deps were not probed: %s",
 			richtext.Escape(u.Name), richtext.Escape(u.Reason))
@@ -64,9 +65,6 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 			}
 			pr.Printf("%s%s", lead, richtext.Escape(line))
 		}
-	}
-	if len(unresolved) > 0 {
-		pr.Printf("  then: yolo check-deps")
 	}
 	// The floor's programs, each by its floor entry: never missing in the sense this verb exits 1
 	// over, because the floor installs one that is not there yet (HP-D3).
@@ -80,15 +78,19 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 	}
 	if len(reqs) == 0 && len(floor) > 0 {
 		if len(unresolved) > 0 {
+			printRecheck(pr)
 			return 1
 		}
 		return 0
 	}
 	if len(reqs) == 0 {
-		fmt.Fprintln(out, "no host-dep hints declared by the resolved packs — nothing to check.")
 		if len(unresolved) > 0 {
+			// Not "nothing to check": the packs above were never read.
+			fmt.Fprintln(out, "no host-dep hints declared by the packs that resolved.")
+			printRecheck(pr)
 			return 1
 		}
+		fmt.Fprintln(out, "no host-dep hints declared by the resolved packs — nothing to check.")
 		return 0
 	}
 	// THE LAUNCH PATH (host-agent-environment.md): the PATH this command was started with,
@@ -101,10 +103,11 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 	missing := depcheck.Missing(results)
 	for _, r := range results {
 		switch {
-		// Every value below that a pack or the host chose (a bin, a path, a command) is escaped,
-		// so the printer cannot read a bracket in it as markup. A command printed through it
-		// unescaped lost a bracketed style word (`acme[red]` read `acme`, another package), and
-		// an unclosed `[` ran on into the `[/dim]` after it.
+		// Every value below that a pack or the host chose (a bin, a path) is escaped, so the
+		// printer cannot read a bracket in it as markup, and every command is printed verbatim
+		// (printVerbatim), since it is printed to be pasted. A command printed through the
+		// printer unescaped lost a bracketed style word (`acme[red]` read `acme`, another
+		// package), and an unclosed `[` ran on into the `[/dim]` after it.
 		case r.Present:
 			pr.Printf("[green]✓[/green] %-16s %s", richtext.Escape(r.Bin), richtext.Escape(r.Path))
 		case r.Unpublished != "":
@@ -113,13 +116,13 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 			pr.Printf("[yellow]–[/yellow] %-16s no build for this host — %s", richtext.Escape(r.Bin),
 				richtext.Escape(r.Unpublished))
 		case r.Remedy != "":
-			pr.Printf("[red]✗[/red] %-16s MISSING → %s", richtext.Escape(r.Bin), richtext.Escape(r.Remedy))
+			printVerbatim(pr, fmt.Sprintf("[red]✗[/red] %-16s MISSING → ", richtext.Escape(r.Bin)), r.Remedy, "")
 			// The package-manager alternative for a dep whose primary remedy is the tool's
 			// own installer. Shown because a user who would rather go through their package
 			// manager should not have to read pack.json to find the token — but shown SECOND,
 			// since the first-party installer is the one that stays current.
 			if r.Fallback != "" {
-				pr.Printf("  [dim]or via %s: %s[/dim]", r.Manager, richtext.Escape(r.Fallback))
+				printVerbatim(pr, "  [dim]or via "+richtext.Escape(r.Manager)+": ", r.Fallback, "[/dim]")
 			}
 		case r.Manager == "" && r.Hinted:
 			// No manager on this PATH, so no hint could be the remedy: say that, rather than
@@ -142,6 +145,7 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 	}
 	if len(missing) == 0 {
 		if len(unresolved) > 0 {
+			printRecheck(pr)
 			return 1 // an unprobed pack is not a clean bill of health
 		}
 		return 0
@@ -181,29 +185,51 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 // picked the manager (docs/reference/happy-path-principle.md, rule 7), and a run with no
 // bundle ended at its last MISSING line, with no re-check (rule 5).
 func printInstallSteps(pr richtext.Printer, results []depcheck.Result, bundle string) {
-	var lines []string
+	type step struct{ cmd, note string } // the command, verbatim, and its `# …` note, markup
+	var steps []step
 	note := ""
 	if bundle != "" {
-		lines = append(lines, richtext.Escape(depcheck.BundleInstall(results, bundle)))
+		steps = append(steps, step{cmd: depcheck.BundleInstall(results, bundle)})
 		note = " (not in the file)"
 	}
 	for _, r := range installedApart(results, bundle != "") {
-		lines = append(lines, richtext.Escape(r.Remedy)+"  [dim]# "+richtext.Escape(r.Bin)+note+"[/dim]")
+		steps = append(steps, step{r.Remedy, "  [dim]# " + richtext.Escape(r.Bin) + note + "[/dim]"})
 	}
 	pr.Printf("")
 	switch {
 	case bundle != "":
 		pr.Printf("wrote %s. To install what is missing, run:", richtext.Escape(bundle))
-	case len(lines) > 0:
+	case len(steps) > 0:
 		pr.Printf("To install what is missing, run:")
 	default:
 		// Nothing here has a command to name: each MISSING line above says why.
 		pr.Printf("Once the tools above are installed, run:")
 	}
-	for _, l := range lines {
-		pr.Printf("  %s", l)
+	for _, st := range steps {
+		printVerbatim(pr, "  ", st.cmd, st.note)
 	}
-	pr.Printf("  yolo check-deps  [dim]# check again[/dim]")
+	pr.Print(recheckLine)
+}
+
+// recheckLine is the re-check every report that found a problem ends with.
+const recheckLine = "  yolo check-deps  [dim]# check again[/dim]"
+
+// printRecheck ends a report whose only problems are packs it could not resolve, each followed by
+// its fix above: the re-check, once, as its last line. A report that found a dep missing too ends
+// with printInstallSteps, whose last line is the same re-check.
+func printRecheck(pr richtext.Printer) {
+	pr.Printf("")
+	pr.Printf("Once each problem above is fixed, run:")
+	pr.Print(recheckLine)
+}
+
+// printVerbatim prints text between head and tail, which are markup, byte for byte. A command is
+// printed to be pasted, and the markup printer cannot carry every command through: unescaped, a
+// bracketed style word in it (`acme[red]`) is read as markup and dropped, and escaped
+// (richtext.Escape), the bracket is kept by an invisible U+2060 after it, which a pasted command
+// carries into the install, so the install fails on a name the pack never wrote.
+func printVerbatim(pr richtext.Printer, head, text, tail string) {
+	fmt.Fprintln(pr.W, richtext.Render(head, pr.Color)+text+richtext.Render(tail, pr.Color))
 }
 
 // installedApart is the missing deps whose command printInstallSteps prints on its own line:
@@ -255,7 +281,9 @@ func configuredDepRequirements() ([]depcheck.Requirement, []unresolvedPack, map[
 	// selection closure joins is one a launch delivers, so its deps are probed too.
 	sel := selectConfiguredHostPacks()
 	if sel.loadErr != nil {
-		return nil, nil, nil, nil
+		// No selection at all, so no pack was probed: the problem is reported, never read as
+		// "nothing to check" and an exit 0 (rule 5).
+		return nil, sel.problems(), nil, nil
 	}
 	floor := floorDeliveredBins(sel.packs)
 	var reqs []depcheck.Requirement

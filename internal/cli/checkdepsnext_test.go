@@ -2,12 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -220,29 +222,113 @@ func TestCheckDepsEndsWithTheRecheckWithoutABundle(t *testing.T) {
 // TestCheckDepsNamesTheFixForAnUnresolvedPack: a configured pack check-deps could not resolve
 // made it exit 1 after "✗ pack <name> could not be resolved, so its deps were not probed: <why>",
 // with no step anywhere in the report. That line is now followed by its fix, in the words
-// `yolo check` gives for the same pack (check.UserPackFix), and then the re-check.
+// `yolo check` gives for the same pack (check.UserPackFix), and the report ends with the
+// re-check, once: a re-check printed under the pack, before the rest of the report, came twice in
+// a run that also found a dep missing, and a run with no hints to probe ended on "nothing to
+// check" under it, with exit 1.
 func TestCheckDepsNamesTheFixForAnUnresolvedPack(t *testing.T) {
+	const recheck = "  yolo check-deps  # check again\n"
 	missing := filepath.Join(floortest.ResolvedTemp(t), "gone")
-	home := checkDepsHome(t, `{"packs":[{"source":"file://`+missing+`","name":"gonepack"}]}`, "apt")
+	gone := `{"source":"file://` + missing + `","name":"gonepack"}`
+	need := filepath.Join(floortest.ResolvedTemp(t), "needpack")
+	writeFile(t, filepath.Join(need, "pack.json"), `{"name":"needpack","contributes":[`+
+		`{"kind":"requires","bin":"yolo-cd-one","install_hints":{"apt":"yolo-cd-one-pkg"}}]}`)
+	for _, tc := range []struct {
+		name, packs string
+		want        []string
+	}{
+		{"nothing else to probe", gone, nil},
+		{"a dep missing too", gone + `,{"source":"file://` + need + `","name":"needpack"}`,
+			[]string{"\n  sudo apt install -y yolo-cd-one-pkg  # yolo-cd-one\n"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := checkDepsHome(t, `{"host_floor": false, "packs":[`+tc.packs+`]}`, "apt")
+			var out, errw bytes.Buffer
+			rc := checkDepsMain([]string{"--no-manifest"}, &out, &errw, false)
+			report := out.String() + errw.String()
+			if rc != 1 {
+				t.Fatalf("rc = %d with a pack unresolved, want 1:\n%s", rc, report)
+			}
+			_, after, ok := strings.Cut(report, "✗ pack gonepack could not be resolved")
+			if !ok {
+				t.Fatalf("no line for the unresolved pack:\n%s", report)
+			}
+			userConfig := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+			fix := "\n  → Fix the pack at file://" + missing + " (`yolo pack --help` documents every field), " +
+				"or its `packs` entry in " + userConfig + "\n"
+			if !strings.Contains(after, fix) {
+				t.Errorf("the report is missing %q after the unresolved pack:\n%s", fix, report)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(report, want) {
+					t.Errorf("the report is missing %q:\n%s", want, report)
+				}
+			}
+			if !strings.HasSuffix(report, "\n"+recheck) {
+				t.Errorf("the report does not end with the re-check %q:\n%s", recheck, report)
+			}
+			if n := strings.Count(report, "yolo check-deps"); n != 1 {
+				t.Errorf("the report names the re-check %d times, want once, at its end:\n%s", n, report)
+			}
+			if strings.Contains(report, "nothing to check") {
+				t.Errorf("a run that could not probe a pack says there is nothing to check:\n%s", report)
+			}
+		})
+	}
+}
+
+// TestCheckDepsRefusesAnUnreadableUserConfig: a user config that does not parse gave check-deps
+// no packs at all, and it said "no host-dep hints declared by the resolved packs — nothing to
+// check." and exited 0, a pass over binaries it never looked for (rule 5). It now names the
+// problem, says where to fix it, and ends with the re-check, exit 1.
+func TestCheckDepsRefusesAnUnreadableUserConfig(t *testing.T) {
+	home := checkDepsHome(t, `{"packs": [`, "apt")
 	var out, errw bytes.Buffer
-	rc := checkDepsMain(nil, &out, &errw, false)
+	rc := checkDepsMain([]string{"--no-manifest"}, &out, &errw, false)
 	report := out.String() + errw.String()
 	if rc != 1 {
-		t.Fatalf("rc = %d with a pack unresolved, want 1:\n%s", rc, report)
-	}
-	_, after, ok := strings.Cut(report, "✗ pack gonepack could not be resolved")
-	if !ok {
-		t.Fatalf("no line for the unresolved pack:\n%s", report)
+		t.Fatalf("rc = %d with an unreadable user config, want 1:\n%s", rc, report)
 	}
 	userConfig := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
-	for _, want := range []string{
-		"\n  → Fix the pack at file://" + missing + " (`yolo pack --help` documents every field), " +
-			"or its `packs` entry in " + userConfig + "\n",
-		"\n  then: yolo check-deps\n",
-	} {
-		if !strings.Contains(after, want) {
-			t.Errorf("the report is missing %q after the unresolved pack:\n%s", want, report)
+	for _, want := range []string{"✗ ", "  → Change what it names, in " + userConfig} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report is missing %q:\n%s", want, report)
 		}
+	}
+	if !strings.HasSuffix(report, "\n  yolo check-deps  # check again\n") {
+		t.Errorf("the report does not end with the re-check:\n%s", report)
+	}
+	if strings.Contains(report, "nothing to check") {
+		t.Errorf("an unreadable config still reads as nothing to check:\n%s", report)
+	}
+}
+
+// TestCheckDepsNamesTheLocalPacksDirectory: the conventional local pack has no `packs` entry, so
+// its step is its directory and `yolo pack lint`, through checkDepsMain, the way the command runs.
+func TestCheckDepsNamesTheLocalPacksDirectory(t *testing.T) {
+	home := checkDepsHome(t, `{"host_floor": false}`, "apt")
+	local := filepath.Join(home, ".config", "yolo-jail", "local")
+	writeFile(t, filepath.Join(local, "pack.json"), `{"name":"local","contributes":[{"kind":"no-such-kind"}]}`)
+	var out, errw bytes.Buffer
+	rc := checkDepsMain([]string{"--no-manifest"}, &out, &errw, false)
+	report := out.String() + errw.String()
+	if rc != 1 {
+		t.Fatalf("rc = %d with the local pack unresolved, want 1:\n%s", rc, report)
+	}
+	if want := "  → Fix what it names in " + local + " (`yolo pack lint " + local + "` re-checks it)"; !strings.Contains(report, want) {
+		t.Errorf("the report is missing %q:\n%s", want, report)
+	}
+}
+
+// TestAShippedPackThatWillNotResolveIsTheMaintainers: the record newUnresolvedPack makes for a
+// pack that ships with yolo carries that fact, so its step is the issue tracker, never "fix the
+// pack at <source>".
+func TestAShippedPackThatWillNotResolveIsTheMaintainers(t *testing.T) {
+	t.Setenv("HOME", floortest.ResolvedTemp(t))
+	t.Setenv("XDG_CONFIG_HOME", "")
+	got := checkDepsUnresolvedStep(newUnresolvedPack(config.EmbeddedPackEntry("claude"), errors.New("boom")))
+	if !strings.Contains(got, "is a yolo bug") || strings.Contains(got, "Fix the pack at") {
+		t.Errorf("a shipped pack's step is not the maintainers':\n%s", got)
 	}
 }
 
@@ -280,8 +366,9 @@ func TestCheckDepsUnresolvedStepNamesWhoCanAct(t *testing.T) {
 // alternative under it printed the install command through the rich-markup printer unescaped. A
 // bracketed word the printer reads as a style (`acme[red]`) vanished from the command, which
 // then named another package, and an unclosed `[` ran on into the `[/dim]` after it, which
-// printed as text. Each line now prints the command as written (richtext.Escape, whose
-// zero-width joiner is removed here as the printer's own tests remove it).
+// printed as text. Escaping it (richtext.Escape) kept the bracket on screen by writing an
+// invisible U+2060 after it, which a pasted command carried into the install. Each command is now
+// printed byte for byte, on a terminal and piped, and no line carries the U+2060.
 func TestCheckDepsPrintsABracketedCommandAsWritten(t *testing.T) {
 	pack := filepath.Join(floortest.ResolvedTemp(t), "brackets")
 	writeFile(t, filepath.Join(pack, "pack.json"), `{"name":"brackets","contributes":[`+
@@ -291,9 +378,14 @@ func TestCheckDepsPrintsABracketedCommandAsWritten(t *testing.T) {
 	for _, color := range []bool{false, true} {
 		var out, errw bytes.Buffer
 		rc := checkDepsMain([]string{"--no-manifest"}, &out, &errw, color)
-		report := strings.ReplaceAll(stripANSI(out.String()+errw.String()), "\u2060", "")
+		raw := out.String() + errw.String()
+		report := stripANSI(raw)
 		if rc != 1 {
 			t.Fatalf("rc = %d with a dep missing, want 1:\n%s", rc, report)
+		}
+		if strings.Contains(raw, "\u2060") {
+			t.Errorf("color=%v: the report carries an invisible U+2060, which a pasted command keeps:\n%q",
+				color, raw)
 		}
 		for _, want := range []string{
 			"MISSING → npm install -g acme[red]\n",
