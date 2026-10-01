@@ -28,7 +28,8 @@
 
   // THE REPOSITORY SCOPE (loopholedecl/brokered.go). Core reads the workspace's remotes on
   // github.com at every fresh launch that starts this daemon, puts them in the config-change
-  // diff as a labeled block, writes what a human approved to that launch's scope file, and
+  // diff as a labeled block, writes what a human approved, with what the user config's
+  // `brokered.github` widening entry adds for this workspace, to that launch's scope file, and
   // hands the file to the daemon through {repository_scope}. The credential paths are where
   // the host gh keeps its login (gh's own precedence: $GH_CONFIG_DIR, then
   // $XDG_CONFIG_HOME/gh, then ~/.config/gh); with this pack selected, a workspace `mounts`

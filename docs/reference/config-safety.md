@@ -153,7 +153,9 @@ this gate rather than a new one (design:
   neither, so the `{}` branch now waits for the scope part before it writes.
 - After the gate passes, the spawn writes the approved list to that launch's scope file under
   `broker/<source>/scope/` and hands it to the daemon; an attach reads nothing and writes
-  nothing.
+  nothing. The file also lists what the user config's widening entry for this workspace adds
+  (the `brokered` key in `yolo config-ref`), which takes no part in the gate: it is user
+  config, so it never prompts, and the launch names it on a line of its own.
 
 ### Where it runs, and where it deliberately does not
 
