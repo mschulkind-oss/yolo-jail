@@ -1,7 +1,7 @@
 package run
 
 import (
-	"strings"
+	"slices"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -68,42 +68,17 @@ func (o *Options) unsharedBindSources(rt string, sources []string) string {
 
 // bindSources returns the host source of every bind the argv makes before the image ref
 // (after it is the jailed command, whose arguments are not podman's): `-v`/`--volume`
-// specs and `--mount type=bind` fields. Named volumes come back too; the check skips any
-// source that is not an absolute path.
+// specs and `--mount` fields, as argvMounts reads them — the one reader of podman's mount
+// syntax, which the host path map reads too (translatedroots.go). Named volumes come back
+// too; the check skips any source that is not an absolute path.
 func bindSources(argv []string, imageRef string) []string {
-	var out []string
-	volume := func(spec string) {
-		src, _, _ := strings.Cut(spec, ":")
-		out = append(out, src)
+	if i := slices.Index(argv, imageRef); i >= 0 {
+		argv = argv[:i]
 	}
-	for i := 0; i < len(argv); i++ {
-		a := argv[i]
-		if a == imageRef {
-			break
-		}
-		switch {
-		case (a == "-v" || a == "--volume") && i+1 < len(argv):
-			i++
-			volume(argv[i])
-		case strings.HasPrefix(a, "--volume="):
-			volume(strings.TrimPrefix(a, "--volume="))
-		case a == "--mount" && i+1 < len(argv):
-			i++
-			bind := false
-			src := ""
-			for _, kv := range strings.Split(argv[i], ",") {
-				switch {
-				case kv == "type=bind":
-					bind = true
-				case strings.HasPrefix(kv, "source="):
-					src = strings.TrimPrefix(kv, "source=")
-				case strings.HasPrefix(kv, "src="):
-					src = strings.TrimPrefix(kv, "src=")
-				}
-			}
-			if bind && src != "" {
-				out = append(out, src)
-			}
+	var out []string
+	for _, m := range argvMounts(argv) {
+		if m.Source != "" {
+			out = append(out, m.Source)
 		}
 	}
 	return out

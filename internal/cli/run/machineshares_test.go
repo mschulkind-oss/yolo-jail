@@ -243,10 +243,12 @@ func TestBindSourcesReadsTheAssembledArgv(t *testing.T) {
 	}
 }
 
+// An anonymous volume (`-v /anon`) names a destination and no source, so it is not a
+// source the machine must share: argvMounts reads it as the volume it is.
 func TestBindSourcesForms(t *testing.T) {
 	argv := []string{"podman", "run", "-e", "X=-v", "-v", "/a:/x:ro", "--volume=/b:/y",
 		"--mount", "type=bind,source=/c,target=/z", "--mount", "type=tmpfs,target=/t",
-		"--volume", "named:/n", "IMG", "-v", "/d:/w"}
+		"--volume", "named:/n", "-v", "/anon", "IMG", "-v", "/d:/w"}
 	got := strings.Join(bindSources(argv, "IMG"), ",")
 	if got != "/a,/b,/c,named" {
 		t.Errorf("got %s", got)
