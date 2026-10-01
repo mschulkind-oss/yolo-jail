@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // This file covers the second half of the store-write decision (storespec.go):
@@ -229,7 +231,7 @@ func TestTheDefaultSeamReadsPodmanInfoOnceAndCopiesIntoItsStore(t *testing.T) {
 	}
 	calls := filepath.Join(dir, "podman-info-calls")
 	writeScript(t, filepath.Join(bin, "podman"),
-		`[ "$1" = info ] || exit 1`+"\nprintf x >> "+shWord(calls)+"\ncat <<'EOF'\n"+rootlessInfo+"\nEOF")
+		`[ "$1" = info ] || exit 1`+"\nprintf x >> "+shquote.Quote(calls)+"\ncat <<'EOF'\n"+rootlessInfo+"\nEOF")
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	storePath := storeManifest(t, "conf-image")

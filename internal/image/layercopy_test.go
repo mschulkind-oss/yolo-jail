@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // This file replaces streamload_test.go. Every behavior case there was about a
@@ -30,14 +32,6 @@ func writeScript(t *testing.T, path, body string) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-// shWord is s as ONE /bin/sh word, for splicing a fixture path into a writeScript body. The
-// paths spliced are under t.TempDir(), which the machine chooses: bare, a TMPDIR with a space
-// in it makes `printf x >> <path>` append to the path's first word and hand printf the rest,
-// so the recorder writes beside the test's directory and the test reads nothing.
-func shWord(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // TestTheDestinationsCarryTheirTransportAndTheirName pins the two destination
@@ -85,7 +79,7 @@ func TestTheCopierArgvIsWhatSkopeoNeeds(t *testing.T) {
 	dir := t.TempDir()
 	argsFile := filepath.Join(dir, "args")
 	copier := writeScript(t, filepath.Join(dir, "skopeo"),
-		"printf '%s\\n' \"$@\" > "+shWord(argsFile))
+		"printf '%s\\n' \"$@\" > "+shquote.Quote(argsFile))
 
 	var out bytes.Buffer
 	ok, _ := copyImage(copyArgv(nil, copier, "/nix/store/abc-image.json",
@@ -146,8 +140,8 @@ func TestACopyIsRetriedExactlyOnce(t *testing.T) {
 		dir := t.TempDir()
 		counter := filepath.Join(dir, "n")
 		copier := writeScript(t, filepath.Join(dir, "skopeo"),
-			"printf x >> "+shWord(counter)+"; test -s "+shWord(counter)+" && "+
-				"[ $(wc -c < "+shWord(counter)+") -gt 1 ]")
+			"printf x >> "+shquote.Quote(counter)+"; test -s "+shquote.Quote(counter)+" && "+
+				"[ $(wc -c < "+shquote.Quote(counter)+") -gt 1 ]")
 		var out bytes.Buffer
 		if !copyImageWithRetry(copyArgv(nil, copier, "/nix/store/a.json",
 			"containers-storage:x:y"), &out) {
@@ -165,7 +159,7 @@ func TestACopyIsRetriedExactlyOnce(t *testing.T) {
 		dir := t.TempDir()
 		counter := filepath.Join(dir, "n")
 		copier := writeScript(t, filepath.Join(dir, "skopeo"),
-			"printf x >> "+shWord(counter)+"; exit 1")
+			"printf x >> "+shquote.Quote(counter)+"; exit 1")
 		var out bytes.Buffer
 		if copyImageWithRetry(copyArgv(nil, copier, "/nix/store/a.json",
 			"containers-storage:x:y"), &out) {

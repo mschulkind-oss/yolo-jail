@@ -132,8 +132,10 @@ func stageAt(t *testing.T, logPath string, compose func() string) string {
 	t.Helper()
 	jailLog := startupLog
 	startupLog = logPath
-	stage := compose()
-	startupLog = jailLog
+	stage := func() string {
+		defer func() { startupLog = jailLog }()
+		return compose()
+	}()
 	if strings.Contains(stage, "/workspace/.yolo") {
 		t.Fatalf("refusing to run a command that still names /workspace/.yolo — inside a jail "+
 			"that is the live session's state dir, so the stage no longer takes its log path "+
