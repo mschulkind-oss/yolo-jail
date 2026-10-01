@@ -23,12 +23,13 @@ import (
 // garbage collection by default, independent of min-free, so a 0 there is not a
 // missing net and gets an informational line rather than a warning.
 //
-// INSIDE A JAIL IT IS A HOST FACT. `nix config show` reports the settings of the
-// process that runs it, so in a jail it reads the jail's own nix config, not the
-// host daemon's: MEASURED 2026-10-01, NIX_CONFIG="min-free = 123" in a jail's
-// environment changed the min-free it reported, which a reading of the daemon
-// could not see. This section used to say the opposite and graded the jail's own
-// default as the host's GC being off.
+// INSIDE A CONTAINER JAIL IT IS A HOST FACT. `nix config show` reports the
+// settings of the process that runs it, so in a container jail it reads the jail's
+// own nix config, not the host daemon's: MEASURED 2026-10-01, NIX_CONFIG="min-free
+// = 123" in a jail's environment changed the min-free it reported, which a reading
+// of the daemon could not see. This section used to say the opposite and graded the
+// jail's own default as the host's GC being off. A macos-user jail is graded as the
+// host is: its sandbox runs the host's own nix client against the host's /etc/nix.
 //
 // A WARN, never a FAIL: an unbounded store is a hygiene risk, not a broken jail,
 // and on a huge disk it may be a deliberate choice. Skipped when nix is absent
@@ -37,7 +38,7 @@ func (o *Options) sectionAutoGC(r *reporter) {
 	if _, hasNix := o.LookPath("nix"); !hasNix {
 		return // no nix → the Nix section already failed; nothing to add here
 	}
-	if o.inJail() {
+	if o.inJail() && !o.IsMacOS {
 		r.sectionHeader("Nix auto-GC (store growth net)")
 		r.hostFact("Nix auto-GC: the host daemon's min-free",
 			"`nix config show` here reads this jail's own nix config, not the host daemon's. "+
@@ -62,13 +63,19 @@ func (o *Options) sectionAutoGC(r *reporter) {
 		r.dim("Determinate Nix: determinate-nixd collects garbage on its own as free disk " +
 			"runs low, so min-free = 0 does not leave the store unbounded")
 	default:
+		file, generated := o.nixSettingFile("min-free")
+		where := "Add to " + file + ", e.g.\n" +
+			"    min-free = 53687091200   # 50 GiB\n" +
+			"    max-free = 214748364800  # 200 GiB\n"
+		if generated {
+			where = nixConfGeneratedNote + ": set them in that configuration and rebuild, e.g.\n" +
+				"    nix.settings.min-free = 53687091200;   # 50 GiB\n" +
+				"    nix.settings.max-free = 214748364800;  # 200 GiB\n"
+		}
 		r.warn("nix min-free = 0 — the daemon's automatic GC is OFF, so the store grows unbounded",
 			"Set a min-free/max-free floor so the daemon reclaims UNROOTED store paths "+
 				"automatically under space pressure. With the running image now GC-rooted "+
-				"(storage §1) this is safe — a rooted closure is never a casualty. Add to "+
-				o.nixSettingFile("min-free")+", e.g.\n"+
-				"    min-free = 53687091200   # 50 GiB\n"+
-				"    max-free = 214748364800  # 200 GiB\n"+
+				"(storage §1) this is safe — a rooted closure is never a casualty. "+where+
 				"Tune to your disk headroom; these are placeholders. Then:\n"+
 				o.nixDaemonRestart())
 	}

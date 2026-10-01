@@ -428,6 +428,8 @@ See [troubleshooting](userguide/guides/troubleshooting.md#installing-and-launchi
   it is turned off or a selected pack replaced it, with its details and description dim. Each
   loophole's name is bold in both. Piped output, and output with `NO_COLOR` set, is the same
   text with no color.
+- `yolo check`'s Nix row now says which Nix you have: Determinate Nix with the Nix version it is
+  built from, or upstream Nix's version.
 - Re-entering a jail with `YOLO_ALLOW_ATTACH_SKEW=1` now also tells the agent, in its briefing,
   which yolo the jail was started with and which settings of the profile you selected did not
   reach it, so the agent can explain a missing login instead of guessing. On Apple Container the
@@ -617,12 +619,17 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   Determinate Nix or upstream Nix. When the Nix daemon does not trust you on a Mac, the fix is two
   commands to paste: on Determinate Nix they add you in `nix.custom.conf` and restart Determinate's
   daemon, and nothing tells you any more to edit the `nix.conf` Determinate Nix manages and
-  replaces; on upstream Nix they use the one file your install takes the setting from. A Mac whose
-  Nix daemon does not answer now gets the restart command too, and a hung daemon is blamed on
-  Determinate's daemon only when that is the one you run. Determinate Nix, which frees disk space on
-  its own, is no longer warned that its automatic garbage collection is off, and inside a jail that
-  row now says to check on your machine instead of reading the jail's own Nix settings as yours.
-  The Nix row also says which Nix you have.
+  replaces; on upstream Nix they use the one file your install takes the setting from. The line
+  they add keeps every user the daemon already trusts, where the command in
+  [Getting Started](userguide/getting-started.md#trust-your-user-required-on-a-mac) used to replace
+  that list with yours, and it names the account `yolo check` ran as, so on `macos-user` it trusts
+  the jail's account rather than whoever pastes it. Where nix-darwin or NixOS generates your Nix
+  config, the trust and garbage-collection fixes say to set the option in your system
+  configuration and rebuild. A Mac whose Nix daemon does not answer now gets the restart command
+  too, and a hung daemon is blamed on Determinate's daemon only when that is the one you run.
+  Determinate Nix, which frees disk space on its own, is no longer warned that its automatic
+  garbage collection is off, and inside a podman or Apple Container jail that row now says to
+  check on your machine instead of reading the jail's own Nix settings as yours.
 - `yolo prune --apply` now removes the old yolo store paths it lists on a Nix installed with the
   official installer and no `experimental-features` line. It used to fail on each one with "experimental
   Nix feature 'nix-command' is disabled".

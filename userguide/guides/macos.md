@@ -304,7 +304,7 @@ to `trusted-users` and restart the daemon, as in
 [Trust your user](../getting-started.md#trust-your-user-required-on-a-mac):
 
 ```bash
-echo "trusted-users = root $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
+echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
 sudo launchctl kickstart -k system/systems.determinate.nix-daemon
 ```
 

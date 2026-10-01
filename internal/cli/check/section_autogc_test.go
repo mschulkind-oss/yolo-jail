@@ -112,6 +112,26 @@ func TestAutoGCInsideAJailIsAHostFact(t *testing.T) {
 	}
 }
 
+// A macos-user jail is not a container: the sandbox runs the HOST's nix client against the host's
+// /etc/nix, so `nix config show` there reads the host's own min-free and the section grades it.
+func TestAutoGCInAMacOSUserJailGradesTheHostsMinFree(t *testing.T) {
+	r, out := nixMachine{mac: true, inJail: true, version: upstreamNixVersion, config: "min-free = 0\n",
+		files: map[string]string{nixConfFile: officialInstallerNixConf, upstreamPlist: ""}}.autoGCSection(t)
+	if f, ok := findingFor(r, minFreeOffRow); !ok || f.Status != "warn" {
+		t.Errorf("the host's min-free of 0 must be graded in a macos-user jail:\n%s", out)
+	}
+	if r.skipped != 0 {
+		t.Errorf("a macos-user jail reads the host's own nix config; nothing is a host fact here:\n%s", out)
+	}
+
+	r, out = nixMachine{mac: true, inJail: true, version: upstreamNixVersion,
+		config: "min-free = 53687091200\n"}.autoGCSection(t)
+	if f, ok := findingFor(r, "nix min-free is set (50.0 GiB) — the daemon auto-frees "+
+		"unrooted store paths under space pressure"); !ok || f.Status != "pass" {
+		t.Errorf("a set min-free must PASS in a macos-user jail:\n%s", out)
+	}
+}
+
 func TestAutoGCSectionMinFreeZeroWarns(t *testing.T) {
 	got := runAutoGCSection(t, true, ExecResult{Ran: true, RC: 0,
 		Stdout: "max-free = 9223372036854775807\nmin-free = 0\n"})

@@ -26,6 +26,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"runtime"
 	"strings"
 	"time"
@@ -164,6 +165,10 @@ type Options struct {
 	// section's version row and by every hint that depends on which Nix this is. nil until the
 	// first asks.
 	nixVersion *ExecResult
+	// currentUser is the account this check runs as, which the untrusted-user hint names: on the
+	// macos-user backend that is the sandbox's own account, not the human who pastes the fix in
+	// their own terminal. nil => os/user's current user, $USER when that has no name.
+	currentUser func() string
 
 	// BuildImage runs the real `nix build .#ociImage`
 	// and returns (storePath, stderrTail). storePath is "" on failure. nil =>
@@ -275,6 +280,14 @@ func fillDefaults(o *Options) {
 	}
 	if o.InUserGroups == nil {
 		o.InUserGroups = inUserGroupsReal
+	}
+	if o.currentUser == nil {
+		o.currentUser = func() string {
+			if u, err := user.Current(); err == nil && u.Username != "" {
+				return u.Username
+			}
+			return o.Getenv("USER")
+		}
 	}
 }
 

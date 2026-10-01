@@ -18,7 +18,7 @@ program that runs the jail; and **yolo** itself. On a Mac the recommended runtim
 # 1. Nix — then open a new terminal
 curl -fsSL https://install.determinate.systems/nix | sh -s -- install
 # 2. Trust your user, so Nix can fetch or build the jail's Linux parts (required on a Mac)
-echo "trusted-users = root $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
+echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
 sudo launchctl kickstart -k system/systems.determinate.nix-daemon
 # 3. Apple Container — answer Y when it offers to install a kernel
 brew install container
@@ -35,7 +35,7 @@ yolo check
 # 1. Nix — then open a new terminal
 curl -fsSL https://install.determinate.systems/nix | sh -s -- install
 # 2. Optional on Linux: trust your user, so Nix can use yolo's prebuilt downloads
-echo "trusted-users = root $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
+echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
 sudo systemctl restart nix-daemon
 # 3. Podman
 sudo apt-get update && sudo apt-get install -y podman passt slirp4netns uidmap
@@ -108,7 +108,7 @@ both only for a user it trusts. Without this step the first launch on a Mac fail
 optional and only saves building those parts yourself the first time.
 
 ```bash
-echo "trusted-users = root $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
+echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.custom.conf
 sudo launchctl kickstart -k system/systems.determinate.nix-daemon   # macOS
 sudo systemctl restart nix-daemon                                   # Linux
 ```
@@ -137,7 +137,7 @@ features it needs for every Nix command it runs anyway.
   ```bash
   curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh
   echo "experimental-features = nix-command flakes" | sudo tee -a /etc/nix/nix.conf
-  echo "trusted-users = root $(whoami)" | sudo tee -a /etc/nix/nix.conf
+  echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.conf
   sudo launchctl kickstart -k system/org.nixos.nix-daemon
   ```
 
@@ -158,7 +158,7 @@ features it needs for every Nix command it runs anyway.
   sudo pacman -S nix
   sudo systemctl enable --now nix-daemon.service
   echo "experimental-features = nix-command flakes" | sudo tee -a /etc/nix/nix.conf
-  echo "trusted-users = root $(whoami)" | sudo tee -a /etc/nix/nix.conf
+  echo "extra-trusted-users = $(whoami)" | sudo tee -a /etc/nix/nix.conf
   sudo systemctl restart nix-daemon
   ```
 
