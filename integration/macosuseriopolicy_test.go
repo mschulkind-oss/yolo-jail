@@ -3,7 +3,9 @@ package integration
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +76,12 @@ func TestMacosUserIOPolicyAcrossTheLaunchArgv(t *testing.T) {
 		`python3 -c ` + shquote.Quote(ioPolicyReaderPy) + ` 2>&1`,
 		`echo "=== END ==="`,
 	}, "\n"), withLauncherPrefix(setter...))
+	if !strings.Contains(r.stderr, ioPolicySetterMark) {
+		t.Fatalf("the launch's stderr lacks the wrapper's %q line, so yolo did not run under the "+
+			"wrapper and the sandbox's reading would describe a launcher with NO policy set: "+
+			"NOTHING was measured (withLauncherPrefix, runCommand's launchCommand call).\n"+
+			"stdout:\n%s\nstderr:\n%s", ioPolicySetterMark, r.stdout, r.stderr)
+	}
 	body := section(r.stdout, "=== IOPOL ===", "=== END ===")
 	launch := parseIOPolicyLine(body)
 	if r.rc != 0 || launch == nil {
@@ -102,8 +110,14 @@ const (
 	ioPolicyThrottle = 3 // IOPOL_THROTTLE
 )
 
+// ioPolicySetterMark is the line the setter writes to stderr once the policy is set, just
+// before it execs its arguments. The launch reading checks for it, so a launch that did not run
+// under the wrapper fails as not measured instead of reading as a lost policy.
+const ioPolicySetterMark = "iopol-setter: IOPOL_THROTTLE set, exec'ing the wrapped command"
+
 // ioPolicySetterPy sets IOPOL_THROTTLE on its own process (IOPOL_TYPE_DISK = 0,
-// IOPOL_SCOPE_PROCESS = 0) and execs its arguments, or exits non-zero naming errno.
+// IOPOL_SCOPE_PROCESS = 0), says so on stderr (ioPolicySetterMark) and execs its arguments, or
+// exits non-zero naming errno.
 const ioPolicySetterPy = `import ctypes, os, sys
 try:
     lib = ctypes.CDLL(None, use_errno=True)
@@ -112,6 +126,8 @@ except (OSError, AttributeError):
     lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
 if lib.setiopolicy_np(0, 0, 3) != 0:
     sys.exit("setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_THROTTLE) failed: errno %d" % ctypes.get_errno())
+sys.stderr.write("` + ioPolicySetterMark + `\n")
+sys.stderr.flush()
 os.execvp(sys.argv[1], sys.argv[1:])`
 
 // ioPolicyReaderPy prints the disk policy at process scope (0) and thread scope (1) as one
@@ -232,17 +248,35 @@ func TestMacosUserIOPolicyReadingsParse(t *testing.T) {
 }
 
 // TestMacosUserIOPolicyLauncherPrefixWrapsTheBinary pins the harness half the experiment rests
-// on: withLauncherPrefix puts the wrapper first and yolo with its arguments after it, which is
-// what the setter's `os.execvp(sys.argv[1], sys.argv[1:])` expects; and no prefix is yolo itself.
+// on, THROUGH runCommand rather than launchCommand alone: with withLauncherPrefix the wrapper
+// runs first and execs yolo with its arguments, which is what the setter's
+// `os.execvp(sys.argv[1], sys.argv[1:])` expects; and with no prefix yolo runs itself. A test of
+// launchCommand alone passed with runCommand's call to it deleted, and the experiment then
+// recorded a launcher with no policy set as a LOST verdict. yoloBin is a stub script here, and
+// HOME a temp dir, because runCommand's cleanup takes this HOME's keeper locks.
 func TestMacosUserIOPolicyLauncherPrefixWrapsTheBinary(t *testing.T) {
-	var cfg runConfig
-	withLauncherPrefix("python3", "-c", "code")(&cfg)
-	name, argv := launchCommand(cfg, "/bin/yolo", []string{"run", "--", "true"})
-	if name != "python3" || strings.Join(argv, " ") != "-c code /bin/yolo run -- true" {
-		t.Errorf("launchCommand with a prefix = %q %q, want python3 [-c code /bin/yolo run -- true]", name, argv)
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh on PATH")
 	}
-	name, argv = launchCommand(runConfig{}, "/bin/yolo", []string{"run"})
-	if name != "/bin/yolo" || strings.Join(argv, " ") != "run" {
-		t.Errorf("launchCommand with no prefix = %q %q, want /bin/yolo [run]", name, argv)
+	t.Setenv("HOME", resolvedTempDir(t))
+	dir := resolvedTempDir(t)
+	stub := filepath.Join(dir, "yolo")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho \"YOLO-STUB $*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	saved := yoloBin
+	yoloBin = stub
+	t.Cleanup(func() { yoloBin = saved })
+
+	r := runCommand(t, dir, []string{"run", "--", "true"},
+		withLauncherPrefix(sh, "-c", `echo "WRAPPER $#"; exec "$@"`, "wrapper"))
+	if r.rc != 0 || r.stdout != "WRAPPER 4\nYOLO-STUB run -- true\n" {
+		t.Errorf("runCommand with a launcher prefix printed %q (rc %d), want the wrapper's line "+
+			"and then yolo's with its own arguments: the prefix did not wrap the binary", r.stdout, r.rc)
+	}
+	r = runCommand(t, dir, []string{"run"})
+	if r.rc != 0 || r.stdout != "YOLO-STUB run\n" {
+		t.Errorf("runCommand with no prefix printed %q (rc %d), want yolo's line alone", r.stdout, r.rc)
 	}
 }
