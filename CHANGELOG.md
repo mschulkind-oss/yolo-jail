@@ -764,9 +764,11 @@ sets, and a jail without pi no longer carries it.
   it, and treated that as a missing login: at a terminal it started a login you did not need, and
   without one it said a login was required. yolo now says that a running pi holds the file, leaves
   it as it is, and starts pi, since that session is keeping the login current.
-- Old Codex versions now get cleaned up the way the other agents' are. After Codex installs or
-  updates, yolo keeps the two newest versions and the one in use, and removes the rest. Before,
-  every old Codex version stayed on disk, so each update left a few hundred megabytes behind.
+- Old versions of the agents that install themselves, such as Claude Code and Codex, are now
+  cleaned up each time you start one, not only right after it installs or updates, so the versions
+  an older yolo left behind go too. yolo keeps the two newest versions and the one in use and
+  removes the rest, also while `agent_updates` holds an agent at its version. Codex's old versions
+  were never cleaned up at all before, so each Codex update left a few hundred megabytes behind.
 - A repository whose skills link one directory many times can no longer make a launch copy far
   more than the repository holds. One launch now copies at most 32 MiB and 4096 files and
   directories of a repository's skills. A skill that would go past that is left out and named at

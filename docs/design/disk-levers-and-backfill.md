@@ -5,7 +5,7 @@ status: accepted
 tags: [design, disk, prune, podman, nix, backfill]
 summary: "Two questions the maintainer asked together: what are the big space-reduction levers, ranked and costed; and how does yolo clean up — or offer to clean up — the stores that already grew before each fix. All ten questions are ruled and every ruling that builds anything shipped 2026-09-08/09 — including the finding that yolo's own nix outputs were never collected, which now has a collector, and OQ-BF10's host-CAS aliasing, whose scope stops at pants' lmdb_store by ruling."
 stage: DECIDED
-next: "Build L7, the second half of §10 step 2: the launcher runs _prune_versions only after an install or an update (internal/entrypoint/shims.go, the install path and _update), and L7 moves it to every invocation so the backlog goes too; then §10 step 7's re-measure against §5.6"
+next: "Run §10 step 7's re-measure, in this jail and on the host: §2's tables are the baseline and §5.6's done conditions are what to check"
 vantage:
   status-chip: true
 ---
@@ -15,11 +15,14 @@ vantage:
 **Status:** 2026-09-08 — all ten questions ruled, re-checked against the tree 2026-09-24.
 Nine rulings are built (2026-09-08/09, [OQ-BF10](#OQ-BF10) last, on 2026-09-09) and the tenth,
 [OQ-BF8](#OQ-BF8), dissolved rather than building anything; [§11.1](#111-decision-ledger)'s Built
-column has the commits. One step of [§10](#10-sequencing--what-i-would-build-in-order) is not
-built, re-checked 2026-09-30: [§3](#3-the-levers-ranked)'s L7, the version prune at every launcher
-invocation, because `_prune_versions` still runs only after an install or an update. And
+column has the commits. The last build step of [§10](#10-sequencing--what-i-would-build-in-order),
+[§3](#3-the-levers-ranked)'s L7, the version prune at every launcher invocation, was built
+2026-10-01 ([BF-D1](#BF-D1)): MEASURED by unit tests that run the generated launcher with no
+install or update due, and by an integration launch whose generated claude launcher pruned five
+fake versions to the newest two; UNMEASURED in bytes on this machine, which is the re-measure's to
+record. What is left is
 [§10](#10-sequencing--what-i-would-build-in-order) step 7's re-measure against
-[§5.6](#56-what-done-looks-like)'s done conditions has not been recorded. Two samples since touch it: the host's `cache/images` measured empty on 2026-09-14, and
+[§5.6](#56-what-done-looks-like)'s done conditions, which has not been recorded. Two samples since touch it: the host's `cache/images` measured empty on 2026-09-14, and
 the first `yolo prune --apply` after the build declined both store-output reapers on a probe fault,
 since fixed ([`minimal-disk-footprint.md` §2.5](minimal-disk-footprint.md#25-re-measured-2026-09-14--the-first-yolo-stores-sample-and-a-fourth-ledger)). The sibling question this line used to call blocked,
 [OQ-LS3](../reference/image-retention.md#why-its-this-way), is ruled and built too: image retention
@@ -406,7 +409,7 @@ turns on.
 | L4 | **`ImageCacheKeep` → 0 where the runtime streams** (podman) | backfill | **≈ 20.6 GB** (10.7 host + 9.9 nested) | one constant, one predicate on the runtime; regeneration = a build; the fallback reader `newestTars` keeps working on whatever exists | knob is [`minimal-disk-footprint.md`](minimal-disk-footprint.md)'s ([OQ-DF1](minimal-disk-footprint.md#112-open-questions) already ruled "keep zero" for the writer) |
 | L5 | **C6 — a stable layer chain** ([OQ-6](../reference/image-staging-vs-baking.md#why-its-this-way)) | steady state | lowers the LRU floor from ~10 × 2.7 GB to ~10 × (trailing layers); saves ~17.6 s of podman write per image that still rebuilds | a `flake.nix` change against an already-loaded base ref; Apple Container unproven | re-priced down for storage by C8 and up as the floor-setter, then **built 2026-09-09** as layer-aware delivery (C9: nix2container, a three-tier layer plan, a negotiating `skopeo copy` — [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md#delivering-into-the-runtime)) |
 | L6 | **C4 opt-in (`YOLO_STORE_PACKAGES=1`)** | steady state | one lean image per machine (1.5 GB) instead of one ~3 GB-unique image per distinct `packages:` list | shipped; opt-in per launch | shipped today |
-| L7 | **Run A7's version prune on every launcher invocation**, not only after an update | backfill | **≈ 1.28 GB** per workspace here; × N workspaces | a call-site change in the launcher template; evidence is the live symlink, complete by construction | steady state shipped 2026-09-04 |
+| L7 | **Run A7's version prune on every launcher invocation**, not only after an update | backfill | **≈ 1.28 GB** per workspace here; × N workspaces | a call-site change in the launcher template; evidence is the live symlink, complete by construction | steady state shipped 2026-09-04; every invocation built 2026-10-01 ([BF-D1](#BF-D1)) |
 | L8 | **Small liveness-gated sweeps into the automatic slot** — agent staging orphans, retired loophole state, superseded captures | both | 36.5 MiB + 1.9 MiB + 0 here | already tri-state gated; trigger only | reapers shipped |
 | L9 | **Alias a host cache instead of pooling a second copy of it** — the CAS half of pants (`lmdb_store`), and the same question for npm/uv/pip/go-build | **neither backfill nor retention — a third kind** | up to **27 G** of pants alone stops existing twice; unmeasured for the others (the host's own copies are not visible from a jail) | a writable host bind is a bigger trust step than the `:ro` nix store precedent (`hostNixStore`, `internal/cli/run/hostprobes.go`); gated on host OS/arch matching, and **only for the content-addressed half** | shipped 2026-09-09 (`internal/hostcas`); [OQ-BF10](#OQ-BF10) |
 | — | Worktrees under `/workspace/.claude/worktrees` | not yolo's | 985 MB + 4 M metadata | `git worktree prune` for the two prunable entries; the rest are Claude Code's | out of scope, named so it is not mistaken |
@@ -761,7 +764,8 @@ Observable, on a machine that upgrades onto this:
    next policy will have to come from.
 2. **L4 and L7 — two small changes with no new mechanism.** `ImageCacheKeep` 0 where the runtime
    streams; `_prune_versions` at every launcher invocation. Both are P3-clean, both take a backlog
-   with them on their first run, both are testable at the callee *and* the call site.
+   with them on their first run, both are testable at the callee *and* the call site. Both are
+   built: L4 as [OQ-BF6](#OQ-BF6), L7 on 2026-10-01 as [BF-D1](#BF-D1).
 3. **L2's ordering — move the shipped image reap into the housekeeping slot**, with the machine-wide
    lock ([§5.4](#54-one-writer-concurrency-failure)). This is the first thing that makes the slot exist,
    and the first pass over a backlog stops holding a launch. Fold L8's small sweeps into the same
@@ -799,6 +803,7 @@ verdict.
 | [OQ-BF8](#OQ-BF8) | **Dissolved — the premise is being removed.** Liveness moves to `podman ps` ([`image-retention.md`](../reference/image-retention.md)), so the LRU stops being retention and the cap needs no derivation. It is **not** deleted: it keeps its MRU role for GC roots and the load diagnosis, and whether that half survives was [OQ-LS1](../reference/image-retention.md#why-its-this-way) — since ruled (see [§11.2](#112-the-questions-as-argued) [OQ-BF8](#OQ-BF8)) | 2026-09-08 | [§2.2](#22-the-image-reap-priced-against-this-store) | n/a — dissolved |
 | [OQ-BF9](#OQ-BF9) | **Yes — one dated line per store per run, default on, `--no-record` to opt out, `yolo stores` the single writer, bounded to 30 samples per store.** Unblocks [OQ-DF4](minimal-disk-footprint.md#OQ-DF4), which has been waiting for a first sample; rule this first | 2026-09-08 | [§5.5](#55-yolo-stores--the-inventory-including-what-nothing-reclaims) | ✅ `e85e0690` |
 | [OQ-BF10](#OQ-BF10) | **Content-addressed stores only — and the reason is injection, not size.** A path-keyed store like `named_caches` lets a jail write content the host tool reads because of where it sits; a CAS rejects a blob that does not match its digest. Gated on matching OS and arch, writable, never on macOS. Scope stops here pending a post-implementation storage analysis | 2026-09-08 | [§11.2](#112-the-questions-as-argued) [OQ-BF10](#OQ-BF10) | ✅ `hostcas.Plan`, pinned by `TestPlanGates` and `TestPathKeyedStoresAreNeverRecognised` |
+| <a id="BF-D1"></a>BF-D1 | *Implementation decision* (BF-D1 is an id coined here). **L7 is built as `_locked_prune`, called once on the native launcher's launch path after the install-or-update branch, whatever that branch did.** Three choices L7 left open: it runs under a frozen `agent_updates` policy too, since the prune moves no version (the live build and one rollback target stay) and a frozen launcher carries no update branch to prune from; it takes the install-prefix lock and, when another writer holds it, deletes nothing and says nothing, since an update in another shell writes the same version directory and prunes on its own success; and it counts the directory's entries with shell builtins first, so a workspace with at most `KEEP_VERSIONS` entries, the steady state, pays no subprocess on the path of every command. `yolo pack update`'s mode is unchanged: it exits before the launch path and prunes on its update's success, as before | 2026-10-01 | [§3](#3-the-levers-ranked) L7, [§10](#10-sequencing--what-i-would-build-in-order) step 2 | ✅ 2026-10-01 (`_locked_prune` in [`shims.go`](../../internal/entrypoint/shims.go); `TestVersionPruneRunsWhenNoUpdateIsDue`, `TestVersionPruneRunsUnderAFrozenUpdatePolicy`, `TestVersionPruneYieldsToAWriterHoldingTheLock`, `TestTheEveryInvocationPruneReleasesTheLock` in [`versionprune_test.go`](../../internal/entrypoint/versionprune_test.go); in a real launch, `TestTheClaudeLauncherPrunesSupersededVersionsWithNoUpdate` in [`integration/versionprune_test.go`](../../integration/versionprune_test.go), revert-checked against the call site) |
 
 ### 11.2 The questions as argued
 

@@ -1523,7 +1523,8 @@ const CapturesDirEnv = "YOLO_CAPTURES_DIR"
 // invocation rather than to the jail, and not run at all when the jail's `agent_updates`
 // policy says so (UPDATES_ENABLED). A7's V-axis prune rides the same success paths
 // (_prune_versions), because the act that creates a version is the one that knows to
-// delete the one it superseded.
+// delete the one it superseded, and runs once more on every launch path (_locked_prune, L7),
+// so the versions no install or update of this workspace superseded go too.
 const nativeLauncherTemplate = `#!/bin/bash
 # Lazy-update launcher — installs/updates on first use, not at boot. BIN names the program.
 set -euo pipefail
@@ -1638,7 +1639,7 @@ _drop_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
 
 # _prune_versions is A7 (agent-cli-copies.md, the V-axis prune): keep-newest-K over the
 # vendor's own version directory, run by the act that created the new version, in this
-# workspace, immediately, on success.
+# workspace, immediately, on success, and again by _locked_prune on every launch path.
 #
 # WHERE the versions live is the pack's to declare (VERSIONS_DIR): claude keeps them in
 # ~/.local/share/claude/versions, codex in ~/.codex/packages/standalone/releases. Before the
@@ -1983,6 +1984,36 @@ _locked_update() {
     return "$rc"
 }
 
+# _locked_prune is A7 AT EVERY INVOCATION (L7, docs/design/disk-levers-and-backfill.md §3): the
+# install and update arms prune only what they superseded, so the versions on disk before A7
+# shipped, and those a workspace collects while its agent is not due an update or its policy
+# freezes it, were reached by nothing. The prune's evidence is the live symlink whatever ran
+# before it, so it runs on the launch path every time, under a frozen policy too: it moves no
+# version, keeping the live build and one rollback target.
+#
+# FREE WHEN THERE IS NOTHING TO DO, because it is on the path of every command the user types:
+# the entry count is a glob and a loop, both builtins, and only a directory holding more than
+# KEEP_VERSIONS entries pays for the lock and the prune's own subprocesses. A count past K is
+# not a verdict (the live entry may be one of them); _prune_versions decides that.
+#
+# IT TAKES THE INSTALL-PREFIX LOCK, and yields without a word when it cannot: an update in
+# another shell writes the same version directory, possibly between writing a new version and
+# repointing the symlink at it, and prunes on its own success.
+_locked_prune() {
+    local vdir="$HOME/$VERSIONS_DIR" n=0 entry
+    [ -d "$vdir" ] || return 0
+    [ -L "$REAL_BIN" ] || return 0
+    for entry in "$vdir"/*; do
+        [ -e "$entry" ] || continue
+        n=$((n + 1))
+    done
+    [ "$n" -gt "$KEEP_VERSIONS" ] || return 0
+    _take_lock || return 0
+    _prune_versions
+    _drop_lock
+    return 0
+}
+
 if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     # Update mode EXITS instead of exec'ing: "yolo pack update" walks every declared
     # program in turn and must refresh them, not launch them. It ignores the stamp AND the
@@ -2009,6 +2040,8 @@ if [ ! -x "$REAL_BIN" ]; then
 elif _update_due; then
     _locked_update || true
 fi
+# Whatever ran above, or nothing: see _locked_prune.
+_locked_prune
 # INSTALL AND STOP. See InstallOnlyEnv: yolo capture needs the install this launcher
 # performs and must not have the program RUN afterwards, because a first run writes the
 # tool own state into the very directories the capture is about to record.

@@ -33,7 +33,7 @@ what, so that a proposed fix can be priced against the axis it actually touches.
 
 | Component | Lives in |
 | :--- | :--- |
-| The V-axis prune, as generated into every native launcher | `internal/entrypoint` (`_prune_versions` in the launcher template; `versionprune_test.go`) |
+| The V-axis prune, as generated into every native launcher | `internal/entrypoint` (`_prune_versions` and its every-invocation caller `_locked_prune` in the launcher template; `versionprune_test.go`) |
 | The capture store, its admit path and its reap rule | `internal/capture` (`PruneSupersededCaptures`, `select.go`, `clone_linux.go`) |
 | Materialize, and the resolver the reap rule complements | `internal/cli` (`resolveCaptureFor`, `capturematerialize.go`) |
 | Auto-capture on first launch | `internal/cli` (`autocapture.go`), `internal/cli/run` (`autocapture.go`) |
@@ -112,7 +112,13 @@ exactly the same work to do.
 by — is a keep-newest-K rule over a program's own version directory, run **by the act that created
 the new version**, in the same workspace, immediately after it succeeds. It is generated into every
 native launcher and is called from both the update arm and the cold-install arm — "whoever installed
-the new one" is the trigger, so both qualify.
+the new one" is the trigger, so both qualify. **It also runs on every launch path**, as
+`_locked_prune`, since 2026-10-01 ([L7](../design/disk-levers-and-backfill.md#3-the-levers-ranked),
+[BF-D1](../design/disk-levers-and-backfill.md#BF-D1)): the versions no install or update of this
+workspace superseded, such as those from before the prune shipped or those collected under a frozen
+`agent_updates`, otherwise stayed. That run counts the directory's entries with shell builtins and
+does nothing at `KEEP_VERSIONS` or fewer, and it takes the install-prefix lock, deleting nothing when
+another writer holds it.
 
 **The version directory is the pack's to declare.** A `program`'s `versions_dir` names it, home
 relative, and absent it is `~/.local/share/<bin>/versions`, claude's layout. Codex declares

@@ -295,3 +295,104 @@ func TestVersionPruneRunsOnTheColdInstallPathToo(t *testing.T) {
 		t.Errorf("a cold install must prune too, left %v want %v\n%s", got, want, out)
 	}
 }
+
+// L7 (docs/design/disk-levers-and-backfill.md §3): THE PRUNE RUNS AT EVERY INVOCATION, not only
+// after the act that installed a version. The versions already on disk when A7 shipped, and every
+// version a workspace collects while its agent is not due an update, were reached by nothing: the
+// only call sites were the install and update arms. So these cells drive the launcher with NO
+// install or update happening at all, and the prune still has to have run.
+
+// pruneProbeWithoutAnUpdate seeds the version tree and a FRESH stamp, so the update is not due and
+// the only thing that can change the tree is the every-invocation prune. updates=false is the
+// frozen agent_updates policy, which bakes the update branch out of the launcher entirely.
+func pruneProbeWithoutAnUpdate(t *testing.T, updates bool) (*updateProbe, string, int) {
+	t.Helper()
+	p := newUpdateProbe(t, []string{"noop"}, updates, false /* seedVersions seeds REAL_BIN */)
+	seedVersions(t, p.home, "probetool", []string{"2.1.165", "2.1.218", "2.1.219", "2.1.220", "2.1.260"}, 4)
+	seedFreshStamp(t, p.stamps, "probetool")
+	out, rc := p.run(t)
+	return p, out, rc
+}
+
+// TestVersionPruneRunsWhenNoUpdateIsDue is L7's whole point: a launcher whose stamp is fresh runs
+// no update, and before L7 it therefore pruned nothing, so a workspace kept every build its
+// updater had ever written until its next successful update.
+func TestVersionPruneRunsWhenNoUpdateIsDue(t *testing.T) {
+	p, out, rc := pruneProbeWithoutAnUpdate(t, true)
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+	if log := p.argvLog(t); len(log) != 1 || log[0] != "RAN:" {
+		t.Fatalf("a fresh stamp must launch without updating, argv log %v\n%s", log, out)
+	}
+	got := remaining(t, p.home, "probetool")
+	want := []string{"2.1.220", "2.1.260"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("an invocation with no update due left %v, want %v\n%s", got, want, out)
+	}
+	if !strings.Contains(out, "removed superseded version 2.1.165") {
+		t.Errorf("the prune must name what it removed:\n%s", out)
+	}
+}
+
+// TestVersionPruneRunsUnderAFrozenUpdatePolicy: agent_updates freezing a pack stops the VERSION
+// from moving, and the prune moves no version: the live build stays, and so does one rollback
+// target. So a frozen launcher, which carries no update branch at all, still prunes.
+func TestVersionPruneRunsUnderAFrozenUpdatePolicy(t *testing.T) {
+	p, out, rc := pruneProbeWithoutAnUpdate(t, false)
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+	if log := p.argvLog(t); len(log) != 1 || log[0] != "RAN:" {
+		t.Fatalf("a frozen launcher must never run the update verb, argv log %v\n%s", log, out)
+	}
+	got := remaining(t, p.home, "probetool")
+	want := []string{"2.1.220", "2.1.260"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("a frozen launcher left %v, want %v\n%s", got, want, out)
+	}
+}
+
+// TestVersionPruneYieldsToAWriterHoldingTheLock: the prune is a writer of the vendor's version
+// directory, and so is an update running in another shell, which may be between writing a new
+// version and repointing the symlink at it. So the every-invocation prune takes the install-prefix
+// lock as the update does, and when another writer holds it, it deletes nothing and still
+// launches; that writer prunes on its own success.
+func TestVersionPruneYieldsToAWriterHoldingTheLock(t *testing.T) {
+	p := newUpdateProbe(t, []string{"noop"}, true, false)
+	seedVersions(t, p.home, "probetool", []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0"}, 3)
+	seedFreshStamp(t, p.stamps, "probetool")
+	lock := filepath.Join(p.home, ".local", ".yolo-update.lock")
+	if err := os.MkdirAll(lock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	out, rc := p.run(t)
+	if rc != 0 {
+		t.Fatalf("a held lock must not fail the invocation, rc=%d\n%s", rc, out)
+	}
+	if got := remaining(t, p.home, "probetool"); len(got) != 4 {
+		t.Errorf("a prune that cannot take the lock must delete nothing, left %v\n%s", got, out)
+	}
+	if log := p.argvLog(t); len(log) != 1 || log[0] != "RAN:" {
+		t.Errorf("a held lock still launches the program, argv log %v\n%s", log, out)
+	}
+	if _, err := os.Stat(lock); err != nil {
+		t.Errorf("the prune released a lock it did not take: %v", err)
+	}
+}
+
+// TestTheEveryInvocationPruneReleasesTheLock: the prune that took the lock must drop it, or the
+// next invocation's update finds it held and takes the "in progress" arm until STALE_LOCK.
+func TestTheEveryInvocationPruneReleasesTheLock(t *testing.T) {
+	p, out, rc := pruneProbeWithoutAnUpdate(t, true)
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+	if got := remaining(t, p.home, "probetool"); len(got) != 2 {
+		t.Fatalf("the prune did not run, so this cell measures nothing: %v\n%s", got, out)
+	}
+	if _, err := os.Stat(filepath.Join(p.home, ".local", ".yolo-update.lock")); !os.IsNotExist(err) {
+		t.Errorf("the every-invocation prune left the install-prefix lock behind (err=%v)", err)
+	}
+}
