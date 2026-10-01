@@ -53,7 +53,9 @@ import (
 // backend-parity §5 checks for fixes #2, #3, #4, #8 and #10, and OQ-WP5's
 // TestAppleContainerBindsADeepDestination. They are TestAppleContainer… too, so the same
 // `-run` selects them. A third batch, two home facts (the login seed, the storage-classes
-// section), keeps it in applecontainerhome_test.go.
+// section), keeps it in applecontainerhome_test.go. A fourth, the keeper's two measures and its
+// lifecycle on this backend (docs/design/jail-lifetime-last-session-wins.md §7 step 4), keeps it
+// in applecontainerkeeper_test.go.
 //
 // THE NAMING IS PART OF THE GATE, exactly as it is for macos-user
 // (integration/macosusergate_test.go): every test here is called TestAppleContainer…, so the

@@ -311,8 +311,26 @@ func runningContainers(t *testing.T, cname string) int {
 	if rt == "" {
 		t.Fatal("no container runtime")
 	}
+	return runningContainersOn(t, rt, cname)
+}
+
+// runningContainersOn is runningContainers on the runtime rt. Apple Container has no `ps` and no
+// Go-template format: its `container ls` is a table of running containers whose first column is
+// the name yolo gave it, which runtime.ParseContainerLsLive reads as the launch's own probes do.
+func runningContainersOn(t *testing.T, rt, cname string) int {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	if rt == "container" {
+		out, err := exec.CommandContext(ctx, rt, "ls").Output()
+		if err != nil {
+			t.Fatalf("%s ls: %v", rt, err)
+		}
+		if _, ok := naming.ParseContainerLsLive(string(out))[cname]; ok {
+			return 1
+		}
+		return 0
+	}
 	out, err := exec.CommandContext(ctx, rt, "ps", "--format", "{{.Names}}").Output()
 	if err != nil {
 		t.Fatalf("%s ps: %v", rt, err)
