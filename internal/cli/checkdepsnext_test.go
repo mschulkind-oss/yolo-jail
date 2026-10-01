@@ -368,12 +368,14 @@ func TestCheckDepsUnresolvedStepNamesWhoCanAct(t *testing.T) {
 // then named another package, and an unclosed `[` ran on into the `[/dim]` after it, which
 // printed as text. Escaping it (richtext.Escape) kept the bracket on screen by writing an
 // invisible U+2060 after it, which a pasted command carried into the install. Each command is now
-// printed byte for byte, on a terminal and piped, and no line carries the U+2060.
+// printed byte for byte, on a terminal and piped, and no line carries the U+2060. The unclosed
+// `[` sits in the hint's step, after ` && `: a hint's package part may hold no bracket at all
+// (packdecl's installHintProblem), so the step is where a pack can still put one.
 func TestCheckDepsPrintsABracketedCommandAsWritten(t *testing.T) {
 	pack := filepath.Join(floortest.ResolvedTemp(t), "brackets")
 	writeFile(t, filepath.Join(pack, "pack.json"), `{"name":"brackets","contributes":[`+
 		`{"kind":"program","bin":"yolo-cd-br","via":"npm","package":"acme[red]",`+
-		`"install_hints":{"apt":"acme-tools[dim"}}]}`)
+		`"install_hints":{"apt":"acme-tools && echo [dim"}}]}`)
 	checkDepsHome(t, `{"host_floor": false, "packs":[{"source":"file://`+pack+`","name":"brackets"}]}`, "apt")
 	for _, color := range []bool{false, true} {
 		var out, errw bytes.Buffer
@@ -389,7 +391,7 @@ func TestCheckDepsPrintsABracketedCommandAsWritten(t *testing.T) {
 		}
 		for _, want := range []string{
 			"MISSING → npm install -g acme[red]\n",
-			"  or via apt: sudo apt install -y acme-tools[dim\n",
+			"  or via apt: sudo apt install -y acme-tools && echo [dim\n",
 			"\n  npm install -g acme[red]  # yolo-cd-br\n",
 		} {
 			if !strings.Contains(report, want) {
