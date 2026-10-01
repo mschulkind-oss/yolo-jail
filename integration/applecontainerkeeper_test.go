@@ -40,7 +40,9 @@ package integration
 // `AC-KEEPER <run> VERDICT: HOLDS` or `… DOES NOT HOLD — <the claims that missed>`. Every line is
 // prefixed acKeeperTag, so one grep of the `go test -v` log recovers the whole record, and each
 // verdict and measure is also written to the job's step summary. What IS red: a launch, an attach
-// or a probe that did not happen, since then nothing was measured.
+// or a probe that did not happen, since then nothing was measured. A session that does not end
+// where the design says it ends is a claim that missed, not red: its launcher is SIGKILLed and the
+// run goes on (keeperRecord.awaitEnd).
 //
 // # The promotion rule
 //
@@ -69,7 +71,9 @@ package integration
 // branch of every lifecycle claim, and two of the detach measure's three answers, have been
 // produced once by a real runtime; SWALLOWED, an exec's process ENDING with its client and a
 // container ENDING with its main process's client have not. The bodies take the runtime as an
-// argument for that run; nothing in the tree calls them with anything but "container".
+// argument for that run; nothing in the tree calls them with anything but "container". A review the
+// same day ran them the same way again after adding awaitEnd and the sweep's provisioning claim:
+// every lifecycle run HOLDS, and awaitEnd's miss was produced once, by a session never released.
 
 import (
 	"context"
@@ -190,6 +194,46 @@ func (r *keeperRecord) expect(holds bool, claim, evidence string) {
 	r.t.Log(msg)
 }
 
+// awaitEnd is bgRun.wait for a session the run expects to end, and one claim of the record: that it
+// ended within jailTimeout(). A launcher still running then is an answer, not a run that could not
+// be conducted, so it is recorded as a miss, SIGKILLed so the run can go on, and its status reads
+// sessionNotEnded, which the run's later claims about it record as missed too. bgRun.wait would
+// fail the run there instead, and the hardware's likeliest misses (an arm that never exits, an
+// exec client that outlives its jail) would read as NOT CONDUCTED.
+func (r *keeperRecord) awaitEnd(b *bgRun) int {
+	r.t.Helper()
+	bound := jailTimeout()
+	select {
+	case <-b.exited:
+		r.expect(true, fmt.Sprintf("the %s session's launcher ends within %s", b.name, bound), "")
+		return b.wait(r.t, time.Second)
+	case <-time.After(bound):
+	}
+	r.expect(false, fmt.Sprintf("the %s session's launcher ends within %s (it was still running, and was SIGKILLed)",
+		b.name, bound), b.combined())
+	_ = syscall.Kill(b.pid, syscall.SIGKILL)
+	select {
+	case <-b.exited:
+	case <-time.After(30 * time.Second):
+	}
+	return sessionNotEnded
+}
+
+// sessionNotEnded is awaitEnd's status for a launcher that did not end: never an exit status, and
+// not bgRun.wait's -1, which is a launcher a signal killed.
+const sessionNotEnded = -2
+
+// endedWord is a status awaitEnd returned, for a measure's line.
+func endedWord(rc int) string {
+	switch rc {
+	case sessionNotEnded:
+		return "did not end within " + jailTimeout().String()
+	case -1:
+		return "was killed by a signal"
+	}
+	return "returned " + strconv.Itoa(rc)
+}
+
 // verdict ends the record with its one line.
 func (r *keeperRecord) verdict() {
 	r.t.Helper()
@@ -221,7 +265,13 @@ func keeperSession(t *testing.T, rt, name, dir, body string) *bgRun {
 // Apple Container launch boots a VM.
 func keeperHolding(t *testing.T, rt, name, dir, release string) *bgRun {
 	t.Helper()
-	r := keeperSession(t, rt, name, dir, `for _ in $(seq 1 1500); do [ -f /workspace/`+release+
+	return keeperHoldingAfter(t, rt, name, dir, release, "")
+}
+
+// keeperHoldingAfter is keeperHolding with pre run first, just after <NAME>-IN-42.
+func keeperHoldingAfter(t *testing.T, rt, name, dir, release, pre string) *bgRun {
+	t.Helper()
+	r := keeperSession(t, rt, name, dir, pre+`for _ in $(seq 1 1500); do [ -f /workspace/`+release+
 		` ] && break; sleep 0.2; done; echo `+name+`-OUT-$((40+2))`)
 	t.Cleanup(func() { writeRelease(t, dir, release) })
 	return r
@@ -386,14 +436,21 @@ func measureExecClientDeath(t *testing.T, rt, dir, cname string) {
 	releaseHolder(t, dir, holder)
 }
 
-// releaseHolder ends a measure's holding session. Its status is logged and not judged: it is not
-// part of what the measure asks.
+// releaseHolder ends a measure's holding session. How it ends is logged and not judged, a holder
+// that does not end included: it is not part of what the measure asks, which is recorded by then.
 func releaseHolder(t *testing.T, dir string, holder *bgRun) {
 	t.Helper()
 	writeRelease(t, dir, "release-holder")
-	if rc := holder.wait(t, jailTimeout()); rc != 0 {
-		t.Logf("%s the holding session ended rc %d (not part of the measure):\n%s",
-			acKeeperTag, rc, lastLines(holder.combined(), 30))
+	select {
+	case <-holder.exited:
+		if rc := holder.wait(t, time.Second); rc != 0 {
+			t.Logf("%s the holding session ended rc %d (not part of the measure):\n%s",
+				acKeeperTag, rc, lastLines(holder.combined(), 30))
+		}
+	case <-time.After(jailTimeout()):
+		t.Logf("%s the holding session was still running %s after its release (not part of the measure); "+
+			"SIGKILLing its launcher:\n%s", acKeeperTag, jailTimeout(), lastLines(holder.combined(), 30))
+		_ = syscall.Kill(holder.pid, syscall.SIGKILL)
 	}
 }
 
@@ -691,7 +748,7 @@ func keeperFirstSessionQuitsAlone(t *testing.T, rt, dir, cname string) {
 
 	writeRelease(t, dir, "release-first")
 	quit := time.Now()
-	rc := first.wait(t, jailTimeout())
+	rc := rec.awaitEnd(first)
 	took := time.Since(quit)
 	rec.expect(rc == 0, fmt.Sprintf("the first session's launcher returns 0 (it returned %d)", rc), first.combined())
 	rec.expect(took <= 15*time.Second, fmt.Sprintf("the first launcher gives its prompt back within 15s (it took %s)",
@@ -710,7 +767,7 @@ func keeperFirstSessionQuitsAlone(t *testing.T, rt, dir, cname string) {
 		fmt.Sprintf("a third entry attaches beside the second and runs (rc %d)", third.rc), third.combined())
 
 	writeRelease(t, dir, "release-second")
-	rc = second.wait(t, jailTimeout())
+	rc = rec.awaitEnd(second)
 	rec.expect(rc == 0 && strings.Contains(second.combined(), "SECOND-OUT-42"),
 		fmt.Sprintf("the last session finishes its command and returns 0 (rc %d)", rc), second.combined())
 	rec.expect(strings.Contains(second.combined(), "keeper: the last session of "+cname+" left; ending the jail"),
@@ -748,7 +805,7 @@ func keeperHangupEndsOneSession(t *testing.T, rt, dir, cname string) {
 		if err := syscall.Kill(who.pid, syscall.SIGHUP); err != nil {
 			t.Fatalf("%s: hanging up %s's launcher: %v", acKeeperTag, who.name, err)
 		}
-		rc := who.wait(t, jailTimeout())
+		rc := rec.awaitEnd(who)
 		rec.expect(rc == 128+int(syscall.SIGHUP), fmt.Sprintf("the hung-up %s launcher exits %d (it exited %d)",
 			who.name, 128+int(syscall.SIGHUP), rc), who.combined())
 		rec.expect(awaitJailCount(t, rt, cname, mine, 0, 10*time.Second) == 0,
@@ -765,7 +822,7 @@ func keeperHangupEndsOneSession(t *testing.T, rt, dir, cname string) {
 	hangUp(first, firstSleep, "")
 
 	writeRelease(t, dir, "release-holder")
-	rc := holder.wait(t, jailTimeout())
+	rc := rec.awaitEnd(holder)
 	rec.expect(rc == 0, fmt.Sprintf("the last session returns 0 (rc %d)", rc), holder.combined())
 	rec.expect(runningContainersOn(t, rt, cname) == 0, "no container of the name is left after the last quit", "")
 	rec.verdict()
@@ -801,7 +858,7 @@ func keeperKilledLeavesSessionsRunning(t *testing.T, rt, dir, cname string) {
 	rec.expect(stillRunning(first), "the session runs on when its keeper is killed", first.combined())
 
 	writeRelease(t, dir, "release-first")
-	rc := first.wait(t, jailTimeout())
+	rc := rec.awaitEnd(first)
 	rec.expect(rc == 0 && strings.Contains(first.combined(), "FIRST-OUT-42"),
 		fmt.Sprintf("the session finishes its command and returns 0 (rc %d)", rc), first.combined())
 	rec.expect(strings.Contains(first.combined(), "This jail's keeper is gone, and this was its last session"),
@@ -853,15 +910,16 @@ func keeperMainClientDeath(t *testing.T, rt, dir, cname string) {
 			strings.Contains(arrival.combined(), "Attaching to existing jail"),
 			fmt.Sprintf("an arrival attaches to the kept jail (rc %d)", arrival.rc), arrival.combined())
 		writeRelease(t, dir, "release-first")
-		rc := first.wait(t, jailTimeout())
+		rc := rec.awaitEnd(first)
 		rec.expect(rc == 0, fmt.Sprintf("the session returns 0 (rc %d)", rc), first.combined())
 		rec.expect(strings.Contains(first.combined(), "keeper: the last session of "+cname+" left; ending the jail"),
 			"the last quit streams the keeper's teardown", first.combined())
 	} else {
 		stepSummary(t, fmt.Sprintf("%s MEASURE main-client-death (%s): the container ENDS with the keeper's `%s run` client",
 			acKeeperTag, runtimeVersion(rt), rt))
-		rc := first.wait(t, jailTimeout())
-		rec.expect(rc != 0, fmt.Sprintf("the session whose jail ended under it returns non-zero (rc %d)", rc), first.combined())
+		rc := rec.awaitEnd(first)
+		rec.expect(rc != 0 && rc != sessionNotEnded,
+			fmt.Sprintf("the session whose jail ended under it returns non-zero (rc %d)", rc), first.combined())
 	}
 	rec.expect(runningContainersOn(t, rt, cname) == 0, "no container of the name is left", "")
 	rec.expect(awaitProcessGone(keeper, 30*time.Second), "the keeper is gone once its jail is", "")
@@ -881,8 +939,14 @@ func keeperSweepSparesAKeptJail(t *testing.T, rt, dir, cname, other string) {
 	if keeper == 0 {
 		t.Fatalf("%s: there is no keeper, so nothing was measured: %s", acKeeperTag, why)
 	}
-	attach := keeperHolding(t, rt, "ATTACH", dir, "release-attach")
+	// The attach reads the first session's recorded provisioning outcome as it enters, as its Linux
+	// twin's does (JL-D33).
+	attach := keeperHoldingAfter(t, rt, "ATTACH", dir, "release-attach",
+		`echo "ATTACH-SAW-$((40+2))=$(cat /run/yolo/main/provision.outcome)"; `)
 	mustHaveAttached(t, attach)
+	awaitOutput(t, attach, regexp.MustCompile(`ATTACH-SAW-42=`))
+	rec.expect(strings.Contains(attach.combined(), "ATTACH-SAW-42=done"),
+		"the attach entered once provisioning's outcome was recorded (JL-D33)", attach.combined())
 
 	if err := syscall.Kill(first.pid, syscall.SIGKILL); err != nil {
 		t.Fatalf("%s: killing the first launcher: %v", acKeeperTag, err)
@@ -906,7 +970,7 @@ func keeperSweepSparesAKeptJail(t *testing.T, rt, dir, cname, other string) {
 	rec.expect(!strings.Contains(entry.stderr, "is gone"), "the entry is not told a live keeper's jail lost its owner", entry.combined())
 
 	writeRelease(t, dir, "release-attach")
-	rc := attach.wait(t, jailTimeout())
+	rc := rec.awaitEnd(attach)
 	rec.expect(rc == 0 && strings.Contains(attach.combined(), "ATTACH-OUT-42"),
 		fmt.Sprintf("the attached session finishes and returns 0 (rc %d)", rc), attach.combined())
 	rec.expect(runningContainersOn(t, rt, cname) == 0, "the last session's leaving ends the jail", "")
@@ -937,14 +1001,14 @@ func keeperStopSaysWhy(t *testing.T, rt string) {
 		first, attach := start(t, dir)
 		stop := runCommand(t, dir, []string{"stop"}, keeperEnv(rt))
 		t.Logf("%s `yolo stop` returned %d:\n%s", acKeeperTag, stop.rc, lastLines(stop.combined(), 30))
-		rc := attach.wait(t, jailTimeout())
-		stepSummary(t, fmt.Sprintf("%s MEASURE stop-status (%s): an attached `%s exec` returned %d when `yolo stop` ended its jail",
-			acKeeperTag, runtimeVersion(rt), rt, rc))
+		rc := rec.awaitEnd(attach)
+		stepSummary(t, fmt.Sprintf("%s MEASURE stop-status (%s): an attached `%s exec` %s when `yolo stop` ended its jail",
+			acKeeperTag, runtimeVersion(rt), rt, endedWord(rc)))
 		rec.expect(jailEnded(rc), fmt.Sprintf("the attached session's status is one jailEndStatus reads (137, 125 or 255; it was %d)", rc),
 			attach.combined())
 		rec.expect(strings.Contains(attach.combined(), "This session ended because its jail stopped: `yolo stop` (pid "),
 			"the attached session is told that `yolo stop` ended its jail", attach.combined())
-		frc := first.wait(t, jailTimeout())
+		frc := rec.awaitEnd(first)
 		rec.expect(frc == 143, fmt.Sprintf("the first session ends 143, a stop being recorded (JL-D59; it ended %d)", frc), first.combined())
 		rec.expect(runningContainersOn(t, rt, naming.FromWorkspace(dir)) == 0, "no container of the name is left after `yolo stop`", "")
 		rec.verdict()
@@ -964,14 +1028,14 @@ func keeperStopSaysWhy(t *testing.T, rt string) {
 		if out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput(); err != nil {
 			t.Logf("%s `%s`: %v\n%s", acKeeperTag, strings.Join(argv, " "), err, out)
 		}
-		rc := attach.wait(t, jailTimeout())
-		stepSummary(t, fmt.Sprintf("%s MEASURE stop-status (%s): an attached `%s exec` returned %d when `%s stop` ended its jail",
-			acKeeperTag, runtimeVersion(rt), rt, rc, rt))
+		rc := rec.awaitEnd(attach)
+		stepSummary(t, fmt.Sprintf("%s MEASURE stop-status (%s): an attached `%s exec` %s when `%s stop` ended its jail",
+			acKeeperTag, runtimeVersion(rt), rt, endedWord(rc), rt))
 		rec.expect(jailEnded(rc), fmt.Sprintf("the attached session's status is one jailEndStatus reads (137, 125 or 255; it was %d)", rc),
 			attach.combined())
 		rec.expect(strings.Contains(attach.combined(), "This session ended because its jail stopped, and nothing recorded why"),
 			"the attached session is told that nothing recorded why its jail ended", attach.combined())
-		frc := first.wait(t, jailTimeout())
+		frc := rec.awaitEnd(first)
 		rec.expect(jailEnded(frc) && strings.Contains(first.combined(), "nothing recorded why"),
 			fmt.Sprintf("the first session is told its jail ended (rc %d)", frc), first.combined())
 		rec.verdict()

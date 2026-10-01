@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -24,33 +23,16 @@ import (
 
 // childrenMatching is every child of parent whose command line holds each of parts. A child of
 // this test's own keeper, never any process that matches: another run of this test in the same
-// jail has a daemon of the same name.
+// jail has a daemon of the same name. The children and their command lines are the harness's
+// process probes' (procinfo_test.go).
 func childrenMatching(parent int, parts ...string) []int {
-	entries, _ := os.ReadDir("/proc")
 	var pids []int
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
+	for _, pid := range processChildren(parent) {
+		args, err := processArgs(pid)
 		if err != nil {
 			continue
 		}
-		// The parent is the field after the state, which follows the last ')': comm may hold
-		// spaces and parentheses of its own.
-		stat, err := os.ReadFile(filepath.Join("/proc", e.Name(), "stat"))
-		if err != nil {
-			continue
-		}
-		after := string(stat)
-		if i := strings.LastIndexByte(after, ')'); i >= 0 {
-			after = after[i+1:]
-		}
-		if f := strings.Fields(after); len(f) < 2 || f[1] != strconv.Itoa(parent) {
-			continue
-		}
-		raw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
-		if err != nil {
-			continue
-		}
-		cmdline := strings.ReplaceAll(string(raw), "\x00", " ")
+		cmdline := strings.Join(args, " ")
 		all := true
 		for _, p := range parts {
 			all = all && strings.Contains(cmdline, p)
@@ -68,7 +50,8 @@ func childrenMatching(parent int, parts ...string) []int {
 func TestAHostServiceThatGoesDownIsToldToItsSessionsAndTheNextArrival(t *testing.T) {
 	requireJail(t)
 	if goruntime.GOOS != "linux" {
-		t.Skip("finds the keeper and its daemon through /proc, which only Linux has")
+		t.Skip("has run only on Linux: the keeper's record of a host service that goes down is " +
+			"unmeasured on either Mac backend (docs/design/jail-lifetime-last-session-wins.md JL-D71)")
 	}
 	socat, err := exec.LookPath("socat")
 	if err != nil {
