@@ -106,7 +106,7 @@ func InitUserConfig(out io.Writer) int {
 		problems := 0
 		entries, err := config.LoadPacks(func(string) { problems++ })
 		if err == nil && problems == 0 && !config.HasConfiguredPack(entries) {
-			printUserConfigNextSteps(out)
+			printUserConfigNextSteps(out, config.UserScopeSources().Locations("config.packs"))
 		}
 		return 0
 	}
@@ -116,7 +116,7 @@ func InitUserConfig(out io.Writer) int {
 	}
 	fmt.Fprintf(out, "Created %s\n", p)
 	// The template selects no pack, so this is always the case for a file just written.
-	printUserConfigNextSteps(out)
+	printUserConfigNextSteps(out, nil)
 	return 0
 }
 
@@ -128,10 +128,19 @@ func InitUserConfig(out io.Writer) int {
 // the empty-packs notice names (config.NoPacksGuidance), so a new user hears one answer.
 //
 // It follows the line naming the file, so "that file" is the path the user just read.
-func printUserConfigNextSteps(out io.Writer) {
+//
+// packsAt is where an existing user scope already writes an empty `packs` list
+// (config.Sources.Locations, highest precedence first). A second `packs` line added above
+// it would change nothing, the later key winning, so the step then names that list instead.
+func printUserConfigNextSteps(out io.Writer, packsAt []string) {
+	choose := "  1. Choose your agent: add this line to that file, right after the opening {\n" +
+		"       \"packs\": [\"claude\"],\n"
+	if len(packsAt) > 0 {
+		choose = "  1. Choose your agent: make the \"packs\" list at " + packsAt[0] + "\n" +
+			"       [\"claude\"]\n"
+	}
 	io.WriteString(out, "It selects no packs yet, so a jail has no coding agent. Next:\n"+
-		"  1. Choose your agent: add this line to that file, right after the opening {\n"+
-		"       \"packs\": [\"claude\"],\n"+
+		choose+
 		"     (`yolo pack --help` says what other packs deliver)\n"+
 		"  2. Check the edit:  yolo check\n"+
 		"  3. From your project's directory, launch it:  yolo -- claude\n")

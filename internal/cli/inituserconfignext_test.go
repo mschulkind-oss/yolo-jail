@@ -142,3 +142,46 @@ func TestInitUserConfigOnAnExistingFile(t *testing.T) {
 		}
 	})
 }
+
+// TestInitUserConfigOnAFileWithAnEmptyPacksList: an existing file can already WRITE an
+// empty `packs` list. Adding a second `packs` line after the opening { then changes
+// nothing, because the later key wins, so the step must point at the list that is there.
+// The test follows the step as printed: it reads the location off the output, fills the
+// list it names, and asks the loader whether that selects the pack.
+func TestInitUserConfigOnAFileWithAnEmptyPacksList(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	p := paths.UserConfigPath()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "{\n  \"kvm\": true,\n  \"packs\": []\n}\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rc, stdout, _ := captureDispatchRC(t, []string{"init-user-config"})
+	if rc != 0 {
+		t.Fatalf("exited %d:\n%s", rc, stdout)
+	}
+	if strings.Contains(stdout, "right after the opening {") {
+		t.Errorf("told to add a second `packs` line, which the existing one overrides:\n%s", stdout)
+	}
+	const at = "~/.config/yolo-jail/config.jsonc:3:12"
+	if !strings.Contains(stdout, `"packs" list at `+at) || !strings.Contains(stdout, `["`+nextStepAgent+`"]`) {
+		t.Fatalf("the step does not name the list at %s and what to make it:\n%s", at, stdout)
+	}
+
+	// Follow it: line 3, column 12 is where the list starts.
+	lines := strings.SplitAfter(body, "\n")
+	if !strings.HasPrefix(lines[2][11:], "[]") {
+		t.Fatalf("%s does not hold the empty list in %q", at, body)
+	}
+	lines[2] = lines[2][:11] + `["` + nextStepAgent + `"]` + lines[2][13:]
+	edited := strings.Join(lines, "")
+	if err := os.WriteFile(p, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := config.LoadPacks(nil)
+	if err != nil || !config.HasConfiguredPack(entries) {
+		t.Fatalf("the edit the step names selects no pack (%v):\n%s", err, edited)
+	}
+}

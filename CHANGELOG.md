@@ -673,6 +673,8 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
 - `yolo-serial` now says what to do when it cannot use the serial bridge: relaunch the jail, and,
   when the bridge stopped on your machine, where its log is. In that case `yolo-serial list` and the
   other commands used to print nothing and exit 0, as if they had worked; they now exit 1.
+  `yolo-serial pty` also exits with the bridge's code now, so a device the bridge refuses no longer
+  ends in success.
 - `yolo init-user-config` now ends with the next steps: the line to add that chooses your agent,
   `yolo check`, and the command that launches it. Run on a file that selects no packs yet, it
   prints the same steps.

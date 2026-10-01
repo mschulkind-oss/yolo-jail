@@ -303,24 +303,35 @@ func runPty(args []string) int {
 		}
 	}()
 
-	// Read frames from loopback-TLS connection -> PTY master
+	// Read frames from loopback-TLS connection -> PTY master. The session ends with the
+	// bridge's exit frame, whose code is this command's, or with Ctrl+C. A stream that ends
+	// any other way is the dead bridge call() names (unansweredMsg); this loop used to read
+	// both of those, and a device the bridge refused, as success.
+	answered := false
 	for {
 		f, err := frameproto.ReadFrame(conn)
 		if err != nil {
-			break
+			select {
+			case <-stopCh:
+				return 0 // Ctrl+C closed the connection
+			default:
+			}
+			fmt.Fprint(os.Stderr, unansweredMsg(ep, answered))
+			return 1
 		}
-		if f.StreamID == frameproto.StreamStdout {
+		answered = true
+		switch f.StreamID {
+		case frameproto.StreamStdout:
 			_, _ = masterFile.Write(f.Payload)
-		}
-		if f.StreamID == frameproto.StreamStderr {
+		case frameproto.StreamStderr:
 			os.Stderr.Write(f.Payload)
-		}
-		if f.StreamID == frameproto.StreamExit {
-			break
+		case frameproto.StreamExit:
+			if rc, err := frameproto.ExitCode(f.Payload); err == nil {
+				return rc
+			}
+			return 0
 		}
 	}
-
-	return 0
 }
 
 // dialFailureMsg attributes a failed dial of the serial bridge's endpoint and names the
