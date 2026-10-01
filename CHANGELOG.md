@@ -46,8 +46,9 @@ has a new section showing that PATH and whether each tool your packs need is on 
 approved list.** A `models` entry in a pack's `contributes` adds models to a provider's list
 (`add`) or keeps only the ones it names (`only`), for a provider the pack ships or one another
 pack ships. Under an `only`, the list is each agent's model menu for that provider where the agent
-allows it: Claude Code, opencode, pi and oh-omp show exactly the list, and Claude Code, opencode
-and pi also refuse any other model; Codex and Copilot start on the list's default model. On your
+allows it: Claude Code, opencode, pi and oh-omp show exactly the list, and so does Codex on your
+ChatGPT subscription; Claude Code, opencode and pi also refuse any other model, and Copilot, and
+Codex on other providers, start on the list's default model. On your
 ChatGPT subscription pi now refuses a model outside yolo's list for it, one typed with
 `pi --model` included, with or without an `only`, as Claude Code does there. An agent that
 reaches the provider through the wire bridge is refused any other model by the bridge too,
@@ -62,8 +63,8 @@ unnarrowed. See
 [model menus](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
 
 **Codex on your ChatGPT subscription now offers yolo's model list in its `/model` menu.**
-`yolo -p codex -- codex` shows GPT-6.1 Sol, GPT-6 Astra and GPT-6 Luna, the models Claude Code
-and pi offer there, in that order and nothing else, and a pack's `only` narrows it the same way.
+`yolo -p codex -- codex` shows GPT-6.1 Sol, GPT-6 Astra and GPT-6 Luna, the models Claude Code,
+opencode and pi offer there, in that order and nothing else, and a pack's `only` narrows it the same way.
 yolo builds the menu from your Codex's own list of the models it knows, again whenever Codex is
 updated, so a model your Codex is too old to know is left out and yolo says so.
 `yolo host -- codex` shows the same menu when your config's `profile` picks the subscription for
@@ -178,14 +179,14 @@ the sandbox shares your Mac's network, so the agent reaches them there. So
 through a long session instead of losing it at the first token refresh. Each helper listens on a
 port the launch picks, so two sandboxes running at once do not collide, answers only requests
 that carry the token of the launch that started it, which any program in that launch's sandbox
-can read, and stops when the command exits; the AWS one starts only when an agent's profile is
-`bedrock`. The launch names each helper it starts, and names, with the reason,
+can read, and stops when the command exits; the AWS one starts only when an agent's profile
+selects a Bedrock provider. The launch names each helper it starts, and names, with the reason,
 the ones it will not run, such as the one that shares one Claude login between sandboxes; if a
 helper fails to start, the launch stops and says where its log is. Each of these helpers' logs,
 and the wire bridge's, is kept to 4 MiB the way yolo's other logs are. A helper that a pack of your
 own asks to run inside a container runs inside the macOS sandbox instead, confined by the same
 sandbox profile as the agent and as the sandbox's own user; the launch says it started only once
-it confirms it. Homebrew and the release archives ship what those need for both Apple Silicon and
+it confirms it. Homebrew and the release archives ship what those need for both Apple silicon and
 Intel Macs; nothing new lands on your own `PATH`. See [macOS](userguide/guides/macos.md).
 
 **A profile or provider of your own now gets everything the shipped one does.** The extras a
@@ -310,9 +311,7 @@ login, and a Claude Design login kept with it, until someone runs `/login` in a 
 logins to MCP servers stay. `yolo claude-auth status` shows the machine's login, and
 `yolo claude-auth inspect <file>` describes one credentials file; both show field names, expiry
 times and short fingerprints, never a token. `yolo claude-auth refresh` renews the
-login now. A way for jails to share the login without intercepting its renewal is built but off
-until it has been measured; see
-[Claude login without interception](docs/design/claude-login-without-interception.md).
+login now.
 
 **Every launch now leaves one line in `~/.local/share/yolo-jail/logs/launches.log`,** beside the
 log of loophole connections: when it started, which workspace (by the same short code that log
@@ -442,6 +441,11 @@ See [troubleshooting](userguide/guides/troubleshooting.md#installing-and-launchi
   to declare. A provider that named only those used to leave both tiers on its default model.
   `sonnet` and `haiku` still work, and win when a provider names both. See
   [tier aliases](docs/reference/providers.md#tier-aliases).
+- On a provider Claude Code reaches through yolo that lists its models, such as z.ai, Cerebras
+  or llama.cpp, Claude Code's model menu now lists the provider's models instead of Opus, Sonnet
+  and Haiku, and all four of its model tiers, Fable included, point at the provider's models, so
+  its background requests stay on the provider too. OpenRouter and Kilo ship no model list, so
+  their menu changes once your own config, or a pack, lists models for them.
 - GPT-6.1 Sol replaces GPT-6 Sol for every agent on the ChatGPT subscription (`-p codex`): it is the default and the first entry in the model menus, and GPT-6 Sol is no longer listed. If you had picked GPT-6 Sol yourself, pick a model again.
 - A pack's `install_hints` value may now hold only package names before its one optional
   ` && <command>` step, since `yolo check-deps` and `yolo host apply` print it for you to run and
@@ -460,12 +464,6 @@ copilot, which has no Bedrock support of its own, in a jail without the wire bri
 credential for the provider reaches the agent, naming the ones it looked for and the setting that
 would deliver one. The line reads the same in a jail and at `yolo host`. See
 [what the launch checks and prints](docs/reference/providers.md#what-the-launch-checks-and-prints).
-
-- On a provider Claude Code reaches through yolo that lists its models, such as z.ai, Cerebras
-  or llama.cpp, Claude Code's model menu now lists the provider's models instead of Opus, Sonnet
-  and Haiku, and all four of its model tiers, Fable included, point at the provider's default, so
-  its background requests stay on the provider too. OpenRouter and Kilo ship no model list, so
-  their menu changes once your own config, or a pack, lists models for them.
 
 **yolo turns off Codex's background copy in the sessions it launches; a Codex you run yourself is
 untouched.** Since version 0.157, Codex starts a second copy of itself in the background and the
@@ -513,8 +511,8 @@ says so, and children start on their parent's model.
 
 **The AWS Bedrock credential service in a jail now runs only for a profile that uses it, and
 only that agent can use it.** With the `aws-auth` loophole on, the in-jail service starts only
-when some agent's profile is `bedrock`, and a launch that leaves it off says so. It answers only
-the agents on `bedrock`: another agent, or a plain shell, is refused. Attaching with
+when some agent's profile selects a Bedrock provider, such as `-p bedrock`, and a launch that
+leaves it off says so. It answers only the agents on Bedrock: another agent, or a plain shell, is refused. Attaching with
 `-p <agent>=bedrock` to a jail that was started without it asks you to restart the jail rather
 than hand the agent an address nothing answers. See
 [the `aws-auth` pack](packs/aws-auth/README.md).
@@ -617,7 +615,9 @@ its own since version 0.99, reading pi's own MCP file, `~/.pi/agent/mcp.json`, a
 your `mcp_presets` and `mcp_servers` there, in a jail and with `yolo host apply`, rather than into
 the file the `pi-mcp-adapter` extension reads, which pi itself never read. pi writes that file too,
 so yolo adds its servers beside yours: a server you add with `pi mcp add`, and a server you turn
-off with `/mcp`, stay, and in a jail a server you drop from your config leaves. A jail removes the
+off with `/mcp`, stay, and in a jail a server you drop from your config leaves. 0.11.0 deleted
+  this file at every jail start, servers you or a pi extension kept there included; a jail no longer
+  does. A jail removes the
 copy yolo wrote for `pi-mcp-adapter` while it still holds exactly yolo's servers. If you installed
 `pi-mcp-adapter` for yolo's servers, take it out of pi's packages, or pi can start a server twice,
 once through each; a subagent that lists `mcp:` tools needs pi-subagents 0.74 or later to run them
@@ -731,9 +731,6 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   given, which could make the launch fail with "address already in use". yolo picks those ports
   before the jail starts, and now holds each one until just before the jail starts. Another
   program that takes one while the jail is starting still makes the launch fail.
-- When yolo cannot protect the jail's image from Nix's garbage collector, its warning no longer
-  lands in the output of `yolo -- <command>`. It is printed with yolo's other launch messages, on
-  standard error, so a script reading the command's output gets only that output.
 - yolo's messages about the jail's image no longer land in the output of `yolo -- <command>`:
   that a launch has to load the image and what it copied, and the warning when yolo cannot
   protect the image from Nix's garbage collector. They are printed with yolo's other launch
@@ -778,12 +775,6 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   while `yolo check` on the same machine reports nix missing. They now offer nix's command only
   where nix is on the PATH, as they already did for Homebrew, apt, dnf and pacman, and on a
   machine with none of these they say so instead of offering a command that cannot run.
-- On the `macos-user` backend, a project inside a home folder is now refused however its path is
-  spelled. A path that changes the case of `/Users`, such as `/USERS/you/project`, or that goes
-  through `/System/Volumes/Data/Users` reaches the same folder on a standard Mac, but it used to
-  pass as neutral ground: a launch accepted it, and `yolo macos-fix-permissions` shared it with the
-  sandbox user. The launch and `yolo check` now say the project is inside a home folder and how
-  to move it, and `yolo macos-fix-permissions` refuses it.
 - On the `macos-user` backend, a project inside a home folder is now refused when its path
   changes the case of `/Users`, such as `/USERS/you/project`, or goes through
   `/System/Volumes/Data/Users`. Both reach the same folder on a standard Mac, but they used to pass
@@ -817,8 +808,8 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   after the terminal that started the jail was killed outright, for example by `kill -9` or the
   out-of-memory killer. yolo counts every terminal running in a jail, and cleans up a jail left
   behind only once no terminal is left in it.
-- Closing a terminal in a running jail, or stopping its `yolo`, now ends the agent that terminal
-  started in the jail, the terminal that started the jail included. It used to keep running there
+- Closing a terminal that joined a running jail, or stopping its `yolo`, now ends the agent that
+  terminal started in the jail. It used to keep running there
   with no window until the jail stopped. The jail and its other terminals carry on. A jail an
   earlier yolo started keeps the old behavior.
 - A terminal whose jail ends under it now says why: `yolo stop`, a restart from another terminal,
@@ -852,7 +843,6 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   the launch prints that store on its `Image store:` line. `yolo check` prints it too, and warns
   when Podman does not report one. You no longer need a `~/.config/containers/storage.conf` to
   work around this.
-
 - A Claude login on a Mac or Apple Container no longer asks you to log in again after its first
   refresh. Claude Code in every jail, on every backend, now keeps its login in the folder all your
   workspaces share, instead of reaching it through a link: its first refresh replaced that link
@@ -907,23 +897,14 @@ without it. See [pi's MCP files](docs/reference/mcp-configuration.md#pis-mcp-fil
   another project is now checked only on what it actually runs; each loophole it does not run is
   listed as skipped, with that jail's project when yolo knows it, and `yolo check` run in that
   project still checks all of them.
-- A jail no longer deletes pi's `mcp.json` every time it starts. 0.11.0 removed it to clean up
-  the copy older versions of yolo wrote there, and so also deleted the one you or a pi
-  extension keep, such as the MCP servers a subagent's `mcp:` tools are looked up in. yolo's
-  own MCP servers stay in `mcp-adapter.json`. yolo still removes the copy an older version of
-  yolo wrote, but only while it holds exactly the MCP servers yolo writes today, and leaves any
-  other `mcp.json` as it is.
 - Starting pi on the `codex` profile while another pi session was refreshing its OpenAI login
-  could lose the refreshed login: yolo broke pi's lock on its credential file after 10 seconds,
-  and the two wrote at once. yolo now follows pi's own rule, treating the lock as abandoned only
-  after 30 seconds without a refresh, and waits for pi to finish. If pi still holds the lock after
-  about half a minute, yolo says that a running pi holds it and starts pi with its credential file
-  as it is.
-- Starting pi on the `codex` profile while another pi session was refreshing its OpenAI login no
-  longer sends you to a browser login. yolo could not update pi's credential file while pi held
-  it, and treated that as a missing login: at a terminal it started a login you did not need, and
-  without one it said a login was required. yolo now says that a running pi holds the file, leaves
-  it as it is, and starts pi, since that session is keeping the login current.
+  could lose the refreshed login, or send you to a login you did not need. yolo broke pi's lock on
+  its credential file after 10 seconds, so the two wrote at once, and when it could not take the
+  lock it treated that as a missing login: at a terminal it started a browser login, and without
+  one it said a login was required. yolo now follows pi's own rule, treating the lock as abandoned
+  only after 30 seconds without a refresh, and waits for pi to finish. If pi still holds the lock
+  after about half a minute, yolo says that a running pi holds it and starts pi with its
+  credential file as it is, since that session is keeping the login current.
 - Old versions of the agents that install themselves, such as Claude Code and Codex, are now
   cleaned up each time you start one, not only right after it installs or updates, so the versions
   an older yolo left behind go too. yolo keeps the two newest versions and the one in use and
