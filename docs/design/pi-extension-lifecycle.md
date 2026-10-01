@@ -3,7 +3,7 @@ title: "Pi extensions want machine-scoped storage and pre-launch refreshes acros
 date: 2026-09-17
 status: in-review
 stage: DESIGN
-next: "Rule OQ-4; its leaning builds nothing, and pi-git-extension-caching.md's ruled npm trees would replace the shared store the question is about"
+next: "Rule OQ-4, which hangs on pi-git-extension-caching.md's OQ-6: its ruled npm trees make every rewritten entry a local package, which pi 0.99.2 loads without installing, so (a) builds nothing they would delete"
 tags: [pi, extensions, updates, packages, machine-tier, launchers]
 summary: "Architecture for managing Pi package and extension lifecycles across multiple YOLO jails: machine-scoped extension storage, rate-limited pre-launch updates, and cross-jail concurrency control."
 vantage:
@@ -609,6 +609,24 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    range, and closes once one install lands. No shipped pack declares a Pi package today, so
    yolo opens the window only for packages a user configures. Revisit this when a shipped pack
    first declares one through `config-list` on `pi/settings`.
+
+   **Read 2026-10-01: the ruled per-version npm trees take this question's subject away.** In
+   pi 0.99.2, the version this jail now installs, `resolvePackageSources`
+   (`dist/core/package-manager.js`) installs a missing or mismatched `npm:` or `git:` source,
+   but hands a local path to `resolveLocalExtensionSource` and moves on without installing
+   anything; the updater still skips a pinned npm source and never touches a local one. (Read
+   statically, as the facts above were, and confirmed by running the resolver once on a scratch
+   local package with no agent session: see
+   [`pack-pi-resources.md`](pack-pi-resources.md#1-what-pi-loads-from-where-and-in-what-form).)
+   [`pi-git-extension-caching.md`](pi-git-extension-caching.md)'s
+   [OQ-5](pi-git-extension-caching.md#OQ-5), ruled 2026-09-26, rewrites every `npm:` entry to a
+   pointer pi loads as a local package. Once that half is built, pi's own startup never reaches
+   the unlocked install for an entry the pack rewrote, and the throttled, contended and exact-pin
+   cases go with it. The rewrite is that design's post-fold hook (PG-D2), and it waits on
+   [OQ-6](pi-git-extension-caching.md#OQ-6). So [OQ-4](#OQ-4) hangs on that ruling: (a) is the
+   one option here that builds nothing the redesign would delete, the question closes
+   when the npm half of [OQ-5](pi-git-extension-caching.md#OQ-5) lands, and it comes back only if
+   [OQ-6](pi-git-extension-caching.md#OQ-6) is ruled against the rewrite.
 
    **Answer:**
 
