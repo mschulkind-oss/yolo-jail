@@ -326,7 +326,9 @@ to guess"* on 2026-09-09. One exception remains, stated where it arises — `cop
     the launch, as above.
   - **The lock goes with it.** A SIGTERM or SIGHUP during the act (a closed terminal) still ends the
     launcher by that signal, after releasing the install-prefix lock (or the refresh lock). A Ctrl-C at
-    `yolo pack update` releases it too, and that launcher then exits with a failure. Before
+    `yolo pack update` releases it too, and that launcher then exits with a failure. The release
+    itself runs with Ctrl-C ignored: a Ctrl-C typed twice, 150 ms apart, at claude's update once
+    landed after the act and before the release, and ended the launcher with the lock held. Before
     this, the lock was left behind, so for ten minutes every launch said "another update is in
     progress", and the next launch after that broke the lock and hung again.
 - **Forbidden:** never resolve a *project* dependency; never write outside the program's own install

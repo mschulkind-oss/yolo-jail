@@ -1285,10 +1285,10 @@ _update_due() {
 }
 
 # _locked_update holds the install-prefix lock across the whole act, and is the only caller
-# on the launch path. The act is _shielded: a Ctrl-C ends it and the launch goes on, and a
-# SIGTERM or SIGHUP drops the lock before it ends the launcher. The verb branch says its own
-# outcome; an interrupted "npm install" is said here, since npm's own output does not say the
-# launch goes on.
+# on the launch path. The act is _shielded, which also drops the lock: a Ctrl-C ends the act and
+# the launch goes on, and a SIGTERM or SIGHUP drops the lock before it ends the launcher. The
+# verb branch says its own outcome; an interrupted "npm install" is said here, since npm's own
+# output does not say the launch goes on.
 _locked_update() {
     local rc=0
     if ! _take_lock; then
@@ -1296,7 +1296,6 @@ _locked_update() {
         return 0
     fi
     _shielded _drop_lock _update || rc=$?
-    _drop_lock
     if [ "$rc" != 0 ] && [ "$_YOLO_INTERRUPTED" = 1 ] && [ "$HAS_UPDATE_VERB" != "1" ]; then
         _say_not_updated update "$rc"
     fi
@@ -1977,9 +1976,9 @@ _update_due() {
 
 # _locked_update holds the install-prefix lock across the whole act, and is the only caller
 # on the launch path. Both the "cannot take it" message and the drop live here so the two
-# entry points cannot come to disagree about them. The act is _shielded: a Ctrl-C ends it and
-# the launch goes on with the installed version, and a SIGTERM or SIGHUP drops the lock before
-# it ends the launcher.
+# entry points cannot come to disagree about them. The act is _shielded, which also drops the
+# lock: a Ctrl-C ends the act and the launch goes on with the installed version, and a SIGTERM
+# or SIGHUP drops the lock before it ends the launcher.
 _locked_update() {
     local rc=0
     if ! _take_lock; then
@@ -1987,7 +1986,6 @@ _locked_update() {
         return 0
     fi
     _shielded _drop_lock _update || rc=$?
-    _drop_lock
     return "$rc"
 }
 
@@ -2038,7 +2036,6 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
         _do_install || _rc=$?
     elif _take_lock; then
         _shielded _drop_lock _update || _rc=$?
-        _drop_lock
     else
         echo "  ⚠ $BIN: another update holds the install-prefix lock — nothing refreshed." >&2
         _rc=1

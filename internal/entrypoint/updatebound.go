@@ -84,21 +84,29 @@ _bounded() {
     return "$rc"
 }
 
-# _shielded CLEANUP CMD... runs CMD as one update act the user may interrupt. A Ctrl-C (SIGINT)
-# ends the act and NOT this launcher: it sets _YOLO_INTERRUPTED, and the launcher goes on to run
-# what is installed, because the user typed the program's name, not "update". A SIGTERM or SIGHUP
-# (a closed terminal, a stopped jail) still ends the launcher, by that same signal, but runs
-# CLEANUP first, so the lock the act holds does not outlive it and refuse the next ten minutes of
-# updates. bash runs a trap only once the command it waits on has returned, which _bounded keeps
-# short. CMD's status is the return value.
+# _shielded CLEANUP CMD... runs CMD as one update act the user may interrupt, and then CLEANUP, which
+# releases what the act held (its lock). A Ctrl-C (SIGINT) ends the act and NOT this launcher: it
+# sets _YOLO_INTERRUPTED, and the launcher goes on to run what is installed, because the user typed
+# the program's name, not "update". A SIGTERM or SIGHUP (a closed terminal, a stopped jail) still
+# ends the launcher, by that same signal, but runs CLEANUP first, so the lock the act holds does
+# not outlive it and refuse the next ten minutes of updates. bash runs a trap only once the command
+# it waits on has returned, which _bounded keeps short. CMD's status is the return value.
+#
+# THE RELEASE IS INSIDE THE SHIELD, with Ctrl-C IGNORED by this shell and so by what it runs (the
+# rmdir, the cat of a token): measured 2026-10-01, a Ctrl-C typed twice at claude's update had the
+# second land after the shield came down and before the rmdir, and it killed the launcher with the
+# lock held. So the caller releases nothing itself, and nothing can end the launcher between the
+# act and the release.
 _shielded() {
     local cleanup="$1" rc=0
     shift
     _YOLO_INTERRUPTED=0
     trap '_YOLO_INTERRUPTED=1' INT
-    trap "$cleanup; trap - TERM; kill -TERM \$\$" TERM
-    trap "$cleanup; trap - HUP; kill -HUP \$\$" HUP
+    trap "trap '' INT; $cleanup; trap - TERM; kill -TERM \$\$" TERM
+    trap "trap '' INT; $cleanup; trap - HUP; kill -HUP \$\$" HUP
     "$@" || rc=$?
+    trap '' INT
+    eval "$cleanup" || true
     trap - INT TERM HUP
     return "$rc"
 }

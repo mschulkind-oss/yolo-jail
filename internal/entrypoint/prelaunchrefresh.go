@@ -222,6 +222,22 @@ _stop_refresh_heartbeat() {
     REFRESH_BEAT_PID=""
 }
 
+# _refresh_act is the refresh itself and its bookkeeping, all under the refresh lock; it returns
+# the refresh's status. stdin from /dev/null: a refresh must never read the user's terminal.
+# stdout to stderr: a piped launch ("$BIN -p … | consumer") must receive the program's output and
+# nothing else.
+_refresh_act() {
+    local rc=0
+    _bounded __YOLO_EXEC_PREFIX__"$REAL_BIN" "${REFRESH_ARGV[@]}" </dev/null >&2 || rc=$?
+    _stop_refresh_heartbeat
+    # Stamped on EVERY outcome (§4.1 invariant 3): an offline hour must not retry per launch.
+    _refresh_touch || true
+    # The content key only on SUCCESS: a failed refresh leaves the change due, so the next
+    # launch retries the install under the lock instead of leaving it to the program.
+    [ "$rc" != 0 ] || _refresh_record_seen || true
+    return "$rc"
+}
+
 # _prelaunch_refresh ALWAYS RETURNS 0: launching the program outranks refreshing it (§4.1
 # invariant 2), so no outcome here may stop the exec below. What varies is what it says.
 _prelaunch_refresh() {
@@ -257,19 +273,10 @@ _prelaunch_refresh() {
     echo "  Refreshing $BIN (${REFRESH_ARGV[*]})..." >&2
     local rc=0
     _start_refresh_heartbeat
-    # stdin from /dev/null: a refresh must never read the user's terminal. stdout to stderr: a
-    # piped launch ("$BIN -p … | consumer") must receive the program's output and nothing else.
     # _shielded, as the program's own update is: a Ctrl-C ends the refresh and the program still
-    # runs, and a SIGTERM or SIGHUP releases the lock before it ends the launcher.
-    _shielded '_stop_refresh_heartbeat; _drop_refresh_lock' \
-        _bounded __YOLO_EXEC_PREFIX__"$REAL_BIN" "${REFRESH_ARGV[@]}" </dev/null >&2 || rc=$?
-    _stop_refresh_heartbeat
-    # Stamped on EVERY outcome (§4.1 invariant 3): an offline hour must not retry per launch.
-    _refresh_touch || true
-    # The content key only on SUCCESS: a failed refresh leaves the change due, so the next
-    # launch retries the install under the lock instead of leaving it to the program.
-    [ "$rc" != 0 ] || _refresh_record_seen || true
-    _drop_refresh_lock
+    # runs, a SIGTERM or SIGHUP releases the lock before it ends the launcher, and _shielded
+    # releases it on the way out, after _refresh_act has stamped and recorded under it.
+    _shielded '_stop_refresh_heartbeat; _drop_refresh_lock' _refresh_act || rc=$?
     if [ "$rc" = 0 ]; then
         :
     elif [ "$_YOLO_INTERRUPTED" = 1 ]; then
