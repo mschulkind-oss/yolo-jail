@@ -71,7 +71,7 @@ unmanaged keys (`FirstApply && EntryLosses`).
 mechanism this mirrors and whose flag ruling it inherits),
 [`../design/host-render-target.md`](../design/host-render-target.md) (what a host render is, and
 what the `KindHost` notch refuses), [`composed-file-permissions.md`](composed-file-permissions.md)
-(what a composed surface's posture is once written), [`host-launch-environment.md`](../design/host-launch-environment.md) (which PATH the gate's survey
+(what a composed surface's posture is once written), [`host-agent-environment.md`'s launch PATH](host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs) (which PATH the gate's survey
 probes against).
 
 For the `host_apply_on_launch` key — its default, its scope, the user-facing disposition table

@@ -10,6 +10,11 @@ covers:
   - internal/hostpath/
   - internal/cli/check/section_hostwrappers.go
   - internal/cli/hostinputs.go
+  - internal/config/hostpath.go
+  - internal/cli/hostfloor.go
+  - internal/cli/hostlaunchpath.go
+  - internal/cli/applyhostdepgate.go
+  - internal/cli/check/section_hostlaunchpath.go
   - internal/cli/configrenderhost.go
   - internal/entrypoint/hostinputs.go
   - internal/entrypoint/hostcomputed.go
@@ -34,8 +39,12 @@ the refusal of a profile the in-jail bridge would serve (ES-D18 to ES-D20). The 
 by unit tests through `hostMain`; so is the one-row-per-cause shape of the `yolo check` section
 ([HE-D2](#he-d2)), pinned by the section's own unit tests. Execution flow step 3's `host_path`
 folders and the launch PATH every host check reads are from 2026-09-30
-([host-launch-environment.md's HE-DIR1](../design/host-launch-environment.md#he-dir1)), pinned by
-unit tests through `hostExec`, `checkDepsMain`, `applyHost` and the launch gate. Step 3's wire
+([HE-DIR1](#he-dir1)), pinned by unit tests through `hostExec`, `checkDepsMain`, `applyHost`
+and the launch gate; [the launch PATH section](#the-launch-path-and-which-copy-of-a-program-runs)
+and its rulings were written against `d4e435a3` on 2026-10-01, when the design
+`host-launch-environment.md` graduated into them, and its implementation decisions `HE-D1` to
+`HE-D10` stay in that design's stub as the build record (their ids are that design's, not this
+doc's own `HE-D1` and `HE-D2`). Step 3's wire
 tables are from 2026-09-30 ([FT-D2](../design/agent-footer.md#FT-D2)), pinned by unit tests
 through `hostMain`. [What `yolo host apply` renders into a derived surface](#what-yolo-host-apply-renders-into-a-derived-surface)
 was written against `d4e435a3` on 2026-10-01, when the design `host-computed-layer.md` graduated
@@ -69,6 +78,8 @@ and why "just use wrappers for everything" does not collapse the problem.
 | The apply stage that writes them | `internal/cli` (`applyHostWrappers`) |
 | The refusal left where `--shell-init` was | `internal/cli` (`refuseShellInit`) |
 | The every-run `PATH`, precedence and completeness observations | `internal/cli/check` (`section_hostwrappers.go`) |
+| The launch PATH's one resolver, and the miss line | `internal/hostpath` (`Resolve`, `Launch`, `MissLine`, `Hint`, `ManagedDirs`); `host_path` in `internal/config` (`HostPathFolders`, `HostPathRefusals`, `validateHostPath`) |
+| Which copy of a program a host launch runs, and the child's PATH | `internal/cli` (`resolveHostLaunchTarget`, `hostChildPath`, `hostfloor.go`) |
 | The host's derive inputs, composed once per invocation | `internal/cli` (`composeHostInputs`, `hostinputs.go`); the render side `internal/entrypoint` (`HostInputs`, `JailPathsIn`) |
 | The host render of a derive's output: the per-key write, the selection, the computed-leaf record | `internal/entrypoint` (`hostrender.go`, `hostcomputed.go`, `hostleafrecord.go`), `internal/render` (`leafrecord.go`) |
 | Where the directory lives | `internal/paths` (`WrapDir`, `WrapDirUnder`, `GeneratedBinDir`) |
@@ -78,7 +89,8 @@ which endpoint), [`envsource-relative-paths.md`](envsource-relative-paths.md) (w
 `env_sources` path points at — the secret channel this composition hydrates),
 [`../design/host-render-target.md`](../design/host-render-target.md) (the host as one notch of
 the confinement dial), [`pack-system.md`](pack-system.md) (the contribution model),
-[`host-launch-environment.md`](../design/host-launch-environment.md) (which PATH `yolo host`'s checks and the agent read: the caller's, by ruling [HE-DIR1](../design/host-launch-environment.md#he-dir1), then the folders of the user-scope `host_path` list). For the
+[`../design/host-tool-provisioning.md`](../design/host-tool-provisioning.md) (the host agent floor,
+which supplies every agent a selected pack delivers to a host launch). For the
 `host_wrappers` key and every flag, run `yolo config-ref` and `yolo host --help`.
 
 ---
@@ -289,9 +301,9 @@ refused for naming no command, the host verb having no default one.
    PATH at all (`env -i`) gets the system directories the floor's installers run with in its place,
    so an agent's commands still resolve. A dependency probe answers a program the floor delivers by
    its floor entry; every other PATH check reads the **launch PATH** (the caller's PATH, then
-   `host_path`'s folders: [HE-DIR1](../design/host-launch-environment.md#he-dir1)) through one
+   `host_path`'s folders: [HE-DIR1](#he-dir1)) through one
    resolver, `internal/hostpath`, and a miss prints one line naming the PATH searched and the
-   `host_path` fix ([`host-launch-environment.md` §4.2](../design/host-launch-environment.md#42-the-diagnostic-for-a-miss)).
+   `host_path` fix ([the miss line](#the-miss-line)).
 4. **Say what starts** — one line naming the target and where it came from (yolo's floor copy,
    your PATH, or as given) — and **exec** it with that environment.
 
@@ -474,6 +486,155 @@ file a host apply wrote, and whether `oh-omp/models` (a yaml surface) renders un
 unchecked: the build's account said its `rmw` arm had no yaml encoder, and the tree at `d4e435a3`
 registers a yaml object codec that arm accepts.
 
+## The launch PATH, and which copy of a program runs
+
+<a id="the-launch-path"></a>
+
+**At `yolo host`, yolo's checks read the PATH yolo was started with, plus the folders the
+user-scope `host_path` list adds, and look in no other folder** ([`HE-DIR1`](#he-dir1), the
+maintainer's ruling: *"it's just not feasible to otherwise know these things … And then I think we
+just get things from [PATH]."*). Whether a program a pack needs is present, and which copy of a
+program no floor entry covers runs, are answered from that PATH. What stays fixed whoever starts
+yolo is what yolo itself provides: the **host agent floor**'s copy of each agent a selected pack
+delivers, and the floor's own Node (the floor is yolo's own host directory of the selected packs'
+`program` binaries; [`host-tool-provisioning.md`](../design/host-tool-provisioning.md) coins the
+term and owns it). The cost is accepted by the ruling: a launcher that passes a bare PATH (a
+Waybar button, cron, a macOS hotkey launcher) can get a different answer from a terminal for a
+program yolo does not provide, and the fix is one `host_path` line, which the
+[miss line](#the-miss-line) prints.
+
+The words this section uses, coined by the design it graduated from (`host-launch-environment.md`)
+unless it says otherwise:
+
+- **Launch PATH**: the PATH yolo's checks read at a host launch. It is not the agent's PATH, which
+  adds the floor's `bin/`, and not the user's interactive shell's PATH, which yolo sees only when
+  that shell started it.
+- **Delivers** (the rulings' word): a selected pack *delivers* a program when the floor holds, or
+  can provision, an entry for it on this machine. One the floor can provision but has not yet is
+  delivered: the launch installs it first. One the floor cannot hold here (configured out of the
+  floor, handed to another provisioner, unpublished for this OS and architecture, or an installer
+  agent on macOS before the host capture ships) is not.
+- **Decision input** and **carried variable**: a variable yolo reads to decide something, and one
+  it only hands to the child.
+
+**The launch PATH is, in order:** the PATH yolo was started with, its entries in their order, when
+it is set and not empty; then each `host_path` folder not already on it, in written order.
+Duplicates keep their first occurrence. Started with no PATH, or an empty one, the launch PATH is
+`host_path`'s folders alone, and the miss line says yolo was started with no PATH. Nothing else
+joins it: no per-OS baseline, no folder a pack declares, no typed entry for a tool manager, no
+`YOLO_*` variable. With `host_path` unset, the launch PATH is the PATH yolo was started with, which
+is what every check read before the key existed. In a jail the resolver returns the process PATH
+unchanged, since a jail's PATH is already composed and `host_path` is host-only.
+
+**`host_path`** is a list of directory strings, each absolute or starting with `~/`. Validation
+refuses a relative path, `~user/`, any `$` (an entry that expanded a variable would read the
+launcher's environment a second time, behind a key that looks fixed) and any `:`. An empty list is
+the same as unset. A declared folder that does not exist is kept, skipped by lookup as a shell
+skips it, and reported absent by `yolo check`. No host verb validates the config before it reads
+the key, so a refused entry reaches no PATH, and the miss line and `yolo check`'s host launch
+section each name it with its fix. The key is user scope only: a workspace config is
+agent-editable, and a PATH entry there would let a cloned repository choose the binary a host
+agent runs. `yolo host env` emits no PATH line, because its output is `eval`'d into the caller's
+own shell, where the caller owns PATH.
+
+<a id="which-copy-runs"></a>
+
+**Which copy of a program runs**, by three exec rules:
+
+- **a program a selected pack delivers, named bare**, is looked up on no PATH. It execs from the
+  floor by path, and an npm agent starts on the floor's own `node` by absolute path, with mise
+  stripped;
+- **a target given as a path** is exec'd as given, and still gets the composition its base name
+  keys, so `yolo host -- ~/src/claude/dist/claude` runs that build with the claude pack's
+  environment and launch flags;
+- **any other target** is looked up on the child's PATH, as the user's shell would find it. That
+  covers a selected pack's program the floor cannot hold, and the launch says on one line why the
+  floor has no copy ([`OQ-HE11`](#oq-he11)).
+
+**The child's PATH is the launch PATH, then the floor's `bin/`**, duplicates removed, overlaid
+last so no pack env or profile replaces it ([`OQ-HE10`](#oq-he10)). The floor's `bin/` holds
+agent names only, so last means a lookup of an agent reaches the floor only where nothing of the
+user's has one, and the agent's own commands see the user's PATH first. So for a launch started
+with a PATH, a check and the agent search the same folders. ⚠ **A launch started with no PATH at
+all is the exception:** the child keeps the floor's stand-in, the system folders the floor's
+installers run with, ahead of `host_path`'s, while the checks search `host_path` alone. There a
+check can read missing a tool the agent then finds in a system folder, and the gate's miss line
+says *the PATH yolo searched* rather than *this launch's*.
+
+<a id="one-resolver"></a>
+
+**One resolver computes the launch PATH** (`hostpath.Resolve`, returning a `hostpath.Launch`):
+the ordered entries, where each came from, and a `LookPath` that skips yolo's own managed
+directories, so a wrapper in the wrap dir never reads as the program it wraps. Every host PATH
+check asks it: the exec's target lookup, the child's PATH, the dependency probe (the launch gate's
+survey, `yolo host apply`, `check-deps`, the re-probe after an install), the package-manager guess
+behind a remedy, the install the dependency gate runs (whose `PATH` is set to the launch PATH, so
+the re-probe reads the PATH the installer ran with), and `yolo check`'s host launch section, which
+says it read the PATH of the shell `yolo check` runs in. A program a selected pack delivers is
+checked by its floor entry instead, the copy that runs.
+
+> [!WARNING]
+> **No host-notch decision may read `os.Getenv("PATH")` or call a bare `exec.LookPath`.** Two
+> readers of PATH can disagree, which is why there is one. Two readers are exempt by name, and
+> read the PATH yolo was started with alone: the wrapper-precedence checks, whose question is
+> whether a bare command typed in the caller's shell reaches the wrapper, and the floor's
+> capture-runtime probe, whose question is about the jail launch a capture boots, which finds its
+> runtime on that PATH like every jail-launch lookup.
+
+<a id="the-miss-line"></a>
+
+**The miss line** is one line yolo prints beside its verdict whenever a PATH check or a target
+lookup at the host finds nothing: a `requires` tool, a selected pack's program the floor cannot
+hold, or the target of `yolo host -- <cmd>`. From a Waybar widget whose PATH is `/usr/bin:/bin`,
+with `rg` required by the guardrails pack and installed in `~/.cargo/bin`:
+
+```text
+yolo host: rg (required by the guardrails pack) is not on this launch's PATH, /usr/bin:/bin, the PATH yolo was started with. If rg is installed, add its folder to "host_path" in ~/.config/yolo-jail/config.jsonc; ~/.cargo/bin has one.
+```
+
+- **It prints the whole PATH**, never truncated, with `host_path`'s part named as such, because it
+  answers "where did it look".
+- **Its last clause appears only when a hint location holds the program.** The **hint locations**
+  are a compiled list of folders where tools commonly live outside a launcher's PATH (Homebrew's
+  prefixes, `~/.cargo/bin`, mise's default shims folder and a few more; `hostfloor.HintLocations`
+  is the list). **A hint location never resolves anything**: one `stat` per folder, no recursion,
+  no command run, and it changes only the line's text, never whether a check passes or what runs.
+- **Where it prints:** the launch gate's report, under `yolo host apply`'s dependency blocker and
+  in its JSON document, under `check-deps`' MISSING line, as the note of `yolo check`'s warning,
+  and in place of the exec's lookup error, once per missing program per run. A launch says *this
+  launch's PATH*, a verb that only checks says *the PATH yolo searched*. A program with no build
+  for this host is no blocker, since nothing could install it, so it gets the line beside its
+  no-build line instead.
+- **It is a disclosure on the launch stream** ([`report-tiers.md`](report-tiers.md#the-launch-stream)),
+  so no flag hides it, and it prints on every miss: yolo cannot tell a bare launcher from a
+  terminal. At launch only the gate surveys dependencies, and the gate runs only with
+  `host_apply_on_launch` on, so with it off a missing `requires` tool prints nothing at launch
+  and the agent's first call to it fails. The exec's miss for the target prints either way.
+
+**Tool managers get nothing of their own.** A user whose shell activates mise has mise's folders
+on the PATH their terminal hands yolo; one who wants them from every launcher names the folder in
+`host_path`. yolo runs no mise command at the host. Homebrew, npm's global prefix, pipx and
+`~/.local/bin` put real binaries in a fixed folder, which a plain `host_path` string names for a
+launcher that lacks it.
+
+> [!WARNING]
+> **A mise shim is found the way a shell finds it.** A check that finds `rg`'s shim reads
+> *present* even when the version the cwd's mise config selects is not installed, and the agent's
+> first `rg` then gets mise's own error or an install, as when the user types it. And **never run
+> `mise env` or `mise activate` output**: it executes the user's mise config, including `[env]`,
+> the directory-scoped credential channel [this reference refuses](#what-this-does-not-license).
+
+**Everything else the launch inherits passes through.** `TERM`, `DISPLAY`, `WAYLAND_DISPLAY`,
+`XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `SSH_AUTH_SOCK`, the locale and `TZ` describe the
+session the program was asked to run in, and yolo decides nothing from them. API keys, a region
+and the variables the override check reads are decision inputs, and at the host they keep counting
+from the shell that started yolo, beside what yolo composes, because the agent is handed that shell
+and the check reads what the agent is handed (`HE-D10` in
+[the design's record](../design/host-launch-environment.md#he-d10), reversible).
+
+UNMEASURED: unit tests pin each call site, and no launch from a real bare-PATH launcher is
+recorded since the build (2026-09-30).
+
 ## apply reports actions, check reports state
 
 - **`apply` prints the `PATH` line when it created or changed the wrapper directory** — a
@@ -570,6 +731,11 @@ line, pasted by the user. yolo offers no writer for it ([HE-D1](#he-d1)).
 
 | Ruling | Why it holds |
 | :--- | :--- |
+| <a id="he-dir1"></a>[**HE-DIR1**](#he-dir1) — **at `yolo host`, yolo's checks read the PATH yolo was started with, when it has one, plus `host_path`, and no other folder** (maintainer, 2026-09-29: *"we can pick up the path if it's there because it's just not feasible to otherwise know these things … I just don't see any way around it. And then I think we just get things from [PATH]."*) | A fixed per-OS baseline replacing the caller's PATH was the design's own extension of [OQ-HE0](#oq-he0), never the maintainer's, and a folder yolo adds whenever it exists would be a source of yolo's own. A bare-PATH launcher getting a different answer from a terminal is the accepted cost, and the [miss line](#the-miss-line) is its fix. |
+| <a id="oq-he0"></a>[**OQ-HE0**](#oq-he0) — `yolo host` depends on the environment it was launched in only where a `YOLO_*` variable or explicit config names the dependence (maintainer, 2026-09-25: *"`yolo host` should be as predictable an environment as possible"*); **revised for PATH by [HE-DIR1](#he-dir1)** | It still bars a folder or input of yolo's own guessing, such as appending mise's shims directory whenever it exists, and a new decision input needs config or a `YOLO_*` variable. The keys, region and override variables the shell exports keep counting, by `HE-D10` (reversible). |
+| <a id="oq-he10"></a>[**OQ-HE10**](#oq-he10), ruled (c), 2026-09-29 — **the child's PATH is the launch PATH, then the floor's `bin/`**, and a bare name of a program a selected pack delivers execs from the floor by path | The commands a host agent runs see the user's own environment, and the floor's copy of a pack's agent runs from any launcher ([HP-DIR4](../design/host-tool-provisioning.md#HP-DIR4)). No baseline fills in for a bare launcher, because its contents were never ruled; one `host_path` line fixes the checks and the child at once. |
+| <a id="oq-he11"></a>[**OQ-HE11**](#oq-he11), ruled (a), 2026-09-29 — **a selected pack's program the floor cannot hold runs from the child's PATH, and the launch says on one line why the floor has none** | It keeps a Mac user's working `yolo host -- claude` working until the macOS host capture ships, departing from the floor rule only where the floor has nothing to run instead. |
+| <a id="oq-he1"></a><a id="oq-he2"></a><a id="oq-he3"></a><a id="oq-he4"></a><a id="oq-he5"></a><a id="oq-he6"></a><a id="oq-he7"></a><a id="oq-he8"></a><a id="oq-he9"></a>**[OQ-HE1](#oq-he1) to [OQ-HE9](#oq-he9)** — retired or answered by [HE-DIR1](#he-dir1) (2026-09-29): an unset `host_path` is the caller's PATH alone, no pack declares a folder, `host_path` takes plain folders only, there is no `YOLO_HOST_PATH` and no "inherit PATH" entry, a jail launch's own lookups are unchanged, there is no macOS or other baseline, and nothing is staged; [OQ-HE6](#oq-he6) (API keys in the shell) is answered by `HE-D10`, reversible | Each asked a question that only arose under the withdrawn reading of [OQ-HE0](#oq-he0). Their full text is in the design stub's history. |
 | <a id="oq-hc1"></a>[**OQ-HC1**](#oq-hc1) — **the host runs the jail's derives over user-scope inputs**, in `yolo host apply` and in a wrapped launch's automatic apply, with no per-surface opt-in and no notch branch (maintainer, 2026-09-28: *"yes of course host apply and the auto one in a wrapper should generate this content. we're trying for host parity with the same handling."*) | The obstacle was the inputs, not the derives: only the MCP presets carried a jail path, so composing host inputs and checking the output for a jail path answers what a per-surface opt-in would have guarded. It superseded the earlier "for now" ruling that host apply renders no `openai-codex` list ([ML-D8](../design/model-lists-and-pickers.md#ML-D8)). |
 | <a id="oq-hc2"></a>[**OQ-HC2**](#oq-hc2) — **under `own`, a `computed` surface renders through `stateful`**, adopting the file on the first owned render (2026-09-28, by [OQ-HC1](#oq-hc1)'s parity) | Without it those files have no host path once `assert` retires. |
 | <a id="oq-hc3"></a>[**OQ-HC3**](#oq-hc3) — **host apply writes the `profile` key's selection with the jail's edge-triggered rule** (2026-09-28, by [OQ-HC1](#oq-hc1)'s parity) | So a direct or IDE launch of pi starts on the chosen provider and model, and a later `/model` pick of the user's still stands. Before it, the selection did nothing at the host for an agent that reads no yolo environment. |

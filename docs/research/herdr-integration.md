@@ -63,7 +63,7 @@ today.
   not a delivery route for it.
 - [`durable-scratch-space.md`](../design/durable-scratch-space.md): worktrees and the absolute paths
   git writes.
-- [`host-launch-environment.md`](../design/host-launch-environment.md): which variables `yolo host`
+- [`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs): which variables `yolo host`
   passes through.
 - [`host-notch-services.md`](../design/host-notch-services.md): services a host launch owns.
 - [`central-yolo-watcher.md`](central-yolo-watcher.md): herdr's server is the kind of resident
@@ -174,7 +174,7 @@ channel, and the slice passes nothing of herdr's into the jail.
   "🔒 JAIL &lt;project&gt;" tmux pane border or kitty tab title. yolo sets it at launch and restores
   it at exit ([`terminal.go`](../../internal/cli/terminal.go#L29-L45)).
 - **Notch.** A position on yolo's confinement dial: a container jail, macos-user, or `yolo host`.
-  Defined in [`host-launch-environment.md` §0](../design/host-launch-environment.md#0-the-governing-ruling).
+  Defined in [the launch-PATH ruling](../reference/host-agent-environment.md#he-dir1).
 
 Evidence is marked **MEASURED** (run and observed), **SOURCED** (read in source, docs or an issue)
 or **INFERRED** (reasoned from those, not observed).
@@ -542,11 +542,11 @@ SOURCED for yolo, and INFERRED for herdr's side.
 
 **The `HERDR_*` variables arrive, by ruling.** The agent receives the whole ambient environment.
 `HERDR_*` are *carried variables* under
-[`host-launch-environment.md` §2.1](../design/host-launch-environment.md#21-the-criterion--decision-inputs-versus-carried-variables):
+[the child's PATH](../reference/host-agent-environment.md#which-copy-runs):
 yolo only hands them to the child and decides nothing with them. That doc's governing ruling
 (2026-09-25) is that `yolo host` must not depend on its caller's environment for its own
 *decisions*, and it carries session variables through on purpose. It was revised for PATH on
-2026-09-29 ([HE-DIR1](../design/host-launch-environment.md#he-dir1)): yolo's checks read the
+2026-09-29 ([HE-DIR1](../reference/host-agent-environment.md#he-dir1)): yolo's checks read the
 caller's PATH. Two 2026-09-29 rulings in
 [`host-tool-provisioning.md`](../design/host-tool-provisioning.md) refine that:
 
@@ -561,7 +561,7 @@ caller's PATH. Two 2026-09-29 rulings in
 
 Neither layer, as written, drops a carried variable such as `HERDR_*`: layer 2 fixes the agent's
 node and strips mise, and
-[`host-launch-environment.md` §2.1](../design/host-launch-environment.md#21-the-criterion--decision-inputs-versus-carried-variables)
+[the child's PATH](../reference/host-agent-environment.md#which-copy-runs)
 passes carried variables through unchanged. So herdr's official hook, its skill and its native
 restore all work. INFERRED; nothing was run.
 
@@ -900,17 +900,17 @@ fi
 - The kitty fix of [HR-D5](#HR-D5) rides along.
 
 **No ruling decides whether a jail launch may do this, and [OQ-HR1](#OQ-HR1) carries it.** The
-predictability ruling, in [`host-launch-environment.md`](../design/host-launch-environment.md),
-governs `yolo host`. [OQ-HE7](../design/host-launch-environment.md#oq-he7) asked whether to extend
+predictability ruling, in [`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs),
+governs `yolo host`. [OQ-HE7](../reference/host-agent-environment.md#oq-he7) asked whether to extend
 it to a jail launch's host-side PATH lookups: podman, nix and the macOS tools. It was retired on
-2026-09-29 by [HE-DIR1](../design/host-launch-environment.md#he-dir1), so a jail launch keeps
+2026-09-29 by [HE-DIR1](../reference/host-agent-environment.md#he-dir1), so a jail launch keeps
 finding those on the PATH it was started with. That settles PATH lookups and nothing else. Nobody
 has asked whether a jail launch may decide from its launcher's session variables, or run a program
 one of them names. So ruling [OQ-HR1](#OQ-HR1) (A) or (B) also rules it, for the herdr arm. The
 change adds nothing the agent sees.
 
 - **This is not output styling.** The exemption in
-  [`host-launch-environment.md` §2.1](../design/host-launch-environment.md#21-the-criterion--decision-inputs-versus-carried-variables)
+  [the child's PATH](../reference/host-agent-environment.md#which-copy-runs)
   covers *"Output styling (`NO_COLOR`, color detection)"*. Option 2 reads `HERDR_ENV` to decide
   whether to run a host program, and the program is the one the ambient `HERDR_BIN_PATH` names.
   That is a decision input: which program to run.
@@ -932,7 +932,7 @@ needed there either, because the agent is in the foreground group itself. Readin
 `yolo host` would also make `HERDR_*` a decision input there, against [§3.3](#33-yolo-host)'s
 "yolo only hands them to the child". If a host label is ever wanted, it must name the notch
 accurately and be classified under
-[`host-launch-environment.md` §2.1](../design/host-launch-environment.md#21-the-criterion--decision-inputs-versus-carried-variables)
+[the child's PATH](../reference/host-agent-environment.md#which-copy-runs)
 as a decision input.
 
 **How to verify it.** A nested jail can show the hint on rootful nested podman: run herdr inside

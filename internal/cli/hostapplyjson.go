@@ -165,7 +165,7 @@ type hostApplyDocGroup struct {
 	// Remedy — a group states one or the other, never both and never neither.
 	NoRemedy string `json:"no_remedy,omitempty"`
 	// Miss is a missing dependency's miss line: the PATH yolo searched and the `host_path` fix
-	// (host-launch-environment.md §4.2). Absent for every other class.
+	// (host-agent-environment.md, the miss line). Absent for every other class.
 	Miss string `json:"miss,omitempty"`
 }
 

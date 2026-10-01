@@ -36,10 +36,10 @@ holds settled detail the design doesn't need.
   ([§4 of the design](host-tool-provisioning.md#4-when-provisioning-runs),
   [HP-DIR4](host-tool-provisioning.md#HP-DIR4)).
   - **Never probe the launch PATH for it.** That PATH is whatever the launcher handed yolo
-    ([`host-launch-environment.md` §2.2](host-launch-environment.md#22-the-launch-path-and-what-host_path-adds)).
+    ([the launch PATH](../reference/host-agent-environment.md#the-launch-path)).
     A terminal's PATH holds `~/.local/bin/claude`, so a terminal launch would write no floor entry
     and a Waybar launch would. What the floor holds would then depend on who started yolo, and
-    [HE-DIR1](host-launch-environment.md#he-dir1) keeps it fixed.
+    [HE-DIR1](../reference/host-agent-environment.md#he-dir1) keeps it fixed.
   - **A terminal's PATH also holds the user's install dirs** (`~/.local/bin`, the npm prefix).
     Probing them is the kill switch `launchercollision.go` warns about: after the first install
     the check finds the installed copy, so evergreen stops.

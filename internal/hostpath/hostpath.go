@@ -1,4 +1,4 @@
-// Package hostpath is the LAUNCH PATH's one resolver (docs/design/host-launch-environment.md §2.2,
+// Package hostpath is the LAUNCH PATH's one resolver (docs/reference/host-agent-environment.md, the launch PATH,
 // §3, HE-D5): the PATH yolo's checks read at the host notch, and the lookup every one of them asks.
 //
 // # What the launch PATH is

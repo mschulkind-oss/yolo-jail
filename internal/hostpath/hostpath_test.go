@@ -12,7 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 )
 
-// hostpath_test.go pins the launch PATH's construction (docs/design/host-launch-environment.md
+// hostpath_test.go pins the launch PATH's construction (docs/reference/host-agent-environment.md
 // §2.2, HE-D3, HE-D4), its lookup (HE-D5) and the miss line (HE-D2) against a fake PATH and a
 // temp home. The call sites that read it are pinned in internal/cli and internal/cli/check.
 

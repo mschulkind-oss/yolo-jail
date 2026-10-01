@@ -76,7 +76,7 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 		// rather than an install bound to fail. The capture act itself finds the runtime on PATH,
 		// so this asks the same question it will: the AMBIENT PATH, never `host_path`, since the
 		// capture boots a jail and a jail launch finds its runtime on the PATH it was started with
-		// (host-launch-environment.md §3, "Exempt, by name").
+		// (host-agent-environment.md, one resolver: exempt by name).
 		CaptureUnavailable: func() string {
 			rt := captureRuntime()
 			if _, err := exec.LookPath(rt); err != nil {
@@ -115,9 +115,9 @@ func captureRuntime() string {
 func hostFloorBinDir() string { return (&hostfloor.Floor{Dir: paths.HostFloorDir()}).BinDir() }
 
 // floorDeliveredBins is every program of packs the floor holds or can provision on this machine
-// — the programs those packs DELIVER (host-launch-environment.md §0) — with its status, keyed by
+// — the programs those packs DELIVER (host-agent-environment.md's launch PATH terms) — with its status, keyed by
 // bin. A dependency probe answers these from the floor rather than from any PATH
-// (host-launch-environment.md §3). It reads the prefix and nothing else, and it is empty in a jail,
+// (host-agent-environment.md, one resolver). It reads the prefix and nothing else, and it is empty in a jail,
 // whose own launchers answer for its programs.
 func floorDeliveredBins(packs []*packload.Pack) map[string]hostfloor.Status {
 	out := map[string]hostfloor.Status{}
@@ -268,7 +268,7 @@ type hostTarget struct {
 }
 
 // resolveHostLaunchTarget decides which binary `yolo host -- <cmd0>` runs, by the three exec rules
-// of host-launch-environment.md §3 (HP-DIR4, OQ-HE10):
+// of host-agent-environment.md, which copy runs (HP-DIR4, OQ-HE10):
 //
 //   - a BARE NAME of a program a selected pack delivers runs the FLOOR's copy, by path, whatever
 //     the caller's PATH holds — installed first when missing (a launch installs what it needs,
@@ -278,7 +278,7 @@ type hostTarget struct {
 //     is a selected pack's program the floor cannot hold on this machine, with one line saying
 //     so, which keeps today's behavior while OQ-HE11 is open.
 //
-// That lookup is the launch PATH's (lp, host-launch-environment.md §2.2: the PATH yolo was started
+// That lookup is the launch PATH's (lp, host-agent-environment.md, the launch PATH: the PATH yolo was started
 // with, then `host_path`'s folders not already on it) through its one lookup (HE-D5), as the
 // child searches it (hostChildLaunch) — the child's PATH less the floor's bin/, which it ends with
 // (HE-D1). Every name in bin/ is a floor entry, and one a selected pack delivers never reaches the
@@ -426,7 +426,7 @@ func hostChildPath(lp *hostpath.Launch, floorBin string) string {
 }
 
 // childEnviron is environ() with the child's PATH overlaid LAST — after every pack env, profile
-// and removal, so none of them can replace it (host-launch-environment.md §3). In a jail there is
+// and removal, so none of them can replace it (host-agent-environment.md, which copy runs). In a jail there is
 // no floor, and the environment is left as it is.
 func (c *hostComposition) childEnviron(childPath string) []string {
 	env := c.environ()

@@ -14,7 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// hostlaunchpath_test.go pins the LAUNCH PATH (docs/design/host-launch-environment.md §2.2: the
+// hostlaunchpath_test.go pins the LAUNCH PATH (docs/reference/host-agent-environment.md, the launch PATH: the
 // PATH yolo was started with, then `host_path`'s folders not already on it) at every host call
 // site that reads it — the launch gate's dependency survey, `yolo host apply`'s pre-flight and its
 // install, `yolo check-deps`, and the exec's target lookup — and the miss line (HE-D2) each prints.

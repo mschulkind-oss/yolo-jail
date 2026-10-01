@@ -251,8 +251,8 @@ func only(have ...string) Lookup {
 }
 
 // TestEveryProbeReadsTheCallersLookup: the presence probe, the package-manager guess and the
-// re-probe all go through the lookup the caller hands them (host-launch-environment.md §3's
-// dependency-probe and detectManager rows), never LookPath or a bare exec.LookPath beside it. A
+// re-probe all go through the lookup the caller hands them (host-agent-environment.md's one
+// resolver: the dependency probe and the package-manager guess), never LookPath or a bare exec.LookPath beside it. A
 // manager only the lookup can see names the remedy; with a lookup that sees none, no manager is
 // named, whatever the machine's own PATH holds.
 func TestEveryProbeReadsTheCallersLookup(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 // (host-tool-provisioning.md §4, "The other copy is named, never hidden"). It only reports:
 // nothing here decides what runs.
 
-// HintLocations is the compiled list host-launch-environment.md §4.2 coins: the directories an
+// HintLocations is the compiled list host-agent-environment.md's miss line names: the directories an
 // agent a user installed by hand usually lands in, looked at whatever PATH yolo was given.
 func HintLocations(home string) []string {
 	return []string{

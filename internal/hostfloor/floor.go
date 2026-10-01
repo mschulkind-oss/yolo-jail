@@ -176,7 +176,7 @@ type Floor struct {
 	// a capture boots a jail, so a host with no container runtime cannot make one. Asked only
 	// for an installer program that is neither provisioned nor in the store, which then has no
 	// floor entry HERE rather than an install bound to fail (a selected pack delivers a program
-	// the floor "holds, or can provision", host-launch-environment.md §0). nil => it can.
+	// the floor "holds, or can provision", host-agent-environment.md's launch PATH terms). nil => it can.
 	CaptureUnavailable func() string
 	// Environ is the environment the installers are derived from (installerEnv strips the
 	// parts that would steer where an install lands). nil => os.Environ().

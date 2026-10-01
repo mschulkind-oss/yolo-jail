@@ -9,8 +9,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// hostlaunchpath.go wires the LAUNCH PATH (internal/hostpath; docs/design/host-launch-environment.md
-// §2.2, §3) into the host verbs: the PATH yolo's checks read at the host — the PATH this process was
+// hostlaunchpath.go wires the LAUNCH PATH (internal/hostpath; docs/reference/host-agent-environment.md,
+// the launch PATH and one resolver) into the host verbs: the PATH yolo's checks read at the host — the PATH this process was
 // started with, then each `host_path` folder not already on it — and the pack names a miss line
 // puts beside a program.
 //

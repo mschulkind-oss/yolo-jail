@@ -47,7 +47,7 @@ import (
 // order instead of depcheck's sorted-by-bin order.
 type hostDeps struct {
 	byBin map[string]depcheck.Result
-	// floor is the binaries the HOST AGENT FLOOR answers for (host-launch-environment.md §3: "a
+	// floor is the binaries the HOST AGENT FLOOR answers for (host-agent-environment.md, one resolver: "a
 	// program a selected pack delivers is answered by its floor entry, the copy that runs"), with
 	// the entry's status. Each also has a byBin result, Present — the floor supplies it, now or at
 	// the next `yolo host apply --assert` or launch (HP-D3) — so the counts, the gate and the
@@ -113,7 +113,7 @@ func isDepKind(k packdecl.Kind) bool {
 // packs that declare no host dep at all.
 //
 // Every binary the floor does not answer for is looked up on lp, the LAUNCH PATH (the PATH this
-// process was started with, then `host_path`'s folders: host-launch-environment.md §2.2), through
+// process was started with, then `host_path`'s folders: host-agent-environment.md), through
 // its one lookup, which skips yolo's own folders so a wrapper never reads as the program it wraps
 // (HE-D5). The package manager a remedy names is found on the same PATH.
 func resolveHostDeps(p *packload.Pack, lp *hostpath.Launch) *hostDeps {

@@ -8,7 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// hostpath_test.go covers the `host_path` key (docs/design/host-launch-environment.md §2.2): read
+// hostpath_test.go covers the `host_path` key (docs/reference/host-agent-environment.md, the launch PATH): read
 // from user scope only, `~/` expanded, written order kept, every refused entry left out by the
 // reader, and refused at workspace scope. Validation goes through ValidateConfig, the call site
 // `yolo check` and a launch reach.

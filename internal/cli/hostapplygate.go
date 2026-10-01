@@ -229,7 +229,7 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 		// another program's configuration is the one thing said here, because nothing else
 		// will say it until the next explicit apply — and so is a declared dependency this
 		// launch's PATH lacks, the miss line being a disclosure rather than a prompt
-		// (host-launch-environment.md §4.2: it prints on every miss).
+		// (host-agent-environment.md's miss line: it prints on every miss).
 		reportGateMisses(errw, survey, bin)
 		reportUnrelatedLaunchFailures(errw, home, bin, unrelated)
 		return true

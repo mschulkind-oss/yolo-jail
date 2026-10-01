@@ -633,7 +633,7 @@ func validateHostFloor(config *jsonx.OrderedMap, workspace string, errs *[]strin
 	}
 }
 
-// validateHostPath checks the `host_path` list (docs/design/host-launch-environment.md §2.2): a
+// validateHostPath checks the `host_path` list (docs/reference/host-agent-environment.md, the launch PATH): a
 // list of folders, each absolute or starting with `~/`, none relative, `~user/`, or carrying `$`
 // or `:`. User scope only: a folder here decides which binary `yolo host` runs, and a workspace
 // config is agent-editable, so a workspace spelling is refused rather than left looking as if it

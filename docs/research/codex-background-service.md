@@ -418,7 +418,7 @@ API). Every one of them is a fresh daemon copy wherever the updater loop runs.
 ## 3. What it means for yolo, one row per notch
 
 A **notch** is one place an agent can run, from a jail to the bare host
-([`host-launch-environment.md` §0](../design/host-launch-environment.md#0-the-governing-ruling)).
+([the launch-PATH ruling](../reference/host-agent-environment.md#he-dir1)).
 At `77f52ef1`, yolo's tree never mentioned the daemon, `daemon_auto_start` or `--no-daemon`
 (MEASURED: search over `internal/` and `packs/`; the build that followed the ruling changed this,
 as the note below the table says). The codex pack installs through OpenAI's script, updates with

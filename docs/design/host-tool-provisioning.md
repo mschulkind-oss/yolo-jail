@@ -20,8 +20,8 @@ host can confirm. Evidence read against `7e529260`, and it cites symbols, never 
 disagree with the [Decision Ledger](#decision-ledger), the ledger wins: [HP-D3](#HP-D3) withdrew the
 consent prompt, and [OQ-HP6](#OQ-HP6) ruled out the `mise install` that section proposes. The
 stale-shim verdict [§5](#5-mise-the-stale-shim-verdict) starts from is withdrawn too, by
-[OQ-HE3](host-launch-environment.md#oq-he3)'s answer under
-[HE-DIR1](host-launch-environment.md#he-dir1).
+[OQ-HE3](../reference/host-agent-environment.md#oq-he3)'s answer under
+[HE-DIR1](../reference/host-agent-environment.md#he-dir1).
 
 > **In short.** What yolo can guarantee at the host is the set of agents it already knows about:
 > the `program` binaries of the selected packs. Installing those into a directory yolo owns, and
@@ -32,7 +32,7 @@ stale-shim verdict [§5](#5-mise-the-stale-shim-verdict) starts from is withdraw
 was a mise shim that an interactive rc file activates
 ([`host-launch-environment.md` §1.3](host-launch-environment.md#13-how-the-incident-happened)).
 yolo's checks read the PATH the launcher handed it, by the maintainer's ruling
-[HE-DIR1](host-launch-environment.md#he-dir1), so that failure follows the launcher. Something
+[HE-DIR1](../reference/host-agent-environment.md#he-dir1), so that failure follows the launcher. Something
 still has to put the agent where a launch finds it whatever PATH the launch was handed, and today at
 the host nothing yolo drives does
 ([`provisioner-sets.md` §1](provisioner-sets.md#1-the-verdict-and-five-principles)).
@@ -47,23 +47,23 @@ the one `yolo host` runs ([HP-DIR4](#HP-DIR4)), and the user's copy stays where 
 not run by `yolo host`. A new yolo-owned tree of executables on the host, which has to stay outside
 every jail's reach. On macOS, the three installer-recipe agents have no floor entry until the host
 capture ([HP-D2](#HP-D2)) is measured on a Mac and ships; what `yolo host` runs for them until then is
-[OQ-HE11](host-launch-environment.md#oq-he11).
+[OQ-HE11](../reference/host-agent-environment.md#oq-he11).
 
 **Start at [§3](#3-the-host-prefix).** The prefix's two rules, *only floor names in `bin/`* and
 *never jail-reachable*, are what make running from it, and appending its `bin/` to the agent's PATH,
 safe.
 
-**Needs your ruling:** none here. [OQ-HE11](host-launch-environment.md#oq-he11), in
-[`host-launch-environment.md`](host-launch-environment.md), asked what runs for a selected pack's
+**Needs your ruling:** none here. [OQ-HE11](../reference/host-agent-environment.md#oq-he11), in
+[`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs), asked what runs for a selected pack's
 program the floor cannot hold, and was ruled (a) on 2026-09-29: it runs from the agent's PATH, and
 the launch says why the floor has no copy. Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (on by default), [OQ-HP2](#OQ-HP2) (moot: on no user PATH), [OQ-HP3](#OQ-HP3) (captures, and a host capture on macOS), [OQ-HP4](#OQ-HP4) (the official Node tarball), [OQ-HP5](#OQ-HP5) (no consent prompt: the pack selection is the consent), [OQ-HP6](#OQ-HP6) (never provision the workspace runtime at the host), [OQ-HP7](#OQ-HP7) (the agent's children see the user's own environment), and [HP-DIR4](#HP-DIR4) (a selected pack's agent runs from the floor, from any launcher).
 
 **Reads with:**
 - [`host-tool-provisioning-plan.md`](host-tool-provisioning-plan.md): the implementation sketch.
   It is incomplete, and nobody builds from it.
-- [`host-launch-environment.md`](host-launch-environment.md): the launch PATH yolo's host checks
+- [`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs): the launch PATH yolo's host checks
   read, which is the PATH yolo was started with plus `host_path`'s folders
-  ([HE-DIR1](host-launch-environment.md#he-dir1)). The prefix is not part of it. This doc
+  ([HE-DIR1](../reference/host-agent-environment.md#he-dir1)). The prefix is not part of it. This doc
   supplies the floor that doc execs a delivered agent from, and whose `bin/` it appends last to the
   agent's PATH ([HE-D1](host-launch-environment.md#he-d1)).
 - [`provisioner-sets.md`](provisioner-sets.md): which provisioner wins, per environment. This doc
@@ -89,7 +89,7 @@ the launch says why the floor has no copy. Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (
   ([§3](#3-the-host-prefix)).
 - **Delivers**: a selected pack *delivers* a program when the floor holds, or can provision, an
   entry for it on this machine. The word is the rulings'; its definition is in
-  [`host-launch-environment.md` §0](host-launch-environment.md#0-the-governing-ruling), with the
+  [the launch-PATH ruling](../reference/host-agent-environment.md#he-dir1), with the
   cases that leave a selected pack's program undelivered.
 - **Floor entry disposition** *(coined here)*: what [`yolo check`](#7-what-yolo-check-reports) and a
   launch say about one entry. It is one of **provisioned** (in the prefix: the copy `yolo host`
@@ -111,9 +111,9 @@ the launch says why the floor has no copy. Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (
   ([HP-D11](#HP-D11)). It is not the "leftover" of [HP-D8](#HP-D8), which is an interrupted install's
   directory.
 - **Launch PATH**, **notch**, **ambient environment**: as defined in
-  [`host-launch-environment.md` §0](host-launch-environment.md#0-the-governing-ruling). That
+  [the launch-PATH ruling](../reference/host-agent-environment.md#he-dir1). That
   section also records the **composed host PATH**, which some ruled text here still names, as
-  withdrawn by [HE-DIR1](host-launch-environment.md#he-dir1).
+  withdrawn by [HE-DIR1](../reference/host-agent-environment.md#he-dir1).
 - **Agent dependency**, **project dependency**: as defined in
   [`program-delivery.md` §3.5](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03).
 
@@ -162,7 +162,7 @@ agent-editable and must never add a binary to the host.
   has nothing for yolo to install. It is reported as today.
 - Project dependencies (`mise_tools`, `packages`). The user's own tools on their bashrc PATH are
   found on the launch PATH in
-  [`host-launch-environment.md`](host-launch-environment.md), not supplied by the floor.
+  [`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs), not supplied by the floor.
 - MCP servers the agents drive. They are agent dependencies too, but v1 covers the agent binaries
   only ([§9](#9-non-goals)).
 
@@ -174,7 +174,7 @@ agent-editable and must never add a binary to the host.
   as **no floor entry, unpublished here**, using the same predicate the jail uses
   (`packdecl.Install.UnpublishedReason`, formerly the jail-only `launcherUnpublished`), and no
   install is ever attempted. What `yolo host` runs for it is
-  [OQ-HE11](host-launch-environment.md#oq-he11).
+  [OQ-HE11](../reference/host-agent-environment.md#oq-he11).
 
 ## 3. The host prefix
 
@@ -256,7 +256,7 @@ or Homebrew.
   changes nothing for a floor entry.
 - **The other copy is named, never hidden.** [`yolo check`](#7-what-yolo-check-reports) lists any
   copy of a floor program it finds on the launch PATH or at a
-  [hint location](host-launch-environment.md#42-the-diagnostic-for-a-miss) as *not run by
+  [hint location](../reference/host-agent-environment.md#the-miss-line) as *not run by
   `yolo host`*, so the second copy is never a surprise.
 
 **Deselection.** A prefix entry whose program no selected pack declares any more is removed by the
@@ -265,9 +265,9 @@ its open inode.
 
 ## 5. mise: the stale-shim verdict
 
-[`host-launch-environment.md` §2.3](host-launch-environment.md#23-tool-managers--mise-and-the-shim-is-not-installed-problem)
+[tool managers at the host](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs)
 once gave a shim whose `mise which` fails its own verdict, with the remedy `mise install`; that
-verdict is withdrawn ([OQ-HE3](host-launch-environment.md#oq-he3)), and yolo runs no mise command
+verdict is withdrawn ([OQ-HE3](../reference/host-agent-environment.md#oq-he3)), and yolo runs no mise command
 at the host. The
 maintainer's comment on that paragraph asks whether yolo should just run it, by default. The
 behavior this doc proposes is [OQ-HP6](#OQ-HP6)'s leaning:
@@ -290,20 +290,20 @@ widget is not.
 
 ## 6. The seams
 
-- **[`host-launch-environment.md`](host-launch-environment.md).** That doc owns the launch PATH,
+- **[`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs).** That doc owns the launch PATH,
   and the prefix is not in it. A program a selected pack
-  [delivers](host-launch-environment.md#0-the-governing-ruling) is exec'd from its floor entry by
+  [delivers](../reference/host-agent-environment.md#he-dir1) is exec'd from its floor entry by
   path and checked by that entry, and the prefix's `bin/` is appended last to the PATH the agent is
   handed ([HE-D1](host-launch-environment.md#he-d1)). The floor disposition is computed from the
-  prefix itself, never from a PATH lookup. [OQ-HE2](host-launch-environment.md#oq-he2) (a
+  prefix itself, never from a PATH lookup. [OQ-HE2](../reference/host-agent-environment.md#oq-he2) (a
   pack-declared install directory) is answered no by
-  [HE-DIR1](host-launch-environment.md#he-dir1): no pack adds a folder to a launch.
+  [HE-DIR1](../reference/host-agent-environment.md#he-dir1): no pack adds a folder to a launch.
 - **[`provisioner-sets.md`](provisioner-sets.md).** That doc owns *which provisioner wins*. The
   prefix is one new member of the host's provisioner set, and its rank in the default order is
   [OQ-PS6](provisioner-sets.md#OQ-PS6)'s question, where this doc proposes first for agent
   dependencies. A user who prefers `claude` from Homebrew says so through that doc's override
   ([OQ-PS7](provisioner-sets.md#OQ-PS7)), and the program then has **no floor entry**. What
-  `yolo host -- claude` runs in that case is [OQ-HE11](host-launch-environment.md#oq-he11), whose
+  `yolo host -- claude` runs in that case is [OQ-HE11](../reference/host-agent-environment.md#oq-he11), whose
   options include the override choosing which provisioner fills the floor's entry instead of
   removing it. The floor needs no consent point of its own ([OQ-HP5](#OQ-HP5)). An installer run
   through the dependency gate inherits [OQ-PS13](provisioner-sets.md#OQ-PS13)'s body check.
@@ -313,13 +313,13 @@ widget is not.
 ## 7. What `yolo check` reports
 
 The host-launch section
-([`host-launch-environment.md` §3](host-launch-environment.md#3-one-authority--the-seam)) gains one
+([the one resolver](../reference/host-agent-environment.md#one-resolver)) gains one
 row per floor entry. The row gives its disposition, the entry's path in the prefix and the version
 and date of the last install for a provisioned entry, and the remedy or reason for anything else:
 `yolo host apply` for missing (a launch installs it too, [HP-D3](#HP-D3)), and the reason for no
-floor entry, with what `yolo host` runs instead ([OQ-HE11](host-launch-environment.md#oq-he11)).
+floor entry, with what `yolo host` runs instead ([OQ-HE11](../reference/host-agent-environment.md#oq-he11)).
 Beside any disposition, the row names each other copy of the program it finds on the launch PATH
-or at a [hint location](host-launch-environment.md#42-the-diagnostic-for-a-miss), as *not run
+or at a [hint location](../reference/host-agent-environment.md#the-miss-line), as *not run
 by `yolo host`* ([§4](#4-when-provisioning-runs)). It also reports a lock held by a pid that no
 longer exists, and staging leftovers. `yolo check` installs nothing.
 
@@ -426,7 +426,7 @@ reproduces only by unsetting PATH in-process.
    the check reported by `yolo check` only.
 
    _Leaning:_ **(a).** The check is cheap, the install is always consented to, and a floor
-   nobody turns on guarantees nothing. [`OQ-HE0`](host-launch-environment.md#oq-he0) isn't
+   nobody turns on guarantees nothing. [`OQ-HE0`](../reference/host-agent-environment.md#oq-he0) isn't
    engaged, because the prefix is machine state yolo owns rather than an ambient input.
 
    <!-- vantage: oq id=OQ-HP1 -->
@@ -546,7 +546,7 @@ reproduces only by unsetting PATH in-process.
    the mise install."* **(a)** Yes, at a TTY, as [§5](#5-mise-the-stale-shim-verdict) scopes it:
    one tool, in the invocation's cwd, printed before it runs, with mise's own trust as the gate.
    **(b)** Yes, including non-TTY launches. **(c)** No: print the remedy, as
-   [`host-launch-environment.md`](host-launch-environment.md#23-tool-managers--mise-and-the-shim-is-not-installed-problem)
+   [`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs)
    has it.
 
    _Leaning:_ **(a).** It is what the user's own `mise.toml` asks for. mise's trust prompt
@@ -586,21 +586,21 @@ reproduces only by unsetting PATH in-process.
 | [OQ-HP2](#OQ-HP2) | **Maintainer ruling:** moot; the prefix is on no user PATH, and only `yolo host` and the wrappers use it | 2026-09-29 | **Built.** The prefix is `~/.local/share/yolo-jail/host-floor` ([HP-D8](#HP-D8)), on no PATH of the user's; `yolo host env` emits no PATH line |
 | <a id="HP-D1"></a>HP-D1 | *Implementation decision under HP2:* a yolo host launch execs the floor's program by path and puts the prefix first on the composed PATH it hands the agent, so a child agent resolves the floor's copy; the user's shell is untouched. Its "prefix first" is superseded by [HP-DIR2](#HP-DIR2) and [HE-D1](host-launch-environment.md#he-d1) (the prefix last); the exec by path stands | 2026-09-29 | **Built** for the exec by path: `yolo host` execs `bin/<bin>`, which starts the program by absolute path ([HP-D4](#HP-D4)) |
 | [OQ-HP3](#OQ-HP3) | **Maintainer ruling:** installer agents are in the floor, from the jail's `yolo capture` where the host matches, and from a host capture where it does not (macOS) | 2026-09-29 | **Built on Linux** ([HP-D7](#HP-D7)): the capture store's entry, relocated into the prefix. **Not built on macOS**: that is HP-D2 |
-| <a id="HP-D2"></a>HP-D2 | *Implementation decision under HP3:* the host capture runs the vendor installer confined (on macOS, Seatbelt with a throwaway `$HOME`, the capture jail's recipe, no network beyond the vendor's), and writes the capture store's existing shape, so the floor has one materialization path for both; it is measured on a Mac before it ships | 2026-09-29 | **Not built.** It needs its Mac measurement first; until then an installer agent on macOS has no floor entry and `yolo host` runs the PATH copy, saying so ([OQ-HE11](host-launch-environment.md#oq-he11), ruled (a) 2026-09-29) |
+| <a id="HP-D2"></a>HP-D2 | *Implementation decision under HP3:* the host capture runs the vendor installer confined (on macOS, Seatbelt with a throwaway `$HOME`, the capture jail's recipe, no network beyond the vendor's), and writes the capture store's existing shape, so the floor has one materialization path for both; it is measured on a Mac before it ships | 2026-09-29 | **Not built.** It needs its Mac measurement first; until then an installer agent on macOS has no floor entry and `yolo host` runs the PATH copy, saying so ([OQ-HE11](../reference/host-agent-environment.md#oq-he11), ruled (a) 2026-09-29) |
 | [OQ-HP4](#OQ-HP4) | **Maintainer ruling:** the prefix's Node is the official tarball, checksum-verified, at yolo's version raised to the highest selected `node_floor` | 2026-09-29 | **Built** ([HP-D6](#HP-D6)): Node v24.21.0 with its published sha256 compiled in, raised to a higher `node_floor` |
 | [OQ-HP5](#OQ-HP5) | **Maintainer ruling:** no consent prompt; selecting the pack is the consent, and the floor installs and updates like a jail's launchers | 2026-09-29 | **Built.** Nothing prompts |
 | <a id="HP-D3"></a>HP-D3 | *Consequence of HP5:* [§4](#4-when-provisioning-runs)'s consent step and HP1's "installs still need consent" are withdrawn; a launch with no terminal installs too, disclosed on its launch line | 2026-09-29 | **Built.** A launch installs the one program it starts, with progress lines on stderr; `yolo host apply --assert` installs every missing entry ([HP-D8](#HP-D8)) |
-| <a id="HP-DIR2"></a>HP-DIR2 | **Maintainer direction (2026-09-29), the two environment layers:** *"we always want our own node … like a nix shell thing … make the predictable environment predictable … we construct an environment. We do not sniff the command line … yolo host will let it use the node from the project. It will have a fallback of the floor … And then when you run the agent's wrapper … that one will now strip out the mise because now it wants not just a floor, but a predictable environment."* (1) `yolo host -- <cmd>` composes an environment: the user's PATH, project tools and mise shims included, with the floor as a FALLBACK after it; yolo never inspects the command. (2) An agent yolo delivers from the floor runs in a set, predictable environment: the floor's own node by absolute path, mise stripped. Replaces [HP-D1](#HP-D1)'s "prefix first" | 2026-09-29 | **Built**, `host_path` included since 2026-09-30 ([`host-launch-environment.md` §2.2](host-launch-environment.md#22-the-launch-path-and-what-host_path-adds), [HE-D3](host-launch-environment.md#he-d3); the per-OS baseline was withdrawn by [HE-DIR1](host-launch-environment.md#he-dir1)): the child's PATH is the caller's, then `host_path`'s folders, then the floor's `bin/`. Item (2) as [HP-D4](#HP-D4) reads it |
+| <a id="HP-DIR2"></a>HP-DIR2 | **Maintainer direction (2026-09-29), the two environment layers:** *"we always want our own node … like a nix shell thing … make the predictable environment predictable … we construct an environment. We do not sniff the command line … yolo host will let it use the node from the project. It will have a fallback of the floor … And then when you run the agent's wrapper … that one will now strip out the mise because now it wants not just a floor, but a predictable environment."* (1) `yolo host -- <cmd>` composes an environment: the user's PATH, project tools and mise shims included, with the floor as a FALLBACK after it; yolo never inspects the command. (2) An agent yolo delivers from the floor runs in a set, predictable environment: the floor's own node by absolute path, mise stripped. Replaces [HP-D1](#HP-D1)'s "prefix first" | 2026-09-29 | **Built**, `host_path` included since 2026-09-30 ([the launch PATH](../reference/host-agent-environment.md#the-launch-path), [HE-D3](host-launch-environment.md#he-d3); the per-OS baseline was withdrawn by [HE-DIR1](../reference/host-agent-environment.md#he-dir1)): the child's PATH is the caller's, then `host_path`'s folders, then the floor's `bin/`. Item (2) as [HP-D4](#HP-D4) reads it |
 | <a id="HP-DIR3"></a>HP-DIR3 | **Maintainer principle (2026-09-29): at the host, yolo manages the AGENT's environment, never the WORKSPACE's runtime.** In a jail yolo provisions the workspace's runtime (it is the contained room, and safe to provision); at the host the workspace is where the user works, and its toolchain is the user's, or the host agent's to install once running. Extended by the maintainer to every question it applies to | 2026-09-29 | **Built** as an absence: nothing at the host provisions or activates the workspace's runtime |
 | [OQ-HP6](#OQ-HP6) | **Maintainer ruling:** never; no `mise install`, `mise env` or direnv at the host | 2026-09-29 | **Built** as an absence: no `mise` call anywhere at the host |
 | [OQ-HP7](#OQ-HP7) | **Maintainer ruling:** (a); the agent's own startup is fixed, its children see the user's environment | 2026-09-29 | **Built.** The child's environment is the one it was handed, the caller's PATH first |
-| <a id="HP-DIR4"></a>HP-DIR4 | **Maintainer ruling (2026-09-29), which copy of a pack's agent `yolo host` runs, with a correction to how [HP-DIR2](#HP-DIR2) item (1) was read:** *"I thought the whole point of running yolo host was to get the actual agent."* `yolo host -- <agent>` runs the floor's copy whenever a selected pack delivers that agent, from any launcher (a terminal, a Waybar widget, cron). A copy the user installed, such as `~/.local/bin/claude`, is not the one that runs. The agent's own commands (`npm test`) see the user's PATH, mise included, first and the floor after it ([OQ-HP7](#OQ-HP7)). A program no selected pack delivers resolves on the user's PATH as usual, with the floor after. **The correction:** HP-DIR2 item (1)'s "the user's PATH … with the floor as a FALLBACK after it" describes the environment the agent's commands run in (the project's `node`, for example), never which copy of a pack's agent runs. HP-DIR2's text stands, read that way. [HP-D1](#HP-D1)'s exec of the floor's program by path stands too; HP-DIR2 still replaces its "prefix first" in the PATH the agent is handed. Recorded in [`host-launch-environment.md`](host-launch-environment.md) as [OQ-HE10](host-launch-environment.md#oq-he10), answered (c). *Recorder's reading, not the maintainer's words:* HP-DIR2's "yolo never inspects the command" stands as a bar on inspecting what a command will do (its arguments, an `npm test` it will run). yolo already keys a host launch on the command's base name: `composeHostLaunchWith` takes `filepath.Base` of it, and the profile, provider env, credential gate, launch flags and launch services all follow the pack that installs that name (`selectedPackInstalls` is the existing predicate). HP-DIR4 adds only which copy runs to that same key, and only for a bare name: a target given as a path is exec'd as given ([`host-launch-environment.md` §3](host-launch-environment.md#3-one-authority--the-seam)). "Delivers" means the floor holds, or can provision, an entry for the program ([Defined terms](#defined-terms)); what runs for a selected pack's program with no possible floor entry is [OQ-HE11](host-launch-environment.md#oq-he11), ruled (a) | 2026-09-29 | **Built** (`resolveHostLaunchTarget`): a bare name a selected pack delivers runs the floor's copy; a path is exec'd as given; anything else, and a program with no floor entry, is looked up on the child's PATH, the latter with one line ([OQ-HE11](host-launch-environment.md#oq-he11), ruled (a)) |
+| <a id="HP-DIR4"></a>HP-DIR4 | **Maintainer ruling (2026-09-29), which copy of a pack's agent `yolo host` runs, with a correction to how [HP-DIR2](#HP-DIR2) item (1) was read:** *"I thought the whole point of running yolo host was to get the actual agent."* `yolo host -- <agent>` runs the floor's copy whenever a selected pack delivers that agent, from any launcher (a terminal, a Waybar widget, cron). A copy the user installed, such as `~/.local/bin/claude`, is not the one that runs. The agent's own commands (`npm test`) see the user's PATH, mise included, first and the floor after it ([OQ-HP7](#OQ-HP7)). A program no selected pack delivers resolves on the user's PATH as usual, with the floor after. **The correction:** HP-DIR2 item (1)'s "the user's PATH … with the floor as a FALLBACK after it" describes the environment the agent's commands run in (the project's `node`, for example), never which copy of a pack's agent runs. HP-DIR2's text stands, read that way. [HP-D1](#HP-D1)'s exec of the floor's program by path stands too; HP-DIR2 still replaces its "prefix first" in the PATH the agent is handed. Recorded in [`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs) as [OQ-HE10](../reference/host-agent-environment.md#oq-he10), answered (c). *Recorder's reading, not the maintainer's words:* HP-DIR2's "yolo never inspects the command" stands as a bar on inspecting what a command will do (its arguments, an `npm test` it will run). yolo already keys a host launch on the command's base name: `composeHostLaunchWith` takes `filepath.Base` of it, and the profile, provider env, credential gate, launch flags and launch services all follow the pack that installs that name (`selectedPackInstalls` is the existing predicate). HP-DIR4 adds only which copy runs to that same key, and only for a bare name: a target given as a path is exec'd as given ([the one resolver](../reference/host-agent-environment.md#one-resolver)). "Delivers" means the floor holds, or can provision, an entry for the program ([Defined terms](#defined-terms)); what runs for a selected pack's program with no possible floor entry is [OQ-HE11](../reference/host-agent-environment.md#oq-he11), ruled (a) | 2026-09-29 | **Built** (`resolveHostLaunchTarget`): a bare name a selected pack delivers runs the floor's copy; a path is exec'd as given; anything else, and a program with no floor entry, is looked up on the child's PATH, the latter with one line ([OQ-HE11](../reference/host-agent-environment.md#oq-he11), ruled (a)) |
 | <a id="HP-D4"></a>HP-D4 | *Implementation decision:* the deciding (first install, a moved declaration, the throttled refresh, the lock) runs in yolo, on the launch that asks, before the exec; `bin/<bin>` is an exec-only launcher, `exec <node> <entry> "$@"` for a Node script and `exec <entry> "$@"` for anything else. The jail's bash launcher leans on what its image bakes (`jq`, `timeout`, a `yolo` on PATH to materialize with), which a host does not, so the same template here would behave per machine. HP-DIR2 item (2)'s "mise stripped" is read as: nothing on PATH chooses what starts or what interpreter it runs on, because both are absolute paths; the environment is otherwise the one handed over, since [OQ-HP7](#OQ-HP7) gives the agent's commands the user's own, mise included | 2026-09-29 | **Built.** `internal/hostfloor/ensure.go` (`launcherScript`). Its comment line names the record's bin, version and pack only through `commentField`, which turns every character outside a small safe set into `?`: the version is text a vendor chose (npm's `package.json`, a directory a capture's installer made), and a newline in it would otherwise make the rest a line the launcher runs (`launcher_test.go`) |
 | <a id="HP-D5"></a>HP-D5 | *Implementation decision under [OQ-HP1](#OQ-HP1):* the configuration is a user-scope `host_floor` key taking `agent_updates`' two shapes, read by the same reader: `false` is a floor of nothing, and `{"*": true, "<pack>": false}` leaves a pack out. A workspace value is a `yolo check` error | 2026-09-29 | **Built.** `internal/config/hostfloor.go`, `entrypoint.PackPolicyAllows` |
 | <a id="HP-D6"></a>HP-D6 | *Implementation decision under [OQ-HP4](#OQ-HP4):* the shipped release is Node v24.21.0, the LTS line the jail image runs, as `.tar.gz`, with its four platforms' published sha256 compiled in, so the check does not trust a value fetched beside the bytes. A higher `node_floor` raises the floor to that floor padded to three parts (`22.19` is v22.19.0, the lowest release meeting it), checked against that release's `SHASUMS256.txt`. An install runs npm with the floor's Node first on a fixed system PATH, and drops the ambient variables that would redirect an npm install or change what Node loads (`NPM_CONFIG_*`, `npm_config_*`, `NODE_OPTIONS`, `NODE_PATH`). A Node script is started by the floor's Node; a native build shipped through npm (opencode-ai's) is started as itself. An entry keeps the Node it was installed on until a refresh or a moved declaration reinstalls it | 2026-09-29 | **Built.** `internal/hostfloor/node.go`, `run.go`. The real tarball and the real npm are exercised by no test |
 | <a id="HP-D7"></a>HP-D7 | *Implementation decision under [OQ-HP3](#OQ-HP3):* container captures now record the full reference scan (`--scan-content-refs`), without which `capture.Materialize` refuses to move an entry out of `/home/agent`; the floor materializes the store's selected entry into its own install directory and relocates it. An entry recorded before the scan is recaptured once. With no capture in the store, the floor runs `yolo capture <bin>` when a container runtime is on PATH; with none, the program has no floor entry here, and neither has one whose only capture was recorded for a jail's home. A capture whose `~/.local/bin/<bin>` is not in the capture has no floor entry either: codex's installer links it into `~/.codex`, which no capture records (measured 2026-09-29 against this machine's store; its claude 2.1.267 and agy entries hold their program, and no file in either names `/home/agent`, so a full scan finds them relocatable). An installer program is refreshed when the store's selected entry changes; the vendor's own update verb is never run against the real home | 2026-09-29 | **Built** (`internal/hostfloor/ensure.go`, `captured.go`; `captureJailArgv`). Whether a captured binary runs on a real host is NOT MEASURED |
 | <a id="HP-D8"></a>HP-D8 | *Implementation decision:* the prefix is `host-floor/` under the state dir, `0700`: `bin/`, `node/v<version>/`, `programs/<bin>/<id>/` (a completion marker written last), `records/<bin>.json`, `receipts.jsonl`, `locks/`. Each install keeps its program's current and previous version. The per-program lock is a `flock` the kernel drops with its holder, so no lock can be held by a dead pid; `yolo check` reports an install running now and an interrupted one's leftover, which `yolo prune --apply` alone reclaims. `yolo host apply --assert` installs every missing entry and removes one no selected pack delivers, but only when the whole selection resolved; the launch gate's apply takes neither step | 2026-09-29 | **Built.** `internal/hostfloor`, `internal/prune/hostfloor.go`, `yolo stores` |
-| <a id="HP-D9"></a>HP-D9 | *Implementation decision under [`host-launch-environment.md` §3](host-launch-environment.md#3-one-authority--the-seam):* the dependency probe of `yolo host apply` (and so the launch gate's survey) and `yolo check-deps` answers a program the floor delivers by its floor entry, as satisfied (provisioned, or the floor's to install), never by a PATH lookup, so a not-yet-installed agent is not a missing-dependency blocker | 2026-09-29 | **Built.** `resolveHostDeps`, `configuredDepRequirements` |
+| <a id="HP-D9"></a>HP-D9 | *Implementation decision under [the one resolver](../reference/host-agent-environment.md#one-resolver):* the dependency probe of `yolo host apply` (and so the launch gate's survey) and `yolo check-deps` answers a program the floor delivers by its floor entry, as satisfied (provisioned, or the floor's to install), never by a PATH lookup, so a not-yet-installed agent is not a missing-dependency blocker | 2026-09-29 | **Built.** `resolveHostDeps`, `configuredDepRequirements` |
 | <a id="HP-D10"></a>HP-D10 | *Implementation decision under [OQ-HP3](#OQ-HP3), from the build's review:* the floor's materialize runs on the HOST, following a manifest the capture driver wrote inside the capture jail, so the manifest is treated as that jail's claim. Every materialize, in a jail too, refuses before its first write a manifest whose entries are not a tree under the home (an empty, absolute, unclean or climbing path, one listed twice, an unknown kind, one beneath a non-directory entry) and a file entry whose store source is not a regular file; none of these can come from a capture's own walk. The floor's is a **confined** materialize, which also requires an empty home, keeps every entry inside the capture surfaces, and checks each directory on the way to an entry with `Lstat`, so it writes through no link (the one case the entry checks cannot see is two names one directory on a case-insensitive filesystem). A jail's home is never confined: macos-user's reaches `.local` through a link it must follow | 2026-09-29 | **Built.** `internal/capture/confine.go` (`MaterializeOptions.Confined`); the floor sets it in `installFromCapture` |
 | <a id="HP-D11"></a>HP-D11 | *Implementation decision under [HP-DIR4](#HP-DIR4), from the build's review:* a [deselected entry](#defined-terms) is never run. The launch's PATH lookup skips the floor's `bin/` for every name, one lookup for a program with no floor entry and for any other name: every name in `bin/` is a floor entry, and one a selected pack delivers runs by path before the lookup, so a hit there could only be a deselected entry. A launch that finds no other copy says the floor still holds one it does not run and that `yolo host apply --assert` removes it; `yolo check` says the same beside the no-floor-entry row. The child's PATH still ends with the floor's `bin/` ([HE-D1](host-launch-environment.md#he-d1)), deselected entry included, until the apply removes it | 2026-09-29 | **Built.** `resolveHostLaunchTarget`; `hostfloordeselected_test.go` |
 | <a id="HP-D12"></a>HP-D12 | *Implementation decision under [HE-D1](host-launch-environment.md#he-d1), from the build's review:* a caller that passes no PATH at all (`env -i`) gets the floor installer's system baseline (`hostfloor.BaselinePath`, the per-OS system directories that exist) in place of its PATH, ahead of the floor's `bin/`. Otherwise the child would hold the floor's `bin/` alone, and every command an agent runs by name would be unfound, where before the floor a child with no PATH at least had libc's default search path | 2026-09-29 | **Built.** `hostChildPath`, through `hostpath.Launch.Child`. It stands in for the PATH the caller did not pass, and `host_path`'s folders follow it ([HE-D3](host-launch-environment.md#he-d3)); yolo's checks keep `host_path` alone ([HE-D4](host-launch-environment.md#he-d4)) |

@@ -18,7 +18,7 @@ import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 // THE KEY IS A PACK NAME, as `agent_updates`' is: one pack may declare more than one program, and
 // the pack is the thing the user selected. A specific key beats "*"; "*" beats absence; absence is
 // true. A pack left out has NO FLOOR ENTRY, and what `yolo host` runs for it then is the launch's
-// PATH, said on a line of its own (host-launch-environment.md OQ-HE11).
+// PATH, said on a line of its own (host-agent-environment.md OQ-HE11).
 //
 // # Why it is read from the USER config directly
 //

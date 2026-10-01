@@ -8,7 +8,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// hostpath.go is the `host_path` key (docs/design/host-launch-environment.md §2.2): the folders a
+// hostpath.go is the `host_path` key (docs/reference/host-agent-environment.md, the launch PATH): the folders a
 // user adds to the PATH yolo's checks read at `yolo host`, for a launcher whose own PATH lacks
 // them — a Waybar button, cron, a macOS hotkey launcher.
 //

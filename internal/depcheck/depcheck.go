@@ -148,7 +148,7 @@ type Result struct {
 }
 
 // Lookup resolves a binary on one PATH, exec.LookPath's shape. Every probe here takes it from
-// its CALLER (docs/design/host-launch-environment.md §3): at the host that is the launch PATH's
+// its CALLER (docs/reference/host-agent-environment.md, one resolver): at the host that is the launch PATH's
 // one resolver (internal/hostpath), so the dependency probe, the package-manager guess and the
 // re-probe after an install all read the PATH the launch does, `host_path` included. A nil
 // Lookup is LookPath.

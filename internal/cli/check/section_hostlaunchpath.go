@@ -15,8 +15,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// sectionHostLaunchPath is `yolo check`'s HOST LAUNCH section (docs/design/host-launch-environment.md
-// §3): the LAUNCH PATH `yolo host` searches — the PATH yolo was started with, then `host_path`'s
+// sectionHostLaunchPath is `yolo check`'s HOST LAUNCH section (docs/reference/host-agent-environment.md,
+// one resolver): the LAUNCH PATH `yolo host` searches — the PATH yolo was started with, then `host_path`'s
 // folders not already on it — with where each part came from, each `host_path` folder that does not
 // exist, and every dependency of the selected packs that no floor entry answers for, resolved
 // through the same lookup a launch uses (hostpath, HE-D5). A miss is a [WARN] carrying the miss line.

@@ -78,7 +78,7 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 		}
 		return 0
 	}
-	// THE LAUNCH PATH (host-launch-environment.md §2.2): the PATH this command was started with,
+	// THE LAUNCH PATH (host-agent-environment.md): the PATH this command was started with,
 	// then `host_path`'s folders — the PATH a `yolo host` launch from the same shell checks, read
 	// through the one resolver's lookup, so check-deps and the launch cannot disagree about a
 	// binary. The package manager each remedy names is found on it too.
@@ -167,7 +167,7 @@ func depManifestDir() string {
 //
 // The third return is the programs the HOST AGENT FLOOR answers for, left out of the first: their
 // answer is the floor entry — the copy `yolo host` runs — never whatever a PATH holds
-// (host-launch-environment.md §3). Empty in a jail.
+// (host-agent-environment.md, one resolver). Empty in a jail.
 //
 // The fourth is which packs declare each binary, the "required by" of a miss line.
 func configuredDepRequirements() ([]depcheck.Requirement, []unresolvedPack, map[string]hostfloor.Status,

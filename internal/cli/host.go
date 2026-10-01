@@ -658,7 +658,7 @@ func hostExec(flagArgs, cmd []string, out, errw io.Writer, stdin io.Reader) int 
 		printHostLines(errw, block)
 	}
 
-	// WHICH BINARY RUNS (HP-DIR4, host-launch-environment.md §3): a bare name of a program a
+	// WHICH BINARY RUNS (HP-DIR4, host-agent-environment.md, which copy runs): a bare name of a program a
 	// selected pack delivers is the FLOOR's copy, installed first when missing; a path is exec'd
 	// as given; anything else is looked up on the child's PATH — the LAUNCH PATH (the caller's
 	// PATH, then `host_path`'s folders not already on it: HE-DIR1, HE-D3), then the floor's bin/

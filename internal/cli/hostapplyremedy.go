@@ -81,7 +81,7 @@ type remedyGroup struct {
 	NoRemedy string
 	// Note is one trailing fact about the class, printed under the last group of its kind.
 	Note string
-	// Miss is the miss line of a missing dependency (host-launch-environment.md §4.2): the whole
+	// Miss is the miss line of a missing dependency (host-agent-environment.md): the whole
 	// PATH yolo searched for it and the `host_path` fix, printed under the headline. "" for every
 	// other class, and in a jail.
 	Miss string

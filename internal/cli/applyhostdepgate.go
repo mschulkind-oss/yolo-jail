@@ -69,7 +69,7 @@ type hostDepBlocker struct {
 	// and why there is none. Embedded rather than copied field by field so a finding that
 	// grows a field reaches the gate and the report together.
 	hostDepFinding
-	// Miss is the miss line (host-launch-environment.md §4.2): the whole PATH the probe searched
+	// Miss is the miss line (host-agent-environment.md): the whole PATH the probe searched
 	// and the `host_path` fix, printed under the blocker's headline. "" in a jail.
 	Miss string
 }

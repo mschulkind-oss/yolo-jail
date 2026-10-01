@@ -21,7 +21,7 @@ import (
 // # The set environment
 //
 // An install's result must not depend on who launched yolo — the governing ruling of
-// host-launch-environment.md §0 — so installerEnv builds the child's environment rather than
+// host-agent-environment.md (OQ-HE0) — so installerEnv builds the child's environment rather than
 // inheriting it whole. PATH is the floor's Node first and then a fixed baseline of system
 // directories: never the ambient PATH, whose `npm` might be a mise shim or another prefix's.
 // Every variable that would REDIRECT an npm install (NPM_CONFIG_* and npm_config_*, the way nvm
