@@ -43,8 +43,10 @@ host or an outside account follows under [External waits](#external-waits).
 4. Rulings that hold a defect's fix: [the Kilo special-casing in two derives](../design/gateway-provider-packs.md), while
     claude gives every Kilo model without a declared window a 1M-token context; [whether a hatch reaches a required daemon's
     refusal](../reference/loopback-tls-reachability.md#OQ-R8), which the documented hatch cannot reach today (no leaning yet,
-    so an agent drafts one first); and [`--no-daemon` for every in-jail `codex`](../research/codex-background-service.md#OQ-CDX3),
-    since `codex agents` there still starts the daemon yolo turns off, stale model list and all.
+    so an agent drafts one first); [`--no-daemon` for every in-jail `codex`](../research/codex-background-service.md#OQ-CDX3),
+    since `codex agents` there still starts the daemon yolo turns off, stale model list and all; and [how host pi gets its
+    OpenAI subscription credential](../design/pi-host-openai-auth.md), since `yolo host -- pi` on the `codex` profile starts
+    on another model and lists no ChatGPT model.
 5. [Rule whether the pi pack may rewrite its own `packages` list](../design/pi-git-extension-caching.md) — the
     per-commit extension store that ends every jail sharing one npm prefix is rebased and green, and lands on this ruling.
 6. [Rule the macos-user workspace root](../design/configurable-workspace-root.md), [its whitelist](../design/configurable-workspace-root.md#OQ-CW2) first — the home check
