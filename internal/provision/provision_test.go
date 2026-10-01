@@ -302,7 +302,7 @@ func TestMiseInstallIsVerboseOnlyWhenSomethingIsMissing(t *testing.T) {
 			}
 			fake := "#!/bin/sh\n" +
 				`if [ "$1" = ls ]; then ` + missing + "\nexit 0; fi\n" +
-				`echo "$*" >> ` + log + "\nexit " + strconv.Itoa(tc.installRC) + "\n"
+				`echo "$*" >> ` + shellWord(log) + "\nexit " + strconv.Itoa(tc.installRC) + "\n"
 			if err := os.WriteFile(filepath.Join(dir, "mise"), []byte(fake), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -352,7 +352,7 @@ func TestStageRunsTheBootstrapWhateverTheStepsDid(t *testing.T) {
 				dir := t.TempDir()
 				ran := filepath.Join(dir, "bootstrap-ran")
 				body := shape.body([]string{"true", tc.steps},
-					[]string{"touch " + ran, tc.bootstrap})
+					[]string{"touch " + shellWord(ran), tc.bootstrap})
 				err := exec.Command("bash", "-c", "("+body+")").Run()
 				rc := 0
 				if ee, ok := err.(*exec.ExitError); ok {
@@ -377,9 +377,17 @@ func TestStageRunsTheBootstrapWhateverTheStepsDid(t *testing.T) {
 func TestStageKeepsTheStepsBeforeTheBootstrapJoined(t *testing.T) {
 	dir := t.TempDir()
 	after := filepath.Join(dir, "after")
-	body := Stage([]string{"false", "touch " + after}, []string{"true"})
+	body := Stage([]string{"false", "touch " + shellWord(after)}, []string{"true"})
 	_ = exec.Command("bash", "-c", "("+body+")").Run()
 	if _, err := os.Stat(after); err == nil {
 		t.Errorf("a step after a failing one ran; only the bootstrap stops depending on them:\n%s", body)
 	}
+}
+
+// shellWord spells path as ONE double-quoted shell word, so a fixture path holding a space
+// stays one argument. Double quotes and not shquote's single ones, because a stage body must
+// carry no single quote: the container wraps it in `sh -c '…'` (bypassingShims), and these
+// tests run it in that shape too.
+func shellWord(path string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`, "`", "\\`").Replace(path) + `"`
 }
