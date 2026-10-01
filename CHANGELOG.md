@@ -285,11 +285,12 @@ the provider's most capable model. Name it in a provider's `models` so that a pa
 or an adapter mapping yolo's tiers onto an extension's own, finds your top model. Like the other
 three it is a convention, never a requirement: when a pack asks for one your provider does not
 name, the launch prints a warning naming the provider and the alias, and starts anyway. Every
-agent's environment now carries the four as well, for any extension or script it starts to read:
-`YOLO_MODEL_DEFAULT`, `YOLO_MODEL_FAST`, `YOLO_MODEL_BALANCED` and `YOLO_MODEL_FRONTIER` hold
-the `<provider>/<model>` that agent's own provider names for each, in a jail and under
-`yolo host --`, so two agents on different profiles each see their own, and a tier the provider
-does not name is unset rather than left over from another agent. See
+agent you give a profile now carries the four in its environment as well, for any extension or
+script it starts to read: `YOLO_MODEL_DEFAULT`, `YOLO_MODEL_FAST`, `YOLO_MODEL_BALANCED` and
+`YOLO_MODEL_FRONTIER` hold the `<provider>/<model>` that agent's own provider names for each, in
+a jail and under `yolo host --`, so two agents on different profiles each see their own, and a
+tier the provider does not name is unset rather than left over from another agent. An agent with
+no profile gets none of them and keeps whatever the agent that started it had. See
 [tier aliases](docs/reference/providers.md#tier-aliases).
 
 **`host_files` entries with inline content now reach your host config too.** An entry in your

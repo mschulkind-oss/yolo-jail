@@ -11,12 +11,13 @@ package packload
 // reads YOLO_MODEL_FAST needs nothing, and it follows the profile because the variable is
 // composed from the agent's own selection, never the launch's.
 //
-// CORE COMPOSES IT, for every agent, with no pack's help: the vocabulary is core's
+// CORE COMPOSES IT, for every agent with a profile, with no pack's help: the vocabulary is core's
 // (luahook.ConventionalModelAliases) and so is the lookup (luahook.ModelAliasID, the one
 // yolo.model_for reads), so no agent pack has to remember to relay it. AgentEnv adds it beside
 // its pack's env derive output, which therefore delivers it on every vehicle that output already
 // reaches: the per-agent env file on the container backends and macos-user, and the exec'd
-// process at the host notch.
+// process at the host notch. An agent with no profile has no delivery, so it gets no role
+// variable and removes none: started by an agent that has them, it keeps that agent's.
 
 import (
 	"strings"

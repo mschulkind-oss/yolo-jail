@@ -1259,9 +1259,12 @@ model the agent's own selected provider names for that alias, as `<provider>/<id
 agent, composed by core beside the agent pack's env derive (`packload.ModelRoleVars`) and carried
 wherever that output goes: the agent's env file in a jail, its macos-user session, and the process
 `yolo host --` execs. So an extension or a script an agent starts can pick a tier without an
-adapter pack, and it follows the profile. A role the provider does not name is unset, so it is
-never inherited from an agent on another provider; a value you set yourself for one command
-still wins in a jail, as every profile-composed value does
+adapter pack, and it follows the profile. A role the provider does not name is unset, so an
+agent with a profile never inherits it from an agent on another provider. An agent with no
+profile selects no provider and composes none, so one started by an agent that has them keeps
+that agent's values, as a child keeps any of its parent's environment
+([CN-D8](../design/provider-credential-scope.md#7-decision-ledger)). A value you set yourself for
+one command still wins in a jail, as every profile-composed value does
 ([the per-agent file's precedence](../design/provider-credential-scope.md#OQ-CN8)). A variable of
 the same name the agent's own pack sets wins over the composed one, and no warning is printed for
 a missing role, since nothing asked for it ([XM-D8](../research/extension-model-defaults.md#XM-D8),

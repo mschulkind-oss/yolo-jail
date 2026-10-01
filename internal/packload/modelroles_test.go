@@ -140,3 +140,17 @@ func TestModelRoleEnvSpellsTheFourNames(t *testing.T) {
 		t.Errorf("ModelRoleEnv = %v", got)
 	}
 }
+
+// An agent with no profile selects no provider, so the gate composes no delivery for it: no role
+// variable and no removal. Started by a profiled agent it therefore keeps that agent's values,
+// which the docs state as the limit (XM-D9); this pins the half the gate decides.
+func TestAnAgentWithNoProfileComposesNoRole(t *testing.T) {
+	scope := roleScope(t, []*Pack{rolePack(t, "alpha", ""), rolePack(t, "beta", ""),
+		rolePack(t, "gamma", ""), rolePack(t, "delta", "")})
+	if d := scope.Agent("delta"); d != nil {
+		t.Errorf("delta has no profile and the gate composed it a delivery: %q", roleVars(d.Shape))
+	}
+	if got := roleVars(scope.Agent("alpha").Shape); got == "" {
+		t.Fatal("fixture bug: alpha, on a tiered provider, composes no role either")
+	}
+}
