@@ -568,6 +568,12 @@ sets, and a jail without pi no longer carries it.
   Cerebras, is no longer handed a model limit its config format rejects. opencode requires an
   output limit beside every context window, so yolo now writes opencode's own default for it, and
   writes no limit for a model that states only an output limit.
+- A loophole whose host program sits inside the project you launched, or inside the jail's home, is
+  now refused when that folder's path has a space or a parenthesis in it, such as a project under
+  `~/My Projects` or in a Google Drive or iCloud folder, or a macOS home like `/Users/Jane Doe`.
+  yolo refuses to start a program an agent can rewrite, but it read any path with a space as a
+  shell script rather than a path, so in such a project the program started on your machine at
+  every launch. See [the placement rule](docs/reference/loophole-system.md#the-placement-rule).
 - A config whose `required_capabilities` asks for web search is no longer refused when an agent you
   selected searches on its own login, such as Claude Code or Antigravity, or when a profile runs an
   agent on a provider that searches, such as z.ai. The launch used to count only what your own
