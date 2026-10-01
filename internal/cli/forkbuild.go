@@ -73,11 +73,7 @@ type forkBuild struct {
 
 // recipe is the build's recipe hash: its command, its outputs and the source subdirectory.
 func (b forkBuild) recipe() string {
-	sub := ""
-	if a, err := packsrc.Parse(b.Fork.Source); err == nil {
-		sub = a.Path
-	}
-	return packdecl.ForkRecipe(b.Fork.Build, b.Fork.Produces, sub)
+	return packdecl.ForkSourceRecipe(b.Fork.Source, b.Fork.Build, b.Fork.Produces)
 }
 
 // id names the build: source, revision, recipe and platform, the key §6 names. The lock and the

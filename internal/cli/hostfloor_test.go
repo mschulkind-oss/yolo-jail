@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
@@ -21,7 +22,7 @@ import (
 var productionHostFloor = newHostFloor
 
 // disarmTheHostFloor makes the package's default floor one that can install NOTHING: its Node
-// distribution is an address nothing listens on and it has no capture act, so no test that
+// distribution is an address nothing listens on and it has no capture or build act, so no test that
 // happens to launch a selected pack's agent can download a runtime or boot a capture jail — the
 // no-agent-tests rule one level down, as depInstallRun's guard is. It also leaves every pack out
 // (`host_floor: false`), so a fixture that launches `yolo host -- claude` against a stub on PATH
@@ -35,13 +36,16 @@ func disarmTheHostFloor() {
 		f.Capture = func(bin string) error {
 			return errors.New("test guard: refusing to run `yolo capture " + bin + "`")
 		}
+		f.Build = func(p hostfloor.Program, commit string) (*capture.Entry, error) {
+			return nil, errors.New("test guard: refusing to build " + p.Bin() + " at " + commit)
+		}
 		return f
 	}
 }
 
 // withTestFloor gives this test the PRODUCTION floor wiring — the prefix under HOME, the
 // user-scope `host_floor` and `agent_updates`, the capture store — with its Node taken from a fake
-// distribution and its npm the fake registry's, and no capture act. It returns the distribution,
+// distribution and its npm the fake registry's, and no capture or build act. It returns the distribution,
 // whose registry the test publishes into.
 func withTestFloor(t *testing.T) *floortest.Dist {
 	t.Helper()
@@ -54,6 +58,9 @@ func withTestFloor(t *testing.T) *floortest.Dist {
 		f.Environ = append(os.Environ(), dist.Environ()...)
 		f.Capture = func(bin string) error {
 			return errors.New("test guard: refusing to run `yolo capture " + bin + "`")
+		}
+		f.Build = func(p hostfloor.Program, commit string) (*capture.Entry, error) {
+			return nil, errors.New("test guard: refusing to build " + p.Bin() + " at " + commit)
 		}
 		return f
 	}

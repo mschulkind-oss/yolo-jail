@@ -867,6 +867,21 @@ delivered there and names hand-off H4
 ([FP-D3](../design/forked-programs-as-packs.md#FP-D3)). Apple Container below its read-only floor
 mounts no capture store, so the launch builds nothing and each fork's launcher says why.
 
+**`yolo host` runs the same build, on Linux**
+([FP-D16](../design/forked-programs-as-packs.md#FP-D16)). The
+[host agent floor](../design/host-tool-provisioning.md) holds a forked program as the capture
+store's build of its pinned commit, found by the same hit check a launch makes, built on a miss by
+the same build act, and materialized into the floor's own install directory by the confined,
+relocating materialize an installer's capture takes. A Node script is started by the floor's own
+Node. `yolo host -- <bin>` and `yolo host apply --assert` are where that happens. A fork has no
+floor entry, and `yolo host` runs the copy on PATH with one line saying why, when it has no usable
+pin, when its build's manifest says it cannot move out of the jail's home (the reason names that
+home), when the store has no build and no container runtime is on PATH to make one, and on any
+macOS host. The floor never runs a build the fork lock does not name
+([FP-D17](../design/forked-programs-as-packs.md#FP-D17)): a moved pin or an edited `build` or
+`produces` reinstalls, a failed reinstall does not keep the older build running, and a fork is
+never polled for an update.
+
 #### `requires`
 
 A binary that must **already exist**. Asserts presence and installs nothing — no launcher,

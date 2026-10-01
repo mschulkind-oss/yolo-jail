@@ -121,9 +121,14 @@ ends, so yolo refuses that build and says why.
 - If the build fails, the jail starts without that program, and running it says why. yolo never
   falls back to the original program under your fork's name.
 - `yolo capture <program>` rebuilds it on demand, for example after an image update.
+- `yolo host -- <program>` runs the same build outside a jail, on Linux. yolo keeps its own copy for
+  host agents, moved out of the jail's home, and builds it first if this machine has not built that
+  commit yet. A build that can only run in a jail, such as one that compiles the jail's home path
+  into a binary, stays in jails: `yolo host` says so and runs the copy on your PATH instead.
 
 This works on podman and on Apple Container 1.1.0 or later. On `macos-user`, and on older Apple
-Container, the fork's program is not delivered yet, and the launch says so.
+Container, the fork's program is not delivered yet, and the launch says so. On a Mac, `yolo host`
+runs the copy on your PATH and says why.
 
 ## Check a pack before you trust it
 

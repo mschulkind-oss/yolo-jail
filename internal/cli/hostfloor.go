@@ -18,7 +18,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostpath"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	runtimepkg "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -50,6 +52,7 @@ func floorPrograms(packs []*packload.Pack) []hostfloor.Program {
 var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
 	store := &capture.Store{Dir: paths.CapturesDir()}
 	floorWire, updatesWire := config.HostFloorWire(), config.AgentUpdatesWire()
+	pins := floorForkPins(progs)
 	return &hostfloor.Floor{
 		Dir:       paths.HostFloorDir(),
 		GOOS:      runtime.GOOS,
@@ -84,10 +87,70 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			}
 			return ""
 		},
+		// A FORK's program (docs/design/forked-programs-as-packs.md FP-D4): the fork lock's pin, read
+		// once for this floor; the store's build at that pin, by the hit check a jail launch makes;
+		// and the build act a jail launch runs on a miss — the sealed capture jail, waiting, bounded,
+		// for a build of the same key another launch is running (FP-D1). Never `yolo capture
+		// <forked bin>`, which is the explicit REBUILD and refuses on contention.
+		ForkPin: func(p hostfloor.Program) (string, string) {
+			pin, ok := pins[p.Bin()]
+			if !ok {
+				return "", "no fork in this selection builds it"
+			}
+			return pin.Commit, pin.Reason
+		},
+		ResolveBuild: func(p hostfloor.Program, commit string) (*capture.Entry, error) {
+			b := floorForkBuild(p, commit)
+			entry, _, err := resolveForkBuild(store, b.Fork.Bin, b.Platform, b.Fork.Source, commit, b.recipe())
+			return entry, err
+		},
+		Build: func(p hostfloor.Program, commit string) (*capture.Entry, error) {
+			return buildFork(floorForkBuild(p, commit),
+				buildMode{lock: pidlock.Mode{Wait: true, Bound: forkBuildWaitBound}}, out, out, false)
+		},
 		Home:   paths.Home(),
 		Out:    out,
 		Prefix: "yolo host: ",
 	}
+}
+
+// floorForkBuild is the build a floor program of a fork asks for: the fork as its pack declares it,
+// read back off the base's rewritten program — the selection's rewrite (packload.forkedProgram)
+// copies the fork's source, build, produces and platforms into it verbatim, and names the fork pack
+// in ForkedBy — at commit, for this host's platform, which is the only one the floor runs a build of.
+func floorForkBuild(p hostfloor.Program, commit string) forkBuild {
+	in := p.Install
+	return forkBuild{
+		Fork: packload.Fork{Pack: in.ForkedBy, Base: p.Pack, Bin: in.Bin, Source: in.Source, Build: in.Build,
+			Produces: in.Produces, Platforms: in.Platforms},
+		Commit:   commit,
+		Platform: capture.Platform(),
+	}
+}
+
+// floorForkPins reads the fork lock once for every source-built program among progs, keyed by bin:
+// what a launch reads (run.forkPins), so the host and a jail ask for one commit. A lock that cannot
+// be read pins nothing, and each fork carries the read error as its reason.
+func floorForkPins(progs []hostfloor.Program) map[string]packload.ForkPin {
+	var forks []packload.Fork
+	for _, p := range progs {
+		if p.Install.Kind == packdecl.InstallKindSource {
+			forks = append(forks, floorForkBuild(p, "").Fork)
+		}
+	}
+	if len(forks) == 0 {
+		return nil
+	}
+	lock, err := packsrc.LoadForkLock(forkLockPath())
+	pins := packload.ForkPins(forks, lock)
+	out := make(map[string]packload.ForkPin, len(pins))
+	for _, pin := range pins {
+		if err != nil {
+			pin = packload.ForkPin{Fork: pin.Fork, Reason: "the fork lock cannot be read (" + err.Error() + ")"}
+		}
+		out[pin.Fork.Bin] = pin
+	}
+	return out
 }
 
 // hostFloorCaptureAct is the capture act the production floor runs: `yolo capture <bin>` itself.
@@ -356,8 +419,13 @@ func resolveHostLaunchTarget(packs []*packload.Pack, cmd0 string, lp *hostpath.L
 func noCopyWhere(goos string, p hostfloor.Program) string {
 	switch {
 	case p.Install.Kind == packdecl.InstallKindSource:
-		// A fork's host copy is not built on any machine yet (hostfloor.noEntryReason).
-		return "built from its fork's source yet"
+		// A fork's build: the reason says why this machine holds none — no pin, a build made for
+		// the jail's home only, no runtime to build with, or a Mac, which no Linux build runs on.
+		// None of those is a matter of time, so no "yet".
+		if goos == "darwin" {
+			return "on this Mac"
+		}
+		return "on this machine"
 	case goos == "darwin" && p.Install.Kind == "native":
 		return "on this Mac yet"
 	case goos == "darwin":

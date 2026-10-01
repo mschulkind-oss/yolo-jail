@@ -84,13 +84,21 @@ func (f *Floor) Ensure(ctx context.Context, p Program) (Status, Outcome, error) 
 	if st.Pending != "" {
 		why = st.Pending
 	}
-	f.say("installing %s into yolo's floor (%s): %s", p.Bin(), why, describeRecipe(p.Install))
+	f.say("installing %s into yolo's floor (%s): %s", p.Bin(), why, f.describeRecipe(p))
 	rec, err := f.install(ctx, p)
 	if err != nil {
-		if st.Disposition == Provisioned {
+		if st.Disposition == Provisioned && p.Install.Kind != packdecl.InstallKindSource {
 			// A reinstall failed, and the previous install is intact: it keeps serving.
 			f.say("could not reinstall %s (%v); running the installed %s", p.Bin(), err, st.Record.Version)
 			return st, Kept, nil
+		}
+		if st.Disposition == Provisioned {
+			// A FORK'S BUILD IS NEVER KEPT PAST ITS PIN: the installed build is of another commit
+			// or recipe, which is a near-miss (forked-programs-as-packs.md §9), so it does not
+			// serve while the build the fork now asks for is missing — the jail's source launcher
+			// refuses an older build in its home for the same reason.
+			f.say("could not install %s (%v); the installed %s is not the build fork pack %s asks for, "+
+				"so it does not run", p.Bin(), err, st.Record.Version, p.Install.ForkedBy)
 		}
 		if why := noEntryReasonOf(err); why != "" {
 			// Not a failed install: the install learned the floor cannot hold this program here
@@ -104,12 +112,16 @@ func (f *Floor) Ensure(ctx context.Context, p Program) (Status, Outcome, error) 
 }
 
 // describeRecipe says what an install will run, for the line that starts it.
-func describeRecipe(in packdecl.Install) string {
+func (f *Floor) describeRecipe(p Program) string {
+	in := p.Install
 	switch in.Kind {
 	case "npm":
 		return "npm package " + declared(in)
 	case "native":
 		return "the machine's capture of its installer (" + in.InstallerURL + ")"
+	case packdecl.InstallKindSource:
+		commit, _ := f.forkPin(p)
+		return "fork pack " + in.ForkedBy + "'s build of " + in.Source + " at commit " + commit
 	}
 	return in.Kind
 }
@@ -118,7 +130,14 @@ func describeRecipe(in packdecl.Install) string {
 // allows the pack to move, and a pinned npm package never polled (the declaration IS the answer,
 // and a moved declaration is Pending, handled by Ensure). A failed poll or update keeps the
 // installed version and waits out the interval — the jail launcher's stamp-on-failure rule.
+//
+// A FORK'S BUILD IS NEVER POLLED: its pin moves it (`yolo pack update`, on the host), which
+// Status reports as Pending, and a poll of anything would be the rebuild on a timer
+// forked-programs-as-packs.md §9 forbids. So no lock, no stamp, no store read.
 func (f *Floor) refresh(ctx context.Context, p Program, st Status) (Status, Outcome, error) {
+	if p.Install.Kind == packdecl.InstallKindSource {
+		return st, Current, nil
+	}
 	rec := st.Record
 	if f.UpdatesAllowed != nil && !f.UpdatesAllowed(p.Pack) {
 		return st, Current, nil
@@ -202,6 +221,9 @@ func (f *Floor) newerThan(ctx context.Context, p Program, rec *Record) (string, 
 			return "", nil
 		}
 		return "capture " + entry.Key, nil
+	case packdecl.InstallKindSource:
+		// Never newer: a fork moves when its pin does, and refresh returns before asking.
+		return "", nil
 	}
 	return "", nil
 }
@@ -223,6 +245,8 @@ func (f *Floor) install(ctx context.Context, p Program) (*Record, error) {
 		rec, err = f.installNpm(ctx, p, dir)
 	case "native":
 		rec, err = f.installFromCapture(p, dir)
+	case packdecl.InstallKindSource:
+		rec, err = f.installFromBuild(ctx, p, dir)
 	default:
 		err = fmt.Errorf("no recipe for via %q", p.Install.Kind)
 	}

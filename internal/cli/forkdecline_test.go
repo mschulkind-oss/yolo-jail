@@ -1,8 +1,9 @@
 package cli
 
-// forkdecline_test.go pins the host verbs that meet a FORK's program before this build delivers
-// one (docs/design/forked-programs-as-packs.md): each says, by name, that the program is built
-// from a fork's source, and none of them runs the base's upstream delivery in its place.
+// forkdecline_test.go pins the host verbs that meet a FORK's program they cannot deliver
+// (docs/design/forked-programs-as-packs.md): each says, by name, that the program is built from a
+// fork's source, and none of them runs the base's upstream delivery in its place. The host floor's
+// delivery of a pinned fork is hostfloorfork_test.go's.
 
 import (
 	"bytes"
@@ -45,14 +46,16 @@ func forkHostFixture(t *testing.T, bin, baseProgram string) string {
 	return home
 }
 
-// `yolo host -- <forked bin>`: the floor holds no source-built program yet, and the no-copy line
-// says it is the fork's, rather than installing the base's npm package into the floor.
-func TestHostLaunchOfAForkedProgramSaysTheFloorHoldsNoneYet(t *testing.T) {
+// `yolo host -- <forked bin>` of a fork with NO PIN: the floor has no build to ask for, so the
+// no-copy line names the fork and the command that pins it, and the launch looks on PATH
+// (OQ-HE11) — never installing the base's npm package into the floor in the fork's place.
+func TestHostLaunchOfAnUnpinnedForkNamesThePinAndRunsThePathCopy(t *testing.T) {
 	forkHostFixture(t, "floorcli", `{"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}`)
 	orig := prepareOpenAIAuthHost
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
 	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
 	dist := withTestFloor(t)
+	withFloorOnLinux(t) // where the floor holds a fork's build at all: the pin is what is missing
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
 	stub := filepath.Join(stubBins(t, "floorcli"), "floorcli")
 	got := captureHostExec(t)
@@ -60,8 +63,8 @@ func TestHostLaunchOfAForkedProgramSaysTheFloorHoldsNoneYet(t *testing.T) {
 	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || got.target != stub {
 		t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, stub, errw.String())
 	}
-	for _, want := range []string{"yolo has no copy of floorcli built from its fork's source yet",
-		"built from source by fork pack forkpack"} {
+	for _, want := range []string{"yolo has no copy of floorcli on this machine",
+		"built from source by fork pack forkpack", "it has no pin yet — run `yolo pack install`"} {
 		if !strings.Contains(errw.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errw.String())
 		}

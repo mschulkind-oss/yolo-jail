@@ -3,7 +3,7 @@ title: "A host agent floor: yolo keeps its own agents installed on the host, so 
 date: 2026-09-25
 status: accepted
 tags: [host, provisioning, floor, program, npm, capture, mise, path, evergreen]
-summary: "yolo host should run every agent a selected pack declares from any launcher, a Waybar widget included, without the user having arranged a PATH. The design is a host agent floor: the program binaries of the user-scope selected packs, installed with no prompt into a yolo-owned host prefix (selecting the pack is the consent), kept current the way the jail's launchers keep them, and exec'd from there by path, so the floor's copy runs even where the user installed their own. The prefix is on no PATH of the user's, and a launch appends its bin/ last to the agent's PATH. npm agents run on the prefix's own Node; the installer-recipe agents come from a yolo capture, and on macOS from a host capture measured before it ships. yolo never runs mise install at the host. Every question here is ruled; what runs for a selected pack's program the floor cannot hold is OQ-HE11 in host-launch-environment.md. Built 2026-09-29 on Linux; the macOS host capture (HP-D2) is not built, and the Built column of the ledger says what each ruling's code is."
+summary: "yolo host should run every agent a selected pack declares from any launcher, a Waybar widget included, without the user having arranged a PATH. The design is a host agent floor: the program binaries of the user-scope selected packs, installed with no prompt into a yolo-owned host prefix (selecting the pack is the consent), kept current the way the jail's launchers keep them, and exec'd from there by path, so the floor's copy runs even where the user installed their own. The prefix is on no PATH of the user's, and a launch appends its bin/ last to the agent's PATH. npm agents run on the prefix's own Node; the installer-recipe agents come from a yolo capture, and on macOS from a host capture measured before it ships; a fork's program comes, on Linux, from the capture store's build of its pinned commit. yolo never runs mise install at the host. Every question here is ruled; what runs for a selected pack's program the floor cannot hold is OQ-HE11 in host-launch-environment.md. Built 2026-09-29 on Linux; the macOS host capture (HP-D2) is not built, and the Built column of the ledger says what each ruling's code is."
 stage: DECIDED
 next: "Measure HP-D2 on a Mac: run each installer agent's vendor installer (claude, codex, agy) under Seatbelt with a throwaway $HOME and record what it writes, then build the host capture on that shape"
 ---
@@ -100,7 +100,9 @@ the launch says why the floor has no copy. Ruled 2026-09-29: [OQ-HP1](#OQ-HP1) (
   installer agent on macOS before the host capture ships, or, by [HP-D7](#HP-D7), an installer
   agent this machine can neither materialize nor capture: no capture in the store, or only one
   recorded for a jail's home, and no container runtime to make one; or a capture that holds no
-  runnable program, as codex's does). A copy of the program the user installed
+  runnable program, as codex's does; or, by [FP-D16](forked-programs-as-packs.md#FP-D16), a
+  fork's program with no usable pin, whose build cannot move out of the jail's home, or on a
+  macOS host). A copy of the program the user installed
   elsewhere is not a disposition: under [HP-DIR4](#HP-DIR4) it never stands in for the floor's, and
   `yolo check` names it beside the row ([§7](#7-what-yolo-check-reports)). The earlier
   **present** and **stale shim** dispositions described such a copy and are withdrawn with it.
@@ -212,6 +214,7 @@ while `node` in its shell children is still the project's
 | :--- | :--- |
 | `via: npm` | **Yes**, on Linux and macOS. It installs into a prefix-private npm prefix with a prefix-private interpreter ([OQ-HP4](#OQ-HP4)) |
 | `via: installer` | **Yes**, by [OQ-HP3](#OQ-HP3)'s ruling: materialized from the jail's `yolo capture` where the host matches the capture jail, and from a host capture on macOS ([HP-D2](#HP-D2)). Each is measured on its host before it ships; until then the entry is **no floor entry** |
+| `via: source` (a fork's build) | **Yes, on Linux**, by [FP-D4](forked-programs-as-packs.md#FP-D4): the capture store's build of the fork's pinned commit, the entry a jail launch materializes, relocated into the prefix by the same confined materialize as an installer's capture. A miss runs the fork's sealed build act, as a jail launch does; a Node script runs on the prefix's interpreter. A fork with no usable pin, a build that cannot move out of the jail's home, and every macOS host are **no floor entry** ([FP-D16](forked-programs-as-packs.md#FP-D16)) |
 
 **Install atomicity.** A program installs into a fresh versioned directory, and its `bin/` entry is
 switched only once the install exits 0 and the entry binary exists. A failed or killed install
@@ -363,6 +366,18 @@ said per row.
   itself, run in a real agent's shell, which no automated test may start.
 - Two first launches of one program started together produce one install and one receipt.
   **Built.** `TestTwoFirstLaunchesTogetherProduceOneInstallAndOneReceipt`.
+- A selected fork's program, pinned by `yolo pack install`, runs from the prefix as the build of
+  its pinned commit: built once in the sealed jail on the first `yolo host -- <bin>`, relocated
+  out of the jail's home, and rebuilt only when `yolo pack update` moves the pin.
+  **Built** 2026-10-01 ([FP-D16](forked-programs-as-packs.md#FP-D16)):
+  `TestHostLaunchOfAPinnedForkBuildsItAndRunsTheFloorsCopy` drives a real local git repository
+  through the pin, the build act, a launch that builds, one that does not, and a moved pin, with
+  the build jail stood in for;
+  `TestHostApplyProvisionsAPinnedForkAndRemovesItWhenThePinGoes` and the floor's own
+  `built_test.go` cover the rest. **Needs a real host:** a real fork's build, made in a real
+  sealed jail, running from the prefix. The 2026-10-01 stand-in
+  ([the plan's run](forked-programs-as-packs-plan.md#steps-1-to-3-on-a-stand-in-fork-2026-10-01))
+  measured its build relocatable; nothing has run it outside the jail.
 - `yolo check` lists every floor entry with a disposition. Every file yolo wrote is under the
   prefix, and no jail's mount list reaches it.
   **Built.** The section's tests (`section_hostfloor_test.go`), `TestEverySectionIsWired`, and

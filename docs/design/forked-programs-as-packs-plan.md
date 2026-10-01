@@ -3,22 +3,24 @@ title: "Forked programs as packs — implementation plan"
 date: 2026-09-21
 status: accepted
 tags: [plan, packs, programs, capture, forks]
-summary: "Build hand-off for the source-built program route: a fork declared as a program with via source, pinned in its own lock by the explicit pack verbs, built once per platform in a sealed capture jail, recorded under a new receipt kind, and delivered to the jail by an entry key the host hands over. Promoted against the tree 2026-09-30; steps 1–6, the jail notch, built the same day, and step 7, the host notch, stopped at its measurement. The design wins on behavior."
+summary: "Build hand-off for the source-built program route: a fork declared as a program with via source, pinned in its own lock by the explicit pack verbs, built once per platform in a sealed capture jail, recorded under a new receipt kind, and delivered to the jail by an entry key the host hands over. Promoted against the tree 2026-09-30; steps 1–6, the jail notch, built the same day; step 7, the host notch, measured on a stand-in fork and built on its shape 2026-10-01. The design wins on behavior."
 stage: DECIDED
-next: "Build step 7's step 5, the hostfloor source arms: the stand-in fork measured 2026-10-01 came out relocatable with no image paths; rerun steps 1 to 3 on the motivating fork once a maintainer names it"
+next: "Rerun step 7's measurement (steps 1 to 3 of Step 7 needs) on the motivating fork once a maintainer names it; the hostfloor source arms are built on the 2026-10-01 stand-in's shape"
 vantage:
   status-chip: true
 ---
 
 # Forked programs as packs — implementation plan
 
-**Status:** 2026-09-30 — promoted against the tree at `4c3d6a85`. Steps 1–6, the jail
-notch, were built on 2026-09-30. Step 7, the host notch, stopped at its measurement, which needs
+**Status:** 2026-10-01 — promoted against the tree at `4c3d6a85`. Steps 1–6, the jail
+notch, were built on 2026-09-30. Step 7, the host notch, began with its measurement, which needed
 what the building jail could not do: [Step 7 needs](#step-7-needs) records exactly what.
 MEASURED 2026-10-01 on a stand-in, pi's upstream at `v0.99.2`: its build came out
-`relocatable:true`, with no `/nix/store`, home or Linux `/lib` path anywhere in its tree, so step 5
-is the next build ([the run](#steps-1-to-3-on-a-stand-in-fork-2026-10-01)); a fork that compiles a
-native addon in the jail is still unmeasured. The
+`relocatable:true`, with no `/nix/store`, home or Linux `/lib` path anywhere in its tree
+([the run](#steps-1-to-3-on-a-stand-in-fork-2026-10-01)). Its step 5, the `hostfloor` source arms,
+was built the same day on that shape ([What building corrected](#what-building-corrected)). Two
+things stay open: the measurement's rerun on the motivating fork, which needs a maintainer to name
+it, and a fork that compiles a native addon in the jail, which is unmeasured. The
 implementation choices this promotion made are
 [FP-D4](forked-programs-as-packs.md#FP-D4)–[FP-D9](forked-programs-as-packs.md#FP-D9) in the
 design's ledger, and this file assumes them.
@@ -221,6 +223,25 @@ design as [FP-D10](forked-programs-as-packs.md#FP-D10) onward.
   so the seal's host-service site moved with them. A sealed build still spawns its keeper, which
   plans no host service under the seal and refuses a sealed plan naming one
   ([FP-D15](forked-programs-as-packs.md#FP-D15)).
+- Step 7, 2026-10-01: `noEntryReason` cannot carry the not-relocatable reason, because it reads
+  neither the prefix nor the store. It keeps the decisions that need no disk (no pin, a host that
+  is not Linux), and the store's build is judged where an installer's capture already is, in
+  `provisionable` (`buildUnusable`, `hostfloor/built.go`). The pin reaches the floor as one more
+  input, `Floor.ForkPin`, which `newHostFloor` reads from the fork lock once. A field on `Program`
+  would have needed every constructor of one to read the lock, `yolo check`'s two sections
+  among them ([FP-D16](forked-programs-as-packs.md#FP-D16)).
+- Step 7: the install arm builds on a miss, as an installer's runs its capture act, and takes the
+  entry the build act returns instead of looking it up again. Built first as a lookup, the
+  call-site test failed: two builds of two commits in the same second tie on the receipt stamp,
+  and the tie-break by key answered with the older commit.
+- Step 7: a fork's build is never kept past its pin. A failed reinstall at a moved pin returns the
+  error instead of `Kept`, and a provisioned build whose pin is gone has no floor entry
+  ([FP-D17](forked-programs-as-packs.md#FP-D17)). `HighestNodeFloor` counts a fork's `node_floor`,
+  since the floor starts a Node fork on its own interpreter.
+- Step 7: a fork's program the floor cannot hold is, like any undelivered program, the dependency
+  gate's to find on PATH (HP-D9), so a `yolo host apply --assert` with none there refuses before
+  its floor stage runs. `TestHostApplyProvisionsAPinnedForkAndRemovesItWhenThePinGoes` puts a copy
+  on PATH to reach the removal.
 
 ## Build order
 
@@ -296,7 +317,10 @@ With those, on a Linux host with podman:
    runs); `noEntryReason`'s source arm, which today refuses by name, becomes the not-relocatable
    reason naming the jail's home; `noCopyWhere` in `cli/hostfloor.go` follows; and
    [`host-tool-provisioning.md`](host-tool-provisioning.md)'s floor table gains the source-built
-   row. The tests are [Ships with](#ships-with)'s step 7.
+   row. The tests are [Ships with](#ships-with)'s step 7. **Built 2026-10-01** on the stand-in's
+   shape ([FP-D16](forked-programs-as-packs.md#FP-D16), [FP-D17](forked-programs-as-packs.md#FP-D17)),
+   with the not-relocatable reason in `provisionable` rather than `noEntryReason`
+   ([What building corrected](#what-building-corrected)).
 
 ### Steps 1 to 3 on a stand-in fork, 2026-10-01
 
@@ -373,6 +397,10 @@ named.
    catalog lists no fork file; the `macos-user` arm prints its line.
 7. With `internal/hostfloor/floortest`: a fork entry materialized into the floor; one not
    relocatable is no entry, naming the jail's home; a moved pin is pending; no refresh poll runs.
+   *Built 2026-10-01:* `internal/hostfloor/built_test.go`, and at the call sites
+   `internal/cli/hostfloorfork_test.go`, which pins a real local git repository with
+   `yolo pack install`, builds it through `buildFork` with the build jail stood in for, and runs
+   `yolo host --` and `yolo host apply` over it.
 
 **Integration**, step 6: `integration/forkbuild_test.go`. The test makes a `git+file://` fork repo
 whose `build` writes a marker script to `~/.local/bin/<bin>`, and a configured fixture base pack
@@ -442,7 +470,8 @@ selection refusals [FP-D5](forked-programs-as-packs.md#FP-D5) names are the only
 
 ## Blockers
 
-None for steps 1–6. Step 7 waits on its measurement ([Step 7 needs](#step-7-needs)). Past it,
+None for steps 1–6. Step 7's `hostfloor` arms are built on the stand-in's measurement; its rerun
+on the motivating fork waits on a maintainer naming that fork ([Step 7 needs](#step-7-needs)). Past it,
 [§11](forked-programs-as-packs.md#11-sequencing) step 4
 (`macos-user`) waits on hand-off H4, a ruling
 [`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)

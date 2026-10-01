@@ -408,7 +408,7 @@ func TestAnInstallerProgramThisMachineCanNeitherMaterializeNorCaptureHasNoFloorE
 	}
 }
 
-// TestNoFloorEntryDispositions: the four ways the floor cannot hold a selected pack's program,
+// TestNoFloorEntryDispositions: the ways the floor cannot hold a selected pack's program,
 // each with its reason, and none of them touching the disk.
 func TestNoFloorEntryDispositions(t *testing.T) {
 	w := newWorld(t)
@@ -424,9 +424,10 @@ func TestNoFloorEntryDispositions(t *testing.T) {
 			*p = installerProgram("claude", "claude")
 		}, "host capture"},
 		{"no Node for this arch", func(f *Floor, p *Program) { f.GOARCH = "riscv64" }, "Node publishes no official build"},
-		// A FORK's program (the base's, after the selection's fork rewrite): its host copy is
-		// the plan's step 7, so until then the floor says it holds none, and names the fork.
-		{"source-built fork", func(f *Floor, p *Program) {
+		// A FORK's program (the base's, after the selection's fork rewrite) on a floor that reads
+		// no pin: no build to ask for, naming the fork. built_test.go has the fork's other cases.
+		{"source-built fork with no pin", func(f *Floor, p *Program) {
+			f.GOOS = "linux"
 			*p = Program{Pack: "pi", Install: packdecl.Install{Kind: packdecl.InstallKindSource, Bin: "pi",
 				Source: "git+https://example.invalid/pi-fork?ref=main", Build: "make install",
 				Produces: []string{".local/bin/pi"}, ForkedBy: "pi-matt"}}

@@ -24,7 +24,7 @@
 // launch, `yolo host apply`, `yolo check` and `yolo prune` ask the same questions of the same
 // code without this package importing any of their worlds.
 //
-// Two recipes, per OQ-HP3 and OQ-HP4:
+// Three recipes, per OQ-HP3 and OQ-HP4, and forked-programs-as-packs.md FP-D4:
 //
 //   - `via: npm`: installed with the floor's OWN Node — the official release tarball, verified
 //     against its published sha256 (node.go) — into a prefix-private npm prefix, and started
@@ -32,6 +32,10 @@
 //   - `via: installer`: materialized from the machine's `yolo capture` store, the same entry a
 //     jail materializes, where this host matches the capture jail (Linux). On macOS the entry is
 //     NO FLOOR ENTRY until the host capture (HP-D2) is measured on a Mac and ships.
+//   - `via: source`, a FORK's program (built.go): the capture store's build of the fork's
+//     PINNED commit, the entry a jail launch materializes, relocated into the prefix, where this
+//     host matches the build jail (Linux). A Node script among them is started by the floor's own
+//     Node, as an npm program is.
 //
 // # The layout (every name below is this package's)
 //
@@ -109,21 +113,31 @@ type Record struct {
 	Schema int    `json:"schema"`
 	Bin    string `json:"bin"`
 	Pack   string `json:"pack"`
-	// Via is the manifest's word for the recipe: "npm" or "installer".
+	// Via is the manifest's word for the recipe: "npm", "installer" or "source".
 	Via string `json:"via"`
-	// Declared is what the pack asked for: the npm install spec, or the installer URL. A
-	// changed declaration reinstalls (a different package, a different URL).
+	// Declared is what the pack asked for: the npm install spec, the installer URL, or a fork's
+	// source address. A changed declaration reinstalls (a different package, a different URL, a
+	// different repository).
 	Declared string `json:"declared"`
-	// Version is what was installed: npm's resolved package version, or for an installer
-	// capture the versions-dir entry it left (else "capture <key>").
+	// Version is what was installed: npm's resolved package version, for an installer capture
+	// the versions-dir entry it left (else "capture <key>"), and for a fork's build
+	// "commit <short>" — the revision, the one fact about a source-built program nothing else
+	// keeps (forked-programs-as-packs.md OQ-FP6).
 	Version string `json:"version"`
-	// Node is the Node release an npm program runs on, "" otherwise.
+	// Node is the Node release an npm program, or a fork's Node script, runs on; "" otherwise.
 	Node string `json:"node,omitempty"`
-	// Capture is the capture store entry an installer program was materialized from.
+	// Capture is the capture store entry an installer program or a fork's build was
+	// materialized from.
 	Capture string `json:"capture,omitempty"`
+	// Revision and Recipe are a fork's build: the full commit it was built at and its recipe hash
+	// (packdecl.ForkRecipe). The fork's pin moving, or its recipe changing, reinstalls; "" for
+	// every other recipe.
+	Revision string `json:"revision,omitempty"`
+	Recipe   string `json:"recipe,omitempty"`
 	// Dir is the install directory under programs/<bin>/.
 	Dir string `json:"dir"`
-	// Entry is the program file: npm's bin link, or the capture's ~/.local/bin/<bin>.
+	// Entry is the program file: npm's bin link, the capture's ~/.local/bin/<bin>, or the fork
+	// build's program path (packdecl.Install.ProgramPath).
 	Entry string `json:"entry"`
 	// Exec is the argv prefix bin/<bin> starts, by absolute path: [node, entry] for a Node
 	// script, [entry] for anything else.
@@ -172,12 +186,30 @@ type Floor struct {
 	ResolveCapture func(bin string) (*capture.Entry, error)
 	// Capture runs `yolo capture <bin>`, filling the store. nil => this host cannot capture.
 	Capture func(bin string) error
-	// CaptureUnavailable says why this machine cannot run Capture right now ("" when it can):
-	// a capture boots a jail, so a host with no container runtime cannot make one. Asked only
-	// for an installer program that is neither provisioned nor in the store, which then has no
-	// floor entry HERE rather than an install bound to fail (a selected pack delivers a program
-	// the floor "holds, or can provision", host-agent-environment.md's launch PATH terms). nil => it can.
+	// CaptureUnavailable says why this machine cannot run Capture or Build right now ("" when it
+	// can): a capture and a fork's build each boot a jail, so a host with no container runtime
+	// cannot make one. Asked only for an installer or source-built program that is neither
+	// provisioned nor in the store, which then has no floor entry HERE rather than an install
+	// bound to fail (a selected pack delivers a program the floor "holds, or can provision",
+	// host-agent-environment.md's launch PATH terms). nil => it can.
 	CaptureUnavailable func() string
+	// ForkPin is the fork lock's pin of a source-built program (forked-programs-as-packs.md
+	// FP-D7): the full commit its fork's source is pinned to, or "" and why there is none, naming
+	// the command that pins it. nil => no pin can be read, so no source-built program has a floor
+	// entry: the floor never builds or serves a fork at a revision the lock does not name.
+	ForkPin func(p Program) (commit, reason string)
+	// ResolveBuild finds the capture store's build of a source-built program at commit, for this
+	// host's platform: the same hit a jail launch asks for (the newest build of the fork's source,
+	// and only when it is of that commit and the fork's current recipe — never a near-miss).
+	// nil => this host has no capture store.
+	ResolveBuild func(p Program, commit string) (*capture.Entry, error)
+	// Build runs the fork's build act for p at commit (a sealed capture jail; never on the host),
+	// waiting, bounded, for a build of the same key another process is running, as a jail launch
+	// does (FP-D1), and returns the entry it admitted or the one that process did. The entry is
+	// taken from the act rather than looked up again: selection is newest-wins on a one-second
+	// receipt stamp, so a lookup straight after two builds in one second could answer with the
+	// other. nil => this host cannot build.
+	Build func(p Program, commit string) (*capture.Entry, error)
 	// Environ is the environment the installers are derived from (installerEnv strips the
 	// parts that would steer where an install lands). nil => os.Environ().
 	Environ []string
@@ -271,8 +303,9 @@ func (f *Floor) ensureDir(children ...string) error {
 	return nil
 }
 
-// declared is what a program's record must match to count as current: the npm install spec, or
-// the installer URL.
+// declared is what a program's record must match to count as current: the npm install spec, the
+// installer URL, or a fork's source address. A fork's pin and recipe are matched beside it
+// (Record.Revision, Record.Recipe), because the address alone names a repository, not a build.
 func declared(in packdecl.Install) string {
 	switch in.Kind {
 	case "npm":
@@ -280,23 +313,52 @@ func declared(in packdecl.Install) string {
 		return packdecl.NpmInstallSpec(name, version)
 	case "native":
 		return in.InstallerURL
+	case packdecl.InstallKindSource:
+		return in.Source
 	}
 	return ""
 }
 
 // via renders the install kind in the manifest's word.
 func via(in packdecl.Install) string {
-	if in.Kind == "native" {
+	switch in.Kind {
+	case "native":
 		return "installer"
+	case packdecl.InstallKindSource:
+		return packdecl.ViaSource
 	}
 	return in.Kind
 }
+
+// forkPin is ForkPin's answer for p, or why there is none when nothing can read a pin.
+func (f *Floor) forkPin(p Program) (commit, reason string) {
+	if f.ForkPin == nil {
+		return "", "this yolo reads no fork pin here"
+	}
+	commit, reason = f.ForkPin(p)
+	if commit == "" && reason == "" {
+		reason = "the fork lock names no commit for it"
+	}
+	return commit, reason
+}
+
+// shortCommit is a commit as a line names it: its first 12 hex digits.
+func shortCommit(c string) string {
+	if len(c) > 12 {
+		return c[:12]
+	}
+	return c
+}
+
+// buildVersion is a fork build's Record.Version: the revision it was built at.
+func buildVersion(commit string) string { return "commit " + shortCommit(commit) }
 
 // ErrNoEntry wraps the refusal Ensure returns for a program the floor cannot hold.
 var ErrNoEntry = errors.New("no floor entry")
 
 // noEntryReason is why the floor cannot hold p on this machine, or "" when it can. It never
-// touches the disk: it is a fact about the declaration, the configuration and the platform.
+// touches the prefix or the capture store: it is a fact about the declaration, the configuration
+// (a fork's pin, which ForkPin answers, among it) and the platform.
 func (f *Floor) noEntryReason(p Program) string {
 	in := p.Install
 	if f.Include != nil && !f.Include(p.Pack) {
@@ -326,11 +388,20 @@ func (f *Floor) noEntryReason(p Program) string {
 		}
 		return ""
 	case packdecl.InstallKindSource:
-		// A FORK (docs/design/forked-programs-as-packs.md): its host copy is the jail build's
-		// entry relocated into the floor (FP-D4), and relocating a source build starts with a
-		// measurement of what the build embeds (the plan's step 7), which is not made yet.
-		return "it is built from source by fork pack " + in.ForkedBy + ", and the floor does " +
-			"not hold a source-built program yet (forked-programs-as-packs.md §11 step 3)"
+		// A FORK (docs/design/forked-programs-as-packs.md): its host copy is the capture store's
+		// build of the fork's PINNED commit, relocated into the floor (FP-D4). The build runs in a
+		// Linux capture jail, and a notch gets a build made for its own platform or none (§1: no
+		// cross-compilation). With no pin there is no build to ask for, and an older build the
+		// floor still holds is a near-miss it never serves (§9), so that is no entry too.
+		if f.GOOS != "linux" {
+			return "it is built from source by fork pack " + in.ForkedBy + " in a Linux capture " +
+				"jail, and this machine is " + f.GOOS + "/" + f.GOARCH + ": the floor holds a build " +
+				"made for its own platform only"
+		}
+		if _, why := f.forkPin(p); why != "" {
+			return "it is built from source by fork pack " + in.ForkedBy + ", and " + why
+		}
+		return ""
 	}
 	return fmt.Sprintf("its recipe (via %q) is one this build cannot install", in.Kind)
 }
@@ -363,6 +434,8 @@ func (f *Floor) Status(p Program) Status {
 	case rec.Declared != declared(p.Install):
 		st.Pending = "the pack now declares " + declared(p.Install) + " (installed: " +
 			rec.Declared + ")"
+	case p.Install.Kind == packdecl.InstallKindSource:
+		st.Pending = f.buildPending(p, rec)
 	case p.Install.Kind == "npm" && !packdecl.SatisfiesNodeFloor(rec.Node, p.Install.NodeFloor):
 		st.Pending = "it runs on Node " + rec.Node + ", below the pack's node_floor " +
 			p.Install.NodeFloor
@@ -370,12 +443,36 @@ func (f *Floor) Status(p Program) Status {
 	return st
 }
 
-// provisionable turns a Missing installer program into NoEntry when this machine can neither
-// materialize it (the store has no entry for it) nor capture one (no container runtime): the
-// floor cannot provision it HERE, so a launch looks for it on PATH (OQ-HE11) instead of failing an
-// install. It reads the store offline, never the network. A provisioned entry never comes through
-// here: the floor already holds it, whatever the store says now.
+// buildPending is why a provisioned fork build is not the one its fork asks for now, "" when it
+// is: A MOVED PIN, a changed recipe, or a Node script below the node_floor. Each reinstalls on the
+// next Ensure — and, unlike any other recipe's, a failed reinstall does not keep the installed
+// build serving (Ensure), since a build of another commit is a near-miss (§9).
+func (f *Floor) buildPending(p Program, rec *Record) string {
+	in := p.Install
+	commit, _ := f.forkPin(p)
+	switch {
+	case rec.Revision != commit:
+		return "fork pack " + in.ForkedBy + " now pins it at " + buildVersion(commit) +
+			" (installed: " + rec.Version + ")"
+	case rec.Recipe != in.SourceRecipe():
+		return "fork pack " + in.ForkedBy + "'s build recipe changed since " + rec.Version +
+			" was installed"
+	case rec.Node != "" && !packdecl.SatisfiesNodeFloor(rec.Node, in.NodeFloor):
+		return "it runs on Node " + rec.Node + ", below the pack's node_floor " + in.NodeFloor
+	}
+	return ""
+}
+
+// provisionable turns a Missing installer or source-built program into NoEntry when this machine
+// can neither materialize it (the store has no entry for it) nor capture or build one (no
+// container runtime): the floor cannot provision it HERE, so a launch looks for it on PATH
+// (OQ-HE11) instead of failing an install. It reads the store offline, never the network. A
+// provisioned entry never comes through here: the floor already holds it, whatever the store says
+// now.
 func (f *Floor) provisionable(st Status) Status {
+	if st.Program.Install.Kind == packdecl.InstallKindSource {
+		return f.buildProvisionable(st)
+	}
 	if st.Program.Install.Kind != "native" || f.ResolveCapture == nil {
 		return st
 	}
@@ -409,6 +506,18 @@ func (f *Floor) cannotCapture() string {
 	switch {
 	case f.Capture == nil:
 		return "this machine cannot run `yolo capture`"
+	case f.CaptureUnavailable != nil:
+		return f.CaptureUnavailable()
+	}
+	return ""
+}
+
+// cannotBuild says why this machine cannot run a fork's build act now, "" when it can: the build
+// boots a jail, as a capture does.
+func (f *Floor) cannotBuild() string {
+	switch {
+	case f.Build == nil:
+		return "this machine cannot run a fork's build"
 	case f.CaptureUnavailable != nil:
 		return f.CaptureUnavailable()
 	}
@@ -561,12 +670,18 @@ type PackPrograms struct {
 	Installs []packdecl.Install
 }
 
-// HighestNodeFloor is the highest `node_floor` among the npm programs the floor holds, "" when
-// none declares one. It is Floor.NodeFloor's input.
+// HighestNodeFloor is the highest `node_floor` among the npm and source-built programs the floor
+// holds — the two whose entrypoint the floor's own Node may start — "" when none declares one. It
+// is Floor.NodeFloor's input.
 func HighestNodeFloor(progs []Program) string {
 	highest := ""
 	for _, p := range progs {
-		if p.Install.Kind != "npm" || p.Install.NodeFloor == "" {
+		switch p.Install.Kind {
+		case "npm", packdecl.InstallKindSource:
+		default:
+			continue
+		}
+		if p.Install.NodeFloor == "" {
 			continue
 		}
 		if highest == "" || packdecl.CompareVersions(p.Install.NodeFloor, highest) > 0 {

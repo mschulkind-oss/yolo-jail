@@ -374,7 +374,10 @@ reuses the build; each launch prints the commit your fork is built at. A failed 
 jail without that program and says why when you run it, never the original program under your
 fork's name, and `yolo capture <program>` rebuilds it on demand. This works on podman and on Apple
 Container 1.1.0 or later; on `macos-user` and older Apple Container the launch says the fork is not
-delivered yet. See
+delivered yet. On Linux, `yolo host -- <program>` runs the same build outside a jail: yolo keeps its
+own copy of it, builds that commit first if this machine has not, and moves to the new commit when
+`yolo pack update` moves the pin. A build that can only run in a jail, and every Mac, get no host
+copy, and `yolo host` says why and runs the one on your PATH. See
 [Run your own fork of a program](userguide/guides/packs-and-skills.md#run-your-own-fork-of-a-program).
 
 **opencode can now run on your ChatGPT subscription, on the same shared login as Codex and pi.**

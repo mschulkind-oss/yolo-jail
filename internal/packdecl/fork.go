@@ -285,6 +285,27 @@ func ForkRecipe(build string, produces []string, subdir string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// ForkSourceRecipe is ForkRecipe for a fork's declaration as the manifest spells it: the source
+// subdirectory is read off the source address (the `//sub` of a pack address), so every reader —
+// the build act that records a build, the jail launch and the host floor that ask for one — keys a
+// build on one spelling of the same three facts.
+func ForkSourceRecipe(source, build string, produces []string) string {
+	sub := ""
+	if a, err := packsrc.Parse(source); err == nil {
+		sub = a.Path
+	}
+	return ForkRecipe(build, produces, sub)
+}
+
+// SourceRecipe is ForkSourceRecipe for this Install's fork delivery, "" for a program that is not
+// a fork's.
+func (in Install) SourceRecipe() string {
+	if in.Kind != InstallKindSource {
+		return ""
+	}
+	return ForkSourceRecipe(in.Source, in.Build, in.Produces)
+}
+
 // forkProgramExample renders the accepted program paths for a message.
 func forkProgramExample(bin string) string {
 	if bin == "" {

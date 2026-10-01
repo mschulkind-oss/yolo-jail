@@ -52,20 +52,28 @@ func capturedProgram(entry *capture.Entry, bin string) string {
 	if err != nil {
 		return "its manifest is unreadable (" + err.Error() + ")"
 	}
+	return programInManifest(m, ".local/bin/"+bin)
+}
+
+// programInManifest reports why the manifest holds no runnable program at the home-relative rel,
+// or "" when it does: a regular file with an execute bit, or a symlink chain that ends at one
+// inside the entry. An installer's program is ~/.local/bin/<bin>; a fork's is the `produces`
+// entry at a surface's bin/<bin> (packdecl.Install.ProgramPath).
+func programInManifest(m *capture.Manifest, rel string) string {
 	byPath := make(map[string]capture.ManifestEntry, len(m.Entries))
 	for _, e := range m.Entries {
 		byPath[e.Path] = e
 	}
 	home := strings.TrimSuffix(path.Clean(m.Home), "/")
-	p := ".local/bin/" + bin
+	p := rel
 	for hops := 0; hops < 8; hops++ {
 		e, ok := byPath[p]
 		if !ok {
 			if hops == 0 {
 				return "it records no ~/" + p
 			}
-			return fmt.Sprintf("~/.local/bin/%s links to ~/%s, which the capture did not record (a capture "+
-				"records only ~/.local, ~/.npm-global and ~/go)", bin, p)
+			return fmt.Sprintf("~/%s links to ~/%s, which the capture did not record (a capture "+
+				"records only ~/.local, ~/.npm-global and ~/go)", rel, p)
 		}
 		switch e.Kind {
 		case capture.KindFile:
@@ -88,5 +96,5 @@ func capturedProgram(entry *capture.Entry, bin string) string {
 			return "~/" + p + " is a " + e.Kind
 		}
 	}
-	return "~/.local/bin/" + bin + " is a chain of links too long to follow"
+	return "~/" + rel + " is a chain of links too long to follow"
 }
