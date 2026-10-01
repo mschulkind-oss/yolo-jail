@@ -1,7 +1,7 @@
 ---
 status: current
 stage: CURRENT
-next: "Record one nested-jail launch with a provides: web_search server, under Kilo and under a source that searches natively, reading the rendered MCP files without starting an agent"
+next: "Make the boot's drop notice (noteDroppedManagedEntries, internal/entrypoint/prism.go) tell a server the derive boundary dropped by capability from one not in config: today it names mcp_servers as the remedy for both, measured 2026-10-01"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -32,8 +32,10 @@ about Claude's plugin loader were read statically from its bundle, and by the no
 rule a live check is a human's ([Claude's LSP route](#lsp-claudes-route-is-a-generated-plugin)).
 The [derive-boundary section](#what-the-derive-boundary-removes) was re-checked against
 `ca86d945` on 2026-09-26, when the capability-delivery rule's own note folded into it.
-UNMEASURED: no launch with a `provides` server configured is recorded. The rule's acceptance
-cells drive the boot loop over the shipped packs in unit tests, not in a launched jail.
+MEASURED on 2026-10-01 in a nested jail at `d4e435a3`: claude's rendered `mcpServers` drops a
+`provides: "web_search"` server under its own login and keeps it under `-p claude=kilo`
+([the recording](#a-launch-with-a-provides-server-recorded-2026-10-01)). The same launches found
+the boot's drop notice naming the wrong remedy for that drop.
 
 MCP config is **pack-declarative**. Core builds **one** canonical server table in-jail from
 the user's config — presets expanded, custom entries merged, `requires_env` gates applied —
@@ -223,6 +225,48 @@ leak it there.
 > filter can read it, and capability-driven delivery silently becomes a no-op with every test
 > green. The two keys are stripped at two layers on purpose: `requires_env` gates delivery and
 > must go first, `provides` feeds the filter and must go after it.
+
+#### A launch with a `provides` server, recorded 2026-10-01
+
+**MEASURED** in a nested podman jail, launched from a throwaway workspace with the binary
+`just build-go` made at `d4e435a3`, `YOLO_REPO_ROOT` naming that tree, and an isolated `HOME`
+whose user config was `{"packs": ["claude", "kilo"], "env_sources": [{"KILO_API_KEY":
+"placeholder-not-a-key"}]}`. The workspace config declared two servers, one claiming the job:
+
+```jsonc
+{"mcp_servers": {
+  "probe-search": {"command": "/bin/true", "args": ["search"], "provides": "web_search"},
+  "probe-plain": {"command": "/bin/true", "args": ["plain"]}}}
+```
+
+Each launch ran `jq -c .mcpServers ~/.claude.json` in place of an agent:
+
+```console
+$ yolo run --accept-config-changes -- bash -lc 'jq -c .mcpServers ~/.claude.json'
+{"probe-plain":{"args":["plain"],"command":"/bin/true"}}
+$ yolo run --accept-config-changes -p claude=kilo -- bash -lc 'jq -c .mcpServers ~/.claude.json'
+Profile kilo: declared by kilo; claude → provider "kilo", on its "anthropic" endpoint
+{"probe-plain":{"args":["plain"],"command":"/bin/true"},"probe-search":{"args":["search"],"command":"/bin/true"}}
+```
+
+Under claude's own login, which `packs/claude` declares searches natively, the server claiming
+`web_search` is gone. Under Kilo, whose provider row declares no capabilities, it is delivered,
+and with `provides` stripped. Without a value for `KILO_API_KEY` the kilo launch refused before
+the jail started, and a value in the launching shell alone was refused too, as relayed to no
+agent; the placeholder reached no model.
+
+⚠ **The boot's drop notice names the wrong remedy for this drop.** The native launch that ran
+after the kilo launch, in the same workspace, printed:
+
+```text
+claude/config: dropping from mcpServers (not in config): probe-search — add under `mcp_servers` to keep it, reaching every agent
+```
+
+`probe-search` is under `mcp_servers`. It was dropped by the derive boundary, and following the
+notice changes nothing. The first native launch in the workspace printed no such line, so the
+notice reads the entry the previous render left in `~/.claude.json`. Not fixed here: the notice
+is `noteDroppedManagedEntries` (`internal/entrypoint/prism.go`), which the roadmap's item on that
+notice's remedies owns.
 
 ### The projection, and how tools differ
 

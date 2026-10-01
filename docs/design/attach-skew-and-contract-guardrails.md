@@ -3,14 +3,14 @@ title: "Why host-jail version skew breaks running sessions — and how to preven
 date: 2026-09-26
 status: accepted
 stage: BUILT
-next: "Attach to a jail an actual older yolo launched: build the last release's yolo from its tag, launch a nested jail with it, and attach with this tree's build"
+next: "A human check, since it needs an agent session and a terminal: answer the restart prompt at a real pty against a jail the last release launched, and see an agent read the acknowledged-attach section there"
 tags: [attach, skew, versioning, contracts, packs, footer, generations]
 summary: "When a host yolo updates, running containers retain their original binary generation while receiving freshly staged pack definitions on attach. Incompatible contract additions (such as the agent footer) cause in-jail crashes because the container's frozen binaries cannot execute what the new packs configure. This design establishes a capability contract between launcher and jail, promotes attach skew from an invisible stderr notice to a capability preflight, and introduces automated remediation."
 ---
 
 # Why host-jail version skew breaks running sessions — and how to prevent contract drift
 
-**Status:** 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) was decided on 2026-09-30 as an implementation choice ([SK-D15](#decision-ledger)), and is **built** the same day: an acknowledged attach names the skew in the briefing it refreshes ([what was built](#the-acknowledged-attach-in-the-briefing-2026-09-30)). **The attach gate is built** for the contracts an attach delivers today, the provider/profile channel and the per-agent env files, together with the CI check that decodes the shipped packs with the last release's reader ([what was built](#what-was-built-2026-09-26), [ledger](#decision-ledger)). **Pack-contract skew on attach is CLOSED** by [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch pack trees, built the same day: an attach writes into no pack tree, so a jail an older yolo launched never reads a newer yolo's packs, and the release-decode allowlist now cites that guard with a test that pins it ([closed](#pack-contract-skew-closed-2026-09-26)). Layer 2 (pack `requires_capabilities`) is not built, and those trees make it unnecessary. MEASURED on a real podman, against a stand-in older jail: a container named for the workspace whose frozen environment an older launch would have left. Without a terminal the attach refused and counted the live sessions (`TestAttachRefusesAJailThatCannotReceiveTheSelection`). At a real pty, answering `y` stopped the jail, and the same launch started a fresh one carrying the tags and ran the command (`TestAttachRestartsAnOlderJailAtATerminal`). The acknowledgment was unit-tested only until 2026-09-30, when `TestAnAcknowledgedAttachNamesTheSkewInTheBriefing` pinned it against the same stand-in on a real podman ([the briefing section](#the-acknowledged-attach-in-the-briefing-2026-09-30)). No jail an actual older yolo launched has been attached to. Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
+**Status:** 2026-09-26. [OQ-SK1](#OQ-SK1)–[OQ-SK3](#OQ-SK3) ruled the same day (never silent: a terminal restart prompt, a refusal elsewhere, one explicit acknowledgment; named tags); [OQ-SK4](#OQ-SK4) was decided on 2026-09-30 as an implementation choice ([SK-D15](#decision-ledger)), and is **built** the same day: an acknowledged attach names the skew in the briefing it refreshes ([what was built](#the-acknowledged-attach-in-the-briefing-2026-09-30)). **The attach gate is built** for the contracts an attach delivers today, the provider/profile channel and the per-agent env files, together with the CI check that decodes the shipped packs with the last release's reader ([what was built](#what-was-built-2026-09-26), [ledger](#decision-ledger)). **Pack-contract skew on attach is CLOSED** by [`OQ-PK2`](../reference/pack-system.md#oq-pk2)'s per-launch pack trees, built the same day: an attach writes into no pack tree, so a jail an older yolo launched never reads a newer yolo's packs, and the release-decode allowlist now cites that guard with a test that pins it ([closed](#pack-contract-skew-closed-2026-09-26)). Layer 2 (pack `requires_capabilities`) is not built, and those trees make it unnecessary. MEASURED on a real podman, against a stand-in older jail: a container named for the workspace whose frozen environment an older launch would have left. Without a terminal the attach refused and counted the live sessions (`TestAttachRefusesAJailThatCannotReceiveTheSelection`). At a real pty, answering `y` stopped the jail, and the same launch started a fresh one carrying the tags and ran the command (`TestAttachRestartsAnOlderJailAtATerminal`). The acknowledgment was unit-tested only until 2026-09-30, when `TestAnAcknowledgedAttachNamesTheSkewInTheBriefing` pinned it against the same stand-in on a real podman ([the briefing section](#the-acknowledged-attach-in-the-briefing-2026-09-30)). MEASURED 2026-10-01 against a jail v0.11.0 itself launched, attached to by this tree's build with no terminal: the plain attach and two profile selections v0.11.0's packs carry went ahead, a selection they cannot carry refused, and its acknowledged twin wrote the skew section into the jail's briefing ([the run](#an-attach-to-a-jail-v0110-launched-2026-10-01)). Evidence verified at `7b572b6c`; [what changed since](#findings-since-filing-2026-09-26) is checked at `7da7993b`.
 
 > **In short.** When an existing container is attached to after a host update, the
 > host re-stages current packs into an immutable prefix whose binaries predate them.
@@ -514,8 +514,42 @@ skews through `attachExisting` (`TestAnAcknowledgedAttachNamesItsSkewInTheBriefi
 `TestAnAttachWhoseJailLacksTheSelectedPackTakesTheDisposition` and
 `TestAnAttachToAJailWhoseTreeWillNotLoadTakesTheDisposition`), and against a real podman by
 `TestAnAcknowledgedAttachNamesTheSkewInTheBriefing`, which attaches to the stand-in older jail and
-reads the claude briefing staged for it. Not yet seen: the section in a jail an actual older yolo
-launched, and an agent reading it there.
+reads the claude briefing staged for it. The section in a jail an actual older yolo launched was
+first seen on 2026-10-01 ([below](#an-attach-to-a-jail-v0110-launched-2026-10-01)). Not yet seen:
+an agent reading it there.
+
+### An attach to a jail v0.11.0 launched (2026-10-01)
+
+**MEASURED** in nested podman jails, so `--net=host` and `--userns=host` (the two carve-outs in
+[AGENTS.md](../../AGENTS.md#testing) do not touch what this reads). The older jail was v0.11.0's
+own: its shipped binaries built from `git archive v0.11.0` with `VERSION=v0.11.0
+COMMIT=0d1865b8d scripts/build-go.sh`, launched by that `yolo` with `YOLO_REPO_ROOT` naming the
+export, so its flake built its own install prefix and image, from a throwaway workspace and an
+isolated `HOME` selecting `claude`. Inside it, `YOLO_CONTRACT_TAGS` was
+`entry-channel,agent-env-files` and `yolo --version` said `0.11.0`. Every attach was this tree's
+`just build-go` binary at `d4e435a3`, from the same workspace and home, with stdin `/dev/null` and
+stdout a file, so no terminal:
+
+| Attach | rc | What it said and did |
+| :--- | :--- | :--- |
+| Plain | 0 | `⚠ This jail runs yolo 0.11.0; this launcher is 0.11.0+996.gd4e435a3d.dirty`, then the [`OQ-PK2`](../reference/pack-system.md#oq-pk2) notice (`added bedrock; changed aws-auth, claude, openai-auth, wire-bridge`). The jail still read v0.11.0's own `/ctx/packs` |
+| `-p claude=codex` | 0 | Delivered: the jail's `~/.config/yolo-agent-env/claude.sh` pointed `ANTHROPIC_BASE_URL` at `127.0.0.1:36473`, and the jail's v0.11.0 `wire-bridge` logged `serving provider "openai-codex": anthropic on 127.0.0.1:36473`. The profile is in v0.11.0's own claude pack |
+| `-p claude=bedrock` | 0 | Delivered (`Profile bedrock: declared by claude`), from v0.11.0's own claude pack, though this tree moved Bedrock into a pack of its own |
+| `-p claude=zai`, `zai` added to the config | 1 | `Refusing to attach: this jail was launched without bedrock, zai, and what this entry selects cannot be composed over the packs it has`, naming `yolo stop`, `(1 running now)` and `YOLO_ALLOW_ATTACH_SKEW=1` |
+| The same, with `YOLO_ALLOW_ATTACH_SKEW=1` | 0 | `This entry delivers nothing`, and claude's briefing in the jail opened with `## ⚠ This session runs in a jail that could not take what started it`, naming both versions, the added and changed packs, and `yolo stop` |
+
+So the gate behaves against a real older jail as it does against the stand-in: the older
+binaries received a channel this tree composed over their own tree, and the one selection their
+tree could not carry took [OQ-SK1](#OQ-SK1)'s refusal. `yolo stop` from this tree then stopped the
+jail (`Stopped yolo-ws-22ba5f25`). UNMEASURED: an agent session in the attached jail, and the
+restart prompt at a real terminal against this older jail.
+
+Two side effects of the run, neither the gate's. The v0.11.0 launch retagged the nested store's
+`localhost/yolo-jail:latest` to its own image, so the next integration run in this jail refused as
+a stale image until the tag was put back. And the older launch's host-side front logged `dial
+upstream /tmp/yolo-claude-oauth-broker.sock failed: … connection refused` from about a minute after
+it started; that socket path is shared by every launch in this jail's `/tmp`, other agents'
+included, so the cause was not attributed.
 
 ## Open Questions
 

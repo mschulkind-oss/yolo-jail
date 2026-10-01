@@ -3,7 +3,7 @@ title: "Test suite speed"
 date: 2026-09-27
 status: in-review
 stage: DECIDED
-next: "Retake recipes 1 and 2 of the measurement recipe on the current tree and record which targets hold, then list what is left of the five work items"
+next: "Cut the waits the 2026-10-01 retake names (a 15 s and two 5 s tests in internal/cli/run, six refresh-timeout tests in internal/packsrc), then retake recipe 1 and three idle runs of recipe 3"
 tags: [testing, ci, performance, plan]
 summary: "Why the unit gate doubled and the integration suite grew by half in three weeks, what is being cut, the targets, and four questions for the maintainer, two of them answered."
 ---
@@ -16,8 +16,12 @@ partition's two isolations ([OQ-TS1](#OQ-TS1)'s answer names the commits). Read 
 2026-09-30, not re-measured: most of the other four partitions' fixes are in too
 (`startExternalServiceHarness` takes a readiness deadline, the bounded-wait test fakes its clock,
 the bootstrap tests carry a fake `fc-cache`, `TestASocketPathThatExistsAccepts` runs 500 rounds,
-and `check-ci` is `[parallel]`), while `perf.SlowSpanThreshold` is still a fixed constant, so no
-target is confirmed met until the recipe is retaken. Four questions each
+and `check-ci` is `[parallel]`), while `perf.SlowSpanThreshold` is still a fixed constant.
+**Retaken 2026-10-01** at `d4e435a3`, on a machine other agents were using
+([the retake](#retaken-2026-10-01-and-which-targets-hold)): the warm `check-ci` target holds on a
+test-cache hit (6.4 s); the unit target does not (69.0 s, `internal/cli/run` 67.5 s), nor the
+integration one (498.0 s, one run); and nothing of the five items as written is left, the misses
+coming from tests added since. Four questions each
 asked for one more lever. [OQ-TS1](#OQ-TS1) and [OQ-TS3](#OQ-TS3) were answered 2026-09-29, both as
 leaned and both adding no lever ([Decision Ledger](#decision-ledger)). [OQ-TS2](#OQ-TS2) and
 [OQ-TS4](#OQ-TS4) are still open, and none of the five work items waits on them. This follows the
@@ -59,6 +63,66 @@ All figures are wall-clock seconds, measured on the maintainer's machine unless 
 
 The 28–34 range comes from where the UTC day boundary falls. Transcript timestamps are in UTC, so the
 maintainer's evening of 09-27 is logged as 09-28.
+
+### Retaken 2026-10-01, and which targets hold
+
+**MEASURED** at `d4e435a3`, in a jail on the maintainer's machine, with recipes 1 to 3 below and
+the four in-jail variables unset (`YOLO_VERSION`, `YOLO_HOST_LAYERS`, `AWS_CONTAINER_*`,
+`YOLO_SERVICE_AWS_AUTH_ENDPOINT`). The machine was **not idle**: other agents' workflows ran
+beside these, and the one-minute load average is given with each row, so read every figure as an
+upper bound rather than a target check.
+
+| What | 09-27 | 10-01 | Load | Target | Holds |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Unit `go test -short -count=1 ./...`, second warm run | 41.2 s | **69.0 s** (the first run took 76 s) | 2–3 | ≤ 25 s | **No** |
+| `internal/cli/run`, the package that sets that time | 40.8 s, 1064 tests | 67.5 s, 1471 tests | 2–3 | — | — |
+| `just check-ci`, the second of two runs | 54 s | **6.4 s**: 110 of 112 packages were `(cached)` | 8 | ≤ 30 s | **Yes**, on a test-cache hit |
+| `just check-ci`, compile caches warm and every test run | — | 76.5 s | 1–8 | — | — |
+| `just check-ci`, fresh `GOCACHE` and `STATICCHECK_CACHE` | — | 91.0 s | 7–14 | — | — |
+| Integration suite, `go test -count=1 -timeout 0 -json ./integration` | 518–553 s | **498.0 s**, one run: 246 passed, 45 skipped | 9–28 | ≤ 450 s | **No**, and not a valid check: one run, not the median of three on an idle machine |
+
+The 54 s of 09-27 re-ran every test, because the in-tree `housekeeping.log` invalidated the cache
+on every run. That log is gone (no `internal/cli/run/.yolo` existed after the runs above), so the
+second run of an unchanged tree now replays the cache, and the warm target holds on that reading.
+A change that touches `internal/cli/run` re-runs it, and then the gate costs what the 76.5 s row
+says, since `internal/cli/run` alone took 70.7 s of it.
+
+**What is left of the five work items**, read in the tree and in the timings above:
+
+- **cli-run.** Done: `TestExternalServiceWaitsForCompleteEndpoint` takes 1.0 s and
+  `TestExternalServiceRemovesStaleEndpoint` 0.3 s, against 5.01 s each, and
+  `TestWaitForRunningContainerGivesUpBounded` 0.4 s. The slow-span tests no longer wait,
+  recording a span past the threshold directly (`slowSpanEnd`,
+  [`timingspans_test.go:285`](../../internal/cli/run/timingspans_test.go#L285)), while
+  `perf.SlowSpanThreshold` is still a fixed 1 s constant. **What doubled the package instead:**
+  six tests added from 09-26 to 09-29 (`git log -S` on each name) take 31.4 s together.
+  `TestATreeTheTeardownCannotProveGoneOutlivesRun` takes 15.0 s;
+  `TestASpawnWithNoApprovedScopeFailsClosed` and
+  `TestAFreshLaunchHandsTheApprovedScopeToTheBroker` take 5.0 s each, the length of
+  `serviceReadyTimeoutDefault` (INFERRED from the match, not traced); then
+  `TestAConcurrentSweepNeverTakesASessionThatIsStartingUp` 2.7 s,
+  `TestStartDetachedDoesNotWaitAndDetaches` 2.1 s and
+  `TestWaitForScratchRemoversWaitsForTheSpawnedChild` 1.5 s. The other 1463 tests that ran take
+  about 35 s.
+- **entrypoint.** Done: the package takes 22.0 s, against 28.6 s, and no bootstrap test is among
+  its slowest; the longest is `TestADeadLaunchersLockStillAges`, 2.0 s.
+- **misc-unit.** `TestASocketPathThatExistsAccepts` takes 1.4 s. **New:** `internal/packsrc`
+  takes 26.5 s, almost all of it six refresh-timeout tests (6.0, 6.0, 3.1, 3.0, 3.0 and 2.0 s), and
+  `internal/svcendpoint`'s `TestReadAckTimeoutIsNotARejection` 5.0 s.
+- **integration.** Landed (`bef9fc90`, `2a50babc`).
+- **gate-ci.** Landed: `check-ci` is `[parallel]` in the [`Justfile`](../../Justfile).
+
+So the unit target now waits on a new round of the cli-run and misc-unit items, over the tests
+named above; nothing in the five items as written is left to build.
+
+**A flake seen once in four unit runs**, the second:
+`TestEnvOverrideRefusesTheMacosUserLaunch` failed with `Refusing the macos-user launch: the
+"openai-auth-broker" service (pack "openai-auth") did not start: listen tcp 127.0.0.1:44791:
+bind: address already in use`, after the claude broker's front had logged `listening on
+127.0.0.1:44791`. READ FROM CODE, the cause is production's: a served address is chosen by
+listening on port 0 and closing the listener (`servedaddresses.go`), and a later listener in the
+same launch can be handed that port before the daemon binds it. UNMEASURED: how often a real
+launch is refused this way.
 
 ## Where the time goes
 

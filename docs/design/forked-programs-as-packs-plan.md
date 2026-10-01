@@ -5,7 +5,7 @@ status: accepted
 tags: [plan, packs, programs, capture, forks]
 summary: "Build hand-off for the source-built program route: a fork declared as a program with via source, pinned in its own lock by the explicit pack verbs, built once per platform in a sealed capture jail, recorded under a new receipt kind, and delivered to the jail by an entry key the host hands over. Promoted against the tree 2026-09-30; steps 1–6, the jail notch, built the same day, and step 7, the host notch, stopped at its measurement. The design wins on behavior."
 stage: DECIDED
-next: "Step 7's measurement, on a stand-in until a maintainer names the motivating fork: pin a public Node CLI as a fork pack, run yolo pack install and yolo capture from a nested jail, then read capture-manifest.json and search tree/ for /nix/store and /lib (Step 7 needs, steps 1 to 3)"
+next: "Build step 7's step 5, the hostfloor source arms: the stand-in fork measured 2026-10-01 came out relocatable with no image paths; rerun steps 1 to 3 on the motivating fork once a maintainer names it"
 vantage:
   status-chip: true
 ---
@@ -14,7 +14,11 @@ vantage:
 
 **Status:** 2026-09-30 — promoted against the tree at `4c3d6a85`. Steps 1–6, the jail
 notch, were built on 2026-09-30. Step 7, the host notch, stopped at its measurement, which needs
-what the building jail could not do: [Step 7 needs](#step-7-needs) records exactly what. The
+what the building jail could not do: [Step 7 needs](#step-7-needs) records exactly what.
+MEASURED 2026-10-01 on a stand-in, pi's upstream at `v0.99.2`: its build came out
+`relocatable:true`, with no `/nix/store`, home or Linux `/lib` path anywhere in its tree, so step 5
+is the next build ([the run](#steps-1-to-3-on-a-stand-in-fork-2026-10-01)); a fork that compiles a
+native addon in the jail is still unmeasured. The
 implementation choices this promotion made are
 [FP-D4](forked-programs-as-packs.md#FP-D4)–[FP-D9](forked-programs-as-packs.md#FP-D9) in the
 design's ledger, and this file assumes them.
@@ -279,8 +283,10 @@ With those, on a Linux host with podman:
    entry's root, under `~/.local/share/yolo-jail/captures/entries/`.
 2. Read that entry's `capture-manifest.json`: `relocatable`, and every reason under
    `notRelocatable`.
-3. Search the entry's `tree/` for `/nix/store` and `/lib` (`rg -l -a -F /nix/store tree`), which
-   the reference scan does not report ([FP-D4](forked-programs-as-packs.md#FP-D4)'s warning).
+3. Search the entry's `tree/` for `/nix/store` and `/lib` (`rg -uuu -l -a -F /nix/store tree`),
+   which the reference scan does not report ([FP-D4](forked-programs-as-packs.md#FP-D4)'s
+   warning). The `-uuu` is load-bearing: every capture surface is a dot-directory
+   (`.npm-global`, `.local`), and `rg` without it skips them and reports nothing for any tree.
    Native addons under `node_modules` (`*.node`) are where either would appear.
 4. If the tree references the image's own paths, stop and ask, as [Ships with](#ships-with) says:
    FP-D4's host notch cannot ship as written.
@@ -291,6 +297,45 @@ With those, on a Linux host with podman:
    reason naming the jail's home; `noCopyWhere` in `cli/hostfloor.go` follows; and
    [`host-tool-provisioning.md`](host-tool-provisioning.md)'s floor table gains the source-built
    row. The tests are [Ships with](#ships-with)'s step 7.
+
+### Steps 1 to 3 on a stand-in fork, 2026-10-01
+
+**MEASURED**, with pi's upstream at a release tag
+standing in for the motivating fork, which no file names. The fork pack, `file:///…/pack`:
+
+```json
+{"kind": "program", "bin": "pi", "via": "source", "fork_of": "pi",
+ "source": "git+https://github.com/earendil-works/pi?ref=v0.99.2",
+ "build": "npm ci --ignore-scripts && npm run build && cd packages/coding-agent && npm install -g \"$(npm pack --silent)\"",
+ "produces": [".npm-global/bin/pi", ".npm-global/lib/node_modules/@earendil-works/pi-coding-agent"]}
+```
+
+Run with the `just build-go` binary at `d4e435a3`, `YOLO_REPO_ROOT` naming that tree, from a
+throwaway workspace, under an isolated `HOME` whose config selected `["pi", "file://…/pack"]`, in
+a jail (so the sealed build was a nested podman launch, and on `--net=host`: the seal's own
+network is one of the classes a nested jail cannot show, [AGENTS.md](../../AGENTS.md#testing)).
+No pi ran.
+
+1. `yolo pack install` printed `pack/pi v0.99.2 → 005af57d (fork of pi)`, and `yolo capture pi`
+   printed `built pack/pi  8092abf0fce67a72  16890 paths, 137.6 MB` after 17 s. The first build,
+   with plain `npm ci`, stored nothing: the monorepo's `canvas` dev dependency compiles a native
+   addon, and the image has no `pkg-config` (`gyp: Call to 'pkg-config pixman-1 --libs' returned
+   exit status 127`). `--ignore-scripts` skipped that compile, so nothing native was built in the
+   jail.
+2. `capture-manifest.json`: `"refScan":"symlink-targets+file-content"`, `"relocatable":true`,
+   `"notRelocatable":null`, and an empty `absoluteRefs`. The one bin is a relative symlink,
+   `.npm-global/bin/pi -> ../lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js`.
+3. Over the tree's 15,424 files, `rg -uuu -l -a -F` found `/nix/store` in none and `/home/agent`
+   in none. Absolute library paths appear only as `/usr/lib/libSystem.B.dylib` and
+   `/usr/lib/libobjc.A.dylib`, in pi-tui's darwin prebuilds. Its linux-x64 prebuild,
+   `linux-platform-x11.node`, has no `RUNPATH` and no interpreter; `readelf -d` lists one
+   `NEEDED`, `libxcb.so.1`, which the loader finds wherever it runs.
+
+So step 4's condition does not hold for this stand-in, and step 5 is the next build. UNMEASURED:
+a fork that compiles a native addon in the capture jail, which links against the jail's
+`/nix/store` toolchain and is the case the warning exists for. The stand-in compiled none, and the
+motivating fork's own `build` line is still unknown, so steps 1 to 3 want a rerun on it once it is
+named.
 
 ## Ships with
 

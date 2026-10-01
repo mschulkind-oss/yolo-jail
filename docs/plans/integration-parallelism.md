@@ -2,13 +2,16 @@
 title: "Plan: bounded parallelism for the integration suite"
 status: accepted
 stage: DECIDED
-next: "Measure the full Linux suite serial against N separate `go test -run` shard processes, which the machine lock in integration/machinelock_test.go already makes safe, before any in-process t.Parallel work"
+next: "Ask the maintainer whether to unpark: four separate shard processes measured 240 s against 498 s serial on 2026-10-01, so a sharding recipe, balanced by recorded test times, is the candidate build"
 ---
 
 # Plan: bounded parallelism for the integration suite
 
 **Status:** 2026-07-20 — deliberately parked; re-checked 2026-08-23 and against the tree
-2026-09-30. Deferred deliberately:
+2026-09-30. MEASURED 2026-10-01: four separate `go test -run` shard processes ran the full Linux
+suite in 240.0 s against 498.0 s serial, with no test failing for sharing the machine
+([the run](#four-shards-against-one-serial-run-2026-10-01)). Unparking is the maintainer's call.
+Deferred deliberately:
 CI is free (open-source runners), so integration wall time is a convenience, not
 a cost; and the fast **local** dev loop (`just test-fast`) never runs these
 container tests at all (they're `requireJail`-gated, skipped under
@@ -31,7 +34,8 @@ becomes a real friction; the launch-merges (below) already landed in `c4ae68a`.
   is a cross-run readers-writer lock: every container test holds it shared, and the few tests
   that take machine state over (`requireJailExclusive`) hold it exclusive. It was added after
   6 of 16 overlapping full runs failed on 2026-09-27. Whether shards run this way are faster
-  than one serial run is not measured.
+  than one serial run was measured on 2026-10-01 ([below](#four-shards-against-one-serial-run-2026-10-01)):
+  four shards took 240.0 s against 498.0 s serial.
 - **Step 2 as written would hit a Go rule.** `isolateHome` sets `HOME` with `t.Setenv`,
   and Go's `testing` package refuses `t.Setenv` in a test that calls `t.Parallel()`, so
   in-process parallelism needs `HOME` passed per command instead. The machine lock's
@@ -42,6 +46,38 @@ becomes a real friction; the launch-merges (below) already landed in `c4ae68a`.
   cap, then raised to twelve with a 75-minute cap on 2026-09-15 (`7b59711f`).
   That is sharding across runners, not `t.Parallel()`, and it is the one place where wall time
   has cost evidence rather than a convenience.
+
+## Four shards against one serial run, 2026-10-01
+
+**MEASURED** in a jail at `d4e435a3` (nested podman), with the four in-jail variables unset and
+`YOLO_TEST_REAL_PACK_INSTALLS` unset. The machine was not idle: other agents' workflows ran
+beside both runs, so both walls are upper bounds. The shards were cut round-robin from
+`go test -list . ./integration` order (291 tests), and each shard was its own
+`go test -count=1 -timeout 0 -json -run '^(<its names>)$' ./integration` process, all four started
+together:
+
+| Run | Wall | Per process | Outcome | Load average (1 min) |
+| :--- | :--- | :--- | :--- | :--- |
+| Serial, one process | **498.0 s** | — | 246 passed, 45 skipped | 9 at start, 26 at end |
+| Four shards | **240.0 s** | 240.0, 140.9, 134.6 and 158.2 s | 245 passed, 45 skipped, 1 failed | 18 at start, 43 at end |
+
+The one failure was `TestCaptureRecordsAnInstallerIntoTheStore`, which read the capture
+manifest's exclusion list while this session had a change to that list uncommitted in the tree;
+it passed alone once its assertion was updated, so it is not a sharding fault. No test failed for
+sharing the machine.
+
+- **The wall halved, and the shards were not balanced.** The four processes spent 674 s between
+  them, 35% more than the serial run's 498 s, which is what four jail launches at once cost on a
+  shared machine. Shard 0 set the wall: it drew `TestTheSlotReapsLeftoverScratchVolumes` (78.4 s)
+  and `TestPackRendersConfigAndLauncher` (54.2 s here, against 9.5 s serial), while the other
+  three finished 82 to 105 s earlier. Round-robin by name is not balance by time.
+- **The cross-run lock serialized what it should.** The exclusive tests' waits
+  (`waited <n>s for another integration run's exclusive test`) summed to 59.7, 23.7, 13.7 and
+  15.0 s per shard. Some of them may have been waits on other agents' runs, which take the same
+  lock.
+
+So separate shard processes already work, without any in-process `t.Parallel`, and nothing here
+had to change for it. Whether to give them a recipe is the next decision, not a measurement.
 
 ## Why the suite is serial today (and why it can't just flip)
 
