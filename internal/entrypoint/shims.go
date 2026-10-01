@@ -1709,10 +1709,15 @@ _prune_versions() {
         done | sort -rn | tail -n "+$((KEEP_VERSIONS + 1))" | cut -f2-
     )
     [ -n "$victims" ] || return 0
+    # A delete that fails is SAID, never claimed as a removal: the entry is still there, and
+    # the next invocation's prune will try it again.
     while IFS= read -r entry; do
         if [ -n "$entry" ] && [ "$entry" != "$live_entry" ]; then
-            rm -rf -- "$entry"
-            echo "  $BIN: removed superseded version ${entry##*/}" >&2
+            if rm -rf -- "$entry"; then
+                echo "  $BIN: removed superseded version ${entry##*/}" >&2
+            else
+                echo "  ⚠ $BIN: could not remove superseded version ${entry##*/}" >&2
+            fi
         fi
     done <<YOLO_PRUNE_EOF
 $victims
@@ -1999,6 +2004,13 @@ _locked_update() {
 # IT TAKES THE INSTALL-PREFIX LOCK, and yields without a word when it cannot: an update in
 # another shell writes the same version directory, possibly between writing a new version and
 # repointing the symlink at it, and prunes on its own success.
+#
+# IT CAN NEVER FAIL THE COMMAND. This script runs under "set -e", and the install and update
+# arms reach _prune_versions inside an "||" list, where bash ignores errexit, while this is the
+# first caller on a bare line. Without the "|| true" on _prune_versions a delete the user cannot
+# make (a version tree they cannot write) exited the launcher before the exec, with the lock
+# still held, on every invocation after; the one at the call site keeps any later line of this
+# function from doing the same.
 _locked_prune() {
     local vdir="$HOME/$VERSIONS_DIR" n=0 entry
     [ -d "$vdir" ] || return 0
@@ -2009,7 +2021,7 @@ _locked_prune() {
     done
     [ "$n" -gt "$KEEP_VERSIONS" ] || return 0
     _take_lock || return 0
-    _prune_versions
+    _prune_versions || true
     _drop_lock
     return 0
 }
@@ -2041,7 +2053,7 @@ elif _update_due; then
     _locked_update || true
 fi
 # Whatever ran above, or nothing: see _locked_prune.
-_locked_prune
+_locked_prune || true
 # INSTALL AND STOP. See InstallOnlyEnv: yolo capture needs the install this launcher
 # performs and must not have the program RUN afterwards, because a first run writes the
 # tool own state into the very directories the capture is about to record.

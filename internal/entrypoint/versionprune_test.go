@@ -16,6 +16,7 @@ package entrypoint
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -394,5 +395,55 @@ func TestTheEveryInvocationPruneReleasesTheLock(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(p.home, ".local", ".yolo-update.lock")); !os.IsNotExist(err) {
 		t.Errorf("the every-invocation prune left the install-prefix lock behind (err=%v)", err)
+	}
+}
+
+// TestAnEveryInvocationPruneThatCannotDeleteStillLaunches: the launcher runs under `set -e`, and
+// before L7 every call of _prune_versions sat in an `|| …` list, where bash ignores errexit
+// inside the function. _locked_prune is the first caller on a bare line, so an `rm -rf` that
+// fails — a version tree the user cannot write, a busy mount — killed the command the user
+// typed, before the exec and with the install-prefix lock still held, on EVERY invocation from
+// then on, since the entry it could not delete is still there. A prune that cannot delete must
+// say so, release the lock, and launch the program anyway.
+//
+// The failing delete is a stand-in rm ahead of the real one on PATH, so the cell does not depend
+// on running as root (which deletes through any mode) or on a filesystem that can refuse.
+func TestAnEveryInvocationPruneThatCannotDeleteStillLaunches(t *testing.T) {
+	realRm, err := exec.LookPath("rm")
+	if err != nil {
+		t.Skip("rm not found")
+	}
+	p := newUpdateProbe(t, []string{"noop"}, true, false)
+	seedVersions(t, p.home, "probetool", []string{"1.0.0", "2.0.0", "3.0.0"}, 2)
+	seedFreshStamp(t, p.stamps, "probetool")
+	shim := filepath.Join(p.home, "failing-rm")
+	if err := os.MkdirAll(shim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "#!/bin/sh\nfor a; do case \"$a\" in */versions/*) " +
+		"echo \"rm: cannot remove '$a': Permission denied\" >&2; exit 1;; esac; done\n" +
+		"exec " + shellQuoteForTest(realRm) + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(shim, "rm"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	out, rc := p.run(t, "PATH="+shim+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if rc != 0 {
+		t.Fatalf("a prune that cannot delete must not fail the invocation, rc=%d\n%s", rc, out)
+	}
+	if log := p.argvLog(t); len(log) != 1 || log[0] != "RAN:" {
+		t.Errorf("a prune that cannot delete must still launch the program, argv log %v\n%s", log, out)
+	}
+	if got := remaining(t, p.home, "probetool"); len(got) != 3 {
+		t.Fatalf("the stand-in rm deleted something, so this cell measures nothing: %v\n%s", got, out)
+	}
+	if strings.Contains(out, "removed superseded version 1.0.0") {
+		t.Errorf("the prune claims a removal that failed:\n%s", out)
+	}
+	if !strings.Contains(out, "could not remove superseded version 1.0.0") {
+		t.Errorf("the prune must say which version it could not remove:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(p.home, ".local", ".yolo-update.lock")); !os.IsNotExist(err) {
+		t.Errorf("a prune that could not delete left the install-prefix lock behind (err=%v)", err)
 	}
 }
