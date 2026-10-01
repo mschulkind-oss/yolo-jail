@@ -25,47 +25,56 @@ func defaultWarn(msg string) {
 // a non-object top level is a ConfigError in strict mode, else warns and returns
 // an empty map.
 func LoadJSONCFile(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
-	m, _, err := loadJSONCFile(path, label, strict, warn)
+	m, _, _, err := loadJSONCFile(path, label, strict, warn, false)
 	return m, err
 }
 
 // LoadJSONCFileWithSources is LoadJSONCFile plus where each value sits in the file
 // (sources.go), for a caller that reports on one file by itself.
 func LoadJSONCFileWithSources(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, *Sources, error) {
-	m, n, err := loadJSONCFile(path, label, strict, warn)
+	m, _, n, err := loadJSONCFile(path, label, strict, warn, true)
 	return m, sourcesOf(n), err
 }
 
-// loadJSONCFile is LoadJSONCFile, returning the file's provenance tree beside the map (nil
-// whenever the map is the empty one a missing or unreadable file yields).
-func loadJSONCFile(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, *srcNode, error) {
+// loadJSONCFile is LoadJSONCFile, returning the file as read (its path and bytes, for a
+// problem the caller locates in it) and, when record is set, its provenance tree (sources.go).
+// Both are nil whenever the map is the empty one a missing or unreadable file yields.
+//
+// record is false for every caller that does not report on the config: the tree is built from
+// every value of every file, and a launch reads its config many times over, so a reader that
+// would discard it does not pay for it.
+func loadJSONCFile(path, label string, strict bool, warn Warn, record bool) (*jsonx.OrderedMap, *srcFile, *srcNode, error) {
 	if warn == nil {
 		warn = defaultWarn
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return jsonx.NewOrderedMap(), nil, nil
+			return jsonx.NewOrderedMap(), nil, nil, nil
 		}
 		// A read error other than not-exist is surfaced as a parse failure.
 		m, err := handleParseFailure(label, err, strict, warn)
-		return m, nil, err
+		return m, nil, nil, err
 	}
 	parsed, perr := json5.Decode(data)
 	if perr != nil {
 		m, err := handleParseFailure(label, perr, strict, warn)
-		return m, nil, err
+		return m, nil, nil, err
 	}
 	m, ok := asMap(parsed)
 	if !ok {
 		msg := label + " must contain a top-level JSON object"
 		if strict {
-			return nil, nil, configErr("%s", msg)
+			return nil, nil, nil, configErr("%s", msg)
 		}
 		warn(msg)
-		return jsonx.NewOrderedMap(), nil, nil
+		return jsonx.NewOrderedMap(), nil, nil, nil
 	}
-	return m, fileTree(&srcFile{path: path, data: data}, m), nil
+	f := &srcFile{path: path, data: data}
+	if !record {
+		return m, f, nil, nil
+	}
+	return m, f, fileTree(f, m), nil
 }
 
 func handleParseFailure(label string, err error, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
@@ -196,13 +205,15 @@ func mergeConfig(base, override *jsonx.OrderedMap, bsrc, osrc *srcNode) (*jsonx.
 // skip; overrides win (later wins); cycles are detected via the shared seen set.
 // The include_if_found key is consumed and removed from the returned config.
 func LoadJSONCWithIncludes(path, label string, strict bool, warn Warn, seen map[string]struct{}) (*jsonx.OrderedMap, error) {
-	m, _, err := loadWithIncludes(path, label, strict, warn, seen)
+	m, _, err := loadWithIncludes(path, label, strict, warn, seen, false)
 	return m, err
 }
 
 // loadWithIncludes is LoadJSONCWithIncludes, returning the composed provenance beside the
-// map: the file's own tree with each include's merged over it, as the includes' values are.
-func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[string]struct{}) (*jsonx.OrderedMap, *srcNode, error) {
+// map when record is set (loadJSONCFile): the file's own tree with each include's merged over
+// it, as the includes' values are. A problem with the file's own include_if_found is located
+// in it either way.
+func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[string]struct{}, record bool) (*jsonx.OrderedMap, *srcNode, error) {
 	if warn == nil {
 		warn = defaultWarn
 	}
@@ -215,7 +226,7 @@ func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[strin
 	}
 	seen[resolved] = struct{}{}
 
-	raw, node, err := loadJSONCFile(path, label, strict, warn)
+	raw, file, node, err := loadJSONCFile(path, label, strict, warn, record)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -231,7 +242,6 @@ func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[strin
 
 	includesVal, hasIncludes := raw.Get("include_if_found")
 	raw.Delete("include_if_found") // consumed; not part of the returned config
-	includesNode := node.key("include_if_found")
 	node = node.without("include_if_found")
 	if !hasIncludes || includesVal == nil {
 		return raw, node, nil
@@ -239,7 +249,7 @@ func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[strin
 
 	includes, ok := asList(includesVal)
 	if !ok {
-		msg := includeProblem(includesNode, label, "include_if_found: expected a list of strings")
+		msg := includeProblem(file, label, "include_if_found: expected a list of strings", json5.Key("include_if_found"))
 		if strict {
 			return nil, nil, configErr("%s", msg)
 		}
@@ -253,7 +263,8 @@ func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[strin
 		entryLabel := fmt.Sprintf("include_if_found[%d]", idx)
 		s, ok := asStr(entry)
 		if !ok {
-			msg := includeProblem(includesNode.elem(idx), label, entryLabel+": expected a string path")
+			msg := includeProblem(file, label, entryLabel+": expected a string path",
+				json5.Key("include_if_found"), json5.Elem(idx))
 			if strict {
 				return nil, nil, configErr("%s", msg)
 			}
@@ -264,8 +275,9 @@ func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[strin
 			continue
 		}
 		if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") {
-			msg := includeProblem(includesNode.elem(idx), label, fmt.Sprintf("%s: must be a relative path (got %s); "+
-				"absolute paths and '~' are not supported", entryLabel, pytext.Repr(s)))
+			msg := includeProblem(file, label, fmt.Sprintf("%s: must be a relative path (got %s); "+
+				"absolute paths and '~' are not supported", entryLabel, pytext.Repr(s)),
+				json5.Key("include_if_found"), json5.Elem(idx))
 			if strict {
 				return nil, nil, configErr("%s", msg)
 			}
@@ -276,7 +288,7 @@ func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[strin
 		if !pathExists(incPath) {
 			continue
 		}
-		included, incNode, err := loadWithIncludes(incPath, incPath, strict, warn, seen)
+		included, incNode, err := loadWithIncludes(incPath, incPath, strict, warn, seen, record)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -302,29 +314,30 @@ func resolveWorkspaceConfigPath(workspace, baseName string) (string, string) {
 // yolo-jail.local.jsonc (or yolo-jail.local.json) (local wins), sharing the seen
 // set so a config that also includes the local file doesn't merge it twice.
 func LoadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
-	m, _, err := loadWorkspaceConfig(workspace, strict, warn)
+	m, _, err := loadWorkspaceConfig(workspace, strict, warn, false)
 	return m, err
 }
 
 // LoadWorkspaceConfigWithSources is LoadWorkspaceConfig plus where each value was written
 // (sources.go).
 func LoadWorkspaceConfigWithSources(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, *Sources, error) {
-	m, n, err := loadWorkspaceConfig(workspace, strict, warn)
+	m, n, err := loadWorkspaceConfig(workspace, strict, warn, true)
 	return m, sourcesOf(n), err
 }
 
-func loadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, *srcNode, error) {
+// loadWorkspaceConfig is LoadWorkspaceConfig, with the provenance beside it when record is set.
+func loadWorkspaceConfig(workspace string, strict bool, warn Warn, record bool) (*jsonx.OrderedMap, *srcNode, error) {
 	if workspace == "" {
 		workspace = cwd()
 	}
 	seen := map[string]struct{}{}
 	wsPath, wsLabel := resolveWorkspaceConfigPath(workspace, WorkspaceConfigName)
-	wsCfg, wsNode, err := loadWithIncludes(wsPath, wsLabel, strict, warn, seen)
+	wsCfg, wsNode, err := loadWithIncludes(wsPath, wsLabel, strict, warn, seen, record)
 	if err != nil {
 		return nil, nil, err
 	}
 	localPath, localLabel := resolveWorkspaceConfigPath(workspace, WorkspaceLocalConfigName)
-	localCfg, localNode, err := loadWithIncludes(localPath, localLabel, strict, warn, seen)
+	localCfg, localNode, err := loadWithIncludes(localPath, localLabel, strict, warn, seen, record)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -334,7 +347,7 @@ func loadWorkspaceConfig(workspace string, strict bool, warn Warn) (*jsonx.Order
 
 // LoadConfig merges the user-level config under the workspace config.
 func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
-	m, _, err := loadConfig(workspace, strict, warn)
+	m, _, err := loadConfig(workspace, strict, warn, false)
 	return m, err
 }
 
@@ -343,11 +356,12 @@ func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, er
 // The Sources is nil where LoadConfig reads the in-jail copy of the host's assembled config,
 // whose source files the jail does not have.
 func LoadConfigWithSources(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, *Sources, error) {
-	m, n, err := loadConfig(workspace, strict, warn)
+	m, n, err := loadConfig(workspace, strict, warn, true)
 	return m, sourcesOf(n), err
 }
 
-func loadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, *srcNode, error) {
+// loadConfig is LoadConfig, with the provenance beside it when record is set.
+func loadConfig(workspace string, strict bool, warn Warn, record bool) (*jsonx.OrderedMap, *srcNode, error) {
 	// Inside a jail, for THIS JAIL'S OWN workspace, do NOT re-assemble: COPY the
 	// host's already-merged config from the delivered assembled config instead
 	// (<workspace>/.yolo/config-assembled.json — see assembled.go). The user-level
@@ -407,11 +421,11 @@ func loadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, *s
 	// The user half goes through loadUserScopeConfig so a --user-layer lands at user-level
 	// precedence (a workspace config still wins over it — see userlayer.go).
 	userCfg, userNode, err := loadUserScope(
-		paths.UserConfigPath(), paths.UserConfigPath(), strict, warn)
+		paths.UserConfigPath(), paths.UserConfigPath(), strict, warn, record)
 	if err != nil {
 		return nil, nil, err
 	}
-	wsCfg, wsNode, err := loadWorkspaceConfig(workspace, strict, warn)
+	wsCfg, wsNode, err := loadWorkspaceConfig(workspace, strict, warn, record)
 	if err != nil {
 		return nil, nil, err
 	}

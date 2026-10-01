@@ -531,13 +531,15 @@ fix it. See [capabilities and supersession](docs/reference/pack-system.md#capabi
 **A config refusal now says where the key it refuses is written.** Your config can come from many
 files: your user config and everything it includes, a `--user-layer`, and the project's config and
 its local override with theirs. When `yolo check`, a launch or
-`yolo host` refuses or warns about a key, the message now starts with the file, line and column the
-key is written at, such as
+`yolo host` refuses or warns about a key, the message now starts with the file and line the key is
+written on and the column its value starts at, such as
 `~/.config/yolo-jail/profiles.jsonc:3:19: config.use_profiles: RENAMED …`, and a list entry is
 named at its own line rather than where the list starts. When more than one file writes the key,
-the message also names the others, so every copy can be fixed; the file it starts with is the one
-whose value takes effect. A malformed `packs` entry that `yolo host` or `yolo pack` reports says
-where it was written too. See [the config files](userguide/reference/configuration.md#the-config-files).
+the message names the one whose value takes effect first and the others after it, so every copy
+can be fixed. A `packs`, `profiles`, `adapters`, `host_files` or `cache_relocations` entry that a
+command skips with a warning says where it was written too. A `mounts` entry refused for where it
+lands or what it reaches is still named at the line its list starts on. See
+[the config files](userguide/reference/configuration.md#the-config-files).
 
 **pi's telemetry switch now comes with the pi pack, so pi runs with telemetry off wherever yolo
 starts it.** A jail used to set `PI_TELEMETRY=0` whether or not pi was selected, and

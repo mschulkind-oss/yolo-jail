@@ -29,9 +29,10 @@
   Use `yolo check --no-build` inside a running jail for a faster preflight.
 
   A refusal or warning about a key starts with where the key is written, as
-  `<file>:<line>:<column>: config.<key>: …` (a list entry at the entry's own
-  line): the file whose value takes effect.  Any other file writing the same
-  key is named after the message, "(also written at …)".
+  `<file>:<line>:<column>: config.<key>: …`, the column being where its value
+  starts (a list entry at the entry's own line): the file whose value takes
+  effect.  Any other file writing the same key is named after the message,
+  "(also written at …)".
 
 [bold cyan]USER SCOPE INSIDE A JAIL[/bold cyan]
 

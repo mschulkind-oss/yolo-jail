@@ -395,7 +395,7 @@ func validateMountScope(config *jsonx.OrderedMap, workspace string, errs *[]stri
 	if rwMountTrusted(mountScopeWorkspace) || !hasRWMount(config) {
 		return
 	}
-	wsCfg, wsNode, err := loadWorkspaceConfig(workspace, false, func(string) {})
+	wsCfg, wsNode, err := loadWorkspaceConfig(workspace, false, func(string) {}, true)
 	if err != nil || wsCfg == nil {
 		return
 	}

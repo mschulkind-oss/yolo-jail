@@ -439,7 +439,7 @@ func workspaceLoopholeEntries(workspace string) map[string][]wsLoopholeEntry {
 	seen := map[string]struct{}{}
 	for _, fname := range []string{WorkspaceConfigName, WorkspaceLocalConfigName} {
 		path := filepath.Join(workspace, fname)
-		cfg, node, err := loadWithIncludes(path, fname, false, func(string) {}, seen)
+		cfg, node, err := loadWithIncludes(path, fname, false, func(string) {}, seen, true)
 		if err != nil || cfg == nil {
 			continue
 		}

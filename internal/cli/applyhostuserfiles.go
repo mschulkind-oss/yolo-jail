@@ -32,11 +32,14 @@ type hostUserFiles struct {
 	// miseTools is whether `mise_tools` declares a tool: the jail composes mise's config from
 	// it, and nothing at the host manages the user's own mise.
 	miseTools bool
+	// cfg is the user-scope config the entries were read from, so a refusal names an entry by
+	// its place in it (config.SurfaceCollisions).
+	cfg *jsonx.OrderedMap
 }
 
 // readHostUserFiles reads host_files and mise_tools from the user-scope config.
 func readHostUserFiles(cfg *jsonx.OrderedMap) hostUserFiles {
-	var f hostUserFiles
+	f := hostUserFiles{cfg: cfg}
 	for _, e := range config.HostFilesIn(cfg) {
 		if e.SourceBearing() || e.IsDir {
 			f.inert = append(f.inert, e)
@@ -85,7 +88,13 @@ func hostUserFileCollisions(f hostUserFiles, packs []*packload.Pack) []string {
 			paths = append(paths, s.Path)
 		}
 	}
-	return config.SurfaceCollisions(f.render, paths)
+	cols := config.SurfaceCollisions(f.render, paths, nil, nil)
+	if len(cols) == 0 {
+		return nil
+	}
+	// Named by its place in the user scope and led by the file and line it is written at
+	// (config's sources.go), which is read again only for a refusal.
+	return config.SurfaceCollisions(f.render, paths, f.cfg, config.UserScopeSources())
 }
 
 // applyHostUserFiles renders the source-less entries, reports each through reportConfigResult,

@@ -104,3 +104,29 @@ func TestCheckWorkspaceHostFilesRefusalNamesTheWorkspaceFile(t *testing.T) {
 		t.Errorf("the refusal names the user config, where the entry at that index is allowed:\n%s", line)
 	}
 }
+
+// A warning in the Merged Configuration section is located as its refusals are: the retired
+// `repo_path`, ignored with a warning, written in an include beside a refusal.
+func TestCheckWarningNamesTheFileAndLine(t *testing.T) {
+	got := locatedCheck(t, map[string]string{
+		"config.jsonc": `{"include_if_found": ["old.jsonc"], "use_profiles": "zai"}`,
+		"old.jsonc":    "{\n  \"repo_path\": \"/src/yolo\"\n}\n",
+	}, "")
+	want := "~/.config/yolo-jail/old.jsonc:2:16: config.repo_path: ignored"
+	if !strings.Contains(got, want) {
+		t.Errorf("check's warning does not say where repo_path was written (want %q):\n%s", want, got)
+	}
+}
+
+// The same-file preset/null contradiction, checked per scope, leads with where the null entry
+// is written — here in the user scope's include, which `yolo check` reads with the rest of it.
+func TestCheckPresetNullRefusalNamesTheNullsLine(t *testing.T) {
+	got := locatedCheck(t, map[string]string{
+		"config.jsonc": `{"include_if_found": ["mcp.jsonc"]}`,
+		"mcp.jsonc":    "{\n  \"mcp_presets\": [\"chrome-devtools\"],\n  \"mcp_servers\": {\"chrome-devtools\": null}\n}\n",
+	}, "")
+	want := "~/.config/yolo-jail/mcp.jsonc:3:38: preset 'chrome-devtools' is enabled"
+	if !strings.Contains(got, want) {
+		t.Errorf("check's refusal does not lead with where the null is written (want %q):\n%s", want, got)
+	}
+}

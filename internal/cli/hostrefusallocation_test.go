@@ -29,3 +29,22 @@ func TestHostLaunchRefusalNamesTheIncludedFileAndLine(t *testing.T) {
 		t.Errorf("the host refusal does not say where use_profiles was written (want %q):\n%s", want, errs)
 	}
 }
+
+// A `profile` entry for a command no pack installs refuses `yolo host -- <command>` on its own
+// call site (composeHostVarsWith), located as the provider section's refusals are.
+func TestHostUnknownProfileRefusalNamesTheIncludedFileAndLine(t *testing.T) {
+	rc, env, errs := hostGateRunIn(t, `{`+hostProfileKeyPacks+`, "include_if_found": ["p.jsonc"]}`,
+		nil, nil, "bash", func(home string) {
+			p := filepath.Join(home, ".config", "yolo-jail", "p.jsonc")
+			if err := os.WriteFile(p, []byte("{\n  \"profile\": {\"bash\": \"zai\"}\n}\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		})
+	if rc == 0 || env != nil {
+		t.Fatalf("a profile entry for bash must refuse `yolo host -- bash`: rc = %d\n%s", rc, errs)
+	}
+	want := "~/.config/yolo-jail/p.jsonc:2:23: config.profile.bash: no pack installs a CLI named"
+	if !strings.Contains(errs, want) {
+		t.Errorf("the host refusal does not say where the profile entry was written (want %q):\n%s", want, errs)
+	}
+}

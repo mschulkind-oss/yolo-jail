@@ -74,7 +74,7 @@ func LoadCacheRelocations(warn Warn) ([]CacheRelocation, error) {
 	// strict=true: a malformed user config is an error, never a silent empty
 	// map — silently losing a relocation sends 185 GiB back onto the root
 	// filesystem, which is the exact failure this feature exists to prevent.
-	userCfg, userNode, err := loadUserScope(path, path, true, warn)
+	userCfg, err := loadUserScopeConfig(path, path, true, warn)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func LoadCacheRelocations(warn Warn) ([]CacheRelocation, error) {
 
 	entries, problems := checkCacheRelocations(v, true)
 	// Each problem names the file and line it was written at (sources.go).
-	for _, p := range sourcesOf(userNode).Annotate(problems) {
+	for _, p := range locateInUserScope(problems) {
 		warn(p + " — relocation skipped")
 	}
 	if len(entries) == 0 {

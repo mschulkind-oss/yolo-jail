@@ -157,3 +157,38 @@ func TestPositionCountsLinesAndCharactersFromOne(t *testing.T) {
 		t.Errorf("Position past the end = %d:%d, want the end, 4:2", line, col)
 	}
 }
+
+// One Index answers every path the document holds as LocateSteps does, from one parse: the
+// form a config refusal naming several keys of one file uses.
+func TestIndexLocatesEveryPathOfOneParse(t *testing.T) {
+	doc := `{
+  // a comment
+  "a": {"b": [1, {"c": "x"}]},
+  "d": 2, "d": 3,
+  "1:x": true,
+}`
+	ix, err := NewIndex([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range [][]Step{
+		{Key("a")}, {Key("a"), Key("b")}, {Key("a"), Key("b"), Elem(1), Key("c")},
+		{Key("a"), Key("b"), Elem(2)}, {Key("d")}, {Key("1:x")}, {Key("1")}, {},
+	} {
+		gotSpan, gotOK, gotErr := ix.Locate(path...)
+		wantSpan, wantOK, wantErr := LocateSteps([]byte(doc), path...)
+		if gotSpan != wantSpan || gotOK != wantOK || (gotErr == nil) != (wantErr == nil) {
+			t.Errorf("Index.Locate(%v) = %v, %v, %v; LocateSteps = %v, %v, %v",
+				path, gotSpan, gotOK, gotErr, wantSpan, wantOK, wantErr)
+		}
+	}
+	if span, ok, _ := ix.Locate(Key("a"), Key("b"), Elem(1), Key("c")); !ok || doc[span.Start:span.End] != `"x"` {
+		t.Errorf("the nested element's member spans %v", span)
+	}
+	if _, _, err := ix.Locate(Key("d")); err == nil {
+		t.Error("a key written twice was located rather than refused")
+	}
+	if _, err := NewIndex([]byte(`{"a": `)); err == nil {
+		t.Error("NewIndex over a truncated document returned no error")
+	}
+}

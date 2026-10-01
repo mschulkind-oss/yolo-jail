@@ -27,8 +27,8 @@ After **every** edit to any of these files, run:
 yolo check
 ```
 
-When `yolo check` or a launch refuses a setting, the message starts with the file, line and column
-the setting is written at, so you can open that file at that spot:
+When `yolo check` or a launch refuses a setting, the message starts with the file and line the
+setting is written on, and the column its value starts at, so you can open that file at that spot:
 
 ```text
 ~/.config/yolo-jail/profiles.jsonc:3:19: config.use_profiles: RENAMED — this key is now `profile` …

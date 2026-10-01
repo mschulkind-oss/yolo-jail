@@ -19,7 +19,14 @@ package config
 // because a refusal about a key written twice has to be fixed in both places.
 //
 // The tree holds each file's bytes and the path to the value in that file, never a line
-// number: json5.LocateSteps turns them into one only when a message needs it, on a refusal.
+// number: a json5.Index of the file turns them into one only when a message needs it, built
+// once per file on the first such message.
+//
+// ONLY A READER THAT REPORTS KEEPS ONE. The *WithSources loaders build the tree, and so do the
+// validators that locate a refusal in one workspace file; LoadConfig and the other plain
+// readers do not (loadJSONCFile's record), since a launch reads its config many times over and
+// all but the reporting reads would discard it. A plain reader with a problem to report
+// (LoadPacks, LoadProfiles, …) reads the user scope again for the record, on that path only.
 //
 // WHAT IT CANNOT SEE. A config the loader did not read from files has no tree: the in-jail
 // copy of the host's assembled config (LoadConfig's short-circuit for the jail's own
@@ -29,6 +36,7 @@ package config
 import (
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -46,6 +54,24 @@ type Sources struct {
 type srcFile struct {
 	path string
 	data []byte
+
+	// index is where every value of data sits (json5.Index), parsed once, on the first
+	// location asked of this file: a refusal naming several of its keys, or a key several
+	// files write, then costs one parse per file rather than one per location, and a config
+	// nothing is wrong with costs none.
+	indexOnce sync.Once
+	index     *json5.Index
+}
+
+// locate is the span of the value at steps in this file, ok false where the file does not
+// locate it: nothing there, or a key along the path written twice (json5.Index.Locate).
+func (f *srcFile) locate(steps []json5.Step) (json5.Span, bool) {
+	f.indexOnce.Do(func() { f.index, _ = json5.NewIndex(f.data) })
+	if f.index == nil {
+		return json5.Span{}, false
+	}
+	span, ok, err := f.index.Locate(steps...)
+	return span, ok && err == nil
 }
 
 // srcOrigin is one place a value was written: a file, and the path to the value inside it.
@@ -347,12 +373,23 @@ func (o srcOrigin) String() string {
 		return ""
 	}
 	where := tildePath(o.file.path)
-	span, ok, err := json5.LocateSteps(o.file.data, o.steps...)
-	if err != nil || !ok {
+	span, ok := o.file.locate(o.steps)
+	if !ok {
 		return where
 	}
 	line, col := json5.Position(o.file.data, span.Start)
 	return where + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(col)
+}
+
+// locateInUserScope is problems, each about a key of the user scope, located in the user
+// scope's record (Annotate) — for a plain user-scope reader (LoadPacks, LoadProfiles, …) that
+// warns about an entry it skips. The record is read again for them, and only when there is a
+// problem, so a reader with nothing to say pays nothing for it.
+func locateInUserScope(problems []string) []string {
+	if len(problems) == 0 {
+		return problems
+	}
+	return UserScopeSources().Annotate(problems)
 }
 
 // locatedAt is msg prefixed with where n was written — its highest-precedence writer, as
@@ -366,15 +403,17 @@ func locatedAt(n *srcNode, msg string) string {
 	return msg
 }
 
-// includeProblem is a problem with one file's `include_if_found` (problem starts with the key):
-// "<file>:<line>:<col>: config.include_if_found…", the spelling a validator's refusal takes,
-// where the file locates the value, else "<label>.include_if_found…" as before, label being
-// the name the loader gives the file.
-func includeProblem(n *srcNode, label, problem string) string {
-	if located := locatedAt(n, "config."+problem); located != "config."+problem {
-		return located
+// includeProblem is a problem with one file's `include_if_found` (problem starts with the key,
+// and steps are the path to the value it is about): "<file>:<line>:<col>:
+// config.include_if_found…", the spelling a validator's refusal takes, else
+// "<label>.include_if_found…" as before where there is no file, label being the name the
+// loader gives the file. It takes the file rather than a record because a loader that keeps
+// none (loadJSONCFile's record) still has the bytes the problem is in.
+func includeProblem(f *srcFile, label, problem string, steps ...json5.Step) string {
+	if f == nil {
+		return label + "." + problem
 	}
-	return label + "." + problem
+	return srcOrigin{file: f, steps: steps}.String() + ": config." + problem
 }
 
 // tildePath writes a path under the home as ~/…, the spelling the config messages already use

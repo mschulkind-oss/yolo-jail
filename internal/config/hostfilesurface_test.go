@@ -19,7 +19,7 @@ func TestSurfaceCollisionsRefusesATwoWriterDestination(t *testing.T) {
 		{Path: ".config/starship.toml"},
 	}
 	// "~/"-prefixed, as a pack's Surface carries it.
-	got := SurfaceCollisions(entries, []string{"~/.pi/agent/models.json"})
+	got := SurfaceCollisions(entries, []string{"~/.pi/agent/models.json"}, nil, nil)
 	if len(got) != 1 {
 		t.Fatalf("want exactly the colliding entry refused, got %v", got)
 	}
@@ -45,7 +45,7 @@ func TestSurfaceCollisionsRefusesATwoWriterDestination(t *testing.T) {
 func TestSurfaceCollisionsAcceptsEitherSpelling(t *testing.T) {
 	entries := []HostFileEntry{{Path: ".pi/agent/models.json"}}
 	for _, spelling := range []string{"~/.pi/agent/models.json", ".pi/agent/models.json"} {
-		if got := SurfaceCollisions(entries, []string{spelling}); len(got) != 1 {
+		if got := SurfaceCollisions(entries, []string{spelling}, nil, nil); len(got) != 1 {
 			t.Errorf("surface path %q did not collide — a normalization miss here is a SILENT "+
 				"second writer, which is the defect this refusal exists to stop", spelling)
 		}
@@ -55,13 +55,13 @@ func TestSurfaceCollisionsAcceptsEitherSpelling(t *testing.T) {
 // No collision, no output — the overwhelmingly common case, and it must cost nothing.
 func TestSurfaceCollisionsIsQuietWhenNothingOverlaps(t *testing.T) {
 	entries := []HostFileEntry{{Path: ".config/starship.toml"}}
-	if got := SurfaceCollisions(entries, []string{"~/.claude/settings.json"}); got != nil {
+	if got := SurfaceCollisions(entries, []string{"~/.claude/settings.json"}, nil, nil); got != nil {
 		t.Errorf("want no collisions, got %v", got)
 	}
-	if got := SurfaceCollisions(nil, []string{"~/.claude/settings.json"}); got != nil {
+	if got := SurfaceCollisions(nil, []string{"~/.claude/settings.json"}, nil, nil); got != nil {
 		t.Errorf("no entries cannot collide, got %v", got)
 	}
-	if got := SurfaceCollisions(entries, nil); got != nil {
+	if got := SurfaceCollisions(entries, nil, nil, nil); got != nil {
 		t.Errorf("no surfaces cannot collide, got %v", got)
 	}
 }

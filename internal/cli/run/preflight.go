@@ -25,6 +25,7 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 	// WithSources: every refusal below names the file and line its key was written at
 	// (config's sources.go), since the config is composed from many files.
 	cfg, src, err := config.LoadConfigWithSources(o.Workspace, true, func(string) {})
+	o.configSources = src
 	if err != nil {
 		// ConfigError → print the message; any other load error also surfaces
 		// (LoadConfig only returns ConfigError in strict mode for malformed

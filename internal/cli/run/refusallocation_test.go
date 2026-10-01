@@ -149,3 +149,33 @@ func TestCapabilityRefusalSaysWhereTheRequirementIsWritten(t *testing.T) {
 			want, stderr.String())
 	}
 }
+
+// A WARNING the config gate prints is located as its refusals are: the retired `repo_path` is
+// ignored with a warning, written here in an include beside a refusal that stops the launch.
+func TestLaunchWarningNamesTheFileAndLine(t *testing.T) {
+	_, cfgDir := refusalHome(t)
+	writeAt(t, filepath.Join(cfgDir, "config.jsonc"), `{"include_if_found": ["old.jsonc"], "use_profiles": "zai"}`)
+	writeAt(t, filepath.Join(cfgDir, "old.jsonc"), "{\n  \"repo_path\": \"/src/yolo\"\n}\n")
+	out := launchRefusal(t, t.TempDir())
+	want := "~/.config/yolo-jail/old.jsonc:2:16: config.repo_path: ignored"
+	if !strings.Contains(out, want) {
+		t.Errorf("the warning does not say where repo_path was written (want %q):\n%s", want, out)
+	}
+}
+
+// The same-file preset/null contradiction, which the gate checks per file rather than over the
+// merged config, leads with where the null entry is written.
+func TestLaunchPresetNullRefusalNamesTheNullsLine(t *testing.T) {
+	refusalHome(t)
+	ws := t.TempDir()
+	writeAt(t, filepath.Join(ws, "yolo-jail.jsonc"),
+		"{\n  \"mcp_presets\": [\"chrome-devtools\"],\n  \"mcp_servers\": {\"chrome-devtools\": null}\n}\n")
+	var stdout, stderr bytes.Buffer
+	if rc := Run(*capabilityGateOptions(t, ws, nil, &stdout, &stderr)); rc == 0 {
+		t.Fatalf("the launch accepted a preset the same file null-removes:\n%s%s", stdout.String(), stderr.String())
+	}
+	want := filepath.Join(ws, "yolo-jail.jsonc") + ":3:38: preset 'chrome-devtools' is enabled"
+	if out := stdout.String() + stderr.String(); !strings.Contains(out, want) {
+		t.Errorf("the refusal does not lead with where the null is written (want %q):\n%s", want, out)
+	}
+}

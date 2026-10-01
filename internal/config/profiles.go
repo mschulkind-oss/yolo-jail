@@ -64,7 +64,8 @@ func LoadProfiles(warn Warn) (map[string]packload.UserProfile, error) {
 	var out map[string]packload.UserProfile
 	if v, present := userCfg.Get(profilesKey); present && v != nil {
 		entries, problems := checkProfiles(v)
-		for _, p := range problems {
+		// Each skipped entry names the file and line it was written at (sources.go).
+		for _, p := range locateInUserScope(problems) {
 			warn(p + " — entry skipped")
 		}
 		out = entries

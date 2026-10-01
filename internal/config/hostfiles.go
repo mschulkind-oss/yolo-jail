@@ -327,14 +327,14 @@ func LoadHostFiles(merged *jsonx.OrderedMap, warn Warn, probeSource bool) ([]Hos
 	// strict=true: a malformed user config is an error, never a silently empty
 	// list. Silently dropping a host_files entry looks exactly like the feature
 	// not working, which is the failure this whole key's plumbing exists to avoid.
-	userCfg, userNode, err := loadUserScope(userPath, userPath, true, warn)
+	userCfg, err := loadUserScopeConfig(userPath, userPath, true, warn)
 	if err != nil {
 		return nil, err
 	}
 	if v, present := userCfg.Get(hostFilesKey); present && v != nil {
 		userEntries, problems := checkHostFiles(v, "user", probeSource)
 		// Located in the user scope's own record (sources.go), whose list these indices count.
-		for _, p := range sourcesOf(userNode).Annotate(problems) {
+		for _, p := range locateInUserScope(problems) {
 			warn(p + " — entry skipped")
 		}
 		for _, e := range userEntries {
@@ -965,7 +965,7 @@ func validateHostFiles(config *jsonx.OrderedMap, workspace string, errs *[]strin
 	// Warnings from the re-read are discarded: this same file was already loaded
 	// (and any parse problem already reported) by whoever produced the merged
 	// config we were handed.
-	wsCfg, wsNode, err := loadWorkspaceConfig(workspace, false, func(string) {})
+	wsCfg, wsNode, err := loadWorkspaceConfig(workspace, false, func(string) {}, true)
 	if err != nil || wsCfg == nil {
 		return
 	}
@@ -1234,7 +1234,12 @@ func (e HostFileEntry) WritableParent() string {
 // surfacePaths may be "~/"-prefixed or home-relative; both spellings are accepted, because the
 // callers read them off different structures. Returns one message per colliding entry, in entry
 // order, or nil.
-func SurfaceCollisions(entries []HostFileEntry, surfacePaths []string) []string {
+//
+// cfg is the config the entries were read from and src where its values were written
+// (sources.go): each message names the entry by its place in cfg's `host_files` and leads with
+// the file and line that entry is written at. Either may be nil, and the message then names the
+// key alone, as it does for a destination cfg does not hold.
+func SurfaceCollisions(entries []HostFileEntry, surfacePaths []string, cfg *jsonx.OrderedMap, src *Sources) []string {
 	if len(entries) == 0 || len(surfacePaths) == 0 {
 		return nil
 	}
@@ -1243,16 +1248,44 @@ func SurfaceCollisions(entries []HostFileEntry, surfacePaths []string) []string 
 		owned[strings.TrimPrefix(p, "~/")] = true
 	}
 	var out []string
+	var at map[string]int // destination -> its index in cfg's host_files, read on the first collision
 	for _, e := range entries {
 		if !owned[e.Path] {
 			continue
 		}
-		out = append(out, fmt.Sprintf(
-			"config.%s: destination %s is also composed by a selected pack — two writers for one "+
+		if at == nil {
+			at = hostFileIndices(cfg)
+		}
+		where := "config." + hostFilesKey
+		if i, ok := at[e.Path]; ok {
+			where += fmt.Sprintf("[%d]", i)
+		}
+		out = append(out, src.AnnotateOne(fmt.Sprintf(
+			"%s: destination %s is also composed by a selected pack — two writers for one "+
 				"file is refused rather than resolved, because there is no precedence rule that "+
 				"would not silently overwrite one of them. Drop the host_files entry, or deselect "+
 				"the pack that composes that surface",
-			hostFilesKey, pytext.Repr("~/"+e.Path)))
+			where, pytext.Repr("~/"+e.Path))))
+	}
+	return out
+}
+
+// hostFileIndices maps each destination cfg's `host_files` declares to the index of the entry
+// declaring it, for a message that names an entry LoadHostFiles returned by its place in the
+// list. The two halves LoadHostFiles reads agree on that place: the merged list starts with the
+// user scope's, element for element (MergeConfig keeps the base list whole).
+func hostFileIndices(cfg *jsonx.OrderedMap) map[string]int {
+	out := map[string]int{}
+	if cfg == nil {
+		return out
+	}
+	v, present := cfg.Get(hostFilesKey)
+	if !present || v == nil {
+		return out
+	}
+	entries, indices, _ := checkHostFilesIndexed(v, "user", false)
+	for n, e := range entries {
+		out[e.Path] = indices[n]
 	}
 	return out
 }

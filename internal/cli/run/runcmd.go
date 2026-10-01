@@ -153,6 +153,12 @@ type Options struct {
 	// staging; nil in a caller that stages without a config (every such caller is a test),
 	// where only the flags select.
 	stagingCfg *jsonx.OrderedMap
+
+	// configSources is where each value of the config loadAndValidateConfig loaded was
+	// written (config's sources.go), for a refusal later in the launch that names a key of
+	// that config: the host_files two-writers refusal (config.SurfaceCollisions). nil before
+	// the load, and where the config came from no files (the in-jail assembled copy).
+	configSources *config.Sources
 	// launchLock is this launch's hold on the per-workspace launch lock, taken where each
 	// backend first touches what the workspace's launches share and released where it stops
 	// (holdLaunchLock has the window, per backend). nil until then, and in a caller that

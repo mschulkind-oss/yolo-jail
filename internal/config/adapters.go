@@ -62,7 +62,8 @@ func LoadAdapterAddresses(warn Warn) (map[string]string, error) {
 		return nil, nil
 	}
 	out, problems := checkAdapters(v)
-	for _, p := range problems {
+	// Each skipped entry names the file and line it was written at (sources.go).
+	for _, p := range locateInUserScope(problems) {
 		warn(p + " — entry skipped")
 	}
 	return out, nil

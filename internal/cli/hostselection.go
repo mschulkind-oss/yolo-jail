@@ -112,14 +112,18 @@ func (s hostPackSet) problems() []unresolvedPack {
 	if s.loadErr != nil {
 		out = append(out, unresolvedPack{Name: "packs", Reason: s.loadErr.Error()})
 	}
+	// Where each entry was written (config's sources.go): the name is only its place in the
+	// composed list, and the user scope is many files. Read once, and only with a problem.
+	var src *config.Sources
+	if len(s.entryProblems) > 0 {
+		src = config.UserScopeSources()
+	}
 	for _, p := range s.entryProblems {
 		name, reason, found := strings.Cut(p, ": ")
 		if !found {
 			name, reason = "packs", p
 		}
-		// Where the entry was written (config's sources.go): the name is only its place in
-		// the composed list, and the user scope is many files.
-		if where := config.PackEntryLocations(p); len(where) > 0 {
+		if where := src.Locations(name); len(where) > 0 {
 			reason += " (written at " + strings.Join(where, " and at ") + ")"
 		}
 		out = append(out, unresolvedPack{Name: name, Reason: reason})

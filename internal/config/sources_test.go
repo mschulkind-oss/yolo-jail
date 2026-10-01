@@ -9,6 +9,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -244,7 +245,7 @@ func TestPresetNullConflictLeadsWithTheNullsLine(t *testing.T) {
 
 // `packs` problems reach verbs that run no validation (`yolo host`, `yolo pack`): LoadPacks'
 // warning names where the skipped entry was written, and LoadPackEntries' problem keeps the
-// `config.packs[i]: …` shape its callers split, with PackEntryLocations saying where.
+// `config.packs[i]: …` shape its callers split, with the user scope's record saying where.
 func TestPackEntryProblemsNameTheirLine(t *testing.T) {
 	_, dir := sourcesHome(t)
 	write(t, filepath.Join(dir, "config.jsonc"), `{"include_if_found": ["packs.jsonc"]}`)
@@ -263,8 +264,8 @@ func TestPackEntryProblemsNameTheirLine(t *testing.T) {
 	if len(problems) != 1 || !strings.HasPrefix(problems[0], "config.packs[0]: ") {
 		t.Fatalf("LoadPackEntries problems = %q, want the entry's place first", problems)
 	}
-	if got := PackEntryLocations(problems[0]); len(got) != 1 || got[0] != "~/.config/yolo-jail/packs.jsonc:2:3" {
-		t.Errorf("PackEntryLocations = %q", got)
+	if got := UserScopeSources().Locations("config.packs[0]"); len(got) != 1 || got[0] != "~/.config/yolo-jail/packs.jsonc:2:3" {
+		t.Errorf("UserScopeSources().Locations = %q", got)
 	}
 }
 
@@ -355,5 +356,130 @@ func TestMergeWithSourcesIsMergeConfig(t *testing.T) {
 		if got := src.AnnotateOne(path + ": m"); got != want {
 			t.Errorf("located as\n %q\nwant\n %q", got, want)
 		}
+	}
+}
+
+// THE PLAIN READERS' WARNINGS ARE LOCATED TOO. Each of these reads the user scope directly for
+// verbs that run no validation (`yolo host`, `yolo pack`, `yolo check`'s own sections, the
+// launch's staging), and warns about an entry it skips; the entry is written in one of the user
+// scope's files, here an include.
+func TestUserScopeReaderWarningsNameTheirLine(t *testing.T) {
+	home, dir := sourcesHome(t)
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "config.jsonc"), `{"include_if_found": ["more.jsonc"]}`)
+	write(t, filepath.Join(dir, "more.jsonc"), `{
+  "profiles": {"a=b": {}},
+  "adapters": {"x": 5},
+  "host_files": [5],
+  "cache_relocations": {"nix": 5}
+}`)
+	const at = "~/.config/yolo-jail/more.jsonc:"
+	for _, tc := range []struct {
+		name string
+		read func(Warn) error
+		want string
+	}{
+		{"LoadProfiles", func(w Warn) error { _, err := LoadProfiles(w); return err },
+			at + "2:23: config.profiles.a=b: "},
+		{"LoadAdapterAddresses", func(w Warn) error { _, err := LoadAdapterAddresses(w); return err },
+			at + "3:21: config.adapters.x: "},
+		{"LoadHostFiles", func(w Warn) error { _, err := LoadHostFiles(nil, w, false); return err },
+			at + "4:18: config.host_files[0]: "},
+		{"LoadCacheRelocations", func(w Warn) error { _, err := LoadCacheRelocations(w); return err },
+			at + "5:32: config.cache_relocations.nix: "},
+	} {
+		var warned []string
+		if err := tc.read(func(m string) { warned = append(warned, m) }); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if len(warned) != 1 || !strings.HasPrefix(warned[0], tc.want) {
+			t.Errorf("%s warned %q\nwant one warning starting %q", tc.name, warned, tc.want)
+		}
+	}
+}
+
+// A read-write mount refused for its SOURCE names the element, by its index in the merged list,
+// so the location is the element's own line rather than the `mounts` key's in every file
+// writing one.
+func TestRWMountSourceRefusalNamesTheElement(t *testing.T) {
+	home, dir := sourcesHome(t)
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "config.jsonc"), `{"mounts": ["~/data:/ctx/ro"], "include_if_found": ["m.jsonc"]}`)
+	write(t, filepath.Join(dir, "m.jsonc"), "{\"mounts\": [\n  {\"host\": \"~\", \"at\": \"/ctx/home\", \"mode\": \"rw\"}\n]}")
+	errs, _ := locatedErrors(t, t.TempDir())
+	got := line(t, errs, "is refused")
+	if !strings.HasPrefix(got, "~/.config/yolo-jail/m.jsonc:2:3: config.mounts[1]: ") {
+		t.Errorf("the refusal does not name the element's own line:\n%s", got)
+	}
+}
+
+// The host_files two-writers refusal (a launch's, after the packs load) names the colliding
+// entry by its place in the config and leads with the line it is written at.
+func TestSurfaceCollisionNamesTheEntrysLine(t *testing.T) {
+	_, dir := sourcesHome(t)
+	write(t, filepath.Join(dir, "config.jsonc"), `{"include_if_found": ["files.jsonc"]}`)
+	write(t, filepath.Join(dir, "files.jsonc"), `{"host_files": [
+  {"path": "~/.config/a.json", "content": "{}"},
+  {"path": "~/.config/b.json", "content": "{}"}
+]}`)
+	ws := t.TempDir()
+	cfg, src, err := LoadConfigWithSources(ws, true, discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := LoadHostFiles(cfg, discard, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := SurfaceCollisions(entries, []string{"~/.config/b.json"}, cfg, src)
+	want := "~/.config/yolo-jail/files.jsonc:3:3: config.host_files[1]: destination '~/.config/b.json' is also composed"
+	if len(got) != 1 || !strings.HasPrefix(got[0], want) {
+		t.Errorf("got %q\nwant one refusal starting %q", got, want)
+	}
+	if got := SurfaceCollisions(entries, []string{"~/.config/b.json"}, nil, nil); len(got) != 1 ||
+		!strings.HasPrefix(got[0], "config.host_files: destination") {
+		t.Errorf("with no config the key alone leads: %q", got)
+	}
+}
+
+// A WORKSPACE host_files entry is named by its index in the workspace file even where an
+// earlier entry there was refused: the validator used to count only the entries it accepted,
+// so the source-bearing second entry below was reported as [0] — the line of the refused one.
+func TestWorkspaceHostFilesRefusalCountsEveryEntry(t *testing.T) {
+	sourcesHome(t)
+	ws := t.TempDir()
+	p := filepath.Join(ws, WorkspaceConfigName)
+	write(t, p, "{\"host_files\": [\n  5,\n  \"~/.tool.conf\"\n]}")
+	errs, _ := locatedErrors(t, ws)
+	got := line(t, errs, "an entry that names a host source is user-scope only")
+	if !strings.HasPrefix(got, p+":3:3: config.host_files[1]: ") {
+		t.Errorf("the refusal does not name the workspace's second entry:\n%s", got)
+	}
+}
+
+// A READER THAT DOES NOT REPORT KEEPS NO RECORD. LoadConfig and the other plain readers run many
+// times a launch and would discard it, so recording it there is pure cost: the record is built
+// from every value of every file. The plain read must allocate measurably less than the
+// recording one over the same files; with the record kept on both they allocate the same.
+func TestAPlainReadKeepsNoRecord(t *testing.T) {
+	_, dir := sourcesHome(t)
+	var incs []string
+	for i := 0; i < 8; i++ {
+		name := "inc" + strconv.Itoa(i) + ".jsonc"
+		incs = append(incs, strconv.Quote(name))
+		write(t, filepath.Join(dir, name), `{"packages": ["a`+strconv.Itoa(i)+`", "b"], "env": {"A": "1", "B": "2"},
+  "mcp_servers": {"s`+strconv.Itoa(i)+`": {"command": "x", "args": ["1", "2", "3"]}}}`)
+	}
+	write(t, filepath.Join(dir, "config.jsonc"), `{"include_if_found": [`+strings.Join(incs, ", ")+`]}`)
+	ws := t.TempDir()
+	plain := testing.AllocsPerRun(20, func() { _, _ = LoadConfig(ws, true, discard) })
+	recorded := testing.AllocsPerRun(20, func() { _, _, _ = LoadConfigWithSources(ws, true, discard) })
+	if plain >= recorded*0.9 {
+		t.Errorf("LoadConfig allocates %v per read, LoadConfigWithSources %v: the plain read is "+
+			"building the record it discards", plain, recorded)
 	}
 }

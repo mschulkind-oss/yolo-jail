@@ -116,12 +116,12 @@ func ValidateUserLayer(path string) string {
 //
 // The provenance (sources.go) is folded the same way, so a refusal of a key the layer wrote
 // names the layer.
-func applyUserLayer(base *jsonx.OrderedMap, baseNode *srcNode) (*jsonx.OrderedMap, *srcNode) {
+func applyUserLayer(base *jsonx.OrderedMap, baseNode *srcNode, record bool) (*jsonx.OrderedMap, *srcNode) {
 	path := UserLayerPath()
 	if path == "" {
 		return base, baseNode
 	}
-	layer, layerNode, err := loadWithIncludes(path, "--user-layer "+path, false, func(string) {}, nil)
+	layer, layerNode, err := loadWithIncludes(path, "--user-layer "+path, false, func(string) {}, nil, record)
 	if err != nil || layer == nil || layer.Len() == 0 {
 		return base, baseNode
 	}
@@ -147,7 +147,7 @@ func UserScopeConfig(strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 // (sources.go), for a caller that reports validation problems over the user scope.
 func UserScopeConfigWithSources(strict bool, warn Warn) (*jsonx.OrderedMap, *Sources, error) {
 	p := paths.UserConfigPath()
-	m, n, err := loadUserScope(p, p, strict, warn)
+	m, n, err := loadUserScope(p, p, strict, warn, true)
 	return m, sourcesOf(n), err
 }
 
@@ -172,18 +172,19 @@ func UserScopeSources() *Sources {
 // `host_files` and `cache_relocations`. Neither addition is a workspace-reachable channel —
 // one is an argv, the other is a file the HOST generated and mounted :ro.
 func loadUserScopeConfig(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
-	m, _, err := loadUserScope(path, label, strict, warn)
+	m, _, err := loadUserScope(path, label, strict, warn, false)
 	return m, err
 }
 
-// loadUserScope is loadUserScopeConfig with the provenance (sources.go) beside the map.
-func loadUserScope(path, label string, strict bool, warn Warn) (*jsonx.OrderedMap, *srcNode, error) {
-	cfg, node, err := loadWithIncludes(path, label, strict, warn, nil)
+// loadUserScope is loadUserScopeConfig with the provenance (sources.go) beside the map when
+// record is set.
+func loadUserScope(path, label string, strict bool, warn Warn, record bool) (*jsonx.OrderedMap, *srcNode, error) {
+	cfg, node, err := loadWithIncludes(path, label, strict, warn, nil, record)
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg, node = applyInheritedLaunch(cfg, node)
-	cfg, node = applyUserLayer(cfg, node)
+	cfg, node = applyInheritedLaunch(cfg, node, record)
+	cfg, node = applyUserLayer(cfg, node, record)
 	return cfg, node, nil
 }
 
@@ -215,12 +216,12 @@ func InheritedLaunchPath() string {
 // handed down; a jail's own config.jsonc (and any --user-layer on top) is the more local
 // statement and must win — the same direction as user-under-workspace one level up. The
 // provenance (sources.go) is folded the same way, so a refused key the file carries names it.
-func applyInheritedLaunch(base *jsonx.OrderedMap, baseNode *srcNode) (*jsonx.OrderedMap, *srcNode) {
+func applyInheritedLaunch(base *jsonx.OrderedMap, baseNode *srcNode, record bool) (*jsonx.OrderedMap, *srcNode) {
 	path := InheritedLaunchPath()
 	if path == "" {
 		return base, baseNode
 	}
-	inherited, inheritedNode, err := loadJSONCFile(path, "inherited launch config", false, func(string) {})
+	inherited, _, inheritedNode, err := loadJSONCFile(path, "inherited launch config", false, func(string) {}, record)
 	if err != nil || inherited == nil || inherited.Len() == 0 {
 		return base, baseNode
 	}

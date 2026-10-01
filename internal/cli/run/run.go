@@ -1561,7 +1561,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// degrades to the defaults layer, which is the feature working; two writers for one
 	// destination is a config that cannot be satisfied, and picking a winner quietly is how a
 	// working :ro-mounted file gets overwritten.
-	if cols := config.SurfaceCollisions(hostFiles, packSurfacePaths(staged.packs)); len(cols) > 0 {
+	if cols := config.SurfaceCollisions(hostFiles, packSurfacePaths(staged.packs), cfg, o.configSources); len(cols) > 0 {
 		for _, c := range cols {
 			out.printf("[bold red]%s[/bold red]", c)
 		}
