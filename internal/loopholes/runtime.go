@@ -179,7 +179,7 @@ func (sp JailDaemonSpec) ResolvedHostCmd() []string {
 // can still ask what this launch's payload IS. macos-user is that caller: it has no container
 // argv, so until this existed the payload was composed inside runtimeArgsFor and emitted only
 // as `-e YOLO_JAIL_DAEMONS=`, which is a container flag — and a backend with no consumer for
-// it started nothing and said nothing (docs/design/jail-daemon-on-macos-user-plan.md, the
+// it started nothing and said nothing (docs/reference/macos-user-nix-and-features.md, the
 // DEFAULT configuration: packs/claude `needs` both openai-auth and wire-bridge).
 //
 // NO UNGATED PACKAGE-LEVEL TWIN, unlike RuntimeArgsFor and ManifestHostDaemonSpecs. Those

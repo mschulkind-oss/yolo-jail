@@ -72,7 +72,7 @@ Apple Container's disclosure (10,
 `36c47baa`) and host-only import and logout (11, `4de78ac0`, public as `yolo openai-auth` since
 `fafb7493`) shipped. The rest is built, two steps differently from how the original hand-off
 described them. **Read
-[`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) before step 9:**
+the jail-daemon plan (since graduated into [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)) before step 9:**
 it owns the generic in-jail-daemon half of this backend, already records this service's
 dead `127.0.0.1:1460` override as one of its four measured cases, and is blocked on
 [OQ-DP8](declaration-parity.md#OQ-DP8) and [OQ-DP9](declaration-parity.md#OQ-DP9).
@@ -189,7 +189,7 @@ prove it — read *Instruments* below before believing a green.
    [HS-D15](host-notch-services.md#HS-D15); passing on the hosted Mac nightly since 2026-09-30.
    **`macos-user` Codex refresh consumer.** Two routes, and the choice is a ruling — see
    Blockers. **(a)** Wait for
-   [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) steps 3 and 4,
+   the jail-daemon plan's steps 3 and 4 (since built: [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)),
    which start the declared `yolo-jaild openai-auth-adapter` natively; both are blocked.
    **(b)** Give this one service a launch-owned adapter instead: `net.Listen` on
    `127.0.0.1:0` beside `startLoopholesDisclosed`, carry its URL into the sandbox env so it
@@ -291,7 +291,7 @@ prove it — read *Instruments* below before believing a green.
   real gap is the third concurrent login, and it is a port-allocation question.
 - Don't try to start `yolo-jaild` natively yourself: it is not built for darwin and
   `macosuser.StageBinaryCommands` stages `yolo` alone. Resolving that is
-  [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md)'s step 3, not
+  the jail-daemon plan's step 3 (since built: [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)), not
   this one's.
 - Don't reach for `Session.JailID` to identify a host caller. See Traps.
 - Don't widen `state_files`, and don't make it empty.
@@ -303,7 +303,7 @@ prove it — read *Instruments* below before believing a green.
 - **Ruled 2026-09-29: route (b)** ([OQ-OA6](openai-auth-broker.md#OQ-OA6)), and built. As it
   stood: **stop and ask: route (a) or (b) for step 9** — filed as [OQ-OA6](openai-auth-broker.md#OQ-OA6). Route (b) is the cheaper path and un-blocks
   this service from the two rulings
-  [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md) is waiting on
+  the jail-daemon plan was waiting on
   ([OQ-DP8](declaration-parity.md#OQ-DP8), [OQ-DP9](declaration-parity.md#OQ-DP9)) —
   and it is consistent with what already ships, since the loopback-TLS front itself runs
   unconfined in the launcher process on this backend. But it is a second mechanism for one

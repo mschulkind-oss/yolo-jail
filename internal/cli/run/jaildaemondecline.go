@@ -2,7 +2,7 @@ package run
 
 // jaildaemondecline.go is the macos-user arm's TRUTHFUL DECLINE for the jail daemons its
 // Seatbelt guest does NOT run: one line per declined daemon, naming it, its argv and why
-// (docs/design/jail-daemon-on-macos-user-plan.md step 2; shape (a) of
+// (docs/reference/macos-user-nix-and-features.md; shape (a) of
 // docs/design/declaration-parity.md's OQ-DP5 — a coded decline, NOT a warning).
 //
 // # What changed with OQ-DP8 and OQ-DP9

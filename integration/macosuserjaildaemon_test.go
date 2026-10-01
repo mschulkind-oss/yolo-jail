@@ -14,8 +14,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/supervisor"
 )
 
-// TestMacosUserJailDaemonRunsConfinedInTheGuest is steps 3 and 4 of
-// docs/design/jail-daemon-on-macos-user-plan.md on the hardware, built on OQ-DP8 and OQ-DP9 of
+// TestMacosUserJailDaemonRunsConfinedInTheGuest is the jail-daemon section of
+// docs/reference/macos-user-nix-and-features.md on the hardware, built on OQ-DP8 and OQ-DP9 of
 // docs/design/declaration-parity.md: a loophole's jail daemon, and the macos-user launch must
 // stage a DARWIN yolo-jaild into the sandbox's own prefix, start `yolo-jaild supervise` under the
 // session's Seatbelt profile as the sandbox account, and have the daemon bind — then leave no

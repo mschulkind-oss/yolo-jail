@@ -9,13 +9,21 @@ covers:
   - internal/entrypoint/darwinoverlay.go
   - internal/cli/run/macoshomeoverlay.go
   - internal/cli/run/loopholeinert.go
+  - internal/cli/run/jaildaemondecline.go
+  - internal/loopholes/guestrun.go
+  - internal/supervisor/supervisorcmd.go
+  - integration/macosuserjaildaemon_test.go
 tags: [macos-user, seatbelt, nix, darwin, backend-parity, packages]
 summary: "The macos-user backend as built: nix materializing packages: natively into a buildEnv profile, the native bootstrap running the same pure generators the container boot runs, and the surface that is off — grouped by whether it is structurally impossible, absent-but-warned, or fixed. Includes the two permanent differences of a copied home overlay versus a bind mount, and the refusals (rlimits for `resources`, per-workspace homes) that are terminal answers rather than pending gaps."
 ---
 
 # macos-user — native nix, and the surface a container would have given you
 
-**Status:** CURRENT as of 2026-09-09, verified against `d14bdab7`.
+**Status:** verified 2026-09-09 against `d14bdab7`. The
+[jail-daemon section](#the-jail-daemons-run-in-the-sandbox) and its rows in
+[Why it's this way](#why-its-this-way) were rewritten against `d4e435a3` on 2026-10-01, when the
+plan that built them (`jail-daemon-on-macos-user-plan.md`) graduated into them; the rest was not
+re-verified then.
 
 `macos-user` runs the agent as a **real macOS process** — the hidden `_yolojail` account,
 confined by an Apple Seatbelt profile — with **no container, no VM and no OCI image**. nix's
@@ -36,6 +44,7 @@ implemented as a container flag or a bind mount has no host to attach to.
 | The native bootstrap, and the home-overlay install | `internal/entrypoint` (`RunDarwinBootstrap`, `DarwinEnvFrom`, `InstallHomeOverlay`) |
 | Host-side composition of the delivered content tree | `internal/cli/run` (`buildMacosHomeOverlay`) |
 | The inert-feature reports | `internal/cli/run` (`loopholeinert.go`), `internal/macosuser` (`orchestrator.go`) |
+| The jail daemons: which the sandbox runs, their supervisor's argv, env file, start and stop | `internal/loopholes` (`JailDaemonsRunIn`), `internal/cli/run` (`jailDaemonsFor`, `jaildaemondecline.go`), `internal/macosuser` (`jaildaemon.go`: `GuestBinaries`, `GuestBinDir`, `startJailDaemons`; `RunPlan.JailDaemonArgv`) |
 
 **Reads with:** [`nix-across-backends.md`](nix-across-backends.md) (the same split from nix's
 side), [`../design/backend-parity.md`](../design/backend-parity.md) (the sweep this backend's
@@ -323,28 +332,92 @@ this backend runs them the way a container does, in the sandbox:
 - **Their addresses.** The sandbox shares the Mac's loopback, so each daemon's declared port is
   replaced by one the launch picks, and the pointer its clients get (codex's refresh URL, the
   `bedrock` credential URI) names the same port.
-- **What is declined, by name.** Three shapes, one `Declined:` line each with the reason: an
-  intercepting loophole's daemon (the Claude OAuth terminator needs a container's `--add-host`
-  and port 443), a pack service's (its host half runs instead, as a launch-owned child), and a
-  command naming the container's loophole folder `/etc/yolo-jail/loopholes`.
+- **What is declined, by name.** One `Declined:` header, then each declined daemon on its own
+  line with its reason (`loopholes.JailDaemonsRunIn`, the one split the launch's served set,
+  `yolo check`'s prediction and the decline printer all read; [JD-3](#jd-3)). Four shapes are
+  declined:
+  - an **intercepting** loophole's daemon (the Claude OAuth terminator), which needs a
+    container's `--add-host` and port 443 ([below](#the-oauth-terminator-stays-declined));
+  - a **pack service's** daemon (the wire bridge), whose host half runs instead, as a
+    launch-owned child ([JD-4](../design/jail-daemon-on-macos-user-plan.md#JD-4) is a
+    maintainer follow-up on whether that should change);
+  - a **doorway**: a daemon that also declares a host argv (`jail_daemon.host_cmd`), which opens
+    outside the sandbox for this launch instead, as a listener the launch owns on the Mac's
+    loopback the agent shares ([HS-D15](../design/host-notch-services.md#HS-D15)). Both shipped
+    credential adapters, the OpenAI refresh adapter and the AWS credential adapter, are doorways
+    since 2026-09-29, so no shipped pack hands the sandbox a daemon today, and the supervisor
+    runs only for a pack that declares a jail daemon without a host argv;
+  - a command naming a path that exists only in a container: the loophole folder
+    `{jail_loophole_dir}` resolves to, or a jail binary's container path. The argv is left as
+    declared rather than rewritten ([OQ-DP8](../design/declaration-parity.md#OQ-DP8)), so
+    `hello-daemon` is declined.
+
+**Starting and stopping the supervisor.** The launch starts it with `sudo -n`, which fails rather
+than prompting beside the agent's terminal, in a process group of its own, and stops it with
+SIGTERM, a grace period longer than the supervisor's own SIGTERM-to-SIGKILL wait, then SIGKILL;
+`sudo` relays the SIGTERM ([JD-6](#jd-6)). The supervisor writes one readiness line before it
+starts anything, and its own stdout and stderr go to `supervisor.log` beside its daemons' logs,
+written by a `/bin/sh` wrapper inside the Seatbelt profile as the sandbox account and readable by
+the host user through the workspace's inherited ACEs ([JD-8](#jd-8)). The launch waits a short
+bound for that line in the part of the log this start added:
+
+- the line appears: the launch prints one line naming the daemons it started. That line is a
+  disclosure, printed on every launch;
+- the supervisor exits first: the launch **refuses**, quoting the log's new lines and whatever
+  `sudo` or `sandbox-exec` printed before the log took over, because the served set already
+  pointed this launch's agents at those daemons' addresses;
+- the bound passes with the supervisor still running and silent: the launch says it is
+  unconfirmed and goes on, since a timer of yolo's is no reason to refuse a slow Mac.
 
 **The boundary is the token files.** There is no network isolation here, so a caller proves it
 belongs to this launch with the launch's per-launch caller token
 ([NC-D2](../plans/notch-convergence.md#7-decision-ledger)). The supervisor reads every token its
 daemons demand from its own file, `/var/yolo-jail/env/<session>.daemons.env`: root-owned, mode
 `0600`, in a `0700` directory, with one `user:_yolojail` ACE granting read (and search on the
-directory). Not a `group:` ACE, because the `_yolojail` group holds the host user too. The host
-services' endpoint files are the same shape: `0600` in a `0700` directory, one `user:` read ACE.
-A scoped token (`aws-auth`'s) is exported only in that daemon file and in the environment of an
-agent whose profile selects `bedrock`.
+directory), installed like the session's env file and swept after the supervisor stops
+([JD-5](#jd-5)). Not a `group:` ACE, because the `_yolojail` group holds the host user too. The
+host services' endpoint files are the same shape: `0600` in a `0700` directory, one `user:` read
+ACE. A scoped token (`aws-auth`'s) is exported only in that daemon file and in the environment
+of an agent whose profile selects `bedrock`.
+
+**MEASURED** on a Mac: `TestMacosUserJailDaemonRunsConfinedInTheGuest`
+(`integration/macosuserjaildaemon_test.go`), recorded as passing in the `macos-user.yml` run
+36719581090 of 2026-09-30, at `8f7468dd`. Its subject is a local pack's copy of the OpenAI
+refresh adapter less its host argv, since no shipped pack hands the sandbox a daemon. It settles
+that the Linux-built darwin `yolo-jaild` execs from `/var/yolo-jail/bin`, that `sandbox-exec`
+admits the supervisor and the daemon it starts, that the daemon reads its `0600` env file through
+the `user:` ACE, that the host user reads `supervisor.log` and finds the readiness line, and that
+no supervisor outlives the session. **UNMEASURED:** two concurrent launches of one workspace
+(the per-launch address pick, [JD-7](#jd-7)), how long the start takes against the readiness
+bound, and what a real `sudo -n` refusal or `sandbox-exec` denial prints.
+
+<a id="the-oauth-terminator-stays-declined"></a>
 
 > [!WARNING]
-> **None of this has run on a Mac.** The argvs, the ACE commands and the ordering are pinned by
-> unit tests on Linux. What only a Mac settles: that `sandbox-exec` admits the supervisor and the
-> daemons it starts, that a darwin `yolo-jaild` built on Linux is signed well enough to exec,
-> that the `user:` ACE really lets `_yolojail` read the `0600` file (and nothing else can), that
-> `sudo -n` relays the stop's `SIGTERM`, and that no supervisor outlives the session.
-> `TestMacosUserJailDaemonRunsConfinedInTheGuest` is the test that settles them.
+> **Do not start the OAuth terminator on this backend, and do not file it as deferred work.**
+> Its default port, 443, is unprivileged only because a container runs as UID 0, and the
+> sandbox account cannot bind it; its interception needs the `--add-host` a backend with no
+> container cannot emit, so nothing would reach a running terminator anyway. The more useful
+> reason is that it may not need to exist on any backend: it serves only the OAuth broker, and
+> the broker exists only because the credential file is shared across jails while the vendor's
+> refresh lock is not. If [`OQ-CI1`](claude-oauth-interposition.md#oq-ci1) is ruled against
+> sharing, the terminator goes everywhere, with the `/etc/hosts` pin and the CA.
+
+> [!WARNING]
+> **Do not hand the payload to the bootstrap.** Setting `YOLO_JAIL_DAEMONS` in the bootstrap's
+> environment would start the supervisor unconfined and orphaned: the bootstrap argv has no
+> `sandbox-exec`, and the bootstrap is a one-shot process that exits. The payload is composed
+> once, above the backend dispatch (`jailDaemonsFor`, over `loopholes.Set.JailDaemons`), and has
+> one writer per backend: a second `-e` line on a container would make the winner depend on
+> duplicate-flag resolution. Do not move the composition back into the container argv
+> assembler either. That is where it was until 2026-09-18, and this backend, which never reaches
+> the assembler, then neither started nor named the jail daemons a bare `"packs": ["claude"]`
+> selects, which was the default configuration.
+
+> [!WARNING]
+> **A symlink cannot stand in for `yolo-jaild`.** Both binaries dispatch on plain `args[0]`,
+> never on `argv[0]`, so `yolo-jaild supervise` through a symlink to `yolo` reaches
+> `yolo supervise`, which is not a command. That is why the guest set is a real darwin build.
 
 ### Content delivery is a copy, not a mount
 
@@ -655,6 +728,11 @@ only place the values themselves are stated.
 | Process visibility | allowed wholesale | `macosuser.SeatbeltProfile` |
 | The narrower capture profile | drops the workspace and the sandbox home from the write set | `macosuser.SeatbeltCaptureProfile` |
 | Host nix daemon opt-in (container backends only) | `YOLO_NIX_HOST_DAEMON` | `internal/cli/run/hostprobes.go` |
+| The guest prefix, holding the staged `yolo` and the darwin in-jail set (verified at `d4e435a3`) | `/var/yolo-jail/bin`, root-owned; the set is `yolo-jaild` | `macosuser.GuestBinDir`, `macosuser.GuestBinaries`; `flake.nix` `guestBinaries`; `stage-source-bundle.sh` `GUEST_BINARIES` |
+| The supervisor's env file (verified at `d4e435a3`) | `/var/yolo-jail/env/<session>.daemons.env`, `0600` in a `0700` directory, one `user:_yolojail` read ACE | `macosuser.SandboxDaemonEnvFile` |
+| The supervisor's own log (verified at `d4e435a3`) | `<workspace>/.yolo/home/local/state/yolo-jail-daemons/supervisor.log`, `~/.local/state/yolo-jail-daemons` in the sandbox | `macosuser.SupervisorLogName`, `SupervisorLogPath` |
+| The supervisor's readiness line, and the launch's wait for it (verified at `d4e435a3`) | `yolo-jaild supervise: supervising <names>`; 1.5 s | `supervisor.StartedLinePrefix`; `macosuser.supervisorReadyBound` |
+| The supervisor's stop (verified at `d4e435a3`) | SIGTERM to its process group, 10 s, then SIGKILL | `macosuser.jailDaemonStopGrace` (`real.go`) |
 | The sandbox's `nix` (added after the verified commit) | the host client's resolved store `bin` dir, after the floor's; delivered only with a daemon socket at `/nix/var/nix/daemon-socket/socket`; plus `NIX_REMOTE=daemon` (unless the user set it) and `NIX_CONFIG=extra-experimental-features = nix-command flakes` (appended to a user's `NIX_CONFIG` that names no features) | `macosuser.resolveHostNix`, `hostNixEnv`, `withHostNixEnv` (`hostnix.go`); `BuildRunPlan` |
 
 > [!NOTE]
@@ -684,5 +762,12 @@ drifts from its owner is worse than no mirror.
 | `A2` | A declared package with no darwin build is **fatal**, raised host-side after a green eval | The old warn-and-skip masked a typo and a genuinely-unavailable package with one message, and either way the jail started without a tool the user declared. Erroring inside the eval was the objection; erroring after it keeps nix green and lets the CLI decide. |
 | `A3` | The relocatable-shared-root config key is **not implemented**, and the plan-invariant message no longer advertises it | The default is the OS-blessed neutral location and satisfies the requirement. A knob that names nothing is worse than no knob, and implementing it needs agreement at two separate places. |
 | `#39` mirror | Per-workspace **homes** are refused; the per-workspace **tier** is a symlink layout ([`OQ-HT4`](macos-user-home-tiers.md#oq-ht4)) | `HOME` never moves, so the declared `scope: machine` directory never moves either and the `shared_credentials` hook's output is byte-identical here. Each `scope: workspace` directory is a symlink into `<workspace>/.yolo/home` — the same sidecar podman binds — so both tiers are restored explicitly, which is what the refusal always asked for. |
+| <a id="jd-1"></a>`JD-1` | **The guest set is `yolo-jaild` alone**, one list in three spellings that tests pin together | It is the supervisor and every in-jail daemon. `yolo` is staged from the running host binary, the bootstrap is `yolo internal darwin-bootstrap` rather than `yolo-entrypoint`, and the four loophole clients belong to Linux-only loopholes. Adding a binary to one spelling and not the others ships a guest that cannot run what it declares. |
+| <a id="jd-2"></a>`JD-2` | **The guest prefix is `/var/yolo-jail/bin`, and the staged `yolo` lives in it too** | `SandboxPath` derives its one entry from the staged `yolo`'s directory, so both names resolve and no PATH list is reordered. A checkout builds `.#guestPrefix` only when the launch has a daemon to run, and a failed build refuses the launch rather than starting a jail whose daemons cannot start. |
+| <a id="jd-3"></a>`JD-3` | **What the guest declines is one split, `loopholes.JailDaemonsRunIn`**, read by the served set, `yolo check`'s prediction and the decline printer | Three readers with their own copies of the rule would disagree about which daemons a launch runs, and the served set would point an agent at an address nothing serves. The split keys on manifest facts (an intercept list, a service, a host argv, a container path), never on a daemon's name. |
+| <a id="jd-5"></a>`JD-5` | **The supervisor reads an env file of its own**, separate from the agent's session file, and swept after the supervisor stops | It carries the payload, the shared channel values, and every caller token its daemons demand, a scoped one included, since no agent reads this file. Folding it into the session file would hand every agent the scoped tokens. |
+| <a id="jd-6"></a>`JD-6` | **The supervisor starts after the provisioning stage and before the agent, under `sudo -n`, in its own process group, and stops after the agent** | `sudo -n` fails rather than prompting beside the agent's terminal. Killing the group, as container teardown does, is what leaves no daemon behind; the grace is longer than the supervisor's own wait so it can stop its children first. |
+| <a id="jd-7"></a>`JD-7` | **macos-user picks served addresses** for the daemons it runs | The sandbox shares the Mac's loopback, so a declared port is the machine's real one and two concurrent launches of one workspace would collide on it. |
+| <a id="jd-8"></a>`JD-8` | **The supervisor's stdout and stderr go to `supervisor.log`, and the launch says it started the daemons only after this start's readiness line** | With both on `/dev/null`, a `sudo -n` refusal, a `sandbox-exec` denial or an exec failure left no trace while the launch still printed that it started them. The log is appended, not truncated, and the per-workspace launch lock covers the start, so the launch reads only the bytes this start added. Every failure the bound exists for exits within milliseconds, so the bound only limits a start that is alive and silent, and that case continues rather than refusing. |
 | [`OQ-BP-2`](../design/backend-parity.md#decision-ledger) | Briefings and skills **are delivered**, composed above the dispatch and copied into the sandbox home | Answered by code. The part of the leaning that did **not** hold is the hardware half: it asked to land with a Mac session, and it landed without one — so the ruling is answered and the verification is still owed. |
 | [`OQ-BP-3`](../design/backend-parity.md#decision-ledger) | Whether a warned disposition needs suppressing is owned there, not here | Several launch warnings exist now, most of them on this backend. A warning people learn to skip is worse than none, which is why the question is real — and why answering it per-backend rather than per-key would be the wrong shape. |

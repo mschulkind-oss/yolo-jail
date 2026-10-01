@@ -16,7 +16,7 @@ import (
 // It is the supervisor's readiness line, and the macos-user launcher is its reader: there the
 // guest's supervisor sends its stdout and stderr to supervisor.log beside the daemons' own logs,
 // and the launch prints "Started …" only once this line has appeared in it
-// (internal/macosuser's startJailDaemons; jail-daemon-on-macos-user-plan.md JD-8). Reaching it
+// (internal/macosuser's startJailDaemons; macos-user-nix-and-features.md JD-8). Reaching it
 // proves every layer in front of the supervisor let it run — sudo, sandbox-exec, the env-file
 // reader and the exec of this binary. In a container the supervisor's stderr is /dev/null
 // (internal/entrypoint's startJailDaemonSupervisor), so the line changes nothing there.

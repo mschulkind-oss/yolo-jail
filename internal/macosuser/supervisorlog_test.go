@@ -1,6 +1,6 @@
 package macosuser
 
-// supervisorlog_test.go pins JD-8 (jail-daemon-on-macos-user-plan.md): the guest's supervisor
+// supervisorlog_test.go pins JD-8 (macos-user-nix-and-features.md): the guest's supervisor
 // sends its own stdout and stderr to supervisor.log beside the daemons' logs, and the launch
 // prints "Started …" only once the supervisor's readiness line is in that log — a supervisor
 // that exits first refuses the launch naming the log and its last lines, and one still silent

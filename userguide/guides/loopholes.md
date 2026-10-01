@@ -67,9 +67,11 @@ Loopholes work fully on Podman on Linux. On a Mac they depend on the runtime:
   end on a Mac.
 - **Apple Container:** none work yet. A jail on Apple Container cannot connect back to the Mac, so
   the launch lists each loophole it had to skip. This includes the shared Claude and ChatGPT logins.
-- **`macos-user`:** the host services start, and the half that must run inside the sandbox runs
-  there, confined like the agent, so the ChatGPT login service and Bedrock (`aws-auth`) work. The
-  shared Claude login does not: its in-jail half needs a container, and the launch says so.
+- **`macos-user`:** the host services start, and the ChatGPT login service and Bedrock
+  (`aws-auth`) work: the piece the agent talks to runs beside the launch, outside the sandbox, on
+  the Mac's own loopback, which the agent shares. A pack's own in-jail helper runs inside the
+  sandbox, confined like the agent. The shared Claude login does not work: its in-jail half needs
+  a container, and the launch says so.
 - **`yolo host`, with no jail:** Bedrock through `aws-auth` works too. `yolo host -- pi` (or any
   agent on a Bedrock profile) runs the credential helper for that one command, on your machine's
   own loopback, and stops it when the agent exits. A profile in your `~/.aws` that holds

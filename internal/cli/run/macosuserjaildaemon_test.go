@@ -1,8 +1,8 @@
 package run
 
 // macosuserjaildaemon_test.go pins the macos-user arm's half of the jail-daemon lifecycle since
-// OQ-DP8 and OQ-DP9 (docs/design/declaration-parity.md, ruled 2026-09-28; built as steps 3 and 4
-// of docs/design/jail-daemon-on-macos-user-plan.md): the daemons the Seatbelt guest RUNS are
+// OQ-DP8 and OQ-DP9 (docs/design/declaration-parity.md, ruled 2026-09-28; described in the
+// jail-daemon section of docs/reference/macos-user-nix-and-features.md): the daemons the Seatbelt guest RUNS are
 // handed to its supervisor (MacosUserRun's JailDaemons), with the declared argv verbatim, their
 // caller tokens and endpoints; and the ones it does not run are declined BY NAME, with a reason.
 //

@@ -275,7 +275,7 @@ bodies, authorization codes, PKCE verifiers, or callback query strings.
    `CODEX_REFRESH_TOKEN_URL_OVERRIDE` reaches the sandbox pointing at a port nothing binds: a
    session works until its first access token expires, then every refresh fails. The two ways
    out are route (a), wait for
-   [`jail-daemon-on-macos-user-plan.md`](jail-daemon-on-macos-user-plan.md)'s steps 3 and 4,
+   the jail-daemon plan's steps 3 and 4 (since built: [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)),
    which are blocked on [OQ-DP8](declaration-parity.md#OQ-DP8) and
    [OQ-DP9](declaration-parity.md#OQ-DP9) (both still open 2026-09-24), and route (b), give this one service a
    launch-owned adapter on `127.0.0.1:0` beside the host services, carry its URL into the

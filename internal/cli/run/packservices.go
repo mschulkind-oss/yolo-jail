@@ -90,7 +90,7 @@ func serviceJailDaemons(packs []*packload.Pack) []loopholes.JailDaemonSpec {
 // loopholesRuntimeArgs — that is, inside container-argv assembly — and emitted
 // only as `-e YOLO_JAIL_DAEMONS=`, so on macos-user it was never composed at
 // all: two daemons selected by a bare `"packs": ["claude"]`, neither started,
-// nothing said (docs/design/jail-daemon-on-macos-user-plan.md). Hoisting it
+// nothing said (docs/reference/macos-user-nix-and-features.md). Hoisting it
 // gives the native arm something to decline BY NAME and leaves the container
 // arm reading the same value rather than a second composition of it.
 //

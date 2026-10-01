@@ -42,7 +42,7 @@ type assembleInput struct {
 	// It is INPUT for the reason storePackages and cacheRelocations are: the answer
 	// belongs to the launch rather than to the argv, and one other consumer needs it
 	// — the macos-user arm, which has no argv at all and must decline each entry by
-	// name (docs/design/jail-daemon-on-macos-user-plan.md). Composing it here as
+	// name (docs/reference/macos-user-nix-and-features.md). Composing it here as
 	// well would give one launch two payloads that agree only by both call sites
 	// passing the same arguments.
 	//

@@ -3,7 +3,7 @@ package macosuser
 // jaildaemon.go is the GUEST HALF of the loophole lifecycle on this backend: the in-jail
 // binaries a declared `jail_daemon.cmd` names, staged into the sandbox's own prefix, and the
 // one supervisor that runs the declared daemons inside the Seatbelt profile
-// (docs/design/jail-daemon-on-macos-user-plan.md steps 3 and 4).
+// (docs/reference/macos-user-nix-and-features.md, "The jail daemons run in the sandbox").
 //
 // # The two rulings this builds (docs/design/declaration-parity.md, 2026-09-28)
 //
@@ -298,7 +298,7 @@ type Background struct {
 // milliseconds at worst — each exec of the freshly staged binary is a new inode, so its code
 // signature is checked afresh) and low enough that a slow Mac costs a launch under two seconds
 // rather than a refusal. How long the chain really takes is a Mac measurement
-// (jail-daemon-on-macos-user-plan.md's verification split, JD-8).
+// (UNMEASURED in macos-user-nix-and-features.md's jail-daemon section; JD-8).
 var supervisorReadyBound = 1500 * time.Millisecond
 
 // supervisorReadyPoll is how often the wait re-reads the log.

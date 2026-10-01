@@ -57,7 +57,7 @@ func JailDaemonsRunIn(rt string, specs []JailDaemonSpec) ([]JailDaemonSpec, []De
 //     guest shares the Mac's resolver and cannot pin a name, and the terminator's default
 //     port, 443, is privileged for the sandbox account. Keyed on the intercept list, the
 //     same fact admitsJailSideEffects skips Apple Container on — not on a name.
-//     jail-daemon-on-macos-user-plan.md §Don't rules it declined for good.
+//     docs/reference/macos-user-nix-and-features.md keeps it declined for good.
 //   - A PACK SERVICE's daemon (the wire bridge). A pack service reaches this backend through
 //     its host half, launch-owned, started when a profiled agent's pairing needs it
 //     (docs/plans/notch-convergence.md OQ-NC1 A, NC-D65; internal/cli/run's

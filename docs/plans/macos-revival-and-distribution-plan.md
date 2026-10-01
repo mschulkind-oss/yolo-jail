@@ -15,8 +15,8 @@ both halves**: the host half on 2026-09-17/18 (this backend starts every admitte
 through the same `startLoopholesDisclosed` a container launch uses), and the jail half on
 2026-09-28 (`068f8fe2`) on the rulings of
 [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) and
-[`OQ-DP9`](../design/declaration-parity.md#OQ-DP9), tracked by
-[`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md). **Track L
+[`OQ-DP9`](../design/declaration-parity.md#OQ-DP9), described in
+[`macos-user-nix-and-features.md`'s jail-daemon section](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox). **Track L
 part 2**, the GitHub access-scoping proxy, is now
 [`boundary-broker.md`](../design/boundary-broker.md)'s design, which answers
 [OQ-L1](#open-questions-blocking). One question here is live,
@@ -154,7 +154,7 @@ reading code or `git log`; nothing here is carried over on trust.
 | A1 (config-diff on macos-user) | **DONE 2026-08-18, by the rejected alternative** | `bb825486`, `fb19e8ed`; `internal/cli/run/run.go` |
 | A2 (hard error + `linux-only`) | **DONE 2026-09-04** | both pieces shipped: `platforms: ["linux"]` on the package object form filters in `EffectivePackages(cfg, platform)` BEFORE materialize, and a declared package still missing from the build aborts the launch naming every one at once (`internal/macosuser/orchestrator.go`). The plan's `linux-only` spelling became `platforms`, a list — see A2 below |
 | A3 (drop `macos_shared_root`) | **DONE 2026-07-23** | `68026c61`; `rg macos_shared_root internal/` is empty; message at `internal/macosuser/runplan.go` |
-| Track L part 1 (framework plumbing) | **BOTH HALVES DONE** — host half 2026-09-17; jail half 2026-09-28 (`068f8fe2`, checked 2026-09-30), on the rulings of [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) + [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9). The rest of this row is the 2026-09-24 record | `6d118252` (2026-09-15) started the openai-auth broker alone; `c28bfde7` (2026-09-17) replaced that one-name allow-list with the same `startLoopholesDisclosed` path a container launch takes, so the arm starts **every** admitted host daemon, discloses it, and `macosuser.BuildRunPlan` stages `macosuser.EndpointGrantCommands` for each published endpoint ([`OQ-BP-5`](../design/backend-parity.md#OQ-BP-5) answered in code). `f6387968` (2026-09-18) made the jail half SAY it does not run — one `Declined:` line per `jail_daemon`. What is unbuilt is running a jail daemon natively: [`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md) steps 3 and 4 |
+| Track L part 1 (framework plumbing) | **BOTH HALVES DONE** — host half 2026-09-17; jail half 2026-09-28 (`068f8fe2`, checked 2026-09-30), on the rulings of [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) + [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9). The rest of this row is the 2026-09-24 record | `6d118252` (2026-09-15) started the openai-auth broker alone; `c28bfde7` (2026-09-17) replaced that one-name allow-list with the same `startLoopholesDisclosed` path a container launch takes, so the arm starts **every** admitted host daemon, discloses it, and `macosuser.BuildRunPlan` stages `macosuser.EndpointGrantCommands` for each published endpoint ([`OQ-BP-5`](../design/backend-parity.md#OQ-BP-5) answered in code). `f6387968` (2026-09-18) made the jail half SAY it does not run — one `Declined:` line per `jail_daemon`. What was unbuilt then is running a jail daemon natively: the jail-daemon plan's steps 3 and 4, built 2026-09-28 and described in [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox) |
 | Track L part 2 (scoping proxy) | **MOVED to [`boundary-broker.md`](../design/boundary-broker.md)** (checked 2026-09-30) | its step 1 (reads, the repository scope, the audit log) is built in `internal/ghbroker`; [OQ-L1](#open-questions-blocking) is answered there |
 | check's python3 probe | **DELETED 2026-09-03** | it hard-FAILed a python-less Mac for a requirement J2 dropped on 2026-07-21 (`544a8069`); `internal/cli/check/sections_macos.go` |
 | macos-user repo-root gate for `packages:` | **FIXED 2026-09-03** | an unresolved root reached `darwinpkg.Materialize("")` → empty `cmd.Dir` → nix evaluated the user's cwd; `internal/cli/run/run.go`, `internal/darwinpkg/materialize.go` |
@@ -861,8 +861,8 @@ The bullets below are the original plan; see that runbook for what actually ran.
 > takes the whole pack set, reporting only the PLATFORM-inert loopholes. What part 1 still owes
 > is the JAIL half: every shipped `jail_daemon` is declined by name
 > (`run.noteMacosUserJailDaemonDeclines`), and starting one natively is
-> [`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md)'s steps 3
-> and 4, blocked on [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) (how the argv resolves with
+> the jail-daemon plan's steps 3 and 4 (since built: [`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)),
+> blocked then on [`OQ-DP8`](../design/declaration-parity.md#OQ-DP8) (how the argv resolves with
 > no image) and [`OQ-DP9`](../design/declaration-parity.md#OQ-DP9) (whether it runs confined).
 
 > [!WARNING]
@@ -1148,7 +1148,7 @@ MOVED:           Track L part 2 (the scoping proxy) — now docs/design/boundary
 **No engineering item is live** (checked 2026-09-30). Until 2026-09-28 the one live item was
 Track L part 1's jail half — running a `jail_daemon` on the macos-user launch path — which
 shipped that day; see
-[`jail-daemon-on-macos-user-plan.md`](../design/jail-daemon-on-macos-user-plan.md). *(This line named A2's second half until
+[`macos-user-nix-and-features.md`'s jail-daemon section](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox). *(This line named A2's second half until
 2026-09-10, which A2 shipping on 2026-09-04 made wrong — see the note under the
 status header.)* A2 still carries a Track M checklist line: confirm the hard error
 fires live on a genuinely darwin-less package, never exercised on M1 and not covered

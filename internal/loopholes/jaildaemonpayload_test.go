@@ -7,8 +7,8 @@ package loopholes
 // only as `-e YOLO_JAIL_DAEMONS=`, which is a container flag. A backend with no container
 // argv therefore never composed it at all: on macos-user a bare `"packs": ["claude"]` selects
 // two jail daemons (openai-auth's adapter and wire-bridge's, both by unconditional `needs`)
-// and started neither, silently — docs/design/jail-daemon-on-macos-user-plan.md's measured
-// default. Set.JailDaemons is the seam that gives such a backend the same value to read.
+// and started neither, silently — the default the
+// jail-daemon section of docs/reference/macos-user-nix-and-features.md records. Set.JailDaemons is the seam that gives such a backend the same value to read.
 //
 // WHAT THIS FILE IS FOR IS THE EXTRACTION'S ONE RISK: that the argv moved. So the whole argv
 // is pinned byte for byte (paths normalized), and the two spellings — compose-inside

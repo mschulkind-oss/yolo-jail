@@ -2,7 +2,7 @@ package run
 
 // macosuserguestdaemons.go composes what the macos-user arm hands its Seatbelt guest's
 // jail-daemon supervisor (internal/macosuser's jaildaemon.go;
-// docs/design/jail-daemon-on-macos-user-plan.md steps 3 and 4, built on OQ-DP8 and OQ-DP9 of
+// docs/reference/macos-user-nix-and-features.md, built on OQ-DP8 and OQ-DP9 of
 // docs/design/declaration-parity.md).
 //
 // # Two vehicles, and why the daemons get their own

@@ -354,7 +354,7 @@ func Run(opts Options) (rc int) {
 	// them: it was composed INSIDE the container argv assembler, which this dispatch's
 	// native arm returns before reaching.
 	//
-	// What that cost is stated in docs/design/jail-daemon-on-macos-user-plan.md and it is
+	// What that cost is stated in docs/reference/macos-user-nix-and-features.md and it is
 	// the DEFAULT configuration rather than an edge case: `packs/claude` `needs` both
 	// `openai-auth` and `wire-bridge` unconditionally, so a bare `"packs": ["claude"]`
 	// selects two jail daemons, and on macos-user the payload naming them was never

@@ -258,7 +258,7 @@ func isDigits(s string) bool {
 // startBackgroundReal starts argv as the jail-daemon supervisor's launcher: no terminal
 // (stdin /dev/null; stdout and stderr one bounded in-memory capture, never the terminal, since
 // this runs beside the agent's TTY proxy), in a PROCESS GROUP OF ITS OWN, so the stop can signal
-// the whole group, matching the container's teardown (jail-daemon-on-macos-user-plan.md step 4).
+// the whole group, matching the container's teardown (macos-user-nix-and-features.md JD-6).
 //
 // The capture holds only what is written BEFORE the guest takes stdout and stderr over — sudo's
 // own refusal, sandbox-exec's — because the supervisor's argv sends everything after that to

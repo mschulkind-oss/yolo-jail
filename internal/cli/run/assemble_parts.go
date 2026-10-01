@@ -787,7 +787,7 @@ func (o *Options) kvmArgs(cfg *jsonx.OrderedMap, rt string, keepGroupsAlready bo
 // (jailDaemonsFor; wire-bridge.md §2.1 — one env contract, one writer). This
 // call site serializes that one value rather than composing a second copy of
 // it, which is what lets the native backend read the same payload it can only
-// decline (docs/design/jail-daemon-on-macos-user-plan.md).
+// decline (docs/reference/macos-user-nix-and-features.md).
 //
 // Census site 3, through the converged set. Enabled() rather than All() keeps the argv
 // byte-identical to what a hand-built Discover(IncludeDisabled:false) produced; the
