@@ -125,17 +125,16 @@ func requireDoorwayRanOutsideAndStopped(t *testing.T, argv, saw, me, uid, diag s
 // The host `aws` is a stand-in on the launcher's PATH, which the host daemon inherits, as in
 // awsauth_test.go, and the aws-auth host daemon is a machine-wide singleton: the test refuses to
 // run beside a live one, which the launch would adopt, and stops the one it started.
+//
+// The user config is the container chain's own (awsAuthUserConfig), so it carries the provider
+// region a `bedrock` launch with none is refused for before the sandbox starts (OQ-BR6,
+// docs/design/bedrock-plumbing.md): written out here without one, this test was stopped by that
+// refusal in macos-user.yml run 36719581090 and never reached the doorway. No request reaches AWS,
+// so the region's value is never used.
 func TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox(t *testing.T) {
 	requireMacosUser(t)
 	holdMachineLock(t, true, "the macos-user AWS doorway test owns the aws-auth host singleton")
-	packHome(t, `{
-		"packs": ["claude", "aws-auth"],
-		"profile": {"claude": "bedrock"},
-		"loopholes": {"aws-auth": {
-			"enabled": true,
-			"settings": {"profile": "`+awsAuthProfile+`", "unnarrowed": true}
-		}}
-	}`)
+	packHome(t, awsAuthUserConfig(`["claude", "aws-auth"]`, "claude", ""))
 	ws := macosUserWorkspace(t, `{}`)
 	uid := sandboxUID(t)
 	me := strconv.Itoa(os.Getuid())

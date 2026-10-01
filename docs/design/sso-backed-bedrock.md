@@ -3,7 +3,7 @@ title: "Bedrock from an SSO login, without handing over the account"
 date: 2026-09-17
 status: accepted
 stage: GRADUATED
-next: "Give TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox a region (integration/macosuserdoorway_test.go): its 2026-09-30 Mac run was refused at the region pre-flight before it reached the doorway"
+next: "Read TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox (integration/macosuserdoorway_test.go) in the next macos-user.yml run: its config names a region since 2026-09-30, after its first Mac run was refused at the region pre-flight before it reached the doorway"
 tags: [aws, bedrock, sso, credentials, loopholes, packs, boundary, graduated]
 summary: "GRADUATED 2026-09-29 into docs/reference/agent-credentials.md, whose SSO-backed Bedrock section now states the delivered behavior. This file stays whole as the argument: how a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach, why narrowing and refresh are independent problems, the evidence, and the Decision Ledger the reference links for its reasoning. The live-login try-out happened 2026-09-29 (the maintainer's jails, daily, on a Linux host); a running jail picking up each new login, with no relaunch, was observed the same day; a turn during a real lapse is still unobserved."
 ---
@@ -32,7 +32,8 @@ error it sees (condition 6), and condition 7;
 `TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox`, ran in the hosted `macos-user.yml` nightly on
 2026-09-30 (run 36719581090, at `8f7468dd`) and was refused at the region pre-flight (*"a
 selected provider is reached through a region, and this launch names none"*) before its probe
-ran, because its config names no region. Repo claims verified against `d4c0e7e3`, those the
+ran, because its config named no region. Its config names one since 2026-09-30, and it has not
+run since. Repo claims verified against `d4c0e7e3`, those the
 2026-09-25 questions add against `ee8154f2`, and step 6's against the working tree it landed from
 (2026-09-25); vendor claims carry their dates in [§11](#11-evidence-and-how-to-re-check-it). The
 body below was not re-verified in the graduation, so where it and the reference disagree, the

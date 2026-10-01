@@ -3,7 +3,7 @@ title: "A pack's service runs wherever its agent runs"
 date: 2026-09-28
 status: accepted
 stage: BUILT
-next: "Give TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox an AWS region, which the Bedrock region refusal now demands before its probe runs, so the Mac run can measure the AWS doorway: integration/macosuserdoorway_test.go"
+next: "Read TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox in the next macos-user.yml run: its config names a region since 2026-09-30, so that run is the first that can measure the AWS doorway on a Mac"
 tags: [design, services, wire-bridge, host, notches, profiles, credentials, macos-user]
 summary: "Built 2026-09-28: yolo host and the macos-user launch start each needed pack service's host half as a child of that one launch, on a loopback port it picked, answering only that launch's caller token, and stop it when the agent exits (OQ-NC1 ruled A, OQ-HS3 per launch, OQ-HS4 as leaned). Built 2026-09-29: the doorway rule (HS-D15), so macos-user opens the Codex and AWS credential doorways the same way, and yolo host opens the AWS one for an agent on Bedrock. This doc holds the shape, the rulings, and the implementation decisions under them."
 vantage:
@@ -29,8 +29,11 @@ unit tests through `run.Run`, one against a real Codex doorway process and one a
 aws-auth host service. On a Mac, read from the scheduled `macos-user.yml` run 36719581090
 (`8f7468dd`, 2026-09-30): `TestMacosUserOpensTheCodexDoorwayOutsideTheSandbox` passed, so the
 Codex doorway is MEASURED there; `TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox` failed before
-its probe ran, because its config names no AWS region and the launch's Bedrock region refusal
-stopped it, so the AWS doorway is still UNMEASURED on a Mac. **At `yolo host` the AWS
+its probe ran, because its config named no AWS region and the launch's Bedrock region refusal
+stopped it, so the AWS doorway is still UNMEASURED on a Mac. Since 2026-09-30 that test's
+config is the container aws-auth tests' own (`awsAuthUserConfig`), which names the provider
+`region` the refusal asks for; it has not run since, so whether it now reaches the doorway is
+unobserved. **At `yolo host` the AWS
 doorway is built 2026-09-29** ([HS-D21](#HS-D21), [HS-D22](#HS-D22),
 [§4.8](#48-yolo-host)): for an agent whose profile selects a Bedrock provider, with aws-auth
 enabled, `yolo host --` opens the adapter as its own listener and hands that agent the pointer.
