@@ -87,18 +87,27 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 // check` reads too, and it says what the hatch is for.
 const AllowUnmetCapabilitiesEnv = config.AllowUnmetCapabilitiesEnv
 
-// capabilityPacks is the pack selection the capability gate counts: the launch's own, resolved
-// read-only because the gate runs before staging. The entries are narrowed as stagePacks narrows
-// them (a fork build, seal.go), and the closure reads this launch's profile table, `-p` included
-// (launchSelectionFor), so the census counts the packs this launch will stage and no others: not
-// the user scope's selection alone, and never every pack yolo ships.
-func (o *Options) capabilityPacks(cfg *jsonx.OrderedMap) ([]*packload.Pack, bool) {
-	entries, err := config.LoadPacks(func(string) {})
-	if err != nil {
-		return nil, false
+// capabilityLaunch is the launch the capability gate counts: this launch's own pack selection,
+// resolved read-only because the gate runs before staging, under this launch's own profile table.
+// The entries are narrowed as stagePacks narrows them (a fork build, seal.go), and the selection
+// closure and the profile sets both read the config's `profile` key with `-p` folded over it
+// (launchSelectionFor, effectiveUseProfiles), so the census counts the agents this launch will
+// stage, on the sources this launch will run them on: not the user scope's selection alone, not
+// the config's `profile` key alone, and never every pack yolo ships.
+func (o *Options) capabilityLaunch(cfg *jsonx.OrderedMap) *config.CapabilityLaunch {
+	return &config.CapabilityLaunch{
+		Packs: func() ([]*packload.Pack, bool) {
+			entries, err := config.LoadPacks(func(string) {})
+			if err != nil {
+				return nil, false
+			}
+			return config.SelectedPackDeclarations(o.narrowedPackEntries(entries),
+				o.launchSelectionFor(cfg), o.Getenv)
+		},
+		ProfileSets: func(packs []*packload.Pack) map[string][]string {
+			return packload.ProfileSets(o.effectiveUseProfiles(cfg, packs))
+		},
 	}
-	return config.SelectedPackDeclarations(o.narrowedPackEntries(entries),
-		o.launchSelectionFor(cfg), o.Getenv)
 }
 
 // refuseUnmetCapabilities is OQ-CAP2's fatal refusal: a config that DECLARES it needs a
@@ -106,30 +115,30 @@ func (o *Options) capabilityPacks(cfg *jsonx.OrderedMap) ([]*packload.Pack, bool
 // discovers the hole at its first request. Reports whether the caller must stop.
 //
 // The census is config.UnmetCapabilities, the one `yolo check` predicts with: the user's own
-// declarations, then the selected packs' (agent-auth-modes.md §6.1 clause 1) — the providers
-// they ship, composed under the user's overrides as the launch composes them, and the built-in
-// login of each agent they install. Until 2026-09-30 it read the merged user config alone, so
-// requiring `web_search` with claude selected was refused although claude searches natively.
+// declarations, then the selected packs' (agent-auth-modes.md §6.1 clause 1) — each installed
+// agent's ACTIVE source, the provider its profile selects (composed under the user's overrides
+// as the launch composes it) or, with no profile, its built-in login. Until 2026-09-30 it read
+// the merged user config alone, so requiring `web_search` with claude selected was refused
+// although claude searches natively.
 //
 // WHY A REFUSAL AND NOT A WARNING: the key's whole content is "this environment does not work
 // without X". A launch that prints that and proceeds has answered a declaration with a note,
 // which is the shape the key already had — validated, exported, read by nothing — and the shape
 // this gate exists to end.
 //
-// A CENSUS THAT COULD NOT LOOK DOES NOT REFUSE. When a selected pack could not be read, or the
-// provider table did not compose, the unread half may hold the satisfier, and both are faults
-// this launch refuses on its own further down (pack staging is fail-closed, and the channel
-// composition refuses the table) with their own message. Refusing here would name the second
-// fault first, so the gate says what it could not check and lets that step speak.
+// A CENSUS THAT COULD NOT LOOK DOES NOT REFUSE. When a selected pack could not be read, the
+// provider table did not compose, or the profiles did not resolve, the unread half may hold the
+// satisfier, and each is a fault this launch refuses on its own further down (pack staging is
+// fail-closed, and the channel composition refuses the table and the profiles) with its own
+// message. Refusing here would name the second fault first, so the gate says what it could not
+// check and lets that step speak.
 //
 // Printed to Stderr rather than through the config gate's own Stdout printer: this is a launch
 // refusal, and it reads beside checkProviderCredentials' and the notch gate's, which are the two
 // it will be compared with. The config ERRORS above keep Stdout; moving them is a separate change
 // with its own callers.
 func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap) bool {
-	missing, err := config.UnmetCapabilities(cfg, func() ([]*packload.Pack, bool) {
-		return o.capabilityPacks(cfg)
-	})
+	missing, err := config.UnmetCapabilities(cfg, o.capabilityLaunch(cfg))
 	if len(missing) == 0 {
 		return false
 	}
@@ -155,7 +164,8 @@ func (o *Options) refuseUnmetCapabilities(cfg *jsonx.OrderedMap) bool {
 		"and nothing this config or its selected packs declare satisfies it.[/bold red]", named)
 	out.print("  A capability is satisfied by a declaration: `providers.<name>.capabilities` " +
 		"naming it (the agent has it natively there), an `mcp_servers.<name>` entry with " +
-		"\"provides\": \"<capability>\", or a selected pack whose agent or provider declares it.")
+		"\"provides\": \"<capability>\", or a selected agent whose pack declares it for the " +
+		"source the agent runs on: its built-in login, or the provider its profile selects.")
 	out.printf("[dim]Declare the satisfier, drop the name from required_capabilities, or "+
 		"launch anyway with %s=1.[/dim]", AllowUnmetCapabilitiesEnv)
 	return true

@@ -301,21 +301,78 @@ func TestAPacksProgramCapabilitySatisfiesAlone(t *testing.T) {
 	}
 }
 
-// TestAPacksProviderCapabilitySatisfiesAlone isolates the `provider` half: zai installs no agent
-// and needs no pack, and the provider it ships declares web_search. It reaches the launch through
-// the composed providers table, the one every derive reads.
-func TestAPacksProviderCapabilitySatisfiesAlone(t *testing.T) {
+// TestAProfilesProviderCapabilitySatisfies isolates the `provider` half: pi declares nothing for
+// its own login, and the `zai` profile runs it on the provider zai's pack ships, which declares
+// web_search. It reaches the census through the composed providers table, the one every derive
+// reads, and through the profile the launch resolves for pi.
+func TestAProfilesProviderCapabilitySatisfies(t *testing.T) {
 	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
-	capabilityPackHome(t, `{"packs": ["zai"]}`)
+	capabilityPackHome(t, `{"packs": ["pi", "zai"], "profile": "zai"}`)
 	var stdout, stderr bytes.Buffer
 	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
 
 	Run(*o)
 
 	if !strings.Contains(stderr.String(), gotPastTheGate) {
-		t.Errorf("zai's pack ships a provider declaring web_search, yet the launch did not get "+
-			"past the capability gate:\nstdout:\n%s\nstderr:\n%s",
+		t.Errorf("pi runs on zai's provider, which declares web_search, yet the launch did not "+
+			"get past the capability gate:\nstdout:\n%s\nstderr:\n%s",
 			stdout.String(), stderr.String())
+	}
+}
+
+// TestAProviderNoProfileSelectsSatisfiesNothing is the shelf: pi's pack pulls in openai-auth,
+// whose openai-codex provider declares web_search, but no profile runs pi on it, and pi's own
+// login declares nothing (§6.2 names pi as lacking native search). A census counting the composed
+// providers table whole, rather than each agent's active source, lets this launch through.
+func TestAProviderNoProfileSelectsSatisfiesNothing(t *testing.T) {
+	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
+	capabilityPackHome(t, `{"packs": ["pi"]}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
+
+	rc := Run(*o)
+
+	if rc != 1 || !refusedForTheCapability(stderr.String()) {
+		t.Errorf("no profile runs pi on openai-codex, so nothing provides web_search and the "+
+			"gate must refuse (rc=%d):\nstdout:\n%s\nstderr:\n%s",
+			rc, stdout.String(), stderr.String())
+	}
+}
+
+// TestTheProfileFlagPicksTheSource pins the launch's own profile input: the same pi launch as the
+// shelf case above, with `-p codex`, runs pi on openai-codex, so the gate lets it through. A
+// census reading the config's `profile` key alone would refuse it.
+func TestTheProfileFlagPicksTheSource(t *testing.T) {
+	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
+	capabilityPackHome(t, `{"packs": ["pi"]}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
+	o.ProfileName = "codex"
+
+	Run(*o)
+
+	if !strings.Contains(stderr.String(), gotPastTheGate) {
+		t.Errorf("-p codex runs pi on openai-codex, which declares web_search, yet the launch "+
+			"did not get past the capability gate:\nstdout:\n%s\nstderr:\n%s",
+			stdout.String(), stderr.String())
+	}
+}
+
+// TestAProfileThatLeavesTheBuiltInLoginSatisfiesNothing: claude's own login declares web_search,
+// but the `bedrock` profile runs claude on a provider that declares none (§6.2: Claude Code on
+// Bedrock lacks native search), so this launch carries nothing that searches.
+func TestAProfileThatLeavesTheBuiltInLoginSatisfiesNothing(t *testing.T) {
+	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
+	capabilityPackHome(t, `{"packs": ["claude"], "profile": "bedrock"}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
+
+	rc := Run(*o)
+
+	if rc != 1 || !refusedForTheCapability(stderr.String()) {
+		t.Errorf("claude runs on bedrock, which declares no web_search, so its built-in login "+
+			"is not this launch's source and the gate must refuse (rc=%d):\nstdout:\n%s\n"+
+			"stderr:\n%s", rc, stdout.String(), stderr.String())
 	}
 }
 
@@ -325,7 +382,8 @@ func TestAPacksProviderCapabilitySatisfiesAlone(t *testing.T) {
 // delivers, so an empty list there declares nothing and the launch refuses.
 func TestAUserOverrideOfAPacksProviderCapabilitiesWins(t *testing.T) {
 	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
-	capabilityPackHome(t, `{"packs": ["zai"], "providers": {"zai": {"capabilities": []}}}`)
+	capabilityPackHome(t, `{"packs": ["pi", "zai"], "profile": "zai",
+	  "providers": {"zai": {"capabilities": []}}}`)
 	var stdout, stderr bytes.Buffer
 	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
 
@@ -335,6 +393,25 @@ func TestAUserOverrideOfAPacksProviderCapabilitiesWins(t *testing.T) {
 		t.Errorf("the user's providers.zai.capabilities: [] overrides the pack's list in the "+
 			"composed table, so nothing provides web_search and the gate must refuse "+
 			"(rc=%d):\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
+	}
+}
+
+// TestAForkBuildCountsOnlyItsNarrowedPacks pins the launch's narrowing input: a fork build
+// (Options.OnlyPacks, seal.go) stages only the packs it names, so claude, selected in the user
+// config but not in the build, satisfies nothing and the build's copilot declares nothing.
+func TestAForkBuildCountsOnlyItsNarrowedPacks(t *testing.T) {
+	ws := capabilityWorkspace(t, `{"required_capabilities": ["web_search"]}`)
+	capabilityPackHome(t, `{"packs": ["claude", "copilot"]}`)
+	var stdout, stderr bytes.Buffer
+	o := capabilityGateOptions(t, ws, nil, &stdout, &stderr)
+	o.OnlyPacks = []string{"copilot"}
+
+	rc := Run(*o)
+
+	if rc != 1 || !refusedForTheCapability(stderr.String()) {
+		t.Errorf("the build stages copilot alone, which declares no web_search, so claude's "+
+			"declaration must not count (rc=%d):\nstdout:\n%s\nstderr:\n%s",
+			rc, stdout.String(), stderr.String())
 	}
 }
 

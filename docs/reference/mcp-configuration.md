@@ -207,8 +207,10 @@ answers it, and no list here does.
 `mcp_servers.<name>.provides`, a `providers.<name>.capabilities` in the composed table, and the
 `capabilities` a pack declares for its agent's built-in login, so a change to any of those
 declarations moves both. `required_capabilities` refuses a launch whose declared requirement
-nothing satisfies, counting every source the launch carries rather than the one a profile
-selects. This rule chooses among things that already work. Config validation refuses
+nothing satisfies, judging each agent by the same authentication source this rule reads, any one
+agent being enough. It counts every profile of an agent's active set rather than the first alone,
+and a provider the user's own config declares capabilities for, whether or not a profile selects
+it. This rule chooses among things that already work. Config validation refuses
 two `mcp_servers` entries that declare the same `provides`, which keeps that choice unambiguous.
 
 Then `provides` itself is stripped from every surviving entry, unconditionally: it is yolo's

@@ -208,11 +208,12 @@ would make the gate depend on a file's existence.
 > **Do not move this gate to the run pre-flight, and do not add a copy there.** It looks like the
 > capability gate's neighbour and it cannot be. The gate needs a resolved SELECTION — it refuses a
 > pairing this launch actually asked for, and says nothing about the providers merely sitting in
-> the table — and the run pre-flight resolves no profile. Its capability census counts every
-> source the config and the selected packs declare, whichever one a profile makes active
-> (`internal/config/capabilities.go`), so a copy there would refuse a different set of launches
-> than the one that ships. `internal/packload/protocolresolution.go` states this where the gate
-> is.
+> the table — and the run pre-flight runs before the runtime is resolved, so it cannot compose the
+> table this launch's notch serves (`packload.ComposeProvidersAt`, whose served adapters decide a
+> pairing). Its capability census resolves each agent's profiles for their capabilities alone
+> (`internal/config/capabilities.go`), and a copy of this gate there would refuse a different set
+> of launches than the one that ships. `internal/packload/protocolresolution.go` states this
+> where the gate is.
 
 The resolution runs BEFORE the derives and its result is an input to them, so a derive can no
 longer reach a state where it has a key and no address. That is what let claude's derive delete

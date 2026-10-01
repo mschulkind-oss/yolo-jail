@@ -529,9 +529,10 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 	errors = append(errors, checkPresetNullConflicts(workspaceConfig, "yolo-jail.jsonc")...)
 
 	// The launch's capability gate, predicted here through the launch's own census, over the
-	// user scope's pack selection (capabilities.go states why that, and not the launch's).
+	// launch this config describes: the user scope's pack selection under the `profile` key
+	// (capabilities.go states why that, and not a launch's `-p`).
 	capErrs, capWarns := capabilityGap(merged, o.Getenv(allowUnmetCapabilitiesEnv),
-		config.UserScopeSelectedPacks)
+		config.ConfigCapabilityLaunch(merged))
 	errors = append(errors, capErrs...)
 	warnings = append(warnings, capWarns...)
 

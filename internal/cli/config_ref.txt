@@ -1938,13 +1938,17 @@
     ENFORCED: a launch that declares a capability nothing satisfies is REFUSED
     (docs/design/agent-auth-modes.md OQ-CAP2).  A capability is satisfied by a
     declaration — `providers.<name>.capabilities` naming it, an `mcp_servers.<name>`
-    entry whose "provides" is it, or a SELECTED pack that declares it for the agent
-    it installs (claude and agy search the web on their own login) or for a provider
-    it ships (your `providers.<name>` entry overrides that, and null removes it) —
-    or by the baseline every agent meets (code_editing, command_execution), which
-    needs no declaration.  A server set to null satisfies nothing: the jail deletes
-    it.  Any one of these counts for the whole launch, whether or not a profile
-    makes it the source an agent runs on.
+    entry whose "provides" is it, or a SELECTED agent whose pack declares it for the
+    source that agent runs on: its own login when no profile points it elsewhere
+    (claude and agy search the web on theirs), or the provider its profile selects
+    (a pack's provider counts only there, so `pi` on no profile gets no web search
+    from the `openai-codex` provider its pack brings along; your `providers.<name>`
+    entry overrides a pack's list, and null removes the provider) — or by the
+    baseline every agent meets (code_editing, command_execution), which needs no
+    declaration.  A server set to null satisfies nothing: the jail deletes it.  One
+    agent's source is enough for the whole launch, and so is any profile of an
+    agent's list.  A `providers.<name>.capabilities` YOU write counts whether or not
+    a profile selects that provider.
     The refusal runs above the backend dispatch, so it fires on every backend, and
     `yolo check` predicts it.
     YOLO_ALLOW_UNMET_CAPABILITIES=1 launches anyway, loudly.  It is there for a

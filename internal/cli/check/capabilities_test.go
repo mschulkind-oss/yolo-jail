@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -67,7 +68,7 @@ func TestCapabilityGapOutcomes(t *testing.T) {
 	})
 
 	t.Run("a gap the census could not prove is a WARN, never a FAIL", func(t *testing.T) {
-		unread := func() ([]*packload.Pack, bool) { return nil, false }
+		unread := &config.CapabilityLaunch{Packs: func() ([]*packload.Pack, bool) { return nil, false }}
 		errs, warns := capabilityGap(capCfg(t, gap), "", unread)
 		if len(errs) != 0 || len(warns) != 1 {
 			t.Fatalf("a selected pack the census could not read may be the satisfier, and the "+
@@ -164,5 +165,27 @@ func TestMergedConfigSectionCountsASelectedPacksCapability(t *testing.T) {
 	if strings.Contains(got, "required_capabilities") {
 		t.Errorf("claude is selected and declares web_search, so the launch's gate passes and "+
 			"check must say nothing about it:\n%s", got)
+	}
+}
+
+// TestMergedConfigSectionReadsTheProfileKey is the prediction's profile input, at the call site:
+// claude is selected but the config's `profile` runs it on bedrock, whose provider declares no
+// web search, so claude's built-in login is not this launch's source and the launch refuses. A
+// prediction that ignored the `profile` key would count the login and predict a pass.
+func TestMergedConfigSectionReadsTheProfileKey(t *testing.T) {
+	capabilityHome(t, `{"packs": ["claude"]}`)
+	cfg := capCfg(t, `{"required_capabilities": ["web_search"], "profile": "bedrock"}`)
+	empty := jsonx.NewOrderedMap()
+	var buf bytes.Buffer
+	r := newReporter(&buf, false)
+	o := &Options{
+		Getenv:   func(string) string { return "" },
+		LookPath: func(string) (string, bool) { return "", false },
+	}
+	o.sectionMergedConfig(r, cfg, t.TempDir(), empty, empty, false)
+	got := stripANSI(buf.String())
+	if !strings.Contains(got, "web_search") || !strings.Contains(got, "REFUSED") {
+		t.Errorf("claude runs on bedrock here, which declares no web_search, so check must "+
+			"predict the launch's refusal:\n%s", got)
 	}
 }

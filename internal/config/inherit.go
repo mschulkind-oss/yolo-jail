@@ -165,19 +165,20 @@ var inheritCensus = map[string]keyDisposition{
 	// not; the preflight seat is the same read, one command earlier.
 	"adapters": {preflight: true, nested: true, reason: "the address an adapted provider is reached at, for this jail's provider composition and a nested launcher's"},
 	// `required_capabilities` earns its NESTED seat on a check an inner launch performs,
-	// and its preflight seat on SHAPE ALONE — the distinction matters to whoever
+	// and its preflight seat on the in-jail readers — the distinction matters to whoever
 	// re-decides it, and it stopped being "shape alone on both sides" on 2026-09-17.
 	// OQ-CAP2's fatal refusal (docs/design/agent-auth-modes.md, which config_ref.txt
 	// cites for exactly this key) is BUILT: a LAUNCH now refuses when nothing the config or
 	// its selected packs declare satisfies a required name, from inside the config gate
 	// (internal/cli/run/preflight.go refuseUnmetCapabilities), which is why the key has
 	// to reach an inner launcher — it composes a jail the same gate judges. The
-	// PREFLIGHT seat is still shape alone, because the in-jail read-only commands are
-	// not that gate: `yolo check` validates the list's type and nothing evaluates the
-	// names. It travelled to the jail as YOLO_REQUIRED_CAPABILITIES until the gate
-	// landed; that export is gone, because the requirement is judged before a container
-	// starts and no in-jail consumer of the variable ever existed.
-	"required_capabilities": {preflight: true, nested: true, reason: "shape-validated as a string list by the in-jail readers, and passed to nested launches, whose own launch gate refuses a capability nothing declares"},
+	// PREFLIGHT seat is not that gate: the in-jail read-only commands validate the list's
+	// type, and `yolo check` PREDICTS the gate through the launch's own census
+	// (config.UnmetCapabilities), refusing nothing. It travelled to the jail as
+	// YOLO_REQUIRED_CAPABILITIES until the gate landed; that export is gone, because the
+	// requirement is judged before a container starts and no in-jail consumer of the
+	// variable ever existed.
+	"required_capabilities": {preflight: true, nested: true, reason: "shape-validated as a string list by the in-jail readers, its gate predicted by the in-jail yolo check, and passed to nested launches, whose own launch gate refuses a capability nothing declares"},
 
 	// ---- Preflight only ---------------------------------------------------------
 	// `agents_md_extra` is briefing prose rendered into this jail's own AGENTS.md.

@@ -25,9 +25,10 @@ package packload
 // both notches reduce through. The gate has to see a SELECTION — §4.1 refuses a pairing this
 // launch actually asked for and says nothing about the providers it merely has on the shelf
 // — and the selection is resolved into the profile table AgentEnv already receives. The
-// run pre-flight, where the capability gate sits, resolves no profile: its census counts
-// every source the config and the selected packs declare, whichever one a profile makes
-// active (config/capabilities.go), so a copy there would refuse a different set of launches.
+// run pre-flight, where the capability gate sits, runs before the runtime is resolved, so it
+// cannot compose the table this notch serves (ComposeProvidersAt's served adapters, which
+// decide a pairing); its census resolves profiles for their capabilities alone
+// (config/capabilities.go), so a copy there would refuse a different set of launches.
 
 import (
 	"errors"

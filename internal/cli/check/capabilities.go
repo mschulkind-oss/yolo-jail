@@ -11,12 +11,13 @@ package check
 // ONE CENSUS, NOT A COPY. This file used to restate the launch's census, on the argument that
 // it was twelve lines of map-building and reaching the launch's would drag run.Options' printer
 // along. The census stopped being twelve lines when the selected packs' own declarations began
-// to count (agent-auth-modes.md §6.1 clause 1: a pack's provider capabilities, through the
-// provider composition, and its agent's built-in login, through bin ownership), so it moved to
-// config.UnmetCapabilities, which both call. What is still this file's own is the PACK
-// SELECTION handed to it: the launch hands its own (its `-p` can add a `via` pack), and `check`
-// hands the user scope's (config.UserScopeSelectedPacks), because a `-p` is an argument to a
-// launch that has not happened — the same limit protocols.go's ⚠ states for its gate.
+// to count (agent-auth-modes.md §6.1 clause 1: each installed agent's active source, the
+// provider its profile selects or its built-in login), so it moved to config.UnmetCapabilities,
+// which both call. What is still this file's own is the LAUNCH handed to it: the launch hands
+// its own (its `-p` picks profiles and can add a `via` pack), and `check` hands the one its
+// config describes (config.ConfigCapabilityLaunch: the user scope's selection under the
+// `profile` key), because a `-p` is an argument to a launch that has not happened — the same
+// limit protocols.go's ⚠ states for its gate.
 
 import (
 	"strings"
@@ -29,9 +30,9 @@ import (
 const allowUnmetCapabilitiesEnv = config.AllowUnmetCapabilitiesEnv
 
 // capabilityGap reports what the Merged Configuration block should say about the
-// capability gate, as (errors, warnings) in this section's own vocabulary. selected is the pack
-// selection the census counts once the config's own declarations leave a name unmet; nil counts
-// none.
+// capability gate, as (errors, warnings) in this section's own vocabulary. launch is the
+// selection and profiles the census counts once the config's own declarations leave a name
+// unmet; nil counts no pack.
 //
 // Four outcomes, and the middle two are the rulings worth reading:
 //
@@ -40,7 +41,7 @@ const allowUnmetCapabilitiesEnv = config.AllowUnmetCapabilitiesEnv
 //     badge semantics AND the pass/warn/fail counts — from needing a bump for a line that
 //     says nothing happened.
 //   - A gap the census could not prove (a selected pack it could not read, a provider table
-//     that did not compose) → a WARN naming why, never silence and never a FAIL: the launch
+//     that did not compose, profiles that did not resolve) → a WARN naming why, never silence and never a FAIL: the launch
 //     does not refuse it either, and reports that fault itself (protocols.go's "I could not
 //     look" rule).
 //   - A gap, with the hatch set → a WARN, not a FAIL. `check` exists to predict the
@@ -51,8 +52,8 @@ const allowUnmetCapabilitiesEnv = config.AllowUnmetCapabilitiesEnv
 //   - A gap, no hatch → a FAIL, appended to the section's errors, so `check`'s exit code
 //     says what the launch will do. The launch refusal is fatal; a prediction of it that
 //     exited 0 would be the defect again.
-func capabilityGap(cfg *jsonx.OrderedMap, hatch string, selected config.SelectedPacks) (errs []string, warns []string) {
-	missing, err := config.UnmetCapabilities(cfg, selected)
+func capabilityGap(cfg *jsonx.OrderedMap, hatch string, launch *config.CapabilityLaunch) (errs []string, warns []string) {
+	missing, err := config.UnmetCapabilities(cfg, launch)
 	if len(missing) == 0 {
 		return nil, nil
 	}
@@ -70,8 +71,9 @@ func capabilityGap(cfg *jsonx.OrderedMap, hatch string, selected config.Selected
 	return []string{"config.required_capabilities declares " + named +
 		", and nothing this config or its selected packs declare satisfies it — this launch " +
 		"will be REFUSED. Satisfy it with `providers.<name>.capabilities` naming it, an " +
-		"`mcp_servers.<name>` entry with \"provides\": \"<capability>\", or a selected pack " +
-		"whose agent or provider declares it; or drop the name; or set " +
+		"`mcp_servers.<name>` entry with \"provides\": \"<capability>\", or a selected agent " +
+		"whose pack declares it for the source the agent runs on (its built-in login, or the " +
+		"provider its profile selects); or drop the name; or set " +
 		allowUnmetCapabilitiesEnv + "=1 to launch anyway"}, nil
 }
 
