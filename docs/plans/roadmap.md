@@ -103,8 +103,10 @@ host or an outside account follows under [External waits](#external-waits).
     with [the test suite's two other levers](test-suite-speed.md),
     and [name the real forked program](../design/forked-programs-as-packs.md) — the host notch's floor arms are built on a stand-in fork,
     and the real one is the last input step 7 needs.
-28. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md) — the 2026-10-01 measurement showed a
-    read-only bind refuses every commit and a read-write one lets a jail prune the outside worktree, so the herdr questions now rest on facts.
+28. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md#OQ-HR3), with herdr's other two open questions,
+    [what a jail pane does after a herdr restart](../research/herdr-integration.md#OQ-HR2) and
+    [whether a jailed agent may drive herdr](../research/herdr-integration.md#OQ-HR4) — the 2026-10-01 measurement showed a read-only bind
+    refuses every commit and a read-write one lets a jail prune the outside worktree, so the herdr questions now rest on facts.
 29. Calls the 2026-10-01 groundwork left at one decision each: [mise's prune record](../design/minimal-disk-footprint.md),
     [colliding attribute paths](../design/package-nested-attribute-paths.md), [pi's package loader](../design/pack-pi-resources.md),
     [who installs a pi package the refresh missed](../design/pi-extension-lifecycle.md), [the `:ro` degradation rows](../design/composed-file-permissions.md),

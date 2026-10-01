@@ -3,28 +3,29 @@ title: "herdr: a terminal multiplexer for coding agents, and how yolo fits insid
 date: 2026-09-29
 status: in-review
 tags: [research, herdr, terminal, multiplexer, sessions, lifecycle, worktrees, host, notches, integration]
-summary: "herdr is a terminal multiplexer built for coding agents. A background server owns every pane's terminal, so agents keep running when the window closes, and herdr shows which agent is working, blocked or done. It sits beside yolo rather than competing with it: herdr is where the terminals live, and yolo is the environment each agent runs in. `yolo host -- <agent>` in a herdr pane already gets everything herdr offers. `yolo -- <agent>` in a container jail shows up as a plain terminal, because herdr looks for the agent among host processes and finds only podman. The best first step is small. When the launcher runs in a herdr pane, it tells herdr which program is inside by setting a variable on the host-side runtime process, and, for an agent herdr recognizes, it labels the pane as a jail, the way yolo already marks tmux panes and kitty tabs. Three things break and need rulings or other designs. Closing a herdr pane signals the launcher and, through podman's signal forwarding, the jail's own processes, and probably kills the launcher during its teardown (inferred, not measured). herdr's worktrees break git inside container jails. A herdr restart brings jail panes back as empty shells. herdr's socket must never cross into a jail, because it gives full control of the user's terminals. Four rulings are owed."
+summary: "herdr is a terminal multiplexer built for coding agents. A background server owns every pane's terminal, so agents keep running when the window closes, and herdr shows which agent is working, blocked or done. It sits beside yolo rather than competing with it: herdr is where the terminals live, and yolo is the environment each agent runs in. `yolo host -- <agent>` in a herdr pane already gets everything herdr offers. `yolo -- <agent>` in a container jail shows up as a plain terminal, because herdr looks for the agent among host processes and finds only podman. The best first step is small, and it is built in core, as the maintainer ruled on 2026-10-01. When the launcher runs in a herdr pane and its command is a program a selected pack installs, it tells herdr which agent is inside, by a self-report and a variable on the host-side runtime process, and it labels the pane as a jail, the way yolo already marks tmux panes and kitty tabs. Three things break and need rulings or other designs. Closing a herdr pane signals the launcher and, through podman's signal forwarding, the jail's own processes, and probably kills the launcher during its teardown (inferred, not measured). herdr's worktrees break git inside container jails. A herdr restart brings jail panes back as empty shells. herdr's socket must never cross into a jail, because it gives full control of the user's terminals. Three rulings are owed."
 stage: DESIGN
-next: "Rule OQ-HR1 to OQ-HR4. OQ-HR3 now carries the measured commit half of §6 item 8 (§4.5, 2026-10-01: a read-write .git bind commits, a read-only one refuses every write, and the jail sees its own checkout as prunable); what §6 still owes needs a real host, a herdr pane, a rootless podman or a Mac"
+next: "Rule OQ-HR2 to OQ-HR4 (OQ-HR1 was ruled on 2026-10-01: in core). OQ-HR3 now carries the measured commit half of §6 item 8 (§4.5, 2026-10-01: a read-write .git bind commits, a read-only one refuses every write, and the jail sees its own checkout as prunable); what §6 still owes needs a real host, a herdr pane, a rootless podman or a Mac"
 vantage:
   status-chip: true
 ---
 
 # herdr: a terminal multiplexer for coding agents, and how yolo fits inside its panes
 
-**Status:** 2026-09-29; research. Nothing is built, and nothing here changes the tree (re-checked 2026-09-30: nothing under `internal/`, `cmd/` or `packs/` names herdr). herdr evidence
+**Status:** 2026-09-29; research. Option 2 is built in core, and [OQ-HR1](#7-decision-ledger) is ruled
+(2026-10-01; [built note](#built-2026-09-30)). Nothing else here changes the tree. herdr evidence
 was read at tag `v0.9.3` (commit `7b116c05`). yolo evidence was read at `e766fb23`. No agent CLI was
 run. One research lens ran the herdr 0.9.3 release binary as a headless named herdr session in a
 scratch directory, with `sh` and `sleep` probes in its panes. Those results are marked MEASURED.
 Everything else about herdr comes from its source, docs and issue tracker. On 2026-10-01 a
 second lens measured [§6](#6-what-is-unmeasured) item 8, git in a container through a bind of a
 scratch repository's `.git`, on a rootful podman nested in a jail
-([§4.5](#45-option-4-git-in-herdrs-worktrees)). Four rulings are owed.
+([§4.5](#45-option-4-git-in-herdrs-worktrees)). Three rulings are owed.
 
-**Update, 2026-09-30.** Option 2 is built in core, ahead of [OQ-HR1](#OQ-HR1)'s ruling, which
-leans the same way ([built note](#built-2026-09-30)). A second design written in parallel,
-`terminal-multiplexer-integration.md`, is folded into [§4.9](#49-folded-in-the-terminal-multiplexer-design)
-rather than kept beside this doc.
+**Update, 2026-09-30.** Option 2 is built in core ([built note](#built-2026-09-30)). It was built
+ahead of [OQ-HR1](#7-decision-ledger)'s ruling, and on 2026-10-01 the maintainer ruled it in core.
+A second design written in parallel, `terminal-multiplexer-integration.md`, is folded into
+[§4.9](#49-folded-in-the-terminal-multiplexer-design) rather than kept beside this doc.
 
 > **In short.** herdr is tmux rebuilt for coding agents. herdr and yolo are two layers of one
 > setup: herdr owns the terminals, and yolo owns what runs in them. `yolo host` already works in
@@ -58,7 +59,6 @@ today.
 
 **Needs your ruling:**
 
-- [OQ-HR1](#OQ-HR1): where yolo's herdr knowledge lives;
 - [OQ-HR2](#OQ-HR2): what a jail pane does after a herdr restart;
 - [OQ-HR3](#OQ-HR3): git in a worktree whose repository is outside the jail;
 - [OQ-HR4](#OQ-HR4): whether a jailed agent may drive herdr.
@@ -113,9 +113,11 @@ running in its panes.
 
 ### 1.3 The best integration, and its cost
 
-**When the launcher runs inside a herdr pane, it tells herdr what program is in the jail, and,
-when herdr recognizes that program as an agent, it labels the pane as a jail**
-([§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside), [HR-D8](#HR-D8)).
+**When the launcher runs inside a herdr pane and its command is a program a selected pack
+installs, it tells herdr which agent is in the jail and labels the pane as a jail**
+([§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside), [HR-D8](#HR-D8)). It is built in
+core, as [OQ-HR1](#7-decision-ledger) was ruled, and it also reports the agent to herdr directly
+([built note](#built-2026-09-30)).
 
 - **The first half** puts `HERDR_AGENT=<the command's name>` on the host-side runtime process
   that the launcher starts (`podman run`, `podman exec` or `container run`). That variable is
@@ -908,15 +910,16 @@ fi
   the container's argv, and that the label's argv goes through a seam like `tmuxCmd`.
 - The kitty fix of [HR-D5](#HR-D5) rides along.
 
-**No ruling decides whether a jail launch may do this, and [OQ-HR1](#OQ-HR1) carries it.** The
-predictability ruling, in [`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs),
+**[OQ-HR1](#7-decision-ledger)'s ruling, A on 2026-10-01, decides whether a jail launch may do
+this.** The predictability ruling, in
+[`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs),
 governs `yolo host`. [OQ-HE7](../reference/host-agent-environment.md#oq-he7) asked whether to extend
 it to a jail launch's host-side PATH lookups: podman, nix and the macOS tools. It was retired on
 2026-09-29 by [HE-DIR1](../reference/host-agent-environment.md#he-dir1), so a jail launch keeps
 finding those on the PATH it was started with. That settles PATH lookups and nothing else. Nobody
-has asked whether a jail launch may decide from its launcher's session variables, or run a program
-one of them names. So ruling [OQ-HR1](#OQ-HR1) (A) or (B) also rules it, for the herdr arm. The
-change adds nothing the agent sees.
+had asked whether a jail launch may decide from its launcher's session variables, or run a
+program one of them names. This section said that ruling A or B would also rule that, for the
+herdr arm, and A was ruled. The change adds nothing the agent sees.
 
 - **This is not output styling.** The exemption in
   [the child's PATH](../reference/host-agent-environment.md#which-copy-runs)
@@ -968,11 +971,11 @@ with three differences:
 - **A self-report as well as the hint.** It also runs `herdr pane report-agent <pane> --source
   yolo-jail --agent <bin> --state unknown`, and `release-agent` when the session ends. That
   identifies the pane from the session's start, and on macos-user, where no runtime client carries
-  the hint. The
-  `yolo-jail` source matches a hand-written wrapper some users already run, so a machine running
-  both ends up with one registration. Whether herdr accepts `report-agent-session` on a pane identified
-  this way, without the hint, is unmeasured ([§2.4](#24-hooks-self-reports-and-resume-commands)
-  measured only the hint), so Option 3 should rely on the hint.
+  the hint. The `yolo-jail` source matches a hand-written wrapper some users already run, so a
+  machine running both ends up with one registration. Whether herdr accepts `report-agent-session`
+  on a pane identified this way, without the hint, is unmeasured
+  ([§2.4](#24-hooks-self-reports-and-resume-commands) measured only the hint), so Option 3 should
+  rely on the hint.
 - **Which panes it acts in.** Only a launch whose command is a program a selected pack installs
   (`Pack.InstallBins`) gets the hint, the report or the label. An attach matches the packs the
   running jail booted from, as every host-side reader on an attach does. `yolo -- bash` and bare
@@ -1276,42 +1279,8 @@ Two of its claims are corrected by this doc's evidence:
 
 ## 5. Open questions
 
-1. 💬 <a id="OQ-HR1"></a>**[OQ-HR1](#OQ-HR1): Where does yolo's herdr knowledge live?**
-
-   **Setup.** Matt runs herdr on his laptop with four panes: two `yolo -- claude` in yolo-jail, one
-   `yolo host -- codex`, and a shell. herdr's sidebar shows the codex pane's status. The two jail
-   panes are plain terminals, so he misses that one of them has been waiting on a question for
-   twenty minutes. The fix is two small behaviors in the launcher
-   ([§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside)). It is a question because
-   [`AGENTS.md`](../../AGENTS.md#packs-and-what-core-does-not-know) says core does not know what an
-   agent is, and herdr is a named third-party program. A or B also decides a point no other ruling
-   covers: that a jail launch decides from its launcher's `HERDR_ENV` and runs a host program, as
-   the tmux and kitty arms already do from `TMUX` and `KITTY_PID`
-   ([§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside)). C does not.
-
-   **A was built on 2026-09-30, ahead of this ruling** ([built note](#built-2026-09-30)). Ruling B
-   or C means removing it.
-
-   - **A. In core, beside the tmux and kitty indicators.** *You see:* every herdr pane running
-     `yolo -- <agent>` shows that agent's status and "🔒 JAIL &lt;project&gt;", with no config.
-   - **B. In a shipped `herdr` pack.** *You see:* the same, after you add `"herdr"` to `packs`. It
-     needs a new contribution kind that sets environment on the host-side runtime client and runs
-     a host command at launch and exit. That kind's only user would be herdr, and it would put host
-     execution in a pack's hands.
-   - **C. Documentation only,** the recipe of [§4.2](#42-option-1-a-recipe-with-no-yolo-code).
-     *You see:* status only after you add a shell function. There is no label, and
-     `agent start` reports ready early.
-
-   <!-- vantage: oq id=OQ-HR1 leaning="A, core beside the tmux and kitty indicators: the precedent is exact, the hint must sit on a host process yolo spawns that no pack kind reaches, and the value is the command's own name, so core still decides nothing about agents." -->
-
-   _Leaning:_ **A.** The precedent is exact: yolo already marks tmux panes and kitty tabs from core
-   ([`terminal.go`](../../internal/cli/terminal.go#L29-L45)), and those are named third-party
-   programs too. The hint has to sit on a host process yolo spawns, which no pack kind reaches.
-   Its value is the command's own name, so herdr, not core, decides what is an agent. B adds a
-   host-execution kind for nothing a user would notice.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+[OQ-HR1](#7-decision-ledger), where yolo's herdr knowledge lives, was ruled on 2026-10-01 and is
+in the [Decision Ledger](#7-decision-ledger).
 
 2. 💬 <a id="OQ-HR2"></a>**[OQ-HR2](#OQ-HR2): What does a jail pane do after a herdr restart?**
 
@@ -1468,3 +1437,11 @@ Two of its claims are corrected by this doc's evidence:
    pages may lag the `docs/next` tree read here.
 10. **Third-party claims.** Claims in READMEs and news posts, such as marketplace size and "native
     support" lists, were not checked beyond what herdr's source shows.
+
+---
+
+## 7. Decision Ledger
+
+| ID | Ruling / Decision | Date | Settled in |
+| :--- | :--- | :--- | :--- |
+| **OQ-HR1** | **A: yolo's herdr knowledge lives in core, beside the tmux and kitty indicators.** The maintainer ruled it in their own words: *"I definitely want PR49 in core. haven't read the doc yet, but you can take that as ruled and let's get this PR in."* PR #49 is that build ([built note](#built-2026-09-30)). B, a shipped `herdr` pack, needed a contribution kind that runs host commands and sets environment on the runtime client, and herdr would have been its only user. C, documentation only, gave no label and no status before a shell function was added. Neither was taken. [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) said A would also settle a point no other ruling covers, for the herdr arm: a jail launch may decide from its launcher's `HERDR_ENV` and `HERDR_PANE_ID`, and run a host program. As built, that program is the `herdr` on `PATH`, never the ambient `HERDR_BIN_PATH` | 2026-10-01 | [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) |
