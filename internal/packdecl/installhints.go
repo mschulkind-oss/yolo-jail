@@ -25,9 +25,25 @@ func isHintPackageChar(r rune) bool {
 		strings.ContainsRune(hintPackageChars, r)
 }
 
-// installHintsProblems validates every value of one contribution's install_hints, in sorted
-// key order so the problem list is deterministic. Called for `program` and `requires`, the two
+// installHintProblems checks the install_hints of every `program` and `requires`, the two
 // kinds that read the field (DepRequirements).
+//
+// AUTHORING-ONLY, like retiredFieldProblems, and so not part of Validate: Decode runs it and
+// DecodeTolerant does not. A hint is only ever printed (check-deps, host apply) or written into
+// a bundle file on the host; the jail neither prints nor runs one, so a check there protects
+// nothing, and a host that later widens the allowlist must not stop an older jail from booting.
+func (m *Manifest) installHintProblems() []string {
+	var problems []string
+	for i, c := range m.Contributes {
+		if c.Kind == KindProgram || c.Kind == KindRequires {
+			problems = append(problems, installHintsProblems(fmt.Sprintf("contributes[%d]", i), c)...)
+		}
+	}
+	return problems
+}
+
+// installHintsProblems validates every value of one contribution's install_hints, in sorted
+// key order so the problem list is deterministic.
 func installHintsProblems(label string, c Contribution) []string {
 	keys := make([]string, 0, len(c.InstallHints))
 	for k := range c.InstallHints {
@@ -54,8 +70,9 @@ func installHintsProblems(label string, c Contribution) []string {
 // `./<file>` as given), and none ends with "-" (apt's suffix for REMOVE: `apt install fd-find
 // ufw-` takes ufw away). After it, if present, is the step: free shell, since the whole remedy
 // is printed for the user to read and run, but non-empty, on one line, spelled in printable
-// ASCII so the terminal shows exactly what the hint holds (firstUnprintable), and the only
-// one — a second `&&` is refused.
+// ASCII so the terminal shows exactly what the hint holds (firstUnprintable). The step may
+// chain further, as any shell can; "one step" means only that the packages end at the first
+// ` && `. Nor is a token a URL or an absolute path: dnf installs either as given, as root.
 func installHintProblem(value string) string {
 	pkgs, step, chained := strings.Cut(value, hintStepSeparator)
 	// A trailing `&&` with nothing after it never matches the separator, which needs the
@@ -95,6 +112,14 @@ func installHintProblem(value string) string {
 				"path, never a package name (apt and dnf install a \"./<file>\" as given, and \".\" "+
 				"or \"..\" is a directory) — name the packages alone, and put extra steps after a "+
 				"single %q", tok, hintStepSeparator)
+		case strings.Contains(tok, "://"):
+			return fmt.Sprintf("has %q in its package part, which is a URL, never a package name (dnf "+
+				"downloads and installs a remote package as given, as root) — name the packages alone, "+
+				"and put extra steps after a single %q", tok, hintStepSeparator)
+		case strings.HasPrefix(tok, "/"):
+			return fmt.Sprintf("has %q in its package part, which is an absolute path, never a "+
+				"package name (apt and dnf install a local file as given) — name the packages "+
+				"alone, and put extra steps after a single %q", tok, hintStepSeparator)
 		case strings.HasSuffix(tok, "-"):
 			return fmt.Sprintf("has %q in its package part, which ends with \"-\" — apt reads that "+
 				"as \"remove this package\", not install it — name the packages alone, and put "+
@@ -118,10 +143,6 @@ func installHintProblem(value string) string {
 			"invisible or direction-changing one, or a lookalike letter can make what a terminal "+
 			"shows differ from what runs; write the step in printable ASCII",
 			string(firstUnprintable(step)), hintStepSeparator)
-	case strings.Contains(step, "&&"):
-		return fmt.Sprintf("chains a second \"&&\" — a hint takes ONE step after its packages "+
-			"(\"<package> [<package>…] && <command>\"); write that step as one command, after "+
-			"the first %q", hintStepSeparator)
 	}
 	return ""
 }

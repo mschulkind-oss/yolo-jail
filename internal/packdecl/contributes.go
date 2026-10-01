@@ -159,11 +159,14 @@ type Contribution struct {
 	// The printed remedy is the whole command; a bundle file cannot hold the step, so the
 	// dep is left out of it and printed beside it (internal/depcheck's bundleToken).
 	//
-	// The rule, same ruling, checked on every manifest read (installHintProblem): the value
+	// The rule, same ruling, checked when the HOST reads a manifest (installHintProblem, from
+	// Decode; the jail's DecodeTolerant skips it, since the jail neither prints nor runs a
+	// hint, and a widened rule must not stop an older jail booting): the value
 	// splits at its FIRST ` && `. The PACKAGE PART before it is one or more space-separated
 	// package NAMES spelled only from ASCII letters, digits and `. _ + - @ / : =` — enough
 	// for `owner/tap/name`, `python@3.12`, `pkg:amd64` and `pkg=1.2` — and no token may start
-	// with "-" (an option) or "." (a path), or end with "-" (apt's suffix for REMOVE).
+	// with "-" (an option), "." or "/" (a path), or contain "://" (a URL: dnf installs either
+	// as given, as root), or end with "-" (apt's suffix for REMOVE).
 	//
 	// Why the slot is that narrow: the value reaches a shell or a manager's own file
 	// verbatim. `yolo check-deps` and `yolo host apply` print it as a remedy for the user to
@@ -172,15 +175,12 @@ type Contribution struct {
 	// Ruby (internal/depcheck's Manifest), so a brew hint `x";system("id");"` would be a
 	// Brewfile line that runs `id`. The only way to chain a step is the visible ` && `. The
 	// STEP after it is free shell, because the remedy is printed whole for the user to read,
-	// but it must be non-empty, on one line, in printable ASCII (so a terminal shows exactly
-	// what the hint holds), and the only one: a second `&&` is refused.
+	// but it must be non-empty, on one line and in printable ASCII (so a terminal shows
+	// exactly what the hint holds); it may chain further, as any shell can.
 	//
 	// On nix every package is an installable, so internal/depcheck spells each one
 	// `nixpkgs#<package>`.
 	//
-	// The allowlist is skew-sensitive on the TOLERANT path, like skills_tier: a widened set
-	// staged for an older entrypoint is refused there. Whoever widens it lets DecodeTolerant
-	// pass unknown characters first, in its own change, and only then the characters.
 	InstallHints map[string]string `json:"install_hints,omitempty"`
 
 	// --- skills / briefing / files (staged trees) ---
@@ -3530,7 +3530,6 @@ func validateContribution(label string, c Contribution) []string {
 	case KindProgram:
 		req("bin", c.Bin)
 		problems = binProblem(problems, label+".bin", c.Bin)
-		problems = append(problems, installHintsProblems(label, c)...)
 		// An EMPTY word in the verb is refused rather than dropped. The launcher passes
 		// the list to the program as argv, so an empty element reaches the vendor as a
 		// zero-length argument — which `claude ""` and friends read as a malformed
@@ -3583,7 +3582,6 @@ func validateContribution(label string, c Contribution) []string {
 	case KindRequires:
 		req("bin", c.Bin)
 		problems = binProblem(problems, label+".bin", c.Bin)
-		problems = append(problems, installHintsProblems(label, c)...)
 		// `via`/`package`/`url` belong to program, and a `requires` carrying one is the
 		// author confusing the two kinds — which is worth saying, because the mistake is
 		// silent otherwise (the fields are simply never read, and the tool never installs).

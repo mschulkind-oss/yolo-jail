@@ -26,9 +26,10 @@ func hintManifest(t *testing.T, kind Kind, value string) []byte {
 }
 
 // hintProblems is every problem mentioning install_hints that a REAL manifest read returns
-// for value — the strict decoder every host read uses, and the tolerant one the jail uses,
-// which must agree: the rule is in the validation both share, not in a helper one of them
-// forgets to call.
+// for value: the strict decoder every host read uses, and the tolerant one the jail uses. The
+// rule is AUTHORING-ONLY, like retiredFieldProblems: the jail never prints or runs a hint, so a
+// check there protects nothing, and a host that later widens the allowlist must not stop an
+// older jail from booting. So the strict read refuses and the tolerant read stays silent.
 func hintProblems(t *testing.T, kind Kind, value string) (strict, tolerant []string) {
 	t.Helper()
 	data := hintManifest(t, kind, value)
@@ -78,7 +79,8 @@ func TestInstallHintsRefuseShellInThePackagePart(t *testing.T) {
 		{"tilde", "~/fd.deb", []string{`"~"`}},
 		{"leading dash", "--allow-downgrades fd-find", []string{`"--allow-downgrades"`, `"-"`, "option"}},
 		{"leading dash after a package", "fd-find -o", []string{`"-o"`, "option"}},
-		{"second &&", "fd-find && sudo ln -sf a b && rm -rf /tmp/x", []string{"second", `"&&"`}},
+		{"a URL", "https://evil.example/x.rpm", []string{`"https://evil.example/x.rpm"`, "URL"}},
+		{"an absolute path", "/tmp/x.deb", []string{`"/tmp/x.deb"`, "path"}},
 		{"empty step", "fd-find && ", []string{"no step", `" && "`}},
 		{"blank step", "fd-find &&    ", []string{"no step", `" && "`}},
 		{"trailing && with no space", "fd-find &&", []string{"no step", `" && "`}},
@@ -118,7 +120,10 @@ func TestInstallHintsRefuseShellInThePackagePart(t *testing.T) {
 		for _, tc := range cases {
 			t.Run(string(kind)+"/"+tc.name, func(t *testing.T) {
 				strict, tolerant := hintProblems(t, kind, tc.value)
-				for path, got := range map[string][]string{"Decode": strict, "DecodeTolerant": tolerant} {
+				if len(tolerant) != 0 {
+					t.Errorf("DecodeTolerant: hint %q: the jail's read must not refuse a hint, got %v", tc.value, tolerant)
+				}
+				for path, got := range map[string][]string{"Decode": strict} {
 					if len(got) != 1 {
 						t.Fatalf("%s: hint %q: want exactly one install_hints problem, got %d: %v",
 							path, tc.value, len(got), got)
@@ -158,7 +163,8 @@ func TestInstallHintsConventionalFormsDecode(t *testing.T) {
 		"libstdc++6:i386",
 		"fd-find && [ -x /usr/local/bin/fd ] || sudo ln -sf /usr/lib/cargo/bin/fd /usr/local/bin/fd",
 		"pkg && sudo sh -c 'echo x > /etc/y'; hash -r", // free shell after the separator
-		"  fd-find  ", // surrounding spaces are not a problem
+		"fd-find && sudo ln -sf a b && hash -r",        // a step may chain like any shell; it is printed whole
+		"  fd-find  ",                                  // surrounding spaces are not a problem
 	} {
 		for _, kind := range []Kind{KindRequires, KindProgram} {
 			strict, tolerant := hintProblems(t, kind, value)

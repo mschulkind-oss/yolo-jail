@@ -733,10 +733,10 @@ does not narrow the agent's menu there, naming the agent, the provider, the prof
 below the `jail` notch, where yolo bakes no image, by `yolo check-deps` / `apply` to probe
 for the binary and emit a runnable manifest. A value is `<package> [<package>…]`, optionally
 followed by one ` && <command>` step. The package part may hold only package names, spelled
-from ASCII letters, digits and `. _ + - @ / : =`, none starting with `-` or `.` or ending with
-`-`, and the step may hold only printable ASCII. So a hint that puts shell or an apt instruction
-among its packages, hides part of its step from the terminal, or chains a second `&&` is refused
-when the pack loads (the maintainer's ruling of 2026-10-01; the `InstallHints` doc comment in
+from ASCII letters, digits and `. _ + - @ / : =`, none starting with `-`, `.` or `/`, holding
+`://` or ending with `-`, and the step may hold only printable ASCII. So a hint that puts shell,
+a path, a URL or an apt instruction among its packages, or hides part of its step from the
+terminal, is refused when the host loads the pack (the maintainer's ruling of 2026-10-01; the `InstallHints` doc comment in
 [`contributes.go`](../../internal/packdecl/contributes.go) states the rule and why). One key
 names an installer *flavor* rather than a manager: **`brew-cask`**, because a Brewfile `brew` line naming
 a cask token fails and bare `brew install <token>` silently prefers a same-named *formula* —

@@ -479,7 +479,8 @@ func Decode(data []byte) (*Manifest, []string) {
 	if err := dec.Decode(&m); err != nil {
 		return nil, []string{ManifestName + ": " + err.Error()}
 	}
-	return &m, append(m.retiredFieldProblems(), m.Validate()...)
+	problems := append(m.retiredFieldProblems(), m.installHintProblems()...)
+	return &m, append(problems, m.Validate()...)
 }
 
 // retiredFieldProblems reports a field this build has RETIRED — decodable, so the strict

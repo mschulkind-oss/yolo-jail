@@ -446,9 +446,9 @@ See [troubleshooting](userguide/guides/troubleshooting.md#installing-and-launchi
 - A pack's `install_hints` value may now hold only package names before its one optional
   ` && <command>` step, since `yolo check-deps` and `yolo host apply` print it for you to run and
   write it into the Brewfile or package list they generate. A hint with `;`, `|` or `$(…)` among
-  its package names, a name starting with `.` or ending in `-` (which apt reads as "remove"), a
-  second `&&`, or a step holding characters a terminal does not show as themselves, is refused
-  when the pack loads, naming the pack, the tool and the character, and saying what to write
+  its package names, a path or URL there, a name ending in `-` (which apt reads as "remove"), or
+  a step holding characters a terminal does not show as themselves, is refused when yolo loads the
+  pack on your machine, naming the pack, the tool and the character, and saying what to write
   instead. A `nix` hint naming several packages now installs each of them from nixpkgs.
 
 **The launch's profile line now says what your selection reached for each agent.** Instead of
