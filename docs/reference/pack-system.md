@@ -43,7 +43,12 @@ commit since that touches a path this doc covers was re-checked against `f491d19
 the change that fixes the staging race it describes, and rewritten the same day with
 [`OQ-PK2`](#oq-pk2), in the change that builds one pack tree per launch; neither is verified by a
 later commit. The [two provenance derivations](#two-provenance-derivations) warning and its
-ruling were added on 2026-10-01 from the retired findings index, checked against `d4e435a3`.
+ruling were added on 2026-10-01 from the retired findings index, checked against `d4e435a3`, and
+the reserved-children rules (the withheld shipped name, the recovery report) and the synced
+skill trees rulings ([`OQ-ST2`](#oq-st2), [ST-P1](#st-p1), [ST-P3](#st-p3), [ST3](#st3),
+[ST-N2](#st-n2), [ST-R](#st-r)) the same day, when `synced-skill-trees.md` graduated. UNMEASURED:
+no apply over a non-empty `synced/` bucket on a real host is recorded; the fence and the notice
+are pinned by tests that drive a real apply over fixtures.
 MEASURED in CI at `7ad8358c`
 (run 35820702335): a pack's `briefing/` prose reaches a real container and its root `AGENTS.md`
 does not (`TestPackDeliversSkillAndBriefing`). UNMEASURED: no launched jail has been observed
@@ -934,7 +939,8 @@ child names yolo neither adopts nor composes over. It sits beside the tier rule 
 same kind of fact about a destination, and it is **pack-declared for the reason the tier is
 per-pack**: the name belongs to whoever owns the tree. Core learning one vendor's directory name is
 how core learns what an agent is, one string at a time
-([`OQ-ST2`](../design/synced-skill-trees.md#OQ-ST2)).
+([`OQ-ST2`](#oq-st2)). **A tree another tool writes is never yolo's to compose**
+([ST-P1](#st-p1)): yolo may read it on the host, and may never own it, move it or compose over it.
 
 `packs/claude` reserves `synced`. `~/.claude/skills/synced/` is a **sync root**: a bucket Claude Code
 fills from a registration that lives *outside* it, so nothing written inside survives that tool's
@@ -950,8 +956,24 @@ which looks like success and loses the user's edits later.
   account"), so core still names no vendor; a child without a note is "another tool's sync root".
   The line is in the default view the first time `yolo host apply` sees the tree non-empty and
   whenever its content changes, and under `--verbose` otherwise
-  ([`ST-N2`](../design/synced-skill-trees.md#ST-N2)). An empty one is silent, so a user with the
-  feature on and nothing synced gets no line.
+  ([`ST-N2`](#st-n2)). Whether a tree is new or changed is a per-path content digest an `--assert`
+  records beside the host skills record; it decides only whether the line is news, never what is
+  written. An empty one is silent, so a user with the feature on and nothing synced gets no line:
+  a bucket is minted from the user's identity and is empty until something syncs, so a line keyed
+  on existence would fire for everyone about nothing. The notice is printed at `yolo host apply`
+  only, never at launch ([`ST3`](#st3)).
+- A pack that **ships** an entry named like a reserved child of its destination has it withheld,
+  at both notches, on a line naming the pack, and no lower layer fills the name.
+- The fence is an **exclusion, never a refusal of the apply**: a vendor feature must not become a
+  yolo outage, so a user with a sync root they do not care about can still run `yolo host apply`.
+- <a id="a-home-an-earlier-apply-already-took-from"></a>**A home an earlier apply already took the
+  tree from is reported, not repaired** ([ST-R](#st-r)). Before the fence, an `--assert` against a
+  home with a sync root moved it into the local pack. A local-pack `skills/` entry whose name is a
+  reserved child can only have got there that way, so `yolo host apply` names it, names the
+  destination it was taken from, says a previous apply put it there, and claims to have fixed
+  nothing (`hostskills.ReservedInLocalPack`). It offers no move back: for most users the source
+  has refilled itself and the local copy is a stale fork, but a user whose organization has since
+  turned the feature off holds the only copy, and nothing yolo can read tells the two apart.
 - An entry must be a **bare child name**; the schema refuses one carrying path structure, because it
   is compared against a single directory entry and could never match — a fence that cannot match is
   worse than none, since it reads as protection.
@@ -3373,6 +3395,13 @@ in the config-overlay comments (R2, R3) it means the R1–R5 table below, never
 | <a id="q2-1"></a>**Q2.1** — several `program` contributions per pack, each with its own launcher | Exclusivity is per `bin`; `shellcheck` + `shfmt` in one pack is ordinary, and there is no case for constricting packs. |
 | <a id="q3-1"></a>**Q3.1** — prune only unconfigured slugs, contents-only; keep the unresolvable. **Superseded by [OQ-PK2](#oq-pk2)**: each launch stages a tree of its own, so there is no shared tree to prune | Clear-then-restage would discard a pack the user still wants because it could not be fetched; the staging root's inode is captured by a live jail's bind. Both still hold, and per-launch trees meet them by construction: no launch writes another's tree. |
 | <a id="two-provenance-derivations-row"></a>[**Two provenance derivations**](#two-provenance-derivations) (findings index #8, ruled 2026-08-02) — `agentcfg.Compose`'s fold and `entrypoint.rmwProvenance`'s write-order replay both answer "which layer won", and stay two until a third derivation exists | They answer one question about different mechanisms: a fold has every layer in hand, and an `rmw` write has no fold, its precedence being write order. One implementation would need a synthetic layer stack for `rmw` or a simulated write order for the fold. Maintainer ruling: *"yes, wait for 3 to unify."* The shared-corpus parity table is what holds the two to one answer meanwhile. |
+| <a id="oq-st2"></a>[**OQ-ST2**](#oq-st2) (synced skill trees, ruled 2026-09-20) — **the fence is pack-declared** (`reserved` on a `skills` contribution; `packs/claude` declares `synced`), never a name core knows | Hardcoding `synced` into core is how core learns what an agent is, one string at a time, which `internal/hostskills`' tier comment already refuses. ⚠ Whether a USER may add reserved children in their own config is not ruled; it gates nothing, and [the design stub](../design/synced-skill-trees.md#OQ-ST2) holds it. |
+| <a id="st-p1"></a>[**ST-P1**](#st-p1) (synced skill trees: that design's P1, prefixed here because this doc has P ids of its own) — **a tree another tool writes continuously is fenced, not adopted** | Adopting it moved the tree into the local pack and composed a byte-identical copy back, which looked like success and lost the user's edits at the vendor's next sync (measured: a second apply deleted a newly synced skill and reverted an edited one, reporting one composed skill). |
+| <a id="st-p3"></a>[**ST-P3**](#st-p3) (synced skill trees: its P3) — **a jail never reads a host skills tree**, because that is a host read | Host material crosses only by the host notch composing it into a pack, or by a declared `host_files` grant the launch discloses; a skills layer reading `~/.<agent>/skills` would be a second, undisclosed channel. The older reason, that the tree is yolo's own output, holds only where yolo composes it, so it is not the reason. |
+| <a id="st3"></a>[**ST3**](#st3) (synced skill trees) — **a sync root is announced at `yolo host apply` only**, never at launch | The apply is where yolo is about to take the folder over. The launch stream discloses what yolo did to a jail, and by [`OQ-RO3`](report-tiers.md#why-its-this-way) a line added there is permanent. |
+| <a id="st-n2"></a>[**ST-N2**](#st-n2) (synced skill trees, 2026-09-28) — **the notice is one line, in the default view only when the tree is new or changed** | The maintainer called the earlier three-part notice "very confusing", and its "how to look" pointed at `claude plugin list`, which does not show this tree. What the tree is comes from the pack (`reserved_notes`), so core still names no vendor. |
+| <a id="st-r"></a>[**ST-R**](#st-r) (synced skill trees) — **a home an earlier apply damaged gets a report, and no offer to put the tree back** | The same move is a tidy-up for one user and data loss for another, and nothing yolo can read distinguishes them, so the move is the user's ([above](#a-home-an-earlier-apply-already-took-from)). |
+| <a id="st-transition"></a>[**The transition is a notice**](#st-transition) (synced skill trees, ruled 2026-09-20) — yolo fences, says so on a non-empty reserved child, and copies, moves and tracks nothing | A snapshot verb with a drift report was designed and deleted: the population needing it is probably nobody, and a mechanism nobody needs is a standing obligation. A user who wants that content in a jail copies it into a pack of their own. |
 | **[OQ-PK2](#oq-pk2)** — one immutable pack tree per launch, plus a notice on attach; built 2026-09-26 | An attach that re-staged handed a running jail pack contracts its binaries may not read (v0.10.0 cannot boot on this tree's claude and pi), and left a live jail inconsistent after a changed-config attach. |
 | **WB-D9..D12** — `needs` names an embedded pack, resolves before staging, joins user selection, and always prints | A fetched pack needs-ing another would make selection a supply-chain channel; a silent join is the one forbidden behavior. |
 | <a id="oq-pb1"></a>[**OQ-PB1**](#oq-pb1) (briefing defaults) — shipped prose lives in a `briefing/` directory of `*.md` files at the pack root, read one level deep, ordered per pack and never globally | A root `BRIEFING.md` would be shipped content spelled in the repository's grammar (uppercase root Markdown), which is how `AGENTS.md` got its second reader, and one file cannot be the unit per-file governance routes. A global sort across packs would let one pack's filenames reorder another pack's rules. |

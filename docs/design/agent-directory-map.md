@@ -130,11 +130,11 @@ The principles, numbered so later sections can cite them:
   refuses a **write** yolo was about to make and stays exactly as it is.
 - **P5. Only harm repeats.** A dangling link, or a file that shadows a composed one, is printed every
   time, because each one makes the agent fail or ignore yolo's file. An unexplained entry is printed once,
-  when it first appears. This is [ST-N2](synced-skill-trees.md#ST-N2)'s "new or changed" rule
+  when it first appears. This is [ST-N2](../reference/pack-system.md#st-n2)'s "new or changed" rule
   applied to a whole directory.
 - **P6. Core knows no agent.** Every vendor name comes from a pack: a path, a credential file, the
-  variable that relocates a root. [`OQ-ST2`](synced-skill-trees.md#OQ-ST2) set that rule for the
-  `reserved` fence ([the precedent](synced-skill-trees.md#41-the-fence--the-part-that-is-not-optional)),
+  variable that relocates a root. [`OQ-ST2`](../reference/pack-system.md#oq-st2) set that rule for the
+  `reserved` fence ([the precedent](../reference/pack-system.md#skills)),
   and the map extends it to the whole directory
   ([pack-system principles](../reference/pack-system.md#principles)).
 
@@ -391,7 +391,7 @@ consequences are stated. In a jail, captured edits in `<ws>/.yolo/prism` apply a
 
 An unexplained entry is **new** until a verb that prints-when-new has printed it on this home. The
 **seen record** *(coined here)* is keyed by root, relative path and finding kind, and it lives beside
-the existing host records. This is the same device as [ST-N2](synced-skill-trees.md#ST-N2)'s
+the existing host records. This is the same device as [ST-N2](../reference/pack-system.md#st-n2)'s
 `host-reserved-trees.json`.
 
 - **Two verbs read and write it, and only two**: `yolo host apply` and the `yolo host --`

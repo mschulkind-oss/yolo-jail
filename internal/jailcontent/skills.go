@@ -111,7 +111,7 @@ type SkillTarget struct {
 	// copy of it. Empty receives every workspace source — the broadcast reading, as for Agent.
 	ProjectDirs []string
 	// Reserved names children of this destination no layer may compose — the destination
-	// contribution's `reserved` (docs/design/synced-skill-trees.md, OQ-ST2). packs/claude reserves
+	// contribution's `reserved` (docs/reference/pack-system.md, OQ-ST2). packs/claude reserves
 	// `synced`, Claude Code's sync root. ReservedNotes says what each one is, in the owning pack's
 	// words, for the line that says it was withheld.
 	Reserved      []string
@@ -373,7 +373,7 @@ func composeSkillLayers(dest hostskills.Destination, target SkillTarget, skillsD
 		}
 	}
 	// A RESERVED child is no layer's, including the two below: it is another tool's tree, and a
-	// jail composing any copy of it is the §7 leak (docs/design/synced-skill-trees.md).
+	// jail composing any copy of it is the adopted-tree leak (docs/reference/pack-system.md, ST-R).
 	for _, r := range target.Reserved {
 		if _, ok := taken[r]; !ok {
 			taken[r] = "a name reserved for another tool's tree"

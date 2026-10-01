@@ -109,7 +109,7 @@ them**, because an `implementation-plan` pass owns turning this into a hand-off.
 - **`yolo pack map`**: a new verb in `packMain` (`internal/cli/pack.go`), plus `subhelp.go`.
 - **`yolo config ls` footer**: `configls.go`.
 - **The seen record**: at the host only, a file beside `host-reserved-trees.json`, which is
-  [ST-N2](synced-skill-trees.md#ST-N2)'s record and the pattern to copy. Only host apply and the
+  [ST-N2](../reference/pack-system.md#st-n2)'s record and the pattern to copy. Only host apply and the
   `yolo host --` preflight read or write it; `yolo check` and `yolo pack map` must not
   ([§4.5](agent-directory-map.md#45-print-when-new)). There is no in-jail record.
 

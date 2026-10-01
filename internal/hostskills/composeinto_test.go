@@ -85,7 +85,7 @@ func TestComposeIntoRefusesACollisionBeforeWriting(t *testing.T) {
 }
 
 // A reserved child is never composed, whichever layer carries it — the adopted sync root of
-// docs/design/synced-skill-trees.md §7, sitting in a local pack — and the withholding is a Result
+// docs/reference/pack-system.md's "a home an earlier apply already took from", sitting in a local pack — and the withholding is a Result
 // the caller can say, not a silence.
 func TestComposeIntoWithholdsAReservedChild(t *testing.T) {
 	dir := t.TempDir()

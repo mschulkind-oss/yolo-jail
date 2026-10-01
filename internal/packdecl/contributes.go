@@ -173,7 +173,7 @@ type Contribution struct {
 	// that lives outside it, so nothing yolo does inside it survives the next sync. Adoption
 	// moved it into the local pack and composed a byte-identical copy back, which looks like
 	// success and loses the user's edits on the next upstream sync
-	// (docs/design/synced-skill-trees.md, the measured data loss).
+	// (docs/reference/pack-system.md, ST-P1: the measured data loss).
 	//
 	// The name belongs to the agent that owns the tree, not to core. Hardcoding "synced" here
 	// is how core learns what an agent is, one vendor string at a time — the coupling this

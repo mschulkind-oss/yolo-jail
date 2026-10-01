@@ -516,7 +516,7 @@ func reportSkillDestinations(pr richtext.Printer, dests []hostskills.Destination
 
 // printReservedTree is the notice for a non-empty reserved child of a skills destination — ONE
 // line naming the tree, what it is in the owning pack's words, and that yolo leaves it alone
-// (ST-N2, docs/design/synced-skill-trees.md).
+// (ST-N2, docs/reference/pack-system.md).
 //
 // NEWS ONLY WHEN IT IS NEWS. The tree is another tool's, and yolo does nothing to it on any run,
 // so the same line on every apply is a line the reader learns to skip — the maintainer's report

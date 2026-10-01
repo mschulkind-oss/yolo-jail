@@ -206,7 +206,7 @@ func TestAJailNamespacesAPackThatAskedForIt(t *testing.T) {
 }
 
 // THE RESERVED CHILD, STILL FENCED. packs/claude reserves `synced`; a home an earlier apply had
-// adopted the sync root on carries it in the local pack (synced-skill-trees.md §7), and a clone
+// adopted the sync root on carries it in the local pack (pack-system.md, ST-R), and a clone
 // can carry one in a workspace skills dir. Neither reaches the jail's ~/.claude/skills, and each
 // withholding is said.
 func TestAJailStillFencesAReservedChild(t *testing.T) {

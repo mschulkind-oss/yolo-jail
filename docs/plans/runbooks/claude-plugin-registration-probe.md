@@ -10,7 +10,7 @@ summary: "Three questions a jail structurally cannot answer about Claude Code's 
 
 **Status:** CURRENT — a procedure, and its three questions (Q1–Q3) are still unanswered: no real
 plugin install has been probed from a host yet (re-checked 2026-09-24). ⚠ **Q3 no longer decides a
-design.** On 2026-09-22 [`synced-skill-trees.md`](../../design/synced-skill-trees.md) ruled the
+design.** On 2026-09-22 [`pack-system.md`'s reserved children](../../reference/pack-system.md#skills) ruled the
 transition a **notice, not a mechanism**: yolo copies, moves and tracks nothing, so there is no
 re-homing feature for the vendor's uninstall verb to serve. Q1 and Q2 still settle
 [§2.4](../../design/synced-skill-trees.md#24-two-sync-roots-one-bucket-name-and-only-one-is-exposed)'s
@@ -29,7 +29,7 @@ outside a throwaway plugin install you undo at the end.
 > does not look — and an assert then MOVES the sync root into
 > `~/.config/yolo-jail/local/skills/synced/` and composes a byte-identical copy back. Nothing
 > looks wrong until the NEXT apply after an upstream sync, which deletes a new skill and reverts
-> an edited one. See [`synced-skill-trees.md`](../../design/synced-skill-trees.md).
+> an edited one. See [`pack-system.md`'s reserved children](../../reference/pack-system.md#skills).
 >
 > **`yolo host apply` WITHOUT `--assert` is a dry run** and is safe. Use it to check exposure:
 > if `synced` appears as an adoption at all, this host's `yolo` predates the fence.

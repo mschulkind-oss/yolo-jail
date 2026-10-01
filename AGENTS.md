@@ -470,7 +470,7 @@ live, so edits are visible on the host instantly — there is no sync step.
   reaches the jail by no path ([`skills.go`](internal/jailcontent/skills.go), where the deleted
   `SkillTarget.HostSource` was). ⚠ **A skills contribution may FENCE children of its destination**
   (`reserved`, pack-declared — core knows no vendor's directory name, by
-  [`OQ-ST2`](docs/design/synced-skill-trees.md#OQ-ST2)): `packs/claude` reserves `synced`, because
+  [`OQ-ST2`](docs/reference/pack-system.md#oq-st2)): `packs/claude` reserves `synced`, because
   `~/.claude/skills/synced/` is a sync root Claude Code regenerates from a registration OUTSIDE it, so
   adopting it moved the tree into the local pack, composed a byte-identical copy back, and lost the user's
   edits on the next upstream sync. A reserved child is never adopted and never composed over, and a

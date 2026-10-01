@@ -54,7 +54,7 @@ const (
 	ActionRefused Action = "refused"
 	// ActionReserved is a child of a destination that a pack FENCED off — another tool's tree,
 	// which yolo neither adopts nor composes over
-	// (docs/design/synced-skill-trees.md §4.2, OQ-ST2).
+	// (docs/reference/pack-system.md, OQ-ST2 and ST-N2).
 	//
 	// Its own action rather than ActionSkippedUser, and the difference is where the line prints:
 	// a skipped entry reaches the reader through the verdict's counts, so its per-entry line is
