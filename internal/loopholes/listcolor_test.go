@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 // listColorFixture writes one loophole per state listState can return, plus the extras a row
@@ -153,6 +154,80 @@ func TestListEmptyStateColorsItsSourceLabels(t *testing.T) {
 	for _, want := range []string{"  • \x1b[1mpack:\x1b[0m a `loophole`", "  • \x1b[1mconfig:\x1b[0m loopholes: block"} {
 		if !strings.Contains(colored, want) {
 			t.Errorf("the colored empty state lacks %q:\n%q", want, colored)
+		}
+	}
+}
+
+// Text yolo did not write reaches the list in four places a manifest or the machine fills: an
+// unmet requirement's reason in the label, an intercept host, the description, and the two
+// paths of the empty state. A style tag in any of them prints as text, and an opening it leaves
+// unclosed does not swallow the closing tag yolo writes after it, which printed `[/dim]` as text
+// and left a terminal dim.
+func TestListEscapesTextYoloDidNotWrite(t *testing.T) {
+	render := func(color bool) string {
+		unsetJail(t)
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		captureWarnings(t)
+		root := onlyModules(t)
+		writeManifest(t, mkdir(t, filepath.Join(root, "odd")), map[string]any{
+			"name": "odd", "description": "see [docs for more", "transport": TransportLoopbackTLS,
+			"intercepts": []any{map[string]any{"host": "[bold]h.test"}},
+			"requires":   map[string]any{"command_on_path": "[bold]x"},
+		})
+		var out, errBuf bytes.Buffer
+		deps := Deps{Out: &out, Err: &errBuf, Cwd: home, Color: color,
+			LoadUserConfig:      func() *jsonx.OrderedMap { return nil },
+			LoadWorkspaceConfig: func(string) *jsonx.OrderedMap { return nil }}
+		if rc := List(deps); rc != 0 {
+			t.Fatalf("List rc = %d, err=%q", rc, errBuf.String())
+		}
+		return out.String()
+	}
+	plain, colored := render(false), render(true)
+	const wj = "\u2060"
+	// The pad is the unescaped label's: the joiner is zero-width.
+	pad := labelPad("inactive ('[bold]x' not on PATH)")
+	for _, want := range []string{
+		"  inactive ('[" + wj + "bold]x' not on PATH)" + pad + "  odd  (pack/" + TransportLoopbackTLS + "/external)  intercepts=[[" + wj + "bold]h.test]\n",
+		"      see [" + wj + "docs for more\n",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("the plain report lacks %q:\n%q", want, plain)
+		}
+	}
+	if got := ansiEscape.ReplaceAllString(colored, ""); got != plain {
+		t.Errorf("color is not additive\n--- plain\n%q\n--- colored, stripped\n%q", plain, got)
+	}
+	for _, want := range []string{
+		"  \x1b[33minactive ('[" + wj + "bold]x' not on PATH)\x1b[0m" + pad + "  \x1b[1modd\x1b[0m",
+		"intercepts=[[" + wj + "bold]h.test]\x1b[0m\n",
+		"      \x1b[2msee [" + wj + "docs for more\x1b[0m\n",
+	} {
+		if !strings.Contains(colored, want) {
+			t.Errorf("the colored report lacks %q:\n%q", want, colored)
+		}
+	}
+
+	// The empty state's two paths are under a HOME whose name holds a style tag.
+	isolateDirs(t)
+	home := filepath.Join(t.TempDir(), "[dim]h")
+	t.Setenv("HOME", home)
+	for _, color := range []bool{false, true} {
+		var out, errBuf bytes.Buffer
+		deps := cmdDeps(t, &out, &errBuf, "", "")
+		deps.Color = color
+		if rc := List(deps); rc != 0 {
+			t.Fatalf("List rc = %d, err=%q", rc, errBuf.String())
+		}
+		got := ansiEscape.ReplaceAllString(out.String(), "")
+		for _, p := range []string{paths.LocalPackDir(), paths.UserConfigPath()} {
+			if !strings.Contains(strings.ReplaceAll(got, wj, ""), " "+p+" ") {
+				t.Errorf("color=%v: the empty state does not name %q:\n%q", color, p, out.String())
+			}
+		}
+		if strings.Contains(out.String(), "\x1b[2m") {
+			t.Errorf("color=%v: the HOME's [dim] styled the empty state:\n%q", color, out.String())
 		}
 	}
 }

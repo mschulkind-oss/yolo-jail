@@ -94,17 +94,29 @@ func Strip(s string) string {
 // after its `[` no longer matches tagRe and prints as the text it was.
 const wordJoiner = "\u2060"
 
+// openRe matches what can begin a tag: a `[`, an optional `/`, then a letter or the end of the
+// string.
+var openRe = regexp.MustCompile(`\[(/?(?:[a-zA-Z]|$))`)
+
 // Escape makes s safe to embed in markup: every known style tag in it (the only tokens
 // Render touches) gets a zero-width word joiner after its `[`, so it renders as literal text
 // in both modes instead of restyling the line. For a string yolo did not write, such as a
 // directory name a jail chose.
+//
+// So does every opening that no `]` in s closes. Left alone, it would run on into the markup
+// written after s: `[dim]see [docs[/dim]` holds one unknown token, `[docs[/dim]`, so the
+// closing tag would print as text in both modes and, on a terminal, the dim would never be
+// reset. A bracket that closes inside s, and one that cannot begin a tag, are untouched.
 func Escape(s string) string {
-	return tagRe.ReplaceAllStringFunc(s, func(tag string) string {
+	s = tagRe.ReplaceAllStringFunc(s, func(tag string) string {
 		if !isStyleTag(tag) {
 			return tag
 		}
 		return "[" + wordJoiner + tag[1:]
 	})
+	// Every opening after the last `]` is unclosed; every one before it closes inside s.
+	cut := strings.LastIndexByte(s, ']') + 1
+	return s[:cut] + openRe.ReplaceAllString(s[cut:], "["+wordJoiner+"${1}")
 }
 
 // Render applies ToANSI when color is set, else Strip.
