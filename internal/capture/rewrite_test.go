@@ -38,8 +38,9 @@ ln -s "$v/vendor" "$HOME/.local/bin/vendor"
 # An absolute symlink with a .. in it, which the rewrite must clean rather than copy.
 ln -s "$HOME/.local/share/../share/vendor/1.0.0/vendor" "$HOME/.local/bin/vendor-dotdot"
 
-# A TEXT shim embedding the capture home — the launcher-script shape.
-printf '#!/bin/sh\nexec %s/.local/share/vendor/1.0.0/vendor "$@"\n' "$HOME" > "$HOME/.local/bin/vendor-shim"
+# A TEXT shim embedding the capture home — the launcher-script shape. The shim quotes the path,
+# as a working launcher does, so it runs from a home whose path holds a space.
+printf '#!/bin/sh\nexec "%s/.local/share/vendor/1.0.0/vendor" "$@"\n' "$HOME" > "$HOME/.local/bin/vendor-shim"
 chmod 755 "$HOME/.local/bin/vendor-shim"
 
 # A config file naming the home more than once on one line.
@@ -124,7 +125,7 @@ func TestRelocatingMaterializeRewritesEveryReference(t *testing.T) {
 
 	// File contents: the prefix substituted everywhere, the rest byte-identical.
 	shim := readString(t, filepath.Join(to, ".local", "bin", "vendor-shim"))
-	if want := "#!/bin/sh\nexec " + to + "/.local/share/vendor/1.0.0/vendor \"$@\"\n"; shim != want {
+	if want := "#!/bin/sh\nexec \"" + to + "/.local/share/vendor/1.0.0/vendor\" \"$@\"\n"; shim != want {
 		t.Errorf("rewritten shim = %q, want %q", shim, want)
 	}
 	cfg := readString(t, filepath.Join(to, ".local", "share", "vendor", "1.0.0", "config"))
