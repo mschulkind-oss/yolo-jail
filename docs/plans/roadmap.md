@@ -84,9 +84,9 @@ host or an outside account follows under [External waits](#external-waits).
     provisioning command leaves every declared agent CLI uninstalled until first use, and [the boot snapshot and
     diagnostic dial](../design/diagnostics-past-the-boundary.md), since a refused boot keeps no record of the jail's state
     when it gave up, such as which process held a port.
-22. [Rule the add-only model lists, then whether a list refuses without `only`](../design/model-lists-and-pickers.md), and read
-    [web search on Bedrock](../design/bedrock-web-search.md) from the agents' shipped packages and [Responses at codex's route](../design/wire-bridge-gateway.md)
-    from AWS's documentation — they decide what most agents' menus show and whether codex's Bedrock route is real; neither reading needs an account.
+22. [Rule the add-only model lists, then whether a list refuses without `only`](../design/model-lists-and-pickers.md), and
+    [web search on Bedrock](../design/bedrock-web-search.md) — what most agents' menus show turns on the first two, and the 2026-10-01
+    reading found no agent gets search from Bedrock on runtime, so the search questions now decide whether yolo supplies one.
 23. [Decide whether pack-declared traps fold into the agent directory map](../design/agent-directory-map.md) — the map
     would supersede [the traps design](../design/pack-declared-file-diagnostics.md), so rule it before building either.
 24. [Rule what triggers an in-jail build's GC root, and whether `gcroots/auto` may be bound in](../design/in-jail-nix-roots.md) — yolo's
@@ -97,8 +97,8 @@ host or an outside account follows under [External waits](#external-waits).
     with [the test suite's two other levers](test-suite-speed.md),
     and [name the real forked program](../design/forked-programs-as-packs.md) — the host notch's floor arms are built on a stand-in fork,
     and the real one is the last input step 7 needs.
-27. Measure the commit half of [a read-only `.git` bind](../research/herdr-integration.md) in a container — the one fact left there an
-    agent can take; the others are now each one call in their documents.
+27. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md) — the 2026-10-01 measurement showed a
+    read-only bind refuses every commit and a read-write one lets a jail prune the outside worktree, so the herdr questions now rest on facts.
 28. Calls the 2026-10-01 groundwork left at one decision each: [mise's prune record](../design/minimal-disk-footprint.md),
     [colliding attribute paths](../design/package-nested-attribute-paths.md), [pi's package loader](../design/pack-pi-resources.md),
     [who installs a pi package the refresh missed](../design/pi-extension-lifecycle.md), [the `:ro` degradation rows](../design/composed-file-permissions.md),
