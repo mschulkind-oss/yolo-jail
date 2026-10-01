@@ -438,3 +438,28 @@ esac
 		})
 	}
 }
+
+// THE LOGIN PRELAUNCH FOLLOWS A LATER ENTRY OF THE SET (AP-P1, pi's rule): opencode on [zai, codex]
+// starts on zai and can switch to the subscription mid-session, so its launcher stores the shared
+// login's view as it does for codex alone. Without it the switch would reach opencode's `openai`
+// row with no stored login, on the derive's non-key.
+func TestOpencodeOnASetWithCodexSecondIsLaunchedWithTheOpenAILogin(t *testing.T) {
+	packs := testPacksForAgent(t, "opencode", "zai")
+	providers, err := packload.ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := packload.ResolveProfiles(packs, nil, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := packload.ScopeCredentials(packload.ScopeInput{Packs: packs, Providers: providers,
+		Profiles: map[string]string{"opencode": "zai"}, Sets: map[string][]string{"opencode": {"zai", "codex"}},
+		Resolved: resolved})
+	if err != nil {
+		t.Fatalf("opencode on [zai, codex]: %v", err)
+	}
+	if got, _ := scope.DeliveredTo("opencode", "YOLO_AUTH_PRELAUNCH_OPENCODE_FLAG"); got != "--opencode-auth" {
+		t.Errorf("opencode on [zai, codex] carries prelaunch flag %q, want --opencode-auth", got)
+	}
+}
