@@ -64,8 +64,9 @@ is complete on its own.
 **Needs your ruling:** [OQ-HD4](#OQ-HD4) (the reclaimer's hard kill), [OQ-HD5](#OQ-HD5) (silent mid-session death), [OQ-HD9](#OQ-HD9) (**new** — who keeps the shared credential fresh with no jail running), [OQ-HD10](#OQ-HD10) (**new** — what serializes spawn on macos-user, the one objection the ruling did not answer).
 
 **Reads with:** [`host-daemon-ownership-plan.md`](host-daemon-ownership-plan.md) (the
-implementation sketch — ⚠ **now wrong in a specific way**: its entries are parked against
-questions this ruling dissolved, and its largest entry plans a version in the rendezvous),
+implementation sketch, pruned against the tree on 2026-10-01: what the spawn flock covers today,
+which [OQ-HD10](#OQ-HD10) has to answer for, and the spawn sites the ruling reworks — still not a
+plan),
 [`../reference/loophole-transport.md`](../reference/loophole-transport.md) (**the
 authority** for `scope`, the ensure-under-flock model, the teardown asymmetry and the
 stale-daemon warning — all of which describe the built tree and none of which this ruling
@@ -437,7 +438,9 @@ Two residues worth naming, because a reader will otherwise assume they vanished:
 - **Per-jail identity is per-workspace-path, not per-launch.** `runtime.FromResolved`'s
   frozen contract hashes the resolved workspace path, so two launches on one workspace
   share a name — and on macos-user that is the identity a daemon would be keyed by.
-  [OQ-HD10](#OQ-HD10).
+  [OQ-HD10](#OQ-HD10). ⚠ Since [`HD-D1`](#HD-D1) (2026-09-27) a macos-user session's
+  per-jail sockets are keyed by its own host-services dir instead, which
+  [OQ-HD10](#OQ-HD10)'s note of 2026-10-01 records.
 - **`/tmp`-collision between two users on one host** stops applying to the *name-keyed*
   paths, since per-jail paths already carry a hash of the workspace. It does not stop
   applying to two users launching the **same workspace path**, and it never applied to the
@@ -990,11 +993,10 @@ retiring `scope: "host"` removes one instance of it rather than the shape.
 
 ## 9. What this doc does not cover
 
-- **How to build the ruling.** There is no implementation plan here and none elsewhere. ⚠
-  [`host-daemon-ownership-plan.md`](host-daemon-ownership-plan.md) is a parking lot whose
-  largest entries are parked against questions this ruling **dissolved** — one of them plans
-  a version in the rendezvous — so it needs rework before anything is built from it, and it
-  already says not to build from it.
+- **How to build the ruling.** There is no implementation plan here and none elsewhere.
+  [`host-daemon-ownership-plan.md`](host-daemon-ownership-plan.md) is a parking lot, pruned on
+  2026-10-01 to the material a plan will need: the entries parked against questions this ruling
+  dissolved are gone, and it says not to build from it.
 - **Whether the shared credential FILE's format is a compatibility surface across builds.**
   It is ([§6](#6-the-failure-modes), mode 4's residue): the ruling keeps the state sharing
   and keeps it unversioned. Nothing here designs that.
@@ -1200,6 +1202,19 @@ each, because a deleted question is one the next reader re-derives.
    still answering. So [`HD-D1`](#HD-D1) holds on a Mac, and the spawn answer is the same as
    before the fix: one broker, which the test's verdict line credits to the spawn flock or the
    liveness re-check inside it.
+
+   **READ FROM CODE 2026-10-01: two of this question's facts have moved, and neither answers
+   it.** The in-flight change named above landed the same day: the mint takes a lock of its
+   own, `cert.lock` (`withCertLock` in [`cert.go`](../../internal/oauthbroker/cert.go),
+   `4ac8f11bc`), so that rider no longer depends on the spawn flock. And since [`HD-D1`](#HD-D1), a
+   macos-user session keys a per-jail fronted daemon's upstream socket by its own host-services
+   dir (`frontShortHash` in [`loopholesruntime.go`](../../internal/cli/run/loopholesruntime.go)),
+   so two sessions of one workspace would not share a socket if the retired daemons took that
+   path. The spawn flock is still the only lock on the OpenAI legacy-state migration
+   (`PrepareLocked`), and `yolo host -- codex`, `yolo host -- pi` and `yolo openai-auth` still
+   ensure the OpenAI daemon at its machine-wide name, with no jail to key a per-jail one by.
+   [The plan](host-daemon-ownership-plan.md#what-the-spawn-flock-covers-today) lists
+   what the flock covers, row by row. The leaning above is unchanged.
 
    **Answer:**
    > _(empty — fill in when decided)_
