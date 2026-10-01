@@ -104,8 +104,9 @@ curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install
 curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --extra-conf "extra-trusted-users = $(whoami)"
 ```
 
-It stops on a system without systemd, on NixOS, on WSL 1 (the first version of Windows' Linux
-layer), and where Nix is already installed. With SELinux, the security layer Fedora turns on by
+It stops on a system without systemd, on NixOS (see [Other ways to get Nix](#other-ways-to-get-nix)),
+on WSL 1 (the first version of Windows' Linux layer), and where Nix is already installed. If yours
+is, keep that Nix and go on to [Trust your user](#trust-your-user-required-on-a-mac). With SELinux, the security layer Fedora turns on by
 default, it needs the `semodule` and `restorecon` commands, and installs an SELinux policy for Nix.
 
 Run the installer as yourself, without `sudo`: it asks for your password when it needs it, and asks
