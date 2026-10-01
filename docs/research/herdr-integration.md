@@ -5,7 +5,7 @@ status: in-review
 tags: [research, herdr, terminal, multiplexer, sessions, lifecycle, worktrees, host, notches, integration]
 summary: "herdr is a terminal multiplexer built for coding agents. A background server owns every pane's terminal, so agents keep running when the window closes, and herdr shows which agent is working, blocked or done. It sits beside yolo rather than competing with it: herdr is where the terminals live, and yolo is the environment each agent runs in. `yolo host -- <agent>` in a herdr pane already gets everything herdr offers. `yolo -- <agent>` in a container jail shows up as a plain terminal, because herdr looks for the agent among host processes and finds only podman. The best first step is small. When the launcher runs in a herdr pane, it tells herdr which program is inside by setting a variable on the host-side runtime process, and, for an agent herdr recognizes, it labels the pane as a jail, the way yolo already marks tmux panes and kitty tabs. Three things break and need rulings or other designs. Closing a herdr pane signals the launcher and, through podman's signal forwarding, the jail's own processes, and probably kills the launcher during its teardown (inferred, not measured). herdr's worktrees break git inside container jails. A herdr restart brings jail panes back as empty shells. herdr's socket must never cross into a jail, because it gives full control of the user's terminals. Four rulings are owed."
 stage: DESIGN
-next: "Measure the commit half of §6 item 8, the fact OQ-HR3 turns on: the mount half was measured 2026-10-01 (podman creates the host-path mountpoint in a --read-only container); a commit from the worktree inside that container, and a rootless host, remain"
+next: "Rule OQ-HR1 to OQ-HR4. OQ-HR3 now carries the measured commit half of §6 item 8 (§4.5, 2026-10-01: a read-write .git bind commits, a read-only one refuses every write, and the jail sees its own checkout as prunable); what §6 still owes needs a real host, a herdr pane, a rootless podman or a Mac"
 vantage:
   status-chip: true
 ---
@@ -16,7 +16,10 @@ vantage:
 was read at tag `v0.9.3` (commit `7b116c05`). yolo evidence was read at `e766fb23`. No agent CLI was
 run. One research lens ran the herdr 0.9.3 release binary as a headless named herdr session in a
 scratch directory, with `sh` and `sleep` probes in its panes. Those results are marked MEASURED.
-Everything else about herdr comes from its source, docs and issue tracker. Four rulings are owed.
+Everything else about herdr comes from its source, docs and issue tracker. On 2026-10-01 a
+second lens measured [§6](#6-what-is-unmeasured) item 8, git in a container through a bind of a
+scratch repository's `.git`, on this jail's nested rootful podman
+([§4.5](#45-option-4-git-in-herdrs-worktrees)). Four rulings are owed.
 
 > **In short.** herdr is tmux rebuilt for coding agents. herdr and yolo are two layers of one
 > setup: herdr owns the terminals, and yolo owns what runs in them. `yolo host` already works in
@@ -981,6 +984,71 @@ worktrees.
   mount.
 - **Cost: small to medium.** [OQ-HR3](#OQ-HR3) asks whether to build it.
 
+**What a bind of the repository's `.git` does to git.** MEASURED on 2026-10-01
+([§6](#6-what-is-unmeasured) item 8), with the rootful podman 5.8.7 nested in a jail, git 2.55.0
+and the jail image `localhost/yolo-jail` (image ID `b617a1ad0710`). Every container was started
+with `--read-only` and ran as uid 0. A scratch repository under `/tmp` was laid out the way
+herdr leaves one: the linked worktree's `.git` file names `/home/u/code/repo/.git/worktrees/slug`,
+and that directory's `gitdir` file names the checkout's host path,
+`/home/u/.herdr/worktrees/repo/slug/.git`. The checkout was bound at `/workspace`, and the
+repository's `.git` at its host path, in four ways. "Outside" below is the outer jail, standing
+in for the host.
+
+| The `.git` bind | `git status` | `git add` and `git commit` | `git worktree add` |
+| :--- | :--- | :--- | :--- |
+| read-write, as Option 4 has it | exit 0 | exit 0, and the commits are on the `slug` branch outside | exit 0 |
+| read-only | exit 0, and silent with a stat-dirty index | exit 128, `--allow-empty` included: `fatal: Unable to create '/home/u/code/repo/.git/worktrees/slug/index.lock': Read-only file system` | exit 128 with `--detach`: `fatal: could not create directory of '/home/u/code/repo/.git/worktrees/wt3': Read-only file system`. Exit 255 with `-b`: `fatal: cannot lock ref 'refs/heads/wt2'` |
+| read-only, with `worktrees/slug` read-write over it | exit 0 | `git add` exit 128: `error: unable to create temporary file: Read-only file system`, then `fatal: adding files failed`, so nothing is staged to commit | as read-only |
+| read-write, with `config` and `hooks` read-only over it | exit 0 | exit 0 | exit 0 |
+
+- **Only a writable `.git` commits.** The objects and refs live in the repository's `.git`
+  itself, not in the worktree's own directory under it, `worktrees/slug`. So a read-only bind
+  keeps `status` and `log` working and refuses every write. `git hash-object -w` failed the same
+  way, exit 128 with `error: unable to create temporary file: Read-only file system`. MEASURED.
+- **The jail sees its own checkout as prunable.** The `gitdir` file names the checkout's host
+  path, and the jail mounts the checkout at `/workspace` instead. So `git worktree list` marks it
+  `prunable gitdir file points to non-existent location`. With the bind read-write:
+  - `git worktree prune -v` printed
+    `Removing worktrees/slug: gitdir file points to non-existent location`, exited 0, and the
+    directory was gone outside the container too;
+  - every git command after it failed with `fatal: not a git repository: (null)`, exit 128, and the
+    `slug` branch survived;
+  - `git gc` did the same once the worktree's `index` file was four months old, and failed mid-run
+    with `fatal: not a git repository: '/home/u/code/repo/.git/worktrees/slug'` and
+    `fatal: failed to run rerere`, exit 128. It kept the directory while the `index` was fresh,
+    even with only `gitdir` aged.
+
+  MEASURED. git's default grace period for that is three months
+  ([`gc.adoc`](https://github.com/git/git/blob/v2.55.0/Documentation/config/gc.adoc#L107-L113),
+  git 2.55.0). SOURCED.
+- **This is not new with Option 4.** A jail started in the main checkout also lists the outside
+  worktree as prunable, and `git worktree prune -n -v` names it for removal. MEASURED. So a jail in
+  the main checkout can already delete `.git/worktrees/<name>`, the directory git keeps for each
+  linked worktree, for every herdr worktree of that repository. Option 4 adds the same reach from
+  a worktree jail, its own checkout included. INFERRED from the same listing.
+- **Two things kept the checkout.** Binding it a second time, at its host path beside
+  `/workspace`, cleared `prunable`, and `git worktree prune -v` then removed nothing. Locking it
+  worked only by its host path: `git worktree lock --reason probe /home/u/.herdr/worktrees/repo/slug`
+  exited 0, and `prune -n -v` then named nothing. `git worktree lock /workspace` exited 128 with
+  `fatal: '/workspace' is not a working tree`. MEASURED. herdr does not lock the worktrees it
+  makes ([`worktree.rs`](https://github.com/herdrdev/herdr/blob/v0.9.3/src/worktree.rs#L239-L280)).
+  SOURCED.
+- **A worktree made in the jail stays registered outside it.** `git worktree add -b wt2 /tmp/wt2`
+  registered `worktrees/wt2` with the `gitdir` `/tmp/wt2/.git`, a path in the container's own
+  `/tmp`, which ended with the container. Outside, `git worktree list` marks it prunable and names
+  its `wt2` branch. MEASURED.
+- **A read-only `config` over a read-write `.git` lasts until the next write outside.** In the
+  jail, `git config probe.key value` exited 4 with
+  `error: could not write config file /home/u/code/repo/.git/config: Device or resource busy`, and
+  writing `hooks/post-commit` failed with `Read-only file system`. Then one `git config` outside the
+  container, which replaces the file by renaming a new one over it, removed the jail's `config`
+  mount. The jail's next `git config jail.key 1` exited 0, and the line was in the outside file. The
+  `hooks` mount stayed. MEASURED, on Linux 7.2.7. The kernel drops a mount whose mountpoint is
+  deleted or renamed over from another mount namespace. INFERRED.
+- **Ownership.** Everything git wrote was owned by uid 0 outside, the uid the container ran as.
+  git left the `gitdir` file as it was, read back after the first read-write and read-only runs.
+  MEASURED. A rootless host maps uids differently and is unmeasured.
+
 ### 4.6 Option 5: a narrow herdr door for jailed agents
 
 - **The idea.** A loophole (a host capability deliberately opened into a jail through a mediated
@@ -1123,6 +1191,22 @@ Each of these has one sensible answer, so none is asked.
    honest but leaves herdr's main worktree flow broken in every container jail. If A is ruled, B's
    message is still the fallback where the path is refused.
 
+   _Measured since the leaning_ (2026-10-01, rootful podman,
+   [§4.5](#45-option-4-git-in-herdrs-worktrees)). A's premise holds: with the `.git` bound
+   read-write at its host path, the worktree commits and the commits land where the host reads
+   them. A read-only bind is no middle way: `git status` works and every commit fails. Two things
+   A's text does not say yet:
+
+   - Inside the jail its own checkout shows as `prunable`. So a `git worktree prune`, or a `git gc`
+     once the checkout's index is three months old, deletes `.git/worktrees/<name>`, the directory
+     git keeps for the checkout, for the host too. A jail in the main checkout can already do that
+     to every outside worktree.
+   - A narrower A, with a read-only `config` file bound over the read-write `.git`, holds only
+     until the host's next `git config`.
+
+   [§4.5](#45-option-4-git-in-herdrs-worktrees) measured two guards against the first. Whether A
+   takes one is part of the ruling.
+
    **Answer:**
    > _(empty — fill in when decided)_
 
@@ -1187,16 +1271,16 @@ Each of these has one sensible answer, so none is asked.
 7. **Resume through yolo, end to end.** The measured resume ran `sh` and `sleep`, not `yolo`. A
    restore that runs `yolo -- claude --resume <id>` in several panes of one jail, 100 ms apart, has
    not been tried.
-8. **Option 4's mount.** Whether podman creates a mountpoint at a host path such as
-   `/home/<user>/code/<repo>/.git` in a container started with `--read-only`, and whether git then
-   commits from the worktree. **The mount half was MEASURED on 2026-10-01**, with the rootful
-   podman 5.8.7 nested in a jail (`podman info` reports `rootless: false`). A scratch repository's
-   `.git` was bound read-write at `/home/u/code/repo/.git` into a `--read-only` container of the
-   jail image, beside its linked worktree bound at `/workspace`, whose `.git` file named
-   `/home/u/code/repo/.git/worktrees/slug`. Podman created `/home/u` and the path below it in the
-   read-only root, and the bound directory listed in full. **The commit half is not measured**:
-   the tooling this session ran under refuses to run git inside a container. A rootless host is
-   also open, because its uid mapping decides who owns what git writes into that directory.
+8. **Option 4's mount, on a rootless host.** Both halves were MEASURED on 2026-10-01 with the
+   rootful podman 5.8.7 nested in a jail (`podman info` reports `rootless: false`). The mount
+   half: a scratch repository's `.git` was bound read-write at `/home/u/code/repo/.git` into a
+   `--read-only` container of the jail image, beside its linked worktree bound at `/workspace`,
+   whose `.git` file named `/home/u/code/repo/.git/worktrees/slug`. Podman created `/home/u` and
+   the path below it in the read-only root, and the bound directory listed in full. The commit
+   half, and what a read-only bind does instead, is
+   [§4.5](#45-option-4-git-in-herdrs-worktrees)'s table and the list below it. A rootless host is
+   still open. Its uid mapping decides who owns what git writes into that directory, and whether
+   git's ownership check then accepts the directory at all. INFERRED.
 9. **herdr's own docs lag its code.** The resume page says 0.10.0. At the v0.9.3 tag,
    `docs/versions/manifest.json` still says the current version is 0.9.1. So the live `herdr.dev`
    pages may lag the `docs/next` tree read here.
