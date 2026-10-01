@@ -36,10 +36,26 @@ func TestNoTerminalRunsTheCommandWithNoStdin(t *testing.T) {
 	if rc := runInternal([]string{"no-terminal", "--", "sh", "-c", "kill -TERM $$"}); rc != 128+int(syscall.SIGTERM) {
 		t.Errorf("rc = %d, want 128+SIGTERM for a command killed by it", rc)
 	}
-	for _, args := range [][]string{{"no-terminal"}, {"no-terminal", "--"}, {"no-terminal", "sh"}} {
+	for _, args := range [][]string{{"no-terminal"}, {"no-terminal", "--"}, {"no-terminal", "sh"},
+		{"no-terminal", "--timeout=never", "--", "true"}} {
 		if rc := runInternal(args); rc != 2 {
 			t.Errorf("%v: rc = %d, want 2 (misuse)", args, rc)
 		}
+	}
+}
+
+// no-terminal's flags are the launchers' UPDATE BOUND (program-delivery.md §3.5): a command that
+// outlives its SIGTERM is killed after --kill-after, and the verb exits 124, the status the
+// launchers read as "timed out". Driven through runInternal, so the dispatch reaches the bound.
+func TestNoTerminalBoundsTheCommand(t *testing.T) {
+	begun := time.Now()
+	rc := runInternal([]string{"no-terminal", "--timeout=0.3", "--kill-after=0.3", "--",
+		"sh", "-c", "trap '' TERM; exec sleep 30"})
+	if rc != 124 {
+		t.Errorf("rc = %d, want 124 for a command its bound ended", rc)
+	}
+	if took := time.Since(begun); took > 10*time.Second {
+		t.Errorf("the bound did not hold: the verb returned after %s", took)
 	}
 }
 

@@ -29,13 +29,30 @@
 // dies of the same signal, because the shell that started it tells the two apart by exactly that:
 // bash waiting on a command when a Ctrl-C arrives abandons its script only when the command died of
 // SIGINT, and goes on to the next line when the command exited, even with status 130.
+//
+// # The bound
+//
+// RunBounded adds a wall-clock bound, which is how the jail's launchers run an agent's update
+// (docs/design/program-delivery.md §3.5): SIGTERM once Bound.Timeout has passed, and SIGKILL once
+// the child has outlived that, or a forwarded signal, by Bound.KillAfter. Both go to the child's
+// whole process group, each signal followed by a SIGCONT, because a STOPPED process acts on
+// nothing but SIGKILL and SIGCONT: its SIGTERM waits, pending, for something to continue it. That
+// is GNU timeout(1)'s `-k` semantics, built here rather than borrowed, for two reasons. A stock
+// macOS has no timeout(1). And timeout(1) caused the 2026-10-01 hang: it runs its command in a
+// process group of its own on the user's terminal, so `claude install` switching that terminal to
+// raw mode was stopped by SIGTTOU before it did anything, and a Ctrl-C at the terminal never
+// reached it. A child of this package has no terminal to be stopped by.
 package notty
 
 import (
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -72,8 +89,56 @@ func (s *Stopped) Unwrap() error { return s.Err }
 
 // Run prepares c (Prepare), starts it, forwards the signals above to its process group until it
 // exits, and returns c.Wait's error: nil on a zero exit, a *Stopped when the child died of a
-// signal Run forwarded, and otherwise the *exec.ExitError.
-func Run(c *exec.Cmd) error {
+// signal Run forwarded, and otherwise the *exec.ExitError. It is RunBounded with no bound.
+func Run(c *exec.Cmd) error { return RunBounded(c, Bound{}) }
+
+// Bound limits how long RunBounded lets the child live. The zero Bound is no limit at all.
+type Bound struct {
+	// Timeout is how long the child may run before its process group is sent SIGTERM. Zero is
+	// no timeout.
+	Timeout time.Duration
+	// KillAfter is how long the child may outlive that SIGTERM, or a signal RunBounded forwarded
+	// to it, before its process group is sent SIGKILL. Zero never kills.
+	KillAfter time.Duration
+}
+
+// ExitTimedOut is the status a wrapper exits with when its child ran out of time: GNU timeout(1)'s,
+// so a caller that already reads 124 as "timed out" reads this the same.
+const ExitTimedOut = 124
+
+// TimedOut is RunBounded's error for a child still running when its Bound.Timeout passed. It wraps
+// the child's own exit error (nil when it exited 0 after the SIGTERM).
+type TimedOut struct {
+	// After is the timeout that passed.
+	After time.Duration
+	// Killed says the child outlived the SIGTERM too, and was killed after Bound.KillAfter.
+	Killed bool
+	// Err is the child's exit error, nil for a zero exit.
+	Err error
+}
+
+func (t *TimedOut) Error() string {
+	if t.Killed {
+		return fmt.Sprintf("timed out after %s, and killed when it outlived the SIGTERM", t.After)
+	}
+	return fmt.Sprintf("timed out after %s", t.After)
+}
+func (t *TimedOut) Unwrap() error { return t.Err }
+
+// outcome is what the watcher saw while the child ran.
+type outcome struct {
+	seen     map[syscall.Signal]bool
+	first    syscall.Signal // the first signal forwarded, 0 for none
+	timedOut bool
+	killed   bool
+}
+
+// RunBounded is Run under b: it prepares c (Prepare), starts it, and until it exits forwards the
+// signals above to its process group and enforces b (see Bound and the package comment). It
+// returns nil on a zero exit; a *Stopped when the child died of a signal RunBounded forwarded, or
+// was killed after outliving one by b.KillAfter; a *TimedOut when b.Timeout passed first; and
+// otherwise c.Wait's error.
+func RunBounded(c *exec.Cmd, b Bound) error {
 	Prepare(c)
 	sigs := make(chan os.Signal, 4)
 	signal.Notify(sigs, forwarded...)
@@ -81,33 +146,76 @@ func Run(c *exec.Cmd) error {
 	if err := c.Start(); err != nil {
 		return err
 	}
+	// The child leads its own session, so its pid is its process group.
+	group := -c.Process.Pid
+	var deadline *time.Timer
+	if b.Timeout > 0 {
+		deadline = time.NewTimer(b.Timeout)
+		defer deadline.Stop()
+	}
 	done := make(chan struct{})
-	sent := make(chan map[syscall.Signal]bool, 1)
+	result := make(chan outcome, 1)
 	go func() {
-		seen := map[syscall.Signal]bool{}
+		o := outcome{seen: map[syscall.Signal]bool{}}
+		var expired <-chan time.Time
+		if deadline != nil {
+			expired = deadline.C
+		}
+		var kill *time.Timer
+		var killNow <-chan time.Time
+		// signalGroup sends sig, then SIGCONT so a stopped child can act on it, and starts the
+		// grace once: the FIRST signal is when the child's time to exit begins.
+		signalGroup := func(sig syscall.Signal) {
+			_ = syscall.Kill(group, sig)
+			_ = syscall.Kill(group, syscall.SIGCONT)
+			if b.KillAfter > 0 && kill == nil {
+				kill = time.NewTimer(b.KillAfter)
+				killNow = kill.C
+			}
+		}
 		for {
 			select {
 			case s := <-sigs:
 				if sig, ok := s.(syscall.Signal); ok {
 					// Recorded BEFORE it is sent, so a child that dies of it is always found here.
-					seen[sig] = true
-					// The child leads its own session, so its pid is its process group.
-					_ = syscall.Kill(-c.Process.Pid, sig)
+					o.seen[sig] = true
+					if o.first == 0 {
+						o.first = sig
+					}
+					signalGroup(sig)
 				}
+			case <-expired:
+				expired = nil
+				o.timedOut = true
+				signalGroup(syscall.SIGTERM)
+			case <-killNow:
+				killNow = nil
+				o.killed = true
+				_ = syscall.Kill(group, syscall.SIGKILL)
 			case <-done:
-				sent <- seen
+				if kill != nil {
+					kill.Stop()
+				}
+				result <- o
 				return
 			}
 		}
 	}()
 	err := c.Wait()
 	close(done)
-	seen := <-sent
+	o := <-result
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
-		if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() && seen[ws.Signal()] {
+		if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() && o.seen[ws.Signal()] {
 			return &Stopped{Signal: ws.Signal(), Err: err}
 		}
+	}
+	if o.timedOut {
+		return &TimedOut{After: b.Timeout, Killed: o.killed, Err: err}
+	}
+	// Killed for outliving a forwarded signal: what stopped this process stopped the child.
+	if o.killed && o.first != 0 && err != nil {
+		return &Stopped{Signal: o.first, Err: err}
 	}
 	return err
 }
@@ -119,6 +227,10 @@ func Run(c *exec.Cmd) error {
 // and "carry on"). Otherwise, or if the signal cannot end this process (one it was started with
 // ignored), it returns ExitCode(err) for the caller to exit with.
 func WrapperExit(err error) int {
+	var to *TimedOut
+	if errors.As(err, &to) {
+		return ExitTimedOut
+	}
 	var st *Stopped
 	if errors.As(err, &st) {
 		// Every Notify for it is undone, so the runtime's default, ending the process by the
@@ -133,11 +245,15 @@ func WrapperExit(err error) int {
 }
 
 // ExitCode is the status a wrapper should exit with after Run returned err: 0 for nil, the
-// child's own status for an exit, 128+N for a death by signal N (the shell's convention), and
-// 127 when the command could not be started at all.
+// child's own status for an exit, 128+N for a death by signal N (the shell's convention),
+// ExitTimedOut for a *TimedOut, and 127 when the command could not be started at all.
 func ExitCode(err error) int {
 	if err == nil {
 		return 0
+	}
+	var to *TimedOut
+	if errors.As(err, &to) {
+		return ExitTimedOut
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
@@ -147,4 +263,58 @@ func ExitCode(err error) int {
 		return ee.ExitCode()
 	}
 	return 127
+}
+
+// Main is the whole `yolo internal <verb> [--timeout=SECONDS] [--kill-after=SECONDS] -- <command>
+// [args...]` verb: it runs the command with no controlling terminal and a /dev/null stdin, its
+// stdout and stderr this process's, under the bound the flags give (none without them), and
+// returns the status to exit with (WrapperExit, which for a command stopped by a signal this verb
+// forwarded does not return but dies of that signal). 2 is misuse, 127 a command that could not
+// start. It lives here rather than beside the verb's dispatch so that a test can run exactly what
+// the verb runs, the launchers' tests included.
+func Main(verb string, args []string) int {
+	usage := "usage: yolo internal " + verb + " [--timeout=SECONDS] [--kill-after=SECONDS] -- <command> [args...]"
+	var b Bound
+	i := 0
+	for ; i < len(args) && args[i] != "--"; i++ {
+		var dst *time.Duration
+		var val string
+		switch {
+		case strings.HasPrefix(args[i], "--timeout="):
+			dst, val = &b.Timeout, strings.TrimPrefix(args[i], "--timeout=")
+		case strings.HasPrefix(args[i], "--kill-after="):
+			dst, val = &b.KillAfter, strings.TrimPrefix(args[i], "--kill-after=")
+		default:
+			fmt.Fprintln(os.Stderr, usage)
+			return 2
+		}
+		d, ok := seconds(val)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "yolo internal %s: %q is not a number of seconds\n%s\n", verb, args[i], usage)
+			return 2
+		}
+		*dst = d
+	}
+	if i+1 >= len(args) {
+		fmt.Fprintln(os.Stderr, usage)
+		return 2
+	}
+	c := exec.Command(args[i+1], args[i+2:]...)
+	c.Stdout, c.Stderr = os.Stdout, os.Stderr
+	err := RunBounded(c, b)
+	var ee *exec.ExitError
+	var to *TimedOut
+	if err != nil && !errors.As(err, &ee) && !errors.As(err, &to) {
+		fmt.Fprintf(os.Stderr, "yolo internal %s: %v\n", verb, err)
+	}
+	return WrapperExit(err)
+}
+
+// seconds reads a flag's value: a non-negative, finite number of seconds, fractions allowed.
+func seconds(v string) (time.Duration, bool) {
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f < 0 || math.IsInf(f, 0) || math.IsNaN(f) || f > float64(math.MaxInt64)/float64(time.Second) {
+		return 0, false
+	}
+	return time.Duration(f * float64(time.Second)), true
 }

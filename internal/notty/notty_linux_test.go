@@ -37,6 +37,9 @@ func TestMain(m *testing.M) {
 	if dir := os.Getenv(stopHelperEnv); dir != "" {
 		os.Exit(runStopHelper(dir))
 	}
+	if dir := os.Getenv(graceHelperEnv); dir != "" {
+		os.Exit(runGraceHelper(dir))
+	}
 	os.Exit(m.Run())
 }
 

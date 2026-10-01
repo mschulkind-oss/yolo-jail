@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -126,9 +124,10 @@ func runInternal(args []string) int {
 		// its caller is that printed command, and its rule is internal/installerbody's.
 		return runInstallerCheck(args[1:], os.Stderr)
 	case noTerminalVerb:
-		// PS-D1 (docs/design/provisioner-sets.md), called by the GENERATED NATIVE LAUNCHER to run
-		// a vendor installer with no controlling terminal and a /dev/null stdin (internal/notty).
-		// Hidden: its caller is the launcher, and a shell has no way to drop its terminal itself.
+		// PS-D1 (docs/design/provisioner-sets.md), called by the GENERATED LAUNCHERS to run a
+		// vendor installer, and every update act under its bound (program-delivery.md §3.5), with
+		// no controlling terminal and a /dev/null stdin (internal/notty). Hidden: its caller is the
+		// launcher, and a shell has no way to drop its terminal itself.
 		return runNoTerminal(args[1:])
 	case imageCopyVerb:
 		// The launch's podman-on-Linux image copy for `just load` and the integration
@@ -511,29 +510,18 @@ func runInstallerCheck(args []string, errw io.Writer) int {
 	return 1
 }
 
-// noTerminalVerb is `yolo internal no-terminal -- <command> [args...]`, the name the generated
-// native launcher calls, spelled once in entrypoint (NoTerminalVerb) so the two cannot drift.
+// noTerminalVerb is `yolo internal no-terminal [--timeout=SECONDS] [--kill-after=SECONDS] --
+// <command> [args...]`, the name the generated launchers call, spelled once in entrypoint
+// (NoTerminalVerb) so the two cannot drift.
 const noTerminalVerb = entrypoint.NoTerminalVerb
 
 // runNoTerminal runs args after `--` with no controlling terminal and a /dev/null stdin, its
-// stdout and stderr this process's, and exits with its status (notty.ExitCode: 128+N for a death
-// by signal N, 127 for a command that could not start, 2 for misuse). A command stopped by a signal
-// this verb forwarded to it ends the verb by that signal instead (notty.WrapperExit), so a Ctrl-C at
-// an installer still stops the launcher that ran it.
-func runNoTerminal(args []string) int {
-	if len(args) < 2 || args[0] != "--" {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal "+noTerminalVerb+" -- <command> [args...]")
-		return 2
-	}
-	c := exec.Command(args[1], args[2:]...)
-	c.Stdout, c.Stderr = os.Stdout, os.Stderr
-	err := notty.Run(c)
-	var ee *exec.ExitError
-	if err != nil && !errors.As(err, &ee) {
-		fmt.Fprintf(os.Stderr, "yolo internal %s: %v\n", noTerminalVerb, err)
-	}
-	return notty.WrapperExit(err)
-}
+// stdout and stderr this process's, under the bound its flags give, and exits with its status
+// (notty.Main: 128+N for a death by signal N, 124 for a run its --timeout ended, 127 for a command
+// that could not start, 2 for misuse). A command stopped by a signal this verb forwarded to it ends
+// the verb by that signal instead (notty.WrapperExit), so a Ctrl-C at an installer still stops the
+// launcher that ran it.
+func runNoTerminal(args []string) int { return notty.Main(noTerminalVerb, args) }
 
 // runNodeFloorLaunchers is `yolo internal node-floor-launchers --pending=<dir> --launch=<dir>
 // <bin>...`: the bootstrap's regeneration of the launchers of a floor it has just seen met (AR-L5;
