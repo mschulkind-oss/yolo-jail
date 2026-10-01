@@ -169,37 +169,59 @@ func requireNothingLeft(t *testing.T, j *lateJail, cname string) {
 	}
 }
 
-// TestAKeeperSignalledBeforeItsContainerStartsNeverStartsIt: a signal that ends the jail, received
-// while the keeper was still starting the jail's host services, ends the launch there. The
-// container's main process is never spawned, so no runtime can be left making a container nobody
-// stops; the host services go, and the keeper's records with them.
-func TestAKeeperSignalledBeforeItsContainerStartsNeverStartsIt(t *testing.T) {
-	jail := newLateJail(t, lateJailLag)
-	queued := make(chan struct{})
-	f := startKeeperFixtureWith(t, false, func(p *keeperPlan) { p.RunCmd = jail.mainArgv() },
-		func(o *Options) {
-			o.Exec = jail.exec
-			<-queued // the keeper's life begins once the signal is waiting for it
+// TestAKeeperEndedBeforeItsContainerStartsNeverStartsIt: the launch's lifeline closing, which is
+// what a Ctrl-C to the launch does, or a signal that ends the jail, received while the keeper was
+// still starting the jail's host services, ends the launch there. The container's main process is
+// never spawned, so no runtime can be left making a container nobody stops; the host services go,
+// and the keeper's records with them.
+func TestAKeeperEndedBeforeItsContainerStartsNeverStartsIt(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// end ends the launch before the keeper's life begins; settle is how long the keeper then
+		// waits to begin, so the lifeline's reader has seen its end.
+		end    func(f *keeperFixture)
+		settle time.Duration
+		rc     int
+		says   func(cname string) string
+	}{
+		{"the launch's lifeline closes", func(f *keeperFixture) { _ = f.lifeW.Close() }, 200 * time.Millisecond, 1,
+			func(cname string) string {
+				return "the launch that started " + cname + " is gone before its container started"
+			}},
+		{"the keeper is sent SIGINT", func(f *keeperFixture) {
+			f.signals <- syscall.SIGHUP // dropped, as at every other turn
+			f.signals <- syscall.SIGINT
+		}, 0, 128 + int(syscall.SIGINT), func(cname string) string { return "before " + cname + "'s container started" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			jail := newLateJail(t, lateJailLag)
+			queued := make(chan struct{})
+			f := startKeeperFixtureWith(t, false, func(p *keeperPlan) { p.RunCmd = jail.mainArgv() },
+				func(o *Options) {
+					o.Exec = jail.exec
+					<-queued // the keeper's life begins once the launch has ended
+					time.Sleep(tc.settle)
+				})
+			tc.end(f)
+			close(queued)
+			if f.relay() {
+				t.Fatal("a keeper whose launch ended before its container started reached ready")
+			}
+			if rc := f.wait(); rc != tc.rc {
+				t.Errorf("the keeper exited %d, want %d", rc, tc.rc)
+			}
+			if jail.has("spawned") {
+				t.Error("the keeper spawned the container's main process after its launch had ended")
+			}
+			if !strings.Contains(f.errOut.String(), tc.says(f.cname)) {
+				t.Errorf("the keeper did not say why it started no container:\n%s", f.errOut.String())
+			}
+			if _, err := os.Stat(f.plan.SocketsDir); !os.IsNotExist(err) {
+				t.Errorf("the keeper left the host-services dir of a jail it never started: %v", err)
+			}
+			requireNothingLeft(t, jail, f.cname)
 		})
-	f.signals <- syscall.SIGHUP // dropped, as at every other turn
-	f.signals <- syscall.SIGINT
-	close(queued)
-	if f.relay() {
-		t.Fatal("a keeper signalled before its container started reached ready")
 	}
-	if rc := f.wait(); rc != 128+int(syscall.SIGINT) {
-		t.Errorf("the keeper exited %d, want %d", rc, 128+int(syscall.SIGINT))
-	}
-	if jail.has("spawned") {
-		t.Error("the keeper spawned the container's main process after it was told to end the jail")
-	}
-	if !strings.Contains(f.errOut.String(), "before "+f.cname+"'s container started") {
-		t.Errorf("the keeper did not say why it started no container:\n%s", f.errOut.String())
-	}
-	if _, err := os.Stat(f.plan.SocketsDir); !os.IsNotExist(err) {
-		t.Errorf("the keeper left the host-services dir of a jail it never started: %v", err)
-	}
-	requireNothingLeft(t, jail, f.cname)
 }
 
 // TestAKeeperEndedWhileItsContainerStartsStopsItOnceItExists: the launch's lifeline closing, or a
@@ -334,6 +356,130 @@ func TestASIGINTToTheLaunchRightAfterItsKeeperStartedLeavesNoContainerRunning(t 
 			case <-kp.exited:
 			default:
 				t.Error("the launch's arm exited before its keeper had ended the jail")
+			}
+			requireNothingLeft(t, jail, cname)
+		})
+	}
+}
+
+// launchLockFree reports whether another process could take the launch lock at path now: what an
+// arrival queued on it would do. A take that succeeds is let go at once.
+func launchLockFree(t *testing.T, path string) bool {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		t.Errorf("opening the launch lock: %v", err)
+		return false
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return false
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return true
+}
+
+// TestAKeeperEndingBeforeReadyHoldsTheLaunchLockUntilItsContainerIsGone: a keeper whose launch ends
+// while the runtime is still making the container keeps the launch lock it was handed until its stop
+// has ended that container, and lets it go before its teardown chain. A second launch of the
+// workspace, queued on that lock, then finds no container and waits for the keeper (JL-D28), rather
+// than finding a container that runs, attaching to it, and having its first session fail as the stop
+// lands, which a nested jail showed whenever the lock went before the wait for the container.
+func TestAKeeperEndingBeforeReadyHoldsTheLaunchLockUntilItsContainerIsGone(t *testing.T) {
+	for _, tc := range []struct {
+		name, cname string
+		end         func(lifeW *os.File, signals chan os.Signal)
+	}{
+		{"the launch's lifeline closes", "yolo-early-lock-lifeline",
+			func(lifeW *os.File, _ chan os.Signal) { _ = lifeW.Close() }},
+		{"the keeper is sent SIGINT", "yolo-early-lock-sigint",
+			func(_ *os.File, signals chan os.Signal) { signals <- syscall.SIGINT }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			emptyLoopholeDirs(t)
+			jail := newLateJail(t, lateJailLag)
+			cname := tc.cname
+			o := goldenOptions("/ws", t.TempDir())
+			o.holdLaunchLock(cname)
+			lockPath := launchLockPath(cname)
+			handed, err := syscall.Dup(int(o.launchLock.f.Fd()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			o.launchLock.handOff()
+			// What an arrival queued on the lock would see at each of the runtime's answers: a
+			// container running while the lock is free is one it attaches to.
+			var mu sync.Mutex
+			var runningUnlocked, stopUnlocked bool
+			exec := func(argv []string, dir string, env []string, timeout time.Duration) ExecResult {
+				res := jail.exec(argv, dir, env, timeout)
+				if len(argv) > 1 {
+					free := launchLockFree(t, lockPath)
+					mu.Lock()
+					switch {
+					case argv[1] == "ps" && strings.TrimSpace(res.Stdout) != "" && free:
+						runningUnlocked = true
+					case argv[1] == "stop" && free:
+						stopUnlocked = true
+					}
+					mu.Unlock()
+				}
+				return res
+			}
+			cfg, err := encodeConfig(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := &keeperPlan{Build: keeperBuildStamp(), Workspace: t.TempDir(), Cname: cname, Runtime: "podman",
+				Config: cfg, SocketsDir: hostServiceSocketsDir(cname, false), RunCmd: jail.mainArgv(), ImageRef: "img"}
+			progR, progW, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			lifeR, lifeW, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = lifeW.Close() })
+			signals := make(chan os.Signal, 2)
+			done := make(chan int, 1)
+			go func() {
+				done <- runKeeper(plan, KeeperSeams{}, progW, lifeR, os.NewFile(uintptr(handed), "lock"), nil, signals,
+					func(ko *Options) {
+						ko.Exec = exec
+						ko.PIDAlive = func(int) bool { return false }
+						ko.LookPath = func(string) (string, bool) { return "", false }
+						ko.PathExists = func(string) bool { return false }
+						ko.StartDetached = func([]string, *os.File) error { return errTestBinarySelfExec }
+					})
+				_ = progW.Close()
+			}()
+			var out, errOut, jailOut, jailErr lockedBuffer
+			if relayKeeper(progR, &out, &errOut, &jailOut, &jailErr, keeperEvents{
+				spawned: func() { tc.end(lifeW, signals) },
+			}) {
+				t.Fatal("the relay saw ready from a boot that never finished")
+			}
+			select {
+			case <-done:
+			case <-time.After(30 * time.Second):
+				t.Fatal("the keeper did not end")
+			}
+			if stops, _ := jail.stopsSeen(); stops != 1 {
+				t.Errorf("%d stops ended the container, want 1", stops)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if runningUnlocked {
+				t.Error("the container was running while the launch lock was free and the keeper was ending the " +
+					"jail: an arrival queued on the lock would have attached to a jail about to be stopped")
+			}
+			if stopUnlocked {
+				t.Error("the keeper's stop came after it let the launch lock go")
+			}
+			if !launchLockFree(t, lockPath) {
+				t.Error("the keeper ended still holding the launch lock it was handed")
 			}
 			requireNothingLeft(t, jail, cname)
 		})

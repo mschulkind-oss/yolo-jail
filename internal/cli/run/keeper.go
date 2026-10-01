@@ -19,7 +19,8 @@ package run
 //     process, whose output it relays to the launch until pid 1's boot is done (keeperframe.go).
 //     The ports the launch reserved for the jail's daemons are held until just before that main
 //     process (NC-D70).
-//     It releases the launch lock the launch handed it once the container is seen running.
+//     It releases the launch lock the launch handed it once the container is seen running, or, when
+//     it ends the jail before ready, once its stop is done (JL-D73).
 //  4. It ends on one of three observations, never on a timer (JL-D17): before ready, the launch's
 //     lifeline closing or a start that failed; its exclusive take of the SESSION LOCK, which is zero
 //     sessions; or the container ending some other way. A SIGTERM or SIGINT ends the jail in order,
@@ -189,7 +190,11 @@ type keeper struct {
 	reserved     []*os.File
 	reservedOnce sync.Once
 	lockOnce     sync.Once
-	signals      <-chan os.Signal
+	// lockMu guards lockKept: the keeper has begun ending its jail before ready, so the launch lock
+	// stays held through its stop (keepLaunchLockThroughTheStop).
+	lockMu   sync.Mutex
+	lockKept bool
+	signals  <-chan os.Signal
 	// lifelineGone closes when the launch's lifeline reads EOF: the launch is gone.
 	lifelineGone chan struct{}
 
@@ -274,6 +279,28 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 // guarded cleanups take it non-blocking (JL-D31).
 func (k *keeper) releaseLaunchLock() {
 	k.lockOnce.Do(func() { releaseLock(k.launchLock) })
+}
+
+// releaseLaunchLockAtRunning is the start's release, once the container is seen running
+// (awaitRunning): a keeper already ending its jail before ready keeps the lock instead, for its stop.
+func (k *keeper) releaseLaunchLockAtRunning() {
+	k.lockMu.Lock()
+	defer k.lockMu.Unlock()
+	if !k.lockKept {
+		k.releaseLaunchLock()
+	}
+}
+
+// keepLaunchLockThroughTheStop is a keeper beginning to end its jail before ready: from here the
+// launch lock it still holds goes only once its stop and the existence probe after it are done
+// (endJail), before the teardown chain whose guarded cleanups take it non-blocking (JL-D31). A second launch of the
+// workspace queued on it then finds no container, and waits for this keeper (JL-D28), instead of
+// finding the container it is about to stop running, attaching to it, and failing as the stop lands.
+// A lock the start released already is gone either way.
+func (k *keeper) keepLaunchLockThroughTheStop() {
+	k.lockMu.Lock()
+	defer k.lockMu.Unlock()
+	k.lockKept = true
 }
 
 // releaseReservedPorts closes the jail's reserved ports, so the container's daemons can bind
@@ -486,7 +513,7 @@ func (k *keeper) beforeReady() (ready bool, rc int, ended bool) {
 		return false, k.finish(jm.exitCode, nil), true
 	case <-k.lifelineGone:
 		o.pr(o.Stderr).printf("keeper: the launch that started %s is gone before its jail was ready; ending the jail", p.Cname)
-		k.releaseLaunchLock()
+		k.keepLaunchLockThroughTheStop()
 		k.awaitStartSettled()
 		k.endJail(launchGoneReason(k.pid), true)
 		return false, k.finish(1, nil), true
@@ -494,7 +521,7 @@ func (k *keeper) beforeReady() (ready bool, rc int, ended bool) {
 		if s == syscall.SIGHUP || s == syscall.SIGPIPE {
 			return false, 0, false
 		}
-		k.releaseLaunchLock()
+		k.keepLaunchLockThroughTheStop()
 		k.awaitStartSettled()
 		k.endJail(keeperSignalledReason(k.pid), true)
 		return false, k.finish(128+int(s.(syscall.Signal)), nil), true
@@ -635,7 +662,7 @@ func (k *keeper) awaitRunning() {
 		case <-time.After(time.Duration(lockReleasePollIntervalSeconds * float64(time.Second))):
 		}
 	}
-	k.releaseLaunchLock()
+	k.releaseLaunchLockAtRunning()
 	k.sink.event(frameRunning, "")
 	o.startLingerProbe(p.Runtime, p.Cname, ctrID, k.jm.cmd.Process)
 }
@@ -755,6 +782,9 @@ func (k *keeper) endJail(reason string, stop bool) {
 		sp.End()
 	}
 	k.jailLeft = !k.confirmGone()
+	// The launch lock goes before the chain, whose guarded cleanups take it non-blocking (JL-D31): a
+	// keeper ending its jail before ready kept it through the stop (keepLaunchLockThroughTheStop).
+	k.releaseLaunchLock()
 	rc := 0
 	if k.jm != nil {
 		select {

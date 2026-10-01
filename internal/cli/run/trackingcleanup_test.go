@@ -253,11 +253,16 @@ func TestEveryEndOfTheLaunchForgetsTheContainer(t *testing.T) {
 				"and the tracking file never goes", tc.fn, tc.forget, tc.release)
 		}
 	}
-	// The keeper's end: its stop, then the chain, which forgets the container.
-	pos := order("keeper.go", "endJail", "stopJail", "confirmGone", "teardownAfterExit")
+	// The keeper's end: its stop, then the chain, which forgets the container. The launch lock a
+	// keeper ending its jail before ready kept through the stop goes between the two (JL-D73).
+	pos := order("keeper.go", "endJail", "stopJail", "confirmGone", "releaseLaunchLock", "teardownAfterExit")
 	if pos["stopJail"] == token.NoPos || pos["teardownAfterExit"] == token.NoPos ||
 		!(pos["stopJail"] < pos["confirmGone"] && pos["confirmGone"] < pos["teardownAfterExit"]) {
 		t.Error("the keeper's end must stop the jail, confirm it gone, THEN run the chain that forgets it")
+	}
+	if pos["releaseLaunchLock"] == token.NoPos ||
+		!(pos["confirmGone"] < pos["releaseLaunchLock"] && pos["releaseLaunchLock"] < pos["teardownAfterExit"]) {
+		t.Error("the keeper's end must let the launch lock go after its stop and BEFORE the chain that forgets the container")
 	}
 	// The chain itself forgets the container (TestANormalExitForgetsAGoneContainersTracking drives it).
 	if !callsIn(funcDecl(t, "run.go", "teardownAfterExit"))["forgetGoneContainer"] {
@@ -265,8 +270,8 @@ func TestEveryEndOfTheLaunchForgetsTheContainer(t *testing.T) {
 	}
 	// And the keeper's readiness wait releases the launch lock before it tells the launch the
 	// container runs, as onStarted released it once the container was visible.
-	pos = order("keeper.go", "awaitRunning", "releaseLaunchLock", "event")
-	if pos["releaseLaunchLock"] == token.NoPos || pos["event"] == token.NoPos || pos["event"] < pos["releaseLaunchLock"] {
+	pos = order("keeper.go", "awaitRunning", "releaseLaunchLockAtRunning", "event")
+	if pos["releaseLaunchLockAtRunning"] == token.NoPos || pos["event"] == token.NoPos || pos["event"] < pos["releaseLaunchLockAtRunning"] {
 		t.Error("awaitRunning must release the launch lock before it says the container is running")
 	}
 }

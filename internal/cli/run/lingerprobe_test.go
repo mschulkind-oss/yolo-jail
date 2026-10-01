@@ -564,8 +564,8 @@ func TestTheArmsCallTheProbe(t *testing.T) {
 		}
 		return calls[name][0]
 	}
-	if first("awaitRunning.probeRunningContainer") > first("awaitRunning.releaseLaunchLock") ||
-		first("awaitRunning.releaseLaunchLock") > first("awaitRunning.startLingerProbe") {
+	if first("awaitRunning.probeRunningContainer") > first("awaitRunning.releaseLaunchLockAtRunning") ||
+		first("awaitRunning.releaseLaunchLockAtRunning") > first("awaitRunning.startLingerProbe") {
 		t.Error("awaitRunning must learn the id, release the launch lock, THEN arm the probe")
 	}
 	if len(armArgs) != 4 {
