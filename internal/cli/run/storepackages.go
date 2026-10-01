@@ -230,18 +230,21 @@ func (o *Options) addImageExtras(plan storePackagesPlan, repoRoot string) (store
 	return plan, true
 }
 
-// buildImageExtras returns the seam or the real `nix build .#yoloImageExtras`.
+// buildImageExtras returns the seam or the real `nix build .#yoloImageExtras`, rooted
+// through gcRooter.
 func (o *Options) buildImageExtras() func(string) (string, error) {
 	if o.BuildImageExtras != nil {
 		return o.BuildImageExtras
 	}
-	inJail := o.inJail()
+	root := o.gcRooter()
 	return func(repoRoot string) (string, error) {
-		return realBuildImageExtras(repoRoot, inJail, o.Stderr)
+		return realBuildImageExtras(repoRoot, root, o.Stderr)
 	}
 }
 
-// realBuildImageExtras realizes `.#yoloImageExtras` and roots it.
+// realBuildImageExtras realizes `.#yoloImageExtras` and roots it with root, which is nil in a
+// jail whose launcher stated no host path map: that build stays unrooted, as every in-jail
+// build was before translated roots (gcRooter).
 //
 // TWO-STEP ROOTING, not an `--out-link`, and the difference from the user profile is that
 // the store path is not knowable before the build: the extras profile is keyed by the
@@ -250,10 +253,29 @@ func (o *Options) buildImageExtras() func(string) (string, error) {
 // it files under paths.PackageRootsDir rather than build/roots because
 // `prune.PruneOrphanImageRoots` sweeps the latter for anything no loaded IMAGE needs, which
 // this is not (paths.go says so in as many words).
-func realBuildImageExtras(repoRoot string, inJail bool, out io.Writer) (string, error) {
+func realBuildImageExtras(repoRoot string, root image.Rooter, out io.Writer) (string, error) {
 	if out == nil {
 		out = io.Discard
 	}
+	profile, err := buildImageExtrasProfile(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	if root != nil {
+		// On the host this is what keeps a `nix-collect-garbage` from deleting the toolset
+		// of a jail that is running right now, since the lean image no longer references
+		// this closure; in a jail it is the same root, translated (NR-D2).
+		rootExtrasProfile(profile, root, out)
+	}
+	return profile, nil
+}
+
+// buildImageExtrasProfile is the nix build half of realBuildImageExtras. A package variable
+// so a test can drive the rooting half without a nix daemon.
+var buildImageExtrasProfile = nixBuildImageExtrasProfile
+
+// nixBuildImageExtrasProfile runs `nix build .#yoloImageExtras` and returns its store path.
+func nixBuildImageExtrasProfile(repoRoot string) (string, error) {
 	argv := []string{"nix"}
 	argv = append(argv, image.NixFlakeFlags()...)
 	// --impure is carried for consistency with every other flake-evaluating call here,
@@ -283,34 +305,28 @@ func realBuildImageExtras(repoRoot string, inJail bool, out io.Writer) (string, 
 	if profile == "" {
 		return "", errors.New("nix build of .#yoloImageExtras produced no store path")
 	}
-	if !inJail {
-		// In-jail rooting is a lie for the reason rootImageFn documents; on the host it
-		// is what keeps a `nix-collect-garbage` from deleting the toolset of a jail that
-		// is running right now, since the lean image no longer references this closure.
-		rootExtrasProfile(profile, out)
-	}
 	return profile, nil
 }
 
-// rootExtrasProfile creates the durable GC root for the extras closure. Best-effort and
-// warned-about rather than fatal, matching image.RegisterImageRoot: an unrooted-but-running
-// jail is the state that existed before any of this, not a regression to hard-fail on.
-func rootExtrasProfile(storePath string, out io.Writer) {
+// rootExtrasProfile creates the durable GC root for the extras closure through root.
+// Best-effort and warned-about rather than fatal, matching image.RegisterImageRoot: an
+// unrooted-but-running jail is the state that existed before any of this, not a regression
+// to hard-fail on.
+func rootExtrasProfile(storePath string, root image.Rooter, out io.Writer) {
 	dir := paths.PackageRootsDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		fmt.Fprintln(out, "Warning: could not create GC-root dir: "+err.Error())
 		return
 	}
+	_ = root(extrasProfileRootLink(storePath), storePath, out,
+		"could not register a GC root for the store-delivered image extras "+
+			"(a nix-collect-garbage could reclaim them)")
+}
+
+// extrasProfileRootLink is the extras closure's GC root, keyed by its store path.
+func extrasProfileRootLink(storePath string) string {
 	sum := sha256.Sum256([]byte(storePath))
-	link := filepath.Join(dir, "extras-"+hex.EncodeToString(sum[:])[:16])
-	cmd := exec.Command("nix-store", "--add-root", link, "--realise", storePath)
-	if b, err := cmd.CombinedOutput(); err != nil {
-		fmt.Fprintln(out, "Warning: could not register a GC root for the store-delivered "+
-			"image extras (a nix-collect-garbage could reclaim them): "+err.Error())
-		if len(b) > 0 {
-			fmt.Fprintln(out, "  "+string(b))
-		}
-	}
+	return filepath.Join(paths.PackageRootsDir(), "extras-"+hex.EncodeToString(sum[:])[:16])
 }
 
 // materializeStorePackages returns the seam or the real implementation.
@@ -327,25 +343,43 @@ func (o *Options) materializeStorePackages() func(string, []any) (string, []stri
 		return o.MaterializeStorePackages
 	}
 	inJail := o.inJail()
+	root := o.gcRooter()
 	return func(repoRoot string, packages []any) (string, []string, error) {
-		outLink := storeProfileRootLink(packages, inJail)
-		if outLink != "" {
-			// nix does not create an --out-link's parent.
-			if err := os.MkdirAll(filepath.Dir(outLink), 0o755); err != nil {
-				return "", nil, err
-			}
+		link := storeProfileRootLink(packages)
+		// nix does not create an --out-link's parent, and a translated root needs it too.
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			return "", nil, err
 		}
-		res, err := darwinpkg.MaterializeAt(repoRoot, packages, "", outLink, nil)
+		// IN A JAIL THE BUILD TAKES NO OUT-LINK: nix would register it under the jail's
+		// spelling, a root the host daemon prunes as stale (internal/darwinpkg/gcroot.go
+		// verified it), so the root is registered after the build instead, translated
+		// (in-jail-nix-roots.md NR-D2) — with the two-step's window, which the image root
+		// has always had.
+		outLink := link
+		if inJail {
+			outLink = ""
+		}
+		res, err := materializeProfileAt(repoRoot, packages, "", outLink, nil)
 		if err != nil {
 			return "", nil, err
+		}
+		if inJail && root != nil {
+			_ = root(link, res.ProfilePath, o.Stderr,
+				"could not register a GC root for the store-delivered packages "+
+					"(a nix-collect-garbage could reclaim them)")
 		}
 		return res.ProfilePath, res.Skipped, nil
 	}
 }
 
+// materializeProfileAt is darwinpkg.MaterializeAt. A package variable so a test can drive
+// the rooting around it without a nix daemon.
+var materializeProfileAt = darwinpkg.MaterializeAt
+
 // storeProfileRootLink is where this launch's profile is rooted against a host
-// `nix store gc` — nix's own `--out-link`, which registers the root as part of the build
-// it is already running rather than in a second process with a window in between.
+// `nix store gc` — on the host nix's own `--out-link`, which registers the root as part of
+// the build it is already running rather than in a second process with a window in between,
+// and in a jail a translated root registered after the build (materializeStorePackages).
 //
 // KEYED BY CONTENT, unlike darwinpkg.ProfileRootLink's fixed leaf, and gcroot.go states
 // exactly which case is which. A fixed leaf is right when at most one profile is current
@@ -354,15 +388,7 @@ func (o *Options) materializeStorePackages() func(string, []any) (string, []stri
 // different lists are live at once, so a fixed leaf would let one launch unroot the
 // closure another jail is executing from. This is image.ImageRootsDir's rule, applied to
 // the same problem.
-//
-// IN-JAIL IT RETURNS "" — the unrooted `--no-link` build — for the reason imageload.go's
-// rootImageFn already gives for images: the gcroots dir is unmounted and the host daemon
-// prunes a root that points into a jail home as stale (verified, gcroot.go). Rooting there
-// is a lie, and an out-link into a read-only home would fail the build outright.
-func storeProfileRootLink(packages []any, inJail bool) string {
-	if inJail {
-		return ""
-	}
+func storeProfileRootLink(packages []any) string {
 	key, err := jsonx.DumpsCompact(packages)
 	if err != nil {
 		// Unreachable for a config-derived list, and the fallback still keys on the

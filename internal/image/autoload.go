@@ -193,10 +193,12 @@ type AutoLoadOptions struct {
 	// success return where the store path is known — idempotent, so an
 	// already-loaded image re-asserts (and self-heals) its root each run.
 	//
-	// MUST be a host-side registration: in-jail the gcroots dir is unmounted and
-	// the host daemon prunes a jail-home root as stale, so the run slice injects
-	// the real image.RegisterImageRoot ONLY when !inJail and a no-op otherwise.
-	// nil => a no-op (tests, and any caller that cannot root host-side).
+	// The run slice injects image.RegisterImageRoot with the Rooter for where it
+	// runs: AddRoot on the host, and in a jail the translated root
+	// (docs/design/in-jail-nix-roots.md §4), because a jail's own `nix-store
+	// --add-root` is a root the host daemon prunes as stale. A jail whose launcher
+	// stated no host path map gets nil, as every jail did before.
+	// nil => a no-op (tests, and any caller that cannot register a root the host honors).
 	RegisterRoot func(storePath string)
 	// LockHousekeeping takes the machine-wide housekeeping lock and returns the
 	// release. It brackets the inspect-and-record step only — see the call site
@@ -399,8 +401,9 @@ func (o *AutoLoadOptions) staleImageAllowed() bool {
 // An out-param would have cost zero edits at the seventeen existing call sites,
 // which is precisely the objection: a test could set it and assert on it while
 // the run slice never read it, and deleting the run slice's read would leave the
-// unit gate green. RegisterRoot is the standing proof that shape rots quietly —
-// it is nil in-jail and nothing pins it. A changed return type makes every call
+// unit gate green. RegisterRoot was the standing proof that shape rots quietly —
+// nil in-jail with nothing pinning it, until run's
+// TestTheRunPathRootsTheImageFromAJail drove it. A changed return type makes every call
 // site a compile error, which is the cheapest enforcement that the new value is
 // acknowledged.
 type LoadResult struct {
@@ -1003,8 +1006,8 @@ func AutoLoadImage(opts AutoLoadOptions) LoadResult {
 	// lifecycle §1 invariant: the running image's closure must be reachable from
 	// a registered root so a `nix-collect-garbage` at any moment is safe. The
 	// call re-asserts the root every run, so an already-loaded image self-heals a
-	// root that was reaped or never created. RegisterRoot is a host-side no-op
-	// in-jail (see the seam doc) — where rooting is futile anyway.
+	// root that was reaped or never created. In a jail it is a translated root, or
+	// a no-op where no host path map was stated (see the seam doc).
 	o.RegisterRoot(currentPath)
 	_ = os.Remove(outLink)
 	return LoadResult{OK: true, Ref: contentRef, StorePath: currentPath}

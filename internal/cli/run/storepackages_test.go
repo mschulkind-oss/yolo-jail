@@ -377,28 +377,22 @@ func TestStoreProfilesReachTheContainerArgv(t *testing.T) {
 // and the next `nix store gc` deletes the agent's toolset mid-session. That is the exact
 // N1 defect the root exists to close, resurrected by concurrency.
 func TestStoreProfileRootIsKeyedByContent(t *testing.T) {
-	a := storeProfileRootLink([]any{"zbar"}, false)
-	b := storeProfileRootLink([]any{"libsodium"}, false)
+	a := storeProfileRootLink([]any{"zbar"})
+	b := storeProfileRootLink([]any{"libsodium"})
 	if a == "" || b == "" {
-		t.Fatal("a host launch must root its profile: an unrooted closure the agent then " +
+		t.Fatal("a launch must root its profile: an unrooted closure the agent then " +
 			"executes from is exactly what a GC root exists to prevent")
 	}
 	if a == b {
 		t.Errorf("two different `packages:` lists share the GC root %q — one jail's "+
 			"launch would then unroot the closure another jail is running from", a)
 	}
-	if again := storeProfileRootLink([]any{"zbar"}, false); again != a {
+	if again := storeProfileRootLink([]any{"zbar"}); again != a {
 		t.Errorf("the root is not stable for one list: %q then %q", a, again)
 	}
 	if !strings.Contains(a, "package-roots") {
 		t.Errorf("root %q is not under paths.PackageRootsDir — parking it under "+
 			"build/roots would let PruneOrphanImageRoots sweep it away", a)
-	}
-	// In-jail, rooting is a lie: the gcroots dir is unmounted and the host daemon prunes
-	// a root pointing into a jail home as stale. Same ruling imageload.go's rootImageFn
-	// already makes for images.
-	if got := storeProfileRootLink([]any{"zbar"}, true); got != "" {
-		t.Errorf("in-jail root = %q, want \"\" (the unrooted build)", got)
 	}
 }
 
@@ -490,7 +484,7 @@ func TestImageExtrasNixProgressGoesToStderr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "realBuildImageExtras(repoRoot, inJail, o.Stderr)") {
+	if !strings.Contains(string(body), "realBuildImageExtras(repoRoot, root, o.Stderr)") {
 		t.Error("buildImageExtras no longer hands realBuildImageExtras o.Stderr; nix's " +
 			"progress summaries would land on the jailed command's stdout")
 	}

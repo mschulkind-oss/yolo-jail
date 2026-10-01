@@ -94,10 +94,11 @@ type jailPrefix struct {
 	built bool
 }
 
-// registerPrefixRoot is image.RegisterPrefixRoot, which pins a built prefix with a nix GC root by
-// running `nix-store --add-root`. A package variable only so this package's TestMain can replace
-// it: a unit test that reached a build would otherwise run the machine's nix-store against the
-// machine's nix daemon, and hang wherever that daemon does.
+// registerPrefixRoot is image.RegisterPrefixRoot, which pins a built prefix with a nix GC root
+// through the Rooter it is handed (gcRooter: `nix-store --add-root` on the host, a translated
+// root in a jail). A package variable only so this package's TestMain can replace it: a unit
+// test that reached a build would otherwise run the machine's nix-store against the machine's
+// nix daemon, and hang wherever that daemon does.
 var registerPrefixRoot = image.RegisterPrefixRoot
 
 // prebuiltBinDir is the per-arch prebuilt directory a flake bundle ships, if the
@@ -201,11 +202,13 @@ func (o *Options) jailPrefixSource(root string) (jailPrefix, bool) {
 	// the longer a jail runs, the more certainly its binaries would be reaped.
 	// See image.RegisterPrefixRoot.
 	//
-	// Host-only, gated exactly as the image root is (imageload.go's rootImageFn):
-	// in-jail the gcroots dir is unmounted and the host daemon prunes a
-	// jail-home root as stale.
-	if !o.inJail() {
-		_, _ = registerPrefixRoot(storePath, o.Stderr)
+	// Through gcRooter, as the image root is (imageload.go's rootImageFn): in a jail
+	// that is a translated root, so a nested jail's prefix is pinned between nested
+	// launches too (in-jail-nix-roots.md NR-D2), and nothing at all when the jail's
+	// launcher stated no host path map — a jail's own nix-store root would be pruned
+	// as stale by the host daemon.
+	if root := o.gcRooter(); root != nil {
+		_, _ = registerPrefixRoot(storePath, root, o.Stderr)
 	}
 	prefix := filepath.Join(storePath, image.JailPrefixSubdir)
 	return jailPrefix{

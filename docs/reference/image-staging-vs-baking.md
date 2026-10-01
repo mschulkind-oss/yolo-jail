@@ -1162,11 +1162,15 @@ which was the sort key prune's keep window ordered by, until
 that window outright and made `protected` the entire retention rule. The sort survives only to
 order the report, and is a stable no-op.
 
-On success the launch records the store path in the sentinel and, host-side only, registers a
-durable GC root for the image closure (`RegisterImageRoot`) so a `nix-collect-garbage` cannot
-delete the running jail's closure. From inside a jail the gcroots directory is not mounted and
-the host daemon prunes a root pointing into a jail's home as stale, so in-jail the seam is a
-no-op — the same rule the prefix root and the package-profile roots follow.
+On success the launch records the store path in the sentinel and registers a durable GC root for
+the image closure (`RegisterImageRoot`) so a `nix-collect-garbage` cannot delete the running
+jail's closure. On the host that is `nix-store --add-root`. Inside a jail it cannot be: the host
+daemon resolves a root's path on the host, and the jail's spelling of its own home is not there,
+so the root is pruned as stale. An in-jail launch therefore registers a *translated root*, the
+same root sent under the host's spelling of the link, which the jail's launcher states in
+`YOLO_HOST_PATH_MAP` ([`in-jail-nix-roots.md` §8](../design/in-jail-nix-roots.md#8-what-is-built)).
+With no map, as from a launcher older than the variable, the in-jail seam is a no-op. The prefix
+root and the package-profile roots follow the same rule.
 
 ## Store-delivered packages
 

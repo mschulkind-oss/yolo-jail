@@ -87,11 +87,9 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 		DiagnoseFailure: func(tail []string) (string, string) {
 			return nixdiag.DiagnoseNixBuildFailure(tail, o.IsMacOS, remedy)
 		},
-		// Storage-lifecycle §1: root the running image's closure host-side so a
-		// `nix-collect-garbage` at any moment can't delete live binaries. In-jail
-		// this is futile — the gcroots dir is unmounted and the host daemon prunes
-		// a jail-home root as stale (verified) — so register only host-side; the
-		// AutoLoadImage seam defaults to a no-op when left nil.
+		// Storage-lifecycle §1: root the running image's closure so a
+		// `nix-collect-garbage` at any moment can't delete live binaries — on the
+		// host with nix-store, in a jail as a translated root (rootImageFn).
 		RegisterRoot:     o.rootImageFn(),
 		LockHousekeeping: o.lockHousekeepingFn(),
 		// The assembler's own predicate for mounting the host store, not a second
@@ -103,13 +101,17 @@ func (o *Options) autoLoadImage(cfg *jsonx.OrderedMap, rt, repoRoot string, sp s
 }
 
 // rootImageFn returns the durable-GC-root registrar for the loaded image, or nil
-// (→ AutoLoadImage's no-op) when we can't usefully root: in-jail the gcroots dir
-// is unmounted and any root pointing into the jail's /home is pruned as stale by
-// the host daemon, so rooting is a lie there. Only the host `yolo run` path holds
-// a durable root that survives a host GC.
+// (→ AutoLoadImage's no-op) when this launch has no root the host would honor.
+//
+// The registration goes through gcRooter: nix-store on the host, and in a jail the
+// translated root (docs/design/in-jail-nix-roots.md NR-D2). A jail's own
+// `nix-store --add-root` is pruned as stale by the host daemon, because it sends the
+// jail's spelling of the link, so a jail used to get nil here; it still does when its
+// launcher stated no host path map.
 func (o *Options) rootImageFn() func(string) {
-	if o.inJail() {
+	root := o.gcRooter()
+	if root == nil {
 		return nil
 	}
-	return func(storePath string) { _, _ = image.RegisterImageRoot(storePath, o.Stdout) }
+	return func(storePath string) { _, _ = image.RegisterImageRoot(storePath, root, o.Stdout) }
 }

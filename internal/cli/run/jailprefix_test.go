@@ -74,7 +74,7 @@ func prefixOptions(t *testing.T, build func(string) (string, []string)) (*Option
 
 // productionRegisterPrefixRoot is registerPrefixRoot as the package initialized it, which
 // TestMain saves before it puts unregisteredPrefixRoot in its place.
-var productionRegisterPrefixRoot func(string, io.Writer) (string, error)
+var productionRegisterPrefixRoot func(string, image.Rooter, io.Writer) (string, error)
 
 // The seam must default to the real registration. The GC-root check in
 // TestLiveCheckoutBuildsThePrefix pins that a host launch calls the seam, and every test here
@@ -89,17 +89,20 @@ func TestRegisterPrefixRootDefaultsToTheImageRegistration(t *testing.T) {
 
 // unregisteredPrefixRoot is TestMain's registerPrefixRoot: it runs no nix-store and
 // fails the way a launch already tolerates, since the root is best-effort.
-func unregisteredPrefixRoot(string, io.Writer) (string, error) {
+func unregisteredPrefixRoot(string, image.Rooter, io.Writer) (string, error) {
 	return "", errors.New("test guard: this package's tests register no nix GC root")
 }
 
 // recordPrefixRoots replaces registerPrefixRoot for the rest of t with one that records
-// the store paths a launch asked to root.
+// the store paths a launch asked to root, and asserts each was handed the host's Rooter.
 func recordPrefixRoots(t *testing.T) *[]string {
 	t.Helper()
 	var rooted []string
 	prev := registerPrefixRoot
-	registerPrefixRoot = func(storePath string, _ io.Writer) (string, error) {
+	registerPrefixRoot = func(storePath string, root image.Rooter, _ io.Writer) (string, error) {
+		if reflect.ValueOf(root).Pointer() != reflect.ValueOf(image.AddRoot).Pointer() {
+			t.Errorf("the prefix root for %s was not handed image.AddRoot, the host's Rooter", storePath)
+		}
 		rooted = append(rooted, storePath)
 		return "", nil
 	}
@@ -183,9 +186,30 @@ func TestLiveCheckoutBuildsThePrefix(t *testing.T) {
 	}
 }
 
-// A JAIL REGISTERS NO PREFIX ROOT: in-jail the gcroots dir is not mounted and the host
-// daemon prunes a root under the jail's home as stale, so rooting is the host's alone.
-func TestAJailRegistersNoPrefixRoot(t *testing.T) {
+// A JAIL ROOTS ITS PREFIX AS A TRANSLATED ROOT (in-jail-nix-roots.md NR-D2): the link is made
+// under the jail's build dir and the host daemon is sent the host's spelling of it, so a nested
+// jail's binaries are pinned between nested launches. Through the production registration, the
+// call site's and image.RegisterPrefixRoot's both, against a fake daemon.
+func TestAJailRootsItsPrefixUnderTheHostsSpelling(t *testing.T) {
+	f := newJailRootFixture(t)
+	root := stageBundle(t, false)
+	o, _ := prefixOptions(t, func(string) (string, []string) { return f.storePath, nil })
+	o.Getenv = f.getenv
+	prev := registerPrefixRoot
+	registerPrefixRoot = productionRegisterPrefixRoot
+	t.Cleanup(func() { registerPrefixRoot = prev })
+
+	if _, ok := o.resolveJailPrefix(root, "podman"); !ok {
+		t.Fatal("resolveJailPrefix refused a checkout whose build succeeded")
+	}
+	link := image.PrefixRootLink(f.storePath)
+	f.assertRooted(t, link)
+}
+
+// A JAIL WHOSE LAUNCHER STATED NO MAP REGISTERS NO PREFIX ROOT, as every jail did before: its
+// own `nix-store --add-root` would send the jail's spelling, which the host daemon prunes as
+// stale, so there is nothing honest to register.
+func TestAJailWithNoHostPathMapRegistersNoPrefixRoot(t *testing.T) {
 	root := stageBundle(t, false)
 	o, _ := prefixOptions(t, func(string) (string, []string) { return t.TempDir(), nil })
 	o.Getenv = func(k string) string {
@@ -194,12 +218,18 @@ func TestAJailRegistersNoPrefixRoot(t *testing.T) {
 		}
 		return ""
 	}
-	rooted := recordPrefixRoots(t)
+	prev := registerPrefixRoot
+	var rooted []string
+	registerPrefixRoot = func(storePath string, _ image.Rooter, _ io.Writer) (string, error) {
+		rooted = append(rooted, storePath)
+		return "", nil
+	}
+	t.Cleanup(func() { registerPrefixRoot = prev })
 	if _, ok := o.resolveJailPrefix(root, "podman"); !ok {
 		t.Fatal("resolveJailPrefix refused a checkout whose build succeeded")
 	}
-	if len(*rooted) != 0 {
-		t.Errorf("a jail registered GC roots %q; only the host may", *rooted)
+	if len(rooted) != 0 {
+		t.Errorf("a jail with no host path map registered GC roots %q", rooted)
 	}
 }
 

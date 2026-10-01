@@ -52,18 +52,18 @@ func PrefixRootLink(prefixStorePath string) string {
 // It is RegisterImageRoot's mechanism against a different directory, and it is
 // deliberately a separate function rather than a parameter: the two roots have
 // opposite retention policies, and one call site accidentally passing the wrong
-// directory is the whole failure mode. Same host-only rule — from inside a jail
-// /nix/var/nix/gcroots is not mounted and the host daemon prunes a root pointing
-// into the jail's /home tree as stale — so callers gate on !inJail exactly as
-// the image root's do.
+// directory is the whole failure mode. root is chosen the way the image root's
+// is: AddRoot on the host, the translated root from inside a jail, so a nested
+// jail's prefix is pinned between nested launches too (in-jail-nix-roots.md
+// NR-D2).
 //
 // Best-effort, same as the image root: an unrooted-but-running jail is the state
 // this fixes, not a regression to hard-fail on.
-func RegisterPrefixRoot(prefixStorePath string, out io.Writer) (string, error) {
+func RegisterPrefixRoot(prefixStorePath string, root Rooter, out io.Writer) (string, error) {
 	if out == nil {
 		out = io.Discard
 	}
-	return registerGCRoot(PrefixRootsDir(), PrefixRootLink(prefixStorePath), prefixStorePath, out,
+	return registerGCRoot(PrefixRootsDir(), PrefixRootLink(prefixStorePath), prefixStorePath, root, out,
 		"could not register a GC root for the jail's own binaries "+
 			"(a nix-collect-garbage could delete the prefix this jail runs from)")
 }

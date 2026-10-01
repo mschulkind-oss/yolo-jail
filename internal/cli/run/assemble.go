@@ -1068,6 +1068,12 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 		runCmd = append(runCmd, serviceEndpointEnvArgs(in, o)...)
 	}
 
+	// --- the host path map (docs/design/in-jail-nix-roots.md §4) ---
+	// LAST BEFORE THE IMAGE, because it is read off every mount above: which host directory
+	// each one is, so an in-jail `yolo` can register its GC roots under the host's spelling
+	// (translatedroots.go). Only with the host nix daemon mounted, the one reader.
+	runCmd = append(runCmd, o.hostPathMapEnvArgs(rt, in.sealed, runCmd)...)
+
 	// --- image + entrypoint ---
 	//
 	// The entrypoint is named by ABSOLUTE PATH into the mounted install prefix,
