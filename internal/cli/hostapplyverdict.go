@@ -38,6 +38,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/updatehint"
 )
 
 // printHostApplyVerdict ends one apply with the verdict line, the counts and the footer.
@@ -89,7 +90,11 @@ func hostApplyOutcome(s *hostApplySurvey, write bool) string {
 		// FIRST AMONG THE BLOCKERS: an --assert over an incomplete pack set writes nothing at all
 		// (no half states), so no count below describes anything it would do.
 		return outcomeRefused
-	case len(s.Failures()) > 0:
+	case len(s.Failures()) > 0 || len(s.FloorRefusals()) > 0:
+		// A program yolo's floor will not install over a newer yolo's record is this outcome too,
+		// in both postures: an --assert writes the rest and exits 1, as it does for a destination
+		// it cannot write. The verdict read the floor stage not at all, and said "this home is up
+		// to date" under the line saying the floor would not install it.
 		return outcomeIncomplete
 	case !write && len(s.MissingDeps()) > 0:
 		return outcomeBlocked
@@ -118,7 +123,9 @@ const (
 	// outcomeRefused — a configured pack could not be resolved, so an --assert refuses the
 	// whole apply and writes nothing (dry run only: an --assert refuses before the verdict).
 	outcomeRefused = "refused"
-	// outcomeIncomplete — a pack failed to render, so the counts are missing its surfaces.
+	// outcomeIncomplete — a pack failed to render, so the counts are missing its surfaces, or a
+	// destination could not be written, or yolo's floor will not install a program over a newer
+	// yolo's record. An --assert writes the rest and exits 1.
 	outcomeIncomplete = "incomplete"
 	// outcomeBlocked — a declared dependency is missing (dry run only: an --assert with one
 	// is refused by the gate before it reaches a verdict at all).
@@ -164,16 +171,30 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 	case outcomeIncomplete:
 		// The PACKS, and the rest of the run in the same sentence: the failures themselves are
 		// stated once, with their fixes, in the group above, and what the reader still needs
-		// from the last line is whose config is missing and whether anything else happened.
-		who := "some of " + joinWords(possessives(failurePacks(s.Failures())), "and") + " config"
+		// from the last line is whose config is missing and whether anything else happened. A
+		// program the floor will not install is named beside them, as a blocker is (the verdict
+		// block), with its step: one sentence, ending the run (P7).
+		var what []string
+		if failures := s.Failures(); len(failures) > 0 {
+			who := "some of " + joinWords(possessives(failurePacks(failures)), "and") + " config"
+			if write {
+				what = append(what, who+" was not written")
+			} else {
+				what = append(what, who+" cannot be written")
+			}
+		}
+		if bins := s.FloorRefusals(); len(bins) > 0 {
+			what = append(what, floorRefusalClause(bins))
+		}
+		blockers := strings.Join(what, ", and ") + " (above)"
 		if write {
 			rest := "nothing else needed changing"
 			if work := hostApplyWork(s, true); work != "nothing" {
 				rest = "applied the rest: " + work
 			}
-			return fmt.Sprintf("Incomplete — %s was not written (above); %s.", who, rest)
+			return fmt.Sprintf("Incomplete — %s; %s.", blockers, rest)
 		}
-		return fmt.Sprintf("An --assert would be incomplete — %s cannot be written (above).", who)
+		return fmt.Sprintf("An --assert would be incomplete — %s.", blockers)
 	case outcomeBlocked:
 		// the dependency rule: in the DRY RUN a missing declared dependency is a tier-3 blocker that
 		// decides the verdict and changes nothing else — exit 0, nothing written, nothing installed.
@@ -198,6 +219,19 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 	default:
 		return "An --assert would complete."
 	}
+}
+
+// floorRefusalClause is the verdict's clause for the programs yolo's floor will not install over a
+// record a newer yolo wrote, in both postures: the floor stage's own words, "will not install"
+// (P8: one term per outcome, and `refused` is the apply's, for a run that wrote nothing), and the
+// step that clears it, the same two steps the floor stage's line names (hostfloor.ErrNewerRecord).
+func floorRefusalClause(bins []string) string {
+	record, that := "a record a newer yolo wrote", "that record"
+	if len(bins) > 1 {
+		record, that = "records a newer yolo wrote", "those records"
+	}
+	return fmt.Sprintf("yolo's floor will not install %s over %s until you %s or remove %s",
+		joinWords(bins, "and"), record, updatehint.Step(), that)
 }
 
 // installedPrefix is the verdict line's "Installed `rg`; applied: …" — the clause an --assert

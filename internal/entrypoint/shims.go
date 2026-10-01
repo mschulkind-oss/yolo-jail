@@ -816,6 +816,16 @@ const packOwnerLine = `Pack $PACK's install for $BIN does not put it there: tell
 // yoloOwnerLine is _say_misplaced's OWNER for a program yolo itself declares (pnpm).
 const yoloOwnerLine = `yolo's install for $BIN does not put it there: report it at ` + IssuesURL + `.`
 
+// npmMisplacedCall and installerMisplacedCall are the agent launchers' _say_misplaced calls, one
+// per template, each spliced at both of that launcher's ends: the launch path's last line, and the
+// update mode `yolo pack update` runs (YOLO_PACK_UPDATE=1). The update mode used to exit 0 on the
+// npm path for an install that left nothing to run, and with no word on the installer path, so
+// `yolo pack update` reported a refresh that had delivered nothing.
+const (
+	npmMisplacedCall       = `_say_misplaced "npm reported installing $SPEC" "` + packOwnerLine + `"`
+	installerMisplacedCall = `_say_misplaced "its installer, $URL, reported success" "` + packOwnerLine + `"`
+)
+
 // stampMtimeFn is the `_stamp_mtime` helper every launcher template embeds, and it exists
 // because `stat -c %Y` is GNU-only.
 //
@@ -1433,6 +1443,12 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
     # the single place this outcome is decided.
     _rc=0
     _update || _rc=$?
+    # npm agreeing is not the program being here (_do_install), and a refresh that left nothing
+    # to run did not succeed: the update says what the launch path's last line says, and fails.
+    if [ "$_YOLO_MISPLACED" = 1 ]; then
+        ` + npmMisplacedCall + `
+        _rc=1
+    fi
     exit "$_rc"
 fi
 
@@ -1507,7 +1523,7 @@ if [ -x "$REAL_BIN" ]; then
     _yolo_model_menu
     exec __YOLO_EXEC_PREFIX__"$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 elif [ "$_YOLO_MISPLACED" = 1 ]; then
-    _say_misplaced "npm reported installing $SPEC" "` + packOwnerLine + `"
+    ` + npmMisplacedCall + `
     exit 1
 else
     ` + installFailedLine + `
@@ -2105,6 +2121,12 @@ if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
         echo "  ⚠ $BIN: another update holds the install-prefix lock — nothing refreshed." >&2
         _rc=1
     fi
+    # An installer that exited 0 and left nothing to run (_run_installer) gets the launch path's
+    # last line here too, rather than a bare non-zero exit.
+    if [ "$_YOLO_MISPLACED" = 1 ]; then
+        ` + installerMisplacedCall + `
+        _rc=1
+    fi
     exit "$_rc"
 fi
 
@@ -2165,7 +2187,7 @@ if [ -x "$REAL_BIN" ]; then
     _yolo_model_menu
     exec "$REAL_BIN" ${YOLO_ARGV[@]+"${YOLO_ARGV[@]}"}
 elif [ "$_YOLO_MISPLACED" = 1 ]; then
-    _say_misplaced "its installer, $URL, reported success" "` + packOwnerLine + `"
+    ` + installerMisplacedCall + `
     exit 1
 else
     ` + installFailedLine + `

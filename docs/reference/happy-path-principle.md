@@ -206,7 +206,8 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    still missing ([the dependency rule](report-tiers.md#the-dependency-rule);
    `TestApplyHostAssertRefusesWhenTheInstallProducesNothing`), and `yolo check` counts `[SKIP]`
    apart from passes ([`OQ-3`](claude-oauth-interposition.md#oq-3); `TestSkipIsNotAPass`). Every
-   `yolo check-deps` run that finds something missing, or a pack it could not resolve, ends with
+   `yolo check-deps` run that finds something missing, a pack it could not resolve, or a program
+   the host floor will not install over a newer yolo's record ([rule 7](#the-rules)), ends with
    `yolo check-deps` to check again. A user config it cannot parse is one of those problems: the
    run used to say there was nothing to check and exit 0
    (`TestCheckDepsRefusesAnUnreadableUserConfig`).
@@ -220,7 +221,9 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    second run fixes, so its line says what happened and names who can act instead: the pack's
    author, or yolo's issue tracker for a pack yolo ships, and for pnpm yolo's tracker (rung 4;
    `launchermisplaced_test.go`). It used to get the failed-install line, which sent the user round
-   that loop. The pnpm launcher retries a failed install only an hour after the last failure, so it
+   that loop. `yolo pack update` ends with the same line and exits non-zero, where on the npm path
+   it reported that refresh as a success
+   (`TestAPackUpdateWhoseNpmInstallLandsNothingSaysSoAndFails`). The pnpm launcher retries a failed install only an hour after the last failure, so it
    says when a run retries and prints the command that retries now. Only a failure starts that
    hour, a successful install clearing it, so a pnpm removed after it installed is installed again
    on the next run, where the line used to say its install had failed
@@ -238,7 +241,12 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    installed over a newer yolo's record, as a newer lockfile is never rewritten:
    `yolo host -- <agent>` and `yolo host apply --assert` refuse with that step, and `yolo check`
    no longer says the next launch installs it (`TestEnsureRefusesToInstallOverANewerYolosRecord`,
-   `TestCheckSendsANewerYolosFloorRecordToTheUpdate`). The floor is one folder every yolo on the
+   `TestCheckSendsANewerYolosFloorRecordToTheUpdate`). `yolo check-deps` exits 1 over that record
+   and ends with its re-check, as it does for a missing dependency, where it exited 0
+   (`TestCheckDepsFailsOverANewerYolosFloorRecord`). `yolo host apply`'s verdict, in a dry run
+   and an `--assert`, says the floor will not install that program and names the step, where it
+   said the home was up to date
+   (`TestHostApplyVerdictCountsAProgramTheFloorWillNotInstall`). The floor is one folder every yolo on the
    machine shares, so the newer record can be another install's (a from-source build beside a
    Homebrew one), or a yolo the user went back from on purpose, and then `yolo update` finds
    nothing newer, or undoes that choice. So the refusal names a second step that works on every

@@ -7,8 +7,9 @@ package entrypoint
 // which was false (nothing above failed) and sent the user round a loop, since the next run
 // installs the same way. The line now says what happened and who can act on it: the pack's
 // author, or yolo's issue tracker for a pack yolo ships (docs/reference/happy-path-principle.md,
-// rung 4). Every launcher here is the one the boot's generator writes, so the pack name in the
-// line is the generator's.
+// rung 4). The agent launchers' update mode, which `yolo pack update` runs, ends with the same
+// line and exits non-zero: on the npm path it exited 0. Every launcher here is the one the boot's
+// generator writes, so the pack name in the line is the generator's.
 
 import (
 	"net/http"
@@ -50,11 +51,12 @@ func misplacedFixture(t *testing.T, contribution string) (*Env, string, string) 
 	return e, fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"), logPath
 }
 
-// runGeneratedLauncher runs the launcher for bin from e's launch dir, with HOME and PATH set.
-func runGeneratedLauncher(t *testing.T, e *Env, pathEnv, bin string) (string, int) {
+// runGeneratedLauncher runs the launcher for bin from e's launch dir, with HOME and PATH set, and
+// extraEnv after them.
+func runGeneratedLauncher(t *testing.T, e *Env, pathEnv, bin string, extraEnv ...string) (string, int) {
 	t.Helper()
 	cmd := exec.Command(filepath.Join(e.LaunchDir(), bin))
-	cmd.Env = []string{"HOME=" + e.Home, "PATH=" + pathEnv}
+	cmd.Env = append([]string{"HOME=" + e.Home, "PATH=" + pathEnv}, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	if ee, ok := err.(*exec.ExitError); ok {
 		return string(out), ee.ExitCode()
@@ -139,4 +141,69 @@ func TestAPnpmInstallThatLandsNothingSaysSoAndNamesYolosTracker(t *testing.T) {
 		t.Errorf("the launcher does not end with\n%s\ngot:\n%s", want, out)
 	}
 	assertNoRetryLoop(t, out, "pnpm")
+}
+
+// packUpdateEnv is what `yolo pack update` hands every launcher it runs (cli.execLauncherUpdate):
+// the update mode, which installs or refreshes the program and exits instead of running it.
+const packUpdateEnv = "YOLO_PACK_UPDATE=1"
+
+// `yolo pack update` on the npm path: npm exits 0 and the package provides no misnpm. The update
+// mode exited 0 for it, so `yolo pack update` reported a refresh that left nothing to run. It now
+// ends with the first-use launcher's line and exits non-zero, pinned and unpinned alike, since both
+// reach the install.
+func TestAPackUpdateWhoseNpmInstallLandsNothingSaysSoAndFails(t *testing.T) {
+	for _, tc := range []struct{ name, pkg, spec string }{
+		{"unpinned", "misnpm-pkg", "misnpm-pkg@latest"},
+		{"pinned", "misnpm-pkg@1.2.3", "misnpm-pkg@1.2.3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, pathEnv, logPath := misplacedFixture(t,
+				`{"kind":"program","bin":"misnpm","via":"npm","package":"`+tc.pkg+`"}`)
+			out, rc := runGeneratedLauncher(t, e, pathEnv, "misnpm", packUpdateEnv)
+			if rc == 0 {
+				t.Fatalf("`yolo pack update` reported success for an install that left nothing to run:\n%s", out)
+			}
+			if log, err := os.ReadFile(logPath); err != nil || !strings.Contains(string(log), "install") {
+				t.Fatalf("the update mode never ran npm install (%v):\n%s", err, log)
+			}
+			realBin := filepath.Join(e.Home, ".npm-global", "bin", "misnpm")
+			want := "  ⚠ misnpm not available: npm reported installing " + tc.spec + ", but there is no " +
+				"misnpm at " + realBin + ", where this launcher runs it from.\n" +
+				"    Pack acme's install for misnpm does not put it there: tell that pack's author, or, " +
+				"if yolo ships pack acme, report it at " + IssuesURL + ".\n"
+			if !strings.HasSuffix(out, want) {
+				t.Errorf("the update does not end with\n%s\ngot:\n%s", want, out)
+			}
+			assertNoRetryLoop(t, out, "misnpm")
+		})
+	}
+}
+
+// `yolo pack update` on the installer path: the vendor installer exits 0 and puts nothing at
+// ~/.local/bin. The update mode already exited non-zero, and said nothing about why.
+func TestAPackUpdateWhoseInstallerLandsNothingSaysSoAndFails(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl not found")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("#!/bin/bash\nmkdir -p \"$HOME/elsewhere\"\n" +
+			"printf '#!/bin/sh\\n' > \"$HOME/elsewhere/misnative\"\necho installed\nexit 0\n"))
+	}))
+	t.Cleanup(srv.Close)
+	url := srv.URL + "/install.sh"
+	e, pathEnv, _ := misplacedFixture(t,
+		`{"kind":"program","bin":"misnative","via":"installer","url":"`+url+`"}`)
+	out, rc := runGeneratedLauncher(t, e, pathEnv, "misnative", packUpdateEnv)
+	if rc == 0 {
+		t.Fatalf("`yolo pack update` reported success for an install that left nothing to run:\n%s", out)
+	}
+	realBin := filepath.Join(e.Home, ".local", "bin", "misnative")
+	want := "  ⚠ misnative not available: its installer, " + url + ", reported success, but there is no " +
+		"misnative at " + realBin + ", where this launcher runs it from.\n" +
+		"    Pack acme's install for misnative does not put it there: tell that pack's author, or, if " +
+		"yolo ships pack acme, report it at " + IssuesURL + ".\n"
+	if !strings.HasSuffix(out, want) {
+		t.Errorf("the update does not end with\n%s\ngot:\n%s", want, out)
+	}
+	assertNoRetryLoop(t, out, "misnative")
 }

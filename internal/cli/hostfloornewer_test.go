@@ -118,3 +118,72 @@ func TestHostApplyRefusesToInstallOverANewerYolosFloorRecord(t *testing.T) {
 		}
 	}
 }
+
+// check-deps exits 1 over a newer yolo's floor record and ends with the re-check, once, as it does
+// for a missing dependency: nothing installs that program until the user acts on the step its line
+// names. It exited 0 under the `!` line, the one problem the report found and did not count.
+func TestCheckDepsFailsOverANewerYolosFloorRecord(t *testing.T) {
+	const recheck = "\n  yolo check-deps  # check again\n"
+	for _, tc := range []struct{ name, others string }{
+		{"the floor's program alone", ""},
+		{"a dep present too", `,{"kind":"requires","bin":"sh"}`},
+		{"a dep missing too", `,{"kind":"requires","bin":"yolo-cd-absent"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			floorHostFixtureWith(t,
+				`{"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}`+tc.others, "")
+			writeNewerFloorRecord(t)
+			var out, errw bytes.Buffer
+			rc := checkDepsMain([]string{"--no-manifest"}, &out, &errw, false)
+			report := out.String() + errw.String()
+			if rc != 1 {
+				t.Fatalf("rc = %d over a newer yolo's floor record, want 1:\n%s", rc, report)
+			}
+			if !strings.Contains(report, "! floorcli ") || !strings.Contains(report, "run `yolo update`") {
+				t.Errorf("the report does not mark floorcli `!` with its step:\n%s", report)
+			}
+			if !strings.HasSuffix(report, recheck) {
+				t.Errorf("the report does not end with the re-check %q:\n%s", recheck, report)
+			}
+			if n := strings.Count(report, "yolo check-deps"); n != 1 {
+				t.Errorf("the report names the re-check %d times, want once, at its end:\n%s", n, report)
+			}
+		})
+	}
+}
+
+// The verdict counts the floor stage. A program yolo's floor will not install over a newer yolo's
+// record leaves an --assert incomplete, so the dry run's verdict says so, with the step that clears
+// it, where it said "Nothing to do — this home is up to date." under the floor line saying it
+// would not install it; the machine document carries the same outcome. The --assert's verdict says
+// it too, where it said "Nothing to apply — this home is up to date." and exited 1. The dry run
+// still exits 0: its output is the finding (OQ-RO5).
+func TestHostApplyVerdictCountsAProgramTheFloorWillNotInstall(t *testing.T) {
+	floorHostFixture(t, "")
+	writeNewerFloorRecord(t)
+	const blocker = "yolo's floor will not install floorcli over a record a newer yolo wrote until you " +
+		"run `yolo update` or remove that record (above)"
+
+	rc, report := applyWith(t, false, nil)
+	dryVerdict := "An --assert would be incomplete — " + blocker + "."
+	if rc != 0 {
+		t.Fatalf("dry run rc = %d, want 0 whatever it finds:\n%s", rc, report)
+	}
+	if !strings.Contains(report, "\n"+dryVerdict+"\n") || strings.Contains(report, "up to date") {
+		t.Errorf("the dry run's verdict is not\n%s\ngot:\n%s", dryVerdict, report)
+	}
+	doc, raw, _ := hostApplyJSON(t, "--format", "json")
+	if doc.Outcome != outcomeIncomplete || doc.Verdict != dryVerdict {
+		t.Errorf("outcome %q, verdict %q; want %q and the dry run's verdict:\n%s", doc.Outcome,
+			doc.Verdict, outcomeIncomplete, raw)
+	}
+
+	rc, report = applyWith(t, true, nil)
+	assertVerdict := "Incomplete — " + blocker + "; nothing else needed changing."
+	if rc != 1 {
+		t.Fatalf("--assert rc = %d, want 1:\n%s", rc, report)
+	}
+	if !strings.Contains(report, "\n"+assertVerdict+"\n") || strings.Contains(report, "up to date") {
+		t.Errorf("the --assert's verdict is not\n%s\ngot:\n%s", assertVerdict, report)
+	}
+}

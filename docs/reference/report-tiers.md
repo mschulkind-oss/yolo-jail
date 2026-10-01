@@ -169,7 +169,7 @@ disagree about the outcome they report.
 | Token | The run found |
 | :--- | :--- |
 | `no_packs` | no packs are configured. Distinct from `nothing_to_do`, and the difference is the next action: one is *your config names nothing*, the other *your home already matches what it names* |
-| `incomplete` | a pack failed to render, or a destination could not be written because it is a [broken link](#broken-links), so the counts are missing those surfaces. The verdict names whose config is missing; the failure itself is stated once, with its fix, in its group |
+| `incomplete` | a pack failed to render, or a destination could not be written because it is a [broken link](#broken-links), so the counts are missing those surfaces; or [yolo's floor](../design/host-tool-provisioning.md) will not install a program over a record a newer yolo wrote ([HP-D8](../design/host-tool-provisioning.md#HP-D8)). The verdict names whose config is missing; the failure itself is stated once, with its fix, in its group. It names the program the floor will not install too, with the step that clears it, in a dry run and an `--assert` alike: an `--assert` writes the rest and exits 1 |
 | `blocked` | a declared dependency is missing. **Dry run only** — an `--assert` with one is refused by the gate before it reaches a verdict at all |
 | `nothing_to_do` | this home already matches what the packs declare |
 | `applied` | an `--assert` wrote what it planned |

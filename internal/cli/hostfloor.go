@@ -260,6 +260,7 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 				richtext.Escape(st.Reason))
 			row.Action = "would refuse"
 			note(row)
+			survey.noteFloorRefused(p.Bin()) // the verdict names it (hostApplyOutcome)
 			continue
 		case !write && st.Disposition == hostfloor.Provisioned && st.Pending == "":
 			detail(pr, "  [cyan]%-20s[/cyan] %s %s  [dim]%s[/dim]", "host_floor", p.Bin(),
@@ -288,6 +289,7 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 			pr.Printf("  [red]%-20s %s: will not install it: %s[/red]", "host_floor", p.Bin(),
 				richtext.Escape(err.Error()))
 			survey.noteUnattributedFailure()
+			survey.noteFloorRefused(p.Bin())
 			rc = 1
 			continue
 		}

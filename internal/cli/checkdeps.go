@@ -67,17 +67,25 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 		}
 	}
 	// The floor's programs, each by its floor entry: never missing in the sense this verb exits 1
-	// over, because the floor installs one that is not there yet (HP-D3).
+	// over, because the floor installs one that is not there yet (HP-D3). A newer yolo's record is
+	// the exception: the floor installs nothing over it (hostfloor.ErrNewerRecord), so it is a
+	// problem the user acts on, with its step on its line, and the run exits 1 and ends with the
+	// re-check as it does for a missing dep. It exited 0 under its `!`.
 	floorBins := make([]string, 0, len(floor))
+	newerRecord := false
 	for bin := range floor {
 		floorBins = append(floorBins, bin)
+		newerRecord = newerRecord || floor[bin].Newer
 	}
 	sort.Strings(floorBins)
 	for _, bin := range floorBins {
 		pr.Printf("%s %-16s %s", floorDepMark(floor[bin]), bin, floorDepClause(floor[bin]))
 	}
+	// What makes a run with nothing missing a failure: a pack it could not probe, or a floor
+	// program whose record a newer yolo wrote. Each is named above with its step.
+	problem := len(unresolved) > 0 || newerRecord
 	if len(reqs) == 0 && len(floor) > 0 {
-		if len(unresolved) > 0 {
+		if problem {
 			printRecheck(pr)
 			return 1
 		}
@@ -144,9 +152,9 @@ func checkDepsMain(args []string, out, errw io.Writer, color bool) int {
 		}
 	}
 	if len(missing) == 0 {
-		if len(unresolved) > 0 {
+		if problem {
 			printRecheck(pr)
-			return 1 // an unprobed pack is not a clean bill of health
+			return 1 // not a clean bill of health: see problem
 		}
 		return 0
 	}
@@ -510,7 +518,8 @@ that cannot be resolved, or whose manifest has problems, is named with the reaso
 its fix, and its deps are not probed.
 
 It never installs anything — it detects and hands off. Exit is non-zero when a declared
-dep is missing, or when a configured pack could not be resolved.
+dep is missing, when a configured pack could not be resolved, or when yolo's floor will
+not install a program over a record a newer yolo wrote.
 
 Examples:
   yolo check-deps                     # what is missing, and write the bundle manifest

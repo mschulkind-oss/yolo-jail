@@ -179,6 +179,11 @@ type hostApplySurvey struct {
 	// branch, would otherwise be the one stage the document silently leaves out — "would remove"
 	// among them, a loss.
 	floor []hostApplyDocFloorEntry
+	// floorRefused are the programs the floor stage will not install, in either posture, because a
+	// newer yolo wrote their record (hostfloor.ErrNewerRecord). A BLOCKER that leaves an --assert
+	// incomplete: it writes the rest and exits 1, so the verdict names them (hostApplyOutcome). The
+	// verdict used to read the floor stage not at all, and said "this home is up to date".
+	floorRefused []string
 	// unresolvedPacks are the configured packs this run could not resolve, with the resolver's
 	// reason. A BLOCKER that outranks every other: an --assert over them is refused before the
 	// first write (no half states), so the verdict of a dry run that found one is "would refuse".
@@ -224,6 +229,23 @@ func (s *hostApplySurvey) noteNotch(f notchFacts) {
 	if s != nil {
 		s.notch = f
 	}
+}
+
+// noteFloorRefused records bin as a program the floor stage will not install over a newer yolo's
+// record. Called by the floor stage in both postures, where it says so.
+func (s *hostApplySurvey) noteFloorRefused(bin string) {
+	if s != nil {
+		s.floorRefused = append(s.floorRefused, bin)
+	}
+}
+
+// FloorRefusals names the programs the floor stage will not install over a newer yolo's record, in
+// the order it reported them.
+func (s *hostApplySurvey) FloorRefusals() []string {
+	if s == nil {
+		return nil
+	}
+	return s.floorRefused
 }
 
 // Home is the home this apply rendered into, "" for a survey nobody filled.

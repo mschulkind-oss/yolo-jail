@@ -8,6 +8,16 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `yolo pack update` no longer reports success when an agent's install leaves nothing to run; it
+  says so, and who can fix it.
+- `yolo check-deps` now fails when yolo's own copy of an agent was installed by a newer yolo.
+- `yolo host apply` no longer calls your home up to date when it will not install an agent over a
+  newer yolo's copy; it names the step.
+
 ## [0.11.1] - 2026-10-01
 
 Agent updates no longer hang a launch, `yolo check` gives the right Nix advice and names the fix
