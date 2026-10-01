@@ -250,17 +250,21 @@ shipped packs the wrong remedy was reachable only from a pack that declares such
 (checked 2026-09-25 and 2026-09-30).
 
 **Fixed 2026-10-01.** The notice now reads *"`<agent>/<surface>`: dropping from `<table>` (not in
-config): `<names>` — to keep it, declare it in yolo-jail.jsonc under the table `<table>` is built
-from (an MCP server under `mcp_servers`, an LSP server under `lsp_servers`, a provider under
-`providers`), reaching every agent"* (`noteDroppedManagedEntries`,
-`internal/entrypoint/prism.go:1422-1442`). It names each kind's config table rather than one,
+config): `<names>` — yolo rebuilds `<table>` from its config at every boot; to keep it, declare it
+in yolo-jail.jsonc (an MCP server under `mcp_servers`, an LSP server under `lsp_servers`, a
+provider under `providers`), reaching every agent"* (`noteDroppedManagedEntries`,
+`internal/entrypoint/prism.go`). The table is named as what yolo rebuilds and never as where to
+declare: the first wording, *"declare it in yolo-jail.jsonc under the table `<table>` is built
+from"*, read as an instruction to add the agent's own key to the config. It names each kind's
+config table rather than one,
 because no declaration tells core which config table a pack's derive builds a table from, and
 that is the form the host's twin, `mcpEntryRemedy`, already gives the same loss class
 ([HC-D20](host-computed-layer.md#HC-D20)). It offers no `config-overlay`, unlike the host's: in a
 jail an `rmw` render asserts overlays before the derived tables and then clears each table it
-regenerates (`applyRMWLayers`, `internal/entrypoint/prism.go:1503-1510`), so an overlay's entry
+regenerates (`applyRMWLayers`, `internal/entrypoint/prism.go`), so an overlay's entry
 under one is dropped and announced like any other. Pinned through the boot loop by
 `TestTheBootDropNoticeNamesTheRemedyForATableThatIsNotMCP`,
+`TestTheBootDropRemedyDeclaresOnlyUnderAConfigTable`,
 `TestFollowingTheBootDropRemedyKeepsTheEntry` and
 `TestTheBootDropNoticeForClaudesMCPTableStillNamesMCPServers`
 (`internal/entrypoint/droppedentryremedy_test.go`).

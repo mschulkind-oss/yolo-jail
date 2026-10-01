@@ -14,9 +14,11 @@ package entrypoint
 import (
 	"bytes"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -84,6 +86,31 @@ func TestTheBootDropNoticeNamesTheRemedyForATableThatIsNotMCP(t *testing.T) {
 	}
 	if strings.Contains(remedy, "add under `mcp_servers` to keep it") {
 		t.Errorf("the remedy still hands every table the MCP advice; got %q", remedy)
+	}
+}
+
+// Every place the remedy says to declare something "under" is a config table. The first
+// wording read "declare it in yolo-jail.jsonc under the table lspServers is built from", which
+// parses as "under the table lspServers" — the agent's own key, which no config table is called.
+func TestTheBootDropRemedyDeclaresOnlyUnderAConfigTable(t *testing.T) {
+	notice, _ := bootLSPTable(t, "")
+	i := strings.Index(notice, "handmade")
+	if i < 0 {
+		t.Fatalf("the boot must announce the dropped entry; got %q", notice)
+	}
+	remedy := notice[i:]
+	config := map[string]bool{manifest.SourceMCPServers: true, manifest.SourceLSPServers: true,
+		manifest.SourceProviders: true}
+	unders := regexp.MustCompile(`under (\S+)`).FindAllStringSubmatch(remedy, -1)
+	if len(unders) == 0 {
+		t.Fatalf("the remedy names no config table to declare the entry under; got %q", remedy)
+	}
+	for _, m := range unders {
+		if where := strings.Trim(m[1], "`,.;()"); !config[where] {
+			t.Errorf("the remedy says to declare it under %q, which is not a config table "+
+				"(%s, %s, %s); got %q", where, manifest.SourceMCPServers,
+				manifest.SourceLSPServers, manifest.SourceProviders, remedy)
+		}
 	}
 }
 

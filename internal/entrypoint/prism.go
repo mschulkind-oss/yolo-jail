@@ -1433,10 +1433,13 @@ func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, des
 		return
 	}
 	sort.Strings(dropped)
+	// The table is named as what yolo rebuilds, never as where to declare: "under the table
+	// <key>" read as an instruction to add the agent's own key to yolo-jail.jsonc, which no
+	// config table is called.
 	fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (not in config): %s "+
-		"— to keep it, declare it in yolo-jail.jsonc under the table %s is built from "+
-		"(an MCP server under `%s`, an LSP server under `%s`, a provider under `%s`), "+
-		"reaching every agent\n",
+		"— yolo rebuilds %s from its config at every boot; to keep it, declare it in "+
+		"yolo-jail.jsonc (an MCP server under `%s`, an LSP server under `%s`, a provider "+
+		"under `%s`), reaching every agent\n",
 		surface.Agent, surface.Name, key, strings.Join(dropped, ", "), key,
 		manifest.SourceMCPServers, manifest.SourceLSPServers, manifest.SourceProviders)
 }
