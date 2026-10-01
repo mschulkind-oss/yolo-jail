@@ -3,7 +3,7 @@ title: "Who owns the config file — declared host management, and the way out o
 date: 2026-09-09
 status: in-review
 stage: DESIGN
-next: "Draft a leaning for OQ-CO14 — it lists options but states no leaning, and the assert retirement's build starts by ruling it"
+next: "Rule OQ-CO14, whose leaning was drafted 2026-10-01 (refuse a config that says assert; at an asserted home with the key unset, name own and --revert where the user acts); the assert retirement's build starts by ruling it"
 tags: [design, config, host, capture, packs, ownership]
 summary: "yolo decides who owns an agent's config file by inferring it from the confinement notch, and the inference is wrong for anyone who adopted `yolo host apply`. Declare ownership in the user config instead, make the host render like a jail when it is owned, and build the promotion path that turns a captured in-jail edit into a declared one — the verb a shipped message already advises and nothing implements."
 vantage:
@@ -2775,8 +2775,6 @@ contract to make the declaration agree across.
 
 ### <a id="oq-co14"></a>💬 [`OQ-CO14`](#oq-co14) — what the retirement does to a config already on `assert` — **OPEN**
 
-<!-- vantage: oq id=OQ-CO14 -->
-
 **Opened 2026-09-20 by the ruling in [§4.5](#45-retiring-assert--the-two-value-key).** It is a
 question and not an implementation shape by this section's own test — *do the alternatives
 differ in what the USER gets?* — and here they differ by the width of the installation: refusing
@@ -2807,6 +2805,47 @@ to `none` removes the ground without touching the conclusion, and a conclusion w
 premise has expired has to be re-argued rather than inherited. ⚠ **Face 2 is the one this
 document is likeliest to get wrong**, because it is invisible on the maintainer's own machine:
 a developer who has written the key is unaffected by either face.
+
+**Four facts the leaning below rests on**, read from the tree at `d4e435a3` on 2026-10-01:
+
+- **Dropping the value alone gives face 1 a generic answer.** An unknown `host_management` string
+  already reads as `none` (`hostManagementValue`, `internal/config/hostmanagement.go`), with
+  `hostManagementProblem`'s validation error beside it. So a user config still saying `"assert"`
+  would get `none`'s behavior and an error that names no replacement.
+- **A retired spelling in this config gets a targeted refusal.** `retiredTopLevelConfigKeys`
+  keeps each retired key *"ONLY so each earns its own targeted retirement message instead of a
+  generic unknown-key error"* (`internal/config/config.go`).
+- **Both of today's ways back out name the value being retired.** `yolo host apply --revert`
+  refuses under `none`, and its refusal says *"If yolo DID write there under an earlier value,
+  set the key back to "assert" and re-run this to take those keys out"* (`hostRevertRefusal`,
+  `internal/cli/hostrevert.go`). It refuses under `own` too, naming `assert` again. And the
+  `none` refusal of `yolo host apply` tells the user to set `"assert"` (`hostManagementRefusal`,
+  `internal/cli/hostmanagementgate.go`). So once the value goes, no value lets a face-2 user
+  withdraw what yolo wrote.
+- **The mark is the provenance record, per surface** (`hostProvenanceExists`,
+  `internal/entrypoint/hostrender.go`). Clearing it without withdrawing yolo's keys would compose
+  every key yolo wrote into a jail as the user's own `host` layer: the laundering that
+  [the `retired:` label](../reference/pack-system.md#the-retired-provenance-label) exists to stop.
+
+<!-- vantage: oq id=OQ-CO14 leaning="Face 1: refuse with a targeted message naming own (with yolo config promote) and none, as every retired spelling in this config is refused. Face 2: no upgrade prompt, but on a home that carries yolo's provenance record the none refusal and yolo check name own and --revert, --revert runs under none there, and the retirement never clears the mark itself." -->
+
+_Leaning:_ **Face 1: refuse, with a message of its own.** It names `own`, with `yolo config
+promote` for the keys the user keeps by hand, and `none`. That is the shape every retired
+spelling in this config takes. Not `none` with a notice, which overrides a declaration the user
+made on purpose. Not `own`, for the reason face 1 gives.
+
+**Face 2: no prompt at upgrade, and nothing silent where the user acts.** On a home that carries
+yolo's provenance record, the `none` refusal of `yolo host apply` and `yolo check`'s
+host-management row (`hostManagementRow`, `internal/cli/check/section_hostwrappers.go`) name
+`own` and `yolo host apply --revert`. `--revert` runs under `none` on such a home, since it is
+the one way back to a file that is purely the user's. The retirement never clears the mark by
+itself. So [`OQ-CO2`](#13-decision-ledger)'s *no prompt* survives on a new ground, that every path
+that now behaves differently says so where it acts. Its *no notice* does not survive for a home
+yolo has written. Whoever builds this also rewrites the two refusals above, which would otherwise
+name a value that no longer exists.
+
+**Answer:**
+> _(empty — fill in when decided)_
 
 ⚠ **Two open questions are not two outstanding items, and the questions are kept apart from the
 residue on purpose.**
