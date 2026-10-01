@@ -63,6 +63,19 @@ local function in_full(ctx, t)
   return t
 end
 
+-- opencodeLimit is a config model's `limit` from a context window and an output limit, each nil
+-- when the provider states none, or nil when no limit can be written. opencode's config schema (ConfigProviderV1.Model, read from the installed
+-- 1.18.34 binary, never run) declares `limit` as {context, input?, output} with both context and
+-- output REQUIRED, so a limit naming one of them is not a row without a limit but a config opencode
+-- refuses. A window alone carries `output` 0, opencode's own "not stated": its maxOutputTokens is
+-- min(output, its 32,000 cap) or that cap, the cap it applies to a larger stated output too. An
+-- output alone carries no limit at all, since a context of 0 would replace opencode's catalog
+-- window for the id and turn its compaction off.
+local function opencodeLimit(context, output)
+  if context == nil then return nil end
+  return { context = context, output = output or 0 }
+end
+
 -- THE openai-codex MODEL LIST. codexModelList expands the one declaration of it — the
 -- `models` and `model_options` packs/openai-auth/pack.json ships on the openai-codex provider,
 -- with the user's `providers.openai-codex` merged over it — into the ordered list every
@@ -452,10 +465,7 @@ local function opencodeBedrockModels(list)
   local models = {}
   for _, e in ipairs(list) do
     local m = { name = e.facts.name or e.id }
-    local context, output = tonumber(e.facts.context_window), tonumber(e.facts.max_tokens)
-    if context or output then
-      m.limit = { context = context, output = output }
-    end
+    m.limit = opencodeLimit(tonumber(e.facts.context_window), tonumber(e.facts.max_tokens))
     models[e.id] = m
   end
   return models
@@ -550,12 +560,7 @@ yolo.derive("opencode", "config", function(ctx)
             -- config `name` beats the catalog's, so the alias this used to write showed an
             -- entry under `default` as "default".
             local m = { name = modelDisplayName(prov, modelId) }
-            if cw or maxTokens then
-              local limit = {}
-              if cw then limit.context = cw end
-              if maxTokens then limit.output = maxTokens end
-              m.limit = limit
-            end
+            m.limit = opencodeLimit(cw, maxTokens)
             models[modelId] = m
           end
         end

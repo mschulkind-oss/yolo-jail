@@ -564,6 +564,10 @@ sets, and a jail without pi no longer carries it.
 
 ### Fixed
 
+- opencode on a provider that states a context window but no output limit, such as z.ai and
+  Cerebras, is no longer handed a model limit its config format rejects. opencode requires an
+  output limit beside every context window, so yolo now writes opencode's own default for it, and
+  writes no limit for a model that states only an output limit.
 - A config whose `required_capabilities` asks for web search is no longer refused when an agent you
   selected searches on its own login, such as Claude Code or Antigravity, or when a profile runs an
   agent on a provider that searches, such as z.ai. The launch used to count only what your own
