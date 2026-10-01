@@ -21,17 +21,6 @@ type ExactMenuRefusal struct {
 	Providers []string `json:"providers,omitempty"`
 }
 
-// ExactMenuRefusal returns the `exact_menu_refuses` the program installing bin declares, nil when
-// it declares none or the manifest installs no such program.
-func (m *Manifest) ExactMenuRefusal(bin string) *ExactMenuRefusal {
-	for _, c := range m.Contributions() {
-		if c.Kind == KindProgram && c.Bin == bin {
-			return c.ExactMenuRefuses
-		}
-	}
-	return nil
-}
-
 // exactMenuProblems refuses an `exact_menu_refuses` no consumer could read as written: on a kind
 // other than program, and a `providers` list that is empty or names a provider twice or as "".
 func exactMenuProblems(label string, c Contribution) []string {

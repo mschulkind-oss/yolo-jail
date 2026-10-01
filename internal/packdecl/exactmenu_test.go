@@ -6,9 +6,10 @@ import (
 	"testing"
 )
 
-// `exact_menu_refuses` is a program's fact (docs/design/model-lists-and-pickers.md MM-D29): the
-// accessor answers it by bin, with the providers it names, and nil for a program that declares
-// nothing or a bin the manifest does not install.
+// `exact_menu_refuses` is a program's fact (docs/design/model-lists-and-pickers.md MM-D29), and
+// its presence is the fact: an empty object decodes to a declaration with no providers, which
+// still covers every list an `only` narrowed, and a program that says nothing decodes to none.
+// packload.UnnarrowedMenus reads the field straight off the program contribution.
 func TestExactMenuRefusesIsAProgramsFact(t *testing.T) {
 	m, probs := Decode([]byte(`{"name":"acme","contributes":[
 	  {"kind":"program","bin":"acme","via":"npm","package":"@acme/acme",
@@ -18,14 +19,18 @@ func TestExactMenuRefusesIsAProgramsFact(t *testing.T) {
 	if len(probs) != 0 {
 		t.Fatalf("fixture: %v", probs)
 	}
-	if got := m.ExactMenuRefusal("acme"); got == nil || !reflect.DeepEqual(got.Providers, []string{"sub"}) {
-		t.Errorf("ExactMenuRefusal(acme) = %+v, want providers [sub]", got)
+	byBin := map[string]*ExactMenuRefusal{}
+	for _, c := range m.Contributions() {
+		byBin[c.Bin] = c.ExactMenuRefuses
 	}
-	if got := m.ExactMenuRefusal("bare"); got == nil || got.Providers != nil {
-		t.Errorf("ExactMenuRefusal(bare) = %+v, want the fact with no providers", got)
+	if got := byBin["acme"]; got == nil || !reflect.DeepEqual(got.Providers, []string{"sub"}) {
+		t.Errorf("acme's exact_menu_refuses = %+v, want providers [sub]", got)
 	}
-	if m.ExactMenuRefusal("other") != nil || m.ExactMenuRefusal("absent") != nil {
-		t.Errorf("a program that declares nothing, and an absent bin, must answer nil")
+	if got := byBin["bare"]; got == nil || got.Providers != nil {
+		t.Errorf("bare's exact_menu_refuses = %+v, want the fact with no providers", got)
+	}
+	if byBin["other"] != nil {
+		t.Errorf("a program that declares nothing must decode to no exact_menu_refuses")
 	}
 }
 

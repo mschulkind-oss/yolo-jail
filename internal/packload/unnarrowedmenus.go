@@ -32,9 +32,10 @@ type UnnarrowedMenu struct {
 // UnnarrowedMenus is every UnnarrowedMenu of the launch: each program among packs declaring
 // `exact_menu_refuses`, in pack order, and each provider of its active set, in set order, whose
 // composed list is not empty, is one that declaration covers, names an endpoint or a platform
-// (firstPartyOnly), and is governed by a profile with the switch off. profiles is the agent → primary profile table and sets the agent → active set
-// table the launch lowers (ProfileTable, ProfileSets); resolved and providers are the resolved
-// profiles and the composed providers table. Nil when there is none.
+// (firstPartyOnly), and is governed by a profile with the switch off. profiles is the agent →
+// primary profile table and sets the agent → active set table the launch lowers (ProfileTable,
+// ProfileSets); resolved and providers are the resolved profiles and the composed providers
+// table. Nil when there is none.
 func UnnarrowedMenus(packs []*Pack, providers *jsonx.OrderedMap, resolved map[string]ResolvedProfile,
 	profiles map[string]string, sets map[string][]string) []UnnarrowedMenu {
 	var out []UnnarrowedMenu
@@ -78,6 +79,11 @@ func UnnarrowedMenus(packs []*Pack, providers *jsonx.OrderedMap, resolved map[st
 // repoints nothing, and means the agent's own first-party API (docs/reference/protocol-resolution.md
 // OQ-PR2). yolo's table points no row of the agent's anywhere for it, so there is no row for a
 // derive to write a filter on, with the switch on or off, and the switch decides nothing there.
+//
+// ITS LIMIT: a provider naming a platform and no endpoint counts as having a row, the agent's own
+// client for that platform, because core cannot tell which platforms an agent has a client for.
+// opencode's derive writes such a row only on `aws-bedrock`, so on any other platform named with
+// no endpoint the line names a menu the switch does not decide.
 func firstPartyOnly(entry *jsonx.OrderedMap) bool {
 	if len(providerProtocols(entry)) > 0 {
 		return false

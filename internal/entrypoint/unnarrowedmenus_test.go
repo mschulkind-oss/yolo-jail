@@ -93,8 +93,12 @@ func TestTheUnnarrowedMenuLineAgreesWithOpencodesWhitelist(t *testing.T) {
 		`{"kind":"models","provider":"bedrock","only":["`+opus+`","`+sol+`"]},`+
 		`{"kind":"models","provider":"anthropic","only":["claude-x"]}`)
 	added := companyModelsPack(t, `{"kind":"models","provider":"zai","add":[{"id":"glm-6","vendor":"zai"}]}`)
+	// An `only` naming nothing any pack added keeps no model: the entry is still marked narrowed,
+	// and the derive writes no whitelist for an empty list, with the switch on or off.
+	emptied := companyModelsPack(t, `{"kind":"models","provider":"zai","only":["glm-nothing-added"]}`)
 	withNarrowed := append(testPacksForAgent(t, "opencode", "zai"), narrowed)
 	withAdded := append(testPacksForAgent(t, "opencode", "zai"), added)
+	withEmptied := append(testPacksForAgent(t, "opencode", "zai"), emptied)
 
 	for _, tc := range []struct {
 		name      string
@@ -113,6 +117,8 @@ func TestTheUnnarrowedMenuLineAgreesWithOpencodesWhitelist(t *testing.T) {
 		{"the subscription's whole list", withNarrowed, "", `{"opencode":"codex"}`, `{"opencode":"codex-open"}`,
 			[]string{"openai-codex"}, []string{"openai-codex"}},
 		{"a list no only narrowed", withAdded, "", `{"opencode":"zai"}`, `{"opencode":"zai-open"}`,
+			[]string{"zai"}, nil},
+		{"an only that keeps no model", withEmptied, "", `{"opencode":"zai"}`, `{"opencode":"zai-open"}`,
 			[]string{"zai"}, nil},
 		{"an active set whose second entry has the switch off", withNarrowed, "", `{"opencode":["zai","bedrock"]}`,
 			`{"opencode":["zai","bedrock-open"]}`, []string{"zai", "bedrock"}, []string{"bedrock"}},

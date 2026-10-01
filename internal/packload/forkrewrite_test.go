@@ -25,6 +25,7 @@ func richBase(t *testing.T) *Pack {
 		PlatformSwitches:         []packdecl.PlatformSwitch{{Platform: "aws-bedrock", Surface: "pi/settings", Pointer: "/x"}},
 		Capabilities:             []string{"web_search"},
 		UnlistedBackgroundModels: true,
+		ExactMenuRefuses:         &packdecl.ExactMenuRefusal{Providers: []string{"openai-codex"}},
 	}, packdecl.Contribution{Kind: packdecl.KindProgram, Bin: "other", Via: "npm", Package: "other"})
 }
 
@@ -53,7 +54,8 @@ func TestTheForkRewriteKeepsAndReplacesExactlyFPD6sFields(t *testing.T) {
 	// KEPT: what the program does once it is there.
 	if prog.Refresh == nil || strings.Join(prog.Protocols, ",") != "openai" || !prog.ProviderSets ||
 		len(prog.PlatformSwitches) != 1 || strings.Join(prog.Capabilities, ",") != "web_search" ||
-		!prog.UnlistedBackgroundModels || prog.NodeFloor != "22.19" {
+		!prog.UnlistedBackgroundModels || prog.ExactMenuRefuses == nil ||
+		strings.Join(prog.ExactMenuRefuses.Providers, ",") != "openai-codex" || prog.NodeFloor != "22.19" {
 		t.Errorf("a field the base keeps was dropped: %+v", prog)
 	}
 	// The base's OTHER program is not the fork's.
