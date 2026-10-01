@@ -54,8 +54,8 @@ running, by area:
 - **[Which upstream is Bedrock's](#which-upstream-is-bedrocks), the region-composed upstream and
   [the model allowlist](#the-model-allowlist).** MEASURED the same way: the production boot over
   the shipped packs, against a stubbed upstream. On 2026-10-01 the boot over a jail's own tables
-  signed for the shipped `bedrock` provider and composed runtime's `us-east-1` URL, and AWS served
-  the requests it sent
+  signed for the shipped `bedrock` provider and composed runtime's `us-east-1` URL, and AWS
+  answered each request it sent, refusing none for its signature
   ([`wire-bridge-gateway.md` §2.4](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)).
   No request has tested the allowlist against AWS.
 

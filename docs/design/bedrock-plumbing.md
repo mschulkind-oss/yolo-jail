@@ -17,8 +17,9 @@ Bedrock? It can go through its own built-in Bedrock client, or through yolo's wi
 also covers what you type to pick one, and what shape yolo's Bedrock provider takes so that every
 agent can read it.
 
-**Status:** 2026-10-01 — the first live requests reached Bedrock from a jail (the MEASURED live
-line below). Rewritten 2026-09-25 after the maintainer's review of that day.
+**Status:** 2026-10-01 — requests sent by hand from a jail, with no agent, reached Bedrock's
+runtime directly and through the wire bridge (the MEASURED live line below). Rewritten
+2026-09-25 after the maintainer's review of that day.
 - Ruled: yolo ships one endpoint family, `bedrock-runtime` ([DIR-BR3](#DIR-BR3)). Every agent
   reaches every Bedrock model, across the whole matrix ([DIR-BR1](#DIR-BR1), [DIR-BR2](#DIR-BR2)).
   claude gets a native profile and an everything profile ([OQ-BR11](#OQ-BR11)). pi gets its native
@@ -65,7 +66,7 @@ line below). Rewritten 2026-09-25 after the maintainer's review of that day.
   clients, read statically from the copies the launcher installed and never run; every shipped
   model id, read from its AWS model card ([`packs/bedrock/README.md`](../../packs/bedrock/README.md#sources)).
 - MEASURED live 2026-10-01, from a jail in `us-east-1` under the SSO credential `aws-auth` serves
-  ([the first live requests](#the-first-live-requests-2026-10-01); every result is in
+  ([the live requests of 2026-10-01](#the-live-requests-of-2026-10-01); every result is in
   [`wire-bridge-gateway.md` §2.4](wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)):
   runtime served Claude Opus 5.5 on its Messages route and GPT-6.1 Sol on its Responses route,
   signed by botocore and by the wire bridge alike. ConverseStream for GPT-6.1 Sol, pi's and
@@ -1042,8 +1043,8 @@ links.
 
 Every third-party fact carries its source and date; re-run these rather than trusting the tables.
 Repo claims were verified at `f491d192` (2026-09-24), cited by symbol. No request was made to AWS
-for these readings. The first live requests, on 2026-10-01, are
-[the last part of this section](#the-first-live-requests-2026-10-01).
+for these readings. The live requests of 2026-10-01 are
+[the last part of this section](#the-live-requests-of-2026-10-01).
 
 **codex**: the standalone **codex-cli 0.156.1** yolo's launcher installs
 (`~/.codex/packages/standalone/releases/0.156.1-x86_64-unknown-linux-musl/bin/codex`). It was read
@@ -1145,7 +1146,7 @@ matches), which shows presence only.
 [Bedrock Web Search](https://docs.aws.amazon.com/bedrock/latest/userguide/web-search.html) ·
 [Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock)
 
-### The first live requests, 2026-10-01
+### The live requests of 2026-10-01
 
 MEASURED from a jail in `us-east-1`, signed with the SSO credential `aws-auth` serves. Its
 container pointer was the jail's only AWS credential source; no Bedrock API key and no static key

@@ -3,7 +3,7 @@ title: "The wire bridge as the jail's model gateway: signing, routing by model a
 date: 2026-09-25
 status: accepted
 stage: DECIDED
-next: "Make the translating route send an output cap runtime's GPT models accept: GPT-6.1 Sol refused its max_tokens with a 400 at the first live request (§2.4, MEASURED 2026-10-01), so claude's everything profile and copilot fail every turn on that model"
+next: "Make the translating route send an output cap runtime's GPT models accept: GPT-6.1 Sol refused its max_tokens with a 400 at the translating route's first live request (§2.4, MEASURED 2026-10-01; re-run the same day with the same answer), so claude's everything profile and copilot fail every turn on that model"
 depends-on:
   - pi-codex-provider-shadowing.md#OQ-3
 tags: [wire-bridge, bedrock, aws, sigv4, routing, failover, models, allowlist, providers, subscription]
@@ -18,7 +18,7 @@ vantage:
 provider, what may it do? It could sign for AWS, choose an upstream per model or per agent,
 fail over when a subscription runs out, or refuse a model that is not on a list.
 
-**Status:** 2026-10-01 — the first live requests reached Bedrock from a jail
+**Status:** 2026-10-01 — the bridge's first live requests reached Bedrock from a jail
 ([§2.4](#24-the-first-live-requests-measured-2026-10-01)). Ruled 2026-09-25; the one question opened since, [OQ-WG8](#OQ-WG8), was decided as an implementation choice on 2026-09-30 ([WG-I36](#WG-I36)) — the SigV4 signer, [OQ-WG6](#OQ-WG6), [OQ-WG7](#OQ-WG7) and Part 3's sign-only route are built, and the via route's Responses wire for codex is built (2026-09-26, [WG-I20](#WG-I20)). Split out of [`bedrock-plumbing.md`](bedrock-plumbing.md) that
 day, carrying its bridge questions with their ids unchanged. **Part 1 (signing) is built,
 2026-09-25** ([§2](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)), with the
@@ -375,9 +375,10 @@ table, each served agent's key channel, and a stubbed upstream that records what
 fourth, whose boot reads the tables as the launcher writes and the entrypoint decodes them. The
 fifth is the gate over those same tables. The first three reached AWS on 2026-10-01: over a
 jail's own tables, the daemon's boot signed for the shipped `bedrock` provider by its platform,
-took `us-east-1` from the provider's `region`, and composed runtime's URL from it, and AWS served
-the requests ([§2.4](#24-the-first-live-requests-measured-2026-10-01)). That runtime serves Responses at
-`/openai/v1/responses` was read from codex's binary until 2026-10-01, and then from AWS's
+took `us-east-1` from the provider's `region`, and composed runtime's URL from it. AWS answered
+all five requests it sent, three with a 200 and two with a 400 refusing a field of the body, none
+with a signature refusal ([§2.4](#24-the-first-live-requests-measured-2026-10-01)). That runtime
+serves Responses at `/openai/v1/responses` was read from codex's binary until 2026-10-01, and then from AWS's
 documentation ([§2.3](#23-responses-at-runtimes-openaiv1responses-sourced-2026-10-01)); it is now
 observed ([§2.4](#24-the-first-live-requests-measured-2026-10-01)).
 
@@ -489,8 +490,9 @@ No agent was started. Eight calls are this doc's, below. The other three are rec
 belong: the web search tool, sent directly and through the bridge, in
 [`bedrock-web-search.md`](bedrock-web-search.md#measured-live-2026-10-01-runtime-refuses-claudes-search-tool),
 and ConverseStream in
-[`bedrock-plumbing.md`](bedrock-plumbing.md#the-first-live-requests-2026-10-01). botocore re-sent
-the ConverseStream call on its 500, so at most fifteen HTTP requests reached AWS.
+[`bedrock-plumbing.md`](bedrock-plumbing.md#the-live-requests-of-2026-10-01). botocore's default
+retry policy re-sends a 500 up to four times, and the attempt count was not captured, so at most
+fifteen HTTP requests reached AWS.
 
 **Two signers, so that a failure can be placed.** A **direct** request was signed by botocore
 1.43.106's `SigV4Auth` for the service `bedrock` and sent with no retry. botocore shares no code
@@ -528,8 +530,11 @@ The prompt was *"Reply with the one word: pong"*. Times are UTC, and the command
 | 4 | 15:40:14 | bridge | codex-shaped, `POST 127.0.0.1:8216/agent/codex/responses`, streamed | **200**, headers in 0.2 s, `text/event-stream` | `response.created` through `response.completed`: `model` `us.openai.gpt-6.1-sol`, `status` `completed`; usage 139 in, 5 out, 0 reasoning; text `pong`; then `data: [DONE]`. 193.9 s end to end |
 | 5 | 15:44:34 | bridge | request 4 again, each line timed | **200**, headers in 0.2 s | `response.created` at 0.24 s, `response.completed` and `data: [DONE]` at 2.05 s, end of body at 2.05 s |
 | 6 | 15:37:12 | direct | `POST /anthropic/v1/messages` with `anthropic-version: 2023-06-01`, `global.anthropic.claude-opus-5-5`, `max_tokens: 16`, not streamed | **200**, 1.5 s, `application/json` | `model` `claude-opus-5-5`, `stop_reason` `end_turn`; usage 18 in, 4 out, no cache read or written, `service_tier` `standard`; text `pong` |
-| 7 | 15:39:38 | bridge | request 6, streamed, to the adapter route, `POST 127.0.0.1:8214/v1/messages` | **200**, 1.5 s, `text/event-stream` | `message_start` (`model` `claude-opus-5-5`, 24 in), `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta` (`end_turn`, 4 out), `message_stop`; text `pong`. The bridge logged `POST /v1/messages 200 1.481s (model global.anthropic.claude-opus-5-5 is Anthropic's on the provider's list: untranslated to …/anthropic/v1/messages)` |
-| 8 | 15:39:59 | bridge | the adapter route, `us.openai.gpt-6.1-sol`, `max_tokens: 16`, not streamed: translated to `POST /openai/v1/chat/completions` | **400**, 0.26 s | `{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model.","type":"api_error"},"type":"error"}` |
+| 7 | 15:39:38 | bridge | request 6 with `stream: true` and a `system` of *"Be brief."*, to the adapter route, `POST 127.0.0.1:8214/v1/messages` | **200**, 1.5 s, `text/event-stream` | `message_start` (`model` `claude-opus-5-5`, 24 in), `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta` (`end_turn`, 4 out), `message_stop`; text `pong`. The bridge logged `POST /v1/messages 200 1.481s (model global.anthropic.claude-opus-5-5 is Anthropic's on the provider's list: untranslated to …/anthropic/v1/messages)` |
+| 8 | 15:39:59 | bridge | the adapter route, `us.openai.gpt-6.1-sol`, `max_tokens: 16`, not streamed: translated to `POST /openai/v1/chat/completions` | **400**, 0.26 s | upstream's status and message, which the bridge relays in Anthropic's error shape: `{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model.","type":"api_error"},"type":"error"}` |
+
+**Re-run.** Request 8 was sent again the same way at 16:13:00 UTC, as a check of this record,
+and drew the same 400 and message in 0.23 s. It is not counted among the eleven.
 
 **What it decides.**
 
@@ -546,9 +551,11 @@ The prompt was *"Reply with the one word: pong"*. Times are UTC, and the command
   The `model` an answer names is `claude-opus-5-5`, not the inference-profile id that was asked
   for.
 - **codex's via route works on the wire**, for a codex-shaped request. The stream is OpenAI's
-  Responses events as `data:` lines, with no `event:` lines, ended by `data: [DONE]`. OpenAI's own
-  Responses stream sends `event:` lines and no `[DONE]`. Whether codex reads that last line
-  without complaint is unread.
+  Responses events as `data:` lines, with no `event:` lines, ended by `data: [DONE]`. The test's
+  reader matched `event: ` with its space, so a line spelled `event:` with none would have gone
+  uncounted. The via route relays the upstream's bytes unchanged, so the framing is runtime's.
+  How OpenAI's own Responses stream is framed was not read for this doc, and whether codex reads
+  the `[DONE]` line without complaint is unread.
 - **The translating route cannot carry a turn to GPT-6.1 Sol** (request 8). It sends the
   Anthropic request's cap as chat-completions' `max_tokens` (the `MaxTokens` field in
   `internal/wirebridge/request.go`), and the model refuses that field. Every Anthropic Messages

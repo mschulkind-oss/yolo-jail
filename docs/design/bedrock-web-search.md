@@ -378,8 +378,8 @@ tools.
 <a id="measured-live-2026-10-01-runtime-refuses-claudes-search-tool"></a>
 **Measured live, 2026-10-01: runtime refuses Claude's search tool.** Two requests carried
 Claude Code's server tool to runtime's Messages route, in `us-east-1`, signed with the SSO
-credential `aws-auth` serves. They were part of the first live Bedrock requests, whose method and
-other results are
+credential `aws-auth` serves. They were part of the live Bedrock requests of that day, whose
+method and other results are
 [`wire-bridge-gateway.md` §2.4](wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01)'s.
 No agent was started. The body carried the server tool a WebSearch call carries, as Claude Code
 spells it ([the shipped-package re-checks](#shipped-package-re-checks)), cut to one use, under a

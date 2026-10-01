@@ -143,9 +143,10 @@ host or an outside account follows under [External waits](#external-waits).
     [Claude's LSP plugin](../reference/mcp-configuration.md#lsp-claudes-route-is-a-generated-plugin), [the via route](../design/wire-bridge-gateway.md#41-how-it-is-built),
     [menus under a model list](../design/model-lists-and-pickers.md#13-build-order-and-what-done-looks-like),
     [a switch inside a provider set](../design/active-provider-sets.md#9-what-done-looks-like),
-    [Copilot's config migration](../design/agent-directory-map.md#74-copilot) and [a Kilo session](../design/gateway-provider-packs.md).
+    [Copilot's config migration](../design/agent-directory-map.md#74-copilot), [a Kilo session](../design/gateway-provider-packs.md)
+    and [a codex, opencode and pi turn on Bedrock](../design/bedrock-plumbing.md#8-behaviour-this-design-fixes) under `aws-auth`'s SSO credential.
 38. A human with the cloud account clears [a request under a Bedrock API key or a static key pair](../design/bedrock-plumbing.md#64-the-credential-three-are-supported)
-    (the SSO credential's [first requests](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01) were sent from a jail on 2026-10-01),
+    (the SSO credential [reached runtime's Messages and Responses routes](../design/wire-bridge-gateway.md#24-the-first-live-requests-measured-2026-10-01) from a jail on 2026-10-01, sent by hand with no agent),
     [an SSO lapse mid-turn](../design/sso-backed-bedrock.md#11-evidence-and-how-to-re-check-it),
     [settings-only Bedrock mode](../reference/providers.md#two-channels-split-by-payload-type),
     [an AgentCore gateway](../design/bedrock-web-search.md) and
