@@ -32,7 +32,9 @@ func deselectedFixture(t *testing.T, cfg func(pack string) string) (handInstalle
 		t.Fatalf("the launch left no floor entry to be deselected: %v", err)
 	}
 	writeFile(t, paths.UserConfigPath(), cfg(pack))
-	t.Setenv("PATH", "/usr/bin:/bin")
+	// A PATH with no other floorcli on it: a folder this test made and left empty, never the
+	// machine's /usr/bin and /bin, whose contents are not the test's to know.
+	t.Setenv("PATH", t.TempDir())
 	return handInstalledDir
 }
 
@@ -63,7 +65,7 @@ func TestADeselectedFloorEntryIsNeverRun(t *testing.T) {
 				t.Errorf("the refusal does not say what the entry is and what removes it:\n%s", errw.String())
 			}
 
-			t.Setenv("PATH", handDir+string(os.PathListSeparator)+"/usr/bin:/bin")
+			t.Setenv("PATH", handDir+string(os.PathListSeparator)+t.TempDir())
 			errw.Reset()
 			*got = execCapture{}
 			if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 {
