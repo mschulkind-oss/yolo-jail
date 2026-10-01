@@ -394,19 +394,18 @@ func TestASignalledKeeperEndsTheJailInOrder(t *testing.T) {
 }
 
 // TestAKeeperWhoseLaunchDiesBeforeReadyUnwinds is §9.5 item 1: the launch's lifeline closing before
-// the boot is done ends the jail the keeper started, and its status is non-zero.
+// the boot is done ends the jail the keeper started, and its status is non-zero. It closes once the
+// keeper has spawned the container's main process: a lifeline closed earlier starts no container
+// at all (keeperearlysignal_test.go).
 func TestAKeeperWhoseLaunchDiesBeforeReadyUnwinds(t *testing.T) {
 	f := startKeeperFixture(t, false, nil)
-	relayed := make(chan bool, 1)
-	go func() { relayed <- f.relay() }()
-	for f.started == 0 {
-		time.Sleep(10 * time.Millisecond)
-	}
-	_ = f.lifeW.Close()
+	ready := relayKeeper(f.progR, &f.out, &f.errOut, &f.jailOut, &f.jailErr, keeperEvents{
+		spawned: func() { _ = f.lifeW.Close() },
+	})
 	if rc := f.wait(); rc != 1 {
 		t.Errorf("the keeper exited %d, want 1", rc)
 	}
-	if ready := <-relayed; ready {
+	if ready {
 		t.Error("the relay saw ready from a boot that never finished")
 	}
 	if f.jail.stopCount() != 1 {

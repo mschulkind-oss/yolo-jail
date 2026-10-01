@@ -194,7 +194,12 @@ func TestAKeeperWhoseLaunchDiedBeforeReadyLetsTheLaunchLockGoFirst(t *testing.T)
 	jail := newFakeJail(t, "yolo-lifeline-lock")
 	// The runtime never shows the container running, so the running wait, which would release the
 	// lock too, is still polling when the launch dies: the release on the lifeline's path is the one.
+	// The same runtime holds the keeper's stop for the whole of its wait for the container to come up
+	// (awaitStartSettled), so that wait is cut short.
 	jail.stopped = true
+	saved := keeperStartSettleWait
+	keeperStartSettleWait = 200 * time.Millisecond
+	t.Cleanup(func() { keeperStartSettleWait = saved })
 	o := goldenOptions("/ws", t.TempDir())
 	o.holdLaunchLock(jail.cname)
 	lockPath := launchLockPath(jail.cname)

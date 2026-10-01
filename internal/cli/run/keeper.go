@@ -354,6 +354,13 @@ func (k *keeper) run() int {
 	// those daemons boot in starts next.
 	k.releaseReservedPorts()
 
+	// A LAUNCH ALREADY ENDED STARTS NO CONTAINER. A Ctrl-C right after "keeper: started" closes the
+	// lifeline while the host services above start; a container spawned anyway would only be
+	// stopped again, by a stop that can come before the runtime has made it.
+	if rc, ended := k.endedBeforeTheContainer(); ended {
+		return k.unwindUnstarted(rc)
+	}
+
 	// THE CONTAINER. The launch's argv, with the services' endpoint pairs inserted before the image,
 	// exactly where the fresh path used to insert them.
 	runCmd := insertHostServiceEnv(append([]string{}, p.RunCmd...), p.ImageRef, k.handles)
@@ -446,6 +453,11 @@ func awaitLivenessLock(cname string, bound time.Duration) (*os.File, error) {
 // keeperRunningWait bounds the ready path's wait for awaitRunning, which is itself bounded.
 var keeperRunningWait = 30 * time.Second
 
+// keeperStartSettleWait bounds how long a keeper ending its jail before ready waits for the container
+// its main process's client is starting to come up (awaitStartSettled). A var so a test need not
+// wait it out.
+var keeperStartSettleWait = 30 * time.Second
+
 // beforeReady is one turn of the wait before ready: ready once pid 1's boot is done, or ended, with
 // the status the launch reads, once the keeper has ended the jail. Neither is a turn that dropped a
 // SIGHUP or a SIGPIPE.
@@ -475,6 +487,7 @@ func (k *keeper) beforeReady() (ready bool, rc int, ended bool) {
 	case <-k.lifelineGone:
 		o.pr(o.Stderr).printf("keeper: the launch that started %s is gone before its jail was ready; ending the jail", p.Cname)
 		k.releaseLaunchLock()
+		k.awaitStartSettled()
 		k.endJail(launchGoneReason(k.pid), true)
 		return false, k.finish(1, nil), true
 	case s := <-k.signals:
@@ -482,8 +495,73 @@ func (k *keeper) beforeReady() (ready bool, rc int, ended bool) {
 			return false, 0, false
 		}
 		k.releaseLaunchLock()
+		k.awaitStartSettled()
 		k.endJail(keeperSignalledReason(k.pid), true)
 		return false, k.finish(128+int(s.(syscall.Signal)), nil), true
+	}
+}
+
+// endedBeforeTheContainer reports whether the jail ended before its container was started: the
+// launch's lifeline is closed, or the keeper was sent a signal that ends its jail. It says so and
+// gives the status the keeper ends with, which is what beforeReady would have. It never waits, and
+// drops a SIGHUP or a SIGPIPE as every other turn does.
+func (k *keeper) endedBeforeTheContainer() (int, bool) {
+	o, p := k.o, k.plan
+	for {
+		select {
+		case <-k.lifelineGone:
+			o.pr(o.Stderr).printf("keeper: the launch that started %s is gone before its container started; "+
+				"ending its host services", p.Cname)
+			return 1, true
+		case s := <-k.signals:
+			if s == syscall.SIGHUP || s == syscall.SIGPIPE {
+				continue
+			}
+			o.pr(o.Stderr).printf("keeper: sent %v before %s's container started; ending its host services", s, p.Cname)
+			return 128 + int(s.(syscall.Signal)), true
+		default:
+			return 0, false
+		}
+	}
+}
+
+// keeperClientKillWait bounds awaitStartSettled's wait for a client it killed to be reaped.
+const keeperClientKillWait = 5 * time.Second
+
+// awaitStartSettled is a keeper ending its jail before ready while the main process's client may
+// still be starting the container. It waits until the container is seen running, which the stop
+// after it then ends, or until the client has exited, after which the runtime makes nothing more.
+// A stop sent sooner could come before the runtime had made the container: it found nothing, the
+// existence probe after it said no container, and the container the runtime finished starting a
+// moment later ran on with no keeper and no record of one. Past keeperStartSettleWait the keeper
+// ends the client itself, so the stop and the probe answer for a start that can no longer change.
+func (k *keeper) awaitStartSettled() {
+	o, p, jm := k.o, k.plan, k.jm
+	deadline := time.Now().Add(keeperStartSettleWait)
+	for {
+		select {
+		case <-jm.exited:
+			return
+		default:
+		}
+		if id, known := o.probeRunningContainer(p.Cname, p.Runtime, trackingProbeTimeout); known && id != "" {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		select {
+		case <-jm.exited:
+			return
+		case <-time.After(restartPollInterval):
+		}
+	}
+	k.sink.logf("keeper: %s did not come up within %s of its start; ending its runtime client before the stop",
+		p.Cname, keeperStartSettleWait)
+	_ = jm.cmd.Process.Kill()
+	select {
+	case <-jm.exited:
+	case <-time.After(keeperClientKillWait):
 	}
 }
 
