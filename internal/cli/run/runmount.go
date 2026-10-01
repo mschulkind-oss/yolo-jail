@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 )
 
@@ -88,6 +89,10 @@ func newScratchLaunchID() string {
 // we want to bind-mount :ro is itself a bind mountpoint (rootless nested
 // podman/crun can't use such a file as a bind source). Empty set on any read
 // error (non-Linux, restricted proc).
+//
+// The field is DECODED: the kernel writes a space in it as \040 (and a tab, a newline
+// and a backslash as \011, \012, \134), so a mount point with a space in it would
+// otherwise never match the path it is.
 func BindMountTargets() map[string]struct{} {
 	return bindMountTargetsFrom("/proc/self/mountinfo")
 }
@@ -101,7 +106,7 @@ func bindMountTargetsFrom(mountinfoPath string) map[string]struct{} {
 	for _, line := range splitLines(string(data)) {
 		parts := fields(line)
 		if len(parts) >= 5 {
-			targets[parts[4]] = struct{}{}
+			targets[ioprio.UnescapeMountinfo(parts[4])] = struct{}{}
 		}
 	}
 	return targets

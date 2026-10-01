@@ -105,6 +105,8 @@ func TestBindMountTargets(t *testing.T) {
 	// A couple of realistic mountinfo lines; field 5 (index 4) is the mount point.
 	content := "36 35 98:0 /mnt1 /a/mount/point rw,noatime shared:1 - ext4 /dev/x rw\n" +
 		"37 35 98:0 /mnt2 /b/other rw - ext4 /dev/y rw\n" +
+		// The kernel's escapes: a mount point with a space in it is the path with the space.
+		"38 35 98:0 /mnt3 /home/agent/My\\040Stuff/x.json ro - ext4 /dev/z rw\n" +
 		"short line\n"
 	must(t, os.WriteFile(mi, []byte(content), 0o644))
 	targets := bindMountTargetsFrom(mi)
@@ -114,8 +116,11 @@ func TestBindMountTargets(t *testing.T) {
 	if _, ok := targets["/b/other"]; !ok {
 		t.Error("/b/other should be a target")
 	}
-	if len(targets) != 2 {
-		t.Errorf("targets = %v, want 2", targets)
+	if _, ok := targets["/home/agent/My Stuff/x.json"]; !ok {
+		t.Errorf("/home/agent/My Stuff/x.json, spelled My\\040Stuff in the table, should be a target: %v", targets)
+	}
+	if len(targets) != 3 {
+		t.Errorf("targets = %v, want 3", targets)
 	}
 	// Missing file -> empty.
 	if len(bindMountTargetsFrom(filepath.Join(dir, "nope"))) != 0 {
