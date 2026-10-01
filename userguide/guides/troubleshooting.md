@@ -60,12 +60,13 @@ jail keep running without those services, and a new one is refused. Run `yolo st
 to start the jail fresh; or let its terminals finish, and the last one to quit cleans the jail up.
 Its log is `~/.local/share/yolo-jail/logs/jail-keeper-<jail name>.log`.
 
-**"Host service … of this jail has been down since …".** One of the services the keeper holds
-stopped while the jail was up: a login service through yolo that crashed, a port forward whose
-`socat` exited, or the cgroup delegate. The keeper restarts nothing, so what in the jail uses that
-service fails until the jail starts again. A terminal that was in the jail is told as it quits, and
-one that joins later as it enters; the line names how the service ended and its log. Run
-`yolo stop`, then `yolo`, to start the jail and its services fresh.
+**"Host service … of this jail has been down since …".** One of the services the keeper started
+for this jail stopped while the jail was up: a host service that crashed or was killed, a port
+forward whose `socat` exited, or the cgroup delegate. The keeper restarts nothing, so what in the
+jail uses that service fails until the jail starts again. A login service the whole machine shares,
+such as Claude's, is not the keeper's, and is not reported here. A terminal that was in the jail is
+told as it quits, and one that joins later as it enters; the line names how the service ended and
+its log. Run `yolo stop`, then `yolo`, to start the jail and its services fresh.
 
 **"The previous jail of this workspace is still shutting down".** A launch right after the last
 terminal quit, or after `yolo stop`, waits for that jail's keeper to finish before it starts a new

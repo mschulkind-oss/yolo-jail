@@ -22,13 +22,28 @@ import (
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
-// processesMatching is every process whose command line holds each of parts.
-func processesMatching(parts ...string) []int {
+// childrenMatching is every child of parent whose command line holds each of parts. A child of
+// this test's own keeper, never any process that matches: another run of this test in the same
+// jail has a daemon of the same name.
+func childrenMatching(parent int, parts ...string) []int {
 	entries, _ := os.ReadDir("/proc")
 	var pids []int
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
+			continue
+		}
+		// The parent is the field after the state, which follows the last ')': comm may hold
+		// spaces and parentheses of its own.
+		stat, err := os.ReadFile(filepath.Join("/proc", e.Name(), "stat"))
+		if err != nil {
+			continue
+		}
+		after := string(stat)
+		if i := strings.LastIndexByte(after, ')'); i >= 0 {
+			after = after[i+1:]
+		}
+		if f := strings.Fields(after); len(f) < 2 || f[1] != strconv.Itoa(parent) {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
@@ -77,11 +92,11 @@ func TestAHostServiceThatGoesDownIsToldToItsSessionsAndTheNextArrival(t *testing
 	if !strings.Contains(first.combined(), "the "+service+" service") {
 		t.Fatalf("the keeper line does not name the stand-in daemon, so the keeper never started it:\n%s", first.combined())
 	}
-	keeperPID(t, dir)
+	keeper := keeperPID(t, dir)
 
 	// THE DAEMON GOES DOWN, by a kill from outside, as an OOM kill or a crash would end it.
 	logPath := filepath.Join(paths.GlobalStorage(), "logs", "jail-keeper-"+cname+".log")
-	daemons := processesMatching("UNIX-LISTEN:", service)
+	daemons := childrenMatching(keeper, "UNIX-LISTEN:", service)
 	if len(daemons) == 0 {
 		raw, _ := os.ReadFile(logPath)
 		t.Fatalf("no %s daemon is running under the keeper; the launch:\n%s\nthe keeper's log:\n%s",

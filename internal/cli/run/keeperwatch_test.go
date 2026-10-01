@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
 
 // awaitKeeperLog waits, bounded, for the keeper's log to hold want.
@@ -121,6 +122,55 @@ func TestTheKeeperRecordsAHostServiceThatDiesAfterReady(t *testing.T) {
 	}
 	if log := f.keeperLog(); strings.Contains(log, "'steady' went down") || strings.Count(log, "went down") != 1 {
 		t.Errorf("the keeper recorded a service its own teardown stopped as down:\n%s", log)
+	}
+}
+
+// TestTheKeeperRecordsNoDeathForADaemonizingWrapper: a host service whose command exits 0 once it
+// has handed the service to a child of its own, the daemonizing wrapper waitServiceReady accepts,
+// is not down: its service is still there, and an arrival told to stop and relaunch the jail for it
+// would be sent to repeat the same start. Nothing is logged or kept in the start record.
+func TestTheKeeperRecordsNoDeathForADaemonizingWrapper(t *testing.T) {
+	if goruntime.GOOS != "linux" {
+		t.Skip("spawns host processes")
+	}
+	var first *sessionLock
+	f := startKeeperFixture(t, true, func(p *keeperPlan) {
+		cfg := jsonx.NewOrderedMap()
+		lp := jsonx.NewOrderedMap()
+		spec := jsonx.NewOrderedMap()
+		// The wrapper starts the daemon in the background and exits 0 at once; the daemon, in the
+		// wrapper's process group, goes with the keeper's group kill at its teardown.
+		spec.Set("command", []any{"sh", "-c", `"$1" -front-upstream-child line "$0" & exit 0`,
+			"{socket}", os.Args[0]})
+		lp.Set("wrapped", spec)
+		cfg.Set("loopholes", lp)
+		raw, err := encodeConfig(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Config = raw
+		p.Services = []string{"wrapped"}
+		lock, _, err := takeSessionLock(p.Cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first = lock
+	})
+	if !f.relay() {
+		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())
+	}
+	// The wrapper exited before its service was reachable, so before the watch began: a record of
+	// it would already be in the log. A moment's grace for the watch's goroutine all the same.
+	time.Sleep(300 * time.Millisecond)
+	if log := f.keeperLog(); strings.Contains(log, "went down") {
+		t.Errorf("the keeper recorded a daemonizing wrapper's exit as its service going down:\n%s", log)
+	}
+	if rec, _ := readKeeperRecord(f.cname); len(rec.Down) != 0 {
+		t.Errorf("the start record keeps a wrapper's exit for an arrival: %+v", rec.Down)
+	}
+	first.release()
+	if rc := f.wait(); rc != 0 {
+		t.Errorf("the keeper ended %d", rc)
 	}
 }
 
@@ -252,6 +302,41 @@ func TestEachHostServiceKindReportsItsEnd(t *testing.T) {
 			t.Errorf("how = %q, want the exit status", got)
 		}
 	})
+	t.Run("a fronted daemon's front", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		socketsDir := t.TempDir()
+		if err := os.Chmod(socketsDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		var buf strings.Builder
+		o := &Options{}
+		fillDefaults(o)
+		o.Stdout = &buf
+		// The wrapper ignores SIGTERM, so the process outlives its front by the whole grace: the
+		// front, which the stop closes first, is the end seen.
+		o.ServiceTermGrace = time.Second
+		spec := jsonx.NewOrderedMap()
+		spec.Set("command", []any{"sh", "-c",
+			`trap "" TERM; "$1" -front-upstream-child line "$0" & while :; do sleep 0.05; done`,
+			"{socket}", os.Args[0]})
+		h, ok := o.startExternalService("frontend", spec, socketsDir, loopholes.TransportLoopbackTLS,
+			"127.0.0.1", &loopholes.HostDaemon{Publishes: loopholes.PublishesSocket,
+				RequestEnd: loopholes.RequestEndFramed})
+		if !ok {
+			t.Fatalf("the fronted daemon did not come up: %q", buf.String())
+		}
+		stopped := make(chan struct{})
+		go func() { h.stop(); close(stopped) }()
+		defer func() { <-stopped }()
+		select {
+		case <-h.end.done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the fronted daemon's end never closed")
+		}
+		if got := h.end.how(); !strings.Contains(got, "front") {
+			t.Errorf("how = %q, want the front's end, which came first", got)
+		}
+	})
 	t.Run("a host-wide daemon's front", func(t *testing.T) {
 		name := "yjtest-singleton-end"
 		singletonFixture(t, name)
@@ -329,6 +414,30 @@ func TestEachHostServiceKindReportsItsEnd(t *testing.T) {
 		}
 		cleanupPortForwarding(procs, dir)
 	})
+}
+
+// TestAKeeperWhoseJailNeverStartsRecordsNoServiceDown: a keeper whose container cannot start
+// (unwindUnstarted) stops the services it started, and their ends are its own act, never a record.
+func TestAKeeperWhoseJailNeverStartsRecordsNoServiceDown(t *testing.T) {
+	if goruntime.GOOS != "linux" {
+		t.Skip("spawns host processes")
+	}
+	f := startKeeperFixture(t, true, func(p *keeperPlan) {
+		p.Config = configLoopholes(t, map[string]string{"steady": "line"}, "")
+		p.Services = []string{"steady"}
+		p.RunCmd = append([]string{filepath.Join(t.TempDir(), "no-such-runtime")}, p.RunCmd[1:]...)
+	})
+	if f.relay() {
+		t.Fatal("the relay reached ready with no runtime to start the container")
+	}
+	if rc := f.wait(); rc != 1 {
+		t.Errorf("the keeper ended %d, want 1", rc)
+	}
+	// The stop's end wakes the watch at once; a moment's grace for its goroutine to write.
+	time.Sleep(300 * time.Millisecond)
+	if log := f.keeperLog(); strings.Contains(log, "went down") {
+		t.Errorf("a keeper that never started its jail recorded its own stop of a service as down:\n%s", log)
+	}
 }
 
 // TestTheKeepersOwnStopIsNeverADeath: once the keeper has begun ending its jail, a service's end is

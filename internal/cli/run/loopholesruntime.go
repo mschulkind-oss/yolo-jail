@@ -1277,9 +1277,6 @@ func (o *Options) startExternalService(
 	// which waitServiceReady reads and reports ("exited at startup (<status>)").
 	// Reporting both would say one exit twice, in two wordings.
 	go func() { _ = cmd.Wait(); close(exited) }()
-	// What the keeper watches (keeperwatch.go): the process, and below, for a fronted daemon, the
-	// front too, since either going leaves the jail's clients with nothing.
-	end := serviceEnd{done: exited, how: func() string { return "its process " + exitPhrase(cmd) }}
 
 	// Wait for the service to become reachable. Real wall clock inside,
 	// deliberately NOT o.Now() — see waitServiceReady.
@@ -1313,6 +1310,20 @@ func (o *Options) startExternalService(
 			"; see " + logPath + "[/yellow]")
 		return loopholeDaemon{}, false
 	}
+	// WHAT THE KEEPER WATCHES (keeperwatch.go): the process, and below, for a fronted daemon, the
+	// front too, since either going leaves the jail's clients with nothing. NOT a clean exit that
+	// leaves the service reachable: that is the daemonizing wrapper waitServiceReady accepts, which
+	// handed the service to a child of its own, so its exit is not the service's end, and the end
+	// of that child is one this process cannot see.
+	gone := make(chan struct{})
+	go func() {
+		<-exited
+		if st := cmd.ProcessState; st != nil && st.Success() && reachable() {
+			return
+		}
+		close(gone)
+	}()
+	end := serviceEnd{done: gone, how: func() string { return "its process " + exitPhrase(cmd) }}
 	// jail_endpoint is canonical; jail_socket stays an accepted alias, for the same
 	// reason {socket} does — silently ignoring a third-party loophole's override key
 	// over a rename is worse than carrying two spellings.

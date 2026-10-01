@@ -28,7 +28,9 @@ package run
 // WHAT IT WATCHES is what it runs: a spawned daemon's process, a front it serves (a fronted daemon's
 // and a host-wide daemon's), the in-process cgroup delegate's accept loop, and each forward's socat.
 // Not a host-wide daemon itself: that daemon is the machine's, serves other jails, and is no
-// keeper's child, so no keeper can reap or see it end.
+// keeper's child, so no keeper can reap or see it end. Nor a spawned daemon's command that exits 0
+// with its service still reachable (startExternalService): that is the daemonizing wrapper the
+// readiness wait accepts, whose service lives on in a child no keeper can see end.
 
 import (
 	"fmt"
