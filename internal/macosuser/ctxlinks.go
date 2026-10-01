@@ -114,9 +114,20 @@ type ContextSiting struct {
 	// UsersRoot is the directory whose children are homes; UsersRootAliases are other paths
 	// that ARE it (a firmlink, which symlink resolution does not see); FoldCase says the
 	// volume compares names case-insensitively. HomeContaining's facts, the same ones.
+	//
+	// FoldCase also governs every overlap rule below: on a volume that folds case, two
+	// spellings differing only in case are ONE directory, so a source spelled `/PRIVATE/TMP/x`
+	// is inside the writable set whatever the profile names. Folding there can only refuse
+	// more, never admit what a byte comparison refused, so the two ADMISSIONS (the shared root
+	// for a read-write source, the boot volume under VolumesRoot) stay byte for byte.
 	UsersRoot        string
 	UsersRootAliases []string
 	FoldCase         bool
+	// DataVolume is the Data volume's own mount point, through which every firmlinked
+	// directory (/private, /opt, /usr/local, /Users, …) has a second spelling that symlink
+	// resolution keeps. A source spelled through it would be judged against none of the
+	// spellings the rules and the profile name, so it is refused with the spelling to use.
+	DataVolume string
 	// SharedRoot is where a read-write source must sit: the one place a file the sandbox
 	// creates inherits the group access that lets the host user change it afterwards
 	// (SharedRootProvisionCommands).
@@ -143,6 +154,7 @@ func DarwinContextSiting() ContextSiting {
 		UsersRoot:        macOSHomes.usersRoot,
 		UsersRootAliases: append([]string(nil), macOSHomes.aliases...),
 		FoldCase:         macOSHomes.foldCase,
+		DataVolume:       "/System/Volumes/Data",
 		SharedRoot:       SharedRootDefault(),
 		SandboxHome:      SandboxHome(),
 		StateDirs:        []string{stateDir, "/private" + stateDir},
@@ -174,7 +186,8 @@ func (s ContextSiting) usersRoots() []string {
 //     profile names it verbatim);
 //  3. it does not contain the users root (the read allow would re-open every home);
 //  4. it is spelled under the users root as the profile spells it (a firmlink or case variant
-//     is a spelling nobody has measured Seatbelt against);
+//     is a spelling nobody has measured Seatbelt against), and not through the Data volume's
+//     mount point at all (the same bytes under a second name the rules below never see);
 //  5. it is not in the sandbox home, nor in any real home (OQ-CX7: v1 refuses home sources,
 //     because the sandbox uid reaches nothing inside one and ancestorLiterals grants no
 //     traversal there);
@@ -186,12 +199,14 @@ func (s ContextSiting) usersRoots() []string {
 //     source (§3.4: with no mount namespace one path carries one mode);
 //  11. no two links land at, inside or around one another, nor at one of `occupied` (a link
 //     cannot hold another link, and staging one inside another would write into the source).
+//
+// Every overlap in rules 6 and 9-11 compares as the volume does (ContextSiting.FoldCase).
 func SiteContextLinks(s ContextSiting, workspace string, links []ContextLink, occupied []string) []ContextRefusal {
 	var out []ContextRefusal
 	for i, l := range links {
 		why := s.siteOne(workspace, l)
 		if why == "" {
-			why = siteAgainst(links, i, occupied)
+			why = siteAgainst(links, i, occupied, s.FoldCase)
 		}
 		if why != "" {
 			out = append(out, ContextRefusal{Link: l, Reason: why})
@@ -224,6 +239,15 @@ func (s ContextSiting) siteOne(workspace string, l ContextLink) string {
 			}
 		}
 	}
+	if s.DataVolume != "" && pathWithin(src, s.DataVolume, s.FoldCase) {
+		plain := src
+		if n := len(s.DataVolume); len(src) >= n && strings.EqualFold(src[:n], s.DataVolume) {
+			plain = "/" + strings.TrimLeft(src[n:], "/")
+		}
+		return "its source " + src + " is spelled through " + s.DataVolume + ", the Data volume's " +
+			"own mount point, so the rules that keep one path to one mode would not recognise it; " +
+			"spell it as " + plain + ", the spelling the sandbox profile names"
+	}
 	if s.SandboxHome != "" && pathWithin(src, s.SandboxHome, s.FoldCase) {
 		return "its source " + src + " is inside the sandbox account's own home " + s.SandboxHome
 	}
@@ -236,12 +260,12 @@ func (s ContextSiting) siteOne(workspace string, l ContextLink) string {
 			"delivers only sources outside every home"
 	}
 	for _, sd := range s.StateDirs {
-		if rel := overlap(src, sd); rel != "" {
+		if rel := overlap(src, sd, s.FoldCase); rel != "" {
 			return "its source " + src + " " + rel + " yolo's state directory " + sd +
 				", where the context dir itself lives"
 		}
 	}
-	if s.VolumesRoot != "" && pathWithin(src, s.VolumesRoot, false) &&
+	if s.VolumesRoot != "" && pathWithin(src, s.VolumesRoot, s.FoldCase) &&
 		(s.BootVolume == "" || !pathWithin(src, s.BootVolume, false)) {
 		return "its source " + src + " is on another volume (under " + s.VolumesRoot + "): " +
 			"whether the sandbox account gets through a removable or network volume's ownership " +
@@ -252,13 +276,13 @@ func (s ContextSiting) siteOne(workspace string, l ContextLink) string {
 			" does not: only there does a file the sandbox creates inherit the access that lets " +
 			"you change it afterwards"
 	}
-	if rel := overlap(src, workspace); rel != "" {
+	if rel := overlap(src, workspace, s.FoldCase); rel != "" {
 		return "its source " + src + " " + rel + " the workspace " + workspace +
 			oneModeClause
 	}
 	if !l.RW {
 		for _, w := range s.WritableRoots {
-			if rel := overlap(src, w); rel != "" {
+			if rel := overlap(src, w, s.FoldCase); rel != "" {
 				return "its source " + src + " " + rel + " " + w + ", which the sandbox may write" +
 					oneModeClause
 			}
@@ -271,11 +295,12 @@ func (s ContextSiting) siteOne(workspace string, l ContextLink) string {
 const oneModeClause = ": with no mount namespace one path carries one mode here, so the mount " +
 	"would either be writable or make part of what the sandbox writes read-only"
 
-// siteAgainst is rule 10's cross-link half and rule 11, for links[i] against the others.
+// siteAgainst is rule 10's cross-link half and rule 11, for links[i] against the others,
+// comparing as the volume does (fold): the context dir is on the same volume as the sources.
 //
 // A pair is reported ONCE, on its later member, so two colliding entries read as one refusal
 // naming both rather than two that each name the other.
-func siteAgainst(links []ContextLink, i int, occupied []string) string {
+func siteAgainst(links []ContextLink, i int, occupied []string, fold bool) string {
 	l := links[i]
 	dest := path.Clean(l.Dest)
 	for j, o := range links {
@@ -283,13 +308,13 @@ func siteAgainst(links []ContextLink, i int, occupied []string) string {
 			continue
 		}
 		if !l.RW && o.RW {
-			if rel := overlap(l.Source, o.Source); rel != "" {
+			if rel := overlap(l.Source, o.Source, fold); rel != "" {
 				return "its read-only source " + l.Source + " " + rel + " the read-write source " +
 					o.Source + " (" + o.Origin() + ")" + oneModeClause
 			}
 		}
 		if j < i {
-			if rel := overlap(dest, path.Clean(o.Dest)); rel != "" {
+			if rel := overlap(dest, path.Clean(o.Dest), fold); rel != "" {
 				return "its jail path " + dest + " " + rel + " " + path.Clean(o.Dest) + " (" +
 					o.Origin() + " of " + o.NamedSource() + "): a link cannot hold another link, " +
 					"so two context mounts here cannot share or nest a path"
@@ -297,7 +322,7 @@ func siteAgainst(links []ContextLink, i int, occupied []string) string {
 		}
 	}
 	for _, p := range occupied {
-		if rel := overlap(dest, path.Clean(p)); rel != "" {
+		if rel := overlap(dest, path.Clean(p), fold); rel != "" {
 			return "its jail path " + dest + " " + rel + " " + path.Clean(p) +
 				", which yolo's own staging uses"
 		}
@@ -377,9 +402,10 @@ func ContextPreflightRefusal(failed []ContextProbe) string {
 			p.Link.Source + "\n"
 	}
 	return msg + "The sandbox runs as " + SandboxUser + ", a separate account, and the file " +
-		"permissions or an ACL refuse it before the\nSeatbelt profile is consulted. Move the " +
-		"folder under " + SharedRootDefault() + ", which shares what is created in it\nwith the " +
-		"sandbox account, or use a container runtime (`runtime: \"podman\"` or `\"container\"`)."
+		"permissions or an ACL refuse it before the\nSeatbelt profile is consulted. Copy the " +
+		"folder under " + SharedRootDefault() + " (cp -R, or a fresh clone there): what is\n" +
+		"created there is shared with the sandbox account as it is created, and a folder moved " +
+		"there is not.\nOr use a container runtime (`runtime: \"podman\"` or `\"container\"`)."
 }
 
 // StageContextDirCommands stages the context dir for this launch: the composed tree when the
@@ -629,16 +655,16 @@ func pathWithin(p, base string, fold bool) bool {
 }
 
 // overlap says how a relates to b — "is", "is inside" or "contains" — or "" when neither is
-// within the other.
-func overlap(a, b string) string {
+// within the other, comparing case-insensitively when fold.
+func overlap(a, b string, fold bool) string {
 	switch {
 	case a == "" || b == "":
 		return ""
-	case a == b:
+	case a == b || (fold && strings.EqualFold(a, b)):
 		return "is"
-	case pathWithin(a, b, false):
+	case pathWithin(a, b, fold):
 		return "is inside"
-	case pathWithin(b, a, false):
+	case pathWithin(b, a, fold):
 		return "contains"
 	}
 	return ""

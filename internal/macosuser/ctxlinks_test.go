@@ -78,6 +78,17 @@ func TestSiteContextLinksRefusesEachUndeliverableSource(t *testing.T) {
 		{"a read-only source that is /tmp", ContextLink{Dest: "/ctx/x", Source: "/private/tmp"}, "is /private/tmp, which the sandbox may write"},
 		// /private holds /private/tmp too; the state dir inside it is named first.
 		{"/private", ContextLink{Dest: "/ctx/x", Source: "/private"}, "contains yolo's state directory /private/var/yolo-jail"},
+		// ANOTHER SPELLING OF ONE DIRECTORY overlaps it, because the bytes are one directory
+		// whatever the profile names: the volume folds case, and the Data volume's own mount
+		// point spells every firmlinked directory a second time. filepath.EvalSymlinks keeps both
+		// spellings as given, so each would otherwise walk past the one-mode rules.
+		{"a case spelling of the workspace", ContextLink{Dest: "/ctx/x", Source: "/Users/Shared/yolo/PROJ/vendor"}, "is inside the workspace"},
+		{"a case spelling of /tmp", ContextLink{Dest: "/ctx/x", Source: "/PRIVATE/TMP/x"}, "inside /private/tmp, which the sandbox may write"},
+		{"a case spelling of the state dir", ContextLink{Dest: "/ctx/x", Source: "/PRIVATE/VAR/YOLO-JAIL/ctx"}, "yolo's state directory"},
+		{"a case spelling of another volume", ContextLink{Dest: "/ctx/x", Source: "/volumes/Backup/photos"}, "on another volume"},
+		{"a case spelling of the boot volume", ContextLink{Dest: "/ctx/x", Source: "/Volumes/macintosh hd/opt"}, "on another volume"},
+		{"a Data-volume spelling of /tmp", ContextLink{Dest: "/ctx/x", Source: "/System/Volumes/Data/private/tmp/x"}, "spelled through /System/Volumes/Data"},
+		{"a Data-volume spelling of /opt", ContextLink{Dest: "/ctx/x", Source: "/System/Volumes/Data/opt/tools"}, "spell it as /opt/tools"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := SiteContextLinks(DarwinContextSiting(), ctxWorkspace, []ContextLink{tc.link}, nil)
@@ -110,6 +121,13 @@ func TestSiteContextLinksRefusesLinksThatCollide(t *testing.T) {
 		{"a reserved name", []ContextLink{{Dest: "/ctx/host-user", Source: "/opt/x", Dir: true}}, ContextOccupied(nil), "yolo's own staging uses"},
 		{"around a composed file", []ContextLink{{Dest: "/ctx/host-claude", Source: "/opt/x", Dir: true}},
 			ContextOccupied([]string{"/ctx/host-claude/settings.json"}), "contains /ctx/host-claude/settings.json"},
+		// The context dir is on the same case-folding volume, so two jail paths that differ only
+		// in case are one directory entry: the second `ln -s` would fail, or, at a directory the
+		// composed tree made, land INSIDE it.
+		{"one jail path in two cases", []ContextLink{roLink, {Dest: "/ctx/LIB", Source: "/opt/other", Dir: true}}, nil, "is /ctx/lib"},
+		{"a reserved name in another case", []ContextLink{{Dest: "/ctx/Host-User", Source: "/opt/x", Dir: true}}, ContextOccupied(nil), "yolo's own staging uses"},
+		{"read-only inside read-write, spelled in another case", []ContextLink{rwLink,
+			{Dest: "/ctx/raw", Source: "/Users/Shared/yolo/DATASETS/raw", Dir: true}}, nil, "the read-write source " + rwLink.Source},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := SiteContextLinks(DarwinContextSiting(), ctxWorkspace, tc.links, tc.occupied)
@@ -120,6 +138,21 @@ func TestSiteContextLinksRefusesLinksThatCollide(t *testing.T) {
 				t.Errorf("the refusal says %q, want %q", got[0].Reason, tc.why)
 			}
 		})
+	}
+}
+
+// THE FOLD IS THE SITING'S FACT, not a constant: on a volume that compares names byte for byte,
+// /PRIVATE/TMP is not /private/tmp, and a source there is no part of the writable set.
+func TestSiteContextLinksFoldsCaseOnlyWhereTheVolumeDoes(t *testing.T) {
+	s := DarwinContextSiting()
+	s.FoldCase = false
+	link := ContextLink{Dest: "/ctx/x", Source: "/PRIVATE/TMP/x", Dir: true}
+	if got := SiteContextLinks(s, ctxWorkspace, []ContextLink{link}, nil); len(got) != 0 {
+		t.Errorf("a case-sensitive siting refused %s as a spelling of /private/tmp: %+v", link.Source, got)
+	}
+	s.FoldCase = true
+	if got := SiteContextLinks(s, ctxWorkspace, []ContextLink{link}, nil); len(got) != 1 {
+		t.Errorf("a case-folding siting admitted %s, which is /private/tmp: %+v", link.Source, got)
 	}
 }
 
@@ -264,6 +297,14 @@ func TestPlanInvariantsCatchAContextLinkThatIsNotBacked(t *testing.T) {
 		{"an undeliverable source", func(p *RunPlan) {
 			p.ContextLinks = append(p.ContextLinks, ContextLink{Dest: "/ctx/home", Source: "/Users/matt/notes", Dir: true})
 		}, "inside the home folder /Users/matt"},
+		// The two cases §4 names for steps 4 and 5: a read-only source inside the writable set,
+		// and a read-only source nested in a read-write one.
+		{"a read-only source in the writable set", func(p *RunPlan) {
+			p.ContextLinks = append(p.ContextLinks, ContextLink{Dest: "/ctx/scratch", Source: "/private/tmp/scratch", Dir: true})
+		}, "inside /private/tmp, which the sandbox may write"},
+		{"a read-only source inside a read-write one", func(p *RunPlan) {
+			p.ContextLinks = append(p.ContextLinks, ContextLink{Dest: "/ctx/raw", Source: rwLink.Source + "/raw", Dir: true})
+		}, "the read-write source " + rwLink.Source},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			plan := good
@@ -275,6 +316,22 @@ func TestPlanInvariantsCatchAContextLinkThatIsNotBacked(t *testing.T) {
 				t.Errorf("PlanInvariants did not catch %s (want %q):\n%s", tc.name, tc.says, probs)
 			}
 		})
+	}
+}
+
+// AND THE PLAN KNOWS WHAT ITS COMPOSED TREE HOLDS: a link at a directory the tree delivers a
+// host file into would be staged INSIDE that directory (BSD `ln -s` into an existing directory),
+// so PlanInvariants re-sites the links against the tree's own destinations, which the plan
+// builder records from the HostContext.
+func TestPlanInvariantsRefuseALinkOverTheComposedTree(t *testing.T) {
+	link := ContextLink{Dest: "/ctx/host-claude", Source: "/opt/x", Dir: true}
+	plan := BuildRunPlan(ctxWorkspace, jsonx.NewOrderedMap(), []string{"claude"},
+		[]string{"/bin/zsh", "-l"}, "/usr/local/bin/yolo", hostStaged, HomeOverlay{},
+		HostContext{Tree: "/tmp/yolo-ctx-tree", Delivered: []string{"/ctx/host-claude/settings.json"},
+			Links: []ContextLink{link}}, jsonx.NewOrderedMap(), nil, nil)
+	probs := strings.Join(PlanInvariants(plan), "\n")
+	if want := "contains /ctx/host-claude/settings.json, which yolo's own staging uses"; !strings.Contains(probs, want) {
+		t.Errorf("PlanInvariants admitted a link around a file the composed tree delivers (want %q):\n%s", want, probs)
 	}
 }
 
@@ -315,6 +372,12 @@ func TestRunMacosUserRefusesBeforeTheBuildWhenTheSandboxCannotReachASource(t *te
 	}
 	if strings.Contains(out.String(), "cannot search "+roLink.Source) {
 		t.Errorf("a source already refused was asked again:\n%s", out.String())
+	}
+	// THE REMEDY MUST REACH THE PATH: a folder MOVED into the shared root keeps its own mode and
+	// inherits none of the root's sharing (WorkspaceGrantedScript's measurement), so "move it
+	// there" sends the reader back to this same refusal. A copy, or a clone made there, is shared.
+	if !strings.Contains(out.String(), "a folder moved there is not") || strings.Contains(out.String(), "Move the folder") {
+		t.Errorf("the refusal's remedy is one a moved folder does not satisfy:\n%s", out.String())
 	}
 	asked := strings.Join(rec, "\n")
 	if !strings.Contains(asked, "run:sudo --user=_yolojail /bin/test -r "+optRO.Source) {

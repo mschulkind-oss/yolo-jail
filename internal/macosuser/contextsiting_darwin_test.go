@@ -62,6 +62,20 @@ func TestATempDirIsInTheSandboxWritableSetOnThisMac(t *testing.T) {
 	t.Logf("refused as expected: %s", got[0].Reason)
 }
 
+// THE DATA VOLUME'S SECOND SPELLING, which the siting refuses a source through. Logged, not
+// asserted: the refusal is right whether or not the two spellings are one directory here (it
+// can only refuse a spelling nobody needs), so what this records is the premise — that
+// /private/tmp and /opt under DataVolume are the same files as without it.
+func TestDarwinContextSitingDataVolumeSpellsTheFirmlinksTwice(t *testing.T) {
+	s := DarwinContextSiting()
+	for _, p := range []string{"/private/tmp", "/opt", "/Users"} {
+		plain, perr := os.Stat(p)
+		data, derr := os.Stat(s.DataVolume + p)
+		t.Logf("%s and %s%s are one directory: %v (%v, %v)", p, s.DataVolume, p,
+			perr == nil && derr == nil && os.SameFile(plain, data), perr, derr)
+	}
+}
+
 // The boot volume's /Volumes entry, which the profile re-allows. Logged, not asserted: a CI
 // runner does not always carry the link (integration/macosuserseatbelt_test.go's
 // boot-volume-read-allow entry says why), and the siting admits a source under it only if

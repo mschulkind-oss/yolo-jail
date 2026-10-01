@@ -495,6 +495,24 @@ func TestMacosUserRefusesAPackMountGrantItCannotDeliver(t *testing.T) {
 	_ = home
 }
 
+// A LINK AROUND A PACK'S `reads-host` DESTINATION REFUSES at the top of the arm, against what
+// the selected packs DECLARE rather than what this machine's home happens to hold: the claude
+// pack's grant lands at /ctx/host-claude/settings.json, and a link at /ctx/host-claude would be
+// staged inside the directory the composed tree makes there. The source is otherwise one this
+// backend delivers, and ~/.claude/settings.json is deliberately absent.
+func TestMacosUserRefusesAMountAroundAPackHostFileDestination(t *testing.T) {
+	lib := filepath.Join(floortest.ResolvedTemp(t), "lib")
+	if err := os.MkdirAll(lib, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctxLaunchHome(t, `, "mounts": ["`+lib+`:/ctx/host-claude"]`)
+
+	out := runMacosUserExpectingRefusal(t, t.TempDir(), deliveringSiting(t, ""))
+	if want := "contains /ctx/host-claude/settings.json, which yolo's own staging uses"; !strings.Contains(out, want) {
+		t.Errorf("the refusal did not say %q:\n%s", want, out)
+	}
+}
+
 // acmeMountPack selects a configured pack `acme` whose `mount` grant is ~/datasets/acme →
 // /ctx/acme, plus an env claim the banner always prints, and makes the source when withSource.
 func acmeMountPack(t *testing.T, withSource bool) string {
