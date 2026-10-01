@@ -36,11 +36,27 @@ func projectName() string {
 // they take the gate's NO_COLOR half (tty.NoColor, over this process's environment):
 // with it set, the tab keeps its "🔒 JAIL <project>" title and the pane its border
 // line and text, and neither turns red. The words carry the signal; the red repeats it.
+//
+// THE KITTY ARM STANDS DOWN IN A HERDR PANE (HR-D5, docs/research/herdr-integration.md
+// §3.1). herdr removes KITTY_WINDOW_ID but not KITTY_PID, so the arm would fall back to
+// `--match recent:0` and retitle the kitty tab holding all of herdr; the herdr label
+// (run's herdragent.go) marks the pane instead. The tmux arm keeps running: herdr removes
+// TMUX, so it acts only for a tmux started inside the pane, whose border is the right one
+// to mark. HERDR_ENV is checked beside TERM_PROGRAM because herdr 0.7.5 leaves the outer
+// terminal's TERM_PROGRAM in place.
 func SetupJailIndicator() func() {
 	if os.Getenv("KITTY_PID") != "" && os.Getenv("TMUX") == "" {
+		if inHerdrPane() {
+			return nil
+		}
 		return kittySetupJailTab()
 	}
 	return tmuxSetupJailPane()
+}
+
+// inHerdrPane reports whether this process runs in a herdr pane.
+func inHerdrPane() bool {
+	return os.Getenv("HERDR_ENV") == "1" || os.Getenv("TERM_PROGRAM") == "herdr"
 }
 
 // isattyStdin and tmuxCmd are vars so terminal_test.go can drive the real

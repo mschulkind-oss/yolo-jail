@@ -204,6 +204,19 @@ type Observer struct {
 	// first moment it can. The fresh launch's arm is one (run.launchSignalArm), which covers
 	// the stretches before and after this run as well.
 	Arm func(Handle)
+	// Env is appended to the environment the child inherits from this process, and set on the
+	// child alone: nothing the proxy spawns later sees it. The one caller is a launch in a herdr
+	// pane, which puts HERDR_AGENT on the runtime client herdr reads (run's herdragent.go).
+	Env []string
+}
+
+// command builds the child's exec.Cmd, with Env layered over the inherited environment.
+func (obs Observer) command(cmd []string) *exec.Cmd {
+	c := exec.Command(cmd[0], cmd[1:]...)
+	if len(obs.Env) > 0 {
+		c.Env = append(os.Environ(), obs.Env...)
+	}
+	return c
 }
 
 func (obs Observer) input(n int, key string) {
@@ -380,7 +393,7 @@ func RunWithProxyObserved(cmd []string, onStarted func(*os.Process), onTerminate
 		setWinsize(slave, ws)
 	}
 
-	c := exec.Command(cmd[0], cmd[1:]...)
+	c := obs.command(cmd)
 	c.Stdin, c.Stdout, c.Stderr = os.NewFile(uintptr(slave), "pty-slave"),
 		os.NewFile(uintptr(slave), "pty-slave"), os.NewFile(uintptr(slave), "pty-slave")
 	if err := c.Start(); err != nil {
@@ -508,7 +521,7 @@ var afterReturnClaimed func()
 // (Observer.Arm) is handed the child's Handle, whose Terminate has no terminal to put back.
 func runPlain(cmd []string, onStarted func(*os.Process), obs Observer) (int, error) {
 	hook := obs.Stage
-	c := exec.Command(cmd[0], cmd[1:]...)
+	c := obs.command(cmd)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := c.Start(); err != nil {
 		return 0, err

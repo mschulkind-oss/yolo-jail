@@ -318,6 +318,9 @@ func TestKittyJailTabHonorsNoColor(t *testing.T) {
 		t.Setenv("TMUX", "")
 		t.Setenv("SM_PROJECT", "yolo-jail")
 		t.Setenv("NO_COLOR", tc.noColor)
+		// Not in a herdr pane, even when the test runs in one (HR-D5).
+		t.Setenv("HERDR_ENV", "")
+		t.Setenv("TERM_PROGRAM", "")
 
 		restore := SetupJailIndicator()
 		if restore == nil {
@@ -341,5 +344,40 @@ func TestKittyJailTabHonorsNoColor(t *testing.T) {
 			t.Errorf("NO_COLOR=%q: kitty got %d set-tab-title calls, want 2 (the jail "+
 				"title, then the restore); calls: %q", tc.noColor, titles, calls)
 		}
+	}
+}
+
+// TestKittyJailTabStandsDownInAHerdrPane pins HR-D5: in a herdr pane KITTY_PID survives and
+// KITTY_WINDOW_ID does not, so the kitty arm would retitle herdr's whole tab. Either herdr
+// signal stands it down; the unset run is the control.
+func TestKittyJailTabStandsDownInAHerdrPane(t *testing.T) {
+	for _, tc := range []struct {
+		name, herdrEnv, termProgram string
+		wantTab                     bool
+	}{
+		{"not in herdr", "", "kitty", true},
+		{"HERDR_ENV", "1", "iTerm.app", false},
+		{"TERM_PROGRAM", "", "herdr", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls [][]string
+			oldCmd, oldAtty := kittenCmd, isattyStdin
+			kittenCmd = func(args ...string) ([]byte, error) {
+				calls = append(calls, args)
+				return nil, nil
+			}
+			isattyStdin = func() bool { return true }
+			t.Cleanup(func() { kittenCmd, isattyStdin = oldCmd, oldAtty })
+			t.Setenv("KITTY_PID", "4242")
+			t.Setenv("KITTY_WINDOW_ID", "")
+			t.Setenv("TMUX", "")
+			t.Setenv("HERDR_ENV", tc.herdrEnv)
+			t.Setenv("TERM_PROGRAM", tc.termProgram)
+
+			restore := SetupJailIndicator()
+			if got := restore != nil && len(calls) > 0; got != tc.wantTab {
+				t.Errorf("kitty tab marked = %v, want %v; calls: %q", got, tc.wantTab, calls)
+			}
+		})
 	}
 }

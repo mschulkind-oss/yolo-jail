@@ -2,6 +2,9 @@ package run
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -67,14 +70,21 @@ func TestALaunchInAHerdrPaneRegistersTheAgent(t *testing.T) {
 		t.Fatalf("Run() = %d\nstderr:\n%s", rc, stderr.String())
 	}
 
-	wantReport := "herdr pane report-agent w1:p2 --source yolo-jail --agent copilot --state unknown"
-	if len(herdrAtLaunch) != 1 || herdrAtLaunch[0] != wantReport {
-		t.Fatalf("herdr calls before the backend ran = %q, want exactly [%q]", herdrAtLaunch, wantReport)
+	id := " w1:p2 --source yolo-jail --agent copilot"
+	wantLaunch := []string{
+		"herdr pane report-agent" + id + " --state unknown",
+		"herdr pane report-metadata" + id + " --title 🔒 JAIL " + filepath.Base(ws),
+	}
+	if !slices.Equal(herdrAtLaunch, wantLaunch) {
+		t.Fatalf("herdr calls before the backend ran = %q, want exactly %q", herdrAtLaunch, wantLaunch)
 	}
 	got := herdrCalls(rec)
-	wantRelease := "herdr pane release-agent w1:p2 --source yolo-jail --agent copilot"
-	if len(got) != 2 || got[1] != wantRelease {
-		t.Fatalf("herdr calls after Run = %q, want the report then exactly one %q", got, wantRelease)
+	wantExit := []string{
+		"herdr pane report-metadata" + id + " --clear-title",
+		"herdr pane release-agent" + id,
+	}
+	if !slices.Equal(got, append(wantLaunch, wantExit...)) {
+		t.Fatalf("herdr calls after Run = %q, want the launch's then exactly %q", got, wantExit)
 	}
 	if !strings.Contains(stderr.String(), "herdr: pane w1:p2 registered as copilot") {
 		t.Errorf("the registration was not disclosed:\n%s", stderr.String())
@@ -125,6 +135,9 @@ func TestHerdrRegistrationIsSilentOutsideItsCase(t *testing.T) {
 			if len(rec) != 0 || stderr.Len() != 0 {
 				t.Errorf("calls %q, output %q; want none", rec, stderr.String())
 			}
+			if len(o.runtimeClientEnv) != 0 {
+				t.Errorf("runtime client env = %q, want none", o.runtimeClientEnv)
+			}
 		})
 	}
 }
@@ -155,7 +168,7 @@ func TestHerdrReleaseRunsOnceFromEitherArm(t *testing.T) {
 	o.chainHerdrRelease(release)
 	o.restoreTerminal() // the signal arm
 	release()           // Run's defer
-	want := "/opt/herdr report-agent,/opt/herdr release-agent,terminal"
+	want := "herdr report-agent,herdr report-metadata,herdr report-metadata,herdr release-agent,terminal"
 	if got := strings.Join(order, ","); got != want {
 		t.Errorf("order = %q, want %q", got, want)
 	}
@@ -178,7 +191,36 @@ func TestAFailedHerdrReportNeverBlocksTheLaunch(t *testing.T) {
 	if release := o.registerHerdrAgent(packs, []string{"claude"}); release != nil {
 		t.Error("a failed report returned a release")
 	}
+	// The hint needs no herdr binary, so a failed report keeps it.
+	if !slices.Equal(o.runtimeClientEnv, []string{"HERDR_AGENT=claude"}) {
+		t.Errorf("runtime client env = %q, want the hint alone", o.runtimeClientEnv)
+	}
 	if !strings.Contains(stderr.String(), "no such pane") || !strings.Contains(stderr.String(), herdrOptOutEnv) {
 		t.Errorf("the failure line should name herdr's reason and the opt-out:\n%s", stderr.String())
+	}
+}
+
+// TestTheHerdrHintReachesTheSessionClientAlone pins HR-D3 at the spawn: runtimeClientEnv is on
+// the environment of the client runArmedSession starts, and not on this process's own.
+func TestTheHerdrHintReachesTheSessionClientAlone(t *testing.T) {
+	t.Setenv("HERDR_AGENT", "")
+	out := filepath.Join(t.TempDir(), "agent")
+	arm := armLaunchSignalsWith(nil, func(int) {})
+	o := &Options{runtimeClientEnv: []string{"HERDR_AGENT=claude"}}
+	rc, err := runArmedSession([]string{"sh", "-c", `printf %s "$HERDR_AGENT" > "$0"`, out}, arm, o)
+	arm.detach()
+	arm.disarm()
+	if err != nil || rc != 0 {
+		t.Fatalf("runArmedSession = %d, %v", rc, err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "claude" {
+		t.Errorf("the client saw HERDR_AGENT=%q, want claude", got)
+	}
+	if v := os.Getenv("HERDR_AGENT"); v != "" {
+		t.Errorf("the launcher's own environment gained HERDR_AGENT=%q", v)
 	}
 }

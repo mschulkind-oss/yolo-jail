@@ -349,7 +349,8 @@ func Run(opts Options) (rc int) {
 		injectedArgs = o.injectLaunchFlagsDisclosed(staged.packs, injectedArgs)
 	}
 	// THE HERDR PANE, told which agent it runs (herdragent.go): above the dispatch, so both
-	// arms and an attach report the argv the backend will receive.
+	// arms and an attach report the argv the backend will receive, and so the hint is on
+	// runtimeClientEnv before either arm spawns a session's runtime client.
 	if release := o.registerHerdrAgent(staged.packs, injectedArgs); release != nil {
 		o.chainHerdrRelease(release)
 		defer release()
