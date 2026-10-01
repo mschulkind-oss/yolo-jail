@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
@@ -104,16 +105,26 @@ func openBrowser(target string) error {
 	return errors.New("no browser opener found")
 }
 
+// loginPorts are the loopback ports a browser login's callback listens on, tried in order. A
+// var only so a test can hand in ports it owns: the fallback test bound these two on the
+// machine running it, so it failed wherever something else held 1457 and skipped wherever
+// something held 1455, a Codex login waiting for its own callback among them.
+var loginPorts = []int{1455, 1457}
+
+// listenLoginPort binds the first of loginPorts that is free and returns the port it is
+// listening on, which the redirect URI names.
 func listenLoginPort() (net.Listener, int, error) {
 	var last error
-	for _, port := range []int{1455, 1457} {
+	tried := make([]string, 0, len(loginPorts))
+	for _, port := range loginPorts {
+		tried = append(tried, strconv.Itoa(port))
 		listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err == nil {
-			return listener, port, nil
+			return listener, listener.Addr().(*net.TCPAddr).Port, nil
 		}
 		last = err
 	}
-	return nil, 0, fmt.Errorf("bind OpenAI browser callback ports 1455 and 1457: %w", last)
+	return nil, 0, fmt.Errorf("bind OpenAI browser callback ports %s: %w", strings.Join(tried, " and "), last)
 }
 
 func (f *LoginFlow) callback(w http.ResponseWriter, r *http.Request) {

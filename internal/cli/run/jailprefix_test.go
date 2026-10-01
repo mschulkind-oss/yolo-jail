@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	goruntime "runtime"
 	"slices"
 	"strings"
@@ -69,6 +70,21 @@ func prefixOptions(t *testing.T, build func(string) (string, []string)) (*Option
 	// already-set BuildJailPrefix alone — the seam under test stays ours.
 	fillDefaults(o)
 	return o, &calls
+}
+
+// productionRegisterPrefixRoot is registerPrefixRoot as the package initialized it, which
+// TestMain saves before it puts unregisteredPrefixRoot in its place.
+var productionRegisterPrefixRoot func(string, io.Writer) (string, error)
+
+// The seam must default to the real registration. The GC-root check in
+// TestLiveCheckoutBuildsThePrefix pins that a host launch calls the seam, and every test here
+// runs with TestMain's stand-in in it, so without this a seam bound to a no-op would leave
+// every built prefix unrooted with the suite green.
+func TestRegisterPrefixRootDefaultsToTheImageRegistration(t *testing.T) {
+	if productionRegisterPrefixRoot == nil ||
+		reflect.ValueOf(productionRegisterPrefixRoot).Pointer() != reflect.ValueOf(image.RegisterPrefixRoot).Pointer() {
+		t.Error("registerPrefixRoot does not default to image.RegisterPrefixRoot")
+	}
 }
 
 // unregisteredPrefixRoot is TestMain's registerPrefixRoot: it runs no nix-store and

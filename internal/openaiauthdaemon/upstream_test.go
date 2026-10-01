@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -19,8 +21,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/openaiauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/openauthclient"
 )
-
-func netListen1455() (net.Listener, error) { return net.Listen("tcp", "127.0.0.1:1455") }
 
 func jwt(payload string) string {
 	return "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".signature"
@@ -133,11 +133,18 @@ func TestBrowserLoginFallsBackValidatesStateAndExchangesPKCE(t *testing.T) {
 	var opened string
 	browserOpen = func(target string) error { opened = target; return nil }
 	t.Cleanup(func() { browserOpen = originalOpen })
-	occupied, err := netListen1455()
+	// The first port is one this test holds, the second one the kernel picks, so the test
+	// reads no port of the machine's: it bound 1455 and 1457 there, failing wherever
+	// something else held 1457 and skipping wherever something held 1455.
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 1455 is already occupied: %v", err)
+		t.Fatal(err)
 	}
 	defer occupied.Close()
+	taken := occupied.Addr().(*net.TCPAddr).Port
+	prevPorts := loginPorts
+	loginPorts = []int{taken, 0}
+	t.Cleanup(func() { loginPorts = prevPorts })
 
 	var posted url.Values
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -156,8 +163,19 @@ func TestBrowserLoginFallsBackValidatesStateAndExchangesPKCE(t *testing.T) {
 	if opened != flow.URL {
 		t.Fatalf("browser opened %q, want %q", opened, flow.URL)
 	}
-	if !strings.Contains(flow.RedirectURI, ":1457/") {
-		t.Fatalf("redirect = %s, want fallback port 1457", flow.RedirectURI)
+	redirect, err := url.Parse(flow.RedirectURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The kernel picks the fallback's port, so the callback is on neither the held port nor
+	// one of the ports a real login tries: either means the list the test handed in went unread.
+	bound := flow.listener.Addr().(*net.TCPAddr).Port
+	if bound == taken || slices.Contains(prevPorts, bound) {
+		t.Fatalf("the callback listens on %d; want the fallback the test handed in, not the held %d "+
+			"or one of %v", bound, taken, prevPorts)
+	}
+	if redirect.Port() != strconv.Itoa(bound) {
+		t.Fatalf("redirect = %s, want it to name the port the callback listens on, %d", flow.RedirectURI, bound)
 	}
 	authURL, _ := url.Parse(flow.URL)
 	query := authURL.Query()
@@ -185,6 +203,14 @@ func TestBrowserLoginFallsBackValidatesStateAndExchangesPKCE(t *testing.T) {
 	}
 	if pkceChallenge(posted.Get("code_verifier")) != query.Get("code_challenge") {
 		t.Fatal("authorization challenge does not match exchanged verifier")
+	}
+}
+
+// The callback tries 1455 and then 1457; the fallback test above runs on ports of its own, so
+// this is what pins the ones a login really uses.
+func TestTheLoginCallbackTries1455Then1457(t *testing.T) {
+	if !slices.Equal(loginPorts, []int{1455, 1457}) {
+		t.Errorf("loginPorts = %v, want [1455 1457]", loginPorts)
 	}
 }
 
