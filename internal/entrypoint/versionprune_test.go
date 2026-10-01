@@ -381,6 +381,19 @@ func TestVersionPruneYieldsToAWriterHoldingTheLock(t *testing.T) {
 	if _, err := os.Stat(lock); err != nil {
 		t.Errorf("the prune released a lock it did not take: %v", err)
 	}
+
+	// The control: with the writer gone the same invocation prunes, so the four entries above
+	// were kept by the lock and not by a launcher that never prunes at all.
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	out, rc = p.run(t)
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+	if got := remaining(t, p.home, "probetool"); len(got) != 2 {
+		t.Errorf("control: with the lock free the invocation must prune to two, left %v\n%s", got, out)
+	}
 }
 
 // TestTheEveryInvocationPruneReleasesTheLock: the prune that took the lock must drop it, or the
