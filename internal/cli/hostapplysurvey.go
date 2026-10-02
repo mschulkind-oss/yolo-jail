@@ -207,6 +207,11 @@ type hostApplySurvey struct {
 	// the gate may not ask (PendingDecisions). Folded into Changed, they would turn a launch that
 	// has nothing to render into one that stops to report a decision.
 	retirePaths, retireKeys int
+	// declinedPaths and declinedKeys are the same retire in an --assert answered `n`: the paths and
+	// config keys it kept, which its verdict names in place of "this home is up to date"
+	// (pruneDroppedPackOutput). Apart from retirePaths because the sentence differs (kept, not
+	// "would be archived"), and from Changed for the reason retirePaths is.
+	declinedPaths, declinedKeys int
 
 	// home is the home THIS apply rendered into, and zeroPacks whether it took the
 	// no-packs-configured branch. Both are RECORDED rather than re-derived, because both
@@ -664,6 +669,25 @@ func (s *hostApplySurvey) DroppedRetires() (paths, keys int) {
 		return 0, 0
 	}
 	return s.retirePaths, s.retireKeys
+}
+
+// noteDeclinedRetire records a dropped-pack retire an --assert asked about and was answered `n`:
+// the paths and config keys it kept (see the declinedPaths field).
+func (s *hostApplySurvey) noteDeclinedRetire(paths, keys int) {
+	if s == nil {
+		return
+	}
+	s.declinedPaths += paths
+	s.declinedKeys += keys
+}
+
+// DeclinedRetires is what an --assert's declined retire kept in the home: paths and config keys a
+// pack no longer in `packs` left there. Never part of Changes().
+func (s *hostApplySurvey) DeclinedRetires() (paths, keys int) {
+	if s == nil {
+		return 0, 0
+	}
+	return s.declinedPaths, s.declinedKeys
 }
 
 // retireWaiting is whether a dropped pack's output is still waiting to be retired.

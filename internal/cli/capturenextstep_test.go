@@ -78,11 +78,36 @@ func TestEveryCaptureStopNamesItsNextStep(t *testing.T) {
 		}, "codex", `yolo capture: no selected pack installs "codex"`,
 			`  The codex pack yolo ships installs codex: add "codex" to "packs" in ` +
 				"<config>, then: yolo capture codex"},
+		// A shipped pack that installs the program FROM NPM leads to that pack and a launch, never
+		// to a capture: it pointed at "yolo capture probetool", a different program.
+		{"a program a pack yolo ships installs from npm", func(t *testing.T) {
+			captureFixtureHome(t, captureFixtureInstaller)
+			noJail(t)
+		}, "copilot", `yolo capture: no selected pack installs "copilot"`,
+			`  The copilot pack yolo ships installs copilot from npm, which a launch does itself, so ` +
+				`it needs no capture: add "copilot" to "packs" in <config>, then: yolo -- copilot`},
 		{"an npm program", func(t *testing.T) {
 			captureFixtureHome(t, `{"kind":"program","bin":"probetool","via":"npm","package":"probetool@1.0.0"}`)
 			noJail(t)
 		}, "probetool", `yolo capture: no selected pack installs "probetool"`,
 			"  A launch installs it from npm itself, and needs no capture: yolo -- probetool"},
+		// No pack installs anything with an installer: the step is the manifest line that declares
+		// one. It cited `yolo pack --help`, which does not document it.
+		{"no pack that installs with an installer", func(t *testing.T) {
+			captureFixtureHome(t, `{"kind":"program","bin":"probetool","via":"npm","package":"probetool@1.0.0"}`)
+			noJail(t)
+		}, "nosuchtool", `yolo capture: no selected pack installs "nosuchtool"`,
+			`  None of your packs installs a program with an installer, so nothing here needs a ` +
+				`capture. A pack declares one in its pack.json as {"kind": "program", "bin": ` +
+				`"<name>", "via": "installer", "url": "<its install script>"}.`},
+		// A name a capture refuses, under a config it cannot read: the programs it takes are not
+		// known, and the step said "None of your packs installs a program with an installer".
+		{"a name that is not a program, with a config that cannot be read", func(t *testing.T) {
+			home := captureFixtureHome(t, captureFixtureInstaller)
+			writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"packs": [`)
+			noJail(t)
+		}, "a/b", `yolo capture: "a/b" is not a program name`,
+			"  Your config could not be read, so the programs a capture takes are not known: "},
 		{"a pack that could not be resolved", func(t *testing.T) {
 			home := captureFixtureHome(t, captureFixtureInstaller)
 			gone := filepath.Join(home, "packs", "gone")

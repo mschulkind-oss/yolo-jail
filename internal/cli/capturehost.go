@@ -133,7 +133,17 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	// with a message that names the actual rule.
 	if !packdecl.ValidBinName(bin) {
 		fmt.Fprintf(errw, "yolo capture: %q is not a program name\n", bin)
-		fmt.Fprintf(errw, "  %s\n", captureChoicesStep(selectConfiguredHostPacks().packs, ""))
+		sel := selectConfiguredHostPacks()
+		if sel.loadErr != nil {
+			// The programs a capture takes are read from the config, so an unreadable one leaves
+			// none to list: "None of your packs installs a program" would be a claim about packs
+			// this run never read.
+			fmt.Fprintf(errw, "  Your config could not be read, so the programs a capture takes are "+
+				"not known: %v\n  Fix what it names in %s, then run `yolo capture <program>` for a "+
+				"program your packs install.\n", sel.loadErr, paths.UserConfigPath())
+			return 2
+		}
+		fmt.Fprintf(errw, "  %s\n", captureChoicesStep(sel.packs, ""))
 		return 2
 	}
 
@@ -308,9 +318,20 @@ func captureChoicesStep(packs []*packload.Pack, bin string) string {
 			}
 			installs, _ := p.HonoredInstalls()
 			for _, in := range installs {
-				if in.Bin == bin && in.Kind == packdeclNativeKind {
+				if in.Bin != bin {
+					continue
+				}
+				switch in.Kind {
+				case packdeclNativeKind:
 					return fmt.Sprintf("The %s pack yolo ships installs %s: add %q to \"packs\" in %s, "+
 						"then: yolo capture %s", p.Name, bin, p.Name, paths.UserConfigPath(), bin)
+				case packdeclNPMKind:
+					// Not a capture's at all: the pack's launcher installs it from npm on first use,
+					// so the way to the program is selecting the pack and launching it. The list
+					// below would have named another program to capture.
+					return fmt.Sprintf("The %s pack yolo ships installs %s from npm, which a launch "+
+						"does itself, so it needs no capture: add %q to \"packs\" in %s, then: "+
+						"yolo -- %s", p.Name, bin, p.Name, paths.UserConfigPath(), bin)
 				}
 			}
 		}
@@ -327,9 +348,11 @@ func captureChoicesStep(packs []*packload.Pack, bin string) string {
 		}
 	}
 	if len(choices) == 0 {
+		// The manifest line itself (rung 3): `yolo pack --help`, which this used to cite, does not
+		// document the `program` kind.
 		return "None of your packs installs a program with an installer, so nothing here needs a " +
-			"capture. A pack declares one as a `program` with `\"via\": \"installer\"` (`yolo pack " +
-			"--help` documents it)."
+			"capture. A pack declares one in its pack.json as {\"kind\": \"program\", \"bin\": " +
+			"\"<name>\", \"via\": \"installer\", \"url\": \"<its install script>\"}."
 	}
 	sort.Strings(choices)
 	return fmt.Sprintf("A capture records what your packs install with an installer or build from a "+
@@ -448,6 +471,10 @@ func captureUnresolvedStep(u unresolvedPack) string {
 // as the same fact the shims.go install switch reads, and so a fourth name is visibly a
 // fourth name rather than a bare string that happens not to match.
 const packdeclNativeKind = "native"
+
+// packdeclNPMKind is packdecl.Install.Kind for a `via: "npm"` contribution, which a launch installs
+// itself and a capture never takes.
+const packdeclNPMKind = "npm"
 
 // captureJailArgv is the command the capture jail runs — the whole in-jail half of a
 // capture, as one argv.

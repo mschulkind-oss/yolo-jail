@@ -170,7 +170,13 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 		}
 		paths, keys := s.DroppedRetires()
 		n += paths
+		// And, in an --assert answered `n`, what that retire kept, which the line above the
+		// verdict says is still in the home: "nothing left to retire" contradicted it.
+		kept := declinedRetireClause(s)
 		if n == 0 && keys == 0 {
+			if kept != "" {
+				return "No packs configured — nothing to apply; " + kept + "."
+			}
 			return "No packs configured — nothing to apply, and nothing left to retire."
 		}
 		var what []string
@@ -181,6 +187,10 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 			what = append(what, fmt.Sprintf("%d config %s", keys, plural(keys, "key", "keys")))
 		}
 		if write {
+			if kept != "" {
+				return fmt.Sprintf("No packs configured — nothing to apply; %s retired, and %s.",
+					joinWords(what, "and"), kept)
+			}
 			return fmt.Sprintf("No packs configured — nothing to apply; %s retired.",
 				joinWords(what, "and"))
 		}
@@ -236,6 +246,14 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 			if work := hostApplyWork(s, true); work != "nothing" {
 				rest = "applied the rest: " + work
 			}
+			// A retire answered `n` is something that needed changing and was kept.
+			if kept := declinedRetireClause(s); kept != "" {
+				if rest == "nothing else needed changing" {
+					rest = kept
+				} else {
+					rest += "; " + kept
+				}
+			}
 			return fmt.Sprintf("Incomplete — %s; %s.", blockers, rest)
 		}
 		return fmt.Sprintf("An --assert would be incomplete — %s.", blockers)
@@ -251,18 +269,48 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 		if !write {
 			return "Nothing to do — this home is up to date."
 		}
-		if p := installedPrefix(s); p != "" {
-			return p + "nothing else to apply — this home is up to date."
+		// An --assert answered `n` at the retire has nothing left to do, and is not up to date:
+		// what it kept is named instead (declinedRetireClause).
+		state := "this home is up to date"
+		if kept := declinedRetireClause(s); kept != "" {
+			state = kept
 		}
-		return "Nothing to apply — this home is up to date."
+		if p := installedPrefix(s); p != "" {
+			return p + "nothing else to apply — " + state + "."
+		}
+		return "Nothing to apply — " + state + "."
 	case outcomeApplied:
-		if p := installedPrefix(s); p != "" {
-			return p + "applied: " + hostApplyWork(s, true) + "."
+		work := hostApplyWork(s, true)
+		if kept := declinedRetireClause(s); kept != "" {
+			work += "; " + kept
 		}
-		return "Applied: " + hostApplyWork(s, true) + "."
+		if p := installedPrefix(s); p != "" {
+			return p + "applied: " + work + "."
+		}
+		return "Applied: " + work + "."
 	default:
 		return "An --assert would complete."
 	}
+}
+
+// declinedRetireClause is the verdict's clause for a dropped-pack retire an --assert was answered
+// `n` about (hostApplySurvey.DeclinedRetires): "2 paths from dropped packs are still in your home,
+// not retired (above)", the line above it carrying the steps that retire them. Empty when none was
+// declined, which a dry run never records.
+func declinedRetireClause(s *hostApplySurvey) string {
+	paths, keys := s.DeclinedRetires()
+	var what []string
+	if paths > 0 {
+		what = append(what, fmt.Sprintf("%d %s", paths, plural(paths, "path", "paths")))
+	}
+	if keys > 0 {
+		what = append(what, fmt.Sprintf("%d config %s", keys, plural(keys, "key", "keys")))
+	}
+	if len(what) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s from dropped packs %s still in your home, not retired (above)",
+		joinWords(what, "and"), plural(paths+keys, "is", "are"))
 }
 
 // stageFailureClause is the verdict's clause for the stages that failed: each by the word its own

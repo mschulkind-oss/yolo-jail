@@ -176,7 +176,7 @@ disagree about the outcome they report.
 | `incomplete` | a pack failed to render, or a destination could not be written because it is a [broken link](#broken-links), so the counts are missing those surfaces; or a stage of the apply failed (destinations, overlays, skills, briefing, retire or wrappers), with no packs configured too. The verdict names a failed stage by the word its own lines above lead with, and those lines say what failed: the stage's name, except that a destinations failure is named by the kind its `<kind> refused` line names (`skills`, `briefing`) and an overlays failure by the contribution's kind (`config-overlay`, `config-list`, `autonomy`). The document's `failed_stages` keeps the stage's own token; or [yolo's floor](../design/host-tool-provisioning.md) will not install a program over a record a newer yolo wrote ([HP-D8](../design/host-tool-provisioning.md#HP-D8)), or an `--assert`'s floor install failed. The verdict names whose config is missing; the failure itself is stated once, with its fix, in its group. It also names each program the floor will not install, with the step that clears it, in a dry run and an `--assert` alike, and each an `--assert` could not install: an `--assert` writes the rest and exits 1 |
 | `no_packs` | no packs are configured, and nothing failed. Distinct from `nothing_to_do`, and the difference is the next action: one is *your config names nothing*, the other *your home already matches what it names* |
 | `blocked` | a declared dependency is missing. **Dry run only** — an `--assert` with one is refused by the gate before it reaches a verdict at all |
-| `nothing_to_do` | this home already matches what the packs declare, and, in a dry run, no output of a pack dropped from `packs` waits to be retired |
+| `nothing_to_do` | this home already matches what the packs declare, and no output of a pack dropped from `packs` waits to be retired: a dry run lists none, or an `--assert` asked and was answered |
 | `applied` | an `--assert` wrote what it planned |
 | `would_complete` | a dry run that found work and no blocker |
 
@@ -200,6 +200,15 @@ and `Changes()` keeps its meaning. The launch gate decides whether to apply from
 a launch with nothing to render into one that stops to report a decision
 (`TestTheLaunchGateDoesNotCountARetireStillWaiting`). With no packs configured they join the
 destinations the verdict says would be retired.
+
+An `--assert` answered `n` at that question has nothing left to do, so it is `nothing_to_do` (or
+`applied`, beside other work), but its sentence names what it kept in place of "this home is up
+to date": *Nothing to apply — 2 paths from dropped packs are still in your home, not retired
+(above).* With no packs configured it said "nothing left to retire" there, on the line after
+`not retired — 2 path(s) … are still in your home`
+(`TestAnAssertThatDeclinesTheRetireSaysWhatStays`). That keeps `nothing_to_do` one finding in
+both postures, as the warning below requires: nothing waits on the run. A dry run's retire still
+waits, because nothing has answered it, and an `--assert`'s `n` settles it.
 
 > [!WARNING]
 > **The tokens name the outcome, never the posture.** `nothing_to_do` is the same finding in a dry

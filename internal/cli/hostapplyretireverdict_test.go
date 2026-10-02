@@ -157,3 +157,85 @@ func TestTheLaunchGateDoesNotCountARetireStillWaiting(t *testing.T) {
 	mustExist(t, skill, "only an --assert answered y retires it")
 	mustExist(t, file, "only an --assert answered y retires it")
 }
+
+// AN --assert ANSWERED `n` keeps the dropped pack's paths, and its verdict says so. It ended
+// "Nothing to apply — this home is up to date.", or with `packs` empty "No packs configured —
+// nothing to apply, and nothing left to retire.", on the line after "not retired — 2 path(s) …
+// are still in your home": the dry run over the same home now says an --assert has work, and the
+// --assert called that home done.
+func TestAnAssertThatDeclinesTheRetireSaysWhatStays(t *testing.T) {
+	const stays = "2 paths from dropped packs are still in your home, not retired (above)."
+	t.Run("with packs", func(t *testing.T) {
+		defaultReport(t)
+		retireWaitingHome(t)
+
+		rc, report := applyWith(t, true, strings.NewReader("n\n"))
+		if rc != 0 {
+			t.Fatalf("a declined retire rc=%d, want 0 (declining is an answer):\n%s", rc, report)
+		}
+		if !strings.Contains(report, "not retired — 2 path(s)") {
+			t.Fatalf("fixture bug: the --assert did not decline a retire:\n%s", report)
+		}
+		if got, want := verdictLine(report), "Nothing to apply — "+stays; got != want {
+			t.Errorf("the verdict is\n%q\nwant\n%q\n%s", got, want, report)
+		}
+		if strings.Contains(report, "up to date") {
+			t.Errorf("an --assert that kept a dropped pack's paths says the home is up to date:\n%s", report)
+		}
+	})
+	t.Run("with no packs", func(t *testing.T) {
+		defaultReport(t)
+		home := retireWaitingHome(t)
+		selectPacks(t, home, "")
+
+		// The first --assert with `packs` empty also retires the composed briefing, unasked.
+		_, report := applyWith(t, true, strings.NewReader("n\n"))
+		if got, want := verdictLine(report), "No packs configured — nothing to apply; 1 destination(s) "+
+			"retired, and "+stays; got != want {
+			t.Errorf("the first verdict is\n%q\nwant\n%q\n%s", got, want, report)
+		}
+		_, report = applyWith(t, true, strings.NewReader("n\n"))
+		if got, want := verdictLine(report), "No packs configured — nothing to apply; "+stays; got != want {
+			t.Errorf("the second verdict is\n%q\nwant\n%q\n%s", got, want, report)
+		}
+		if strings.Contains(report, "nothing left to retire") {
+			t.Errorf("an --assert that kept a dropped pack's paths says nothing is left to retire:\n%s", report)
+		}
+	})
+}
+
+// The kept retire joins an --assert's applied sentence, and counts its config keys in their own
+// words.
+func TestTheAppliedVerdictNamesADeclinedRetire(t *testing.T) {
+	s := &hostApplySurvey{}
+	s.Changed = append(s.Changed, hostChange{Kind: "briefing"})
+	s.noteDeclinedRetire(1, 2)
+	if got, want := hostApplyVerdict(s, true), "Applied: 1 briefing destination; 1 path and 2 config "+
+		"keys from dropped packs are still in your home, not retired (above)."; got != want {
+		t.Errorf("verdict\n%s\nwant\n%s", got, want)
+	}
+	s = &hostApplySurvey{}
+	s.noteDeclinedRetire(0, 1)
+	if got, want := hostApplyVerdict(s, true), "Nothing to apply — 1 config key from dropped packs "+
+		"is still in your home, not retired (above)."; got != want {
+		t.Errorf("verdict\n%s\nwant\n%s", got, want)
+	}
+	// Beside a failed stage, in place of "nothing else needed changing".
+	s = &hostApplySurvey{}
+	s.noteStageFailure(stageWrappers)
+	s.noteDeclinedRetire(2, 0)
+	if got, want := hostApplyVerdict(s, true), "Incomplete — the wrappers stage failed (above); 2 "+
+		"paths from dropped packs are still in your home, not retired (above)."; got != want {
+		t.Errorf("verdict\n%s\nwant\n%s", got, want)
+	}
+	s.Changed = append(s.Changed, hostChange{Kind: "config"})
+	if got, want := hostApplyVerdict(s, true), "Incomplete — the wrappers stage failed (above); "+
+		"applied the rest: 1 config file; 2 paths from dropped packs are still in your home, not "+
+		"retired (above)."; got != want {
+		t.Errorf("verdict\n%s\nwant\n%s", got, want)
+	}
+	// A dry run records no answer, and an --assert that confirmed records none either.
+	if got := hostApplyVerdict(&hostApplySurvey{}, true); got != "Nothing to apply — this home is up to date." {
+		t.Errorf("an --assert with nothing kept says %q", got)
+	}
+}

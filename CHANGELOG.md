@@ -97,8 +97,8 @@ pinned commit once for every workspace. See
   folders back once.
 - `--network` now overrides the project's `network.mode`.
 - `yolo pack update --help` ran the update, and `update` reported success for an install that left
-  nothing to run; `yolo host apply --assert` could call a failed run up to date, and a dry run a
-  home still holding a dropped pack's files.
+  nothing to run; `yolo host apply` could call a failed run, or a home still holding a dropped
+  pack's files, up to date.
 - A Ctrl-C during a launch's build or prompt no longer leaves your tab in the jail's colors.
 
 ### Contributors

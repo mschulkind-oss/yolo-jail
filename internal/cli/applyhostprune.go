@@ -170,6 +170,9 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 			"pack(s) are still in your home.[/bold yellow]", len(present), len(keys.Orphans))
 		pr.Printf("[dim]Re-run and answer `y`, put the pack back in `packs`, or remove them " +
 			"yourself. Nothing was moved or removed.[/dim]")
+		// For the verdict (rule 5), which said "this home is up to date", or "nothing left to
+		// retire", on the line after this one. Apart from Changed, as the dry run's count is.
+		survey.noteDeclinedRetire(len(present), len(keys.Orphans))
 		return rc
 	}
 
