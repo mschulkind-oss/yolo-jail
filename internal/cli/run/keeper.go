@@ -418,14 +418,16 @@ func (k *keeper) run() int {
 	case <-time.After(keeperRunningWait):
 	}
 	k.sink.logOnlyf("keeper: pid %d holds %s until its last session leaves", k.pid, p.Cname)
-	k.sink.event(frameReady, "")
 	mirror, _ := paths.OpenExistingWorkspaceStateFile(p.Workspace, LaunchLogName, os.O_WRONLY|os.O_APPEND, 0)
 	var mirrorW io.Writer
 	if mirror != nil {
 		defer mirror.Close()
 		mirrorW = mirror
 	}
-	k.sink.endRelay(mirrorW)
+	// READY, the relay's end and the mirror's start in one hold of the sink's lock, the frame
+	// carrying the log's length: the first session's quit replays the log from there, so a line
+	// logged after the frame (a host service that dies now) reaches that terminal once (JL-D78).
+	k.sink.sayReady(mirrorW)
 
 	// AFTER READY: the three ways in (§9.5).
 	drained := k.watchSessions()

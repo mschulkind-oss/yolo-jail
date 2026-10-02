@@ -16,7 +16,9 @@ package run
 // AFTER READY, the keeper writes its host-only log and mirrors its own lines into the workspace's
 // launch.log, and writes nothing to the pipe: the first terminal's launch stops reading it when its
 // session ends, and a closed pipe must never be what ends a keeper. Its descriptors make a failed
-// write EPIPE rather than SIGPIPE (keeper.go), and a write that fails turns the pipe off.
+// write EPIPE rather than SIGPIPE (keeper.go), and a write that fails turns the pipe off. The ready
+// frame carries the log's length at the switch, which is where the first session's quit starts
+// replaying the log, so every line reaches that terminal once (sayReady, JL-D78).
 //
 // ONE SWITCHABLE WRITER carries the keeper's o.Stdout and o.Stderr (keeperSink), because reused
 // code captures its writer when a service starts: startExternalService hands `o.pr(o.Stdout)` to
@@ -47,7 +49,9 @@ const (
 	frameStarted    byte = 'S' // the keeper holds its liveness lock; payload is its pid
 	frameSpawned    byte = 'C' // the main process's runtime client is started
 	frameRunning    byte = 'V' // the container is seen running, and the launch lock is released
-	frameReady      byte = 'R' // pid 1's boot is done: the relay ends here
+	// frameReady is pid 1's boot done: the relay ends here. Its payload is the keeper log's length
+	// at that moment, in decimal (sayReady), or empty when the keeper has no log it can measure.
+	frameReady byte = 'R'
 )
 
 // maxFramePayload bounds one frame, so a corrupt length never makes the relay allocate without
@@ -91,7 +95,19 @@ type keeperEvents struct {
 	started func(pid int)
 	spawned func()
 	running func()
-	ready   func()
+	// ready is handed the keeper log's length at the ready frame, the offset the first session's
+	// quit replays the log from (JL-D78); known is false for a frame that carried none.
+	ready func(logFrom int64, known bool)
+}
+
+// readyLogOffset is the keeper log's length a ready frame's payload carries, and whether it
+// carried one: an empty or unreadable payload is a keeper with no log it could measure.
+func readyLogOffset(payload []byte) (int64, bool) {
+	n, err := strconv.ParseInt(string(payload), 10, 64)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // relayKeeper reads the keeper's frames from r until the ready frame or the pipe's end, writing
@@ -127,7 +143,7 @@ func relayKeeper(r io.Reader, out, errOut, jailOut, jailErr io.Writer, ev keeper
 			}
 		case frameReady:
 			if ev.ready != nil {
-				ev.ready()
+				ev.ready(readyLogOffset(payload))
 			}
 			return true
 		}
@@ -192,8 +208,47 @@ func (s *keeperSink) event(tag byte, payload string) {
 	}
 }
 
-// endRelay turns the pipe off and the launch.log mirror on: the jail is ready, and from here on the
-// keeper's lines are read from its log, by the session that ends the jail (JL-D11).
+// sayReady is the keeper's ready: the ready frame, carrying the keeper log's length at this
+// moment, then the pipe off and the launch.log mirror on, all in one hold of the lock every line's
+// writes take (JL-D78).
+//
+// THE FRAME IS THE BOUNDARY between the relay and the first session's quit. The launch's relay
+// prints every line before the frame and stops at it; the quit prints the log from the offset the
+// frame carries. A line is written to the pipe and the log in one hold of this lock, so each one is
+// either before the frame and the offset, and relayed, or after both, and replayed: never both, and
+// never neither. The launch used to take that offset itself, by a stat of the log once its relay
+// was done, and a line the keeper logged in between, a host service's death, reached neither. The
+// mirror goes on in the same hold for the same reason: a line is in launch.log through the relay's
+// tee or through the mirror, once.
+//
+// A line the log still holds half of (lineBuffer) is not in the length yet, so a line pid 1 had
+// half written at the frame is relayed in part and replayed whole.
+func (s *keeperSink) sayReady(mirror io.Writer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pipe != nil {
+		_ = writeFrame(s.pipe, frameReady, []byte(s.logLength()))
+	}
+	s.pipe = nil
+	s.mirror = mirror
+}
+
+// logLength is the keeper log's length now, in decimal, or "" when the sink has no log it can
+// measure (none opened). Called under s.mu, so no line's write is under way.
+func (s *keeperSink) logLength() string {
+	f, ok := s.log.(interface{ Stat() (os.FileInfo, error) })
+	if !ok {
+		return ""
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	return strconv.FormatInt(fi.Size(), 10)
+}
+
+// endRelay turns the pipe off and the launch.log mirror on, with no ready frame: sayReady is the
+// keeper's ready, which does both in the hold that writes the frame.
 func (s *keeperSink) endRelay(mirror io.Writer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -272,8 +327,10 @@ func openKeeperLog(cname string) (*os.File, error) {
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_APPEND, 0o600)
 }
 
-// keeperLogSize is the keeper log's length now, which a session notes when it begins so its quit
-// prints only what the keeper recorded while it was in. 0 when there is none.
+// keeperLogSize is the keeper log's length now, which an arriving session notes when it begins so
+// its quit prints only what the keeper recorded while it was in. 0 when there is none. A fresh
+// launch's first session takes the length its keeper's ready frame carried instead
+// (keeperProcess.sessionLogFrom, JL-D78), and this only from a keeper that sent none.
 func keeperLogSize(cname string) int64 {
 	fi, err := os.Stat(keeperLogPath(cname))
 	if err != nil {

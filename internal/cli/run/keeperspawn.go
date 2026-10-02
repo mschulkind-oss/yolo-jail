@@ -92,6 +92,10 @@ type keeperProcess struct {
 	// on the keeper ends the jail on its session count, and no longer on the lifeline.
 	ready     chan struct{}
 	readyOnce sync.Once
+	// logFrom is the keeper log's length the ready frame carried, and logFromKnown whether it
+	// carried one: set before ready closes (sessionLogFrom).
+	logFrom      int64
+	logFromKnown bool
 	// uncounted is the plan's Uncounted: a keeper that never ends the jail on the count (JL-P3).
 	uncounted bool
 }
@@ -99,18 +103,35 @@ type keeperProcess struct {
 // closeLifeline closes the lifeline once.
 func (k *keeperProcess) closeLifeline() { k.closeMu.Do(func() { _ = k.lifeline.Close() }) }
 
-// relay is relayKeeper over this keeper's progress pipe, which also notes the ready frame on k, for
+// relay is relayKeeper over this keeper's progress pipe, which also notes the ready frame on k: for
 // the teardown before ready that a signal can still run once the keeper is ready
-// (keeperPreReadyTeardown).
+// (keeperPreReadyTeardown), and the keeper log's length the frame carried, for the first session's
+// quit (sessionLogFrom).
 func (k *keeperProcess) relay(out, errOut, jailOut, jailErr io.Writer, ev keeperEvents) bool {
 	then := ev.ready
-	ev.ready = func() {
-		k.readyOnce.Do(func() { close(k.ready) })
+	ev.ready = func(logFrom int64, known bool) {
+		k.readyOnce.Do(func() {
+			k.logFrom, k.logFromKnown = logFrom, known
+			close(k.ready)
+		})
 		if then != nil {
-			then()
+			then(logFrom, known)
 		}
 	}
 	return relayKeeper(k.progress, out, errOut, jailOut, jailErr, ev)
+}
+
+// sessionLogFrom is the offset in the keeper's log the first session's quit replays from: the log's
+// length at the ready frame, which the keeper took under the lock its every line's writes take, so
+// a line the relay did not print is past it (keeperSink.sayReady, JL-D78). A stat of the log here
+// would be behind every line the keeper logged since the frame, which then reached neither the
+// relay nor the quit. A frame that carried no length, from a keeper with no log it could measure,
+// falls back to that stat. Called once the relay saw ready.
+func (k *keeperProcess) sessionLogFrom(cname string) int64 {
+	if k.logFromKnown {
+		return k.logFrom
+	}
+	return keeperLogSize(cname)
 }
 
 // startKeeper writes the plan and spawns the keeper, handing it the launch lock this launch holds

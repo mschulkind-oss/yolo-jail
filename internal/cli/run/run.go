@@ -1995,7 +1995,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 	kp.closeLifeline()
 	sessionStart := o.Now()
-	logFrom := keeperLogSize(cname)
+	// What the keeper logs from its ready frame on is this session's quit's to print (JL-D19): the
+	// relay printed every line before that frame and none after it, so the quit replays the log
+	// from the frame's own place in it, which the keeper took (JL-D78), never from a stat taken
+	// here, which a line logged since the frame would already be behind.
+	logFrom := kp.sessionLogFrom(cname)
 	rc, execErr := runArmedSession(firstExec, arm, o)
 	if !arm.detach() {
 		select {} // the signal arm is ending this launch; never race it
