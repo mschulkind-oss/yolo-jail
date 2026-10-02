@@ -115,24 +115,38 @@ func (o *Options) discardUnspawned(cname, rt string, left unspawned) {
 	}
 }
 
-// noteSkeleton records the home skeleton this launch built, for the guard to discard.
-func (g *launchGuard) noteSkeleton(dir string) {
+// noteSkeleton records the home skeleton this launch built, for the guard to discard. False once a
+// signal's teardown has begun, which took only what it already knew: the caller discards the
+// skeleton itself and leaves the exit to the teardown.
+func (g *launchGuard) noteSkeleton(dir string) bool {
 	if g == nil {
-		return
+		return true
 	}
 	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.ended {
+		return false
+	}
 	g.skeleton = dir
-	g.mu.Unlock()
+	return true
 }
 
-// noteRecorded says the launch is about to write the tracking file and the live-tree record.
-func (g *launchGuard) noteRecorded() {
+// record runs write, the launch's writing of the tracking file and the live-tree record, under the
+// guard's hold, so a signal's teardown takes back both or finds neither: one that began first
+// refuses it (false, and nothing is written), and one that lands during it waits for it.
+func (g *launchGuard) record(write func()) bool {
 	if g == nil {
-		return
+		write()
+		return true
 	}
 	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.ended {
+		return false
+	}
 	g.recorded = true
-	g.mu.Unlock()
+	write()
+	return true
 }
 
 // lockSpawn holds the guard through a keeper's spawn, so a signal's teardown waits for it; false,

@@ -334,7 +334,7 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 		switch name {
 		case "discloseLoopholes", "plannedLoopholeNames", "provisionStage", "newSessionID",
 			"firstSessionExecCmd", "sessionCmd", "keeperPlanFor", "keeperLine", "holdSessionLock",
-			"startKeeper", "armLaunchSignals", "relayKeeper", "retarget", "runArmedSession",
+			"startKeeper", "armLaunchSignals", "relay", "retarget", "runArmedSession",
 			"detach", "endSession":
 			firstPos(name, call.Pos())
 		case "stopJail", "teardownAfterExit", "startLoopholes", "startLoopholesDisclosed",
@@ -373,7 +373,7 @@ func TestTheFreshLaunchRunsTheJailAsAHoldAndItsFirstSessionByExec(t *testing.T) 
 	})
 	order := []string{"discloseLoopholes", "plannedLoopholeNames", "append HoldMainArg",
 		"provisionStage", "newSessionID", "firstSessionExecCmd", "sessionCmd", "keeperPlanFor",
-		"keeperLine", "holdSessionLock", "startKeeper", "armLaunchSignals", "relayKeeper", "retarget",
+		"keeperLine", "holdSessionLock", "startKeeper", "armLaunchSignals", "relay", "retarget",
 		"runArmedSession", "detach", "endSession"}
 	last := token.NoPos
 	for _, name := range order {

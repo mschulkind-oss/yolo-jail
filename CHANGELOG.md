@@ -8,13 +8,6 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- A Ctrl-C while a launch was still building or waiting at a prompt left your terminal tab in the
-  jail's colors and a copy of your packs on disk; it now cleans up both.
-
 ## [0.11.1] - 2026-10-01
 
 Agent updates no longer hang a launch, `yolo check` gives the right Nix advice and names the fix
@@ -107,6 +100,8 @@ pinned commit once for every workspace. See
   update.
 - A `yolo host apply --assert` whose skills, briefing or another step failed now ends saying so,
   not that the home is up to date.
+- On Podman and Apple Container, a Ctrl-C while a launch builds or waits at a prompt no longer
+  leaves your terminal tab in the jail's colors or a copy of your packs on disk.
 
 ### Contributors
 

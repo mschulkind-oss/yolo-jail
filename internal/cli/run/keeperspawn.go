@@ -87,10 +87,30 @@ type keeperProcess struct {
 	exited   chan struct{}
 	exitCode int
 	closeMu  sync.Once
+	// ready is closed once this launch's relay has read the keeper's ready frame (relay): from then
+	// on the keeper ends the jail on its session count, and no longer on the lifeline.
+	ready     chan struct{}
+	readyOnce sync.Once
+	// uncounted is the plan's Uncounted: a keeper that never ends the jail on the count (JL-P3).
+	uncounted bool
 }
 
 // closeLifeline closes the lifeline once.
 func (k *keeperProcess) closeLifeline() { k.closeMu.Do(func() { _ = k.lifeline.Close() }) }
+
+// relay is relayKeeper over this keeper's progress pipe, which also notes the ready frame on k, for
+// the teardown before ready that a signal can still run once the keeper is ready
+// (keeperPreReadyTeardown).
+func (k *keeperProcess) relay(out, errOut, jailOut, jailErr io.Writer, ev keeperEvents) bool {
+	then := ev.ready
+	ev.ready = func() {
+		k.readyOnce.Do(func() { close(k.ready) })
+		if then != nil {
+			then()
+		}
+	}
+	return relayKeeper(k.progress, out, errOut, jailOut, jailErr, ev)
+}
 
 // startKeeper writes the plan and spawns the keeper, handing it the launch lock this launch holds
 // (JL-D31): the keeper's copy keeps the lock, and this one is closed without the unlock that would
@@ -142,7 +162,8 @@ func (o *Options) startKeeper(plan *keeperPlan) (kp *keeperProcess, err error) {
 	if lockFile != nil {
 		o.launchLock.handOff()
 	}
-	kp = &keeperProcess{lifeline: lifeW, progress: progR, exited: make(chan struct{})}
+	kp = &keeperProcess{lifeline: lifeW, progress: progR, exited: make(chan struct{}),
+		ready: make(chan struct{}), uncounted: plan.Uncounted}
 	go func() {
 		kp.exitCode = wait()
 		close(kp.exited)
@@ -234,17 +255,14 @@ var keeperUnwindWait = 20 * time.Second
 // launch's, held until the process exited. The wait below then ran its whole bound for a keeper
 // that could not end the jail until it gave up. With the count let go here, the keeper drains as
 // for any last session, and the wait ends when it does; before ready the keeper is not counting,
-// and the lifeline ends the jail as it always did. A first session the count could not hold
-// (plan.Uncounted) has a keeper that never drains on it, so that launch still waits the bound.
+// and the lifeline ends the jail as it always did. Past ready this launch is a session that never
+// began, so the wait is a session's quit (awaitKeeperUnwind).
 func (o *Options) keeperPreReadyTeardown(kp *keeperProcess, cname, rt string) func() {
 	return func() {
 		o.Perf.Mark("terminate.signal")
 		kp.closeLifeline()
 		o.releaseSessionLock()
-		select {
-		case <-kp.exited:
-		case <-time.After(keeperUnwindWait):
-		}
+		o.awaitKeeperUnwind(kp, cname, rt)
 		// The report prints HERE, because the arm os.Exit(128+n)s the moment this returns and no
 		// statement after it will run; then the terminal, so the launch's last words land in the
 		// tab that ran it.
@@ -252,6 +270,55 @@ func (o *Options) keeperPreReadyTeardown(kp *keeperProcess, cname, rt string) fu
 		o.releaseHerdrAgent()
 		o.restoreTerminal()
 	}
+}
+
+// keeperUnwindPoll is how often awaitKeeperUnwind looks at the session count once the keeper is ready.
+const keeperUnwindPoll = 50 * time.Millisecond
+
+// awaitKeeperUnwind is the teardown's wait for its keeper's end, within keeperUnwindWait. Before
+// ready the keeper ends the jail on the lifeline, and the wait relays that. Once the relay has read
+// ready the keeper ends it on the count instead, so the wait is a session's quit (JL-D74): it goes
+// on only while the keeper is ending the jail, and a jail it keeps up is said, as endSession says
+// it, and not waited for. It keeps one up for another session still in it (a session's shared hold
+// on the count), and for an uncounted first session (JL-P3), on which it never drains.
+func (o *Options) awaitKeeperUnwind(kp *keeperProcess, cname, rt string) {
+	bound := time.After(keeperUnwindWait)
+	ready := kp.ready
+	var poll <-chan time.Time
+	for {
+		select {
+		case <-kp.exited:
+			return
+		case <-bound:
+			return
+		case <-ready:
+			ready = nil
+			if kp.uncounted {
+				o.pr(terminalOnly(o.Stderr)).printf("[dim]Jail %s stays up: its keeper could not count this "+
+					"session, so it does not end the jail when its sessions leave; %s ends it.[/dim]",
+					cname, stopRemedy(rt, cname))
+				return
+			}
+			poll = time.After(0)
+		case <-poll:
+			if othersInJail(cname) {
+				o.noteJailStaysUp(cname, rt)
+				return
+			}
+			poll = time.After(keeperUnwindPoll)
+		}
+	}
+}
+
+// othersInJail reports whether a session holds cname's session lock shared: one is still in the
+// jail, which its keeper keeps up. Called once this launch has let its own hold go.
+func othersInJail(cname string) bool {
+	f, err := openSessionLock(cname)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	return readSessionLockHolder(f) == heldShared
 }
 
 // keeperLine is the keeper's disclosure (JL-D21): one line, before the spawn, naming what it will
@@ -326,12 +393,7 @@ func (o *Options) endSession(cname, rt string, rc int, since time.Time, logFrom 
 	switch state {
 	case quitOthers:
 		o.printKeeperRecords(cname, logFrom)
-		others := "its other sessions"
-		if n, ok := o.jailSessionCount(rt, cname); ok && n > 0 {
-			others = fmt.Sprintf("%d other %s", n, plural(n, "session", "sessions"))
-		}
-		out.printf("[dim]Jail %s stays up for %s; `yolo -- <agent>` re-enters it, and %s ends them all.[/dim]",
-			cname, others, stopRemedy(rt, cname))
+		o.noteJailStaysUp(cname, rt)
 	case quitLast:
 		o.streamKeeperTeardown(cname, logFrom)
 	case quitUnkeptLast:
@@ -345,6 +407,17 @@ func (o *Options) endSession(cname, rt string, rc int, since time.Time, logFrom 
 		out.printf("[dim]Could not tell whether other sessions remain in %s; it may be ending.[/dim]", cname)
 	}
 	return rc
+}
+
+// noteJailStaysUp is the line of a session's quit that leaves others in its jail: it stays up for
+// them, how to re-enter it, and how to end it.
+func (o *Options) noteJailStaysUp(cname, rt string) {
+	others := "its other sessions"
+	if n, ok := o.jailSessionCount(rt, cname); ok && n > 0 {
+		others = fmt.Sprintf("%d other %s", n, plural(n, "session", "sessions"))
+	}
+	o.pr(terminalOnly(o.Stderr)).printf("[dim]Jail %s stays up for %s; `yolo -- <agent>` re-enters it, and %s ends them all.[/dim]",
+		cname, others, stopRemedy(rt, cname))
 }
 
 // printKeeperRecords prints what the keeper logged since logFrom, on the terminal: its log holds the

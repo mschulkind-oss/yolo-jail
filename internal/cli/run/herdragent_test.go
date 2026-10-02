@@ -267,7 +267,7 @@ func TestTheHerdrPaneIsRegisteredOnlyUnderASignalArm(t *testing.T) {
 	}
 
 	fresh := callsOf(funcDecl(t, "run.go", "runContainer"))
-	ordered("runContainer", fresh, "armLaunchSignals", "registerHerdrAgent", "relayKeeper",
+	ordered("runContainer", fresh, "armLaunchSignals", "registerHerdrAgent", "relay",
 		"runArmedSession", "endSession")
 	releasedAfter("runContainer", fresh, "runArmedSession", "endSession")
 	releasedBeforeEachDisarm("runContainer", fresh, first(fresh, "armLaunchSignals"))

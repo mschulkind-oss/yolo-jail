@@ -1692,7 +1692,12 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 			out.printf("[yellow]Warning: %s[/yellow]", w)
 		}
 		in.homeSkeleton = sk.dir
-		o.launchGuard.noteSkeleton(sk.dir)
+		if !o.launchGuard.noteSkeleton(sk.dir) {
+			// The launch guard is ending this launch, and took only what it knew of: this skeleton
+			// goes here. Never race it.
+			discardUnheldSkeleton(cname, sk.dir)
+			select {}
+		}
 	}
 	// FROM HERE TO THE CONTAINER START, EVERY RETURN DISCARDS THE SKELETON: no container ever
 	// held it, so leaving it would be one more directory for the reaper from a launch that
@@ -1777,17 +1782,21 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Tracking + window title. The tracking file is removed again by forgetGoneContainer, at the
 	// keeper's end, once the container is known gone. The OWNER-PID FILE is the keeper's to write,
 	// not this launch's: it names the jail's owner, and that is the keeper, for the jail's whole
-	// life (docs/design/jail-lifetime-last-session-wins.md JL-D18). The launch guard is told first,
-	// so a signal from here to the keeper's spawn takes both records back too.
-	o.launchGuard.noteRecorded()
-	_ = runtimeWriteTracking(cname, o.Workspace)
+	// life (docs/design/jail-lifetime-last-session-wins.md JL-D18). Both records are written under
+	// the launch guard's hold, so a signal from here to the keeper's spawn takes both back too.
+	//
 	// THE PACK TREE CHANGES HANDS here: from now on the container holds it and the keeper owns it,
 	// so Run's deferred discard leaves it, and it goes with the tracking file once the container is
 	// known gone. The live-tree record names it for a later attach, which takes the launch lock this
 	// launch hands its keeper, so no attach can find the container without the record.
-	if err := writeLivePackTree(cname, packStaging); err != nil {
-		out.printf("[yellow]Warning: could not record the pack tree this jail boots from (%s); "+
-			"an attach to it will compose from the configured packs instead[/yellow]", err.Error())
+	if !o.launchGuard.record(func() {
+		_ = runtimeWriteTracking(cname, o.Workspace)
+		if err := writeLivePackTree(cname, packStaging); err != nil {
+			out.printf("[yellow]Warning: could not record the pack tree this jail boots from (%s); "+
+				"an attach to it will compose from the configured packs instead[/yellow]", err.Error())
+		}
+	}) {
+		select {} // the launch guard is ending this launch, with what it made; never race it
 	}
 	o.packTreeHeld = true
 
@@ -1937,7 +1946,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// arm runs releases it, and so does this launch before each disarm below.
 	o.registerHerdrAgent(loadedPacks, injectedArgs)
 	keeperStarted := false
-	ready := relayKeeper(kp.progress, o.Stdout, o.Stderr, os.Stdout, os.Stderr, keeperEvents{
+	ready := kp.relay(o.Stdout, o.Stderr, os.Stdout, os.Stderr, keeperEvents{
 		started: func(pid int) {
 			keeperStarted = true
 			o.pr(o.Stderr).printf("[dim]keeper: started, pid %d[/dim]", pid)

@@ -210,13 +210,19 @@ func TestASignalAfterTheLaunchsRecordsTakesThemBackWithItsTree(t *testing.T) {
 	if err := os.MkdirAll(skeleton, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	f.o.launchGuard.noteSkeleton(skeleton)
-	f.o.launchGuard.noteRecorded()
-	if err := runtimeWriteTracking(cname, f.o.Workspace); err != nil {
-		t.Fatal(err)
+	if !f.o.launchGuard.noteSkeleton(skeleton) {
+		t.Fatal("the guard refused the skeleton of a launch no signal had ended")
 	}
-	if err := writeLivePackTree(cname, f.tree); err != nil {
-		t.Fatal(err)
+	var writeErr error
+	if !f.o.launchGuard.record(func() {
+		if writeErr = runtimeWriteTracking(cname, f.o.Workspace); writeErr == nil {
+			writeErr = writeLivePackTree(cname, f.tree)
+		}
+	}) {
+		t.Fatal("the guard refused the records of a launch no signal had ended")
+	}
+	if writeErr != nil {
+		t.Fatal(writeErr)
 	}
 	tracking := filepath.Join(paths.ContainerDir(), cname)
 	if !fileExists(tracking) {
@@ -375,4 +381,57 @@ func TestOnlyTheInnermostArmActsAndItTakesTheOuterLaunchsTreeToo(t *testing.T) {
 				e.code, e.left, 128+int(syscall.SIGTERM))
 		}
 	})
+}
+
+// TestWhatTheLaunchMakesWhileTheGuardTearsDownIsNotLeftBehind: the guard's teardown runs on the
+// arm's goroutine while the launch's own goroutine goes on, so the launch can reach the steps that
+// tell the guard about its skeleton and its records after the teardown has taken what it knew. The
+// skeleton and the two records must still be gone at the exit, and the records never written.
+func TestWhatTheLaunchMakesWhileTheGuardTearsDownIsNotLeftBehind(t *testing.T) {
+	cname := "yolo-guard-late"
+	var tracking, skeleton string // named once the fixture has set HOME
+	type leftAtExit struct{ tracking, live, skeleton bool }
+	var left leftAtExit
+	f := newGuardFixtureWith(t, cname, func() {
+		left = leftAtExit{fileExists(tracking), fileExists(paths.LivePackTreeRecord(cname)), fileExists(skeleton)}
+	})
+	tracking = filepath.Join(paths.ContainerDir(), cname)
+	skeleton = filepath.Join(paths.HomeSkeletonRoot(cname), "skel-late")
+	inTeardown, resume := make(chan struct{}), make(chan struct{})
+	f.o.RestoreTerminal = func() { close(inTeardown); <-resume }
+	catchSignal(t, syscall.SIGINT)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-inTeardown:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the guard's teardown never ran")
+	}
+	// The launch's goroutine, still running: it builds its skeleton and writes its records as
+	// runContainer does.
+	if err := os.MkdirAll(skeleton, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if f.o.launchGuard.noteSkeleton(skeleton) {
+		t.Error("the guard took the skeleton of a launch its teardown had already ended")
+	} else {
+		discardUnheldSkeleton(cname, skeleton)
+	}
+	if f.o.launchGuard.record(func() {
+		_ = runtimeWriteTracking(cname, f.o.Workspace)
+		_ = writeLivePackTree(cname, f.tree)
+	}) {
+		t.Error("the guard let a launch its teardown had already ended write its records")
+	}
+	close(resume)
+	select {
+	case <-f.exits:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the guard never exited")
+	}
+	if left.tracking || left.live || left.skeleton {
+		t.Errorf("the launch exited leaving what it made during its guard's teardown: tracking file %v, "+
+			"live-tree record %v, skeleton %v", left.tracking, left.live, left.skeleton)
+	}
 }

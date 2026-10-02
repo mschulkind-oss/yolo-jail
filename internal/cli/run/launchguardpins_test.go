@@ -17,8 +17,9 @@ import (
 //     while the session's quit streams the keeper's teardown would then wait out the pre-ready
 //     bound instead of stopping the stream;
 //   - attachExisting retires it right after the attach's arm, before the exec;
-//   - runContainer tells it the skeleton it built, and that the records are coming before the
-//     first of them (the tracking file) is written.
+//   - runContainer tells it the skeleton it built and writes both records under its hold
+//     (record), stopping where the guard refuses either, since a teardown under way took only
+//     what it already knew.
 //
 // Run's own installation is pinned by TestASIGINTWhileTheImageBuildsLeavesNoPackTree, which fails
 // without it.
@@ -56,12 +57,49 @@ func TestTheLaunchGuardIsHandedOverWhereAnArmTakesOver(t *testing.T) {
 		}
 	}
 
-	fresh := first(funcDecl(t, "run.go", "runContainer"), "buildHomeSkeleton", "noteSkeleton",
-		"noteRecorded", "runtimeWriteTracking", "writeLivePackTree", "startKeeper", "armLaunchSignals",
-		"retireLaunchGuard", "registerHerdrAgent", "relayKeeper")
-	inOrder("runContainer", fresh, "buildHomeSkeleton", "noteSkeleton", "noteRecorded",
+	runContainer := funcDecl(t, "run.go", "runContainer")
+	fresh := first(runContainer, "buildHomeSkeleton", "noteSkeleton",
+		"record", "runtimeWriteTracking", "writeLivePackTree", "startKeeper", "armLaunchSignals",
+		"retireLaunchGuard", "registerHerdrAgent", "relay")
+	inOrder("runContainer", fresh, "buildHomeSkeleton", "noteSkeleton", "record",
 		"runtimeWriteTracking", "writeLivePackTree", "startKeeper", "armLaunchSignals",
-		"retireLaunchGuard", "registerHerdrAgent", "relayKeeper")
+		"retireLaunchGuard", "registerHerdrAgent", "relay")
+
+	// The two records are written INSIDE the guard's record, under its hold, and the launch stops
+	// where the guard refuses its skeleton or its records: written after the teardown took what it
+	// knew, either would be left behind.
+	ast.Inspect(runContainer, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || skelCallee(call) != "record" {
+			return true
+		}
+		inside := first(&ast.FuncDecl{Name: ast.NewIdent("record"), Type: &ast.FuncType{},
+			Body: &ast.BlockStmt{List: []ast.Stmt{&ast.ExprStmt{X: call}}}},
+			"runtimeWriteTracking", "writeLivePackTree")
+		for _, name := range []string{"runtimeWriteTracking", "writeLivePackTree"} {
+			if _, ok := inside[name]; !ok {
+				t.Errorf("runContainer calls %s outside the launch guard's record", name)
+			}
+		}
+		return false
+	})
+	conditions := map[string]bool{}
+	ast.Inspect(runContainer, func(n ast.Node) bool {
+		if ifs, ok := n.(*ast.IfStmt); ok {
+			ast.Inspect(ifs.Cond, func(c ast.Node) bool {
+				if call, ok := c.(*ast.CallExpr); ok {
+					conditions[skelCallee(call)] = true
+				}
+				return true
+			})
+		}
+		return true
+	})
+	for _, name := range []string{"noteSkeleton", "record"} {
+		if !conditions[name] {
+			t.Errorf("runContainer ignores whether the launch guard took its %s: it must stop when the guard refuses", name)
+		}
+	}
 
 	attach := first(funcDecl(t, "run.go", "attachExisting"), "attachSignalArm", "retireLaunchGuard",
 		"runArmedSession")
