@@ -139,7 +139,7 @@ command, the deploy command and the production branch. **Nothing in this reposit
 them.**
 
 - **Trigger.** Every push to `main` builds and deploys. A push to any other branch builds and
-  reports as the `Workers Builds: yolo-jail` check, without deploying.
+  reports as the `Workers Builds: yolo-jail-docs` check, without deploying.
 - **One writer.** Workers Builds is the only thing that deploys. There is no `just` recipe and no
   laptop deploy, because a second deployer could publish from a dirty tree, and `ci.yml` has no
   deploy step.
@@ -152,7 +152,7 @@ them.**
 > dashboard's build command changes in the same breath. Vantage paid for this once: it deleted its
 > build script, the dashboard kept running the old name for three months, and every pull request
 > carried a red check nothing in its tree could explain. The two defenses are copied from its fix:
-> the script's header comment, and the `AGENTS.md` line on the `Workers Builds: yolo-jail` check.
+> the script's header comment, and the `AGENTS.md` line on the `Workers Builds: yolo-jail-docs` check.
 
 ## The gate
 
@@ -188,7 +188,7 @@ Each row is a ruling a maintainer could undo on purpose, kept under its original
 | <a id="oq-dw2"></a><a id="dw-d1"></a>[`OQ-DW2`](#oq-dw2), decided as [`DW-D1`](#dw-d1): **`settings-per-setup.md` crosses into the guide, and no other reference page does** (2026-09-30) | It is the one page the guide links that is written for a reader choosing a setup: the maintainer's review of it said *"this is for a user learning about yolo, not me as a developer"*. Moving nothing would send a learner to GitHub for the table of what works in their setup. Moving another page later is a `git mv` and its links, and the closed-tree check refuses any link left pointing out. |
 | <a id="dw-d2"></a>[`DW-D2`](#dw-d2): the move's "no file names the deleted guide directory" check prints only path-shaped words, drops URLs, and skips the files that record the move (2026-09-30) | A bare search over the same paths could never print nothing: it matched its own line, and text that names the deleted directory on purpose. |
 | **No deploy from GitHub Actions** | It is not Vantage's setup, it would be a second deployer, and it would put a deploy token in CI. |
-| **The latest `vantage-md` on every build**, not a pinned version (maintainer, 2026-10-01) | The site picks up each Vantage release without a bump commit. The cost is that a Vantage release can change the published site with no commit here; the pinned `vantage-check` in `lint-ci` still gates the guide's Markdown. |
+| **The latest `vantage-md` on every build, and the latest `vantage-check` in the gate**, never a pinned version (maintainer, 2026-10-01 for the site, 2026-10-02 for the gate) | The site and the gate pick up each Vantage release without a bump commit. The cost is that a Vantage release can change the published site, or fail `lint-ci` on a new rule, with no commit here. |
 
 ## Current values
 
@@ -198,7 +198,7 @@ place the values themselves are stated.
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | The address | `https://docs.yolo-jail.mschulkind.dev` | the Cloudflare dashboard ([`OQ-DW1`](#oq-dw1)) |
-| The Worker's name, and so the check's | `yolo-jail`, `Workers Builds: yolo-jail` | `docs-wrangler.toml` |
+| The Worker's name, and so the check's | `yolo-jail-docs`, `Workers Builds: yolo-jail-docs` | the Cloudflare dashboard, which `docs-wrangler.toml`'s `name` matches. The dashboard's name wins: while the file still said `yolo-jail`, the push of `3e556c0ab` deployed to `yolo-jail-docs`, the only Worker of either name (seen in the dashboard 2026-10-02) |
 | The build command | `bash scripts/build-site.sh` | the Cloudflare dashboard |
 | The deploy command | `npx wrangler deploy --config docs-wrangler.toml` | the Cloudflare dashboard |
 | The production branch | `main` | the Cloudflare dashboard |
@@ -206,4 +206,4 @@ place the values themselves are stated.
 | The export's display name | `YOLO Jail User Guide` | `scripts/build-site.sh` |
 | The export directory | `dist/docs` | `scripts/build-site.sh`; `[assets] directory`, `docs-wrangler.toml` |
 | Unmatched paths, `workers.dev`, previews | `single-page-application`; on; off | `docs-wrangler.toml` |
-| The gate's `vantage-check` | `vantage-check@0.7.0` | `lint-ci`, `Justfile` |
+| The gate's `vantage-check` | the latest `vantage-check` release | `lint-ci`, `Justfile` |

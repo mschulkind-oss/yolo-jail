@@ -570,7 +570,7 @@ release is fixed by the next one. What the script cannot judge is who the sectio
 
 ## Workflow
 
-**The `Workers Builds: yolo-jail` check is Cloudflare's.** Its build command (`bash scripts/build-site.sh`) and deploy command (`npx wrangler deploy --config docs-wrangler.toml`) live in the Cloudflare dashboard, not this repository. Renaming the script without updating that dashboard command leaves the site stale and the check red. Workers Builds is the only docs deployer; `docs.yolo-jail.mschulkind.dev` is attached in the dashboard, not by a second deploy script.
+**The `Workers Builds: yolo-jail-docs` check is Cloudflare's.** Its build command (`bash scripts/build-site.sh`) and deploy command (`npx wrangler deploy --config docs-wrangler.toml`) live in the Cloudflare dashboard, not this repository. Renaming the script without updating that dashboard command leaves the site stale and the check red. Workers Builds is the only docs deployer; `docs.yolo-jail.mschulkind.dev` is attached in the dashboard, not by a second deploy script.
 
 1. **Image change** → edit [`flake.nix`](flake.nix), then verify end-to-end in a nested jail
    (`cd /tmp/yolo-nested && YOLO_REPO_ROOT=/workspace yolo -- bash` — never from `/workspace`). The nested

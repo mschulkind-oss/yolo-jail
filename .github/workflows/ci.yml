@@ -63,7 +63,7 @@ jobs:
           go-version-file: go.mod
 
       # The same `just check-ci` gate checks the published user guide with
-      # pinned vantage-check via uvx. Keep CI and the local gate on one command.
+      # the latest vantage-check via uvx. Keep CI and the local gate on one command.
       - uses: astral-sh/setup-uv@v7
 
       # `just check-ci` needs `just` itself plus staticcheck.  Installed
