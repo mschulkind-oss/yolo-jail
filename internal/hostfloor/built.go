@@ -55,7 +55,7 @@ func (f *Floor) buildProvisionable(st Status) Status {
 		if why := f.cannotBuild(); why != "" {
 			st.Disposition = NoEntry
 			st.Reason = "it is built from source by fork pack " + p.Install.ForkedBy + ", which has no pin yet, and " +
-				why + f.buildStep("pins the fork and builds it")
+				why + runtimeStep(f.Build != nil, "pins the fork and builds it")
 			return st
 		}
 		st.Reason = "not pinned yet: the install pins fork pack " + p.Install.ForkedBy + "'s source (" +
@@ -79,20 +79,7 @@ func (f *Floor) buildProvisionable(st Status) Status {
 // machine that cannot run the build act (why): the one spelling Status and an install share.
 func (f *Floor) noBuildReason(bin, commit, why string) string {
 	return "there is no build of " + bin + " at " + buildVersion(commit) + " on this machine, and " + why +
-		f.buildStep("builds it")
-}
-
-// buildStep is the next step a fork's no-floor-entry reason ends with when cannotBuild stopped it
-// for want of a container runtime (CaptureUnavailable). Nothing is left to run by hand once one is
-// installed: the next launch makes what is missing itself (FP-D18: a launch pins a fork, and the
-// floor builds the pin), and does names what that launch makes. So the step is the runtime, whose
-// install line for this machine `yolo check` prints. "" when the obstacle is that this yolo has no
-// build act at all, which nothing the user installs moves.
-func (f *Floor) buildStep(does string) string {
-	if f.Build == nil {
-		return ""
-	}
-	return " — install one (`yolo check` names how on this machine) and the next `yolo host` launch " + does
+		runtimeStep(f.Build != nil, "builds it")
 }
 
 // buildUnusable says why the store's build entry of p at commit cannot be the floor's copy, "" when

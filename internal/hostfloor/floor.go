@@ -565,16 +565,32 @@ func (f *Floor) provisionable(st Status) Status {
 			if why := f.cannotCapture(); why != "" {
 				st.Disposition = NoEntry
 				st.Reason = "the capture of " + st.Program.Bin() + " on this machine was recorded for a " +
-					"jail's home only, and " + why
+					"jail's home only, and " + why + runtimeStep(f.Capture != nil, "recaptures it")
 			}
 		}
 		return st
 	}
 	if why := f.cannotCapture(); why != "" {
 		st.Disposition = NoEntry
-		st.Reason = "there is no capture of " + st.Program.Bin() + " on this machine, and " + why
+		st.Reason = "there is no capture of " + st.Program.Bin() + " on this machine, and " + why +
+			runtimeStep(f.Capture != nil, "captures it")
 	}
 	return st
+}
+
+// runtimeStep is the next step a no-floor-entry reason ends with when the floor stopped before an
+// act that boots a jail — the capture act, or a fork's build — for want of a container runtime
+// (CaptureUnavailable). Nothing is left to run by hand once one is installed: the next launch's
+// install runs the act itself (installFromCapture captures, or recaptures, an installer program the
+// store holds no usable capture of; FP-D18: a launch pins a fork, and the floor builds the pin), and
+// does names what that launch does. So the step is the runtime, whose install line for this
+// machine `yolo check` prints. "" when act is false — this yolo has no such act at all, which
+// nothing the user installs moves.
+func runtimeStep(act bool, does string) string {
+	if !act {
+		return ""
+	}
+	return " — install one (`yolo check` names how on this machine) and the next `yolo host` launch " + does
 }
 
 // cannotCapture says why this machine cannot run the capture act now, "" when it can.

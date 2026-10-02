@@ -118,6 +118,66 @@ func TestTheProductionFloorRunsTheCaptureActForAnInstallerAgentItHasNoCaptureOf(
 	}
 }
 
+// `yolo host -- <installer agent>` the store has no capture of, ON A MACHINE WITH NO CONTAINER
+// RUNTIME on PATH, through newHostFloor's own CaptureUnavailable: the floor runs no capture, the
+// no-copy line names the missing runtime and the step that ends it, and the launch runs the PATH
+// copy (OQ-HE11). The step is true: with a runtime on PATH, the next launch runs the capture act
+// once — a stand-in filing what `yolo capture` would — and execs the floor's copy, with nothing run
+// by hand. Only the platform (Linux, where the floor holds installer agents) is the test's.
+func TestHostLaunchOfAnInstallerAgentOnAMachineThatCannotCaptureNamesTheRuntimeStep(t *testing.T) {
+	nativeFloorFixture(t)
+	orig := newHostFloor
+	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+		f := productionHostFloor(out, progs)
+		f.GOOS = "linux"
+		f.Node.BaseURL = "http://127.0.0.1:1/test-guard-no-node-download"
+		return f
+	}
+	t.Cleanup(func() { newHostFloor = orig })
+	var captured []string
+	origAct := hostFloorCaptureAct
+	hostFloorCaptureAct = func(args []string, out, errw io.Writer, color bool) int {
+		captured = append(captured, strings.Join(args, " "))
+		admitRelocatableCapture(t, args[0], "#!/bin/sh\necho nativecli from the capture \"$@\"\n")
+		return 0
+	}
+	t.Cleanup(func() { hostFloorCaptureAct = origAct })
+	stubDir := stubBins(t, "nativecli")
+	withoutContainerRuntime(t, stubDir)
+
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	stub := filepath.Join(stubDir, "nativecli")
+	if rc := hostExec(nil, []string{"nativecli"}, io.Discard, &errw, nil); rc != 0 || got.target != stub {
+		t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, stub, errw.String())
+	}
+	want := "yolo host: yolo has no copy of nativecli on this machine (there is no capture of nativecli on " +
+		"this machine, and no container runtime (podman) is on PATH to run `yolo capture` with — install " +
+		"one (`yolo check` names how on this machine) and the next `yolo host` launch captures it); " +
+		"looking for it on your PATH\n"
+	if !strings.Contains(errw.String(), want) {
+		t.Errorf("stderr lacks the no-copy line with its step\n  %s\n%s", want, errw.String())
+	}
+	if len(captured) != 0 {
+		t.Fatalf("a capture ran on a machine with no runtime: %q", captured)
+	}
+
+	// The step, taken: a runtime on PATH, and the next launch captures it and runs the floor's copy.
+	if err := os.WriteFile(filepath.Join(stubDir, "podman"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	errw.Reset()
+	if rc := hostExec(nil, []string{"nativecli"}, io.Discard, &errw, nil); rc != 0 || !got.execed {
+		t.Fatalf("with a runtime: rc=%d execed=%v\n%s", rc, got.execed, errw.String())
+	}
+	if strings.Join(captured, "|") != "nativecli" {
+		t.Fatalf("with a runtime: the capture act ran %q, want once for nativecli\n%s", captured, errw.String())
+	}
+	if launcher := filepath.Join(paths.HostFloorDir(), "bin", "nativecli"); got.target != launcher {
+		t.Errorf("with a runtime: exec'd %s, want the floor's copy %s\n%s", got.target, launcher, errw.String())
+	}
+}
+
 // TestAPacksNodeFloorRaisesTheFloorsNode drives newHostFloor's NodeFloor: a selected pack whose
 // npm program declares node_floor 99.1, above the release the floor ships, installs on Node
 // 99.1.0 — the fake distribution serves it with published checksums — and its launcher starts

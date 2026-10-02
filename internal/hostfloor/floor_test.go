@@ -404,6 +404,82 @@ func TestAnInstallerProgramThisMachineCanNeitherMaterializeNorCaptureHasNoFloorE
 	}
 }
 
+// AN INSTALLER PROGRAM THE FLOOR COULD CAPTURE BUT FOR A RUNTIME is no floor entry whose reason
+// names the missing runtime and the step that ends it, in both of the capture arms: no capture in
+// the store, and one recorded for a jail's home only. The step is true: once a runtime is there,
+// the next install runs the one capture itself and installs it, with nothing run by hand. And a
+// floor with no capture act names no runtime to install, since installing one would change nothing.
+func TestAnInstallerProgramTheFloorCannotCaptureForWantOfARuntimeNamesTheStep(t *testing.T) {
+	const unavailable = "no container runtime (podman) is on PATH"
+	for _, c := range []struct {
+		name, reason, does string
+		seed               func(cs *captureStore)
+	}{
+		{"no capture", "there is no capture of claude on this machine, and ", "captures it",
+			func(*captureStore) {}},
+		{"a capture for a jail's home only",
+			"the capture of claude on this machine was recorded for a jail's home only, and ", "recaptures it",
+			func(cs *captureStore) { cs.add("claude", "2.1.200", false) }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newLinuxWorld(t)
+			cs := newCaptureStore(t)
+			c.seed(cs)
+			w.floor.ResolveCapture = cs.resolve
+			captures := 0
+			w.floor.Capture = func(bin string) error {
+				captures++
+				cs.add(bin, "2.1.267", true)
+				return nil
+			}
+			runtimeMissing := true
+			w.floor.CaptureUnavailable = func() string {
+				if runtimeMissing {
+					return unavailable
+				}
+				return ""
+			}
+			claude := installerProgram("claude", "claude")
+			st, _, err := w.floor.Ensure(context.Background(), claude)
+			if !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry {
+				t.Fatalf("Ensure = %s (%s) %v, want no floor entry", st.Disposition, st.Reason, err)
+			}
+			want := c.reason + unavailable + " — install one (`yolo check` names how on this machine) " +
+				"and the next `yolo host` launch " + c.does
+			if st.Reason != want {
+				t.Errorf("the reason is\n  %s\nwant\n  %s", st.Reason, want)
+			}
+			if captures != 0 {
+				t.Fatalf("a capture ran %d times on a machine with no runtime", captures)
+			}
+
+			// The step, taken: a runtime, and the next install captures it once and installs that.
+			runtimeMissing = false
+			st, outcome, err := w.floor.Ensure(context.Background(), claude)
+			if err != nil || outcome != Installed || st.Record == nil || st.Record.Version != "2.1.267" {
+				t.Fatalf("with a runtime: Ensure = %+v %s %v, want the capture installed\n%s", st, outcome, err,
+					w.out.String())
+			}
+			if captures != 1 {
+				t.Errorf("with a runtime: %d captures, want the one the step promised", captures)
+			}
+
+			// No capture act at all: no floor entry, and no runtime to install.
+			other := newLinuxWorld(t)
+			none := newCaptureStore(t)
+			c.seed(none)
+			other.floor.ResolveCapture = none.resolve
+			other.floor.CaptureUnavailable = func() string { return unavailable }
+			st = other.floor.Status(claude)
+			if st.Disposition != NoEntry || !strings.Contains(st.Reason, "cannot run `yolo capture`") ||
+				strings.Contains(st.Reason, "install one") {
+				t.Errorf("with no capture act: %s (%s), want no floor entry naming no runtime step",
+					st.Disposition, st.Reason)
+			}
+		})
+	}
+}
+
 // TestNoFloorEntryDispositions: the ways the floor cannot hold a selected pack's program,
 // each with its reason, and none of them touching the disk.
 func TestNoFloorEntryDispositions(t *testing.T) {
