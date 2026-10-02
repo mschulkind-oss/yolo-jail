@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // workspacefile_test.go covers the per-workspace file (workspacefile.go;
@@ -365,7 +366,7 @@ func TestASwitchForALoopholeNoLongerInstalledNamesTheCommandThatClearsIt(t *test
 	if len(hits) != 1 {
 		t.Fatalf("warnings = %v, want the one uninstalled-loophole warning", warns)
 	}
-	for _, want := range []string{WorkspaceFilePath(ws), "`yolo loopholes disable github-broker --workspace " + ws + "`"} {
+	for _, want := range []string{WorkspaceFilePath(ws), "`yolo loopholes disable github-broker --workspace " + shquote.Quote(ws) + "`"} {
 		if !strings.Contains(hits[0], want) {
 			t.Errorf("the warning does not say %q:\n%s", want, hits[0])
 		}
