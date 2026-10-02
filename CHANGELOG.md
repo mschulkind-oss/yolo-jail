@@ -35,8 +35,10 @@ wire-bridge profiles also work on macos-user.
 **Choose the models each provider offers.** A pack's `models` entry adds to a provider's model
 list or narrows it, and agents that allow it offer only that list.
 
-**Work that survives a restart.** Every jail has `$YOLO_DURABLE_DIR`, a folder yolo never deletes,
-and agents keep their worktrees there. A user-config `mounts` entry with `"mode": "rw"` is writable.
+**Agent scratch space that survives a restart.** Every jail has `$YOLO_DURABLE_DIR`, a folder yolo
+never deletes, for an agent's worktrees and other files it doesn't want a restart to wipe. It isn't
+part of your project, and you never need to look in it. A user-config `mounts` entry with
+`"mode": "rw"` is writable.
 
 **herdr shows a jailed agent as that agent.** In a [herdr](https://herdr.dev) pane,
 `yolo -- <agent>` registers the agent, so herdr's sidebar shows it working, blocked or done, and a

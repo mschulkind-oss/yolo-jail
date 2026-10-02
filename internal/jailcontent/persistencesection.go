@@ -108,7 +108,7 @@ func persistenceSection(m *PersistenceMap, d *DurableDir, workspace, hostWorkspa
 	const toolsOwn = " (the agents' and tools' own state and installs: never put your work there)"
 	var where []string
 	if hasDurable {
-		where = append(where, "`$"+durable.EnvVar+"`, the one place for your work")
+		where = append(where, "`$"+durable.EnvVar+"`, your scratch space")
 	}
 	var inHome, outside []string
 	for _, p := range m.Of(PathWorkspaceDurable) {
@@ -240,12 +240,13 @@ func durableLead(d *DurableDir, workspace, hostWorkspace string) []string {
 		lifetime = "⚠ " + d.Caveat
 	}
 	lead := []string{
-		"**Your work goes in " + v + "** (`" + d.Path + "`): worktrees, clones, drafts, " +
-			"measurements. Use any layout under it.",
-		lifetime + " It lives in the workspace's `.yolo`, which git ignores (yolo's own " +
-			"`.yolo/.gitignore`) and the user sees on the host, so a " + durable.CleanCommand +
-			" in the workspace deletes it: never run one there. The rest of `" + workspace +
-			"` is the user's project.",
+		"**" + v + "** (`" + d.Path + "`) is scratch space for what you do not want to lose " +
+			"in a restart: worktrees, clones, intermediate files. It is not part of the project, and the user " +
+			"never needs to look in it, so anything meant for the project or for the user goes " +
+			"where it otherwise would. Use any layout under it.",
+		lifetime + " It sits in the workspace's `.yolo`, which git ignores, so a " +
+			durable.CleanCommand + " in the workspace deletes it: never run one there. The rest of `" +
+			workspace + "` is the user's project.",
 	}
 	worktree := "Make a worktree with `git worktree add --lock \"$" + durable.EnvVar + "/worktrees/<task>\"`"
 	if workspace != hostWorkspace {
@@ -259,8 +260,8 @@ func durableLead(d *DurableDir, workspace, hostWorkspace string) []string {
 		// that over the classes below, because the instruction was the more specific one.
 		// "Survive a restart", not "outlive this session": a new session in the same launch
 		// still sees /tmp, and the classes are defined by launches.
-		"If a harness, workflow or tool tells you to put work under `/tmp`, put anything that "+
-			"must survive a restart in "+v+" instead; the harness cannot see this jail's "+
+		"If a harness, workflow or tool tells you to put scratch work under `/tmp`, put anything "+
+			"that must survive a restart in "+v+" instead; the harness cannot see this jail's "+
 			"storage classes.",
 		"",
 		worktree+". Drive it with `git -C <path>`, not `cd <path> && …`, so a missing tree "+

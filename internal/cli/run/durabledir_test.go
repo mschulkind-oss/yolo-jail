@@ -64,7 +64,7 @@ func TestAFreshLaunchMakesTheDurableDirAndBothBriefingAndArgvName(t *testing.T) 
 				t.Errorf("a successful launch printed %q", out.String())
 			}
 			_, sec := durableBriefing(t, o, rt)
-			lead := "**Your work goes in `$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`): "
+			lead := "**`$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`) is scratch space for"
 			if !strings.Contains(sec, "\n\n"+lead) {
 				t.Errorf("the %s briefing does not lead with the durable dir:\n%s", rt, sec)
 			}
@@ -202,7 +202,7 @@ func nestInOuterTmp(t *testing.T, o *Options) {
 
 // nestedLifetime is the caveat as the briefing renders it, in the lifetime sentence's place.
 const nestedLifetime = "Use any layout under it.\n⚠ This workspace is itself inside the enclosing " +
-	"jail's per-launch `/tmp`, so this directory lasts only as long as that jail. It lives in "
+	"jail's per-launch `/tmp`, so this directory lasts only as long as that jail. It sits in "
 
 // A NESTED JAIL'S BRIEFING STATES ITS DURABLE DIR'S LIFETIME ONCE, AND TRUTHFULLY: the
 // caveat, in place of "yolo never deletes it", which the enclosing yolo's cleanup of its
@@ -231,7 +231,7 @@ func TestAnAttachBriefsTheDurableDirTheJailWasStartedWith(t *testing.T) {
 		nested          bool
 	}{
 		{"exported", exported,
-			"**Your work goes in `$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`)", false},
+			"**`$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`) is scratch space for", false},
 		{"started without one", currentJailEnv,
 			"**No durable directory this launch**: this jail was started without one (by an older " +
 				"launcher, or a launch that could not make it); a fresh launch tries again.", false},

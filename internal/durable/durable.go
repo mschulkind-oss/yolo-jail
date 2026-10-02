@@ -1,7 +1,8 @@
 // Package durable is the durable dir (a term coined in docs/design/durable-scratch-space.md
 // §1.2): `<workspace>/.yolo/durable`, the one agent-neutral directory every jail backend
-// exports as $YOLO_DURABLE_DIR, where an agent's worktrees, clones, drafts and measurements
-// survive a restart (OQ-DS1).
+// exports as $YOLO_DURABLE_DIR: an agent's scratch space for what it does not want a restart to
+// wipe, such as worktrees and clones (OQ-DS1). It is not part of the project, and the user never
+// needs to look in it (the maintainer, 2026-10-02; DS-D35).
 //
 // This package holds the three things more than one caller needs: the directory's names,
 // its one creator (Ensure, which the launcher alone calls on a fresh launch, DS-D2), and

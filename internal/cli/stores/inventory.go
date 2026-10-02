@@ -848,7 +848,7 @@ func sizeClass(s *Store, roots []string, o Options) {
 }
 
 // SectionDurable is every known workspace's durable dir (docs/design/durable-scratch-space.md
-// §5.4): the agents' worktrees, clones and drafts under `<workspace>/.yolo/durable`.
+// §5.4): the agents' scratch worktrees and clones under `<workspace>/.yolo/durable`.
 const SectionDurable = "workspace durable dirs"
 
 // durableStores is one row per workspace this command already knows — the workspaces of the

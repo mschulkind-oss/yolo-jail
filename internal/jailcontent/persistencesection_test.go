@@ -22,8 +22,8 @@ func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
 	}
 	sec := persistenceSectionOf(t, out)
 	lead := persistenceHeading + "\n\n" +
-		"**Your work goes in `$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`): worktrees, clones, drafts, measurements. Use any layout under it.\n" +
-		"It survives restarts and yolo never deletes it. It lives in the workspace's `.yolo`, which git ignores (yolo's own `.yolo/.gitignore`) and the user sees on the host, so a `git clean -fdx` (or `-fdX`) in the workspace deletes it: never run one there. The rest of `/workspace` is the user's project.\n"
+		"**`$YOLO_DURABLE_DIR`** (`/workspace/.yolo/durable`) is scratch space for what you do not want to lose in a restart: worktrees, clones, intermediate files. It is not part of the project, and the user never needs to look in it, so anything meant for the project or for the user goes where it otherwise would. Use any layout under it.\n" +
+		"It survives restarts and yolo never deletes it. It sits in the workspace's `.yolo`, which git ignores, so a `git clean -fdx` (or `-fdX`) in the workspace deletes it: never run one there. The rest of `/workspace` is the user's project.\n"
 	if !strings.HasPrefix(sec, lead) {
 		t.Errorf("the section does not open with the durable dir:\n%s", sec)
 	}
@@ -31,7 +31,7 @@ func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
 		// The relayed /tmp confusion: an agent followed its harness's /tmp over the classes.
 		// "Survive a restart", not "outlive this session": a new session in the same launch
 		// still sees /tmp.
-		"If a harness, workflow or tool tells you to put work under `/tmp`, put anything that must survive a restart in `$YOLO_DURABLE_DIR` instead; the harness cannot see this jail's storage classes.",
+		"If a harness, workflow or tool tells you to put scratch work under `/tmp`, put anything that must survive a restart in `$YOLO_DURABLE_DIR` instead; the harness cannot see this jail's storage classes.",
 		// `--lock` says why: the host has this workspace at "/w", not /workspace. The cause is
 		// in the sentence (the recorded path is one the host lacks), and what a prune takes is
 		// the registration, not the files.
@@ -40,7 +40,7 @@ func TestThePersistenceSectionLeadsWithTheDurableDir(t *testing.T) {
 		"- **Per launch** (on disk): `/tmp`, `/run`. Shared by every terminal attached to this jail. Survives nothing",
 		"yolo deletes these once the jail exits",
 		"Throwaway files only, never a worktree.",
-		"- **Per workspace**: `$YOLO_DURABLE_DIR`, the one place for your work; in home, only `~/.claude`, `~/.config`, `~/go` (the agents' and tools' own state and installs: never put your work there); `/workspace/.venv` (this jail's own copies, not the host's). Survives restarts and every new launch of this workspace; another workspace has its own. yolo deletes nothing here but some agents' old log files (`yolo prune --apply`).",
+		"- **Per workspace**: `$YOLO_DURABLE_DIR`, your scratch space; in home, only `~/.claude`, `~/.config`, `~/go` (the agents' and tools' own state and installs: never put your work there); `/workspace/.venv` (this jail's own copies, not the host's). Survives restarts and every new launch of this workspace; another workspace has its own. yolo deletes nothing here but some agents' old log files (`yolo prune --apply`).",
 		"- **Every workspace on this machine**: `~/.cache`, `/mise`. Survives restarts and workspace switches, and every jail on this machine shares them",
 		"Tool caches belong here (pip's `~/.cache/pip`, for one), never your work",
 		"- **The workspace itself**: `/workspace`, live on the host: the user's project, not a scratch area; only `$YOLO_DURABLE_DIR` inside it is yours. It outlives every jail, and yolo never cleans it up.",
@@ -119,7 +119,7 @@ func TestADurableDirThatCouldNotBeMadeIsSaidAndNotOffered(t *testing.T) {
 func TestTheDurableCaveatReplacesTheLifetimeSentence(t *testing.T) {
 	sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: "/tmp/n", Mechanism: "podman",
 		Persistence: podmanShapedMap(), Durable: &DurableDir{Path: durable.ContainerJailPath, Caveat: "Only as long as X."}}))
-	if !strings.Contains(sec, "Use any layout under it.\n⚠ Only as long as X. It lives in the workspace's `.yolo`, ") {
+	if !strings.Contains(sec, "Use any layout under it.\n⚠ Only as long as X. It sits in the workspace's `.yolo`, ") {
 		t.Errorf("the caveat is not where the lifetime sentence was:\n%s", sec)
 	}
 	if strings.Contains(sec, "never deletes it") {
@@ -135,7 +135,7 @@ func TestTheMacosUserSectionIsTheDurableAnswerAtTheRealPath(t *testing.T) {
 	sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: ws, Mechanism: "macos-user",
 		Home: "/Users/_yolojail", Durable: &DurableDir{Path: ws + "/.yolo/durable"}}))
 	for _, want := range []string{
-		"**Your work goes in `$YOLO_DURABLE_DIR`** (`" + ws + "/.yolo/durable`)",
+		"**`$YOLO_DURABLE_DIR`** (`" + ws + "/.yolo/durable`) is scratch space for",
 		"The rest of `" + ws + "` is the user's project.",
 		"- **`/tmp`** is this Mac's own: it survives this launch, is shared with every workspace and the host user, and is cleared at reboot.",
 	} {
@@ -200,7 +200,7 @@ func TestTheAppleContainerSectionSaysWhatIsTrueThere(t *testing.T) {
 			"Survives nothing: they are gone when the jail stops, and a restart is a new launch with new, empty ones. " +
 			"Everything you put there uses this jail's memory. A scratchpad a harness hands you under `/tmp` is in " +
 			"this class. Throwaway files only, never a worktree.",
-		"- **Per workspace**: `$YOLO_DURABLE_DIR`, the one place for your work; all of `/home/agent` outside the " +
+		"- **Per workspace**: `$YOLO_DURABLE_DIR`, your scratch space; all of `/home/agent` outside the " +
 			"other classes, writable and kept in this workspace's `.yolo/home` (the agents' and tools' own state and " +
 			"installs: never put your work there); `/workspace/.venv` (this jail's own copies, not the host's). " +
 			"Survives restarts and every new launch of this workspace; another workspace has its own. yolo deletes " +
