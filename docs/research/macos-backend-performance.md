@@ -3,7 +3,7 @@ title: "Is macos-user faster than Apple Container? What the sources say, and a b
 date: 2026-10-01
 status: accepted
 stage: DECIDED
-next: "One Apple silicon Mac session with both backends set up works through Appendix A's Before the session list, runs the harness, pastes its results.md into the Results section, and runs the two-jail volume check after it"
+next: "A person at the same Mac works through Appendix A's Before the session list, runs the harness for macos-user and native (it needs sudo's password) and adds the results to the Results section; auto-capture's retry on every launch and the two-jail disk refusal are filed as defects"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]
 summary: "The maintainer asked for a benchmark instead of an assumption: is macos-user really faster than Apple Container? Sources answer part of it. Apple Container gives each container its own small VM; the VM takes RAM only as the guest touches it, but keeps every page it touched until the container stops, so the maintainer's reading is half right. CPU work should run within a few percent of native, while file work in the shared workspace is where the VM probably costs most: about 2.7 times native in one published measurement of the same macOS file sharing, and 6 to 9 times by Apple's maintainer's rough figures for builds. The doc lists every claim the repo makes about the two backends' speed and memory, a protocol for one Mac running both against one workspace, and a POSIX sh harness that runs the protocol and writes the results table. It measures; it does not choose a backend."
 vantage:
@@ -12,9 +12,11 @@ vantage:
 
 # Is macos-user faster than Apple Container? What the sources say, and a benchmark to find out
 
-**Status:** 2026-10-01; research and a benchmark protocol, nothing ruled here. UNMEASURED: no Mac
-has run the harness yet, so every comparison between the two backends below is a prediction from
-sources. CI logs hold launch times for each backend, but they come from two different Macs. The
+**Status:** 2026-10-01; research and a benchmark protocol, nothing ruled here. PARTLY MEASURED
+on 2026-10-02: one Mac ran the harness for Apple Container and the native control, and the
+two-jail volume check ([§8](#8-results), [§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)).
+macos-user is still unmeasured, so every comparison between the two backends below is still a
+prediction from sources. CI logs hold launch times for each backend, but they come from two different Macs. The
 upstream source was read on 2026-09-30, at apple/container `0a48a1bd` (one day after release 1.5.0)
 and apple/containerization `f24df2ac` (1.5.0 is built on its tag 0.47.0). yolo evidence is at
 `a5665814`.
@@ -524,10 +526,120 @@ Two running jails that each show `/mise` as `ext4` with `rw` confirm it. A secon
 to start, with an error naming the volume or its disk image, refutes it and records a different
 defect: two Apple Container jails cannot run at once.
 
+**Run on 2026-10-02** (M1 Max, macOS 26.5, `container` 1.1.0, yolo `e09919d2`, with
+`YOLO_NO_AUTO_CAPTURE=1` and `yolo run --accept-config-changes`): **refuted, and the other defect
+confirmed** (MEASURED). The first jail booted with `/dev/vdc /mise ext4 rw,relatime`. The second
+failed at once with `VZErrorDomain Code=2 "The storage device attachment is invalid."`, which does
+not say which attachment it refused. As a control, the second workspace launched alone straight
+afterwards and mounted `/mise` normally, so the cause is the first jail holding the disk
+(INFERRED that it is `yolo-mise-data-v2` and not another shared attachment). **So, with this
+`container`, two unsealed Apple Container jails in two workspaces cannot run at once**; nothing
+was corrupted. Not yet re-run on 1.5.0.
+
 ## 8. Results
 
-None yet. The Mac session pastes the harness's `results.md` here, with the date, the Mac, and the
-terminal's developer-tool setting, and moves this doc's status line from UNMEASURED to MEASURED.
+**Partly measured, 2026-10-02: Apple Container and the native control only. macos-user was not
+run**, because each macos-user launch needs `sudo` and the session ran unattended, with no
+password to give. To finish, from a terminal on the same Mac, extract the current harness with
+Appendix A's `awk` line and run it as `BENCH_BACKENDS="macos-user native" sh /tmp/macos-backend-bench.sh`.
+
+**The Mac:** Apple M1 Max (8 performance and 2 efficiency cores), 32 GiB, macOS 26.5 (25F71), on
+mains power. `container` CLI **1.1.0**, older than the 1.5.0 whose source §2 read. yolo
+`0.11.0+358.ge09919d2`, nix 2.34.7. The Apple Container jail had 5 CPUs (`JOBS=5`) and a
+16 GiB cap. The harness ran from an agent's shell and not from a terminal app, so the
+developer-tool setting does not apply and was not recorded. **yolo's own nix builder VM,
+`yolo-ac-builder` (8 CPUs, 12 GiB cap), ran throughout**: it ships the Linux image builds, so it
+is part of every launch's cost, and it sits inside every system-wide memory figure below.
+
+**Two deviations from Appendix A as it stood at `e09919d2`**, before the pre-checks' fixes landed. (1) The harness's jail filter matched
+`yolo-ac-builder` as a running jail, so its preflight would refuse and every `wait_quiet` would
+wait out its 120 s. That copy was patched to skip the builder, and the fix is now in Appendix A.
+(2) A second, launch-only pass ran with `YOLO_NO_AUTO_CAPTURE=1`, for the reason under
+*Launch* below. Raw output from both passes: `results-20261002-165253` (full) and
+`results-20261002-175834` (launch only), under `/Users/Shared/yolo/bench-macos-backends/bench/`
+on that Mac, not in the repository.
+
+### Launch (M1 to M3)
+
+| Metric | Apple Container, as run | Apple Container, `YOLO_NO_AUTO_CAPTURE=1` |
+| :--- | :--- | :--- |
+| warm-up launch | 139.2 s | 7.7 s |
+| M1 fresh, to the marker | 67.3 s (66.0-68.2), n=5 | **6.9 s** (6.8-7.1), n=5 |
+| M2 fresh, to exit | 67.6 s (66.4-68.6), n=5 | **7.2 s** (7.2-7.4), n=5 |
+| M3 attach, to the marker | 16.2 s (15.8-16.4), n=10 | **1.8 s** (1.8-1.8), n=10 |
+| M3 attach, to exit | 16.2 s (15.9-16.5), n=10 | 1.9 s (1.8-1.9), n=10 |
+
+**About 90% of the as-run launch time was yolo's auto-capture failing and retrying on every
+launch, not the VM** (MEASURED). Every launch, attach included, found claude, codex and agy
+"never recorded on this machine" and ran each one's installer in a capture jail. Each installer
+"left nothing in the capture surfaces", so nothing was stored, and the next launch tried again:
+`launch.auto_capture` took 61 s per fresh launch and 14 s per attach. That is a yolo defect in
+its own right, not yet diagnosed. Without it, a fresh launch's 6.9 s is mostly two steps:
+`image.nix_build` at 3.2 to 3.5 s (a no-op build that still runs at every launch, through the
+builder VM) and `launch.run_with_proxy` at 2.5 s (VM boot plus the boot script). The attach's own
+`attach.exec` took 1.4 s.
+
+### Timings (M5 to M12)
+
+Seconds: median (min-max). The verdict is §4.4's rule applied to container against native; the
+harness's own verdict column compares only container with macos-user, so it was empty.
+
+| Metric | container | native | container against native |
+| :--- | :--- | :--- | :--- |
+| M5 `git status`, 100,000 files | 0.860 (0.207-0.866), n=5 | 0.162 (0.161-0.170), n=5 | container **5.3× slower** |
+| M6 ripgrep, same tree, `-j 5` | 12.528 (12.491-12.567), n=5 | 2.491 (2.479-2.621), n=5 | container **5.0× slower** |
+| M7 `npm ci`, offline | 5.115 (5.041-5.184), n=5 | 1.575 (1.554-1.606), n=5 | container **3.2× slower** |
+| M8 `go test -short -p 5` | 132.8 (132.5-132.8), n=3 | 218.9 (218.0-223.1), n=3 | not comparable (below) |
+| M9 node loop, one thread | 15.791 (15.787-15.868), n=5 | 15.921 (15.919-15.931), n=5 | no difference shown (medians 0.8% apart) |
+| M10 `go build`, pinned to 5 | 9.778 (9.767-9.812), n=3 | 8.428 (8.367-8.441), n=3 | container **1.16× slower** |
+| M10 `go build`, each default | 9.872 (9.839-9.991), n=3 | 8.134 (8.034-8.175), n=3 | container 1.21× slower (5 cores against 10) |
+| M11 2,000 execs of `true` | 1.285 (1.274-1.368), n=5 | 8.639 (7.859-8.658), n=5 | container **6.7× faster** |
+| M12 first exec of a new binary | 0.001 (0.001-0.002), n=10 | 0.400 (0.387-0.452), n=10 | container **about 400× faster** |
+| M12 second exec | 0.001 (0.001-0.001), n=10 | 0.007 (0.006-0.007), n=10 | container faster |
+
+- **Files: the prediction holds, and at the high end.** Work over the shared workspace ran 3 to 5
+  times native, between the 2.7× and the 6 to 9× of §2.3. One M5 run took 0.207 s against 0.86 s
+  for the rest, so warm `git status` on virtiofs is bimodal here; the cause was not looked at.
+- **CPU: a wash on one thread, about 16% slower on a parallel build** at the same thread count.
+- **Process start is where the Mac loses.** A darwin exec costs about 4 ms against Linux's
+  0.6 ms, and a binary's first exec costs about 0.4 s, 57 times its second (§4.2's rule for a
+  first-exec gap is twice). Why is not measured (§6); XProtect's first-launch scan is the
+  candidate §4.5 names. A native control shares this cost with macos-user, which this run did not
+  measure.
+- **M8 has no verdict:** every timed run exited 1 on both sides, with 111 packages passing on
+  both, 9 failing in the jail and 5 natively. The harness leaves non-zero runs out of the table,
+  and the two runs did not test the same thing.
+
+### Memory (M4), Apple Container
+
+MiB, from the host. *footprint* is `top`'s MEM for the VM process (pid found by the process
+diff, as §4.3 intends), *resident* its `ps` RSS. The load was 2048 MiB.
+
+| When | VM footprint | VM resident | Mac free |
+| :--- | ---: | ---: | ---: |
+| before the session | - | - | 3127 |
+| idle, 30 s after boot | 878 | 1062 | 1667 |
+| anonymous load held | 3012 | 3248 | 81 |
+| 120 s after it ended | 3017 | 3256 | 322 |
+| scratch file held, then 120 s after | 3021 | 3260 / 3261 | 289 / 291 |
+| workspace file read, then 120 s after | 3023 | 5309 / 5310 | 57 / 232 |
+| after the guest's drop-caches step | 3023 | 5316 | 251 |
+| 10 s after the jail exited | - | - | 4025 |
+
+- **Held, as §2.2 predicts** (MEASURED): 120 s after each load ended, the VM still held 104% of
+  it over idle. Dropping the guest's caches gave nothing back. Only the jail's exit did.
+- **The later loads added no footprint.** The scratch file and the workspace read each left the
+  footprint within 6 MiB of where the anonymous load left it. INFERRED: the guest reused pages
+  it had already touched, so loads in this order measure the peak, not their sum. The workspace
+  read raised RSS by 2 GiB without moving the footprint, which looks like the file's pages being
+  counted on the Mac's side of virtiofs; that is not checked.
+- macOS's memory status level read 94 throughout, so the Mac was never under pressure.
+
+### Disk (M13)
+
+Apple Container's data root: 26.0 GiB (`du`). `container system df` reports 6 images totalling
+26.72 GB with 93% reclaimable, one 1.02 GB container and a 149.3 MB volume. yolo's machine state
+(`~/.local/share/yolo-jail`) came to 2.3 GiB, and the workspace's `.yolo` to 17 MiB.
 
 ## 9. Corrections the results feed
 
@@ -684,6 +796,12 @@ the awk macOS ships, not observed on a Mac: a `vm_stat` line the harness cannot 
 `-`, and the raw `vm_stat` and `top` output behind every memory row is kept in
 `raw-memory.txt`, so check that file before trusting the memory table.
 
+**On a Mac, 2026-10-02**, with the harness as it stood at `e09919d2`, before the two pre-checks'
+fixes: every phase ran to completion for `container` and `native` ([§8](#8-results)).
+`vm_stat`'s 16 KiB pages were read correctly, and the process diff found exactly one VM process.
+Its jail filter counted yolo's builder VM as a jail, which is fixed above. The `macos-user`
+paths, `sudo` included, have still not run on a Mac.
+
 ````sh
 #!/bin/sh
 # macos-backend-bench.sh: time and size Apple Container and macos-user on one Mac.
@@ -744,7 +862,10 @@ drop_backend() {
   BENCH_BACKENDS=$(printf '%s\n' $BENCH_BACKENDS | awk -v b="$1" '$0 != b' | tr '\n' ' ')
   unmeasured "$1: $2"
 }
-running_jails() { container ls -q 2>/dev/null | awk '/^yolo-/' | tr '\n' ' '; }
+# yolo-ac-builder is scripts/mac-ac-linux-builder.sh's nix builder, not a jail.
+running_jails() {
+  container ls -q 2>/dev/null | awk -v b="${YOLO_AC_BUILDER_NAME:-yolo-ac-builder}" '/^yolo-/ && $0 != b' | tr '\n' ' '
+}
 # The _yolojail processes, as "uid pid rss-KiB command", less the ones in SANDBOX_IGNORE: pids
 # that were running before the harness (BENCH_ALLOW_RUNNING=1) or outlived a session by 120 s.
 # Those are listed once, in leftovers-macos-user.txt, and no wait or memory row counts them again.
