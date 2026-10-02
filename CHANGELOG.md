@@ -29,8 +29,8 @@ opencode on ChatGPT, and pi, opencode and oh-omp can mix providers, as in `-p pi
 On macos-user, Bedrock, the ChatGPT login refresh and wire-bridge profiles now work, and
 wire-bridge profiles work at `yolo host` too.
 
-**A company model list.** A pack's `models` entry adds to a provider's list or narrows it, and
-agents that allow it show only that list.
+**Choose the models each provider offers.** A pack's `models` entry adds to a provider's model
+list or narrows it, and agents that allow it offer only that list.
 
 **Work that survives a restart.** Every jail has `$YOLO_DURABLE_DIR`, a folder yolo never deletes,
 and briefings send agents' worktrees there instead of `/tmp`.
@@ -40,7 +40,8 @@ the jail.
 
 **herdr shows a jailed agent as that agent.** In a [herdr](https://herdr.dev) pane,
 `yolo -- <agent>` registers the agent, so herdr's sidebar shows it working, blocked or done, and a
-split pane's border reads `🔒 JAIL <project>`. `YOLO_NO_HERDR=1` turns it off.
+split pane's border reads `🔒 JAIL <project>`. `YOLO_NO_HERDR=1` turns it off. Contributed by
+Kurt Galiatsatos ([@kurt-hs](https://github.com/kurt-hs)).
 
 **Your own fork of an agent.** A small pack names your fork and its build command; yolo builds the
 pinned commit once for every workspace. See
@@ -96,8 +97,8 @@ pinned commit once for every workspace. See
 
 ### Contributors
 
-Thanks to Kurt Galiatsatos ([@kurt-hs](https://github.com/kurt-hs)) for herdr support, and for
-fixes to tests that failed on a Mac with Homebrew or in a full parallel run.
+Thanks to Kurt Galiatsatos ([@kurt-hs](https://github.com/kurt-hs)) for herdr support (above), and
+for fixes to tests that failed on a Mac with Homebrew or in a full parallel run.
 
 ## [0.11.0] - 2026-09-28
 

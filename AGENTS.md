@@ -562,8 +562,9 @@ release is fixed by the next one. What the script cannot judge is who the sectio
   change, each with the one action the user takes. When you land other work, rewrite its lines to
   this shape: a union merge keeps every rewording.
 - `### Added`, `### Changed`, `### Fixed`, then `### Contributors`, thanking each outside
-  contributor by public GitHub name and linked handle (never an email); a number only where a test
-  or a constant pins it.
+  contributor by public GitHub name and linked handle (never an email). A feature an outside
+  contributor built also names them inline on its own entry ("Contributed by …"). A number goes in
+  only where a test or a constant pins it.
 - An old minor line's retrospective section is headed `## 0.9.x`. A heading that spells a full version
   is one the extractor will publish.
 
