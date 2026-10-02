@@ -600,6 +600,19 @@ func KeeperAlive(workspace string) bool {
 	return probeKeeper(yoloruntime.FromWorkspace(workspace)) != keeperGone
 }
 
+// LaunchedRuntime is the runtime the workspace's jail was launched on, as its keeper's start record
+// names it; ok is false when no record names one. The record stays while the keeper lives and after
+// one that died, so it is there for every jail a keeper started that is not known gone. `yolo stop`
+// asks this runtime ahead of the one the config and YOLO_RUNTIME resolve (JL-D79): a jail launched
+// with YOLO_RUNTIME=container in a workspace whose default is podman runs where podman cannot see it.
+func LaunchedRuntime(workspace string) (string, bool) {
+	rec, ok := readKeeperRecord(yoloruntime.FromWorkspace(workspace))
+	if !ok || rec.Runtime == "" {
+		return "", false
+	}
+	return rec.Runtime, true
+}
+
 // FinishStop is `yolo stop`'s second half at a container backend, once the runtime has stopped the
 // jail (docs/design/jail-lifetime-last-session-wins.md JL-D25, JL-D30, JL-D34):
 //

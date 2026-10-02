@@ -15,8 +15,7 @@ yolo ps                      # the running jails, and the project each belongs t
 
 Running `yolo` in a project whose jail is already running **joins** that jail instead of starting a
 new one, and the joined jail keeps the config it started with. To pick up a config change, run
-`yolo stop`, then launch again. On Apple Container, `yolo stop` cannot see jails yet; use
-`container stop <name>`, with the name `yolo ps` or `container ls` shows.
+`yolo stop`, then launch again.
 
 Launch flags, placed before `--`:
 

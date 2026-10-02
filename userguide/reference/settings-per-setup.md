@@ -49,7 +49,7 @@ yet* means they have not. The subsections and tables further down have the detai
 
 | You want to… | `podman` / Linux | `podman` / macOS | `container` / macOS | `macos-user` / macOS |
 |---|---|---|---|---|
-| **Start a jail** | Yes. The first launch builds the jail image and takes a few minutes; later launches take seconds. | Yes, once the Podman Machine VM is running and shares the folders yolo needs ([setup](../getting-started.md#macos-podman)). The first launch is slow.[^cap-first-mac] | Yes, and it is the Mac default. `yolo stop` cannot see these jails; use `container stop` (not planned yet).[^cap-ac-stop] | Yes, after a one-time `yolo macos-setup`. Projects must be outside every home folder; `/Users/Shared/yolo` is set up for you.[^cap-mu-start] |
+| **Start a jail** | Yes. The first launch builds the jail image and takes a few minutes; later launches take seconds. | Yes, once the Podman Machine VM is running and shares the folders yolo needs ([setup](../getting-started.md#macos-podman)). The first launch is slow.[^cap-first-mac] | Yes, and it is the Mac default.[^cap-ac-stop] | Yes, after a one-time `yolo macos-setup`. Projects must be outside every home folder; `/Users/Shared/yolo` is set up for you.[^cap-mu-start] |
 | **Open a second session** | Yes. `yolo` in the same project joins the running jail; another project gets its own jail. | Yes, the same. | Yes, the same, but jails for two different projects can log each other out of `claude`.[^refresh-ac] | Yes, but each `yolo` is its own sandbox, and two `claude` sessions at once can log each other out. |
 | **Install an agent** | Yes. Add its pack to your user config; it installs the first time you type its name and keeps itself up to date. | Yes. `omp` is not available on Apple silicon.[^cap-omp] | Yes, except `omp`, which is not available on Apple silicon, the only kind of Mac Apple Container runs on.[^cap-omp] | Yes for `claude` and `codex`. `agy`, `copilot`, `opencode`, `pi` and (on Apple silicon only) `omp` should work. |
 | **Run an agent without permission prompts** | Yes, automatically, for every agent except `omp`.[^cap-yolo-mode] | Yes, the same. | Yes, the same. | Yes, the same. |
@@ -74,7 +74,7 @@ yet* means they have not. The subsections and tables further down have the detai
 
 [^cap-first-mac]: yolo builds a Linux image and copies it into the VM. On the Intel Mac that yolo's CI uses, the copy alone takes 15 to 22 minutes. If Apple Container is also installed, yolo picks it instead; set `YOLO_RUNTIME=podman` to keep podman.
 
-[^cap-ac-stop]: On Apple Container, `yolo stop` prints `No jail running for this workspace` while the jail is running, and a jail left behind by a closed window is not cleaned up. Find the name with `container ls` and stop it with `container stop <name>`.
+[^cap-ac-stop]: On Apple Container a jail left behind by a closed window is not cleaned up. Run `yolo stop` in its project to stop it.
 
 [^cap-mu-start]: A project inside a home folder is refused. `yolo macos-setup` prepares `/Users/Shared/yolo`, so a project created under it, such as `/Users/Shared/yolo/<name>`, needs nothing more. Launch with `YOLO_RUNTIME=macos-user yolo`, and expect `sudo` to ask for your password. There is no image to build, but the first launch builds the sandbox's tools with nix, which can take many minutes. See [the macos-user backend](../guides/macos.md#the-macos-user-backend).
 
@@ -173,10 +173,6 @@ started with. **After any config edit, run `yolo stop`, then `yolo`.** On podman
 `-p` choice, and yolo's built-in skills, reach you without a restart.
 On `macos-user` every `yolo` starts fresh, so there is nothing to restart. The full per-setting list is in
 [Settings per setup](settings-per-setup.md#what-a-running-jail-picks-up-when-you-run-yolo-again).
-
-On Apple Container, `yolo stop` cannot see the jail yet: it prints `No jail running for this workspace`
-while the jail is running. Find the jail's name with `container ls` and stop it with
-`container stop <name>`, including whenever yolo suggests `yolo stop` there.
 
 #### 5. Do I have to log in again in every workspace? And in a second jail at the same time?
 
@@ -474,13 +470,13 @@ Re-running `yolo` in a workspace whose jail is still running does **not** start 
 
 **On `macos-user` every `yolo` starts a fresh sandbox from your current config**, so every setting it reads takes effect on the next launch. What differs there is which settings it reads at all.
 
-**To get a fresh jail:** `yolo stop`, then `yolo -- <cmd>`. On Apple Container, `yolo stop` cannot see the jail yet: it prints `No jail running for this workspace` while the jail is running. Find the jail's name with `container ls` and stop it with `container stop <name>`, including whenever yolo suggests `yolo stop` there.
+**To get a fresh jail:** `yolo stop`, then `yolo -- <cmd>`.
 
 [^macuserre]: Rebuilt on every launch and copied into the sandbox home rather than mounted. The copy is **read-only to the agent**: the sandbox profile refuses edits, renames and deletes of the delivered skills and briefing, as every container backend's read-only mount does. Not yet measured on a Mac.
 [^packcontent]: yolo's built-in skills, `agents_md_extra` and a filed handoff reach a re-entry. A pack's own skills and briefing text come from the packs the jail started with, so an edit to one, your local pack's included, waits for a restart, and the re-entry names the pack that changed.
 [^wsskills]: Skills a repository keeps for one agent also reach the agents that do not read that directory, as the lowest layer, and are read again on every entry. They never replace yolo's own skills or a pack's in what yolo gives an agent, and the launch names each one held back and every symlink that points outside the repository. An agent that reads the repository's directory by itself still sees the repository's copy there, and the launch says when that copy shares a name with one of yolo's or a pack's skills. Your own machine (`yolo host`) gets none of this; there, each agent reads only its own directories. See [the workspace layer](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/agent-briefings.md#the-workspace-layer).
 [^packpartly]: A running jail keeps the packs it started with, whatever you add, drop or edit: their files, skills, briefing, hooks, launchers and launch flags. The re-entry says which packs differ and that `yolo stop`, then a new launch, picks them up. A profile only a newly added pack provides, or a jail whose packs this yolo cannot read (one an earlier release started with the claude pack, say), asks `Restart jail now? [Y/n]` at a terminal and is refused elsewhere; `YOLO_ALLOW_ATTACH_SKEW=1` re-enters without it.
-[^acpack]: Apple Container gets a copy of the packs at launch, so the agent cannot rewrite them. As on podman, a running jail keeps the packs it started with, and a re-entry says which differ. A jail an earlier release started is the exception: yolo cannot tell which packs it copied, says so, and uses your configured ones. The restart it names is `container stop <name>`, since `yolo stop` cannot see an Apple Container jail yet. Not yet run on a Mac.
+[^acpack]: Apple Container gets a copy of the packs at launch, so the agent cannot rewrite them. As on podman, a running jail keeps the packs it started with, and a re-entry says which differ. A jail an earlier release started is the exception: yolo cannot tell which packs it copied, says so, and uses your configured ones. The restart it names is `container stop <name>`. Not yet run on a Mac.
 [^envhalf]: These cross as environment variables on the container command line. An added MCP server does not appear in the agent's list until you stop and relaunch, even though the boot visibly regenerated the MCP config.
 [^olderjail]: A jail keeps the yolo it started with. When a newer yolo re-enters it with a profile whose credentials that jail cannot receive, yolo asks `Restart jail now? [Y/n]` and says how many sessions the restart ends. Without a terminal it stops and tells you to run `yolo stop` first. `YOLO_ALLOW_ATTACH_SKEW=1` re-enters anyway, without delivering the profile, and the agent's briefing then says which yolo the jail started with and what it did not receive (on podman; an Apple Container jail keeps the briefing it started with).
 [^drift]: After a re-entry, in-jail config readers still see the config the jail was *launched* with, and `yolo config drift` compares against a baseline that may be several edits old — so it reports drift for edits you thought you had applied.

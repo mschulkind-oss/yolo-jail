@@ -104,8 +104,7 @@ yolo                     # or a shell in the jail
 The shipped agent packs include `claude`, `codex`, `copilot`, `opencode`, `pi` and `agy`; list as
 many as you like, and each installs the first time you type its name in the jail. With no packs, a
 jail is a shell with no coding agent. Run `yolo check` after every config edit, and `yolo stop`,
-then `yolo` again, for a running jail to pick the edit up. On Apple Container, `yolo stop` does not
-see the jail yet: stop it with `container stop <name>`, taking the name from `container ls`.
+then `yolo` again, for a running jail to pick the edit up.
 
 Next steps, in the user guide:
 

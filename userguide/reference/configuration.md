@@ -130,8 +130,7 @@ yolo stop        # from the project folder
 yolo -- claude
 ```
 
-On Apple Container, `yolo stop` cannot see the jail yet; use `container ls` and
-`container stop <name>`. On `macos-user` every launch starts fresh, so there is nothing to stop.
+On `macos-user` every launch starts fresh, so there is nothing to stop.
 
 A few things do reach a running jail when you run `yolo` in it again, such as a new API key or a
 `-p` profile choice. [Settings per setup](settings-per-setup.md#what-a-running-jail-picks-up-when-you-run-yolo-again)

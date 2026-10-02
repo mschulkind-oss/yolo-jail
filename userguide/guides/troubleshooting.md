@@ -76,8 +76,7 @@ order.
 ## After a config change
 
 **My edit did nothing.** Running `yolo` while the project's jail is running joins that jail, which
-keeps the config it started with. Run `yolo stop`, then `yolo` again. On Apple Container use
-`container stop <name>` instead; `container ls` shows the name.
+keeps the config it started with. Run `yolo stop`, then `yolo` again.
 
 **A script or CI job stops with a config diff.** A launch with no terminal cannot ask you to
 approve a changed config. Pass `--accept-config-changes` for that one launch; see

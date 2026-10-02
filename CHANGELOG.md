@@ -18,6 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   jail.
 - A host service that goes down just as a jail starts, or as another terminal joins it, is now
   reported to that terminal.
+- `yolo stop` now stops an Apple Container jail, and a jail launched with a different
+  `YOLO_RUNTIME`, where it used to say no jail was running.
 
 ## [0.11.1] - 2026-10-02
 

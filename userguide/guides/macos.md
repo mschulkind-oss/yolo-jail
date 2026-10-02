@@ -67,14 +67,11 @@ are announced when a jail starts; the ones that are not are marked **silent**.
 - The jail has outbound internet. On macOS 15 there are two network faults, fixed below in
   [No outbound internet](#apple-container-no-outbound-internet-macos-15).
 
-**Stopping jails.** `yolo stop` cannot see Apple Container jails yet: it prints
-`No jail running for this workspace` while one is running. Use Apple's own commands, including
-whenever yolo suggests `yolo stop`:
+**Stopping jails.** `yolo stop` in a project stops its jail. `yolo prune` does not see stopped
+Apple Container jails, so remove those with Apple's own commands:
 
 ```bash
-container ls                 # find the yolo-<project>-<id> jail
-container stop <name>
-container ls --all           # stopped jails, which `yolo prune` does not see either
+container ls --all           # stopped jails too
 container rm <name>
 ```
 
@@ -287,9 +284,8 @@ export YOLO_NIX_HOST_STORE_LINUX=1  # and the store holds the jail's Linux progr
 ## Stopping a jail and reclaiming space
 
 A jail normally ends when you exit the terminal session that started it. For one left running,
-run `yolo stop` from the project folder on Podman, or use `container stop` on Apple Container (see
-above). On `macos-user` there is nothing to stop. To reclaim disk, use `yolo prune`, a dry run until
-you add `--apply`; see [Storage](storage.md).
+run `yolo stop` from the project folder. On `macos-user` there is nothing to stop. To reclaim
+disk, use `yolo prune`, a dry run until you add `--apply`; see [Storage](storage.md).
 
 ## Troubleshooting
 

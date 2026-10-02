@@ -4,9 +4,10 @@ package run
 // `container inspect` takes no --format and answers JSON (internal/cli/ps.go and
 // internal/cli/check/probes.go read it that way already), so the podman template the attach used
 // for every runtime read nothing there: the contract gate then treated every AC jail as current,
-// and an older one silently received a scoped delivery its launchers never source. And `yolo stop`
-// reads the same template (G11, docs/plans/setup-support-gaps.md), so on AC it says "No jail
-// running" while the jail runs: a remedy an AC attach names must be `container stop`.
+// and an older one silently received a scoped delivery its launchers never source. A remedy an AC
+// attach names is `container stop`, the stop its restart runs there (stopRemedy); it was chosen
+// while `yolo stop` read the same template and said "No jail running" there (G11,
+// docs/plans/setup-support-gaps.md), which JL-D79 ended.
 
 import (
 	"bytes"
@@ -110,7 +111,7 @@ func TestTheContractGateReadsAnAppleContainerJail(t *testing.T) {
 		}
 	}
 	if strings.Contains(stderr, "yolo stop") {
-		t.Errorf("an Apple Container refusal names 'yolo stop', which says \"No jail running\" there:\n%s", stderr)
+		t.Errorf("an Apple Container refusal names 'yolo stop' beside the 'container stop' its restart runs:\n%s", stderr)
 	}
 	assertLiveChannelFileUnchanged(t, envFile, before)
 }
