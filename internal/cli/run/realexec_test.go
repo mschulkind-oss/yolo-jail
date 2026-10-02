@@ -93,6 +93,55 @@ func TestRealExecTimeoutBoundsAGrandchildThatOutlivesAFinishedChild(t *testing.T
 	}
 }
 
+// TestRealExecLeavesAGrandchildThatWritesAfterTheCall: the kill reaches the direct child alone,
+// so a grandchild the call gives up on must run on as it did when the call waited for it, and
+// not be stopped by its next write. A read end closed at the return makes that write fail, and
+// the SIGPIPE it raises kills a program that does not handle it, such as a shell: here the
+// grandchild writes to both streams after the call returned and then records that it lived.
+// The rootless podman docs/design/podman-reboot-readiness.md finds finishing the post-boot
+// refresh after its parent was killed is such a grandchild.
+func TestRealExecLeavesAGrandchildThatWritesAfterTheCall(t *testing.T) {
+	survived := filepath.Join(t.TempDir(), "survived")
+	script := "(sleep 1.5; printf 'late\\n'; printf 'late err\\n' >&2; : > " + shquote.Quote(survived) +
+		") & printf 'early\\n'"
+	timeout := 300 * time.Millisecond
+
+	res, _ := realExecWithin(t, timeout+execDrainGrace+5*time.Second, []string{"sh", "-c", script}, timeout)
+
+	if !res.Ran || !res.Timeout || res.RC != 0 {
+		t.Errorf("result = %+v, want Ran and Timeout, with no exit code", res)
+	}
+	if res.Stdout != "early\n" || res.Stderr != "" {
+		t.Errorf("output = %q / %q, want what was written before the call returned", res.Stdout, res.Stderr)
+	}
+	for give := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if _, err := os.Stat(survived); err == nil {
+			return
+		}
+		if time.Now().After(give) {
+			t.Fatal("the grandchild did not live past its writes after the call returned: " +
+				"the call stopped reading its pipes, and the write killed it")
+		}
+	}
+}
+
+// TestRealExecTimeoutOfAChildAloneKeepsItsShape: the common timeout, a child with no
+// grandchild that outlives its deadline, reports what it always did: Ran and Timeout with no
+// exit code, and both streams as far as the child wrote them.
+func TestRealExecTimeoutOfAChildAloneKeepsItsShape(t *testing.T) {
+	script := "printf 'so far\\n'; printf 'err so far\\n' >&2; exec sleep 60"
+	timeout := 300 * time.Millisecond
+
+	res, took := realExecWithin(t, timeout+execDrainGrace+5*time.Second, []string{"sh", "-c", script}, timeout)
+
+	if res != (ExecResult{Stdout: "so far\n", Stderr: "err so far\n", Ran: true, Timeout: true}) {
+		t.Errorf("result = %+v, want Ran and Timeout with no exit code, and both streams so far", res)
+	}
+	if limit := timeout + execDrainGrace + time.Second; took > limit {
+		t.Errorf("the call took %s, want at most %s", took, timeout+execDrainGrace)
+	}
+}
+
 // TestRealExecReadsAGrandchildsOutputUntilTheDeadline: the bound starts at the deadline, not
 // at the child's exit. A grandchild that writes after its parent exits, and closes the pipes
 // well before the deadline, is read to the end and the call is a success with the child's

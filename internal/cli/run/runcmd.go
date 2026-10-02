@@ -941,8 +941,14 @@ func (o *Options) inJail() bool {
 // exit code.
 //
 // THE KILL REACHES THE DIRECT CHILD ALONE. The child stays in this process's group, so the
-// terminal's Ctrl-C reaches it as it reaches the launcher; a grandchild it leaves runs on, its
-// output no longer read. A killed child that cannot die within the grace (one stuck in the
+// terminal's Ctrl-C reaches it as it reaches the launcher. A grandchild it leaves runs on as it
+// did when the call waited for it: its pipes stay open and are read to their end in the
+// background, what arrives after the return discarded. Closing them instead would make its next
+// write fail, and the SIGPIPE that raises kills a program that does not handle it, such as the
+// rootless podman docs/design/podman-reboot-readiness.md finds finishing the post-boot refresh
+// after its parent was killed; killed mid-refresh, it leaves the next podman call to start the
+// refresh over. Reading on costs a goroutine and a descriptor per stream for as long as the
+// grandchild holds it. A killed child that cannot die within the grace (one stuck in the
 // kernel) is reaped whenever it does.
 //
 // timeout <= 0 means "no deadline" (matches the subprocess.run calls that pass no timeout,
@@ -960,7 +966,7 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 		cmd.Env = append(os.Environ(), env...)
 	}
 	var stdout, stderr execOutput
-	drained, closePipes, err := startWithPipes(cmd, &stdout, &stderr)
+	drained, err := startWithPipes(cmd, &stdout, &stderr)
 	if err != nil {
 		return ExecResult{Ran: false}
 	}
@@ -969,7 +975,6 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 		_ = cmd.Wait()
 		close(exited)
 	}()
-	defer closePipes()
 	var deadline <-chan time.Time
 	if timeout > 0 {
 		t := time.NewTimer(timeout)
@@ -981,13 +986,13 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 		if cmd.ProcessState != nil {
 			rc = cmd.ProcessState.ExitCode()
 		}
-		return ExecResult{Stdout: stdout.String(), Stderr: stderr.String(), RC: rc, Ran: true}
+		return ExecResult{Stdout: stdout.take(), Stderr: stderr.take(), RC: rc, Ran: true}
 	}
 	_ = cmd.Process.Kill()
 	grace := time.NewTimer(execDrainGrace)
 	defer grace.Stop()
 	bothBefore(exited, drained, grace.C)
-	return ExecResult{Stdout: stdout.String(), Stderr: stderr.String(), Ran: true, Timeout: true}
+	return ExecResult{Stdout: stdout.take(), Stderr: stderr.take(), Ran: true, Timeout: true}
 }
 
 // execDrainGrace is how long realExec waits, once it has killed a timed-out child, for the
@@ -1011,41 +1016,48 @@ func bothBefore(a, b <-chan struct{}, stop <-chan time.Time) bool {
 	return true
 }
 
-// execOutput collects one of a child's streams. realExec may read what it holds while the copy
-// into it is still running (a grandchild holding the pipe past the deadline), so both sides
-// lock.
+// execOutput collects one of a child's streams until realExec takes it. realExec may take it
+// while the copy into it is still running (a grandchild holding the pipe past the deadline), so
+// both sides lock, and a write after the take is discarded but reported as written, so the copy
+// goes on reading the pipe.
 type execOutput struct {
-	mu sync.Mutex
-	b  strings.Builder
+	mu    sync.Mutex
+	b     strings.Builder
+	taken bool
 }
 
 func (w *execOutput) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.b.Write(p)
+	if !w.taken {
+		_, _ = w.b.Write(p)
+	}
+	return len(p), nil
 }
 
-func (w *execOutput) String() string {
+// take returns what was written so far, and makes every later write a discard.
+func (w *execOutput) take() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.taken = true
 	return w.b.String()
 }
 
 // startWithPipes starts cmd with its stdout and stderr on two pipes of this process's own and
 // copies each into its writer. After a successful start the child, and whatever it forks, holds
 // the only write ends, so a pipe ends exactly when the last of them closes it. drained closes
-// when both copies have reached the end of their pipe; closePipes closes the read ends, which
-// ends a copy still blocked on a pipe someone else holds open.
-func startWithPipes(cmd *exec.Cmd, stdout, stderr io.Writer) (drained <-chan struct{}, closePipes func(), err error) {
+// when both copies have reached the end of their pipe. Each copy closes its read end there and
+// nowhere sooner: the caller never cuts a pipe off under a process still writing to it.
+func startWithPipes(cmd *exec.Cmd, stdout, stderr io.Writer) (drained <-chan struct{}, err error) {
 	outR, outW, err := os.Pipe()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	errR, errW, err := os.Pipe()
 	if err != nil {
 		_ = outR.Close()
 		_ = outW.Close()
-		return nil, nil, err
+		return nil, err
 	}
 	cmd.Stdout, cmd.Stderr = outW, errW
 	err = cmd.Start()
@@ -1054,15 +1066,20 @@ func startWithPipes(cmd *exec.Cmd, stdout, stderr io.Writer) (drained <-chan str
 	if err != nil {
 		_ = outR.Close()
 		_ = errR.Close()
-		return nil, nil, err
+		return nil, err
 	}
 	done := make(chan struct{})
 	var copies sync.WaitGroup
+	drain := func(w io.Writer, r *os.File) {
+		defer copies.Done()
+		_, _ = io.Copy(w, r)
+		_ = r.Close()
+	}
 	copies.Add(2)
-	go func() { defer copies.Done(); _, _ = io.Copy(stdout, outR) }()
-	go func() { defer copies.Done(); _, _ = io.Copy(stderr, errR) }()
+	go drain(stdout, outR)
+	go drain(stderr, errR)
 	go func() { copies.Wait(); close(done) }()
-	return done, func() { _ = outR.Close(); _ = errR.Close() }, nil
+	return done, nil
 }
 
 // isTTY reports whether f is a real terminal via a TCGETS ioctl, NOT a
