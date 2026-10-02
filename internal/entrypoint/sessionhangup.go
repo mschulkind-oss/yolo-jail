@@ -22,6 +22,20 @@ package entrypoint
 // runs, are that process and its descendants. The start time is what keeps a pid the kernel
 // handed on to a later process from being signalled in its place.
 //
+// # A hangup that comes before its session (JL-D77)
+//
+// A launcher signalled just after it started its session's exec runs its hangup while that exec
+// is still being made, so the hangup can reach the jail before the session has recorded itself.
+// It used to find no record and end nothing, and the session recorded itself a moment later and
+// ran on with no terminal: its client, killed, does not end it. So a hangup first leaves a HANGUP
+// MARK, a term coined here: an empty file named by the id with hangupMarkSuffix, beside where the
+// record goes. Then it looks for the record. A session writes its record first and then looks for
+// the mark, and one that finds it removes its record and does not begin (enterSession). Each side
+// writes before it reads, so at least one of them sees the other. The hangup reaches a session
+// that wrote its record first, and a session that wrote it later finds the mark. Nothing waits for
+// a session that may never come, so the hangup stays inside a multiplexer's SIGKILL budget. A mark
+// is never removed: an id is minted once, for one exec, and the tmpfs goes with the container.
+//
 // # What a hangup sends, and to whom
 //
 // What a terminal's hangup sends: SIGHUP, then SIGCONT, so a stopped process gets to act on it
@@ -39,6 +53,7 @@ package entrypoint
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -57,7 +72,8 @@ const SessionIDEnv = "YOLO_SESSION_ID"
 // which crosses as one argument, can be read as it.
 const HangupSessionArg = "--yolo-hangup-session"
 
-// sessionsDir holds one record per session, named by its id. A var so tests can relocate it.
+// sessionsDir holds one record per session, named by its id, and the mark each hangup leaves
+// (hangupMark). A var so tests can relocate it.
 var sessionsDir = "/run/yolo/sessions"
 
 // procDir is where the process table is read. A var so tests can stand in a table of their own.
@@ -115,8 +131,40 @@ func parseProcStat(pid int, raw string) (procStat, error) {
 	return procStat{pid: pid, ppid: ppid, sid: sid, start: start}, nil
 }
 
-// registerSession records this process as the session named id. Only a session registers; the
-// main process never does, since nothing hangs it up.
+// hangupMarkSuffix names a hangup's mark: the session's id, then this. A record is the bare id
+// and a record being written starts with a dot, so none of the three can be taken for another.
+const hangupMarkSuffix = ".hungup"
+
+// hangupMark is the path of the mark a hangup of the session named id leaves.
+func hangupMark(id string) string { return filepath.Join(sessionsDir, id+hangupMarkSuffix) }
+
+// errHungUpBeforeItBegan is registerSession's answer for a session whose hangup came first: its
+// launcher was signalled before the session had recorded itself, so the session must not begin.
+var errHungUpBeforeItBegan = errors.New("its launcher hung it up before it began")
+
+// enterSession is a session's first act in Main: it records this process as the session named id,
+// for its launcher's hangup. A session that finds its hangup already came ends here, with the status
+// a hung-up session's process ends with (128+SIGHUP), because nothing will end it later: its
+// launcher has gone or is going, and its client's death does not reach it. Any other failure to
+// record is a warning on warn and the session goes on, as it always did, since it can still run and
+// only its hangup is lost.
+func enterSession(id string, warn io.Writer) error {
+	err := registerSession(id)
+	if errors.Is(err, errHungUpBeforeItBegan) {
+		return &ExitStatus{Code: 128 + int(syscall.SIGHUP),
+			Message: "the yolo that started this session was signalled before the session began, so it does not begin"}
+	}
+	if err != nil {
+		fmt.Fprintf(warn, "yolo-entrypoint: warning: could not record this session for "+
+			"its launcher (%v); if its terminal closes, what it runs may go on in the jail\n", err)
+	}
+	return nil
+}
+
+// registerSession records this process as the session named id, and then looks for its hangup's
+// mark, in that order (the file's header, JL-D77): errHungUpBeforeItBegan, with the record removed,
+// when the mark is there. Only a session registers; the main process never does, since nothing
+// hangs it up.
 func registerSession(id string) error {
 	if !validSessionID(id) {
 		return fmt.Errorf("%s=%q is not a session id", SessionIDEnv, id)
@@ -141,20 +189,34 @@ func registerSession(id string) error {
 		_ = os.Remove(tmp.Name())
 		return err
 	}
-	return os.Rename(tmp.Name(), filepath.Join(sessionsDir, id))
+	record := filepath.Join(sessionsDir, id)
+	if err := os.Rename(tmp.Name(), record); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(hangupMark(id)); err == nil {
+		_ = os.Remove(record)
+		return errHungUpBeforeItBegan
+	}
+	return nil
 }
 
-// hangUpSession hangs up the session named id, if it still runs, and forgets it. A session
-// that already ended, or never registered, leaves nothing to hang up and is not an error: the
-// launcher's arm asks whatever state its session is in.
+// hangUpSession leaves the session named id its hangup's mark, then hangs the session up, if it
+// still runs, and forgets it. A session that already ended leaves nothing to hang up and is not
+// an error: the launcher's arm asks whatever state its session is in. One that has not recorded
+// itself yet finds the mark when it does, and does not begin (registerSession); a mark that could
+// not be left is this hangup's error only then, since a session already recorded is hung up here.
 func hangUpSession(id string) error {
 	if !validSessionID(id) {
 		return fmt.Errorf("%q is not a session id", id)
 	}
+	markErr := os.MkdirAll(sessionsDir, 0o755)
+	if markErr == nil {
+		markErr = os.WriteFile(hangupMark(id), nil, 0o644)
+	}
 	record := filepath.Join(sessionsDir, id)
 	raw, err := os.ReadFile(record)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return markErr
 	}
 	if err != nil {
 		return err

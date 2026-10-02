@@ -4,10 +4,11 @@ package run
 // jail it leaves (docs/design/jail-lifetime-last-session-wins.md JL-D76). A SIGINT or a SIGTERM
 // leaves the terminal that ran the session, so when other sessions keep the jail up the teardown
 // prints the one line a session's quit prints then (noteJailStaysUp), without the count its own exec
-// can still be in: once, after the terminal is back, and on the terminal alone, as the quit's goes.
-// The last session's teardown says nothing of the jail staying up, and lets its count go as a quit
-// does before it asks. A SIGHUP is a closed pane, which leaves no terminal to read the line, so it
-// says nothing either and asks nothing.
+// can still be in: once, on the terminal alone, as the quit's goes, once the terminal's modes are back
+// and before its jail indicator is, so the line lands in the tab that ran the session. The last
+// session's teardown says nothing of the jail staying up, and lets its count go as a quit does
+// before it asks. A SIGHUP is a closed pane, which leaves no terminal to read the line, so it says
+// nothing either and asks nothing.
 //
 // Each test drives the real signal arm with a real signal to this process, against TestMain's
 // in-process keeper (startReadyWindowLaunch): the fresh launch's arm retargeted at ready, as
@@ -77,8 +78,9 @@ func awaitKeeperEnd(t *testing.T, l *readyWindowLaunch, why string) {
 func staysUpLine(cname string) string { return "Jail " + cname + " stays up for" }
 
 // TestASignalThatLeavesATerminalSaysTheJailStaysUpForTheOthersOnce: one of two sessions ended by
-// a SIGINT or a SIGTERM says, once, that the jail stays up for the other, after its terminal is put
-// back and on the terminal alone, not in launch.log (terminalOnly, where the quit's line goes); the
+// a SIGINT or a SIGTERM says, once, that the jail stays up for the other, between putting its
+// terminal's modes back and its jail indicator, and on the terminal alone, not in launch.log
+// (terminalOnly, where the quit's line goes); the
 // keeper keeps the jail up, and ends it once the other session leaves. For the fresh launch's first
 // session, whose arm was retargeted at ready, and for an attach, whose arm runs the same teardown.
 func TestASignalThatLeavesATerminalSaysTheJailStaysUpForTheOthersOnce(t *testing.T) {
@@ -89,14 +91,13 @@ func TestASignalThatLeavesATerminalSaysTheJailStaysUpForTheOthersOnce(t *testing
 			l := startReadyWindowLaunch(t, cname, true, func() { other = holdAnotherSession(t, cname) })
 			var launchLog lockedBuffer
 			l.o.Stderr = teeLog{w: l.stderr, log: &launchLog}
-			restoredAt := -1
-			l.o.RestoreTerminal = func() { restoredAt = len(l.stderr.String()) }
 			l.retargetToTheSession(t)
+			moments := watchTerminal(l.o, l.arm, l.stderr)
 
 			if code := signalArm(t, sig, l.codes); code != 128+int(sig) {
 				t.Errorf("the session's arm exited %d, want %d", code, 128+int(sig))
 			}
-			assertStaysUpOnce(t, cname, l.stderr.String(), launchLog.String(), restoredAt)
+			assertStaysUpOnce(t, cname, l.stderr.String(), launchLog.String(), moments)
 			select {
 			case <-l.kp.exited:
 				t.Fatal("the keeper ended a jail another session is still in")
@@ -120,8 +121,6 @@ func TestASignalThatLeavesATerminalSaysTheJailStaysUpForTheOthersOnce(t *testing
 			attachErr := &lockedBuffer{}
 			var launchLog lockedBuffer
 			a.Stderr = teeLog{w: attachErr, log: &launchLog}
-			restoredAt := -1
-			a.RestoreTerminal = func() { restoredAt = len(attachErr.String()) }
 			a.holdSessionLock(cname)
 			t.Cleanup(a.releaseSessionLock)
 			if a.sessionLock == nil {
@@ -130,11 +129,12 @@ func TestASignalThatLeavesATerminalSaysTheJailStaysUpForTheOthersOnce(t *testing
 			codes := make(chan int, 1)
 			arm := armLaunchSignalsWith(a.attachTeardown("podman", cname, staysUpSessionID), func(code int) { codes <- code })
 			t.Cleanup(func() { popLaunchArm(arm) })
+			moments := watchTerminal(a, arm, attachErr)
 
 			if code := signalArm(t, sig, codes); code != 128+int(sig) {
 				t.Errorf("the attach's arm exited %d, want %d", code, 128+int(sig))
 			}
-			assertStaysUpOnce(t, cname, attachErr.String(), launchLog.String(), restoredAt)
+			assertStaysUpOnce(t, cname, attachErr.String(), launchLog.String(), moments)
 			if got := l.stderr.String(); strings.Contains(got, "stays up") {
 				t.Errorf("the other session printed the attach's line:\n%s", got)
 			}
@@ -147,18 +147,54 @@ func TestASignalThatLeavesATerminalSaysTheJailStaysUpForTheOthersOnce(t *testing
 	}
 }
 
-// assertStaysUpOnce: the stays-up line is on the terminal exactly once, after the terminal was put
-// back (restoredAt is how much the terminal had when it was), and not in launch.log.
-func assertStaysUpOnce(t *testing.T, cname, terminal, launchLog string, restoredAt int) {
+// modesHandle stands in for a session's runtime client at its arm (sessionHandle): its Terminate is
+// where the TTY proxy puts the terminal's modes back, which the arm calls before its teardown, and it
+// records how much the terminal had then. There is no client to kill.
+type modesHandle struct {
+	at       *int
+	terminal *lockedBuffer
+}
+
+func (h modesHandle) Terminate() bool { *h.at = len(h.terminal.String()); return true }
+
+func (modesHandle) Kill() {}
+
+// terminalMoments is how much a session's terminal had when its teardown put each half of it back:
+// its modes (modesAt, the proxy's Terminate) and its jail indicator (indicatorAt, RestoreTerminal).
+// -1 for a half never put back.
+type terminalMoments struct{ modesAt, indicatorAt int }
+
+// watchTerminal records o's terminal moments on terminal, through arm's session handle and o's
+// RestoreTerminal.
+func watchTerminal(o *Options, arm *launchSignalArm, terminal *lockedBuffer) *terminalMoments {
+	m := &terminalMoments{modesAt: -1, indicatorAt: -1}
+	o.RestoreTerminal = func() { m.indicatorAt = len(terminal.String()) }
+	arm.attach(modesHandle{at: &m.modesAt, terminal: terminal})
+	return m
+}
+
+// assertStaysUpOnce: the stays-up line is on the terminal exactly once, and not in launch.log. It
+// comes once the terminal's modes are back, so it is not printed into a raw terminal, and before its
+// jail indicator is, so it lands in the tab that ran the session rather than one already handed
+// back to the shell (the order of keeperPreReadyTeardown's last words, and of
+// TestTerminateClosureRestoresTheTerminalAfterTheReport).
+func assertStaysUpOnce(t *testing.T, cname, terminal, launchLog string, m *terminalMoments) {
 	t.Helper()
 	if n := strings.Count(terminal, staysUpLine(cname)); n != 1 {
 		t.Fatalf("the teardown said %d times that the jail stays up for its other session, want once; "+
 			"it printed:\n%s", n, terminal)
 	}
-	if restoredAt < 0 {
-		t.Error("the teardown never put the terminal back")
-	} else if at := strings.Index(terminal, staysUpLine(cname)); at < restoredAt {
-		t.Errorf("the line was printed before the terminal was put back:\n%s", terminal)
+	at := strings.Index(terminal, staysUpLine(cname))
+	if m.modesAt < 0 {
+		t.Error("the arm never put the terminal's modes back")
+	} else if at < m.modesAt {
+		t.Errorf("the line was printed before the terminal's modes were put back:\n%s", terminal)
+	}
+	if m.indicatorAt < 0 {
+		t.Error("the teardown never put the terminal's jail indicator back")
+	} else if at+len(staysUpLine(cname)) > m.indicatorAt {
+		t.Errorf("the line was printed after the terminal's jail indicator was put back, into a tab already "+
+			"handed back to the shell:\n%s", terminal)
 	}
 	if strings.Contains(launchLog, "stays up") {
 		t.Errorf("the line went to launch.log too, where the quit's never goes:\n%s", launchLog)

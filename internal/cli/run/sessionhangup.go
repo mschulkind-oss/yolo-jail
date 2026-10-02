@@ -17,6 +17,12 @@ package run
 // jail names no session and its arm says it cannot end one: an older entrypoint handed the
 // hangup form would read it as a session's command and run a whole boot pass.
 //
+// A hangup can reach the jail before its session has named itself there: a signal just after the
+// launch started the session's exec runs the hangup while that exec is still being made. The jail
+// keeps the hangup for it, and the session ends as it names itself (entrypoint/sessionhangup.go's
+// hangup mark, JL-D77), so the arm never waits for a session that may never come. Its client,
+// killed, would not have ended it.
+//
 // The arm is the fresh launch's kind (launchSignalArm), so it covers an attach at a terminal and
 // one without, where the plain spawn used to install no arm at all and a signal ended the
 // launcher with its client and nothing else.
@@ -80,18 +86,21 @@ func (o *Options) attachSignalArm(rt, cname, sessionID string) *launchSignalArm 
 	return armLaunchSignals(o.attachTeardown(rt, cname, sessionID))
 }
 
-// attachTeardown is the attach arm's onTerminate: the hangup, then the herdr pane's release and
-// the terminal's jail indicator, which the front door's and Run's deferred restores never put
-// back on this path (os.Exit skips them), and last, on the terminal it gave back, whether the
-// jail stays up for other sessions (noteJailStaysUpOnSignal). The fresh launch's arm runs it from
-// ready on (keeperspawn.go).
+// attachTeardown is the attach arm's onTerminate: the hangup, then the herdr pane's release, as a
+// quit releases it before its last words, then whether the jail stays up for other sessions
+// (noteJailStaysUpOnSignal), and last the terminal's jail indicator, which the front door's and
+// Run's deferred restores never put back on this path (os.Exit skips them). The line comes after
+// the terminal's modes are back, which the arm puts back before it runs this
+// (launchSignalArm.terminate), and before the indicator, so it lands in the tab that ran the session
+// and not one already handed back to the shell, as the teardown before ready orders its last words
+// (keeperPreReadyTeardown). The fresh launch's arm runs it from ready on (keeperspawn.go).
 func (o *Options) attachTeardown(rt, cname, sessionID string) func() {
 	return func() {
 		o.Perf.Mark("terminate.signal")
 		o.hangUpAttachSession(rt, cname, sessionID)
 		o.releaseHerdrAgent()
-		o.restoreTerminal()
 		o.noteJailStaysUpOnSignal(cname, rt)
+		o.restoreTerminal()
 	}
 }
 
@@ -105,7 +114,8 @@ func (o *Options) attachTeardown(rt, cname, sessionID string) func() {
 // WITHOUT THE COUNT. The number the quit's line gives is the jail's live exec sessions
 // (jailSessionCount), and this session's own can still be one of them here: its client is killed
 // only after this teardown returns, and in the ready window the hangup can reach the jail before
-// the first session's exec has named itself, so it ends nothing. A nested jail measured that: a
+// the first session's exec has named itself, which then ends only as it names itself, finding the
+// hangup's mark (JL-D77), and that can be after this line. A nested jail measured that: a
 // retargeted first session said its jail stays up for 2 other sessions with one other in, its own
 // exec still running there. The quit's own wording for a count it cannot read is always true.
 //

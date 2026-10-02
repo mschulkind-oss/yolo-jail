@@ -263,7 +263,8 @@ func TestAHangupEndsARealSessionAndItsChildren(t *testing.T) {
 
 // TestMainTakesTheHangupFormFirstAndRecordsASessionBeforeItWaits: the hangup form returns right
 // after the disk I/O priority, which stays Main's first statement, and before everything a boot
-// does; a session records itself right after its argv is read and before the gate's first wait.
+// does; a session records itself right after its argv is read and before the gate's first wait,
+// and one whose hangup came first ends there, Main returning enterSession's status (JL-D77).
 // Read from the source, since Main execs bash.
 func TestMainTakesTheHangupFormFirstAndRecordsASessionBeforeItWaits(t *testing.T) {
 	b, err := os.ReadFile("boot.go")
@@ -282,7 +283,7 @@ func TestMainTakesTheHangupFormFirstAndRecordsASessionBeforeItWaits(t *testing.T
 		"return hangUpSession(args[1])",
 		"mode, command := parseEntryArgs(args)",
 		"os.Getenv(SessionIDEnv); id != \"\" && mode != modeHold",
-		"registerSession(id)",
+		"if err := enterSession(id, os.Stderr); err != nil {\n\t\t\treturn err\n\t\t}",
 		"markBoot(bootBooting)",
 		"gate.awaitBoot()",
 	}

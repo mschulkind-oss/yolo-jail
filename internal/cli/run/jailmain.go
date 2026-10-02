@@ -303,8 +303,8 @@ func armLaunchSignals(onTerminate func()) *launchSignalArm {
 var launchArmExit = os.Exit
 
 // endingSignal is the signal the arm now ending this process took, set before its teardown runs,
-// for a teardown whose last words depend on it: a session's line that its jail stays up is for a
-// terminal that outlives the signal, which a SIGHUP's closed pane does not (attachTeardown). One
+// for a teardown whose last words depend on it: a line that its jail stays up is for a terminal
+// that outlives the signal, which a SIGHUP's closed pane does not (endingOnAHangup). One
 // arm ends a process, the innermost and once (armstack.go), so the signal is the process's. Unset
 // while no arm is ending it, as for a teardown called by anything but its arm; only a test's exit
 // returns, and the arm unsets it then.
@@ -316,6 +316,15 @@ func signalEndingTheProcess() (syscall.Signal, bool) {
 		return *s, true
 	}
 	return 0, false
+}
+
+// endingOnAHangup reports that an arm is ending this process on a SIGHUP: a closed pane or window,
+// which leaves no terminal to read what a teardown would say of the jail it leaves. Each teardown a
+// launch's arm runs says nothing of the jail staying up then (JL-D76): the session's
+// (noteJailStaysUpOnSignal) and the one before ready (awaitKeeperUnwind).
+func endingOnAHangup() bool {
+	sig, ending := signalEndingTheProcess()
+	return ending && sig == syscall.SIGHUP
 }
 
 // armLaunchSignalsWith is armLaunchSignals with the process exit as a parameter, so a test can

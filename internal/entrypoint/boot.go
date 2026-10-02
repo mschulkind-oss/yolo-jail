@@ -565,11 +565,11 @@ func Main(args []string) error {
 	// A SESSION RECORDS ITSELF under the id its launcher named, before anything that can wait,
 	// so a launcher signalled during the boot's waits can still hang it up (sessionhangup.go).
 	// This process's pid is the session's for good: execBash keeps it. A jail's main process
-	// is no session, and an exec with no id is one this launcher cannot hang up.
+	// is no session, and an exec with no id is one this launcher cannot hang up. A session whose
+	// hangup reached the jail first ends here, before it begins (JL-D77).
 	if id := os.Getenv(SessionIDEnv); id != "" && mode != modeHold {
-		if err := registerSession(id); err != nil {
-			fmt.Fprintf(os.Stderr, "yolo-entrypoint: warning: could not record this session for "+
-				"its launcher (%v); if its terminal closes, what it runs may go on in the jail\n", err)
+		if err := enterSession(id, os.Stderr); err != nil {
+			return err
 		}
 	}
 

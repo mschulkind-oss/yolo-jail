@@ -281,7 +281,9 @@ const keeperUnwindPoll = 50 * time.Millisecond
 // ready the keeper ends it on the count instead, so the wait is a session's quit (JL-D74): it goes
 // on only while the keeper is ending the jail, and a jail it keeps up is said, as endSession says
 // it, and not waited for. It keeps one up for another session still in it (a session's shared hold
-// on the count), and for an uncounted first session (JL-P3), on which it never drains.
+// on the count), and for an uncounted first session (JL-P3), on which it never drains. On a SIGHUP
+// the jail is not said to stay up, by either line: the pane that would read it is gone, as for the
+// session's teardown (endingOnAHangup, JL-D76). The wait still ends there.
 func (o *Options) awaitKeeperUnwind(kp *keeperProcess, cname, rt string) {
 	bound := time.After(keeperUnwindWait)
 	ready := kp.ready
@@ -295,15 +297,19 @@ func (o *Options) awaitKeeperUnwind(kp *keeperProcess, cname, rt string) {
 		case <-ready:
 			ready = nil
 			if kp.uncounted {
-				o.pr(terminalOnly(o.Stderr)).printf("[dim]Jail %s stays up: its keeper could not count this "+
-					"session, so it does not end the jail when its sessions leave; %s ends it.[/dim]",
-					cname, stopRemedy(rt, cname))
+				if !endingOnAHangup() {
+					o.pr(terminalOnly(o.Stderr)).printf("[dim]Jail %s stays up: its keeper could not count this "+
+						"session, so it does not end the jail when its sessions leave; %s ends it.[/dim]",
+						cname, stopRemedy(rt, cname))
+				}
 				return
 			}
 			poll = time.After(0)
 		case <-poll:
 			if othersInJail(cname) {
-				o.noteJailStaysUp(cname, rt)
+				if !endingOnAHangup() {
+					o.noteJailStaysUp(cname, rt)
+				}
 				return
 			}
 			poll = time.After(keeperUnwindPoll)

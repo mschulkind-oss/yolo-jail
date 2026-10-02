@@ -25,15 +25,23 @@ package integration
 // runners of both architectures, where the goroutine often wins. The unit tier pins each order on
 // its own (internal/cli/run/keeperreadywindow_test.go, internal/cli/run/sessionsignalstaysup_test.go).
 //
+// THE GOROUTINE'S ORDER, TAKEN TO ITS END: once retargeted, the launch starts the first session's
+// exec at once, so the session's teardown can hang that session up before its exec has named itself
+// in the jail. The hangup then ended nothing and the session ran on with no terminal (JL-D77). The
+// last test here holds that moment open too, by stopping the exec's client and the launch in turn;
+// the unit tier pins the jail's half (internal/entrypoint/sessionhangupmark_test.go).
+//
 // EACH TRY IS A WORKSPACE OF ITS OWN. A nested podman sometimes cannot remove the jail's stopped
 // container after so quick a stop (the `openByHandleAt` failure the design's §4.4 records, seen in
 // 1 of 5 tries in one workspace); the keeper then leaves the jail unkept, as it should, and a next
 // try in the same workspace would meet the leftover rather than test the window.
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -112,6 +120,85 @@ func TestASIGINTBetweenReadyAndTheFirstSessionEndsTheJailPromptly(t *testing.T) 
 	}
 }
 
+// readyWindowWithAnother is a fresh launch held stopped once its keeper said the jail is ready,
+// with a second session already in that jail, waiting there for the first session's provisioning,
+// which the held launch has not begun.
+type readyWindowWithAnother struct {
+	cname        string
+	first, other *bgRun
+	keeper       int
+}
+
+// holdAtReadyWithAnother starts a fresh launch of firstScript in a workspace of its own, stops it
+// (SIGSTOP) once its keeper has started, waits for that keeper to say the jail is ready, and attaches
+// a second session. The launch is left stopped, for the caller to resume.
+func holdAtReadyWithAnother(t *testing.T, try int, firstScript string) *readyWindowWithAnother {
+	t.Helper()
+	started := regexp.MustCompile(`keeper: started, pid (\d+)`)
+	dir := writeProject(t, `{}`)
+	cname := naming.FromWorkspace(dir)
+	logPath := filepath.Join(paths.GlobalStorage(), "logs", "jail-keeper-"+cname+".log")
+	ready := "holds " + cname + " until its last session leaves"
+	first := startYoloBackground(t, "interrupted", dir, firstScript)
+	var m []string
+	for deadline := time.Now().Add(jailTimeout()); ; time.Sleep(2 * time.Millisecond) {
+		if m = started.FindStringSubmatch(first.combined()); m != nil {
+			break
+		}
+		select {
+		case err := <-first.done:
+			t.Fatalf("try %d: the launch exited (%v) before its keeper started:\n%s", try, err, first.combined())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("try %d: the launch did not start its keeper within %s:\n%s", try, jailTimeout(), first.combined())
+		}
+	}
+	keeper, _ := strconv.Atoi(m[1])
+	if err := syscall.Kill(first.pid, syscall.SIGSTOP); err != nil {
+		t.Fatalf("stopping the launch: %v", err)
+	}
+	for deadline := time.Now().Add(jailTimeout()); ; time.Sleep(20 * time.Millisecond) {
+		raw, _ := os.ReadFile(logPath)
+		if strings.Contains(string(raw), ready) {
+			break
+		}
+		if time.Now().After(deadline) || syscall.Kill(keeper, 0) != nil {
+			_ = syscall.Kill(first.pid, syscall.SIGCONT)
+			t.Fatalf("try %d: the keeper never said its jail was ready:\n%s\nthe launch:\n%s", try, raw, first.combined())
+		}
+	}
+	// The second session attaches to the ready jail and waits there for the first session's
+	// provisioning, which the held launch has not begun.
+	other := startYoloBackground(t, "other", dir, `echo OTHER-IN-$((1+1)); sleep 600`)
+	for deadline := time.Now().Add(jailTimeout()); !strings.Contains(other.combined(), "first session to begin provisioning"); time.Sleep(20 * time.Millisecond) {
+		select {
+		case err := <-other.done:
+			_ = syscall.Kill(first.pid, syscall.SIGCONT)
+			t.Fatalf("try %d: the second session exited (%v) before it was in the jail:\n%s", try, err, other.combined())
+		default:
+		}
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(first.pid, syscall.SIGCONT)
+			t.Fatalf("try %d: the second session never got into the jail:\n%s", try, other.combined())
+		}
+	}
+	return &readyWindowWithAnother{cname: cname, first: first, other: other, keeper: keeper}
+}
+
+// endTheOther quits the second session and requires the keeper to end the jail after it.
+func (w *readyWindowWithAnother) endTheOther(t *testing.T, try int) {
+	t.Helper()
+	_ = syscall.Kill(w.other.pid, syscall.SIGINT)
+	_ = w.other.wait(t, jailTimeout())
+	if !awaitProcessGone(w.keeper, 2*time.Minute) {
+		t.Fatalf("try %d: the keeper (pid %d) outlived the jail's last session:\n%s", try, w.keeper, w.other.combined())
+	}
+	if n := runningContainers(t, w.cname); n != 0 {
+		t.Fatalf("try %d: %d containers named %s are running after the last session left", try, n, w.cname)
+	}
+}
+
 // TestASIGINTInTheReadyWindowLeavesTheJailUpForAnotherSession is the same window with a second
 // session already in the jail, attached while the first launch was held stopped after its keeper's
 // ready. The interrupted launch is then one session leaving a jail another is in: it must exit well
@@ -120,57 +207,10 @@ func TestASIGINTBetweenReadyAndTheFirstSessionEndsTheJailPromptly(t *testing.T) 
 // of its two teardowns took the signal, which is a race (the file's header).
 func TestASIGINTInTheReadyWindowLeavesTheJailUpForAnotherSession(t *testing.T) {
 	requireJail(t)
-	started := regexp.MustCompile(`keeper: started, pid (\d+)`)
 	const bound = 10 * time.Second // half the launch's 20 s unwind bound
 	for try := 1; try <= 2; try++ {
-		dir := writeProject(t, `{}`)
-		cname := naming.FromWorkspace(dir)
-		logPath := filepath.Join(paths.GlobalStorage(), "logs", "jail-keeper-"+cname+".log")
-		ready := "holds " + cname + " until its last session leaves"
-		first := startYoloBackground(t, "interrupted", dir, `echo SESSION-IN-$((40+2)); sleep 600`)
-		var m []string
-		for deadline := time.Now().Add(jailTimeout()); ; time.Sleep(2 * time.Millisecond) {
-			if m = started.FindStringSubmatch(first.combined()); m != nil {
-				break
-			}
-			select {
-			case err := <-first.done:
-				t.Fatalf("try %d: the launch exited (%v) before its keeper started:\n%s", try, err, first.combined())
-			default:
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("try %d: the launch did not start its keeper within %s:\n%s", try, jailTimeout(), first.combined())
-			}
-		}
-		keeper, _ := strconv.Atoi(m[1])
-		if err := syscall.Kill(first.pid, syscall.SIGSTOP); err != nil {
-			t.Fatalf("stopping the launch: %v", err)
-		}
-		for deadline := time.Now().Add(jailTimeout()); ; time.Sleep(20 * time.Millisecond) {
-			raw, _ := os.ReadFile(logPath)
-			if strings.Contains(string(raw), ready) {
-				break
-			}
-			if time.Now().After(deadline) || syscall.Kill(keeper, 0) != nil {
-				_ = syscall.Kill(first.pid, syscall.SIGCONT)
-				t.Fatalf("try %d: the keeper never said its jail was ready:\n%s\nthe launch:\n%s", try, raw, first.combined())
-			}
-		}
-		// The second session attaches to the ready jail and waits there for the first session's
-		// provisioning, which the held launch has not begun.
-		other := startYoloBackground(t, "other", dir, `echo OTHER-IN-$((1+1)); sleep 600`)
-		for deadline := time.Now().Add(jailTimeout()); !strings.Contains(other.combined(), "first session to begin provisioning"); time.Sleep(20 * time.Millisecond) {
-			select {
-			case err := <-other.done:
-				_ = syscall.Kill(first.pid, syscall.SIGCONT)
-				t.Fatalf("try %d: the second session exited (%v) before it was in the jail:\n%s", try, err, other.combined())
-			default:
-			}
-			if time.Now().After(deadline) {
-				_ = syscall.Kill(first.pid, syscall.SIGCONT)
-				t.Fatalf("try %d: the second session never got into the jail:\n%s", try, other.combined())
-			}
-		}
+		w := holdAtReadyWithAnother(t, try, `echo SESSION-IN-$((40+2)); sleep 600`)
+		first, other, keeper, cname := w.first, w.other, w.keeper, w.cname
 		_ = syscall.Kill(first.pid, syscall.SIGINT)
 		sent := time.Now()
 		if err := syscall.Kill(first.pid, syscall.SIGCONT); err != nil {
@@ -202,13 +242,150 @@ func TestASIGINTInTheReadyWindowLeavesTheJailUpForAnotherSession(t *testing.T) {
 			line, _, _ := strings.Cut(said[strings.Index(said, staysUp):], "\n")
 			t.Logf("try %d: %s", try, line)
 		}
-		_ = syscall.Kill(other.pid, syscall.SIGINT)
-		_ = other.wait(t, jailTimeout())
-		if !awaitProcessGone(keeper, 2*time.Minute) {
-			t.Fatalf("try %d: the keeper (pid %d) outlived the jail's last session:\n%s", try, keeper, other.combined())
+		w.endTheOther(t, try)
+	}
+}
+
+// firstSessionMark is in the command line of every process of the first session's exec below, and
+// of no other process in its jail: the session's entrypoint carries the command as its payload, and
+// the shells it runs and the `sleep` the command ends in carry it after.
+const firstSessionMark = "43217"
+
+// inJailFirstSession is the first session's entrypoint in the jail, read from this host's /proc,
+// which shows the processes of the jail's pid namespace too: the pid of a process whose argv[0] is
+// the jail's entrypoint and whose form is the first session's, or 0. The exec's client on this host
+// has the same arguments after `<rt> exec`, so argv[0] is what tells the two apart.
+func inJailFirstSession() int {
+	entries, _ := os.ReadDir("/proc")
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
 		}
-		if n := runningContainers(t, cname); n != 0 {
-			t.Fatalf("try %d: %d containers named %s are running after the last session left", try, n, cname)
+		args, err := processArgs(pid)
+		if err == nil && len(args) > 1 && args[0] == "/opt/yolo-jail/bin/yolo-entrypoint" &&
+			args[1] == "--yolo-first-session" {
+			return pid
 		}
+	}
+	return 0
+}
+
+// awaitChild polls for a running child of parent whose command line holds arg, within bound: its
+// pid, or 0.
+func awaitChild(parent int, arg string, bound time.Duration) int {
+	for deadline := time.Now().Add(bound); time.Now().Before(deadline); {
+		for _, pid := range processChildren(parent) {
+			if processHasArgs(pid, arg) {
+				return pid
+			}
+		}
+	}
+	return 0
+}
+
+// TestASIGINTBeforeTheFirstSessionNamesItselfLeavesNothingOfItRunning is the ready window's other
+// order taken to its end (docs/design/jail-lifetime-last-session-wins.md JL-D77): the launch's own
+// goroutine has retargeted the arm to the session's teardown and started the first session's exec
+// client, and the teardown's hangup reaches the jail before that exec has named itself there. The
+// hangup then found no session and ended nothing, and the exec, which killing its client does not
+// end (conmon keeps it, §9.7), ran on in the jail with no terminal for as long as the other session
+// kept the jail up: it took provisioning and went on to its command.
+//
+// THE WINDOW IS HELD OPEN BY STOPPING PROCESSES, as above. The first session's exec client is
+// stopped the moment it appears, before it has made its exec, and the SIGINT then takes the
+// session's teardown, since the retarget comes before that client starts. The launch is stopped
+// while its hangup's client runs, so that it cannot kill the exec client before the exec is made,
+// which the exec client is let do once the hangup has run. A try in which either stop came too late
+// is not counted, and the test needs two that are.
+func TestASIGINTBeforeTheFirstSessionNamesItselfLeavesNothingOfItRunning(t *testing.T) {
+	requireJail(t)
+	if goruntime.GOOS != "linux" {
+		t.Skip("holds the window open by reading the jail's processes from this host's /proc, which a Mac's VM keeps to itself")
+	}
+	rt := detectRuntime()
+	// The mark is split in the probe's own text, so the probe never counts itself.
+	probe := `n=0; for p in /proc/[0-9]*; do c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null); ` +
+		`case "$c" in *"` + firstSessionMark[:3] + `""` + firstSessionMark[3:] + `"*) n=$((n+1)); echo "LEFT: $c";; esac; ` +
+		`done; echo "COUNT=$n"`
+	counted := 0
+	for try := 1; try <= 5 && counted < 2; try++ {
+		w := holdAtReadyWithAnother(t, try, `echo SESSION-IN-$((40+2)); exec sleep `+firstSessionMark)
+		first := w.first
+		if err := syscall.Kill(first.pid, syscall.SIGCONT); err != nil {
+			t.Fatalf("resuming the launch: %v", err)
+		}
+		client := awaitChild(first.pid, "--yolo-first-session", jailTimeout())
+		if client == 0 {
+			t.Fatalf("try %d: the launch never started its first session's exec:\n%s", try, first.combined())
+		}
+		_ = syscall.Kill(client, syscall.SIGSTOP)
+		held := inJailFirstSession() == 0
+		_ = syscall.Kill(first.pid, syscall.SIGINT)
+		hangup := awaitChild(first.pid, "--yolo-hangup-session", 10*time.Second)
+		if hangup == 0 {
+			_ = syscall.Kill(client, syscall.SIGCONT)
+			t.Fatalf("try %d: the SIGINT ran no hangup of the first session:\n%s", try, first.combined())
+		}
+		_ = syscall.Kill(first.pid, syscall.SIGSTOP)
+		for deadline := time.Now().Add(1500 * time.Millisecond); !processGone(hangup) && time.Now().Before(deadline); {
+			time.Sleep(time.Millisecond)
+		}
+		held = held && processGone(hangup) && !processGone(client) && inJailFirstSession() == 0
+		// The hangup has run in the jail. Now the exec is made, and the launch, still stopped, cannot
+		// kill its client first. It has run once the session's entrypoint is in the jail, or once its
+		// client has ended.
+		_ = syscall.Kill(client, syscall.SIGCONT)
+		ran := false
+		for deadline := time.Now().Add(1200 * time.Millisecond); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+			if inJailFirstSession() != 0 {
+				ran = true
+				time.Sleep(300 * time.Millisecond) // it names itself first thing; let it get past that
+				break
+			}
+			if processGone(client) {
+				ran = true
+				break
+			}
+		}
+		_ = syscall.Kill(first.pid, syscall.SIGCONT)
+		if rc := first.wait(t, jailTimeout()); rc != 128+int(syscall.SIGINT) {
+			t.Errorf("try %d: the interrupted launch exited %d, want %d:\n%s", try, rc, 128+int(syscall.SIGINT), first.combined())
+		}
+		if !held || !ran {
+			t.Logf("try %d: not counted, a stop came too late to hold the window (held %v, the exec ran %v)", try, held, ran)
+			w.endTheOther(t, try)
+			continue
+		}
+		counted++
+		for _, line := range strings.Split(first.combined(), "\n") {
+			if strings.Contains(line, "before the session began") || strings.Contains(line, "stays up") {
+				t.Logf("try %d: the launch printed: %s", try, strings.TrimSpace(line))
+			}
+		}
+		// What the hangup reached had its signal before the launch exited, and a session that ends
+		// itself on finding it was hung up does so as it starts. After that nothing of it may run.
+		time.Sleep(time.Second)
+		for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			out, err := jailExec(ctx, rt, w.cname, probe).CombinedOutput()
+			cancel()
+			if !strings.Contains(string(out), "COUNT=") {
+				t.Fatalf("try %d: counting the first session's processes in the jail failed (%v):\n%s", try, err, out)
+			}
+			if !strings.Contains(string(out), "COUNT=0") {
+				t.Errorf("try %d: the interrupted first session runs on in the jail after its launcher exited, its "+
+					"hangup having reached the jail before the session named itself:\n%s\nthe launch:\n%s",
+					try, out, first.combined())
+				break
+			}
+		}
+		if processGone(w.other.pid) {
+			t.Fatalf("try %d: the other session ended with the interrupted launch:\n%s", try, w.other.combined())
+		}
+		w.endTheOther(t, try)
+	}
+	if counted < 2 {
+		t.Fatalf("only %d of the tries held the window open, so the test measured nothing", counted)
 	}
 }
