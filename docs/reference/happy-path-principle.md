@@ -201,14 +201,17 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    on its line, with the message's color markup removed: on an indented line
    (`  yolo check-deps  # check again`, and the lines of usage text), in the column a colon and
    two spaces open (`Check the edit:  yolo check`), or right after a next step's lead-in (`then:`,
-   `fix:`, `run:`, `run`, `next:`, `→`, `->`), so the `then: yolo check` many `yolo check` notes
-   end with is read. A sentence with yolo as its subject is not read, and a word after `yolo` that
+   `fix:`, `run:`, `run`, `next:`, `→`, `->`) or a shell operator (`&&`, `||`), so the
+   `then: yolo check` many `yolo check` notes end with is read. A sentence with yolo as its subject
+   is not read, even on an indented line that carries on a paragraph, and a word after `yolo` that
    is not a command fails the test instead of being passed over as prose
-   (`TestTheHintScanReadsACommandWrittenWithoutBackticks`). Still not read: a command at the start
-   of an unindented line or literal (a field holding `yolo prune --apply`), one after a colon and a
-   single space (`in a new terminal: yolo check`) or after any other word, a usage line's synopsis
-   (`Usage: yolo audit [flags]`), and the words after a command's verb, which it takes as
-   arguments. Every command's help carries an example that routes to that command
+   (`TestTheHintScanReadsACommandWrittenWithoutBackticks`); prose naming the program writes `yolo`
+   in backticks. Still not read: a command at the start of an unindented line or literal (a field
+   holding `yolo prune --apply`), one after a colon and a single space
+   (`in a new terminal: yolo check`), after any other word, or in quotes or parentheses
+   (`(yolo config diff claude)`), an indented one that a period, a comma or a pipe ends, a usage
+   line's synopsis (`Usage: yolo audit [flags]`), and the words after a command's verb, which it
+   takes as arguments. Every command's help carries an example that routes to that command
    (`TestEveryCommandShowsACopyableExample`), and every `docs/` path or anchor cited from Go
    resolves (`TestEveryDocCitationFromGoResolves`). **No test checks that a named command does what
    the hint says:** that is each hint's own test. `yolo check`'s piped orphan note used to name

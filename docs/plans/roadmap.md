@@ -42,79 +42,79 @@ host or an outside account follows under [External waits](#external-waits).
     since `codex agents` there still starts the daemon yolo turns off, stale model list and all; and [how host pi gets its
     OpenAI subscription credential](../design/pi-host-openai-auth.md), since `yolo host -- pi` on the `codex` profile starts
     on another model and lists no ChatGPT model.
-6. [Rule whether the pi pack may rewrite its own `packages` list](../design/pi-git-extension-caching.md) — the
+6. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
+    — with the defects, since [rule 2](../reference/happy-path-principle.md#the-rules) calls a success that names no
+    next command a dead end and an `--assert` ends at its counts, and last among them, since that run has still
+    succeeded; adding the line waits on a ruling against [the verdict block](../reference/report-tiers.md#the-verdict-block)'s
+    "Only the dry run has a footer". This entry is the work's only home.
+7. [Rule whether the pi pack may rewrite its own `packages` list](../design/pi-git-extension-caching.md) — the
     per-commit extension store that ends every jail sharing one npm prefix is rebased and green, and lands on this ruling.
-7. [Rule the macos-user workspace root](../design/configurable-workspace-root.md), [its whitelist](../design/configurable-workspace-root.md#OQ-CW2) first — the home check
+8. [Rule the macos-user workspace root](../design/configurable-workspace-root.md), [its whitelist](../design/configurable-workspace-root.md#OQ-CW2) first — the home check
     now folds case and knows the `/Users` firmlink, but a `/var/root` home still passes until the whitelist replaces
     the blacklist, and tightening later withdraws what users may rely on.
-8. [Decide whether a workspace config may feed host dotenvs and mounts into a jail](../research/agent-safehouse.md#OQ-AS3)
+9. [Decide whether a workspace config may feed host dotenvs and mounts into a jail](../research/agent-safehouse.md#OQ-AS3)
     — a committed config still can, and notch convergence's `env_sources` item waits on the answer.
-9. [Rule which packs a workspace config may declare](../reference/pack-system.md#OQ-PK1), then [retire `mcp_presets`](../design/mcp-presets-removal.md)
+10. [Rule which packs a workspace config may declare](../reference/pack-system.md#OQ-PK1), then [retire `mcp_presets`](../design/mcp-presets-removal.md)
     — that build rests on the boundary the ruling redraws, and ends macos-user's blanket refusal of MCP presets, and also decides whether the compose
     engine's [`workspace` layer](agent-settings-composition.md) gets a producer.
-10. [Rule the slot split's migration window](../design/slots-and-contributions.md#OQ-D6), then [the manifest language](../design/manifest-language.md)
+11. [Rule the slot split's migration window](../design/slots-and-contributions.md#OQ-D6), then [the manifest language](../design/manifest-language.md)
     with [the slots' other calls](../design/slots-and-contributions.md) — `exposes` and [the pi extension-tree
     rework](../design/pi-pack-extensions.md) wait on the first, and one sitting for the rest rewrites manifests once.
-11. Provider rulings later decisions build on: [how far the natively-implements rule reaches](../design/pi-codex-provider-shadowing.md),
+12. Provider rulings later decisions build on: [how far the natively-implements rule reaches](../design/pi-codex-provider-shadowing.md),
     which holds pi's Converse route through the wire bridge, and [what `-p` names](../design/providers-and-profiles-redesign.md),
     which the plain-words rewrite of the provider reference waits on.
-12. [Decide whether a jail shell gets the credential grant](../design/credential-sources-separation.md) — a jail's
+13. [Decide whether a jail shell gets the credential grant](../design/credential-sources-separation.md) — a jail's
     `--with-credentials` and [its build sketch](../design/credential-sources-separation-plan.md) wait on it.
-13. [Rule one env composition order](notch-convergence.md), and [confirm whether host claude may join the jails'
+14. [Rule one env composition order](notch-convergence.md), and [confirm whether host claude may join the jails'
     login](../reference/claude-oauth-interposition.md#OQ-CI1) — one variable's value depends on how the agent starts,
     and an existing ruling may answer the login, so an agent drafts that leaning first; the plan's other held items
     wait on the workspace-config and jail-credential rulings above and the `assert` ruling next.
-14. [Settle what retiring `host_management: "assert"` does to configs on it](../design/config-ownership-and-promotion.md)
+15. [Settle what retiring `host_management: "assert"` does to configs on it](../design/config-ownership-and-promotion.md)
     — the retirement cannot start until then.
-15. [Rule what serializes a daemon's spawn once the host singleton goes](../design/host-daemon-ownership.md), against
+16. [Rule what serializes a daemon's spawn once the host singleton goes](../design/host-daemon-ownership.md), against
     [the plan's table of what the spawn flock covers](../design/host-daemon-ownership-plan.md) — retiring the machine-wide credential
     daemons waits on it, including the OpenAI legacy-state migration and the `yolo host -- codex|pi` spawns the question does not name.
-16. [Rule the provisioner override's grain](../design/provisioner-sets.md) — the user-scope preference that re-ranks the
+17. [Rule the provisioner override's grain](../design/provisioner-sets.md) — the user-scope preference that re-ranks the
     recipes packs ship waits on it, and macos-user's corporate-CA trust rides in the same design.
-17. [Rule what the environment manager promises at each notch](../design/environment-manager-user-stories.md) — Q1b
+18. [Rule what the environment manager promises at each notch](../design/environment-manager-user-stories.md) — Q1b
     decides [`yolo check --at`](../design/yolo-as-environment-manager.md) and Q7 [the Linux guest notch](environment-manager-plan.md).
-18. [Choose what replaces the Intel macOS runner](../research/macos-support-matrix.md) — its nixpkgs security window
+19. [Choose what replaces the Intel macOS runner](../research/macos-support-matrix.md) — its nixpkgs security window
     closes at the end of 2026, leaving the podman macOS suite unpatched or without a hosted runner.
-19. [Rule the keychain from a jail](../design/keychain-from-a-jail.md), which settles [Copilot's machine-wide
+20. [Rule the keychain from a jail](../design/keychain-from-a-jail.md), which settles [Copilot's machine-wide
     login](../research/copilot-token-storage.md) — until then every workspace asks for its own Copilot login.
-20. [Rule what the keeper holds at `yolo host`](../design/jail-lifetime-last-session-wins.md), with
+21. [Rule what the keeper holds at `yolo host`](../design/jail-lifetime-last-session-wins.md), with
     [the sidecars and doorbell](../design/agent-event-watchers.md) — the keeper at `yolo host` and macos-user and the doorbell wait on
     them, and each design's host half waits on the other.
-21. Jail-boot rulings: [what a failed agent install does to a launch](../design/jail-notch-readiness.md), since the
+22. Jail-boot rulings: [what a failed agent install does to a launch](../design/jail-notch-readiness.md), since the
     provisioning command leaves every declared agent CLI uninstalled until first use, and [the boot snapshot and
     diagnostic dial](../design/diagnostics-past-the-boundary.md), since a refused boot keeps no record of the jail's state
     when it gave up, such as which process held a port.
-22. [Rule the add-only model lists, then whether a list refuses without `only`](../design/model-lists-and-pickers.md), and
+23. [Rule the add-only model lists, then whether a list refuses without `only`](../design/model-lists-and-pickers.md), and
     [web search on Bedrock](../design/bedrock-web-search.md) — what most agents' menus show turns on the first two, and the 2026-10-01
     reading found no agent gets search from Bedrock on runtime, so the search questions now decide whether yolo supplies one.
-23. [Decide whether pack-declared traps fold into the agent directory map](../design/agent-directory-map.md) — the map
+24. [Decide whether pack-declared traps fold into the agent directory map](../design/agent-directory-map.md) — the map
     would supersede [the traps design](../design/pack-declared-file-diagnostics.md), so rule it before building either.
-24. [Rule what triggers an in-jail build's GC root, and whether `gcroots/auto` may be bound in](../design/in-jail-nix-roots.md) — yolo's
+25. [Rule what triggers an in-jail build's GC root, and whether `gcroots/auto` may be bound in](../design/in-jail-nix-roots.md) — yolo's
     own in-jail roots are registered under the host's spelling now, and a root a user or an agent makes is still dead on arrival.
-25. [Approve the host capability gate](../design/declaration-parity.md) (DP-B46: `yolo host --` skips the capability gate a jail
+26. [Approve the host capability gate](../design/declaration-parity.md) (DP-B46: `yolo host --` skips the capability gate a jail
     launch applies) — a nod, not a ruling, and the last item of that census.
-26. [Rule how macos-user reaches the capture store](install-capture.md) and [whether integration sharding unparks](integration-parallelism.md)
+27. [Rule how macos-user reaches the capture store](install-capture.md) and [whether integration sharding unparks](integration-parallelism.md)
     with [the test suite's two other levers](test-suite-speed.md),
     and [name the real forked program](../design/forked-programs-as-packs.md) — the host notch's floor arms are built on a stand-in fork,
     and the real one is the last input step 7 needs.
-27. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md#OQ-HR3), with herdr's other two open questions,
+28. [Rule how a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md#OQ-HR3), with herdr's other two open questions,
     [what a jail pane does after a herdr restart](../research/herdr-integration.md#OQ-HR2) and
     [whether a jailed agent may drive herdr](../research/herdr-integration.md#OQ-HR4) — the 2026-10-01 measurement showed a read-only bind
     refuses every commit and a read-write one lets a jail prune the outside worktree, so the herdr questions now rest on facts.
-28. Calls the 2026-10-01 groundwork left at one decision each: [mise's prune record](../design/minimal-disk-footprint.md),
+29. Calls the 2026-10-01 groundwork left at one decision each: [mise's prune record](../design/minimal-disk-footprint.md),
     [colliding attribute paths](../design/package-nested-attribute-paths.md), [pi's package loader](../design/pack-pi-resources.md),
     [who installs a pi package the refresh missed](../design/pi-extension-lifecycle.md), [the `:ro` degradation rows](../design/composed-file-permissions.md),
     [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md),
     [copilot's updater](native-installer-migration.md), [whether array-append pinning closes](BACKLOG.md#E5), [the pack system's other calls](../reference/pack-system.md) and
     [relocating `.yolo` by a link](../reference/jail-home.md#OQ-JH1)
     — each has its facts and a leaning now, so each is a short sitting.
-29. [Rule whether yolo may hold an editor preference](../design/baked-editor-preference.md) — the maintainer asked
+30. [Rule whether yolo may hold an editor preference](../design/baked-editor-preference.md) — the maintainer asked
     for it, and its first ruling decides the rest and an image change every jail pays.
-30. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
-    — [rule 2](../reference/happy-path-principle.md#the-rules) says every success points forward, and
-    [the verdict block](../reference/report-tiers.md#the-verdict-block) rules "Only the dry run has a footer", so an
-    `--assert` ends at its counts. A small improvement nothing shipped waits on, and adding that line is the one step
-    it gates. This entry is the work's only home.
 31. Rulings nothing shipped waits on. Gating one later step: [the host-file permission asymmetry](BACKLOG.md#E2) with
     [its host-side twin](pack-host-management-plan.md) in one sitting, [the jail's skills fan-out](BACKLOG.md#OQ-S4), [pack binary pins](../design/broker-as-a-pack.md),
     [loophole env and guest fields](../design/loophole-packaging.md), [workspace MCP files](../design/workspace-mcp-sources.md),

@@ -36,25 +36,31 @@ package cli
 //     again", and the lines of usage text), or in the column a colon and two spaces open ("Check
 //     the edit:  yolo check"), it must fill the rest of the line, up to a gap of two spaces before
 //     a comment or a description. Right after a lead-in this codebase writes before a next step
-//     ("then: ", "fix: ", "run: ", "run ", "next: ", in any case, and "→ ", "-> "), it may also
-//     end at a quote, a parenthesis, a sentence end, a dash or a shell operator ("Run yolo
-//     update, then relaunch."). An indented line whose `yolo` runs on into a sentence ("  yolo
-//     could not get this host's stack…") is prose with yolo as its subject, and is not read.
+//     ("then: ", "fix: ", "run: ", "run ", "next: ", in any case, and "→ ", "-> "), or after a
+//     shell operator chaining one ("switch && yolo check", "||"), it may also end at a quote, a
+//     parenthesis, a sentence end, a dash or a shell operator ("Run yolo update, then
+//     relaunch."). An indented line whose `yolo` runs on into a sentence ("  yolo could not get
+//     this host's stack…") is prose with yolo as its subject, and is not read; nor is an indented
+//     line that fills its line but carries on the paragraph above it, text at the same indent that
+//     neither ends in a colon nor is itself a command line.
 //     Nothing that is read is skipped: a word after `yolo` that is not a command fails the test,
-//     which is also how a misread of prose shows, and the fix for that goes in bareHints, never in
-//     an exception for the message.
+//     which is also how a misread of prose shows. Prose naming the program writes `yolo` in
+//     backticks ("Run `yolo` as your normal user"); a form the scan misreads is fixed in
+//     bareHints; neither is fixed by an exception for the message.
 //
 // What it does not read: a command at the start of an unindented line or literal (a field holding
 // "yolo prune --apply"), which has the shape of a sentence or an error beginning with yolo ("yolo
 // could not create it", "yolo config render: unknown flag"); one after a colon and one space ("in
 // a new terminal: yolo check"), the shape of prose about yolo ("it is empty: yolo was started with
-// no PATH"); a usage line's synopsis ("Usage: yolo audit [flags]"); one after any other word or a
-// quote ("use yolo host", "'yolo config-ref'"); a word after the verb (`yolo pack lint <dir>`,
-// `yolo broker restart <name>`), which a command takes as an argument; the word a placeholder
-// stands in for; and short flags. A flag the command parses before picking its verb and then
-// refuses for one verb (`yolo loopholes enable --format json`), or a removed flag a handler still
-// refuses by name (prune's `--keep-images`), reads as parsed, and the check does not run a hint,
-// so it cannot say the command does what the hint promises.
+// no PATH"); an indented one that ends anywhere but at a two-space gap or its line's end, such as
+// at a period, a comma or a pipe ("  yolo audit --json | jq .argv"); a usage line's synopsis
+// ("Usage: yolo audit [flags]"); one after any other word, a quote or a parenthesis ("use yolo
+// host", "'yolo config-ref'", "(yolo config diff claude)"); a word after the verb (`yolo pack lint
+// <dir>`, `yolo broker restart <name>`), which a command takes as an argument; the word a
+// placeholder stands in for; and short flags. A flag the command parses before picking its verb
+// and then refuses for one verb (`yolo loopholes enable --format json`), or a removed flag a
+// handler still refuses by name (prune's `--keep-images`), reads as parsed, and the check does not
+// run a hint, so it cannot say the command does what the hint promises.
 // TestTheHintCheckRefusesWhatIsNotACommand keeps the resolver, and the scan of each spelling,
 // from passing everything.
 
@@ -107,10 +113,11 @@ var hintPattern = regexp.MustCompile("`(yolo [^`]*)`")
 // after a space or a tab, and followed by a space.
 var bareYolo = regexp.MustCompile(`(?:^|[ \t])yolo `)
 
-// nextStepLead is a lead-in this codebase writes right before a next step's command, ending
-// where the command begins: "then: yolo check", "Run yolo update", "Next: yolo pack lint",
-// "→ yolo host apply". A word must start where it does, so "rerun" is not "run".
-var nextStepLead = regexp.MustCompile(`(?i)(?:(?:^|[^\pL\pN_])(?:then:|fix:|run:?|next:)|→|->)[ \t]+$`)
+// nextStepLead is a lead-in this codebase writes right before a next step's command, or a shell
+// operator chaining one, ending where the command begins: "then: yolo check", "Run yolo update",
+// "Next: yolo pack lint", "→ yolo host apply", "nixos-rebuild switch && yolo check". A word must
+// start where it does, so "rerun" is not "run".
+var nextStepLead = regexp.MustCompile(`(?i)(?:(?:^|[^\pL\pN_])(?:then:|fix:|run:?|next:)|→|->|&&|\|\|)[ \t]+$`)
 
 // alignedLead is a colon followed by a gap of two spaces, the column a list of steps aligns its
 // commands in: "  2. Check the edit:  yolo check".
@@ -143,8 +150,9 @@ func TestEveryHintedYoloCommandExists(t *testing.T) {
 		switch {
 		case problem == "":
 		case h.bare:
-			t.Errorf("%s: yolo command written without backticks, %q, %s. If that is prose rather than a "+
-				"command, the scan misread it: fix bareHints, never exempt the message", h.pos, h.text, problem)
+			t.Errorf("%s: yolo command written without backticks, %q, %s. If that is prose naming the "+
+				"program, write `yolo` in backticks there; if the scan misread a command's form, fix "+
+				"bareHints; never exempt the message", h.pos, h.text, problem)
 		default:
 			t.Errorf("%s: `%s` %s", h.pos, h.text, problem)
 		}
@@ -213,8 +221,10 @@ func TestTheHintCheckRefusesWhatIsNotACommand(t *testing.T) {
 		"  -> yolo host apply --bogus   (asks each question first)",
 		"Restart the jail:\n  yolo builder  # from this workspace\n",
 		"[dim]  yolo loopholes status --apply[/dim]",
+		"The store is read-only.\n  yolo builder\n",
 		"  2. Check the edit:  yolo builder",
 		"  yolo config bogus <agent>/<surface>   discard its captured edits",
+		"then: sudo nixos-rebuild switch && yolo builder",
 	} {
 		hs := hintsIn(text)
 		if len(hs) != 1 || !hs[0].bare {
@@ -247,6 +257,9 @@ func TestTheHintCheckRefusesWhatIsNotACommand(t *testing.T) {
 		"yolo check --no-build --format json",
 		"yolo stores --format json",
 		"yolo internal capture-materialize",
+		// Main strips the verbose flag before routing, so every command takes it.
+		"yolo --verbose -- <cmd>",
+		"yolo host apply --verbose",
 	} {
 		if problem := tree.check(good); problem != "" {
 			t.Errorf("`%s` is a command, but the check says it %s", good, problem)
@@ -279,10 +292,11 @@ func TestTheHintScanReadsAHintBuiltFromPieces(t *testing.T) {
 }
 
 // TestTheHintScanReadsACommandWrittenWithoutBackticks: a command a message spells without
-// backticks is read where one stands (an indented line, after a next step's lead-in, in a column
-// after a colon) up to where it ends, and a sentence whose subject is yolo is not read, so a word
-// after `yolo` that is not a command fails the scan rather than reading as prose. The scan read
-// backticked commands only, so the `then: yolo check` many `yolo check` notes end with, and
+// backticks is read where one stands (an indented line, after a next step's lead-in or a shell
+// operator, in a column after a colon) up to where it ends, and a sentence whose subject is yolo
+// is not read, even on an indented line of a paragraph with no punctuation to show it runs on, so
+// a word after `yolo` that is not a command fails the scan rather than reading as prose. The scan
+// read backticked commands only, so the `then: yolo check` many `yolo check` notes end with, and
 // `yolo check-deps`'s closing re-check, were never checked.
 func TestTheHintScanReadsACommandWrittenWithoutBackticks(t *testing.T) {
 	for _, c := range []struct {
@@ -304,6 +318,12 @@ func TestTheHintScanReadsACommandWrittenWithoutBackticks(t *testing.T) {
 			[]string{"yolo host apply [flags]"}},
 		{"  2. Check the edit:  yolo check\n  3. Launch it:  yolo -- claude\n",
 			[]string{"yolo check", "yolo -- claude"}},
+		{"Examples:\n  yolo pack ls\n  yolo pack install\n",
+			[]string{"yolo pack ls", "yolo pack install"}},
+		{"never to a grant left behind.\n  yolo macos-fix-permissions <path>",
+			[]string{"yolo macos-fix-permissions <path>"}},
+		{"then: sudo nixos-rebuild switch && yolo check", []string{"yolo check"}},
+		{"  rm <path> && yolo pack install", []string{"yolo pack install"}},
 		// A sentence whose subject is yolo, a heading, an error's prefix, and a command in a
 		// place nothing in the text marks as one.
 		{"yolo could not create it", nil},
@@ -311,6 +331,10 @@ func TestTheHintScanReadsACommandWrittenWithoutBackticks(t *testing.T) {
 		{"yolo config render: unknown flag %q", nil},
 		{"yolo pack — author and inspect agent config packs", nil},
 		{"  yolo could not get this host's network stack to forward it", nil},
+		// An indented line that carries on the paragraph above it at the same indent, with no
+		// punctuation to show it runs on.
+		{"  This is a known limitation of this host.\n" +
+			"  yolo could not get the network stack to forward it\n", nil},
 		{"  yolo will run: claude", nil},
 		{"Image store: yolo cannot write it.", nil},
 		{"which is empty: yolo was started with no PATH", nil},
@@ -421,12 +445,15 @@ func hintsIn(text string) []hint {
 // says it is read.
 func bareHints(text string) []string {
 	var out []string
-	for _, line := range strings.Split(richtext.Strip(text), "\n") {
+	prev, prevCommand := "", false
+	for i, line := range strings.Split(richtext.Strip(text), "\n") {
+		command := false
 		for _, loc := range bareYolo.FindAllStringIndex(line, -1) {
 			start := loc[1] - len("yolo ")
 			lead := line[:start]
 			anyEnd := nextStepLead.MatchString(lead)
-			if !anyEnd && (lead == "" || strings.TrimLeft(lead, " \t") != "" && !alignedLead.MatchString(lead)) {
+			indented := lead != "" && strings.TrimLeft(lead, " \t") == ""
+			if !anyEnd && !indented && !alignedLead.MatchString(lead) {
 				continue // unindented, or after a word: nothing marks it as a command
 			}
 			cmd, after := line[loc[1]:], ""
@@ -436,10 +463,27 @@ func bareHints(text string) []string {
 			if !anyEnd && after != "" && !strings.HasPrefix(after, "  ") {
 				continue // the line runs on into a sentence whose subject is yolo
 			}
+			if indented && !anyEnd && after == "" && i > 0 && continuesParagraph(prev, line, prevCommand) {
+				continue // the next line of a paragraph, whose sentence has yolo as its subject
+			}
+			command = command || indented
 			out = append(out, strings.TrimSpace("yolo "+cmd))
 		}
+		prev, prevCommand = line, command
 	}
 	return out
+}
+
+// continuesParagraph reports whether line carries on the paragraph prev is in: prev is text at
+// the same indent that neither introduces line (a colon) nor is itself a command line, as a block
+// of examples is.
+func continuesParagraph(prev, line string, prevCommand bool) bool {
+	p := strings.TrimSpace(prev)
+	if p == "" || strings.HasSuffix(p, ":") || prevCommand {
+		return false
+	}
+	indent := func(s string) string { return s[:len(s)-len(strings.TrimLeft(s, " \t"))] }
+	return indent(prev) == indent(line)
 }
 
 // scanHints reads every non-test Go file under internal/ and cmd/ for hints in string literals.
@@ -581,9 +625,12 @@ func loadCommandTree(t *testing.T) *commandTree {
 		t.Fatalf("read %d handlers from the registry literal, and the registry has %d", len(tree.handlers), len(registry))
 	}
 	tree.handlers["internal"] = cli.funcs["runInternal"]
-	// Main consumes these before any command sees its argv (cli.go).
+	// Main consumes these before any command sees its argv (cli.go). isVerboseFlag is
+	// applyVerboseFlag's test of one argument, which flagsFrom does not follow from it, since it
+	// takes no argv.
 	tree.global = map[string]bool{"--help": true}
-	src.flagsFrom([]*srcFunc{cli.funcs["applyUserLayerFlag"], cli.funcs["applyVerboseFlag"]}, tree.global, nil)
+	src.flagsFrom([]*srcFunc{cli.funcs["applyUserLayerFlag"], cli.funcs["applyVerboseFlag"],
+		cli.funcs["isVerboseFlag"]}, tree.global, nil)
 	return tree
 }
 
