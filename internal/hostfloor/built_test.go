@@ -142,8 +142,7 @@ func (b *buildStore) resolve(p Program, commit string) (*capture.Entry, error) {
 // relocatable build of the commit it is asked for.
 func forkWorld(t *testing.T, pin *string) (*world, *buildStore) {
 	t.Helper()
-	w := newWorld(t)
-	w.floor.GOOS = "linux"
+	w := newLinuxWorld(t)
 	bs := newBuildStore(t)
 	w.floor.ForkPin = func(p Program) (string, string) {
 		if p.Install.ForkedBy != "forkpack" {

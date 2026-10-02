@@ -5,21 +5,36 @@ package loopholes
 // loophole's name bold and its rc and doctor output dim; with it unset no escape is written, and
 // the colored report with its escapes removed is the plain report byte for byte, which is the
 // plan's additive-color invariant. Driven through Status over user-config loopholes whose
-// doctor_cmd really runs (/bin/true, /bin/sh), so the states come from RunDoctorChecks.
+// doctor_cmd really runs (`true`, /bin/sh), so the states come from RunDoctorChecks.
 
 import (
 	"bytes"
+	"encoding/json"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
 )
 
-const statusColorConfig = `{"loopholes": {
-  "good": {"description": "d", "command": ["/bin/true"], "doctor_cmd": ["/bin/true"]},
-  "bad": {"description": "d", "command": ["/bin/true"], "doctor_cmd": ["/bin/sh", "-c", "echo 'broken [red] here'; exit 3"]},
-  "quiet": {"description": "d", "command": ["/bin/true"]},
-  "off": {"description": "d", "command": ["/bin/true"], "doctor_cmd": ["/bin/true"], "enabled": false}
-}}`
+// statusColorConfig is the user config the report is drawn from. `true` is found on PATH, not
+// spelled /bin/true: macOS has only /usr/bin/true, and this jail only /bin/true.
+func statusColorConfig(t *testing.T) string {
+	t.Helper()
+	path, err := exec.LookPath("true")
+	if err != nil {
+		t.Fatalf("no `true` on PATH for the doctor_cmd to run: %v", err)
+	}
+	q, err := json.Marshal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.ReplaceAll(`{"loopholes": {
+  "good": {"description": "d", "command": [TRUE], "doctor_cmd": [TRUE]},
+  "bad": {"description": "d", "command": [TRUE], "doctor_cmd": ["/bin/sh", "-c", "echo 'broken [red] here'; exit 3"]},
+  "quiet": {"description": "d", "command": [TRUE]},
+  "off": {"description": "d", "command": [TRUE], "doctor_cmd": [TRUE], "enabled": false}
+}}`, "TRUE", string(q))
+}
 
 var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
@@ -28,7 +43,7 @@ func runStatus(t *testing.T, color bool) string {
 	isolateDirs(t)
 	unsetJail(t)
 	var out, errBuf bytes.Buffer
-	deps := cmdDeps(t, &out, &errBuf, statusColorConfig, "")
+	deps := cmdDeps(t, &out, &errBuf, statusColorConfig(t), "")
 	deps.Color = color
 	if rc := Status(deps); rc != 0 {
 		t.Fatalf("Status rc = %d, err=%q", rc, errBuf.String())

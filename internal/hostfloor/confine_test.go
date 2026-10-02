@@ -54,8 +54,7 @@ func TestTheFloorRefusesACaptureWhoseManifestWritesOutsideIt(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			w := newWorld(t)
-			w.floor.GOOS = "linux"
+			w := newLinuxWorld(t)
 			cs := newCaptureStore(t)
 			cs.addShaped("claude", "2.1.267", true, c.shape)
 			w.floor.ResolveCapture = cs.resolve

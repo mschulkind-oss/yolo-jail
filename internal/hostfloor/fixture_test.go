@@ -1,7 +1,8 @@
 package hostfloor
 
 // fixture_test.go builds each test's floor over floortest's fake Node distribution and npm
-// registry, under a temp HOME, on this machine's own platform — and a fake capture store for the
+// registry, under a temp HOME, on this machine's own platform or on Linux (newLinuxWorld), the
+// floor always on the platform its distribution serves — and a fake capture store for the
 // installer recipe. No test here touches the real internet, the real ~/.local, or a real agent.
 
 import (
@@ -9,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -52,12 +52,27 @@ func (b *syncBuffer) String() string {
 
 func resolvedTemp(t *testing.T) string { return floortest.ResolvedTemp(t) }
 
-// newWorld builds a floor whose Node comes from a fake distribution (its shipped release pinned
-// by digest), and whose installers inherit an ambient environment full of the variables that
-// would redirect an npm install — which the floor must drop.
+// newWorld builds a floor on this machine's platform whose Node comes from a fake distribution
+// (its shipped release pinned by digest), and whose installers inherit an ambient environment full
+// of the variables that would redirect an npm install — which the floor must drop.
 func newWorld(t *testing.T) *world {
 	t.Helper()
-	dist := floortest.NewDist(t)
+	return newWorldOn(t, floortest.NewDist(t))
+}
+
+// newLinuxWorld is a world whose floor is on Linux whatever machine runs the test: where the floor
+// holds an installer agent's capture or a fork's build at all.
+func newLinuxWorld(t *testing.T) *world {
+	t.Helper()
+	return newWorldOn(t, floortest.NewLinuxDist(t))
+}
+
+// newWorldOn is a world over dist, its floor on the platform dist serves Node for. A test never
+// moves a world's floor to another platform afterwards when it fetches Node: the floor would ask
+// for a release the distribution does not serve (on a Mac, a fork test's linux-arm64 from a
+// darwin-arm64 distribution).
+func newWorldOn(t *testing.T, dist *floortest.Dist) *world {
+	t.Helper()
 	w := &world{t: t, dist: dist, plat: dist.Platform, version: floortest.Shipped, out: newSyncBuffer()}
 	root := resolvedTemp(t)
 	w.root = root
@@ -65,8 +80,8 @@ func newWorld(t *testing.T) *world {
 	must(t, os.MkdirAll(home, 0o755))
 	w.floor = &Floor{
 		Dir:    filepath.Join(home, ".local", "share", "yolo-jail", "host-floor"),
-		GOOS:   runtime.GOOS,
-		GOARCH: runtime.GOARCH,
+		GOOS:   dist.GOOS,
+		GOARCH: dist.GOARCH,
 		Node:   NodeDist{BaseURL: dist.URL, Shipped: floortest.Shipped, Pinned: map[string]string{dist.Platform: dist.SHA256}},
 		Environ: append(dist.Environ(), "NPM_CONFIG_PREFIX=/somewhere/else", "npm_config_prefix=/also/else",
 			"NODE_OPTIONS=--require /tmp/evil.js", "PATH=/nowhere"),

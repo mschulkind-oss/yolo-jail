@@ -99,7 +99,11 @@ const (
 type Dist struct {
 	// URL is the distribution root the floor's NodeDist.BaseURL takes.
 	URL string
-	// Platform is Node's name for this machine ("linux-x64").
+	// GOOS and GOARCH are the Go platform the distribution serves a Node release for. A test floor
+	// reading it takes its own GOOS and GOARCH from here, so the release the floor asks for is the
+	// one served even when the test puts the floor on a platform the machine running it is not.
+	GOOS, GOARCH string
+	// Platform is Node's name for GOOS/GOARCH ("linux-x64").
 	Platform string
 	// SHA256 is the shipped tarball's digest, for NodeDist.Pinned.
 	SHA256 string
@@ -136,12 +140,29 @@ func ResolvedTemp(t *testing.T) string {
 // NewDist starts a fake distribution serving Shipped and Raised for this machine's platform.
 func NewDist(t *testing.T) *Dist {
 	t.Helper()
-	plat, ok := Platform(runtime.GOOS, runtime.GOARCH)
+	return NewDistOn(t, runtime.GOOS, runtime.GOARCH)
+}
+
+// NewLinuxDist is NewDistOn for Linux on this machine's architecture: the platform a test puts
+// its floor on to hold a fork's build or an installer agent's capture (both made in a Linux jail,
+// and a floor holds a build made for its own platform only) whatever machine runs the test. The
+// floor must then take its GOOS and GOARCH from this distribution, not from the runtime.
+func NewLinuxDist(t *testing.T) *Dist {
+	t.Helper()
+	return NewDistOn(t, "linux", runtime.GOARCH)
+}
+
+// NewDistOn starts a fake distribution serving Shipped and Raised for goos/goarch, which need not
+// be this machine's: the fake node and npm are shell scripts, so they run wherever /bin/sh does.
+func NewDistOn(t *testing.T, goos, goarch string) *Dist {
+	t.Helper()
+	plat, ok := Platform(goos, goarch)
 	if !ok {
-		t.Skipf("no Node platform name for %s/%s", runtime.GOOS, runtime.GOARCH)
+		t.Skipf("no Node platform name for %s/%s", goos, goarch)
 	}
 	root := ResolvedTemp(t)
-	d := &Dist{Platform: plat, Registry: filepath.Join(root, "registry"), NpmLog: filepath.Join(root, "npm.log"), t: t}
+	d := &Dist{GOOS: goos, GOARCH: goarch, Platform: plat,
+		Registry: filepath.Join(root, "registry"), NpmLog: filepath.Join(root, "npm.log"), t: t}
 	if err := os.MkdirAll(d.Registry, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -59,8 +59,7 @@ func TestTheLauncherScriptRunsOnlyItsExecLine(t *testing.T) {
 // site: an installer capture's versions directory names the version, and a directory name may
 // hold a newline. The launcher Ensure writes still has exactly one runnable line.
 func TestAVersionACaptureChoseCannotAddALineToTheLauncher(t *testing.T) {
-	w := newWorld(t)
-	w.floor.GOOS = "linux"
+	w := newLinuxWorld(t)
 	cs := newCaptureStore(t)
 	cs.add("claude", "2.1.267\ntouch pwned", true)
 	w.floor.ResolveCapture = cs.resolve

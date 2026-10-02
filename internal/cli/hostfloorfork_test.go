@@ -45,14 +45,15 @@ func withFloorOnLinux(t *testing.T) {
 
 // withForkFloor is the PRODUCTION floor wiring — its ForkPin, ResolveBuild and Build among it —
 // with a fake Node distribution, no capture act, Linux as its platform, and a container runtime on
-// PATH for CaptureUnavailable to find.
+// PATH for CaptureUnavailable to find. The floor's platform is the distribution's, so the Node
+// release it fetches is one the distribution serves on a Mac too.
 func withForkFloor(t *testing.T) *floortest.Dist {
 	t.Helper()
-	dist := floortest.NewDist(t)
+	dist := floortest.NewLinuxDist(t)
 	orig := newHostFloor
 	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
 		f := productionHostFloor(out, progs)
-		f.GOOS = "linux"
+		f.GOOS, f.GOARCH = dist.GOOS, dist.GOARCH
 		f.Node = hostfloor.NodeDist{BaseURL: dist.URL, Shipped: floortest.Shipped,
 			Pinned: map[string]string{dist.Platform: dist.SHA256}}
 		f.Environ = append(os.Environ(), dist.Environ()...)

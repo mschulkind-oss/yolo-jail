@@ -310,8 +310,7 @@ func TestAPinnedPackageIsNeverPolledAndAMovedPinReinstalls(t *testing.T) {
 // is the capture store's entry, relocated into the prefix, and it starts from its launcher with
 // no environment. The store is never written.
 func TestAnInstallerProgramIsTheMachinesCaptureMaterialized(t *testing.T) {
-	w := newWorld(t)
-	w.floor.GOOS = "linux"
+	w := newLinuxWorld(t)
 	cs := newCaptureStore(t)
 	entry := cs.add("claude", "2.1.267", true)
 	w.floor.ResolveCapture = cs.resolve
@@ -338,8 +337,7 @@ func TestAnInstallerProgramIsTheMachinesCaptureMaterialized(t *testing.T) {
 // TestACaptureRecordedForTheJailHomeOnlyIsRecapturedOnce: an entry whose manifest lacks the full
 // scan cannot move out of /home/agent, so the floor runs one capture, which records the scan.
 func TestACaptureRecordedForTheJailHomeOnlyIsRecapturedOnce(t *testing.T) {
-	w := newWorld(t)
-	w.floor.GOOS = "linux"
+	w := newLinuxWorld(t)
 	cs := newCaptureStore(t)
 	cs.add("claude", "2.1.200", false)
 	w.floor.ResolveCapture = cs.resolve
@@ -359,8 +357,7 @@ func TestACaptureRecordedForTheJailHomeOnlyIsRecapturedOnce(t *testing.T) {
 
 	// The same jail-home-only entry on a machine that cannot capture: no floor entry here, since
 	// the one way to move it is a capture this machine cannot run.
-	other := newWorld(t)
-	other.floor.GOOS = "linux"
+	other := newLinuxWorld(t)
 	jailOnly := newCaptureStore(t)
 	jailOnly.add("claude", "2.1.200", false)
 	other.floor.ResolveCapture = jailOnly.resolve
@@ -377,8 +374,7 @@ func TestACaptureRecordedForTheJailHomeOnlyIsRecapturedOnce(t *testing.T) {
 // floor entry, with the reason, so a launch looks on PATH (OQ-HE11) instead of failing an install.
 // A provisioned copy stays provisioned whatever the store says afterwards.
 func TestAnInstallerProgramThisMachineCanNeitherMaterializeNorCaptureHasNoFloorEntry(t *testing.T) {
-	w := newWorld(t)
-	w.floor.GOOS = "linux"
+	w := newLinuxWorld(t)
 	cs := newCaptureStore(t)
 	w.floor.ResolveCapture = cs.resolve
 	w.floor.Capture = func(string) error { t.Fatal("a capture ran on a machine that cannot"); return nil }
@@ -581,8 +577,7 @@ func TestOtherCopiesWithNoHintsLooksAtTheCompiledList(t *testing.T) {
 // made it, so the floor has no entry for it — whether the store already holds that capture, or the
 // install makes it — and nothing is materialized.
 func TestACaptureThatHoldsNoRunnableProgramIsNoFloorEntry(t *testing.T) {
-	w := newWorld(t)
-	w.floor.GOOS = "linux"
+	w := newLinuxWorld(t)
 	codex := installerProgram("codex", "codex")
 
 	cs := newCaptureStore(t)

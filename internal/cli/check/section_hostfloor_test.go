@@ -5,7 +5,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -56,7 +55,7 @@ func hostFloorCheckFixture(t *testing.T, userConfig string) (*Options, *hostfloo
 	dist := floortest.NewDist(t)
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
 	floor := &hostfloor.Floor{
-		Dir: paths.HostFloorDir(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
+		Dir: paths.HostFloorDir(), GOOS: dist.GOOS, GOARCH: dist.GOARCH,
 		Node: hostfloor.NodeDist{BaseURL: dist.URL, Shipped: floortest.Shipped,
 			Pinned: map[string]string{dist.Platform: dist.SHA256}},
 		Environ: append(os.Environ(), dist.Environ()...),
