@@ -180,11 +180,13 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    `TestHostApplyGatePrintsTheCommandItRunsAsWritten`).
    Every pack yolo ships, and every example pack under `docs/examples`, records where each of its
    `install_hints` names came from: the comment directly above the contribution has one line per
-   manager key, naming the key, the package and the https page that lists it. A test reads each
+   manager key, naming the key and the https page that lists the package. A test reads each
    manifest's raw text and fails on a hint with a key that has no such line
-   (`TestEveryShippedAndExampleInstallHintNamesItsSource`). It checks that a source is recorded,
-   not that the page still lists the name, so re-checking a name means reading its page again.
-   A user's own pack is not checked.
+   (`TestEveryShippedAndExampleInstallHintNamesItsSource`). The page's URL must hold the package's
+   own name, so a page for `fd-find` is no source for `fd`, and a `brew` line may not cite a cask
+   page, nor a `brew-cask` line a formula page. The test checks that a source is recorded, not that
+   the page still lists the name, so re-checking a name means reading its page again. A user's own
+   pack is not checked.
 4. **Hints are tested so they can't go stale.** A test checks that every command a hint prints is a
    real command. A hint naming a deleted command is a dead end that *looks* like a next step, which
    is worse than no hint.

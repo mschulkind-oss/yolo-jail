@@ -18,9 +18,14 @@ import (
 //
 // The record is a comment, so this reads each manifest's RAW text, not its decode: the `//` lines
 // directly above the line that opens a contribution, with no blank line between, must hold one
-// SOURCE LINE per manager key its install_hints declares, `<key>: …` with an https URL and every
-// package the hint names, as packs/guardrails/pack.json writes them. A user's own pack is not
-// read: the rule is the repository's, checked against what it ships and what it teaches.
+// SOURCE LINE per manager key its install_hints declares, `<key>: …` with an https URL that
+// names every package the hint names, as packs/guardrails/pack.json writes them. The name must be
+// in the URL as a whole name: `fd` is not named by a page for `fd-find`, which is the trap the
+// guardrails pack's apt hint exists for, and a name in the line's prose is not a source. A `brew`
+// line may not cite a cask page and a `brew-cask` line may not cite a formula page, since the two
+// keys install from different namespaces (brew's `copilot` formula is not the copilot-cli
+// cask). A user's own pack is not read: the rule is the repository's, checked against what it
+// ships and what it teaches.
 //
 // The test does not fetch the pages, so it proves a source is recorded, not that it still says
 // what it said: re-checking a name is re-reading the page its line names.
@@ -55,8 +60,9 @@ func TestEveryShippedAndExampleInstallHintNamesItsSource(t *testing.T) {
 }
 
 // The checker itself, on manifests built to break it one way each, so a deleted source line, a
-// line for the wrong key, a line that is not directly above, or a URL that is not https is a
-// failure the suite keeps, rather than one checked once by hand.
+// line for the wrong key, a line that is not directly above, a URL that is not https, a URL for
+// a package whose name only holds this one, or a Homebrew page of the wrong kind is a failure the
+// suite keeps, rather than one checked once by hand.
 func TestInstallHintSourceProblems(t *testing.T) {
 	const good = `{
   "name": "x",
@@ -103,6 +109,19 @@ func TestInstallHintSourceProblems(t *testing.T) {
 		{"a line for another package", func(s string) string {
 			return strings.Replace(s, "api/formula/fd.json", "api/formula/ripgrep.json", 1)
 		}, []string{`install_hints "brew"`, `"fd"`}},
+		{"a URL for a package whose name holds this one", func(s string) string {
+			return strings.Replace(s, "api/formula/fd.json", "api/formula/fd-find.json", 1)
+		}, []string{`install_hints "brew"`, `"fd"`}},
+		{"the package named in the line's prose, not its URL", func(s string) string {
+			return strings.Replace(s, "api/formula/fd.json", "api/formula/ripgrep.json (installs fd)", 1)
+		}, []string{`install_hints "brew"`, `"fd"`}},
+		{"a brew line that cites a cask page", func(s string) string {
+			s = strings.Replace(s, `"brew-cask": "claude-code"`, `"brew": "claude-code"`, 1)
+			return strings.Replace(s, "// brew-cask: https://formulae.brew.sh/api/cask/", "// brew: https://formulae.brew.sh/api/cask/", 1)
+		}, []string{`contributes[2]`, `install_hints "brew"`}},
+		{"a brew-cask line that cites a formula page", func(s string) string {
+			return strings.Replace(s, "api/cask/claude-code.json", "api/formula/claude-code.json", 1)
+		}, []string{`contributes[2]`, `install_hints "brew-cask"`}},
 		{"the comment above another contribution", func(s string) string {
 			return strings.Replace(s, "    // brew-cask: https://formulae.brew.sh/api/cask/claude-code.json\n", "", 1)
 		}, []string{`contributes[2]`, `install_hints "brew-cask"`}},
@@ -146,9 +165,10 @@ func TestInstallHintSourceProblems(t *testing.T) {
 // installHintSourceProblems reads one manifest's RAW text and returns a problem for each manager
 // key of an install_hints contribution that has no source line in the contribution's comment
 // block: the `//` lines directly above the line that opens it, with no blank line between. A
-// source line reads `<key>: …` once the `//` and the spaces around it are trimmed, and holds an
-// https:// URL and every package of the hint's package part (the names before any ` && ` step).
-// It also returns how many hinted contributions it read.
+// source line reads `<key>: …` once the `//` and the spaces around it are trimmed, and holds, for
+// every package of the hint's package part (the names before any ` && ` step), an https:// URL
+// that names it (urlNames) and is not Homebrew's page of the other kind (brewPageKindFits). It
+// also returns how many hinted contributions it read.
 func installHintSourceProblems(raw []byte) (problems []string, hinted int, err error) {
 	m, probs := Decode(raw)
 	if m == nil {
@@ -179,7 +199,8 @@ func installHintSourceProblems(raw []byte) (problems []string, hinted int, err e
 			if !hasSourceLine(block, mgr, strings.Fields(pkgs)) {
 				problems = append(problems, fmt.Sprintf("contributes[%d] (line %d, bin %q): "+
 					"install_hints %q (%q) records no source: add `// %s: <https URL of the "+
-					"page that lists it>`, naming the package, directly above the contribution",
+					"page that lists it>` directly above the contribution, a URL with the package's "+
+					"own name in it (for brew, a formula page; for brew-cask, a cask page)",
 					i, opens[i], c.Bin, mgr, strings.TrimSpace(pkgs), mgr))
 			}
 		}
@@ -187,22 +208,80 @@ func installHintSourceProblems(raw []byte) (problems []string, hinted int, err e
 	return problems, hinted, nil
 }
 
-// hasSourceLine reports whether a line of block is mgr's source line for pkgs.
+// hasSourceLine reports whether a line of block is mgr's source line for pkgs: every package is
+// named by one of the line's https URLs, and that URL is not Homebrew's page of the other kind.
 func hasSourceLine(block []string, mgr string, pkgs []string) bool {
 	for _, l := range block {
 		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "//"))
-		if !strings.HasPrefix(text, mgr+":") || !strings.Contains(text, "https://") {
+		if !strings.HasPrefix(text, mgr+":") {
 			continue
 		}
-		named := true
+		urls := httpsURLs(text)
+		sourced := len(pkgs) > 0
 		for _, p := range pkgs {
-			named = named && strings.Contains(text, p)
+			named := false
+			for _, u := range urls {
+				named = named || (urlNames(u, p) && brewPageKindFits(mgr, u))
+			}
+			sourced = sourced && named
 		}
-		if named {
+		if sourced {
 			return true
 		}
 	}
 	return false
+}
+
+// httpsURLs returns each https:// URL in text, without the punctuation prose puts after one.
+func httpsURLs(text string) []string {
+	var out []string
+	for _, f := range strings.Fields(text) {
+		i := strings.Index(f, "https://")
+		if i < 0 {
+			continue
+		}
+		out = append(out, strings.TrimRight(f[i:], ").,;:`'\""))
+	}
+	return out
+}
+
+// urlNames reports whether pkg is in u as a WHOLE name: not preceded or followed by a character a
+// package name is spelled with, other than the `.` before an extension (`fd.json`). So
+// `.../fd-find/filelist` and `.../rust-fd-find/...` do not name `fd`, and `.../fd/files/` and
+// `.../formula/fd.json` do.
+func urlNames(u, pkg string) bool {
+	nameChar := func(c byte) bool {
+		return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' ||
+			c == '-' || c == '_' || c == '+' || c == '@'
+	}
+	for from := 0; ; {
+		i := strings.Index(u[from:], pkg)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(pkg)
+		if (start == 0 || !nameChar(u[start-1])) && (end == len(u) || !nameChar(u[end])) {
+			return true
+		}
+		from = start + 1
+	}
+}
+
+// brewPageKindFits reports whether u, cited for mgr, is not Homebrew's page of the other kind: a
+// `brew` hint installs a formula and a `brew-cask` hint a cask, from separate namespaces, so a
+// formula's source is never a cask page (formulae.brew.sh's /cask/, homebrew-cask's /Casks/) and a
+// cask's is never a formula page (/formula/, homebrew-core's /Formula/).
+func brewPageKindFits(mgr, u string) bool {
+	path := strings.ToLower(u)
+	cask := strings.Contains(path, "/cask/") || strings.Contains(path, "/casks/")
+	formula := strings.Contains(path, "/formula/")
+	switch mgr {
+	case "brew":
+		return !cask
+	case "brew-cask":
+		return !formula
+	}
+	return true
 }
 
 // commentBlockAbove is the run of `//` lines that ends on the line before open (1-based).

@@ -2,7 +2,7 @@
   "contributes": [
     // Where each install hint's name came from, one line per manager, checked 2026-10-02.
     //   brew: https://formulae.brew.sh/api/formula/pi-coding-agent.json (bin/pi in its formula source)
-    //   dnf: https://packages.fedoraproject.org/pkgs/pi-coding-agent/pi-coding-agent/fedora-rawhide.html#files (/usr/bin/pi; Fedora 45 and Rawhide only)
+    //   dnf: https://packages.fedoraproject.org/pkgs/pi-coding-agent/pi-coding-agent/fedora-rawhide.html#files (/usr/bin/pi; only in Fedora 45, unreleased on 2026-10-02, and Rawhide, so dnf finds no such package on Fedora 43 or 44)
     {
       "bin": "pi",
       "flags": [

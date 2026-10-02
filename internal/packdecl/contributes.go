@@ -182,8 +182,9 @@ type Contribution struct {
 	// `nixpkgs#<package>`.
 	//
 	// A pack yolo ships, or an example pack under docs/examples, records where each name came
-	// from: one `// <key>: <https URL>` line per manager key, naming the package, in the
-	// comment directly above the contribution (the happy path principle's rule 3,
+	// from: one `// <key>: <https URL>` line per manager key, whose URL names the package
+	// (for `brew` a formula page, for `brew-cask` a cask page), in the comment directly above
+	// the contribution (the happy path principle's rule 3,
 	// TestEveryShippedAndExampleInstallHintNamesItsSource). A user's own pack is not checked.
 	//
 	InstallHints map[string]string `json:"install_hints,omitempty"`
