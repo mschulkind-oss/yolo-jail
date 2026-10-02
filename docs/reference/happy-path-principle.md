@@ -190,15 +190,25 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
 4. **Hints are tested so they can't go stale.** A test checks that every command a hint prints is a
    real command. A hint naming a deleted command is a dead end that *looks* like a next step, which
    is worse than no hint.
-   *In yolo:* every backticked `yolo …` command in a string literal under `internal/` and `cmd/`,
-   or in literals joined with `+` (a piece that is not a literal reads as a placeholder), and every
+   *In yolo:* every `yolo …` command in a string literal under `internal/` and `cmd/`, or in
+   literals joined with `+` (a piece that is not a literal reads as a placeholder), and every
    one-command line of a command's help examples, is resolved against the dispatchers' own source:
    its command through the router `yolo` dispatches with, its verb in that command's verb switch,
    and each `--flag` after it in what that command parses (`TestEveryHintedYoloCommandExists`,
    `TestEveryHelpExampleExists`, in `internal/cli/hintcommands_test.go`). It caught `yolo host codex`
    and `yolo host check-deps`, neither a command, and a help example for a `yolo programs` verb
-   that does not exist. A command a message spells without backticks, such as the
-   `then: yolo check` many `yolo check` notes end with, is not read. Every command's help carries an example that routes to that command
+   that does not exist. A command is read in backticks anywhere, and without them where it stands
+   on its line, with the message's color markup removed: on an indented line
+   (`  yolo check-deps  # check again`, and the lines of usage text), in the column a colon and
+   two spaces open (`Check the edit:  yolo check`), or right after a next step's lead-in (`then:`,
+   `fix:`, `run:`, `run`, `next:`, `→`, `->`), so the `then: yolo check` many `yolo check` notes
+   end with is read. A sentence with yolo as its subject is not read, and a word after `yolo` that
+   is not a command fails the test instead of being passed over as prose
+   (`TestTheHintScanReadsACommandWrittenWithoutBackticks`). Still not read: a command at the start
+   of an unindented line or literal (a field holding `yolo prune --apply`), one after a colon and a
+   single space (`in a new terminal: yolo check`) or after any other word, a usage line's synopsis
+   (`Usage: yolo audit [flags]`), and the words after a command's verb, which it takes as
+   arguments. Every command's help carries an example that routes to that command
    (`TestEveryCommandShowsACopyableExample`), and every `docs/` path or anchor cited from Go
    resolves (`TestEveryDocCitationFromGoResolves`). **No test checks that a named command does what
    the hint says:** that is each hint's own test. `yolo check`'s piped orphan note used to name

@@ -105,7 +105,7 @@ func LaunchPreconditions() []Precondition {
 			Ready:    func(string) string { return "Running as your own user, not root" },
 			Unmet:    func(string) string { return "yolo is running as root (under sudo)" },
 			Fix: func(string) string {
-				return "Run yolo as your normal user: a launch asks for sudo itself at each step " +
+				return "Run `yolo` as your normal user: a launch asks for sudo itself at each step " +
 					"that needs it, and run as root it would give root's git identity and ACL to " +
 					"the sandbox."
 			},

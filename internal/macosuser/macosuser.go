@@ -502,7 +502,7 @@ func inHomeWorkspaceRefusal(workspace, home string) string {
 		"`yolo macos-fix-permissions` refuses one on purpose.\n\n"
 	if workspace == home {
 		// Never suggest moving a whole home.
-		return msg + "Run yolo from a project folder under [bold]" + SharedRootDefault() +
+		return msg + "Run `yolo` from a project folder under [bold]" + SharedRootDefault() +
 			"[/bold] instead."
 	}
 	plan := inHomeMovePlan(workspace)
@@ -522,8 +522,8 @@ func inHomeWorkspaceRefusal(workspace, home string) string {
 // inHomeWorkspaceFix is the same remedy in plain text, for `yolo check`'s note.
 func inHomeWorkspaceFix(workspace, home string) string {
 	if workspace == home {
-		return "Run yolo from a project folder under " + SharedRootDefault() + " instead; " +
-			"yolo macos-fix-permissions refuses every path in a home."
+		return "Run `yolo` from a project folder under " + SharedRootDefault() + " instead; " +
+			"`yolo macos-fix-permissions` refuses every path in a home."
 	}
 	plan := inHomeMovePlan(workspace)
 	msg := "Move it under " + sharedRootForMove() + ", then share it; a move carries no " +

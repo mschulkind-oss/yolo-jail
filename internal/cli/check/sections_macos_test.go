@@ -113,7 +113,7 @@ func TestTheMacosUserSectionFailsEachConditionTheLaunchRefuses(t *testing.T) {
 		},
 		macosuser.PreconditionNotRoot: {
 			breakIt: func(m *macMachine) { m.opts.Geteuid = func() int { return 0 } },
-			fix:     []string{"Run yolo as your normal user"},
+			fix:     []string{"Run `yolo` as your normal user"},
 		},
 		macosuser.PreconditionSeatbelt: {
 			breakIt: func(m *macMachine) {

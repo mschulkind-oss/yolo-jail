@@ -1,10 +1,11 @@
 package cli
 
 // hintcommands_test.go enforces rule 4 of docs/reference/happy-path-principle.md ("hints are
-// tested so they can't go stale") for messages: every `yolo …` command a message names in
-// backticks is one this CLI runs. A hint naming a deleted command or flag is a dead end that looks
-// like a next step (the doc coins both terms), and the tests that read a hint used to pin only its
-// string, so `yolo host codex` and `yolo host check-deps` shipped though neither is a command.
+// tested so they can't go stale") for messages: every `yolo …` command a message names, in
+// backticks or where a command stands without them, is one this CLI runs. A hint naming a deleted
+// command or flag is a dead end that looks like a next step (the doc coins both terms), and the
+// tests that read a hint used to pin only its string, so `yolo host codex` and
+// `yolo host check-deps` shipped though neither is a command.
 //
 // THE COMMAND TREE IS READ FROM THE DISPATCHERS' OWN SOURCE, not from help text, which would let a
 // hint and a usage line agree with each other about a verb that does not exist:
@@ -23,20 +24,39 @@ package cli
 //     latter. Main's global flags count for every command, and so does `--help`, which
 //     TestEveryRegisteredCommandAnswersHelp pins.
 //
-// THE HINTS READ are the backticked `yolo …` spans of a string literal, or of a chain of literals
-// joined with `+`, where each piece that is not a literal (a variable, a call, a constant) reads as
-// a placeholder: "`yolo pack lint " + dir + "`" is read as `yolo pack lint <…>`. A fmt verb is a
+// THE HINTS READ are the `yolo …` commands in a string literal, or in a chain of literals joined
+// with `+`, where each piece that is not a literal (a variable, a call, a constant) reads as a
+// placeholder: "`yolo pack lint " + dir + "`" is read as `yolo pack lint <…>`. A fmt verb is a
 // placeholder too, so `yolo %s` checks nothing and `yolo pack install %s` checks `pack install`.
+// A command is read in either of two spellings (hintsIn):
 //
-// What it does not read: a command spelled without backticks ("then: yolo check"), or in a raw
-// string literal, which cannot hold a backtick (usage text, whose `Examples:` lines
-// TestEveryHelpExampleExists reads instead); a word after the verb (`yolo pack lint <dir>`, `yolo
-// broker restart <name>`), which a command takes as an argument; the word a placeholder stands in
-// for; and short flags. A flag the command parses before picking its verb and then
+//   - In backticks, anywhere: `yolo …`.
+//   - Without backticks (bareHints), in the text as a user reads it, its console markup ([dim],
+//     [cyan]) removed, where a command stands on its line. Indented ("  yolo check-deps  # check
+//     again", and the lines of usage text), or in the column a colon and two spaces open ("Check
+//     the edit:  yolo check"), it must fill the rest of the line, up to a gap of two spaces before
+//     a comment or a description. Right after a lead-in this codebase writes before a next step
+//     ("then: ", "fix: ", "run: ", "run ", "next: ", in any case, and "→ ", "-> "), it may also
+//     end at a quote, a parenthesis, a sentence end, a dash or a shell operator ("Run yolo
+//     update, then relaunch."). An indented line whose `yolo` runs on into a sentence ("  yolo
+//     could not get this host's stack…") is prose with yolo as its subject, and is not read.
+//     Nothing that is read is skipped: a word after `yolo` that is not a command fails the test,
+//     which is also how a misread of prose shows, and the fix for that goes in bareHints, never in
+//     an exception for the message.
+//
+// What it does not read: a command at the start of an unindented line or literal (a field holding
+// "yolo prune --apply"), which has the shape of a sentence or an error beginning with yolo ("yolo
+// could not create it", "yolo config render: unknown flag"); one after a colon and one space ("in
+// a new terminal: yolo check"), the shape of prose about yolo ("it is empty: yolo was started with
+// no PATH"); a usage line's synopsis ("Usage: yolo audit [flags]"); one after any other word or a
+// quote ("use yolo host", "'yolo config-ref'"); a word after the verb (`yolo pack lint <dir>`,
+// `yolo broker restart <name>`), which a command takes as an argument; the word a placeholder
+// stands in for; and short flags. A flag the command parses before picking its verb and then
 // refuses for one verb (`yolo loopholes enable --format json`), or a removed flag a handler still
-// refuses by name (prune's `--keep-images`), reads as parsed, and the check does not run a hint, so
-// it cannot say the command does what the hint promises. TestTheHintCheckRefusesWhatIsNotACommand
-// keeps the resolver from passing everything.
+// refuses by name (prune's `--keep-images`), reads as parsed, and the check does not run a hint,
+// so it cannot say the command does what the hint promises.
+// TestTheHintCheckRefusesWhatIsNotACommand keeps the resolver, and the scan of each spelling,
+// from passing everything.
 
 import (
 	"fmt"
@@ -53,6 +73,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 // verbDispatcher names the function whose switch picks a command's verb: its package (a
@@ -81,17 +103,49 @@ var verbDispatchers = map[string]verbDispatcher{
 // hintPattern is a backticked `yolo …` invocation inside a string literal.
 var hintPattern = regexp.MustCompile("`(yolo [^`]*)`")
 
+// bareYolo is `yolo` as a command's first word without backticks: at the start of a line, or
+// after a space or a tab, and followed by a space.
+var bareYolo = regexp.MustCompile(`(?:^|[ \t])yolo `)
+
+// nextStepLead is a lead-in this codebase writes right before a next step's command, ending
+// where the command begins: "then: yolo check", "Run yolo update", "Next: yolo pack lint",
+// "→ yolo host apply". A word must start where it does, so "rerun" is not "run".
+var nextStepLead = regexp.MustCompile(`(?i)(?:(?:^|[^\pL\pN_])(?:then:|fix:|run:?|next:)|→|->)[ \t]+$`)
+
+// alignedLead is a colon followed by a gap of two spaces, the column a list of steps aligns its
+// commands in: "  2. Check the edit:  yolo check".
+var alignedLead = regexp.MustCompile(`:[ \t]{2,}$`)
+
+// bareHintEnd is where a command written without backticks ends before the end of its line: a
+// gap of two spaces (before a "# comment", or a usage line's description), a quote, backtick or
+// closing parenthesis, an opening parenthesis after a space, sentence punctuation followed by a
+// space or the end, a dash, or a shell operator.
+var bareHintEnd = regexp.MustCompile("  |[\"'`)\u201d\u2019]| \\(|[.,;:!?](?:\\s|$)| [\u2014\u2013] | (?:\\||&&|>) ")
+
 // longFlag is a long flag spelled at the start of a string literal: "--assert", "--store=".
 var longFlag = regexp.MustCompile(`^--[a-z0-9][a-z0-9-]*`)
 
 func TestEveryHintedYoloCommandExists(t *testing.T) {
 	tree := loadCommandTree(t)
 	hints := scanHints(t, tree.src.root)
-	if len(hints) < 100 {
-		t.Fatalf("found %d backticked yolo commands under internal/ and cmd/; the scan has lost its input", len(hints))
+	bare := 0
+	for _, h := range hints {
+		if h.bare {
+			bare++
+		}
+	}
+	if len(hints)-bare < 100 || bare < 50 {
+		t.Fatalf("found %d backticked yolo commands and %d written without backticks under internal/ and cmd/; "+
+			"the scan has lost its input", len(hints)-bare, bare)
 	}
 	for _, h := range hints {
-		if problem := tree.check(h.text); problem != "" {
+		problem := tree.check(h.text)
+		switch {
+		case problem == "":
+		case h.bare:
+			t.Errorf("%s: yolo command written without backticks, %q, %s. If that is prose rather than a "+
+				"command, the scan misread it: fix bareHints, never exempt the message", h.pos, h.text, problem)
+		default:
 			t.Errorf("%s: `%s` %s", h.pos, h.text, problem)
 		}
 	}
@@ -147,6 +201,30 @@ func TestTheHintCheckRefusesWhatIsNotACommand(t *testing.T) {
 			t.Errorf("`%s` resolved, but it is not a command", bad)
 		}
 	}
+	// The same, written without backticks in each place the scan reads one: there a deleted verb
+	// or flag must fail too, not read as prose and pass over.
+	for _, text := range []string{
+		"Fix the store, then: yolo builder",
+		"fix: yolo host check-deps",
+		"Run yolo builder to rebuild the image.",
+		"run: yolo pack bogus <dir>",
+		"Next: yolo host codex",
+		"→ yolo prune --keep-everything",
+		"  -> yolo host apply --bogus   (asks each question first)",
+		"Restart the jail:\n  yolo builder  # from this workspace\n",
+		"[dim]  yolo loopholes status --apply[/dim]",
+		"  2. Check the edit:  yolo builder",
+		"  yolo config bogus <agent>/<surface>   discard its captured edits",
+	} {
+		hs := hintsIn(text)
+		if len(hs) != 1 || !hs[0].bare {
+			t.Errorf("%q: read %+v, want one command written without backticks", text, hs)
+			continue
+		}
+		if tree.check(hs[0].text) == "" {
+			t.Errorf("%q: `%s` resolved, but it is not a command", text, hs[0].text)
+		}
+	}
 	for _, good := range []string{
 		"yolo -- <cmd>",
 		"yolo --version",
@@ -182,13 +260,94 @@ func TestTheHintCheckRefusesWhatIsNotACommand(t *testing.T) {
 // literal holding an opening backtick and no closing one held no hint, so a message that spliced
 // a name into its command (`yolo loopholes disable " + name + "`) was never read at all.
 func TestTheHintScanReadsAHintBuiltFromPieces(t *testing.T) {
+	got := scanSource(t, "package x\n\nimport \"fmt\"\n\nvar name = \"x\"\n\n"+
+		"var one = \"Run `yolo nosuchone` now.\"\n"+
+		"var spliced = \"Run `yolo nosuchtwo \" + name + \"` now.\"\n"+
+		"var split = \"Run `\" + \"yolo nosuchthree\" + \"` now.\"\n"+
+		"var inner = \"a \" + fmt.Sprintf(\"Run `yolo nosuchfour %s`.\", name) + \" b\"\n"+
+		"var ints = 1 + 2\n")
+	want := []string{"yolo nosuchone", "yolo nosuchtwo <…>", "yolo nosuchthree", "yolo nosuchfour %s"}
+	if !slices.Equal(got, want) {
+		t.Errorf("scanned hints = %q, want %q", got, want)
+	}
+	tree := loadCommandTree(t)
+	for _, h := range want {
+		if tree.check(h) == "" {
+			t.Errorf("`%s` resolved, but it is not a command", h)
+		}
+	}
+}
+
+// TestTheHintScanReadsACommandWrittenWithoutBackticks: a command a message spells without
+// backticks is read where one stands (an indented line, after a next step's lead-in, in a column
+// after a colon) up to where it ends, and a sentence whose subject is yolo is not read, so a word
+// after `yolo` that is not a command fails the scan rather than reading as prose. The scan read
+// backticked commands only, so the `then: yolo check` many `yolo check` notes end with, and
+// `yolo check-deps`'s closing re-check, were never checked.
+func TestTheHintScanReadsACommandWrittenWithoutBackticks(t *testing.T) {
+	for _, c := range []struct {
+		text string
+		want []string
+	}{
+		{"then: yolo check", []string{"yolo check"}},
+		{"Make it writable, then: yolo check --no-build\nIf that does not fix it, report it.",
+			[]string{"yolo check --no-build"}},
+		{"fix: yolo pack install   (retries the fetch)", []string{"yolo pack install"}},
+		{"Run yolo update, then relaunch the jail.", []string{"yolo update"}},
+		{"→ yolo host apply --assert (shows each question), then launch again.",
+			[]string{"yolo host apply --assert"}},
+		{"-> yolo loopholes status", []string{"yolo loopholes status"}},
+		{"Pack scaffolded.\nNext: yolo pack lint ./pack\n", []string{"yolo pack lint ./pack"}},
+		{"Restart the jail:\n  yolo stop      # from this workspace\n", []string{"yolo stop"}},
+		{"[dim]  yolo check-deps  [dim]# check again[/dim][/dim]", []string{"yolo check-deps"}},
+		{"  yolo host apply [flags]       render config surfaces into your real home",
+			[]string{"yolo host apply [flags]"}},
+		{"  2. Check the edit:  yolo check\n  3. Launch it:  yolo -- claude\n",
+			[]string{"yolo check", "yolo -- claude"}},
+		// A sentence whose subject is yolo, a heading, an error's prefix, and a command in a
+		// place nothing in the text marks as one.
+		{"yolo could not create it", nil},
+		{"yolo prune --apply", nil},
+		{"yolo config render: unknown flag %q", nil},
+		{"yolo pack — author and inspect agent config packs", nil},
+		{"  yolo could not get this host's network stack to forward it", nil},
+		{"  yolo will run: claude", nil},
+		{"Image store: yolo cannot write it.", nil},
+		{"which is empty: yolo was started with no PATH", nil},
+		{"Usage: yolo audit [flags]", nil},
+		{"the yolo jail keeper; yolo's own copy; YOLO Jail", nil},
+		{"Run `yolo` as your normal user, or 'yolo config-ref' for the schema.", nil},
+	} {
+		var got []string
+		for _, h := range hintsIn(c.text) {
+			got = append(got, h.text)
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%q: read %q, want %q", c.text, got, c.want)
+		}
+	}
+	// And from source, as the scan reads it: a constant a note ends with, a literal joined
+	// with a name, and a command on a line of its own.
+	got := scanSource(t, "package x\n\nvar name = \"x\"\n\n"+
+		"const recheck = \"then: yolo nosuchone\"\n"+
+		"var note = \"Restart the jail:\\n  yolo nosuchtwo  # now\\n\" + name\n"+
+		"var fix = \"fix: yolo nosuchthree \" + name + \" (retries it)\"\n")
+	want := []string{"yolo nosuchone", "yolo nosuchtwo", "yolo nosuchthree <…>"}
+	if !slices.Equal(got, want) {
+		t.Errorf("scanned hints = %q, want %q", got, want)
+	}
+	tree := loadCommandTree(t)
+	for _, h := range want {
+		if tree.check(h) == "" {
+			t.Errorf("`%s` resolved, but it is not a command", h)
+		}
+	}
+}
+
+// scanSource is what scanHints reads from one Go file holding src, in a module tree of its own.
+func scanSource(t *testing.T, src string) []string {
+	t.Helper()
 	root := t.TempDir()
-	src := "package x\n\nimport \"fmt\"\n\nvar name = \"x\"\n\n" +
-		"var one = \"Run `yolo nosuchone` now.\"\n" +
-		"var spliced = \"Run `yolo nosuchtwo \" + name + \"` now.\"\n" +
-		"var split = \"Run `\" + \"yolo nosuchthree\" + \"` now.\"\n" +
-		"var inner = \"a \" + fmt.Sprintf(\"Run `yolo nosuchfour %s`.\", name) + \" b\"\n" +
-		"var ints = 1 + 2\n"
 	if err := os.MkdirAll(filepath.Join(root, "internal", "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -202,16 +361,7 @@ func TestTheHintScanReadsAHintBuiltFromPieces(t *testing.T) {
 	for _, h := range scanHints(t, root) {
 		got = append(got, h.text)
 	}
-	want := []string{"yolo nosuchone", "yolo nosuchtwo <…>", "yolo nosuchthree", "yolo nosuchfour %s"}
-	if !slices.Equal(got, want) {
-		t.Errorf("scanned hints = %q, want %q", got, want)
-	}
-	tree := loadCommandTree(t)
-	for _, h := range want {
-		if tree.check(h) == "" {
-			t.Errorf("`%s` resolved, but it is not a command", h)
-		}
-	}
+	return got
 }
 
 // TestEveryVerbDispatcherIsListed: a command whose refusal names a verb it does not have takes
@@ -248,8 +398,49 @@ func TestEveryVerbDispatcherIsListed(t *testing.T) {
 	}
 }
 
-// hint is one backticked `yolo …` command in a string literal, and where it is.
-type hint struct{ pos, text string }
+// hint is one `yolo …` command in a string literal, and where it is. bare is whether it is
+// written without backticks.
+type hint struct {
+	pos, text string
+	bare      bool
+}
+
+// hintsIn is every `yolo …` command text names, backticked or bare, with no position.
+func hintsIn(text string) []hint {
+	var out []hint
+	for _, m := range hintPattern.FindAllStringSubmatch(text, -1) {
+		out = append(out, hint{text: m[1]})
+	}
+	for _, h := range bareHints(text) {
+		out = append(out, hint{text: h, bare: true})
+	}
+	return out
+}
+
+// bareHints is every command text names without backticks, in the places the header comment
+// says it is read.
+func bareHints(text string) []string {
+	var out []string
+	for _, line := range strings.Split(richtext.Strip(text), "\n") {
+		for _, loc := range bareYolo.FindAllStringIndex(line, -1) {
+			start := loc[1] - len("yolo ")
+			lead := line[:start]
+			anyEnd := nextStepLead.MatchString(lead)
+			if !anyEnd && (lead == "" || strings.TrimLeft(lead, " \t") != "" && !alignedLead.MatchString(lead)) {
+				continue // unindented, or after a word: nothing marks it as a command
+			}
+			cmd, after := line[loc[1]:], ""
+			if m := bareHintEnd.FindStringIndex(cmd); m != nil {
+				cmd, after = cmd[:m[0]], cmd[m[0]:]
+			}
+			if !anyEnd && after != "" && !strings.HasPrefix(after, "  ") {
+				continue // the line runs on into a sentence whose subject is yolo
+			}
+			out = append(out, strings.TrimSpace("yolo "+cmd))
+		}
+	}
+	return out
+}
 
 // scanHints reads every non-test Go file under internal/ and cmd/ for hints in string literals.
 // Comments are not read: a backticked command in a comment is the code's own documentation, and
@@ -272,8 +463,9 @@ func scanHints(t *testing.T, root string) []hint {
 			}
 			rel, _ := filepath.Rel(root, p)
 			add := func(at token.Pos, text string) {
-				for _, m := range hintPattern.FindAllStringSubmatch(text, -1) {
-					out = append(out, hint{pos: fmt.Sprintf("%s:%d", rel, fset.Position(at).Line), text: m[1]})
+				for _, h := range hintsIn(text) {
+					h.pos = fmt.Sprintf("%s:%d", rel, fset.Position(at).Line)
+					out = append(out, h)
 				}
 			}
 			var visit func(ast.Node) bool
