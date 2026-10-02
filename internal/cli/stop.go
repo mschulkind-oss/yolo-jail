@@ -146,7 +146,8 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 	running, ran, rc := probeJailRunning(rt, cname, run)
 	sp.End()
 	if !ran {
-		fmt.Fprintf(stderr, "yolo stop: the %s runtime could not be run.\n", rt)
+		fmt.Fprintf(stderr, "yolo stop: the %s runtime could not be run: `%s` is not on PATH, or would not "+
+			"start. Put it on PATH and run `yolo stop` again.\n", rt, rt)
 		return 1
 	}
 	if rt == "container" && rc != 0 { // parity: HonoredBy — `container ls` is AC's answer, and a failed one is "could not ask", where podman's failed inspect is "no such container"
@@ -179,7 +180,8 @@ func stopJail(stdout, stderr io.Writer, ws, rt string,
 	_, ran, rc = run([]string{rt, "stop", cname})
 	sp.End()
 	if !ran || rc != 0 {
-		fmt.Fprintf(stderr, "yolo stop: stopping %s failed (rc %d).\n", cname, rc)
+		fmt.Fprintf(stderr, "yolo stop: `%s stop %s` failed (rc %d); any message the runtime printed above "+
+			"says why. `yolo stop` again retries it.\n", rt, cname, rc)
 		return 1
 	}
 	// THE TEARDOWN, before the stop returns (docs/design/jail-lifetime-last-session-wins.md JL-D25):
