@@ -8,6 +8,17 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- When `yolo host` has no container runtime to capture an agent with, it now says to install one.
+- A Ctrl-C in one of a jail's terminals now says the jail stays up for the others.
+- A Ctrl-C as a terminal's session starts no longer leaves that session's command running in the
+  jail.
+- A host service that goes down just as a jail starts, or as another terminal joins it, is now
+  reported to that terminal.
+
 ## [0.11.1] - 2026-10-02
 
 `yolo host` runs yolo's own copy of your agents, a jail now ends with its last terminal, and agent
