@@ -1,7 +1,7 @@
 ---
 status: current
 stage: CURRENT
-next: "Draft OQ-CI1's leaning from OQ-CL1's ruling (claude-login-without-interception.md: the credential view keeps the login shared), so its ruling is one sentence; host claude's own login (notch-convergence.md OQ-NC7) waits on it"
+next: "The maintainer rules OQ-CI1 (A, B or C; leaning B: one login per machine, yolo host -- claude joining through a view once the view's measures pass); host claude's own login (notch-convergence.md OQ-NC7) is reopened by a B"
 verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
@@ -926,6 +926,113 @@ easy to over-read:
 - **Not** licence to make `yolo check` probe host loopholes from inside a jail. The `[SKIP]` level is
   about the *reporting level* of a skip, not about removing it.
 
+## Sharing the login: what each choice keeps and pays
+
+[OQ-CI1](#oq-ci1) asks whether every jail on a machine should share one Claude login, because
+every mechanism above exists to share it. Two things have moved since it was first asked: a ruling
+changed what sharing costs, and a measurement changed how often anyone pays for a login.
+
+**What [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1) already removes.** The
+ruling deletes the interception at every notch once the credential view passes its measures. Most
+of the costs this question was first asked about go with it: the CA, the terminator, the
+unauthenticated proxy branch, the doc-fetch coupling, the symlink in the credential path and the
+`invalid_grant` blank of a machine-wide file
+([its §5.3](../design/claude-login-without-interception.md#53-what-it-removes-along-the-way)).
+The split between the shared file and Claude's own locks was closed earlier still, by
+[CL-D22](../design/claude-login-without-interception.md#CL-D22). That design's
+[§8](../design/claude-login-without-interception.md#8-what-this-does-not-cover) says that by
+keeping the login shared it answers the reason this question was asked. That is the design's
+inference: neither of its rulings was put to the maintainer as this question.
+
+**What sharing still costs once the view lands.** The broker stays, as the only refresher, so a
+jail cannot refresh while it is down. It writes into a directory each jail can write, which is
+why its writes are confined ([CL-D3](../design/claude-login-without-interception.md#CL-D3)). And
+the view rests on four vendor behaviors read from Claude's code and not yet run
+([§6](../design/claude-login-without-interception.md#6-costs-and-risks)).
+
+**What a per-workspace login costs instead.** Each workspace would run Claude's own refresh, with
+its own locks, over its own file, which is what the vendor built; the broker, the view and the
+machine-scope directory would go. In exchange, every login is made in a jail, where in the
+default bridge mode the browser callback cannot close, so each one is a manual paste
+([above](#the-login-flow-is-not-terminated--it-is-the-enrollment-path)). And every jail holds a
+refresh token, a standing grant on the same account, which the view keeps out of all of them.
+
+### A login lives about four weeks, however often it is refreshed
+
+MEASURED from the host broker's log, read 2026-10-02 (times EDT):
+
+| `/login`, proxied and mirrored | Last successful rotation | First `Refresh token expired` | Life |
+| :--- | :--- | :--- | :--- |
+| 2026-08-05 21:37 | 2026-09-03 20:00 | 2026-09-04 03:59 | about 29 days |
+| 2026-09-04 08:46 | 2026-10-02 08:55 | 2026-10-02 16:25 | about 28 days |
+
+Each refusal is `400 invalid_grant`, `"error_description": "Refresh token expired"`, for the
+refresh token minted by the rotation in the same row, hours after it was minted. So the deadline
+belongs to the login, not to the refresh token in hand. These are two observations, not a
+documented rule.
+
+On 2026-10-02 the access token from the 08:55 rotation expired at 16:55, and because every jail
+reads one file, every jail was logged out at once. Nothing surfaced the refusal in the thirty
+minutes before, since the broker's log has no reader ([above](#a-failed-spawn-reports-itself)).
+After the `/login` made at 17:12 that day, the shared file records `refreshTokenExpiresAt`, a
+field Claude writes and no yolo code sets: 2026-10-30 13:45, about 28 days on (MEASURED, that
+field read alone). So the next deadline is known in advance. No production code in `internal/`,
+`packs/` or `cmd/` reads it yet.
+
+What that does to each choice:
+
+- **Shared:** one `/login` per machine about every four weeks, and every jail goes down together
+  until it is made. The outage is total but single, one login ends it, and its date is in the
+  file.
+- **Per workspace:** one `/login` per workspace about every four weeks, each a manual paste, spread
+  over the month instead of at once. A workspace returned to after four weeks starts with one.
+
+### The host
+
+[OQ-NC7](../plans/notch-convergence.md#OQ-NC7) keeps host claude on its own login until this
+question is ruled, because a shared store without interception would race the broker. A view
+carries no refresh token, so a host view races nothing: the design calls host claude on a view
+*"a second refresher of nothing, which is safe"*
+([§8](../design/claude-login-without-interception.md#8-what-this-does-not-cover)). The OpenAI
+precedent is [OQ-OA3](agent-credentials.md#oq-oa3): `yolo host -- codex` shares the login through
+a managed home, and a host Codex yolo did not launch is untouched. Whether host Claude on macOS
+would read such a view or its Keychain is unmeasured, as measure M11 is for `macos-user`.
+
+### The maintainer's words, and one phrase that is not theirs
+
+- On [OQ-CL2](../design/claude-login-without-interception.md#OQ-CL2), whose leaning has `/login`
+  in any jail still enroll the machine: *"all of that sounds right"* (2026-09-28).
+- On [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1): *"we can just write the new
+  one in there and it just picks it up. If that's the case, then yes, we should do that."*
+  (2026-09-28). That approves the mechanism that shares the grant. It does not rule on sharing.
+- On the host: *"host is supposed to act like everywhere else"* (2026-09-27,
+  [notch convergence §1](../plans/notch-convergence.md#1-the-thesis)); and on 2026-10-02, a
+  question rather than a ruling: *"and the [host] doesn't share auth with the jails yet?"*
+- On machine-wide state in general, the ruling behind
+  [the pack system's Ruling 2](pack-system.md#open-rulings-2): *"We need to generalize
+  shared-across-jail state, to be specified by the pack."* (2026-07-26, recorded in a plan since
+  retired; `git show 43b221cbe`).
+- About a different store, `env_sources`:
+  *"this is the credential store and it needs to be able to be shared because I don't want to put
+  it in multiple places"* ([OQ-ES1](../design/credential-sources-separation.md#OQ-ES1)).
+
+**Not the maintainer's:** the phrase this question used to cite as yolo's ruling against a login
+per workspace, that re-authenticating in every workspace is *"wrong behavior, not an
+inconvenience"* (`linkSharedCredential` in [`packhooks.go`](../../internal/entrypoint/packhooks.go)).
+It entered on 2026-07-27, in the commit that made the machine tier pack data (`0ed497207`), as that
+commit's own reasoning. No maintainer words behind it were found, so the leaning does not rest on
+it.
+
+### The scripted seed does not change the arithmetic
+
+`CLAUDE_CODE_OAUTH_REFRESH_TOKEN` is read in exactly one place, the `claude login` subcommand,
+where it exchanges a handed-in refresh token and saves the result to the credentials store,
+requiring `CLAUDE_CODE_OAUTH_SCOPES` alongside it (2.1.278, offset 213747814). Driving it from a
+yolo verb is still untried. But the exchange spends the token it is handed, and a refresh token is
+single-use, so seeding a workspace from the machine's login would move that login rather than copy
+it (INFERRED). The moved lineage would also keep its four-week deadline (INFERRED). It cannot turn
+one login per workspace into one per machine.
+
 ## Open question
 
 > [!NOTE]
@@ -935,46 +1042,28 @@ easy to over-read:
 
 ### <a id="oq-ci1"></a>💬 [`OQ-CI1`](#oq-ci1) — should the credential be shared at all?
 
-<!-- vantage: oq id=OQ-CI1 -->
+<!-- vantage: oq id=OQ-CI1 leaning="B, on the view's schedule. Keep one login per machine, and let `yolo host -- claude` read a view of it once the view's measures pass, as `yolo host -- codex` already shares the OpenAI login; a host claude that yolo did not launch keeps its own. The maintainer approved a jail's `/login` enrolling the machine, and on 2026-10-02 asked whether the host shares it yet. Cost: a dead login stops every jail and the host's yolo-launched claude together, and nothing warns ahead of it until something reads `refreshTokenExpiresAt`." -->
 
-**Not decided. Recorded with the measurements on both sides**, because the whole stack above exists to
-serve one choice: that every jail on a machine share one Claude login.
+Should every jail on a machine share one Claude login, or should each workspace keep its own?
+Evidence: [above](#sharing-the-login-what-each-choice-keeps-and-pays).
 
-> [!NOTE]
-> **Re-read 2026-09-30; not a ruling.** No leaning has been stated. Since this was written,
-> [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1) was ruled (2026-09-28): the
-> credential view replaces the interception everywhere and keeps the login shared, which that
-> design says removes the costs listed below
-> ([its §8](../design/claude-login-without-interception.md#8-what-this-does-not-cover)).
-> [OQ-NC7](../plans/notch-convergence.md#OQ-NC7) keeps host claude on its own login until this
-> question is decided. Whether that ruling decides this one is the maintainer's to say.
+- **A — Shared by the jails**, through the ruled credential view. Keeps one `/login` per machine
+  about every four weeks; pays an outage of every jail at once when it dies.
+- **B — A, plus `yolo host -- claude`** through a view of its own. Keeps one login for the host
+  too; pays the host's yolo-launched claude joining that outage, and reopens
+  [OQ-NC7](../plans/notch-convergence.md#OQ-NC7).
+- **C — One login per workspace.** Keeps Claude's own refresh path and deletes the broker; pays a
+  manual-paste `/login` per workspace about every four weeks, and a refresh token in every jail.
 
-**If the credential stopped being shared**, the interception, the CA, the terminator, the host daemon
-and the flock all become unnecessary, and several live risks evaporate with them: the vendor's
-co-located lock and file are correct again (both `.oauth_refresh.lock` and `.storage-write` would be
-per-workspace over a per-workspace file, which is what the vendor built); the symlink-refusal risk
-above disappears because there is no symlink in the credential path; the doc-fetch interposition and
-its two logs disappear; and the unauthenticated refresh endpoint disappears. The vendor already
-handles the multi-process case correctly on a plain host — the CAS and both locks are its own
-machinery, and it is only yolo's scoping split that defeats them.
+_Leaning:_ **B, on the view's schedule.** Keep one login per machine, and let
+`yolo host -- claude` read a view of it once the view's measures pass, as `yolo host -- codex`
+already shares the OpenAI login; a host claude that yolo did not launch keeps its own. The
+maintainer approved a jail's `/login` enrolling the machine, and on 2026-10-02 asked whether the
+host shares it yet. **Cost:** a dead login stops every jail and the host's yolo-launched claude
+together, and nothing warns ahead of it until something reads `refreshTokenExpiresAt`.
 
-**The cost is one `/login` per workspace**, and that cost is larger than it sounds for a reason
-measured above: a jail login cannot close in the browser, because the vendor's `redirect_uri` names
-the jail's loopback, so it takes the manual-paste path through the human's host browser. It is also a
-cost yolo has already ruled against once, in the strongest terms the corpus has for this:
-`linkSharedCredential`'s doc comment in [`packhooks.go`](../../internal/entrypoint/packhooks.go)
-records that re-authenticating in
-every workspace is *"wrong behavior, not an inconvenience"*, which is why the machine tier exists at
-all.
-
-**One thing is unmeasured and could change the price.**
-`CLAUDE_CODE_OAUTH_REFRESH_TOKEN` is read in exactly one place — the `claude login` subcommand — where
-it exchanges a handed-in refresh token and saves the result to the credentials store, requiring
-`CLAUDE_CODE_OAUTH_SCOPES` alongside it (offset 213747814). It is useless as a way to *avoid* having a
-file, but it is a **scripted enrollment** channel. Whether a yolo verb could drive it to seed a fresh
-workspace from an existing machine grant — turning "one `/login` per workspace" into "one `/login` per
-machine plus a scripted seed per workspace" — has not been tried. If it works, the fork is cheaper
-than it currently looks; if it does not, the cost stands as stated.
+**Answer:**
+> _(empty — fill in when decided)_
 
 ## Why it's this way
 
