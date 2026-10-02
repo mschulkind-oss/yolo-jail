@@ -440,6 +440,42 @@ func TestAKeeperWhoseJailNeverStartsRecordsNoServiceDown(t *testing.T) {
 	}
 }
 
+// TestADeathIsInTheStartRecordBeforeItsLogLine: by the time the keeper's line for a death can be
+// read, its start record already keeps that death, so a reader that saw the line and then reads
+// the record never finds it missing. The record is read from the log's own writer, at the moment
+// the line is written, so the order is pinned whatever the scheduling.
+func TestADeathIsInTheStartRecordBeforeItsLogLine(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	const cname = "yolo-record-before-line"
+	k := &keeper{plan: &keeperPlan{Cname: cname, Runtime: "podman"}, ending: make(chan struct{}),
+		record: keeperRecord{PID: 4242, Started: time.Now()}, recorded: true}
+	if err := writeKeeperRecord(cname, k.record); err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	var atTheLine [][]keeperServiceDown
+	k.sink = &keeperSink{log: writerFunc(func(p []byte) (int, error) {
+		rec, _ := readKeeperRecord(cname)
+		lines = append(lines, string(p))
+		atTheLine = append(atTheLine, rec.Down)
+		return len(p), nil
+	})}
+	done := make(chan struct{})
+	close(done)
+	k.awaitServiceEnd("host service 'flaky'", serviceEnd{done: done,
+		how: func() string { return "its process ended (exit status 3)" }}, "/state/logs/host-service-flaky.log")
+	if len(lines) != 1 || !strings.Contains(lines[0], "host service 'flaky' went down") {
+		t.Fatalf("the keeper's log got %q, want the one line of the death", lines)
+	}
+	if len(atTheLine[0]) != 1 || atTheLine[0][0].What != "host service 'flaky'" {
+		t.Errorf("when the death's line was written the start record kept %+v: a reader of the line "+
+			"finds no death for an arrival", atTheLine[0])
+	}
+	if rec, _ := readKeeperRecord(cname); len(rec.Down) != 1 {
+		t.Errorf("the start record keeps %+v after the death, want it", rec.Down)
+	}
+}
+
 // TestTheKeepersOwnStopIsNeverADeath: once the keeper has begun ending its jail, a service's end is
 // its own act, not a record.
 func TestTheKeepersOwnStopIsNeverADeath(t *testing.T) {

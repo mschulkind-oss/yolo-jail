@@ -132,13 +132,22 @@ func (k *keeper) awaitServiceEnd(what string, end serviceEnd, log string) {
 	k.recordServiceDown(keeperServiceDown{What: what, At: time.Now(), How: end.how(), Log: log})
 }
 
-// recordServiceDown is one end the keeper did not cause: its log line, then its start record
-// rewritten with it, both under recMu, so beginStopping never falls between a death and its record.
+// recordServiceDown is one end the keeper did not cause: its start record rewritten with it, then
+// its log line, both under recMu, so beginStopping never falls between a death and its record.
+//
+// THE RECORD COMES FIRST, so a death's line in the log means its record is already written: a
+// reader that saw the line and then reads the record finds the death there. Written the other way
+// round, a reader between the two writes saw the line but a record without the death.
 func (k *keeper) recordServiceDown(d keeperServiceDown) {
 	k.recMu.Lock()
 	defer k.recMu.Unlock()
 	if k.stopping {
 		return
+	}
+	var recErr error
+	if k.recorded {
+		k.record.Down = append(k.record.Down, d)
+		recErr = writeKeeperRecord(k.plan.Cname, k.record)
 	}
 	where := ""
 	if d.Log != "" {
@@ -147,12 +156,8 @@ func (k *keeper) recordServiceDown(d keeperServiceDown) {
 	k.sink.logf("keeper: %s went down at %s: %s. Nothing restarts it: what in the jail uses it fails "+
 		"until the jail is launched again (%s, then a launch)%s", d.What, d.At.Format("15:04:05"), d.How,
 		stopRemedy(k.plan.Runtime, k.plan.Cname), where)
-	if !k.recorded {
-		return
-	}
-	k.record.Down = append(k.record.Down, d)
-	if err := writeKeeperRecord(k.plan.Cname, k.record); err != nil {
-		k.sink.logf("keeper: could not add that to its start record (%v), so an arrival will not be told", err)
+	if recErr != nil {
+		k.sink.logf("keeper: could not add that to its start record (%v), so an arrival will not be told", recErr)
 	}
 }
 
