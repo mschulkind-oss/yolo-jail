@@ -630,7 +630,7 @@ macos-user, the `nix` that backend already requires. It installs nothing.
 5. **Keep Spotlight out of the workspace** in System Settings → Spotlight → Search Privacy, by
    adding `/Users/Shared/yolo/bench-macos-backends`. Not with `mdutil`, which turns indexing on or
    off for a whole volume, and `/Users/Shared` is on the Data volume with everything else. If
-   Time Machine is on, also run `tmutil addexclusion` on that folder.
+   Time Machine is on, also run `tmutil addexclusion /Users/Shared/yolo/bench-macos-backends`.
 6. **Plug the Mac in,** with Low Power Mode off. The harness keeps it awake itself, with
    `caffeinate`, until it exits.
 7. **Leave no jail running:** `container ls`, then `container stop <name>` for each `yolo-` name
@@ -842,7 +842,9 @@ record_env() {
     pmset -g 2>/dev/null | awk '/lowpowermode|powermode| sleep |displaysleep/' || true
     pmset -g assertions 2>/dev/null | awk '/PreventUserIdleSystemSleep|PreventSystemSleep/' || true
     mdutil -s /System/Volumes/Data 2>&1 | tail -1 || true
-    systemextensionsctl list 2>/dev/null | awk '/endpoint_security/' || true
+    # The endpoint_security section with its rows: the rows name each product and its state,
+    # and only the "--- com.apple.system_extension.endpoint_security" header holds the word
+    systemextensionsctl list 2>/dev/null | awk '/^---/ { p = /endpoint_security/ } p || /endpoint_security/' || true
     launchctl list 2>/dev/null | awk '/actions\.runner\./ { print "runner loaded: " $3 }' || true
     if [ -n "$SANDBOX_IGNORE" ]; then echo "_yolojail pids left out (BENCH_ALLOW_RUNNING): $SANDBOX_IGNORE"; fi
     echo "backends=$BENCH_BACKENDS"
