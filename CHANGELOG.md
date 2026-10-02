@@ -28,19 +28,15 @@ project with `yolo loopholes enable github-broker`. See [GitHub](userguide/guide
 or off for one project, without editing your config. See
 [Host access and loopholes](userguide/guides/loopholes.md#the-loopholes-yolo-ships).
 
-**More agents, more providers.** `-p bedrock` now sets up codex, opencode and pi, `-p codex` runs
-opencode on ChatGPT, and pi, opencode and oh-omp can mix providers, as in `-p pi=zai,openrouter`.
-On macos-user, Bedrock, the ChatGPT login refresh and wire-bridge profiles now work, and
-wire-bridge profiles work at `yolo host` too.
+**More agents, more providers.** `-p bedrock` sets up codex, opencode and pi; `-p codex` runs
+opencode on ChatGPT; pi, opencode and oh-omp mix providers (`-p pi=zai,openrouter`). Bedrock and
+wire-bridge profiles also work on macos-user.
 
 **Choose the models each provider offers.** A pack's `models` entry adds to a provider's model
 list or narrows it, and agents that allow it offer only that list.
 
 **Work that survives a restart.** Every jail has `$YOLO_DURABLE_DIR`, a folder yolo never deletes,
-and briefings send agents' worktrees there instead of `/tmp`.
-
-**Read-write mounts.** In your user config, a `mounts` entry with `"mode": "rw"` is writable from
-the jail.
+and agents keep their worktrees there. A user-config `mounts` entry with `"mode": "rw"` is writable.
 
 **herdr shows a jailed agent as that agent.** In a [herdr](https://herdr.dev) pane,
 `yolo -- <agent>` registers the agent, so herdr's sidebar shows it working, blocked or done, and a
@@ -64,9 +60,8 @@ pinned commit once for every workspace. See
   provider: use your user config.
 - A Bedrock launch with no region is refused: set `providers.bedrock.region`, `AWS_REGION` in
   `env_sources`, or a region in your `~/.aws/config` profile.
-- Two packs shipping one skill name, your local pack included, stop the launch: rename one, or set
-  `"skills_tier": "namespaced"` on one. Namespaced skills are now `/<pack>:<skill>` in jails too.
-- A `supersedes` naming a capability nothing serves stops the launch: fix or remove it.
+- Two packs shipping one skill name stop the launch (rename one, or set `"skills_tier":
+  "namespaced"`), as does a `supersedes` nothing serves.
 - `install_hints` may hold only package names and one `&& <command>`.
 - pi reads yolo's MCP servers itself: remove `pi-mcp-adapter` if you added it for them.
 - GPT-6.1 Sol replaces GPT-6 Sol on `-p codex`; pick again if you chose it.
@@ -91,23 +86,15 @@ pinned commit once for every workspace. See
 - Rootless Podman on stock Ubuntu 26.04 no longer fails every launch.
 - A Claude login on a Mac or Apple Container no longer needs repeating after a refresh.
 - On macos-user, git no longer refuses your project for "dubious ownership".
-- A loophole program the agent could rewrite ran on your machine when the project's path had a
-  space; yolo now refuses it.
-- A project config saved with a `.json` extension could install a loophole; that is now refused
-  there too.
-- A git pack address through a symlink could copy your files into the jail and is now refused:
-  name the link's target.
+- Three ways a project could reach your machine are refused: a loophole program in a project path
+  with a space, a loophole installed from a `.json` project config, and a git pack address through
+  a symlink.
 - `yolo host apply` no longer empties Claude Code's `permissions.additionalDirectories`; add your
   folders back once.
 - `--network` now overrides the project's `network.mode`.
-- `yolo pack update` no longer reports success when an agent's install leaves nothing to run; it
-  and `yolo capture` say so, and who can fix it.
-- `--help` or `-h` after a `yolo pack` verb shows the help: `yolo pack update --help` ran the
-  update.
-- A `yolo host apply --assert` whose skills, briefing or another step failed now ends saying so,
-  not that the home is up to date.
-- On Podman and Apple Container, a Ctrl-C while a launch builds or waits at a prompt no longer
-  leaves your terminal tab in the jail's colors or a copy of your packs on disk.
+- `yolo pack update --help` ran the update, and `update` reported success for an install that left
+  nothing to run; `yolo host apply --assert` could call a failed run up to date.
+- A Ctrl-C during a launch's build or prompt no longer leaves your tab in the jail's colors.
 
 ### Contributors
 
