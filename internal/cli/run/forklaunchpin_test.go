@@ -156,6 +156,50 @@ func TestALaunchNeverMovesAStandingForkPin(t *testing.T) {
 	}
 }
 
+// A STANDING PIN OUTLIVES THE HOURLY REFRESH: an hour has passed since the pin (its branch stamp is
+// gone), and a fetch for something else sharing the fork's repository has moved the mirror's branch to
+// the new head. A launch that re-resolved the ref by the launch's ref rule would now fetch, or read
+// the moved mirror, and pin the new head; this one builds the pinned commit and leaves the lock alone.
+func TestAStandingForkPinOutlivesTheHourlyRefresh(t *testing.T) {
+	repo, commit := launchForkRepo(t)
+	head1 := strings.TrimSpace(mustGit(t, repo, "rev-parse", "HEAD"))
+	source := "git+file://" + repo + "?ref=main"
+	forkLaunchHome(t, source)
+	var built []packload.ForkPin
+	if _, printed := fakePodmanLaunch(t, recordingBuild(&built)); !strings.Contains(printed, pinnedLine(head1, source)) {
+		t.Fatalf("the first launch did not pin the fork:\n%s", printed)
+	}
+	lock := packsrc.ForkLockPath(paths.UserConfigPath())
+	before, err := os.ReadFile(lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head2 := commit("second")
+	if err := os.RemoveAll(filepath.Join(paths.PacksDir(), "stamps")); err != nil {
+		t.Fatal(err)
+	}
+	mirrors, _ := filepath.Glob(filepath.Join(paths.PacksDir(), "mirrors", "*"))
+	if len(mirrors) != 1 {
+		t.Fatalf("mirrors = %v, want the one the first launch fetched", mirrors)
+	}
+	mustGit(t, mirrors[0], "fetch", "-q", "origin", "+refs/heads/*:refs/heads/*")
+	if got := strings.TrimSpace(mustGit(t, mirrors[0], "rev-parse", "refs/heads/main")); got != head2 {
+		t.Fatalf("the mirror's main is %s after the fetch, want %s", got, head2)
+	}
+
+	built = nil
+	_, printed := fakePodmanLaunch(t, recordingBuild(&built))
+	if after, _ := os.ReadFile(lock); !bytes.Equal(before, after) {
+		t.Errorf("a launch rewrote a standing pin after the hourly refresh:\n%s", after)
+	}
+	if len(built) != 1 || built[0].Commit != head1 {
+		t.Errorf("the build act was handed %+v, want the standing pin %s, never the moved head %s", built, head1, head2)
+	}
+	if strings.Contains(printed, "pinned fork") {
+		t.Errorf("a launch with a standing pin printed a pin line:\n%s", printed)
+	}
+}
+
 // A PIN MADE FOR ANOTHER SOURCE IS NO PIN: an edited `source` is a new address, and the launch pins
 // the address the manifest names now, in place of the old entry.
 func TestALaunchPinsAForkWhoseSourceChanged(t *testing.T) {

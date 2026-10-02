@@ -308,15 +308,17 @@ the building jail did not have:
    repository names that fork's repository, a ref, its `build` line or its `produces`. The
    measurement needs a fork pack a maintainer actually uses: `source` (`git+https://…?ref=<branch or tag>`), `build`, and
    `produces`, including the package's directory under `.npm-global/lib/node_modules`.
-2. **A network fetch.** `yolo pack install` fetches that repository into the pack store's mirror to
-   pin it, and a Node fork's build (`npm ci`) fetches its dependencies from the npm registry.
+2. **A network fetch.** The fork's first pin fetches that repository into the pack store's mirror
+   ([FP-D18](forked-programs-as-packs.md#FP-D18): a launch, or `yolo capture pi`, makes it), and a
+   Node fork's build (`npm ci`) fetches its dependencies from the npm registry.
 3. **A real build.** A sealed capture jail on a host with podman. From inside a jail that is a
    nested launch, and it writes the machine's capture store under the home.
 
 With those, on a Linux host with podman:
 
-1. Select the fork pack, then run `yolo pack install` and `yolo capture pi`. The last line names the
-   entry's root, under `~/.local/share/yolo-jail/captures/entries/`.
+1. Select the fork pack, then run `yolo capture pi`, which pins the fork first when nothing has
+   pinned it yet. The last line names the entry's root, under
+   `~/.local/share/yolo-jail/captures/entries/`.
 2. Read that entry's `capture-manifest.json`: `relocatable`, and every reason under
    `notRelocatable`.
 3. Search the entry's `tree/` for `/nix/store` and `/lib` (`rg -uuu -l -a -F /nix/store tree`),

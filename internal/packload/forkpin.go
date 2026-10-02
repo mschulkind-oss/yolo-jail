@@ -79,11 +79,35 @@ func LoadForkPins(forks []Fork, lockPath string) []ForkPin {
 		pins := ForkPins(forks, nil)
 		for i := range pins {
 			pins[i].Pinnable = false
-			pins[i].Reason = "the fork lock cannot be read (" + err.Error() + ")"
+			pins[i].Reason = unreadableLockReason(err)
 		}
 		return pins
 	}
 	return ForkPins(forks, lock)
+}
+
+// unreadableLockReason is a fork's reason when the fork lock cannot be read: one spelling for every
+// reader, LoadForkPins and the launch's pin (PinForks), so a dry run, the host floor and a launch
+// say the same thing about one broken file. The read error names its own next step (LoadForkLock).
+func unreadableLockReason(err error) string {
+	return "the fork lock cannot be read (" + err.Error() + ")"
+}
+
+// InJailForkPins is pins as a reader INSIDE A JAIL must say them: no act in a jail pins a fork (it
+// has no pack store, and the fork lock is the host's, beside the host's user config), so a fork the
+// lock read there does not pin is not pinnable, and its reason says where its pin is made — never
+// "the next launch pins it" or `yolo pack install`, which in a jail pin nothing. A pin the lock does
+// hold, and a lock that cannot be read, are left as they are.
+func InJailForkPins(pins []ForkPin) []ForkPin {
+	for i := range pins {
+		if !pins[i].Pinnable {
+			continue
+		}
+		pins[i].Pinnable = false
+		pins[i].Reason = "its pin is recorded on the host (" + packsrc.ForkLockName + ", beside the host's " +
+			"user config), and nothing inside a jail pins a fork — a launch from the host pins it"
+	}
+	return pins
 }
 
 // PinForks is THE LAUNCH'S PIN (forked-programs-as-packs.md FP-D18, applying the maintainer's
@@ -112,6 +136,8 @@ func PinForks(forks []Fork, lockPath string, store *packsrc.Store, begin func() 
 					o.FetchErr.Error() + "), so it is pinned at " + shortForkCommit(p.Commit) +
 					", the commit this machine already had — `yolo pack update` re-resolves it once the fetch works"
 			}
+		} else if o.LockErr != nil {
+			p.Reason = unreadableLockReason(o.LockErr)
 		} else {
 			p.Reason = "it has no pin, and pinning it failed (" + o.Err.Error() + ") — fix what that names " +
 				"and launch again, or pin it with `yolo pack install`, which can ask for an ssh host key or " +

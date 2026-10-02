@@ -89,6 +89,19 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 	packHome(t, `{"packs": [{"source": "file://`+base+`", "name": "`+forkFixtureBasePack+`"}, `+
 		`{"source": "file://`+fork+`", "name": "`+forkFixtureForkPack+`"}]}`)
 
+	// THE PIN IS WRITTEN TO THE FORK LOCK BESIDE THE USER CONFIG, NEVER TO THE CONFIG ITSELF.
+	userConfig := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")
+	configBefore, err := os.ReadFile(userConfig)
+	if err != nil {
+		t.Fatalf("the fixture's user config: %v", err)
+	}
+	forkLock := packsrc.ForkLockPath(userConfig)
+	t.Cleanup(func() {
+		if after, err := os.ReadFile(userConfig); err != nil || string(after) != string(configBefore) {
+			t.Errorf("the launches changed the user config (err %v):\n%s", err, after)
+		}
+	})
+
 	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
 	before := captureEntryNames(t, store)
 	t.Cleanup(func() { removeNewCaptureEntries(t, store, before) })
@@ -118,6 +131,10 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 	if added := newCaptureEntries(t, store, before); len(added) != 1 {
 		t.Fatalf("the first launch added %d entries, want 1: %v", len(added), added)
 	}
+	pinned, err := os.ReadFile(forkLock)
+	if err != nil || !strings.Contains(string(pinned), `"`+forkFixtureForkPack+"/"+forkFixtureBin+`"`) {
+		t.Fatalf("the first launch did not record its pin in %s (err %v):\n%s", forkLock, err, pinned)
+	}
 
 	// SECOND LAUNCH, after the branch moved: no pin, no build — the standing pin never moves at
 	// launch, and a hit builds nothing.
@@ -126,6 +143,9 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 	if !strings.Contains(out, forkFixtureMarker+"_1") || strings.Contains(out, "fork builds") ||
 		strings.Contains(out, "pinned fork") {
 		t.Errorf("the second launch moved the pin, rebuilt, or did not run the fork:\n%s", out)
+	}
+	if after, err := os.ReadFile(forkLock); err != nil || string(after) != string(pinned) {
+		t.Errorf("the second launch rewrote the fork lock of a standing pin (err %v):\n%s", err, after)
 	}
 
 	// A NEW COMMIT, AND `yolo pack update` MOVES THE PIN: the next launch builds a new entry.

@@ -116,15 +116,19 @@ func PinLaunchForks(forks []packload.Fork, begin func() (func(string), func())) 
 
 // forkPins is the pin of every fork packs carry: pinned now where this launch may pin (PinLaunchForks),
 // and read from the fork lock where it may not — a dry run, which materializes nothing, and a launch
-// inside a jail, which has no pack store and whose fork lock is not the host's (packload.LoadForkPins:
-// a lock that cannot be read pins nothing, and every fork then carries the read error as its reason,
-// since a broken lock is a missing tool, never a refused launch, §9).
+// inside a jail, which has no pack store and whose fork lock is not the host's, so an unpinned fork's
+// reason there names the host (packload.InJailForkPins). A lock that cannot be read pins nothing, and
+// every fork then carries the read error as its reason, in one spelling for every reader, since a
+// broken lock is a missing tool, never a refused launch (§9).
 func (o *Options) forkPins(packs []*packload.Pack) []packload.ForkPin {
 	forks := packload.Forks(packs)
 	if len(forks) == 0 {
 		return nil
 	}
-	if o.DryRun || config.InJail() {
+	if config.InJail() {
+		return packload.InJailForkPins(packload.LoadForkPins(forks, forkLockPath()))
+	}
+	if o.DryRun {
 		return packload.LoadForkPins(forks, forkLockPath())
 	}
 	// A first pin can fetch the fork's repository (bounded at LaunchFetchTimeout), so it gets a

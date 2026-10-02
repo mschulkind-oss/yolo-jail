@@ -259,7 +259,7 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 // who typed it can re-run it, where a launch waits (FP-D1).
 func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 	pin := forkPinOf(f)
-	if pin.Commit == "" && pin.Pinnable && !config.InJail() {
+	if pin.Commit == "" && pin.Pinnable { // never inside a jail (forkPinOf)
 		// NO PIN YET, and this act needs none made beforehand (FP-D18): it pins the fork as a launch
 		// does, through the launch's own pinner, says so, and builds what it pinned.
 		pin = run.PinLaunchForks([]packload.Fork{f}, func() (func(string), func()) {
@@ -375,8 +375,13 @@ func captureChoicesStep(packs []*packload.Pack, bin string) string {
 		"fork: %s. Run: yolo capture %s", strings.Join(choices, ", "), choices[0])
 }
 
-// forkPinOf reads f's pin from the fork lock.
+// forkPinOf reads f's pin from the fork lock — inside a jail as a jail must say it
+// (packload.InJailForkPins: nothing there pins, so an unpinned fork is not pinnable and its reason
+// names the host).
 func forkPinOf(f packload.Fork) packload.ForkPin {
+	if config.InJail() {
+		return packload.InJailForkPins(packload.LoadForkPins([]packload.Fork{f}, forkLockPath()))[0]
+	}
 	return packload.LoadForkPins([]packload.Fork{f}, forkLockPath())[0]
 }
 

@@ -101,3 +101,40 @@ func TestPinForksSaysWhatItPinnedAndWhyItCouldNot(t *testing.T) {
 		t.Errorf("a second PinForks = %+v, want the standing pin, not a new one", again[0])
 	}
 }
+
+// AN UNREADABLE FORK LOCK reads the same through the launch's pin as through every other reader
+// (LoadForkPins): the lock may hold the fork's pin, so it is never a pin PinForks failed to make,
+// and `yolo pack install`, which reads the same file, is never its next step.
+func TestPinForksOverAnUnreadableLockSaysWhatLoadForkPinsSays(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "forks.lock.json")
+	if err := os.WriteFile(lockPath, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	forks := []Fork{{Pack: "forkpack", Base: "base", Bin: "tool", Source: "git+file:///nonexistent/fork?ref=main"}}
+	got := PinForks(forks, lockPath, &packsrc.Store{Dir: t.TempDir(), Git: "/nonexistent/git"}, nil)[0]
+	want := LoadForkPins(forks, lockPath)[0]
+	if got.Commit != "" || got.Pinned || got.Reason != want.Reason {
+		t.Errorf("PinForks over an unreadable lock = %+v, want the reason %q", got, want.Reason)
+	}
+}
+
+// INSIDE A JAIL a fork the lock does not pin is not pinnable, and says where its pin is made; a pin
+// the lock holds and an unreadable lock's reason are left as they are.
+func TestInJailForkPinsNamesTheHostForAnUnpinnedForkOnly(t *testing.T) {
+	commit := strings.Repeat("ab", 20)
+	pins := InJailForkPins([]ForkPin{
+		{Fork: Fork{Pack: "p", Bin: "a"}, Pinnable: true, Reason: "it has no pin yet — the next launch pins it"},
+		{Fork: Fork{Pack: "p", Bin: "b"}, Commit: commit},
+		{Fork: Fork{Pack: "p", Bin: "c"}, Reason: "the fork lock cannot be read (x)"},
+	})
+	if pins[0].Pinnable || !strings.Contains(pins[0].Reason, "recorded on the host") ||
+		strings.Contains(pins[0].Reason, "next launch") || strings.Contains(pins[0].Reason, "yolo pack install") {
+		t.Errorf("an unpinned fork in a jail = %+v", pins[0])
+	}
+	if pins[1].Commit != commit || pins[1].Reason != "" {
+		t.Errorf("a pinned fork in a jail = %+v, want it as the lock has it", pins[1])
+	}
+	if pins[2].Reason != "the fork lock cannot be read (x)" {
+		t.Errorf("an unreadable lock's fork in a jail = %+v, want its reason kept", pins[2])
+	}
+}

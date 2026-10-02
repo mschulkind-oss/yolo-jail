@@ -59,6 +59,10 @@ type ForkPinOutcome struct {
 	// Err is why the fork has no pin: the fork lock could not be read or written, or its source
 	// could not be resolved. One line.
 	Err error
+	// LockErr is the fork lock's read error, as LoadForkLock returned it, when that is why: the
+	// lock may hold this fork's pin, so the fork is not one PinForks failed to pin, and a caller
+	// says so in the words every other reader of the lock uses. nil otherwise.
+	LockErr error
 }
 
 // ForkPinOptions tunes PinForks.
@@ -90,7 +94,7 @@ func (s *Store) PinForks(lockPath string, want []ForkWant, opts ForkPinOptions) 
 	if err != nil {
 		for i := range out {
 			if out[i].Err == nil {
-				out[i].Err = errors.New(oneLine(err))
+				out[i].Err, out[i].LockErr = errors.New(oneLine(err)), err
 			}
 		}
 		return out

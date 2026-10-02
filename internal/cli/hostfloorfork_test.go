@@ -335,6 +335,32 @@ func TestCaptureOfAnUnpinnedForkPinsItAndBuildsIt(t *testing.T) {
 	}
 }
 
+// `yolo capture <forked bin>` INSIDE A JAIL pins nothing (no act there does: the fork lock is the
+// host's), so a fork the jail's lock does not pin is refused with where its pin is made — never
+// "the next launch pins it" or `yolo pack install`, which in a jail pin nothing either.
+func TestCaptureOfAnUnpinnedForkInAJailNamesTheHost(t *testing.T) {
+	forkFloorHome(t)
+	t.Setenv("YOLO_VERSION", "9.9.9-test")
+	runs := 0
+	withFakeCaptureJail(t, forkFloorBuildJail(t, &runs, true))
+	var out, errw bytes.Buffer
+	if rc := captureHost([]string{"forkcli"}, &out, &errw, false); rc == 0 || runs != 0 {
+		t.Fatalf("capture in a jail rc=%d builds=%d, want a refusal and no build\n%s\n%s", rc, runs, out.String(), errw.String())
+	}
+	said := out.String() + errw.String()
+	if !strings.Contains(said, "recorded on the host") {
+		t.Errorf("capture in a jail does not say the fork's pin is the host's:\n%s", said)
+	}
+	for _, bad := range []string{"the next launch pins it", "yolo pack install", "pinned fork"} {
+		if strings.Contains(said, bad) {
+			t.Errorf("capture in a jail says %q:\n%s", bad, said)
+		}
+	}
+	if pin := forkLockCommit(t); pin != "" {
+		t.Errorf("capture in a jail pinned the fork at %s", pin)
+	}
+}
+
 // THE HOST AND A JAIL ASK FOR ONE BUILD: a fork a jail launch built (its own pin reader and its own
 // build call, buildForksForLaunch) is the floor's copy at the host with no second build — found by
 // the floor's hit check, which keys the store on the same commit, recipe and platform — even on a

@@ -13,6 +13,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -88,6 +89,71 @@ func TestALaunchNamesTheForksPinnedRevisionAndLeavesItsPinAlone(t *testing.T) {
 	}
 	if s, _ := os.Stat(lockPath); !s.ModTime().Equal(stat.ModTime()) {
 		t.Error("the launch touched the fork lock")
+	}
+	// A STANDING PIN IS NEVER RE-RESOLVED: the source is one no git could fetch, and a launch that
+	// asked git anything about it would have made the store's mirrors directory doing so.
+	if _, err := os.Stat(filepath.Join(paths.PacksDir(), "mirrors")); !os.IsNotExist(err) {
+		t.Errorf("the launch fetched a mirror for a standing pin (err %v)", err)
+	}
+}
+
+// A FORK LOCK THAT CANNOT BE READ is said as that by the launch, in the words every other reader of
+// the lock uses (packload.LoadForkPins: a dry run, the host floor, `yolo capture`), never as a pin the
+// launch tried and failed to make: the lock may hold the fork's pin, and `yolo pack install` reads the
+// same file and fails on it the same way, so naming it as the next step would send the user to a
+// command that cannot help.
+func TestALaunchOverAnUnreadableForkLockSaysWhatEveryReaderSays(t *testing.T) {
+	forkLaunchHome(t, forkPinSource)
+	lockPath := packsrc.ForkLockPath(paths.UserConfigPath())
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fork := packload.Fork{Pack: "forkpack", Base: "basepack", Bin: "tool", Source: forkPinSource}
+	want := packload.LoadForkPins([]packload.Fork{fork}, lockPath)[0].Line()
+	out := launchToDispatch(t)
+	if !strings.Contains(out, want) {
+		t.Errorf("the launch does not say what every reader of an unreadable fork lock says:\nwant %q\n%s", want, out)
+	}
+	for _, bad := range []string{"pinning it failed", "yolo pack install"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("the launch over an unreadable fork lock says %q:\n%s", bad, out)
+		}
+	}
+	if data, _ := os.ReadFile(lockPath); string(data) != "{not json" {
+		t.Errorf("the launch rewrote an unreadable fork lock: %q", data)
+	}
+}
+
+// INSIDE A JAIL no launch pins (it has no pack store, and the fork lock is the host's), so an
+// unpinned fork's reason says where its pin is made — never "the next launch pins it" or `yolo pack
+// install`, which inside a jail pins nothing (pinForks' in-jail line).
+func TestAnInJailLaunchSaysAForksPinIsTheHosts(t *testing.T) {
+	forkLaunchHome(t, forkPinSource)
+	t.Setenv("YOLO_VERSION", "9.9.9-test")
+	fork := packload.Fork{Pack: "forkpack", Base: "basepack", Bin: "tool", Source: forkPinSource}
+	pack := &packload.Pack{Name: "forkpack", Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{{
+		Kind: packdecl.KindProgram, Bin: fork.Bin, Via: packdecl.ViaSource, ForkOf: fork.Base,
+		Source: fork.Source, Build: "make install", Produces: []string{".local/bin/tool"}}}}}
+	var stderr bytes.Buffer
+	o := &Options{Stderr: &stderr}
+	pins := o.forkPins([]*packload.Pack{pack})
+	if len(pins) != 1 || pins[0].Commit != "" {
+		t.Fatalf("pins = %+v, want one unpinned fork", pins)
+	}
+	reason := pins[0].Reason
+	if !strings.Contains(reason, "recorded on the host") {
+		t.Errorf("in a jail the fork's reason does not say its pin is the host's: %q", reason)
+	}
+	for _, bad := range []string{"the next launch pins it", "yolo pack install"} {
+		if strings.Contains(reason, bad) {
+			t.Errorf("in a jail the fork's reason says %q: %q", bad, reason)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(paths.PacksDir(), "mirrors")); !os.IsNotExist(err) {
+		t.Errorf("an in-jail launch fetched a fork's source (err %v)", err)
 	}
 }
 

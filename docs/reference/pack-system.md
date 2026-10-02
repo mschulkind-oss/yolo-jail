@@ -826,7 +826,9 @@ made under the fork lock's own lock and the file is re-read there, so two launch
 at once record one commit. **A standing pin never moves at launch**, however far its branch has
 moved, and costs no git run. A pin that cannot be made (the repository unreachable, the ref naming
 nothing) is that fork's reason, with the next step, and the launch goes on without its program. A
-`--dry-run` and a launch inside a jail pin nothing. `yolo host -- <bin>`, `yolo host apply --assert`
+fork lock that cannot be read pins nothing, and every reader, a launch included, says so in the same
+words. A `--dry-run` and a launch inside a jail pin nothing, and inside a jail an unpinned fork's
+line says its pin is made on the host. `yolo host -- <bin>`, `yolo host apply --assert`
 and `yolo capture <bin>` of a forked program pin the same way, through the same code. A build whose
 pinned commit this machine's pack store does not hold fetches it by that commit, so a fork lock
 that arrived with the config builds the same commit here as on the machine that pinned it.
