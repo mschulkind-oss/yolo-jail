@@ -66,9 +66,10 @@ const herdrOptOutEnv = "YOLO_NO_HERDR"
 // herdrBin is the program every call runs, resolved on PATH.
 const herdrBin = "herdr"
 
-// herdrTimeout bounds each herdr call: realExec kills herdr when it runs out. A herdr that
-// leaves a child holding its output can outlast it, since the kill reaches the direct child
-// alone.
+// herdrTimeout bounds each herdr call. The report sits on the launch path and the release
+// on the exit path, and a wedged herdr server must cost neither more than this, plus realExec's
+// execDrainGrace. That holds for a herdr that leaves a child holding its output too: realExec
+// stops reading at the deadline, though its kill reaches herdr alone.
 const herdrTimeout = 2 * time.Second
 
 // herdrPane is one launch's registration with the herdr pane it runs in. Run makes it before

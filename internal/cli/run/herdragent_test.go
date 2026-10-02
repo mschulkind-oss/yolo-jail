@@ -519,6 +519,58 @@ func TestAFailedHerdrReportNeverBlocksTheLaunch(t *testing.T) {
 	}
 }
 
+// TestAWedgedHerdrCostsTheLaunchItsTimeoutAlone is the call-site pin for herdrTimeout's
+// promise. The report runs through the Exec a launch defaults to, against a herdr on PATH that
+// forks a child holding its output and then wedges, the shape a wrapper script or a CLI that
+// starts a server takes. The kill at the deadline reaches herdr alone, and the call used to
+// wait for its child to close the pipes; the report must now give up within herdrTimeout and
+// realExec's drain grace, and say herdr did not answer.
+func TestAWedgedHerdrCostsTheLaunchItsTimeoutAlone(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "pids")
+	killRecordedPids(t, pidFile)
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nsleep 60 &\necho $! >> " + shquote.Quote(pidFile) + "\nexec sleep 60\n"
+	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var stderr bytes.Buffer
+	o := &Options{
+		Stderr:            &stderr,
+		Getenv:            func(k string) string { return herdrPaneEnv[k] },
+		PerfLoggingConfig: func() bool { return false },
+		Workspace:         dir,
+		herdr:             &herdrPane{},
+	}
+	fillDefaults(o) // the Exec every launch runs herdr through
+	packs := []*packload.Pack{officialPack(t, "claude")}
+
+	start := time.Now()
+	done := make(chan struct{})
+	go func() {
+		o.registerHerdrAgent(packs, []string{"claude"})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(herdrTimeout + execDrainGrace + 5*time.Second):
+		t.Fatalf("the herdr report had not returned after %s: a wedged herdr holds the launch",
+			time.Since(start))
+	}
+	if took, limit := time.Since(start), herdrTimeout+execDrainGrace+time.Second; took > limit {
+		t.Errorf("the herdr report took %s, want at most herdrTimeout and the drain grace (%s, with a second's slack)",
+			took, herdrTimeout+execDrainGrace)
+	}
+	if out := stderr.String(); !strings.Contains(out, "(herdr did not answer within 2s)") {
+		t.Errorf("the failure line should say herdr did not answer:\n%s", out)
+	}
+}
+
 // TestTheHerdrHintReachesTheSessionClientAlone pins HR-D3 at the spawn: runtimeClientEnv is on
 // the environment of the client runArmedSession starts, and not on this process's own.
 func TestTheHerdrHintReachesTheSessionClientAlone(t *testing.T) {

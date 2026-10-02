@@ -79,6 +79,8 @@ pinned commit once for every workspace. See
 
 - An agent's update could hang and ignore Ctrl-C; now it stops, and the agent starts on the
   version you had.
+- A launch no longer hangs on a helper command that timed out but left a process of its own
+  running.
 - A value you set yourself, such as `ANTHROPIC_MODEL=x claude`, beats the profile's again.
 - `yolo check`'s Nix advice fits Determinate or upstream Nix and keeps the users your daemon
   trusts.

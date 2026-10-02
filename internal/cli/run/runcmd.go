@@ -922,6 +922,32 @@ func (o *Options) inJail() bool {
 // binary or start failure yields Ran=false; a deadline overrun yields
 // Timeout=true. dir sets the working directory (""=inherit); env entries are
 // appended to os.Environ().
+//
+// THE TIMEOUT BOUNDS THE CALL, at timeout plus execDrainGrace. A call is over when the child
+// has exited and both of its streams have ended, and a stream ends only when every process
+// holding it has closed it, a grandchild the child forked included (a wrapper script's program,
+// a CLI that starts a server). So the streams are pipes this function owns, not exec.Cmd
+// writers, whose Wait reads them to their end however long that takes. At the deadline the
+// child is killed and gets execDrainGrace to be reaped and to have what it wrote read; then the
+// call returns with what was read. Before the deadline nothing is cut short: a grandchild that
+// writes after its parent exited, and then closes the pipes, is read to the end. That is why
+// this is not exec.Cmd.WaitDelay, whose clock also starts when the child exits and so cuts
+// such a grandchild off long before the deadline.
+//
+// TIMEOUT KEEPS THE MEANING IT HAD: the child, or its output, outlived the deadline. A child
+// that exited in time while a grandchild holds its output past it is a timeout, never a
+// success, since what was read may not be all of it, and prune's callers would read a short
+// success as an empty answer that means deletion (pruneRunFunc). A timed-out call carries no
+// exit code.
+//
+// THE KILL REACHES THE DIRECT CHILD ALONE. The child stays in this process's group, so the
+// terminal's Ctrl-C reaches it as it reaches the launcher; a grandchild it leaves runs on, its
+// output no longer read. A killed child that cannot die within the grace (one stuck in the
+// kernel) is reaped whenever it does.
+//
+// timeout <= 0 means "no deadline" (matches the subprocess.run calls that pass no timeout,
+// e.g. find_running_container / find_existing_container): the call waits for the child's exit
+// and the end of both streams, as long as that takes.
 func realExec(argv []string, dir string, env []string, timeout time.Duration) ExecResult {
 	if len(argv) == 0 {
 		return ExecResult{}
@@ -933,33 +959,110 @@ func realExec(argv []string, dir string, env []string, timeout time.Duration) Ex
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+	var stdout, stderr execOutput
+	drained, closePipes, err := startWithPipes(cmd, &stdout, &stderr)
+	if err != nil {
 		return ExecResult{Ran: false}
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	// timeout <= 0 means "no deadline" (matches the subprocess.run calls
-	// that pass no timeout, e.g. find_running_container / find_existing_container).
-	var timer <-chan time.Time
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
+	defer closePipes()
+	var deadline <-chan time.Time
 	if timeout > 0 {
-		timer = time.After(timeout)
+		t := time.NewTimer(timeout)
+		defer t.Stop()
+		deadline = t.C
 	}
-	select {
-	case <-timer:
-		_ = cmd.Process.Kill()
-		<-done
-		return ExecResult{Stdout: stdout.String(), Stderr: stderr.String(), Ran: true, Timeout: true}
-	case err := <-done:
+	if bothBefore(exited, drained, deadline) {
 		rc := 0
 		if cmd.ProcessState != nil {
 			rc = cmd.ProcessState.ExitCode()
 		}
-		_ = err
 		return ExecResult{Stdout: stdout.String(), Stderr: stderr.String(), RC: rc, Ran: true}
 	}
+	_ = cmd.Process.Kill()
+	grace := time.NewTimer(execDrainGrace)
+	defer grace.Stop()
+	bothBefore(exited, drained, grace.C)
+	return ExecResult{Stdout: stdout.String(), Stderr: stderr.String(), Ran: true, Timeout: true}
+}
+
+// execDrainGrace is how long realExec waits, once it has killed a timed-out child, for the
+// child to be reaped and its pipes to deliver what was already written. Both take a moment
+// once the child is gone; a pipe a grandchild holds open is read no longer than this.
+const execDrainGrace = 250 * time.Millisecond
+
+// bothBefore waits for a and b to close, and reports whether both did before stop fired. A nil
+// stop never fires.
+func bothBefore(a, b <-chan struct{}, stop <-chan time.Time) bool {
+	for a != nil || b != nil {
+		select {
+		case <-a:
+			a = nil
+		case <-b:
+			b = nil
+		case <-stop:
+			return false
+		}
+	}
+	return true
+}
+
+// execOutput collects one of a child's streams. realExec may read what it holds while the copy
+// into it is still running (a grandchild holding the pipe past the deadline), so both sides
+// lock.
+type execOutput struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (w *execOutput) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.Write(p)
+}
+
+func (w *execOutput) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.String()
+}
+
+// startWithPipes starts cmd with its stdout and stderr on two pipes of this process's own and
+// copies each into its writer. After a successful start the child, and whatever it forks, holds
+// the only write ends, so a pipe ends exactly when the last of them closes it. drained closes
+// when both copies have reached the end of their pipe; closePipes closes the read ends, which
+// ends a copy still blocked on a pipe someone else holds open.
+func startWithPipes(cmd *exec.Cmd, stdout, stderr io.Writer) (drained <-chan struct{}, closePipes func(), err error) {
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		_ = outR.Close()
+		_ = outW.Close()
+		return nil, nil, err
+	}
+	cmd.Stdout, cmd.Stderr = outW, errW
+	err = cmd.Start()
+	_ = outW.Close()
+	_ = errW.Close()
+	if err != nil {
+		_ = outR.Close()
+		_ = errR.Close()
+		return nil, nil, err
+	}
+	done := make(chan struct{})
+	var copies sync.WaitGroup
+	copies.Add(2)
+	go func() { defer copies.Done(); _, _ = io.Copy(stdout, outR) }()
+	go func() { defer copies.Done(); _, _ = io.Copy(stderr, errR) }()
+	go func() { copies.Wait(); close(done) }()
+	return done, func() { _ = outR.Close(); _ = errR.Close() }, nil
 }
 
 // isTTY reports whether f is a real terminal via a TCGETS ioctl, NOT a
