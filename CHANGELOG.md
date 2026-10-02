@@ -8,102 +8,100 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.11.1] - 2026-10-01
+## [0.11.1] - 2026-10-02
 
-Agent updates no longer hang a launch, `yolo check` gives the right Nix advice and names the fix
-for each problem, and `yolo host` runs yolo's own copy of your agents.
+`yolo host` runs yolo's own copy of your agents, a jail now ends with its last terminal, and agent
+updates no longer hang a launch.
 
 ### Added
 
-**Your agents at the host.** `yolo host -- <agent>` runs yolo's own, current copy where it can,
-whatever launcher starts it (`"host_floor": false` opts out), and `yolo host apply` writes your
-MCP servers, providers and model into its config. See
+**Your agents at the host.** `yolo host -- <agent>` runs yolo's own, current copy where it can
+(`"host_floor": false` opts out), and `yolo host apply` writes your MCP servers, providers and
+model into its config. See
 [yolo's own copy of your agents](userguide/guides/confinement.md#yolos-own-copy-of-your-agents).
 
-**`gh` without a token.** The `github` pack's `github-broker` loophole runs `gh` for the jail
-through your own login, read-only and only on the project's own repositories. Turn it on per
-project with `yolo loopholes enable github-broker`. See [GitHub](userguide/guides/github.md).
+**`gh` without a token.** The `github` pack runs `gh` for the jail through your login, read-only
+and only on the project's repositories. Turn it on per project with
+`yolo loopholes enable github-broker`; `enable` and `disable` now switch any loophole for one
+project. See [GitHub](userguide/guides/github.md).
 
-**Per-project loophole switches.** `yolo loopholes enable <name>` and `disable` turn a loophole on
-or off for one project, without editing your config. See
-[Host access and loopholes](userguide/guides/loopholes.md#the-loopholes-yolo-ships).
+**More agents, more providers.** `-p bedrock` sets up codex, opencode and pi, `-p codex` runs
+opencode on ChatGPT, and pi, opencode and oh-omp mix providers (`-p pi=zai,openrouter`). On
+macos-user, `-p bedrock` and profiles that need the wire bridge, such as `-p cerebras -- claude`,
+now work.
 
-**More agents, more providers.** `-p bedrock` sets up codex, opencode and pi; `-p codex` runs
-opencode on ChatGPT; pi, opencode and oh-omp mix providers (`-p pi=zai,openrouter`). Bedrock and
-wire-bridge profiles also work on macos-user.
+**Choose each provider's models.** A pack's `models` entry adds to a provider's model list or
+narrows it, and agents that allow it, Claude Code included, offer only that list. See
+[a company's model list](userguide/guides/providers-and-models.md#model-menus-and-a-companys-model-list).
 
-**Choose the models each provider offers.** A pack's `models` entry adds to a provider's model
-list or narrows it, and agents that allow it offer only that list.
+**Agent scratch space that survives a restart.** Every jail has `$YOLO_DURABLE_DIR`, a folder for an
+agent's own files that yolo never deletes. It isn't part of your project, and you never need to
+look in it.
 
-**Agent scratch space that survives a restart.** Every jail has `$YOLO_DURABLE_DIR`, a folder yolo
-never deletes, for an agent's worktrees and other files it doesn't want a restart to wipe. It isn't
-part of your project, and you never need to look in it. A user-config `mounts` entry with
-`"mode": "rw"` is writable.
+**Read-write mounts.** A `mounts` entry in your user config can be read-write:
+`{"host": "~/scratch", "mode": "rw"}`.
 
-**herdr shows a jailed agent as that agent.** In a [herdr](https://herdr.dev) pane,
-`yolo -- <agent>` registers the agent, so herdr's sidebar shows it working, blocked or done, and a
-split pane's border reads `🔒 JAIL <project>`. `YOLO_NO_HERDR=1` turns it off. Contributed by
-Kurt Galiatsatos ([@kurt-hs](https://github.com/kurt-hs)).
+**herdr shows a jailed agent.** [herdr](https://herdr.dev)'s sidebar shows a `yolo -- <agent>`
+working, blocked or done, and a split pane's border reads `🔒 JAIL <project>`;
+`YOLO_NO_HERDR=1` turns it off. Contributed by Kurt Galiatsatos
+([@kurt-hs](https://github.com/kurt-hs)).
 
 **Your own fork of an agent.** A small pack names your fork and its build command. Its first launch
-pins it, with no install step, and yolo builds that commit once for every workspace. See
+pins it, and yolo builds that commit once for every workspace. See
 [Run your own fork](userguide/guides/packs-and-skills.md#run-your-own-fork-of-a-program).
 
 ### Changed
 
-- Each terminal's agent ends with its terminal, and a jail with its last terminal or `yolo stop`.
-- `use_profiles` is now `profile`; the refusal shows the rewrite. `-p pi=codex` now beats a bare
-  `-p bedrock` in either order.
+- Each terminal's agent ends with its terminal, and a jail with its last one or `yolo stop`.
+- `use_profiles` is now `profile` (the refusal shows the rewrite), and a profile name may not hold
+  a comma.
 - Later packs in `packs` now win: list yours after the shipped pack it overrides.
-- Keys go only to agents: `yolo host -p` refuses other commands (use `--with-credentials`), and a
-  jail's shell gets no AWS keys or `aws-auth` credentials.
+- Credentials go only to agents: `yolo host -p` and `yolo host env -p` refuse a command that isn't
+  an agent (use `--with-credentials`), and a jail's shell gets no AWS credentials.
 - A pi, opencode or Codex key only in your shell stops a jail launch: put it in `env_sources`.
 - A project config may not set a provider's `api_key_env_name` or `endpoints`, or remove a
   provider: use your user config.
-- A Bedrock launch with no region is refused: set `providers.bedrock.region`, `AWS_REGION` in
-  `env_sources`, or a region in your `~/.aws/config` profile.
-- Two packs shipping one skill name stop the launch (rename one, or set `"skills_tier":
-  "namespaced"`), as does a `supersedes` nothing serves.
-- `install_hints` may hold only package names and one `&& <command>`.
+- A Bedrock launch with no region is refused: set `providers.bedrock.region` or your AWS
+  profile's region.
+- Two packs shipping one skill name stop the launch: rename one, or set
+  `"skills_tier": "namespaced"` in one pack's `pack.json`. A `supersedes` nothing serves stops it
+  too: fix or delete the claim, or remove that pack.
+- A namespaced pack's skills are `/<pack>:<skill>` in a jail too, as at your host: call them by
+  that name.
+- A pack's `install_hints` may hold only package names before its first ` && `: move anything
+  else after it.
 - pi reads yolo's MCP servers itself: remove `pi-mcp-adapter` if you added it for them.
-- GPT-6.1 Sol replaces GPT-6 Sol on `-p codex`; pick again if you chose it.
-- On a provider that lists models, such as z.ai, Claude Code's menu and tiers now use them.
-- A profile list for Claude Code, Codex or Copilot is refused; profile names may not hold commas.
-- `yolo host -- codex` refuses `codex agents`: yolo turns Codex's background copy off, in jails
-  too.
-- Two mounts at one path fail `yolo check`; on macos-user, a mount it cannot share stops the
-  launch.
-- pi's subagents start on your profile's model and stay on its provider.
-- `yolo pack ls`, `install`, `update` and `status` refuse an argument: run them bare, as each
-  covers every configured pack.
+- pi on `-p codex` runs only yolo's models there, `pi --model` included: add one to
+  `providers.openai-codex.models`, or set `"enforce_models": false` on your profile.
+- pi's subagents run only your profile's provider's models: add a provider to pi's set
+  (`-p pi=zai,openrouter`) to give them its models.
+- GPT-6.1 Sol replaces GPT-6 Sol on `-p codex`: pick again if you chose it.
+- `yolo host` refuses `codex agents`, and yolo turns Codex's background copy off.
+- Two mounts at one path fail `yolo check`: give one another `at`. On macos-user, a mount from
+  inside a home stops the launch: copy the folder under `/Users/Shared/yolo`, or remove the mount.
+- `yolo pack ls`, `install`, `update` and `status` take no argument: run them bare.
 
 ### Fixed
 
-- An agent's update could hang and ignore Ctrl-C; now it stops, and the agent starts on the
-  version you had.
-- A launch no longer hangs on a helper command that timed out but left a process of its own
-  running.
-- A value you set yourself, such as `ANTHROPIC_MODEL=x claude`, beats the profile's again.
-- `yolo check`'s Nix advice fits Determinate or upstream Nix and keeps the users your daemon
-  trusts.
-- `yolo check`, `yolo check-deps`, `yolo capture` and `yolo host apply`'s wrappers step now name
-  the command that fixes each problem they report.
-- Rootless Podman on stock Ubuntu 26.04 no longer fails every launch.
-- A Claude login on a Mac or Apple Container no longer needs repeating after a refresh.
-- On macos-user, git no longer refuses your project for "dubious ownership".
-- Three ways a project could reach your machine are refused: a loophole program in a project path
-  with a space, a loophole installed from a `.json` project config, and a git pack address through
-  a symlink.
-- A project's `yolo-jail.json` is now locked by `workspace_readonly`, and neither `yolo init` nor
-  the agent's briefing creates a second config file that replaces it.
-- A launch's "runs pack code on your machine" list no longer names loopholes that are switched off.
-- `yolo host apply` no longer empties Claude Code's `permissions.additionalDirectories`; add your
+- A launch no longer hangs on an agent's update, or on a timed-out helper's leftover process.
+- A value you set, such as `ANTHROPIC_MODEL=x claude`, beats the profile's again, and pi's
+  subagents start on your profile's model.
+- `yolo check`'s Nix advice fits Determinate and upstream Nix, and `check`, `check-deps`,
+  `capture` and `host apply`'s wrappers step name the fix for each problem.
+- Rootless Podman on stock Ubuntu 26.04 works again, a Claude login on a Mac no longer needs
+  repeating after it refreshes, and git on macos-user no longer refuses your project for "dubious
+  ownership".
+- A project can't reach your machine through a loophole path with a space or a `.json` project
+  config, and `workspace_readonly` locks `yolo-jail.json`.
+- A git pack can't copy your machine's files into the jail through a symlink in its address.
+- The "runs pack code on your machine" list skips switched-off loopholes.
+- `yolo host apply` no longer empties Claude Code's `permissions.additionalDirectories`: add your
   folders back once.
-- `--network` now overrides the project's `network.mode`.
-- `yolo pack update --help` ran the update, and `update` reported success for an install that left
-  nothing to run; `yolo host apply` could call a failed run, or a home still holding a dropped
-  pack's files, up to date.
-- A Ctrl-C during a launch's build or prompt no longer leaves your tab in the jail's colors.
+- `--network` overrides the project's `network.mode`.
+- `yolo pack update --help` no longer runs the update, and neither it nor `yolo host apply`
+  reports a failed run as a success.
+- A Ctrl-C while a podman or Apple Container launch builds or waits at a prompt no longer leaves
+  your tab in the jail's colors.
 
 ### Contributors
 
