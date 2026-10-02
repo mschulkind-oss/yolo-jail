@@ -7,6 +7,11 @@ package run
 // ready: from then on the jail ends when its last session's count goes. The first session's count
 // was this launch's own, held until the process exited, so the teardown used to wait out its whole
 // bound (keeperUnwindWait, 20 s) for a keeper that could not drain until it gave up.
+//
+// WHICH TEARDOWN TAKES THAT SIGNAL IS A RACE, and either answer is a correct end: the arm's
+// goroutine takes the signal while the launch's own goroutine reads the ready frame and retargets
+// the arm, and either can go first.
+// Each test here fixes one order: the first three signal before the retarget, and the last after it.
 
 import (
 	"os"
@@ -16,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -107,6 +113,7 @@ type readyWindowLaunch struct {
 	cname  string
 	jail   *fakeJail
 	kp     *keeperProcess
+	arm    *launchSignalArm
 	codes  chan int
 	stderr *lockedBuffer
 }
@@ -154,7 +161,7 @@ func startReadyWindowLaunch(t *testing.T, cname string, counted bool, others fun
 	if !kp.relay(&out, &errOut, &jailOut, &jailErr, keeperEvents{}) {
 		t.Fatalf("the relay never saw the jail ready:\n%s", errOut.String())
 	}
-	return &readyWindowLaunch{o: o, cname: cname, jail: jail, kp: kp, codes: codes, stderr: stderr}
+	return &readyWindowLaunch{o: o, cname: cname, jail: jail, kp: kp, arm: arm, codes: codes, stderr: stderr}
 }
 
 // interrupt sends this process SIGINT in the window and returns how long the arm took to exit.
@@ -235,5 +242,69 @@ func TestASIGINTInTheReadyWindowOfAnUncountedLaunchDoesNotWaitForADrain(t *testi
 	}
 	if got := l.stderr.String(); !strings.Contains(got, stopRemedy("podman", cname)) {
 		t.Errorf("the launch did not say how to end the jail it leaves up; it printed:\n%s", got)
+	}
+}
+
+// TestASIGINTAfterTheReadyRetargetEndsOnlyThatSession is the same window resolved the other way:
+// the launch's own goroutine read the ready frame and retargeted the arm to the session's teardown,
+// as runContainer does at ready (arm.retarget with attachTeardown, then the lifeline's close), before
+// the arm took the signal. The signal is then a session's: it hangs that session up in the jail and
+// exits 130 at once, and the jail stays up for the other session, with its keeper. Like every
+// session's signal teardown it does not say the jail stays up, so the "stays up for" line is the
+// pre-ready teardown's alone, which is why integration/keeperreadywindow_test.go cannot require it:
+// on an arm64 CI runner the goroutine won one of two tries, and that try failed for want of the
+// line. Once this launch's count goes (at its exit, which the fake exit leaves to the test) and the
+// other session leaves, the keeper ends the jail.
+func TestASIGINTAfterTheReadyRetargetEndsOnlyThatSession(t *testing.T) {
+	cname := "yolo-ready-window-retargeted"
+	var other *sessionLock
+	l := startReadyWindowLaunch(t, cname, true, func() {
+		lock, _, err := takeSessionLock(cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		other = lock
+		t.Cleanup(other.release)
+	})
+	const sessionID = "00112233445566778899aabbccddeeff"
+	if !l.arm.retarget(l.o.attachTeardown("podman", cname, sessionID)) {
+		t.Fatal("the arm refused the retarget with no signal sent")
+	}
+	l.kp.closeLifeline()
+	took := l.interrupt(t)
+	if took >= keeperUnwindWait/2 {
+		t.Errorf("the session's teardown took %s (the pre-ready teardown's bound is %s), and it waits on nothing",
+			took.Round(time.Millisecond), keeperUnwindWait)
+	}
+	hangup := entrypoint.HangupSessionArg + " " + sessionID
+	l.jail.mu.Lock()
+	calls := append([]string(nil), l.jail.calls...)
+	l.jail.mu.Unlock()
+	hungUp := false
+	for _, c := range calls {
+		hungUp = hungUp || strings.HasSuffix(c, hangup)
+	}
+	if !hungUp {
+		t.Errorf("the session's teardown did not hang up session %s in the jail; the runtime saw:\n%s",
+			sessionID, strings.Join(calls, "\n"))
+	}
+	if n := l.jail.stopCount(); n != 0 {
+		t.Errorf("the jail was stopped %d times with another session in it", n)
+	}
+	// The launch's exit lets its count go; the other session's count still keeps the jail up.
+	l.o.releaseSessionLock()
+	select {
+	case <-l.kp.exited:
+		t.Fatal("the keeper ended a jail another session is still in")
+	case <-time.After(300 * time.Millisecond):
+	}
+	other.release()
+	select {
+	case <-l.kp.exited:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the keeper did not end the jail once its last session left")
+	}
+	if n := l.jail.stopCount(); n != 1 {
+		t.Errorf("the jail was stopped %d times, want once", n)
 	}
 }

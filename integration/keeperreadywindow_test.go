@@ -17,7 +17,12 @@ package integration
 //
 // THE SAME WINDOW WITH ANOTHER SESSION IN: the teardown's wait is then a session's quit, which the
 // launch said and did not wait out (JL-D74's second half). Without that, the launch still waited
-// the whole 20 s bound, 2 of 2 tries in a nested jail, for a keeper that was ending nothing.
+// the whole 20 s bound, 2 of 2 tries in a nested jail, for a keeper that was ending nothing. The
+// line saying so ("stays up for") is the pre-ready teardown's alone: when the goroutine wins, the
+// session's teardown runs, which does not say the jail stays up, as no session's signal teardown does.
+// So this test logs which teardown ran and requires only what both do; requiring the line failed a
+// fixed build on an arm64 CI runner, where the goroutine won one of two tries. The unit tier pins
+// each order on its own (internal/cli/run/keeperreadywindow_test.go).
 //
 // EACH TRY IS A WORKSPACE OF ITS OWN. A nested podman sometimes cannot remove the jail's stopped
 // container after so quick a stop (the `openByHandleAt` failure the design's §4.4 records, seen in
@@ -108,9 +113,10 @@ func TestASIGINTBetweenReadyAndTheFirstSessionEndsTheJailPromptly(t *testing.T) 
 
 // TestASIGINTInTheReadyWindowLeavesTheJailUpForAnotherSession is the same window with a second
 // session already in the jail, attached while the first launch was held stopped after its keeper's
-// ready. The interrupted launch is then one session leaving a jail another is in: it must say the
-// jail stays up and exit well inside its bound, the other session must go on in the running jail,
-// and once that session quits the keeper ends the jail.
+// ready. The interrupted launch is then one session leaving a jail another is in: it must exit well
+// inside its bound, the other session must go on in the running jail, and once that session quits
+// the keeper ends the jail. It says the jail stays up only when its pre-ready teardown took the
+// signal, which is a race (the file's header).
 func TestASIGINTInTheReadyWindowLeavesTheJailUpForAnotherSession(t *testing.T) {
 	requireJail(t)
 	started := regexp.MustCompile(`keeper: started, pid (\d+)`)
@@ -187,8 +193,12 @@ func TestASIGINTInTheReadyWindowLeavesTheJailUpForAnotherSession(t *testing.T) {
 		if n := runningContainers(t, cname); n != 1 {
 			t.Fatalf("try %d: %d containers named %s run with a session still in the jail", try, n, cname)
 		}
-		if out := first.combined(); !strings.Contains(out, "stays up for") {
-			t.Errorf("try %d: the interrupted launch did not say its jail stays up for the other session:\n%s", try, out)
+		if strings.Contains(first.combined(), "stays up for") {
+			t.Logf("try %d: the arm took the signal before the launch retargeted it at ready; its "+
+				"pre-ready teardown said the jail stays up for the other session", try)
+		} else {
+			t.Logf("try %d: the launch retargeted its arm at ready first; the session's teardown ran, "+
+				"which does not say the jail stays up", try)
 		}
 		_ = syscall.Kill(other.pid, syscall.SIGINT)
 		_ = other.wait(t, jailTimeout())
