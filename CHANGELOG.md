@@ -82,7 +82,8 @@ pinned commit once for every workspace. See
 - A value you set yourself, such as `ANTHROPIC_MODEL=x claude`, beats the profile's again.
 - `yolo check`'s Nix advice fits Determinate or upstream Nix and keeps the users your daemon
   trusts.
-- `yolo check` and `yolo check-deps` now name the command that fixes each problem they report.
+- `yolo check`, `yolo check-deps`, `yolo capture` and `yolo host apply`'s wrappers step now name
+  the command that fixes each problem they report.
 - Rootless Podman on stock Ubuntu 26.04 no longer fails every launch.
 - A Claude login on a Mac or Apple Container no longer needs repeating after a refresh.
 - On macos-user, git no longer refuses your project for "dubious ownership".
@@ -96,7 +97,8 @@ pinned commit once for every workspace. See
   folders back once.
 - `--network` now overrides the project's `network.mode`.
 - `yolo pack update --help` ran the update, and `update` reported success for an install that left
-  nothing to run; `yolo host apply --assert` could call a failed run up to date.
+  nothing to run; `yolo host apply --assert` could call a failed run up to date, and a dry run a
+  home still holding a dropped pack's files.
 - A Ctrl-C during a launch's build or prompt no longer leaves your tab in the jail's colors.
 
 ### Contributors

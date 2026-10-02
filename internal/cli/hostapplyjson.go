@@ -145,6 +145,12 @@ type hostApplyDocCounts struct {
 	// over a record a newer yolo wrote: not present, since nothing installs them until the user
 	// acts on the step the verdict names, so never in dependencies_present.
 	DependenciesFloorRefused int `json:"dependencies_floor_refused"`
+	// DroppedPackPathsToRetire and DroppedPackKeysToRetire are the dropped-pack retire still
+	// waiting: the paths an --assert would archive and the config keys it would remove, once
+	// answered `y`, for packs no longer in `packs`. Not destinations: the launch gate does not
+	// count them (hostApplySurvey.retirePaths), so they are not in `destinations` either.
+	DroppedPackPathsToRetire int `json:"dropped_pack_paths_to_retire"`
+	DroppedPackKeysToRetire  int `json:"dropped_pack_keys_to_retire"`
 }
 
 // hostApplyDocDestination is one destination an --assert would alter.
@@ -189,6 +195,7 @@ func buildHostApplyDoc(s *hostApplySurvey) hostApplyDoc {
 	droppedEntries, droppedFrom := s.DroppedEntries()
 	present, missing, notProbed, unpublished := s.Deps()
 	floorRefused, _ := s.FloorBlockedDeps()
+	retirePaths, retireKeys := s.DroppedRetires()
 
 	doc := hostApplyDoc{
 		Version:    version.Get(""),
@@ -217,6 +224,8 @@ func buildHostApplyDoc(s *hostApplySurvey) hostApplyDoc {
 			DependenciesNotProbed:      notProbed,
 			DependenciesUnpublished:    unpublished,
 			DependenciesFloorRefused:   len(floorRefused),
+			DroppedPackPathsToRetire:   retirePaths,
+			DroppedPackKeysToRetire:    retireKeys,
 		},
 		// `[]`, never `null`, for every list: a consumer looping over one should not have to
 		// special-case the run that found nothing — which is the same rule that makes a

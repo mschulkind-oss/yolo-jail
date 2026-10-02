@@ -108,13 +108,17 @@ func hostApplyOutcome(s *hostApplySurvey, write bool) string {
 		return outcomeNoPacks
 	case !write && len(s.MissingDeps()) > 0:
 		return outcomeBlocked
-	case !s.Changes() && s.Adoptions() == 0:
+	case !s.Changes() && s.Adoptions() == 0 && !s.retireWaiting():
 		// THE ADOPTION HALF IS NOT REDUNDANT WITH Changes(), which is the whole of OQ-CO7's
 		// D3: an adoption composes the file out of what it already holds, so the canonical
 		// one reproduces the bytes, reports WouldChange=false and leaves Changed empty —
 		// while having copied the user's file into a slot there is one of, forever. A run
 		// that walked through a one-way door is not a run with nothing to do, in either
 		// posture's spelling of the sentence.
+		//
+		// NOR IS THE RETIRE HALF (rule 5): a dry run that lists a dropped pack's paths as
+		// `would archive` has work for an --assert, which the launch gate's Changes() does not
+		// count (hostApplySurvey.retirePaths). It ended "Nothing to do — this home is up to date."
 		return outcomeNothingToDo
 	case write:
 		return outcomeApplied
@@ -157,19 +161,31 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 	switch hostApplyOutcome(s, write) {
 	case outcomeNoPacks:
 		// the verdict block's zero-packs row. The retire passes still run here (emptying `packs` is
-		// the most complete drop there is), so the number they retired is the whole result.
+		// the most complete drop there is), so the number they retired is the whole result: the
+		// destinations the briefing and skills retires move, and, in a dry run, the paths and keys
+		// the dropped-pack retire would ask about, which it lists above as `would archive`.
 		n := 0
 		if s != nil {
 			n = len(s.Changed)
 		}
-		if n == 0 {
+		paths, keys := s.DroppedRetires()
+		n += paths
+		if n == 0 && keys == 0 {
 			return "No packs configured — nothing to apply, and nothing left to retire."
 		}
-		if write {
-			return fmt.Sprintf("No packs configured — nothing to apply; %d destination(s) retired.", n)
+		var what []string
+		if n > 0 {
+			what = append(what, fmt.Sprintf("%d destination(s)", n))
 		}
-		return fmt.Sprintf("No packs configured — nothing to apply; %d destination(s) "+
-			"would be retired.", n)
+		if keys > 0 {
+			what = append(what, fmt.Sprintf("%d config %s", keys, plural(keys, "key", "keys")))
+		}
+		if write {
+			return fmt.Sprintf("No packs configured — nothing to apply; %s retired.",
+				joinWords(what, "and"))
+		}
+		return fmt.Sprintf("No packs configured — nothing to apply; %s would be retired.",
+			joinWords(what, "and"))
 	case outcomeRefused:
 		names := unresolvedNames(s.UnresolvedPacks())
 		if len(names) == 0 {
@@ -205,7 +221,7 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 				what = append(what, who+" cannot be written")
 			}
 		}
-		if stages := s.StageFailures(); len(stages) > 0 {
+		if stages := s.StageFailureNames(); len(stages) > 0 {
 			what = append(what, stageFailureClause(stages, write))
 		}
 		if bins := s.FloorFailures(); len(bins) > 0 {
@@ -249,8 +265,8 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 	}
 }
 
-// stageFailureClause is the verdict's clause for the stages that failed: each by its name, which
-// its own line above the verdict leads with or states, and the fix being that line's.
+// stageFailureClause is the verdict's clause for the stages that failed: each by the word its own
+// lines above the verdict lead with (StageFailureNames), and the fix being those lines'.
 func stageFailureClause(stages []string, write bool) string {
 	noun, verb := "stage", "would fail"
 	if len(stages) > 1 {
@@ -365,6 +381,20 @@ func hostApplyWorkItems(s *hostApplySurvey, wrote bool) []workItem {
 	add(s.ChangedOfKind("briefing"), "briefing destination", "briefing destinations")
 	add(s.ChangedOfKind("files"), "delivered file", "delivered files")
 	add(s.ChangedOfKind("host_wrappers"), "wrapper directory", "wrapper directories")
+	// THE DROPPED-PACK RETIRE, in a dry run only (hostApplySurvey.retirePaths): what the lines above
+	// list as `would archive` and `would remove key`, in their words. One spelling, the dry run's,
+	// since only a dry run records it.
+	paths, keys := s.DroppedRetires()
+	if paths > 0 {
+		phrase := fmt.Sprintf("%d %s from dropped packs would be archived", paths,
+			plural(paths, "path", "paths"))
+		out = append(out, workItem{short: phrase, full: phrase})
+	}
+	if keys > 0 {
+		phrase := fmt.Sprintf("%d config %s from dropped packs would be removed", keys,
+			plural(keys, "key", "keys"))
+		out = append(out, workItem{short: phrase, full: phrase})
+	}
 	return out
 }
 

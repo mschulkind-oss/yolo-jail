@@ -550,9 +550,10 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	loaded, destinations := packload.ResolveDestinations(loaded)
 	survey.noteLoaded(loaded)
 	for _, d := range destinations {
-		if drc := reportInferredDestinations(pr, d); drc != 0 {
+		if drc, refused := reportInferredDestinations(pr, d); drc != 0 {
 			rc = drc
-			survey.noteStageFailure(stageDestinations)
+			// Named in the verdict by the kinds its `<kind> refused` lines lead with.
+			survey.noteStageFailureAs(stageDestinations, refused...)
 		}
 	}
 	// REFUSE a doubly-declared config surface before writing anything into a real home
@@ -609,9 +610,11 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	overlays := packoverlay.Collect(loaded, render.Host(home, nil, hostOwnership()).Profile().AgentAutonomy,
 		overlayGateProfiles(render.KindHost, loaded))
 	for _, prob := range overlays.Problems {
-		pr.Printf("  [red]%s refused[/red] — %s", collectProblemKind(prob), prob)
+		kind := collectProblemKind(prob)
+		pr.Printf("  [red]%s refused[/red] — %s", kind, prob)
 		rc = 1
-		survey.noteStageFailure(stageOverlays)
+		// Named in the verdict by the kind this line leads with.
+		survey.noteStageFailureAs(stageOverlays, kind)
 	}
 	for _, orphan := range overlays.Orphans {
 		// R2: inert, and named. Not an error — a pack the user did not select is not a
@@ -1223,7 +1226,10 @@ func confirmHostLosses(pr richtext.Printer, out io.Writer, stdin io.Reader,
 // reporting it as silence describes the opposite of what the author did — and leaves them
 // unable to tell a working selector from a typo, since both produce the same line. The audience
 // is named, so the report answers "did my selector reach claude?".
-func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) int {
+//
+// The second return is the kinds its `<kind> refused` lines named, the words the verdict names
+// this stage's failure by (noteStageFailureAs).
+func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) (int, []string) {
 	// Destinations an ADDRESSED contribution accounted for. Subtracted from the silent-inference
 	// line below so one delivery is not reported twice, in two voices — a pack MAY carry both a
 	// bare into-less contribution (broadcast) and an addressed one, in which case the addressed
@@ -1293,9 +1299,10 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) in
 			d.Pack.Name)
 	}
 	if len(d.Orphaned) == 0 {
-		return 0
+		return 0, nil
 	}
 	inert := len(d.Pack.Decl.Contributions()) == 0
+	var refused []string
 	for _, o := range d.Orphaned {
 		kind := string(o.Kind)
 		// TWO SUPPRESSIONS, ONE INTENT: do not print the kind-level line about an orphan whose
@@ -1320,11 +1327,12 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations) in
 			"destination for it, so this pack renders NOTHING. Select the agent pack that owns "+
 			"the destination, or declare `into` in %s's pack.json.",
 			kind, d.Pack.Name, kind, d.Pack.Name)
+		refused = append(refused, kind)
 	}
 	if inert {
-		return 1
+		return 1, refused
 	}
-	return 0
+	return 0, nil
 }
 
 // quotedAgents renders an audience for the orphan report: the names quoted, joined with "or"

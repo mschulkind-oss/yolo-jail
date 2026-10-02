@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	goruntime "runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -132,12 +133,14 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	// with a message that names the actual rule.
 	if !packdecl.ValidBinName(bin) {
 		fmt.Fprintf(errw, "yolo capture: %q is not a program name\n", bin)
+		fmt.Fprintf(errw, "  %s\n", captureChoicesStep(selectConfiguredHostPacks().packs, ""))
 		return 2
 	}
 
 	pr := richtext.Printer{W: out, Color: color}
 	target, err := resolveCaptureTarget(bin)
 	if err != nil {
+		// The refusal carries its own next step, as every stop below does (resolveCaptureTarget).
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
 		return 1
 	}
@@ -161,6 +164,7 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	if lock == nil {
 		fmt.Fprintf(errw, "yolo capture: another capture of %s is already running "+
 			"(lock: %s) — nothing was captured\n", bin, captureLockPath(bin))
+		fmt.Fprintf(errw, "  %s\n", captureWaitStep(bin))
 		return 1
 	}
 	defer lock.Close()
@@ -169,6 +173,7 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	staging, err := store.Stage(bin)
 	if err != nil {
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
+		fmt.Fprintf(errw, "  Fix what it names, %s.\n", captureAgain(bin))
 		return 1
 	}
 	cname := runtime.FromWorkspace(staging)
@@ -182,9 +187,11 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	// bin resolved to something already on PATH looks like (the image bakes a program a pack also
 	// claims — the ~/.yolo/bin/launch ordering makes the baked one win), and admitting it would
 	// file an entry that materializes nothing and satisfies every later resolve.
+	empty := false
 	entry, m, err := captureStaged(store, staging,
 		func() int { return runCaptureJail(staging, bin, captureJailArgv(bin), nil, out, errw, color) },
 		func(m *capture.Manifest) string {
+			empty = true
 			return fmt.Sprintf("%s's installer left nothing in the capture surfaces (%s). Either it "+
 				"writes somewhere else, or %s already resolved to a program this image bakes",
 				bin, strings.Join(m.Surfaces, ", "), bin)
@@ -193,9 +200,21 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 	switch {
 	case errors.As(err, &exit):
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
+		fmt.Fprintf(errw, "  %s\n", captureJailFailedStep(bin))
 		return exit.rc
+	case err != nil && empty:
+		// Neither half is the user's command to run: a `packages` entry already delivers the
+		// program to every jail, or the pack's installer writes outside the surfaces, which its
+		// author fixes (rung 4), or yolo for a pack it ships.
+		fmt.Fprintf(errw, "yolo capture: %v\n", err)
+		fmt.Fprintf(errw, "  If `packages` in your config lists %s, every jail has it already and it "+
+			"needs no capture. Otherwise pack %s's installer writes somewhere else: tell that pack's "+
+			"author, or, if yolo ships pack %s, report it at %s.\n", bin, target.Pack, target.Pack,
+			entrypoint.IssuesURL)
+		return 1
 	case err != nil:
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
+		fmt.Fprintf(errw, "  Fix what it names, %s.\n", captureAgain(bin))
 		return 1
 	}
 	receipt := entrypoint.CaptureReceipt{
@@ -210,7 +229,11 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 		Time:     time.Now(),
 	}
 	if err := entrypoint.AppendReceiptLine(capture.ReceiptsPath(entry.Root), receipt.Line()); err != nil {
+		// A re-run admits the same bytes to the same entry and appends its receipt
+		// (TestCaptureIsIdempotentAndAppendsASecondReceipt), so it is the fix once the path takes one.
 		fmt.Fprintf(errw, "yolo capture: writing the capture receipt: %v\n", err)
+		fmt.Fprintf(errw, "  The entry is stored, and a launch finds it by its receipt: fix what it "+
+			"names, %s, which writes the receipt.\n", captureAgain(bin))
 		return 1
 	}
 	pr.Printf("[green]captured[/green] %s  [cyan]%s[/cyan]  %d paths, %s  [dim]%s[/dim]",
@@ -225,15 +248,92 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 	pin := forkPinOf(f)
 	if pin.Commit == "" {
+		// The pin's reason names the command that makes one (packload.ForkPin.Reason); this is the
+		// rest of the way back to the build the user asked for.
 		fmt.Fprintf(errw, "yolo capture: %s\n", pin.Line())
+		fmt.Fprintf(errw, "  then: yolo capture %s\n", f.Bin)
 		return 1
 	}
 	b := forkBuild{Fork: f, Commit: pin.Commit, Platform: captureJailPlatform()}
 	if _, err := buildFork(b, buildMode{force: true, lock: pidlock.NoWait}, out, errw, color); err != nil {
 		fmt.Fprintf(errw, "yolo capture: %v\n", err)
+		var exit captureJailExit
+		switch {
+		case errors.Is(err, errForkBuildLocked):
+			fmt.Fprintf(errw, "  %s\n", captureWaitStep(f.Bin))
+		case errors.As(err, &exit):
+			fmt.Fprintf(errw, "  %s\n", captureJailFailedStep(f.Bin))
+		default:
+			fmt.Fprintf(errw, "  Fix what it names, %s.\n", captureAgain(f.Bin))
+		}
 		return 1
 	}
 	return 0
+}
+
+// captureAgain is the clause most of a capture's stops end their next step with: running it again
+// is safe (rule 6), since an admission of identical bytes returns the entry already stored and a
+// run appends its receipt.
+func captureAgain(bin string) string {
+	return "then run `yolo capture " + bin + "` again"
+}
+
+// captureWaitStep is the step for a capture or a fork build another process is already running
+// for bin: the store it fills is the machine's, so its result is this one's too.
+func captureWaitStep(bin string) string {
+	return "Wait for it to finish: what it stores serves every launch on this machine. If it fails, " +
+		"run `yolo capture " + bin + "` again."
+}
+
+// captureJailFailedStep is the step for a capture jail, or a fork's build jail, that exited
+// non-zero: the jail's own output, above, is the only thing that knows why.
+func captureJailFailedStep(bin string) string {
+	return "Its output above says why: fix what it names, " + captureAgain(bin) + "."
+}
+
+// captureChoicesStep is the next step for a program a capture cannot take (happy-path rule 7: the
+// programs it can are computed, not left for the user to find). When a pack yolo ships installs
+// bin with an installer, it is that pack to select; otherwise the programs the selected packs
+// install with an installer or build from a fork, which are what a capture takes; or, when there
+// are none, how a pack declares one.
+func captureChoicesStep(packs []*packload.Pack, bin string) string {
+	selected := map[string]bool{}
+	for _, p := range packs {
+		selected[p.Name] = true
+	}
+	if bin != "" {
+		for _, p := range packload.Embedded() {
+			if selected[p.Name] {
+				continue
+			}
+			installs, _ := p.HonoredInstalls()
+			for _, in := range installs {
+				if in.Bin == bin && in.Kind == packdeclNativeKind {
+					return fmt.Sprintf("The %s pack yolo ships installs %s: add %q to \"packs\" in %s, "+
+						"then: yolo capture %s", p.Name, bin, p.Name, paths.UserConfigPath(), bin)
+				}
+			}
+		}
+	}
+	var choices []string
+	seen := map[string]bool{}
+	for _, p := range packs {
+		installs, _ := p.HonoredInstalls()
+		for _, in := range installs {
+			if (in.Kind == packdeclNativeKind || in.Kind == packdecl.InstallKindSource) && !seen[in.Bin] {
+				seen[in.Bin] = true
+				choices = append(choices, in.Bin)
+			}
+		}
+	}
+	if len(choices) == 0 {
+		return "None of your packs installs a program with an installer, so nothing here needs a " +
+			"capture. A pack declares one as a `program` with `\"via\": \"installer\"` (`yolo pack " +
+			"--help` documents it)."
+	}
+	sort.Strings(choices)
+	return fmt.Sprintf("A capture records what your packs install with an installer or build from a "+
+		"fork: %s. Run: yolo capture %s", strings.Join(choices, ", "), choices[0])
 }
 
 // forkPinOf reads f's pin from the fork lock.
@@ -270,7 +370,8 @@ func resolveCaptureTarget(bin string) (*captureTarget, error) {
 	// selection closure joins is searched as a launch would deliver it.
 	sel := selectConfiguredHostPacks()
 	if sel.loadErr != nil {
-		return nil, sel.loadErr
+		return nil, fmt.Errorf("%w\n  Fix what it names in %s, then: yolo capture %s", sel.loadErr,
+			paths.UserConfigPath(), bin)
 	}
 	var refusals, npmBins []string
 	// A git pack the pack store does not have (never `yolo pack install`ed), a local one whose
@@ -313,10 +414,32 @@ func resolveCaptureTarget(bin string) (*captureTarget, error) {
 	for _, r := range refusals {
 		fmt.Fprintf(&b, "\n  refused: %s", r)
 	}
+	// THE NEXT STEP (happy-path rule 1), each on the line after what it fixes: a pack that did not
+	// resolve gets its own fix, in the words `yolo check` gives for it, and the refusal ends with
+	// the way back to the capture.
 	for _, u := range unresolved {
 		fmt.Fprintf(&b, "\n  could not be resolved, so not searched: %s: %s", u.Name, u.Reason)
+		fmt.Fprintf(&b, "\n    %s", strings.ReplaceAll(captureUnresolvedStep(u), "\n", "\n    "))
+	}
+	switch {
+	case len(npmBins) > 0:
+		fmt.Fprintf(&b, "\n  A launch installs it from npm itself, and needs no capture: yolo -- %s", bin)
+	case len(unresolved) > 0:
+		fmt.Fprintf(&b, "\n  then: yolo capture %s", bin)
+	default:
+		fmt.Fprintf(&b, "\n  %s", captureChoicesStep(sel.packs, bin))
 	}
 	return nil, fmt.Errorf("%s", b.String())
+}
+
+// captureUnresolvedStep is the fix for one pack a capture could not search, as check-deps names it
+// (checkDepsUnresolvedStep), but for the git pack the store does not have yet: a capture does not
+// fetch either, and the words for that are its own.
+func captureUnresolvedStep(u unresolvedPack) string {
+	if u.NeedsInstall {
+		return "Run `yolo pack install` to fetch it (a capture never fetches; the next launch fetches it too)"
+	}
+	return checkDepsUnresolvedStep(u)
 }
 
 // packdeclNativeKind is packdecl.Install.Kind for a `via: "installer"` contribution — the
@@ -452,8 +575,12 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, out
 		// A FORK BUILD DOES NOT RUN ON THIS BACKEND (FP-D3): the eager slot and the capture
 		// store's reach there wait on hand-off H4, and the sealed capture act is container-only.
 		if seal != nil {
+			// Rung 4: no step of the user's makes macos-user build one, so the line names whose it
+			// is and what builds and runs a fork today, the container route FP-D3 ships first.
 			fmt.Fprintln(errw, "yolo capture: a fork is built on a container backend only — on "+
 				"macos-user no launch can read the capture store yet (install-capture.md hand-off H4)")
+			fmt.Fprintf(errw, "  That is yolo's to wire. A podman jail builds and runs it today: "+
+				"YOLO_RUNTIME=podman yolo -- %s\n", bin)
 			return 1
 		}
 		deps := macosuser.RealDeps(nil, nil, color)

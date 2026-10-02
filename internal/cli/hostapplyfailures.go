@@ -90,28 +90,54 @@ const (
 	stageInputs = "inputs"
 )
 
-// noteStageFailure records that stage failed. It reaches the verdict, which names the stage
-// (hostApplyOutcome), and it keeps the launch gate conservative: a failure it cannot attribute to
-// a pack is one it cannot call unrelated (splitLaunchFailures). A stage that fails twice is named
-// once.
+// noteStageFailure records that stage failed, for a stage whose failure lines lead with the
+// stage's own name (`skills     refused — …`, `retire     refused — …`). It reaches the verdict,
+// which names the stage (hostApplyOutcome), and it keeps the launch gate conservative: a failure
+// it cannot attribute to a pack is one it cannot call unrelated (splitLaunchFailures). A stage that
+// fails twice is named once.
 func (s *hostApplySurvey) noteStageFailure(stage string) {
+	s.noteStageFailureAs(stage)
+}
+
+// noteStageFailureAs records that stage failed, and the words its failure lines lead with, which
+// the verdict names it by: the reader finds the failure above the verdict by the word the verdict
+// used. The destinations stage's lines lead with the kind a pack's content reached no destination
+// for (`skills     refused — …`), and the overlays stage's with the contribution's kind
+// (`config-list refused — …`); the verdict named them "the destinations stage" and "the overlays
+// stage", words no line above it carried. With no names, the stage's own name is its word. The
+// stage itself stays the document's token (failed_stages), which a consumer branches on.
+func (s *hostApplySurvey) noteStageFailureAs(stage string, names ...string) {
 	if s == nil {
 		return
 	}
-	for _, have := range s.failedStages {
-		if have == stage {
-			return
+	if !slices.Contains(s.failedStages, stage) {
+		s.failedStages = append(s.failedStages, stage)
+	}
+	if len(names) == 0 {
+		names = []string{stage}
+	}
+	for _, n := range names {
+		if !slices.Contains(s.stageNames, n) {
+			s.stageNames = append(s.stageNames, n)
 		}
 	}
-	s.failedStages = append(s.failedStages, stage)
 }
 
-// StageFailures names the stages that failed, in the order they ran.
+// StageFailures names the stages that failed, in the order they ran: the document's tokens.
 func (s *hostApplySurvey) StageFailures() []string {
 	if s == nil {
 		return nil
 	}
 	return s.failedStages
+}
+
+// StageFailureNames is the verdict's words for the stages that failed, in the order their lines
+// printed, each once (noteStageFailureAs).
+func (s *hostApplySurvey) StageFailureNames() []string {
+	if s == nil {
+		return nil
+	}
+	return s.stageNames
 }
 
 // inputsRefused is whether the host's derive inputs could not be composed (stageInputs): a

@@ -5,12 +5,14 @@ verified_commit: 71e86789
 covers:
   - internal/cli/hostapplysurvey.go
   - internal/cli/hostapplyverdict.go
+  - internal/cli/hostapplyfailures.go
   - internal/cli/hostapplyremedy.go
   - internal/cli/hostapplydetail.go
   - internal/cli/hostapplynotch.go
   - internal/cli/hostapplyjson.go
   - internal/cli/applyhostdeps.go
   - internal/cli/applyhostdepgate.go
+  - internal/cli/applyhostprune.go
   - internal/cli/apply.go
   - internal/cli/run/launchlog.go
   - internal/progress/
@@ -22,7 +24,9 @@ summary: "How yolo decides what to print: a report tier is assigned where a fact
 
 # Report tiers — what `yolo host apply` and a launch decide to print
 
-**Status:** CURRENT as of 2026-09-13, verified against `71e86789`.
+**Status:** CURRENT. [The verdict block](#the-verdict-block) (its outcome table, its counts and
+the footer) was re-verified on 2026-10-02 against `fe504e58` and the changes landed with this
+revision; the rest was last verified in full against `71e86789`, 2026-09-13.
 
 Two commands in yolo produce long output for three different readers: `yolo host apply`, which
 renders pack surfaces into a real `$HOME`, and a container launch. A **report tier** *(coined
@@ -169,10 +173,10 @@ disagree about the outcome they report.
 | Token | The run found |
 | :--- | :--- |
 | `refused` | a configured pack could not be resolved (an incomplete pack set is never applied), or your config's providers or profiles cannot be composed for the host, which every surface reads: either way an `--assert` writes nothing. **Dry run only** — an `--assert` refuses before it reaches a verdict |
-| `incomplete` | a pack failed to render, or a destination could not be written because it is a [broken link](#broken-links), so the counts are missing those surfaces; or a stage of the apply failed (destinations, overlays, skills, briefing, retire or wrappers), which the verdict names, its own line above saying what failed, with no packs configured too; or [yolo's floor](../design/host-tool-provisioning.md) will not install a program over a record a newer yolo wrote ([HP-D8](../design/host-tool-provisioning.md#HP-D8)), or an `--assert`'s floor install failed. The verdict names whose config is missing; the failure itself is stated once, with its fix, in its group. It also names each program the floor will not install, with the step that clears it, in a dry run and an `--assert` alike, and each an `--assert` could not install: an `--assert` writes the rest and exits 1 |
+| `incomplete` | a pack failed to render, or a destination could not be written because it is a [broken link](#broken-links), so the counts are missing those surfaces; or a stage of the apply failed (destinations, overlays, skills, briefing, retire or wrappers), with no packs configured too. The verdict names a failed stage by the word its own lines above lead with, and those lines say what failed: the stage's name, except that a destinations failure is named by the kind its `<kind> refused` line names (`skills`, `briefing`) and an overlays failure by the contribution's kind (`config-overlay`, `config-list`, `autonomy`). The document's `failed_stages` keeps the stage's own token; or [yolo's floor](../design/host-tool-provisioning.md) will not install a program over a record a newer yolo wrote ([HP-D8](../design/host-tool-provisioning.md#HP-D8)), or an `--assert`'s floor install failed. The verdict names whose config is missing; the failure itself is stated once, with its fix, in its group. It also names each program the floor will not install, with the step that clears it, in a dry run and an `--assert` alike, and each an `--assert` could not install: an `--assert` writes the rest and exits 1 |
 | `no_packs` | no packs are configured, and nothing failed. Distinct from `nothing_to_do`, and the difference is the next action: one is *your config names nothing*, the other *your home already matches what it names* |
 | `blocked` | a declared dependency is missing. **Dry run only** — an `--assert` with one is refused by the gate before it reaches a verdict at all |
-| `nothing_to_do` | this home already matches what the packs declare |
+| `nothing_to_do` | this home already matches what the packs declare, and, in a dry run, no output of a pack dropped from `packs` waits to be retired |
 | `applied` | an `--assert` wrote what it planned |
 | `would_complete` | a dry run that found work and no blocker |
 
@@ -181,10 +185,21 @@ The precedence is what makes it a result rather than a summary. A **blocker outr
 blocker** because it has already cost the run a pack's worth of surfaces — every count is missing
 them, so no verdict may claim a completed apply out of an incomplete traversal.
 
-`nothing_to_do` carries one subtlety worth keeping: it requires *both* no changes and no adoptions.
-An adoption composes the file out of what it already holds, so the canonical one reproduces the
+`nothing_to_do` carries two subtleties worth keeping. It requires no changes and no adoptions:
+an adoption composes the file out of what it already holds, so the canonical one reproduces the
 bytes and reports no change — while having copied the user's file into a slot there is one of,
 forever. A run that walked through a one-way door is not a run with nothing to do.
+
+It also requires, in a dry run, no **retire still waiting**: the paths and config keys a pack no
+longer in `packs` left in the home, which the run lists as `would archive` and `would remove key`
+and an `--assert` asks about before retiring. The dry run used to list them and end "Nothing to do
+— this home is up to date." They are counted apart from the changed destinations, and that is
+[the non-licence](#what-this-does-not-license) rather than a convenience: the survey grows fields
+and `Changes()` keeps its meaning. The launch gate decides whether to apply from
+`Changes()`, and a retire waits on a question the gate may not ask, so folding them in would turn
+a launch with nothing to render into one that stops to report a decision
+(`TestTheLaunchGateDoesNotCountARetireStillWaiting`). With no packs configured they join the
+destinations the verdict says would be retired.
 
 > [!WARNING]
 > **The tokens name the outcome, never the posture.** `nothing_to_do` is the same finding in a dry
@@ -206,13 +221,18 @@ Each count is chosen by P6 — the unit the reader cares about, not the loop cou
 | :--- | :--- | :--- |
 | config files that would change | files | the survey's `config` changes |
 | surfaces adopted | surfaces | `HostRenderResult.Archived` |
-| skills that would move, union or archive | skills, deduplicated by name | the skills results |
-| destinations compared and unchanged | destinations | `WouldChange == false` **and** the render compared content |
+| skills that would move into your local pack, composed skills, retired skills | skills, deduplicated by name | the skills results |
+| briefing destinations, delivered files and wrapper directories that would change | destinations | the survey's `briefing`, `files` and `host_wrappers` changes |
+| paths and config keys from dropped packs that would be archived or removed (dry run only) | paths, keys | the dropped-pack retire (`hostApplySurvey.DroppedRetires`), never one of the survey's changes |
+| destinations already in sync | destinations | `hostApplySurvey.InSync`: every destination an `--assert` would leave as it is, one the render skipped or refused included, so the count does not claim each was compared |
 | values of yours replaced | keys, with the file count | `HostRenderResult.Overwrites` |
-| MCP entries dropped | servers × agents, said as *N servers from M agents* | `HostRenderResult.EntryLosses` |
-| kinds that do not apply at this notch | kinds | `HostFields().Refuse` over the declared kinds |
+| entries of yours dropped (an MCP server, an LSP server, a provider) | entry names, said as *N of your entries from M surfaces* | `HostRenderResult.EntryLosses` |
 | declared dependencies present, missing, not probed, with no build for this host, and those [yolo's floor](../design/host-tool-provisioning.md) will not install or could not, which are never counted present | binaries | `resolveHostDeps`, and the floor stage |
-| first apply into this home | flag | `HostRenderResult.FirstApply` |
+| surfaces that would lose comments of yours | surfaces | `HostRenderResult.Formatting` |
+| first apply of a surface into this home | flag | `HostRenderResult.FirstApply` |
+
+The kinds that do not apply at this notch are not a count: the tier-1 line names them once per run
+(P1).
 
 **Only the dry run has a footer.** It states the posture — nothing was written — and names
 `--verbose`, because the default view counts what it does not itemize and the reader has to be told

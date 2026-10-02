@@ -141,6 +141,10 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// hook (hostApplySurvey.PendingDecisions).
 		survey.noteDecision(fmt.Sprintf("%d path(s) and %d config key(s) a dropped pack left "+
 			"behind would be retired", len(present), len(keys.Orphans)))
+		// AND THE WORK, for the verdict (rule 5): a dry run that lists these as `would archive`
+		// ended "this home is up to date". Counted apart from Changed, which the launch gate reads
+		// (hostApplySurvey.retirePaths).
+		survey.noteDroppedRetire(len(present), len(keys.Orphans))
 		for _, o := range present {
 			pr.Printf("  [yellow]%-20s would archive (pack no longer configured)[/yellow]  "+
 				"[dim]%s%s[/dim]", o.Pack+"/retire", o.Dest, namespacedNote(o))

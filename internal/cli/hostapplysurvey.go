@@ -169,7 +169,10 @@ type hostApplySurvey struct {
 	replaced     []replacedValue
 	failures     []hostFailure
 	failedStages []string
-	loaded       []*packload.Pack
+	// stageNames are the words the verdict names the failed stages by: the words their lines lead
+	// with (noteStageFailureAs).
+	stageNames []string
+	loaded     []*packload.Pack
 	// floorStage is whether this run takes the host agent floor stage (applyHostFloor): set by
 	// the verb — `yolo host apply`, `yolo apply --at host` — and never by the launch gate's
 	// apply, because a launch installs the one agent it starts and removes nothing
@@ -196,6 +199,14 @@ type hostApplySurvey struct {
 	// would prompt, so the launch hook can know BEFORE writing that an apply is not one it may
 	// run unattended (PendingDecisions).
 	decisions []string
+	// retirePaths and retireKeys are the dropped-pack retire still waiting in a dry run: the paths
+	// and config keys a pack no longer in `packs` left in the home, each listed as `would archive`
+	// or `would remove key`, that an --assert asks before retiring (pruneDroppedPackOutput). The
+	// VERDICT counts them and the LAUNCH GATE does not, which is why they are not in Changed:
+	// Changes() is the gate's question, whether to run an apply, and a retire waits on a question
+	// the gate may not ask (PendingDecisions). Folded into Changed, they would turn a launch that
+	// has nothing to render into one that stops to report a decision.
+	retirePaths, retireKeys int
 
 	// home is the home THIS apply rendered into, and zeroPacks whether it took the
 	// no-packs-configured branch. Both are RECORDED rather than re-derived, because both
@@ -633,6 +644,32 @@ func (s *hostApplySurvey) PendingDecisions() []string {
 			entries, surfaces, plural(surfaces, "surface", "surfaces")))
 	}
 	return append(out, s.decisions...)
+}
+
+// noteDroppedRetire records the dropped-pack retire a dry run found waiting: paths to archive and
+// config keys to remove (see the retirePaths field).
+func (s *hostApplySurvey) noteDroppedRetire(paths, keys int) {
+	if s == nil {
+		return
+	}
+	s.retirePaths += paths
+	s.retireKeys += keys
+}
+
+// DroppedRetires is the dropped-pack retire a dry run found waiting: how many paths an --assert
+// would archive and how many config keys it would remove, once answered `y`. Never part of
+// Changes(): the launch gate does not count them.
+func (s *hostApplySurvey) DroppedRetires() (paths, keys int) {
+	if s == nil {
+		return 0, 0
+	}
+	return s.retirePaths, s.retireKeys
+}
+
+// retireWaiting is whether a dropped pack's output is still waiting to be retired.
+func (s *hostApplySurvey) retireWaiting() bool {
+	paths, keys := s.DroppedRetires()
+	return paths+keys > 0
 }
 
 // UnresolvedPacks names the configured packs this run could not resolve, in config order.

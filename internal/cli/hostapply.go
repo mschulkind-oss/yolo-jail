@@ -150,7 +150,7 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 			return 0
 		}
 		if _, err := hostwrap.Clear(dir); err != nil {
-			fmt.Fprintf(errw, "yolo host apply: clearing wrappers: %v\n", err)
+			reportWrappersFailure(errw, home, dir, "clearing them", err, false)
 			return 1
 		}
 		pr.Printf("  [cyan]%-20s[/cyan] removed %d wrapper(s)  [dim]%s[/dim]",
@@ -162,7 +162,7 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 	if !write {
 		plan, err := hostwrap.PlanFor(dir, bins)
 		if err != nil {
-			fmt.Fprintf(errw, "yolo host apply: planning wrappers: %v\n", err)
+			reportWrappersFailure(errw, home, dir, "planning them", err, true)
 			return 1
 		}
 		noteWrapperPlan(survey, dir, plan)
@@ -172,7 +172,7 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 	}
 	plan, err := hostwrap.Generate(dir, bins)
 	if err != nil {
-		fmt.Fprintf(errw, "yolo host apply: generating wrappers: %v\n", err)
+		reportWrappersFailure(errw, home, dir, "generating them", err, true)
 		return 1
 	}
 	noteWrapperPlan(survey, dir, plan)
@@ -186,6 +186,25 @@ func applyHostWrappers(pr richtext.Printer, errw io.Writer, home string, packs [
 		pr.Printf("    [bold]%s[/bold]", hostwrap.PathLine(dir))
 	}
 	return 0
+}
+
+// reportWrappersFailure is the wrappers stage's failure: the error, led by the word the verdict
+// names the stage by ("the wrappers stage failed"), then its next step on the lines after it
+// (docs/reference/happy-path-principle.md, rule 1). It used to print the error alone.
+//
+// The directory is yolo's and holds nothing but the wrappers it generates, so making it a directory
+// the user can write is the fix whatever the error says about it: a file where the directory goes,
+// or permissions. The second step turns wrappers off, which an apply honors by leaving the
+// directory alone; it is not offered when they are already off (enabled false), the stage then
+// clearing only what an earlier apply wrote.
+func reportWrappersFailure(errw io.Writer, home, dir, what string, err error, enabled bool) {
+	fmt.Fprintf(errw, "yolo host apply: wrappers failed — %s: %v\n", what, err)
+	fmt.Fprintf(errw, "  fix: make %s a directory you can write (yolo keeps only its wrappers "+
+		"there), then: yolo host apply --assert\n", prettyHomePath(home, dir))
+	if enabled {
+		fmt.Fprintf(errw, "  or stop yolo writing wrappers: set \"host_wrappers\": false in %s\n",
+			paths.UserConfigPath())
+	}
 }
 
 // noteWrapperPlan records the wrapper directory's change predicate in the apply's roll-up.
