@@ -545,7 +545,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	for _, d := range destinations {
 		if drc := reportInferredDestinations(pr, d); drc != 0 {
 			rc = drc
-			survey.noteUnattributedFailure()
+			survey.noteStageFailure(stageDestinations)
 		}
 	}
 	// REFUSE a doubly-declared config surface before writing anything into a real home
@@ -604,7 +604,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	for _, prob := range overlays.Problems {
 		pr.Printf("  [red]%s refused[/red] — %s", collectProblemKind(prob), prob)
 		rc = 1
-		survey.noteUnattributedFailure()
+		survey.noteStageFailure(stageOverlays)
 	}
 	for _, orphan := range overlays.Orphans {
 		// R2: inert, and named. Not an error — a pack the user did not select is not a
@@ -625,7 +625,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	inputs, cerr := composeHostInputs(config.UserScopeConfigOrEmpty(), loaded, home)
 	if cerr != nil {
 		pr.Printf("[bold red]host apply: refused — %v. Nothing was written.[/bold red]", cerr)
-		survey.noteUnattributedFailure()
+		survey.noteStageFailure(stageInputs)
 		return 1
 	}
 	// What the composition left out, each once, so a config key the host does not honor is
@@ -772,12 +772,12 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	if src := applyHostSkills(pr, out, stdin, loaded, candidates, active, configured, resolvedAll,
 		home, stamp, write, reloadPacks, survey); src != 0 {
 		rc = src
-		survey.noteUnattributedFailure()
+		survey.noteStageFailure(stageSkills)
 	}
 	if brc := applyHostBriefings(pr, out, stdin, loaded, candidates, active, resolvedAll,
 		home, stamp, write, reloadPacks, survey); brc != 0 {
 		rc = brc
-		survey.noteUnattributedFailure()
+		survey.noteStageFailure(stageBriefing)
 	}
 
 	// Retire the SKILLS, FILES, and CONFIG-OVERLAY KEYS a dropped pack left in the home. After
@@ -794,7 +794,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	if prc := pruneDroppedPackOutput(
 		pr, out, stdin, candidates, configured, home, stamp, write, keys, survey); prc != 0 {
 		rc = prc
-		survey.noteUnattributedFailure()
+		survey.noteStageFailure(stageRetire)
 	}
 
 	// Launch wrappers, last: they are the only stage that writes OUTSIDE the composed
@@ -802,7 +802,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	// a pack whose own apply just failed. Silent unless opted in (§5.5).
 	if wrc := applyHostWrappers(pr, errw, home, loaded, write, survey); wrc != 0 {
 		rc = wrc
-		survey.noteUnattributedFailure()
+		survey.noteStageFailure(stageWrappers)
 	}
 	// THE HOST AGENT FLOOR (host-tool-provisioning.md): the same provisioning a launch does, for
 	// every program the selection delivers, and the one place an entry no selected pack delivers

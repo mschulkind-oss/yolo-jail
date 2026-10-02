@@ -817,10 +817,12 @@ const packOwnerLine = `Pack $PACK's install for $BIN does not put it there: tell
 const yoloOwnerLine = `yolo's install for $BIN does not put it there: report it at ` + IssuesURL + `.`
 
 // npmMisplacedCall and installerMisplacedCall are the agent launchers' _say_misplaced calls, one
-// per template, each spliced at both of that launcher's ends: the launch path's last line, and the
-// update mode `yolo pack update` runs (YOLO_PACK_UPDATE=1). The update mode used to exit 0 on the
+// per template, each spliced at every end of that launcher: the launch path's last line, the
+// update mode `yolo pack update` runs (YOLO_PACK_UPDATE=1), and, for the native launcher, the
+// install-only mode `yolo capture` runs (InstallOnlyEnv). The update mode used to exit 0 on the
 // npm path for an install that left nothing to run, and with no word on the installer path, so
-// `yolo pack update` reported a refresh that had delivered nothing.
+// `yolo pack update` reported a refresh that had delivered nothing; install-only said a bare
+// "⚠ <name> not available".
 const (
 	npmMisplacedCall       = `_say_misplaced "npm reported installing $SPEC" "` + packOwnerLine + `"`
 	installerMisplacedCall = `_say_misplaced "its installer, $URL, reported success" "` + packOwnerLine + `"`
@@ -2146,11 +2148,19 @@ _locked_prune || true
 # INSTALL AND STOP. See InstallOnlyEnv: yolo capture needs the install this launcher
 # performs and must not have the program RUN afterwards, because a first run writes the
 # tool own state into the very directories the capture is about to record.
+#
+# Nothing to run ends with the launch path's own words for why (_say_misplaced), or the failed
+# install's without its retry: what retries a capture is its caller, "yolo capture" again or the
+# next launch, not a run of the program.
 if [ "${` + InstallOnlyEnv + `:-}" = "1" ]; then
     if [ -x "$REAL_BIN" ]; then
         exit 0
     fi
-    echo "  ⚠ $BIN not available" >&2
+    if [ "$_YOLO_MISPLACED" = 1 ]; then
+        ` + installerMisplacedCall + `
+    else
+        echo "  ⚠ $BIN not available: its install failed, above." >&2
+    fi
     exit 1
 fi
 

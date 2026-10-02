@@ -207,3 +207,43 @@ func TestHostApplyVerdictCountsAProgramTheFloorCouldNotInstall(t *testing.T) {
 		t.Errorf("the --assert's verdict is not\n%s\ngot:\n%s", verdict, report)
 	}
 }
+
+// countsLine is the verdict block's line counting the declared dependencies.
+func countsLine(report string) string {
+	for _, line := range strings.Split(report, "\n") {
+		if strings.Contains(line, "declared dependenc") {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
+}
+
+// The counts agree with the verdict: a program yolo's floor will not install, or could not, is
+// counted with the problems, by name, and not as present. The dry run counted it "1 declared
+// dependency present" under the verdict saying the floor would not install it, and the --assert did
+// under the verdict saying the floor could not.
+func TestHostApplyCountsAProgramTheFloorWillNotOrCouldNotInstallWithTheProblems(t *testing.T) {
+	t.Run("will not", func(t *testing.T) {
+		floorHostFixture(t, "")
+		writeNewerFloorRecord(t)
+		_, report := applyWith(t, false, nil)
+		want := "0 declared dependencies present, 1 yolo's floor will not install (floorcli)"
+		if got := countsLine(report); !strings.HasPrefix(got, want) {
+			t.Errorf("the dry run counts\n%s\nwant\n%s\n%s", got, want, report)
+		}
+		doc, raw, _ := hostApplyJSON(t, "--format", "json")
+		if doc.Counts.DependenciesPresent != 0 || doc.Counts.DependenciesFloorRefused != 1 {
+			t.Errorf("counts = %+v, want no dependency present and one the floor will not install:\n%s",
+				doc.Counts, raw)
+		}
+	})
+	t.Run("could not", func(t *testing.T) {
+		dist, _ := floorHostFixture(t, "")
+		dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli", "fail")
+		_, report := applyWith(t, true, nil)
+		want := "0 declared dependencies present, 1 yolo's floor could not install (floorcli)"
+		if got := countsLine(report); !strings.HasPrefix(got, want) {
+			t.Errorf("the --assert counts\n%s\nwant\n%s\n%s", got, want, report)
+		}
+	})
+}

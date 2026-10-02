@@ -203,7 +203,7 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               to what its ref names now. Run the npm half inside the jail —
                               that is where an agent CLI is installed
   yolo pack status            show locked commits and fork pins, and flag config/lock drift
-  yolo pack --help, -h        this text (also 'yolo pack help')
+  yolo pack --help, -h        this text (also 'yolo pack help', and after any verb)
 
 Packs are configured in ~/.config/yolo-jail/config.jsonc under "packs" (USER scope
 only — a workspace config cannot name one), as a bare name for a pack yolo ships or an
@@ -243,9 +243,15 @@ func runPack(args []string) int {
 // verb asks a question now — `install`/`update` fetch and report, and everything else
 // inspects — so there is no reader to thread.
 func packMain(args []string, out, errw io.Writer, color bool) int {
-	if len(args) == 0 {
+	if len(args) == 0 || packHelpAsked(args[1:]) {
 		fmt.Fprintln(out, packUsage)
 		return 0
+	}
+	switch args[0] {
+	case "ls", "install", "update", "status":
+		if rc := packRefuseArguments(args[0], args[1:], errw); rc != 0 {
+			return rc
+		}
 	}
 	switch args[0] {
 	case "init":
@@ -274,6 +280,31 @@ func packMain(args []string, out, errw io.Writer, color bool) int {
 		fmt.Fprintf(errw, "yolo pack: unknown verb %q\n\n%s\n", args[0], packUsage)
 		return 1
 	}
+}
+
+// packHelpAsked is whether a verb's arguments ask for the usage. Read before any verb runs,
+// because the verbs that take no argument never look at one: `yolo pack update --help` ran the
+// update, a managed host's `yolo host apply --assert` included, and `yolo pack init --help`
+// scaffolded a pack in a directory named `--help`.
+func packHelpAsked(args []string) bool {
+	for _, a := range args {
+		if a == "--help" || a == "-h" {
+			return true
+		}
+	}
+	return false
+}
+
+// packRefuseArguments refuses an argument to verb, a verb that takes none, and returns 0 when it
+// was given none. Such a verb covers every configured pack, so running it over an argument it
+// ignores (`yolo pack update claude` updated every pack) does more than the user asked for.
+func packRefuseArguments(verb string, args []string, errw io.Writer) int {
+	if len(args) == 0 {
+		return 0
+	}
+	fmt.Fprintf(errw, "yolo pack %s: unexpected argument %q — it takes no argument, and covers "+
+		"every configured pack (see `yolo pack --help`)\n", verb, args[0])
+	return 2
 }
 
 // packInit scaffolds a minimal, VALID pack: a skills dir with one real skill and one briefing

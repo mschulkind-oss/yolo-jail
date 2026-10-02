@@ -410,7 +410,7 @@ func hostApplyGateApply(errw io.Writer, bin, home string) bool {
 			reportUnrelatedLaunchFailures(errw, home, bin, unrelated)
 			return true
 		}
-		if len(related) > 0 && !wrote.unattributedFailure {
+		if len(related) > 0 && !wrote.unattributedFailure() {
 			refuseLaunchOverFailures(errw, home, bin, related)
 			return false
 		}

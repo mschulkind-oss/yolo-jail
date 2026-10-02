@@ -8,6 +8,21 @@ one per patch release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `yolo pack ls`, `install`, `update` and `status` refuse an argument: run them bare, as each
+  covers every configured pack.
+
+### Fixed
+
+- `--help` or `-h` after a `yolo pack` verb shows the help: `yolo pack update --help` ran the
+  update.
+- A `yolo host apply --assert` whose skills, briefing or another step failed now ends saying so,
+  not that the home is up to date.
+- `yolo capture` says when an installer reported success but left no program, and who can fix it.
+
 ## [0.11.1] - 2026-10-01
 
 Agent updates no longer hang a launch, `yolo check` gives the right Nix advice and names the fix

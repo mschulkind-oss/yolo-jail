@@ -90,12 +90,15 @@ func hostApplyOutcome(s *hostApplySurvey, write bool) string {
 		// FIRST AMONG THE BLOCKERS: an --assert over an incomplete pack set writes nothing at all
 		// (no half states), so no count below describes anything it would do.
 		return outcomeRefused
-	case len(s.Failures()) > 0 || len(s.FloorRefusals()) > 0 || len(s.FloorFailures()) > 0:
+	case len(s.Failures()) > 0 || len(s.StageFailures()) > 0 || len(s.FloorRefusals()) > 0 ||
+		len(s.FloorFailures()) > 0:
 		// A program yolo's floor will not install over a newer yolo's record is this outcome too,
 		// in both postures, and one whose install an --assert tried and failed: an --assert writes
 		// the rest and exits 1, as it does for a destination it cannot write. The verdict read the
 		// floor stage not at all, and said "this home is up to date" under the line saying the
-		// floor would not, or could not, install it.
+		// floor would not, or could not, install it. A failed stage (stageSkills, …) is this
+		// outcome for the same reason: the verdict read none of them, and an --assert whose skills
+		// stage was refused exited 1 under "Nothing to apply — this home is up to date."
 		return outcomeIncomplete
 	case !write && len(s.MissingDeps()) > 0:
 		return outcomeBlocked
@@ -125,8 +128,9 @@ const (
 	// whole apply and writes nothing (dry run only: an --assert refuses before the verdict).
 	outcomeRefused = "refused"
 	// outcomeIncomplete — a pack failed to render, so the counts are missing its surfaces, or a
-	// destination could not be written, or yolo's floor will not install a program over a newer
-	// yolo's record, or an --assert's floor install failed. An --assert writes the rest and exits 1.
+	// destination could not be written, or a stage failed (stageSkills, …), or yolo's floor will
+	// not install a program over a newer yolo's record, or an --assert's floor install failed. An
+	// --assert writes the rest and exits 1.
 	outcomeIncomplete = "incomplete"
 	// outcomeBlocked — a declared dependency is missing (dry run only: an --assert with one
 	// is refused by the gate before it reaches a verdict at all).
@@ -185,6 +189,9 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 				what = append(what, who+" cannot be written")
 			}
 		}
+		if stages := s.StageFailures(); len(stages) > 0 {
+			what = append(what, stageFailureClause(stages, write))
+		}
 		if bins := s.FloorFailures(); len(bins) > 0 {
 			what = append(what, "yolo's floor could not install "+joinWords(bins, "and"))
 		}
@@ -224,6 +231,19 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 	default:
 		return "An --assert would complete."
 	}
+}
+
+// stageFailureClause is the verdict's clause for the stages that failed: each by its name, which
+// its own line above the verdict leads with or states, and the fix being that line's.
+func stageFailureClause(stages []string, write bool) string {
+	noun, verb := "stage", "would fail"
+	if len(stages) > 1 {
+		noun = "stages"
+	}
+	if write {
+		verb = "failed"
+	}
+	return "the " + joinWords(stages, "and") + " " + noun + " " + verb
 }
 
 // floorRefusalClause is the verdict's clause for the programs yolo's floor will not install over a
@@ -390,7 +410,9 @@ func hostApplyCounts(s *hostApplySurvey, write bool) []string {
 		cost = append(cost, fmt.Sprintf("%d of your entries %s from %d %s", entries, verb,
 			surfaces, plural(surfaces, "surface", "surfaces")))
 	}
-	if present, missing, notProbed, unpublished := s.Deps(); present+missing+notProbed+unpublished > 0 {
+	floorRefused, floorFailed := s.FloorBlockedDeps()
+	if present, missing, notProbed, unpublished := s.Deps(); present+missing+notProbed+unpublished+
+		len(floorRefused)+len(floorFailed) > 0 {
 		dep := fmt.Sprintf("%d declared %s present", present,
 			plural(present, "dependency", "dependencies"))
 		if missing > 0 {
@@ -402,6 +424,15 @@ func hostApplyCounts(s *hostApplySurvey, write bool) []string {
 		if unpublished > 0 {
 			dep += fmt.Sprintf(", %d with no build for this host (%s)", unpublished,
 				strings.Join(s.UnpublishedDeps(), ", "))
+		}
+		// With the problems, by name, as the verdict names them: never present (Deps).
+		if len(floorRefused) > 0 {
+			dep += fmt.Sprintf(", %d yolo's floor will not install (%s)", len(floorRefused),
+				strings.Join(floorRefused, ", "))
+		}
+		if len(floorFailed) > 0 {
+			dep += fmt.Sprintf(", %d yolo's floor could not install (%s)", len(floorFailed),
+				strings.Join(floorFailed, ", "))
 		}
 		cost = append(cost, dep)
 	}

@@ -78,7 +78,7 @@ func TestARenderErrorIsJudgedByItsPackAndAnUnattributedOneRefuses(t *testing.T) 
 		{"claude failed, launching claude", func(s *hostApplySurvey) {
 			s.noteRenderFailure("claude", "boom")
 		}, "claude", false},
-		{"unattributed, launching claude", func(s *hostApplySurvey) { s.noteUnattributedFailure() },
+		{"a failed stage, launching claude", func(s *hostApplySurvey) { s.noteStageFailure(stageSkills) },
 			"claude", false},
 	}
 	for _, c := range cases {

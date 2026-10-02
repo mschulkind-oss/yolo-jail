@@ -354,6 +354,7 @@ func TestHostApplyJSONWithNoPacksIsStillADocument(t *testing.T) {
 	// that found nothing.
 	for _, want := range []string{
 		`"destinations": []`, `"groups": []`, `"inapplicable_kinds": []`, `"failed_packs": []`,
+		`"failed_stages": []`,
 	} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("the empty document is missing %s:\n%s", want, raw)

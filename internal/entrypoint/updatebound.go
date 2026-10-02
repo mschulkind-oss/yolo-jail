@@ -112,14 +112,20 @@ _shielded() {
 }
 
 # _say_not_updated WHAT RC is the one line an update act that did not succeed gets: interrupted,
-# timed out, or failed with RC. The launch goes on with what is installed either way.
+# timed out, or failed with RC, then what happens next. A launch goes on with what is installed.
+# Update mode ("yolo pack update", YOLO_PACK_UPDATE=1) runs nothing, so it says the installed
+# version stays and how to retry, where it said it was running it.
 _say_not_updated() {
+    local next="running the installed version."
+    if [ "${YOLO_PACK_UPDATE:-}" = "1" ]; then
+        next="the installed version stays. Run 'yolo pack update' again to retry."
+    fi
     if [ "$_YOLO_INTERRUPTED" = 1 ]; then
-        echo "  ⚠ $BIN: $1 interrupted (Ctrl-C) — running the installed version." >&2
+        echo "  ⚠ $BIN: $1 interrupted (Ctrl-C) — $next" >&2
     elif [ "$2" = 124 ]; then
-        echo "  ⚠ $BIN: $1 timed out after ${UPDATE_TIMEOUT}s — running the installed version." >&2
+        echo "  ⚠ $BIN: $1 timed out after ${UPDATE_TIMEOUT}s — $next" >&2
     else
-        echo "  ⚠ $BIN: $1 failed (status $2) — running the installed version." >&2
+        echo "  ⚠ $BIN: $1 failed (status $2) — $next" >&2
     fi
 }
 `

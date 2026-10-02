@@ -25,6 +25,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -161,14 +162,14 @@ type hostApplySurvey struct {
 	firstApply    bool
 	failedPacks   []string
 	// failures is everything this apply could not write, attributed to its packs, and
-	// unattributedFailure whether some stage failed where no pack can be named; loaded is the
-	// resolved pack set. See hostapplyfailures.go for the three readers.
+	// failedStages the stages that failed where no pack's render can be named (stageSkills, …);
+	// loaded is the resolved pack set. See hostapplyfailures.go for the three readers.
 	// replaced is every value of the user's this run replaces, with WHO replaced it — the
 	// remedy differs by winner (hostapplyremedy.go's replacedValueGroups).
-	replaced            []replacedValue
-	failures            []hostFailure
-	unattributedFailure bool
-	loaded              []*packload.Pack
+	replaced     []replacedValue
+	failures     []hostFailure
+	failedStages []string
+	loaded       []*packload.Pack
 	// floorStage is whether this run takes the host agent floor stage (applyHostFloor): set by
 	// the verb — `yolo host apply`, `yolo apply --at host` — and never by the launch gate's
 	// apply, because a launch installs the one agent it starts and removes nothing
@@ -720,13 +721,22 @@ func (s *hostApplySurvey) SkillNames(fate skillFate) []string {
 // UNPUBLISHED is a fourth number rather than folded into any of those: a program whose vendor
 // publishes no build for this host is probed (so not "not probed"), absent (so not "present") and
 // uninstallable (so not "missing", which is a blocker).
+//
+// PRESENT LEAVES OUT A PROGRAM yolo's floor will not install or could not (FloorBlockedDeps). The
+// pre-flight reads every program the floor answers for as present, the floor supplying it at the
+// next --assert or launch, and the floor stage, which runs after it, is what finds that it will
+// not, or did not. Counted present, it read "1 declared dependency present" under the verdict
+// saying the floor would not install it.
 func (s *hostApplySurvey) Deps() (present, missing, notProbed, unpublished int) {
 	if s == nil {
 		return 0, 0, 0, 0
 	}
-	for _, f := range s.deps {
+	for bin, f := range s.deps {
 		switch f.State {
 		case depPresent:
+			if s.floorBlocked(bin) {
+				continue
+			}
 			present++
 		case depMissing:
 			missing++
@@ -737,6 +747,32 @@ func (s *hostApplySurvey) Deps() (present, missing, notProbed, unpublished int) 
 		}
 	}
 	return present, missing, notProbed + s.depsNoBin, unpublished
+}
+
+// floorBlocked is whether yolo's floor will not install bin, or could not.
+func (s *hostApplySurvey) floorBlocked(bin string) bool {
+	return slices.Contains(s.floorRefused, bin) || slices.Contains(s.floorFailed, bin)
+}
+
+// FloorBlockedDeps names, sorted, the declared dependencies yolo's floor answers for and will not
+// install over a record a newer yolo wrote (refused), and those whose install an --assert tried and
+// failed (failed): the counts' terms for the programs Deps leaves out of present.
+func (s *hostApplySurvey) FloorBlockedDeps() (refused, failed []string) {
+	if s == nil {
+		return nil, nil
+	}
+	for bin, f := range s.deps {
+		switch {
+		case f.State != depPresent:
+		case slices.Contains(s.floorRefused, bin):
+			refused = append(refused, bin)
+		case slices.Contains(s.floorFailed, bin):
+			failed = append(failed, bin)
+		}
+	}
+	sort.Strings(refused)
+	sort.Strings(failed)
+	return refused, failed
 }
 
 // UnpublishedDeps names the absent binaries whose vendor publishes no build for this host,

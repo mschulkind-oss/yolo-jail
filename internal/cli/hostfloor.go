@@ -288,14 +288,12 @@ func applyHostFloor(pr richtext.Printer, out io.Writer, packs []*packload.Pack, 
 			// does not install over. The run still does not complete, so it exits 1.
 			pr.Printf("  [red]%-20s %s: will not install it: %s[/red]", "host_floor", p.Bin(),
 				richtext.Escape(err.Error()))
-			survey.noteUnattributedFailure()
-			survey.noteFloorRefused(p.Bin())
+			survey.noteFloorRefused(p.Bin()) // the verdict names it (hostApplyOutcome)
 			rc = 1
 			continue
 		}
 		if err != nil {
 			pr.Printf("  [red]%-20s %s: could not install it: %v[/red]", "host_floor", p.Bin(), err)
-			survey.noteUnattributedFailure()
 			survey.noteFloorFailed(p.Bin()) // the verdict names it (hostApplyOutcome)
 			rc = 1
 			continue

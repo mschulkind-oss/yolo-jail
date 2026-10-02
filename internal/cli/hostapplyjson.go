@@ -69,6 +69,9 @@ type hostApplyDoc struct {
 	// FailedPacks are the packs whose render errored. A blocker that decides the outcome, and
 	// the reason every count below may be missing a pack's worth of surfaces.
 	FailedPacks []string `json:"failed_packs"`
+	// FailedStages are the stages that failed where no pack's render can be named
+	// (stageSkills, …): a blocker that decides the outcome, `incomplete`.
+	FailedStages []string `json:"failed_stages"`
 	// UnresolvedPacks are the configured packs this run could not resolve, each with the
 	// resolver's reason. Non-empty means outcome `refused`: an --assert writes nothing.
 	UnresolvedPacks []unresolvedPack   `json:"unresolved_packs"`
@@ -137,6 +140,10 @@ type hostApplyDocCounts struct {
 	// DependenciesUnpublished counts the absent programs whose vendor publishes no build for this
 	// host: not missing (nothing could install them), so never a blocker.
 	DependenciesUnpublished int `json:"dependencies_unpublished"`
+	// DependenciesFloorRefused counts the programs yolo's floor answers for and will not install
+	// over a record a newer yolo wrote: not present, since nothing installs them until the user
+	// acts on the step the verdict names, so never in dependencies_present.
+	DependenciesFloorRefused int `json:"dependencies_floor_refused"`
 }
 
 // hostApplyDocDestination is one destination an --assert would alter.
@@ -180,6 +187,7 @@ func buildHostApplyDoc(s *hostApplySurvey) hostApplyDoc {
 	replacedKeys, replacedFiles := s.ReplacedValues()
 	droppedEntries, droppedFrom := s.DroppedEntries()
 	present, missing, notProbed, unpublished := s.Deps()
+	floorRefused, _ := s.FloorBlockedDeps()
 
 	doc := hostApplyDoc{
 		Version:    version.Get(""),
@@ -207,12 +215,14 @@ func buildHostApplyDoc(s *hostApplySurvey) hostApplyDoc {
 			DependenciesMissing:        missing,
 			DependenciesNotProbed:      notProbed,
 			DependenciesUnpublished:    unpublished,
+			DependenciesFloorRefused:   len(floorRefused),
 		},
 		// `[]`, never `null`, for every list: a consumer looping over one should not have to
 		// special-case the run that found nothing — which is the same rule that makes a
 		// zero-packs run emit a document at all rather than nothing (machine consumers).
 		InapplicableKinds: emptyIfNil(s.InapplicableKinds()),
 		FailedPacks:       emptyIfNil(s.FailedPacks()),
+		FailedStages:      emptyIfNil(s.StageFailures()),
 		UnresolvedPacks:   append([]unresolvedPack{}, s.UnresolvedPacks()...),
 		Destinations:      []hostApplyDocDestination{},
 		Groups:            []hostApplyDocGroup{},

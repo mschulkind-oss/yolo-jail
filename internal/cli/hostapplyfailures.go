@@ -63,13 +63,59 @@ func (s *hostApplySurvey) noteBrokenLink(packs []string, b entrypoint.BrokenLink
 	s.failures = append(s.failures, hostFailure{Packs: packs, What: b.Reason(), Link: &link})
 }
 
-// noteUnattributedFailure records that this run failed somewhere the survey cannot pin on a
-// pack — an overlay problem, a refused skills or briefing stage, the wrappers. It is what keeps
-// the launch gate conservative: a failure it cannot attribute is one it cannot call unrelated.
-func (s *hostApplySurvey) noteUnattributedFailure() {
-	if s != nil {
-		s.unattributedFailure = true
+// The stages of a host apply whose failure the survey cannot pin on one pack's render, each by
+// the word the verdict names it with. The stage's own line, above the verdict, says what failed
+// and its fix; the verdict says that the stage did, so an --assert that exited 1 over one never
+// ends "this home is up to date" (docs/reference/happy-path-principle.md, rule 5).
+const (
+	// stageDestinations: a pack's content has no destination in the selected set, so the pack
+	// renders nothing (reportInferredDestinations).
+	stageDestinations = "destinations"
+	// stageOverlays: a config-overlay or config-list contribution is malformed (packoverlay.Collect).
+	stageOverlays = "overlays"
+	// stageSkills: the skills destinations were not composed, migrated or pruned (applyHostSkills).
+	stageSkills = "skills"
+	// stageBriefing: the briefing destinations were not composed, migrated or pruned
+	// (applyHostBriefings).
+	stageBriefing = "briefing"
+	// stageRetire: a dropped pack's output was not retired (pruneDroppedPackOutput).
+	stageRetire = "retire"
+	// stageWrappers: the launch wrappers were not planned, written or cleared (applyHostWrappers).
+	stageWrappers = "wrappers"
+	// stageInputs: the host's derive inputs could not be composed (composeHostInputs). The apply
+	// refuses there, before the verdict, in a line of its own; the launch gate reads it.
+	stageInputs = "inputs"
+)
+
+// noteStageFailure records that stage failed. It reaches the verdict, which names the stage
+// (hostApplyOutcome), and it keeps the launch gate conservative: a failure it cannot attribute to
+// a pack is one it cannot call unrelated (splitLaunchFailures). A stage that fails twice is named
+// once.
+func (s *hostApplySurvey) noteStageFailure(stage string) {
+	if s == nil {
+		return
 	}
+	for _, have := range s.failedStages {
+		if have == stage {
+			return
+		}
+	}
+	s.failedStages = append(s.failedStages, stage)
+}
+
+// StageFailures names the stages that failed, in the order they ran.
+func (s *hostApplySurvey) StageFailures() []string {
+	if s == nil {
+		return nil
+	}
+	return s.failedStages
+}
+
+// unattributedFailure is whether this run failed somewhere no pack's render can be named for: a
+// stage, or the host agent floor (which the launch gate's apply never runs, so only a verb's
+// survey can hold one).
+func (s *hostApplySurvey) unattributedFailure() bool {
+	return len(s.StageFailures()) > 0 || len(s.FloorFailures()) > 0 || len(s.FloorRefusals()) > 0
 }
 
 // noteLoaded records the pack set this apply resolved, for the launch gate's relatedness test.
@@ -270,7 +316,7 @@ func splitLaunchFailures(s *hostApplySurvey, bin string) (related, unrelated []h
 			unrelated = append(unrelated, f)
 		}
 	}
-	return related, unrelated, len(related) > 0 || s.unattributedFailure
+	return related, unrelated, len(related) > 0 || s.unattributedFailure()
 }
 
 // reportLaunchFailures prints failures on the launch's stderr, each once with its fix — the same
