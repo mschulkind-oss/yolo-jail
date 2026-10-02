@@ -957,7 +957,7 @@ default bridge mode the browser callback cannot close, so each one is a manual p
 ([above](#the-login-flow-is-not-terminated--it-is-the-enrollment-path)). And every jail holds a
 refresh token, a standing grant on the same account, which the view keeps out of all of them.
 
-### A login lives about four weeks, however often it is refreshed
+### Two logins each lived about four weeks, however often they were refreshed
 
 MEASURED from the host broker's log, read 2026-10-02 (times EDT):
 
@@ -968,15 +968,17 @@ MEASURED from the host broker's log, read 2026-10-02 (times EDT):
 
 Each refusal is `400 invalid_grant`, `"error_description": "Refresh token expired"`, for the
 refresh token minted by the rotation in the same row, hours after it was minted. So the deadline
-belongs to the login, not to the refresh token in hand. These are two observations, not a
-documented rule.
+appears to belong to the login, not to the refresh token in hand (INFERRED). These are two
+observations, not a documented rule.
 
-On 2026-10-02 the access token from the 08:55 rotation expired at 16:55, and because every jail
-reads one file, every jail was logged out at once. Nothing surfaced the refusal in the thirty
-minutes before, since the broker's log has no reader ([above](#a-failed-spawn-reports-itself)).
-After the `/login` made at 17:12 that day, the shared file records `refreshTokenExpiresAt`, a
-field Claude writes and no yolo code sets: 2026-10-30 13:45, about 28 days on (MEASURED, that
-field read alone). So the next deadline is known in advance. No production code in `internal/`,
+On 2026-10-02 the access token from the 08:55 rotation expired at 16:55. From 16:50 to 17:09,
+Claude in three jails asked the broker for a refresh and was refused with the same
+`Refresh token expired` (MEASURED: three jail ids in the same log). Every jail reads the one file,
+so none had a login of its own to fall back on; the jails' own errors are not in this log. Nothing
+surfaced the refusal in the thirty minutes before, since the broker's log has no reader
+([above](#a-failed-spawn-reports-itself)). After the `/login` made at 17:12 that day, the shared
+file records `refreshTokenExpiresAt`, a field Claude writes and no production yolo code sets:
+2026-10-30 13:45, about 28 days on (MEASURED, that field read alone). So the next deadline is known in advance. No production code in `internal/`,
 `packs/` or `cmd/` reads it yet.
 
 What that does to each choice:
@@ -1019,9 +1021,13 @@ would read such a view or its Keychain is unmeasured, as measure M11 is for `mac
 **Not the maintainer's:** the phrase this question used to cite as yolo's ruling against a login
 per workspace, that re-authenticating in every workspace is *"wrong behavior, not an
 inconvenience"* (`linkSharedCredential` in [`packhooks.go`](../../internal/entrypoint/packhooks.go)).
-It entered on 2026-07-27, in the commit that made the machine tier pack data (`0ed497207`), as that
-commit's own reasoning. No maintainer words behind it were found, so the leaning does not rest on
-it.
+It entered on 2026-07-27 as a commit's own reasoning: `0ed497207`, which made the machine tier a
+per-agent registry field, wrote that it *"would be the wrong behavior rather than merely
+inconvenient"*, and `bbe84f1dd` gave the comment its present wording when the hook moved into the
+pack system later that day. No maintainer words behind it were found, so the leaning does not rest
+on it. Nor does an italic, unattributed *"we maintain claude auth across workspaces and jails"* in
+the plan that restored the machine tier the day before (`ae32c78e9`): nothing records whose words
+those are.
 
 ### The scripted seed does not change the arithmetic
 
