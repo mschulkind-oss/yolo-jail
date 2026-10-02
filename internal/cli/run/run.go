@@ -2465,6 +2465,16 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// And what it did not APPLY: a host-wide daemon's settings the config has changed since it
 	// started. Reported, never restarted, from an attach (noteSingletonSettingsDrift).
 	o.noteSingletonSettingsDrift(cfg)
+	// What the keeper records from here on is this session's to be shown at its quit (JL-D19).
+	//
+	// TAKEN BEFORE THE START RECORD IS READ (noteServicesDown, next), never after: the keeper
+	// writes a death's record before its line (recordServiceDown), so a death whose line is before
+	// this length is in the record that read finds, and one whose line is after it is this
+	// session's quit's. Taken after the read, with the channel delivery, the launch checks and the
+	// herdr registration between the two, a death recorded in that gap reached neither. The other
+	// way round, a death recorded between this stat and that read is named twice, by the notice
+	// and at the quit: two true lines, in a window two file reads wide, which no dedupe is worth.
+	logFrom := keeperLogSize(cname)
 	// And what its keeper recorded DOWN since the jail started (keeperwatch.go, JL-D19): the keeper
 	// restarts nothing, and this session was not in when it went, so its keeper's line never
 	// reached this terminal.
@@ -2554,8 +2564,6 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// booted from, as every host-side reader on an attach reads them; released once the exec
 	// returns, before the arm lets go.
 	o.registerHerdrAgent(view.staged.packs, o.Args)
-	// What the keeper records from here on is this session's to be shown at its quit (JL-D19).
-	logFrom := keeperLogSize(cname)
 	sp := o.Perf.Span("attach.exec")
 	rc, err := runArmedSession(runCmd, arm, o)
 	sp.End()
