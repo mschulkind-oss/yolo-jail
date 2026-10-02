@@ -20,9 +20,10 @@ package integration
 // the whole 20 s bound, 2 of 2 tries in a nested jail, for a keeper that was ending nothing. The
 // line saying so ("stays up for") is the pre-ready teardown's alone: when the goroutine wins, the
 // session's teardown runs, which does not say the jail stays up, as no session's signal teardown does.
-// So this test logs which teardown ran and requires only what both do; requiring the line failed a
-// fixed build on an arm64 CI runner, where the goroutine won one of two tries. The unit tier pins
-// each order on its own (internal/cli/run/keeperreadywindow_test.go).
+// So this test logs which teardown ran and requires only what both do; requiring the line failed
+// fixed builds on CI runners of both architectures, where the goroutine often wins, and so where
+// this test meets the defect above only on a try the arm wins. The unit tier pins each order on
+// its own (internal/cli/run/keeperreadywindow_test.go).
 //
 // EACH TRY IS A WORKSPACE OF ITS OWN. A nested podman sometimes cannot remove the jail's stopped
 // container after so quick a stop (the `openByHandleAt` failure the design's §4.4 records, seen in

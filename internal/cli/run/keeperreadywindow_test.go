@@ -252,8 +252,8 @@ func TestASIGINTInTheReadyWindowOfAnUncountedLaunchDoesNotWaitForADrain(t *testi
 // exits 130 at once, and the jail stays up for the other session, with its keeper. Like every
 // session's signal teardown it does not say the jail stays up, so the "stays up for" line is the
 // pre-ready teardown's alone, which is why integration/keeperreadywindow_test.go cannot require it:
-// on an arm64 CI runner the goroutine won one of two tries, and that try failed for want of the
-// line. Once this launch's count goes (at its exit, which the fake exit leaves to the test) and the
+// on CI runners of both architectures the goroutine often wins, and each such try failed for want
+// of the line. Once this launch's count goes (at its exit, which the fake exit leaves to the test) and the
 // other session leaves, the keeper ends the jail.
 func TestASIGINTAfterTheReadyRetargetEndsOnlyThatSession(t *testing.T) {
 	cname := "yolo-ready-window-retargeted"
