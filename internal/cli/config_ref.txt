@@ -6,6 +6,9 @@
   Format:   JSON with comments (JSONC)
   User defaults: ~/.config/yolo-jail/config.jsonc
   Local overrides: yolo-jail.local.jsonc (sibling, auto-merged when present)
+  .json spellings: yolo-jail.json and yolo-jail.local.json are read in place
+    of a missing .jsonc file of the same name.  Never create the .jsonc file
+    beside one: yolo reads it instead, and ignores the .json file.
 
   [bold]THE WORKSPACE IS THE DIRECTORY YOU RUN `yolo` IN[/bold], and it is
   bind-mounted [bold]read-write and LIVE[/bold] at [bold]/workspace[/bold].
@@ -1141,8 +1144,8 @@
     BACKENDS: enforced on podman.  Enforced on Apple Container from version
     1.1.0 (check with `container --version`); on an older version, or when
     yolo cannot read the version, a loud warning names the paths, which stay
-    writable.  The implicit yolo-jail.jsonc lock is lost there too, and the
-    warning does not mention it.  On macos-user there are no mounts
+    writable.  So does the workspace config file, which the key also locks,
+    and the warning does not mention it.  On macos-user there are no mounts
     at all, so entries are rendered as `(deny file-write* (subpath ...))` lines
     in the Seatbelt profile instead -- same policy, different mechanism.
 

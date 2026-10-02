@@ -55,6 +55,12 @@ Three layers merge, later wins:
 - `<workspace>/yolo-jail.local.jsonc` — gitignored per-machine tweaks
   (auto-merged when present).
 
+Either workspace file may be spelled `.json` instead (`yolo-jail.json`,
+`yolo-jail.local.json`), which yolo reads only when the `.jsonc` name is absent.
+Your briefing names the file this workspace uses. Edit that one: a new
+`yolo-jail.jsonc` beside a `yolo-jail.json` is read in its place, and every key
+in the `.json` file stops applying.
+
 Merge edge cases that surprise people:
 
 - Objects deep-merge; lists **union and de-dupe**.

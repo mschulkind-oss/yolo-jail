@@ -89,8 +89,8 @@ pinned commit once for every workspace. See
 - Three ways a project could reach your machine are refused: a loophole program in a project path
   with a space, a loophole installed from a `.json` project config, and a git pack address through
   a symlink.
-- A `yolo-jail.json` project config is now locked by `workspace_readonly`, and `yolo init` no longer
-  writes a second config file that replaces it.
+- A project's `yolo-jail.json` is now locked by `workspace_readonly`, and neither `yolo init` nor
+  the agent's briefing creates a second config file that replaces it.
 - A launch's "runs pack code on your machine" list no longer names loopholes that are switched off.
 - `yolo host apply` no longer empties Claude Code's `permissions.additionalDirectories`; add your
   folders back once.

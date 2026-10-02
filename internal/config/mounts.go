@@ -302,7 +302,7 @@ var rwBoundaryConsequence = map[paths.ScopeRootKind]string{
 //  2. Overlap with the workspace in either direction. Inside it, the mount is a second
 //     name for bytes the jail already writes at /workspace; containing it, it is a second
 //     writable path to the workspace that bypasses workspace_readonly, the overlay that
-//     locks yolo-jail.jsonc included.
+//     locks the workspace config file included.
 //
 // Clause 3 (macos-user: /var/yolo-jail and the sandbox home) is not here: it is a fact about
 // one backend's layout, judged by that backend's siting at launch (macosuser.SiteContextLinks,
@@ -328,7 +328,7 @@ func rwMountRefusal(source, workspace string) string {
 	case pathUnderOrEqual(ws, src):
 		return "the read-write source " + src + " contains the workspace " + ws +
 			": a second writable path to the workspace would bypass workspace_readonly, " +
-			"including the lock on yolo-jail.jsonc"
+			"including the lock on the workspace config file"
 	}
 	return ""
 }

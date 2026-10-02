@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
@@ -185,6 +186,22 @@ type BriefingInput struct {
 	// instead) and a hand-built input. Non-nil with no map (macos-user) renders the section
 	// with the durable answer alone.
 	Durable *DurableDir
+
+	// ConfigName is the workspace config file the briefing tells the agent to edit: the name
+	// the loader reads it under (config.ResolveWorkspaceConfigPath), so `yolo-jail.json` in a
+	// workspace that keeps that file. Empty means config.WorkspaceConfigName. The caller
+	// resolves it, as it reads the provisioning log: this function reads no file. Naming the
+	// `.jsonc` file beside a `yolo-jail.json` told the agent to create a file the next launch
+	// reads in its place, dropping every key the user's own file sets.
+	ConfigName string
+}
+
+// configName is the workspace config file name the briefing names (BriefingInput.ConfigName).
+func (in BriefingInput) configName() string {
+	if in.ConfigName != "" {
+		return in.ConfigName
+	}
+	return config.WorkspaceConfigName
 }
 
 // BriefingContent renders the jail-managed briefing body (before any host-level
@@ -808,7 +825,7 @@ func BriefingContent(in BriefingInput) string {
 		noSudoLine,
 		"",
 	)
-	lines = append(lines, packagesSection(in.Mechanism)...)
+	lines = append(lines, packagesSection(in.Mechanism, in.configName())...)
 	lines = append(lines,
 		"## Skills",
 		"",
@@ -817,7 +834,7 @@ func BriefingContent(in BriefingInput) string {
 		"writable — develop there, then ask the human to promote to the host.",
 		"",
 		"On-demand skills are staged for you: read **configuring-the-jail** before",
-		"editing `yolo-jail.jsonc`, and **diagnosing-the-jail** when a command",
+		"editing `"+in.configName()+"`, and **diagnosing-the-jail** when a command",
 		"misbehaves. Their bodies load only when invoked — they cost nothing until then.",
 		"",
 	)
@@ -842,12 +859,14 @@ func BriefingContent(in BriefingInput) string {
 // and spends the Environment bullet explaining that it means the real path on a native backend;
 // a second spelling here would fork the convention that bullet exists to establish, and this
 // section is not the one place an agent learns its paths.
-func packagesSection(mechanism string) []string {
+//
+// configName is the workspace config file the agent edits (BriefingInput.ConfigName).
+func packagesSection(mechanism, configName string) []string {
 	if MechanismHasNoContainer(mechanism) {
 		return []string{
 			"## Packages",
 			"",
-			"To request a tool: edit `/workspace/yolo-jail.jsonc` (`packages`), ALWAYS run",
+			"To request a tool: edit `/workspace/" + configName + "` (`packages`), ALWAYS run",
 			"`yolo check` after every config edit (`yolo check --no-build` is fine inside a",
 			"running jail), then ask the human to restart the jail. Reference: `yolo config-ref`.",
 			"⚠ `resources` is not enforced here — there is no container to cap, so a memory or",
@@ -859,7 +878,7 @@ func packagesSection(mechanism string) []string {
 	return []string{
 		"## Packages & Resource Limits",
 		"",
-		"To request a tool or a container-limit change: edit `/workspace/yolo-jail.jsonc`",
+		"To request a tool or a container-limit change: edit `/workspace/" + configName + "`",
 		"(`packages` / `resources`), ALWAYS run `yolo check` after every config edit",
 		"(`yolo check --no-build` is fine inside a running jail), then ask the human to",
 		"restart the jail. Reference: `yolo config-ref`.",

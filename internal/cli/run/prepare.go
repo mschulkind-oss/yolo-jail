@@ -207,6 +207,10 @@ func (o *Options) refreshJailBriefings(cname string, cfg *jsonx.OrderedMap, rt s
 		// never names a path the variable does not hold.
 		Durable: o.durable,
 	}
+	// THE CONFIG FILE THE AGENT IS TOLD TO EDIT is the one the loader reads
+	// (config.ResolveWorkspaceConfigPath): `yolo-jail.json` in a workspace that keeps that file,
+	// where naming `yolo-jail.jsonc` sent the agent to create a file read in its place.
+	_, in.ConfigName = config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
 	briefingBody := jailcontent.BriefingContent(in)
 	briefingBody = jailcontent.ComposeBriefing(briefingBody, cfgStr(cfg, "agents_md_extra"))
 

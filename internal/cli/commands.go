@@ -739,9 +739,9 @@ func hostDaemonAction(deps broker.CLIDeps, sub string, rest []string) int {
 const initUsage = `Usage: yolo init [--mount <path>]...
 
 Scaffold this workspace: write a commented yolo-jail.jsonc, append .yolo/ to
-.gitignore, and print the agent briefing. An existing yolo-jail.jsonc is never
-overwritten — re-running init on a configured workspace just reprints the
-briefing.
+.gitignore, and print the agent briefing. An existing yolo-jail.jsonc, or a
+yolo-jail.json kept in its place, is never overwritten or shadowed — re-running
+init on a configured workspace just reprints the briefing.
 
 Flags:
   --mount, -m <path>  Mount a host path read-only into the jail, at

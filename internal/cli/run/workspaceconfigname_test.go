@@ -88,6 +88,46 @@ func TestWorkspaceReadonlyLocksTheConfigFileTheLoaderReads(t *testing.T) {
 	}
 }
 
+// The jail briefing tells the agent to edit the workspace config the loader READS: following
+// "edit `/workspace/yolo-jail.jsonc`" in a workspace that keeps `yolo-jail.json` creates a file
+// the next launch reads in its place, dropping every key the user's own file sets. Driven
+// through refreshJailBriefings, the briefing's call site, and read back from the file an agent
+// reads.
+func TestBriefingNamesTheWorkspaceConfigTheLoaderReads(t *testing.T) {
+	for _, tc := range []struct {
+		files []string
+		want  string
+	}{
+		{[]string{"yolo-jail.json"}, "yolo-jail.json"},
+		{[]string{"yolo-jail.jsonc", "yolo-jail.json"}, "yolo-jail.jsonc"},
+		{nil, "yolo-jail.jsonc"},
+	} {
+		t.Run(strings.Join(append([]string{"with"}, tc.files...), " "), func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			ws := t.TempDir()
+			emptyLoopholeDirs(t)
+			for _, name := range tc.files {
+				if err := os.WriteFile(filepath.Join(ws, name), []byte(`{}`), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			briefing := appliedBriefing(t, appliedOptions(t, ws, home, false), "podman", appliedTestConfig())
+			if want := "edit `/workspace/" + tc.want + "`"; !strings.Contains(briefing, want) {
+				t.Errorf("the briefing does not say %q:\n%s", want, briefing)
+			}
+			if want := "editing `" + tc.want + "`"; !strings.Contains(briefing, want) {
+				t.Errorf("the briefing does not say %q:\n%s", want, briefing)
+			}
+			if other := map[string]string{"yolo-jail.json": "yolo-jail.jsonc",
+				"yolo-jail.jsonc": "yolo-jail.json"}[tc.want]; strings.Contains(briefing, "`/workspace/"+other+"`") {
+				t.Errorf("the briefing names /workspace/%s, which is not the file the loader reads here:\n%s",
+					other, briefing)
+			}
+		})
+	}
+}
+
 // The same-file preset/null refusal reads the workspace config the loader read: a
 // `yolo-jail.json` that enables a preset and null-removes it is refused, at its own line.
 func TestLaunchPresetNullRefusalReadsTheJSONWorkspaceConfig(t *testing.T) {
