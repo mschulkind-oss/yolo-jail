@@ -874,9 +874,8 @@ Subcommands:
                     launch, and no jail can read it.
 
 Flags for ` + "`enable`" + ` and ` + "`disable`" + `:
-  --workspace <path>  The workspace to switch. Default: the current workspace, the
-                      nearest folder at or above here holding a yolo-jail.jsonc or
-                      a launch's .yolo, else this folder.
+  --workspace <path>  The workspace to switch. Default: this folder, the workspace
+                      a launch here uses.
   --global            Every workspace instead: print the ` + "`loopholes`" + ` block to add
                       to ~/.config/yolo-jail/config.jsonc, write nothing, and exit 1.
                       A loophole that runs a host login's commands (one whose
@@ -959,10 +958,12 @@ func runLoopholes(args []string) int {
 
 // parseSetEnabledArgs reads `yolo loopholes enable|disable`'s argv after the verb: the
 // loophole's name, `--workspace <path>` (or `--workspace=<path>`) and `--global`. The
-// workspace defaults to the current workspace root as `yolo config`'s verbs find it (the
-// nearest folder at or above the working directory with a workspace config or a launch's
-// `.yolo/config-boot.json`), else the working directory, and is returned absolute with its
-// symlinks resolved. problem is the usage error, "" when there is none.
+// workspace defaults to the working directory, which is the workspace a launch made here uses
+// (run.Run's own default), and is returned absolute with its symlinks resolved. It is NOT
+// `yolo config`'s walk up to the nearest marked folder: the per-workspace file matches its
+// exact folder, so a switch written for a parent would not reach a launch made here, and a
+// `disable` here would miss the switch that launch reads. A leading `~/` is expanded, since
+// bash leaves it in `--workspace=~/x`. problem is the usage error, "" when there is none.
 func parseSetEnabledArgs(args []string) (name string, opts loopholes.SetEnabledOptions, problem string) {
 	workspace := ""
 	for i := 0; i < len(args); i++ {
@@ -1000,12 +1001,15 @@ func parseSetEnabledArgs(args []string) (name string, opts loopholes.SetEnabledO
 	if opts.Global && workspace != "" {
 		return "", opts, "pass --global or --workspace, not both: they name every workspace, or one"
 	}
-	if workspace == "" {
-		if ws, ok := resolveWorkspaceRoot(); ok {
-			workspace = ws
-		} else if wd, err := os.Getwd(); err == nil {
+	switch {
+	case workspace == "":
+		if wd, err := os.Getwd(); err == nil {
 			workspace = wd
 		}
+	case workspace == "~":
+		workspace = paths.Home()
+	case strings.HasPrefix(workspace, "~/"):
+		workspace = filepath.Join(paths.Home(), workspace[2:])
 	}
 	if abs, err := filepath.Abs(workspace); err == nil {
 		workspace = abs

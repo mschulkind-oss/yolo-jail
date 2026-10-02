@@ -54,6 +54,10 @@ type Deps struct {
 	// WriteSwitch writes one switch into a workspace's per-workspace file and returns the file
 	// (config.SetWorkspaceLoophole).
 	WriteSwitch func(workspace, name string, enabled bool) (string, error)
+	// RemoveSwitch takes one switch out of a workspace's per-workspace file, returning the file
+	// and whether it held the switch (config.RemoveWorkspaceLoophole): `disable` of a loophole
+	// no longer installed.
+	RemoveSwitch func(workspace, name string) (string, bool, error)
 }
 
 // RealDeps returns Deps backed by the real filesystem/config loaders.
@@ -85,6 +89,7 @@ func RealDeps() Deps {
 		LaunchConfig:      config.JailLaunchConfig,
 		HostDir:           os.Getenv("YOLO_HOST_DIR"),
 		WriteSwitch:       config.SetWorkspaceLoophole,
+		RemoveSwitch:      config.RemoveWorkspaceLoophole,
 	}
 }
 
@@ -204,19 +209,25 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) Set {
 			}
 		}
 	}
-	// IN A JAIL, a brokered loophole's switch is the per-workspace file's alone, which lives on
-	// the host and never crosses; the config the host launched this jail with holds its value,
-	// so that is what this jail's own listing reports (config.JailLaunchConfig). Without it a
-	// broker the jail is using would list as disabled.
+	// IN A JAIL, the per-workspace file lives on the host and never crosses, and it may switch
+	// any loophole: a brokered one's switch is its alone, and any other's it overrides. The
+	// config the host launched this jail with holds the values that decided, so each loophole it
+	// switches lists as it says (config.JailLaunchConfig). Without it a broker the jail is using
+	// would list as disabled, and a loophole the per-workspace file turned off as the inherited
+	// user config has it, on.
 	if deps.InJail && deps.LaunchConfig != nil {
 		if lc, ok := deps.LaunchConfig(deps.Cwd); ok {
 			block, _ := getMap(lc, "loopholes")
-			for name, info := range known {
-				if info.Brokered == nil {
-					continue
-				}
-				if v, set := ConfigEnabledOverride(block, name); set {
-					setConfigEnabled(merged, name, v)
+			if block != nil {
+				for _, name := range block.Keys() {
+					_, isKnown := known[name]
+					_, inMerged := merged.Get(name)
+					if !isKnown && !inMerged {
+						continue
+					}
+					if v, set := ConfigEnabledOverride(block, name); set {
+						setConfigEnabled(merged, name, v)
+					}
 				}
 			}
 		}
@@ -447,14 +458,15 @@ type SetEnabledOptions struct {
 // in a folder no jail can read, and a jail's own folder would govern only launches made inside
 // it, which is not what someone typing this in a jail means.
 //
+// A name `yolo loopholes list` does not show is refused, `--global` included, except that
+// `disable` of one takes its switch out of the per-workspace file when the file still holds it:
+// the trace of a deselected pack, which nothing else could clear.
+//
 // It never writes a manifest either (TestSetEnabledNeverWritesAManifest): after OQ-A9 a
 // manifest carries the pack author's default, not the user's answer.
 func CmdSetEnabled(deps Deps, name string, enabled bool, opts SetEnabledOptions) int {
 	verb := verbFor(enabled)
-	if opts.Global {
-		return setEnabledGlobally(deps, name, enabled)
-	}
-	if deps.InJail {
+	if deps.InJail && !opts.Global {
 		fmt.Fprintf(deps.Err, "yolo loopholes %s: this is a jail, and a per-workspace switch is "+
 			"made on the host, in a folder no jail can read.\n", verb)
 		if deps.HostDir != "" && config.IsJailOwnWorkspace(opts.Workspace) {
@@ -467,29 +479,32 @@ func CmdSetEnabled(deps Deps, name string, enabled bool, opts SetEnabledOptions)
 		return 1
 	}
 	// The names `yolo loopholes list` shows, so the refusal's next step lists exactly what
-	// this command accepts.
-	installed := false
+	// this command accepts. Checked before `--global` too, whose block for a name nothing
+	// installs would be one the launch warns about or, once a pack ships it, refuses.
+	var found *Loophole
 	for _, lp := range loopholesWithConfig(deps, true).All() {
 		if lp.Name == name {
-			installed = true
+			found = lp
 		}
 	}
-	if !installed {
+	if found == nil {
+		if !enabled && !opts.Global {
+			// A switch for a loophole whose pack was deselected since: `yolo check` warns about
+			// it, and this is the command that clears it.
+			if rc, handled := clearUninstalledSwitch(deps, name, opts.Workspace); handled {
+				return rc
+			}
+		}
 		fmt.Fprintf(deps.Err, "yolo loopholes %s: no loophole named %q is installed on this "+
 			"machine. `yolo loopholes list` shows the ones that are; a pack you select in %s "+
 			"installs its own.\n", verb, name, paths.UserConfigPath())
 		return 1
 	}
-	ws := opts.Workspace
-	if breach := paths.WorkspaceScopeBreach(ws); breach != nil {
-		fmt.Fprintf(deps.Err, "yolo loopholes %s: %s, and no launch may use it as a workspace. "+
-			"cd into the project, or name it: %s\n", verb, breach.What(),
-			setEnabledCommand(enabled, name, "<project>"))
-		return 1
+	if opts.Global {
+		return setEnabledGlobally(deps, name, enabled, found.Brokered != nil)
 	}
-	if fi, err := os.Stat(ws); err != nil || !fi.IsDir() {
-		fmt.Fprintf(deps.Err, "yolo loopholes %s: %s is not a folder, so it cannot be a workspace. "+
-			"Name the project's folder with --workspace, or cd into it.\n", verb, ws)
+	ws := opts.Workspace
+	if !workspaceUsable(deps, verb, name, enabled, ws) {
 		return 1
 	}
 	write := deps.WriteSwitch
@@ -510,19 +525,59 @@ func CmdSetEnabled(deps Deps, name string, enabled bool, opts SetEnabledOptions)
 	return 0
 }
 
+// workspaceUsable reports whether ws can carry a per-workspace switch, and refuses with the next
+// step when it cannot: a folder no launch may use as a workspace, or no folder at all.
+func workspaceUsable(deps Deps, verb, name string, enabled bool, ws string) bool {
+	if breach := paths.WorkspaceScopeBreach(ws); breach != nil {
+		fmt.Fprintf(deps.Err, "yolo loopholes %s: %s, and no launch may use it as a workspace. "+
+			"cd into the project, or name it: %s\n", verb, breach.What(),
+			setEnabledCommand(enabled, name, "<project>"))
+		return false
+	}
+	if fi, err := os.Stat(ws); err != nil || !fi.IsDir() {
+		fmt.Fprintf(deps.Err, "yolo loopholes %s: %s is not a folder, so it cannot be a workspace. "+
+			"Name the project's folder with --workspace, or cd into it.\n", verb, ws)
+		return false
+	}
+	return true
+}
+
+// clearUninstalledSwitch is `disable` of a name no loophole on this machine answers to: when the
+// workspace's per-workspace file still holds a switch for it, it takes the switch out and says
+// so. handled is false when there is no such switch, and the caller refuses the name as before.
+func clearUninstalledSwitch(deps Deps, name, ws string) (rc int, handled bool) {
+	if paths.WorkspaceScopeBreach(ws) != nil {
+		return 0, false
+	}
+	if fi, err := os.Stat(ws); err != nil || !fi.IsDir() {
+		return 0, false
+	}
+	remove := deps.RemoveSwitch
+	if remove == nil {
+		remove = config.RemoveWorkspaceLoophole
+	}
+	path, removed, err := remove(ws, name)
+	if err != nil {
+		fmt.Fprintf(deps.Err, "yolo loopholes disable: %v\n", err)
+		return 1, true
+	}
+	if !removed {
+		return 0, false
+	}
+	fmt.Fprintf(deps.Out, "%s is not installed on this machine, so its switch for %s is removed "+
+		"from %s; it stays off there.\n", name, ws, path)
+	return 0, true
+}
+
 // setEnabledGlobally is `--global`: the user-config block that switches name for every
 // workspace, printed to paste, never written (OQ-BB12), and exit 1, since nothing changed. A
 // brokered loophole has none (OQ-BB13), so it names the per-project command instead.
-func setEnabledGlobally(deps Deps, name string, enabled bool) int {
-	for _, lp := range loopholesWithConfig(Deps{Out: io.Discard, Err: io.Discard, Cwd: deps.Cwd,
-		InJail: deps.InJail, LoadUserConfig: deps.LoadUserConfig,
-		LoadWorkspaceConfig: deps.LoadWorkspaceConfig}, true).All() {
-		if lp.Name == name && lp.Brokered != nil {
-			fmt.Fprintf(deps.Err, "yolo loopholes %s --global: %s runs a host login's commands for a "+
-				"jail, so it is switched one project at a time and has no every-project switch. Run "+
-				"`yolo loopholes %s %s` in each project instead.\n", verbFor(enabled), name, verbFor(enabled), name)
-			return 1
-		}
+func setEnabledGlobally(deps Deps, name string, enabled, brokered bool) int {
+	if brokered {
+		fmt.Fprintf(deps.Err, "yolo loopholes %s --global: %s runs a host login's commands for a "+
+			"jail, so it is switched one project at a time and has no every-project switch. Run "+
+			"`yolo loopholes %s %s` in each project instead.\n", verbFor(enabled), name, verbFor(enabled), name)
+		return 1
 	}
 	fmt.Fprintf(deps.Err,
 		"yolo loopholes %s --global writes nothing: yolo does not edit your user config.\n"+

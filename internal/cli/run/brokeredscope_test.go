@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // brokeredFixture records one brokered pack loophole whose "daemon" copies the scope file
@@ -97,20 +98,25 @@ func TestADeclineNamesTheNextStep(t *testing.T) {
 	}{
 		{"scope only", false, gbOn(),
 			[]string{"Repository scope changes rejected; nothing was recorded. Exiting.",
-				"To launch this project without gb, run `yolo loopholes disable gb` here"},
-			[]string{"The workspace config change is in"}},
+				"To launch this project without gb, run `yolo loopholes disable gb --workspace <ws>`"},
+			[]string{"The workspace config change is in", " here"}},
 		{"config and scope", true, gbOn(),
-			[]string{"Config changes rejected; nothing was recorded. Exiting.",
+			[]string{"Workspace config and repository scope changes rejected; nothing was recorded. Exiting.",
 				"The workspace config change is in ", "yolo-jail.jsonc: undo it there, or answer y at the next launch, which asks again.",
-				"run `yolo loopholes disable gb` here"},
-			nil},
+				"run `yolo loopholes disable gb --workspace <ws>`"},
+			[]string{" here"}},
 		{"config only", true, jsonx.NewOrderedMap(),
 			[]string{"Config changes rejected; nothing was recorded. Exiting.",
 				"yolo-jail.jsonc: undo it there, or answer y at the next launch, which asks again."},
-			[]string{"yolo loopholes disable"}},
+			[]string{"yolo loopholes disable", "repository scope changes"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			o, buf, _ := brokeredFixture(t)
+			// The disable step names the workspace, so it works from wherever it is pasted: a
+			// next step saying "here" sent a reader who had moved to another folder after it.
+			for i := range c.want {
+				c.want[i] = strings.ReplaceAll(c.want[i], "<ws>", shquote.QuoteDisplay(o.Workspace))
+			}
 			o.IsTTYStdin = func() bool { return true }
 			o.Stdin = strings.NewReader("n\n")
 			ws := jsonx.NewOrderedMap()
@@ -131,7 +137,7 @@ func TestADeclineNamesTheNextStep(t *testing.T) {
 			}
 			for _, not := range c.not {
 				if strings.Contains(out, not) {
-					t.Errorf("the decline says %q, about a part that did not change:\n%s", not, out)
+					t.Errorf("the decline says %q, which it must not:\n%s", not, out)
 				}
 			}
 			if _, err := os.Stat(config.ApprovalScopePath(o.Workspace)); !os.IsNotExist(err) {

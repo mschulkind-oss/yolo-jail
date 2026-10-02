@@ -285,11 +285,14 @@ func TestABrokeredLoopholeIsSwitchedOnlyByTheWorkspaceFile(t *testing.T) {
 		}
 	})
 	t.Run("workspace config", func(t *testing.T) {
-		for _, name := range []string{WorkspaceConfigName, WorkspaceLocalConfigName} {
+		// Every name the loader reads a workspace config under, the `.json` fallbacks included:
+		// a refusal pass that read only the `.jsonc` names let a `.json` file switch the broker.
+		for _, name := range []string{WorkspaceConfigName, WorkspaceLocalConfigName,
+			"yolo-jail.json", "yolo-jail.local.json"} {
 			_, _, ws := workspaceFileHome(t, "app")
 			write(t, filepath.Join(ws, name), `{"loopholes": {"github-broker": {"enabled": false}}}`)
 			errs, warns := validate(ws)
-			for _, want := range []string{name, "`yolo loopholes disable github-broker`", "agent can edit"} {
+			for _, want := range []string{filepath.Join(ws, name) + ",", "`yolo loopholes disable github-broker`", "agent can edit"} {
 				if !strings.Contains(errs, want) {
 					t.Errorf("%s: the refusal does not say %q:\n%s", name, want, errs)
 				}
@@ -302,6 +305,10 @@ func TestABrokeredLoopholeIsSwitchedOnlyByTheWorkspaceFile(t *testing.T) {
 			if strings.Contains(jerrs, "agent can edit") || !strings.Contains(jwarns, "agent can edit") {
 				t.Errorf("%s in a jail: errors %q warnings %q, want the refusal as a warning", name, jerrs, jwarns)
 			}
+			// The command refuses in a jail, so the step says where it runs rather than "here".
+			if strings.Contains(jwarns, "` here") || !strings.Contains(jwarns, "on the host, in this project") {
+				t.Errorf("%s in a jail: the step does not say to run the command on the host:\n%s", name, jwarns)
+			}
 		}
 	})
 	t.Run("per-workspace file", func(t *testing.T) {
@@ -313,4 +320,114 @@ func TestABrokeredLoopholeIsSwitchedOnlyByTheWorkspaceFile(t *testing.T) {
 			t.Errorf("the per-workspace file's switch was refused:\n%s", errs)
 		}
 	})
+}
+
+// TestAWorkspaceConfigSavedAsJSONIsHeldToTheWorkspaceScope: the loader reads a workspace config
+// saved as yolo-jail.json or yolo-jail.local.json when no `.jsonc` of that name exists, so the
+// scope pass reads the same file. An inline `command` there is an install, which is user-scope
+// only, and the refusal names the file it is in.
+func TestAWorkspaceConfigSavedAsJSONIsHeldToTheWorkspaceScope(t *testing.T) {
+	for _, name := range []string{"yolo-jail.json", "yolo-jail.local.json"} {
+		_, _, ws := workspaceFileHome(t, "app")
+		write(t, filepath.Join(ws, name), `{"loopholes": {"pwn": {"command": ["/bin/sh", "-c", "true"]}}}`)
+		cfg, err := LoadConfig(ws, true, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		errs, _ := ValidateConfig(cfg, ws, fakeResolver{})
+		joined := strings.Join(errs, "\n")
+		for _, want := range []string{"installing is user-scope only", filepath.Join(ws, name) + " is agent-editable"} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("%s: an inline install was not refused naming the file (%q):\n%s", name, want, joined)
+			}
+		}
+		if origins := WorkspaceLoopholeOrigins(ws)["pwn"]; len(origins) != 1 || origins[0] != filepath.Join(ws, name) {
+			t.Errorf("%s: the entry's origin is %v, want the file it is in", name, origins)
+		}
+	}
+}
+
+// TestASwitchForALoopholeNoLongerInstalledNamesTheCommandThatClearsIt: once the pack that ships a
+// loophole is deselected, the per-workspace file's switch for it names nothing, and the warning
+// says so. The file is yolo's, written by a command, so the warning names the command that
+// takes the switch out rather than leaving the reader to edit it.
+func TestASwitchForALoopholeNoLongerInstalledNamesTheCommandThatClearsIt(t *testing.T) {
+	_, _, ws := workspaceFileHome(t, "app")
+	if _, err := SetWorkspaceLoophole(ws, "github-broker", true); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(ws, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, warns := ValidateConfig(cfg, ws, fakeResolver{})
+	hits := containing(warns, "no loophole named 'github-broker'")
+	if len(hits) != 1 {
+		t.Fatalf("warnings = %v, want the one uninstalled-loophole warning", warns)
+	}
+	for _, want := range []string{WorkspaceFilePath(ws), "`yolo loopholes disable github-broker --workspace " + ws + "`"} {
+		if !strings.Contains(hits[0], want) {
+			t.Errorf("the warning does not say %q:\n%s", want, hits[0])
+		}
+	}
+}
+
+// TestRemoveWorkspaceLoopholeTakesOneSwitchOut: the writer `disable` uses for a loophole no
+// longer installed keeps the file's other switches, deletes a file left with none, and reports
+// whether it held the switch.
+func TestRemoveWorkspaceLoopholeTakesOneSwitchOut(t *testing.T) {
+	_, _, ws := workspaceFileHome(t, "app")
+	for _, name := range []string{"github-broker", "journal"} {
+		if _, err := SetWorkspaceLoophole(ws, name, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path, removed, err := RemoveWorkspaceLoophole(ws, "github-broker")
+	if err != nil || !removed || path != WorkspaceFilePath(ws) {
+		t.Fatalf("remove = %s, %v, %v", path, removed, err)
+	}
+	if got := ReadWorkspaceFile(ws).Switches(); got != "journal on" {
+		t.Errorf("after removing one switch the file says %q", got)
+	}
+	if _, removed, err := RemoveWorkspaceLoophole(ws, "github-broker"); err != nil || removed {
+		t.Errorf("a second remove = %v, %v, want nothing removed", removed, err)
+	}
+	if _, removed, err := RemoveWorkspaceLoophole(ws, "journal"); err != nil || !removed {
+		t.Fatalf("remove journal = %v, %v", removed, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("a file left with no switch was kept: %v", err)
+	}
+}
+
+// TestOneFolderUnderTwoSpellingsHasOneWorkspaceFile: on a case-insensitive file system (macOS's
+// default), `~/Code/App` and `~/code/app` are one folder, and symlink resolution keeps each name
+// as typed, so the file is named by the folder's own spelling of each name: a switch made under
+// one spelling reaches a launch made under the other. On a case-sensitive file system the two are
+// two folders, and the spelling is left as it is.
+func TestOneFolderUnderTwoSpellingsHasOneWorkspaceFile(t *testing.T) {
+	_, _, ws := workspaceFileHome(t, "App")
+	other := filepath.Join(filepath.Dir(ws), "app")
+	a, errA := os.Stat(ws)
+	b, errB := os.Stat(other)
+	if errA != nil || errB != nil || !os.SameFile(a, b) {
+		if got := canonicalCase(ws); got != ws {
+			t.Errorf("on a case-sensitive file system the spelling changed: %s -> %s", ws, got)
+		}
+		t.Skip("this file system is case-sensitive, so the two spellings are two folders; " +
+			"the case-insensitive arm runs on macOS")
+	}
+	if got := canonicalCase(other); got != ws {
+		t.Errorf("the folder's own spelling of %s is %s, want %s", other, got, ws)
+	}
+	if WorkspaceFilePath(other) != WorkspaceFilePath(ws) {
+		t.Errorf("two spellings name two files: %s and %s", WorkspaceFilePath(other), WorkspaceFilePath(ws))
+	}
+	if _, err := SetWorkspaceLoophole(other, "github-broker", false); err != nil {
+		t.Fatal(err)
+	}
+	wf := ReadWorkspaceFile(ws)
+	if wf == nil || !wf.Applies || wf.Switches() != "github-broker off" {
+		t.Fatalf("a switch made under %s does not reach %s: %+v", other, ws, wf)
+	}
 }

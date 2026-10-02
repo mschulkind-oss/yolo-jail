@@ -28,7 +28,15 @@ func TestSetEnabledGlobalPrintsTheConfigKeyAndWritesNothing(t *testing.T) {
 		value   string
 	}{{true, "enable", "true"}, {false, "disable", "false"}} {
 		var out, errBuf bytes.Buffer
-		deps := Deps{Out: &out, Err: &errBuf, Cwd: home}
+		// myhole is installed (inline, in the user config): `--global` refuses a name nothing
+		// installs, as the per-workspace form does.
+		deps := Deps{Out: &out, Err: &errBuf, Cwd: home, LoadUserConfig: func() *jsonx.OrderedMap {
+			m, err := json5.Decode([]byte(`{"loopholes": {"myhole": {"command": ["/bin/true"]}}}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return m.(*jsonx.OrderedMap)
+		}}
 		rc := CmdSetEnabled(deps, "myhole", tc.enabled, SetEnabledOptions{Workspace: home, Global: true})
 		if rc != 1 {
 			t.Errorf("%s rc = %d, want 1 — the command did not do what was asked", tc.verb, rc)

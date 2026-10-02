@@ -37,8 +37,9 @@ There is no switch that turns the broker on for every project.
 
 ### Only in some projects
 
-The broker runs only in the projects you turned it on in. To take it out of one again, run
-`yolo loopholes disable github-broker` there. To name a project from another folder, add
+The broker runs only in the projects you turned it on in. The command switches the folder you
+run it in, which is the project a `yolo` started there opens. To take the broker out of one again,
+run `yolo loopholes disable github-broker` there. To name a project from another folder, add
 `--workspace`, as in `yolo loopholes enable github-broker --workspace ~/code/app`.
 
 A project's own config can't turn the broker on or off: `yolo check` and the launch refuse a
@@ -47,7 +48,8 @@ those files, and they refuse one in your user config too. A jail can't read the 
 writes, so an agent in the jail can't change it either.
 
 If you answer `N` at the repository prompt, the launch stops and names
-`yolo loopholes disable github-broker`, which starts that project without the broker.
+`yolo loopholes disable github-broker`, which keeps the broker out of that project's next launch,
+so it no longer asks.
 
 ## The repositories it can reach
 

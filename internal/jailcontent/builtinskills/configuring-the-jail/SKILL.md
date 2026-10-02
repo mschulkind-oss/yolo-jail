@@ -39,6 +39,12 @@ runtimes: it avoids the rebuild entirely. When you touch `packages` (or trigger
 vaapi), say so in your handoff — on the yolo-jail dev repo a rebuild also needs
 a host `just load`.
 
+One loophole kind is not yours to switch: one whose manifest declares
+`brokered` (the github pack's `github-broker`) is turned on per project, by the
+human, on the host. Its `enabled` in `yolo-jail.jsonc` is only a `[WARN]` in
+here but refuses the next host launch, so don't write it; ask the human to run
+`yolo loopholes enable <name>` on the host, in this project.
+
 ### Which file — and how the layers merge
 
 Three layers merge, later wins:

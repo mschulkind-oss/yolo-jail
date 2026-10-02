@@ -74,20 +74,24 @@ func TestLoopholesListReadsThePerWorkspaceFileLast(t *testing.T) {
 	}
 }
 
-// TestInAJailABrokeredLoopholeListsAsTheHostLaunchedIt: in a jail the per-workspace file is never
-// readable, so a broker the jail is using reads as on from the config the host launched it with;
-// nothing that is not brokered takes its switch from there.
-func TestInAJailABrokeredLoopholeListsAsTheHostLaunchedIt(t *testing.T) {
+// TestInAJailEveryLoopholeListsAsTheHostLaunchedIt: in a jail the per-workspace file is never
+// readable, and it switches any loophole, not only a brokered one, so each loophole the config the
+// host launched this jail with switches lists as that config has it. A broker the jail is using
+// reads as on; a loophole the user config enables and the per-workspace file turned off for this
+// workspace reads as off, as the host started it, rather than as the inherited user config says.
+func TestInAJailEveryLoopholeListsAsTheHostLaunchedIt(t *testing.T) {
 	unsetJail(t)
 	brokeredModule(t)
 	var out, errBuf bytes.Buffer
-	deps := cmdDeps(t, &out, &errBuf, "", "")
-	launched, err := json5.Decode([]byte(`{"loopholes": {"gb": {"enabled": true}, "plain": {"enabled": true}}}`))
+	// The user scope a jail inherits is composed without the per-workspace file, so it still
+	// carries the user config's own switch of plain.
+	deps := cmdDeps(t, &out, &errBuf, `{"loopholes": {"plain": {"enabled": true}}}`, "")
+	launched, err := json5.Decode([]byte(`{"loopholes": {"gb": {"enabled": true}, "plain": {"enabled": false}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	deps.LaunchConfig = func(string) (*jsonx.OrderedMap, bool) { return launched.(*jsonx.OrderedMap), true }
-	if got := listedEnabled(t, deps); got["gb"] {
+	if got := listedEnabled(t, deps); got["gb"] || !got["plain"] {
 		t.Fatalf("on the host the launch config was read: %v", got)
 	}
 	deps.InJail = true
@@ -96,6 +100,6 @@ func TestInAJailABrokeredLoopholeListsAsTheHostLaunchedIt(t *testing.T) {
 		t.Errorf("in the jail the broker its host launched reads as off: %v", got)
 	}
 	if got["plain"] {
-		t.Errorf("a loophole that is not brokered took its switch from the launch config: %v", got)
+		t.Errorf("in the jail a loophole the host started off reads as on: %v", got)
 	}
 }

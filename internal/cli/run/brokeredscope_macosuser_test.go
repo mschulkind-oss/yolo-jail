@@ -12,6 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // brokerLaunch is one launch of a workspace with a GitHub remote, through Run itself, with the
@@ -96,7 +97,7 @@ func TestOnlyAWorkspaceSwitchedOnStartsTheBroker(t *testing.T) {
 				"reached=%v\n%s", l.rc, l.reached, l.out)
 		}
 		for _, want := range []string{"github-broker repository scope, read from", `+ o/r  remote "origin"  added`,
-			"--accept-config-changes", "`yolo loopholes disable github-broker`"} {
+			"--accept-config-changes", "`yolo loopholes disable github-broker --workspace " + shquote.QuoteDisplay(ws) + "`"} {
 			if !strings.Contains(l.out, want) {
 				t.Errorf("the refusal does not show %q:\n%s", want, l.out)
 			}
@@ -136,19 +137,45 @@ func TestOnlyAWorkspaceSwitchedOnStartsTheBroker(t *testing.T) {
 			t.Errorf("the refusal does not name the command that switches it per project:\n%s", l.out)
 		}
 	})
-	t.Run("switched in the workspace config", func(t *testing.T) {
+	// Every name the loader reads a workspace config under: the `.json` spellings are read
+	// when no `.jsonc` of the name exists, and were once merged without being refused.
+	for _, name := range []string{"yolo-jail.jsonc", "yolo-jail.local.jsonc", "yolo-jail.json", "yolo-jail.local.json"} {
+		t.Run("switched in "+name, func(t *testing.T) {
+			_, ws, run := launchWithGitHub(t, "")
+			if err := os.WriteFile(filepath.Join(ws, name),
+				[]byte(`{"loopholes": {"github-broker": {"enabled": true}}}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			l := run()
+			if l.rc == 0 || l.reached {
+				t.Fatalf("a workspace switch of a brokered loophole launched: rc %d\n%s", l.rc, l.out)
+			}
+			if !strings.Contains(l.out, "never by "+filepath.Join(ws, name)+",") ||
+				!strings.Contains(l.out, "`yolo loopholes enable github-broker`") {
+				t.Errorf("the refusal does not name the file and the command:\n%s", l.out)
+			}
+			if strings.Contains(l.out, "repository scope") {
+				t.Errorf("the refused switch put the broker in play:\n%s", l.out)
+			}
+		})
+	}
+	t.Run("an install in yolo-jail.local.json", func(t *testing.T) {
 		_, ws, run := launchWithGitHub(t, "")
-		if err := os.WriteFile(filepath.Join(ws, "yolo-jail.local.jsonc"),
-			[]byte(`{"loopholes": {"github-broker": {"enabled": true}}}`), 0o644); err != nil {
+		marker := filepath.Join(t.TempDir(), "ran")
+		if err := os.WriteFile(filepath.Join(ws, "yolo-jail.local.json"),
+			[]byte(`{"loopholes": {"pwn": {"command": ["/bin/sh", "-c", "touch `+marker+`"]}}}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		l := run()
 		if l.rc == 0 || l.reached {
-			t.Fatalf("a workspace switch of a brokered loophole launched: rc %d\n%s", l.rc, l.out)
+			t.Fatalf("a workspace install launched: rc %d\n%s", l.rc, l.out)
 		}
-		if !strings.Contains(l.out, "yolo-jail.local.jsonc") ||
-			!strings.Contains(l.out, "`yolo loopholes enable github-broker`") {
-			t.Errorf("the refusal does not name the file and the command:\n%s", l.out)
+		if !strings.Contains(l.out, "installing is user-scope only") ||
+			!strings.Contains(l.out, filepath.Join(ws, "yolo-jail.local.json")+" is agent-editable") {
+			t.Errorf("the refusal does not say the install is user-scope only, naming the file:\n%s", l.out)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Errorf("the workspace's host command ran")
 		}
 	})
 }

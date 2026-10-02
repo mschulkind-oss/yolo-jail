@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/json5"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -75,14 +76,91 @@ const workspaceFileHeader = `// yolo's per-workspace file for the workspace name
 // the next time one of those commands runs, so a comment you add is not kept.
 `
 
-// WorkspaceFilePath is workspace's per-workspace file. The workspace is resolved first (`~/`
-// expanded, made absolute, symlinks resolved), so a link to the workspace and the path behind it
-// name one file.
+// WorkspaceFilePath is workspace's per-workspace file. The workspace is resolved first
+// (resolveWorkspaceForFile), so a link to the workspace and the path behind it, or two
+// spellings of one folder on a case-insensitive file system, name one file.
 func WorkspaceFilePath(workspace string) string {
-	resolved := expandAndResolve(workspaceOrCwd(workspace))
+	resolved := resolveWorkspaceForFile(workspace)
 	sum := sha256.Sum256([]byte(resolved))
 	return filepath.Join(paths.WorkspaceFilesDir(),
 		workspaceFileSlug(filepath.Base(resolved))+"-"+hex.EncodeToString(sum[:])[:12]+".jsonc")
+}
+
+// resolveWorkspaceForFile is the workspace as the per-workspace file names it: `~/` expanded,
+// made absolute, symlinks resolved, and each name spelled as its folder spells it
+// (canonicalCase).
+func resolveWorkspaceForFile(workspace string) string {
+	return canonicalCase(expandAndResolve(workspaceOrCwd(workspace)))
+}
+
+// canonicalCase is p, an absolute path with its symlinks resolved, with each name spelled as
+// the folder holding it lists it. On a case-insensitive file system (macOS's default) one folder
+// answers to `~/Code/App` and `~/code/app`, and symlink resolution keeps each name as it was
+// typed, so without this the two spellings would hash to two files, and a switch made under one
+// would not reach a launch made under the other.
+//
+// A name is looked up in its folder's listing only when its case-flipped spelling is the same
+// file, which is what a case-insensitive folder answers; on a case-sensitive file system that
+// lookup fails, so the cost there is one Lstat per name holding a letter. A name that cannot be
+// read is left as written, as is everything below it.
+func canonicalCase(p string) string {
+	if !filepath.IsAbs(p) {
+		return p
+	}
+	out := string(filepath.Separator)
+	names := strings.Split(p, string(filepath.Separator))
+	for i, name := range names {
+		if name == "" {
+			continue
+		}
+		next := filepath.Join(out, name)
+		flipped := flipCase(name)
+		if flipped == name {
+			out = next
+			continue
+		}
+		fi, err := os.Lstat(next)
+		if err != nil {
+			return filepath.Join(append([]string{out}, names[i:]...)...)
+		}
+		if alt, err := os.Lstat(filepath.Join(out, flipped)); err == nil && os.SameFile(fi, alt) {
+			next = folderSpelling(out, name, fi)
+		}
+		out = next
+	}
+	return out
+}
+
+// folderSpelling is dir/name, with name as dir's listing spells the entry that is fi.
+func folderSpelling(dir, name string, fi os.FileInfo) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return filepath.Join(dir, name)
+	}
+	for _, e := range entries {
+		if e.Name() == name {
+			return filepath.Join(dir, name)
+		}
+	}
+	for _, e := range entries {
+		if !strings.EqualFold(e.Name(), name) {
+			continue
+		}
+		if efi, err := os.Lstat(filepath.Join(dir, e.Name())); err == nil && os.SameFile(fi, efi) {
+			return filepath.Join(dir, e.Name())
+		}
+	}
+	return filepath.Join(dir, name)
+}
+
+// flipCase is s with each letter's case swapped.
+func flipCase(s string) string {
+	return strings.Map(func(r rune) rune {
+		if u := unicode.ToUpper(r); u != r {
+			return u
+		}
+		return unicode.ToLower(r)
+	}, s)
 }
 
 // workspaceFileSlug is the folder name as a file name can spell it: letters, digits, `.`, `_`
@@ -142,7 +220,7 @@ func ReadWorkspaceFile(workspace string) *WorkspaceFile {
 }
 
 func readWorkspaceFile(workspace string, record bool) *WorkspaceFile {
-	resolved := expandAndResolve(workspaceOrCwd(workspace))
+	resolved := resolveWorkspaceForFile(workspace)
 	path := WorkspaceFilePath(resolved)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -357,25 +435,83 @@ func SetWorkspaceLoophole(workspace, name string, enabled bool) (string, error) 
 	if !hostServiceName.MatchString(name) {
 		return "", fmt.Errorf("%s is not a loophole name (^[a-zA-Z][a-zA-Z0-9_-]{0,63}$)", pytext.Repr(name))
 	}
-	resolved := expandAndResolve(workspaceOrCwd(workspace))
-	path := WorkspaceFilePath(resolved)
+	resolved := resolveWorkspaceForFile(workspace)
+	wf, path, err := workspaceFileToRewrite(resolved)
+	if err != nil {
+		return path, err
+	}
 	block := jsonx.NewOrderedMap()
-	if wf := readWorkspaceFile(resolved, false); wf != nil {
-		switch {
-		case len(wf.Problems) > 0:
-			return path, fmt.Errorf("%s\nyolo rewrites this file whole, so it does not write over "+
-				"one it cannot read whole: fix it, or delete it, then run this again",
-				strings.Join(wf.Problems, "\n"))
-		case !wf.Applies:
-			return path, errors.New(wf.Mismatch())
-		}
+	if wf != nil {
 		for _, k := range wf.Loopholes.Keys() {
 			v, _ := wf.Loopholes.Get(k)
 			block.Set(k, v)
 		}
 	}
 	block.Set(name, enabled)
+	return path, writeWorkspaceFile(path, wf.namedOr(resolved), block)
+}
 
+// RemoveWorkspaceLoophole takes name's switch out of workspace's per-workspace file, for a
+// loophole no longer installed, whose switch no `disable` could otherwise clear: it returns the
+// file and whether it held the switch. The file's other switches are kept; a file left with
+// none is deleted. Like SetWorkspaceLoophole it refuses a file it cannot read whole, and never
+// touches the user config.
+func RemoveWorkspaceLoophole(workspace, name string) (path string, removed bool, err error) {
+	resolved := resolveWorkspaceForFile(workspace)
+	wf, path, err := workspaceFileToRewrite(resolved)
+	if err != nil || wf == nil {
+		return path, false, err
+	}
+	if _, set := wf.Loopholes.Get(name); !set {
+		return path, false, nil
+	}
+	block := jsonx.NewOrderedMap()
+	for _, k := range wf.Loopholes.Keys() {
+		if k != name {
+			v, _ := wf.Loopholes.Get(k)
+			block.Set(k, v)
+		}
+	}
+	if block.Len() == 0 {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return path, false, err
+		}
+		return path, true, nil
+	}
+	return path, true, writeWorkspaceFile(path, wf.namedOr(resolved), block)
+}
+
+// workspaceFileToRewrite is the resolved workspace's per-workspace file, read whole, and the path
+// a write goes to; the file is nil when there is none. A file that does not read whole, or names
+// another workspace, is refused with its next step, since a rewrite would drop what is in it.
+func workspaceFileToRewrite(resolved string) (*WorkspaceFile, string, error) {
+	wf := readWorkspaceFile(resolved, false)
+	if wf == nil {
+		return nil, WorkspaceFilePath(resolved), nil
+	}
+	switch {
+	case len(wf.Problems) > 0:
+		return nil, wf.Path, fmt.Errorf("%s\nyolo rewrites this file whole, so it does not write over "+
+			"one it cannot read whole: fix it, or delete it, then run this again",
+			strings.Join(wf.Problems, "\n"))
+	case !wf.Applies:
+		return nil, wf.Path, errors.New(wf.Mismatch())
+	}
+	return wf, wf.Path, nil
+}
+
+// namedOr is the `workspace` field a rewrite keeps: the one the file was written with, which its
+// name was derived from, else resolved for a new file.
+func (wf *WorkspaceFile) namedOr(resolved string) string {
+	if wf != nil && wf.Named != "" {
+		return wf.Named
+	}
+	return resolved
+}
+
+// writeWorkspaceFile writes a per-workspace file for workspace holding the switches in block
+// (loophole name → enabled), whole, in one rename, the folder 0700 and the file 0600.
+func writeWorkspaceFile(path, workspace string, block *jsonx.OrderedMap) error {
 	loopholes := jsonx.NewOrderedMap()
 	for _, k := range block.Keys() {
 		v, _ := block.Get(k)
@@ -384,16 +520,16 @@ func SetWorkspaceLoophole(workspace, name string, enabled bool) (string, error) 
 		loopholes.Set(k, entry)
 	}
 	doc := jsonx.NewOrderedMap()
-	doc.Set(workspaceFileWorkspaceKey, resolved)
+	doc.Set(workspaceFileWorkspaceKey, workspace)
 	doc.Set(workspaceFileLoopholesKey, loopholes)
 	body, err := jsonx.DumpsIndent(doc, 2)
 	if err != nil {
-		return path, err
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return path, err
+		return err
 	}
-	return path, writePrivateAtomically(path, []byte(workspaceFileHeader+body+"\n"))
+	return writePrivateAtomically(path, []byte(workspaceFileHeader+body+"\n"))
 }
 
 // writePrivateAtomically writes data to path through a 0600 temporary file in the same folder

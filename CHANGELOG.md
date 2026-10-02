@@ -93,6 +93,8 @@ pinned commit once for every workspace. See
 - On macos-user, git no longer refuses your project for "dubious ownership".
 - A loophole program the agent could rewrite ran on your machine when the project's path had a
   space; yolo now refuses it.
+- A project config saved with a `.json` extension could install a loophole; that is now refused
+  there too.
 - A git pack address through a symlink could copy your files into the jail and is now refused:
   name the link's target.
 - `yolo host apply` no longer empties Claude Code's `permissions.additionalDirectories`; add your

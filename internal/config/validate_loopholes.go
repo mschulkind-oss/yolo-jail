@@ -1,11 +1,10 @@
 package config
 
 import (
-	"path/filepath"
-
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pytext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The scope model for the `loopholes` block is RULED
@@ -236,8 +235,15 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 			}
 		}
 
-		// --- Shape pass, over the merged entry (semantics unchanged).
-		validateLoopholeEntryShape(name, specV, infoPtr, suppressFallback, errs, warns)
+		// --- Shape pass, over the merged entry (semantics unchanged). A switch the per-workspace
+		// file holds for a loophole nothing installs is the trace of a deselected pack, and that
+		// file is yolo's, so the warning names the command that takes the switch out.
+		fallbackHint := ""
+		if _, decided := wsFile.LoopholeSwitch(name); decided && infoPtr == nil {
+			fallbackHint = " The switch is in " + wsFile.Path + "; to take it out, run `yolo loopholes " +
+				"disable " + name + " --workspace " + shquote.QuoteDisplay(wsFile.Workspace) + "`."
+		}
+		validateLoopholeEntryShape(name, specV, infoPtr, suppressFallback, fallbackHint, errs, warns)
 	}
 }
 
@@ -247,7 +253,7 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 // file-backed loophole. suppressFallbackWarn drops the unknown-name "treating
 // the entry as an override" warning (the ruled enable-uninstalled error
 // replaces it).
-func validateLoopholeEntryShape(name string, specV any, info *LoopholeInfo, suppressFallbackWarn bool, errs, warns *[]string) {
+func validateLoopholeEntryShape(name string, specV any, info *LoopholeInfo, suppressFallbackWarn bool, fallbackHint string, errs, warns *[]string) {
 	path := "config.loopholes." + name
 	// name is always a string key from a decoded JSON object, so only the
 	// regex needs checking.
@@ -298,7 +304,7 @@ func validateLoopholeEntryShape(name string, specV any, info *LoopholeInfo, supp
 			add(warns, path+": no loophole named "+pytext.Repr(name)+" is installed on "+
 				"this machine — treating the entry as an override of "+
 				"a host-side loophole, so it does nothing as written. "+
-				loopholeNotInstalledRemedy(name))
+				loopholeNotInstalledRemedy(name)+fallbackHint)
 		}
 		return
 	}
@@ -475,10 +481,11 @@ func brokeredWorkspaceSwitchRefusal(name, srcFile string, spec *jsonx.OrderedMap
 		"project only by `yolo loopholes enable " + name + "` or `yolo loopholes disable " + name +
 		"`, run on the host in it, never by " + srcFile + ", which the project's agent can edit. "
 	if v == true {
-		return msg + "Remove this key, and run `yolo loopholes enable " + name + "` here."
+		return msg + "Remove this key, and run `yolo loopholes enable " + name + "` on the host, in " +
+			"this project."
 	}
 	return msg + "Remove this key; to keep it off where it was turned on, run " +
-		"`yolo loopholes disable " + name + "` here."
+		"`yolo loopholes disable " + name + "` on the host, in this project."
 }
 
 // userInstalledInline reports whether the merged entry carries a `command`
@@ -516,7 +523,8 @@ func (e wsLoopholeEntry) locate(msg string) string {
 
 // workspaceLoopholeEntries re-reads the workspace-scope config files and maps
 // loophole name → contributions in file order (yolo-jail.jsonc, then
-// yolo-jail.local.jsonc — the merge order, so "later wins" holds). Includes
+// yolo-jail.local.jsonc, each read as yolo-jail.json or yolo-jail.local.json where only
+// that exists — the merge order, so "later wins" holds). Includes
 // fold into the file that pulled them in, which is also the file a human has
 // to open to find the include; the seen set is shared exactly like
 // LoadWorkspaceConfig's, so a tracked config that explicitly includes the
@@ -529,8 +537,11 @@ func workspaceLoopholeEntries(workspace string) map[string][]wsLoopholeEntry {
 	}
 	out := map[string][]wsLoopholeEntry{}
 	seen := map[string]struct{}{}
-	for _, fname := range []string{WorkspaceConfigName, WorkspaceLocalConfigName} {
-		path := filepath.Join(workspace, fname)
+	for _, base := range []string{WorkspaceConfigName, WorkspaceLocalConfigName} {
+		// The loader's own resolver, so a config saved as yolo-jail.json or
+		// yolo-jail.local.json is read here exactly when the merge read it: reading only the
+		// `.jsonc` names let a `.json` file install, or switch a brokered loophole, unrefused.
+		path, fname := resolveWorkspaceConfigPath(workspace, base)
 		cfg, node, err := loadWithIncludes(path, fname, false, func(string) {}, seen, true)
 		if err != nil || cfg == nil {
 			continue
@@ -662,7 +673,7 @@ func WorkspaceLoopholeSwitches(workspace string) map[string]WorkspaceLoopholeSwi
 func LoopholeEntryErrors(name string, specV any, info *LoopholeInfo, userInstalledInline, fromWorkspace, inJail bool, srcFile, workspace string) []string {
 	errs := &[]string{}
 	warns := &[]string{}
-	validateLoopholeEntryShape(name, specV, info, true, errs, warns)
+	validateLoopholeEntryShape(name, specV, info, true, "", errs, warns)
 	spec, isMap := asMap(specV)
 	named := isMap && hostServiceName.MatchString(name)
 	scopeRefused := false

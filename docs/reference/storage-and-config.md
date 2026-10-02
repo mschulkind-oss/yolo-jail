@@ -119,11 +119,14 @@ the user config, which yolo never writes, and not a workspace config, which the 
 can edit.
 
 - **Who writes it.** `yolo loopholes enable <name>` and `disable`, run on the host, write the file
-  whole and print its name. A hand edit is allowed; its comments are not kept by the next write.
+  whole and print its name. With no `--workspace`, they switch the folder they run in, which is the
+  workspace a launch there opens. A hand edit is allowed; its comments are not kept by the next write.
   Neither command touches `config.jsonc`, by the maintainer's ruling
   ([OQ-BB12](../design/boundary-broker.md#OQ-BB12)).
 - **Its name and its key.** One file per workspace, `<the folder's name>-<12 hex digits>.jsonc`,
-  the digits from the SHA-256 of the workspace's resolved path. Its `workspace` field is
+  the digits from the SHA-256 of the workspace's resolved path, each name in it spelled as its
+  folder lists it, so two spellings of one folder on a case-insensitive file system name one
+  file. Its `workspace` field is
   authoritative: a file whose field does not resolve to the launching workspace is ignored, and the
   launch and `yolo check` warn.
 - **What it holds.** `loopholes.<name>.enabled` alone today. Any other key is refused, with a next

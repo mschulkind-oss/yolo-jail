@@ -507,7 +507,10 @@ func (p *changePrompter) PromptReport(r config.ChangeReport) bool {
 // it, since that is the one way past the question that answers no to it.
 func declineLines(r config.ChangeReport) []string {
 	head := "Config changes rejected; nothing was recorded. Exiting."
-	if r.ScopeChanged && !r.ConfigChanged {
+	switch {
+	case r.ScopeChanged && r.ConfigChanged:
+		head = "Workspace config and repository scope changes rejected; nothing was recorded. Exiting."
+	case r.ScopeChanged:
 		head = "Repository scope changes rejected; nothing was recorded. Exiting."
 	}
 	lines := []string{head}
@@ -516,8 +519,9 @@ func declineLines(r config.ChangeReport) []string {
 			": undo it there, or answer y at the next launch, which asks again.")
 	}
 	for _, l := range r.ScopeLabels {
-		lines = append(lines, "To launch this project without "+l+", run `yolo loopholes disable "+l+
-			"` here; otherwise the next launch asks about its repositories again.")
+		lines = append(lines, "To launch this project without "+l+", run `"+
+			config.DisableLoopholeCommand(l, r.Workspace)+"`; otherwise the next launch asks about "+
+			"its repositories again.")
 	}
 	return lines
 }

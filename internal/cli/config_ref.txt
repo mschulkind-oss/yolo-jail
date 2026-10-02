@@ -263,14 +263,15 @@
       project's next fresh launch; no jail can read it.  It holds
       "workspace" (the project's path, which must match) and
       "loopholes": {"<name>": {"enabled": true|false}} and nothing else.
-      [cyan]yolo loopholes enable <name> --global[/cyan] prints the block for
-      THIS file instead, and writes nothing: yolo does not edit your config.
+      [cyan]yolo loopholes enable <name> --global[/cyan] prints the block to
+      paste into this config (config.jsonc) instead, and writes nothing: yolo
+      does not edit your config.
 
       A loophole whose manifest declares "brokered" (the github pack's
       github-broker) is switched ONLY that way, one project at a time: its
       "enabled" here, or under "loopholes" in a project's yolo-jail.jsonc or
-      yolo-jail.local.jsonc, is an error naming the command, and its manifest may
-      not set "default_enabled": true.
+      yolo-jail.local.jsonc (or their .json spellings), is an error naming the
+      command, and its manifest may not set "default_enabled": true.
 
     DECLARING an inline service also takes:
       "command" (array of strings, required): the command to launch on the host

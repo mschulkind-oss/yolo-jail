@@ -9,6 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // SnapshotJSON returns the config-snapshot bytes: 2-space indent, sorted keys,
@@ -129,6 +130,9 @@ type ChangedNonInteractiveError struct {
 	// ScopeLabels are the brokered loopholes whose scope changed: the advice names the
 	// command that launches this project without each one.
 	ScopeLabels []string
+	// Workspace is the launch's workspace, which that command names, so it works from
+	// wherever it is pasted.
+	Workspace string
 }
 
 // Headline states what happened and why the launch stopped. It names the repository scope
@@ -175,20 +179,27 @@ func (e *ChangedNonInteractiveError) Advice() string {
 		"Revert the change, or approve it for THIS LAUNCH ONLY by re-running with\n" +
 		"  " + AcceptConfigChangesFlag + "\n" +
 		"which records " + recorded + " as approved exactly as answering `y` would." +
-		withoutBrokerSteps(e.ScopeLabels)
+		withoutBrokerSteps(e.ScopeLabels, e.Workspace)
 }
 
 // withoutBrokerSteps is the other next step a changed repository scope has: launching the
 // project without the brokered loophole that reads it, with the command that does that, one
 // line per loophole; "" when no scope changed.
-func withoutBrokerSteps(labels []string) string {
+func withoutBrokerSteps(labels []string, workspace string) string {
 	var b strings.Builder
 	for _, l := range labels {
-		b.WriteString("\nTo launch this project without " + l + " instead, run `yolo loopholes disable " +
-			l + "` here: it is off for this project from the next launch, which then asks nothing " +
-			"about its repositories.")
+		b.WriteString("\nTo launch this project without " + l + " instead, run `" +
+			DisableLoopholeCommand(l, workspace) + "`: it is off for this project from the next " +
+			"launch, which then asks nothing about its repositories.")
 	}
 	return b.String()
+}
+
+// DisableLoopholeCommand is `yolo loopholes disable <name> --workspace <workspace>`, the path
+// quoted for a shell and a control character in it written as an escape, so the command works
+// from whatever folder it is pasted in.
+func DisableLoopholeCommand(name, workspace string) string {
+	return "yolo loopholes disable " + name + " --workspace " + shquote.QuoteDisplay(workspace)
 }
 
 func (e *ChangedNonInteractiveError) Error() string {
@@ -243,8 +254,10 @@ type ChangeReport struct {
 	// names.
 	ConfigFiles []string
 	// ScopeLabels are the brokered loopholes whose scope changed, for the next step a declined
-	// scope names (`yolo loopholes disable <label>`).
+	// scope names (`yolo loopholes disable <label> --workspace <Workspace>`).
 	ScopeLabels []string
+	// Workspace is the launch's workspace, for that step.
+	Workspace string
 }
 
 // ReportPrompter is a ChangePrompter that can show the whole report, so the header and the
@@ -360,7 +373,8 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 		configFiles = append(configFiles, localPath)
 	}
 	report := ChangeReport{ConfigChanged: configChanged, DiffLines: diffLines,
-		ScopeChanged: sc.changed, ScopeBlock: sc.block, ConfigFiles: configFiles, ScopeLabels: sc.labels}
+		ScopeChanged: sc.changed, ScopeBlock: sc.block, ConfigFiles: configFiles, ScopeLabels: sc.labels,
+		Workspace: workspaceOrCwd(workspace)}
 
 	if !isTTY {
 		if !acceptNonInteractive {
@@ -374,6 +388,7 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 				ScopeBlock:           sc.block,
 				GitConfigs:           sc.gitConfigs,
 				ScopeLabels:          sc.labels,
+				Workspace:            workspaceOrCwd(workspace),
 			}
 			if sc.changed {
 				e.ScopePath = scopePath
