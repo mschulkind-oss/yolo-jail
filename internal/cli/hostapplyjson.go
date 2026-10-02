@@ -70,7 +70,8 @@ type hostApplyDoc struct {
 	// the reason every count below may be missing a pack's worth of surfaces.
 	FailedPacks []string `json:"failed_packs"`
 	// FailedStages are the stages that failed where no pack's render can be named
-	// (stageSkills, …): a blocker that decides the outcome, `incomplete`.
+	// (stageSkills, …): a blocker that decides the outcome, `incomplete`, or `refused` for
+	// "inputs" (stageInputs), over which an --assert writes nothing.
 	FailedStages []string `json:"failed_stages"`
 	// UnresolvedPacks are the configured packs this run could not resolve, each with the
 	// resolver's reason. Non-empty means outcome `refused`: an --assert writes nothing.

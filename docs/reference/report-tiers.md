@@ -168,9 +168,9 @@ disagree about the outcome they report.
 
 | Token | The run found |
 | :--- | :--- |
-| `no_packs` | no packs are configured. Distinct from `nothing_to_do`, and the difference is the next action: one is *your config names nothing*, the other *your home already matches what it names* |
-| `refused` | a configured pack could not be resolved, and an incomplete pack set is never applied, so an `--assert` writes nothing. **Dry run only** — an `--assert` refuses before it reaches a verdict |
-| `incomplete` | a pack failed to render, or a destination could not be written because it is a [broken link](#broken-links), so the counts are missing those surfaces; or a stage of the apply failed (destinations, overlays, skills, briefing, retire or wrappers), which the verdict names, its own line above saying what failed; or [yolo's floor](../design/host-tool-provisioning.md) will not install a program over a record a newer yolo wrote ([HP-D8](../design/host-tool-provisioning.md#HP-D8)), or an `--assert`'s floor install failed. The verdict names whose config is missing; the failure itself is stated once, with its fix, in its group. It also names each program the floor will not install, with the step that clears it, in a dry run and an `--assert` alike, and each an `--assert` could not install: an `--assert` writes the rest and exits 1 |
+| `refused` | a configured pack could not be resolved (an incomplete pack set is never applied), or your config's providers or profiles cannot be composed for the host, which every surface reads: either way an `--assert` writes nothing. **Dry run only** — an `--assert` refuses before it reaches a verdict |
+| `incomplete` | a pack failed to render, or a destination could not be written because it is a [broken link](#broken-links), so the counts are missing those surfaces; or a stage of the apply failed (destinations, overlays, skills, briefing, retire or wrappers), which the verdict names, its own line above saying what failed, with no packs configured too; or [yolo's floor](../design/host-tool-provisioning.md) will not install a program over a record a newer yolo wrote ([HP-D8](../design/host-tool-provisioning.md#HP-D8)), or an `--assert`'s floor install failed. The verdict names whose config is missing; the failure itself is stated once, with its fix, in its group. It also names each program the floor will not install, with the step that clears it, in a dry run and an `--assert` alike, and each an `--assert` could not install: an `--assert` writes the rest and exits 1 |
+| `no_packs` | no packs are configured, and nothing failed. Distinct from `nothing_to_do`, and the difference is the next action: one is *your config names nothing*, the other *your home already matches what it names* |
 | `blocked` | a declared dependency is missing. **Dry run only** — an `--assert` with one is refused by the gate before it reaches a verdict at all |
 | `nothing_to_do` | this home already matches what the packs declare |
 | `applied` | an `--assert` wrote what it planned |
@@ -526,7 +526,7 @@ place the values themselves are stated.
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
 | Report tiers with a constant | `tierRun` = 2, `tierLoss` = 3 | `internal/cli` (`reportTier`) |
-| Outcome tokens | `no_packs`, `refused`, `incomplete`, `blocked`, `nothing_to_do`, `applied`, `would_complete` | `internal/cli` (`hostapplyverdict.go`) |
+| Outcome tokens | `refused`, `incomplete`, `no_packs`, `blocked`, `nothing_to_do`, `applied`, `would_complete` | `internal/cli` (`hostapplyverdict.go`) |
 | Dry-run exit code | 0, whatever it finds | `internal/cli` (`applyHost`) |
 | `--assert` refusal exit code | 1 | `internal/cli` (`gateHostDeps`) |
 | Acting-posture JSON refusal | exit 2, stdout empty | `internal/cli` (`refuseJSONForActingApply`) |

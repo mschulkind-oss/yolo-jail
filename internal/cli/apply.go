@@ -342,19 +342,26 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// COMPLETE, since an empty config names nothing that could have failed to resolve.
 		// nil reload: with no pack configured there is nothing for a migration to compose back,
 		// so re-resolving would find the same empty set.
+		//
+		// Each stage's failure is noted for the verdict, as below the branch: an empty `packs`
+		// whose retire failed exited 1 under "No packs configured — nothing to apply, and nothing
+		// left to retire."
 		rc := applyHostUserFiles(pr, survey, userFiles, home, write)
 		if brc := applyHostBriefings(pr, out, stdin, nil, packload.Embedded(), empty, true,
 			home, stamp, write, nil, survey); brc != 0 {
 			rc = brc
+			survey.noteStageFailure(stageBriefing)
 		}
 		if src := applyHostSkills(pr, out, stdin, nil, packload.Embedded(), empty, empty, true,
 			home, stamp, write, nil, survey); src != 0 {
 			rc = src
+			survey.noteStageFailure(stageSkills)
 		}
 		if prc := pruneDroppedPackOutput(pr, out, stdin, packload.Embedded(), empty,
 			home, stamp, write,
 			planOverlayKeyRetirement(pr, packload.Embedded(), empty, nil, home), survey); prc != 0 {
 			rc = prc
+			survey.noteStageFailure(stageRetire)
 		}
 		// Wrappers too, and for this branch's own stated reason: with no pack configured
 		// there is no program left to wrap, so every wrapper on the user's PATH is an
@@ -363,6 +370,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		// exists to prevent — and these are EXECUTABLES, at the front of a PATH.
 		if wrc := applyHostWrappers(pr, errw, home, nil, write, survey); wrc != 0 {
 			rc = wrc
+			survey.noteStageFailure(stageWrappers)
 		}
 		// The FLOOR too, for the same reason: with no pack configured, every agent yolo keeps in
 		// its host prefix is one no selected pack delivers, and this is the act that removes it.

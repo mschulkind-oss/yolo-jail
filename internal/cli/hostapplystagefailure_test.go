@@ -14,20 +14,24 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// verdictLine is the report's verdict line: the one line that opens with an outcome's sentence.
+// verdictLine is the report's verdict line: the last line that opens with an outcome's sentence.
+// The last, because an empty `packs` opens its report with a header that reads like one ("No
+// packs configured — nothing to apply, so this run only retires …").
 func verdictLine(report string) string {
+	verdict := ""
 	for _, line := range strings.Split(report, "\n") {
 		for _, open := range []string{"Incomplete — ", "An --assert would ", "Nothing to ", "Applied: ",
 			"Installed ", "Refused — ", "No packs configured"} {
 			if strings.HasPrefix(line, open) {
-				return line
+				verdict = line
 			}
 		}
 	}
-	return ""
+	return verdict
 }
 
 // dryRunDoc runs `yolo host apply --format json` and returns its document, whatever the exit code.
@@ -44,6 +48,8 @@ func dryRunDoc(t *testing.T) hostApplyDoc {
 
 func TestAFailedHostApplyStageReachesTheVerdict(t *testing.T) {
 	cases := []struct {
+		// name is the subtest's, when one stage is met in two places.
+		name  string
 		stage string
 		// setup makes the stage fail in a fresh HOME, and returns the stdin the --assert reads.
 		setup func(t *testing.T) string
@@ -51,12 +57,12 @@ func TestAFailedHostApplyStageReachesTheVerdict(t *testing.T) {
 		// (the retire's archive) has nothing to fail at in an observe pass.
 		dry bool
 	}{
-		{"destinations", func(t *testing.T) string {
+		{"", "destinations", func(t *testing.T) string {
 			// A manifest-less pack with no agent pack to borrow a destination from renders nothing.
 			zeroCeremonyFixture(t, "")
 			return ""
 		}, true},
-		{"overlays", func(t *testing.T) string {
+		{"", "overlays", func(t *testing.T) string {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -68,7 +74,7 @@ func TestAFailedHostApplyStageReachesTheVerdict(t *testing.T) {
 			selectPacks(t, home, owner+","+bogus)
 			return ""
 		}, true},
-		{"skills", func(t *testing.T) string {
+		{"", "skills", func(t *testing.T) string {
 			// Two packs shipping one skill name at an unnamespaced destination.
 			home := t.TempDir()
 			shared := filepath.Join(t.TempDir(), "sflat")
@@ -81,21 +87,21 @@ func TestAFailedHostApplyStageReachesTheVerdict(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 			return ""
 		}, true},
-		{"briefing", func(t *testing.T) string {
+		{"", "briefing", func(t *testing.T) string {
 			// The local pack's prose in both its old root AGENTS.md and briefing/local.md: yolo
 			// will not choose between them.
 			_, _, target := legacyLocalPackHome(t, "Old rule.\n")
 			writeFile(t, target, "New rule.\n")
 			return ""
 		}, true},
-		{"retire", func(t *testing.T) string {
+		{"", "retire", func(t *testing.T) string {
 			// A dropped pack's output, confirmed for retirement, with a file where its archive goes.
 			home, _ := dropFixture(t, dropPackJSON)
 			applyThenDrop(t, home)
 			writeFile(t, string(hostArchiveRoot(archiveBucketRetired)), "not a directory\n")
 			return "y\n"
 		}, false},
-		{"wrappers", func(t *testing.T) string {
+		{"", "wrappers", func(t *testing.T) string {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -105,9 +111,44 @@ func TestAFailedHostApplyStageReachesTheVerdict(t *testing.T) {
 			writeFile(t, paths.WrapDirUnder(home), "not a directory\n")
 			return ""
 		}, true},
+		// AN EMPTY `packs` takes a branch of its own, which runs the retire and the wrappers too
+		// (with no pack left, everything delivered is an orphan). It ended "No packs configured —
+		// nothing to apply, and nothing left to retire." over either one failing.
+		{"retire, with no packs", "retire", func(t *testing.T) string {
+			home, _ := dropFixture(t, dropPackJSON)
+			if rc, report := applyWith(t, true, nil); rc != 0 {
+				t.Fatalf("first apply rc=%d\n%s", rc, report)
+			}
+			selectPacks(t, home, "")
+			writeFile(t, string(hostArchiveRoot(archiveBucketRetired)), "not a directory\n")
+			return "y\n"
+		}, false},
+		{"briefing, with no packs", "briefing", func(t *testing.T) string {
+			// The composed briefing a dropped pack left, with a file where its archive goes.
+			home, _ := dropFixture(t, dropPackJSON)
+			if rc, report := applyWith(t, true, nil); rc != 0 {
+				t.Fatalf("first apply rc=%d\n%s", rc, report)
+			}
+			selectPacks(t, home, "")
+			writeFile(t, string(hostArchiveRoot(string(packdecl.KindBriefing))), "not a directory\n")
+			return "y\n"
+		}, false},
+		{"wrappers, with no packs", "wrappers", func(t *testing.T) string {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+			writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+				`{"packs":[],"host_wrappers":true}`)
+			writeFile(t, paths.WrapDirUnder(home), "not a directory\n")
+			return ""
+		}, true},
 	}
 	for _, c := range cases {
-		t.Run(c.stage, func(t *testing.T) {
+		name := c.name
+		if name == "" {
+			name = c.stage
+		}
+		t.Run(name, func(t *testing.T) {
 			defaultReport(t)
 			stdin := c.setup(t)
 			clause := "the " + c.stage + " stage"
@@ -161,5 +202,39 @@ func TestTheIncompleteVerdictNamesEveryFailedStage(t *testing.T) {
 	if got, want := hostApplyVerdict(s, false), "An --assert would be incomplete — some of acme's config "+
 		"cannot be written, and the skills and briefing stages would fail (above)."; got != want {
 		t.Errorf("dry-run verdict\n%s\nwant\n%s", got, want)
+	}
+}
+
+// A config whose providers or profiles cannot be composed for the host is a refusal, not a failed
+// stage among others: the --assert writes nothing at all. The dry run's document said
+// `incomplete` and "An --assert would be incomplete — the inputs stage would fail (above).", the
+// outcome whose --assert "writes the rest", in a word ("inputs") the report never prints.
+func TestAnInputsRefusalIsARefusalInTheDocument(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// The retired `use_profiles` key: every launch refuses it, and so does the host apply.
+	selectPacks(t, home, `"claude"`)
+	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
+		`{"packs":["claude"],"use_profiles":{"claude":"bedrock"}}`)
+
+	doc := dryRunDoc(t)
+	if doc.Outcome != outcomeRefused || len(doc.FailedStages) != 1 || doc.FailedStages[0] != stageInputs {
+		t.Errorf("the document's outcome is %q and failed_stages %v, want %q and [%s]",
+			doc.Outcome, doc.FailedStages, outcomeRefused, stageInputs)
+	}
+	const want = "An --assert would REFUSE: your config's providers or profiles are refused (above), " +
+		"so nothing would be written."
+	if doc.Verdict != want {
+		t.Errorf("the document's verdict is\n%s\nwant\n%s", doc.Verdict, want)
+	}
+
+	before := hashTree(t, home)
+	rc, report := applyWith(t, true, nil)
+	if rc == 0 || !strings.Contains(report, "host apply: refused") {
+		t.Errorf("the --assert did not refuse (rc=%d):\n%s", rc, report)
+	}
+	if after := hashTree(t, home); after != before {
+		t.Errorf("the refused --assert wrote into the home:\n%s", report)
 	}
 }

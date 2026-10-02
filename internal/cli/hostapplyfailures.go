@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -83,7 +84,9 @@ const (
 	// stageWrappers: the launch wrappers were not planned, written or cleared (applyHostWrappers).
 	stageWrappers = "wrappers"
 	// stageInputs: the host's derive inputs could not be composed (composeHostInputs). The apply
-	// refuses there, before the verdict, in a line of its own; the launch gate reads it.
+	// refuses there, before the verdict, in a line of its own; the launch gate reads it, and the
+	// dry run's document calls it `refused` (hostApplyOutcome), never naming the stage in a
+	// sentence.
 	stageInputs = "inputs"
 )
 
@@ -109,6 +112,12 @@ func (s *hostApplySurvey) StageFailures() []string {
 		return nil
 	}
 	return s.failedStages
+}
+
+// inputsRefused is whether the host's derive inputs could not be composed (stageInputs): a
+// refusal of the whole apply, which writes nothing, rather than one stage failing among others.
+func (s *hostApplySurvey) inputsRefused() bool {
+	return slices.Contains(s.StageFailures(), stageInputs)
 }
 
 // unattributedFailure is whether this run failed somewhere no pack's render can be named for: a

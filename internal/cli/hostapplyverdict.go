@@ -84,11 +84,11 @@ func printHostApplyVerdict(pr richtext.Printer, s *hostApplySurvey, write bool) 
 // posture changes.
 func hostApplyOutcome(s *hostApplySurvey, write bool) string {
 	switch {
-	case s.ZeroPacks():
-		return outcomeNoPacks
-	case len(s.UnresolvedPacks()) > 0:
+	case len(s.UnresolvedPacks()) > 0 || s.inputsRefused():
 		// FIRST AMONG THE BLOCKERS: an --assert over an incomplete pack set writes nothing at all
-		// (no half states), so no count below describes anything it would do.
+		// (no half states), so no count below describes anything it would do. Nor over a config
+		// whose providers or profiles the host refuses (stageInputs), which every surface reads:
+		// the apply refuses there, before its verdict, so only the dry run's document says it.
 		return outcomeRefused
 	case len(s.Failures()) > 0 || len(s.StageFailures()) > 0 || len(s.FloorRefusals()) > 0 ||
 		len(s.FloorFailures()) > 0:
@@ -100,6 +100,12 @@ func hostApplyOutcome(s *hostApplySurvey, write bool) string {
 		// outcome for the same reason: the verdict read none of them, and an --assert whose skills
 		// stage was refused exited 1 under "Nothing to apply — this home is up to date."
 		return outcomeIncomplete
+	case s.ZeroPacks():
+		// BELOW THE BLOCKERS, as nothing_to_do is: an empty `packs` still runs the retire, the
+		// wrappers and the rest (applyHostSurveyed's zero-packs branch), and one of them failing
+		// ended "No packs configured — nothing to apply, and nothing left to retire." It cannot
+		// be refused: an empty `packs` names no pack that could fail to resolve.
+		return outcomeNoPacks
 	case !write && len(s.MissingDeps()) > 0:
 		return outcomeBlocked
 	case !s.Changes() && s.Adoptions() == 0:
@@ -124,8 +130,9 @@ const (
 	// difference is the next action: one is "your config names nothing", the other "your
 	// home already matches what it names".
 	outcomeNoPacks = "no_packs"
-	// outcomeRefused — a configured pack could not be resolved, so an --assert refuses the
-	// whole apply and writes nothing (dry run only: an --assert refuses before the verdict).
+	// outcomeRefused — a configured pack could not be resolved, or the config's providers or
+	// profiles cannot be composed for the host (stageInputs), so an --assert refuses the whole
+	// apply and writes nothing (dry run only: an --assert refuses before the verdict).
 	outcomeRefused = "refused"
 	// outcomeIncomplete — a pack failed to render, so the counts are missing its surfaces, or a
 	// destination could not be written, or a stage failed (stageSkills, …), or yolo's floor will
@@ -165,6 +172,15 @@ func hostApplyVerdict(s *hostApplySurvey, write bool) string {
 			"would be retired.", n)
 	case outcomeRefused:
 		names := unresolvedNames(s.UnresolvedPacks())
+		if len(names) == 0 {
+			// stageInputs: the refusal's own line, above, says what in the config and its fix.
+			if write {
+				return "Refused — your config's providers or profiles are refused (above); nothing " +
+					"was written."
+			}
+			return "An --assert would REFUSE: your config's providers or profiles are refused " +
+				"(above), so nothing would be written."
+		}
 		if write {
 			return fmt.Sprintf("Refused — %d configured %s could not be resolved (%s); nothing "+
 				"was written.", len(names), plural(len(names), "pack", "packs"),
