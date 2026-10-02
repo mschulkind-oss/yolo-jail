@@ -31,6 +31,23 @@ Then select the pack and switch its loophole on, in your user config
 Selecting the pack puts yolo's `gh` in front of the jail's own copy. Enabling the loophole starts the
 broker for each jail you launch. Both take effect at the next fresh launch.
 
+### Only in some projects
+
+A project you don't want the broker in can turn it off in its own config, `yolo-jail.jsonc`, or in
+`yolo-jail.local.jsonc` beside it to keep the switch out of git:
+
+```jsonc
+{ "loopholes": { "github-broker": { "enabled": false } } }
+```
+
+That project's launches then start no broker and don't ask about its repositories. Answering `N`
+at the repository prompt instead stops the launch.
+
+To have it in only a few projects, leave `"enabled": true` out of your user config, keep the pack
+selected there, and put `{ "loopholes": { "github-broker": { "enabled": true } } }` in each of those
+projects' config. Each launch names a switch a project's config makes, because an agent can edit
+that file, and the broker still reaches only the repositories you approve.
+
 ## The repositories it can reach
 
 The broker only works on **this project's own GitHub repositories**: the `github.com` remotes in
