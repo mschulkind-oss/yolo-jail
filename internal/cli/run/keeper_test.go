@@ -133,6 +133,17 @@ type fakeJail struct {
 	stuck bool
 	stops int
 	calls []string
+	// execs, once reportExecs sets it, is how many exec sessions the runtime's inspect says the
+	// container has, its main process a hold (jailSessionCount); 0 answers nothing, a count unknown.
+	execs int
+}
+
+// reportExecs has the runtime answer that the container runs n exec sessions, its main process a
+// hold, as podman's inspect does (jailSessionCount).
+func (f *fakeJail) reportExecs(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.execs = n
 }
 
 func newFakeJail(t *testing.T, cname string) *fakeJail {
@@ -176,6 +187,10 @@ func (f *fakeJail) exec(argv []string, _ string, _ []string, _ time.Duration) Ex
 		return ExecResult{Ran: true, Stdout: "abc123\n"}
 	case len(argv) > 1 && argv[1] == "wait":
 		return ExecResult{} // the keeper's client exit is the observation here
+	case f.execs > 0 && len(argv) > 1 && argv[1] == "inspect" && strings.Contains(joined, "ExecIDs"):
+		return ExecResult{Ran: true, Stdout: strconv.Itoa(f.execs) + "\n"}
+	case f.execs > 0 && len(argv) > 1 && argv[1] == "inspect" && strings.Contains(joined, ".Config.Env"):
+		return ExecResult{Ran: true, Stdout: entrypoint.JailMainEnv + "=" + entrypoint.JailMainHold + "\n"}
 	}
 	return ExecResult{Ran: true}
 }

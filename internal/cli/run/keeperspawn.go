@@ -411,13 +411,23 @@ func (o *Options) endSession(cname, rt string, rc int, since time.Time, logFrom 
 }
 
 // noteJailStaysUp is the line of a session's quit that leaves others in its jail: it stays up for
-// them, how to re-enter it, and how to end it. A session a SIGINT or a SIGTERM ends prints it too
-// (noteJailStaysUpOnSignal), as does the fresh launch's teardown before ready (awaitKeeperUnwind).
+// them, how to re-enter it, and how to end it. The fresh launch's teardown before ready prints it
+// too (awaitKeeperUnwind), and a session a SIGINT or a SIGTERM ends prints it without the count
+// (noteJailStaysUpOnSignal).
 func (o *Options) noteJailStaysUp(cname, rt string) {
-	others := "its other sessions"
+	others := othersUncounted
 	if n, ok := o.jailSessionCount(rt, cname); ok && n > 0 {
 		others = fmt.Sprintf("%d other %s", n, plural(n, "session", "sessions"))
 	}
+	o.sayJailStaysUpFor(cname, rt, others)
+}
+
+// othersUncounted names a jail's other sessions without a number, for when nothing can count them.
+const othersUncounted = "its other sessions"
+
+// sayJailStaysUpFor prints noteJailStaysUp's line, naming the sessions the jail stays up for as
+// others.
+func (o *Options) sayJailStaysUpFor(cname, rt, others string) {
 	o.pr(terminalOnly(o.Stderr)).printf("[dim]Jail %s stays up for %s; `yolo -- <agent>` re-enters it, and %s ends them all.[/dim]",
 		cname, others, stopRemedy(rt, cname))
 }

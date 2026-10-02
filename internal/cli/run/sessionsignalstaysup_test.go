@@ -3,16 +3,18 @@ package run
 // sessionsignalstaysup_test.go pins what a session's signal teardown (attachTeardown) says of the
 // jail it leaves (docs/design/jail-lifetime-last-session-wins.md JL-D76). A SIGINT or a SIGTERM
 // leaves the terminal that ran the session, so when other sessions keep the jail up the teardown
-// prints the one line a session's quit prints then (noteJailStaysUp): once, after the terminal is
-// back, and on the terminal alone, as the quit's goes. The last session's teardown says nothing of
-// the jail staying up, and lets its count go as a quit does before it asks. A SIGHUP is a closed
-// pane, which leaves no terminal to read the line, so it says nothing either and asks nothing.
+// prints the one line a session's quit prints then (noteJailStaysUp), without the count its own exec
+// can still be in: once, after the terminal is back, and on the terminal alone, as the quit's goes.
+// The last session's teardown says nothing of the jail staying up, and lets its count go as a quit
+// does before it asks. A SIGHUP is a closed pane, which leaves no terminal to read the line, so it
+// says nothing either and asks nothing.
 //
 // Each test drives the real signal arm with a real signal to this process, against TestMain's
 // in-process keeper (startReadyWindowLaunch): the fresh launch's arm retargeted at ready, as
 // runContainer retargets it, and an attach's arm of the same kind around the same teardown.
 
 import (
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -164,6 +166,35 @@ func assertStaysUpOnce(t *testing.T, cname, terminal, launchLog string, restored
 	if !strings.Contains(terminal, "re-enters it") {
 		t.Errorf("the line is not the quit's (noteJailStaysUp):\n%s", terminal)
 	}
+}
+
+// TestASignalEndedSessionStatesNoCountItsOwnExecIsIn: the jail's count of its sessions is its live
+// exec sessions (jailSessionCount), and a session a signal ends can still be one of them when its
+// teardown speaks: its exec client is killed only once the teardown has returned, and in the ready
+// window the hangup can reach the jail before the first session's exec has named itself, which then
+// ends nothing. A nested jail measured that: a first session whose arm was retargeted at ready said
+// its jail stays up for 2 other sessions, with one other session in and its own exec still running
+// there. So the line names the jail's other sessions without a number. The runtime here answers as
+// it did there: two execs, the other session's and this session's own.
+func TestASignalEndedSessionStatesNoCountItsOwnExecIsIn(t *testing.T) {
+	cname := "yolo-staysup-count"
+	var other *sessionLock
+	l := startReadyWindowLaunch(t, cname, true, func() { other = holdAnotherSession(t, cname) })
+	l.jail.reportExecs(2)
+	l.retargetToTheSession(t)
+	if code := signalArm(t, syscall.SIGINT, l.codes); code != 128+int(syscall.SIGINT) {
+		t.Errorf("the session's arm exited %d, want %d", code, 128+int(syscall.SIGINT))
+	}
+	got := l.stderr.String()
+	if counted := regexp.MustCompile(`stays up for \d`); counted.MatchString(got) {
+		t.Errorf("the line states a count of the jail's other sessions, which this session's own exec is "+
+			"still in:\n%s", got)
+	}
+	if !strings.Contains(got, staysUpLine(cname)+" its other sessions;") {
+		t.Errorf("the line does not name the jail's other sessions without a number:\n%s", got)
+	}
+	other.release()
+	awaitKeeperEnd(t, l, "the keeper did not end the jail once its other session left")
 }
 
 // TestASignalToTheLastSessionSaysNothingOfTheJailStayingUp: the last session's SIGINT says nothing

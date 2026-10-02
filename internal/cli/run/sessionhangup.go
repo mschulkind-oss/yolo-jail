@@ -102,6 +102,13 @@ func (o *Options) attachTeardown(rt, cname, sessionID string) func() {
 // session lets its own count go, which its exit would do a moment later, and probeAfterQuit reads
 // who else holds the jail, within quitProbeWait.
 //
+// WITHOUT THE COUNT. The number the quit's line gives is the jail's live exec sessions
+// (jailSessionCount), and this session's own can still be one of them here: its client is killed
+// only after this teardown returns, and in the ready window the hangup can reach the jail before
+// the first session's exec has named itself, so it ends nothing. A nested jail measured that: a
+// retargeted first session said its jail stays up for 2 other sessions with one other in, its own
+// exec still running there. The quit's own wording for a count it cannot read is always true.
+//
 // Only for a SIGINT or a SIGTERM, whose terminal survives the signal. A SIGHUP is a closed pane,
 // with no terminal left to read the line, so its teardown asks nothing either and stays inside a
 // multiplexer's SIGKILL budget (sessionHangupTimeout). Nothing when no arm is ending the process.
@@ -118,7 +125,7 @@ func (o *Options) noteJailStaysUpOnSignal(cname, rt string) {
 	state, locks := o.probeAfterQuit(cname)
 	locks.release()
 	if state == quitOthers {
-		o.noteJailStaysUp(cname, rt)
+		o.sayJailStaysUpFor(cname, rt, othersUncounted)
 	}
 }
 
