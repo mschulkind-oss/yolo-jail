@@ -238,6 +238,7 @@ func TestEveryEndOfTheLaunchForgetsTheContainer(t *testing.T) {
 	}
 	for _, tc := range []struct{ file, fn, release, forget string }{
 		{"keeperspawn.go", "unwindUnspawned", "releaseLaunchLock", "forgetGoneContainer"},
+		{"launchguard.go", "discardUnspawned", "releaseLaunchLock", "forgetGone"},
 		{"keeper.go", "unwindUnstarted", "releaseLaunchLock", "forgetGoneContainer"},
 		{"keeper.go", "beforeReady", "releaseLaunchLock", "endJail"},
 	} {

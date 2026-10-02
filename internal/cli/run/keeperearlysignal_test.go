@@ -19,7 +19,6 @@ package run
 import (
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -328,7 +327,7 @@ func TestASIGINTToTheLaunchRightAfterItsKeeperStartedLeavesNoContainerRunning(t 
 			arm := armLaunchSignalsWith(o.keeperPreReadyTeardown(kp, cname, "podman"), func(code int) { codes <- code })
 			// The arm that fired never disarms (its exit would have ended the process), so its
 			// handler goes here instead: a later signal to the test binary reaches no dead arm.
-			t.Cleanup(func() { signal.Stop(arm.signals) })
+			t.Cleanup(func() { popLaunchArm(arm) })
 			interrupt := func() {
 				if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
 					t.Error(err)

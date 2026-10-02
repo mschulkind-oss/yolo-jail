@@ -183,6 +183,10 @@ type Options struct {
 	// then on the container holds packTree, so Run's deferred discardUnheldPackTree leaves it
 	// and forgetGoneContainer removes it once the runtime answers the container is gone.
 	packTreeHeld bool
+	// launchGuard is a container launch's signal arm from its pack staging until an arm of its own
+	// takes over, and what it would discard on a signal before then (launchguard.go). nil on
+	// macos-user and in a caller that never stages.
+	launchGuard *launchGuard
 	// servicesSession is a macos-user launch's own host-services dir and its liveness lock
 	// (servicessession.go), created by the spawn (startLoopholesMatching) and removed by the
 	// arm's deferred endServicesSession. nil on every other backend, before the spawn, and after

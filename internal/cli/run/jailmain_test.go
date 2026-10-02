@@ -196,6 +196,9 @@ func armAndHangUp(t *testing.T, onTerminate func(), setup func(*launchSignalArm)
 	t.Helper()
 	codes := make(chan int, 1)
 	arm := armLaunchSignalsWith(onTerminate, func(code int) { codes <- code })
+	// An arm that fired never disarms (its exit would have ended the process), so it leaves the
+	// process's arms here instead, and no later test's signal is routed to it (armstack.go).
+	t.Cleanup(func() { popLaunchArm(arm) })
 	if setup != nil {
 		setup(arm)
 	}
@@ -263,11 +266,16 @@ func TestTheLaunchSignalArmStaysArmedOnceTheFirstSessionReturns(t *testing.T) {
 // return blocked) and its client killed at the end.
 func TestAFirstSessionThatAttachesDuringATeardownIsTerminated(t *testing.T) {
 	h := &fakeSessionHandle{}
+	// Handed from the setup to the arm's own goroutine, which the signal alone orders after it.
+	var mu sync.Mutex
 	var arm *launchSignalArm
 	_, code := armAndHangUp(t, func() {
-		arm.attach(h)
+		mu.Lock()
+		a := arm
+		mu.Unlock()
+		a.attach(h)
 		h.record("onTerminate done")
-	}, func(a *launchSignalArm) { arm = a })
+	}, func(a *launchSignalArm) { mu.Lock(); arm = a; mu.Unlock() })
 	if code != 128+int(syscall.SIGHUP) {
 		t.Errorf("exit %d, want %d", code, 128+int(syscall.SIGHUP))
 	}
@@ -404,6 +412,10 @@ func TestNoSessionsArmStopsTheJail(t *testing.T) {
 		{"keeperspawn.go", "keeperPreReadyTeardown"},
 		{"sessionhangup.go", "attachTeardown"},
 		{"sessionhangup.go", "attachSignalArm"},
+		// The launch guard's, before the keeper exists (launchguard.go): it stops nothing either.
+		{"launchguard.go", "launchGuardTeardown"},
+		{"launchguard.go", "abandonLaunch"},
+		{"launchguard.go", "discardUnspawned"},
 	} {
 		calls := callsIn(funcDecl(t, tc.file, tc.fn))
 		for _, forbidden := range []string{"stopJail", "teardownAfterExit", "stopLoopholes"} {

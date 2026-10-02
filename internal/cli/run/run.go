@@ -1,6 +1,7 @@
 package run
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -286,9 +287,24 @@ func Run(opts Options) (rc int) {
 	// And every loopback port this launch reserved and did not hand on (servedaddresses.go), for
 	// the same reason: a refused launch, a dry run, an attach.
 	defer o.releaseReservedPorts()
+	// THE HERDR PANE's slot, made here, before any signal arm exists, so an arm's teardown can
+	// release it from its own goroutine. Each arm registers into it only once its arm is
+	// installed, just before its session starts, and releases it when the session returns
+	// (herdragent.go's WHEN); this defer covers every other return.
+	o.herdr = &herdrPane{}
+	defer o.releaseHerdrAgent()
 	staged, stagedOK := o.stageRunPacks(cname)
 	if !stagedOK {
 		return 1
+	}
+	// THE LAUNCH GUARD (launchguard.go, JL-D75), from the moment there is a pack tree to lose: a
+	// signal before the keeper's spawn ends the launch through it, which discards what no container
+	// holds and gives the terminal back, where the default action ran no cleanup at all. The
+	// keeper's arm or an attach's takes over from it; this is its retirement at every other return,
+	// after the discard below.
+	if rt != "macos-user" { // parity: Dropped — macos-user has no keeper to hand the tree to, and its host daemons run from the tree under the TTY proxy's own arm, beside which a guard would act too; a signal before its session leaves the tree for the reaper, as it did (JL-D75)
+		o.armLaunchGuard(cname, rt)
+		defer o.endLaunchGuard()
 	}
 	// This launch's pack tree goes at return unless a started container holds it (packtree.go).
 	defer o.discardUnheldPackTree(cname)
@@ -348,12 +364,6 @@ func Run(opts Options) (rc int) {
 	if len(injectedArgs) > 0 {
 		injectedArgs = o.injectLaunchFlagsDisclosed(staged.packs, injectedArgs)
 	}
-	// THE HERDR PANE's slot, made here, before any signal arm exists, so an arm's teardown can
-	// release it from its own goroutine. Each arm registers into it only once its arm is
-	// installed, just before its session starts, and releases it when the session returns
-	// (herdragent.go's WHEN); this defer covers every other return.
-	o.herdr = &herdrPane{}
-	defer o.releaseHerdrAgent()
 	// A SHARED NETWORK, SAID (OQ-NC3): above the dispatch for the launch flags' reason, so every
 	// arm and an attach print it from here (sharednetwork.go).
 	o.noteSharedNetwork(cfg, rt)
@@ -1682,6 +1692,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 			out.printf("[yellow]Warning: %s[/yellow]", w)
 		}
 		in.homeSkeleton = sk.dir
+		o.launchGuard.noteSkeleton(sk.dir)
 	}
 	// FROM HERE TO THE CONTAINER START, EVERY RETURN DISCARDS THE SKELETON: no container ever
 	// held it, so leaving it would be one more directory for the reaper from a launch that
@@ -1766,7 +1777,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// Tracking + window title. The tracking file is removed again by forgetGoneContainer, at the
 	// keeper's end, once the container is known gone. The OWNER-PID FILE is the keeper's to write,
 	// not this launch's: it names the jail's owner, and that is the keeper, for the jail's whole
-	// life (docs/design/jail-lifetime-last-session-wins.md JL-D18).
+	// life (docs/design/jail-lifetime-last-session-wins.md JL-D18). The launch guard is told first,
+	// so a signal from here to the keeper's spawn takes both records back too.
+	o.launchGuard.noteRecorded()
 	_ = runtimeWriteTracking(cname, o.Workspace)
 	// THE PACK TREE CHANGES HANDS here: from now on the container holds it and the keeper owns it,
 	// so Run's deferred discard leaves it, and it goes with the tracking file once the container is
@@ -1899,6 +1912,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// child window — the keeper's start, the boot it relays and the first session — under one span.
 	sp = o.Perf.Span("launch.run_with_proxy")
 	kp, err := o.startKeeper(plan)
+	if errors.Is(err, errLaunchEnded) {
+		select {} // the launch guard is ending this launch, with what it made; never race it
+	}
 	if err != nil {
 		sp.End()
 		out.printf("[bold red]%s[/bold red]", err.Error())
@@ -1907,8 +1923,16 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 	// ONE SIGNAL ARM FOR THE WHOLE WINDOW (keeperspawn.go). Until ready a signal ends this launch
 	// alone, which closes the lifeline and so has the keeper unwind; from ready on it is the
-	// session's arm, retargeted rather than replaced, so no signal falls between two arms.
+	// session's arm, retargeted rather than replaced, so no signal falls between two arms. It takes
+	// over from the launch guard, which goes once it is installed (armstack.go: the innermost arm
+	// alone acts).
 	arm := armLaunchSignals(o.keeperPreReadyTeardown(kp, cname, rt))
+	if !o.retireLaunchGuard() {
+		// The launch guard is ending this launch, through its keeper: it keeps every later signal,
+		// so the arm just installed never runs the same teardown beside it. Never race it.
+		popLaunchArm(arm)
+		select {}
+	}
 	// THE HERDR PANE, registered now that the arm covers it (herdragent.go): every teardown the
 	// arm runs releases it, and so does this launch before each disarm below.
 	o.registerHerdrAgent(loadedPacks, injectedArgs)
@@ -2510,6 +2534,12 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// killed, since killing the client alone left them running there with no terminal. Armed
 	// just before the exec and disarmed once it returns, with or without a terminal.
 	arm := o.attachSignalArm(rt, cname, sessionID)
+	// It takes over from the launch guard, whose pack tree this attach discarded above.
+	if !o.retireLaunchGuard() {
+		// The guard is ending this launch: it keeps every later signal. Never race it.
+		popLaunchArm(arm)
+		select {}
+	}
 	// THE HERDR PANE, registered under the arm (herdragent.go), against the packs the running jail
 	// booted from, as every host-side reader on an attach reads them; released once the exec
 	// returns, before the arm lets go.

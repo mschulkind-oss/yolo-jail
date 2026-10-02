@@ -274,27 +274,45 @@ type sessionHandle interface {
 // keeperspawn.go): neither ever stops the jail, which is its keeper's (JL-D4).
 //
 // An attach runs its one session under an arm of the same kind (attachSignalArm), whose teardown
-// hangs up that session's processes in the jail.
+// hangs up that session's processes in the jail. Before either, from its pack staging, a container
+// launch runs under its LAUNCH GUARD, an arm of the same kind again (launchguard.go), which the
+// keeper's arm or the attach's takes over from. Only the innermost installed arm acts on a signal
+// (armstack.go), so a guard still installed under the arm that took over never acts with it.
 type launchSignalArm struct {
 	mu          sync.Mutex
 	signals     chan os.Signal
 	done        chan struct{}
+	exited      chan struct{} // closed once the exit returns, which os.Exit never does
 	session     sessionHandle // the first session's, while its run is in progress
 	onTerminate func()        // the teardown a signal runs (retarget replaces it)
+	// outer is what this arm's launch needs done when a launch running inside it, in this process,
+	// ends the process on a signal (armstack.go): nil but for a launch guard's.
+	outer       func()
 	stopped     bool
 	terminating bool
 }
 
 // armLaunchSignals installs the arm.
 func armLaunchSignals(onTerminate func()) *launchSignalArm {
-	return armLaunchSignalsWith(onTerminate, os.Exit)
+	return armLaunchSignalsWith(onTerminate, launchArmExit)
 }
+
+// launchArmExit is how every arm the pipeline installs ends the process: os.Exit. A var so a test
+// that drives a whole launch to a signal can see the exit without ending the test binary.
+var launchArmExit = os.Exit
 
 // armLaunchSignalsWith is armLaunchSignals with the process exit as a parameter, so a test can
 // drive the arm to its end without ending the test binary.
 func armLaunchSignalsWith(onTerminate func(), exit func(int)) *launchSignalArm {
-	a := &launchSignalArm{signals: make(chan os.Signal, 4), done: make(chan struct{}), onTerminate: onTerminate}
-	signal.Notify(a.signals, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)
+	return armLaunchSignalsOuter(onTerminate, nil, exit)
+}
+
+// armLaunchSignalsOuter installs an arm whose launch needs outer done when a launch run inside it
+// ends the process (armstack.go). It is the innermost arm from here until it is disarmed or another
+// is installed.
+func armLaunchSignalsOuter(onTerminate, outer func(), exit func(int)) *launchSignalArm {
+	a := &launchSignalArm{signals: make(chan os.Signal, 4), done: make(chan struct{}),
+		exited: make(chan struct{}), onTerminate: onTerminate, outer: outer}
 	go func() {
 		for {
 			select {
@@ -310,12 +328,14 @@ func armLaunchSignalsWith(onTerminate func(), exit func(int)) *launchSignalArm {
 				a.mu.Unlock()
 				a.terminate(h, teardown)
 				exit(128 + int(s.(syscall.Signal)))
+				close(a.exited)
 				return
 			case <-a.done:
 				return
 			}
 		}
 	}()
+	pushLaunchArm(a)
 	return a
 }
 
@@ -324,7 +344,8 @@ func armLaunchSignalsWith(onTerminate func(), exit func(int)) *launchSignalArm {
 // the way out would raise SIGTTOU and stop it again, so both job-control signals are ignored
 // first. Then the terminal, when the first session's run holds it, before the teardown prints;
 // then onTerminate; then the exec client, at its pid, read again because a run that started
-// while the teardown ran attaches late (attach); then the embedded pack tree, which the exit
+// while the teardown ran attaches late (attach); then what each launch this one runs inside needs
+// done, since the exit ends them too (armstack.go); then the embedded pack tree, which the exit
 // would otherwise leak, for the reason the proxy's arm releases it (proxy_linux.go's
 // withEmbeddedRelease).
 func (a *launchSignalArm) terminate(h sessionHandle, onTerminate func()) {
@@ -340,6 +361,11 @@ func (a *launchSignalArm) terminate(h sessionHandle, onTerminate func()) {
 	a.mu.Unlock()
 	if h != nil {
 		h.Kill()
+	}
+	for _, outer := range outerArms(a) {
+		if outer.outer != nil {
+			outer.outer()
+		}
 	}
 	packload.ReleaseEmbedded()
 }
@@ -385,12 +411,12 @@ func (a *launchSignalArm) detach() bool {
 	return true
 }
 
-// disarm ends the arm, after which a signal has its default effect, as it always had once the
-// proxy returned: the launch calls it once the main process's client has exited, before the
-// normal teardown. It returns false when the arm has already begun the teardown: the caller —
-// the launch's own goroutine, woken because that teardown stopped the jail — must then leave
-// the rest to the arm, which exits the process, rather than run the teardown a second time.
-// Idempotent.
+// disarm ends the arm, after which a signal goes to the next arm out (armstack.go), or, with none,
+// has its default effect, as it always had once the proxy returned: the launch calls it once the
+// main process's client has exited, before the normal teardown. It returns false when the arm has
+// already begun the teardown: the caller — the launch's own goroutine, woken because that teardown
+// stopped the jail — must then leave the rest to the arm, which exits the process, rather than run
+// the teardown a second time. Idempotent.
 func (a *launchSignalArm) disarm() bool {
 	a.mu.Lock()
 	if a.terminating {
@@ -403,7 +429,12 @@ func (a *launchSignalArm) disarm() bool {
 	}
 	a.stopped = true
 	a.mu.Unlock()
-	signal.Stop(a.signals)
+	popLaunchArm(a)
 	close(a.done)
 	return true
 }
+
+// awaitExit waits for the exit of an arm that began its teardown, which os.Exit never returns
+// from: in production it blocks until the process ends, so the caller never races the arm, and a
+// test that faked the exit gets its goroutine back once the exit has run.
+func (a *launchSignalArm) awaitExit() { <-a.exited }

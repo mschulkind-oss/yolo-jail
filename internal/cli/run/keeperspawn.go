@@ -95,7 +95,15 @@ func (k *keeperProcess) closeLifeline() { k.closeMu.Do(func() { _ = k.lifeline.C
 // startKeeper writes the plan and spawns the keeper, handing it the launch lock this launch holds
 // (JL-D31): the keeper's copy keeps the lock, and this one is closed without the unlock that would
 // release every copy (workspaceLock.handOff).
-func (o *Options) startKeeper(plan *keeperPlan) (*keeperProcess, error) {
+//
+// UNDER THE LAUNCH GUARD'S HOLD (launchguard.go, JL-D75): a signal whose teardown began first
+// spawns nothing (errLaunchEnded), and one that lands during the spawn waits for it, so it ends the
+// jail through the keeper rather than discarding what the keeper was just handed.
+func (o *Options) startKeeper(plan *keeperPlan) (kp *keeperProcess, err error) {
+	if !o.launchGuard.lockSpawn() {
+		return nil, errLaunchEnded
+	}
+	defer func() { o.launchGuard.unlockSpawn(kp) }()
 	planPath, err := writeKeeperPlan(plan)
 	if err != nil {
 		return nil, fmt.Errorf("could not write this jail's plan for its keeper: %w", err)
@@ -134,7 +142,7 @@ func (o *Options) startKeeper(plan *keeperPlan) (*keeperProcess, error) {
 	if lockFile != nil {
 		o.launchLock.handOff()
 	}
-	kp := &keeperProcess{lifeline: lifeW, progress: progR, exited: make(chan struct{})}
+	kp = &keeperProcess{lifeline: lifeW, progress: progR, exited: make(chan struct{})}
 	go func() {
 		kp.exitCode = wait()
 		close(kp.exited)
@@ -217,12 +225,22 @@ func (o *Options) awaitPreviousKeeper(cname string) bool {
 var keeperUnwindWait = 20 * time.Second
 
 // keeperPreReadyTeardown is the launch arm's teardown until the jail is ready: close the lifeline,
-// which ends the keeper's jail, relay its unwind for a moment, release the herdr pane, and give the
-// terminal back.
+// which ends the keeper's jail, let the first session's count go, relay the unwind for a moment,
+// release the herdr pane, and give the terminal back.
+//
+// THE COUNT GOES TOO (JL-D74). The arm runs this until the launch's own goroutine retargets it,
+// which is after the keeper said ready, and the keeper stops reading the lifeline at ready: a signal
+// in between found a keeper waiting for its last session's count, and that count was this
+// launch's, held until the process exited. The wait below then ran its whole bound for a keeper
+// that could not end the jail until it gave up. With the count let go here, the keeper drains as
+// for any last session, and the wait ends when it does; before ready the keeper is not counting,
+// and the lifeline ends the jail as it always did. A first session the count could not hold
+// (plan.Uncounted) has a keeper that never drains on it, so that launch still waits the bound.
 func (o *Options) keeperPreReadyTeardown(kp *keeperProcess, cname, rt string) func() {
 	return func() {
 		o.Perf.Mark("terminate.signal")
 		kp.closeLifeline()
+		o.releaseSessionLock()
 		select {
 		case <-kp.exited:
 		case <-time.After(keeperUnwindWait):

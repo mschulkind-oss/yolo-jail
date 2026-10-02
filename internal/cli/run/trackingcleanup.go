@@ -62,6 +62,17 @@ const trackingProbeTimeout = 10 * time.Second
 // record goes with it only while it still names this tree, since a launch that restarted the
 // jail has written its own.
 func (o *Options) forgetGoneContainer(cname, rt, skeleton string) {
+	tree := ""
+	if o.packTreeHeld {
+		tree = o.packTree
+	}
+	o.forgetGone(cname, rt, skeleton, tree)
+}
+
+// forgetGone is forgetGoneContainer with the pack tree named, "" for none: the launch guard's
+// teardown runs it on the arm's goroutine, which must not read packTree or packTreeHeld, the
+// launch goroutine's own (launchguard.go).
+func (o *Options) forgetGone(cname, rt, skeleton, tree string) {
 	if cname == "" {
 		return
 	}
@@ -77,9 +88,9 @@ func (o *Options) forgetGoneContainer(cname, rt, skeleton string) {
 	// The same path guard as a skeleton no container ever held: a direct child of this
 	// cname's skeleton root, never anything else.
 	discardUnheldSkeleton(cname, skeleton)
-	if o.packTreeHeld {
-		forgetLivePackTree(cname, o.packTree)
-		discardPackTree(cname, o.packTree)
+	if tree != "" {
+		forgetLivePackTree(cname, tree)
+		discardPackTree(cname, tree)
 	}
 }
 
