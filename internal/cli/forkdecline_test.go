@@ -15,6 +15,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -58,6 +59,7 @@ func TestHostLaunchOfAForkItCannotPinNamesWhyAndRunsThePathCopy(t *testing.T) {
 	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
 	dist := withLinuxTestFloor(t) // where the floor holds a fork's build at all: the pin is what is missing
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
+	stubContainerRuntime(t) // and a machine that can build: else the missing runtime is what it says
 	stub := filepath.Join(stubBins(t, "floorcli"), "floorcli")
 	got := captureHostExec(t)
 	var errw bytes.Buffer
@@ -70,6 +72,57 @@ func TestHostLaunchOfAForkItCannotPinNamesWhyAndRunsThePathCopy(t *testing.T) {
 		if !strings.Contains(errw.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errw.String())
 		}
+	}
+	if calls := dist.NpmCalls("install"); len(calls) != 0 {
+		t.Errorf("the floor installed the base's npm package for a forked program: %v", calls)
+	}
+}
+
+// `yolo host -- <forked bin>` of a fork with no pin ON A MACHINE THAT CANNOT BUILD (no container
+// runtime on PATH, as on the macOS CI runner): the floor does not pin it — a pin fetches the fork's
+// source, and nothing could build what it named — so the no-copy line names the missing runtime
+// and the step that ends it (the next launch pins and builds the fork itself, FP-D18), and the
+// launch runs the PATH copy (OQ-HE11), installing nothing of the base's.
+func TestHostLaunchOfAnUnpinnedForkOnAMachineThatCannotBuildNamesTheRuntimeAndDoesNotPin(t *testing.T) {
+	forkHostFixture(t, "floorcli", `{"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}`)
+	orig := prepareOpenAIAuthHost
+	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
+	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
+	dist := withLinuxTestFloor(t)
+	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
+	pins := 0
+	inner := newHostFloor
+	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
+		f := inner(out, progs)
+		pin := f.PinFork
+		f.PinFork = func(p hostfloor.Program, say func(string)) (string, string) {
+			pins++
+			return pin(p, say)
+		}
+		return f
+	}
+	t.Cleanup(func() { newHostFloor = inner })
+	stubDir := stubBins(t, "floorcli")
+	withoutContainerRuntime(t, stubDir)
+	got := captureHostExec(t)
+	var errw bytes.Buffer
+	stub := filepath.Join(stubDir, "floorcli")
+	if rc := hostExec(nil, []string{"floorcli"}, io.Discard, &errw, nil); rc != 0 || got.target != stub {
+		t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, stub, errw.String())
+	}
+	for _, want := range []string{"yolo has no copy of floorcli on this machine",
+		"built from source by fork pack forkpack, which has no pin yet",
+		"no container runtime (podman) is on PATH",
+		"install one (`yolo check` names how on this machine) and the next `yolo host` launch pins the fork and builds it"} {
+		if !strings.Contains(errw.String(), want) {
+			t.Errorf("stderr lacks %q:\n%s", want, errw.String())
+		}
+	}
+	if pins != 0 || strings.Contains(errw.String(), "pinning it failed") {
+		t.Errorf("the floor tried to pin a fork it could not build (%d pins):\n%s", pins, errw.String())
+	}
+	if _, err := os.Stat(forkLockPath()); !os.IsNotExist(err) {
+		t.Errorf("a launch that could not build wrote the fork lock: %v", err)
 	}
 	if calls := dist.NpmCalls("install"); len(calls) != 0 {
 		t.Errorf("the floor installed the base's npm package for a forked program: %v", calls)

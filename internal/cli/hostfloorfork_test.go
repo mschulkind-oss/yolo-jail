@@ -49,9 +49,27 @@ func withForkFloor(t *testing.T) *floortest.Dist {
 		return f
 	}
 	t.Cleanup(func() { newHostFloor = orig })
+	stubContainerRuntime(t)
+	return dist
+}
+
+// stubContainerRuntime makes this test's machine one that can run a capture or a fork's build: a
+// runtime named, and a stub of it on PATH for the production floor's CaptureUnavailable to find. A
+// floor test of a fork that can build calls it, because otherwise the answer is the machine's own
+// PATH: this jail and the Linux CI runners have podman, and the macOS runner has none.
+func stubContainerRuntime(t *testing.T) {
+	t.Helper()
 	t.Setenv("YOLO_RUNTIME", "podman")
 	stubBins(t, "podman")
-	return dist
+}
+
+// withoutContainerRuntime makes this test's machine one with no runtime to capture or build with:
+// podman named, and a PATH holding only the given directories, so the production floor's
+// CaptureUnavailable finds no podman on any machine running the test.
+func withoutContainerRuntime(t *testing.T, path ...string) {
+	t.Helper()
+	t.Setenv("YOLO_RUNTIME", "podman")
+	t.Setenv("PATH", strings.Join(path, string(os.PathListSeparator)))
 }
 
 // forkFloorHome is a temp HOME whose user config selects a base pack declaring forkcli via npm and

@@ -49,10 +49,13 @@ func (f *Floor) buildProvisionable(st Status) Status {
 	if commit == "" {
 		// AWAITING ITS PIN (noEntryReason lets only that through, FP-D18): the install pins the
 		// fork's source first, then builds what it pinned, so the store can hold no build of it yet
-		// and the question is only whether this machine can build.
+		// and the question is only whether this machine can build. A machine that cannot is not
+		// pinned either: a pin fetches the fork's source, and with no build to follow it would only
+		// fix the commit sooner than the first launch that can build it does.
 		if why := f.cannotBuild(); why != "" {
 			st.Disposition = NoEntry
-			st.Reason = "it is built from source by fork pack " + p.Install.ForkedBy + ", which has no pin yet, and " + why
+			st.Reason = "it is built from source by fork pack " + p.Install.ForkedBy + ", which has no pin yet, and " +
+				why + f.buildStep("pins the fork and builds it")
 			return st
 		}
 		st.Reason = "not pinned yet: the install pins fork pack " + p.Install.ForkedBy + "'s source (" +
@@ -67,15 +70,29 @@ func (f *Floor) buildProvisionable(st Status) Status {
 		return st
 	}
 	if why := f.cannotBuild(); why != "" {
-		st.Disposition, st.Reason = NoEntry, noBuildReason(p.Bin(), commit, why)
+		st.Disposition, st.Reason = NoEntry, f.noBuildReason(p.Bin(), commit, why)
 	}
 	return st
 }
 
 // noBuildReason is the no-floor-entry reason for a fork the store has no build of at commit, on a
 // machine that cannot run the build act (why): the one spelling Status and an install share.
-func noBuildReason(bin, commit, why string) string {
-	return "there is no build of " + bin + " at " + buildVersion(commit) + " on this machine, and " + why
+func (f *Floor) noBuildReason(bin, commit, why string) string {
+	return "there is no build of " + bin + " at " + buildVersion(commit) + " on this machine, and " + why +
+		f.buildStep("builds it")
+}
+
+// buildStep is the next step a fork's no-floor-entry reason ends with when cannotBuild stopped it
+// for want of a container runtime (CaptureUnavailable). Nothing is left to run by hand once one is
+// installed: the next launch makes what is missing itself (FP-D18: a launch pins a fork, and the
+// floor builds the pin), and does names what that launch makes. So the step is the runtime, whose
+// install line for this machine `yolo check` prints. "" when the obstacle is that this yolo has no
+// build act at all, which nothing the user installs moves.
+func (f *Floor) buildStep(does string) string {
+	if f.Build == nil {
+		return ""
+	}
+	return " — install one (`yolo check` names how on this machine) and the next `yolo host` launch " + does
 }
 
 // buildUnusable says why the store's build entry of p at commit cannot be the floor's copy, "" when
@@ -129,7 +146,7 @@ func (f *Floor) installFromBuild(ctx context.Context, p Program, dir string) (*R
 		// pin never comes through provisionable, and a build act started with no runtime would
 		// only fail, turning "the PATH copy, with the reason" into a refused launch.
 		if why := f.cannotBuild(); why != "" {
-			return nil, &noEntryError{reason: noBuildReason(bin, commit, why)}
+			return nil, &noEntryError{reason: f.noBuildReason(bin, commit, why)}
 		}
 		f.say("no build of %s at %s on this machine yet; building it from fork pack %s's source in a sealed "+
 			"jail (once per commit per machine, and every jail on this machine reuses it)",

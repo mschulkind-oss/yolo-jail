@@ -549,7 +549,8 @@ func TestNoFloorEntryForAFork(t *testing.T) {
 		{"a Mac", func(f *Floor, _ *string) { f.GOOS = "darwin" }, []string{"in a Linux capture jail", "darwin/"}},
 		{"no build and no runtime", func(f *Floor, _ *string) {
 			f.CaptureUnavailable = func() string { return "no container runtime (podman) is on PATH" }
-		}, []string{"there is no build of forkcli at commit 111111111111", "podman"}},
+		}, []string{"there is no build of forkcli at commit 111111111111", "podman",
+			"install one (`yolo check` names how on this machine) and the next `yolo host` launch builds it"}},
 		{"no build act", func(f *Floor, _ *string) { f.Build = nil }, []string{"cannot run a fork's build"}},
 	}
 	for _, c := range cases {
@@ -563,6 +564,11 @@ func TestNoFloorEntryForAFork(t *testing.T) {
 				if st.Disposition != NoEntry || !strings.Contains(st.Reason, want) {
 					t.Errorf("Status = %s (%s), want no floor entry naming %q", st.Disposition, st.Reason, want)
 				}
+			}
+			// The runtime step is only for a missing runtime: with no build act, installing one
+			// would change nothing.
+			if c.name == "no build act" && strings.Contains(st.Reason, "install one") {
+				t.Errorf("a floor with no build act names a runtime to install: %s", st.Reason)
 			}
 			if _, _, err := w.floor.Ensure(context.Background(), p); !errors.Is(err, ErrNoEntry) {
 				t.Errorf("Ensure = %v, want ErrNoEntry", err)
@@ -669,6 +675,39 @@ func TestAPinTheInstallCannotMakeIsNoFloorEntry(t *testing.T) {
 	}
 	if _, _, _ = w.floor.Ensure(context.Background(), p); calls != 1 {
 		t.Errorf("PinFork called %d times on one Floor, want once", calls)
+	}
+}
+
+// A FORK AWAITING ITS PIN ON A MACHINE THAT CANNOT BUILD is no floor entry, and the install does
+// not pin it: a pin fetches the fork's source, and nothing here could build what it named. The
+// reason names the missing runtime and the step, and the step is true: once the runtime is there,
+// the next install pins the fork and builds that commit with nothing run by hand.
+func TestAForkAwaitingItsPinOnAMachineThatCannotBuildIsNotPinned(t *testing.T) {
+	made, calls := forkCommitTwo, 0
+	w, bs := pinningWorld(t, &made, "", &calls)
+	unavailable := "no container runtime (podman) is on PATH"
+	w.floor.CaptureUnavailable = func() string { return unavailable }
+	p := forkProgram()
+	st, _, err := w.floor.Ensure(context.Background(), p)
+	if !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry {
+		t.Fatalf("Ensure = %s (%s) %v, want no floor entry", st.Disposition, st.Reason, err)
+	}
+	for _, want := range []string{"built from source by fork pack forkpack, which has no pin yet", unavailable,
+		"install one (`yolo check` names how on this machine) and the next `yolo host` launch pins the fork and builds it"} {
+		if !strings.Contains(st.Reason, want) {
+			t.Errorf("the reason lacks %q: %s", want, st.Reason)
+		}
+	}
+	if calls != 0 || len(bs.builds) != 0 {
+		t.Fatalf("PinFork called %d times, builds %v, on a machine that cannot build", calls, bs.builds)
+	}
+	unavailable = ""
+	st, outcome, err := w.floor.Ensure(context.Background(), p)
+	if err != nil || outcome != Installed || st.Record == nil || st.Record.Revision != forkCommitTwo {
+		t.Fatalf("with a runtime: Ensure = %+v %s %v, want the build at the pin it made", st, outcome, err)
+	}
+	if calls != 1 || len(bs.builds) != 1 {
+		t.Errorf("with a runtime: PinFork called %d times, builds %v, want one of each", calls, bs.builds)
 	}
 }
 
