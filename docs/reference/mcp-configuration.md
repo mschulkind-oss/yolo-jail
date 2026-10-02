@@ -682,14 +682,49 @@ change in one place rather than a call-site hunt.
 **Removing the `sequential-thinking` preset** is ruled and not built —
 [`OQ-MP1`](../design/mcp-presets-removal.md#decision-ledger).
 
-**Open for pi's MCP files**, not yet ruled: whether `~/.config/mcp/mcp.json` is still written now
-that pi-subagents 0.74.0 runs `mcp:` tools from pi's own client; whether yolo does anything for a
-pi-mcp-adapter user beyond saying the two clients duplicate each other; whether pi gets a version
-floor, since a pi older than 0.99.0 has no client and starts none of these servers; whether the
-host owns `mcp.json`'s server table whole, as it owns `~/.claude.json`'s, which would end the
-emptied entries above and make `--revert`'s whole-table removal take only yolo's, at the cost of
-the servers you add with `pi mcp add`; and whether
-`yolo host apply` retires a host `mcp-adapter.json` by the same exact-match rule a jail boot uses.
+**Open for pi's MCP files.** Two calls are written up below with their options: who owns the
+host's `mcp.json` server table ([OQ-MC1](#oq-mc1)), and what yolo does about an old pi or a
+leftover `mcp-adapter.json` at the host ([OQ-MC2](#oq-mc2)). Also not ruled: whether
+`~/.config/mcp/mcp.json` is still written now that pi-subagents 0.74.0 runs `mcp:` tools from pi's
+own client, and whether yolo does anything for a pi-mcp-adapter user beyond saying the two clients
+duplicate each other.
+
+- 💬 <a id="oq-mc1"></a>**[`OQ-MC1`](#oq-mc1) — does the host own `mcp.json`'s server table per
+  server, or whole?** Filed 2026-10-02. Today each server is yolo's or yours, which leaves the
+  two faults [pi's own file](#pis-mcp-files) records at the host: an emptied `{}` entry under
+  `assert`, and a `--revert` that removes your servers with yolo's.
+
+  - **(a) Per server, and fix both.** `--revert` removes only the servers yolo wrote, and an
+    entry yolo empties is deleted. *You keep:* the servers you add with `pi mcp add`.
+  - **(b) Whole, as `~/.claude.json`'s table is.** Both faults end with no new code path.
+    *You pay:* the next apply removes every server you added with `pi mcp add`.
+
+  <!-- vantage: oq id=OQ-MC1 leaning="(a): per server, with --revert taking only yolo's servers and an emptied entry deleted. pi writes this file itself (pi mcp add, /mcp), and owning the table whole would delete what the user added there." -->
+
+  _Leaning:_ **(a).** pi writes this file itself, so owning the table whole deletes what the user
+  added with pi's own command.
+
+  **Answer:**
+  > _(empty — fill in when decided)_
+
+- 💬 <a id="oq-mc2"></a>**[`OQ-MC2`](#oq-mc2) — what does yolo do about an old pi, or a leftover
+  `mcp-adapter.json`, at the host?** Filed 2026-10-02 with [OQ-MC1](#oq-mc1). A pi older than 0.99.0 has no
+  MCP client and starts none of the servers in `mcp.json`, and host apply deletes nothing, so a
+  `mcp-adapter.json` at the host stays, and pi-mcp-adapter keeps loading it.
+
+  - **(a) A version floor and a deletion.** The pi pack requires pi 0.99.0, and host apply
+    retires a host `mcp-adapter.json` by the exact-match rule a jail boot uses.
+  - **(b) No floor and no deletion; `yolo check` at the host names each.** It names an old pi with
+    the `npm` command that updates it, and a leftover `mcp-adapter.json` with the exact `rm`.
+  - **(c) Nothing.**
+
+  <!-- vantage: oq id=OQ-MC2 leaning="(b): no version floor and no deletion; yolo check at the host names an old pi and a leftover mcp-adapter.json, each with the one command that fixes it, which is the happy path principle's one-command step." -->
+
+  _Leaning:_ **(b).** It is the [happy path principle](happy-path-principle.md)'s one-command step,
+  and it deletes nothing in a real home.
+
+  **Answer:**
+  > _(empty — fill in when decided)_
 
 ## Current values
 

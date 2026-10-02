@@ -3,7 +3,7 @@ title: "How executable content gets into a jail — and what makes two jails the
 date: 2026-09-06
 status: in-review
 tags: [packs, uniformity, delivery, pinning, npm, mise, image, evergreen]
-summary: "Four delivery classes, one of which kept no record and was never re-derived — and all divergence lived there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at its own invocation) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which. Largely implemented by 2026-09-04; three questions open."
+summary: "Four delivery classes, one of which kept no record and was never re-derived — and all divergence lived there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at its own invocation) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which. Largely implemented by 2026-09-04."
 stage: DESIGN
 next: "Rule OQ-PD19: its first task is done as far as any record goes (2026-10-01: PR #19 records no reason, and the exclusion hides a project's own mise pin of pnpm; a declared mise_tools pnpm, which it also hid, is delivered by mise since 2026-10-01)"
 ---
@@ -2029,6 +2029,44 @@ does not allow, or a vendor-compatibility hold, which would be an exception P6 d
 <!-- vantage: oq id=OQ-PD21 -->
 
 It has no leaning yet: why the pack pins is the fact a leaning would need, and nothing records it.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+### <a id="oq-pd23"></a>💬 [`OQ-PD23`](#oq-pd23) — does an agent CLI update once per machine, rather than once per workspace?
+
+Filed 2026-10-02 from the maintainer's question after a launch sat at "Updating claude…" (the hang
+[OQ-PD22](#decision-ledger) fixed): *"I thought we capture these updates somehow and then layer
+them in. … why isn't this all one-timed?"* The working label in that session was Q134.
+
+**Today.** The capture store serves an agent's first install on a machine and nothing after it
+([OQ-CP4](../reference/agent-cli-copies.md#oq-cp4)). After that, each workspace's launcher runs
+the vendor's own update verb (`claude install` for claude) when its stamp is more than an hour old
+(`UPDATE_INTERVAL=3600`, `_update_due` in the launcher template), so every workspace downloads
+every release itself. That stamp sits in `~/.cache/yolo-agent-stamps`, which every workspace on the
+machine shares, while each install is the workspace's own ([§4.4](#44-the-scope-mismatch-the-maintainers-premise-corrected)).
+**READ FROM CODE, NOT MEASURED:** an update in one workspace holds off every other workspace's for
+an hour, so a workspace that only launches within an hour of another's update stays on its old
+version.
+
+**What [OQ-CP4](../reference/agent-cli-copies.md#oq-cp4) rested on.** `yolo capture` is a host act, and the capture jail gets no store mount,
+so a launcher inside a jail cannot start one. But the launch itself runs on the host, and
+auto-capture ([OQ-PD18](#decision-ledger)) already captures there.
+
+- **(A) Keep per-workspace updates, and check first.** The launcher asks the vendor for its latest
+  version and runs the updater only when that is newer. *You keep:* every workspace downloading
+  every release; the hourly no-op runs stop.
+- **(B) One capture per release, per machine.** At most hourly, the launch asks the vendor for its
+  latest version; for a new one it captures it once, in the throwaway jail auto-capture uses, and
+  every jail's launcher copies in the newest capture and runs no vendor updater. Reverses [OQ-CP4](../reference/agent-cli-copies.md#oq-cp4),
+  and the shared stamp stops mattering. *You pay:* a capture per release, about a minute on the
+  host, and a jail picks a new version up at its next launch.
+- **(C) Leave it as it is.** The hang is fixed either way ([OQ-PD22](#decision-ledger)).
+
+<!-- vantage: oq id=OQ-PD23 leaning="B: one capture per release per machine. The launch runs on the host, where auto-capture already captures, so OQ-CP4's premise that no host act can follow an update no longer holds; one download per release replaces one per workspace, and no vendor updater runs inside a jail." -->
+
+_Leaning:_ **(B).** One download per machine per release is what the maintainer expected, it takes
+the vendor updater out of every jail, and the premise [OQ-CP4](../reference/agent-cli-copies.md#oq-cp4) rested on no longer holds.
 
 **Answer:**
 > _(empty — fill in when decided)_

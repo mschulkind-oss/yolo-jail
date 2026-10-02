@@ -5,7 +5,7 @@ status: in-review
 stage: DESIGN
 next: "Rule OQ-JL9, what the keeper at yolo host holds, which step 5 waits on beside agent-event-watchers.md's host-side sidecars; step 4's Mac runs need no ruling"
 tags: [design, lifecycle, attach, sessions, host-services, teardown, keeper, podman, apple-container, herdr]
-summary: "Several agents can share one workspace's jail, but the jail ends when the FIRST session's agent quits, because that agent is the container's main process and the first launcher's process hosts every host service. The maintainer directed the owner on 2026-09-29: a small background process, never a first terminal that waits. So pid 1 becomes a hold process, every session enters by exec, a host-side kernel lock counts sessions, and a keeper per running container jail, spawned by the fresh launch before any host service or the container exists, owns the jail's host services and tears the jail down when the lock says the last session is gone or the runtime says the container is. The first terminal gets its prompt back when its agent quits, and re-entering from it is an ordinary attach. OQ-JL5 was ruled on 2026-09-29: a keeper at every notch that starts a long-lived host service or sidecar, if supportable. §9.9 designs it for yolo host and macos-user: one keeper per workspace per notch; a yolo host launch that has one stays resident instead of exec'ing, because an inherited lock descriptor was measured to miscount both ways; and macos-user's keeper cannot own what runs as the sandbox account, because it cannot run sudo. OQ-JL6, OQ-JL7 and OQ-JL8 were ruled too: no linger; a killed keeper's sessions run on and a new arrival is refused; an agent ends with its pane. One question remains: whether yolo host's keeper also holds the services a launch starts for its own agent."
+summary: "Several agents can share one workspace's jail, but the jail ends when the FIRST session's agent quits, because that agent is the container's main process and the first launcher's process hosts every host service. The maintainer directed the owner on 2026-09-29: a small background process, never a first terminal that waits. So pid 1 becomes a hold process, every session enters by exec, a host-side kernel lock counts sessions, and a keeper per running container jail, spawned by the fresh launch before any host service or the container exists, owns the jail's host services and tears the jail down when the lock says the last session is gone or the runtime says the container is. The first terminal gets its prompt back when its agent quits, and re-entering from it is an ordinary attach. OQ-JL5 was ruled on 2026-09-29: a keeper at every notch that starts a long-lived host service or sidecar, if supportable. §9.9 designs it for yolo host and macos-user: one keeper per workspace per notch; a yolo host launch that has one stays resident instead of exec'ing, because an inherited lock descriptor was measured to miscount both ways; and macos-user's keeper cannot own what runs as the sandbox account, because it cannot run sudo. OQ-JL6, OQ-JL7 and OQ-JL8 were ruled too: no linger; a killed keeper's sessions run on and a new arrival is refused; an agent ends with its pane. Two questions remain: whether yolo host's keeper also holds the services a launch starts for its own agent, and whether an interrupt before ready spares a jail another session has entered."
 vantage:
   status-chip: true
 ---
@@ -2269,6 +2269,31 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
    and still leaves the home-directory launch its own. **The trap:** if "one ownership model"
    means one owner per workspace for every host service, C is the answer, and Codex at `yolo host`
    then keeps its history per workspace, as it does in a jail.
+
+   **Answer:**
+   > _(empty — fill in when decided)_
+
+7. 💬 <a id="OQ-JL10"></a>**[OQ-JL10](#OQ-JL10): Does an interrupt before ready spare a jail
+   another session has entered?** Raised 2026-10-01 by the review of [JL-D73](#JL-D73).
+
+   **The setup.** The fresh launch's keeper releases the launch lock once the container runs,
+   which is before ready, so a second launch can attach during the first one's boot. If the first
+   launch is then interrupted before ready, its keeper ends the jail, as [§9.5](#95-how-it-ends-itself)
+   item 1 says, and the second session ends with it. MEASURED in a nested jail on rootful Linux
+   podman: with the second launch 500 ms or more behind the first, it is told why its jail ended.
+   Before ready the keeper is not counting sessions yet ([JL-D74](#JL-D74)).
+
+   - **(a) Spare it.** A keeper interrupted before ready that finds another session holding the
+     session lock carries the boot on to ready and keeps the jail for that session, as it would
+     after ready. *You pay:* the keeper finishes a boot whose own launch is gone, and a boot that
+     then fails, fails under the other session.
+   - **(b) Keep today's rule.** An interrupt before ready ends the jail, and the other session is
+     told why. *You keep:* one rule for a boot, whoever else arrived during it.
+
+   <!-- vantage: oq id=OQ-JL10 -->
+
+   It has no leaning yet: how often a second session arrives inside a boot is the fact a leaning
+   would need, and nothing has measured it.
 
    **Answer:**
    > _(empty — fill in when decided)_
