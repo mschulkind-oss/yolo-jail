@@ -54,8 +54,7 @@ func TestHostLaunchOfAnUnpinnedForkNamesThePinAndRunsThePathCopy(t *testing.T) {
 	orig := prepareOpenAIAuthHost
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
 	t.Cleanup(func() { prepareOpenAIAuthHost = orig })
-	dist := withTestFloor(t)
-	withFloorOnLinux(t) // where the floor holds a fork's build at all: the pin is what is missing
+	dist := withLinuxTestFloor(t) // where the floor holds a fork's build at all: the pin is what is missing
 	dist.Publish("floorcli-pkg", "1.0.0", "bin=floorcli")
 	stub := filepath.Join(stubBins(t, "floorcli"), "floorcli")
 	got := captureHostExec(t)

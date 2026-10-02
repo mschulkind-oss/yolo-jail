@@ -49,10 +49,24 @@ func disarmTheHostFloor() {
 // whose registry the test publishes into.
 func withTestFloor(t *testing.T) *floortest.Dist {
 	t.Helper()
-	dist := floortest.NewDist(t)
+	return withTestFloorOn(t, floortest.NewDist(t))
+}
+
+// withLinuxTestFloor is withTestFloor with the floor on Linux whatever machine runs the test: the
+// one platform where the floor holds a fork's build at all.
+func withLinuxTestFloor(t *testing.T) *floortest.Dist {
+	t.Helper()
+	return withTestFloorOn(t, floortest.NewLinuxDist(t))
+}
+
+// withTestFloorOn is withTestFloor over dist, with the floor on the platform dist serves Node for,
+// so any Node the floor fetches is one the distribution serves, on a Mac too.
+func withTestFloorOn(t *testing.T, dist *floortest.Dist) *floortest.Dist {
+	t.Helper()
 	orig := newHostFloor
 	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
 		f := productionHostFloor(out, progs)
+		f.GOOS, f.GOARCH = dist.GOOS, dist.GOARCH
 		f.Node = hostfloor.NodeDist{BaseURL: dist.URL, Shipped: floortest.Shipped,
 			Pinned: map[string]string{dist.Platform: dist.SHA256}}
 		f.Environ = append(os.Environ(), dist.Environ()...)

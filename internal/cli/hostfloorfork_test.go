@@ -30,19 +30,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// withFloorOnLinux makes the floor newHostFloor builds a Linux one, whatever this machine is: the
-// one platform a fork's build (made in a Linux capture jail) is the floor's on.
-func withFloorOnLinux(t *testing.T) {
-	t.Helper()
-	orig := newHostFloor
-	newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Floor {
-		f := orig(out, progs)
-		f.GOOS = "linux"
-		return f
-	}
-	t.Cleanup(func() { newHostFloor = orig })
-}
-
 // withForkFloor is the PRODUCTION floor wiring — its ForkPin, ResolveBuild and Build among it —
 // with a fake Node distribution, no capture act, Linux as its platform, and a container runtime on
 // PATH for CaptureUnavailable to find. The floor's platform is the distribution's, so the Node
