@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -1390,13 +1389,16 @@ func applySealed(out, errw io.Writer, color bool) int {
 	ws := workspaceRoot()
 
 	var refusals []string
-	// (1) yolo-jail.local.jsonc present anywhere in the workspace root.
-	localPath := filepath.Join(ws, config.WorkspaceLocalConfigName)
+	// (1) a local config present in the workspace root: yolo-jail.local.jsonc, or the
+	// yolo-jail.local.json the loader reads in its place (config.ResolveWorkspaceConfigPath).
+	// Checking the `.jsonc` name alone sealed a workspace whose `.json` local file merged.
+	localPath, localName := config.ResolveWorkspaceConfigPath(ws, config.WorkspaceLocalConfigName)
 	if _, err := os.Stat(localPath); err == nil {
+		_, wsName := config.ResolveWorkspaceConfigPath(ws, config.WorkspaceConfigName)
 		refusals = append(refusals,
-			config.WorkspaceLocalConfigName+" is present and merges into the config, but "+
+			localName+" is present and merges into the config, but "+
 				"nothing declares it (it is gitignored, machine-local). Fold its keys into "+
-				"yolo-jail.jsonc or remove it to seal.")
+				wsName+" or remove it to seal.")
 	}
 	// (2) any capture surface carrying outstanding overlay keys.
 	store := sealedConfigTarget()

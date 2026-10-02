@@ -119,10 +119,11 @@ func writeOpenAIAuthMountSentinel() error {
 // cannot reach it.
 //
 // The argument for the exemption was that a pack "announced as running AND reported inert" is
-// an untruth. Measured, it is not, twice over: the exec disclosure is CLAIM-shaped (it names
-// what a pack DECLARES it runs), so claude's broker is announced and reported inert in the same
-// AC launch and always was; and on this backend the two statements — the daemon started, the
-// jail cannot reach it — are both true, with the second being the one a user can act on.
+// an untruth. Measured, it is not, twice over: the exec disclosure was CLAIM-shaped then (it
+// named what a pack DECLARED it runs), so claude's broker was announced and reported inert in
+// the same AC launch; and on this backend the two statements — the daemon started, the jail
+// cannot reach it — are both true, with the second being the one a user can act on. The exec
+// disclosure now names only what the spawn starts (packloopholes.go, discloseLoopholes).
 // packloopholes.go carries the whole reasoning at the line that used to hold the branch.
 //
 // WHAT WAS DELIBERATELY NOT DONE WITH IT, so the next reader does not take it for an

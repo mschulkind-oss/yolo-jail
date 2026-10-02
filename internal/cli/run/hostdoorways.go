@@ -347,8 +347,11 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 	// boundary, and a launch has no quiet mode), for the packs whose host code this start runs:
 	// the ones shipping the doorways it opens, whose claims name both the host service and the
 	// doorway's host argv.
-	o.notePackHostExec(d.packs)
+	//
+	// Narrowed to the loopholes this start runs, the doorways' own services (the allow the spawn
+	// below is handed), so another loophole those packs ship is not announced.
 	names := launchservice.Names(d.plans)
+	o.notePackHostExec(d.packs, func(name string) bool { return slices.Contains(names, name) })
 	handles := o.startLoopholesMatching(d.set, runtime.FromWorkspace(workspace), hostNotchRuntime, cfg,
 		func(name string) bool { return slices.Contains(names, name) })
 	stopServices := func() { o.endServicesSession(handles) }

@@ -897,6 +897,15 @@ func (o *Options) plannedLoopholeNames(rt string, cfg *jsonx.OrderedMap) []strin
 	if o.Sealed {
 		return nil
 	}
+	return o.hostServiceNames(rt, cfg)
+}
+
+// hostServiceNames is plannedLoopholeNames less the seal: the spawn's own selection by name, over
+// the set and backend filter startLoopholes walks. It is what the exec disclosure names
+// (discloseLoopholes): a pack's daemon whose loophole is switched off is declared, but not started,
+// so the disclosure leaves it out. Seal-blind on purpose, as startLoopholes is, so a disclosure
+// can never name less than that spawn starts.
+func (o *Options) hostServiceNames(rt string, cfg *jsonx.OrderedMap) []string {
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
 	allow := o.loopholeAllow(rt, cfg)
 	var names []string

@@ -712,7 +712,8 @@ effect, because asserting only that the line printed passes under the *old* orde
 > defeat it — while the launch answers what is **about to happen**, and the pre-spawn block's
 > whole value is that every line in it is imminent. So the launch subtracts at the
 > **disclosure**, never at the footprint, and as a rule over crossing classes rather than a
-> special case for one kind.
+> special case for one kind. The block names a loophole's daemon only when the spawn's own
+> selection starts it: a loophole switched off, or one the backend does not start, is left out.
 
 ## Selection and discovery
 

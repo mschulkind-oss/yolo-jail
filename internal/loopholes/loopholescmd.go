@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -127,6 +126,7 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) Set {
 		}
 		return f(deps.Cwd)
 	}
+	trackedPath, _ := config.ResolveWorkspaceConfigPath(deps.Cwd, config.WorkspaceConfigName)
 	scopes := []struct {
 		cfg           *jsonx.OrderedMap
 		fromWorkspace bool
@@ -141,8 +141,9 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) Set {
 		// names the actual origin per entry; the collapsed map still supplies the
 		// VALUES, so the injected-config seam these commands are tested through
 		// keeps working — with no real files it simply finds no origins and falls
-		// back to the tracked name.
-		{loadWS(deps.LoadWorkspaceConfig), true, filepath.Join(deps.Cwd, config.WorkspaceConfigName)},
+		// back to the tracked file, as the loader resolves it
+		// (config.ResolveWorkspaceConfigPath: `yolo-jail.json` where that is the file).
+		{loadWS(deps.LoadWorkspaceConfig), true, trackedPath},
 	}
 	wsOrigins := config.WorkspaceLoopholeOrigins(deps.Cwd)
 	userInline := map[string]bool{}

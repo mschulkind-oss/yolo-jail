@@ -25,7 +25,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
@@ -86,11 +88,15 @@ func TestSpawnBoundaryAnnouncesHostExecution(t *testing.T) {
 	emptyLoopholeDirs(t)
 	isolatePackModules(t)
 
+	// Switched on and recorded, so the daemon is one this launch STARTS (startingLoopholePacks):
+	// the disclosure names nothing else.
 	p := writeRealLoopholePack(t, "acme", "acme-proxy", `{
 		"name": "acme-proxy",
+		"default_enabled": true,
 		"transport": "none",
 		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py"], "publishes": "socket"}
 	}`)
+	startingLoopholePacks(p)
 
 	cname := "yolo-disclosed-" + t.Name()
 	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
@@ -100,6 +106,7 @@ func TestSpawnBoundaryAnnouncesHostExecution(t *testing.T) {
 	o.Stderr = &errBuf
 	o.Stdout = &errBuf
 	o.PathExists = func(string) bool { return false }
+	o.ServiceReadyTimeout = 2 * time.Second
 	o.startLoopholesDisclosed(cname, "podman", newConfig(), []*packload.Pack{p}, nil)
 
 	got := errBuf.String()
@@ -110,5 +117,62 @@ func TestSpawnBoundaryAnnouncesHostExecution(t *testing.T) {
 	if !strings.Contains(got, "acme-daemon.py") {
 		t.Errorf("the launch announced host execution without naming the argv, so the user "+
 			"cannot tell WHAT is about to run:\n%s", got)
+	}
+}
+
+// THE PRE-SPAWN BLOCK NAMES ONLY WHAT THIS LAUNCH STARTS. A launch selecting the github,
+// journal and serial packs was seen listing github-broker, journal and serial under "This launch
+// runs pack code on your machine" with all three switched off, while the services it started
+// were right. The block read every selected pack's DECLARED daemons; it now names the ones the
+// spawn's own selection starts (hostServiceNames, the set plannedLoopholeNames hands the keeper).
+//
+// Driven through discloseLoopholes, the disclosure the container launch prints before it spawns
+// its keeper and the one startLoopholesDisclosed prints before its own spawn: one pack loophole
+// on, one off, then the off one switched on in config.
+func TestDisclosureNamesOnlyTheLoopholesThisLaunchStarts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	emptyLoopholeDirs(t)
+	isolatePackModules(t)
+
+	on := writeRealLoopholePack(t, "acme", "acme-on", `{
+		"name": "acme-on", "default_enabled": true, "transport": "none",
+		"host_daemon": {"cmd": ["python3", "{loophole_dir}/on-daemon.py"], "publishes": "socket"}
+	}`)
+	off := writeRealLoopholePack(t, "zeta", "zeta-off", `{
+		"name": "zeta-off", "transport": "none",
+		"host_daemon": {"cmd": ["python3", "{loophole_dir}/off-daemon.py"], "publishes": "socket"}
+	}`)
+	packs := []*packload.Pack{on, off}
+	startingLoopholePacks(packs...)
+
+	disclose := func(cfg *jsonx.OrderedMap) string {
+		var buf bytes.Buffer
+		o := &Options{}
+		fillDefaults(o)
+		o.Stderr = &buf
+		o.Stdout = &buf
+		o.PathExists = func(string) bool { return false }
+		o.discloseLoopholes("podman", cfg, packs, nil)
+		return buf.String()
+	}
+
+	got := disclose(newConfig())
+	if !strings.Contains(got, "runs pack code on your machine") || !strings.Contains(got, "on-daemon.py") {
+		t.Errorf("the disclosure does not name the daemon this launch starts:\n%s", got)
+	}
+	if strings.Contains(got, "off-daemon.py") {
+		t.Errorf("the disclosure names a daemon whose loophole is switched off, which this launch "+
+			"does not start:\n%s", got)
+	}
+
+	// The switch decides, not the manifest: turned on in config, it is named.
+	switched := jsonx.NewOrderedMap()
+	entry := jsonx.NewOrderedMap()
+	entry.Set("enabled", true)
+	switched.Set("zeta-off", entry)
+	if got := disclose(newConfig("loopholes", switched)); !strings.Contains(got, "off-daemon.py") {
+		t.Errorf("a loophole switched on in config is not named in the disclosure:\n%s", got)
 	}
 }

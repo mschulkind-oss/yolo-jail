@@ -51,6 +51,12 @@ end)
 // and the rendered file.
 func bootLSPTable(t *testing.T, lspServers string) (string, map[string]any) {
 	t.Helper()
+	return bootLSPTableIn(t, t.TempDir(), lspServers)
+}
+
+// bootLSPTableIn is bootLSPTable with the jail's workspace at ws.
+func bootLSPTableIn(t *testing.T, ws, lspServers string) (string, map[string]any) {
+	t.Helper()
 	home := t.TempDir()
 	path := filepath.Join(home, ".acme.json")
 	writeHostFile(t, path, `{"lspServers":{"handmade":{"command":"/bin/handmade"}}}`)
@@ -59,7 +65,7 @@ func bootLSPTable(t *testing.T, lspServers string) (string, map[string]any) {
 		vars["YOLO_LSP_SERVERS"] = lspServers
 	}
 	var stderr bytes.Buffer
-	e := &Env{Home: home, Workspace: t.TempDir(), Vars: vars, Stderr: &stderr}
+	e := &Env{Home: home, Workspace: ws, Vars: vars, Stderr: &stderr}
 	withCtxRoot(t, t.TempDir(), "acme")
 	ConfigurePackSurfaces(e, []*packload.Pack{lspTablePack(t)})
 	if fails := e.GenFailures(); len(fails) != 0 {
@@ -172,5 +178,21 @@ func TestTheBootDropNoticeForClaudesMCPTableStillNamesMCPServers(t *testing.T) {
 	}
 	if !strings.Contains(line, "an MCP server under `mcp_servers`") {
 		t.Errorf("the remedy for claude's mcpServers must name mcp_servers; got %q", line)
+	}
+}
+
+// The remedy names the workspace config the loader reads (config.ResolveWorkspaceConfigPath):
+// `yolo-jail.json` in a workspace that keeps its config there. Naming `yolo-jail.jsonc` sent the
+// reader to create a file that would shadow the one holding their config.
+func TestTheBootDropRemedyNamesTheWorkspaceConfigTheLoaderReads(t *testing.T) {
+	ws := t.TempDir()
+	writeHostFile(t, filepath.Join(ws, "yolo-jail.json"), `{}`)
+	notice, _ := bootLSPTableIn(t, ws, "")
+	i := strings.Index(notice, "handmade")
+	if i < 0 {
+		t.Fatalf("the boot must announce the dropped entry; got %q", notice)
+	}
+	if remedy := notice[i:]; !strings.Contains(remedy, "in this workspace's yolo-jail.json (") {
+		t.Errorf("the remedy does not name the workspace's yolo-jail.json; got %q", remedy)
 	}
 }

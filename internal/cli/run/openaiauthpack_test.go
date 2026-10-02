@@ -242,7 +242,7 @@ func TestOpenAIAuthLaunchDisclosureShowsResolvedStatePath(t *testing.T) {
 	retireHome(t)
 	var out bytes.Buffer
 	o := &Options{Stderr: &out}
-	o.notePackHostExec([]*packload.Pack{officialPack(t, "openai-auth")})
+	o.notePackHostExec([]*packload.Pack{officialPack(t, "openai-auth")}, everyLoopholeStarts)
 
 	got := out.String()
 	want := filepath.Join(loopholes.StateDirFor("openai-auth-broker"), "credentials.json")

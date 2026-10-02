@@ -45,13 +45,15 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 	if err != nil || userRaw == nil {
 		userRaw = jsonx.NewOrderedMap()
 	}
-	wsPath := o.Workspace + "/yolo-jail.jsonc"
-	wsRaw, wsSrc, err := config.LoadJSONCFileWithSources(wsPath, "yolo-jail.jsonc", false, func(string) {})
+	// The workspace config the loader READ (config.ResolveWorkspaceConfigPath): a `yolo-jail.json`
+	// went unchecked here while its keys were honored.
+	wsPath, wsName := config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
+	wsRaw, wsSrc, err := config.LoadJSONCFileWithSources(wsPath, wsName, false, func(string) {})
 	if err != nil || wsRaw == nil {
 		wsRaw = jsonx.NewOrderedMap()
 	}
 	configErrors = append(configErrors, config.PresetNullConflicts(userRaw, userPath, userSrc)...)
-	configErrors = append(configErrors, config.PresetNullConflicts(wsRaw, "yolo-jail.jsonc", wsSrc)...)
+	configErrors = append(configErrors, config.PresetNullConflicts(wsRaw, wsName, wsSrc)...)
 
 	for _, msg := range configWarnings {
 		out.printf("  [yellow]⚠ %s[/yellow]", msg)

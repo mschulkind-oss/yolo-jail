@@ -331,10 +331,10 @@ func sealedConfigTarget() configTarget {
 // workspaceMarked reports whether dir carries a workspace marker: the launch artifact
 // `.yolo/config-boot.json`, or any of the four workspace config file names.
 //
-// Either artifact is enough, and the four names are derived from config's own two constants
-// plus resolveWorkspaceConfigPath's `.jsonc`→`.json` fallback rather than spelled as four
-// literals here — the set has to be whatever config.LoadWorkspaceConfig would READ, or a
-// directory yolo will happily launch in fails to resolve.
+// Either artifact is enough, and the four names are config.WorkspaceConfigFileNames, the list
+// config.ResolveWorkspaceConfigPath tries, rather than spelled as four literals here — the set
+// has to be whatever config.LoadWorkspaceConfig would READ, or a directory yolo will happily
+// launch in fails to resolve.
 //
 // `config-boot.json` is a weaker signal than it looks, which is why it is not the only one:
 // it is written by a FRESH launch and never by an attach, and it is best-effort (a warning,
@@ -348,22 +348,12 @@ func workspaceMarked(dir string) bool {
 	if isRegularFile(config.WorkspaceConfigBootPath(dir)) {
 		return true
 	}
-	for _, name := range workspaceConfigNames() {
+	for _, name := range config.WorkspaceConfigFileNames() {
 		if isRegularFile(filepath.Join(dir, name)) {
 			return true
 		}
 	}
 	return false
-}
-
-// workspaceConfigNames is every file name config.LoadWorkspaceConfig reads, in its own
-// precedence order: the two base names and each one's `.json` fallback.
-func workspaceConfigNames() []string {
-	var names []string
-	for _, base := range []string{config.WorkspaceConfigName, config.WorkspaceLocalConfigName} {
-		names = append(names, base, strings.TrimSuffix(base, "c"))
-	}
-	return names
 }
 
 // isRegularFile reports whether path exists and is a plain file.

@@ -217,7 +217,7 @@ func TestShippedAudioPackInertBackendBeatsPlatform(t *testing.T) {
 // exercises that rule.
 func TestShippedAudioPackDisclosesAsAReadNotAnExec(t *testing.T) {
 	p := shippedAudioPack(t)
-	if lines := packHostExecClaims([]*packload.Pack{p}); len(lines) != 0 {
+	if lines := packHostExecClaims([]*packload.Pack{p}, everyLoopholeStarts); len(lines) != 0 {
 		t.Errorf("the audio pack runs NO host code, so it must not print in the pre-spawn "+
 			"\"runs pack code on your machine\" block; got %+v", lines)
 	}

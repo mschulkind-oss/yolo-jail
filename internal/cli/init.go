@@ -58,13 +58,17 @@ func mountsBlock(mounts []string) string {
 	return strings.Replace(b.String(), ",\n  ],", "\n  ],", 1)
 }
 
-// Init runs `yolo init` in cwd. Writes yolo-jail.jsonc (unless it exists),
-// appends .yolo/ to .gitignore, and prints the briefing to out (color per the
-// caller). Returns the exit code (0).
+// Init runs `yolo init` in cwd. Writes yolo-jail.jsonc (unless the workspace
+// already has a config the loader reads: that file, or the yolo-jail.json it
+// falls back to), appends .yolo/ to .gitignore, and prints the briefing to out
+// (color per the caller). Returns the exit code (0).
 func Init(cwd string, mounts []string, out io.Writer, color bool) int {
-	configPath := filepath.Join(cwd, "yolo-jail.jsonc")
+	// The loader's own answer (config.ResolveWorkspaceConfigPath): checking the `.jsonc` name
+	// alone wrote a yolo-jail.jsonc beside an existing yolo-jail.json, which the loader then read
+	// in its place at every launch.
+	configPath, configName := config.ResolveWorkspaceConfigPath(cwd, config.WorkspaceConfigName)
 	if _, err := os.Stat(configPath); err == nil {
-		fmt.Fprintln(out, "yolo-jail.jsonc already exists.")
+		fmt.Fprintln(out, configName+" already exists.")
 		printBriefing(out, configPath, color)
 		return 0
 	}
@@ -74,7 +78,7 @@ func Init(cwd string, mounts []string, out io.Writer, color bool) int {
 		fmt.Fprintf(out, "Error writing config: %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(out, "Created yolo-jail.jsonc")
+	fmt.Fprintln(out, "Created "+configName)
 
 	// Append .yolo/ to .gitignore (create if absent).
 	gitignore := filepath.Join(cwd, ".gitignore")

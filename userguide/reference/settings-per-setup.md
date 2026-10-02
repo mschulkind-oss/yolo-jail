@@ -293,7 +293,7 @@ This block is what the jail can see of your machine's filesystem, and what it ma
 
 [^rwmount]: A read-write entry is refused anywhere but your user config (or a `--user-layer`), and refused when its folder is, or contains, your home or one of yolo's own folders, or overlaps the project. Every launch prints one line naming it and warning that anything on your machine that later reads the folder reads what the jail wrote. On rootless podman the agent's files land as yours; on a rootful one they are root's, and the line says so. The same `$YOLO_CONTEXT_DIR` names `/ctx` on every container setup.
 
-[^mujsonc]: On the container backends, setting `workspace_readonly` at all also locks the workspace's own `yolo-jail.jsonc` against the agent — worth knowing before you protect an unrelated path. `macos-user` emits no such rule, so the jail's config file stays agent-writable there; an agent's edit shows up as a y/N diff at the next launch instead of being blocked.
+[^mujsonc]: On the container backends, setting `workspace_readonly` at all also locks the workspace's own `yolo-jail.jsonc` (or the `yolo-jail.json` yolo reads when that is the file you keep) against the agent — worth knowing before you protect an unrelated path. `macos-user` emits no such rule, so the jail's config file stays agent-writable there; an agent's edit shows up as a y/N diff at the next launch instead of being blocked.
 
 [^leftover]: A "shadow" is a private directory mounted over `.venv`, `node_modules` and your declared paths so host and jail do not share build output. The mountpoint is created inside your live workspace, so an empty root-owned `.venv`/`node_modules` can be left behind after the jail exits.
 

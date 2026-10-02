@@ -297,17 +297,37 @@ func loadWithIncludes(path, label string, strict bool, warn Warn, seen map[strin
 	return result, node, nil
 }
 
-func resolveWorkspaceConfigPath(workspace, baseName string) (string, string) {
-	jsoncPath := filepath.Join(workspace, baseName)
-	if pathExists(jsoncPath) {
-		return jsoncPath, baseName
+// ResolveWorkspaceConfigPath is where LoadWorkspaceConfig reads the workspace config file
+// baseName (WorkspaceConfigName or WorkspaceLocalConfigName) from, and the name it reads it
+// under: the `.jsonc` name when that file exists, else its `.json` fallback when that one does,
+// else the `.jsonc` name, which is the file to create.
+//
+// It is the loader's own answer, so every other reader of a workspace config file asks it rather
+// than joining a name of its own: a reader that joined the `.jsonc` name passed over a workspace
+// configured in `yolo-jail.json`, whose keys the launch honored all the same.
+func ResolveWorkspaceConfigPath(workspace, baseName string) (path, name string) {
+	for _, name := range workspaceConfigCandidates(baseName) {
+		if p := filepath.Join(workspace, name); pathExists(p) {
+			return p, name
+		}
 	}
-	jsonName := strings.TrimSuffix(baseName, "c")
-	jsonPath := filepath.Join(workspace, jsonName)
-	if pathExists(jsonPath) {
-		return jsonPath, jsonName
+	return filepath.Join(workspace, baseName), baseName
+}
+
+// WorkspaceConfigFileNames is every file name LoadWorkspaceConfig can read, in its order: each
+// base name, then its `.json` fallback.
+func WorkspaceConfigFileNames() []string {
+	var names []string
+	for _, base := range []string{WorkspaceConfigName, WorkspaceLocalConfigName} {
+		names = append(names, workspaceConfigCandidates(base)...)
 	}
-	return jsoncPath, baseName
+	return names
+}
+
+// workspaceConfigCandidates is the names baseName is read under, in the order the loader tries
+// them: the `.jsonc` name, then its `.json` fallback.
+func workspaceConfigCandidates(baseName string) []string {
+	return []string{baseName, strings.TrimSuffix(baseName, "c")}
 }
 
 // LoadWorkspaceConfig loads yolo-jail.jsonc (or yolo-jail.json) plus
@@ -331,12 +351,12 @@ func loadWorkspaceConfig(workspace string, strict bool, warn Warn, record bool) 
 		workspace = cwd()
 	}
 	seen := map[string]struct{}{}
-	wsPath, wsLabel := resolveWorkspaceConfigPath(workspace, WorkspaceConfigName)
+	wsPath, wsLabel := ResolveWorkspaceConfigPath(workspace, WorkspaceConfigName)
 	wsCfg, wsNode, err := loadWithIncludes(wsPath, wsLabel, strict, warn, seen, record)
 	if err != nil {
 		return nil, nil, err
 	}
-	localPath, localLabel := resolveWorkspaceConfigPath(workspace, WorkspaceLocalConfigName)
+	localPath, localLabel := ResolveWorkspaceConfigPath(workspace, WorkspaceLocalConfigName)
 	localCfg, localNode, err := loadWithIncludes(localPath, localLabel, strict, warn, seen, record)
 	if err != nil {
 		return nil, nil, err

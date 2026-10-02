@@ -149,7 +149,7 @@ func TestWrappedPluginCodeIsDisclosedOnNeitherHostAxis(t *testing.T) {
 		"acme-tools": `{"name":"acme-tools","skills":["./"],"hooks":{"PreToolUse":[]}}`,
 	})
 	packs := []*packload.Pack{p}
-	if lines := packHostExecClaims(packs); len(lines) != 0 {
+	if lines := packHostExecClaims(packs, everyLoopholeStarts); len(lines) != 0 {
 		t.Errorf("a plugin hook is in the pre-spawn HOST block, whose whole value is that "+
 			"every line in it is about to run on the user's machine:\n%s", renderLines(lines))
 	}

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -237,7 +238,7 @@ func TestHostExecDisclosurePrecedesTheSpawn(t *testing.T) {
 
 	dirExistedAtDisclosure := true // pessimistic: the assertion must have to be earned
 	disclosed := false
-	stubHostExecClaims(t, func([]*packload.Pack) []disclosureLine {
+	stubHostExecClaims(t, func([]*packload.Pack, func(string) bool) []disclosureLine {
 		disclosed = true
 		_, err := os.Lstat(socketsDir)
 		dirExistedAtDisclosure = err == nil
@@ -433,13 +434,16 @@ func TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	emptyLoopholeDirs(t)
 
-	// The REAL pack name, because that is what the disclosure is scoped on.
+	// The REAL pack and loophole names, switched on and recorded so the spawn STARTS it
+	// (startingLoopholePacks); the argv is a stand-in that fails at once, because the spawn now
+	// runs it and the real broker's would start a host-wide daemon from a unit test.
 	p := writeRealLoopholePack(t, openAIAuthPackName, openAIAuthBrokerName, `{
 		"name": "`+openAIAuthBrokerName+`",
-		"transport": "loopback-tls",
-		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "openai-auth-broker",
-			"--socket", "{socket}"], "scope": "host"}
+		"default_enabled": true,
+		"transport": "none",
+		"host_daemon": {"cmd": ["python3", "{loophole_dir}/broker-daemon.py"], "publishes": "socket"}
 	}`)
+	startingLoopholePacks(p)
 
 	// On macos-user the spawn's first side effect is this SESSION's own host-services dir
 	// (servicessession.go), whose name is not known until it exists, so the dir is looked for by
@@ -464,6 +468,7 @@ func TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns(t *testing.T) {
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()
 	o.PathExists = func(string) bool { return false } // no cgroup delegate
+	o.ServiceReadyTimeout = 2 * time.Second
 
 	// Repointed 2026-09-17 from the retired startOpenAIAuthDisclosed: the ORDERING property
 	// is unchanged and is the point of this test, but the macos-user arm reaches it through
@@ -503,17 +508,28 @@ func TestMacosUserDisclosureNamesEveryPackItNowStarts(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	emptyLoopholeDirs(t)
 
+	// Both switched on and recorded, so the spawn STARTS them (startingLoopholePacks); the
+	// broker's argv is a stand-in for TestOpenAIAuthSubsetSpawnDisclosesBeforeItSpawns' reason.
+	// A third pack's loophole is left off, and is the "no more": it starts nothing, so it is
+	// not named.
 	broker := writeRealLoopholePack(t, openAIAuthPackName, openAIAuthBrokerName, `{
 		"name": "`+openAIAuthBrokerName+`",
-		"transport": "loopback-tls",
-		"host_daemon": {"cmd": ["yolo", "internal", "daemon", "openai-auth-broker",
-			"--socket", "{socket}"], "scope": "host"}
+		"default_enabled": true,
+		"transport": "none",
+		"host_daemon": {"cmd": ["python3", "{loophole_dir}/broker-daemon.py"], "publishes": "socket"}
 	}`)
 	other := writeRealLoopholePack(t, "acme", "acme-proxy", `{
 		"name": "acme-proxy",
+		"default_enabled": true,
 		"transport": "none",
-		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py"]}
+		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py"], "publishes": "socket"}
 	}`)
+	off := writeRealLoopholePack(t, "zeta", "zeta-off", `{
+		"name": "zeta-off",
+		"transport": "none",
+		"host_daemon": {"cmd": ["python3", "{loophole_dir}/zeta-daemon.py"], "publishes": "socket"}
+	}`)
+	startingLoopholePacks(broker, other, off)
 
 	cname := "yolo-subset-scope-" + t.Name()
 	var errBuf bytes.Buffer
@@ -523,9 +539,15 @@ func TestMacosUserDisclosureNamesEveryPackItNowStarts(t *testing.T) {
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()
 	o.PathExists = func(string) bool { return false }
+	o.ServiceReadyTimeout = 2 * time.Second
 
 	o.startLoopholesDisclosed(cname, "macos-user", newConfig(),
-		[]*packload.Pack{broker, other}, nil)
+		[]*packload.Pack{broker, other, off}, nil)
+
+	if strings.Contains(errBuf.String(), "zeta-daemon.py") {
+		t.Errorf("a pack whose loophole is switched off starts nothing on this backend, and "+
+			"its daemon is named anyway:\n%s", errBuf.String())
+	}
 
 	if !strings.Contains(errBuf.String(), "openai-auth-broker") {
 		t.Errorf("the broker this path starts is not disclosed:\n%s", errBuf.String())
@@ -615,7 +637,7 @@ func TestHostExecDisclosureSilentWithNoExecClaims(t *testing.T) {
 	o := goldenOptions("/ws", t.TempDir())
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()
-	o.notePackHostExec([]*packload.Pack{p})
+	o.notePackHostExec([]*packload.Pack{p}, everyLoopholeStarts)
 	if errBuf.Len() != 0 {
 		t.Errorf("a host READ produced an EXEC disclosure:\n%s", errBuf.String())
 	}
@@ -627,12 +649,28 @@ func TestHostExecDisclosureSilentWithNoExecClaims(t *testing.T) {
 // the only kind that produces an exec claim (`loophole`) lands in a concurrent change, and
 // without it the ORDERING invariant could not be pinned until after the kind existed — one
 // batch too late, which is how the defect survived.
-func stubHostExecClaims(t *testing.T, fn func([]*packload.Pack) []disclosureLine) {
+func stubHostExecClaims(t *testing.T, fn func([]*packload.Pack, func(string) bool) []disclosureLine) {
 	t.Helper()
 	orig := packHostExecClaims
 	packHostExecClaims = fn
 	t.Cleanup(func() { packHostExecClaims = orig })
 }
+
+// startingLoopholePacks records the loopholes packs ship as this launch's pack loopholes, as a
+// staged launch records them, so a fixture whose manifest sets `default_enabled` (and the
+// `"publishes": "socket"` a pack-shipped daemon must declare, or it does not load) declares a
+// daemon the spawn STARTS — the only kind the exec disclosure names (discloseLoopholes). The
+// record is reset by emptyLoopholeDirs' cleanup, which every caller runs first. Each fixture's
+// daemon names a script that does not exist, so the spawn fails at once and leaves nothing
+// running.
+func startingLoopholePacks(packs ...*packload.Pack) {
+	loopholes.SetPackModules(packLoopholeModules(packs))
+}
+
+// everyLoopholeStarts is the starts predicate of a launch that starts every loophole, for a test
+// of what a pack's claims disclose rather than of which loopholes a launch starts (that is
+// TestDisclosureNamesOnlyTheLoopholesThisLaunchStarts).
+func everyLoopholeStarts(string) bool { return true }
 
 func renderLines(lines []disclosureLine) string {
 	var b strings.Builder
@@ -720,11 +758,16 @@ func TestRealLoopholePackDisclosesItsDaemonBeforeTheSpawn(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	emptyLoopholeDirs(t)
 
+	// Switched on and recorded as the launch's pack loophole, as a staged launch records it, so
+	// the daemon is one the spawn STARTS (startingLoopholePacks).
 	p := writeRealLoopholePack(t, "acme", "acme-proxy", `{
 		"name": "acme-proxy",
+		"default_enabled": true,
 		"transport": "none",
-		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py", "--socket", "{socket}"]}
+		"host_daemon": {"cmd": ["python3", "{loophole_dir}/acme-daemon.py", "--socket", "{socket}"],
+			"publishes": "socket"}
 	}`)
+	startingLoopholePacks(p)
 
 	cname := "yolo-e2e-disclose-" + t.Name()
 	socketsDir := hostServiceSocketsDir(cname, false)
@@ -745,6 +788,7 @@ func TestRealLoopholePackDisclosesItsDaemonBeforeTheSpawn(t *testing.T) {
 	o.Stderr = &errBuf
 	o.Stdout = discardBuf()
 	o.PathExists = func(string) bool { return false }
+	o.ServiceReadyTimeout = 2 * time.Second
 	o.startLoopholesDisclosed(cname, "podman", newConfig(), []*packload.Pack{p}, nil)
 
 	if seen == "" {

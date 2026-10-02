@@ -6,13 +6,15 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 // workspaceReadonlyMountArgs builds the
 // `-v …:ro` overlays for config.workspace_readonly. Each configured sub-path is
 // overlaid onto the writable /workspace mount; when any entry is active the
-// yolo-jail.jsonc config file itself is also locked. Entries that escape the
+// workspace config file itself is also locked (yolo-jail.jsonc, or the
+// yolo-jail.json the loader reads in its place). Entries that escape the
 // workspace or don't exist are skipped with a warning. On Apple Container the
 // :ro suffix is silently ignored, so a loud warning is printed (the protection
 // can't be enforced, and the paths can't be skipped since they're inside the
@@ -36,9 +38,12 @@ func (o *Options) workspaceReadonlyMountArgs(cfg *jsonx.OrderedMap, rt string) [
 	}
 
 	var args []string
-	wsConfigFile := filepath.Join(o.Workspace, "yolo-jail.jsonc")
+	// The config the loader READ, under the name it read it under: `yolo-jail.json` where that
+	// is the file (config.ResolveWorkspaceConfigPath). Joining the `.jsonc` name here left a
+	// workspace configured in `yolo-jail.json` with no lock at all.
+	wsConfigFile, wsConfigName := config.ResolveWorkspaceConfigPath(o.Workspace, config.WorkspaceConfigName)
 	if fileExists(wsConfigFile) {
-		args = append(args, "-v", wsConfigFile+":/workspace/yolo-jail.jsonc:ro")
+		args = append(args, "-v", wsConfigFile+":/workspace/"+wsConfigName+":ro")
 	}
 	workspaceRoot := resolvePath(o.Workspace)
 	for _, rel := range entries {

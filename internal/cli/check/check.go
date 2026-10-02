@@ -514,8 +514,11 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	// pointing the user at the tool that had just cleared it. A preflight that
 	// does not read what the launch reads is worse than no preflight, because it
 	// is believed.
-	wsPath := filepath.Join(workspace, config.WorkspaceConfigName)
-	localPath := filepath.Join(workspace, config.WorkspaceLocalConfigName)
+	//
+	// And it names them as the loader resolves them (config.ResolveWorkspaceConfigPath): it
+	// parsed a `yolo-jail.json` and then reported no workspace config at all.
+	wsPath, _ := config.ResolveWorkspaceConfigPath(workspace, config.WorkspaceConfigName)
+	localPath, _ := config.ResolveWorkspaceConfigPath(workspace, config.WorkspaceLocalConfigName)
 	workspaceConfig, wsSrc, err := config.LoadWorkspaceConfigWithSources(workspace, true, func(string) {})
 	src.workspace = wsSrc
 	if err != nil {
@@ -595,7 +598,8 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 
 	// Same-file preset+null contradictions, each located in its own scope's record.
 	errors = append(errors, config.PresetNullConflicts(userConfig, paths.UserConfigPath(), located.user)...)
-	errors = append(errors, config.PresetNullConflicts(workspaceConfig, "yolo-jail.jsonc", located.workspace)...)
+	_, wsName := config.ResolveWorkspaceConfigPath(workspace, config.WorkspaceConfigName)
+	errors = append(errors, config.PresetNullConflicts(workspaceConfig, wsName, located.workspace)...)
 
 	// The launch's capability gate, predicted here through the launch's own census, over the
 	// launch this config describes: the user scope's pack selection under the `profile` key

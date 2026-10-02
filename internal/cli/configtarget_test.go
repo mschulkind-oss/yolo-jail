@@ -219,7 +219,7 @@ func TestTheMarkerIsAnArtifactNotADirectory(t *testing.T) {
 			marks: true,
 		},
 		{
-			// resolveWorkspaceConfigPath's .jsonc→.json fallback: the marker set has to be
+			// config.ResolveWorkspaceConfigPath's .jsonc→.json fallback: the marker set has to be
 			// whatever config.LoadWorkspaceConfig would READ, or a directory yolo will
 			// happily launch in fails to resolve.
 			name: "the .json spelling of it",

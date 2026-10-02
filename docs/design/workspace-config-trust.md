@@ -120,10 +120,13 @@ for [§3.1](#31-option-a--scope-only-grants-only-in-the-local-file).
 ### 1.3 The local file is writable from inside the jail, even under `workspace_readonly`
 
 `/workspace` is bind-mounted read-write. `workspace_readonly` lays `:ro` binds over the listed paths *and over
-`yolo-jail.jsonc`* (`workspaceReadonlyMountArgs`), and it names no other config file. The local file, both `.json`
-fallbacks and any `include_if_found` target inside the workspace stay writable. An absent local file can simply be
-created. **So an in-jail agent can always write a local file that the next host launch merges.** The approval gate
-is what stands between that write and the launch ([`config-safety.md`](../reference/config-safety.md) P2).
+the committed file the loader reads* — `yolo-jail.jsonc`, or `yolo-jail.json` where only that exists
+(`workspaceReadonlyMountArgs`) — and it names no other config file. The local file under either name, the
+committed file's unread `.json` spelling and any `include_if_found` target inside the workspace stay writable. An
+absent local file can simply be created, and so can an absent `yolo-jail.jsonc`, which the next launch reads in place
+of a locked `yolo-jail.json`. **So an in-jail agent can always write a local file that the next host launch
+merges.** The approval gate is what stands between that write and the launch
+([`config-safety.md`](../reference/config-safety.md) P2).
 
 ### 1.4 The approval gate is already a per-workspace, content-keyed, host-side consent record
 
@@ -622,7 +625,7 @@ Symbols checked on 2026-09-25 at `71acddac`. None of the cited files had uncommi
   `.gitignore` in `internal/paths/paths.go`. `git check-ignore -v` ignores `yolo-jail.local.jsonc`
   (`.gitignore`), and exits 1 for `yolo-jail.local.json`.
 - **Jail writability.** `workspaceReadonlyMountArgs` (`internal/cli/run/mounts.go`) binds only
-  `yolo-jail.jsonc` `:ro`, beside the listed entries.
+  the committed file the loader reads `:ro` (`config.ResolveWorkspaceConfigPath`), beside the listed entries.
 - **The approval gate.** `CheckConfigChanges`, `ApprovalSnapshotPath` and `AcceptConfigChangesFlag` (`snapshot.go`),
   `paths.ApprovalsDir`, the in-jail refusal of `--accept-config-changes` in `internal/cli/check/check.go`. Its
   rulings are in [`config-safety.md`](../reference/config-safety.md#why-its-this-way).

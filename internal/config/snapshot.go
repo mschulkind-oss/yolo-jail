@@ -363,11 +363,11 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 			diffLines = unifiedDiff(splitLines(oldJSON), splitLines(currentJSON), fromLabel, toLabel)
 		}
 	}
-	localPath, _ := resolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceLocalConfigName)
+	localPath, _ := ResolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceLocalConfigName)
 	if !pathExists(localPath) {
 		localPath = ""
 	}
-	wsPath, _ := resolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceConfigName)
+	wsPath, _ := ResolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceConfigName)
 	configFiles := []string{wsPath}
 	if localPath != "" {
 		configFiles = append(configFiles, localPath)

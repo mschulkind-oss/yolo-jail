@@ -9,9 +9,9 @@ package check
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/depcheck"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -240,7 +240,10 @@ func (o *Options) nixRepairNote() string {
 func configNote(msg, workspace string) string {
 	where := "Fix it where this says it was written"
 	if strings.HasPrefix(msg, "config.") {
-		where = "Fix it in " + filepath.Join(workspace, "yolo-jail.jsonc") + " or " + paths.UserConfigPath()
+		// The workspace config the loader reads (config.ResolveWorkspaceConfigPath): naming
+		// `yolo-jail.jsonc` beside a `yolo-jail.json` sent the user to create a file that shadows it.
+		wsPath, _ := config.ResolveWorkspaceConfigPath(workspace, config.WorkspaceConfigName)
+		where = "Fix it in " + wsPath + " or " + paths.UserConfigPath()
 	}
 	return where + " (`yolo config-ref` documents every key), " + recheck
 }

@@ -293,3 +293,31 @@ func TestWorkspaceRefusalNamesTheLocalFileWhenThatIsWhereTheEntryIs(t *testing.T
 			reason, config.WorkspaceConfigName)
 	}
 }
+
+// With no file naming the entry, the refusal falls back to the workspace config — the one the
+// loader reads (config.ResolveWorkspaceConfigPath), so `yolo-jail.json` where that is the file
+// rather than a `yolo-jail.jsonc` the workspace does not have.
+func TestWorkspaceRefusalFallsBackToTheConfigFileTheLoaderReads(t *testing.T) {
+	isolateDirs(t)
+	ws := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(ws, "yolo-jail.json"), []byte(`{}`), 0o644))
+
+	var out, errBuf bytes.Buffer
+	deps := Deps{
+		Out: &out, Err: &errBuf, Cwd: ws,
+		LoadUserConfig: func() *jsonx.OrderedMap { return nil },
+		LoadWorkspaceConfig: func(string) *jsonx.OrderedMap {
+			m, err := jsonx.Decode([]byte(`{"loopholes": {"wsd": {"command": ["/bin/true"]}}}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return m.(*jsonx.OrderedMap)
+		},
+	}
+
+	loopholesWithConfig(deps, true)
+	reason := errBuf.String()
+	if want := "(from " + filepath.Join(ws, "yolo-jail.json") + ")"; !strings.Contains(reason, want) {
+		t.Errorf("refusal %q does not name the workspace's yolo-jail.json (want %q)", reason, want)
+	}
+}

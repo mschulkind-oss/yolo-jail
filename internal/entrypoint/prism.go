@@ -1404,7 +1404,7 @@ func regenerateManagedTables(e *Env, surface manifest.Surface, obj *jsonx.Ordere
 }
 
 // dropRemedyUserConfig is the user config as the boot drop notice names it: the host path, as
-// a reader on the host types it, beside the workspace's config.WorkspaceConfigName.
+// a reader on the host types it, beside the workspace's config file.
 const dropRemedyUserConfig = "~/.config/yolo-jail/config.jsonc"
 
 // noteDroppedManagedEntries prints a one-line boot notice for each entry in the
@@ -1470,11 +1470,15 @@ func noteDroppedManagedEntries(e *Env, surface manifest.Surface, key string, des
 	// stays named, because an MCP or LSP server is accepted there and it is the one an agent in
 	// the jail can edit. The user config is spelled as the host path: in a jail, ~/.config is
 	// the jail's own copy, not the file the launch reads.
+	//
+	// The workspace file is named as the loader resolves it (config.ResolveWorkspaceConfigPath):
+	// `yolo-jail.jsonc` beside a `yolo-jail.json` would be a new file shadowing the user's config.
+	_, wsConfigName := config.ResolveWorkspaceConfigPath(e.WorkspaceDir(), config.WorkspaceConfigName)
 	fmt.Fprintf(e.Stderr, "%s/%s: dropping from %s (not in config): %s "+
 		"— yolo rebuilds %s from its config at every boot; to keep it, declare it in "+
 		"%s on the host, or in this workspace's %s (%s), reaching every agent\n",
 		surface.Agent, surface.Name, key, strings.Join(dropped, ", "), key,
-		dropRemedyUserConfig, config.WorkspaceConfigName, manifest.EntryKindHomes())
+		dropRemedyUserConfig, wsConfigName, manifest.EntryKindHomes())
 }
 
 // mcpWithholding is what capability-driven MCP delivery withheld from one surface's derive:

@@ -34,6 +34,7 @@ package run
 // half that has nothing to do with ordering.
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -377,11 +378,20 @@ func disclosedClaims(packs []*packload.Pack, class disclosureClass) []disclosure
 // and the launch names that pointer as withheld (CredentialScope.UnservedEnvLines).
 func disclosedClaimsServed(packs []*packload.Pack, class disclosureClass,
 	served packload.ServedDaemons) []disclosureLine {
+	return disclosedClaimsWhere(packs, class, served, nil)
+}
+
+// disclosedClaimsWhere is disclosedClaimsServed less each claim keep refuses; nil keeps every one.
+func disclosedClaimsWhere(packs []*packload.Pack, class disclosureClass,
+	served packload.ServedDaemons, keep func(packload.Claim) bool) []disclosureLine {
 	var lines []disclosureLine
 	for _, p := range packs {
 		servedBy := envServedBy(p)
 		for _, c := range packload.FootprintOf(p).Claims {
 			if disclosureClassOfClaim(c) != class {
+				continue
+			}
+			if keep != nil && !keep(c) {
 				continue
 			}
 			if !c.ReviewWorthy && c.Kind != packdecl.KindEnv {
@@ -438,7 +448,18 @@ func envServedBy(p *packload.Pack) map[string]string {
 	return out
 }
 
-// packHostExecClaims returns the host-EXECUTION claim lines for the loaded packs.
+// packHostExecClaims returns the host-EXECUTION claim lines for the loaded packs, less each
+// loophole this launch does not start: starts answers, by loophole name, for the set the
+// caller's spawn starts (hostServiceNames for a jail launch, the doorways' services for a
+// `yolo host` one).
+//
+// A LOOPHOLE'S EXEC CLAIM IS KEPT ONLY WHEN ITS LOOPHOLE STARTS. The footprint answers what a
+// pack DECLARES, so every selected pack's daemon used to print here, switched off or not: a
+// launch was seen listing github-broker, journal and serial while all three were off, and
+// starting none of them. The block's value is that every line in it is about to run, so a line
+// for a daemon that will not run spends the one moment a user reads before host code starts. A
+// claim of any other kind is kept, so an unclassified kind still prints (disclosureClassOf's
+// fail-closed default). The claim's Target is the loophole's name (packload's moduleClaims).
 //
 // A PACKAGE VAR so the ORDERING test can drive it directly. It was introduced because the
 // only kind producing an exec claim (`loophole`) was landing in a concurrent change, and the
@@ -448,8 +469,10 @@ func envServedBy(p *packload.Pack) map[string]string {
 // pack tree whose manifest declares a real daemon: the assertion is about WHEN the line
 // prints, and building the argv to produce it would test the claim producer instead.
 // Production never touches it.
-var packHostExecClaims = func(packs []*packload.Pack) []disclosureLine {
-	return disclosedClaims(packs, disclosureExec)
+var packHostExecClaims = func(packs []*packload.Pack, starts func(loophole string) bool) []disclosureLine {
+	return disclosedClaimsWhere(packs, disclosureExec, packload.NothingServed(), func(c packload.Claim) bool {
+		return c.Kind != packdecl.KindLoophole || starts(c.Target)
+	})
 }
 
 // notePackHostExec prints, to stderr, what each loaded pack RUNS ON THE HOST this launch.
@@ -463,8 +486,11 @@ var packHostExecClaims = func(packs []*packload.Pack) []disclosureLine {
 // while being the defect: the subset path existed, spawned, and was not a caller — so the
 // macos-user arm ran a pack's host daemon in silence. A single call site is only an invariant
 // while a single path reaches a spawn.
-func (o *Options) notePackHostExec(packs []*packload.Pack) {
-	lines := packHostExecClaims(packs)
+//
+// starts is the caller's spawn's answer, by loophole name (packHostExecClaims). The block is
+// unsuppressible all the same: it narrows to what runs, and prints whenever anything does.
+func (o *Options) notePackHostExec(packs []*packload.Pack, starts func(loophole string) bool) {
+	lines := packHostExecClaims(packs, starts)
 	if len(lines) == 0 {
 		return
 	}
@@ -692,7 +718,10 @@ func (o *Options) startLoopholesDisclosed(cname, rt string, cfg *jsonx.OrderedMa
 // is the launch's composed jail-daemon payload (jailDaemonsFor), the one both arms run.
 func (o *Options) discloseLoopholes(rt string, cfg *jsonx.OrderedMap, packs []*packload.Pack,
 	payload []loopholes.JailDaemonSpec) {
-	o.notePackHostExec(packs)
+	// What the spawn starts, by its own selection (hostServiceNames): a daemon whose loophole is
+	// switched off is declared by its pack and started by nobody, so it is not announced.
+	starting := o.hostServiceNames(rt, cfg)
+	o.notePackHostExec(packs, func(name string) bool { return slices.Contains(starting, name) })
 	// The JAIL half of the same question — pack code that runs, on the other side of the
 	// boundary — and it prints here because this wrapper is the last host-side moment before
 	// the container takes the terminal. A hook fires on the agent's lifecycle, and a jail
@@ -710,10 +739,11 @@ func (o *Options) discloseLoopholes(rt string, cfg *jsonx.OrderedMap, packs []*p
 	// line above. Measured, that reasoning does not hold and the silence it bought was the
 	// whole defect:
 	//
-	//   - the two lines were never complements on this backend anyway. The exec disclosure is
-	//     CLAIM-shaped — it names what each pack DECLARES it runs on your machine — so claude's
-	//     broker is announced there and reported inert in the same AC launch already, and has
-	//     been since both reports existed. Exempting one pack preserved nothing.
+	//   - the two lines were never complements on this backend anyway. The exec disclosure was
+	//     CLAIM-shaped then — it named what each pack DECLARED it runs on your machine — so
+	//     claude's broker was announced there and reported inert in the same AC launch. It now
+	//     names only what the spawn starts (hostServiceNames), and on this backend a daemon
+	//     that starts is still one the jail cannot reach. Exempting one pack preserved nothing.
 	//   - "its daemon starts" and "the jail cannot reach it" are both true here, and the second
 	//     is the one the user needs: `backendInertReason` states exactly that (nothing crosses
 	//     container→host on `container` 1.1.0), so the line is true of the one loophole whose
