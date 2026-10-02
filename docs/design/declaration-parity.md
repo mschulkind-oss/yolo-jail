@@ -1292,7 +1292,13 @@ three. So the briefing fixes land together or not at all.
      `gpu.enabled` lines. `TestMacosUserRefusesADeclaredContextMount` is
      [DP-B1](#51-macos-user-read-by-nobody-warned-by-nobody) as `DP-D15` rules it, a refused
      launch naming the entry. [DP-B8](#51-macos-user-read-by-nobody-warned-by-nobody) was already
-     `TestMacosUserFooterSaysJail`'s `renderer_on_path`. UNMEASURED until the job runs them.
+     `TestMacosUserFooterSaysJail`'s `renderer_on_path`. **First run 2026-10-02:** every row
+     held except one of DP-B6's. That row refused the bare name `yolo-cglimit`, so it failed on
+     the briefing sentence saying the client is NOT available here. DP-B6 rules out offering
+     the client, not naming it, so the row now refuses the offer. The narrowed row is unmeasured
+     until the next run. The composition half of every briefing row now runs on Linux too:
+     `run.TestMacosUserDeclParityBriefingRowsHoldForTheComposedBriefing` reads both tables and
+     the workspace config from the Mac test's source.
      DP-B5, DP-B9 and DP-B10 are stated skips and are not asserted here, and DP-L15 is
      Apple Container's, still a Mac session.
 

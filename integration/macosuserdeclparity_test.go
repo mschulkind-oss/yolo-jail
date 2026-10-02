@@ -62,12 +62,19 @@ func TestMacosUserBriefingAndLaunchLinesDescribeThisBackend(t *testing.T) {
 			t.Errorf("%s: the delivered briefing lacks %q: %s.\n%s", c.row, c.want, c.why, briefing)
 		}
 	}
+	// DP-B6 refuses the OFFER of `yolo-cglimit`, not its name. The briefing's "What this
+	// environment does NOT do for you" section names the client on purpose, to say it is not
+	// available here, which is the opposite claim. This row refused the bare name until
+	// 2026-10-02, and the first nightly to run it failed on exactly that sentence.
+	// run.TestMacosUserDeclParityBriefingRowsHoldForTheComposedBriefing holds every row of
+	// both tables against the Linux composition of this launch, so keep each row a positional
+	// literal of string literals, `+` and `ws`.
 	for _, c := range []struct{ row, unwanted, why string }{
 		{"DP-B19", "a sandboxed container", "the briefing calls this backend a container"},
 		{"Environment", "NixOS-based minimal container", "the container's OS line reached a macOS sandbox"},
 		{"DP-B3", "host.containers.internal", "the agent is told to reach the host through a container hostname"},
 		{"DP-B6", "Resource limits** (kernel-enforced)", "the agent is told `resources` are kernel-enforced on a backend that warns they are ignored"},
-		{"DP-B6", "yolo-cglimit", "the agent is offered a cgroup client with no delegate to talk to"},
+		{"DP-B6", "Sub-limit your own processes with `yolo-cglimit`", "the agent is offered a cgroup client with no delegate to talk to"},
 	} {
 		if strings.Contains(briefing, c.unwanted) {
 			t.Errorf("%s: the delivered briefing contains %q: %s.\n%s", c.row, c.unwanted, c.why, briefing)
