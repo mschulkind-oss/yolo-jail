@@ -2,11 +2,29 @@
   "name": "claude-fzf",
   "description": "An fd|fzf custom file finder for Claude Code's @-file completion.",
   "contributes": [
+    // Where each package name came from, one line per manager, checked 2026-10-02. Each package
+    // installs `fd` on PATH (/usr/bin/fd in the file lists, bin/fd in Homebrew's formula source,
+    // mainProgram "fd" in nixpkgs) except apt's: Debian's and Ubuntu's fd-find install
+    // /usr/lib/cargo/bin/fd and /usr/bin/fdfind, so the apt hint adds the step that links fd
+    // into /usr/local/bin.
+    //   brew: https://formulae.brew.sh/api/formula/fd.json
+    //   apt: https://packages.debian.org/trixie/amd64/fd-find/filelist and https://packages.ubuntu.com/noble/amd64/fd-find/filelist
+    //   dnf: https://packages.fedoraproject.org/pkgs/rust-fd-find/fd-find/fedora-rawhide.html#files
+    //   pacman: https://archlinux.org/packages/extra/x86_64/fd/files/
+    //   nix: https://raw.githubusercontent.com/NixOS/nixpkgs/nixos-unstable/pkgs/by-name/fd/fd/package.nix
     {
       "kind": "requires",
       "bin": "fd",
       "install_hints": { "brew": "fd", "apt": "fd-find && sudo ln -sf /usr/lib/cargo/bin/fd /usr/local/bin/fd", "dnf": "fd-find", "pacman": "fd", "nix": "fd" }
     },
+    // Where each package name came from, one line per manager, checked 2026-10-02. Each package
+    // installs `fzf` on PATH: /usr/bin/fzf in the file lists, bin/fzf in Homebrew's formula
+    // source, mainProgram "fzf" in nixpkgs.
+    //   brew: https://formulae.brew.sh/api/formula/fzf.json
+    //   apt: https://packages.debian.org/trixie/amd64/fzf/filelist and https://packages.ubuntu.com/noble/amd64/fzf/filelist
+    //   dnf: https://packages.fedoraproject.org/pkgs/fzf/fzf/fedora-rawhide.html#files
+    //   pacman: https://archlinux.org/packages/extra/x86_64/fzf/files/
+    //   nix: https://raw.githubusercontent.com/NixOS/nixpkgs/nixos-unstable/pkgs/by-name/fz/fzf/package.nix
     {
       "kind": "requires",
       "bin": "fzf",

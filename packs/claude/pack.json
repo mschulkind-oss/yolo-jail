@@ -1,5 +1,7 @@
 {
   "contributes": [
+    // Where the install hint's name came from, checked 2026-10-02. A cask, so "brew-cask".
+    //   brew-cask: https://formulae.brew.sh/api/cask/claude-code.json (binary artifact `claude`)
     {
       "bin": "claude",
       "capabilities": [

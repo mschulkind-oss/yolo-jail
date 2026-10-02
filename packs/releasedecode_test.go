@@ -49,6 +49,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/json5"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/packs"
 )
 
@@ -421,7 +423,9 @@ func knownBreakFor(release, pack, problem string) int {
 }
 
 // repairManifest applies repair to the manifest in dir, in place: the materialized copy, never
-// the source tree.
+// the source tree. A manifest is JSON5 and a shipped one carries comments (each install hint's
+// source is one), so it is read as the pack loader reads it and written back as plain JSON,
+// which every release's reader reads; the comments it drops are nothing a reader decodes.
 func repairManifest(t *testing.T, dir string, repair func(any) any) {
 	t.Helper()
 	path := filepath.Join(dir, "pack.json")
@@ -429,11 +433,11 @@ func repairManifest(t *testing.T, dir string, repair func(any) any) {
 	if err != nil {
 		t.Fatalf("repairing %s: %v", dir, err)
 	}
-	var doc any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("repairing %s: the manifest is not plain JSON: %v", path, err)
+	parsed, err := json5.Decode(raw)
+	if err != nil {
+		t.Fatalf("repairing %s: the manifest does not parse: %v", path, err)
 	}
-	fixed, err := json.Marshal(repair(doc))
+	fixed, err := json.Marshal(repair(jsonx.Plain(parsed)))
 	if err != nil {
 		t.Fatal(err)
 	}

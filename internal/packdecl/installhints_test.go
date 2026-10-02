@@ -175,15 +175,11 @@ func TestInstallHintsConventionalFormsDecode(t *testing.T) {
 	}
 }
 
-// EVERY MANIFEST THE REPOSITORY SHIPS OR TEACHES decodes with no install_hints problem, strictly
-// and tolerantly: the embedded packs under packs/, and the example packs under docs/examples a
-// user copies. A rule that refused one of them would brick a launch selecting it, so the rule is
-// checked against them all, read straight off the tree rather than through a list someone has to
-// extend.
-//
-// The control is the guardrails pack's apt hint for fd, the one shipped value with a step: a
-// gate that found no ` && ` passes the step form for free.
-func TestEveryShippedAndExamplePackHasNoInstallHintProblem(t *testing.T) {
+// shippedAndExampleManifests is every manifest the repository ships or teaches, read straight
+// off the tree rather than through a list someone has to extend: the embedded packs under
+// packs/, and the example packs under docs/examples a user copies.
+func shippedAndExampleManifests(t *testing.T) []string {
+	t.Helper()
 	var manifests []string
 	for _, pattern := range []string{
 		"../../packs/*/pack.json", "../../packs/*/pack.jsonc",
@@ -195,6 +191,19 @@ func TestEveryShippedAndExamplePackHasNoInstallHintProblem(t *testing.T) {
 		}
 		manifests = append(manifests, got...)
 	}
+	return manifests
+}
+
+// EVERY MANIFEST THE REPOSITORY SHIPS OR TEACHES decodes with no install_hints problem, strictly
+// and tolerantly: the embedded packs under packs/, and the example packs under docs/examples a
+// user copies. A rule that refused one of them would brick a launch selecting it, so the rule is
+// checked against them all, read straight off the tree rather than through a list someone has to
+// extend.
+//
+// The control is the guardrails pack's apt hint for fd, the one shipped value with a step: a
+// gate that found no ` && ` passes the step form for free.
+func TestEveryShippedAndExamplePackHasNoInstallHintProblem(t *testing.T) {
+	manifests := shippedAndExampleManifests(t)
 	hints, steps := 0, 0
 	sawGuardrailsStep := false
 	for _, path := range manifests {

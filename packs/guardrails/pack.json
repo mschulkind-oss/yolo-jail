@@ -17,22 +17,29 @@
       "suggestion": "Try: fd <pattern>",
       "replacement": "fd"
     },
-    // Where each package name came from, checked 2026-10-01. Every one installs the binary
-    // under the name `bin` asks for, on PATH, except Debian's fd-find (below).
-    //   ripgrep, all five: /usr/bin/rg in Debian (packages.debian.org/trixie/amd64/ripgrep/filelist),
-    //     Fedora (mdapi.fedoraproject.org/rawhide/files/ripgrep) and Arch
-    //     (archlinux.org/packages/extra/x86_64/ripgrep/files/); Homebrew's formula
-    //     (formulae.brew.sh/api/formula/ripgrep.json); nixpkgs' ripgrep, mainProgram "rg".
-    //   fd: Homebrew's formula (formulae.brew.sh/api/formula/fd.json); nixpkgs' fd, mainProgram
-    //     "fd"; Fedora's fd-find and Arch's fd both install /usr/bin/fd.
+    // Where each package name came from, one line per manager, checked 2026-10-02. Each package
+    // installs `rg` on PATH: /usr/bin/rg in the file lists, bin/rg in Homebrew's formula
+    // source, mainProgram "rg" in nixpkgs.
+    //   brew: https://formulae.brew.sh/api/formula/ripgrep.json
+    //   apt: https://packages.debian.org/trixie/amd64/ripgrep/filelist and https://packages.ubuntu.com/noble/amd64/ripgrep/filelist
+    //   dnf: https://packages.fedoraproject.org/pkgs/rust-ripgrep/ripgrep/fedora-rawhide.html#files
+    //   nix: https://raw.githubusercontent.com/NixOS/nixpkgs/nixos-unstable/pkgs/by-name/ri/ripgrep/package.nix
+    //   pacman: https://archlinux.org/packages/extra/x86_64/ripgrep/files/
     { "kind": "requires", "bin": "rg", "install_hints": {"brew": "ripgrep", "apt": "ripgrep", "dnf": "ripgrep", "nix": "ripgrep", "pacman": "ripgrep"} },
-    // apt: Debian's and Ubuntu's fd-find install the binary as /usr/lib/cargo/bin/fd, with
+    // Where each package name came from, one line per manager, checked 2026-10-02. Each package
+    // installs `fd` on PATH (/usr/bin/fd in the file lists, bin/fd in Homebrew's formula source,
+    // mainProgram "fd" in nixpkgs) except apt's, below.
+    //   brew: https://formulae.brew.sh/api/formula/fd.json
+    //   apt: https://packages.debian.org/trixie/amd64/fd-find/filelist and https://packages.ubuntu.com/noble/amd64/fd-find/filelist
+    //   dnf: https://packages.fedoraproject.org/pkgs/rust-fd-find/fd-find/fedora-rawhide.html#files
+    //   nix: https://raw.githubusercontent.com/NixOS/nixpkgs/nixos-unstable/pkgs/by-name/fd/fd/package.nix
+    //   pacman: https://archlinux.org/packages/extra/x86_64/fd/files/
+    // Debian's and Ubuntu's fd-find install the binary as /usr/lib/cargo/bin/fd, with
     // /usr/bin/fdfind beside it, because /usr/bin/fd belongs to fdclone; nothing named `fd`
-    // lands on PATH, so the bare package left fd missing. The hint is the package plus the
+    // lands on PATH, so the bare package left fd missing. The apt hint is the package plus the
     // step that links it into /usr/local/bin, which is on Debian's and Ubuntu's default PATH.
-    // Sources: packages.debian.org/trixie/amd64/fd-find/filelist (the same two paths in
-    // bullseye, bookworm and sid, and in Ubuntu jammy and noble at packages.ubuntu.com), and
-    // Debian's own note, sources.debian.org/src/rust-fd-find/10.2.0-1/debian/README.Debian.
+    // The same two paths are in bookworm and jammy, and Debian's own note says so:
+    // https://sources.debian.org/src/rust-fd-find/10.2.0-1/debian/README.Debian/
     // A bundle file cannot hold the step, so `yolo check-deps` leaves fd out of it and prints
     // this command beside the bundle's (internal/depcheck bundleToken).
     { "kind": "requires", "bin": "fd", "install_hints": {"brew": "fd", "apt": "fd-find && sudo ln -sf /usr/lib/cargo/bin/fd /usr/local/bin/fd", "dnf": "fd-find", "nix": "fd", "pacman": "fd"} }

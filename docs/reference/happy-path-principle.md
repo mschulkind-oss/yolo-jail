@@ -31,6 +31,7 @@ covers:
   - cmd/yolo-serial/main.go
   - cmd/yolo-cglimit/main.go
   - packs/guardrails/pack.json
+  - internal/packdecl/installhintsources_test.go
 tags: [principle, cli, ux, errors, diagnostics]
 ---
 
@@ -177,10 +178,13 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    remedies the same way, and the command its install prompt runs, where the printer used to drop
    the bracket from both (`TestHostApplyPrintsABracketedRemedyAsWritten`,
    `TestHostApplyGatePrintsTheCommandItRunsAsWritten`).
-   **yolo does not yet enforce rule 3 for a pack's
-   `install_hints`:** a pack records no source for them, except the `guardrails` pack, whose
-   comments cite where each of its names came from, and no test checks that an entry has a
-   source or that the names it gives are right.
+   Every pack yolo ships, and every example pack under `docs/examples`, records where each of its
+   `install_hints` names came from: the comment directly above the contribution has one line per
+   manager key, naming the key, the package and the https page that lists it. A test reads each
+   manifest's raw text and fails on a hint with a key that has no such line
+   (`TestEveryShippedAndExampleInstallHintNamesItsSource`). It checks that a source is recorded,
+   not that the page still lists the name, so re-checking a name means reading its page again.
+   A user's own pack is not checked.
 4. **Hints are tested so they can't go stale.** A test checks that every command a hint prints is a
    real command. A hint naming a deleted command is a dead end that *looks* like a next step, which
    is worse than no hint.
@@ -345,5 +349,7 @@ Parts of this principle are already written down in yolo-jail:
   ([`nixinstall.go`](../../internal/storage/nixinstall.go)), the slirp4netns fallback note
   ([`hostloopback.go`](../../internal/cli/run/hostloopback.go)), `yolo-ps`'s three-step message
   for when the host-processes loophole is not turned on ([`main.go`](../../cmd/yolo-ps/main.go)),
+  rule 3's check that every shipped and example install hint records its source
+  ([`installhintsources_test.go`](../../internal/packdecl/installhintsources_test.go)),
   and rule 4's check of every hinted command
   ([`hintcommands_test.go`](../../internal/cli/hintcommands_test.go)).

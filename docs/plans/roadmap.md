@@ -26,12 +26,12 @@ host or an outside account follows under [External waits](#external-waits).
 
 ## The queue
 
-1. [Fix the dead ends the happy path principle found](../reference/happy-path-principle.md#the-rules) — first
-    because one hint sends users the wrong way: piped `yolo check` says `yolo prune --apply` removes
-    the orphaned jails it lists, but those jails are running and prune removes only stopped ones.
-    This entry is the work's only home. First stop: that hint, then the principle's rules 1, 3, 4, 6 and 7,
-    whose *In yolo* lines name each dead end. Many of `yolo check`'s `r.fail` calls pass no fix note. No test
-    yet checks that a command a hint names exists (rule 4), or that an install hint's package name has a source (rule 3).
+1. [Close the happy path principle's last two gaps](../reference/happy-path-principle.md#the-rules) — first
+    because a successful `yolo host apply --assert` still ends at its counts with no next command, which rule 2
+    calls a dead end; adding one waits on a ruling against [the verdict block](../reference/report-tiers.md#the-verdict-block)'s
+    "Only the dry run has a footer". The other gap an agent can close now: rule 4's hint check does not read a command
+    a message spells without backticks, such as the `then: yolo check` many `yolo check` notes end with. This entry
+    is the work's only home.
 2. [Rule whether a project's own mise pin of `pnpm` stays hidden](../design/program-delivery.md) — a declared `pnpm` gets its pnpm
     now; what [OQ-PD19](../design/program-delivery.md#oq-pd19) still decides is whether a project's `mise.toml` pin is hidden when yolo supplies the pnpm.
 3. [Rule whether the jail's config copy keeps other workspaces' widening entries](../design/boundary-broker.md#OQ-BB11) — `.yolo/config-assembled.json`,

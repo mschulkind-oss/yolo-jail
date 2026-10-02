@@ -181,6 +181,11 @@ type Contribution struct {
 	// On nix every package is an installable, so internal/depcheck spells each one
 	// `nixpkgs#<package>`.
 	//
+	// A pack yolo ships, or an example pack under docs/examples, records where each name came
+	// from: one `// <key>: <https URL>` line per manager key, naming the package, in the
+	// comment directly above the contribution (the happy path principle's rule 3,
+	// TestEveryShippedAndExampleInstallHintNamesItsSource). A user's own pack is not checked.
+	//
 	InstallHints map[string]string `json:"install_hints,omitempty"`
 
 	// --- skills / briefing / files (staged trees) ---

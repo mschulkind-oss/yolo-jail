@@ -1,5 +1,8 @@
 {
   "contributes": [
+    // Where each install hint's name came from, one line per manager, checked 2026-10-02.
+    //   brew: https://formulae.brew.sh/api/formula/opencode.json (bin/opencode in its formula source)
+    //   pacman: https://archlinux.org/packages/extra/x86_64/opencode/files/ (usr/bin/opencode)
     {
       "bin": "opencode",
       "exact_menu_refuses": {
