@@ -147,11 +147,13 @@ func (c Claim) DisclosureSentence() string {
 		// A FORK's claim (forkClaimDetail): the program the jail runs is built from the pack's
 		// named source, so the line says so, says where it runs, and says what it is pinned to.
 		// The commit itself is not a manifest fact — the fork lock holds it — so the launch
-		// names it on a line of its own (OQ-FP6); this one says which act pins it.
+		// names it on a line of its own (OQ-FP6); this one says which act pins it, and which moves
+		// it (FP-D18).
 		if build, ok := strings.CutPrefix(c.Detail, forkClaimDetailPrefix); ok {
 			return "RUNS a program built from source, INSIDE THE JAIL (not on your machine), as " +
 				c.Target + ": " + build + " — built in a capture jail that gets no credentials, " +
-				"at the commit `yolo pack install` pinned, never at whatever the ref names today"
+				"at the commit its first launch pinned (only `yolo pack update` moves it), never at " +
+				"whatever the ref names today"
 		}
 	case packdecl.KindBriefing:
 		// Detail is "concat after host:<host-home path>", optionally with an audience

@@ -20,10 +20,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// forkManifest forks base's bin program from a fixture source.
+// forkManifest forks base's bin program from a fixture source: a LOCAL repository that does not
+// exist, so a verb that pins the fork (FP-D18) fails at once instead of reaching the network.
 func forkManifest(name, base, bin string) string {
 	return `{"name":"` + name + `","contributes":[{"kind":"program","bin":"` + bin + `","via":"source",` +
-		`"fork_of":"` + base + `","source":"git+https://example.invalid/` + bin + `-fork?ref=main",` +
+		`"fork_of":"` + base + `","source":"git+file:///nonexistent/yolo-test/` + bin + `-fork?ref=main",` +
 		`"build":"make install","produces":[".local/bin/` + bin + `"]}]}`
 }
 
@@ -46,10 +47,11 @@ func forkHostFixture(t *testing.T, bin, baseProgram string) string {
 	return home
 }
 
-// `yolo host -- <forked bin>` of a fork with NO PIN: the floor has no build to ask for, so the
-// no-copy line names the fork and the command that pins it, and the launch looks on PATH
-// (OQ-HE11) — never installing the base's npm package into the floor in the fork's place.
-func TestHostLaunchOfAnUnpinnedForkNamesThePinAndRunsThePathCopy(t *testing.T) {
+// `yolo host -- <forked bin>` of a fork with no pin THAT IT CANNOT PIN (FP-D18: its source cannot be
+// fetched): the floor has no build to ask for, so the no-copy line names the fork, why the pin
+// failed and the next step, and the launch looks on PATH (OQ-HE11) — never installing the base's
+// npm package into the floor in the fork's place.
+func TestHostLaunchOfAForkItCannotPinNamesWhyAndRunsThePathCopy(t *testing.T) {
 	forkHostFixture(t, "floorcli", `{"kind":"program","bin":"floorcli","via":"npm","package":"floorcli-pkg"}`)
 	orig := prepareOpenAIAuthHost
 	prepareOpenAIAuthHost = func(hostPrelaunch, io.Writer) (managedOpenAIHostLaunch, error) { return nil, nil }
@@ -63,7 +65,8 @@ func TestHostLaunchOfAnUnpinnedForkNamesThePinAndRunsThePathCopy(t *testing.T) {
 		t.Fatalf("rc=%d target=%s, want the PATH copy %s\n%s", rc, got.target, stub, errw.String())
 	}
 	for _, want := range []string{"yolo has no copy of floorcli on this machine",
-		"built from source by fork pack forkpack", "it has no pin yet — run `yolo pack install`"} {
+		"built from source by fork pack forkpack", "it has no pin, and pinning it failed",
+		"fix what that names and launch again"} {
 		if !strings.Contains(errw.String(), want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errw.String())
 		}
@@ -73,10 +76,10 @@ func TestHostLaunchOfAnUnpinnedForkNamesThePinAndRunsThePathCopy(t *testing.T) {
 	}
 }
 
-// `yolo capture <forked bin>` of a fork with no pin: refused, naming the command that pins it —
-// never filed with the npm programs ("names a registry version") and never run as the base's
-// installer.
-func TestCaptureOfAnUnpinnedForkNamesThePin(t *testing.T) {
+// `yolo capture <forked bin>` of a fork with no pin that it cannot pin: refused, naming why and the
+// next step — never filed with the npm programs ("names a registry version") and never run as the
+// base's installer.
+func TestCaptureOfAForkItCannotPinNamesWhy(t *testing.T) {
 	forkHostFixture(t, "probetool", captureFixtureInstaller)
 	withFakeCaptureJail(t, func(run.Options) int {
 		t.Error("a capture jail ran for a fork with no pin")
@@ -86,8 +89,8 @@ func TestCaptureOfAnUnpinnedForkNamesThePin(t *testing.T) {
 	if rc := captureHost([]string{"probetool"}, &out, &errw, false); rc == 0 {
 		t.Fatal("capture of an unpinned fork succeeded")
 	}
-	if !strings.Contains(errw.String(), "it has no pin yet — run `yolo pack install`") {
-		t.Errorf("the refusal does not name the pin:\n%s", errw.String())
+	if !strings.Contains(errw.String(), "it has no pin, and pinning it failed") {
+		t.Errorf("the refusal does not say why the fork has no pin:\n%s", errw.String())
 	}
 	if strings.Contains(errw.String(), "registry version") {
 		t.Errorf("a forked program was described as an npm one:\n%s", errw.String())

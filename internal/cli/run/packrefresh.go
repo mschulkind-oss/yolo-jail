@@ -87,9 +87,7 @@ func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(
 // budget per fetch (LaunchFetchTimeout rather than the store's 2-minute default), and
 // Detached, so ssh cannot stop a launch at a host-key or passphrase prompt and a timeout
 // kills git's transport helper along with git (packsrc.Store.Detached says why).
-func launchStore() *packsrc.Store {
-	return &packsrc.Store{Dir: paths.PacksDir(), Timeout: packsrc.LaunchFetchTimeout, Detached: true}
-}
+func launchStore() *packsrc.Store { return packsrc.LaunchStore(paths.PacksDir()) }
 
 // refreshPacks is the launch's call, printing through the launch's own console.
 //

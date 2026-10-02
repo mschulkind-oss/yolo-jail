@@ -1,7 +1,7 @@
 package packsrc
 
-// forklock.go is the FORK LOCK, forks.lock.json (docs/design/forked-programs-as-packs.md FP-D7): the
-// revision each fork's source is pinned to, keyed "<fork pack>/<bin>".
+// forklock.go is the FORK LOCK, forks.lock.json (docs/design/forked-programs-as-packs.md FP-D7,
+// FP-D18): the revision each fork's source is pinned to, keyed "<fork pack>/<bin>".
 //
 // # Why a file of its own, beside packs.lock.json
 //
@@ -10,13 +10,13 @@ package packsrc
 // Bumping that file's schema instead would make the same older yolo refuse every pack. A second
 // file costs nothing either way: an older yolo never reads it.
 //
-// # Who writes it, and who only reads it
+// # Who writes it
 //
-// `yolo pack install` pins a fork the lock does not name yet (or names for a source the manifest no
-// longer declares), and `yolo pack update` re-resolves every fork. A LAUNCH ONLY READS IT: a fork it
-// finds unpinned gets no build and a reason naming the command (FP-D7). Resolution is an explicit
-// act, never a launch side effect (§4 step 2), because re-resolving a branch at launch is the
-// rebuild on a timer §9 forbids.
+// A LAUNCH PINS a fork the lock does not name yet, or names for a source the manifest no longer
+// declares (PinForks, forkpin.go; FP-D18, which supersedes FP-D7's read-only launch under the
+// maintainer's OQ-PF1), and so does `yolo pack install`, which is no longer required. Only `yolo
+// pack update` MOVES a pin: a launch leaves a standing pin where it is, however far its branch has
+// moved, because re-resolving it at launch would be the rebuild on a timer §9 forbids.
 //
 // It carries the same discipline as the pack lock (lock.go): a newer schema is refused, a rewrite is
 // a temp file and a rename, and writers are serialized by a flock in the pack store (WithForkLock).
@@ -75,8 +75,8 @@ func LoadForkLock(path string) (*ForkLock, error) {
 	}
 	var l ForkLock
 	if err := json.Unmarshal(data, &l); err != nil {
-		return nil, fmt.Errorf("%s: %w (delete it and run `yolo pack install` to pin every fork again)",
-			path, err)
+		return nil, fmt.Errorf("%s: %w (delete it: the next launch pins every fork again, at what its "+
+			"ref names then)", path, err)
 	}
 	if l.Schema > ForkLockSchema {
 		return nil, newerSchemaError(path, l.Schema, ForkLockSchema)

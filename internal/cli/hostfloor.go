@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
@@ -87,7 +88,8 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			return ""
 		},
 		// A FORK's program (docs/design/forked-programs-as-packs.md FP-D4): the fork lock's pin, read
-		// once for this floor; the store's build at that pin, by the hit check a jail launch makes;
+		// once for this floor, or made by its install (FP-D18, below); the store's build at that pin,
+		// by the hit check a jail launch makes;
 		// and the build act a jail launch runs on a miss — the sealed capture jail, waiting, bounded,
 		// for a build of the same key another launch is running (FP-D1). Never `yolo capture
 		// <forked bin>`, which is the explicit REBUILD and refuses on contention.
@@ -95,6 +97,24 @@ var newHostFloor = func(out io.Writer, progs []hostfloor.Program) *hostfloor.Flo
 			pin, ok := pins[p.Bin()]
 			if !ok {
 				return "", "no fork in this selection builds it"
+			}
+			return pin.Commit, pin.Reason
+		},
+		// THE LAUNCH'S PIN (FP-D18): a fork the lock does not pin for its declared source is pinned
+		// by the install that needs it — `yolo host -- <bin>` or `yolo host apply --assert` — through
+		// the one pinner a jail launch uses (run.PinLaunchForks), never by a status.
+		ForkPinnable: func(p hostfloor.Program) bool { return pins[p.Bin()].Pinnable },
+		PinFork: func(p hostfloor.Program, say func(string)) (string, string) {
+			f := floorForkBuild(p, "").Fork
+			pin := run.PinLaunchForks([]packload.Fork{f}, func() (func(string), func()) {
+				say("fetching " + f.Source + " to pin fork " + f.Key())
+				return say, func() {}
+			})[0]
+			if pin.Pinned {
+				say(pin.PinnedLine())
+			}
+			if pin.Warning != "" {
+				say("Warning: " + pin.Warning)
 			}
 			return pin.Commit, pin.Reason
 		},
@@ -128,8 +148,9 @@ func floorForkBuild(p hostfloor.Program, commit string) forkBuild {
 }
 
 // floorForkPins reads the fork lock once for every source-built program among progs, keyed by bin,
-// through the reader a launch uses (packload.LoadForkPins, as run.forkPins), so the host and a jail
-// ask for one commit and a lock that cannot be read pins nothing for either.
+// through the reader every caller that must not fetch uses (packload.LoadForkPins), so the host and
+// a jail ask for one commit and a lock that cannot be read pins nothing for either. A pin the
+// floor's install makes goes through the jail launch's own pinner (PinFork, run.PinLaunchForks).
 func floorForkPins(progs []hostfloor.Program) map[string]packload.ForkPin {
 	var forks []packload.Fork
 	for _, p := range progs {

@@ -3,7 +3,7 @@ title: "Forked programs as packs — implementation plan"
 date: 2026-09-21
 status: accepted
 tags: [plan, packs, programs, capture, forks]
-summary: "Build hand-off for the source-built program route: a fork declared as a program with via source, pinned in its own lock by the explicit pack verbs, built once per platform in a sealed capture jail, recorded under a new receipt kind, and delivered to the jail by an entry key the host hands over. Promoted against the tree 2026-09-30; steps 1–6, the jail notch, built the same day; step 7, the host notch, measured on a stand-in fork and built on its shape 2026-10-01. The design wins on behavior."
+summary: "Build hand-off for the source-built program route: a fork declared as a program with via source, pinned in its own lock (by its first launch since FP-D18, moved only by yolo pack update), built once per platform in a sealed capture jail, recorded under a new receipt kind, and delivered to the jail by an entry key the host hands over. Promoted against the tree 2026-09-30; steps 1–6, the jail notch, built the same day; step 7, the host notch, measured on a stand-in fork and built on its shape 2026-10-01. The design wins on behavior."
 stage: DECIDED
 next: "Rerun step 7's measurement (steps 1 to 3 of Step 7 needs) on the motivating fork once a maintainer names it; the hostfloor source arms are built on the 2026-10-01 stand-in's shape"
 vantage:
@@ -281,6 +281,8 @@ release, and the changelog line waits for step 6.
    The fork lock; `pack install`, `update` and `status`; the launch reads the lock only, and prints
    the revision line [OQ-FP6](forked-programs-as-packs.md#14-decision-ledger) rules on and what it
    would build. → `go test -short ./internal/packsrc ./internal/cli ./internal/cli/run`
+   ⚠ Superseded 2026-10-02 by [FP-D18](forked-programs-as-packs.md#FP-D18): a launch now pins a
+   fork the lock does not pin, so `pack install` is no longer required.
 4. **The seal** ([FP-D9](forked-programs-as-packs.md#FP-D9)): the switch at every crossing site,
    and the narrowed selection. → `go test -short ./internal/cli/run ./internal/cli`
 5. **The build act**: `cli/forkbuild.go`, the receipts, `Select`'s source component, the lock with

@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	forkTestSource = "git+https://example.invalid/probetool-fork?ref=main"
+	forkTestSource = "git+file:///nonexistent/yolo-test/probetool-fork?ref=main" // forkManifest's
 	forkTestCommit = "0123456789abcdef0123456789abcdef01234567"
 )
 

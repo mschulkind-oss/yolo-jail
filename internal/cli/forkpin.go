@@ -1,13 +1,15 @@
 package cli
 
-// forkpin.go is the PIN half of the fork route (docs/design/forked-programs-as-packs.md §4 step 2,
-// FP-D7): `yolo pack install` pins every selected fork the fork lock does not already pin for its
-// declared source, and `yolo pack update` re-resolves every one. The lock is forks.lock.json beside
-// packs.lock.json (packsrc.ForkLock).
+// forkpin.go is the verbs' half of the fork PIN (docs/design/forked-programs-as-packs.md §4 step 2,
+// FP-D7, FP-D18): `yolo pack install` pins every selected fork the fork lock does not already pin
+// for its declared source, and `yolo pack update` re-resolves every one. The lock is forks.lock.json
+// beside packs.lock.json (packsrc.ForkLock).
 //
-// RESOLUTION IS AN EXPLICIT ACT, never a launch side effect: a launch only READS the lock
-// (run.noteForkPins), and a fork's source never goes through the launch's pack refresh, which
-// re-fetches a branch at most hourly — for a fork, the rebuild on a timer §9 forbids.
+// INSTALL IS NO LONGER REQUIRED (FP-D18, applying the maintainer's OQ-PF1): a launch pins an unpinned
+// fork itself (run.PinLaunchForks), and so does `yolo host -- <bin>`. What stays explicit is MOVING
+// a pin, which only `yolo pack update` does: a launch leaves a standing pin where it is, and a fork's
+// source never goes through the launch's pack refresh, which re-fetches a branch at most hourly —
+// for a fork, the rebuild on a timer §9 forbids.
 
 import (
 	"fmt"
@@ -42,8 +44,8 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 	forks := packload.Forks(sel.packs)
 	if config.InJail() {
 		if len(forks) > 0 {
-			pr.Printf("[dim]Fork pins are recorded on the host (%s) — run `yolo pack install` there.[/dim]",
-				packsrc.ForkLockName)
+			pr.Printf("[dim]Fork pins are recorded on the host (%s): the next launch there pins a fork "+
+				"that has none, and `yolo pack update` there moves one.[/dim]", packsrc.ForkLockName)
 		}
 		return 0
 	}
@@ -65,9 +67,9 @@ func pinForks(pr richtext.Printer, errw io.Writer, repin bool) int {
 					continue
 				}
 				if pinned && prev.Source == f.Source && prev.Commit != "" && !repin {
-					// THE PIN STANDS, and install makes it BUILDABLE HERE: a lock that arrived
+					// THE PIN STANDS, and install makes it BUILDABLE HERE now: a lock that arrived
 					// with the config names a commit this machine's pack store may never have
-					// fetched, and a launch never fetches one (FP-D7).
+					// fetched (a launch's build would fetch it too, by the commit: FP-D18).
 					if err := ensureForkCheckout(store, addr, prev.Commit); err != nil {
 						fmt.Fprintf(errw, "yolo pack: fork %s: its pinned commit %s cannot be checked out "+
 							"from %s (%v) — `yolo pack update` pins what %s names now\n",

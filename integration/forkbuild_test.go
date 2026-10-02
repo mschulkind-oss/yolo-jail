@@ -12,9 +12,9 @@ import (
 )
 
 // forkbuild_test.go is the container-level cell for the fork route
-// (docs/design/forked-programs-as-packs.md, the plan's step 6): a fork pinned by `yolo pack
-// install`, built by a launch in a sealed capture jail of its own, and delivered into the jail in
-// place of its base's program.
+// (docs/design/forked-programs-as-packs.md, the plan's step 6): a fork pinned by its first launch
+// (FP-D18 — no `yolo pack install`), built by that launch in a sealed capture jail of its own, and
+// delivered into the jail in place of its base's program.
 //
 // HERMETIC, like capture_test.go: the fork's "remote" is a local git repository (git+file://), its
 // build writes a marker script, and the base's installer is the pack's own file. No real fork, no
@@ -93,11 +93,7 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 	before := captureEntryNames(t, store)
 	t.Cleanup(func() { removeNewCaptureEntries(t, store, before) })
 
-	// THE PIN: an explicit act, never the launch's.
-	if r := runYoloCLI(t, t.TempDir(), "pack", "install"); r.rc != 0 {
-		t.Fatalf("yolo pack install: rc %d\n%s", r.rc, r.combined())
-	}
-
+	// THE PIN IS THE FIRST LAUNCH'S (FP-D18, applying OQ-PF1): no `yolo pack install` runs here.
 	launch := func(what string) string {
 		t.Helper()
 		r := runYoloDirect(t, t.TempDir(), forkFixtureBin)
@@ -111,8 +107,11 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 		return out
 	}
 
-	// FIRST LAUNCH: one build, and the jail runs the fork's build of rev 1.
+	// FIRST LAUNCH: the pin, one build, and the jail runs the fork's build of rev 1.
 	out := launch("the first launch")
+	if !strings.Contains(out, "pinned fork "+forkFixtureForkPack+"/"+forkFixtureBin+" at ") {
+		t.Fatalf("the first launch did not pin the fork:\n%s", out)
+	}
 	if !strings.Contains(out, forkFixtureMarker+"_1") || !strings.Contains(out, "fork builds") {
 		t.Fatalf("the first launch did not build and run the fork:\n%s", out)
 	}
@@ -120,10 +119,13 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 		t.Fatalf("the first launch added %d entries, want 1: %v", len(added), added)
 	}
 
-	// SECOND LAUNCH: no build — a hit builds nothing.
+	// SECOND LAUNCH, after the branch moved: no pin, no build — the standing pin never moves at
+	// launch, and a hit builds nothing.
+	commit("1b")
 	out = launch("the second launch")
-	if !strings.Contains(out, forkFixtureMarker+"_1") || strings.Contains(out, "fork builds") {
-		t.Errorf("the second launch rebuilt, or did not run the fork:\n%s", out)
+	if !strings.Contains(out, forkFixtureMarker+"_1") || strings.Contains(out, "fork builds") ||
+		strings.Contains(out, "pinned fork") {
+		t.Errorf("the second launch moved the pin, rebuilt, or did not run the fork:\n%s", out)
 	}
 
 	// A NEW COMMIT, AND `yolo pack update` MOVES THE PIN: the next launch builds a new entry.

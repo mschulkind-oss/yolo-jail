@@ -201,9 +201,22 @@ type Floor struct {
 	CaptureUnavailable func() string
 	// ForkPin is the fork lock's pin of a source-built program (forked-programs-as-packs.md
 	// FP-D7): the full commit its fork's source is pinned to, or "" and why there is none, naming
-	// the command that pins it. nil => no pin can be read, so no source-built program has a floor
+	// what pins it. nil => no pin can be read, so no source-built program has a floor
 	// entry: the floor never builds or serves a fork at a revision the lock does not name.
 	ForkPin func(p Program) (commit, reason string)
+	// ForkPinnable reports whether ForkPin's missing pin of p is one an install can make: the fork
+	// lock was read and holds no pin for the fork's declared source (forked-programs-as-packs.md
+	// FP-D18). nil => none is, and a fork with no pin has no floor entry.
+	ForkPinnable func(p Program) bool
+	// PinFork makes that pin, as a launch does: the fork's ref resolved once and the commit recorded
+	// in the fork lock. It returns the commit, or "" and why there is still no pin, naming the next
+	// step, and says what it did through say. Only Ensure asks it, for a program ForkPinnable says
+	// it can pin, never Status, since a pin can fetch. nil => none is made.
+	PinFork func(p Program, say func(line string)) (commit, reason string)
+	// madePins and failedPins are this Floor's own PinFork answers, by bin: the commit a pin made,
+	// or why it could not be made. forkPin reads them ahead of ForkPin, whose answer was read before
+	// the pin, so every status after an install agrees with what it installed.
+	madePins, failedPins map[string]string
 	// ResolveBuild finds the capture store's build of a source-built program at commit, for this
 	// host's platform: the same hit a jail launch asks for (the newest build of the fork's source,
 	// and only when it is of that commit and the fork's current recipe — never a near-miss).
@@ -336,8 +349,15 @@ func via(in packdecl.Install) string {
 	return in.Kind
 }
 
-// forkPin is ForkPin's answer for p, or why there is none when nothing can read a pin.
+// forkPin is ForkPin's answer for p — after this Floor's own pin of it, when it made or tried one —
+// or why there is none when nothing can read a pin.
 func (f *Floor) forkPin(p Program) (commit, reason string) {
+	if c, ok := f.madePins[p.Bin()]; ok {
+		return c, ""
+	}
+	if why, ok := f.failedPins[p.Bin()]; ok {
+		return "", why
+	}
 	if f.ForkPin == nil {
 		return "", "this yolo reads no fork pin here"
 	}
@@ -346,6 +366,42 @@ func (f *Floor) forkPin(p Program) (commit, reason string) {
 		reason = "the fork lock names no commit for it"
 	}
 	return commit, reason
+}
+
+// awaitsPin reports whether p is a fork's program whose pin is missing and can be made by an install
+// (FP-D18): ForkPin names no commit, ForkPinnable says the lock can take one, PinFork exists, and
+// this Floor has not tried already. Such a program is not "no floor entry" — the install pins it
+// first — so Status reports it as an install would find it.
+func (f *Floor) awaitsPin(p Program) bool {
+	if p.Install.Kind != packdecl.InstallKindSource || f.PinFork == nil || f.ForkPinnable == nil {
+		return false
+	}
+	if _, tried := f.failedPins[p.Bin()]; tried {
+		return false
+	}
+	commit, _ := f.forkPin(p)
+	return commit == "" && f.ForkPinnable(p)
+}
+
+// pinFork is Ensure's pin of a program awaitsPin names: PinFork's answer, recorded on this Floor so
+// every later status reads it (forkPin).
+func (f *Floor) pinFork(p Program) (commit, reason string) {
+	commit, reason = f.PinFork(p, func(line string) { f.say("%s", line) })
+	if commit == "" {
+		if reason == "" {
+			reason = "the fork's pin could not be made"
+		}
+		if f.failedPins == nil {
+			f.failedPins = map[string]string{}
+		}
+		f.failedPins[p.Bin()] = reason
+		return "", reason
+	}
+	if f.madePins == nil {
+		f.madePins = map[string]string{}
+	}
+	f.madePins[p.Bin()] = commit
+	return commit, ""
 }
 
 // shortCommit is a commit as a line names it: its first 12 hex digits.
@@ -398,13 +454,14 @@ func (f *Floor) noEntryReason(p Program) string {
 		// build of the fork's PINNED commit, relocated into the floor (FP-D4). The build runs in a
 		// Linux capture jail, and a notch gets a build made for its own platform or none (§1: no
 		// cross-compilation). With no pin there is no build to ask for, and an older build the
-		// floor still holds is a near-miss it never serves (§9), so that is no entry too.
+		// floor still holds is a near-miss it never serves (§9), so that is no entry too — unless
+		// the install can make the pin (awaitsPin, FP-D18), which it does before it builds.
 		if f.GOOS != "linux" {
 			return "it is built from source by fork pack " + in.ForkedBy + " in a Linux capture " +
 				"jail, and this machine is " + f.GOOS + "/" + f.GOARCH + ": the floor holds a build " +
 				"made for its own platform only"
 		}
-		if _, why := f.forkPin(p); why != "" {
+		if _, why := f.forkPin(p); why != "" && !f.awaitsPin(p) {
 			return "it is built from source by fork pack " + in.ForkedBy + ", and " + why
 		}
 		return ""
@@ -465,6 +522,11 @@ func (f *Floor) buildPending(p Program, rec *Record) string {
 	in := p.Install
 	commit, _ := f.forkPin(p)
 	switch {
+	case commit == "":
+		// Awaiting its pin (noEntryReason lets only that through): its source was edited since the
+		// installed build's pin, and the install pins what it names now.
+		return "fork pack " + in.ForkedBy + " has no pin for " + in.Source + " yet: the install pins it, " +
+			"then builds that commit (installed: " + rec.Version + ")"
 	case rec.Revision != commit:
 		return "fork pack " + in.ForkedBy + " now pins it at " + buildVersion(commit) +
 			" (installed: " + rec.Version + ")"

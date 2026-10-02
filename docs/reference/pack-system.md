@@ -42,7 +42,9 @@ commit since that touches a path this doc covers was re-checked against `f491d19
 [concurrent-launch section](#concurrent-launches-of-one-workspace) was written on 2026-09-26 in
 the change that fixes the staging race it describes, and rewritten the same day with
 [`OQ-PK2`](#oq-pk2), in the change that builds one pack tree per launch; neither is verified by a
-later commit. The [two provenance derivations](#two-provenance-derivations) warning and its
+later commit. The [fork pin paragraph](#program-via-source) was rewritten on 2026-10-02 for a
+launch that pins a fork itself ([FP-D18](../design/forked-programs-as-packs.md#FP-D18)), in the
+change that builds it. The [two provenance derivations](#two-provenance-derivations) warning and its
 ruling were added on 2026-10-01 from the retired findings index, checked against `d4e435a3`, and
 the reserved-children rules (the withheld shipped name, the recovery report) and the synced
 skill trees rulings ([`OQ-ST2`](#oq-st2), [ST-P1](#st-p1), [ST-P3](#st-p3), [ST3](#st3),
@@ -814,17 +816,27 @@ absent, a base that declares no program by the fork's bin, a pack forking itself
 one program.
 
 **The pin is `forks.lock.json`**, beside `packs.lock.json` in `~/.config/yolo-jail`, keyed
-`<fork pack>/<bin>` ([FP-D7](../design/forked-programs-as-packs.md#FP-D7)). `yolo pack install` pins
-every selected fork the lock does not already pin for its declared `source`, resolving the ref to a
-commit, and leaves a pinned fork alone when its branch moves. For every pin, new or standing, it
-checks the commit out into the pack store, fetching the repository first when this machine has
-never fetched it, so a fork lock that arrived with the config builds the same commit here as on the
-machine that pinned it. `yolo pack update` re-resolves every
-fork. `yolo pack status` lists each pin and fails on a pin made for a source the fork no longer
-declares. A launch only reads the lock: each launch that carries a fork prints the commit it is
+`<fork pack>/<bin>` ([FP-D7](../design/forked-programs-as-packs.md#FP-D7)). **A launch pins a fork
+itself, so no `yolo pack install` is needed** ([FP-D18](../design/forked-programs-as-packs.md#FP-D18),
+applying [`OQ-PF1`](#oq-pf1)). A host launch that carries a fork the lock does not pin for its
+declared `source` resolves the ref to a commit once, by the launch's ref rule
+([fetch, refresh, lock](#fetch-refresh-lock)), records it, and builds that commit, printing
+``pinned fork <pack>/<bin> at <short sha> (<source>); `yolo pack update` moves it``. The pin is
+made under the fork lock's own lock and the file is re-read there, so two launches pinning one fork
+at once record one commit. **A standing pin never moves at launch**, however far its branch has
+moved, and costs no git run. A pin that cannot be made (the repository unreachable, the ref naming
+nothing) is that fork's reason, with the next step, and the launch goes on without its program. A
+`--dry-run` and a launch inside a jail pin nothing. `yolo host -- <bin>`, `yolo host apply --assert`
+and `yolo capture <bin>` of a forked program pin the same way, through the same code. A build whose
+pinned commit this machine's pack store does not hold fetches it by that commit, so a fork lock
+that arrived with the config builds the same commit here as on the machine that pinned it.
+`yolo pack install` still pins every selected fork the lock does not pin, and checks every pin,
+new or standing, out into the pack store; it is not required. `yolo pack update` re-resolves every
+fork, and is the only act that moves a pin. `yolo pack status` lists each pin and fails on a pin made
+for a source the fork no longer declares. Each launch that carries a fork prints the commit it is
 pinned to (`fork <pack>: <bin> (in place of pack <base>'s) is built from <source> at commit <sha>`),
-or why it has none and the command that pins it. A fork's source never goes through the launch's
-hourly pack refresh.
+or why it has none. A fork's source never goes through the launch's hourly pack refresh, which
+would move a branch-following pin.
 
 **The build runs in a sealed capture jail**
 ([FP-D9](../design/forked-programs-as-packs.md#FP-D9)). The pinned commit is checked out of the

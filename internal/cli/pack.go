@@ -196,9 +196,10 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               leaves a loophole whose program is missing off, saying so.
                               And it PINS every selected fork (a program built "via":"source")
                               that forks.lock.json does not pin yet: its ref resolved to a
-                              commit, which is what a launch builds. A launch never pins one,
-                              and never fetches one: install fetches every pinned commit
-  yolo pack update            install, PLUS the only act that resolves a new version for a
+                              commit, which is what a launch builds. Optional too: a launch
+                              pins such a fork itself, and fetches a pinned commit it lacks.
+                              Neither ever moves a pin
+  yolo pack update           install, PLUS the only act that resolves a new version for a
                               pack's npm-declared program, and the act that MOVES a fork's pin
                               to what its ref names now. Run the npm half inside the jail —
                               that is where an agent CLI is installed

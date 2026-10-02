@@ -1,9 +1,10 @@
 package cli
 
-// forkpin_test.go pins the PIN (docs/design/forked-programs-as-packs.md FP-D7) through the verbs that
-// make and move it — `yolo pack install` pins once and leaves a pinned fork alone when its branch
-// moves, `yolo pack update` moves it, `yolo pack status` reports it and its drift — against a real
-// local git repository standing in for the fork's remote.
+// forkpin_test.go pins the PIN (docs/design/forked-programs-as-packs.md FP-D7, FP-D18) through the
+// verbs that make and move it — `yolo pack install` pins once (no longer required: a launch pins too)
+// and leaves a pinned fork alone when its branch moves, `yolo pack update` moves it, `yolo pack
+// status` reports it and its drift, and the build act fetches a pinned commit this machine lacks —
+// against a real local git repository standing in for the fork's remote.
 
 import (
 	"bytes"
@@ -183,9 +184,8 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 
 // A SECOND MACHINE, GIVEN THE CONFIG AND ITS FORK LOCK: `yolo pack install` makes the pinned commit
 // buildable here — its mirror fetched and the commit checked out into the pack store — and leaves
-// the pin where the lock has it, though the branch has moved on. A launch never fetches (FP-D7), so
-// an install that only read the lock would leave every build on this machine failing its checkout
-// until `yolo pack update`, which builds a different commit than the first machine runs.
+// the pin where the lock has it, though the branch has moved on, so the build's checkout reads only
+// the pack store. (A build without the install fetches the commit itself: the next test.)
 func TestPackInstallMakesAPinnedForkBuildableOnASecondMachine(t *testing.T) {
 	repo, commit := forkRepo(t)
 	head1 := strings.TrimSpace(gitOut(t, repo, "rev-parse", "HEAD"))
@@ -213,6 +213,33 @@ func TestPackInstallMakesAPinnedForkBuildableOnASecondMachine(t *testing.T) {
 	if err := checkOutForkSource(source, head1, filepath.Join(t.TempDir(), "src")); err != nil {
 		t.Errorf("after install the pinned commit cannot be checked out on this machine: %v\n%s\n%s",
 			err, out.String(), errw.String())
+	}
+}
+
+// THE BUILD ACT ON A SECOND MACHINE, given the config and its fork lock and never `yolo pack install`
+// (FP-D18): the checkout of the pinned commit fetches the repository this machine's pack store has
+// never held, by that commit, and leaves the pin where the lock has it though the branch has moved
+// on. Before, every build here failed its checkout until a `yolo pack install`.
+func TestTheBuildActFetchesAPinnedCommitThisMachineNeverFetched(t *testing.T) {
+	repo, commit := forkRepo(t)
+	head1 := strings.TrimSpace(gitOut(t, repo, "rev-parse", "HEAD"))
+	source := "git+file://" + repo + "?ref=main"
+	forkPinHome(t, source)
+	l := &packsrc.ForkLock{}
+	l.Set(packsrc.ForkLockEntry{Key: "forkpack/tool", Source: source, Ref: "main", Commit: head1})
+	if err := l.Save(forkLockPath()); err != nil {
+		t.Fatal(err)
+	}
+	commit("moved on")
+	dst := filepath.Join(t.TempDir(), "src")
+	if err := checkOutForkSource(source, head1, dst); err != nil {
+		t.Fatalf("the build act cannot check out the pinned commit on a machine that never fetched it: %v", err)
+	}
+	if body, err := os.ReadFile(filepath.Join(dst, "build.sh")); err != nil || string(body) != "# first\n" {
+		t.Errorf("the checkout holds %q (%v), want the pinned commit's build.sh", body, err)
+	}
+	if got := pinnedCommit(t); got != head1 {
+		t.Errorf("the checkout moved the pin to %q, want %q", got, head1)
 	}
 }
 

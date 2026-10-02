@@ -111,19 +111,28 @@ new build replaces the old one whole instead of merging into it. The build must 
 `npm install -g .` installs a link back to the build's own folder, which is gone once the build
 ends, so yolo refuses that build and says why.
 
-- `yolo pack install` pins the fork to the commit its `ref` names today, and `yolo pack update` moves
-  the pin. `yolo pack status` shows the pin and whether it is built. The pin is kept in
-  `~/.config/yolo-jail/forks.lock.json`: on another machine with the same config and that file,
-  `yolo pack install` fetches the same commit, so both machines run the same build.
-- The next launch builds that commit once, on this machine, in a jail of its own that gets none of
+- There is nothing to install first. The first launch pins the fork to the commit its `ref` names
+  then, and says so:
+
+  ```text
+  pinned fork pi-mine/pi at 1a2b3c4d (git+https://github.com/you/pi-fork?ref=main); `yolo pack update` moves it
+  ```
+
+  Later launches keep that commit even after your branch moves on, and `yolo pack update` moves the
+  pin. `yolo pack status` shows the pin and whether it is built. The pin is kept in
+  `~/.config/yolo-jail/forks.lock.json`: on another machine with the same config and that file, the
+  first launch fetches the same commit, so both machines run the same build.
+- That launch builds the commit once, on this machine, in a jail of its own that gets none of
   your credentials, host files or services. Every later launch, in any workspace, reuses the build.
   Each launch prints the commit your fork is built at.
+- If the pin cannot be made (your fork's repository is unreachable, or the `ref` names nothing), the
+  jail starts without that program, and the launch says why and what to do. `yolo pack install` also
+  pins it, at a terminal where git can ask for an ssh host key or passphrase.
 - If the build fails, the jail starts without that program, and running it says why. yolo never
   falls back to the original program under your fork's name.
 - `yolo capture <program>` rebuilds it on demand, for example after an image update.
 - `yolo host -- <program>` runs the same build outside a jail, on Linux. yolo keeps its own copy for
-  host agents, moved out of the jail's home, and builds it first if this machine has not built that
-  commit yet. A build that can only run in a jail, such as one that compiles the jail's home path
+  host agents, moved out of the jail's home, and pins and builds it first if nothing has yet. A build that can only run in a jail, such as one that compiles the jail's home path
   into a binary, stays in jails: `yolo host` says so and runs the copy on your PATH instead.
 
 This works on podman and on Apple Container 1.1.0 or later. On `macos-user`, and on older Apple

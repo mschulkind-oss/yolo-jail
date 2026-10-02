@@ -300,6 +300,11 @@ func (e captureJailExit) Error() string {
 // checks the commit out once into a tree nothing edits again, then a copy, because that tree is
 // shared and a build writes into its source directory.
 //
+// A COMMIT THIS MACHINE'S PACK STORE DOES NOT HOLD is fetched first, by the commit itself
+// (forkFetchCommit; FP-D18): a fork lock that arrived with the config from the machine that pinned
+// it names a commit this one never fetched, and before, every build here failed its checkout until a
+// `yolo pack install`. The fetch moves no pin and no tag.
+//
 // THE COPY NEVER FOLLOWS A LINK: a symlink in the fork's repository is copied as a link, so it
 // resolves inside the build jail, never on the host that copies it.
 func checkOutForkSource(source, commit, dst string) error {
@@ -310,9 +315,21 @@ func checkOutForkSource(source, commit, dst string) error {
 	store := &packsrc.Store{Dir: paths.PacksDir()}
 	res, err := forkCheckout(store, a, commit)
 	if err != nil {
-		return err
+		if ferr := forkFetchCommit(a, commit); ferr != nil {
+			return fmt.Errorf("%w (fetching it: %v)", err, ferr)
+		}
+		if res, err = forkCheckout(store, a, commit); err != nil {
+			return err
+		}
 	}
 	return copySourceTree(res, dst)
+}
+
+// forkFetchCommit fetches commit of a into the pack store through the launch's store (its fetch
+// budget, and no controlling terminal for git), since a build is a launch's act. A package var so a
+// test can stand in for the network.
+var forkFetchCommit = func(a packsrc.Addr, commit string) error {
+	return packsrc.LaunchStore(paths.PacksDir()).FetchForkCommit(a, commit, nil)
 }
 
 // forkCheckout materializes a's commit and returns the directory to copy from. A package var so a

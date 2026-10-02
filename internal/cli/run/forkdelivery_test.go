@@ -105,8 +105,8 @@ func TestALaunchBuildsItsPinnedForkAndHandsTheJailTheKey(t *testing.T) {
 	}
 }
 
-// An unpinned fork is never handed to the build act: its reason crosses instead.
-func TestAnUnpinnedForkReachesTheJailAsItsReason(t *testing.T) {
+// A fork the launch could not pin is never handed to the build act: its reason crosses instead.
+func TestAnUnpinnableForkReachesTheJailAsItsReason(t *testing.T) {
 	forkLaunchHome(t, forkPinSource)
 	called := false
 	argv, _ := fakePodmanLaunch(t, func(o *Options) {
@@ -115,7 +115,7 @@ func TestAnUnpinnedForkReachesTheJailAsItsReason(t *testing.T) {
 	if called {
 		t.Error("the build act was asked to build a fork with no pin")
 	}
-	if d := forkBuildsInArgv(t, argv); !strings.Contains(d["tool"].Reason, "no pin yet") {
+	if d := forkBuildsInArgv(t, argv); !strings.Contains(d["tool"].Reason, "it has no pin, and pinning it failed") {
 		t.Errorf("the jail is handed %+v, want the pin's reason", d)
 	}
 }

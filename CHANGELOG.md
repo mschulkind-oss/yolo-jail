@@ -45,8 +45,8 @@ part of your project, and you never need to look in it. A user-config `mounts` e
 split pane's border reads `🔒 JAIL <project>`. `YOLO_NO_HERDR=1` turns it off. Contributed by
 Kurt Galiatsatos ([@kurt-hs](https://github.com/kurt-hs)).
 
-**Your own fork of an agent.** A small pack names your fork and its build command; yolo builds the
-pinned commit once for every workspace. See
+**Your own fork of an agent.** A small pack names your fork and its build command. Its first launch
+pins it, with no install step, and yolo builds that commit once for every workspace. See
 [Run your own fork](userguide/guides/packs-and-skills.md#run-your-own-fork-of-a-program).
 
 ### Changed

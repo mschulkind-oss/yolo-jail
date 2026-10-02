@@ -26,6 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
@@ -228,6 +229,112 @@ func TestHostLaunchOfAPinnedForkBuildsItAndRunsTheFloorsCopy(t *testing.T) {
 	}
 }
 
+// forkLockCommit is what the fork lock pins forkpack/forkcli to, "" when nothing.
+func forkLockCommit(t *testing.T) string {
+	t.Helper()
+	l, err := packsrc.LoadForkLock(forkLockPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, _ := l.Get("forkpack/forkcli")
+	return e.Commit
+}
+
+// THE MOTIVATING CASE AT THE HOST (FP-D18, applying OQ-PF1): a fork selected and never pinned, and
+// no `yolo pack install`. `yolo host -- <forked bin>` pins it at what its ref names, says so in one
+// line, builds that commit and runs the floor's copy. The next launch, after the branch moved, runs
+// the same build: a standing pin never moves at launch. Before FP-D18 this launch ran the copy on
+// PATH and told the user to run `yolo pack install`.
+func TestHostLaunchOfAnUnpinnedForkPinsItBuildsItAndRunsTheFloorsCopy(t *testing.T) {
+	repo, commit, _ := forkFloorHome(t)
+	head1 := strings.TrimSpace(gitOut(t, repo, "rev-parse", "HEAD"))
+	source := "git+file://" + repo + "?ref=main"
+	dist := withForkFloor(t)
+	dist.Publish("forkcli-pkg", "1.0.0", "bin=forkcli")
+	runs := 0
+	withFakeCaptureJail(t, forkFloorBuildJail(t, &runs, true))
+	got := captureHostExec(t)
+	launcher := filepath.Join(paths.HostFloorDir(), "bin", "forkcli")
+
+	var errw bytes.Buffer
+	if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 0 || got.target != launcher {
+		t.Fatalf("rc=%d target=%s, want the floor's copy %s\n%s", rc, got.target, launcher, errw.String())
+	}
+	if pin := forkLockCommit(t); pin != head1 {
+		t.Fatalf("the fork lock pins %q, want the branch's head %s\n%s", pin, head1, errw.String())
+	}
+	if runs != 1 {
+		t.Errorf("the build jail ran %d times, want once\n%s", runs, errw.String())
+	}
+	if rec := floorRecord(t, "forkcli"); rec.Revision != head1 {
+		t.Errorf("the floor runs %s, want the build at the pin it made, %s", rec.Revision, head1)
+	}
+	want := "yolo host: pinned fork forkpack/forkcli at " + head1[:8] + " (" + source + "); `yolo pack update` moves it"
+	if !strings.Contains(errw.String(), want) {
+		t.Errorf("the launch does not disclose the pin it made:\nwant %q\n%s", want, errw.String())
+	}
+	if strings.Contains(errw.String(), "yolo pack install") {
+		t.Errorf("a launch that pinned its fork still names `yolo pack install`:\n%s", errw.String())
+	}
+
+	commit("second")
+	errw.Reset()
+	if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 0 || got.target != launcher {
+		t.Fatalf("second launch: rc=%d target=%s\n%s", rc, got.target, errw.String())
+	}
+	if pin := forkLockCommit(t); pin != head1 || runs != 1 || strings.Contains(errw.String(), "pinned fork") {
+		t.Errorf("a launch moved a standing pin (pin %s, want %s; %d builds, want 1):\n%s", pin, head1, runs, errw.String())
+	}
+	assertFloorRuns(t, launcher, floorRecord(t, "forkcli").Entry, "# first")
+}
+
+// `yolo host apply`: the dry run says the install pins the fork, and pins and builds nothing;
+// --assert pins it, says so, and builds and installs that commit — no `yolo pack install` first.
+func TestHostApplyPinsAnUnpinnedForkOnlyUnderAssert(t *testing.T) {
+	repo, _, _ := forkFloorHome(t)
+	head := strings.TrimSpace(gitOut(t, repo, "rev-parse", "HEAD"))
+	withForkFloor(t)
+	runs := 0
+	withFakeCaptureJail(t, forkFloorBuildJail(t, &runs, true))
+
+	rc, report := applyWith(t, false, nil)
+	if rc != 0 || runs != 0 || !strings.Contains(report, "forkcli: would install (not pinned yet") {
+		t.Fatalf("dry run rc=%d builds=%d, want it to say the install pins forkcli first:\n%s", rc, runs, report)
+	}
+	if pin := forkLockCommit(t); pin != "" {
+		t.Fatalf("the dry run pinned the fork at %s", pin)
+	}
+	rc, report = applyWith(t, true, nil)
+	if rc != 0 || runs != 1 || !strings.Contains(report, "forkcli commit "+head[:12]+", installed") {
+		t.Fatalf("--assert rc=%d builds=%d:\n%s", rc, runs, report)
+	}
+	if !strings.Contains(report, "pinned fork forkpack/forkcli at "+head[:8]) {
+		t.Errorf("--assert does not disclose the pin it made:\n%s", report)
+	}
+	if pin := forkLockCommit(t); pin != head {
+		t.Errorf("--assert pinned %q, want %s", pin, head)
+	}
+}
+
+// `yolo capture <forked bin>` of a fork never pinned: it pins it, says so, and builds that commit —
+// the explicit rebuild needs no `yolo pack install` before it either.
+func TestCaptureOfAnUnpinnedForkPinsItAndBuildsIt(t *testing.T) {
+	repo, _, _ := forkFloorHome(t)
+	head := strings.TrimSpace(gitOut(t, repo, "rev-parse", "HEAD"))
+	runs := 0
+	withFakeCaptureJail(t, forkFloorBuildJail(t, &runs, true))
+	var out, errw bytes.Buffer
+	if rc := captureHost([]string{"forkcli"}, &out, &errw, false); rc != 0 || runs != 1 {
+		t.Fatalf("capture rc=%d builds=%d\n%s\n%s", rc, runs, out.String(), errw.String())
+	}
+	if pin := forkLockCommit(t); pin != head {
+		t.Errorf("capture pinned %q, want %s", pin, head)
+	}
+	if !strings.Contains(out.String()+errw.String(), "pinned fork forkpack/forkcli at "+head[:8]) {
+		t.Errorf("capture does not disclose the pin it made:\n%s\n%s", out.String(), errw.String())
+	}
+}
+
 // THE HOST AND A JAIL ASK FOR ONE BUILD: a fork a jail launch built (its own pin reader and its own
 // build call, buildForksForLaunch) is the floor's copy at the host with no second build — found by
 // the floor's hit check, which keys the store on the same commit, recipe and platform — even on a
@@ -311,8 +418,9 @@ func TestHostLaunchOfAForkWhoseBuildCannotLeaveTheJailRunsThePathCopy(t *testing
 
 // `yolo host apply`: the dry run says it would install the pinned fork and builds nothing;
 // --assert builds and installs it, naming the commit; and once its pin is gone (the source edited,
-// so the lock's commit no longer answers for it) the next --assert removes the entry, since the
-// floor never serves a build the lock does not name.
+// so the lock's commit no longer answers for it) and the edited source cannot be pinned (FP-D18:
+// --assert pins it as a launch does, and its ref names nothing), that --assert says it could not
+// install it and removes the entry, since the floor never serves a build the lock does not name.
 func TestHostApplyProvisionsAPinnedForkAndRemovesItWhenThePinGoes(t *testing.T) {
 	repo, _, forkManifest := forkFloorHome(t)
 	var out, errw bytes.Buffer
@@ -346,9 +454,10 @@ func TestHostApplyProvisionsAPinnedForkAndRemovesItWhenThePinGoes(t *testing.T) 
 	// a missing one refuses the apply before the floor stage runs: a hand-installed copy is there.
 	stubBins(t, "forkcli")
 	rc, report = applyWith(t, true, nil)
-	if rc != 0 || !strings.Contains(report, "forkcli: removed (it is built from source by fork pack forkpack, "+
-		"and its source changed since it was pinned") {
-		t.Fatalf("--assert with the pin gone rc=%d:\n%s", rc, report)
+	if rc != 1 || !strings.Contains(report, "forkcli: could not install it") ||
+		!strings.Contains(report, "forkcli: removed (it is built from source by fork pack forkpack, "+
+			"and it has no pin, and pinning it failed") {
+		t.Fatalf("--assert with the pin gone and no pin to make rc=%d, want 1:\n%s", rc, report)
 	}
 	if _, err := os.Stat(launcher); err == nil {
 		t.Error("the floor kept a build its fork's lock no longer names")

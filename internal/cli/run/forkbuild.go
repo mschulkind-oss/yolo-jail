@@ -1,15 +1,18 @@
 package run
 
 // forkbuild.go is the launch's half of the fork route (docs/design/forked-programs-as-packs.md):
-// which forks this launch's packs carry, and what the fork lock says each is pinned to.
+// which forks this launch's packs carry, what each is pinned to, and the build trigger.
 //
-// THE LAUNCH ONLY READS THE LOCK (FP-D7). Pinning is `yolo pack install`'s and moving a pin is
-// `yolo pack update`'s; a launch that resolved a fork's ref itself would be the rebuild on a timer
-// §9 forbids, and a fork's source is not one of the packs the launch's refresh fetches.
+// THE LAUNCH PINS AN UNPINNED FORK, AND NEVER MOVES A PIN (FP-D18, which supersedes FP-D7 under the
+// maintainer's OQ-PF1: "yolo pack install and update still exist, but neither is required"). A fork
+// the fork lock does not pin for its declared source is resolved once, here, and recorded; a
+// standing pin is left where it is however far its branch has moved, because moving one at launch
+// is the rebuild on a timer §9 forbids. Moving a pin is `yolo pack update`'s alone.
 
 import (
 	goruntime "runtime" // stdlib; this package's `runtime` is yolo's own (run.go)
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -94,28 +97,67 @@ func (o *Options) noteMacosUserForks() {
 	}
 }
 
-// forkPins reads the pin of every fork packs carry from the fork lock beside the user config
-// (packload.LoadForkPins: a lock that cannot be read pins nothing, and every fork then carries the
-// read error as its reason, since a broken lock is a missing tool, never a refused launch, §9).
-func forkPins(packs []*packload.Pack) []packload.ForkPin {
-	return packload.LoadForkPins(packload.Forks(packs), packsrc.ForkLockPath(paths.UserConfigPath()))
+// forkLockPath is the fork lock beside the user config.
+func forkLockPath() string { return packsrc.ForkLockPath(paths.UserConfigPath()) }
+
+// PinLaunchForks is THE LAUNCH'S PIN (FP-D18) for forks, at the host: each fork the fork lock does
+// not pin for its declared source is pinned now through the launch's store (launchStore: the
+// launch's fetch budget, and no controlling terminal for git), and every fork's pin is returned. A
+// standing pin is never moved and costs no git run; a fork that could not be pinned carries why,
+// and the next step, as its reason (packload.PinForks). begin brackets the git work, and is not
+// called when every fork is already pinned.
+//
+// One implementation for every act that readies a fork's program: this launch (noteForkPins),
+// `yolo host -- <bin>` and `yolo host apply --assert` (the host floor's PinFork), and `yolo capture
+// <forked bin>`, so the host and a jail can never pin one fork two ways.
+func PinLaunchForks(forks []packload.Fork, begin func() (func(string), func())) []packload.ForkPin {
+	return packload.PinForks(forks, forkLockPath(), launchStore(), begin)
+}
+
+// forkPins is the pin of every fork packs carry: pinned now where this launch may pin (PinLaunchForks),
+// and read from the fork lock where it may not — a dry run, which materializes nothing, and a launch
+// inside a jail, which has no pack store and whose fork lock is not the host's (packload.LoadForkPins:
+// a lock that cannot be read pins nothing, and every fork then carries the read error as its reason,
+// since a broken lock is a missing tool, never a refused launch, §9).
+func (o *Options) forkPins(packs []*packload.Pack) []packload.ForkPin {
+	forks := packload.Forks(packs)
+	if len(forks) == 0 {
+		return nil
+	}
+	if o.DryRun || config.InJail() {
+		return packload.LoadForkPins(forks, forkLockPath())
+	}
+	// A first pin can fetch the fork's repository (bounded at LaunchFetchTimeout), so it gets a
+	// progress line; the lock-wait notice goes THROUGH the line, so it cannot tear it.
+	return PinLaunchForks(forks, func() (func(string), func()) {
+		line := o.progressConfig().Start(o.Stderr, "Pinning forks")
+		return line.Println, func() { line.Done("") }
+	})
 }
 
 // noteForkPins prints, on every launch that carries a fork, the line OQ-FP6 rules on: the REVISION
-// each source-built program is pinned to — never only its ref — or why it has none and the command
-// that pins it. A disclosure, so it has no quiet switch (OQ-RO3). It returns the pins it read, for
-// the build trigger that acts on them.
+// each source-built program is pinned to — never only its ref — or why it has none and what pins
+// it, after one line for each pin this launch made (FP-D18) and each warning a pin left. Disclosures,
+// so none has a quiet switch (OQ-RO3). It returns the pins, for the build trigger that acts on them.
 func (o *Options) noteForkPins(packs []*packload.Pack) []packload.ForkPin {
 	// NOT IN A CAPTURE OR BUILD JAIL (the one switch, CapturesDir returning ""): no fork is built
 	// or delivered from inside one, and the launch that started it has already said this line.
 	if o.CapturesDir() == "" {
 		return nil
 	}
-	pins := forkPins(packs)
+	pins := o.forkPins(packs)
 	if len(pins) == 0 {
 		return nil
 	}
 	out := o.pr(o.Stderr)
+	for _, p := range pins {
+		if p.Pinned {
+			out.print(p.PinnedLine())
+		}
+		if p.Warning != "" {
+			out.print("[yellow]Warning: " + p.Warning + "[/yellow]")
+		}
+	}
 	out.print("[dim]Forks this launch:[/dim]")
 	for _, p := range pins {
 		if p.Commit == "" {

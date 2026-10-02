@@ -74,6 +74,15 @@ const BranchRefreshInterval = 3600 * time.Second
 // reported unresolvable by name).
 const LaunchFetchTimeout = 60 * time.Second
 
+// LaunchStore is the pack store at dir that a LAUNCH fetches through: LaunchFetchTimeout per
+// repository, and Detached, so ssh cannot stop a launch at a host-key or passphrase prompt and a
+// timeout kills git's transport helper along with git (Store.Detached says why). The jail launch's
+// pack refresh and fork pin take it, and so do `yolo host`'s and a fork build's fetch of a pinned
+// commit.
+func LaunchStore(dir string) *Store {
+	return &Store{Dir: dir, Timeout: LaunchFetchTimeout, Detached: true}
+}
+
 // RefreshPack is one configured git pack to refresh: its config NAME (the lockfile key)
 // and its address as written.
 type RefreshPack struct {
@@ -175,12 +184,7 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 		interval = BranchRefreshInterval
 	}
 	outcomes := make([]Outcome, len(packs))
-	// GROUPED BY MIRROR, in first-appearance order: every pack on one repository is
-	// decided under one hold of that mirror's lock, so N packs from a monorepo cost at
-	// most one fetch, and a fetch one pack needs cannot move another pack's frozen ref
-	// behind its back (refreshMirror).
-	var order []string
-	groups := map[string][]refreshItem{}
+	var items []refreshItem
 	addrs := make([]Addr, len(packs))
 	for i, p := range packs {
 		outcomes[i].Name = p.Name
@@ -195,14 +199,9 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 			outcomes[i].Err = fmt.Errorf("pack %s is local (%s): there is nothing to fetch", p.Name, a.Path)
 			continue
 		}
-		if _, seen := groups[a.Repo]; !seen {
-			order = append(order, a.Repo)
-		}
-		groups[a.Repo] = append(groups[a.Repo], refreshItem{idx: i, addr: a})
+		items = append(items, refreshItem{idx: i, addr: a})
 	}
-	for _, repo := range order {
-		s.refreshMirror(repo, groups[repo], outcomes, opts.Force, now(), interval, opts.Waiting)
-	}
+	s.refreshGrouped(items, outcomes, opts.Force, now(), interval, opts.Waiting)
 	if opts.LockPath == "" {
 		return outcomes, nil
 	}
@@ -251,6 +250,26 @@ func sameContent(lockedSource string, a Addr) bool {
 type refreshItem struct {
 	idx  int
 	addr Addr
+}
+
+// refreshGrouped runs refreshMirror for items GROUPED BY MIRROR, in first-appearance order:
+// every pack on one repository is decided under one hold of that mirror's lock, so N packs
+// from a monorepo cost at most one fetch, and a fetch one pack needs cannot move another
+// pack's frozen ref behind its back (refreshMirror). Each item's idx indexes outcomes. A
+// fork's pin (forkpin.go) runs the same rule through it.
+func (s *Store) refreshGrouped(items []refreshItem, outcomes []Outcome, force bool, now time.Time,
+	interval time.Duration, waiting func(string)) {
+	var order []string
+	groups := map[string][]refreshItem{}
+	for _, it := range items {
+		if _, seen := groups[it.addr.Repo]; !seen {
+			order = append(order, it.addr.Repo)
+		}
+		groups[it.addr.Repo] = append(groups[it.addr.Repo], it)
+	}
+	for _, repo := range order {
+		s.refreshMirror(repo, groups[repo], outcomes, force, now, interval, waiting)
+	}
 }
 
 // refreshMirror is Refresh for every pack on one repository, under that mirror's lock.

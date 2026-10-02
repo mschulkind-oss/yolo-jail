@@ -14,6 +14,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
@@ -81,7 +82,8 @@ pack installs with ` + "`via: \"installer\"`" + ` — an npm-declared program ha
 version to name and needs no capture.
 
 A program a FORK builds (` + "`via: \"source\"`" + `) is captured by BUILDING it: <bin>'s pinned
-commit (forks.lock.json, pinned by ` + "`yolo pack install`" + `) is checked out and built in a
+commit (forks.lock.json; pinned by its first launch, or here when nothing has pinned it yet,
+and moved only by ` + "`yolo pack update`" + `) is checked out and built in a
 sealed jail, which gets no credential, no host file and no host service, and the result is
 stored under a build receipt naming the commit. This is the explicit rebuild: it builds even
 when the store already holds that commit's build, for instance after the image changed.
@@ -257,9 +259,23 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 // who typed it can re-run it, where a launch waits (FP-D1).
 func captureFork(f packload.Fork, out, errw io.Writer, color bool) int {
 	pin := forkPinOf(f)
+	if pin.Commit == "" && pin.Pinnable && !config.InJail() {
+		// NO PIN YET, and this act needs none made beforehand (FP-D18): it pins the fork as a launch
+		// does, through the launch's own pinner, says so, and builds what it pinned.
+		pin = run.PinLaunchForks([]packload.Fork{f}, func() (func(string), func()) {
+			fmt.Fprintf(errw, "yolo capture: fetching %s to pin fork %s\n", f.Source, f.Key())
+			return func(line string) { fmt.Fprintf(errw, "yolo capture: %s\n", line) }, func() {}
+		})[0]
+		if pin.Pinned {
+			fmt.Fprintf(out, "%s\n", pin.PinnedLine())
+		}
+		if pin.Warning != "" {
+			fmt.Fprintf(errw, "Warning: %s\n", pin.Warning)
+		}
+	}
 	if pin.Commit == "" {
-		// The pin's reason names the command that makes one (packload.ForkPin.Reason); this is the
-		// rest of the way back to the build the user asked for.
+		// The pin's reason names what makes one (packload.ForkPin.Reason); this is the rest of the
+		// way back to the build the user asked for.
 		fmt.Fprintf(errw, "yolo capture: %s\n", pin.Line())
 		fmt.Fprintf(errw, "  then: yolo capture %s\n", f.Bin)
 		return 1

@@ -537,9 +537,14 @@ func TestNoFloorEntryForAFork(t *testing.T) {
 	}{
 		{"no pin", func(f *Floor, _ *string) {
 			f.ForkPin = func(Program) (string, string) {
-				return "", "it has no pin yet — run `yolo pack install` to pin git+https://example.invalid/forkcli-fork?ref=main"
+				return "", "it has no pin yet — the next launch pins it, or `yolo pack install` pins it now"
 			}
-		}, []string{"built from source by fork pack forkpack", "run `yolo pack install`"}},
+		}, []string{"built from source by fork pack forkpack", "the next launch pins it"}},
+		// Pinnable, and nothing here can pin it: still no entry.
+		{"no pin and no pinner", func(f *Floor, _ *string) {
+			f.ForkPin = func(Program) (string, string) { return "", "it has no pin yet" }
+			f.ForkPinnable = func(Program) bool { return true }
+		}, []string{"built from source by fork pack forkpack", "it has no pin yet"}},
 		{"no pin reader", func(f *Floor, _ *string) { f.ForkPin = nil }, []string{"fork pack forkpack", "reads no fork pin"}},
 		{"a Mac", func(f *Floor, _ *string) { f.GOOS = "darwin" }, []string{"in a Linux capture jail", "darwin/"}},
 		{"no build and no runtime", func(f *Floor, _ *string) {
@@ -581,7 +586,7 @@ func TestAProvisionedForkWhosePinIsGoneIsNoFloorEntry(t *testing.T) {
 	}
 	pin = ""
 	w.floor.ForkPin = func(Program) (string, string) {
-		return "", "its source changed since it was pinned — run `yolo pack install`"
+		return "", "its source changed since it was pinned — the next launch pins it"
 	}
 	if st := w.floor.Status(p); st.Disposition != NoEntry || !strings.Contains(st.Reason, "source changed") {
 		t.Fatalf("Status = %s (%s)", st.Disposition, st.Reason)
@@ -592,6 +597,103 @@ func TestAProvisionedForkWhosePinIsGoneIsNoFloorEntry(t *testing.T) {
 	}
 	if _, err := os.Stat(w.floor.Launcher("forkcli")); !os.IsNotExist(err) {
 		t.Errorf("the launcher is still there: %v", err)
+	}
+}
+
+// pinningWorld is forkWorld for a fork with NO PIN that the install can make (FP-D18): ForkPin
+// names none, ForkPinnable says the lock can take one, and PinFork answers with *made (and says so),
+// counting its calls.
+func pinningWorld(t *testing.T, made *string, why string, calls *int) (*world, *buildStore) {
+	t.Helper()
+	pin := ""
+	w, bs := forkWorld(t, &pin)
+	w.floor.ForkPin = func(Program) (string, string) { return "", "it has no pin yet" }
+	w.floor.ForkPinnable = func(Program) bool { return true }
+	w.floor.PinFork = func(p Program, say func(string)) (string, string) {
+		*calls++
+		if *made == "" {
+			return "", why
+		}
+		say("pinned fork " + p.Install.ForkedBy + "/" + p.Bin() + " at " + (*made)[:8])
+		return *made, ""
+	}
+	return w, bs
+}
+
+// A FORK AWAITING ITS PIN is no "no floor entry": Status says the install pins it first and fetches
+// nothing (PinFork is not called), and Ensure pins it once, says so, builds that commit and installs
+// it — so `yolo host -- <bin>` and `yolo host apply --assert` need no `yolo pack install` first.
+func TestAnInstallPinsAForkAwaitingItsPinAndBuildsThatCommit(t *testing.T) {
+	made, calls := forkCommitTwo, 0
+	w, bs := pinningWorld(t, &made, "", &calls)
+	p := forkProgram()
+	st := w.floor.Status(p)
+	if st.Disposition != Missing || !strings.Contains(st.Reason, "not pinned yet: the install pins fork pack forkpack's source") {
+		t.Fatalf("Status = %s (%s), want missing until the install pins it", st.Disposition, st.Reason)
+	}
+	if calls != 0 {
+		t.Fatalf("Status called PinFork %d times: a status never fetches", calls)
+	}
+	st, outcome, err := w.floor.Ensure(context.Background(), p)
+	if err != nil || outcome != Installed || st.Record == nil || st.Record.Revision != forkCommitTwo {
+		t.Fatalf("Ensure = %+v %s %v, want the build at the pin it made\n%s", st, outcome, err, w.out.String())
+	}
+	if calls != 1 || len(bs.builds) != 1 || bs.builds[0] != forkCommitTwo {
+		t.Errorf("PinFork called %d times, builds %v: want one pin and one build of %s", calls, bs.builds, forkCommitTwo)
+	}
+	if !strings.Contains(w.out.String(), "pinned fork forkpack/forkcli at 22222222") {
+		t.Errorf("the pin's line was not said through the floor:\n%s", w.out.String())
+	}
+	if st := w.floor.Status(p); st.Disposition != Provisioned || st.Pending != "" {
+		t.Errorf("after the install: %s, pending %q", st.Disposition, st.Pending)
+	}
+}
+
+// A PIN THE INSTALL CANNOT MAKE is no floor entry, with the pinner's reason, and builds nothing; the
+// Floor does not ask again, so its later statuses agree with the launch's answer.
+func TestAPinTheInstallCannotMakeIsNoFloorEntry(t *testing.T) {
+	made, calls := "", 0
+	why := "it has no pin, and pinning it failed (offline) — fix what that names and launch again"
+	w, bs := pinningWorld(t, &made, why, &calls)
+	p := forkProgram()
+	st, _, err := w.floor.Ensure(context.Background(), p)
+	if !errors.Is(err, ErrNoEntry) || st.Disposition != NoEntry || !strings.Contains(st.Reason, why) ||
+		!strings.Contains(st.Reason, "built from source by fork pack forkpack") {
+		t.Fatalf("Ensure = %s (%s) %v, want no floor entry with the pin's reason", st.Disposition, st.Reason, err)
+	}
+	if len(bs.builds) != 0 {
+		t.Errorf("a fork with no pin was built: %v", bs.builds)
+	}
+	if st := w.floor.Status(p); st.Disposition != NoEntry || !strings.Contains(st.Reason, "pinning it failed") {
+		t.Errorf("Status after the failed pin = %s (%s)", st.Disposition, st.Reason)
+	}
+	if _, _, _ = w.floor.Ensure(context.Background(), p); calls != 1 {
+		t.Errorf("PinFork called %d times on one Floor, want once", calls)
+	}
+}
+
+// A PROVISIONED BUILD WHOSE SOURCE WAS EDITED is pending, not gone, when the install can pin the
+// new source: Ensure pins it and builds the commit it names.
+func TestAProvisionedForkWhoseSourceChangedIsRepinnedAndRebuilt(t *testing.T) {
+	pin := forkCommitOne
+	w, bs := forkWorld(t, &pin)
+	p := forkProgram()
+	if _, _, err := w.floor.Ensure(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	made, calls := forkCommitTwo, 0
+	w.floor.ForkPin = func(Program) (string, string) { return "", "its source changed since it was pinned" }
+	w.floor.ForkPinnable = func(Program) bool { return true }
+	w.floor.PinFork = func(Program, func(string)) (string, string) { calls++; return made, "" }
+	if st := w.floor.Status(p); st.Disposition != Provisioned || !strings.Contains(st.Pending, "has no pin for") {
+		t.Fatalf("Status = %s, pending %q, want the install's pin pending", st.Disposition, st.Pending)
+	}
+	st, outcome, err := w.floor.Ensure(context.Background(), p)
+	if err != nil || outcome != Installed || st.Record.Revision != forkCommitTwo || calls != 1 {
+		t.Fatalf("Ensure = %s %v, revision %s, %d pins", outcome, err, st.Record.Revision, calls)
+	}
+	if len(bs.builds) != 2 || bs.builds[1] != forkCommitTwo {
+		t.Errorf("builds = %v, want the new pin built", bs.builds)
 	}
 }
 

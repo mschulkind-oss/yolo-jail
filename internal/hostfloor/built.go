@@ -46,6 +46,19 @@ func (f *Floor) buildProvisionable(st Status) Status {
 	}
 	p := st.Program
 	commit, _ := f.forkPin(p)
+	if commit == "" {
+		// AWAITING ITS PIN (noEntryReason lets only that through, FP-D18): the install pins the
+		// fork's source first, then builds what it pinned, so the store can hold no build of it yet
+		// and the question is only whether this machine can build.
+		if why := f.cannotBuild(); why != "" {
+			st.Disposition = NoEntry
+			st.Reason = "it is built from source by fork pack " + p.Install.ForkedBy + ", which has no pin yet, and " + why
+			return st
+		}
+		st.Reason = "not pinned yet: the install pins fork pack " + p.Install.ForkedBy + "'s source (" +
+			p.Install.Source + ") first, then builds it"
+		return st
+	}
 	entry, err := f.ResolveBuild(p, commit)
 	if err == nil {
 		if why := buildUnusable(p, commit, entry); why != "" {

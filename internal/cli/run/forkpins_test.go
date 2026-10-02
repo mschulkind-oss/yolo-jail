@@ -1,8 +1,8 @@
 package run
 
-// forkpins_test.go pins the launch's half of the fork PIN (docs/design/forked-programs-as-packs.md
-// FP-D7, OQ-FP6): a launch READS the fork lock and names the revision each fork is pinned to, or why
-// it has none; it never resolves a fork's ref, writes the lock or fetches the fork's source.
+// forkpins_test.go pins the launch's disclosure of the fork PIN (docs/design/forked-programs-as-packs.md
+// OQ-FP6): a launch names the revision each fork is pinned to, or why it has none, and leaves a
+// standing pin's lock entry alone. The pin a launch MAKES is forklaunchpin_test.go's (FP-D18).
 
 import (
 	"bytes"
@@ -18,12 +18,18 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-const forkPinSource = "git+https://example.invalid/tool-fork?ref=main"
+// forkPinSource is a fork source no launch can fetch, and a LOCAL one, so a launch that tries (to pin
+// it, or to fetch a standing pin's commit) fails at once instead of reaching the network.
+const forkPinSource = "git+file:///nonexistent/yolo-test/tool-fork?ref=main"
 
-// forkLaunchHome selects a base pack and a fork of it, and returns the home.
+// forkLaunchHome selects a base pack and a fork of it, and returns the home. The launch is a HOST
+// one (no YOLO_VERSION, no staged tree), which is where a fork is pinned: inside a jail there is no
+// pack store and no fork lock to pin into.
 func forkLaunchHome(t *testing.T, source string) string {
 	t.Helper()
 	home := packHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_PACK_ROOT", "")
 	packs := t.TempDir()
 	write := func(name, manifest string) {
 		if err := os.MkdirAll(filepath.Join(packs, name), 0o755); err != nil {
@@ -56,7 +62,7 @@ func launchToDispatch(t *testing.T) string {
 	return stdout.String() + stderr.String()
 }
 
-func TestALaunchNamesTheForksPinnedRevisionAndTouchesNothing(t *testing.T) {
+func TestALaunchNamesTheForksPinnedRevisionAndLeavesItsPinAlone(t *testing.T) {
 	forkLaunchHome(t, forkPinSource)
 	lockPath := packsrc.ForkLockPath(paths.UserConfigPath())
 	commit := strings.Repeat("c0ffee", 6) + "abcd"
@@ -83,28 +89,14 @@ func TestALaunchNamesTheForksPinnedRevisionAndTouchesNothing(t *testing.T) {
 	if s, _ := os.Stat(lockPath); !s.ModTime().Equal(stat.ModTime()) {
 		t.Error("the launch touched the fork lock")
 	}
-	if _, err := os.Stat(filepath.Join(paths.PacksDir(), "mirrors")); !os.IsNotExist(err) {
-		t.Errorf("the launch fetched a mirror (err %v) — a fork's source is resolved only by `yolo pack install`", err)
-	}
 }
 
-// An unpinned fork, and one whose source changed since its pin, each name the command that pins it.
-func TestALaunchNamesAnUnpinnedAndADriftedFork(t *testing.T) {
+// A fork the launch could not pin is named on the fork line with why, and the step after it.
+func TestALaunchNamesAForkItCouldNotPin(t *testing.T) {
 	forkLaunchHome(t, forkPinSource)
 	out := launchToDispatch(t)
-	if !strings.Contains(out, "tool (in place of pack basepack's) — it has no pin yet — run `yolo pack install`") {
-		t.Errorf("an unpinned fork is not named with its remedy:\n%s", out)
-	}
-
-	forkLaunchHome(t, forkPinSource)
-	l := &packsrc.ForkLock{}
-	l.Set(packsrc.ForkLockEntry{Key: "forkpack/tool", Source: "git+https://example.invalid/old?ref=main",
-		Commit: strings.Repeat("a", 40)})
-	if err := l.Save(packsrc.ForkLockPath(paths.UserConfigPath())); err != nil {
-		t.Fatal(err)
-	}
-	out = launchToDispatch(t)
-	if !strings.Contains(out, "its source changed since it was pinned (pinned for git+https://example.invalid/old?ref=main)") {
-		t.Errorf("a drifted fork is not named:\n%s", out)
+	if !strings.Contains(out, "tool (in place of pack basepack's) — it has no pin, and pinning it failed") ||
+		!strings.Contains(out, "fix what that names and launch again") {
+		t.Errorf("a fork the launch could not pin is not named with its next step:\n%s", out)
 	}
 }

@@ -67,9 +67,10 @@ type Contribution struct {
 	// Source is where the fork's code is: a pack source address, git transports only
 	// (`git+https://host/org/fork?ref=main`, optionally with a `//subdir`). A `file://`
 	// directory is refused, because a directory has no revision to key a build on (§6). The
-	// ref is what `yolo pack install` resolves; the fork lock (forks.lock.json) records the
-	// commit, and the commit, never the ref, is what a build checks out and what a launch
-	// names (FP-D7, OQ-FP6).
+	// ref is resolved once, by the first launch that carries the fork (or `yolo pack install`),
+	// and moved only by `yolo pack update`; the fork lock (forks.lock.json) records the commit,
+	// and the commit, never the ref, is what a build checks out and what a launch names (FP-D7,
+	// FP-D18, OQ-FP6).
 	Source string `json:"source,omitempty"`
 	// Build is ONE command line, run by bash with the checked-out source as its working
 	// directory and the capture jail's home as HOME. A command line rather than a script file,
