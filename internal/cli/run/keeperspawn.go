@@ -15,8 +15,9 @@ package run
 // ITS SIGNALS. Before ready, a SIGINT, SIGHUP or SIGTERM ends the launch alone: it closes the lifeline,
 // which is the keeper's signal to unwind what it started, relays the unwind for a moment, and exits.
 // From ready on, it is the session's arm an attach runs under (sessionhangup.go): it hangs up the
-// session's own processes in the jail, and never stops the jail (JL-D4, as OQ-JL8 ruled). One arm for
-// the whole window, retargeted at ready, so no signal falls between two.
+// session's own processes in the jail, and never stops the jail (JL-D4, as OQ-JL8 ruled); on a SIGINT
+// or a SIGTERM it then says, as a quit does, that the jail stays up for other sessions in it (JL-D76).
+// One arm for the whole window, retargeted at ready, so no signal falls between two.
 
 import (
 	"flag"
@@ -410,7 +411,8 @@ func (o *Options) endSession(cname, rt string, rc int, since time.Time, logFrom 
 }
 
 // noteJailStaysUp is the line of a session's quit that leaves others in its jail: it stays up for
-// them, how to re-enter it, and how to end it.
+// them, how to re-enter it, and how to end it. A session a SIGINT or a SIGTERM ends prints it too
+// (noteJailStaysUpOnSignal), as does the fresh launch's teardown before ready (awaitKeeperUnwind).
 func (o *Options) noteJailStaysUp(cname, rt string) {
 	others := "its other sessions"
 	if n, ok := o.jailSessionCount(rt, cname); ok && n > 0 {

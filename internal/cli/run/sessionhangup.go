@@ -25,6 +25,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -81,13 +82,43 @@ func (o *Options) attachSignalArm(rt, cname, sessionID string) *launchSignalArm 
 
 // attachTeardown is the attach arm's onTerminate: the hangup, then the herdr pane's release and
 // the terminal's jail indicator, which the front door's and Run's deferred restores never put
-// back on this path (os.Exit skips them).
+// back on this path (os.Exit skips them), and last, on the terminal it gave back, whether the
+// jail stays up for other sessions (noteJailStaysUpOnSignal). The fresh launch's arm runs it from
+// ready on (keeperspawn.go).
 func (o *Options) attachTeardown(rt, cname, sessionID string) func() {
 	return func() {
 		o.Perf.Mark("terminate.signal")
 		o.hangUpAttachSession(rt, cname, sessionID)
 		o.releaseHerdrAgent()
 		o.restoreTerminal()
+		o.noteJailStaysUpOnSignal(cname, rt)
+	}
+}
+
+// noteJailStaysUpOnSignal is a session's quit's line for a session a signal ended (JL-D76): when
+// other sessions keep its jail up, the one line endSession prints then (noteJailStaysUp), so a
+// user who ends one of two sessions with a `kill`, or a Ctrl-C that reaches the launcher rather
+// than the agent, is told the jail is still up and how to end it. It asks as the quit asks: the
+// session lets its own count go, which its exit would do a moment later, and probeAfterQuit reads
+// who else holds the jail, within quitProbeWait.
+//
+// Only for a SIGINT or a SIGTERM, whose terminal survives the signal. A SIGHUP is a closed pane,
+// with no terminal left to read the line, so its teardown asks nothing either and stays inside a
+// multiplexer's SIGKILL budget (sessionHangupTimeout). Nothing when no arm is ending the process.
+// Nothing on any answer but quitOthers: one that could not count is never "none" (JL-P3), so the
+// jail is not said to be ending either, and a last session's keeper teardown is not streamed by a
+// launch about to exit. Locks a probe hands back held, an unkept jail's, go here, as they would
+// at the exit; the reap stays the quit's and the reaper's.
+func (o *Options) noteJailStaysUpOnSignal(cname, rt string) {
+	sig, ending := signalEndingTheProcess()
+	if !ending || (sig != syscall.SIGINT && sig != syscall.SIGTERM) {
+		return
+	}
+	o.releaseSessionLock()
+	state, locks := o.probeAfterQuit(cname)
+	locks.release()
+	if state == quitOthers {
+		o.noteJailStaysUp(cname, rt)
 	}
 }
 

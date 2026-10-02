@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -301,6 +302,22 @@ func armLaunchSignals(onTerminate func()) *launchSignalArm {
 // that drives a whole launch to a signal can see the exit without ending the test binary.
 var launchArmExit = os.Exit
 
+// endingSignal is the signal the arm now ending this process took, set before its teardown runs,
+// for a teardown whose last words depend on it: a session's line that its jail stays up is for a
+// terminal that outlives the signal, which a SIGHUP's closed pane does not (attachTeardown). One
+// arm ends a process, the innermost and once (armstack.go), so the signal is the process's. Unset
+// while no arm is ending it, as for a teardown called by anything but its arm; only a test's exit
+// returns, and the arm unsets it then.
+var endingSignal atomic.Pointer[syscall.Signal]
+
+// signalEndingTheProcess is endingSignal's signal, and false when no arm is ending the process.
+func signalEndingTheProcess() (syscall.Signal, bool) {
+	if s := endingSignal.Load(); s != nil {
+		return *s, true
+	}
+	return 0, false
+}
+
 // armLaunchSignalsWith is armLaunchSignals with the process exit as a parameter, so a test can
 // drive the arm to its end without ending the test binary.
 func armLaunchSignalsWith(onTerminate func(), exit func(int)) *launchSignalArm {
@@ -326,8 +343,11 @@ func armLaunchSignalsOuter(onTerminate, outer func(), exit func(int)) *launchSig
 				h := a.session
 				teardown := a.onTerminate
 				a.mu.Unlock()
+				sig := s.(syscall.Signal)
+				endingSignal.Store(&sig)
 				a.terminate(h, teardown)
-				exit(128 + int(s.(syscall.Signal)))
+				exit(128 + int(sig))
+				endingSignal.Store(nil)
 				close(a.exited)
 				return
 			case <-a.done:
