@@ -3,7 +3,7 @@ title: "Is macos-user faster than Apple Container? What the sources say, and a b
 date: 2026-10-01
 status: accepted
 stage: DECIDED
-next: "One Apple silicon Mac session with both backends set up runs the Appendix A harness, pastes its results.md into the Results section, and runs the two-jail volume check beside it"
+next: "One Apple silicon Mac session with both backends set up works through Appendix A's Before the session list, runs the harness, pastes its results.md into the Results section, and runs the two-jail volume check after it"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]
 summary: "The maintainer asked for a benchmark instead of an assumption: is macos-user really faster than Apple Container? Sources answer part of it. Apple Container gives each container its own small VM; the VM takes RAM only as the guest touches it, but keeps every page it touched until the container stops, so the maintainer's reading is half right. CPU work should run within a few percent of native, while file work in the shared workspace is where the VM probably costs most: about 2.7 times native in one published measurement of the same macOS file sharing, and 6 to 9 times by Apple's maintainer's rough figures for builds. The doc lists every claim the repo makes about the two backends' speed and memory, a protocol for one Mac running both against one workspace, and a POSIX sh harness that runs the protocol and writes the results table. It measures; it does not choose a backend."
 vantage:
@@ -340,7 +340,7 @@ All INFERRED from [§2](#2-what-the-sources-say). Each names the metric of
 
 | Prediction | Metric |
 | :--- | :--- |
-| A fresh launch is a few seconds slower on Apple Container, mostly not because of the VM | M1, M2, and the `--timing` spans |
+| A fresh launch is a few seconds slower on Apple Container, mostly not because of the VM | M1, M2, and the spans `YOLO_TIMING=1` records |
 | An attach on Apple Container is faster than any macos-user launch, which has no attach | M3 against M1 |
 | Apple Container's VM keeps the anonymous load, the scratch load and the file-cache load after each ends; macos-user returns all three at once | M4 |
 | Metadata-heavy work in the workspace is 2–9 times slower on Apple Container | M5, M6, M7, M8 |
@@ -359,8 +359,9 @@ All INFERRED from [§2](#2-what-the-sources-say). Each names the metric of
   `container system start` done, and `yolo macos-setup` done for macos-user. On mains power,
   with Low Power Mode off and other heavy applications closed. The harness records the model,
   the core counts, the macOS, `container` and yolo versions, and the power state.
-- **No other jail running.** The harness refuses to start while an Apple Container jail is up,
-  because the memory readings must be its own.
+- **No other jail running.** The harness refuses to start while an Apple Container jail is up
+  or a process runs as `_yolojail`, because the waits and the memory readings must be its own,
+  and while a self-hosted Actions runner is loaded, because a CI job would launch jails mid-run.
 - **One workspace for both backends,** `/Users/Shared/yolo/bench-macos-backends`. macos-user
   only accepts projects under `/Users/Shared/yolo`, and Apple Container accepts any folder. Both
   backends read the same files, the same workspace config and the same user config; the harness
@@ -386,14 +387,14 @@ helper that timestamps the child's output.
 
 | ID | Metric | What runs | Measured by | Runs | Caches | Worth reporting |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| M1 | Fresh launch to a prompt | `yolo run --timing --accept-config-changes -- bash -c 'echo __BENCH_READY__'` with no jail of the workspace running | host: ms from spawn until the marker appears | 5, after one warm-up launch | one-time work (image, floor, captures) done by the warm-up; each fresh launch boots its own VM by definition | the rule in [§4.4](#44-what-counts-as-a-difference) |
-| M2 | Fresh launch, end to end | the same run, to exit: `yolo -- true` plus one `echo` | host: ms until `yolo` exits | same | same | same |
+| M1 | Fresh launch to a prompt | `YOLO_TIMING=1 yolo run --accept-config-changes -- bash -c 'echo __BENCH_""READY__'` with no jail of the workspace running | host: ms from spawn until the command prints the marker; the empty quotes keep it out of the `Executing:` line an Apple Container session prints first, which repeats the command | 5, after one warm-up launch | one-time work (image, floor, captures) done by the warm-up; each fresh launch boots its own VM by definition | the rule in [§4.4](#44-what-counts-as-a-difference) |
+| M2 | Fresh launch, end to end | the same run, to exit: `yolo -- true` plus one `echo` | host: ms until `yolo` exits; on Apple Container that includes the jail's teardown, which the last session waits for | same | same | same |
 | M3 | Attach | the same command while a holding session keeps the jail up; Apple Container only | host: as M1 and M2 | 10 | warm | same |
 | M4 | Memory: idle, under load, after the load | one session: 30 s idle, then three loads of `LOAD_MB` each (anonymous memory held by a child process, a scratch file, one read of a workspace file), each sampled while held and 0, 10 and 120 s after it ends, then a drop-caches step, then exit | host only: `vm_stat`; `sysctl kern.memorystatus_level`, INFERRED to be the free percentage `memory_pressure` prints; and the RSS (`ps`) and `top`'s MEM column, INFERRED to be the footprint, of the VZ process (Apple Container) or of the `_yolojail` processes (macos-user) | one session per backend | not applicable | "held" if at least 50% of the load is still charged 120 s after it ended, "returned" if at most 10% |
 | M5 | `git status`, large repository | `git status --porcelain` in a 100,000-file synthetic repository in the workspace | in-jail `time` | 5, after one warm-up run | warm; the warm-up fills them | the rule in [§4.4](#44-what-counts-as-a-difference) |
 | M6 | ripgrep over a large tree | `rg -j JOBS -c <pattern that never matches>` over that tree | same | same | same | same |
 | M7 | npm install | `npm ci --prefer-offline --ignore-scripts` of five pinned packages and their dependencies, with `node_modules` removed before each run | same | same; the warm-up fills the jail's npm cache over the network | npm cache warm; the timed runs use no network | same |
-| M8 | `go test -short`, this repository | `go test -short -count=1 -p JOBS ./...` in a clone of yolo-jail | same; packages passed and failed are counted per run | 3, after one warm-up run | Go's build cache warm, in each backend's own home | same, and only between runs with the same pass and fail counts |
+| M8 | `go test -short`, this repository | `go test -short -count=1 -p JOBS` in a clone of yolo-jail, over the packages that have tests on both Linux and darwin, under `env -i` as in CI | same; packages passed and failed are counted per run | 3, after one warm-up run | Go's build cache warm, in each backend's own home | the rule in [§4.4](#44-what-counts-as-a-difference) over the runs with the backend's usual pass and fail counts, whatever their exit code, and only between backends whose counts match |
 | M9 | CPU, one thread | a 2,000,000,000-iteration integer loop in node | same | 5, after one warm-up run | none involved | same |
 | M10 | CPU-bound build | `go build ./cmd/yolo` from an empty `GOCACHE` in the scratch folder: once with `-p` and `GOMAXPROCS` set to `JOBS`, once at each backend's default | same | 3 of each, after one warm-up run each | build cache empty by construction; sources warm | same; the pinned row is the like-for-like one |
 | M11 | Process spawn | 2,000 execs of `true` (resolved by path, not the builtin) in a bash loop | same | 5, after one warm-up run | warm | same |
@@ -433,7 +434,10 @@ A difference between two backends is reported only when **both have at least thr
 that exited 0, their medians are at least 10% apart, and their ranges (fastest to slowest run)
 do not overlap.** Otherwise the table says "no difference shown", which is not the same as
 "equal": with five runs, non-overlapping ranges are a crude test and a small real difference can
-fail it. A failed run is left out of the table and listed beneath it.
+fail it. A failed run is left out of the table and listed beneath it. M8 is the exception: a
+test that fails on every run does not make its timing wrong, so it keeps the runs whose pass
+and fail counts are that backend's usual ones, exit code aside, and compares two backends only
+when those counts are equal.
 
 ### 4.5 Confounds, and what the harness does about each
 
@@ -443,12 +447,15 @@ fail it. A failed run is left out of the table and listed beneath it.
 | Performance and efficiency cores | records both counts; does not pin |
 | Linux and darwin builds of each tool | same versions from one nixpkgs; records each jail's versions |
 | Git refuses a repository another account owns | runs git with `safe.directory=*` on the command line |
-| Apple Container runs a nix build at every launch | left in, because users pay it; the `--timing` spans name it (`image.nix_build`) |
+| Apple Container runs a nix build at every launch | left in, because users pay it; the spans `YOLO_TIMING=1` records name it (`image.nix_build`) |
 | One-time launch work | done by the warm-up launch, reported apart |
-| `sudo` at every macos-user launch | asks once at the start and keeps the credential fresh; the time a person spends typing a password is not measured |
+| `sudo` at every macos-user launch | asks once at the start and keeps the credential fresh; refuses at the start if sudo keeps no credential (`timestamp_timeout=0`), when every launch would ask again; the time a person spends typing a password is not measured |
 | XProtect, and whether the terminal is a developer tool | M12 measures the gap; the operator notes the terminal's setting beside the results |
-| Different test sets by platform | `go test` compiles different files on Linux and darwin, and in-jail environment variables can skip tests; pass and fail counts are recorded per run |
+| Different test sets by platform | `go test` compiles different files on Linux and darwin, so M8 runs only the packages with tests on both; it runs under `env -i`, because a jail's own variables fail tests that pass in CI; pass and fail counts are recorded per run |
 | Host file cache | not cleared, and macOS has no unprivileged way to clear it; every timed metric has a warm-up run, so all backends start warm |
+| Sleep during an unattended run | holds a `caffeinate` assertion until it exits, and records the sleep settings |
+| Spotlight, Time Machine and endpoint security reading the fixtures | the operator excludes the workspace before the session ([Appendix A](#appendix-a--the-harness)); the harness records the volume's indexing state and any endpoint-security extension |
+| `_yolojail` processes the harness did not start | refuses to start while one runs; one that outlives a session by 120 s is listed in `leftovers-macos-user.txt` and left out of every later wait and memory row |
 
 ---
 
@@ -499,9 +506,11 @@ mounting one ext4 filesystem read-write, which corrupts it (INFERRED). VZ may al
 attach an image another VM holds, in which case the second jail would fail to start; nothing read
 here says which.
 
-**The check,** on a Mac, with two throwaway workspaces. ⚠ If the volume is shared, this can
-damage it; it holds only mise's tool installs, and `container volume rm yolo-mise-data-v2`
-followed by a launch rebuilds it.
+**The check,** on a Mac, with two throwaway workspaces, after the harness and not before it: the
+harness refuses to start while these jails run. They end after ten minutes, or
+`container stop <name>` ends one at once (`yolo stop` does not see Apple Container jails). ⚠ If
+the volume is shared, this can damage it; it holds only mise's tool installs, and
+`container volume rm yolo-mise-data-v2` followed by a launch rebuilds it.
 
 ```console
 $ mkdir -p /Users/Shared/yolo/vol-a /Users/Shared/yolo/vol-b
@@ -587,9 +596,50 @@ which runs inside each jail, and a node timing helper beside it. Apart from what
 needs `yolo`, `git`, `node` and `npm` on `PATH`, Apple's `container` for that backend, and, for
 macos-user, the `nix` that backend already requires. It installs nothing.
 
-**Run it** from a yolo-jail checkout on the Mac. The `awk` line copies the block below out of this
-file; a full run should take about 90 minutes (an estimate from its run counts) and asks for your
-password once.
+**Before the session,** on the Mac:
+
+1. **Install what you pulled.** `git pull && just install` in the checkout; `yolo --version`
+   should then name the pulled commit, and `type -a yolo` should list one `yolo`. Leave
+   `YOLO_ALLOW_SOURCE_SKEW` unset: with `YOLO_REPO_ROOT` set to a checkout newer than the
+   installed `yolo`, every Apple Container launch refuses.
+2. **Get a green Apple Container CI run of that commit,** the one test of the launch path the
+   container column runs on. Let a pending `apple-container.yml` run finish, or start one with
+   `gh workflow run apple-container.yml --ref main`, and wait until it is green.
+3. **Then stop the self-hosted runner and its dispatcher until the session ends,** and push
+   nothing to `main` meanwhile: a CI job launches Apple Container jails, and the harness refuses
+   while the runner is loaded (`BENCH_ALLOW_RUNNER=1` overrides). The commands come from
+   [the runner runbook](../plans/runbooks/mac-actions-runner.md); the last two restore both
+   afterwards.
+
+   ```console
+   $ (cd ~/actions-runner && ./svc.sh stop)
+   $ launchctl bootout gui/$(id -u)/com.yolo-jail.mac-runner-dispatch
+   $ (cd ~/actions-runner && ./svc.sh start)
+   $ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.yolo-jail.mac-runner-dispatch.plist
+   ```
+
+4. **Check both backends in the bench workspace,** and fix every failure they report: a warm-up
+   launch that fails stops the run.
+
+   ```console
+   $ mkdir -p /Users/Shared/yolo/bench-macos-backends && cd /Users/Shared/yolo/bench-macos-backends
+   $ YOLO_RUNTIME=container yolo check --no-build
+   $ YOLO_RUNTIME=macos-user yolo check --no-build
+   ```
+
+5. **Keep Spotlight out of the workspace** in System Settings → Spotlight → Search Privacy, by
+   adding `/Users/Shared/yolo/bench-macos-backends`. Not with `mdutil`, which turns indexing on or
+   off for a whole volume, and `/Users/Shared` is on the Data volume with everything else. If
+   Time Machine is on, also run `tmutil addexclusion` on that folder.
+6. **Plug the Mac in,** with Low Power Mode off. The harness keeps it awake itself, with
+   `caffeinate`, until it exits.
+7. **Leave no jail running:** `container ls`, then `container stop <name>` for each `yolo-` name
+   (`yolo stop` does not see Apple Container jails), and end any macos-user session.
+
+**Run it** from a yolo-jail checkout on the Mac, in a terminal tab of your own rather than an
+agent's shell, because `sudo -v` asks on the terminal. The `awk` line copies the block below out
+of this file; a full run should take about 90 minutes (an estimate from its run counts) and asks
+for your password once.
 
 ```console
 $ awk '/^````sh$/ { p = 1; next } p && /^````$/ { exit } p' docs/research/macos-backend-performance.md > /tmp/macos-backend-bench.sh
@@ -600,18 +650,39 @@ $ sh /tmp/macos-backend-bench.sh
 `BENCH_PHASES` (default `launch memory io cpu spawn disk`), `BENCH_RUNS`, `BENCH_ATTACH_RUNS`,
 `BENCH_BUILD_RUNS`, `BENCH_FILES`, `BENCH_LOAD_MB`, `BENCH_SETTLE`, `BENCH_JOBS`, `BENCH_SRC_URL`
 and `BENCH_SRC_REF` (a branch or tag of yolo-jail to clone for M8 and M10; a local checkout path
-works as the URL). The fixtures stay in the workspace between runs; delete
+works as the URL). Two more override the preflight's refusals, which name them:
+`BENCH_ALLOW_RUNNING=1` (Apple Container jails or `_yolojail` processes already running; it
+leaves those processes out of its waits and readings) and `BENCH_ALLOW_RUNNER=1` (a loaded
+Actions runner). The fixtures stay in the workspace between runs; delete
 `/Users/Shared/yolo/bench-macos-backends` when done.
 
-**How far it has been checked.** MEASURED in a Linux jail on 2026-10-01: the script passes
-`sh -n`, `dash -n` and shellcheck 0.11.0, the payload passes shellcheck as bash, and a run of
-every phase, then shorter runs of single phases, completed against stub commands standing in for `yolo`, `container`, `sudo`, `id`, `nix`,
-`uname`, `vm_stat`, `top`, `sysctl`, `sw_vers` and `pmset`, with the `/Users/Shared/yolo` check
-pointed at a scratch folder, each writing a complete `results.md`. That proves its control flow
-and its report, not the Mac commands themselves. Their output formats are INFERRED, not observed:
-a `vm_stat` line it cannot find prints as `-`, and the raw `vm_stat` and `top` output behind
-every memory row is kept in `raw-memory.txt`, so check that file before trusting the memory
-table.
+**How far it has been checked.** MEASURED in a Linux jail on 2026-10-01, and again on 2026-10-02
+after two pre-checks, one reading every Mac command the harness runs against Apple's sources and
+one reading the harness against yolo's code as it now stands, and the fixes they found. The
+script passes `sh -n`, `dash -n` and shellcheck 0.11.0 at warning level, and the payload passes
+shellcheck as bash. A run of every phase completed against stub commands standing in for `yolo`,
+`container`, `sudo`, `id`, `nix`, `uname`, `vm_stat`, `top`, `sysctl`, `sw_vers`, `pmset`,
+`caffeinate`, `launchctl`, `mdutil` and `systemextensionsctl`, with the `/Users/Shared/yolo`
+check pointed at a scratch folder, and wrote a complete `results.md`. Shorter stubbed runs took
+each failure path:
+
+- a warm-up launch that fails stops the run at once;
+- a memory session that starts late, stalls, or never starts ends within its bounds instead of
+  hanging (tested with those bounds cut to seconds);
+- a `_yolojail` process that outlives a session costs one 120 s wait, not one per launch, and
+  stays out of later memory rows;
+- a loaded runner, a running `_yolojail` process and a sudo that keeps no credential each refuse
+  before the first launch;
+- M8 keeps runs that exit non-zero when their pass and fail counts are the backend's usual ones,
+  and does not compare backends whose counts differ.
+
+In the same jail, with yolo's own environment, `go test` of this repository at that day's `main`
+failed six tests in four packages as the harness used to run it, and passed every package it ran
+under the harness's `env -i`. That proves the control flow and the report, not the Mac commands
+themselves. Their output formats were read from Apple's sources and parsed here under BWK awk,
+the awk macOS ships, not observed on a Mac: a `vm_stat` line the harness cannot find prints as
+`-`, and the raw `vm_stat` and `top` output behind every memory row is kept in
+`raw-memory.txt`, so check that file before trusting the memory table.
 
 ````sh
 #!/bin/sh
@@ -650,6 +721,9 @@ CTL=$BENCH_WS/bench/ctl
 FIX=$BENCH_WS/bench/fixtures
 R=$BENCH_WS/bench/results-$STAMP
 MARK=__BENCH_READY__
+# The ready command. bash drops the empty quotes when it runs it, so the marker is in the
+# command's output and not in yolo's "Executing: <command>" banner, which prints it unchanged.
+MARK_CMD='echo __BENCH_""READY__'
 FLOOR=$HOME/.local/share/yolo-jail/build/package-roots/packages
 NATIVE_HOME=$BENCH_WS/bench/native-home
 BG_PID=
@@ -671,12 +745,22 @@ drop_backend() {
   unmeasured "$1: $2"
 }
 running_jails() { container ls -q 2>/dev/null | awk '/^yolo-/' | tr '\n' ' '; }
-sandbox_procs() { ps -axo uid= | awk -v u="$SANDBOX_UID" '$1 == u { n++ } END { print n + 0 }'; }
+# The _yolojail processes, as "uid pid rss-KiB command", less the ones in SANDBOX_IGNORE: pids
+# that were running before the harness (BENCH_ALLOW_RUNNING=1) or outlived a session by 120 s.
+# Those are listed once, in leftovers-macos-user.txt, and no wait or memory row counts them again.
+SANDBOX_IGNORE=
+sandbox_list() { # sandbox_list [more ps columns]
+  ps -axww -o "uid=,pid=,${1:-rss=,comm=}" | awk -v u="$SANDBOX_UID" -v ign=" $SANDBOX_IGNORE " \
+    '$1 == u && index(ign, " " $2 " ") == 0'
+}
+sandbox_procs() { sandbox_list | awk 'END { print NR }'; }
+ignore_sandbox() { SANDBOX_IGNORE=$(sandbox_list | awk -v s="$SANDBOX_IGNORE" '{ s = s (s == "" ? "" : " ") $2 } END { print s }'); }
 
 cleanup() {
   if [ -n "$SUDO_KEEPER" ]; then kill "$SUDO_KEEPER" 2>/dev/null || true; fi
   if [ -n "$BG_PID" ]; then kill "$BG_PID" 2>/dev/null || true; fi
   : >"$CTL/stop-hold" 2>/dev/null || true
+  if [ -d "$CTL/mem" ]; then release_mem 2>/dev/null || true; fi
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -685,6 +769,9 @@ trap 'exit 130' INT TERM
 preflight() {
   [ "$(uname -s)" = Darwin ] || die "this harness runs on macOS"
   [ "$(uname -m)" = arm64 ] || say "warning: not Apple silicon; Apple Container will not run here"
+  # Idle sleep would pause the VM and stretch any timing or settle window it lands in; output to
+  # a terminal does not count as activity. -w ends the assertion when the harness ends.
+  if has caffeinate; then caffeinate -ims -w $$ & else say "warning: no caffeinate; keep the Mac awake yourself"; fi
   for t in yolo git node npm; do has "$t" || die "$t is not on PATH"; done
   NODE=$(command -v node)
   [ "$BENCH_SETTLE" -ge 20 ] || die "BENCH_SETTLE must be at least 20"
@@ -694,7 +781,7 @@ preflight() {
     elif ! container system status >/dev/null 2>&1; then
       drop_backend container "container system status failed; run container system start"
     elif [ -n "$(running_jails)" ] && [ -z "${BENCH_ALLOW_RUNNING:-}" ]; then
-      die "Apple Container jails are running ($(running_jails)); stop them so the memory readings are this harness's alone, or set BENCH_ALLOW_RUNNING=1"
+      die "Apple Container jails are running ($(running_jails)); stop each with container stop <name> (yolo stop does not see them) so the memory readings are this harness's alone, or set BENCH_ALLOW_RUNNING=1"
     fi
   fi
   if in_list macos-user "$BENCH_BACKENDS"; then
@@ -707,7 +794,18 @@ preflight() {
       esac
     fi
   fi
+  if in_list macos-user "$BENCH_BACKENDS" && [ "$(sandbox_procs)" -ne 0 ]; then
+    sandbox_list etime=,rss=,command= | tee "$R/leftovers-macos-user.txt" >&2
+    [ -n "${BENCH_ALLOW_RUNNING:-}" ] ||
+      die "processes already run as _yolojail (listed above); end that macos-user session so the waits and the memory readings are this harness's alone, or set BENCH_ALLOW_RUNNING=1 to leave exactly these out"
+    ignore_sandbox
+  fi
   [ -n "$(printf '%s' $BENCH_BACKENDS)" ] || die "no backend is left to measure"
+  # A self-hosted Actions runner on this Mac takes Apple Container CI jobs (apple-container.yml),
+  # which launch jails and load images in the middle of the run.
+  if launchctl list 2>/dev/null | grep -q 'actions\.runner\.' && [ -z "${BENCH_ALLOW_RUNNER:-}" ]; then
+    die "an actions.runner launchd agent is loaded, so a CI job could launch Apple Container jails during the run; stop it and its dispatcher for the session ((cd ~/actions-runner && ./svc.sh stop); launchctl bootout gui/$(id -u)/com.yolo-jail.mac-runner-dispatch), or set BENCH_ALLOW_RUNNER=1"
+  fi
   memsize=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
   ncpu=$(sysctl -n hw.ncpu 2>/dev/null || echo 2)
   if [ -n "$BENCH_LOAD_MB" ]; then LOAD_MB=$BENCH_LOAD_MB; else
@@ -721,6 +819,8 @@ preflight() {
   if in_list macos-user "$BENCH_BACKENDS"; then
     say "macos-user runs sudo at every launch: asking for your password once and keeping it fresh"
     sudo -v || die "sudo -v failed"
+    sudo -n true 2>/dev/null ||
+      die "sudo kept no credential after sudo -v (timestamp_timeout=0?), so every sudo in every macos-user launch would ask again; see sudo -l, or leave macos-user out of BENCH_BACKENDS"
     ( while kill -0 $$ 2>/dev/null; do sudo -n -v 2>/dev/null || true; sleep 50; done ) &
     SUDO_KEEPER=$!
   fi
@@ -739,7 +839,12 @@ record_env() {
     if has nix; then echo "nix=$(nix --version 2>&1 | head -1)"; fi
     echo "git=$(git --version) node=$(node --version) npm=$(npm --version)"
     pmset -g batt 2>/dev/null | head -2 || true
-    pmset -g 2>/dev/null | awk '/lowpowermode/' || true
+    pmset -g 2>/dev/null | awk '/lowpowermode|powermode| sleep |displaysleep/' || true
+    pmset -g assertions 2>/dev/null | awk '/PreventUserIdleSystemSleep|PreventSystemSleep/' || true
+    mdutil -s /System/Volumes/Data 2>&1 | tail -1 || true
+    systemextensionsctl list 2>/dev/null | awk '/endpoint_security/' || true
+    launchctl list 2>/dev/null | awk '/actions\.runner\./ { print "runner loaded: " $3 }' || true
+    if [ -n "$SANDBOX_IGNORE" ]; then echo "_yolojail pids left out (BENCH_ALLOW_RUNNING): $SANDBOX_IGNORE"; fi
     echo "backends=$BENCH_BACKENDS"
     echo "phases=$BENCH_PHASES"
     echo "runs=$BENCH_RUNS attach_runs=$BENCH_ATTACH_RUNS build_runs=$BENCH_BUILD_RUNS files=$BENCH_FILES"
@@ -825,7 +930,8 @@ write_timer() {
   cat >"$CTL/timer.js" <<'EOF'
 // timer.js <result-file> <marker> <command> [args...]
 // Writes "<ms until the marker appeared, or -1> <ms until exit> <exit code>" to
-// <result-file>, and everything the command printed to <result-file>.log.
+// <result-file>, and everything the command printed to <result-file>.log. When
+// <result-file>.stop appears it ends the command: SIGTERM, then 10 s later SIGKILL and exit.
 const { spawn } = require("child_process");
 const fs = require("fs");
 const [out, marker, cmd, ...args] = process.argv.slice(2);
@@ -845,12 +951,25 @@ const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
 child.stdout.on("data", watch);
 child.stderr.on("data", watch);
 let failed = false;
+const stopper = setInterval(() => {
+  if (!fs.existsSync(out + ".stop")) return;
+  clearInterval(stopper);
+  fs.writeSync(log, "\ntimer.js: stopped by the harness\n");
+  child.kill("SIGTERM");
+  setTimeout(() => {
+    child.kill("SIGKILL");
+    if (!failed) fs.writeFileSync(out, `${ready.toFixed(0)} ${ms().toFixed(0)} 143\n`);
+    process.exit(0);
+  }, 10000).unref();
+}, 500);
 child.on("error", (e) => {
   failed = true;
+  clearInterval(stopper);
   fs.writeSync(log, String(e) + "\n");
   fs.writeFileSync(out, `-1 ${ms().toFixed(0)} 127\n`);
 });
 child.on("close", (code) => {
+  clearInterval(stopper);
   if (!failed) fs.writeFileSync(out, `${ready.toFixed(0)} ${ms().toFixed(0)} ${code === null ? 128 : code}\n`);
 });
 EOF
@@ -947,10 +1066,20 @@ mem() {
 
 rg_tree() { rg -j "$JOBS" -c 'zqxj_bench_nomatch_[0-9]{9}' "$fix/tree"; [ $? -le 1 ]; }
 npm_ci() { (cd "$fix/npm" && npm ci --prefer-offline --no-audit --no-fund --ignore-scripts --loglevel=error); }
+# go_pkgs: the packages with tests on both Linux and darwin, one per line. A package can have tests
+# on one platform only, and with ./... the two platforms' pass counts could never be equal.
+go_pkgs() {
+  local f='{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}'
+  (cd "$fix/yolo-jail" && GOOS=linux go list -f "$f" ./... && echo -- && GOOS=darwin go list -f "$f" ./...) |
+    awk '$0 == "--" { d = 1; next } NF && !d { a[$0] = 1 } NF && d && ($0 in a)'
+}
+# go_test <run>: under env -i, as in CI, because the jail's own variables (YOLO_* and the rest)
+# fail tests that pass on a clean machine
 go_test() {
+  # shellcheck disable=SC2086 # GO_PKGS is a list of import paths, one word each
   (cd "$fix/yolo-jail" &&
-    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*' \
-      go test -short -count=1 -p "$JOBS" ./... >"$out/go-test.$1.txt" 2>&1)
+    env -i PATH="$PATH" HOME="$HOME" USER="$(id -un)" TMPDIR="$tmp" GOTOOLCHAIN=local \
+      go test -short -count=1 -p "$JOBS" $GO_PKGS >"$out/go-test.$1.txt" 2>&1)
 }
 io() {
   local r
@@ -958,6 +1087,9 @@ io() {
   for r in $(seqn "$RUNS"); do t rg_tree "$r" rg_tree; done
   for r in $(seqn "$RUNS"); do rm -rf "$fix/npm/node_modules"; t npm_ci "$r" npm_ci; done
   rm -rf "$fix/npm/node_modules"
+  GO_PKGS=$(go_pkgs 2>>"$log")
+  if [ -z "$GO_PKGS" ]; then echo "go list named no packages, so go test runs ./..." >>"$log"; GO_PKGS=./...; fi
+  printf '%s\n' "$GO_PKGS" >"$out/go-test.packages"
   for r in $(seqn "$BUILD_RUNS"); do t go_test "$r" go_test "$r"; done
 }
 
@@ -1010,15 +1142,19 @@ EOF
 
 # ---------------------------------------------------------------- launching
 # launch <backend> <result-file> <command for bash -c> [timing]
+# YOLO_TIMING=1 records every launch's spans in <workspace>/.yolo/host-perf.log and prints
+# nothing. --timing prints them too, and on Apple Container runs an in-jail report after the
+# command (two node starts and an awk over ~/.yolo-perf.log), inside the launch's time; so only
+# the untimed warm-up passes it.
 launch() {
   case $1 in
     container | macos-user)
       if [ "$1" = macos-user ]; then sudo -n -v 2>/dev/null || say "warning: sudo needs a password again"; fi
       if [ -n "${4:-}" ]; then
-        (cd "$BENCH_WS" && YOLO_RUNTIME=$1 "$NODE" "$CTL/timer.js" "$2" "$MARK" \
+        (cd "$BENCH_WS" && YOLO_RUNTIME=$1 YOLO_TIMING=1 "$NODE" "$CTL/timer.js" "$2" "$MARK" \
           yolo run --timing --accept-config-changes -- bash -c "$3")
       else
-        (cd "$BENCH_WS" && YOLO_RUNTIME=$1 "$NODE" "$CTL/timer.js" "$2" "$MARK" \
+        (cd "$BENCH_WS" && YOLO_RUNTIME=$1 YOLO_TIMING=1 "$NODE" "$CTL/timer.js" "$2" "$MARK" \
           yolo run --accept-config-changes -- bash -c "$3")
       fi
       ;;
@@ -1031,6 +1167,17 @@ launch_bg() { launch "$@" & BG_PID=$!; }
 wait_bg() {
   if [ -n "$BG_PID" ]; then wait "$BG_PID" || true; fi
   BG_PID=
+}
+# end_bg <result-file> <what>: let the background launch end by itself for up to 300 s (a last
+# session waits for its jail's teardown), then have timer.js stop it, which takes at most 10 s more
+end_bg() {
+  eb_i=0
+  while [ -n "$BG_PID" ] && [ ! -s "$1" ] && [ "$eb_i" -lt 300 ]; do sleep 1; eb_i=$((eb_i + 1)); done
+  if [ -n "$BG_PID" ] && [ ! -s "$1" ]; then
+    unmeasured "$2 was still running 300 s after the harness let it go, so the harness stopped it (see $1.log)"
+    : >"$1.stop"
+  fi
+  wait_bg
 }
 # payload_cmd <phase> <backend>: the bash -c string that runs the payload from the workspace
 payload_cmd() {
@@ -1051,7 +1198,12 @@ wait_quiet() {
     esac
     wq_i=$((wq_i + 1))
     if [ "$wq_i" -gt 120 ]; then
-      unmeasured "$1: a jail was still running 120 s after its last session ended"
+      unmeasured "$1: a jail was still running 120 s after its last session ended (see $R/leftovers-$1.txt)"
+      echo "=== $(date +%H:%M:%S)" >>"$R/leftovers-$1.txt"
+      case $1 in
+        container) running_jails >>"$R/leftovers-$1.txt"; echo >>"$R/leftovers-$1.txt" ;;
+        macos-user) sandbox_list etime=,rss=,command= >>"$R/leftovers-$1.txt"; ignore_sandbox ;;
+      esac
       return 0
     fi
     sleep 1
@@ -1072,6 +1224,10 @@ warmup() {
   wait_quiet "$1"
   launch "$1" "$R/warmup-$1" "$(payload_cmd info "$1")" timing
   record_launch "$1" warmup 0 "$R/warmup-$1"
+  # A launch that fails here fails every later time too; better to stop now than after an hour
+  wrc=-; if [ -s "$R/warmup-$1" ]; then wrc=$(awk '{ print $3 }' "$R/warmup-$1"); fi
+  [ "$wrc" = 0 ] ||
+    die "$1: the warm-up launch exited $wrc, and every later $1 launch would fail the same way; fix what $R/warmup-$1.log names, then run again"
   wait_quiet "$1"
 }
 
@@ -1081,7 +1237,7 @@ launch_phase() {
   while [ "$lp_i" -le "$BENCH_RUNS" ]; do
     sleep 5
     say "$1: fresh launch $lp_i of $BENCH_RUNS"
-    launch "$1" "$R/fresh-$1-$lp_i" "echo $MARK" timing
+    launch "$1" "$R/fresh-$1-$lp_i" "$MARK_CMD"
     record_launch "$1" fresh "$lp_i" "$R/fresh-$1-$lp_i"
     wait_quiet "$1"
     lp_i=$((lp_i + 1))
@@ -1099,7 +1255,7 @@ launch_phase() {
       lp_i=1
       while [ "$lp_i" -le "$BENCH_ATTACH_RUNS" ]; do
         sleep 2
-        launch container "$R/attach-$lp_i" "echo $MARK" timing
+        launch container "$R/attach-$lp_i" "$MARK_CMD"
         record_launch container attach "$lp_i" "$R/attach-$lp_i"
         lp_i=$((lp_i + 1))
       done
@@ -1107,12 +1263,13 @@ launch_phase() {
       unmeasured "container: the holding session never became ready, so attach is not measured (see $R/hold-container.log)"
     fi
     : >"$CTL/stop-hold"
-    wait_bg
+    end_bg "$R/hold-container" "container: the holding session"
     wait_quiet container
   fi
   mkdir -p "$R/perf-$1"
   cp "$BENCH_WS/.yolo/host-perf.log" "$R/perf-$1/" 2>/dev/null || true
-  cp "$BENCH_WS/.yolo/home/yolo-perf.log" "$R/perf-$1/" 2>/dev/null || true
+  # Apple Container binds <workspace>/.yolo/home whole at /home/agent, so the jail's ~/.yolo-perf.log is here
+  if [ "$1" = container ]; then cp "$BENCH_WS/.yolo/home/.yolo-perf.log" "$R/perf-$1/jail-perf.log" 2>/dev/null || true; fi
 }
 
 # ---------------------------------------------------------------- memory
@@ -1142,14 +1299,20 @@ sample() {
     container)
       if [ -n "$VM_PID" ] && kill -0 "$VM_PID" 2>/dev/null; then
         rss=$(ps -o rss= -p "$VM_PID" | awk '{ printf "%d", $1 / 1024 }')
-        topout=$(top -l 1 -pid "$VM_PID" -stats mem 2>&1 | tail -1)
+        topout=$(top -l 1 -pid "$VM_PID" -stats mem 2>&1 | tail -1 | tr -d ' ')
         printf 'top: %s\n' "$topout" >>"$R/raw-memory.txt"
-        mem=$(printf '%s\n' "$topout" | to_mib)
+        # top prints MEM in at most four digits and a unit: from 10000 MiB up it is whole GiB, too
+        # coarse against the load, and a VM gone before top looked leaves the bare "MEM" header.
+        # Either way the row has no footprint, and held() uses the resident column for that pair.
+        case $topout in
+          *[0-9][BKM] | *[0-9][BKM][+-]) mem=$(printf '%s\n' "$topout" | to_mib) ;;
+          *) mem=- ;;
+        esac
       fi
       helpers=$(ps -axo rss=,comm= | awk '/container-(apiserver|runtime-linux|core-images|network-vmnet)/ { s += $1 } END { printf "%d", s / 1024 }')
       ;;
     macos-user)
-      rss=$(ps -axo uid=,rss= | awk -v u="$SANDBOX_UID" '$1 == u { s += $2 } END { printf "%d", s / 1024 }')
+      rss=$(sandbox_list | awk '{ s += $3 } END { printf "%d", s / 1024 }')
       ;;
   esac
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$vm" "$mp" "${rss:--}" "${mem:--}" "$helpers" >>"$R/memory.tsv"
@@ -1179,6 +1342,9 @@ wait_state() {
   done
 }
 go_on() { : >"$CTL/mem/go-$1"; }
+# release_mem: let a session the harness gave up on run through every state to its end, instead of
+# waiting in the jail for a go-<state> file nothing would write
+release_mem() { for s in idle anon-held anon-freed tmp-held tmp-freed cache-read dropped; do go_on "$s"; done; }
 settle() { # settle <label>: sample at once, after 10 s, and after BENCH_SETTLE s
   sample "$B" "$1+0s"; sleep 10
   sample "$B" "$1+10s"; sleep $((BENCH_SETTLE - 10))
@@ -1198,7 +1364,8 @@ memory_phase() {
   launch_bg "$B" "$R/mem-$B" "$(payload_cmd mem "$B")"
   if ! wait_state idle 900; then
     unmeasured "$B: the memory session did not start (see $R/mem-$B.log)"
-    wait_bg
+    release_mem
+    end_bg "$R/mem-$B" "$B: the memory session"
     return 0
   fi
   if [ "$B" = container ]; then find_vm_pid; fi
@@ -1208,6 +1375,7 @@ memory_phase() {
   for st in anon-held anon-freed tmp-held tmp-freed cache-read dropped; do
     if ! wait_state "$st" 900; then
       unmeasured "$B: the memory session stopped before $st (see $R/mem-$B.log)"
+      release_mem
       break
     fi
     case $st in
@@ -1221,7 +1389,7 @@ memory_phase() {
     if [ -e "$CTL/mem/$f" ]; then unmeasured "$B: the ${f%.failed} load failed (see $CTL/mem)"; fi
   done
   for f in dd.path dd.err drop.rc drop.err; do cp "$CTL/mem/$f" "$R/out/$B-$f" 2>/dev/null || true; done
-  wait_bg
+  end_bg "$R/mem-$B" "$B: the memory session"
   wait_quiet "$B"
   sleep 10
   sample "$B" "exited+10s"
@@ -1269,8 +1437,25 @@ stats() { sort -n | awk 'NF { a[++n] = $1 } END {
   if (!n) { print "0 - - -"; exit }
   m = (n % 2) ? a[(n + 1) / 2] : (a[n / 2] + a[n / 2 + 1]) / 2
   printf "%d %.3f %.3f %.3f\n", n, m, a[1], a[n] }'; }
+# gosig <backend> <run>: "<ok> <FAIL>", the packages that go test run passed and failed; empty if none passed
+gosig() {
+  awk '$1 == "ok" { o++ } $1 == "FAIL" && NF > 1 { f++ } END { if (o) printf "%d %d\n", o, f + 0 }' \
+    "$R/out/$1/go-test.$2.txt" 2>/dev/null || true
+}
+# gomode <backend>: the "<ok> <FAIL>" that most of the backend's timed go test runs share
+gomode() {
+  awk -F'\t' '$1 == "go_test" && $2 != "0" { print $2 }' "$R/out/$1/times.tsv" 2>/dev/null |
+    while read -r gr; do gosig "$1" "$gr"; done | sort | uniq -c | sort -rn | awk 'NR == 1 { print $2, $3 }'
+}
 values() { # values <backend> <metric>
   case $2 in
+    go_test) # the runs with the backend's usual package counts, whatever their exit code
+      gm=$(gomode "$1")
+      if [ -n "$gm" ]; then
+        awk -F'\t' '$1 == "go_test" && $2 != "0" { print $2, $3 }' "$R/out/$1/times.tsv" 2>/dev/null |
+          while read -r gr gs; do if [ "$(gosig "$1" "$gr")" = "$gm" ]; then echo "$gs"; fi; done
+      fi
+      ;;
     fresh_ready | fresh_total | attach_ready | attach_total)
       c=4
       if [ "${2#*_}" = total ]; then c=5; fi
@@ -1290,14 +1475,24 @@ verdict() { echo "$1 $2" | awk '{
   else print "no difference shown" }'; }
 row() {
   sc=$(values container "$1" | stats); sm=$(values macos-user "$1" | stats); sn=$(values native "$1" | stats)
-  printf '| `%s` | %s | %s | %s | %s |\n' "$1" "$(fmt "$sc")" "$(fmt "$sm")" "$(fmt "$sn")" "$(verdict "$sc" "$sm")"
+  v=$(verdict "$sc" "$sm")
+  if [ "$1" = go_test ]; then
+    gc=$(gomode container); gu=$(gomode macos-user)
+    if [ -n "$gc" ] && [ -n "$gu" ] && [ "$gc" != "$gu" ]; then
+      v="not compared: packages ok/FAIL differ ($(echo "$gc" | tr ' ' /) against $(echo "$gu" | tr ' ' /))"
+    fi
+  fi
+  printf '| `%s` | %s | %s | %s | %s |\n' "$1" "$(fmt "$sc")" "$(fmt "$sm")" "$(fmt "$sn")" "$v"
 }
-# held <backend> <after-label> <compared-with>: MiB the backend still holds over a baseline
+# held <backend> <after-label> <compared-with>: MiB the backend still holds over a baseline. It
+# compares footprint with footprint when both rows have one, else resident with resident.
 held() { awk -F'\t' -v b="$1" -v a="$2" -v z="$3" -v ld="$LOAD_MB" '
-  $1 == b { v = ($10 != "-") ? $10 : $9; if ($2 == a) x = v; if ($2 == z) y = v }
-  END { if (x == "" || y == "" || x == "-" || y == "-") { print "-"; exit }
+  $1 == b && $2 == a { xr = $9; xf = $10 } $1 == b && $2 == z { yr = $9; yf = $10 }
+  END { if (xf != "" && xf != "-" && yf != "" && yf != "-") { x = xf; y = yf; w = "footprint" }
+    else { x = xr; y = yr; w = "resident" }
+    if (x == "" || y == "" || x == "-" || y == "-") { print "-"; exit }
     d = x - y; p = 100 * d / ld
-    printf "%d MiB (%d%% of the load): %s", d, p, (p >= 50) ? "held" : (p <= 10) ? "returned" : "partly held" }' "$R/memory.tsv" 2>/dev/null || echo -; }
+    printf "%d MiB of %s (%d%% of the load): %s", d, w, p, (p >= 50) ? "held" : (p <= 10) ? "returned" : "partly held" }' "$R/memory.tsv" 2>/dev/null || echo -; }
 
 report() {
   f=$R/results.md
@@ -1312,6 +1507,9 @@ report() {
     echo
     echo "Seconds: median (min-max) over the timed runs that exited 0; warm-up runs are excluded. A"
     echo "verdict needs three runs on each side, medians at least 10% apart, and ranges that do not overlap."
+    echo "go_test counts its timed runs by package instead, whatever their exit code: the runs with the"
+    echo "ok and FAIL counts most of that backend's runs share (listed below), and it compares two"
+    echo "backends only when those counts are equal."
     echo
     echo "| Metric | container | macos-user | native | container against macos-user |"
     echo "|---|---|---|---|---|"
@@ -1320,7 +1518,7 @@ report() {
       row "$m"
     done
     echo
-    echo "Runs that exited non-zero, left out of the table:"
+    echo "Runs that exited non-zero, left out of the table unless go_test's rule counts them:"
     echo
     echo '```text'
     awk -F'\t' '$6 != "0" { print "launch", $0 }' "$R/launch.tsv" 2>/dev/null || true
@@ -1335,13 +1533,14 @@ report() {
     awk -F'\t' '$2 == "warmup"' "$R/launch.tsv" 2>/dev/null || true
     echo '```'
     echo
-    echo "go test results per run (packages ok / FAIL):"
+    echo "go test results per run (packages ok / FAIL; run 0 is the warm-up):"
     echo
     echo '```text'
     for b in container macos-user native; do
       for g in "$R/out/$b"/go-test.*.txt; do
         if [ -f "$g" ]; then
-          printf '%s %s ok=%s FAIL=%s\n' "$b" "$(basename "$g")" "$(grep -c '^ok' "$g" || true)" "$(grep -c '^FAIL' "$g" || true)"
+          printf '%s %s %s\n' "$b" "$(basename "$g")" \
+            "$(awk '$1 == "ok" { o++ } $1 == "FAIL" && NF > 1 { f++ } END { printf "ok=%d FAIL=%d", o, f }' "$g")"
         fi
       done
     done
@@ -1351,8 +1550,8 @@ report() {
     echo
     echo "MiB, read from the host. For container, resident and footprint are the VM process's own (ps"
     echo "RSS, top's MEM); for macos-user, resident is the summed RSS of the _yolojail processes. free to"
-    echo "file-backed are vm_stat's; memorystatus level is sysctl kern.memorystatus_level. The held"
-    echo "figures below use footprint where it was read, else resident."
+    echo "file-backed are vm_stat's; memorystatus level is sysctl kern.memorystatus_level. Each held"
+    echo "figure below compares footprint where both of its rows have one, else resident, and says which."
     echo
     echo "| Backend | When | free | wired | compressed | anonymous | file-backed | memorystatus level | resident | footprint | container helpers |"
     echo "|---|---|---|---|---|---|---|---|---|---|---|"
