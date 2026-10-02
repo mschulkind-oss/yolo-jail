@@ -39,7 +39,7 @@ func brokeredFixtureWith(t *testing.T, hostExecApproved bool) (o *Options, buf *
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"name": "gb", "default_enabled": true, "transport": "loopback-tls",
+	manifest := `{"name": "gb", "transport": "loopback-tls",
 	  "lifecycle": "spawned",
 	  "host_daemon": {"cmd": ["/bin/cp", "{repository_scope}", "` + marker + `"], "publishes": "socket"},
 	  "brokered": {"source": "gbsrc", "remote_host": "github.com"}}`
@@ -69,11 +69,83 @@ func brokeredFixtureWith(t *testing.T, hostExecApproved bool) (o *Options, buf *
 	return o, buf, marker
 }
 
+// gbOn is the merged config a launch composes for a workspace whose per-workspace file turns the
+// fixture's brokered loophole on: the only way a brokered loophole is on
+// (docs/design/boundary-broker.md OQ-BB13), since its manifest may not default it on.
+func gbOn() *jsonx.OrderedMap {
+	entry := jsonx.NewOrderedMap()
+	entry.Set("enabled", true)
+	block := jsonx.NewOrderedMap()
+	block.Set("gb", entry)
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("loopholes", block)
+	return cfg
+}
+
+// TestADeclineNamesTheNextStep is the happy-path rule at the prompt's `N`
+// (docs/reference/happy-path-principle.md rule 1): it used to print "Config changes rejected.
+// Exiting." and nothing else. A declined repository scope names the command that launches the
+// project without the broker; a declined config change names the file it is in and that the next
+// launch asks again; both, when both changed. Driven through the gate's real prompter, as a
+// terminal answers it.
+func TestADeclineNamesTheNextStep(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		configChanged bool
+		merged        *jsonx.OrderedMap
+		want, not     []string
+	}{
+		{"scope only", false, gbOn(),
+			[]string{"Repository scope changes rejected; nothing was recorded. Exiting.",
+				"To launch this project without gb, run `yolo loopholes disable gb` here"},
+			[]string{"The workspace config change is in"}},
+		{"config and scope", true, gbOn(),
+			[]string{"Config changes rejected; nothing was recorded. Exiting.",
+				"The workspace config change is in ", "yolo-jail.jsonc: undo it there, or answer y at the next launch, which asks again.",
+				"run `yolo loopholes disable gb` here"},
+			nil},
+		{"config only", true, jsonx.NewOrderedMap(),
+			[]string{"Config changes rejected; nothing was recorded. Exiting.",
+				"yolo-jail.jsonc: undo it there, or answer y at the next launch, which asks again."},
+			[]string{"yolo loopholes disable"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			o, buf, _ := brokeredFixture(t)
+			o.IsTTYStdin = func() bool { return true }
+			o.Stdin = strings.NewReader("n\n")
+			ws := jsonx.NewOrderedMap()
+			if c.configChanged {
+				if err := config.RecordApproval(o.Workspace, jsonx.NewOrderedMap(), nil); err != nil {
+					t.Fatal(err)
+				}
+				ws.Set("packages", []any{"jq"})
+			}
+			if o.checkConfigChanges(ws, c.merged, "podman") {
+				t.Fatalf("an `n` was accepted:\n%s", buf.String())
+			}
+			out := buf.String()
+			for _, want := range c.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("the decline does not say %q:\n%s", want, out)
+				}
+			}
+			for _, not := range c.not {
+				if strings.Contains(out, not) {
+					t.Errorf("the decline says %q, about a part that did not change:\n%s", not, out)
+				}
+			}
+			if _, err := os.Stat(config.ApprovalScopePath(o.Workspace)); !os.IsNotExist(err) {
+				t.Error("a declined scope was recorded")
+			}
+		})
+	}
+}
+
 // The gate reads the workspace's remotes when a brokered loophole will start, puts the
 // labeled scope block in front of the reader, and a launch with no terminal refuses.
 func TestTheGateReadsTheRemotesOfABrokerThatWillStart(t *testing.T) {
 	o, buf, _ := brokeredFixture(t)
-	if o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman") {
+	if o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman") {
 		t.Fatal("a first launch with a GitHub remote and no terminal must refuse")
 	}
 	out := buf.String()
@@ -118,7 +190,7 @@ func TestTheInteractivePromptShowsTheScopeFirstAndRecordsIt(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if !o.checkConfigChanges(c.wsCfg, jsonx.NewOrderedMap(), "podman") {
+			if !o.checkConfigChanges(c.wsCfg, gbOn(), "podman") {
 				t.Fatalf("a `y` was refused:\n%s", buf.String())
 			}
 			out := buf.String()
@@ -181,7 +253,7 @@ func TestTheGatePrintsTheAgentsPathsAsText(t *testing.T) {
 	o, buf, _ := brokeredFixture(t)
 	commonDirWorktree(t, o.Workspace, "x\x1b[2K\x1b[1A\x1b]0;owned\a\x1b[8m",
 		"[remote \"origin\"]\n\turl = git@github.com:victim/secret.git\n")
-	o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman")
+	o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman")
 	if out := buf.String(); strings.ContainsAny(out, "\x1b\a") {
 		t.Fatalf("a terminal sequence from the workspace reached the output:\n%q", out)
 	}
@@ -189,7 +261,7 @@ func TestTheGatePrintsTheAgentsPathsAsText(t *testing.T) {
 	// Markup in the name: the advice names the git config it was read from as text.
 	o, buf, _ = brokeredFixture(t)
 	commonDirWorktree(t, o.Workspace, "[bold green]c", "[remote \"origin\"]\n\turl = git@github.com:o/r.git\n")
-	if o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman") {
+	if o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman") {
 		t.Fatal("a first launch with a GitHub remote and no terminal must refuse")
 	}
 	var advice string
@@ -205,7 +277,7 @@ func TestTheGatePrintsTheAgentsPathsAsText(t *testing.T) {
 	// And the warning line the launch prints for a problem.
 	o, buf, _ = brokeredFixture(t)
 	commonDirWorktree(t, o.Workspace, "[bold green]d", "")
-	o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman")
+	o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman")
 	var warning string
 	for _, line := range strings.Split(buf.String(), "\n") {
 		if strings.HasPrefix(line, "gb: cannot read") {
@@ -220,7 +292,7 @@ func TestTheGatePrintsTheAgentsPathsAsText(t *testing.T) {
 // Apple Container starts no broker, so it reads nothing and asks nothing (§5.6).
 func TestTheGateAsksNothingWhereNoBrokerStarts(t *testing.T) {
 	o, _, _ := brokeredFixture(t)
-	if !o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "container") {
+	if !o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "container") {
 		t.Fatal("an Apple Container launch must not be asked about a broker it does not start")
 	}
 	if _, err := os.Stat(config.ApprovalScopePath(o.Workspace)); !os.IsNotExist(err) {
@@ -237,14 +309,14 @@ func TestAFreshLaunchHandsTheApprovedScopeToTheBroker(t *testing.T) {
 	}
 	o, buf, marker := brokeredFixture(t)
 	o.AcceptConfigChanges = true
-	if !o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman") {
+	if !o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman") {
 		t.Fatalf("an accepted gate refused:\n%s", buf.String())
 	}
 	if got := config.ApprovedScope(o.Workspace, "gbsrc"); len(got) != 1 || got[0] != "o/r" {
 		t.Fatalf("approved scope %v", got)
 	}
 
-	handles := o.startLoopholes("yolo-brokered-test", "podman", jsonx.NewOrderedMap())
+	handles := o.startLoopholes("yolo-brokered-test", "podman", gbOn())
 	socketsDir := hostServiceSocketsDir("yolo-brokered-test", false)
 	t.Cleanup(func() {
 		o.stopLoopholes(handles, socketsDir, "", "")
@@ -318,7 +390,7 @@ func TestAWideningEntryJoinsTheScopeFileAndIsDisclosed(t *testing.T) {
 	}
 	writeWidening(t, "~/../"+filepath.Base(o.Workspace), "org/lib", "O/R")
 	o.AcceptConfigChanges = true
-	if !o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman") {
+	if !o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman") {
 		t.Fatalf("an accepted gate refused:\n%s", buf.String())
 	}
 	if got := config.ApprovedScope(o.Workspace, "gbsrc"); strings.Join(got, ",") != "o/r" {
@@ -328,7 +400,7 @@ func TestAWideningEntryJoinsTheScopeFileAndIsDisclosed(t *testing.T) {
 		t.Fatalf("the gate showed the widening entry, which is user config and never in the diff:\n%s", buf.String())
 	}
 
-	handles := o.startLoopholes("yolo-brokered-widen", "podman", jsonx.NewOrderedMap())
+	handles := o.startLoopholes("yolo-brokered-widen", "podman", gbOn())
 	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-widen", false), "", "") })
 	f := readHandedScope(t, marker, buf)
 	if strings.Join(f.Repos, ",") != "o/r" || strings.Join(f.Widened, ",") != "org/lib" {
@@ -352,7 +424,7 @@ func TestAWideningEntryWithNoRemoteAndNoApproval(t *testing.T) {
 	}
 	o, buf, marker := brokeredFixture(t)
 	writeWidening(t, o.Workspace, "org/lib")
-	handles := o.startLoopholes("yolo-brokered-widen2", "podman", jsonx.NewOrderedMap())
+	handles := o.startLoopholes("yolo-brokered-widen2", "podman", gbOn())
 	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-widen2", false), "", "") })
 	f := readHandedScope(t, marker, buf)
 	if len(f.Repos) != 0 || strings.Join(f.Widened, ",") != "org/lib" {
@@ -371,7 +443,7 @@ func TestAWideningEntryWithNoRemoteAndNoApproval(t *testing.T) {
 
 	o, buf, marker = brokeredFixture(t)
 	writeWidening(t, filepath.Join(filepath.Dir(o.Workspace), "elsewhere"), "org/lib")
-	handles = o.startLoopholes("yolo-brokered-widen3", "podman", jsonx.NewOrderedMap())
+	handles = o.startLoopholes("yolo-brokered-widen3", "podman", gbOn())
 	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-widen3", false), "", "") })
 	if f := readHandedScope(t, marker, buf); len(f.Widened) != 0 || strings.Contains(buf.String(), "widened") {
 		t.Fatalf("another workspace's entry widened this one: %v\n%s", f.Widened, buf.String())
@@ -384,7 +456,7 @@ func TestASpawnWithNoApprovedScopeFailsClosed(t *testing.T) {
 		t.Skip("the fixture daemon is /bin/cp")
 	}
 	o, buf, marker := brokeredFixture(t)
-	handles := o.startLoopholes("yolo-brokered-test2", "podman", jsonx.NewOrderedMap())
+	handles := o.startLoopholes("yolo-brokered-test2", "podman", gbOn())
 	t.Cleanup(func() { o.stopLoopholes(handles, hostServiceSocketsDir("yolo-brokered-test2", false), "", "") })
 	data, err := os.ReadFile(marker)
 	if err != nil {
@@ -404,13 +476,13 @@ func TestASpawnWithNoApprovedScopeFailsClosed(t *testing.T) {
 func TestTheSpawnWritesNoScopeFileForABrokerTheOriginGateStops(t *testing.T) {
 	o, buf, marker := brokeredFixtureWith(t, false)
 	o.AcceptConfigChanges = true
-	if !o.checkConfigChanges(jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), "podman") {
+	if !o.checkConfigChanges(jsonx.NewOrderedMap(), gbOn(), "podman") {
 		t.Fatalf("the gate refused:\n%s", buf.String())
 	}
 	if _, err := os.Stat(config.ApprovalScopePath(o.Workspace)); !os.IsNotExist(err) {
 		t.Fatal("the gate recorded a scope for a broker the origin gate stops")
 	}
-	handles := o.startLoopholes("yolo-brokered-test3", "podman", jsonx.NewOrderedMap())
+	handles := o.startLoopholes("yolo-brokered-test3", "podman", gbOn())
 	socketsDir := hostServiceSocketsDir("yolo-brokered-test3", false)
 	o.stopLoopholes(handles, socketsDir, "", "")
 	_ = os.RemoveAll(socketsDir)

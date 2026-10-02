@@ -726,6 +726,15 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string) (*Manifest, erro
 		}
 		defaultEnabled = b
 	}
+	// A BROKERED loophole is turned on one workspace at a time, and only by the per-workspace
+	// file `yolo loopholes enable` writes (docs/design/boundary-broker.md OQ-BB13, BB-D55): a
+	// default of on would turn it on in every workspace, which is the one thing that ruling
+	// leaves out.
+	if defaultEnabled && brokered != nil {
+		return nil, Errorf("%s: a 'brokered' loophole is turned on per workspace, by `yolo "+
+			"loopholes enable %s` run in that workspace, so 'default_enabled' cannot be true; "+
+			"remove it", manifestPath, name)
+	}
 
 	brokerIP := DefaultBrokerIP
 	if bv, ok := data.Get(keyBrokerIP); ok && Truthy(bv) {

@@ -23,7 +23,8 @@ import (
 
 // THE GITHUB BROKER, END TO END (docs/design/boundary-broker.md §11 step 1, §12).
 //
-// A real jail selecting the `github` pack, with the `github-broker` loophole enabled, runs a
+// A real jail selecting the `github` pack, with the `github-broker` loophole turned on for its
+// workspace by `yolo loopholes enable github-broker` (the per-workspace file), runs a
 // bare `gh` — which the pack's `intercept` contribution routes to `yolo gh` — and the host
 // broker runs the host's `gh`. Nothing reaches GitHub: the host's `gh` here is a FAKE on
 // the launcher's PATH, which the per-jail daemon inherits, and which prints the argv it was
@@ -47,7 +48,8 @@ import (
 const fakeGHToken = "gho_yoloIntegrationFakeToken0123456789"
 
 // githubBrokerFixture is one prepared workspace: a git checkout whose origin is on
-// github.com, a user config selecting the pack and enabling the loophole, a private state
+// github.com, a user config selecting the pack, the loophole turned on for it by the real
+// `yolo loopholes enable`, a private state
 // dir, and a fake host `gh` first on the launcher's PATH.
 type githubBrokerFixture struct {
 	dir     string
@@ -75,11 +77,17 @@ func newGitHubBrokerFixture(t *testing.T) githubBrokerFixture {
 	}
 	git("init", "-q", "-b", "main")
 	git("remote", "add", "origin", "https://github.com/yolo-it/app.git")
-	packHome(t, `{
-		"packs": ["github"],
-		"loopholes": {"github-broker": {"enabled": true}}
-	}`)
+	// The pack in the user config; the broker on for THIS workspace alone, by the command a
+	// user runs in it, which writes the workspace's per-workspace file
+	// (docs/design/boundary-broker.md OQ-BB13). A user-config switch is refused. YOLO_VERSION is
+	// blanked because the suite may run inside a jail, and this is the host's verb.
+	packHome(t, `{"packs": ["github"]}`)
 	macArchivePrivateState(t)
+	if r := runCommand(t, dir, []string{"loopholes", "enable", "github-broker"},
+		withEnv("YOLO_VERSION=")); r.rc != 0 ||
+		!strings.Contains(r.stdout, "github-broker is on for ") {
+		t.Fatalf("yolo loopholes enable github-broker: rc %d\n%s", r.rc, r.combined())
+	}
 
 	bin := t.TempDir()
 	argvLog := filepath.Join(bin, "argv.log")
@@ -499,13 +507,13 @@ func TestGitHubBrokerAnAttachKeepsTheRunningScope(t *testing.T) {
 }
 
 // writeWideningEntry rewrites the fixture's user config with a widening entry (BB-D33) keyed
-// by key and listing repos, keeping the pack selection and the enabled loophole.
+// by key and listing repos, keeping the pack selection. The loophole's switch is the
+// workspace's per-workspace file, which this leaves alone.
 func writeWideningEntry(t *testing.T, key string, repos ...string) {
 	t.Helper()
 	cfg := map[string]any{
-		"packs":     []string{"github"},
-		"loopholes": map[string]any{"github-broker": map[string]any{"enabled": true}},
-		"brokered":  map[string]any{"github": map[string]any{"workspaces": map[string]any{key: map[string]any{"repos": repos}}}},
+		"packs":    []string{"github"},
+		"brokered": map[string]any{"github": map[string]any{"workspaces": map[string]any{key: map[string]any{"repos": repos}}}},
 	}
 	data, err := json.Marshal(cfg)
 	if err != nil {

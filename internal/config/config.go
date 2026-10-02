@@ -256,7 +256,7 @@ var (
 	// deliberate act), and it is the only way to switch an inline service off
 	// without deleting its argv. Omitting it here made
 	// `{"command": [...], "enabled": false}` a hard config ERROR, which also made
-	// `yolo loopholes disable`'s own instruction — "that key works for every
+	// `yolo loopholes disable`'s old instruction — "that key works for every
 	// source (bundled, pack-shipped, config-inline)" — false for the third source
 	// it names. It is in BOTH censuses because both loaders read it: on an
 	// override applyWorkspaceOverrides honors it too.

@@ -111,6 +111,10 @@ func Check(opts Options) int {
 	// Merge + flake.nix resolution. The provenance merges beside it, so a refusal below names
 	// the file and line its key was written at (config's sources.go).
 	merged, mergedSrc := config.MergeConfigWithSources(userConfig, src.user, workspaceConfig, src.workspace)
+	// The per-workspace file LAST, as a launch merges it (config/workspacefile.go): without it
+	// a brokered loophole switched on for this workspace would read as off here, and
+	// --accept-config-changes would record no repository scope for the launch that asks.
+	merged, mergedSrc = config.WithWorkspaceFile(merged, mergedSrc, workspace)
 	src.merged = mergedSrc
 	var repoRoot string
 	repoRootOK := false
@@ -532,8 +536,34 @@ func (o *Options) sectionConfigFiles(r *reporter, workspace string) (*jsonx.Orde
 	} else {
 		r.ok("No workspace yolo-jail.jsonc found")
 	}
+	o.reportWorkspaceFile(r, workspace)
 	r.blank()
 	return userConfig, workspaceConfig, src, failed
+}
+
+// reportWorkspaceFile names this workspace's per-workspace file (config/workspacefile.go) and
+// the switches it makes, the line a reader looks for when a loophole is on here and in no config
+// file. Its refusals and a file naming another workspace are graded under Merged Configuration,
+// where the launch's validation reports them, so this says only what applies. Silent when there
+// is none.
+//
+// In a jail the file is never there to read, so it says where the switches live instead: a
+// jail's own `yolo check` would otherwise describe a jail whose broker is running as one with
+// nothing switched.
+func (o *Options) reportWorkspaceFile(r *reporter, workspace string) {
+	if o.inJail() && config.IsJailOwnWorkspace(workspace) {
+		r.dim("Per-workspace switches (`yolo loopholes enable`) are host-only; `yolo check` on the host reads them")
+		return
+	}
+	wf := config.ReadWorkspaceFile(workspace)
+	if wf == nil || !wf.Applies {
+		return
+	}
+	if s := wf.Switches(); s != "" {
+		r.ok("Parsed per-workspace file: " + wf.Path + " (" + s + ")")
+		return
+	}
+	r.ok("Parsed per-workspace file: " + wf.Path + " (no switches)")
 }
 
 // sectionMergedConfig runs the Merged Configuration block. Returns true when

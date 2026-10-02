@@ -122,7 +122,7 @@ func (o *Options) checkLoopholes(r *reporter) {
 	// decides the ROW. Conflating them is how the section came to report the manifest
 	// default as fact: OQ-A13 fixed the workspace half and left the user half standing,
 	// so `loopholes.audio.enabled: true` in ~/.config/yolo-jail/config.jsonc — the
-	// remedy audio's own manifest prescribes, and the one `yolo loopholes enable`
+	// remedy audio's own manifest prescribes, and the one `yolo loopholes enable --global`
 	// prints — rendered as `[PASS] loophole audio: disabled` with the doctor_cmd
 	// unrun. R2's flipped default is what made that the ordinary path rather than an
 	// exotic one.
@@ -131,6 +131,12 @@ func (o *Options) checkLoopholes(r *reporter) {
 	// user-scope enable draws no line, because a line under every enabled loophole on
 	// every run is how the one that matters gets skimmed past. Only the verdict moves.
 	userSwitches := loopholeConfigBlock(o.Workspace)
+	// The per-workspace file (config/workspacefile.go) merges LAST, so a loophole it switches
+	// runs as it says: `userSwitches`, the merged block, already holds its value, and a
+	// workspace file's switch of the same name decides nothing, so its row would say the
+	// opposite of what runs. It is a human's switch for this one workspace, user scope, and so
+	// draws no row of its own (OQ-A13); `Config Files` above names the file.
+	wsFile := config.ReadWorkspaceFile(o.Workspace)
 	for _, e := range entries {
 		if e.Err != "" {
 			r.warn("loophole "+filepath.Base(e.Path)+": invalid manifest",
@@ -139,6 +145,9 @@ func (o *Options) checkLoopholes(r *reporter) {
 		}
 		lp := e.Loophole
 		sw, wsScoped := switches[lp.Name]
+		if _, decided := wsFile.LoopholeSwitch(lp.Name); decided {
+			wsScoped = false
+		}
 		if wsScoped && !sw.Enabled {
 			r.warn("loophole "+lp.Name+": disabled by "+sw.File+" (workspace scope)",
 				"An agent-editable file turned an installed loophole off; jails "+
@@ -227,8 +236,8 @@ func (o *Options) checkLoopholes(r *reporter) {
 					// Nothing says why, so the note names who can: the pack that ships the
 					// self-check, and the config line that turns the loophole off meanwhile.
 					note = "no output, so nothing says why. The pack or config that declares " + lp.Name + " owns this " +
-						"self-check; `yolo loopholes disable " + lp.Name + "` prints the config that turns it " +
-						"off meanwhile."
+						"self-check; `yolo loopholes disable " + lp.Name + "`, run in a project, turns it " +
+						"off there meanwhile."
 				}
 				r.fail(fmt.Sprintf("loophole %s: self-check failed (rc=%d)", lp.Name, *res.RC), note)
 			}

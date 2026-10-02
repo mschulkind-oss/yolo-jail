@@ -140,6 +140,14 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 		wsEntries = workspaceLoopholeEntries(workspace)
 	}
 	jail := inJail()
+	// The per-workspace file (workspacefile.go) merges last, so a loophole it switches runs as
+	// it says whatever a workspace file says: the workspace file's disclosure below would then
+	// describe a switch that does not decide anything, and is dropped.
+	wsFile := ReadWorkspaceFile(workspace)
+	// The user scope's own `loopholes` block, for the manual-only refusal; read once, and only
+	// when a brokered loophole is in the block.
+	var userBlock *jsonx.OrderedMap
+	userBlockRead := false
 
 	for _, name := range hostServices.Keys() {
 		specV, _ := hostServices.Get(name)
@@ -147,6 +155,20 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 		if info, isKnown := known[name]; isKnown {
 			infoCopy := info
 			infoPtr = &infoCopy
+		}
+		brokered := infoPtr != nil && infoPtr.Brokered != nil
+
+		// --- MANUAL-ONLY (docs/design/boundary-broker.md OQ-BB13, BB-D55): a brokered
+		// loophole is switched for one workspace at a time, by the per-workspace file alone, so
+		// the user config's switch for it is refused here, at every scope, and the workspace
+		// files' below.
+		if brokered {
+			if !userBlockRead {
+				userBlock, userBlockRead = userScopeLoopholes(), true
+			}
+			if msg := brokeredUserSwitchRefusal(name, userBlock); msg != "" {
+				add(errs, msg)
+			}
 		}
 
 		// --- Scope pass (the two verbs; the table at the top of this file), on
@@ -181,9 +203,19 @@ func validateLoopholes(config *jsonx.OrderedMap, workspace string, resolver Loop
 				for _, viol := range loopholeSettingsScopeViolations(name, e.spec, e.file, infoPtr) {
 					scoped(e.locate(viol))
 				}
+				if brokered {
+					if viol := brokeredWorkspaceSwitchRefusal(name, e.file, e.spec); viol != "" {
+						scoped(e.locate(viol))
+					}
+				}
 			}
 			installed := infoPtr != nil || userInstalledInline(spec, entries)
 			violation, disclosure := loopholeScopeEnableProblems(name, entries, installed)
+			if _, decided := wsFile.LoopholeSwitch(name); brokered || decided {
+				// A brokered switch here was refused just above, and one the per-workspace file
+				// overrides decides nothing: a line saying it runs, or does not, would be wrong.
+				disclosure = ""
+			}
 			if violation != "" {
 				scoped(violation)
 				// The ruled fatal REPLACES the every-launch "treating the
@@ -389,6 +421,66 @@ func loopholeScopeEnableProblems(name string, entries []wsLoopholeEntry, install
 	return "", ""
 }
 
+// userScopeLoopholes is the user scope's own `loopholes` block — config.jsonc and its
+// includes, plus what UserScopeConfigOrEmpty folds in — or nil.
+func userScopeLoopholes() *jsonx.OrderedMap {
+	block, ok := asMap(getOr(UserScopeConfigOrEmpty(), "loopholes", nil))
+	if !ok {
+		return nil
+	}
+	return block
+}
+
+// brokeredUserSwitchRefusal is the manual-only refusal of a brokered loophole's switch in the
+// user config (docs/design/boundary-broker.md OQ-BB13, BB-D55), located where the user scope
+// wrote it, or "" when the user config does not switch it. The maintainer ruled the switch
+// per workspace, "manual enabling only for now", so a user-config switch, which would apply to
+// every workspace, is refused in both directions: an `enabled: false` there is the default
+// restated, and leaving it would teach that this is where the switch lives.
+func brokeredUserSwitchRefusal(name string, userBlock *jsonx.OrderedMap) string {
+	if userBlock == nil {
+		return ""
+	}
+	entry, ok := asMap(getOr(userBlock, name, nil))
+	if !ok {
+		return ""
+	}
+	v, has := entry.Get("enabled")
+	if !has {
+		return ""
+	}
+	msg := "config.loopholes." + name + ".enabled: " + pytext.Repr(name) + " runs a host login's " +
+		"commands for a jail, so it is turned on one workspace at a time, never for every " +
+		"workspace, and the user config may not switch it. "
+	if v == true {
+		msg += "Remove this key, and run `yolo loopholes enable " + name + "` in each project that " +
+			"should have it."
+	} else {
+		msg += "Remove this key: " + pytext.Repr(name) + " is off in every project until " +
+			"`yolo loopholes enable " + name + "` is run in one."
+	}
+	return UserScopeSources().AnnotateOne(msg)
+}
+
+// brokeredWorkspaceSwitchRefusal is the manual-only refusal of a brokered loophole's switch in a
+// workspace config file (OQ-BB13, BB-D55), "" when the file's entry has no `enabled`. The file is
+// agent-editable, so it may not switch a loophole that runs a host login's commands, in either
+// direction: the per-workspace file a human writes with a command is the one place that does.
+func brokeredWorkspaceSwitchRefusal(name, srcFile string, spec *jsonx.OrderedMap) string {
+	v, has := spec.Get("enabled")
+	if !has {
+		return ""
+	}
+	msg := "config.loopholes." + name + ".enabled: " + pytext.Repr(name) + " is switched for this " +
+		"project only by `yolo loopholes enable " + name + "` or `yolo loopholes disable " + name +
+		"`, run on the host in it, never by " + srcFile + ", which the project's agent can edit. "
+	if v == true {
+		return msg + "Remove this key, and run `yolo loopholes enable " + name + "` here."
+	}
+	return msg + "Remove this key; to keep it off where it was turned on, run " +
+		"`yolo loopholes disable " + name + "` here."
+}
+
 // userInstalledInline reports whether the merged entry carries a `command`
 // that no workspace file contributed — i.e. the USER config installs an
 // inline service under this name, which counts as installed for the
@@ -574,6 +666,26 @@ func LoopholeEntryErrors(name string, specV any, info *LoopholeInfo, userInstall
 	spec, isMap := asMap(specV)
 	named := isMap && hostServiceName.MatchString(name)
 	scopeRefused := false
+	// MANUAL-ONLY (OQ-BB13): a brokered loophole's switch is the per-workspace file's alone,
+	// which these commands read as a scope of their own; in a user or workspace config file it
+	// is refused, as validateLoopholes refuses it, so the listing does not report a switch the
+	// launch refuses. In-jail the workspace half is a warning there, as every workspace scope
+	// rule is, and so is not returned here.
+	if named && info != nil && info.Brokered != nil {
+		if fromWorkspace && !inJail {
+			if msg := brokeredWorkspaceSwitchRefusal(name, srcFile, spec); msg != "" {
+				*errs = append(*errs, msg)
+				scopeRefused = true
+			}
+		} else if !fromWorkspace {
+			block := jsonx.NewOrderedMap()
+			block.Set(name, spec)
+			if msg := brokeredUserSwitchRefusal(name, block); msg != "" {
+				*errs = append(*errs, msg)
+				scopeRefused = true
+			}
+		}
+	}
 	if fromWorkspace && !inJail && named {
 		beforeScope := len(*errs)
 		*errs = append(*errs, loopholeScopeKeyViolations(name, spec, srcFile, info)...)
@@ -585,7 +697,7 @@ func LoopholeEntryErrors(name string, specV any, info *LoopholeInfo, userInstall
 		}
 		// One mistake, one message: a scope refusal already rejects the whole
 		// entry and names a fix, so the placement rule stays quiet.
-		scopeRefused = len(*errs) > beforeScope
+		scopeRefused = scopeRefused || len(*errs) > beforeScope
 	}
 	if named && !scopeRefused {
 		*errs = append(*errs, loopholeEntryPlacementProblems(name, spec, info, workspace)...)

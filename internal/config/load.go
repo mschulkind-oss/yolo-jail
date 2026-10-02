@@ -345,7 +345,8 @@ func loadWorkspaceConfig(workspace string, strict bool, warn Warn, record bool) 
 	return m, n, nil
 }
 
-// LoadConfig merges the user-level config under the workspace config.
+// LoadConfig merges the user-level config under the workspace config, and the workspace's
+// per-workspace file (workspacefile.go) over both.
 func LoadConfig(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
 	m, _, err := loadConfig(workspace, strict, warn, false)
 	return m, err
@@ -360,8 +361,25 @@ func LoadConfigWithSources(workspace string, strict bool, warn Warn) (*jsonx.Ord
 	return m, sourcesOf(n), err
 }
 
+// LoadConfigWithoutWorkspaceFile is LoadConfig less the per-workspace file (workspacefile.go):
+// the user config under the workspace config, and nothing over them. It is what a launch composes
+// the user scope a jail INHERITS from (internal/cli/run/inheritscope.go), because that file is
+// keyed by a host workspace path no jail has, the reason `brokered` is not inherited either: a
+// switch made for this workspace would otherwise become the jail's user scope, and apply to
+// every workspace a launch inside it opens.
+func LoadConfigWithoutWorkspaceFile(workspace string, strict bool, warn Warn) (*jsonx.OrderedMap, error) {
+	m, _, err := composeConfig(workspace, strict, warn, false, false)
+	return m, err
+}
+
 // loadConfig is LoadConfig, with the provenance beside it when record is set.
 func loadConfig(workspace string, strict bool, warn Warn, record bool) (*jsonx.OrderedMap, *srcNode, error) {
+	return composeConfig(workspace, strict, warn, record, true)
+}
+
+// composeConfig is loadConfig, with the per-workspace file merged last when withWorkspaceFile
+// is set.
+func composeConfig(workspace string, strict bool, warn Warn, record, withWorkspaceFile bool) (*jsonx.OrderedMap, *srcNode, error) {
 	// Inside a jail, for THIS JAIL'S OWN workspace, do NOT re-assemble: COPY the
 	// host's already-merged config from the delivered assembled config instead
 	// (<workspace>/.yolo/config-assembled.json — see assembled.go). The user-level
@@ -430,6 +448,12 @@ func loadConfig(workspace string, strict bool, warn Warn, record bool) (*jsonx.O
 		return nil, nil, err
 	}
 	m, n := mergeConfig(userCfg, wsCfg, userNode, wsNode)
+	if withWorkspaceFile {
+		// LAST, over the workspace config too (workspacefile.go): every key the file may carry
+		// is a switch a human made for this one workspace, which outranks a file the
+		// workspace's agent can edit.
+		m, n = applyWorkspaceFile(m, n, workspace, record)
+	}
 	return m, n, nil
 }
 
@@ -477,6 +501,22 @@ func jailOwnWorkspace(workspace string) bool {
 		return filepath.Clean(workspace) == filepath.Clean(own)
 	}
 	return a == b
+}
+
+// IsJailOwnWorkspace reports whether workspace is the one this jail was launched for
+// (jailOwnWorkspace), for a caller outside this package that must tell it from a workspace a
+// launch inside the jail would open.
+func IsJailOwnWorkspace(workspace string) bool { return jailOwnWorkspace(workspace) }
+
+// JailLaunchConfig is the merged config the host launched this jail with — its delivery copy,
+// <workspace>/.yolo/config-assembled.json — when this process runs in a jail and workspace is
+// that jail's own; ok=false anywhere else. It is the one place in a jail that holds what the
+// host's per-workspace file switched (workspacefile.go), since the file itself never crosses.
+func JailLaunchConfig(workspace string) (*jsonx.OrderedMap, bool) {
+	if !inJail() || !jailOwnWorkspace(workspace) {
+		return nil, false
+	}
+	return loadAssembledSnapshot(workspace)
 }
 
 // loadAssembledSnapshot reads the host-delivered assembled config

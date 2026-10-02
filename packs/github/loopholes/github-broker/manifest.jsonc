@@ -14,9 +14,11 @@
   "description": "Run the host's gh login for the jail against this workspace's own GitHub repositories: read-only commands run, writes wait for an approval step that is not built yet, and every call is audited on the host (yolo audit).",
   "version": 1,
 
-  // OFF until enabled, as every loophole that ships in a pack is (loophole-system.md R2).
-  // Selecting the pack installs the `gh` forwarder; enabling this starts the broker. The
-  // switch is `"loopholes": {"github-broker": {"enabled": true}}`, at either scope.
+  // OFF until enabled, as every loophole that ships in a pack is (loophole-system.md R2), and
+  // a `brokered` manifest may not default on. Selecting the pack installs the `gh` forwarder;
+  // the broker starts only in a project it was turned on for, by `yolo loopholes enable
+  // github-broker` run there, which writes that project's per-workspace file. A switch in the
+  // user config or a project's config is refused (boundary-broker.md OQ-BB13, BB-D55).
   "default_enabled": false,
 
   "transport": "loopback-tls",

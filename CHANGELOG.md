@@ -21,8 +21,12 @@ MCP servers, providers and model into its config. See
 [yolo's own copy of your agents](userguide/guides/confinement.md#yolos-own-copy-of-your-agents).
 
 **`gh` without a token.** The `github` pack's `github-broker` loophole runs `gh` for the jail
-through your own login, read-only and only on the project's own repositories. See
-[GitHub](userguide/guides/github.md).
+through your own login, read-only and only on the project's own repositories. Turn it on per
+project with `yolo loopholes enable github-broker`. See [GitHub](userguide/guides/github.md).
+
+**Per-project loophole switches.** `yolo loopholes enable <name>` and `disable` turn a loophole on
+or off for one project, without editing your config. See
+[Host access and loopholes](userguide/guides/loopholes.md#the-loopholes-yolo-ships).
 
 **More agents, more providers.** `-p bedrock` now sets up codex, opencode and pi, `-p codex` runs
 opencode on ChatGPT, and pi, opencode and oh-omp can mix providers, as in `-p pi=zai,openrouter`.

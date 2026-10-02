@@ -21,10 +21,19 @@ Design: [`boundary-broker.md`](../../docs/design/boundary-broker.md). This is st
 ```jsonc
 // ~/.config/yolo-jail/config.jsonc — user scope
 {
-  "packs": ["claude", "github"],                           // 1. the forwarder
-  "loopholes": { "github-broker": { "enabled": true } }    // 2. the broker
+  "packs": ["claude", "github"]                            // 1. the forwarder
 }
 ```
+
+```bash
+yolo loopholes enable github-broker    # 2. the broker, for this project only, on the host
+```
+
+The broker is switched one project at a time, and only by that command
+(`--workspace <path>` names another project; `yolo loopholes disable github-broker` turns it
+off again). It writes the project's per-workspace file in `~/.config/yolo-jail/workspaces/`,
+never `config.jsonc`, and no jail can read it. A `github-broker` switch in the user config or in
+a project's own config is refused.
 
 The host needs `gh` and a login: `gh auth login` on the host, once. The next fresh launch
 of a workspace with a GitHub remote asks once, in its config-change prompt, to approve the

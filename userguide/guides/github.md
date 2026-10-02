@@ -16,37 +16,38 @@ You need `gh` installed on your machine and logged in:
 gh auth login          # on your machine, once
 ```
 
-Then select the pack and switch its loophole on, in your user config
-(`~/.config/yolo-jail/config.jsonc`):
+Then select the pack in your user config (`~/.config/yolo-jail/config.jsonc`):
 
 ```jsonc
 {
-  "packs": ["claude", "github"],
-  "loopholes": {
-    "github-broker": { "enabled": true }
-  }
+  "packs": ["claude", "github"]
 }
 ```
 
-Selecting the pack puts yolo's `gh` in front of the jail's own copy. Enabling the loophole starts the
-broker for each jail you launch. Both take effect at the next fresh launch.
+And in each project that should have the broker, run this on your machine:
+
+```bash
+yolo loopholes enable github-broker
+```
+
+Selecting the pack puts yolo's `gh` in front of the jail's own copy, in every project. The command
+turns the broker on for that one project, from its next fresh launch. It never edits your config:
+it writes a small file for the project in `~/.config/yolo-jail/workspaces/` and prints its name.
+There is no switch that turns the broker on for every project.
 
 ### Only in some projects
 
-A project you don't want the broker in can turn it off in its own config, `yolo-jail.jsonc`, or in
-`yolo-jail.local.jsonc` beside it to keep the switch out of git:
+The broker runs only in the projects you turned it on in. To take it out of one again, run
+`yolo loopholes disable github-broker` there. To name a project from another folder, add
+`--workspace`, as in `yolo loopholes enable github-broker --workspace ~/code/app`.
 
-```jsonc
-{ "loopholes": { "github-broker": { "enabled": false } } }
-```
+A project's own config can't turn the broker on or off: `yolo check` and the launch refuse a
+`github-broker` switch in `yolo-jail.jsonc` or `yolo-jail.local.jsonc`, because an agent can edit
+those files, and they refuse one in your user config too. A jail can't read the file the command
+writes, so an agent in the jail can't change it either.
 
-That project's launches then start no broker and don't ask about its repositories. Answering `N`
-at the repository prompt instead stops the launch.
-
-To have it in only a few projects, leave `"enabled": true` out of your user config, keep the pack
-selected there, and put `{ "loopholes": { "github-broker": { "enabled": true } } }` in each of those
-projects' config. Each launch names a switch a project's config makes, because an agent can edit
-that file, and the broker still reaches only the repositories you approve.
+If you answer `N` at the repository prompt, the launch stops and names
+`yolo loopholes disable github-broker`, which starts that project without the broker.
 
 ## The repositories it can reach
 
@@ -164,8 +165,9 @@ such as `\x1b`, so a command cannot change what your terminal shows.
 
 ## If something goes wrong
 
-- **`gh` exits 69** saying the jail has no github-broker endpoint: the loophole is off, or the jail
-  was started before you turned it on. Turn it on as above and start a fresh jail.
+- **`gh` exits 69** saying the jail has no github-broker endpoint: the broker is off in this
+  project, or the jail was started before you turned it on. Run the command the message prints,
+  `yolo loopholes enable github-broker`, on your machine, and start a fresh jail.
 - **`gh` exits 69** saying the host has no `gh` or no login: install `gh` on your machine and run
   `gh auth status` there.
 - **`gh` exits 69** saying the broker will not run the host `gh`: the first `gh` on your `PATH` is

@@ -13,11 +13,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
-// TestSetEnabledRefusesAndNamesTheConfigKey: after OQ-LP10 the command has no manifest
-// to write (the hand-placed dir it served is retired), and the config-write rework is a
-// separate change. What it must NOT do is silently succeed or silently no-op — it exits
-// non-zero and prints the exact key, the exact file, and the exact value.
-func TestSetEnabledRefusesAndNamesTheConfigKey(t *testing.T) {
+// TestSetEnabledGlobalPrintsTheConfigKeyAndWritesNothing: yolo never edits the user config
+// (docs/design/boundary-broker.md OQ-BB12), so `--global`, the every-workspace switch, still
+// prints the exact key, the exact file and the exact value to paste, writes nothing, and exits
+// non-zero, since nothing changed — which is what the whole command did before the per-workspace
+// file existed.
+func TestSetEnabledGlobalPrintsTheConfigKeyAndWritesNothing(t *testing.T) {
+	isolateDirs(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	for _, tc := range []struct {
@@ -27,9 +29,12 @@ func TestSetEnabledRefusesAndNamesTheConfigKey(t *testing.T) {
 	}{{true, "enable", "true"}, {false, "disable", "false"}} {
 		var out, errBuf bytes.Buffer
 		deps := Deps{Out: &out, Err: &errBuf, Cwd: home}
-		rc := CmdSetEnabled(deps, "myhole", tc.enabled)
+		rc := CmdSetEnabled(deps, "myhole", tc.enabled, SetEnabledOptions{Workspace: home, Global: true})
 		if rc != 1 {
 			t.Errorf("%s rc = %d, want 1 — the command did not do what was asked", tc.verb, rc)
+		}
+		if entries, _ := os.ReadDir(filepath.Join(home, ".config", "yolo-jail")); len(entries) != 0 {
+			t.Errorf("%s --global wrote %v", tc.verb, entries)
 		}
 		got := errBuf.String()
 		for _, want := range []string{tc.verb, "loopholes", "myhole", "enabled", tc.value, "config.jsonc"} {
@@ -90,7 +95,10 @@ func TestSetEnabledNeverWritesAManifest(t *testing.T) {
 
 	for _, enabled := range []bool{true, false} {
 		var out, errBuf bytes.Buffer
-		CmdSetEnabled(Deps{Out: &out, Err: &errBuf, Cwd: home}, "myhole", enabled)
+		for _, global := range []bool{false, true} {
+			CmdSetEnabled(Deps{Out: &out, Err: &errBuf, Cwd: home}, "myhole", enabled,
+				SetEnabledOptions{Workspace: home, Global: global})
+		}
 	}
 	after, err := os.ReadFile(manifestPath)
 	if err != nil {

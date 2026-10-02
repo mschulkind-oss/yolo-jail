@@ -14,6 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/frameproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -55,12 +56,18 @@ func Forward(args []string, env ForwardEnv) int {
 	say := func(format string, a ...any) { fmt.Fprintf(env.Stderr, "gh (github-broker): "+format+"\n", a...) }
 	endpoint := env.Getenv(EndpointEnv)
 	if endpoint == "" {
+		// The switch is per project and host-side (docs/design/boundary-broker.md OQ-BB13), so the
+		// step names the command to run there, with this jail's workspace as the host names it
+		// when the launch said (YOLO_HOST_DIR).
+		where := "    yolo loopholes enable github-broker\n  in this project, on the host,"
+		if hostDir := env.Getenv("YOLO_HOST_DIR"); hostDir != "" {
+			where = "    yolo loopholes enable github-broker --workspace " + shquote.QuoteDisplay(hostDir) + "\n  on the host,"
+		}
 		say("this jail has no github-broker endpoint, so `gh` cannot reach the host's GitHub login.\n" +
-			"  gh here is forwarded by the `github` pack; its loophole is off until enabled:\n" +
-			"    ~/.config/yolo-jail/config.jsonc:  \"loopholes\": {\"github-broker\": {\"enabled\": true}}\n" +
-			"  then relaunch the jail (`yolo check` shows whether it runs). Apple Container runs no host\n" +
-			"  services, so there it stays off. The image's own gh is still reachable by path, or with\n" +
-			"  YOLO_BYPASS_SHIMS=1, and holds no GitHub credential in the jail.")
+			"  gh here is forwarded by the `github` pack; its loophole is off in a project until turned on there:\n" +
+			where + " then start a fresh jail (`yolo check` shows whether it runs). Apple Container runs\n" +
+			"  no host services, so there it stays off. The image's own gh is still reachable by path, or\n" +
+			"  with YOLO_BYPASS_SHIMS=1, and holds no GitHub credential in the jail.")
 		return ExitUnavailable
 	}
 

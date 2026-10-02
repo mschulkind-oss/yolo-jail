@@ -16,7 +16,7 @@ func TestCheckReadsTheScopeWhereALaunchWouldStartABroker(t *testing.T) {
 	if err := os.MkdirAll(mod, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"name": "gb", "default_enabled": true, "transport": "loopback-tls",
+	manifest := `{"name": "gb", "transport": "loopback-tls",
 	  "lifecycle": "spawned",
 	  "host_daemon": {"cmd": ["/bin/true", "{socket}", "{repository_scope}"], "publishes": "socket"},
 	  "brokered": {"source": "gbsrc", "remote_host": "github.com"}}`
@@ -36,23 +36,32 @@ func TestCheckReadsTheScopeWhereALaunchWouldStartABroker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := brokeredScopeForCheck(ws, jsonx.NewOrderedMap(), "podman")
+	s := brokeredScopeForCheck(ws, gbSwitched(true), "podman")
 	if s == nil || len(s.Sources) != 1 || s.Sources[0].Source != "gbsrc" || s.Sources[0].Label != "gb" {
 		t.Fatalf("scope %+v", s)
 	}
 	if got := s.Sources[0].Read.Repos(); len(got) != 1 || got[0] != "o/r" {
 		t.Fatalf("repos %v", got)
 	}
-	if brokeredScopeForCheck(ws, jsonx.NewOrderedMap(), "container") != nil {
+	if brokeredScopeForCheck(ws, gbSwitched(true), "container") != nil {
 		t.Fatal("Apple Container starts no broker, so the check must record no scope there")
 	}
-	off := jsonx.NewOrderedMap()
-	lp := jsonx.NewOrderedMap()
-	gb := jsonx.NewOrderedMap()
-	gb.Set("enabled", false)
-	lp.Set("gb", gb)
-	off.Set("loopholes", lp)
-	if brokeredScopeForCheck(ws, off, "podman") != nil {
+	if brokeredScopeForCheck(ws, gbSwitched(false), "podman") != nil {
 		t.Fatal("a disabled brokered loophole starts no broker, so its scope is not in play")
 	}
+	if brokeredScopeForCheck(ws, jsonx.NewOrderedMap(), "podman") != nil {
+		t.Fatal("a brokered loophole no switch turned on starts no broker: it ships off")
+	}
+}
+
+// gbSwitched is the merged config of a workspace whose per-workspace file switches gb, the only
+// switch a brokered loophole has (docs/design/boundary-broker.md OQ-BB13).
+func gbSwitched(on bool) *jsonx.OrderedMap {
+	gb := jsonx.NewOrderedMap()
+	gb.Set("enabled", on)
+	lp := jsonx.NewOrderedMap()
+	lp.Set("gb", gb)
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("loopholes", lp)
+	return cfg
 }

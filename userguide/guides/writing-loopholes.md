@@ -143,7 +143,8 @@ when the pack is broken without it: `claude-oauth-broker` does, because Claude j
 each other out.
 
 **`loopholes.<name>.enabled`** in a config file is the user's switch, and it overrides yours in
-either direction. The user writes it; see [The loopholes yolo ships](loopholes.md#the-loopholes-yolo-ships). A manifest that
+either direction. The user writes it, or runs `yolo loopholes enable <name>` in a project to switch
+it for that project alone; see [The loopholes yolo ships](loopholes.md#the-loopholes-yolo-ships). A manifest that
 still says `enabled`, the key's old name, is refused with a message naming the rename.
 
 **`requires`** makes the loophole inactive on a machine that lacks something:
@@ -195,6 +196,10 @@ the approved list to the program in the file `{repository_scope}` names. Your `h
 must name that placeholder, and the program must refuse anything outside the list. With your pack
 selected, a project's `mounts` entry that reaches a `credential_paths` entry, or yolo's own broker
 folder, is refused.
+
+A `brokered` loophole is turned on one project at a time, only by `yolo loopholes enable <name>`
+run in that project, so its manifest may not set `default_enabled` to `true`, and a user's or a
+project's config file may not switch it.
 
 ### A program on the host
 
@@ -423,7 +428,7 @@ yolo pack footprint <folder>     # what it touches on the host
 yolo pack install                # download the programs your selected packs declare
 yolo loopholes list              # every loophole, and whether each is active
 yolo loopholes status            # run each loophole's doctor_cmd
-yolo loopholes enable <name>     # prints the config line to add; changes nothing itself
+yolo loopholes enable <name>     # on for this project only, from its next fresh launch
 yolo check                       # includes each loophole's self-check
 ```
 

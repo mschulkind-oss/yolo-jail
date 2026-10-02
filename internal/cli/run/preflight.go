@@ -492,6 +492,32 @@ func (p *changePrompter) PromptReport(r config.ChangeReport) bool {
 	if answer == "y" || answer == "yes" {
 		return true
 	}
-	out.print("[red]Config changes rejected. Exiting.[/red]")
+	lines := declineLines(r)
+	out.print("[red]" + richtext.Escape(lines[0]) + "[/red]")
+	for _, line := range lines[1:] {
+		out.print(richtext.Escape(line))
+	}
 	return false
+}
+
+// declineLines is what a `N` at the config-change prompt prints: that nothing was recorded, then
+// the next step for each part that changed (docs/reference/happy-path-principle.md rule 1). A
+// changed config names the files it was read from, and that the next launch asks again; a changed
+// repository scope names the command that launches this project without the loophole that reads
+// it, since that is the one way past the question that answers no to it.
+func declineLines(r config.ChangeReport) []string {
+	head := "Config changes rejected; nothing was recorded. Exiting."
+	if r.ScopeChanged && !r.ConfigChanged {
+		head = "Repository scope changes rejected; nothing was recorded. Exiting."
+	}
+	lines := []string{head}
+	if r.ConfigChanged && len(r.ConfigFiles) > 0 {
+		lines = append(lines, "The workspace config change is in "+strings.Join(r.ConfigFiles, " and ")+
+			": undo it there, or answer y at the next launch, which asks again.")
+	}
+	for _, l := range r.ScopeLabels {
+		lines = append(lines, "To launch this project without "+l+", run `yolo loopholes disable "+l+
+			"` here; otherwise the next launch asks about its repositories again.")
+	}
+	return lines
 }

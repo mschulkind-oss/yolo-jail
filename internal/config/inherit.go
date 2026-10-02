@@ -105,6 +105,12 @@ var inheritCensus = map[string]keyDisposition{
 	// host-side only (`sections_loopholes.go` skips exec checks in-jail, measured), and
 	// dropping the key would make `yolo loopholes list` blind to the human's own
 	// installs — a visible omission, which §5.1 rules worse than a stale path.
+	//
+	// What crosses is the user and workspace config's block, NEVER the per-workspace file's
+	// switches (workspacefile.go): the launch renders these files from
+	// LoadConfigWithoutWorkspaceFile, for `brokered`'s reason below — that file is keyed by a host
+	// workspace path, and inherited as user scope its switch would apply to every workspace a
+	// launch inside the jail opens.
 	"loopholes": {preflight: true, nested: true, reason: "read by `yolo loopholes list/status` and spawned by an inner launcher"},
 	// `packs` is user-scope-only BY CONSTRUCTION (config/packs.go reads the user file
 	// directly), so it can only ever arrive through this file. Both consumers need it:
@@ -437,7 +443,9 @@ func InheritHeader(scope InheritScope, launchedAt string) string {
 	b.WriteString("//\n")
 	b.WriteString("// GENERATOR: internal/config/inherit.go (FilterInherit), from the effective\n")
 	b.WriteString("// config of the jail that launched this one — the same computation\n")
-	b.WriteString("// `yolo config dump` renders. Recursion is by COMPOSITION: a nested launch\n")
+	b.WriteString("// `yolo config dump` renders, less the launching workspace's per-workspace\n")
+	b.WriteString("// file, whose switches are for that workspace alone. Recursion is by\n")
+	b.WriteString("// COMPOSITION: a nested launch\n")
 	b.WriteString("// filters ITS effective config again, so every level sees one inherited file\n")
 	b.WriteString("// and one writable file of its own, at any depth.\n")
 	b.WriteString("//\n")

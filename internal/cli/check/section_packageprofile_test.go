@@ -108,6 +108,14 @@ func runCheckOverConfig(t *testing.T, cfgJSON string, isMacOS bool) string {
 // for a test whose subject is a section that reads the workspace's own state.
 func runCheckOverConfigIn(t *testing.T, cfgJSON string, isMacOS bool, prep func(workspace string)) string {
 	t.Helper()
+	return runCheckOverConfigWith(t, cfgJSON, isMacOS, prep, nil)
+}
+
+// runCheckOverConfigWith is runCheckOverConfigIn with tweak applied to the options last, for a
+// test whose subject needs one of them changed (a host-side run, --accept-config-changes).
+func runCheckOverConfigWith(t *testing.T, cfgJSON string, isMacOS bool, prep func(workspace string),
+	tweak func(*Options)) string {
+	t.Helper()
 	var out bytes.Buffer
 	opts := baseOptions(t, &out)
 	opts.IsMacOS = isMacOS
@@ -158,6 +166,9 @@ func runCheckOverConfigIn(t *testing.T, cfgJSON string, isMacOS bool, prep func(
 		"podman images":    {Stdout: "", Ran: true, RC: 0},
 		"podman ps":        {Stdout: "", Ran: true, RC: 0},
 	})
+	if tweak != nil {
+		tweak(&opts)
+	}
 
 	Check(opts)
 	return stripANSI(out.String())

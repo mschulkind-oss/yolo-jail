@@ -140,6 +140,42 @@ func TestInheritedPreflightFileDropsHostOnlyKeys(t *testing.T) {
 	}
 }
 
+// The per-workspace file's switches stay out of what a jail inherits
+// (docs/design/boundary-broker.md BB-D56): they are for this workspace alone, and the inherited
+// files are the jail's user scope, which applies to every workspace a launch inside it opens —
+// and which refuses a brokered loophole's switch. The user config's own switch still crosses.
+func TestInheritedScopeLeavesOutThePerWorkspaceFile(t *testing.T) {
+	t.Setenv("YOLO_VERSION", "")
+	_, wsState := inheritHome(t, `{"packs": ["claude"], "loopholes": {"journal": {"enabled": true}}}`)
+	o := inheritOptions(t)
+	if _, err := config.SetWorkspaceLoophole(o.Workspace, "github-broker", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.SetWorkspaceLoophole(o.Workspace, "journal", false); err != nil {
+		t.Fatal(err)
+	}
+	args := o.userConfigMountArgs("podman", wsState)
+	for _, dest := range []string{inheritPreflightRel, inheritNestedRel} {
+		_, src, found := mountedBody(t, args, "/home/agent/"+dest)
+		if !found {
+			t.Fatalf("no %s was mounted; args: %v", dest, args)
+		}
+		cfg, err := config.LoadJSONCFile(src, dest, true, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		block, _ := cfg.Get("loopholes")
+		lh, _ := block.(*jsonx.OrderedMap)
+		if _, has := lh.Get("github-broker"); has {
+			t.Errorf("%s carries the per-workspace switch of github-broker: %v", dest, lh.Keys())
+		}
+		if v, set := config.LoopholeEnabledOverride(lh, "journal"); !set || !v {
+			t.Errorf("%s: journal enabled=%v set=%v, want the user config's true, not the "+
+				"per-workspace file's false", dest, v, set)
+		}
+	}
+}
+
 // R8: SINGLE-FILE delivery into a jail-owned directory. This is the property that made the
 // old arrangement safe and the one the design says must survive — it is what makes writing
 // BESIDE the inherited file (a --user-layer) jail-local rather than a reach at the host.

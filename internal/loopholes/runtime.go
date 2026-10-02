@@ -751,14 +751,16 @@ func runOne(argv []string, timeout time.Duration) (*int, string) {
 // to write: a BUNDLED manifest is the binary's own content (and go:embed'd, so on an
 // installed binary there is no file at all), and a PACK's manifest belongs to the
 // pack, where a local rewrite would be silently reverted by the next `pack install`.
-// Enable/disable state moves into config for every source; see CmdSetEnabled.
+// Enable/disable state moved into config for every source, and `yolo loopholes enable|disable`
+// writes it into the workspace's per-workspace file beside the user config; see CmdSetEnabled.
 //
 // OQ-A9 CLOSED THE OTHER HALF, and it is worth stating because the ruling reads like
 // work still owed: the key this function used to write DOES NOT EXIST any more. The
 // manifest's `enabled` is now `default_enabled` and is the PACK AUTHOR's default, not
 // a user setting, so there is no longer a manifest field a `yolo loopholes enable`
 // could legitimately target even if a writable manifest turned up. The only writable
-// home for the user's answer is config, which is where CmdSetEnabled points —
+// home for the user's answer is config, which is where CmdSetEnabled writes it (the
+// per-workspace file) or points (`--global`) —
 // `loopholes.<name>.enabled`, unrenamed, because it was always the other key.
 
 func toAnySlice(ss []string) []any {

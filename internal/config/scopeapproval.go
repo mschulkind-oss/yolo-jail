@@ -132,6 +132,8 @@ type scopeOutcome struct {
 	block []string
 	// gitConfigs are the files the changed sources were read from, for the refusal.
 	gitConfigs []string
+	// labels are the loopholes whose scope changed, for the next step a decline names.
+	labels []string
 }
 
 func compareScope(check *ScopeCheck, old scopeRecord) scopeOutcome {
@@ -151,6 +153,7 @@ func compareScope(check *ScopeCheck, old scopeRecord) scopeOutcome {
 			continue
 		}
 		out.changed = true
+		out.labels = append(out.labels, s.Label)
 		out.block = append(out.block, scopeBlock(s, prev, had)...)
 		if s.Read.GitConfig != "" {
 			out.gitConfigs = append(out.gitConfigs, s.Read.GitConfig)

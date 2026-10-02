@@ -11,6 +11,11 @@ package config
 // about what config it ran under. An argument is the opposite — visible in the command line,
 // testable, and inert unless passed.
 //
+// The PER-WORKSPACE FILE (workspacefile.go) is not that file coming back, and the maintainer
+// ruled for it (docs/design/boundary-broker.md OQ-BB12). It is named by the one workspace it
+// governs rather than merged into every launch, holds loophole switches and refuses every other
+// key, is written by a command whose output names it, and `yolo check` names it too.
+//
 // WHY THERE IS NO APPROVAL GATE ON IT, and this is a ruling rather than an omission
 // (docs/reference/gate-placement-principle.md Test 1 — the authority test): passing an argv to
 // `yolo` requires the ability to run commands, which already exceeds anything the argument

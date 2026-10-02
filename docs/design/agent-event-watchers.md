@@ -1142,8 +1142,10 @@ What this deliberately does not copy:
 
 - **A command that writes config.** `yolo host wrappers enable|disable` was deleted because *"a
   command that edits a config file is a second writer of that file"* (`hostWrappers` in
-  [`host.go`](../../internal/cli/host.go)), and `yolo loopholes enable` refuses and points at
-  config (`CmdSetEnabled` in [`loopholescmd.go`](../../internal/loopholes/loopholescmd.go)).
+  [`host.go`](../../internal/cli/host.go)), and `yolo loopholes enable` writes a per-workspace
+  file beside the user config, never the config itself (`CmdSetEnabled` in
+  [`loopholescmd.go`](../../internal/loopholes/loopholescmd.go);
+  [OQ-BB12](boundary-broker.md#OQ-BB12)).
   `yolo sidecar enable` writes state, never config, so it is no second writer ([EW-D14](#EW-D14)).
 - **A blanket in config.** direnv's `[whitelist]` in `direnv.toml` and mise's
   `trusted_config_paths` each let one line in `~/.config` stand in for the per-machine act, and

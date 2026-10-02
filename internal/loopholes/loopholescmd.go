@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Deps are the injectable seams: Out/Err writers, the workspace cwd, and the
@@ -41,6 +42,18 @@ type Deps struct {
 	// False is the plain report, the same text with the color left out. RealDeps leaves it
 	// false, since this package does not probe the terminal; the CLI front door sets it.
 	Color bool
+	// LoadWorkspaceFile reads the per-workspace file for a workspace (config.ReadWorkspaceFile),
+	// the scope these commands read LAST, as the launch merges it; nil reads none.
+	LoadWorkspaceFile func(cwd string) *config.WorkspaceFile
+	// LaunchConfig is the config the host launched this jail with (config.JailLaunchConfig), the
+	// one place in a jail a brokered loophole's switch can be read from; nil reads none.
+	LaunchConfig func(cwd string) (*jsonx.OrderedMap, bool)
+	// HostDir is this jail's workspace as the host names it (YOLO_HOST_DIR), for the next step
+	// an in-jail `enable` names; "" on the host or when unknown.
+	HostDir string
+	// WriteSwitch writes one switch into a workspace's per-workspace file and returns the file
+	// (config.SetWorkspaceLoophole).
+	WriteSwitch func(workspace, name string, enabled bool) (string, error)
 }
 
 // RealDeps returns Deps backed by the real filesystem/config loaders.
@@ -68,6 +81,10 @@ func RealDeps() Deps {
 			}
 			return m
 		},
+		LoadWorkspaceFile: config.ReadWorkspaceFile,
+		LaunchConfig:      config.JailLaunchConfig,
+		HostDir:           os.Getenv("YOLO_HOST_DIR"),
+		WriteSwitch:       config.SetWorkspaceLoophole,
 	}
 }
 
@@ -93,12 +110,24 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) Set {
 	// The same file-backed set config.ValidateConfig resolves names against.
 	known, _ := NewResolver().Known()
 
+	load := func(f func() *jsonx.OrderedMap) *jsonx.OrderedMap {
+		if f == nil {
+			return nil
+		}
+		return f()
+	}
+	loadWS := func(f func(string) *jsonx.OrderedMap) *jsonx.OrderedMap {
+		if f == nil {
+			return nil
+		}
+		return f(deps.Cwd)
+	}
 	scopes := []struct {
 		cfg           *jsonx.OrderedMap
 		fromWorkspace bool
 		src           string
 	}{
-		{deps.LoadUserConfig(), false, paths.UserConfigPath()},
+		{load(deps.LoadUserConfig), false, paths.UserConfigPath()},
 		// deps.LoadWorkspaceConfig collapses yolo-jail.jsonc and
 		// yolo-jail.local.jsonc, so the merged block cannot say which file an
 		// entry came from and the refusal used to blame the tracked file for a
@@ -108,7 +137,7 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) Set {
 		// VALUES, so the injected-config seam these commands are tested through
 		// keeps working — with no real files it simply finds no origins and falls
 		// back to the tracked name.
-		{deps.LoadWorkspaceConfig(deps.Cwd), true, filepath.Join(deps.Cwd, config.WorkspaceConfigName)},
+		{loadWS(deps.LoadWorkspaceConfig), true, filepath.Join(deps.Cwd, config.WorkspaceConfigName)},
 	}
 	wsOrigins := config.WorkspaceLoopholeOrigins(deps.Cwd)
 	userInline := map[string]bool{}
@@ -158,6 +187,38 @@ func loopholesWithConfig(deps Deps, includeDisabled bool) Set {
 				}
 			}
 			merged.Set(k, val)
+		}
+	}
+	// THE PER-WORKSPACE FILE, LAST (config/workspacefile.go), as the launch merges it: its
+	// switches win over both files above. Its reader refuses everything but a boolean
+	// `enabled`, so its entries need none of the validation above. A name no loophole here
+	// answers to is left out, so the listing gains no inline entry nobody wrote.
+	if deps.LoadWorkspaceFile != nil {
+		if wf := deps.LoadWorkspaceFile(deps.Cwd); wf != nil {
+			for _, name := range wf.Loopholes.Keys() {
+				_, isKnown := known[name]
+				_, inMerged := merged.Get(name)
+				if v, set := wf.LoopholeSwitch(name); set && (isKnown || inMerged) {
+					setConfigEnabled(merged, name, v)
+				}
+			}
+		}
+	}
+	// IN A JAIL, a brokered loophole's switch is the per-workspace file's alone, which lives on
+	// the host and never crosses; the config the host launched this jail with holds its value,
+	// so that is what this jail's own listing reports (config.JailLaunchConfig). Without it a
+	// broker the jail is using would list as disabled.
+	if deps.InJail && deps.LaunchConfig != nil {
+		if lc, ok := deps.LaunchConfig(deps.Cwd); ok {
+			block, _ := getMap(lc, "loopholes")
+			for name, info := range known {
+				if info.Brokered == nil {
+					continue
+				}
+				if v, set := ConfigEnabledOverride(block, name); set {
+					setConfigEnabled(merged, name, v)
+				}
+			}
 		}
 	}
 	// NewHostSet, not a hand-built DiscoverOptions: it is the one constructor that
@@ -359,45 +420,161 @@ func listStateStyle(state, reason string) string {
 	}
 }
 
-// CmdSetEnabled runs `yolo loopholes enable|disable <name>`. It TOGGLES NOTHING
-// today: it prints the config key to write, names the file to write it in, and
-// exits 1.
+// SetEnabledOptions is what `yolo loopholes enable|disable` was asked beyond the name.
+type SetEnabledOptions struct {
+	// Workspace is the workspace the switch is for, already resolved by the caller: the
+	// `--workspace` it was given, else the current workspace root.
+	Workspace string
+	// Global asks for the user-config block that switches the loophole for every workspace,
+	// printed to paste: nothing is written.
+	Global bool
+}
+
+// CmdSetEnabled runs `yolo loopholes enable|disable <name>`: it writes the switch into the
+// workspace's PER-WORKSPACE FILE (config/workspacefile.go), host-side, and says which file and
+// that it applies at the workspace's next fresh launch.
 //
-// THAT IS A DELIBERATE INTERIM STATE, not a half-finished edit, and here is the
-// whole of why. The command only ever had one mechanism: rewrite `enabled` in a
-// manifest under the hand-placed user loopholes directory, refusing every other
-// source. That directory is retired (retired.go, OQ-LP10), so the mechanism has
-// nothing left to write to — and OQ-LP10's second payoff is exactly this: with the
-// special case gone, enable/disable state belongs in CONFIG, for every source
-// (docs/reference/loophole-system.md#selection-and-discovery, which already calls that
-// the better end state).
+// IT NEVER EDITS THE USER CONFIG, by the maintainer's ruling (2026-10-01,
+// docs/design/boundary-broker.md OQ-BB12): "I don't want to do anything that edits the user
+// config directly. We can edit a file that lives next to it of a different name or whatever."
+// config.jsonc is a hand-commented file, and a read-modify-write through the JSONC decoder drops
+// every comment in it. So `--global`, the every-workspace switch, still prints the block to
+// paste, writes nothing and exits 1, as the whole command did until this change; and a
+// brokered loophole has no `--global` at all, since its switch is per workspace only
+// (OQ-BB13).
 //
-// Writing it is a separate change because it is a separate DECISION, not more typing.
-// `loopholes.<name>.enabled` lives in ~/.config/yolo-jail/config.jsonc, a hand-written
-// commented file that nothing in yolo writes today; a read-modify-write through
-// json5 → jsonx.DumpsIndent drops every comment in it (the degradation SetEnabled used
-// to accept for a yolo-generated manifest, which is a very different file). And the
-// obvious dodge — a conventionally-named auto-merged state file beside it — is
-// WITHDRAWN WITH CAUSE in this codebase already (internal/config/userlayer.go's header:
-// it activates because a file exists, invisibly at the call site). So the honest
-// interim is a command that tells you precisely what to write, rather than one that
-// silently does nothing or quietly reformats your config.
+// HOST-SIDE ONLY. In a jail it refuses, naming the command to run on the host: the file lives
+// in a folder no jail can read, and a jail's own folder would govern only launches made inside
+// it, which is not what someone typing this in a jail means.
 //
-// The instruction points at the USER config (docs/reference/loophole-system.md#selection-and-discovery): it used to
-// direct people at the workspace yolo-jail.jsonc — the weaker, agent-editable scope,
-// and the one whose install-shaped keys are now refused. `enabled` is honored from
-// either scope, but the command should never steer a human toward the file this
-// design distrusts.
-func CmdSetEnabled(deps Deps, name string, enabled bool) int {
+// It never writes a manifest either (TestSetEnabledNeverWritesAManifest): after OQ-A9 a
+// manifest carries the pack author's default, not the user's answer.
+func CmdSetEnabled(deps Deps, name string, enabled bool, opts SetEnabledOptions) int {
+	verb := verbFor(enabled)
+	if opts.Global {
+		return setEnabledGlobally(deps, name, enabled)
+	}
+	if deps.InJail {
+		fmt.Fprintf(deps.Err, "yolo loopholes %s: this is a jail, and a per-workspace switch is "+
+			"made on the host, in a folder no jail can read.\n", verb)
+		if deps.HostDir != "" && config.IsJailOwnWorkspace(opts.Workspace) {
+			fmt.Fprintf(deps.Err, "On the host, run:\n  %s\nthen start a fresh jail there.\n",
+				setEnabledCommand(enabled, name, deps.HostDir))
+		} else {
+			fmt.Fprintf(deps.Err, "On the host, run `yolo loopholes %s %s` in that project, then "+
+				"start a fresh jail there.\n", verb, name)
+		}
+		return 1
+	}
+	// The names `yolo loopholes list` shows, so the refusal's next step lists exactly what
+	// this command accepts.
+	installed := false
+	for _, lp := range loopholesWithConfig(deps, true).All() {
+		if lp.Name == name {
+			installed = true
+		}
+	}
+	if !installed {
+		fmt.Fprintf(deps.Err, "yolo loopholes %s: no loophole named %q is installed on this "+
+			"machine. `yolo loopholes list` shows the ones that are; a pack you select in %s "+
+			"installs its own.\n", verb, name, paths.UserConfigPath())
+		return 1
+	}
+	ws := opts.Workspace
+	if breach := paths.WorkspaceScopeBreach(ws); breach != nil {
+		fmt.Fprintf(deps.Err, "yolo loopholes %s: %s, and no launch may use it as a workspace. "+
+			"cd into the project, or name it: %s\n", verb, breach.What(),
+			setEnabledCommand(enabled, name, "<project>"))
+		return 1
+	}
+	if fi, err := os.Stat(ws); err != nil || !fi.IsDir() {
+		fmt.Fprintf(deps.Err, "yolo loopholes %s: %s is not a folder, so it cannot be a workspace. "+
+			"Name the project's folder with --workspace, or cd into it.\n", verb, ws)
+		return 1
+	}
+	write := deps.WriteSwitch
+	if write == nil {
+		write = config.SetWorkspaceLoophole
+	}
+	path, err := write(ws, name, enabled)
+	if err != nil {
+		fmt.Fprintf(deps.Err, "yolo loopholes %s: %v\n", verb, err)
+		return 1
+	}
+	state := "on"
+	if !enabled {
+		state = "off"
+	}
+	fmt.Fprintf(deps.Out, "%s is %s for %s from its next fresh launch; the switch is in %s\n",
+		name, state, ws, path)
+	return 0
+}
+
+// setEnabledGlobally is `--global`: the user-config block that switches name for every
+// workspace, printed to paste, never written (OQ-BB12), and exit 1, since nothing changed. A
+// brokered loophole has none (OQ-BB13), so it names the per-project command instead.
+func setEnabledGlobally(deps Deps, name string, enabled bool) int {
+	for _, lp := range loopholesWithConfig(Deps{Out: io.Discard, Err: io.Discard, Cwd: deps.Cwd,
+		InJail: deps.InJail, LoadUserConfig: deps.LoadUserConfig,
+		LoadWorkspaceConfig: deps.LoadWorkspaceConfig}, true).All() {
+		if lp.Name == name && lp.Brokered != nil {
+			fmt.Fprintf(deps.Err, "yolo loopholes %s --global: %s runs a host login's commands for a "+
+				"jail, so it is switched one project at a time and has no every-project switch. Run "+
+				"`yolo loopholes %s %s` in each project instead.\n", verbFor(enabled), name, verbFor(enabled), name)
+			return 1
+		}
+	}
 	fmt.Fprintf(deps.Err,
-		"yolo loopholes %s cannot write this yet — set it in config instead.\n"+
-			"In %s add:\n"+
+		"yolo loopholes %s --global writes nothing: yolo does not edit your user config.\n"+
+			"To switch %s for every workspace, add this to %s:\n"+
 			"  \"loopholes\": { %q: { \"enabled\": %t } }\n"+
-			"That key works for every source (bundled, pack-shipped, config-inline); "+
-			"it is also honored from a workspace yolo-jail.jsonc, which is the "+
-			"agent-editable scope and therefore the weaker place to put it.\n",
-		verbFor(enabled), paths.UserConfigPath(), name, enabled)
+			"To switch it for one workspace only, run `yolo loopholes %s %s` in it, which writes "+
+			"that workspace's own file beside the user config.\n",
+		verbFor(enabled), name, paths.UserConfigPath(), name, enabled, verbFor(enabled), name)
 	return 1
+}
+
+// setEnabledCommand is the command that makes this switch for workspace, spelled to paste: the
+// path is quoted for a shell, and a control character in it is written as an escape.
+// placeholder is a workspace the reader fills in, which is left as written.
+func setEnabledCommand(enabled bool, name, workspace string) string {
+	ws := workspace
+	if !strings.HasPrefix(ws, "<") {
+		ws = shquote.QuoteDisplay(ws)
+	}
+	if enabled {
+		return "yolo loopholes enable " + name + " --workspace " + ws
+	}
+	return "yolo loopholes disable " + name + " --workspace " + ws
+}
+
+// setConfigEnabled sets `enabled` on block's entry for name, keeping the entry's other keys, in a
+// new map: the entry may be a loaded config's own.
+func setConfigEnabled(block *jsonx.OrderedMap, name string, enabled bool) {
+	entry := jsonx.NewOrderedMap()
+	if old, ok := block.Get(name); ok {
+		if m, isMap := old.(*jsonx.OrderedMap); isMap {
+			for _, k := range m.Keys() {
+				v, _ := m.Get(k)
+				entry.Set(k, v)
+			}
+		}
+	}
+	entry.Set("enabled", enabled)
+	block.Set(name, entry)
+}
+
+// getMap is m[key] as an object.
+func getMap(m *jsonx.OrderedMap, key string) (*jsonx.OrderedMap, bool) {
+	if m == nil {
+		return nil, false
+	}
+	v, ok := m.Get(key)
+	if !ok {
+		return nil, false
+	}
+	out, isMap := v.(*jsonx.OrderedMap)
+	return out, isMap
 }
 
 // verbFor names the subcommand the user actually typed, so the refusal echoes their

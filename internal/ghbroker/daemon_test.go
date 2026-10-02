@@ -241,12 +241,31 @@ func TestForwardThroughTheFront(t *testing.T) {
 	}
 }
 
+// The jail has no endpoint: the message names the host command that turns the broker on for
+// this project (docs/design/boundary-broker.md OQ-BB13), with the project as the host names it
+// when the launch said, and never a user-config switch, which is refused for it.
 func TestForwardWithNoEndpointSaysHowToEnableIt(t *testing.T) {
-	var errOut bytes.Buffer
-	code := Forward([]string{"pr", "view"}, ForwardEnv{Getenv: func(string) string { return "" },
-		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &errOut, OriginRepo: func() string { return "" }})
-	if code != ExitUnavailable || !strings.Contains(errOut.String(), `"github-broker": {"enabled": true}`) {
-		t.Fatalf("code %d err %q", code, errOut.String())
+	for _, c := range []struct {
+		hostDir, want string
+	}{
+		{"", "yolo loopholes enable github-broker\n  in this project, on the host,"},
+		{"/home/you/my code/app", "yolo loopholes enable github-broker --workspace '/home/you/my code/app'"},
+	} {
+		var errOut bytes.Buffer
+		getenv := func(k string) string {
+			if k == "YOLO_HOST_DIR" {
+				return c.hostDir
+			}
+			return ""
+		}
+		code := Forward([]string{"pr", "view"}, ForwardEnv{Getenv: getenv,
+			Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &errOut, OriginRepo: func() string { return "" }})
+		if code != ExitUnavailable || !strings.Contains(errOut.String(), c.want) {
+			t.Errorf("YOLO_HOST_DIR=%q: code %d, want %q in:\n%s", c.hostDir, code, c.want, errOut.String())
+		}
+		if strings.Contains(errOut.String(), "config.jsonc") {
+			t.Errorf("the message still sends the reader to the user config:\n%s", errOut.String())
+		}
 	}
 }
 

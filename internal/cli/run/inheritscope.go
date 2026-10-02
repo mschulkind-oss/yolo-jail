@@ -208,10 +208,10 @@ func (o *Options) userConfigMountArgs(rt, wsState string) []string {
 
 // effectiveConfigForInherit returns the config the generated files are rendered FROM.
 //
-// It re-reads through config.LoadConfig rather than taking the run pipeline's already-loaded
-// map as a parameter, for one reason: this is the ONE computation `yolo config dump` renders,
-// and going through the same function is what guarantees they cannot diverge. LoadConfig is
-// also where a --user-layer (config.UserLayerPath) is folded in, so the recursion property
+// It re-reads through config's own composer rather than taking the run pipeline's already-loaded
+// map as a parameter, for one reason: this is the computation `yolo config dump` renders, less
+// one layer (below), and going through the same function is what keeps them from diverging. It
+// is also where a --user-layer (config.UserLayerPath) is folded in, so the recursion property
 // (R6) comes for free — at depth 2 the effective config already contains what depth 1
 // inherited plus any layer it was passed.
 //
@@ -220,8 +220,15 @@ func (o *Options) userConfigMountArgs(rt, wsState string) []string {
 // (loadAndValidateConfig, strict) and refused the launch on error, so a failure here means
 // the file changed underneath a launch in progress — and an empty inner scope degrades to
 // "this jail knows of no user config", which is what a user with no config has.
+//
+// LESS THE PER-WORKSPACE FILE (config.LoadConfigWithoutWorkspaceFile), the one difference from
+// `yolo config dump`'s computation, and deliberate: that file's switches are for THIS workspace
+// alone, keyed by a host path no jail has, and the inherited files are the jail's user scope,
+// which applies to every workspace a launch inside the jail opens. Inherited, a brokered
+// loophole switched on here would also reach the inner user scope, which refuses it
+// (docs/design/boundary-broker.md BB-D56).
 func (o *Options) effectiveConfigForInherit() *jsonx.OrderedMap {
-	cfg, err := config.LoadConfig(o.Workspace, false, func(string) {})
+	cfg, err := config.LoadConfigWithoutWorkspaceFile(o.Workspace, false, func(string) {})
 	if err != nil {
 		return nil
 	}

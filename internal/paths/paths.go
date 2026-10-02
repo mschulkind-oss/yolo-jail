@@ -482,6 +482,9 @@ const (
 	// LocalPackDir derives it from the user config's directory and the two cannot drift
 	// apart the way two independently-spelled suffixes could.
 	localPackLeaf = "local"
+	// workspaceFilesLeaf is the per-workspace files' folder, beside config.jsonc for
+	// localPackLeaf's reason: user-scope yolo config already lives there.
+	workspaceFilesLeaf = "workspaces"
 )
 
 // GlobalStorage returns $HOME/.local/share/yolo-jail.
@@ -1028,6 +1031,18 @@ func UserConfigPath() string {
 // when it is not a directory. That is why this returns a path and answers no question
 // about existence — a helper that reported "present" would invite a second stat.
 func LocalPackDir() string { return filepath.Join(filepath.Dir(UserConfigPath()), localPackLeaf) }
+
+// WorkspaceFilesDir returns $HOME/.config/yolo-jail/workspaces: the folder of PER-WORKSPACE
+// FILES, one per workspace, each holding switches that apply to that workspace alone
+// (internal/config/workspacefile.go; docs/design/boundary-broker.md BB-D53). `yolo loopholes
+// enable|disable` writes them, so a per-project switch never edits config.jsonc.
+//
+// Beside config.jsonc, and derived from it, for LocalPackDir's reason. No jail sees it: a launch
+// binds the user scope it generates into a jail as single files, never this directory
+// (internal/cli/run/inheritscope.go, R8).
+func WorkspaceFilesDir() string {
+	return filepath.Join(filepath.Dir(UserConfigPath()), workspaceFilesLeaf)
+}
 
 // Home returns the resolved home directory (see home() for the Python-parity
 // resolution rules). Exported for callers that must expand a leading "~/" in a

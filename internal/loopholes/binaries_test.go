@@ -367,15 +367,24 @@ func TestANestedLaunchCountsNoBrokerWhoseBuildItLacks(t *testing.T) {
 	cache := isolateBinaryCache(t)
 	md := modsDir(t)
 	mod := mkdir(t, filepath.Join(md, "gb"))
+	// Off by default, as every brokered manifest must be (OQ-BB13); switched on below as a
+	// per-workspace file switches it.
 	writeManifest(t, mod, map[string]any{
 		"name": "gb", "description": "a broker that runs toold", "transport": "loopback-tls",
-		"binaries": map[string]any{"toold": builds(map[string]string{hostPlatform: sumHost})},
+		"default_enabled": false,
+		"binaries":        map[string]any{"toold": builds(map[string]string{hostPlatform: sumHost})},
 		"host_daemon": map[string]any{"cmd": []any{"{binary:toold}", "{repository_scope}"},
 			"publishes": "socket"},
 		"brokered": map[string]any{"source": "gbsrc", "remote_host": "github.com"},
 	})
 	t.Setenv("YOLO_VERSION", "test")
 	set := approvedSetFrom(md)
+	for _, lp := range set.All() {
+		lp.Enabled = true
+	}
+	if len(set.All()) != 1 {
+		t.Fatalf("the brokered manifest did not load: %d loopholes", len(set.All()))
+	}
 	if got := set.BrokeredToStart(nil); len(got) != 0 {
 		t.Fatalf("a nested launch counts a broker whose host build its cache lacks: %v", got[0].Name)
 	}

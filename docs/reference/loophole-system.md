@@ -17,6 +17,7 @@ covers:
   - internal/cli/check/sections_loopholes.go
   - internal/config/validate_loopholes.go
   - internal/config/loopholeplacement.go
+  - internal/config/workspacefile.go
   - internal/render/fieldset.go
   - packs/
 tags: [loopholes, packs, activation, trust, config]
@@ -92,6 +93,14 @@ config only, install-shaped keys are refused in workspace scope, and
 `loopholes.<name>.enabled` is honored from both. So a workspace may switch on only what
 the user already installed — the weak, agent-editable scope is bounded by the strong one,
 which is what makes per-workspace enablement safe to offer at all.
+
+> [!IMPORTANT]
+> **A brokered loophole is the exception to "either scope".** Its switch lives in the
+> per-workspace file alone, which `yolo loopholes enable` writes on the host
+> ([`storage-and-config.md`](storage-and-config.md#the-per-workspace-file)); the user config's
+> switch and a workspace config's are refused, and its manifest may not default it on
+> ([OQ-BB13](../design/boundary-broker.md#OQ-BB13)). It runs a host login's commands, and the
+> maintainer ruled it "manual enabling only for now".
 
 > [!CAUTION]
 > **R5 is FALSE for list-shaped settings, and that is why a setting declares its own scope.**
@@ -749,11 +758,13 @@ Three properties worth knowing:
 > had its daemon skipped **without a word**, and still contributed its intercepts, mounts,
 > devices and jail environment to the container argv — half a loophole, silently.
 
-`yolo loopholes enable|disable` **toggles nothing today**: it prints the exact config key, the
-file to write it in, and why workspace scope is the weaker place for it, then exits non-zero.
-That is a deliberate interim, not a half-finished edit — the command's only ever mechanism was
-rewriting a manifest in the retired directory, and the replacement is a read-modify-write of a
-hand-commented user config that the current serializer would strip every comment from.
+`yolo loopholes enable|disable` **writes the workspace's per-workspace file**, host-side, and
+never the user config ([`storage-and-config.md`](storage-and-config.md#the-per-workspace-file);
+the ruling is [OQ-BB12](../design/boundary-broker.md#OQ-BB12)). That file is user scope for one
+workspace and merges last, so the switch it holds decides for that workspace over every config
+file. `--global` keeps the command's old behavior: it prints the user-config key to paste, writes
+nothing, and exits non-zero, because the user config is a hand-commented file that a
+read-modify-write would strip every comment from.
 
 ## Settings
 
@@ -799,6 +810,11 @@ hostname from it and knows no tool; `packs/github`'s `github-broker` is the firs
   (`config/brokerfence.go`).
 - An unknown key in the block is refused by both decoders: it is a fence, and a fence key a build
   does not read is a fence that does not exist.
+- **It is turned on one workspace at a time** ([OQ-BB13](../design/boundary-broker.md#OQ-BB13)):
+  by the per-workspace file `yolo loopholes enable <name>` writes, and by nothing else. Its manifest
+  may not set `default_enabled: true` (refused at load), and a `loopholes.<name>.enabled` in the
+  user config, or any switch of it in a workspace config, refuses the launch and fails
+  `yolo check`, naming the command.
 
 ## Retirement: what happens when a pack goes away
 
@@ -935,7 +951,7 @@ only place the values themselves are stated.
 | Combine rule | Exclusive, by loophole **name** | `internal/packdecl/kinds.go` |
 | Manifest enablement key | `default_enabled`, absent ⇒ **false** | `loopholedecl.Manifest.DefaultEnabled` |
 | Retired manifest key (recognized, refused) | `enabled` | `loopholedecl.RetiredKeyEnabled` |
-| User's switch | `loopholes.<name>.enabled`, either scope | `loopholes.ConfigEnabledOverride` |
+| User's switch | `loopholes.<name>.enabled`, either scope, or the per-workspace file, which merges last; a brokered loophole's, the per-workspace file alone (added 2026-10-01) | `loopholes.ConfigEnabledOverride`, `config.WorkspaceFilePath` |
 | Setting scopes, and the default | `user` (default), `workspace` | `loopholedecl.SettingScopeUser`, `SettingScopeWorkspace`, `DefaultSettingScope` |
 | Module-dir tokens | `{loophole_dir}` (host), `{jail_loophole_dir}` (container) | `loopholedecl.TokenLoopholeDir`, `TokenJailLoopholeDir`; substituted in `internal/loopholes/load.go` |
 | Sources, in precedence order | `pack` < `config` | `loopholes.SourcePack`, `SourceConfig` |

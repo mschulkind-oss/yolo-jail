@@ -5,6 +5,7 @@ verified_commit: f491d192
 covers:
   - internal/paths/
   - internal/config/load.go
+  - internal/config/workspacefile.go
   - internal/config/assembled.go
   - internal/config/drift.go
   - internal/config/snapshot.go
@@ -75,13 +76,14 @@ in full below — it is the rule that constrains every generated file in a jail.
 
 ## The config scopes
 
-Four sources, merged in order, later overriding earlier:
+Five sources, merged in order, later overriding earlier:
 
 | Scope | File | What may live here |
 | :--- | :--- | :--- |
 | User | `~/.config/yolo-jail/config.jsonc` | anything, including every install-shaped key |
 | Workspace | `<workspace>/yolo-jail.jsonc` | the repo's own needs; committed |
 | Workspace-local | `<workspace>/yolo-jail.local.jsonc` | per-machine tweaks; kept out of version control |
+| Per-workspace file | `~/.config/yolo-jail/workspaces/<folder>-<hash>.jsonc` | loophole switches for that one workspace, written by `yolo loopholes enable` and `disable` |
 | Environment | a small set of `YOLO_*` variables | last-resort overrides |
 
 `yolo-jail.local.jsonc` is auto-merged whenever it sits beside `yolo-jail.jsonc` — no
@@ -107,6 +109,31 @@ workspace scope *inexpressible* rather than merely refused. The same reasoning a
 `cache_relocations`, which mounts an arbitrary host path read-write, and to a `host_files`
 entry that names a `source`. The general shape: a weak, agent-editable scope may switch on
 only what the strong scope already installed.
+
+### The per-workspace file
+
+The **per-workspace file** *(coined in [`boundary-broker.md`](../design/boundary-broker.md#BB-D53))*
+is user scope for one workspace: a file yolo keeps beside the user config, in
+`~/.config/yolo-jail/workspaces/`, that holds switches applying to that workspace alone. It is not
+the user config, which yolo never writes, and not a workspace config, which the workspace's agent
+can edit.
+
+- **Who writes it.** `yolo loopholes enable <name>` and `disable`, run on the host, write the file
+  whole and print its name. A hand edit is allowed; its comments are not kept by the next write.
+  Neither command touches `config.jsonc`, by the maintainer's ruling
+  ([OQ-BB12](../design/boundary-broker.md#OQ-BB12)).
+- **Its name and its key.** One file per workspace, `<the folder's name>-<12 hex digits>.jsonc`,
+  the digits from the SHA-256 of the workspace's resolved path. Its `workspace` field is
+  authoritative: a file whose field does not resolve to the launching workspace is ignored, and the
+  launch and `yolo check` warn.
+- **What it holds.** `loopholes.<name>.enabled` alone today. Any other key is refused, with a next
+  step, so later per-project properties have a home and a typo is never silent.
+- **Where it merges.** Last, over the workspace's own config files too, since each key it holds is
+  a human's switch for this workspace. `yolo config dump`, `yolo check` and the launch all read it.
+- **No jail sees it.** A launch binds the user scope it generates into a jail as single files,
+  never the folder, and composes that scope without this file, because its key is a host path no
+  jail has ([BB-D56](../design/boundary-broker.md#BB-D56)). The delivery copy below holds the
+  merged values of the launching workspace's switches, and nothing about any other workspace.
 
 ### The two per-launch artifacts
 
@@ -444,6 +471,7 @@ the only place the values themselves are stated.
 | Workspace state dir | `<workspace>/.yolo/` | `paths.WorkspaceStateDir` |
 | Workspace home overlays | `<workspace>/.yolo/home/` | `paths.WorkspaceHomeState` |
 | User config | `~/.config/yolo-jail/config.jsonc` | `paths.UserConfigPath` |
+| Per-workspace files: folder 0700, each file 0600 | `~/.config/yolo-jail/workspaces/<folder>-<12 hex>.jsonc` | `paths.WorkspaceFilesDir`, `config.WorkspaceFilePath` |
 | Pack lock | `~/.config/yolo-jail/packs.lock.json` | `packsrc.LockPath` |
 | Fork lock: each fork's pinned commit, written only by `yolo pack install` and `update` | `~/.config/yolo-jail/forks.lock.json` | `packsrc.ForkLockPath` |
 | Workspace config, and its local sibling | `yolo-jail.jsonc`, `yolo-jail.local.jsonc` | `internal/config/load.go` |

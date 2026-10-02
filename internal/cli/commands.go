@@ -867,11 +867,21 @@ Subcommands:
   status            Run each loophole's own self-check. HOST-SIDE: inside a jail
                     it says so and does nothing, because the things being checked
                     are host daemons.
-  enable <name>     Print the config key that turns <name> on …
-  disable <name>    … or off. NEITHER WRITES ANYTHING YET: both print the exact
-                    ` + "`loopholes`" + ` block to add to ~/.config/yolo-jail/config.jsonc and
-                    exit non-zero, rather than silently reformatting a config file
-                    you hand-wrote.
+  enable <name>     Turn <name> on for ONE workspace …
+  disable <name>    … or off. HOST-SIDE: each writes that workspace's own file in
+                    ~/.config/yolo-jail/workspaces/, never your config.jsonc, and
+                    prints which file; it applies from the workspace's next fresh
+                    launch, and no jail can read it.
+
+Flags for ` + "`enable`" + ` and ` + "`disable`" + `:
+  --workspace <path>  The workspace to switch. Default: the current workspace, the
+                      nearest folder at or above here holding a yolo-jail.jsonc or
+                      a launch's .yolo, else this folder.
+  --global            Every workspace instead: print the ` + "`loopholes`" + ` block to add
+                      to ~/.config/yolo-jail/config.jsonc, write nothing, and exit 1.
+                      A loophole that runs a host login's commands (one whose
+                      manifest declares ` + "`brokered`" + `, such as github-broker) has no
+                      --global: it is switched one workspace at a time.
 
 Flags for ` + "`list`" + ` and ` + "`status`" + ` (the two that report state):
 ` + outputFormatUsage + `
@@ -888,6 +898,7 @@ Examples:
   yolo loopholes list                   # what is wired into this jail?
   yolo loopholes list --format json     # the same, for an agent
   yolo loopholes status                 # host-side: is each one healthy?
+  yolo loopholes enable github-broker   # on, for this workspace only
 
 The ` + "`loopholes`" + ` config key is documented in ` + "`yolo config-ref`" + `; a pack can ship one
 (` + "`yolo pack --help`" + `, the ` + "`loophole`" + ` kind).`
@@ -929,19 +940,81 @@ func runLoopholes(args []string) int {
 		// flag exists to prevent (outputformat.go).
 		if outfmt.IsJSON(format) {
 			fmt.Fprintf(os.Stderr, "yolo loopholes %s: --format json is not available "+
-				"here — this verb prints a config block to paste, it does not report "+
+				"here — this verb writes a switch, it does not report "+
 				"state. `yolo loopholes list --format json` and `… status --format json` do.\n", sub)
 			return 2
 		}
-		if len(rest) < 1 {
-			fmt.Fprintf(os.Stderr, "Usage: yolo loopholes %s <name>\n", sub)
-			return 1
+		name, opts, problem := parseSetEnabledArgs(rest)
+		if problem != "" {
+			fmt.Fprintf(os.Stderr, "yolo loopholes %s: %s\nUsage: yolo loopholes %s <name> "+
+				"[--workspace <path>] [--global]\n", sub, problem, sub)
+			return 2
 		}
-		return loopholes.CmdSetEnabled(deps, rest[0], sub == "enable")
+		return loopholes.CmdSetEnabled(deps, name, sub == "enable", opts)
 	default:
 		fmt.Fprintf(os.Stderr, "Usage: yolo loopholes {list|status|enable|disable} [name]\n")
 		return 1
 	}
+}
+
+// parseSetEnabledArgs reads `yolo loopholes enable|disable`'s argv after the verb: the
+// loophole's name, `--workspace <path>` (or `--workspace=<path>`) and `--global`. The
+// workspace defaults to the current workspace root as `yolo config`'s verbs find it (the
+// nearest folder at or above the working directory with a workspace config or a launch's
+// `.yolo/config-boot.json`), else the working directory, and is returned absolute with its
+// symlinks resolved. problem is the usage error, "" when there is none.
+func parseSetEnabledArgs(args []string) (name string, opts loopholes.SetEnabledOptions, problem string) {
+	workspace := ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--global":
+			opts.Global = true
+		case a == "--workspace":
+			if i+1 >= len(args) || args[i+1] == "" {
+				return "", opts, "a path must follow --workspace"
+			}
+			i++
+			workspace = args[i]
+		case strings.HasPrefix(a, "--workspace="):
+			workspace = strings.TrimPrefix(a, "--workspace=")
+			if workspace == "" {
+				return "", opts, "a path must follow --workspace"
+			}
+		case a == "--format" || a == "--json" || strings.HasPrefix(a, "--format="):
+			// Parsed, and refused for these verbs, by the caller.
+			if a == "--format" {
+				i++
+			}
+		case strings.HasPrefix(a, "-"):
+			return "", opts, fmt.Sprintf("unknown flag %q", a)
+		case name == "":
+			name = a
+		default:
+			return "", opts, fmt.Sprintf("unexpected argument %q: it takes one loophole name", a)
+		}
+	}
+	if name == "" {
+		return "", opts, "name the loophole (`yolo loopholes list` shows them)"
+	}
+	if opts.Global && workspace != "" {
+		return "", opts, "pass --global or --workspace, not both: they name every workspace, or one"
+	}
+	if workspace == "" {
+		if ws, ok := resolveWorkspaceRoot(); ok {
+			workspace = ws
+		} else if wd, err := os.Getwd(); err == nil {
+			workspace = wd
+		}
+	}
+	if abs, err := filepath.Abs(workspace); err == nil {
+		workspace = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(workspace); err == nil {
+		workspace = resolved
+	}
+	opts.Workspace = workspace
+	return name, opts, ""
 }
 
 const psUsage = `Usage: yolo ps [--format json]

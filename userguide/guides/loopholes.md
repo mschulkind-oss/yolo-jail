@@ -35,14 +35,28 @@ access behind it.
 | `claude-oauth-broker` (`claude`) | One shared Claude login that stays fresh across jails ([Logins](authentication.md#a-shared-claude-login-that-stays-fresh)) | Yes |
 | `openai-auth-broker` (`openai-auth`, brought in by `claude`, `codex`, `opencode` and `pi`) | One shared ChatGPT login for Codex, pi and opencode ([Logins](authentication.md#a-shared-chatgpt-login-for-codex-and-pi)) | Yes |
 | `aws-auth` (`aws-auth`, also brought in by `bedrock`, which `claude`, `codex`, `opencode` and `pi` bring in) | AWS Bedrock with credentials from your host's `aws sso login`, narrowed to one role | No |
-| `github-broker` (`github`) | `gh` in the jail, run by your host's own GitHub login against this workspace's repositories, read-only for now, with no token in the jail ([GitHub](github.md)) | No |
+| `github-broker` (`github`) | `gh` in the jail, run by your host's own GitHub login against this workspace's repositories, read-only for now, with no token in the jail ([GitHub](github.md)) | No, and only one project at a time turns it on |
 | `serial` (`serial`) | USB serial devices on the host, through an allowlist, with the `yolo-serial` command | No |
 | `journal` (`journal`) | The host's systemd journal, with `yolo-journalctl` (Linux hosts) | No |
 | `host-processes` (`host-processes`) | A filtered list of host processes, with `yolo-ps` (Linux hosts) | No |
 | `audio` (`audio`) | The host's microphone and speakers through PipeWire or PulseAudio (Linux hosts) | No |
 | `cgroup-delegate` (`cgroup-delegate`) | Lets the jail cap the CPU and memory of its own jobs, with `yolo-cglimit` (Linux hosts) | No |
 
-To turn one on, select its pack and switch it on in your user config:
+To turn one on, select its pack in your user config, then switch the loophole on for one project
+or for all of them.
+
+For one project, run this in the project, on your machine:
+
+```bash
+yolo loopholes enable serial
+```
+
+It never edits your config: it writes a small file for that project in
+`~/.config/yolo-jail/workspaces/`, prints its name, and applies from the project's next fresh
+launch. `yolo loopholes disable serial` turns the loophole off there again, over what your config
+says, and `--workspace <folder>` names a project from somewhere else. No jail can read these files.
+
+For every project, switch it on in your user config:
 
 ```jsonc
 {
@@ -52,6 +66,10 @@ To turn one on, select its pack and switch it on in your user config:
   }
 }
 ```
+
+`github-broker` has only the first way: a project you never turned it on in never runs it, and
+`yolo check` refuses its switch in your user config or in a project's own config. See
+[GitHub](github.md#turning-it-on).
 
 Some loopholes take their own settings under `settings`, such as `aws-auth`'s SSO profile and role;
 each pack's README in the repository describes them, and `yolo check` reports a setting that is
@@ -88,6 +106,7 @@ has the per-loophole detail.
 ```bash
 yolo loopholes list      # every loophole your config selects, and whether it is on
 yolo loopholes status    # on the host: run each loophole's own self-check
+yolo loopholes enable serial    # on the host: on for this project only
 yolo host-daemon status  # the host services shared by every jail, and whether each is healthy
 yolo pack footprint serial   # what a pack's loophole touches, before you select it
 ```

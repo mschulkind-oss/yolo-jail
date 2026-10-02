@@ -126,6 +126,9 @@ type ChangedNonInteractiveError struct {
 	ScopeBlock []string
 	GitConfigs []string
 	ScopePath  string
+	// ScopeLabels are the brokered loopholes whose scope changed: the advice names the
+	// command that launches this project without each one.
+	ScopeLabels []string
 }
 
 // Headline states what happened and why the launch stopped. It names the repository scope
@@ -171,7 +174,21 @@ func (e *ChangedNonInteractiveError) Advice() string {
 		"\nAny file those configs `include` counts as part of the merge too.\n\n" +
 		"Revert the change, or approve it for THIS LAUNCH ONLY by re-running with\n" +
 		"  " + AcceptConfigChangesFlag + "\n" +
-		"which records " + recorded + " as approved exactly as answering `y` would."
+		"which records " + recorded + " as approved exactly as answering `y` would." +
+		withoutBrokerSteps(e.ScopeLabels)
+}
+
+// withoutBrokerSteps is the other next step a changed repository scope has: launching the
+// project without the brokered loophole that reads it, with the command that does that, one
+// line per loophole; "" when no scope changed.
+func withoutBrokerSteps(labels []string) string {
+	var b strings.Builder
+	for _, l := range labels {
+		b.WriteString("\nTo launch this project without " + l + " instead, run `yolo loopholes disable " +
+			l + "` here: it is off for this project from the next launch, which then asks nothing " +
+			"about its repositories.")
+	}
+	return b.String()
 }
 
 func (e *ChangedNonInteractiveError) Error() string {
@@ -221,6 +238,13 @@ type ChangeReport struct {
 	DiffLines     []string
 	ScopeChanged  bool
 	ScopeBlock    []string
+	// ConfigFiles are the workspace config files the config part was read from, in merge order
+	// (the local file, when there is one, wins), for the next step a declined config change
+	// names.
+	ConfigFiles []string
+	// ScopeLabels are the brokered loopholes whose scope changed, for the next step a declined
+	// scope names (`yolo loopholes disable <label>`).
+	ScopeLabels []string
 }
 
 // ReportPrompter is a ChangePrompter that can show the whole report, so the header and the
@@ -326,16 +350,20 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 			diffLines = unifiedDiff(splitLines(oldJSON), splitLines(currentJSON), fromLabel, toLabel)
 		}
 	}
+	localPath, _ := resolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceLocalConfigName)
+	if !pathExists(localPath) {
+		localPath = ""
+	}
+	wsPath, _ := resolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceConfigName)
+	configFiles := []string{wsPath}
+	if localPath != "" {
+		configFiles = append(configFiles, localPath)
+	}
 	report := ChangeReport{ConfigChanged: configChanged, DiffLines: diffLines,
-		ScopeChanged: sc.changed, ScopeBlock: sc.block}
+		ScopeChanged: sc.changed, ScopeBlock: sc.block, ConfigFiles: configFiles, ScopeLabels: sc.labels}
 
 	if !isTTY {
 		if !acceptNonInteractive {
-			localPath, _ := resolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceLocalConfigName)
-			if !pathExists(localPath) {
-				localPath = ""
-			}
-			wsPath, _ := resolveWorkspaceConfigPath(workspaceOrCwd(workspace), WorkspaceConfigName)
 			e := &ChangedNonInteractiveError{
 				WorkspaceConfig:      wsPath,
 				WorkspaceLocalConfig: localPath,
@@ -345,6 +373,7 @@ func CheckConfigAndScopeChanges(workspace string, config *jsonx.OrderedMap, scop
 				ScopeChanged:         sc.changed,
 				ScopeBlock:           sc.block,
 				GitConfigs:           sc.gitConfigs,
+				ScopeLabels:          sc.labels,
 			}
 			if sc.changed {
 				e.ScopePath = scopePath

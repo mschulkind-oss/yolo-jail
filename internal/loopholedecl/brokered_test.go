@@ -49,6 +49,12 @@ func TestBrokeredBlockAndTokenAreHeldTogether(t *testing.T) {
 			"credential_paths"},
 		"unknown key": {`"host_daemon": {"cmd": ["d", "{socket}", "{repository_scope}"], "publishes": "socket"},
 			"brokered": {"source": "github", "remote_host": "github.com", "sets": []}`, "brokered.sets"},
+		// MANUAL-ONLY (docs/design/boundary-broker.md OQ-BB13): a default of on would turn a
+		// brokered loophole on in every workspace, which no switch does.
+		"default on": {`"host_daemon": {"cmd": ["d", "{socket}", "{repository_scope}"], "publishes": "socket"},
+			"default_enabled": true,
+			"brokered": {"source": "github", "remote_host": "github.com"}`,
+			"`yolo loopholes enable gb` run in that workspace, so 'default_enabled' cannot be true"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := decodeBrokered(t, c.body)
