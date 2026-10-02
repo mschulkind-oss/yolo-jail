@@ -35,7 +35,9 @@ import (
 // takes the lock, which a loaded machine can push past the quit's bound. The death must be named
 // exactly once in everything the launch printed: by that quit, since the relay was over. Taking the
 // offset by a stat after the relay, as the launch did, names it never; deleting the relay's
-// hand-over of the frame's offset falls back to that stat and fails the same way.
+// hand-over of the frame's offset falls back to that stat and fails the same way. Nothing the
+// keeper logged before its frame may be replayed either: its ready line logged after the frame
+// rather than before it, or an offset asked for before the relay read the frame, replays one.
 func TestADeathBetweenTheReadyFrameAndTheFirstSessionIsNamedOnceByItsQuit(t *testing.T) {
 	if goruntime.GOOS != "linux" {
 		t.Skip("spawns host processes")
@@ -163,6 +165,17 @@ func TestADeathBetweenTheReadyFrameAndTheFirstSessionIsNamedOnceByItsQuit(t *tes
 		t.Errorf("a forward that died between the keeper's ready frame and the first session was named %d "+
 			"times, want once, by the session's quit: the relay stops at the frame, so the quit must replay "+
 			"the keeper's log from the frame's own place in it (rc %d):\n%s", n, rc, printed)
+	}
+	// And the quit replays nothing from before the frame: neither the line the keeper logs for
+	// itself alone just before it (logOnlyf, which no quit replays), nor pid 1's boot, which the
+	// relay already printed to the process's own stderr. Either one in the launch's own output is
+	// an offset ahead of the frame: the keeper's ready line logged after its frame, or the launch
+	// asking for the offset before its relay read the frame.
+	for _, before := range []string{"holds " + cname + " until its last session leaves", "a boot line"} {
+		if strings.Contains(printed, before) {
+			t.Errorf("the first session's quit replayed %q, which the keeper logged before its ready frame "+
+				"(rc %d):\n%s", before, rc, printed)
+		}
 	}
 	if rc != 0 {
 		t.Errorf("the launch exited %d, want its session's 0:\n%s", rc, printed)

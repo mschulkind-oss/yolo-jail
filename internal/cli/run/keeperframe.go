@@ -247,15 +247,6 @@ func (s *keeperSink) logLength() string {
 	return strconv.FormatInt(fi.Size(), 10)
 }
 
-// endRelay turns the pipe off and the launch.log mirror on, with no ready frame: sayReady is the
-// keeper's ready, which does both in the hold that writes the frame.
-func (s *keeperSink) endRelay(mirror io.Writer) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.pipe = nil
-	s.mirror = mirror
-}
-
 // setLog gives the sink the keeper's log, once the keeper holds its jail's name (keeper.run).
 func (s *keeperSink) setLog(w io.Writer) {
 	s.mu.Lock()

@@ -523,8 +523,7 @@ func TestTheRelayRoutesEachStreamAndStopsAtReady(t *testing.T) {
 	keeperStream{s, frameJailStderr}.Write([]byte("boot li"))
 	keeperStream{s, frameJailStderr}.Write([]byte("ne\n"))
 	s.event(frameStarted, "42")
-	s.event(frameReady, "")
-	s.endRelay(&mirror)
+	s.sayReady(&mirror)
 	keeperStream{s, frameStderr}.Write([]byte("after ready\n"))
 	keeperStream{s, frameJailStderr}.Write([]byte("jail after ready\n"))
 
