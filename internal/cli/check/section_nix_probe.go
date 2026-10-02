@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
@@ -27,7 +28,8 @@ const nixVersionTimeout = 15 * time.Second
 // when it exists (internal/cli/run/assemble.go), so a hung daemon is a fault `check` can name
 // before a launch trips on it. What stays macOS-only diagnoses the macOS Linux-builder
 // offload: the trusted-user verdict inside the daemon check, and the extra-platforms and
-// builder block below, which would be noise on Linux.
+// builder block below, which would be noise on Linux. The one place it does not probe is a
+// container jail its launch gave no daemon, which has none to ask (jailHasHostNixDaemon).
 //
 // TWO NIX DISTRIBUTIONS, ONE FIX EACH. Determinate Nix and upstream Nix keep user settings in
 // different files and run differently-labelled daemons on a Mac, so every hint below that names
@@ -220,7 +222,17 @@ const nixDaemonTimeout = 15 * time.Second
 // nixDaemonStoreCheck runs the `nix store info` daemon-connectivity block: its timeout and its
 // failure on every OS, each naming the restart for this OS's service manager and, on a Mac, for
 // this Nix's daemon (nixDaemonRestart), and on macOS alone the trusted-user verdict (PS-D5).
+//
+// A CONTAINER JAIL ITS LAUNCH GAVE NO DAEMON IS NOT PROBED: there is no daemon to ask, and the
+// store nix opens instead is the jail's own, read-only, which root's nix fails to remount ('error:
+// remounting "/nix/store" writable: Invalid argument', the 2026-10-01 macOS podman nightly). That
+// failure read as "connection failed" with a restart for a daemon that does not exist, a [FAIL]
+// that stopped an in-jail `yolo check` on every jail working as designed (jailHasHostNixDaemon).
 func (o *Options) nixDaemonStoreCheck(r *reporter) {
+	if o.inContainerJail() && !o.jailHasHostNixDaemon() {
+		r.skip("Nix daemon: this jail has none — its launch mounted no host nix daemon", jailNoNixDaemonNote)
+		return
+	}
 	res := o.Exec(nixCmdArgv("store", "info"), "", nil, nixDaemonTimeout)
 	if res.Timeout {
 		// nixDaemonRestart names this Nix's own daemon, Determinate's included.
@@ -260,6 +272,36 @@ func (o *Options) nixDaemonStoreCheck(r *reporter) {
 		r.fail("Nix daemon: connection failed", hint+o.nixDaemonRestart())
 	}
 }
+
+// jailHasHostNixDaemon reports whether this container jail's launch gave it the host's nix daemon.
+//
+// A SECOND READING OF A DECISION THE LAUNCH OWNS, from what it leaves in the jail: check does not
+// import the run pipeline (builder.go's const block says why). internal/cli/run's assemble.go, on
+// shouldMountHostNix's verdict, binds the host's daemon-socket directory at the same path
+// (nixroots.DefaultSocket is the socket in it) and sets NIX_REMOTE=daemon, together, and emits
+// neither when it declines: a Mac whose store holds darwin paths, Apple Container, a Linux host
+// running no daemon, and a sealed launch (internal/cli/run/seal.go's term for the jail a forked
+// program's build runs in), which keeps the store but not the socket. The image runs no daemon of
+// its own.
+//
+// EITHER ONE COUNTS AS GIVEN, so the probe still runs wherever a daemon fault can be real: with
+// NIX_REMOTE=daemon and no socket the launch mounted a daemon that has since gone, and that is the
+// host's fault to report, restart and all.
+func (o *Options) jailHasHostNixDaemon() bool {
+	return nixDaemonStoreURL(o.Getenv("NIX_REMOTE")) || o.PathExists(nixroots.DefaultSocket)
+}
+
+// jailNoNixDaemonNote is the [SKIP]'s note for a container jail its launch gave no nix daemon: what
+// nix here can and cannot do, and when a launch does mount the host's daemon (shouldMountHostNix,
+// and the sealed branch beside it in internal/cli/run, which is the jail a forked program's build
+// runs in). The store-free and store-needing commands are integration/nixconf_test.go's; what the
+// two dials each say is hostprobes.go's.
+const jailNoNixDaemonNote = "So nix here has no daemon and a read-only store: `nix config show` works, and `nix build`,\n" +
+	"`nix shell` and `nix eval` fail. That is the launch's choice, not a fault. A launch mounts the\n" +
+	"host's daemon on a Linux host that runs one (a forked program's build jail excepted), and from\n" +
+	"a Mac only on podman with YOLO_NIX_HOST_DAEMON=1 and YOLO_NIX_HOST_STORE_LINUX=1, which say the\n" +
+	"podman machine shares /nix and the Mac's store holds the jail's Linux paths. To check the\n" +
+	"host's daemon, run `yolo check` on the host, then relaunch the jail."
 
 // nixStoreURL is the "Store URL:" line's value in `nix store info` output, "" when there is none.
 func nixStoreURL(output string) string {

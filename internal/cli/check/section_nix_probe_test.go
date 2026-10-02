@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
 )
 
@@ -235,13 +236,15 @@ func linuxNix(seen *[][]string, store ExecResult) func([]string, string, []strin
 }
 
 // runLinuxNixSection drives sectionNix as a Linux host with nix on the PATH, and systemctl on it
-// too when systemctl is true.
+// too when systemctl is true. A HOST, whatever runs the test: the environment is empty rather than
+// inherited, since a YOLO_VERSION would make it a jail, and one with no nix daemon is not probed.
 func runLinuxNixSection(t *testing.T, store ExecResult, systemctl bool) (*reporter, [][]string, string) {
 	t.Helper()
 	var out bytes.Buffer
 	var seen [][]string
 	o := &Options{IsMacOS: false, Stdout: &out, IsTTYStdout: func() bool { return false }}
 	fillDefaults(o)
+	o.Getenv = func(string) string { return "" }
 	o.LookPath = func(name string) (string, bool) {
 		return "/usr/bin/" + name, name == "nix" || (systemctl && name == "systemctl")
 	}
@@ -348,6 +351,137 @@ func TestALocalNixStoreIsNotReportedAsAConnectedDaemon(t *testing.T) {
 		Stdout: "Store URL: unix:///nix/var/nix/daemon-socket/socket\nVersion: 2.31.2\n"}, true)
 	if _, ok := findingFor(r, "Nix daemon: connected"); !ok {
 		t.Errorf("a daemon reached by its socket URL is a connected daemon:\n%s", out)
+	}
+}
+
+// A JAIL WHOSE LAUNCH GAVE IT NO NIX DAEMON HAS NO BROKEN DAEMON. The launcher gives a container
+// jail the host's nix daemon by binding the host's daemon-socket directory and setting
+// NIX_REMOTE=daemon, together, and gives neither on a Mac whose store holds darwin paths, on Apple
+// Container, on a Linux host running no daemon, or for a sealed launch. There `nix store info` is
+// answered by nix opening the --read-only jail's store as root, which fails, and the Nix section
+// read that as "Nix daemon: connection failed" with a restart for a daemon that does not exist:
+// measured on the 2026-10-01 and 2026-10-02 macOS podman nightlies, where it failed
+// TestYoloCheckAvailableInsideJail with exactly the stderr below. It is a [SKIP] saying what nix
+// here can and cannot do, never a [FAIL], and the restart is named nowhere.
+//
+// The guard half: a jail whose launch DID give it a daemon (NIX_REMOTE=daemon) still fails on a
+// daemon that went away, socket and all, and a host and a macos-user jail, whose nix is the host's,
+// are probed as before.
+func TestAJailTheLaunchGaveNoNixDaemonIsNotABrokenDaemon(t *testing.T) {
+	const restart = "Restart the nix-daemon service"
+	remount := ExecResult{Ran: true, RC: 1, Stderr: "error: remounting \"/nix/store\" writable: Invalid argument\n"}
+	refused := ExecResult{Ran: true, RC: 1, Stderr: "error: cannot connect to socket at " +
+		"'/nix/var/nix/daemon-socket/socket': No such file or directory\n"}
+	run := func(t *testing.T, mac, inJail bool, env map[string]string, socket bool, store ExecResult) (*reporter, [][]string, string) {
+		t.Helper()
+		var out bytes.Buffer
+		o := nixMachine{mac: mac, version: upstreamNixVersion, store: store,
+			files: map[string]string{upstreamPlist: ""}}.options(t, &out)
+		o.Getenv = func(k string) string {
+			if k == "YOLO_VERSION" && inJail {
+				return "9.9.9-test"
+			}
+			return env[k]
+		}
+		o.PathExists = func(p string) bool { return socket && p == nixroots.DefaultSocket }
+		o.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "nix" }
+		var seen [][]string
+		exec := o.Exec
+		o.Exec = func(argv []string, dir string, env []string, d time.Duration) ExecResult {
+			seen = append(seen, argv)
+			return exec(argv, dir, env, d)
+		}
+		r := newReporter(&out, false)
+		o.sectionNix(r)
+		return r, seen, out.String()
+	}
+
+	t.Run("container jail, no daemon mounted", func(t *testing.T) {
+		r, seen, out := run(t, false, true, nil, false, remount)
+		if r.failed != 0 {
+			t.Errorf("a jail its launch gave no nix daemon is not a broken daemon, but got %d [FAIL]:\n%s", r.failed, out)
+		}
+		if strings.Contains(out, restart) || strings.Contains(out, "systemctl") {
+			t.Errorf("no daemon exists here to restart:\n%s", out)
+		}
+		var skip *Finding
+		for i, f := range r.findings {
+			if f.Status == "skip" && strings.HasPrefix(f.Message, "Nix daemon:") {
+				skip = &r.findings[i]
+			}
+		}
+		if skip == nil {
+			t.Fatalf("no [SKIP] saying this jail has no nix daemon:\n%s", out)
+		}
+		for _, want := range []string{"read-only store", "`nix config show` works", "`nix build`",
+			"YOLO_NIX_HOST_DAEMON=1", "YOLO_NIX_HOST_STORE_LINUX=1", "build jail excepted",
+			"run `yolo check` on the host", "relaunch the jail"} {
+			if !strings.Contains(skip.Note, want) {
+				t.Errorf("the [SKIP]'s note lacks %q:\n%s", want, skip.Note)
+			}
+		}
+		for _, argv := range seen {
+			if slices.Equal(argv, nixCmdArgv("store", "info")) {
+				t.Errorf("`nix store info` ran with no daemon to ask; its answer is the jail's own read-only store")
+			}
+		}
+	})
+
+	t.Run("container jail, mounted daemon gone", func(t *testing.T) {
+		r, _, out := run(t, false, true, map[string]string{"NIX_REMOTE": "daemon"}, false, refused)
+		f, ok := findingFor(r, "Nix daemon: connection failed")
+		if !ok || f.Status != "fail" {
+			t.Fatalf("a daemon the launch mounted and that is gone is a real fault:\n%s", out)
+		}
+		if !strings.Contains(f.Note, "No such file or directory") || !strings.Contains(f.Note, restart) {
+			t.Errorf("the fault must keep nix's line and name the host's restart:\n%s", f.Note)
+		}
+	})
+
+	connected := ExecResult{Ran: true, RC: 0, Stdout: "Store URL: daemon\nVersion: 2.34.7\nTrusted: 0\n"}
+	t.Run("container jail, daemon mounted", func(t *testing.T) {
+		r, _, out := run(t, false, true, map[string]string{"NIX_REMOTE": "daemon"}, true, connected)
+		if f, ok := findingFor(r, "Nix daemon: connected"); !ok || f.Status != "pass" {
+			t.Errorf("a jail with the host's daemon mounted is probed as before:\n%s", out)
+		}
+	})
+
+	// The socket alone counts: nix's own `auto` store reaches a daemon through it.
+	t.Run("container jail, socket without NIX_REMOTE", func(t *testing.T) {
+		r, _, out := run(t, false, true, nil, true, connected)
+		if f, ok := findingFor(r, "Nix daemon: connected"); !ok || f.Status != "pass" {
+			t.Errorf("a jail with the host's daemon socket is probed:\n%s", out)
+		}
+	})
+
+	t.Run("linux host, no socket", func(t *testing.T) {
+		r, _, out := run(t, false, false, nil, false, remount)
+		if f, ok := findingFor(r, "Nix daemon: connection failed"); !ok || f.Status != "fail" {
+			t.Errorf("a host is probed whatever its socket says:\n%s", out)
+		}
+	})
+
+	t.Run("macos-user jail, no socket", func(t *testing.T) {
+		r, _, out := run(t, true, true, nil, false, refused)
+		if f, ok := findingFor(r, "Nix daemon: connection failed"); !ok || f.Status != "fail" {
+			t.Errorf("a macos-user jail runs the host's nix against the host's daemon, so it is probed:\n%s", out)
+		}
+	})
+}
+
+// The no-daemon [SKIP] names the launcher's two macOS dials, a second spelling of names the run
+// pipeline owns (check does not import it). A renamed dial would leave the note naming a variable
+// nothing reads, so the launcher's source must still spell both.
+func TestTheNoDaemonNoteNamesTheLaunchersDials(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "run", "hostprobes.go"))
+	must(t, err)
+	for _, dial := range []string{`"YOLO_NIX_HOST_DAEMON"`, `"YOLO_NIX_HOST_STORE_LINUX"`} {
+		if !strings.Contains(string(src), dial) {
+			t.Errorf("internal/cli/run/hostprobes.go no longer spells %s, which jailNoNixDaemonNote names", dial)
+		}
+		if !strings.Contains(jailNoNixDaemonNote, strings.Trim(dial, `"`)+"=1") {
+			t.Errorf("jailNoNixDaemonNote does not name %s", dial)
+		}
 	}
 }
 
