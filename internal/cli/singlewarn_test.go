@@ -16,6 +16,10 @@ import (
 // fact from the one this test counts.
 func TestHostEnvWarnsOncePerMissingFile(t *testing.T) {
 	t.Setenv("YOLO_VERSION", "")
+	// The user config decides which agents read env_sources, so a real one (a jail's own,
+	// for one) changed the answer; this test owns its home.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Chdir(t.TempDir())
 	cfg := jsonx.NewOrderedMap()
 	cfg.Set("env_sources", []any{"/nonexistent/absolute.env"})
