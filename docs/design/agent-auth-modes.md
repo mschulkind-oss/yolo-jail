@@ -451,44 +451,57 @@ no upstream ([caller authentication](../reference/wire-bridge.md#caller-authenti
 One — carried over from the pre-rewrite doc under its original ID, because the 2026-08-29 rewrite
 dropped it without answering it (the roadmap and sibling docs cited it as [`auth OQ-9`](#OQ-9)):
 
-1. 💬 <a id="OQ-9"></a>**OQ-9: AWS's two-part credential has no declarative home.** The provider vocabulary carries
-   a single credential pointer (`api_key_env_name`, hydrated as `{key}`), and `packs/claude`'s
-   `bedrock` provider declares nothing but its name — the user supplies `region` and `models` —
-   so `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` still flow through `env_sources` exactly as
-   [§2.1](#21-before--bedrock-only) measured. A second route now exists beside it: `packs/aws-auth`
-   serves SSO-minted credentials through one `AWS_CONTAINER_CREDENTIALS_FULL_URI` pointer
-   ([`sso-backed-bedrock.md`](sso-backed-bedrock.md)), which is a single variable and needs no
-   pair. That works today and is not blocking anything; the question is whether a credential
-   *pair* ever gets first-class declaration or whether `env_sources` is the permanent answer.
-   **The live form of this question is [`OQ-CN1`](../reference/providers.md#oq-cn1)** —
-   where the key→provider association lives, and whether `api_key_env_name` grows into a list —
-   so rule the two together. [`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger) (2026-09-24)
-   bears on it without answering it: it rules that the static pair is a **supported** Bedrock
-   credential, delivered through existing channels such as `env_sources`, and says nothing
-   about whether the pair ever gets a declaration.
+1. 💬 <a id="OQ-9"></a>**OQ-9: Does a credential *pair* ever get first-class declaration, or is
+   `env_sources` the permanent answer?**
+
+   AWS's two-part credential has no declarative home. Its live form is
+   [`OQ-CN1`](../reference/providers.md#oq-cn1), so rule the two together. A re-check on 2026-09-30
+   found the first premise no longer holds: the `bedrock` provider now declares the pair's names,
+   and `env_sources` is still their source. Whether that answers this question is the maintainer's
+   to say. The full statement and the re-check: [background](#background-to-oq-9).
+
+   <!-- vantage: question id=OQ-9 leaning="Leave AWS's two-part credential on env_sources until a second multi-var credential shows up. The provider-catalog work (OQ-CS8) is moving env composition into per-agent env derives that can read whatever the environment holds — that likely absorbs this question rather than answering it, and deciding it now would design against a moving surface." -->
 
    _Leaning:_ leave it on `env_sources` until a second multi-var credential shows up. The
    provider-catalog work ([OQ-CS8](../reference/providers.md#oq-cs8)) is moving env composition into per-agent env derives,
    which can read whatever the environment holds — that likely absorbs this question rather than
    answering it, and deciding it now would design against a moving surface.
 
-   > [!NOTE]
-   > **Re-checked against the tree 2026-09-30; not a ruling.** The question's first premise, a
-   > single credential pointer, no longer holds: [`OQ-CN1`](../reference/providers.md#oq-cn1)
-   > was ruled 2026-09-26 as *"Grow `api_key_env_name` into a list on the provider declaration"*
-   > and built as `packdecl.EnvNames` (`internal/packdecl/envnames.go`). The `bedrock` provider,
-   > now `packs/bedrock`'s, lists `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
-   > `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
-   > `AWS_CONTAINER_CREDENTIALS_FULL_URI` (`packs/bedrock/pack.json`). The values still arrive
-   > through `env_sources`, which [`OQ-ES1`](credential-sources-separation.md#OQ-ES1) (answered
-   > 2026-09-30) keeps as the one credential store. So the pair has a declaration of its names,
-   > and `env_sources` is its source. Whether that answers this question, or it asks for more
-   > (a declared pair with a hydration template, say), is the maintainer's to say.
-
-   <!-- vantage: question id=OQ-9 leaning="Leave AWS's two-part credential on env_sources until a second multi-var credential shows up. The provider-catalog work (OQ-CS8) is moving env composition into per-agent env derives that can read whatever the environment holds — that likely absorbs this question rather than answering it, and deciding it now would design against a moving surface." -->
-
    **Answer:**
    > _(empty — fill in when decided)_
+
+### 11.1 Background to the open questions
+
+#### Background to [OQ-9](#OQ-9)
+
+**AWS's two-part credential has no declarative home.** The provider vocabulary carries
+a single credential pointer (`api_key_env_name`, hydrated as `{key}`), and `packs/claude`'s
+`bedrock` provider declares nothing but its name — the user supplies `region` and `models` —
+so `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` still flow through `env_sources` exactly as
+[§2.1](#21-before--bedrock-only) measured. A second route now exists beside it: `packs/aws-auth`
+serves SSO-minted credentials through one `AWS_CONTAINER_CREDENTIALS_FULL_URI` pointer
+([`sso-backed-bedrock.md`](sso-backed-bedrock.md)), which is a single variable and needs no
+pair. That works today and is not blocking anything; the question is whether a credential
+*pair* ever gets first-class declaration or whether `env_sources` is the permanent answer.
+**The live form of this question is [`OQ-CN1`](../reference/providers.md#oq-cn1)** —
+where the key→provider association lives, and whether `api_key_env_name` grows into a list —
+so rule the two together. [`OQ-SSO7`](sso-backed-bedrock.md#13-decision-ledger) (2026-09-24)
+bears on it without answering it: it rules that the static pair is a **supported** Bedrock
+credential, delivered through existing channels such as `env_sources`, and says nothing
+about whether the pair ever gets a declaration.
+
+> [!NOTE]
+> **Re-checked against the tree 2026-09-30; not a ruling.** The question's first premise, a
+> single credential pointer, no longer holds: [`OQ-CN1`](../reference/providers.md#oq-cn1)
+> was ruled 2026-09-26 as *"Grow `api_key_env_name` into a list on the provider declaration"*
+> and built as `packdecl.EnvNames` (`internal/packdecl/envnames.go`). The `bedrock` provider,
+> now `packs/bedrock`'s, lists `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`,
+> `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE` and
+> `AWS_CONTAINER_CREDENTIALS_FULL_URI` (`packs/bedrock/pack.json`). The values still arrive
+> through `env_sources`, which [`OQ-ES1`](credential-sources-separation.md#OQ-ES1) (answered
+> 2026-09-30) keeps as the one credential store. So the pair has a declaration of its names,
+> and `env_sources` is its source. Whether that answers this question, or it asks for more
+> (a declared pair with a hydration template, say), is the maintainer's to say.
 
 ---
 

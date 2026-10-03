@@ -1,6 +1,6 @@
 ---
 status: current
-stage: CURRENT
+stage: DESIGN
 next: "Rule OQ-R8, whose options and leaning were drafted 2026-10-01 (the leaning: the hatch also reaches the supervisor's readiness refusal); today a jail whose required daemon cannot publish is refused with no hatch"
 verified: 2026-09-24
 verified_commit: f491d192
@@ -386,52 +386,14 @@ are otherwise the same bytes.
 
   <!-- vantage: question id=OQ-R8 leaning="(a): the hatch reaches the supervisor's readiness refusal too. The witness's own refusal promises a shell to a user who only needs one, OQ-R4 already put an endpoint that never published inside the hatch's scope, and the bridge's failures are mostly the user's own state, which is what a hatch is for." -->
 
-  The escape hatch downgrades the witness, but the jail-daemon supervisor
-  (`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`) refuses on its own, through the boot's `genStep`, which reads no hatch. So a jail whose required
-  daemon cannot start gets no shell even with `YOLO_ALLOW_UNREACHABLE_SERVICES` set. MEASURED on a
-  host 2026-09-19. Two gates meet here and neither one's ruling covers the pair: [OQ-R2](#oq-r2)
-  made the witness fatal with a hatch, and a failed boot generator refuses the boot with none
-  ([`jail-home.md`](jail-home.md)). Filed 2026-09-26; until then the question had no id.
-  Re-checked 2026-09-30: the supervisor's readiness wait returns an error
-  on a `failed` report (`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`) and reads
-  no hatch, while the hatch is read only in the witness (`reachability.go`). Options and a
-  leaning drafted 2026-10-01, from the tree at `d4e435a3`.
+  The escape hatch downgrades the witness, but the jail-daemon supervisor refuses on its own and
+  reads no hatch, so a jail whose required daemon cannot start gets no shell even with
+  `YOLO_ALLOW_UNREACHABLE_SERVICES` set. The measurement, the four facts that bear on it, and what
+  each option shows and costs: [Background to `OQ-R8`](#background-to-oq-r8).
 
-  Four facts bear on it, each read from the code rather than run:
-
-  - **Every trigger of the refusal is in `startJailDaemonSupervisor`**, and only when a daemon is
-    required: a `failed <reason>` report on the readiness pipe, a supervisor that cannot be found
-    or started or that exits before every required daemon has reported, and a readiness line it
-    cannot parse. `genStep` collects each into `genFailuresError` (`internal/entrypoint/boot.go`).
-  - **Only the wire bridge is ever required.** The launcher names it in
-    `YOLO_JAIL_DAEMON_READY_NAMES` exactly when `wirebridged.WillServe` says it will serve this
-    launch's channel (`serviceEndpointEnvArgs`, `internal/cli/run/packservices.go`).
-  - **The way in that exists today is the hold.** With `YOLO_HOLD_ON_REFUSAL=1` the refused
-    container is kept for `podman exec`, and the boot still fails once the hold ends
-    (`internal/entrypoint/hold.go`). It is how a held port can be traced. It gives no working
-    jail.
-  - **The witness probes the bridge's endpoint as well**, but its severity reads the launcher's
-    host-loopback disposition (`loopbackDisposition.escalates`), a fact about the host's network
-    stack that says nothing about a daemon inside the jail.
-
-  The options:
-
-  - **(a) The hatch reaches the readiness refusal too.** With
-    `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, a `failed` report or an early supervisor exit prints the
-    hatch's override notice and the boot continues. Without it, the refusal names the hatch, as
-    the witness's refusal does. *You see:* a shell in a jail whose bridge is down, and an agent
-    routed through the bridge failing at its first request, which is what the override notice
-    already says of every service it lets through. *You lose:* the guarantee that a jail which
-    booted has its required daemon.
-  - **(b) It stays hatchless, and says so.** The refusal names `YOLO_HOLD_ON_REFUSAL=1` as the way
-    to look inside, and the hatch's refusal text and this section say the hatch does not reach
-    this gate. *You see:* no shell until the cause is fixed on the host, or the profile that needs
-    the bridge is deselected. *You lose:* the shell the witness was designed to leave a user who
-    has to fix a daemon from inside: *"A hard fatal with no override would leave a user unable to
-    open a shell to fix the very daemon that is failing"* (`reachability.go`).
-  - **(c) One gate: the readiness wait warns, and the witness alone refuses.** *You pay:* severity
-    then follows the host-loopback disposition, so a launch whose disposition is `unknown` or
-    `unsupported` boots with only a warning when its bridge never started.
+  - **(a) The hatch reaches the readiness refusal too.**
+  - **(b) It stays hatchless, and says so.**
+  - **(c) One gate: the readiness wait warns, and the witness alone refuses.**
 
   _Leaning:_ **(a).** The witness's refusal already promises a shell to a user who only needs one
   (`unusableServicesMessage`: *"you only need a shell — launch anyway"*), and
@@ -446,6 +408,55 @@ are otherwise the same bytes.
 
   **Answer:**
   > _(empty — fill in when decided)_
+
+### Background to [`OQ-R8`](#oq-r8)
+
+The escape hatch downgrades the witness, but the jail-daemon supervisor
+(`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`) refuses on its own, through the boot's `genStep`, which reads no hatch. So a jail whose required
+daemon cannot start gets no shell even with `YOLO_ALLOW_UNREACHABLE_SERVICES` set. MEASURED on a
+host 2026-09-19. Two gates meet here and neither one's ruling covers the pair: [OQ-R2](#oq-r2)
+made the witness fatal with a hatch, and a failed boot generator refuses the boot with none
+([`jail-home.md`](jail-home.md)). Filed 2026-09-26; until then the question had no id.
+Re-checked 2026-09-30: the supervisor's readiness wait returns an error
+on a `failed` report (`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`) and reads
+no hatch, while the hatch is read only in the witness (`reachability.go`). Options and a
+leaning drafted 2026-10-01, from the tree at `d4e435a3`.
+
+Four facts bear on it, each read from the code rather than run:
+
+- **Every trigger of the refusal is in `startJailDaemonSupervisor`**, and only when a daemon is
+  required: a `failed <reason>` report on the readiness pipe, a supervisor that cannot be found
+  or started or that exits before every required daemon has reported, and a readiness line it
+  cannot parse. `genStep` collects each into `genFailuresError` (`internal/entrypoint/boot.go`).
+- **Only the wire bridge is ever required.** The launcher names it in
+  `YOLO_JAIL_DAEMON_READY_NAMES` exactly when `wirebridged.WillServe` says it will serve this
+  launch's channel (`serviceEndpointEnvArgs`, `internal/cli/run/packservices.go`).
+- **The way in that exists today is the hold.** With `YOLO_HOLD_ON_REFUSAL=1` the refused
+  container is kept for `podman exec`, and the boot still fails once the hold ends
+  (`internal/entrypoint/hold.go`). It is how a held port can be traced. It gives no working
+  jail.
+- **The witness probes the bridge's endpoint as well**, but its severity reads the launcher's
+  host-loopback disposition (`loopbackDisposition.escalates`), a fact about the host's network
+  stack that says nothing about a daemon inside the jail.
+
+The options in full:
+
+- **(a) The hatch reaches the readiness refusal too.** With
+  `YOLO_ALLOW_UNREACHABLE_SERVICES=1`, a `failed` report or an early supervisor exit prints the
+  hatch's override notice and the boot continues. Without it, the refusal names the hatch, as
+  the witness's refusal does. *You see:* a shell in a jail whose bridge is down, and an agent
+  routed through the bridge failing at its first request, which is what the override notice
+  already says of every service it lets through. *You lose:* the guarantee that a jail which
+  booted has its required daemon.
+- **(b) It stays hatchless, and says so.** The refusal names `YOLO_HOLD_ON_REFUSAL=1` as the way
+  to look inside, and the hatch's refusal text and this section say the hatch does not reach
+  this gate. *You see:* no shell until the cause is fixed on the host, or the profile that needs
+  the bridge is deselected. *You lose:* the shell the witness was designed to leave a user who
+  has to fix a daemon from inside: *"A hard fatal with no override would leave a user unable to
+  open a shell to fix the very daemon that is failing"* (`reachability.go`).
+- **(c) One gate: the readiness wait warns, and the witness alone refuses.** *You pay:* severity
+  then follows the host-loopback disposition, so a launch whose disposition is `unknown` or
+  `unsupported` boots with only a warning when its bridge never started.
 
 ## A nested jail is structurally blind to this
 

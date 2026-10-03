@@ -1385,19 +1385,7 @@ and it already has a home in the tree.
    _Leaning:_ Unverified, and I would guess yes (AC does ordinary directory binds), but a
    guess is exactly what this repo's doc norms forbid recording as fact.
 
-   **The measurement is**
-   `TestAppleContainerBindsADeepDestination` in
-   [`applecontainerparity_test.go`](../../integration/applecontainerparity_test.go). It is
-   selected by `apple-container.yml`'s `^TestAppleContainer` subset, and it is an experiment:
-   both answers pass. It skips when no jail image is loaded into Apple Container yet. It first runs a shallow control bind, and if that fails the test is red,
-   because nothing was measured. Then it binds a seeded host directory at three deep shapes:
-   a new top-level path (`/Users/yolo-wp5-probe/code/proj`, the host-path mirror), a path
-   nested inside another bind (`/workspace/a/b/c/proj`), and a path deep under an image
-   directory (`/opt/yolo-wp5/a/b/c/proj`). Each runs with `--read-only` as a yolo launch does,
-   and again without it on a failure, so the log says whether the rootfs or the destination
-   refused. **How to read it:** grep the job log for `AC-WP5 VERDICT`. `SUPPORTED` answers
-   this question yes. `NOT SUPPORTED for [...]` names the shapes that failed. Either way,
-   record the `container` version the line prints.
+   **The measurement** is described in the [background](#background-to-oq-wp5).
 
    **Answer:**
    > **Yes, measured 2026-09-25.** `AC-WP5 VERDICT: SUPPORTED` on `container` CLI 1.1.0, in
@@ -1449,37 +1437,20 @@ and it already has a home in the tree.
    **Answer:**
    > _(empty — fill in when decided)_
 
-8. 💬 <a id="OQ-WP8"></a>**OQ-WP8: Accept the verdict on MAXIMAL mirroring, and its reason?** This is the closure
-   question for the doc. [§12](#12-follow-up-maximal-mirroring) says no on grounds that do not
-   use churn, do not assume only the workspace moves, and do not lean on a revisitable backend
-   decision: **you can mirror a path's name but not its content** ([§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)), the credential
-   boundary loses its cheapest signal ([§12.5](#125-the-credential-boundary--the-argument-that-could-have-killed-it-and-does)), and `macos-user` cannot express the mirrored
-   home at all ([§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice)).
+8. 💬 <a id="OQ-WP8"></a>**OQ-WP8: Accept the verdict on MAXIMAL mirroring, and its reason?**
 
-   *Restated 2026-09-30.* [`OQ-WP1`](#OQ-WP1) and [`OQ-WP6`](#OQ-WP6), which this question was
-   to close, were closed on their own that day, so this is the only one left on the verdict.
-   **Two facts arrived after [§12](#12-follow-up-maximal-mirroring) was written, and both are
-   inputs here.** Two more crossings were measured by other designs: a git worktree made in a
-   container jail names `/workspace/…` in both links, so the host's `git worktree prune` drops
-   it ([`durable-scratch-space.md` §2.6](durable-scratch-space.md#26-a-worktree-records-absolute-paths-measured)),
-   and a jail's nix link reaches the host daemon as a root spelled with the jail's path, so the
-   host's garbage collector does not keep what it names
-   ([`in-jail-nix-roots.md`](in-jail-nix-roots.md)). Mirroring would fix both, and each already
-   has a targeted fix that needs none (`--lock` by [`DS-D10`](durable-scratch-space.md#DS-D10),
-   built; a root registered under the host's spelling, designed). And
-   [`OQ-WP5`](#OQ-WP5) measured Apple Container able to take a mirrored destination, so no
-   backend blocks the mount itself. Neither fact touches [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content), [§12.5](#125-the-credential-boundary--the-argument-that-could-have-killed-it-and-does) or
-   [§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice). What the want behind
-   the proposal was is [`OQ-WP10`](#OQ-WP10), best ruled first.
+   This is the closure question for the doc. [§12](#12-follow-up-maximal-mirroring) says no on
+   three grounds: you can mirror a path's name but not its content
+   ([§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)), the
+   credential boundary loses its cheapest signal
+   ([§12.5](#125-the-credential-boundary--the-argument-that-could-have-killed-it-and-does)), and
+   `macos-user` cannot express the mirrored home
+   ([§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice)). The two facts that
+   arrived later, and each option in full: [background](#background-to-oq-wp8).
+   [`OQ-WP10`](#OQ-WP10), the want behind the proposal, is best ruled first.
 
-   - **(A) Accept the no.** The jail keeps `/workspace`, `/home/agent` and `/mise`. A path that
-     crosses sides keeps failing at once with ENOENT, and each crossing that bites gets its own
-     fix, as `-trimpath`, the worktree `--lock` and the host-spelled nix root did.
-   - **(B) Mirror anyway**, on the position that a mirrored reference is *usually* right, so the
-     ABI hazard is acceptable. By [§12.9](#129-optional-first-transition-or-permanent) it starts
-     as a per-machine opt-in in user config with a removal condition stated as a test, owes
-     everything in [§9](#9-if-the-answer-were-yes-anyway--what-the-design-would-still-owe), and
-     leaves `macos-user` behind ([§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice)).
+   - **(A) Accept the no.** Each crossing that bites gets its own fix.
+   - **(B) Mirror anyway**, as a per-machine opt-in that leaves `macos-user` behind.
 
    _Leaning:_ **(A).** The reason I most want argued with is [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content) — if the maintainer holds
    that the ABI hazard is acceptable because a mirrored reference is *usually* right, that is
@@ -1505,44 +1476,7 @@ and it already has a home in the tree.
    leaning's own condition. No other oracle has been found, so this is still a question
    rather than a proposal.
 
-   **Evidence, MEASURED 2026-09-25**, with no ruling implied. The benchmark is
-   `internal/cli/run/retire_bench_test.go`. It ran in this development jail on an AMD Ryzen AI
-   MAX+ 395 with Go 1.26.7 and a warm page cache:
-   `env -u YOLO_VERSION -u YOLO_HOST_LAYERS go test -short -run '^$' -bench 'RetireJailMadeVenvToday|VenvELFInterp' -benchtime=2s -count=5 ./internal/cli/run/`.
-   The real-interpreter columns add `YOLO_BENCH_ELF=<path>` and use `-count=3`. Each cell is
-   the median of its runs.
-
-   | Per venv, per launch | Synthetic ELF | mise Python 3.13.12 (114 MB) | mise Python 3.11.14 (52 MB) |
-   | :--- | :--- | :--- | :--- |
-   | `retireJailMadeVenv` today, the whole function | 4.6 µs | — | — |
-   | Added probe, minimal reader (header, program headers, interpreter string) | 4.1 µs | 4.4 µs | 4.6 µs |
-   | Added probe through `debug/elf`, which also parses the section headers | 4.3 µs | 10–11 µs | 9 µs |
-
-   - **Cost: negligible.** A launch in this workspace spends a median of 2.15 s between its
-     first recorded event and `child.spawned`. That is 31 launches in
-     `<workspace>/.yolo/host-perf.log`, 2026-09-09 to 2026-09-25. Even the `debug/elf` probe
-     costs about 0.0005% of that. **NOT MEASURED:** a cold cache, because dropping the page
-     cache needs root. The minimal reader touches two places in the file: the first page and
-     the interpreter string. For 3.11.14 that string sits at offset `0x31e5690`, about 52 MB
-     in. `debug/elf` also reads the section-header table at the end of the file.
-   - **Oracle: it cannot tell the two sides apart.** The jail's mise Pythons 3.11.14, 3.12.7
-     and 3.13.12 all request `/lib64/ld-linux-x86-64.so.2`. So would a host's mise Python on
-     an FHS distribution. In the jail that path is a symlink to nix-ld. On the host the same
-     string names the host's own loader (not measured on the host from here). Only the
-     nix-built `/bin/python3` requests a store path
-     (`/nix/store/…-glibc-2.42-84/lib/ld-linux-x86-64.so.2`). That path resolves on the host
-     too, because the jail's `/nix/store` is the host's store, mounted read-only.
-   - **Blind by construction to the case this question names.** When the recorded `home`
-     path also exists on the host, the host reads its own file at that path, never the
-     jail's. The venv holds no copy of the interpreter to read instead. This jail's uv
-     0.11.27 `.venv/bin/python` is a symlink to the `home` binary. A content oracle would
-     have to read something the jail wrote *into* the venv, such as the RUNPATH of a compiled
-     extension module or a script's shebang. That is neither measured nor proposed.
-   - **READ FROM CODE, for context.** The two paths `retireJailMadeVenv` checks, `.venv` and
-     the mise-config venv path, are the first two members of the per-side shadow set
-     ([`SS-2`](../reference/jail-state-separation-design.md#ss-2)). So on a backend that
-     mounts that shadow, a jail-made venv at those paths is pre-shadow legacy state.
-     Whether `macos-user` shadows them was not checked.
+   **Evidence, MEASURED 2026-09-25**: [background](#background-to-oq-wp9).
 
    **Answer:**
    > **Decided as an implementation choice ([`WP-D3`](#WP-D3)), reversible: no hardening.** The
@@ -1556,62 +1490,19 @@ and it already has a home in the tree.
    > (`internal/cli/run/retire.go`). Reopen if a content oracle is found, or if
    > [`OQ-WP8`](#OQ-WP8) is answered yes.
 
-10. 💬 <a id="OQ-WP10"></a>**OQ-WP10: Is the real goal alternative G — one userland at several notches?** [§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle)
-    found that nothing in the env-manager corpus names paths as the obstacle to notch
-    portability, and [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content) found that content, not naming, is what blocks an artifact from
-    crossing. If the underlying want is "the same environment at different confinement
-    levels", the lever is `yoloNoncontainerPackages` and
-    [the nix resolver read in depth](provisioner-evidence.md#3-the-nix-resolver-in-depth), not the mount table.
-    Worth knowing whether that is the want, because a no to mirroring should not read as a no
-    to it.
+10. 💬 <a id="OQ-WP10"></a>**OQ-WP10: Is the real goal alternative G — one userland at several notches?**
 
-    **The host half is settled by principle
-    [HP-DIR3](host-tool-provisioning.md#HP-DIR3) (ruled 2026-09-29): not at the host notch.**
-    (The host notch is yolo running an agent directly on the user's machine, with no
-    confinement.) G asks the host and the jail to run one nix-provided userland, so that a
-    workspace artifact such as a venv or a built binary means the same thing on both sides. Its
-    lever, `yoloNoncontainerPackages` in `flake.nix`, is the declared `packages:` closure, and
-    that closure is the project's own toolchain. Doing G at the host would mean yolo provisioning
-    the workspace's runtime there. HP-DIR3 rules that out: at the host yolo manages the agent's
-    environment and never the workspace's runtime. In the maintainer's words, *"we don't maintain
-    the host development environment, the workspace's runtime."*
-    [OQ-HP6](host-tool-provisioning.md#OQ-HP6) rules it out too (no `mise install`, `mise env` or
-    direnv at the host). [OQ-HP7](host-tool-provisioning.md#OQ-HP7) says the commands a host
-    agent runs see the user's own shell environment.
-    [`host-tool-provisioning.md` §2](host-tool-provisioning.md#2-the-floor-what-it-contains-and-what-it-doesnt)
-    and [§9](host-tool-provisioning.md#9-non-goals) already said that `packages` and `mise_tools`
-    at the host belong to the user. So the host-to-jail half of G is not a goal, and that is the
-    half [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)'s ABI
-    hazard is about (an Arch host against a NixOS jail). The host side of a workspace's runtime
-    stays the user's by design. The host's agent floor (a yolo-owned prefix holding the selected
-    packs' programs) is not part of this question. It is the agent's environment, not the
-    workspace's, and [OQ-HP3](host-tool-provisioning.md#OQ-HP3) and
-    [OQ-HP4](host-tool-provisioning.md#OQ-HP4) already ruled what goes in it.
-
-    **What is left.** HP-DIR3 already rules the host out. What remains of G is two narrower things:
-
-    - **Agreement among the confined notches.** On one Mac, a podman jail and the `macos-user`
-      backend can share a workspace. But one side runs Linux ELF binaries and the other Mach-O,
-      so their contents can never agree. On Linux, the podman jail and the unbuilt `guest` notch
-      would take the declared `packages:` from the same flake: the jail from its image, `guest`
-      from `yoloNoncontainerProfile` (that closure plus the base tools an image would bake). `guest` is the middle
-      confinement level (a real home on the real filesystem, no image), due in env-manager
-      Phase 7 ([§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle)).
-      So those tools already agree by construction.
-    - **The want may never have been portability.** It may only have been paths a human can
-      use. A `/workspace/...` path an agent writes in the jail is dead when you paste it into a
-      host terminal
-      ([§3.3](#33-confirmed-workspace-paths-written-in-jail-are-dead-on-the-host)).
+    [§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle) and
+    [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content) found that
+    content, not naming, blocks an artifact from crossing between notches, and
+    [HP-DIR3](host-tool-provisioning.md#HP-DIR3) has since ruled out G's host half. What G is,
+    what is left of it, and each option in full: [background](#background-to-oq-wp10).
 
     **Question:** what was the want?
 
-    - **(a)** G is the goal, but for the confined notches only. Record it as the direction for
-      the Linux `guest` notch (env-manager Phase 7). No new work now.
-    - **(b)** The want was human-legible paths. The lever is
-      [§3.3](#33-confirmed-workspace-paths-written-in-jail-are-dead-on-the-host)'s targeted fixes:
-      the briefing already tells every agent the workspace is `/workspace`, not the host's path,
-      and output could translate paths. G is dropped as a stated goal.
-    - **(c)** Neither. Close this question together with [OQ-WP8](#OQ-WP8)'s no to mirroring.
+    - **(a)** G is the goal, but for the confined notches only.
+    - **(b)** The want was human-legible paths.
+    - **(c)** Neither.
 
     _Leaning (revised 2026-09-29):_ **(b).** In this doc the host half was G's main case:
     [§10](#10-alternatives-each-with-a-verdict) cites *"the host notch is a place agents run"*
@@ -1666,6 +1557,158 @@ and it already has a home in the tree.
     `scope: machine` directories stay in the account home and are mirrored back. The transcript
     leak is closed by the layout, with no profile change
     ([`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md#no-bind-mounts)).
+
+### Background to the open questions
+
+#### Background to [OQ-WP5](#OQ-WP5)
+
+**The measurement is**
+`TestAppleContainerBindsADeepDestination` in
+[`applecontainerparity_test.go`](../../integration/applecontainerparity_test.go). It is
+selected by `apple-container.yml`'s `^TestAppleContainer` subset, and it is an experiment:
+both answers pass. It skips when no jail image is loaded into Apple Container yet. It first runs a shallow control bind, and if that fails the test is red,
+because nothing was measured. Then it binds a seeded host directory at three deep shapes:
+a new top-level path (`/Users/yolo-wp5-probe/code/proj`, the host-path mirror), a path
+nested inside another bind (`/workspace/a/b/c/proj`), and a path deep under an image
+directory (`/opt/yolo-wp5/a/b/c/proj`). Each runs with `--read-only` as a yolo launch does,
+and again without it on a failure, so the log says whether the rootfs or the destination
+refused. **How to read it:** grep the job log for `AC-WP5 VERDICT`. `SUPPORTED` answers
+this question yes. `NOT SUPPORTED for [...]` names the shapes that failed. Either way,
+record the `container` version the line prints.
+
+#### Background to [OQ-WP8](#OQ-WP8)
+
+This is the closure
+question for the doc. [§12](#12-follow-up-maximal-mirroring) says no on grounds that do not
+use churn, do not assume only the workspace moves, and do not lean on a revisitable backend
+decision: **you can mirror a path's name but not its content** ([§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)), the credential
+boundary loses its cheapest signal ([§12.5](#125-the-credential-boundary--the-argument-that-could-have-killed-it-and-does)), and `macos-user` cannot express the mirrored
+home at all ([§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice)).
+
+*Restated 2026-09-30.* [`OQ-WP1`](#OQ-WP1) and [`OQ-WP6`](#OQ-WP6), which this question was
+to close, were closed on their own that day, so this is the only one left on the verdict.
+**Two facts arrived after [§12](#12-follow-up-maximal-mirroring) was written, and both are
+inputs here.** Two more crossings were measured by other designs: a git worktree made in a
+container jail names `/workspace/…` in both links, so the host's `git worktree prune` drops
+it ([`durable-scratch-space.md` §2.6](durable-scratch-space.md#26-a-worktree-records-absolute-paths-measured)),
+and a jail's nix link reaches the host daemon as a root spelled with the jail's path, so the
+host's garbage collector does not keep what it names
+([`in-jail-nix-roots.md`](in-jail-nix-roots.md)). Mirroring would fix both, and each already
+has a targeted fix that needs none (`--lock` by [`DS-D10`](durable-scratch-space.md#DS-D10),
+built; a root registered under the host's spelling, designed). And
+[`OQ-WP5`](#OQ-WP5) measured Apple Container able to take a mirrored destination, so no
+backend blocks the mount itself. Neither fact touches [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content), [§12.5](#125-the-credential-boundary--the-argument-that-could-have-killed-it-and-does) or
+[§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice). What the want behind
+the proposal was is [`OQ-WP10`](#OQ-WP10), best ruled first.
+
+- **(A) Accept the no.** The jail keeps `/workspace`, `/home/agent` and `/mise`. A path that
+  crosses sides keeps failing at once with ENOENT, and each crossing that bites gets its own
+  fix, as `-trimpath`, the worktree `--lock` and the host-spelled nix root did.
+- **(B) Mirror anyway**, on the position that a mirrored reference is *usually* right, so the
+  ABI hazard is acceptable. By [§12.9](#129-optional-first-transition-or-permanent) it starts
+  as a per-machine opt-in in user config with a removal condition stated as a test, owes
+  everything in [§9](#9-if-the-answer-were-yes-anyway--what-the-design-would-still-owe), and
+  leaves `macos-user` behind ([§12.8](#128-macos-users-neutral-ground-is-it-a-constraint-or-a-choice)).
+
+#### Background to [OQ-WP9](#OQ-WP9)
+
+**Evidence, MEASURED 2026-09-25**, with no ruling implied. The benchmark is
+`internal/cli/run/retire_bench_test.go`. It ran in this development jail on an AMD Ryzen AI
+MAX+ 395 with Go 1.26.7 and a warm page cache:
+`env -u YOLO_VERSION -u YOLO_HOST_LAYERS go test -short -run '^$' -bench 'RetireJailMadeVenvToday|VenvELFInterp' -benchtime=2s -count=5 ./internal/cli/run/`.
+The real-interpreter columns add `YOLO_BENCH_ELF=<path>` and use `-count=3`. Each cell is
+the median of its runs.
+
+| Per venv, per launch | Synthetic ELF | mise Python 3.13.12 (114 MB) | mise Python 3.11.14 (52 MB) |
+| :--- | :--- | :--- | :--- |
+| `retireJailMadeVenv` today, the whole function | 4.6 µs | — | — |
+| Added probe, minimal reader (header, program headers, interpreter string) | 4.1 µs | 4.4 µs | 4.6 µs |
+| Added probe through `debug/elf`, which also parses the section headers | 4.3 µs | 10–11 µs | 9 µs |
+
+- **Cost: negligible.** A launch in this workspace spends a median of 2.15 s between its
+  first recorded event and `child.spawned`. That is 31 launches in
+  `<workspace>/.yolo/host-perf.log`, 2026-09-09 to 2026-09-25. Even the `debug/elf` probe
+  costs about 0.0005% of that. **NOT MEASURED:** a cold cache, because dropping the page
+  cache needs root. The minimal reader touches two places in the file: the first page and
+  the interpreter string. For 3.11.14 that string sits at offset `0x31e5690`, about 52 MB
+  in. `debug/elf` also reads the section-header table at the end of the file.
+- **Oracle: it cannot tell the two sides apart.** The jail's mise Pythons 3.11.14, 3.12.7
+  and 3.13.12 all request `/lib64/ld-linux-x86-64.so.2`. So would a host's mise Python on
+  an FHS distribution. In the jail that path is a symlink to nix-ld. On the host the same
+  string names the host's own loader (not measured on the host from here). Only the
+  nix-built `/bin/python3` requests a store path
+  (`/nix/store/…-glibc-2.42-84/lib/ld-linux-x86-64.so.2`). That path resolves on the host
+  too, because the jail's `/nix/store` is the host's store, mounted read-only.
+- **Blind by construction to the case this question names.** When the recorded `home`
+  path also exists on the host, the host reads its own file at that path, never the
+  jail's. The venv holds no copy of the interpreter to read instead. This jail's uv
+  0.11.27 `.venv/bin/python` is a symlink to the `home` binary. A content oracle would
+  have to read something the jail wrote *into* the venv, such as the RUNPATH of a compiled
+  extension module or a script's shebang. That is neither measured nor proposed.
+- **READ FROM CODE, for context.** The two paths `retireJailMadeVenv` checks, `.venv` and
+  the mise-config venv path, are the first two members of the per-side shadow set
+  ([`SS-2`](../reference/jail-state-separation-design.md#ss-2)). So on a backend that
+  mounts that shadow, a jail-made venv at those paths is pre-shadow legacy state.
+  Whether `macos-user` shadows them was not checked.
+
+#### Background to [OQ-WP10](#OQ-WP10)
+
+[§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle)
+found that nothing in the env-manager corpus names paths as the obstacle to notch
+portability, and [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content) found that content, not naming, is what blocks an artifact from
+crossing. If the underlying want is "the same environment at different confinement
+levels", the lever is `yoloNoncontainerPackages` and
+[the nix resolver read in depth](provisioner-evidence.md#3-the-nix-resolver-in-depth), not the mount table.
+Worth knowing whether that is the want, because a no to mirroring should not read as a no
+to it.
+
+**The host half is settled by principle
+[HP-DIR3](host-tool-provisioning.md#HP-DIR3) (ruled 2026-09-29): not at the host notch.**
+(The host notch is yolo running an agent directly on the user's machine, with no
+confinement.) G asks the host and the jail to run one nix-provided userland, so that a
+workspace artifact such as a venv or a built binary means the same thing on both sides. Its
+lever, `yoloNoncontainerPackages` in `flake.nix`, is the declared `packages:` closure, and
+that closure is the project's own toolchain. Doing G at the host would mean yolo provisioning
+the workspace's runtime there. HP-DIR3 rules that out: at the host yolo manages the agent's
+environment and never the workspace's runtime. In the maintainer's words, *"we don't maintain
+the host development environment, the workspace's runtime."*
+[OQ-HP6](host-tool-provisioning.md#OQ-HP6) rules it out too (no `mise install`, `mise env` or
+direnv at the host). [OQ-HP7](host-tool-provisioning.md#OQ-HP7) says the commands a host
+agent runs see the user's own shell environment.
+[`host-tool-provisioning.md` §2](host-tool-provisioning.md#2-the-floor-what-it-contains-and-what-it-doesnt)
+and [§9](host-tool-provisioning.md#9-non-goals) already said that `packages` and `mise_tools`
+at the host belong to the user. So the host-to-jail half of G is not a goal, and that is the
+half [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content)'s ABI
+hazard is about (an Arch host against a NixOS jail). The host side of a workspace's runtime
+stays the user's by design. The host's agent floor (a yolo-owned prefix holding the selected
+packs' programs) is not part of this question. It is the agent's environment, not the
+workspace's, and [OQ-HP3](host-tool-provisioning.md#OQ-HP3) and
+[OQ-HP4](host-tool-provisioning.md#OQ-HP4) already ruled what goes in it.
+
+**What is left.** HP-DIR3 already rules the host out. What remains of G is two narrower things:
+
+- **Agreement among the confined notches.** On one Mac, a podman jail and the `macos-user`
+  backend can share a workspace. But one side runs Linux ELF binaries and the other Mach-O,
+  so their contents can never agree. On Linux, the podman jail and the unbuilt `guest` notch
+  would take the declared `packages:` from the same flake: the jail from its image, `guest`
+  from `yoloNoncontainerProfile` (that closure plus the base tools an image would bake). `guest` is the middle
+  confinement level (a real home on the real filesystem, no image), due in env-manager
+  Phase 7 ([§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle)).
+  So those tools already agree by construction.
+- **The want may never have been portability.** It may only have been paths a human can
+  use. A `/workspace/...` path an agent writes in the jail is dead when you paste it into a
+  host terminal
+  ([§3.3](#33-confirmed-workspace-paths-written-in-jail-are-dead-on-the-host)).
+
+**Question:** what was the want?
+
+- **(a)** G is the goal, but for the confined notches only. Record it as the direction for
+  the Linux `guest` notch (env-manager Phase 7). No new work now.
+- **(b)** The want was human-legible paths. The lever is
+  [§3.3](#33-confirmed-workspace-paths-written-in-jail-are-dead-on-the-host)'s targeted fixes:
+  the briefing already tells every agent the workspace is `/workspace`, not the host's path,
+  and output could translate paths. G is dropped as a stated goal.
+- **(c)** Neither. Close this question together with [OQ-WP8](#OQ-WP8)'s no to mirroring.
 
 ---
 

@@ -198,23 +198,7 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    - **(b)** Move it to the maintainer's own pack, out of yolo entirely.
    - **(c)** Keep it where it is, as the one sanctioned case.
 
-   What the block does today: only on the `codex` profile, pi's derive writes pi-subagents' own
-   settings. `subagents.defaultModel` is the profile's model, so a child agent with no model of
-   its own starts there. `subagents.modelScope` is `{enforce: true, strict: true, allow: [...]}`
-   with `allow` set to exactly the subscription's declared model list, so pi-subagents refuses to
-   start a child on any other model, including a model an agent file or a workflow names
-   explicitly. It was added on 2026-09-15 to stop workflows written for other providers from
-   pinning a model the ChatGPT subscription cannot serve. On every other profile the derive
-   writes no `subagents` block, and pi-subagents' own default applies: a child inherits its
-   parent's model and may name any model.
-
-   Stakes: under (a) or (b), a codex user who has not selected the adapter pack loses that
-   refusal. Their child agents still start on the codex model, because they inherit it from the
-   parent, so only a child that names another model changes: today it is refused, and without
-   the block pi-subagents starts it on that model, which works if that model's provider is
-   configured and fails if it is not. Under
-   (c) nothing changes for codex users, and every other provider keeps having no policy at all,
-   which is the gap [OQ-PM1](pi-model-selection-ux.md#OQ-PM1) asks about.
+   Background: [what the block does today, and the stakes](#background-to-oq-xm3).
 
    _Leaning:_ (a), and it answers [OQ-PM1](pi-model-selection-ux.md#OQ-PM1) the same way: the adapter writes `defaultModel` from the
    profile's `default` alias and `modelScope` from the provider's models, for every provider.
@@ -269,6 +253,28 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    **Answer:**
    > **Ruled in review 2026-09-28, against the leaning:** no. yolo does not propose a model-roles
    > setting to pi upstream; adapters stay the way yolo reaches each extension's own settings.
+
+### 6.1 Background to the open questions
+
+#### Background to [OQ-XM3](#OQ-XM3)
+
+What the block does today: only on the `codex` profile, pi's derive writes pi-subagents' own
+settings. `subagents.defaultModel` is the profile's model, so a child agent with no model of
+its own starts there. `subagents.modelScope` is `{enforce: true, strict: true, allow: [...]}`
+with `allow` set to exactly the subscription's declared model list, so pi-subagents refuses to
+start a child on any other model, including a model an agent file or a workflow names
+explicitly. It was added on 2026-09-15 to stop workflows written for other providers from
+pinning a model the ChatGPT subscription cannot serve. On every other profile the derive
+writes no `subagents` block, and pi-subagents' own default applies: a child inherits its
+parent's model and may name any model.
+
+Stakes: under (a) or (b), a codex user who has not selected the adapter pack loses that
+refusal. Their child agents still start on the codex model, because they inherit it from the
+parent, so only a child that names another model changes: today it is refused, and without
+the block pi-subagents starts it on that model, which works if that model's provider is
+configured and fails if it is not. Under
+(c) nothing changes for codex users, and every other provider keeps having no policy at all,
+which is the gap [OQ-PM1](pi-model-selection-ux.md#OQ-PM1) asks about.
 
 ## 7. Decision Ledger
 

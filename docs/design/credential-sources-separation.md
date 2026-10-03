@@ -551,19 +551,8 @@ works:
 
    <!-- vantage: question id=OQ-ES5 leaning="Jail half, (A): the same --with-credentials flag at every notch. In a jail or a macos-user jail it hands the one launched command the named providers' claimed env_sources values, keys only, carried in that entry's exec environment, disclosed on every entry and never in config, as the host ruling has it, by the parity direction ('host is supposed to act like everywhere else'). (B) keeps it host-only, with the hand-sourced per-agent file as the jail's only route." -->
 
-   This case had no mechanism when it was filed:
-   - a jail shell (`-p bash=zai` is refused);
-   - a macos-user shell (delivery is keyed by argv[0]);
-   - a host command that needs two providers at once. `-p` names one profile, and the last one
-     given wins (`parseHostExecFlags`).
-
-   The options are (i) document `. ~/.config/yolo-agent-env/<agent>.sh`, which works only when
-   some agent selected the provider, and stop there; or (ii) add a flag that names providers.
-   Option (ii) **revisits a constraint [OQ-CN6](../reference/providers.md#oq-cn6) stated**:
-   *"a bare `yolo -- bash` shell selects no provider, so it gets no provider value."* It would
-   break that constraint only when the user asks, for one invocation. Reusing `-p` in the jail would instead revisit the 2026-09-03
-   ruling that a profile never keys the `--` command. The stakes: whether a user can debug a
-   provider from a jail shell without starting an agent.
+   The filed cases and options, (i) and (ii), are in the [background](#background-to-oq-es5); the
+   note under the Answer restates the options as (A) and (B).
 
    _Leaning:_ (ii). The flag needs four properties, following the 2026-09-26 acknowledgment rule
    ([OQ-SK1](attach-skew-and-contract-guardrails.md#OQ-SK1)):
@@ -649,8 +638,7 @@ works:
      [OQ-ES5](#OQ-ES5)'s flag in a jail;
    - (b) a user-scope, per-name acknowledgment that shares one claimed name with every process,
      disclosed on every launch;
-   - (c) narrow [CN-D2](provider-credential-scope.md#CN-D2)'s list. At the host,
-     though, `AWS_PROFILE` selects the user's own SSO credentials, so it is not a harmless name.
+   - (c) narrow [CN-D2](provider-credential-scope.md#CN-D2)'s list ([caveat](#background-to-oq-es6)).
 
    The stakes: whether selecting the claude pack silently changes ordinary AWS tooling.
 
@@ -688,6 +676,29 @@ works:
    > A grant-only process runs no derive and fires no gated env (ES-D13), so it never carried a
    > CLI-less pack's pointer either. Whether it should would be a new question about the grant.
    > It is not this one.
+
+### 9.1 Background to the open questions
+
+#### Background to [OQ-ES5](#OQ-ES5)
+
+This case had no mechanism when it was filed:
+- a jail shell (`-p bash=zai` is refused);
+- a macos-user shell (delivery is keyed by argv[0]);
+- a host command that needs two providers at once. `-p` names one profile, and the last one
+  given wins (`parseHostExecFlags`).
+
+The options are (i) document `. ~/.config/yolo-agent-env/<agent>.sh`, which works only when
+some agent selected the provider, and stop there; or (ii) add a flag that names providers.
+Option (ii) **revisits a constraint [OQ-CN6](../reference/providers.md#oq-cn6) stated**:
+*"a bare `yolo -- bash` shell selects no provider, so it gets no provider value."* It would
+break that constraint only when the user asks, for one invocation. Reusing `-p` in the jail would instead revisit the 2026-09-03
+ruling that a profile never keys the `--` command. The stakes: whether a user can debug a
+provider from a jail shell without starting an agent.
+
+#### Background to [OQ-ES6](#OQ-ES6)
+
+On option (c), narrowing [CN-D2](provider-credential-scope.md#CN-D2)'s list: at the host,
+though, `AWS_PROFILE` selects the user's own SSO credentials, so it is not a harmless name.
 
 ## 10. Decision Ledger
 

@@ -123,24 +123,28 @@ one asked for:
 | `opencode --version` (npm) | `launch/opencode: line 182: npm: command not found` → `⚠ opencode not available`, **rc=1** |
 | `pi --version` (npm) | same shape, **rc=1** |
 
-Three facts worth more than the verdict. (1) **The npm row does not fail silently** — the launcher
-prints the missing interpreter and the pack name and exits non-zero, which is what
-[`../../reference/macos-user-provisioning.md` — what this costs today](../../reference/macos-user-provisioning.md#what-each-imperative-config-key-delivers-here)'s
-"silent" cell claimed it did not do; that row is corrected there. (2) **`claude`'s launcher tried its hourly UPDATE and the
-update FAILED** — `⚠ claude: update failed (status 124) — running the installed version`
-(`internal/entrypoint/shims.go`), then ran `2.1.217` anyway. The fallback behaved exactly as
-designed, so what is unproven on this backend is the **evergreen** half, not the install half. ⚠
-**The 124 is the vendor's, not a yolo timeout**: `HAS_UPDATE_VERB=1` for claude (`update:
-["install"]`), so `_bounded` ran `claude install`, and `_bounded` only wraps in `timeout(1)` *where
-the platform has one* — `shims.go` says in as many words that the image bakes it and a
-stock macOS does not, and this Mac confirms it (no `/usr/bin/timeout`; Homebrew's `gtimeout` is off
-`SandboxPath` and denied by the profile besides). So the update ran **unbounded** and 124 is
-`claude install`'s own exit status. Worth knowing before reading 124 as a bound anywhere on this
-backend: **there is no wall-clock bound on a guest update at all**, by the ruling in that comment.
-⚠ *Superseded 2026-10-01 by [OQ-PD22](../../design/program-delivery.md#decision-ledger):* the bound
-is now `yolo internal no-terminal`'s, which needs no `timeout(1)`, so on a launcher of that build a
-124 on this backend may now be the bound's. (3) **Two installers write into the generated home** and one of them reorders PATH:
-see [what a vendor installer does to the generated home](#what-a-vendor-installer-does-to-the-generated-home).
+Three facts worth more than the verdict.
+
+1. **The npm row does not fail silently** — the launcher
+   prints the missing interpreter and the pack name and exits non-zero, which is what
+   [`../../reference/macos-user-provisioning.md` — what this costs today](../../reference/macos-user-provisioning.md#what-each-imperative-config-key-delivers-here)'s
+   "silent" cell claimed it did not do; that row is corrected there.
+2. **`claude`'s launcher tried its hourly UPDATE and the
+   update FAILED** — `⚠ claude: update failed (status 124) — running the installed version`
+   (`internal/entrypoint/shims.go`), then ran `2.1.217` anyway. The fallback behaved exactly as
+   designed, so what is unproven on this backend is the **evergreen** half, not the install half. ⚠
+   **The 124 is the vendor's, not a yolo timeout**: `HAS_UPDATE_VERB=1` for claude (`update:
+   ["install"]`), so `_bounded` ran `claude install`, and `_bounded` only wraps in `timeout(1)` *where
+   the platform has one* — `shims.go` says in as many words that the image bakes it and a
+   stock macOS does not, and this Mac confirms it (no `/usr/bin/timeout`; Homebrew's `gtimeout` is off
+   `SandboxPath` and denied by the profile besides). So the update ran **unbounded** and 124 is
+   `claude install`'s own exit status. Worth knowing before reading 124 as a bound anywhere on this
+   backend: **there is no wall-clock bound on a guest update at all**, by the ruling in that comment.
+   ⚠ *Superseded 2026-10-01 by [OQ-PD22](../../design/program-delivery.md#decision-ledger):* the bound
+   is now `yolo internal no-terminal`'s, which needs no `timeout(1)`, so on a launcher of that build a
+   124 on this backend may now be the bound's.
+3. **Two installers write into the generated home** and one of them reorders PATH:
+   see [what a vendor installer does to the generated home](#what-a-vendor-installer-does-to-the-generated-home).
 
 ## M2 — does the generated Brewfile actually apply, casks included?
 

@@ -4,7 +4,7 @@ date: 2026-08-30
 status: in-review
 tags: [packs, config, validation, diagnostics, ux, principles]
 summary: "Closing the gap between what stringly-typed-references-principle.md asks for and what the code does, written from the user's side. Today a mistyped pack name, an invented wire_api, and a plaintext credential in a base_url all return [PASS]; a mistyped KEY one line away returns [FAIL]. And a whole class of diagnostic — the bare stderr warning — is structurally excluded from the summary line users actually read (measured: 5 warnings printed, summary says 2). This is what changes, what starts failing, and what each message becomes."
-stage: BUILT
+stage: DESIGN
 next: "Rule OQ-RM4 — whether an unmatched reference gets an escape hatch; the build shipped the leaning, none"
 ---
 
@@ -479,10 +479,8 @@ day. Nothing in this section is left to build.
 
 ## 9. Open Questions
 
-1. ✅ <a id="OQ-RM1"></a>**OQ-RM1: Does `yolo check` refuse, or only report, the LAUNCH-ONLY checks?** The
-   parse-time half is no longer a question: steps 2–3 shipped as `[FAIL]` rows, and `Check()`
-   short-circuits on a merged-config failure and exits non-zero, so a bad enum or a credential in
-   a URL already refuses. What is left is the checks `check` cannot decide from a declaration
+1. ✅ <a id="OQ-RM1"></a>**OQ-RM1: Does `yolo check` refuse, or only report, the LAUNCH-ONLY checks?**
+   Background: [§9.1](#91-background-to-the-questions). What is left is the checks `check` cannot decide from a declaration
    alone — [§4.4](#44-a-supersession-that-matches-nothing)'s supersession match above all, which
    needs the resolved set and is decidable on the host. But `check` is also the command you run
    *to find out what is wrong*, which is the argument that kept the supersedes finding non-fatal in
@@ -568,6 +566,12 @@ day. Nothing in this section is left to build.
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+### 9.1 Background to the questions
+
+**[`OQ-RM1`](#OQ-RM1).** The parse-time half is no longer a question: steps 2–3 shipped as
+`[FAIL]` rows, and `Check()` short-circuits on a merged-config failure and exits non-zero, so a
+bad enum or a credential in a URL already refuses.
 
 ---
 

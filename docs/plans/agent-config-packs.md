@@ -1709,12 +1709,15 @@ verb on.
 
 <!-- vantage: question id=OQ-ACP3 -->
 
-_Leaning:_ split the three. (a) Do **not** block packs on it — phase 2 fills
+_Leaning:_ split the three.\
+(a) Do **not** block packs on it — phase 2 fills
 `Inputs.Workspace` from data, which is the last step of making the manifest
 data-driven; extraction afterwards costs a public-API contract, black-box tests, a
 `yolo`-named Lua global to rename, `Surface` json tags plus a schema version, and a
-vendored module for the hermetic build ([§9.3](#9-scope-in-yolo-jail-with-two-extractable-packages)). (b) Extraction needs a *second
-consumer* as its motivation, not the duplicate table. (c) Host-config management is a
+vendored module for the hermetic build ([§9.3](#9-scope-in-yolo-jail-with-two-extractable-packages)).\
+(b) Extraction needs a *second
+consumer* as its motivation, not the duplicate table.\
+(c) Host-config management is a
 separate product question and the *first* thing it needs is not a new tool but the
 three logged defects fixed: `config render` reading its host layer from the
 destination path, its missing `Computed`/`Overlay` layers, and `config render user`

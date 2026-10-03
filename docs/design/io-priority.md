@@ -644,16 +644,10 @@ severity) are answered from existing rulings.
 4. 💬 <a id="OQ-IO7"></a>**[OQ-IO7](#OQ-IO7): Does v1 ship a cgroup half, and which one?** This
    decides whether anything yolo ships governs a build's writeback. Every option needs `io`
    delegated, a one-time `sudo` change on the host, and none has been measured on a delegated host.
-   An encrypted disk changes none of them, because the cgroup association survives dm-crypt's
-   writes ([§3.2](#32-the-cgroup-io-controller)):
-   - **(a) a `resources.io.weight` key**, as `--blkio-weight`: it acts on BFQ, or through
-     iocost. It is relative to siblings under the jail's parent slice, so it does nothing against
-     desktop apps while this jail is the only container running ([§3.2](#32-the-cgroup-io-controller)).
-   - **(b) `"idle"` also written as the cgroup's `io.prio.class`**: it reaches writeback and the
-     agent cannot undo it, but only on mq-deadline, and only for `"idle"`. `restrict-to-be` would
-     *raise* an unset class to `BE0`, so `"low"` has no cgroup equivalent. It adds no key, and
-     because the process half still honors the declaration, a host without `io` needs no launch
-     line.
+   What each option reaches, and on which scheduler: [background](#background-to-oq-io7).
+
+   - **(a) a `resources.io.weight` key**, as `--blkio-weight`.
+   - **(b) `"idle"` also written as the cgroup's `io.prio.class`**.
    - **(c) neither in v1.**
 
    <!-- vantage: question id=OQ-IO7 leaning="(c) neither in v1: ship the priority alone. (a) does nothing against desktop apps in the one-jail case, and (b) helps only mq-deadline disks on hosts that delegated io; revisit (b) first, after one measurement on a delegated mq-deadline host." -->
@@ -664,6 +658,22 @@ severity) are answered from existing rulings.
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+### 10.1 Background to the open questions
+
+#### Background to [OQ-IO7](#OQ-IO7)
+
+An encrypted disk changes none of the options, because the cgroup association survives dm-crypt's
+writes ([§3.2](#32-the-cgroup-io-controller)):
+- **(a) a `resources.io.weight` key**, as `--blkio-weight`: it acts on BFQ, or through
+  iocost. It is relative to siblings under the jail's parent slice, so it does nothing against
+  desktop apps while this jail is the only container running ([§3.2](#32-the-cgroup-io-controller)).
+- **(b) `"idle"` also written as the cgroup's `io.prio.class`**: it reaches writeback and the
+  agent cannot undo it, but only on mq-deadline, and only for `"idle"`. `restrict-to-be` would
+  *raise* an unset class to `BE0`, so `"low"` has no cgroup equivalent. It adds no key, and
+  because the process half still honors the declaration, a host without `io` needs no launch
+  line.
+- **(c) neither in v1.**
 
 ## 11. Decision Ledger
 

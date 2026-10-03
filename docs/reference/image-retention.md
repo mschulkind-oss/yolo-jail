@@ -191,7 +191,7 @@ reaped once old, even under a running image.
 
   <!-- vantage: question id=OQ-LS4 -->
 
-  **Answer (ruled 2026-09-28):** No, it does not hold for a running image. Proposed to the
+  **Answer:** (ruled 2026-09-28) No, it does not hold for a running image. Proposed to the
   maintainer: *"rule [OQ-LS4](#oq-ls4) so the image root of a running container is held by liveness, the way
   the mounted yolo binaries' roots already are — the age reaper skips any image a container is
   running on; then plain nix-collect-garbage on any schedule is safe for every yolo jail, and the

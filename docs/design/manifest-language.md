@@ -240,10 +240,8 @@ Dhall (total, typed).
 1. 💬 <a id="OQ-M1"></a>**OQ-M1: Do the syntax-free model change first?**
 
    ⚠ **Restated 2026-09-30 with lettered options**, because the block named none. "The model change" is
-   [§3](#3-what-is-actually-free-to-change)'s three syntax-independent levers: group entries by kind,
-   so `"program": {…}` replaces `{"kind": "program", …}` in a list; state the pack's agent once, which
-   is [`OQ-D5`](slots-and-contributions.md#OQ-D5)'s ruled rule and is not built; and give each kind
-   defaults for `into`, `path` and `codec`. Under (A) or (B) every manifest is rewritten, a fetched
+   [§3](#3-what-is-actually-free-to-change)'s three syntax-independent levers, spelled out in
+   [its background](#background-to-oq-m1). Under (A) or (B) every manifest is rewritten, a fetched
    pack's included. The options:
 
    - **(A) Yes, now, on its own**, before any syntax decision.
@@ -270,37 +268,16 @@ Dhall (total, typed).
    <!-- vantage: question id=OQ-M2 leaning="JSON restructured if it reads well; else data-only Lua (already vendored); Starlark only if we accept a new dependency for a purpose-built hermetic language." -->
 
    ⚠ **MEASURED 2026-09-22, and the result is that this question should be DISSOLVED rather than
-   answered on the stated rule.** The re-measure was takeable with no build — I restructured
-   `packs/claude/pack.json` by hand per [§4](#4-the-options)'s option A, machine-checked both variants fact-preserving, and
-   canonicalised them identically to the baseline:
+   answered on the stated rule** — the compression ratio it was to be answered by is orthogonal to
+   the complaint. The table and the three measurements: [background to this question](#background-to-oq-m2).
 
-   | rendering | raw | gzip | ratio |
-   | :--- | ---: | ---: | ---: |
-   | baseline | 4142 | 1006 | 0.243 |
-   | A1 (strict option A) | 3313 | 942 | 0.284 |
-   | A2 (+ keyed by discriminator) | 2838 | 879 | 0.310 |
-   | data-only Lua, A2's facts | 2227 | 841 | 0.378 |
+   ⚠ **Restated 2026-09-30 with letters**, which are [§4](#4-the-options)'s own:
 
-   Neither restructuring reaches this doc's ~0.40 threshold, so the rule as written would answer
-   "get a language". **Three measurements say the rule is unsound:**
+   - **(A)** JSON (JSONC) restructured, the model change only;
+   - **(B)** data-only Lua in the sandbox `derive.lua` already runs in;
+   - **(C)** Starlark, a new dependency.
 
-   - **Prose at the manifest's size is 0.49, not 0.40.** The 0.40 came from a 17 761-byte README, and
-     the ratio rises with size, so the target was never size-matched to what it judges.
-   - **`jq -c` alone reaches 0.368** — minifying the baseline, with zero model change and zero
-     readability gain, gets 92% of the way to the target. 44% of the baseline is indent whitespace.
-   - **The numerator barely moves**: A1 drops 20% of raw bytes and only **6.4%** of gzip bytes. That
-     is the signature of deleting *already-predicted* redundancy — so the ratio necessarily RISES
-     whenever you remove better-than-average-compressible bytes.
-
-   > [!WARNING]
-   > **Compression ratio is orthogonal to the complaint it was chosen to quantify.** The objection is
-   > about what a HUMAN must read; gzip had already predicted the repetition, which is why deleting
-   > it moves the number the wrong way. Direction is robust across xz/bzip2 and levels 1–9; the
-   > THRESHOLD is not. Do not re-derive a byte-ratio gate for this question.
-
-   ⚠ **Restated 2026-09-30 with letters**, which are [§4](#4-the-options)'s own: **(A)** JSON (JSONC)
-   restructured, the model change only; **(B)** data-only Lua in the sandbox `derive.lua` already runs
-   in; **(C)** Starlark, a new dependency. D (Jsonnet, CUE, Dhall) is set aside in [§4](#4-the-options)
+   D (Jsonnet, CUE, Dhall) is set aside in [§4](#4-the-options)
    as overpowered for data, and E (YAML or TOML) in [§6](#6-recommendation) as no fix on its own. B
    and C also need [OQ-M3](#OQ-M3)'s yes.
 
@@ -344,6 +321,47 @@ Dhall (total, typed).
    > Decided as an implementation choice ([MN-D1](#MN-D1)), reversible: no. `yolo-jail.jsonc` and
    > `~/.config/yolo-jail/config.jsonc` stay JSONC whatever [OQ-M2](#OQ-M2) rules, and moving them
    > would be a proposal of its own.
+
+### 7.1 Background to the open questions
+
+#### Background to [OQ-M1](#OQ-M1)
+
+"The model change" is
+[§3](#3-what-is-actually-free-to-change)'s three syntax-independent levers: group entries by kind,
+so `"program": {…}` replaces `{"kind": "program", …}` in a list; state the pack's agent once, which
+is [`OQ-D5`](slots-and-contributions.md#OQ-D5)'s ruled rule and is not built; and give each kind
+defaults for `into`, `path` and `codec`.
+
+#### Background to [OQ-M2](#OQ-M2)
+
+⚠ **MEASURED 2026-09-22, and the result is that this question should be DISSOLVED rather than
+answered on the stated rule.** The re-measure was takeable with no build — I restructured
+`packs/claude/pack.json` by hand per [§4](#4-the-options)'s option A, machine-checked both variants fact-preserving, and
+canonicalised them identically to the baseline:
+
+| rendering | raw | gzip | ratio |
+| :--- | ---: | ---: | ---: |
+| baseline | 4142 | 1006 | 0.243 |
+| A1 (strict option A) | 3313 | 942 | 0.284 |
+| A2 (+ keyed by discriminator) | 2838 | 879 | 0.310 |
+| data-only Lua, A2's facts | 2227 | 841 | 0.378 |
+
+Neither restructuring reaches this doc's ~0.40 threshold, so the rule as written would answer
+"get a language". **Three measurements say the rule is unsound:**
+
+- **Prose at the manifest's size is 0.49, not 0.40.** The 0.40 came from a 17 761-byte README, and
+  the ratio rises with size, so the target was never size-matched to what it judges.
+- **`jq -c` alone reaches 0.368** — minifying the baseline, with zero model change and zero
+  readability gain, gets 92% of the way to the target. 44% of the baseline is indent whitespace.
+- **The numerator barely moves**: A1 drops 20% of raw bytes and only **6.4%** of gzip bytes. That
+  is the signature of deleting *already-predicted* redundancy — so the ratio necessarily RISES
+  whenever you remove better-than-average-compressible bytes.
+
+> [!WARNING]
+> **Compression ratio is orthogonal to the complaint it was chosen to quantify.** The objection is
+> about what a HUMAN must read; gzip had already predicted the repetition, which is why deleting
+> it moves the number the wrong way. Direction is robust across xz/bzip2 and levels 1–9; the
+> THRESHOLD is not. Do not re-derive a byte-ratio gate for this question.
 
 ## 8. Decision ledger
 

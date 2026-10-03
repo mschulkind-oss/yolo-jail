@@ -816,23 +816,15 @@ What I would build, in order:
 
 1. 💬 **OQ-KC1: Should a jail's Copilot share the host's own Copilot login?**
 
-   **Setup story.** Matt uses Copilot on his Mac directly, so his login keychain already holds
-   Copilot's item. He opens a podman jail with `"packs": ["copilot"]`. Today Copilot in the jail
-   asks him to log in again, then asks whether it may store the token in plain text. Once the
-   keychain route exists, yolo has to decide which host item the jail's machine-wide Copilot login
-   is. That decides whether a host credential crosses into jails, and the rule so far is that none
-   does ([the credential boundary](../reference/agent-credentials.md#the-credential-boundary)).
+   The rule so far is that no host credential crosses into a jail
+   ([the credential boundary](../reference/agent-credentials.md#the-credential-boundary)), and this
+   decides whether one does. The setup story and what each option does on macOS, Linux and
+   macos-user: [background](#background-to-oq-kc1).
 
-   - **A: A yolo-owned login, shared only by jails.** The first jail asks for one `copilot login`.
-     After that every jail on the machine is logged in. The host's own login never enters a jail,
-     and a logout in a jail logs out only the jails. That makes two GitHub tokens in all: the
-     host's and the jails'.
-   - **B: The host Copilot's own item.** No jail ever asks for a login, and a logout in any jail
-     also logs out the host's Copilot. On macOS the first read shows the OS dialog *"security wants
-     to use … in your keychain"* (Deny / Allow / Always Allow, [E11](#E11)). "Always Allow" then
-     lets any program that runs `/usr/bin/security` read that token with no dialog (INFERRED). On
-     Linux there is no dialog at all, since the Secret Service has no per-application access rules
-     ([E4](#E4)). It does not reach macos-user either way ([§4.1](#41-macos-user-no-seam-and-probably-no-keychain)).
+   - **A: A yolo-owned login, shared only by jails.** One `copilot login` serves every jail, and
+     the host's own login never enters one.
+   - **B: The host Copilot's own item.** No jail ever asks for a login, and the host's login
+     becomes a jail credential.
 
    <!-- vantage: question id=OQ-KC1 leaning="A, a yolo-owned login shared only by jails: the token carries the repo and codespace scopes, and B would make the host's own login a jail credential and add security to its access list." -->
 
@@ -845,28 +837,14 @@ What I would build, in order:
 
 2. 💬 **OQ-KC2: Which of Copilot's keychain entries are machine-wide?**
 
-   **Setup story.** A user logs Copilot in inside workspace A, then installs an MCP server there
-   whose API-key header Copilot stores in its default "keychain" storage
-   ([§2.3](#23-what-copilot-keeps-there)). Then they open workspace B. With the route on, both
-   entries are in yolo's namespaces. The question is whether B sees the MCP key as well as the
-   login.
+   With the keychain route on, a login and an MCP server's API key stored in workspace A both sit
+   in yolo's namespaces. This decides whether workspace B sees the MCP key as well as the login.
+   The setup story and each option's cost: [background](#background-to-oq-kc2).
 
-   - **A: Everything Copilot stores is machine-wide.** B already has the MCP key. Two projects that
-     store a key under the same attributes overwrite each other's.
+   - **A: Everything Copilot stores is machine-wide.**
    - **B: Only the login is machine-wide,** meaning the service names on the copilot pack's machine
-     list. Everything else stays per workspace, so B is logged in but asks for its own MCP key.
-     **The cost is that every GitHub account shares that one namespace.** All of Copilot's logins
-     use one service, `copilot-cli`, with the account `<host>:<login>` (SOURCED for 1.0.48,
-     [E15](#E15)). So a work account logged in from one repository and a personal account logged
-     in from another both land in the machine namespace, and every jail that selects Copilot can
-     read both. Today each stays in its own workspace. The login copy spreads them the same way
-     ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)).
-   - **C: Only one login is machine-wide,** the first account logged in on the machine. The machine
-     tier holds that one (service, account) pair, and a login as any other account stays in the
-     workspace where it was made. A workspace can opt out of the machine login. A one-account user
-     sees what B gives. A two-account user keeps today's separation, at the price of a rule to
-     learn: after a logout of the machine account, the next login, as whichever account, becomes
-     the machine login.
+     list. Every GitHub account then shares that one namespace.
+   - **C: Only one login is machine-wide,** the first account logged in on the machine.
 
    <!-- vantage: question id=OQ-KC2 leaning="B, only the login entries on the pack's machine list are machine-wide and every other Copilot secret stays per workspace; the list must be confirmed against a real 1.0.89 login. Its cost falls on a user with two GitHub accounts, whose logins then share one namespace; the launch line names every login held there, and C is the answer if that user is expected." -->
 
@@ -880,23 +858,13 @@ What I would build, in order:
 
 3. 💬 **OQ-KC3: Which programs in a jail get the keychain: Copilot only, or every program?**
 
-   **Setup story.** A developer's jail selects `copilot` and `codex`, and the image carries `gh`.
-   They run `gh auth login` in a jail shell. Today `gh` finds no keychain and writes its token in
-   plain text to `hosts.yml` ([E5](#E5)). Codex keeps its MCP OAuth logins in a file for the same
-   reason ([E16](#E16)). With the route on, yolo decides whether the bus address is Copilot's or the
-   jail's.
+   Today `gh` and Codex's MCP logins find no keychain in a jail and fall back to plain-text files.
+   With the route on, yolo decides whether the bus address is Copilot's or the jail's. The setup
+   story and each option's consequences: [background](#background-to-oq-kc3).
 
-   - **A: Copilot only, and other agent packs opt in one at a time.** `gh` and Codex keep the
-     files they use today. A program started from Copilot's own shell tool inherits the address and
-     stores into Copilot's workspace namespace. **So a `gh auth login` that Copilot runs is
-     invisible to `gh` everywhere else:** `gh` stores the token in Copilot's namespace and removes
-     `oauth_token` from `hosts.yml`, and a `gh` run from the user's own jail shell then has no bus
-     address, finds no token, and reports that it is not logged in
-     ([§3.5](#35-who-gets-the-bus-address), [E5](#E5)).
-   - **B: Every program in the jail.** `gh` keeps its jail login in the keychain rather than
-     `hosts.yml`, and Codex's MCP logins, Python `keyring` and `git-credential-libsecret` move
-     too. All of it is per workspace unless a pack declares it machine-wide, and the launch line
-     says the whole jail has a keychain.
+   - **A: Copilot only, and other agent packs opt in one at a time.** A `gh auth login` that
+     Copilot runs is then invisible to `gh` everywhere else.
+   - **B: Every program in the jail.**
 
    <!-- vantage: question id=OQ-KC3 leaning="A, Copilot only with other packs opting in one at a time: each opt-in is where that program's machine list is declared and checked against a real login, while a jail-wide address would move gh's and Codex's secrets with nobody having checked what they store." -->
 
@@ -910,19 +878,13 @@ What I would build, in order:
 
 4. 💬 **OQ-KC4: On macos-user, should yolo give the sandbox account a keychain?**
 
-   **Setup story.** A Mac user runs `yolo` with the macos-user backend and logs Copilot in. The
-   account `_yolojail` has probably never had a keychain (not measured), so Copilot's keychain
-   write fails and it asks for plain-text storage. There is no D-Bus seam on this backend, so the
-   only keychain Copilot can use is the account's own ([§4.1](#41-macos-user-no-seam-and-probably-no-keychain)).
+   The account `_yolojail` has probably never had a keychain (not measured), and macos-user has no
+   D-Bus seam, so the only keychain Copilot can use is the account's own. The setup story and each
+   option's consequences: [background](#background-to-oq-kc4).
 
-   - **A: Leave the account without a keychain.** Copilot asks for plain text, and the login copy
-     shares that one plain-text login across workspaces
-     ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)).
-   - **B: yolo creates and unlocks a keychain for `_yolojail` at every launch,** keeping its
-     password in the user's own keychain and feeding it through `security -i` on stdin. Copilot
-     logs in once per machine, stored encrypted. But Claude, `gh` and Codex's MCP logins move into
-     that keychain too, so Claude's login on this backend stops living in the shared file that
-     CL-D22's bridge manages.
+   - **A: Leave the account without a keychain.**
+   - **B: yolo creates and unlocks a keychain for `_yolojail` at every launch.** Claude, `gh` and
+     Codex's MCP logins move into it too.
 
    <!-- vantage: question id=OQ-KC4 leaning="Measure first: run security default-keychain as _yolojail, then create, unlock and add a test item as that account from a Terminal launch. If the account can hold an unlocked keychain without a login session, choose B and settle Claude's store on this backend in the same change; otherwise A." -->
 
@@ -933,6 +895,89 @@ What I would build, in order:
 
    **Answer:**
    > _(empty — fill in when decided)_
+
+### 7.1 Background to the open questions
+
+#### Background to [OQ-KC1](#OQ-KC1)
+
+**Setup story.** Matt uses Copilot on his Mac directly, so his login keychain already holds
+Copilot's item. He opens a podman jail with `"packs": ["copilot"]`. Today Copilot in the jail
+asks him to log in again, then asks whether it may store the token in plain text. Once the
+keychain route exists, yolo has to decide which host item the jail's machine-wide Copilot login
+is. That decides whether a host credential crosses into jails, and the rule so far is that none
+does ([the credential boundary](../reference/agent-credentials.md#the-credential-boundary)).
+
+- **A: A yolo-owned login, shared only by jails.** The first jail asks for one `copilot login`.
+  After that every jail on the machine is logged in. The host's own login never enters a jail,
+  and a logout in a jail logs out only the jails. That makes two GitHub tokens in all: the
+  host's and the jails'.
+- **B: The host Copilot's own item.** No jail ever asks for a login, and a logout in any jail
+  also logs out the host's Copilot. On macOS the first read shows the OS dialog *"security wants
+  to use … in your keychain"* (Deny / Allow / Always Allow, [E11](#E11)). "Always Allow" then
+  lets any program that runs `/usr/bin/security` read that token with no dialog (INFERRED). On
+  Linux there is no dialog at all, since the Secret Service has no per-application access rules
+  ([E4](#E4)). It does not reach macos-user either way ([§4.1](#41-macos-user-no-seam-and-probably-no-keychain)).
+
+#### Background to [OQ-KC2](#OQ-KC2)
+
+**Setup story.** A user logs Copilot in inside workspace A, then installs an MCP server there
+whose API-key header Copilot stores in its default "keychain" storage
+([§2.3](#23-what-copilot-keeps-there)). Then they open workspace B. With the route on, both
+entries are in yolo's namespaces. The question is whether B sees the MCP key as well as the
+login.
+
+- **A: Everything Copilot stores is machine-wide.** B already has the MCP key. Two projects that
+  store a key under the same attributes overwrite each other's.
+- **B: Only the login is machine-wide,** meaning the service names on the copilot pack's machine
+  list. Everything else stays per workspace, so B is logged in but asks for its own MCP key.
+  **The cost is that every GitHub account shares that one namespace.** All of Copilot's logins
+  use one service, `copilot-cli`, with the account `<host>:<login>` (SOURCED for 1.0.48,
+  [E15](#E15)). So a work account logged in from one repository and a personal account logged
+  in from another both land in the machine namespace, and every jail that selects Copilot can
+  read both. Today each stays in its own workspace. The login copy spreads them the same way
+  ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)).
+- **C: Only one login is machine-wide,** the first account logged in on the machine. The machine
+  tier holds that one (service, account) pair, and a login as any other account stays in the
+  workspace where it was made. A workspace can opt out of the machine login. A one-account user
+  sees what B gives. A two-account user keeps today's separation, at the price of a rule to
+  learn: after a logout of the machine account, the next login, as whichever account, becomes
+  the machine login.
+
+#### Background to [OQ-KC3](#OQ-KC3)
+
+**Setup story.** A developer's jail selects `copilot` and `codex`, and the image carries `gh`.
+They run `gh auth login` in a jail shell. Today `gh` finds no keychain and writes its token in
+plain text to `hosts.yml` ([E5](#E5)). Codex keeps its MCP OAuth logins in a file for the same
+reason ([E16](#E16)). With the route on, yolo decides whether the bus address is Copilot's or the
+jail's.
+
+- **A: Copilot only, and other agent packs opt in one at a time.** `gh` and Codex keep the
+  files they use today. A program started from Copilot's own shell tool inherits the address and
+  stores into Copilot's workspace namespace. **So a `gh auth login` that Copilot runs is
+  invisible to `gh` everywhere else:** `gh` stores the token in Copilot's namespace and removes
+  `oauth_token` from `hosts.yml`, and a `gh` run from the user's own jail shell then has no bus
+  address, finds no token, and reports that it is not logged in
+  ([§3.5](#35-who-gets-the-bus-address), [E5](#E5)).
+- **B: Every program in the jail.** `gh` keeps its jail login in the keychain rather than
+  `hosts.yml`, and Codex's MCP logins, Python `keyring` and `git-credential-libsecret` move
+  too. All of it is per workspace unless a pack declares it machine-wide, and the launch line
+  says the whole jail has a keychain.
+
+#### Background to [OQ-KC4](#OQ-KC4)
+
+**Setup story.** A Mac user runs `yolo` with the macos-user backend and logs Copilot in. The
+account `_yolojail` has probably never had a keychain (not measured), so Copilot's keychain
+write fails and it asks for plain-text storage. There is no D-Bus seam on this backend, so the
+only keychain Copilot can use is the account's own ([§4.1](#41-macos-user-no-seam-and-probably-no-keychain)).
+
+- **A: Leave the account without a keychain.** Copilot asks for plain text, and the login copy
+  shares that one plain-text login across workspaces
+  ([§5](#5-the-fallback-copy-only-copilottokens-and-say-so)).
+- **B: yolo creates and unlocks a keychain for `_yolojail` at every launch,** keeping its
+  password in the user's own keychain and feeding it through `security -i` on stdin. Copilot
+  logs in once per machine, stored encrypted. But Claude, `gh` and Codex's MCP logins move into
+  that keychain too, so Claude's login on this backend stops living in the shared file that
+  CL-D22's bridge manages.
 
 ## 8. Decision Ledger
 

@@ -1412,8 +1412,9 @@ Three earlier non-licenses are reopened here by name:
 ## 10. Open Questions
 
 1. ✅ <a id="OQ-WG1"></a>**[OQ-WG1](#OQ-WG1): how does the bridge know which requests to add an
-   AWS signature to?** In plain words: Bedrock rejects any request that doesn't carry an AWS
-   signature (SigV4), and every other provider has never heard of one. So the ruled signer
+   AWS signature to?**
+
+   So the ruled signer
    ([Part 1](#2-part-1--the-bridge-signs-its-own-upstream-requests-ruled)) needs a rule for
    when to sign. There are two ways to decide:
    - **(a) By the address the request is going to.** Sign when the upstream host is an AWS
@@ -1423,7 +1424,8 @@ Three earlier non-licenses are reopened here by name:
      [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)'s marker, which you called *"a bigger
      decision than you're making it look"*, and which now waits on the provider redesign.
 
-   Stakes: under (b) the signer can't ship until the redesign does.
+   Stakes: under (b) the signer can't ship until the redesign does. Background:
+   [why a rule is needed](#background-to-oq-wg1).
 
    _Leaning:_ **(a)**. The bridge already knows the address when it starts, a signer keyed on it
    can never sign a request bound for a non-AWS provider, and the signer ships now without
@@ -1531,14 +1533,11 @@ Three earlier non-licenses are reopened here by name:
    > [§8](#8-build-order)'s. Folded into [§6](#6-part-5--all-traffic-through-the-bridge-new-direction-design).
 
 6. ✅ <a id="OQ-WG6"></a>**[OQ-WG6](#OQ-WG6): what does a profile write to put its agent on
-   the bridge path?** Found 2026-09-25 while starting Part 3. [OQ-WG2](#OQ-WG2) ruled all-traffic
-   mode a property of the profile, but no schema carries it. The bridge serves a route only when
-   `routeFor` finds a composed provider whose `anthropic` endpoint is the jail's loopback, and
-   that shape exists only because `packload.adaptEndpoints` writes an adapter's address into a
-   protocol the provider does NOT already offer. The sign-only route has OpenAI chat-completions
-   on both sides, so an `openai → openai` adapter can never be composed, and nothing today can
-   say "front this provider's `openai` endpoint with a signing hop". Stakes: Part 3 and Part 5
-   have no selection, so a handler built now would have no production call site.
+   the bridge path?**
+
+   Stakes: Part 3 and Part 5
+   have no selection, so a handler built now would have no production call site. Background:
+   [what the tree could and could not say](#background-to-oq-wg6).
    - **(a) A provider marker** (via [OQ-BR9](bedrock-plumbing.md#OQ-BR9)'s Bedrock pack) that
      `routeFor` reads as "sign-only upstream".
    - **(b) A profile field**, for example `via: "bridge"`. The agent's derive writes its base URL
@@ -1561,22 +1560,8 @@ Three earlier non-licenses are reopened here by name:
    > `via: "wire-bridge"`, by [OQ-WG7](#OQ-WG7) (c).
 
 7. ✅ <a id="OQ-WG7"></a>**[OQ-WG7](#OQ-WG7): the multi-route bridge, in five parts, rule together.**
-   Found 2026-09-25 when the [OQ-WG6](#OQ-WG6) build stopped before writing code. WG2, WG4 and
-   WG6 say what a profile writes. They do not say how the daemon, the ports, the jail's pack set,
-   the derives and the credentials carry more than one route. Checked against the tree: the
-   daemon serves exactly one route (`routeFor` returns the first match, and `serve` builds one
-   handler); `packs/wire-bridge` declares two adapter addresses (`:8214` for chat-completions to
-   Anthropic, `:8215` for Responses to Anthropic); only `packs/claude` `needs` wire-bridge
-   unconditionally; the composed provider table is jail-wide; and the outbound key is one file
-   read at boot ([WB-D4](../reference/wire-bridge.md#wb-d4)).
-
-   | Part | The question | Leaning |
-   | :--- | :--- | :--- |
-   | **a. Route layout** | Do today's adapter routes move under `/agent/<name>/`? | **No.** They stay at the root of their own ports, so claude's `ANTHROPIC_BASE_URL` and its derive are unchanged. [OQ-WG4](#OQ-WG4)'s "a missing prefix is refused" applies to the per-agent port only |
-   | **b. The port** | Where do per-agent routes live? | **One new declared address** on the wire-bridge service (the next free port after `:8215`), serving every `via` route under `/agent/<name>/`. The two adapter ports are untouched |
-   | **c. Bringing the bridge in** | How does a pi-only jail with a `via` profile get a bridge daemon, when core may not name one? | **`via`'s value names the service pack** (`via: "wire-bridge"`), and selecting such a profile adds that pack the way `needs` does. Core knows only "a service pack", never which. [OQ-WG6](#OQ-WG6)'s `"bridge"` was an example value |
-   | **d. Each agent's URL** | The provider table is jail-wide; `via` is one agent's. How does a derive learn its own bridge URL? | **A per-agent derive input** (`ctx.via_url`), set only when that agent's active profile has `via`. Composition stays jail-wide; a derive writes `ctx.via_url` as its base URL when present |
-   | **e. Credentials per route** | One key file cannot serve routes to several providers | **Per route, from the provider's declared `api_key_env_name`**, read at boot from the jail env the credential is already delivered to; a Bedrock route uses the signer's chain. One route with no credential idles and says so, and the others still serve |
+   The five parts, each with its own question and leaning, are tabled in the
+   [background](#background-to-oq-wg7), with what the tree held when the question was found.
 
    Stakes: without (a)–(e), a via route is either unreachable or breaks claude's existing one.
 
@@ -1595,65 +1580,13 @@ Three earlier non-licenses are reopened here by name:
    > [WG-I1](#WG-I1)–[WG-I9](#WG-I9).
 
 8. ✅ <a id="OQ-WG8"></a>**[OQ-WG8](#OQ-WG8): on pi's Converse pass-through, does pi's own client
-   use the AWS credential?** Found 2026-09-26, when Converse came next in [§8](#8-build-order)'s
-   order, and reframed the same day in review. [OQ-WG5](#OQ-WG5) ruled that every native wire gets
-   a pass-through route, Converse included. Converse is Bedrock's own API, and pi's Converse client
-   is the AWS SDK. Read in the installed pi 0.87.1 (`pi-ai`'s `dist/api/bedrock-converse-stream.js`;
-   nothing was run):
-   - it takes a model's `baseUrl` as its endpoint whenever that is not a standard
-     `bedrock-runtime` host, and keeps that URL's path, so the per-agent prefix works;
-   - it has **three authorization modes**. With a bearer token resolved and
-     `AWS_BEDROCK_SKIP_AUTH` unset, it sets the SDK's token and prefers `httpBearerAuth`, so it
-     sends `Authorization: Bearer <token>` and **no SigV4 signature**. Under
-     `AWS_BEDROCK_SKIP_AUTH=1` it signs with the literal keys `dummy-access-key` and
-     `dummy-secret-key`. Otherwise it signs with the SDK credential chain;
-   - the bearer token is taken from the request's options (`bearerToken`, then `apiKey`) before
-     `AWS_BEARER_TOKEN_BEDROCK`, and a `models.json` `apiKey` on the `amazon-bedrock` provider becomes that `apiKey` with no
-     environment variable: `provider-composer.js` `composeApiKeyAuth` hands a configured key to
-     the built-in resolver, and `providers/amazon-bedrock.js` `resolve` returns it as the auth's
-     `apiKey`.
+   use the AWS credential?**
 
-   So a via override on pi's `amazon-bedrock` provider that carries a **placeholder `apiKey`**
-   makes pi send a placeholder bearer, which the bridge drops ([WG-I5](#WG-I5)) before signing
-   with its own chain. That is the shape pi's derive already gives a keyless loopback row
-   (`apiKey = "local"`). The response is AWS's binary event stream, which the pass-through copies
-   byte for byte, so nothing needs re-framing.
+   Background: [what pi's client does, and each option in full](#background-to-oq-wg8).
 
-   Two properties are easy to conflate here, and only the first is this question:
-   - **pi's client does not use the AWS credential.** The placeholder bearer gives it now, with
-     no new delivery mechanism.
-   - **pi's environment does not carry the AWS credential.** No mechanism here gives it. The
-     jail-wide AWS variables reach every agent until
-     [OQ-CN6](../reference/providers.md#oq-cn6)'s per-agent env file (ruled 2026-09-26,
-     unbuilt) narrows them, and `AWS_BEDROCK_SKIP_AUTH=1` does not remove them either. It follows
-     [OQ-CN6](../reference/providers.md#oq-cn6) whatever this question rules.
-
-   The options:
-   - **(a) pi keeps signing with its own credential.** The bridge discards pi's signature and
-     signs with its own chain. Nothing new reaches pi's configuration, and two signers run per
-     request.
-   - **(b) pi sends a placeholder bearer, and only the bridge signs.** The via override carries
-     `apiKey = "local"`, so pi's client uses no AWS credential. Environment narrowing follows
-     [OQ-CN6](../reference/providers.md#oq-cn6) separately. The dummy-key switch is the other way
-     to stop pi's client signing with the real credential, but it is an environment variable, and
-     one agent receives a variable alone only through
-     [OQ-CN6](../reference/providers.md#oq-cn6), so it is not the mechanism.
-   - **(c) No Converse pass-through.** pi's bridge path stays the chat-completions route, as
-     [`bedrock-plumbing.md`](bedrock-plumbing.md) records as [OQ-BR5](bedrock-plumbing.md#OQ-BR5)'s design consequence ("the
-     bridge version speaks OpenAI chat-completions"), and WG5's "Converse included" is withdrawn.
-
-   Stakes: under (a) pi's client goes on using the credential on the bridge path, so that path
-   delivers it no more narrowly than native; (b) keeps it out of pi's requests from the first
-   build and waits on no other ruling; (c) reverses part of a ruling. Three facts hold
-   under (a) and (b) and are implementation, not part of the question. The upstream is
-   `bedrock-runtime.<region>.amazonaws.com` composed from the provider's `region`
-   ([§2.1](#21-behavior-the-signer-fixes)'s last bullet, built 2026-09-30 as [WG-I39](#WG-I39)), because the shipped `bedrock`
-   provider declares no endpoint. A Converse path names the model, and an inference-profile ARN
-   carries an encoded `/`, which the via mux decodes today, so the Converse route must forward the
-   path as the agent encoded it. And the re-pointing lives in pi's derive, as a `baseUrl` on pi's
-   built-in `amazon-bedrock` provider. Whether that override counts as a catalog entry under
-   [`pi-codex-provider-shadowing.md` OQ-2](pi-codex-provider-shadowing.md#OQ-2)'s rule is for that
-   doc to say, and the override keeps pi's own Converse client.
+   - **(a) pi keeps signing with its own credential.**
+   - **(b) pi sends a placeholder bearer, and only the bridge signs.**
+   - **(c) No Converse pass-through.**
 
    _Leaning:_ **(b)**. [OQ-BR4](../reference/providers.md#oq-br4) ruled that nothing leaks and
    delivery is as specific as possible. A pass-through whose client still signs with the key
@@ -1691,6 +1624,109 @@ Three earlier non-licenses are reopened here by name:
   from the subscription to Bedrock when the subscription runs out?** Yes, opt-in: Part 4.
 - <a id="OQ-BR18"></a>[**OQ-BR18**](#OQ-BR18) (ruled 2026-09-24): **May yolo's bridge carry a
   Claude subscription at all?** Yes, the maintainer's call on terms and company policy.
+
+### 10.2 Background to the open questions
+
+#### Background to [OQ-WG1](#OQ-WG1)
+
+In plain words: Bedrock rejects any request that doesn't carry an AWS
+signature (SigV4), and every other provider has never heard of one.
+
+#### Background to [OQ-WG6](#OQ-WG6)
+
+Found 2026-09-25 while starting Part 3. [OQ-WG2](#OQ-WG2) ruled all-traffic
+mode a property of the profile, but no schema carries it. The bridge serves a route only when
+`routeFor` finds a composed provider whose `anthropic` endpoint is the jail's loopback, and
+that shape exists only because `packload.adaptEndpoints` writes an adapter's address into a
+protocol the provider does NOT already offer. The sign-only route has OpenAI chat-completions
+on both sides, so an `openai → openai` adapter can never be composed, and nothing today can
+say "front this provider's `openai` endpoint with a signing hop".
+
+#### Background to [OQ-WG7](#OQ-WG7)
+
+Found 2026-09-25 when the [OQ-WG6](#OQ-WG6) build stopped before writing code. WG2, WG4 and
+WG6 say what a profile writes. They do not say how the daemon, the ports, the jail's pack set,
+the derives and the credentials carry more than one route. Checked against the tree: the
+daemon serves exactly one route (`routeFor` returns the first match, and `serve` builds one
+handler); `packs/wire-bridge` declares two adapter addresses (`:8214` for chat-completions to
+Anthropic, `:8215` for Responses to Anthropic); only `packs/claude` `needs` wire-bridge
+unconditionally; the composed provider table is jail-wide; and the outbound key is one file
+read at boot ([WB-D4](../reference/wire-bridge.md#wb-d4)).
+
+| Part | The question | Leaning |
+| :--- | :--- | :--- |
+| **a. Route layout** | Do today's adapter routes move under `/agent/<name>/`? | **No.** They stay at the root of their own ports, so claude's `ANTHROPIC_BASE_URL` and its derive are unchanged. [OQ-WG4](#OQ-WG4)'s "a missing prefix is refused" applies to the per-agent port only |
+| **b. The port** | Where do per-agent routes live? | **One new declared address** on the wire-bridge service (the next free port after `:8215`), serving every `via` route under `/agent/<name>/`. The two adapter ports are untouched |
+| **c. Bringing the bridge in** | How does a pi-only jail with a `via` profile get a bridge daemon, when core may not name one? | **`via`'s value names the service pack** (`via: "wire-bridge"`), and selecting such a profile adds that pack the way `needs` does. Core knows only "a service pack", never which. [OQ-WG6](#OQ-WG6)'s `"bridge"` was an example value |
+| **d. Each agent's URL** | The provider table is jail-wide; `via` is one agent's. How does a derive learn its own bridge URL? | **A per-agent derive input** (`ctx.via_url`), set only when that agent's active profile has `via`. Composition stays jail-wide; a derive writes `ctx.via_url` as its base URL when present |
+| **e. Credentials per route** | One key file cannot serve routes to several providers | **Per route, from the provider's declared `api_key_env_name`**, read at boot from the jail env the credential is already delivered to; a Bedrock route uses the signer's chain. One route with no credential idles and says so, and the others still serve |
+
+#### Background to [OQ-WG8](#OQ-WG8)
+
+Found 2026-09-26, when Converse came next in [§8](#8-build-order)'s
+order, and reframed the same day in review. [OQ-WG5](#OQ-WG5) ruled that every native wire gets
+a pass-through route, Converse included. Converse is Bedrock's own API, and pi's Converse client
+is the AWS SDK. Read in the installed pi 0.87.1 (`pi-ai`'s `dist/api/bedrock-converse-stream.js`;
+nothing was run):
+- it takes a model's `baseUrl` as its endpoint whenever that is not a standard
+  `bedrock-runtime` host, and keeps that URL's path, so the per-agent prefix works;
+- it has **three authorization modes**. With a bearer token resolved and
+  `AWS_BEDROCK_SKIP_AUTH` unset, it sets the SDK's token and prefers `httpBearerAuth`, so it
+  sends `Authorization: Bearer <token>` and **no SigV4 signature**. Under
+  `AWS_BEDROCK_SKIP_AUTH=1` it signs with the literal keys `dummy-access-key` and
+  `dummy-secret-key`. Otherwise it signs with the SDK credential chain;
+- the bearer token is taken from the request's options (`bearerToken`, then `apiKey`) before
+  `AWS_BEARER_TOKEN_BEDROCK`, and a `models.json` `apiKey` on the `amazon-bedrock` provider becomes that `apiKey` with no
+  environment variable: `provider-composer.js` `composeApiKeyAuth` hands a configured key to
+  the built-in resolver, and `providers/amazon-bedrock.js` `resolve` returns it as the auth's
+  `apiKey`.
+
+So a via override on pi's `amazon-bedrock` provider that carries a **placeholder `apiKey`**
+makes pi send a placeholder bearer, which the bridge drops ([WG-I5](#WG-I5)) before signing
+with its own chain. That is the shape pi's derive already gives a keyless loopback row
+(`apiKey = "local"`). The response is AWS's binary event stream, which the pass-through copies
+byte for byte, so nothing needs re-framing.
+
+Two properties are easy to conflate here, and only the first is this question:
+- **pi's client does not use the AWS credential.** The placeholder bearer gives it now, with
+  no new delivery mechanism.
+- **pi's environment does not carry the AWS credential.** No mechanism here gives it. The
+  jail-wide AWS variables reach every agent until
+  [OQ-CN6](../reference/providers.md#oq-cn6)'s per-agent env file (ruled 2026-09-26,
+  unbuilt) narrows them, and `AWS_BEDROCK_SKIP_AUTH=1` does not remove them either. It follows
+  [OQ-CN6](../reference/providers.md#oq-cn6) whatever this question rules.
+
+The options:
+- **(a) pi keeps signing with its own credential.** The bridge discards pi's signature and
+  signs with its own chain. Nothing new reaches pi's configuration, and two signers run per
+  request.
+- **(b) pi sends a placeholder bearer, and only the bridge signs.** The via override carries
+  `apiKey = "local"`, so pi's client uses no AWS credential. Environment narrowing follows
+  [OQ-CN6](../reference/providers.md#oq-cn6) separately. The dummy-key switch is the other way
+  to stop pi's client signing with the real credential, but it is an environment variable, and
+  one agent receives a variable alone only through
+  [OQ-CN6](../reference/providers.md#oq-cn6), so it is not the mechanism.
+- **(c) No Converse pass-through.** pi's bridge path stays the chat-completions route, as
+  [`bedrock-plumbing.md`](bedrock-plumbing.md) records as [OQ-BR5](bedrock-plumbing.md#OQ-BR5)'s design consequence ("the
+  bridge version speaks OpenAI chat-completions"), and WG5's "Converse included" is withdrawn.
+
+Stakes:
+- under (a) pi's client goes on using the credential on the bridge path, so that path
+  delivers it no more narrowly than native;
+- (b) keeps it out of pi's requests from the first
+  build and waits on no other ruling;
+- (c) reverses part of a ruling.
+
+Three facts hold
+under (a) and (b) and are implementation, not part of the question. The upstream is
+`bedrock-runtime.<region>.amazonaws.com` composed from the provider's `region`
+([§2.1](#21-behavior-the-signer-fixes)'s last bullet, built 2026-09-30 as [WG-I39](#WG-I39)), because the shipped `bedrock`
+provider declares no endpoint. A Converse path names the model, and an inference-profile ARN
+carries an encoded `/`, which the via mux decodes today, so the Converse route must forward the
+path as the agent encoded it. And the re-pointing lives in pi's derive, as a `baseUrl` on pi's
+built-in `amazon-bedrock` provider. Whether that override counts as a catalog entry under
+[`pi-codex-provider-shadowing.md` OQ-2](pi-codex-provider-shadowing.md#OQ-2)'s rule is for that
+doc to say, and the override keeps pi's own Converse client.
 
 ### Decision Ledger
 
