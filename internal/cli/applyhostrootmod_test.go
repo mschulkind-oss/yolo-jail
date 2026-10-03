@@ -179,7 +179,8 @@ func TestApplyHostDeliversARootModOnceBesideAnAddressedSource(t *testing.T) {
 
 // THE FLAT DEFAULT STILL HOLDS: a pack with no pack.json is flat, and a flat skills folder can
 // carry a plugin's skills and nothing else (hostskills.deliverPluginFlat). So the mod does not
-// arrive, and the apply SAYS so, naming the hooks that cannot, where it used to say nothing.
+// arrive, and the apply SAYS so, naming the hooks that cannot and the tier that would carry them,
+// where it used to say nothing.
 func TestApplyHostNamesAFlatRootModThatCannotArrive(t *testing.T) {
 	home := hostRootModHome(t, `"claude",`+writeHostRootMod(t, t.TempDir(), "first-mod", ""))
 	_, report := applyWith(t, true, strings.NewReader("y\n"))
@@ -190,7 +191,8 @@ func TestApplyHostNamesAFlatRootModThatCannotArrive(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(dest, "hooks")); !os.IsNotExist(err) {
 		t.Errorf("a flat pack's mod spilled its hooks/ into ~/.claude/skills (%v)", err)
 	}
-	for _, want := range []string{"first-mod:hooks", "cannot arrive"} {
+	for _, want := range []string{"first-mod:hooks", "cannot arrive", `"skills_tier": "namespaced"`,
+		"pack first-mod's pack.json"} {
 		if !strings.Contains(report, want) {
 			t.Errorf("the apply did not say %q about the mod a flat pack cannot deliver:\n%s", want, report)
 		}

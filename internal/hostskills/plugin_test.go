@@ -193,10 +193,19 @@ func TestFlatRefusesNonSkillComponentsByName(t *testing.T) {
 	for _, comp := range []string{"hooks", "mcpServers", "lspServers", "agents",
 		"outputStyles", "commands"} {
 		want := "acme-tools:" + comp
-		if _, ok := refused[want]; !ok {
+		detail, ok := refused[want]
+		if !ok {
 			t.Errorf("component %q was NOT refused by name on a flat destination — it cannot "+
 				"arrive there, and a silent drop is the failure mode this rule removes. "+
 				"Refusals: %v", want, refused)
+			continue
+		}
+		// EVERY STOP NAMES THE NEXT STEP: the flat tier is the PACK's default, so the fix is
+		// the pack's own opt-in, in its own manifest.
+		for _, fix := range []string{`"skills_tier": "namespaced"`, "pack wrapper's pack.json"} {
+			if !strings.Contains(detail, fix) {
+				t.Errorf("the refusal of %q does not name the fix (%q):\n%s", want, fix, detail)
+			}
 		}
 	}
 	// The skills DO arrive: withholding them too would punish the user for a hook they
@@ -296,6 +305,34 @@ func TestPluginDeliveryRefusesForeignDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(foreign, "handwritten", "SKILL.md")); err != nil {
 		t.Errorf("the user's content must survive: %v", err)
+	}
+}
+
+// A NAMESPACED pack downgraded to flat already asked for the tier, so its refused components
+// name the folder in the way instead of sending the user to set what they set.
+func TestDowngradedPluginComponentsNameTheFolderInTheWay(t *testing.T) {
+	req, _ := testPluginReq(t, TierNamespaced, `{"name":"acme-tools","skills":["./"],"hooks":{"PreToolUse":[]}}`)
+	foreign := filepath.Join(req.SkillsDir, "acme-tools")
+	writeSkill(t, foreign, "handwritten", "MINE")
+
+	results, err := DeliverPlugin(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var detail string
+	for _, r := range results {
+		if r.Name == "acme-tools:hooks" && r.Action == ActionRefused {
+			detail = r.Detail
+		}
+	}
+	if detail == "" {
+		t.Fatalf("the downgraded plugin's hooks were not refused by name: %+v", results)
+	}
+	if strings.Contains(detail, "skills_tier") {
+		t.Errorf("the refusal tells a pack that is already namespaced to set its tier:\n%s", detail)
+	}
+	if !strings.Contains(detail, foreign) {
+		t.Errorf("the refusal does not name the folder the downgrade is about (%s):\n%s", foreign, detail)
 	}
 }
 

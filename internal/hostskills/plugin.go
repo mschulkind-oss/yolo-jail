@@ -214,13 +214,25 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 // gets, and every other component refused by name.
 func deliverPluginFlat(req PluginRequest, name string) ([]Result, error) {
 	var out []Result
+	// EACH REFUSAL NAMES ITS FIX, and there are two, told apart by the tier the pack DECLARED.
+	// Flat is the pack's default (PackTier), so the fix is the pack's own opt-in; a pack that
+	// opted in and was downgraded (ProbeTier) has nothing to set, and what it has to move is the
+	// folder standing at the plugin's name.
+	why := "this skills dir is flat"
+	fix := `add "skills_tier": "namespaced" to pack ` + req.Pack + `'s pack.json (at the ` +
+		`pack's root) to deliver the plugin whole`
+	if req.Tier == TierNamespaced {
+		why = "its namespaced delivery here was downgraded to flat"
+		fix = "move what is at " + filepath.Join(req.SkillsDir, name) + " elsewhere to deliver " +
+			"the plugin whole"
+	}
 	// The refusals come FIRST, before the successes, because they are the part a user needs
 	// to read: a plugin whose hooks did not arrive is not the plugin they installed.
 	for _, c := range req.Plugin.Components() {
 		out = append(out, Result{
 			Name: name + ":" + c.Name, Path: req.SkillsDir, Action: ActionRefused,
 			Detail: "plugin " + c.Name + " needs a tool that loads a plugin manifest; " +
-				"this skills dir is flat, so it cannot arrive (" + c.Detail + ")",
+				why + ", so it cannot arrive (" + c.Detail + ") — " + fix,
 		})
 	}
 
