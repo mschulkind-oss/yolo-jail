@@ -19,8 +19,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A host service that goes down just as a jail starts, or as another terminal joins it, is now
   reported to that terminal.
 - `yolo stop` now stops an Apple Container jail, and a jail launched with a different
-  `YOLO_RUNTIME`, where it used to say no jail was running, and Apple Container's messages now
-  name it instead of `container stop`.
+  `YOLO_RUNTIME`, where it used to say no jail was running, and on Apple Container yolo's messages
+  now name it instead of `container stop`.
 - A launch retries a Podman that cannot be started for a moment, such as mid-upgrade, instead of
   refusing, and one that gives up waiting for Podman now always shows Podman's last error.
 - On Apple Container, a launch that cannot tell whether its jail is running now says to run

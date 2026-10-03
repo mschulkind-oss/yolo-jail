@@ -3422,7 +3422,8 @@ the ruling and none changing it:
     trees re-staged the shared tree afterwards, so it holds whatever the config said at the last
     entry. An Apple Container attach with no live-tree record therefore takes item 3's warning
     rather than reading the shared tree as the jail's packs. Every restart remedy an attach names
-    there is `container stop <name>`, the stop its restart runs there.
+    there is `yolo stop`, as on every runtime, since `yolo stop` asks Apple Container with
+    `container ls` ([JL-D79](../design/jail-lifetime-last-session-wins.md#JL-D79)).
 ## The credential boundary: disclosure, not consent
 
 **Host access is six crossings**: a host file read (a `reads-host` contribution, or a config

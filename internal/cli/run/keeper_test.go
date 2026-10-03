@@ -138,8 +138,11 @@ type fakeJail struct {
 	// container stays, a plain rm fails on it, and a forced rm removes it and still exits 125
 	// (MEASURED in nested podman, JL-D82).
 	pinned bool
-	stops  int
-	calls  []string
+	// runningUnknown is a runtime that cannot answer whether the container runs: its running-only
+	// listing fails, while its listing of every container still answers.
+	runningUnknown bool
+	stops          int
+	calls          []string
 	// execs, once reportExecs sets it, is how many exec sessions the runtime's inspect says the
 	// container has, its main process a hold (jailSessionCount); 0 answers nothing, a count unknown.
 	execs int
@@ -197,6 +200,9 @@ func (f *fakeJail) exec(argv []string, _ string, _ []string, _ time.Duration) Ex
 		}
 		return ExecResult{Ran: true, Stdout: "abc123\n"}
 	case strings.Contains(joined, "ps -q"):
+		if f.runningUnknown {
+			return ExecResult{Ran: true, RC: 125, Stderr: "Error: the runtime could not list its containers"}
+		}
 		if f.stopped {
 			return ExecResult{Ran: true}
 		}
@@ -215,6 +221,19 @@ func (f *fakeJail) stopCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.stops
+}
+
+// removals are the container removals the runtime was asked to run, forced or not.
+func (f *fakeJail) removals() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var rm []string
+	for _, c := range f.calls {
+		if argv := strings.Fields(c); len(argv) > 1 && argv[1] == "rm" {
+			rm = append(rm, c)
+		}
+	}
+	return rm
 }
 
 // keeperFixture is one keeper, run in-process, and the launch's end of its descriptors.

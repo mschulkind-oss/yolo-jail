@@ -105,6 +105,45 @@ func TestAJailItsKeeperCouldNotStopIsLeftUnkept(t *testing.T) {
 	if probeKeeper(f.cname) != keeperGone {
 		t.Error("the keeper's liveness lock is still held after its end")
 	}
+	// The forced removal of a stopped leftover (JL-D82) removes a running container too, so it must
+	// never be run on one.
+	if rm := f.jail.removals(); len(rm) != 0 {
+		t.Errorf("the keeper ran a removal on a container that still runs: %q", rm)
+	}
+}
+
+// TestAKeeperThatCannotAskWhetherItsContainerRunsRemovesNothing: the forced removal of a stopped
+// leftover (JL-D82) is run only once the runtime has said the container does not run. A runtime that
+// cannot answer has not said that (JL-P3: "could not ask" is never "gone"), and the container may run,
+// so the keeper removes nothing, waits its bound, and leaves the jail unkept.
+func TestAKeeperThatCannotAskWhetherItsContainerRunsRemovesNothing(t *testing.T) {
+	saved := keeperGoneAttempts
+	keeperGoneAttempts = 2
+	t.Cleanup(func() { keeperGoneAttempts = saved })
+	var session *sessionLock
+	f := startKeeperFixture(t, true, func(p *keeperPlan) {
+		lock, _, err := takeSessionLock(p.Cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		session = lock
+	})
+	if !f.relay() {
+		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())
+	}
+	f.jail.mu.Lock()
+	f.jail.pinned, f.jail.runningUnknown = true, true
+	f.jail.mu.Unlock()
+	session.release()
+	if rc := f.wait(); rc != 0 {
+		t.Errorf("the keeper ended %d", rc)
+	}
+	if rm := f.jail.removals(); len(rm) != 0 {
+		t.Errorf("the keeper ran a removal on a container its runtime could not say was stopped: %q", rm)
+	}
+	if _, ok := readKeeperRecord(f.cname); !ok {
+		t.Error("the keeper removed its start record, so a jail whose container is still there no longer reads as unkept")
+	}
 }
 
 // TestAKeeperWaitsOutAProbesHoldOnItsLivenessLock: every probe of a keeper (probeKeeper, which a
