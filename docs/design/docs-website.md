@@ -37,8 +37,11 @@ alternatives and its measurement of Vantage's setup are in git history
    a user is told to read when yolo sends them to the guide, and most installs (Homebrew, the
    release archive) have no checkout for a repository path to name.
 
-   Options: **(a)** name the page's URL on the site; **(b)** keep the repository path; **(c)**
-   name both, the URL first.
+   Options:
+
+   - **(a)** name the page's URL on the site;
+   - **(b)** keep the repository path;
+   - **(c)** name both, the URL first.
 
    Two facts bear on it. The site tracks `main`, so a URL printed by an older release can show a
    page describing newer behavior than the installed build; a repository path has the same

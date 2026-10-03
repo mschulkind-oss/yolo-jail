@@ -2,7 +2,7 @@
 title: "Notch convergence — one code path per concern, and the loopback services that assumed a boundary"
 date: 2026-09-28
 status: in-review
-stage: DECIDED
+stage: DESIGN
 next: "Rule OQ-NC12 and OQ-NC13 — item 16, one ordered env composition at every vehicle, waits on both"
 depends-on:
   - ../design/credential-sources-separation.md#OQ-ES5
@@ -14,14 +14,15 @@ summary: "Five audits found that the host notch, the container jail and macos-us
 
 # Notch convergence — one code path per concern, and the loopback services that assumed a boundary
 
-**Status:** 2026-09-28 — owed: **work.** The thesis and every pure merge in the build list
+**Status:** 2026-09-28 — owed: **two rulings, then work.** The thesis and every pure merge in the build list
 are ruled by the maintainer's 2026-09-27 words ([§1](#1-the-thesis)). Caller authentication for the
 loopback services is ruled the same day and comes first ([§2](#2-security-first-the-boundary-that-is-not-one)),
 and is built for all five services (item 1). Two questions are open, [OQ-NC12](#OQ-NC12) and
 [OQ-NC13](#OQ-NC13), filed 2026-09-30. Each gates only item 16 and neither gates the thesis or the
-items before it, so the doc owes work rather than a ruling, which is
-[the tie-breaker](README.md#the-vocabulary--seven-words-and-the-word-names-what-is-owed)
-applied to per-item gates. The earlier questions are all answered, the last of them,
+items before it, so every other item is work owed now. They are this doc's own questions, not
+parked ones, so [the tie-breaker](README.md#the-vocabulary--seven-words-and-the-word-names-what-is-owed)
+does not apply: the doc owes a ruling until both are ruled. The earlier questions are all
+answered, the last of them,
 [OQ-NC2](#OQ-NC2), found answered on 2026-09-30 by another doc's ruling. Items 12, 18 and 28 wait on
 questions other docs own, and item 31 on [OQ-NC7](#OQ-NC7)'s ruling. Each item's row in
 [§4](#4-the-ordered-build-list) says when it is built. Evidence was verified against `eb0af5ee` on
@@ -272,6 +273,27 @@ line numbers are left out on purpose, because they drift.
 | A7 | Profile disclosure; env-override refusal | `noteUseProfiles`, and `checkEnvOverrides` on all three jail arms | neither (no `EnvOverride*` call in `internal/cli/host*.go`) | as jail | MEASURED: the host ran claude with a bearer, a static pair and the aws pointer together, which a jail refuses | The host calls `packload.EnvOverrideRefusal`/`EnvOverrideFindings` over its own lookup and prints the same profile line. Since 2026-09-29 that line says, for each agent keyed to the name, the provider it resolved to and how the agent reaches it at the notch, with a warning where it reaches nothing or delivers no credential ([NC-D36](#NC-D36)) | — ([OQ-SSO8](../design/sso-backed-bedrock.md#OQ-SSO8) is not scoped to the jail) |
 | A8 | Config validation | `ValidateConfig` before every launch | none, apart from `config.UnknownUseProfileKey` | as jail | MEASURED: the host composes a provider written with removed keys and sends claude to first-party with model `m1` | The host runs the provider and profile section of validation over user scope | — |
 
+#### Row A4: what the host's approval approves
+
+Moved here verbatim from [OQ-NC10](#OQ-NC10), where its answer is. Row A4
+says the host takes the approval as `YOLO_ACCEPT_CONFIG_CHANGES` and refuses the flag, so item 10
+was to accept the flag on the explicit `yolo host [flags] --` spelling. Building it found the
+premise stale. No code reads `YOLO_ACCEPT_CONFIG_CHANGES`: its last reader went with the
+zero-prompt auto-apply (`8629bfd8`, 2026-09-18), which re-renders a stale home without asking.
+The one question the host launch gate still asks is the first-apply loss of undeclared MCP
+servers, and off a terminal it refuses without consulting the variable. So accepting the flag
+today would be a flag that does nothing, and `yolo host --help`, [host-apply-staleness
+OQ-HS10](../reference/host-apply-staleness.md#why-its-this-way) and `config-ref` describe a
+grant nothing honors. Until this is ruled, the flag keeps the refusal it always had, now worded
+as a jail-launch flag ([NC-D20](#NC-D20)). This decides row A4.
+
+#### Row A6: who a bare `-p` reaches
+
+Moved here verbatim from [OQ-NC5](#OQ-NC5), where its answer is. In a jail it reaches every
+installed agent CLI and never the `--` command ([pv-oq-5](../reference/providers.md#pv-oq-5)). At
+the host it reaches whatever command runs, `bash` included (ES-D1, an implementation decision).
+This decides item 11 and the host help's `yolo host -p zai -- curl` example.
+
 ### 3.2 Packs
 
 | # | Concern | Jail | Host | macos-user | Divergence | Merge | Ruling |
@@ -283,6 +305,23 @@ line numbers are left out on purpose, because they drift.
 | B5 | A program's `platforms` | `launcherUnpublished` declines, with a line | `DepRequirements` ignores it, so host apply offers a vendor install that does not exist | as jail | MEASURED | One packload predicate for installable programs per goos/goarch | — |
 | B6 | Eight resolvers | `stagePacksInto`, check, `resolveSelectedPacks`, `resolveConfiguredPacks`, `UseProfileCLINames` and `LoadJailPacks` | `resolveConfiguredPack`, `footerHostPacks` | jail's | Each answers "which packs, from which tree" slightly differently | One resolver with two modes (stage, or read the declaration only). Filters always apply | — |
 | B7 | Embedded packs | `MaterializeEmbedded` into scratch per launch; any problem is fatal | the `Embedded()` lease answers empty on a problem, which reads as "ships no pack by that name" | as jail | A yolo bug refuses a jail and reads as a typo at the host | `stagePacksInto` reads `Embedded()`. Both check `EmbeddedProblems` | — |
+
+#### Row B3: a local pack's escaping symlinks
+
+Moved here verbatim from [OQ-NC9](#OQ-NC9), where its answer is.
+Found while building item 5. The launch stages every configured pack through `packstage.Stage`,
+whose no-escape rule refuses such a link whatever the pack's origin. The host read a local pack
+in place, so it followed the link and delivered its target as content. A dotfile manager (rcm,
+stow, chezmoi) deploys exactly that shape: `packs/mine/skills/x` is a link into the dotfiles
+repo. It is the shape [`host-apply-staleness.md`](../reference/host-apply-staleness.md) calls
+the one a user's own local pack most often has, and `TestApplyHostConvergesOverASymlinkedPack`
+pins it at the host. So "an escaping symlink refuses both" would break a shipped host
+behavior. Today the launch refuses such a pack and the host follows it. Item 5 kept both as
+they were: `config.ResolvePackSpec.FollowLocalSymlinks` is set by the callers that read an
+unfiltered local pack in place before there was one resolver (the host verbs, the footer,
+config validation, `UseProfileCLINames` and the lazy loophole resolver). It never reaches a
+filtered entry, which every notch staged and refused over such a link, nor a fetched or
+embedded pack. This question decides that input.
 
 ### 3.3 Providers, credentials and env
 
@@ -296,6 +335,80 @@ line numbers are left out on purpose, because they drift.
 | C6 | OpenAI prelaunch | declarative: `YOLO_AUTH_PRELAUNCH_<BIN>_*` read by the `agentAuthPrelaunchShellFn` launcher block, with no login without a TTY | `openaiauthhost.prepare` switches on the names `codex` and `pi`, and logs in regardless of profile or TTY | shim as jail | MEASURED: `yolo host -p zai -- pi </dev/null` reached the broker's browser login | The host reads the same declarative values from its composition. One Go prelaunch, logging in only at a TTY. The managed `CODEX_HOME` is keyed on the declaring pack | — ([OQ-OA3](../reference/agent-credentials.md#oq-oa3) covers codex's managed home only) |
 | C7 | Refusal and disclosure renderers | `checkProviderCredentials` has its own verdict line; `Disclosure()` gives no remedies | `credentialScopeLines` → `DisclosureWith(notes)`, and no verdict line | as jail | One refusal, two wordings | Both move next to `ProviderCredentialGaps` in packload. The jail passes `DisclosureNotes` | — |
 | C8 | Claude OAuth | brokered through the terminator | the host claude's own login | the singleton is ensured, and no terminator runs | Two login lineages for Claude, one for OpenAI | — | [OQ-NC7](#OQ-NC7) |
+
+#### Row C3: which of yolo's own sources wins
+
+Moved here verbatim from [OQ-NC12](#OQ-NC12), which is open.
+Three sources can set the same name for one agent: the pack env fold, an `env_sources` value
+the agent's provider claims, and the agent's shape variables (what its pack's env derive
+emits; [the terms](../reference/providers.md#the-credential-gate)). The fold has
+one winner inside itself at every vehicle (`packload.EnvFold`, pinned by
+`hostfoldparity_test.go`). Between the three, the vehicles disagree. MEASURED 2026-09-30 by a
+scratch test over one fixture pack, which gates `K1` on a profile, has its derive emit `K1`
+and the claimed `ZAI_API_KEY`, and hydrates `ZAI_API_KEY` from `env_sources`. Each cell names
+the one that wins:
+
+| Vehicle | Gated env against the shape var | Claimed `env_sources` against the shape var | The user's value against yolo's |
+| :--- | :--- | :--- | :--- |
+| Per-agent file (container backends, and macos-user since item 17) | gated env | `env_sources` | the user's ([`OQ-CN8`](../reference/providers.md#oq-cn8)) |
+| macos-user session env (the program `yolo -- <cmd>` starts) | shape var | `env_sources` | does not arise: the invoking shell's variables do not cross (`env -i` with a closed list) |
+| Host exec (`yolo host --`) | shape var | shape var | yolo's ([OQ-NC13](#OQ-NC13)) |
+
+- **The per-agent file's order is new.** Before CN-D21 its composed lines were plain-form
+  (CN-D9), so the shape var won both columns there, as it does at the host. CN-D21 made every
+  line defer to a value already set, so the file's first line now wins. CN-D21's ledger row
+  records that as a consequence found on 2026-09-30.
+- **macos-user gives two answers.** The program a launch starts gets the session env and then
+  sources its own file, whose lines keep what the session set, so `yolo -- claude` gets the
+  shape var's `K1` and a claude started from the login shell gets the gated env's. INFERRED
+  from the two measured vehicles and the file's grammar, not run through a sandbox launcher.
+- **Shipped packs do not reach the first two columns alone.** No shipped derive assigns a name
+  a shipped provider claims or a shipped pack gates (a grep of `packs/*/derive.lua` for
+  literal assignments, 2026-09-30, which misses a name a derive computes). A user's own pack
+  or provider does.
+
+No ruling picks this order. [`OQ-CN8`](../reference/providers.md#oq-cn8) decided
+the user's value against yolo's, and [pv-oq-8](../reference/providers.md#pv-oq-8) a pack's
+gated env against its own static env. This decides the first half of item 16.
+
+- **A — The shape var, then `env_sources`, then the fold.** The most specific source wins: the
+  derive composes for this agent's selected profile, `env_sources` is the user's standing file
+  for every process, and the fold is each pack's default. It is the host's order, and the
+  per-agent file's before CN-D21.
+- **B — `env_sources`, then the shape var, then the fold.** A dotenv entry counts as the user's
+  own value and beats the profile, as the macos-user session env's comment already argues
+  ("a user's own dotenv entry still beats every channel value"). Cost: a dotenv line naming a
+  variable the profile sets, such as `ANTHROPIC_BASE_URL`, defeats the profile with no notice.
+- **C — The per-agent file's order today:** `env_sources`, then the fold, then the shape var,
+  with the other two vehicles moved to it. It is what a jail does, but only as a side effect
+  of CN-D21, and it lets a pack's default beat the profile.
+
+Under each option a removal ranks with its source, except an `env_sources` null. That is the
+only removal a user writes, and it keeps beating every assignment, as it does at the host.
+
+#### Row C3: the host and the user's shell
+
+Moved here verbatim from [OQ-NC13](#OQ-NC13), which is open. [`OQ-CN8`](../reference/providers.md#oq-cn8) was asked
+about, and built for, the per-agent file. The host exec applies its composition over the
+shell it inherits ([the execution flow](../reference/host-agent-environment.md#execution-flow),
+step 3). So for claude on a profile whose derive sets `ANTHROPIC_MODEL`, an
+`export ANTHROPIC_MODEL=x` keeps x for claude in a jail and loses it to the profile under
+`yolo host -- claude`. `TestComposeHostEnvOrdering` pins a profile's `AWS_REGION` over the
+shell's, and the scratch test above measured a shape var over an exported value. The jail tells
+a value yolo left from the user's own by comparing it with what yolo wrote or froze into the
+container this entry (CN-D21). The host writes no file to compare with, so a value an earlier
+`eval "$(yolo host env)"` exported looks exactly like one the user typed. This decides the
+second half of item 16.
+
+- **A — Keep composing over the shell, and say so.** A notch difference with its reason
+  stated (P4): the host cannot tell a value an earlier `eval` left from one the user typed.
+  The providers reference and the user guide name it.
+- **B — The shell's value wins, and `yolo host env` records what it exported.** The script
+  also exports a record of the names and values it set. A later host launch treats a value
+  matching the record as yolo's and replaces it, as a jail replaces its shared file's value.
+  That is the jail's rule whole, including its "a stale inherited value cannot win" half.
+- **C — The shell's value wins, with no record.** A value from an old `eval` then beats a
+  changed profile until the user runs the `eval` again.
 
 ### 3.4 Render
 
@@ -314,6 +427,28 @@ line numbers are left out on purpose, because they drift.
 | D11 | The `rmw` write rule | every object-valued derive key is regenerated | `in_full` tables only | as jail | No shipped surface hits it yet | One rule at both notches | [`OQ-CO15`](../design/config-ownership-and-promotion.md#oq-co15) |
 | D12 | `host_files` and `mise_tools` | `ConfigureHostFiles`, `ConfigureMisePrism` | neither, and nothing says so | as jail | MEASURED: a source-less `host_files` entry is inert at the host with no report line | — | [OQ-NC8](#OQ-NC8) |
 
+#### Row D6: skill-name collisions in a jail
+
+Moved here verbatim from [OQ-NC11](#OQ-NC11), where its answer is. Item 25 was filed as ruled by S1. The maintainer's words, 2026-08-05:
+*"I want unnamespaced by default with a fatal collision error if skills collide on name.
+Namespacing should be possible by the pack's choice, but it should be a positive choice."*
+[pack-system.md](../reference/pack-system.md#skills-collision) records that as "FATAL at apply
+time", and [§6a-2](../reference/pack-system.md#batch-6a) rules the composition wholesale at every
+notch. Three facts found while building it stop it:
+
+- **An open question already asks this.** [S5](BACKLOG.md#S5) ("a jail resolves a skill-name
+  collision SILENTLY") is 💬 with a leaning of a launch *warning*, not a refusal, and says in so
+  many words that the jail half "is a decision rather than a port".
+- **The jail does not honor `skills_tier`.** It copies every pack's `skills/` flat
+  (`jailcontent.copySkillSubdirs`), so a namespaced pack's skill is `/<skill>` in a jail and
+  `/<pack>:<skill>` at the host. The host's collision message offers namespacing as the remedy,
+  which would be false in a jail until the jail honors the tier. Honoring it renames every
+  namespaced pack's skills in every jail, which no ruling asked for. No shipped pack carries
+  skills today, so only user packs would move.
+- **One composer would also narrow the jail's fan-out**, which is [OQ-S4](BACKLOG.md#OQ-S4),
+  open. The jail sends every pack's skills to every destination. The host sends a pack's skills
+  only to the destinations it names.
+
 ### 3.5 Services
 
 | # | Concern | Jail | Host | macos-user | Divergence | Merge | Ruling |
@@ -322,6 +457,33 @@ line numbers are left out on purpose, because they drift.
 | E2 | Pack services at a service-less notch | `yolo-jaild supervise` | refused, or `via` dropped in silence | declined; the launch proceeds against dead addresses | Three answers | One service-start path | [OQ-NC1](#OQ-NC1). ✅ Built as item 3: the host and macos-user run the service's host half through one launch-side runner, `internal/launchservice` ([NC-D65](#NC-D65)) |
 | E3 | The terminator's fixed `:443` on a shared namespace | runs | — | declined by name | Collides, or binds the host's `:443` | — | [OQ-NC2](#OQ-NC2) |
 | E4 | Autonomy on a shared namespace | autonomous regardless of `network.mode` (`render.ProfileFor` keys on the notch alone) | guarded | autonomous, with no network namespace | "The jail contains the agent" is half true there | — | [OQ-NC3](#OQ-NC3) |
+
+#### Row E2: services at a service-less notch
+
+Moved here verbatim from [OQ-NC1](#OQ-NC1), where its answer is. The host and
+macos-user run no `jail_daemon` and no `kind: "service"` process. So a `via` or adapter profile
+works in a container, refuses at the host, and on macos-user launches against dead addresses.
+This decides whether item 3 is built at all. It also answers
+[`OQ-OA6`](../reference/agent-credentials.md#oq-oa6) for Codex on macos-user. Option A is drawn
+in full, for the host and macos-user, in
+[`host-notch-services.md`](../design/host-notch-services.md), which owns two narrower questions
+under it.
+
+#### Row E3: the terminator on a shared namespace
+
+Moved here verbatim from [OQ-NC2](#OQ-NC2), where its answer is. It must listen on `127.0.0.1:443`, because `--add-host` maps `platform.claude.com`
+to loopback and the port cannot move. On `network.mode: "host"` or a nested jail, a second jail
+finds `:443` held, or binds the host's own. This decides whether such a jail's claude refreshes
+through the broker.
+
+One more fact bears on it since item 1 was built. The refresh branch now authenticates its
+caller by refresh-token match ([NC-D15](#NC-D15)), but the **proxy** branch cannot: Claude's
+`/login` exchange carries no secret the jail holds and a stranger lacks. So wherever a stranger
+reaches the terminator's port, it can complete an OAuth login of its own through it, and the
+proxy mirror (`maybePropagateTokenResponse`) writes that login to the machine-wide shared file,
+which every jail's Claude then uses. INFERRED from source, not measured. A shared namespace is
+the only place a stranger reaches the port, so the answer here decides this exposure too: A
+removes it, B removes it, and C leaves it open until the mirror is gated.
 
 **Checked and already converged** (no row): the credential gate core (`ScopeCredentials`, `AgentEnv`,
 `refuseUnspeakableProvider`, `ProviderCredentialGaps`); `packoverlay.Collect`, which gets the target's
@@ -430,14 +592,8 @@ is reported verified only against a real rootless host or CI, with
 
 ## 6. Open questions
 
-1. ✅ <a id="OQ-NC1"></a>**OQ-NC1: Does every notch run the selected packs' services?** The host and
-   macos-user run no `jail_daemon` and no `kind: "service"` process. So a `via` or adapter profile
-   works in a container, refuses at the host, and on macos-user launches against dead addresses.
-   This decides whether item 3 is built at all. It also answers
-   [`OQ-OA6`](../reference/agent-credentials.md#oq-oa6) for Codex on macos-user. Option A is drawn
-   in full, for the host and macos-user, in
-   [`host-notch-services.md`](../design/host-notch-services.md), which owns two narrower questions
-   under it.
+1. ✅ <a id="OQ-NC1"></a>**OQ-NC1: Does every notch run the selected packs' services?** What it decides, and where
+   option A is drawn: [row E2's question](#row-e2-services-at-a-service-less-notch).
 
    - **A — Run them, launch-owned.** The launch (host exec, macos-user launch) starts each selected
      service as a child for its own lifetime, on an ephemeral loopback port, authenticated by item 1.
@@ -448,7 +604,7 @@ is reported verified only against a real rootless host or CI, with
      the profile needs the service. There are two behaviors for one declaration, but they are
      disclosed.
 
-      _Leaning:_ A. It is the shape already shipped for host Codex, and it is what "host is supposed to
+   _Leaning:_ A. It is the shape already shipped for host Codex, and it is what "host is supposed to
    act like everywhere else" asks for. After item 1, a service on the host's loopback is no weaker
    than one in a jail.
 
@@ -464,19 +620,8 @@ is reported verified only against a real rootless host or CI, with
    > [`OQ-HS4`](../design/host-notch-services.md#OQ-HS4).
 
 2. ✅ <a id="OQ-NC2"></a>**OQ-NC2: What does the Claude OAuth terminator do on a shared network
-   namespace?** It must listen on `127.0.0.1:443`, because `--add-host` maps `platform.claude.com`
-   to loopback and the port cannot move. On `network.mode: "host"` or a nested jail, a second jail
-   finds `:443` held, or binds the host's own. This decides whether such a jail's claude refreshes
-   through the broker.
-
-   One more fact bears on it since item 1 was built. The refresh branch now authenticates its
-   caller by refresh-token match ([NC-D15](#NC-D15)), but the **proxy** branch cannot: Claude's
-   `/login` exchange carries no secret the jail holds and a stranger lacks. So wherever a stranger
-   reaches the terminator's port, it can complete an OAuth login of its own through it, and the
-   proxy mirror (`maybePropagateTokenResponse`) writes that login to the machine-wide shared file,
-   which every jail's Claude then uses. INFERRED from source, not measured. A shared namespace is
-   the only place a stranger reaches the port, so the answer here decides this exposure too: A
-   removes it, B removes it, and C leaves it open until the mirror is gated.
+   namespace?** Why it must hold `:443`, and the proxy-branch exposure the answer also decides:
+   [row E3's question](#row-e3-the-terminator-on-a-shared-namespace).
 
    - **A — Decline it by name, as macos-user does.** Claude in that jail refreshes directly, and can
      race other jails for the single-use refresh token.
@@ -527,7 +672,7 @@ is reported verified only against a real rootless host or CI, with
    - **B — Guarded whenever the namespace is shared.** Cost: macos-user becomes guarded as a whole
      backend, which reverses the autonomy ruling for it.
 
-      _Leaning:_ A. Autonomy rests on filesystem confinement, which a shared network does not remove,
+   _Leaning:_ A. Autonomy rests on filesystem confinement, which a shared network does not remove,
    and item 1 closes yolo's own listeners.
 
    <!-- vantage: question id=OQ-NC3 -->
@@ -547,7 +692,7 @@ is reported verified only against a real rootless host or CI, with
      today, so a user pack can override a shipped one wherever it is listed.
    - **C — Alphabetical,** which is what the boot does by accident.
 
-      _Leaning:_ A. It is the only order a user can predict from their own config.
+   _Leaning:_ A. It is the only order a user can predict from their own config.
 
    <!-- vantage: question id=OQ-NC4 -->
 
@@ -556,10 +701,8 @@ is reported verified only against a real rootless host or CI, with
    > sure"*; the host acts like every other notch, with the same handling): A. Config order as
    > written, then closure additions, then the local pack last, at every notch.
 
-5. ✅ <a id="OQ-NC5"></a>**OQ-NC5: Who does a bare `-p <name>` reach?** In a jail it reaches every
-   installed agent CLI and never the `--` command ([pv-oq-5](../reference/providers.md#pv-oq-5)). At
-   the host it reaches whatever command runs, `bash` included (ES-D1, an implementation decision).
-   This decides item 11 and the host help's `yolo host -p zai -- curl` example.
+5. ✅ <a id="OQ-NC5"></a>**OQ-NC5: Who does a bare `-p <name>` reach?** What it reaches today at each notch, and what it decides:
+   [row A6's question](#row-a6-who-a-bare--p-reaches).
 
    - **A — pv-oq-5 everywhere.** A command no pack installs gets keys only through
      `--with-credentials`, the grant [OQ-ES5](../design/credential-sources-separation.md#OQ-ES5) ruled for exactly that. ES-D1 retires, and the host's
@@ -567,7 +710,7 @@ is reported verified only against a real rootless host or CI, with
    - **B — The host meaning everywhere.** A bare name also keys the launched `--` command, so a jail
      `yolo -p zai -- bash` hands bash `ZAI_API_KEY`. That reverses pv-oq-5's never-the-command half.
 
-      _Leaning:_ A. The grant exists now and is ruled, so a second, implicit route for the same thing
+   _Leaning:_ A. The grant exists now and is ruled, so a second, implicit route for the same thing
    is the duplicate path this plan removes.
 
    <!-- vantage: question id=OQ-NC5 -->
@@ -587,7 +730,7 @@ is reported verified only against a real rootless host or CI, with
    - **A — User scope only**, refused at workspace scope like `base_url`.
    - **B — Merge, and disclose** a workspace value that changes a claim.
 
-      _Leaning:_ A. [OQ-LM3](../research/local-model-endpoints.md#oq-lm3)'s reason applies unchanged: the blast radius is total.
+   _Leaning:_ A. [OQ-LM3](../research/local-model-endpoints.md#oq-lm3)'s reason applies unchanged: the blast radius is total.
 
    <!-- vantage: question id=OQ-NC6 -->
 
@@ -606,7 +749,7 @@ is reported verified only against a real rootless host or CI, with
    - **B — A managed config dir** that shares the machine store. Its refreshes then race the broker
      unless the host routes them through it, and there is no mechanism for that yet.
 
-      _Leaning:_ A. A shared store without interception is worse than two lineages.
+   _Leaning:_ A. A shared store without interception is worse than two lineages.
 
    <!-- vantage: question id=OQ-NC7 -->
 
@@ -625,7 +768,7 @@ is reported verified only against a real rootless host or CI, with
      [`OQ-CO14`](../design/config-ownership-and-promotion.md#oq-co14) settles host ownership. Host
      tools belong to [`OQ-PS1`](../design/provisioner-sets.md#OQ-PS1).
 
-      _Leaning:_ B. It ends the silence today without choosing an ownership model early.
+   _Leaning:_ B. It ends the silence today without choosing an ownership model early.
 
    <!-- vantage: question id=OQ-NC8 -->
 
@@ -636,19 +779,7 @@ is reported verified only against a real rootless host or CI, with
    > `host_management`; source-bearing entries and `mise_tools` are named as inert.
 
 9. ✅ <a id="OQ-NC9"></a>**OQ-NC9: May a local pack carry a symlink that points out of the pack?**
-   Found while building item 5. The launch stages every configured pack through `packstage.Stage`,
-   whose no-escape rule refuses such a link whatever the pack's origin. The host read a local pack
-   in place, so it followed the link and delivered its target as content. A dotfile manager (rcm,
-   stow, chezmoi) deploys exactly that shape: `packs/mine/skills/x` is a link into the dotfiles
-   repo. It is the shape [`host-apply-staleness.md`](../reference/host-apply-staleness.md) calls
-   the one a user's own local pack most often has, and `TestApplyHostConvergesOverASymlinkedPack`
-   pins it at the host. So "an escaping symlink refuses both" would break a shipped host
-   behavior. Today the launch refuses such a pack and the host follows it. Item 5 kept both as
-   they were: `config.ResolvePackSpec.FollowLocalSymlinks` is set by the callers that read an
-   unfiltered local pack in place before there was one resolver (the host verbs, the footer,
-   config validation, `UseProfileCLINames` and the lazy loophole resolver). It never reaches a
-   filtered entry, which every notch staged and refused over such a link, nor a fetched or
-   embedded pack. This question decides that input.
+   Background: [row B3's question](#row-b3-a-local-packs-escaping-symlinks).
 
    - **A. Follow a local pack's links at every notch.** The launch stages such a pack with
      `FollowSymlinks` too. The no-escape rule's stated threat is someone else's repository
@@ -659,7 +790,7 @@ is reported verified only against a real rootless host or CI, with
      then fails `yolo host apply` the way it already fails a jail launch, and the user replaces
      the links with copies.
 
-      _Leaning:_ A. It deletes the input rather than keeping it, which is this plan's rule. It fixes
+   _Leaning:_ A. It deletes the input rather than keeping it, which is this plan's rule. It fixes
    the jail refusing a pack the host accepts, and it keeps the no-escape rule for the case that
    motivated it.
 
@@ -670,17 +801,8 @@ is reported verified only against a real rootless host or CI, with
    > sure"*; the host acts like every other notch, with the same handling): A. A local pack's links
    > are followed at every notch; a fetched pack's escaping link stays refused at every notch.
 
-10. ✅ <a id="OQ-NC10"></a>**OQ-NC10: What does `--accept-config-changes` approve at the host?** Row A4
-    says the host takes the approval as `YOLO_ACCEPT_CONFIG_CHANGES` and refuses the flag, so item 10
-    was to accept the flag on the explicit `yolo host [flags] --` spelling. Building it found the
-    premise stale. No code reads `YOLO_ACCEPT_CONFIG_CHANGES`: its last reader went with the
-    zero-prompt auto-apply (`8629bfd8`, 2026-09-18), which re-renders a stale home without asking.
-    The one question the host launch gate still asks is the first-apply loss of undeclared MCP
-    servers, and off a terminal it refuses without consulting the variable. So accepting the flag
-    today would be a flag that does nothing, and `yolo host --help`, [host-apply-staleness
-    OQ-HS10](../reference/host-apply-staleness.md#why-its-this-way) and `config-ref` describe a
-    grant nothing honors. Until this is ruled, the flag keeps the refusal it always had, now worded
-    as a jail-launch flag ([NC-D20](#NC-D20)). This decides row A4.
+10. ✅ <a id="OQ-NC10"></a>**OQ-NC10: What does `--accept-config-changes` approve at the host?** Why item 10's premise was
+    found stale: [row A4's question](#row-a4-what-the-hosts-approval-approves).
 
     - **A — There is no host approval: retire the variable.** Delete `acceptConfigChangesEnv` and
       its documentation, and keep refusing the flag by name. The first-apply loss stays
@@ -690,7 +812,7 @@ is reported verified only against a real rootless host or CI, with
       scripted first launch drop undeclared MCP servers, the one-way door host-apply-staleness
       keeps behind a terminal today.
 
-        _Leaning:_ A. A one-way door that drops a user's servers should not open for a flag typed to
+    _Leaning:_ A. A one-way door that drops a user's servers should not open for a flag typed to
     get past a prompt that no longer exists. B re-creates a grant for the one question the gate
     deliberately keeps behind a terminal.
 
@@ -702,27 +824,8 @@ is reported verified only against a real rootless host or CI, with
     > name, and leave the first-apply MCP loss to `yolo host apply --assert` at a terminal.
 
 11. ✅ <a id="OQ-NC11"></a>**OQ-NC11: Does a skill-name collision refuse a jail launch, and does the
-    jail honor `skills_tier`?** Item 25 was filed as ruled by S1. The maintainer's words, 2026-08-05:
-    *"I want unnamespaced by default with a fatal collision error if skills collide on name.
-    Namespacing should be possible by the pack's choice, but it should be a positive choice."*
-    [pack-system.md](../reference/pack-system.md#skills-collision) records that as "FATAL at apply
-    time", and [§6a-2](../reference/pack-system.md#batch-6a) rules the composition wholesale at every
-    notch. Three facts found while building it stop it:
-
-    - **An open question already asks this.** [S5](BACKLOG.md#S5) ("a jail resolves a skill-name
-      collision SILENTLY") is 💬 with a leaning of a launch *warning*, not a refusal, and says in so
-      many words that the jail half "is a decision rather than a port".
-    - **The jail does not honor `skills_tier`.** It copies every pack's `skills/` flat
-      (`jailcontent.copySkillSubdirs`), so a namespaced pack's skill is `/<skill>` in a jail and
-      `/<pack>:<skill>` at the host. The host's collision message offers namespacing as the remedy,
-      which would be false in a jail until the jail honors the tier. Honoring it renames every
-      namespaced pack's skills in every jail, which no ruling asked for. No shipped pack carries
-      skills today, so only user packs would move.
-    - **One composer would also narrow the jail's fan-out**, which is [OQ-S4](BACKLOG.md#OQ-S4),
-      open. The jail sends every pack's skills to every destination. The host sends a pack's skills
-      only to the destinations it names.
-
-    This decides item 25.
+    jail honor `skills_tier`?** Background:
+    [row D6's question](#row-d6-skill-name-collisions-in-a-jail). This decides item 25.
 
     - **A — Fatal at the launch, host-side, and the jail honors the tier.** Put a pre-flight beside
       `AgentNameCollisions` that runs before the container exists, and on an attach too. It uses
@@ -733,7 +836,7 @@ is reported verified only against a real rootless host or CI, with
       last-wins, and the host stays fatal.
     - **C — A `yolo check` failure only** (S5's option 2).
 
-        _Leaning:_ A. The refusal would be a launch pre-flight on the host, like the agent-name one, not
+    _Leaning:_ A. The refusal would be a launch pre-flight on the host, like the agent-name one, not
     an A12 boot failure inside a running jail, so the stranding cost S5 weighs does not apply. The
     jail has to honor the tier, or the remedy the message offers does nothing there.
 
@@ -750,52 +853,14 @@ is reported verified only against a real rootless host or CI, with
     > answered by this ruling, and its launch-warning option is superseded.
 
 12. 💬 <a id="OQ-NC12"></a>**OQ-NC12: When two of yolo's own sources set one variable, which wins?**
-    Three sources can set the same name for one agent: the pack env fold, an `env_sources` value
-    the agent's provider claims, and the agent's shape variables (what its pack's env derive
-    emits; [the terms](../reference/providers.md#the-credential-gate)). The fold has
-    one winner inside itself at every vehicle (`packload.EnvFold`, pinned by
-    `hostfoldparity_test.go`). Between the three, the vehicles disagree. MEASURED 2026-09-30 by a
-    scratch test over one fixture pack, which gates `K1` on a profile, has its derive emit `K1`
-    and the claimed `ZAI_API_KEY`, and hydrates `ZAI_API_KEY` from `env_sources`. Each cell names
-    the one that wins:
+    The three sources, how each vehicle orders them today (MEASURED), and each option's
+    reasoning and cost in full: [row C3's first question](#row-c3-which-of-yolos-own-sources-wins).
+    This decides the first half of item 16.
 
-    | Vehicle | Gated env against the shape var | Claimed `env_sources` against the shape var | The user's value against yolo's |
-    | :--- | :--- | :--- | :--- |
-    | Per-agent file (container backends, and macos-user since item 17) | gated env | `env_sources` | the user's ([`OQ-CN8`](../reference/providers.md#oq-cn8)) |
-    | macos-user session env (the program `yolo -- <cmd>` starts) | shape var | `env_sources` | does not arise: the invoking shell's variables do not cross (`env -i` with a closed list) |
-    | Host exec (`yolo host --`) | shape var | shape var | yolo's ([OQ-NC13](#OQ-NC13)) |
-
-    - **The per-agent file's order is new.** Before CN-D21 its composed lines were plain-form
-      (CN-D9), so the shape var won both columns there, as it does at the host. CN-D21 made every
-      line defer to a value already set, so the file's first line now wins. CN-D21's ledger row
-      records that as a consequence found on 2026-09-30.
-    - **macos-user gives two answers.** The program a launch starts gets the session env and then
-      sources its own file, whose lines keep what the session set, so `yolo -- claude` gets the
-      shape var's `K1` and a claude started from the login shell gets the gated env's. INFERRED
-      from the two measured vehicles and the file's grammar, not run through a sandbox launcher.
-    - **Shipped packs do not reach the first two columns alone.** No shipped derive assigns a name
-      a shipped provider claims or a shipped pack gates (a grep of `packs/*/derive.lua` for
-      literal assignments, 2026-09-30, which misses a name a derive computes). A user's own pack
-      or provider does.
-
-    No ruling picks this order. [`OQ-CN8`](../reference/providers.md#oq-cn8) decided
-    the user's value against yolo's, and [pv-oq-8](../reference/providers.md#pv-oq-8) a pack's
-    gated env against its own static env. This decides the first half of item 16.
-
-    - **A — The shape var, then `env_sources`, then the fold.** The most specific source wins: the
-      derive composes for this agent's selected profile, `env_sources` is the user's standing file
-      for every process, and the fold is each pack's default. It is the host's order, and the
-      per-agent file's before CN-D21.
-    - **B — `env_sources`, then the shape var, then the fold.** A dotenv entry counts as the user's
-      own value and beats the profile, as the macos-user session env's comment already argues
-      ("a user's own dotenv entry still beats every channel value"). Cost: a dotenv line naming a
-      variable the profile sets, such as `ANTHROPIC_BASE_URL`, defeats the profile with no notice.
+    - **A — The shape var, then `env_sources`, then the fold.**
+    - **B — `env_sources`, then the shape var, then the fold.**
     - **C — The per-agent file's order today:** `env_sources`, then the fold, then the shape var,
-      with the other two vehicles moved to it. It is what a jail does, but only as a side effect
-      of CN-D21, and it lets a pack's default beat the profile.
-
-    Under each option a removal ranks with its source, except an `env_sources` null. That is the
-    only removal a user writes, and it keeps beating every assignment, as it does at the host.
+      with the other two vehicles moved to it.
 
     <!-- vantage: question id=OQ-NC12 leaning="A: the shape var, then env_sources, then the pack env fold, at every vehicle; the most specific source wins, and a user who wants a dotenv value to beat a profile has the per-command spelling OQ-CN8 makes win." -->
 
@@ -808,25 +873,14 @@ is reported verified only against a real rootless host or CI, with
     > _(empty — fill in when decided)_
 
 13. 💬 <a id="OQ-NC13"></a>**OQ-NC13: Does the host keep a value the user's shell already has, as a
-    jail does?** [`OQ-CN8`](../reference/providers.md#oq-cn8) was asked
-    about, and built for, the per-agent file. The host exec applies its composition over the
-    shell it inherits ([the execution flow](../reference/host-agent-environment.md#execution-flow),
-    step 3). So for claude on a profile whose derive sets `ANTHROPIC_MODEL`, an
-    `export ANTHROPIC_MODEL=x` keeps x for claude in a jail and loses it to the profile under
-    `yolo host -- claude`. `TestComposeHostEnvOrdering` pins a profile's `AWS_REGION` over the
-    shell's, and the scratch test above measured a shape var over an exported value. The jail tells
-    a value yolo left from the user's own by comparing it with what yolo wrote or froze into the
-    container this entry (CN-D21). The host writes no file to compare with, so a value an earlier
-    `eval "$(yolo host env)"` exported looks exactly like one the user typed. This decides the
-    second half of item 16.
+    jail does?** Background, and each option in full:
+    [row C3's second question](#row-c3-the-host-and-the-users-shell). This decides the second half
+    of item 16.
 
     - **A — Keep composing over the shell, and say so.** A notch difference with its reason
       stated (P4): the host cannot tell a value an earlier `eval` left from one the user typed.
-      The providers reference and the user guide name it.
     - **B — The shell's value wins, and `yolo host env` records what it exported.** The script
-      also exports a record of the names and values it set. A later host launch treats a value
-      matching the record as yolo's and replaces it, as a jail replaces its shared file's value.
-      That is the jail's rule whole, including its "a stale inherited value cannot win" half.
+      also exports a record of the names and values it set.
     - **C — The shell's value wins, with no record.** A value from an old `eval` then beats a
       changed profile until the user runs the `eval` again.
 

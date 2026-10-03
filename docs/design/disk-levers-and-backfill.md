@@ -251,6 +251,64 @@ Three consequences, stated as findings:
 > the event that never happens, so a reaper whose only job is post-GC cleanup has a permanent
 > zero. Not a bug in the sweep; a symptom of the finding above.
 
+#### Protecting a running jail's prefix
+
+Moved here verbatim from [OQ-BF4](#OQ-BF4), where its answer is.
+
+> [!NOTE]
+> **This entry was unreadable, and the maintainer said so** — *"I don't understand this. is this
+> something that really needs me?"* No, and it should not have been in a list of questions that
+> do. It is restated below in plain words and ruled on its own merits; the mechanism paragraph is
+> kept because the implementer needs it.
+
+**In plain words.** Since C8, the yolo binaries a jail runs — including pid1 — are not in the
+image; they are a directory in `/nix/store` that the launch bind-mounts. Nix will not delete a
+store path that something *roots*, and yolo keeps exactly **one** root per checkout, pointed at
+the **newest** prefix it built. So a jail that has been running for a while is running from a
+path nothing roots any more. Nothing collects the store today, which is the only reason this has
+not bitten: the day anything does — this doc's own [L3](#3-the-levers-ranked), a `nix-collect-garbage`, the daemon's
+`min-free` — that jail loses the binary under its own pid1. **Measured:** this jail is in exactly
+that state right now ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding) items 2-3): its prefix is pinned only by two pre-C8 image
+roots that a reap will remove, and the in-jail out-link is not a root at all.
+
+**The mechanism, for the implementer.** One durable root per store path under `BuildDir()`,
+registered at launch the way `RegisterImageRoot` registers an image, protected by the same age
+floor and reaped when no recent launch used it, gated on `!inJail` exactly as `RegisterRoot` is;
+the per-checkout out-link stays as the build's own output link. It is [OQ-BF3](#OQ-BF3)'s stated
+prerequisite, and it is a fix regardless of disk.
+
+#### The prefix on macOS
+
+Moved here verbatim from [OQ-BF7](#OQ-BF7), where its answer is.
+
+> [!NOTE]
+> **The maintainer's ruling was about the entry, not the answer** — *"isn't this an implementation
+> detail? not design?"* Yes. A live outage with one measured cause does not need a disposition; it
+> needs a fix. It stays recorded here because this doc is where the coupling to
+> [OQ-BF3](#OQ-BF3)/[OQ-BF4](#OQ-BF4) was claimed, and that claim turns out to be discharged
+> rather than merely moved — see the Answer. C8 bind-mounts the prefix out of `/nix/store`, and a macOS podman runs in a VM that
+shares no host store. The nightly is a **total outage**: 55 failures and 59
+`statfs /nix/store/…-install-prefix/opt/yolo-jail/share/yolo-jail: no such file or directory`
+(run `34117863296`); the pre-C8 nightly had zero. The constraint was already written down in the
+sibling feature — `storePackagesEligible` refuses macOS with *"a macOS podman runs in a VM that
+shares no /nix/store with the host"* — and `jailprefix.go` has no equivalent guard, because C8
+reasoned about the prefix being a *darwin derivation producing linux binaries* and never about the
+*mount* crossing into a VM. This is the one question here that is a live outage rather than a
+disposition, and it belongs to this doc because staging the prefix anywhere else changes what
+roots it ([OQ-BF4](#OQ-BF4), [R7](#8-risks)).
+
+> [!WARNING]
+> **`--volume /nix:/nix` in `nightly-macos.yml` is HALF of what shipped, and this warning was
+> right about the other half.** The flag alone greens CI while every real macOS user stays broken
+> and retires the only signal that says so. What makes it acceptable in `6a855b6d` is that the
+> signal was **moved before it was retired**, not dropped: the product now refuses the launch and
+> names both fixes, so a macOS user meets a sentence instead of `statfs`. **The residual cost is
+> real and is not paid**: the nightly now exercises the `/nix`-shared configuration, so the
+> DEFAULT macOS live-checkout path — the one the refusal governs — is no longer covered by any
+> job. A regression in the refusal itself would be invisible. The test that would close that is a
+> unit assertion on the refusal (`TestDarwinRefusesAStorePrefix`, shipped in the same commit),
+> which pins the decision but not the podman behaviour behind it.
+
 ### 2.4 Caveats
 
 - **One machine, one jail.** Same limitation as every sibling measurement (the one-machine caveat
@@ -392,6 +450,25 @@ Whether that is safe splits the pants cache exactly down its middle, and the spl
 | Vendor version dirs, keep 2 | a human rolling back one release; the launcher only ever moves forward | keep 2 = exactly one step back. The defect is the trigger, not the count ([§3](#3-the-levers-ranked) L7) |
 | Capture store, K = 1 per program | materialize on a cache miss | already the tightest count that leaves a hit possible |
 | Agent staging orphans, retired loophole state | nothing — orphaned and retired by definition | Class A in kind, kilobytes in size; swept for tidiness, not bytes |
+
+#### Aliasing a host cache instead of pooling a second copy
+
+Moved here verbatim from [OQ-BF10](#OQ-BF10), where its answer is. This is a third disposition
+the rest of the doc does not have. Backfill deletes what accumulated; retention bounds what accumulates; aliasing makes the store **not exist
+twice**. For pants' content-addressed half that is up to 27 G on this machine, and the same
+question applies to npm, uv, pip and go-build, whose host-side copies a jail cannot see to
+measure. yolo already shares the host's nix store read-only rather than duplicating it
+(`hostNixStore`), so the pattern exists; it has never been applied to a cache.
+
+Three things the ruling has to settle, because they do not follow from each other:
+
+1. **which half** — only the content-addressed one; `named_caches` is path-poisoned and must
+   stay per-frame ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store) Class C).
+2. **writable or read-only** — a cache is useless read-only, so this is a WRITABLE host bind,
+   which is a strictly bigger trust step than the `:ro` nix store precedent: jail code could
+   then write into the host user's own cache.
+3. **the migration** — aliasing does not delete the 40 G already pooled jail-side; it strands
+   it, so a ruling here creates its own backfill item.
 
 ---
 
@@ -826,7 +903,7 @@ row cannot carry them.
    unbounded or the evidence is partial. Offering everything is inconsistent with what
    [OQ-DF3](minimal-disk-footprint.md#OQ-DF3) already allows daily; automating everything re-fetches 39 GiB of `pants` without asking.
 
-   **Answer (2026-09-08):**
+   **Answer:** (2026-09-08)
    > **Two tiers — and the offered tier is offered whenever the class has reclaimable bytes, not
    > once.** The maintainer's reasoning: *"if someone skips it the first time, we should probably
    > offer it again."* An offer shown once and never again is a one-shot migration prompt, and the
@@ -867,7 +944,7 @@ row cannot carry them.
    add `nce` to the default list (1.86 GiB dead here) and leave `staticcheck` out until it shows
    age. The offer is what makes the first pass a consented re-fetch rather than a surprise.
 
-   **Answer (2026-09-08):**
+   **Answer:** (2026-09-08)
    > **Yes — offered while non-zero (per [OQ-BF1](#OQ-BF1)), then automatic in the slot**, 30 d
    > unchanged, `nce` added, `staticcheck` left out. The one change from the leaning is the trigger's
    > shape, which BF1 settled for every offered class at once.
@@ -913,7 +990,7 @@ row cannot carry them.
    same set. The Go-build outputs are garbage the moment the prefix exists and could go on the
    write path immediately.
 
-   **Answer (2026-09-08):**
+   **Answer:** (2026-09-08)
    > **"Yes, once [OQ-BF4](#OQ-BF4) has given every running jail's prefix a durable root: delete
    > unrooted `*-yolo-jail-install-prefix` and `*-yolo-jail-go-0-dev` paths by name in the
    > housekeeping slot, host-only, never a blanket gc, never `--ignore-liveness`. Until then, offer
@@ -930,27 +1007,8 @@ row cannot carry them.
 4. ✅ <a id="OQ-BF4"></a>**[OQ-BF4](#OQ-BF4) — RULED 2026-09-08, and it needed no maintainer judgment: does a running
    jail's binaries get protected from deletion?**
 
-   > [!NOTE]
-   > **This entry was unreadable, and the maintainer said so** — *"I don't understand this. is this
-   > something that really needs me?"* No, and it should not have been in a list of questions that
-   > do. It is restated below in plain words and ruled on its own merits; the mechanism paragraph is
-   > kept because the implementer needs it.
-
-   **In plain words.** Since C8, the yolo binaries a jail runs — including pid1 — are not in the
-   image; they are a directory in `/nix/store` that the launch bind-mounts. Nix will not delete a
-   store path that something *roots*, and yolo keeps exactly **one** root per checkout, pointed at
-   the **newest** prefix it built. So a jail that has been running for a while is running from a
-   path nothing roots any more. Nothing collects the store today, which is the only reason this has
-   not bitten: the day anything does — this doc's own [L3](#3-the-levers-ranked), a `nix-collect-garbage`, the daemon's
-   `min-free` — that jail loses the binary under its own pid1. **Measured:** this jail is in exactly
-   that state right now ([§2.3](#23-yolos-own-store-outputs-are-never-collected--the-c8-finding) items 2-3): its prefix is pinned only by two pre-C8 image
-   roots that a reap will remove, and the in-jail out-link is not a root at all.
-
-   **The mechanism, for the implementer.** One durable root per store path under `BuildDir()`,
-   registered at launch the way `RegisterImageRoot` registers an image, protected by the same age
-   floor and reaped when no recent launch used it, gated on `!inJail` exactly as `RegisterRoot` is;
-   the per-checkout out-link stays as the build's own output link. It is [OQ-BF3](#OQ-BF3)'s stated
-   prerequisite, and it is a fix regardless of disk.
+   The maintainer's note on this entry, the question in plain words, and the mechanism for the
+   implementer: [protecting a running jail's prefix](#protecting-a-running-jails-prefix).
 
    <!-- vantage: question id=OQ-BF4 -->
 
@@ -959,7 +1017,7 @@ row cannot carry them.
    when no recent launch used it — and gate it on `!inJail` exactly as `RegisterRoot` is. Keep the
    per-checkout out-link for the build. A fix regardless of disk.
 
-   **Answer (2026-09-08):**
+   **Answer:** (2026-09-08)
    > **Yes — and this is a bug fix, not a disposition, so it is ruled here rather than escalated.**
    > There is no version of "a running jail may lose pid1's binary" that is a preference, and no
    > option on the other side to weigh: the alternative is to never collect yolo's own store outputs
@@ -998,7 +1056,7 @@ row cannot carry them.
    _Leaning:_ **Yes, move it, and land the lock in the same change.** The race exists today; the
    pre-start placement neither closes it nor spares the launch.
 
-   **Answer (2026-09-08):**
+   **Answer:** (2026-09-08)
    > **"Yes, move it, and take the machine-wide housekeeping lock in both the load-and-record step
    > and the pass so the reap can never interleave with another launch's warm-path sentinel write.
    > Land the lock in the same change: the race exists today and automation is what made it
@@ -1024,7 +1082,7 @@ row cannot carry them.
    rules its component. Automatic under P3: the tar is one-shot, regeneration is a build, the
    evidence is the runtime itself.
 
-   **Answer (2026-09-08):**
+   **Answer:** (2026-09-08)
    > **"Yes: 0 on podman (nothing writes a tar there and the fallback reader `newestTars` keeps
    > working on whatever exists), unchanged at 3 on Apple Container until
    > [OQ-DF2](minimal-disk-footprint.md#OQ-DF2) names the component that deletes on success.
@@ -1044,33 +1102,8 @@ row cannot carry them.
    maintainer, and the outage half is fixed. On macOS, where does the mounted prefix come from — or
    does that backend keep baking it?**
 
-   > [!NOTE]
-   > **The maintainer's ruling was about the entry, not the answer** — *"isn't this an implementation
-   > detail? not design?"* Yes. A live outage with one measured cause does not need a disposition; it
-   > needs a fix. It stays recorded here because this doc is where the coupling to
-   > [OQ-BF3](#OQ-BF3)/[OQ-BF4](#OQ-BF4) was claimed, and that claim turns out to be discharged
-   > rather than merely moved — see the Answer. C8 bind-mounts the prefix out of `/nix/store`, and a macOS podman runs in a VM that
-   shares no host store. The nightly is a **total outage**: 55 failures and 59
-   `statfs /nix/store/…-install-prefix/opt/yolo-jail/share/yolo-jail: no such file or directory`
-   (run `34117863296`); the pre-C8 nightly had zero. The constraint was already written down in the
-   sibling feature — `storePackagesEligible` refuses macOS with *"a macOS podman runs in a VM that
-   shares no /nix/store with the host"* — and `jailprefix.go` has no equivalent guard, because C8
-   reasoned about the prefix being a *darwin derivation producing linux binaries* and never about the
-   *mount* crossing into a VM. This is the one question here that is a live outage rather than a
-   disposition, and it belongs to this doc because staging the prefix anywhere else changes what
-   roots it ([OQ-BF4](#OQ-BF4), [R7](#8-risks)).
-
-   > [!WARNING]
-   > **`--volume /nix:/nix` in `nightly-macos.yml` is HALF of what shipped, and this warning was
-   > right about the other half.** The flag alone greens CI while every real macOS user stays broken
-   > and retires the only signal that says so. What makes it acceptable in `6a855b6d` is that the
-   > signal was **moved before it was retired**, not dropped: the product now refuses the launch and
-   > names both fixes, so a macOS user meets a sentence instead of `statfs`. **The residual cost is
-   > real and is not paid**: the nightly now exercises the `/nix`-shared configuration, so the
-   > DEFAULT macOS live-checkout path — the one the refusal governs — is no longer covered by any
-   > job. A regression in the refusal itself would be invisible. The test that would close that is a
-   > unit assertion on the refusal (`TestDarwinRefusesAStorePrefix`, shipped in the same commit),
-   > which pins the decision but not the podman behaviour behind it.
+   Why it was retired from the list, the outage it describes, and the warning about the CI half:
+   [the prefix on macOS](#the-prefix-on-macos).
 
    <!-- vantage: question id=OQ-BF7 -->
 
@@ -1079,7 +1112,7 @@ row cannot carry them.
    C8 just unified. Either way the choice decides what roots the prefix, so it gates
    [OQ-BF3](#OQ-BF3).
 
-   **Answer (2026-09-08): the outage is fixed by a THIRD option, and the coupling this entry
+   **Answer:** (2026-09-08) **the outage is fixed by a THIRD option, and the coupling this entry
    claimed is discharged rather than deferred.**
    > **What shipped (`6a855b6d`).** Neither staging nor baking: a **refusal**.
    > `prefixUnreachableFromVM` (`internal/cli/run/jailprefix.go`) declines the launch on darwin when
@@ -1149,7 +1182,7 @@ row cannot carry them.
    written. The answer below went further in the same direction.)* Lowering `10` to another underived constant repeats the defect
    at a new number.
 
-   **Answer (2026-09-08): the question dissolves — its premise is being removed, not answered.**
+   **Answer:** (2026-09-08) **the question dissolves — its premise is being removed, not answered.**
    > The maintainer pointed at the newer work: *"read the latest design docs added, there are
    > comments on this LRU and I think we're going to ditch it totally."*
    > [`image-retention.md`](../reference/image-retention.md)
@@ -1196,7 +1229,7 @@ row cannot carry them.
    samples per store) so the handle on growth cannot become a store that grows. A pure-read command
    that can never report a rate fails the stated purpose.
 
-   **Answer (2026-09-08):**
+   **Answer:** (2026-09-08)
    > **"Yes: append one dated line per store per run under the state dir, default on, `--no-record`
    > to opt out, and the command is the single writer of that ledger. Size it bounded (last 30
    > samples per store) so the handle on growth cannot itself become a store that grows. A pure-read
@@ -1214,20 +1247,8 @@ row cannot carry them.
    > **Rule this before DF4**, in that order.
 
 10. ✅ <a id="OQ-BF10"></a>**[OQ-BF10](#OQ-BF10) — RULED 2026-09-08: should yolo ALIAS a host cache rather than pool a
-    second copy of it — and for which caches?** This is a third disposition the rest of the doc does not have. Backfill deletes
-    what accumulated; retention bounds what accumulates; aliasing makes the store **not exist
-    twice**. For pants' content-addressed half that is up to 27 G on this machine, and the same
-    question applies to npm, uv, pip and go-build, whose host-side copies a jail cannot see to
-    measure. yolo already shares the host's nix store read-only rather than duplicating it
-    (`hostNixStore`), so the pattern exists; it has never been applied to a cache.
-
-    Three things the ruling has to settle, because they do not follow from each other:
-    **(1) which half** — only the content-addressed one; `named_caches` is path-poisoned and must
-    stay per-frame ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store) Class C).
-    **(2) writable or read-only** — a cache is useless read-only, so this is a WRITABLE host bind,
-    which is a strictly bigger trust step than the `:ro` nix store precedent: jail code could then
-    write into the host user's own cache. **(3) the migration** — aliasing does not delete the
-    40 G already pooled jail-side; it strands it, so a ruling here creates its own backfill item.
+    second copy of it — and for which caches?** What aliasing is, and the three things the
+    ruling had to settle: [aliasing a host cache](#aliasing-a-host-cache-instead-of-pooling-a-second-copy).
 
     <!-- vantage: question id=OQ-BF10 -->
 
@@ -1236,7 +1257,7 @@ row cannot carry them.
     pants' `lmdb_store`, npm, go-build. Never `named_caches`. Not on macOS at all. And the stranded
     jail-side copy becomes a backfill row on the first aliased launch, which is the honest cost.
 
-    **Answer (2026-09-08):**
+    **Answer:** (2026-09-08)
     > **CAS only, and the reason is a threat model rather than a size: *"I think it must be CAS
     > only. otherwise that's an injection mechanism from jail to host?"*** Yes — and that framing is
     > sharper than the leaning's, so it replaces it as the rule's justification.

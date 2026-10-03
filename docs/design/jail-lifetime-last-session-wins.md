@@ -1973,6 +1973,207 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
 
 ---
 
+### 9.10 The setups behind the later questions
+
+The setup, the reason each is a question, and every option in full, for [OQ-JL5](#OQ-JL5) to
+[OQ-JL9](#OQ-JL9), and [OQ-JL10](#OQ-JL10)'s setup, moved here verbatim so each question stays
+short. Their answers and leanings are in [§10](#10-open-questions).
+
+#### 9.10.1 A keeper at every notch
+
+Moved here verbatim from [OQ-JL5](#OQ-JL5), where its answer is.
+
+**The setup.** Matt runs two container-jail tabs in one workspace on his Linux box, and on his
+Mac he runs `yolo host -- claude` in one tab and a macos-user `yolo -- codex` in another. On
+the Linux box, quitting the first agent leaves the keeper holding the jail for the second tab.
+On the Mac nothing needs keeping. A host launch owns its services as its own children and
+shares them with no other launch, and macos-user has no attach, so every invocation is its own
+sandbox with its own services ([§2.4](#24-everything-the-first-terminals-process-owns-today)).
+Both already hand the prompt back when their agent exits. **Why it is a question:** the
+notches were put on one code path per concern
+([NC-D1](../plans/notch-convergence.md#7-decision-ledger)), and a second shape of host-service
+ownership is a ruling, not an implementation choice (the reason [JL-D8](#JL-D8) was
+withdrawn). It also decides how [OQ-HS3](host-notch-services.md#OQ-HS3)'s *"a host service
+lives for the launch that starts it"* reads from now on.
+
+- **A. A keeper at every notch.** Every `yolo host` launch that starts a service, and every
+  macos-user launch, also spawns `yolo internal daemon jail-keeper`. Matt sees one more process
+  in `ps` and one more disclosure line per launch, and nothing else changes: the agent behaves
+  the same and the prompt returns the same. The keeper there keeps nothing alive that the
+  launch would not, because no second session can join.
+- **B. A keeper wherever sessions share a jail, which today means the container backends.**
+  The rule is written once: a jail's host services are owned by one process that lives as long
+  as the sessions sharing that jail. At `yolo host` and on macos-user that set is always one
+  session, so the launch is that process, and Matt sees no change there. HS3 then reads "per
+  launch" at those notches and "per jail" at the container backends, which is HD-R1's unit.
+
+#### 9.10.2 Switching agents in a lone tab
+
+Moved here verbatim from [OQ-JL6](#OQ-JL6), where its answer is.
+
+**The setup.** Matt has one tab open in a workspace and runs `yolo -- claude`. Nothing else is
+in the jail. He quits Claude and types `yolo -- codex` in the same tab. Under
+[JL-D12](#JL-D12) the quit was the jail's last session, so the keeper tore the jail down while
+Claude's tab waited for it ([JL-D11](#JL-D11)), and the Codex launch boots a new jail. Had a
+second tab been open, the same switch would have been an attach into the running jail
+([§9.4](#94-how-re-entering-works-and-changing-agents)). **Why it is a question:** the
+maintainer asked to *"reenter the jail with that first one, like change agents in that tab"*,
+and JL-D12, which rules out a grace window, was ledgered before that request. A fresh jail also
+starts with empty per-launch scratch: `/tmp`, `/var/tmp` and the nested podman store
+(`ScratchMountArgs`, [`runmount.go`](../../internal/cli/run/runmount.go)), and every in-jail
+process restarts.
+
+- **A. As ledgered: the switch is a fresh launch.** Matt sees Claude's quit print the
+  teardown, then Codex's launch print a boot: about 2.2 to 2.6 s of host-side work plus the
+  in-jail boot, against 0.12 to 0.20 s for an attach (this workspace's records,
+  [§9.4](#94-how-re-entering-works-and-changing-agents)). `/tmp` and the nested podman store
+  start empty. To switch agents without any of that, he opens the jail's shell with a bare
+  `yolo` and starts agents from it; the shell is the session, so the jail lives across
+  switches.
+- **B. A short linger after the last session, about 10 s.** Claude's quit returns the prompt
+  at once, and a `yolo --` in the workspace within the linger attaches. Matt sees an instant
+  switch that keeps `/tmp`. The cost: every last quit leaves the jail up for the linger;
+  `yolo config diff` and any launch have to wait for the drain after it, or E3's race reopens;
+  the last quit no longer shows the teardown; and the lifecycle gets its one timer.
+
+#### 9.10.3 A killed keeper
+
+Moved here verbatim from [OQ-JL7](#OQ-JL7), where its answer is.
+
+**The setup.** Matt has Claude in one tab and Codex in another, both in one workspace's jail.
+The keeper is killed outright: the kernel's OOM killer picks it during a memory spike, or a
+`kill -9` meant for something else hits it. Both agents keep running, because nothing in a
+session needs the keeper to be alive. What the keeper held died with it
+([§9.5](#95-how-it-ends-itself)): the credential fronts, so Claude's next login refresh through
+the broker fails; the port forwards and the fronted daemons, which the design gives an end of
+their own so that none outlives the keeper unowned ([JL-D32](#JL-D32)); and the cgroup
+delegate. A third tab's `yolo -- claude` would enter a jail with none of them. **Why it is a
+question:** every answer gives up something. Letting the agents run on leaves them degraded,
+stopping the jail throws away their work to be honest sooner, and repairing the jail puts a
+second owner on it, which [JL-P4](#JL-P4) forbids. What [JL-D13](#JL-D13), [JL-D18](#JL-D18)
+and [JL-D30](#JL-D30) record today is A; the first two were written before this was filed as
+a question.
+
+- **A. The sessions run on without host services, and are told when they end.** Matt sees
+  both agents keep working until one needs a host service, and then that agent's own error (a
+  failed refresh, a dropped port). Each tab's quit prints *"the jail's keeper died at 14:02;
+  its host services were down from then"*. The third tab's `yolo` is refused, naming the two
+  live sessions and offering `yolo stop`, which tears the whole jail down. Whichever of the
+  two tabs quits last reaps the jail itself on the way out, on every backend
+  ([JL-D30](#JL-D30)).
+- **B. The jail stops at once.** Each session's launcher waits on the keeper's liveness lock,
+  so the first to see it come free runs the `yolo stop` path. Matt sees both agents end within
+  a second, each tab printing why; `yolo -- <agent>` then launches fresh.
+- **C. The jail is repaired.** The third tab's `yolo`, or a surviving tab's launcher, starts a
+  replacement keeper. It restarts the host services from the launch's plan and re-publishes
+  their endpoint files, which in-jail clients re-read on their next dial, so the agents
+  recover. Matt sees one line saying the keeper was replaced, and the third tab attaches. The
+  costs are out of sight: the plan, which carries the jail's per-launch caller tokens, stays on
+  disk for the jail's life instead of being read once and removed ([JL-D20](#JL-D20)); the
+  repair runs only after a crash, so it is the path that rots; a replacement from a newer build
+  (after `just install`) runs an older launch's plan; and JL-P4 is reopened.
+
+#### 9.10.4 A closed pane
+
+Moved here verbatim from [OQ-JL8](#OQ-JL8), where its answer is.
+
+**The setup.** Matt works in herdr with two panes on one workspace: Claude in pane 1, halfway
+through a long refactor, and Codex in pane 2. He closes pane 1. herdr hangs up everything in
+that pane and SIGKILLs what is left within half a second, so pane 1's `yolo` is gone. Claude's
+process is not in the pane: conmon holds its exec session, and in the measurement the process
+an exec started ran on after its client died ([§3.1](#31-what-a-pane-close-does-measured)). So
+Claude ends only if yolo ends it. Today an attached pane's agent runs on headless
+([§2.3](#23-four-defects-found-on-the-way) item 1), and closing the first pane stops the whole
+jail. **Why it is a question:** closing a terminal ends the program in it on a host, while a
+tmux user expects work to go on. And yolo cannot bring a headless agent back to a terminal:
+podman has no way to re-attach to an exec session
+([§9.4](#94-how-re-entering-works-and-changing-agents)).
+
+- **A. The agent ends with its pane.** The session's launcher hangs up its own in-jail
+  process tree before it exits ([JL-D4](#JL-D4)). Matt sees pane 1's Claude gone and pane 2
+  carrying on, and the jail stays up for pane 2. A new pane's `yolo -- claude` attaches, and
+  whatever Claude keeps on disk is there. A window close that only detaches a herdr client
+  changes nothing, since the pane stays.
+- **B. The agent keeps running headless, and keeps the jail up until it exits.** Matt sees
+  nothing of it: no pane shows its output, which is lost, while files in the workspace keep
+  changing. The jail's shell (`yolo`, then `ps`) shows it, and `yolo stop` ends it with
+  everything else. The jail stays up after the last pane closes, for as long as that agent
+  runs. For that, the count must include a process no terminal holds, which
+  [JL-P2](#JL-P2) rules out: an in-jail process would keep the jail's credential services
+  alive after every human has left.
+- **C. The agent keeps running headless, but uncounted.** This is what an attached pane does
+  today. Claude works on until it finishes or until the last counted session leaves, and then
+  dies with the jail, mid-edit if it was editing.
+
+#### 9.10.5 What the keeper at `yolo host` holds
+
+Moved here verbatim from [OQ-JL9](#OQ-JL9), which is open.
+*Re-asked 2026-09-29.* The first draft said nothing another
+host launch reads names these services; that is untrue of the Codex refresh adapter.
+
+**The setup.** On his Mac, with `ci-watch` enabled in yolo-jail, Matt runs
+`yolo host -p codex -- claude` in one yolo-jail terminal and `yolo host -- codex` in another,
+and a third `yolo host -- codex` in his dotfiles repository. The yolo-jail keeper at `yolo host`
+holds `ci-watch` and the ping box, which both yolo-jail terminals share
+([§9.9.4](#994-what-the-keeper-owns-there)). Each launch also starts something for its own
+agent, and the two kinds differ in what they share:
+
+- **The bridge's host half**, which the first terminal's claude needs, is that launch's alone.
+  Its port and secret go into that claude's environment and into no file another launch reads
+  ([§9.9.1](#991-where-the-re-entry-problem-is-real)).
+- **The Codex refresh adapter** listens on a port of each launch's own, but all three Codex
+  sessions, in both workspaces, run on one managed Codex home in yolo's machine-wide state, so on
+  one `auth.json`, which Codex rereads before every refresh. Re-entry already broke it once: each
+  launch wrote a caller token of its own there, the newest replaced the others, and their
+  refreshes failed. Since [NC-D18](../plans/notch-convergence.md#NC-D18) the home's live launches
+  share one token, counted by a lock of the home's own. Codex's own background server was the
+  same problem again, and [OQ-CDX1](../research/codex-background-service.md#OQ-CDX1) turned it
+  off.
+
+**Why it is a question:** the ruling's reading names *"the brokers' doorways"* among what a
+keeper owns, with no backend carved out. The bridge has nothing to share. What the Codex adapter
+shares belongs to the machine, while a keeper belongs to one workspace: two workspaces' keepers,
+each writing a token into the one `auth.json`, would bring NC-D18's breakage back
+([§9.9.10](#9910-every-feasibility-problem-found) row 8). So the keeper either leaves the adapter
+alone, or the managed Codex home has to change what it is.
+
+- **A. They stay the launch's own, as today.** Each terminal starts what its agent needs and
+  stops it when its agent exits ([`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)),
+  and the Codex home keeps NC-D18's shared token and lock. Matt sees each terminal's service line
+  as today, and the keeper line names only `ci-watch` and the box. The cost: two things count
+  sessions at `yolo host`, the keeper per workspace and NC-D18's lock per machine.
+- **B. The keeper holds them, still one per launch.** Each launch prints its service lines and
+  hands its services to the keeper as an addition to its plan; the keeper starts each, and stops
+  it when that launch's session ends. Matt sees one keeper in `ps` holding every host service of
+  the workspace. The cost: a lifeline from each session to the keeper, a second path from a
+  disclosure to a start (the plan plus additions, against [JL-D20](#JL-D20)'s one plan), and the
+  Codex token still follows NC-D18's machine-wide lock, since the home is still shared across
+  workspaces. The processes move and the ownership does not.
+- **C. The keeper holds the Codex adapter, over a Codex home made per workspace, and the bridge
+  stays the launch's own.** A workspace's host Codex sessions share one adapter and one token the
+  keeper mints, as a jail's sessions do, and NC-D18's lock retires for them. Matt sees the Codex
+  adapter on the keeper's line. The cost: Codex's sessions and history at `yolo host` split per
+  workspace, as they already are in a jail and at macos-user, where `.codex` is a per-workspace
+  `state` dir ([`packs/codex/pack.json`](../../packs/codex/pack.json)); today's machine-wide home
+  is left behind or moved once; every `yolo host -- codex` gets a keeper; and one started from
+  the home directory, which has no key ([§9.9.3](#993-one-keeper-per-workspace-per-notch)),
+  still needs a home and a lock of its own.
+
+#### 9.10.6 An interrupt before ready
+
+Moved here verbatim from [OQ-JL10](#OQ-JL10), which is open. Raised 2026-10-01 by the review of
+[JL-D73](#JL-D73).
+
+**The setup.** The fresh launch's keeper releases the launch lock once the container runs,
+which is before ready, so a second launch can attach during the first one's boot. If the first
+launch is then interrupted before ready, its keeper ends the jail, as [§9.5](#95-how-it-ends-itself)
+item 1 says, and the second session ends with it. MEASURED in a nested jail on rootful Linux
+podman: with the second launch 500 ms or more behind the first, it is told why its jail ended.
+Before ready the keeper is not counting sessions yet ([JL-D74](#JL-D74)).
+
+It has no leaning yet: how often a second session arrives inside a boot is the fact a leaning
+would need, and nothing has measured it.
+
 ## 10. Open Questions
 
 1. ✅ <a id="OQ-JL1"></a>**[OQ-JL1](#OQ-JL1): Who owns a shared jail's host services once the
@@ -2018,29 +2219,14 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
 2. ✅ <a id="OQ-JL5"></a>**[OQ-JL5](#OQ-JL5): Do `yolo host` and macos-user get a keeper too,
    or only the backends where sessions share a jail?**
 
-   **The setup.** Matt runs two container-jail tabs in one workspace on his Linux box, and on his
-   Mac he runs `yolo host -- claude` in one tab and a macos-user `yolo -- codex` in another. On
-   the Linux box, quitting the first agent leaves the keeper holding the jail for the second tab.
-   On the Mac nothing needs keeping. A host launch owns its services as its own children and
-   shares them with no other launch, and macos-user has no attach, so every invocation is its own
-   sandbox with its own services ([§2.4](#24-everything-the-first-terminals-process-owns-today)).
-   Both already hand the prompt back when their agent exits. **Why it is a question:** the
-   notches were put on one code path per concern
-   ([NC-D1](../plans/notch-convergence.md#7-decision-ledger)), and a second shape of host-service
-   ownership is a ruling, not an implementation choice (the reason [JL-D8](#JL-D8) was
-   withdrawn). It also decides how [OQ-HS3](host-notch-services.md#OQ-HS3)'s *"a host service
-   lives for the launch that starts it"* reads from now on.
+   The setup, why it is a question, and each option in full:
+   [§9.10.1](#9101-a-keeper-at-every-notch).
 
    - **A. A keeper at every notch.** Every `yolo host` launch that starts a service, and every
-     macos-user launch, also spawns `yolo internal daemon jail-keeper`. Matt sees one more process
-     in `ps` and one more disclosure line per launch, and nothing else changes: the agent behaves
-     the same and the prompt returns the same. The keeper there keeps nothing alive that the
-     launch would not, because no second session can join.
-   - **B. A keeper wherever sessions share a jail, which today means the container backends.**
-     The rule is written once: a jail's host services are owned by one process that lives as long
-     as the sessions sharing that jail. At `yolo host` and on macos-user that set is always one
-     session, so the launch is that process, and Matt sees no change there. HS3 then reads "per
-     launch" at those notches and "per jail" at the container backends, which is HD-R1's unit.
+     macos-user launch, also spawns `yolo internal daemon jail-keeper`.
+   - **B. A keeper wherever sessions share a jail, which today means the container backends.** The
+     rule is written once: a jail's host services are owned by one process that lives as long as the
+     sessions sharing that jail.
 
    <!-- vantage: question id=OQ-JL5 -->
 
@@ -2088,30 +2274,15 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
 3. ✅ <a id="OQ-JL6"></a>**[OQ-JL6](#OQ-JL6): When the tab you quit was the jail's only
    session, does switching agents in that tab reuse the jail?**
 
-   **The setup.** Matt has one tab open in a workspace and runs `yolo -- claude`. Nothing else is
-   in the jail. He quits Claude and types `yolo -- codex` in the same tab. Under
-   [JL-D12](#JL-D12) the quit was the jail's last session, so the keeper tore the jail down while
-   Claude's tab waited for it ([JL-D11](#JL-D11)), and the Codex launch boots a new jail. Had a
-   second tab been open, the same switch would have been an attach into the running jail
-   ([§9.4](#94-how-re-entering-works-and-changing-agents)). **Why it is a question:** the
-   maintainer asked to *"reenter the jail with that first one, like change agents in that tab"*,
-   and JL-D12, which rules out a grace window, was ledgered before that request. A fresh jail also
-   starts with empty per-launch scratch: `/tmp`, `/var/tmp` and the nested podman store
-   (`ScratchMountArgs`, [`runmount.go`](../../internal/cli/run/runmount.go)), and every in-jail
-   process restarts.
+   The setup, why it is a question, and each option in full:
+   [§9.10.2](#9102-switching-agents-in-a-lone-tab).
 
-   - **A. As ledgered: the switch is a fresh launch.** Matt sees Claude's quit print the
-     teardown, then Codex's launch print a boot: about 2.2 to 2.6 s of host-side work plus the
-     in-jail boot, against 0.12 to 0.20 s for an attach (this workspace's records,
-     [§9.4](#94-how-re-entering-works-and-changing-agents)). `/tmp` and the nested podman store
-     start empty. To switch agents without any of that, he opens the jail's shell with a bare
-     `yolo` and starts agents from it; the shell is the session, so the jail lives across
-     switches.
-   - **B. A short linger after the last session, about 10 s.** Claude's quit returns the prompt
-     at once, and a `yolo --` in the workspace within the linger attaches. Matt sees an instant
-     switch that keeps `/tmp`. The cost: every last quit leaves the jail up for the linger;
-     `yolo config diff` and any launch have to wait for the drain after it, or E3's race reopens;
-     the last quit no longer shows the teardown; and the lifecycle gets its one timer.
+   - **A. As ledgered: the switch is a fresh launch.** Matt sees Claude's quit print the teardown,
+     then Codex's launch print a boot: about 2.2 to 2.6 s of host-side work plus the in-jail boot,
+     against 0.12 to 0.20 s for an attach (this workspace's records,
+     [§9.4](#94-how-re-entering-works-and-changing-agents)).
+   - **B. A short linger after the last session, about 10 s.** Claude's quit returns the prompt at
+     once, and a `yolo --` in the workspace within the linger attaches.
 
    <!-- vantage: question id=OQ-JL6 -->
 
@@ -2131,38 +2302,16 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
 4. ✅ <a id="OQ-JL7"></a>**[OQ-JL7](#OQ-JL7): When the keeper is killed while sessions run,
    what do those sessions and the next arrival see?**
 
-   **The setup.** Matt has Claude in one tab and Codex in another, both in one workspace's jail.
-   The keeper is killed outright: the kernel's OOM killer picks it during a memory spike, or a
-   `kill -9` meant for something else hits it. Both agents keep running, because nothing in a
-   session needs the keeper to be alive. What the keeper held died with it
-   ([§9.5](#95-how-it-ends-itself)): the credential fronts, so Claude's next login refresh through
-   the broker fails; the port forwards and the fronted daemons, which the design gives an end of
-   their own so that none outlives the keeper unowned ([JL-D32](#JL-D32)); and the cgroup
-   delegate. A third tab's `yolo -- claude` would enter a jail with none of them. **Why it is a
-   question:** every answer gives up something. Letting the agents run on leaves them degraded,
-   stopping the jail throws away their work to be honest sooner, and repairing the jail puts a
-   second owner on it, which [JL-P4](#JL-P4) forbids. What [JL-D13](#JL-D13), [JL-D18](#JL-D18)
-   and [JL-D30](#JL-D30) record today is A; the first two were written before this was filed as
-   a question.
+   The setup, why it is a question, and each option in full:
+   [§9.10.3](#9103-a-killed-keeper).
 
-   - **A. The sessions run on without host services, and are told when they end.** Matt sees
-     both agents keep working until one needs a host service, and then that agent's own error (a
-     failed refresh, a dropped port). Each tab's quit prints *"the jail's keeper died at 14:02;
-     its host services were down from then"*. The third tab's `yolo` is refused, naming the two
-     live sessions and offering `yolo stop`, which tears the whole jail down. Whichever of the
-     two tabs quits last reaps the jail itself on the way out, on every backend
-     ([JL-D30](#JL-D30)).
-   - **B. The jail stops at once.** Each session's launcher waits on the keeper's liveness lock,
-     so the first to see it come free runs the `yolo stop` path. Matt sees both agents end within
-     a second, each tab printing why; `yolo -- <agent>` then launches fresh.
+   - **A. The sessions run on without host services, and are told when they end.** Matt sees both
+     agents keep working until one needs a host service, and then that agent's own error (a failed
+     refresh, a dropped port).
+   - **B. The jail stops at once.** Each session's launcher waits on the keeper's liveness lock, so
+     the first to see it come free runs the `yolo stop` path.
    - **C. The jail is repaired.** The third tab's `yolo`, or a surviving tab's launcher, starts a
-     replacement keeper. It restarts the host services from the launch's plan and re-publishes
-     their endpoint files, which in-jail clients re-read on their next dial, so the agents
-     recover. Matt sees one line saying the keeper was replaced, and the third tab attaches. The
-     costs are out of sight: the plan, which carries the jail's per-launch caller tokens, stays on
-     disk for the jail's life instead of being read once and removed ([JL-D20](#JL-D20)); the
-     repair runs only after a crash, so it is the path that rots; a replacement from a newer build
-     (after `just install`) runs an older launch's plan; and JL-P4 is reopened.
+     replacement keeper.
 
    <!-- vantage: question id=OQ-JL7 -->
 
@@ -2182,33 +2331,16 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
 5. ✅ <a id="OQ-JL8"></a>**[OQ-JL8](#OQ-JL8): When a pane or window closes, does that
    session's agent end, or keep running?**
 
-   **The setup.** Matt works in herdr with two panes on one workspace: Claude in pane 1, halfway
-   through a long refactor, and Codex in pane 2. He closes pane 1. herdr hangs up everything in
-   that pane and SIGKILLs what is left within half a second, so pane 1's `yolo` is gone. Claude's
-   process is not in the pane: conmon holds its exec session, and in the measurement the process
-   an exec started ran on after its client died ([§3.1](#31-what-a-pane-close-does-measured)). So
-   Claude ends only if yolo ends it. Today an attached pane's agent runs on headless
-   ([§2.3](#23-four-defects-found-on-the-way) item 1), and closing the first pane stops the whole
-   jail. **Why it is a question:** closing a terminal ends the program in it on a host, while a
-   tmux user expects work to go on. And yolo cannot bring a headless agent back to a terminal:
-   podman has no way to re-attach to an exec session
-   ([§9.4](#94-how-re-entering-works-and-changing-agents)).
+   The setup, why it is a question, and each option in full:
+   [§9.10.4](#9104-a-closed-pane).
 
-   - **A. The agent ends with its pane.** The session's launcher hangs up its own in-jail
-     process tree before it exits ([JL-D4](#JL-D4)). Matt sees pane 1's Claude gone and pane 2
-     carrying on, and the jail stays up for pane 2. A new pane's `yolo -- claude` attaches, and
-     whatever Claude keeps on disk is there. A window close that only detaches a herdr client
-     changes nothing, since the pane stays.
+   - **A. The agent ends with its pane.** The session's launcher hangs up its own in-jail process
+     tree before it exits ([JL-D4](#JL-D4)).
    - **B. The agent keeps running headless, and keeps the jail up until it exits.** Matt sees
      nothing of it: no pane shows its output, which is lost, while files in the workspace keep
-     changing. The jail's shell (`yolo`, then `ps`) shows it, and `yolo stop` ends it with
-     everything else. The jail stays up after the last pane closes, for as long as that agent
-     runs. For that, the count must include a process no terminal holds, which
-     [JL-P2](#JL-P2) rules out: an in-jail process would keep the jail's credential services
-     alive after every human has left.
+     changing.
    - **C. The agent keeps running headless, but uncounted.** This is what an attached pane does
-     today. Claude works on until it finishes or until the last counted session leaves, and then
-     dies with the jail, mid-edit if it was editing.
+     today.
 
    <!-- vantage: question id=OQ-JL8 -->
 
@@ -2228,56 +2360,15 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
    carry on.
 
 6. 💬 <a id="OQ-JL9"></a>**[OQ-JL9](#OQ-JL9): At `yolo host`, does the keeper also hold what one
-   launch starts for its own agent?** *Re-asked 2026-09-29.* The first draft said nothing another
-   host launch reads names these services; that is untrue of the Codex refresh adapter.
+   launch starts for its own agent?**
 
-   **The setup.** On his Mac, with `ci-watch` enabled in yolo-jail, Matt runs
-   `yolo host -p codex -- claude` in one yolo-jail terminal and `yolo host -- codex` in another,
-   and a third `yolo host -- codex` in his dotfiles repository. The yolo-jail keeper at `yolo host`
-   holds `ci-watch` and the ping box, which both yolo-jail terminals share
-   ([§9.9.4](#994-what-the-keeper-owns-there)). Each launch also starts something for its own
-   agent, and the two kinds differ in what they share:
+   The setup, why it is a question, and each option's mechanism and cost in full:
+   [§9.10.5](#9105-what-the-keeper-at-yolo-host-holds).
 
-   - **The bridge's host half**, which the first terminal's claude needs, is that launch's alone.
-     Its port and secret go into that claude's environment and into no file another launch reads
-     ([§9.9.1](#991-where-the-re-entry-problem-is-real)).
-   - **The Codex refresh adapter** listens on a port of each launch's own, but all three Codex
-     sessions, in both workspaces, run on one managed Codex home in yolo's machine-wide state, so on
-     one `auth.json`, which Codex rereads before every refresh. Re-entry already broke it once: each
-     launch wrote a caller token of its own there, the newest replaced the others, and their
-     refreshes failed. Since [NC-D18](../plans/notch-convergence.md#NC-D18) the home's live launches
-     share one token, counted by a lock of the home's own. Codex's own background server was the
-     same problem again, and [OQ-CDX1](../research/codex-background-service.md#OQ-CDX1) turned it
-     off.
-
-   **Why it is a question:** the ruling's reading names *"the brokers' doorways"* among what a
-   keeper owns, with no backend carved out. The bridge has nothing to share. What the Codex adapter
-   shares belongs to the machine, while a keeper belongs to one workspace: two workspaces' keepers,
-   each writing a token into the one `auth.json`, would bring NC-D18's breakage back
-   ([§9.9.10](#9910-every-feasibility-problem-found) row 8). So the keeper either leaves the adapter
-   alone, or the managed Codex home has to change what it is.
-
-   - **A. They stay the launch's own, as today.** Each terminal starts what its agent needs and
-     stops it when its agent exits ([`host-notch-services.md` §4.4](host-notch-services.md#44-lifetime)),
-     and the Codex home keeps NC-D18's shared token and lock. Matt sees each terminal's service line
-     as today, and the keeper line names only `ci-watch` and the box. The cost: two things count
-     sessions at `yolo host`, the keeper per workspace and NC-D18's lock per machine.
-   - **B. The keeper holds them, still one per launch.** Each launch prints its service lines and
-     hands its services to the keeper as an addition to its plan; the keeper starts each, and stops
-     it when that launch's session ends. Matt sees one keeper in `ps` holding every host service of
-     the workspace. The cost: a lifeline from each session to the keeper, a second path from a
-     disclosure to a start (the plan plus additions, against [JL-D20](#JL-D20)'s one plan), and the
-     Codex token still follows NC-D18's machine-wide lock, since the home is still shared across
-     workspaces. The processes move and the ownership does not.
+   - **A. They stay the launch's own, as today.**
+   - **B. The keeper holds them, still one per launch.**
    - **C. The keeper holds the Codex adapter, over a Codex home made per workspace, and the bridge
-     stays the launch's own.** A workspace's host Codex sessions share one adapter and one token the
-     keeper mints, as a jail's sessions do, and NC-D18's lock retires for them. Matt sees the Codex
-     adapter on the keeper's line. The cost: Codex's sessions and history at `yolo host` split per
-     workspace, as they already are in a jail and at macos-user, where `.codex` is a per-workspace
-     `state` dir ([`packs/codex/pack.json`](../../packs/codex/pack.json)); today's machine-wide home
-     is left behind or moved once; every `yolo host -- codex` gets a keeper; and one started from
-     the home directory, which has no key ([§9.9.3](#993-one-keeper-per-workspace-per-notch)),
-     still needs a home and a lock of its own.
+     stays the launch's own.**
 
    <!-- vantage: question id=OQ-JL9 leaning="A: the keeper holds what a workspace's sessions share, at the scope they share it; the bridge is shared by no one, and the Codex home is shared by the whole machine, where NC-D18 already counts it; B moves processes without moving ownership, and C splits Codex's history per workspace to retire one count and still leaves the home-directory launch its own." -->
 
@@ -2294,14 +2385,9 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
    > _(empty — fill in when decided)_
 
 7. 💬 <a id="OQ-JL10"></a>**[OQ-JL10](#OQ-JL10): Does an interrupt before ready spare a jail
-   another session has entered?** Raised 2026-10-01 by the review of [JL-D73](#JL-D73).
+   another session has entered?**
 
-   **The setup.** The fresh launch's keeper releases the launch lock once the container runs,
-   which is before ready, so a second launch can attach during the first one's boot. If the first
-   launch is then interrupted before ready, its keeper ends the jail, as [§9.5](#95-how-it-ends-itself)
-   item 1 says, and the second session ends with it. MEASURED in a nested jail on rootful Linux
-   podman: with the second launch 500 ms or more behind the first, it is told why its jail ended.
-   Before ready the keeper is not counting sessions yet ([JL-D74](#JL-D74)).
+   The setup: [§9.10.6](#9106-an-interrupt-before-ready).
 
    - **(a) Spare it.** A keeper interrupted before ready that finds another session holding the
      session lock carries the boot on to ready and keeps the jail for that session, as it would
@@ -2312,8 +2398,7 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
 
    <!-- vantage: question id=OQ-JL10 -->
 
-   It has no leaning yet: how often a second session arrives inside a boot is the fact a leaning
-   would need, and nothing has measured it.
+   No leaning yet; [§9.10.6](#9106-an-interrupt-before-ready) names the fact one needs.
 
    **Answer:**
    > _(empty — fill in when decided)_

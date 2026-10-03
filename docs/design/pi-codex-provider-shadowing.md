@@ -394,6 +394,57 @@ remains tracked in [`providers.md`'s credential gate](../reference/providers.md#
 selects a subscription provider, ambient platform keys for the same vendor should ideally be scoped
 or masked to prevent tools or subagents from inadvertently picking them up.
 
+### 6.4 What each reading of the rule changes
+
+Moved here verbatim from [OQ-3](#OQ-3), which is open and asks which reading of
+[OQ-2](#OQ-2)'s rule holds.
+
+**What yolo writes today.** Composed from the shipped packs, pi's, omp's and opencode's derives
+each write a catalog row for `zai`, `cerebras`, `openrouter`, `kilo` and `llamacpp`. Which of
+those keys the agent also implements itself, read from each agent's installed code (pi 0.87.1,
+oh-omp 0.15.3, opencode 1.18.32; none of them run):
+
+| Agent | Its own provider under the same key | Not one of its own |
+| :--- | :--- | :--- |
+| pi | `zai`, `cerebras`, `openrouter` | `kilo`; `llamacpp` (pi's is keyed `llama.cpp`) |
+| omp | `zai`, `cerebras`, `openrouter`, `kilo` | `llamacpp` (omp's is keyed `llama.cpp`) |
+| opencode | `zai`, `cerebras`, `openrouter`, `kilo` | `llamacpp` |
+
+**Under the broad reading**, each derive stops writing the rows in the middle column:
+
+- **pi** keeps the credential for all three: its own clients read the variables yolo's rows name
+  (`ZAI_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`). What moves is the rest of each row.
+  Pi's own model lists replace yolo's (pi's `zai` has no `glm-4.6`, which the settings derive
+  still names in `enabledModels`), and yolo's context windows and model options stop reaching
+  pi. `openrouter` also goes back from the `openai-responses` wire yolo's row sets to pi's own
+  chat-completions client.
+- **omp** loses four rows. Its own `zai` speaks Anthropic Messages at `api.z.ai/api/anthropic`,
+  where yolo's row points it at the chat-completions coding endpoint, and its own `openrouter`
+  speaks chat completions where yolo's row sets Responses.
+- **opencode** loses four rows, and `zai` changes what a zai profile buys. opencode's own `zai`
+  reads `ZHIPU_API_KEY` and calls the metered `api.z.ai/api/paas/v4`. yolo's row sends
+  `ZAI_API_KEY` to the coding plan's `api.z.ai/api/coding/paas/v4`. A jail with only
+  `ZAI_API_KEY` set would have no zai credential in opencode at all.
+- **Via stops working for every one of those providers in that agent.** A via row is a catalog
+  row under the provider's own key, and pi and omp already drop it for `openai-codex` under this
+  rule. A via profile selecting any of them would re-point nothing, which the launch discloses
+  as a via with no effect.
+- **[OQ-WG8](wire-bridge-gateway.md#OQ-WG8)'s override is forbidden.** A `baseUrl` on pi's
+  built-in `amazon-bedrock` is a `models.json` row for a provider pi implements natively. WG8's
+  options (a) and (b) both put the re-pointing there. So under this reading WG8 needs its row
+  under a key pi does not implement, where whether pi's Converse client still serves it is
+  unverified, or its option (c).
+- **The exclusion list is per agent and per version**, because each agent's built-in set moves
+  with its releases. Keeping it true is the provider marker [OQ-1](#OQ-1) deferred.
+
+**Under the narrow reading**, nothing built changes. `openai-codex` stays excluded in pi, omp
+and codex, and every row above is kept, via rows included. [OQ-WG8](wire-bridge-gateway.md#OQ-WG8)'s override is allowed, since
+pi's `amazon-bedrock` is no subscription: it authenticates with a bearer token or the AWS
+credential chain. The reading has one edge to state. pi's `openrouter` has an OAuth sign-in of
+its own and omp's `kilo` a device-code sign-in, and neither is a subscription, so both stay
+catalogued. If a sign-in of its own were the test instead of a subscription, those two rows
+would go.
+
 ---
 
 ## 7. Non-goals
@@ -473,53 +524,10 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    narrow reading reaches today. The broad reading also changes four other providers' rows in three
    agents, and it decides [OQ-WG8](wire-bridge-gateway.md#OQ-WG8), which defers to this rule.
 
+   What each reading changes, agent by agent:
+   [§6.4](#64-what-each-reading-of-the-rule-changes).
+
    <!-- vantage: question id=OQ-3 leaning="The narrow reading: only a subscription provider the agent implements with its own client and login. The harm P1 names needs a subscription client displaced by a key-driven wire; the broad reading would take opencode's zai off the coding plan, turn off via for every same-named provider and forbid OQ-WG8's override, while fixing no reported failure. It narrows the ruled words, so it is for the maintainer to confirm or overrule." -->
-
-   **What yolo writes today.** Composed from the shipped packs, pi's, omp's and opencode's derives
-   each write a catalog row for `zai`, `cerebras`, `openrouter`, `kilo` and `llamacpp`. Which of
-   those keys the agent also implements itself, read from each agent's installed code (pi 0.87.1,
-   oh-omp 0.15.3, opencode 1.18.32; none of them run):
-
-   | Agent | Its own provider under the same key | Not one of its own |
-   | :--- | :--- | :--- |
-   | pi | `zai`, `cerebras`, `openrouter` | `kilo`; `llamacpp` (pi's is keyed `llama.cpp`) |
-   | omp | `zai`, `cerebras`, `openrouter`, `kilo` | `llamacpp` (omp's is keyed `llama.cpp`) |
-   | opencode | `zai`, `cerebras`, `openrouter`, `kilo` | `llamacpp` |
-
-   **Under the broad reading**, each derive stops writing the rows in the middle column:
-
-   - **pi** keeps the credential for all three: its own clients read the variables yolo's rows name
-     (`ZAI_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`). What moves is the rest of each row.
-     Pi's own model lists replace yolo's (pi's `zai` has no `glm-4.6`, which the settings derive
-     still names in `enabledModels`), and yolo's context windows and model options stop reaching
-     pi. `openrouter` also goes back from the `openai-responses` wire yolo's row sets to pi's own
-     chat-completions client.
-   - **omp** loses four rows. Its own `zai` speaks Anthropic Messages at `api.z.ai/api/anthropic`,
-     where yolo's row points it at the chat-completions coding endpoint, and its own `openrouter`
-     speaks chat completions where yolo's row sets Responses.
-   - **opencode** loses four rows, and `zai` changes what a zai profile buys. opencode's own `zai`
-     reads `ZHIPU_API_KEY` and calls the metered `api.z.ai/api/paas/v4`. yolo's row sends
-     `ZAI_API_KEY` to the coding plan's `api.z.ai/api/coding/paas/v4`. A jail with only
-     `ZAI_API_KEY` set would have no zai credential in opencode at all.
-   - **Via stops working for every one of those providers in that agent.** A via row is a catalog
-     row under the provider's own key, and pi and omp already drop it for `openai-codex` under this
-     rule. A via profile selecting any of them would re-point nothing, which the launch discloses
-     as a via with no effect.
-   - **[OQ-WG8](wire-bridge-gateway.md#OQ-WG8)'s override is forbidden.** A `baseUrl` on pi's
-     built-in `amazon-bedrock` is a `models.json` row for a provider pi implements natively. WG8's
-     options (a) and (b) both put the re-pointing there. So under this reading WG8 needs its row
-     under a key pi does not implement, where whether pi's Converse client still serves it is
-     unverified, or its option (c).
-   - **The exclusion list is per agent and per version**, because each agent's built-in set moves
-     with its releases. Keeping it true is the provider marker [OQ-1](#OQ-1) deferred.
-
-   **Under the narrow reading**, nothing built changes. `openai-codex` stays excluded in pi, omp
-   and codex, and every row above is kept, via rows included. [OQ-WG8](wire-bridge-gateway.md#OQ-WG8)'s override is allowed, since
-   pi's `amazon-bedrock` is no subscription: it authenticates with a bearer token or the AWS
-   credential chain. The reading has one edge to state. pi's `openrouter` has an OAuth sign-in of
-   its own and omp's `kilo` a device-code sign-in, and neither is a subscription, so both stay
-   catalogued. If a sign-in of its own were the test instead of a subscription, those two rows
-   would go.
 
    _Leaning:_ **The narrow reading.** It is narrower than the words ruled, so it is offered for the
    maintainer to confirm or overrule, and nothing is built on it until then. The harm

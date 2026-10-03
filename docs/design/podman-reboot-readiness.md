@@ -257,6 +257,27 @@ has just answered. The gate adds no retries to image delivery or container
 creation. Their existing rules are unchanged, including the image copy's one
 retry ([failure paths](../reference/image-staging-vs-baking.md#failure-paths)).
 
+### Where the budget applies
+
+Moved here verbatim from [OQ-PR1](#OQ-PR1), where its answer is. This applies to
+every Linux Podman launch and every `yolo check`, including one typed by hand.
+It decides how late a permanently broken Podman on a warm host gives its final
+refusal, against whether a slow Podman outside the boot window is waited for.
+The number itself is a measured constant ([PR-D12](#PR-D12)), not this question.
+
+- **A. Always.** Every launch gets the full budget. A permanent fault shows
+  its reason at about 2 s, and its final refusal comes at 60 s, on a warm host
+  too. A Podman refresh that runs outside a boot (the
+  [alternative reading](#what-happened-and-what-is-still-unknown): its runtime
+  directory removed with linger off) is recovered the same way, and so is any
+  other slow `info` whatever its cause.
+- **B. Boot window only.** The full budget while `/proc/uptime` is under 10
+  minutes, otherwise today's single 10 s attempt, with an unreadable uptime
+  counting as "not recently booted". Permanent faults fail fast on a warm
+  host. The cost is a timer standing in for a cause: the runtime-directory
+  refresh and any slow `info` outside the window get today's 10 s refusal
+  back, though without the kill ([PR-D2](#PR-D2) still holds).
+
 ## What the user sees, and what is recorded
 
 **On the [launch stream](../reference/report-tiers.md#the-launch-stream)**
@@ -283,6 +304,28 @@ Every event is also written on the failure path, before the refusal returns.
 Today's `probes.done` mark comes after runtime selection returns, so a failed
 launch records nothing about its probe.
 
+### A machine-wide launch log
+
+Moved here verbatim from [OQ-PR3](#OQ-PR3), where its answer is. This
+investigation could not find the failing launch. Launch records live in
+each workspace's `.yolo/`. The storm was reconstructed only from the loophole
+crossing log, which records jails that got as far as a loophole, and a
+launch refused at runtime selection never does.
+
+- **A. Per-workspace only** (`launch.log`, `host-perf.log`). Nothing new is
+  disclosed, and the next incident is as hard to reconstruct as this one.
+- **B. One line per launch in `~/.local/share/yolo-jail/logs/`** (UTC time,
+  `paths.JailShortHash` of the container name, gate wait, attempts, outcome),
+  beside `crossings.log`. It adds no names and no secrets, but it does disclose
+  something new: `crossings.log` records only jails that reached a loophole,
+  and this line records the time and outcome of every launch, refused ones and
+  ones with no loophole included. A jail that mounts that directory, as this
+  one does at `/ctx/host-yolo-logs`, sees all of it under hashes that are
+  opaque but stable.
+- **C. B, but with workspace names.** Easier to read. A jail that mounts the
+  log directory then learns the names of the user's other projects.
+- **D. Only when timing is on.** Off exactly when an unplanned reboot happens.
+
 ## Alternatives and risks
 
 | Option | Disposition |
@@ -301,6 +344,34 @@ launch records nothing about its probe.
 | A refused launch leaves a `podman` running | Named in the refusal. It is Podman's own work and finishes or blocks on Podman's own lock. yolo never waits for it again. |
 | Other Podman clients still contend: `podman-restart.service`, quadlet units, other tools, and yolo's own housekeeping | The budget absorbs them. yolo's own share is smaller: the housekeeping slot now holds its lock one deletion at a time ([OQ-PR2](#OQ-PR2)). The host check records which actors ran. |
 | A slow probe with no reboot, for example behind another workspace's `podman volume rm`. **INFERRED, untested for `podman info`:** [`scratchremoval.go`](../../internal/cli/run/scratchremoval.go) measured such a removal blocking other `podman run`s that mount a volume, and nothing yet shows `info` waiting behind it (host-check step 1 measures it) | The gate does not care why Podman is slow. If `info` does wait there, the gate covers steady-state storage contention too. |
+
+### Housekeeping after a reboot
+
+Moved here verbatim from [OQ-PR2](#OQ-PR2), where its answer is. After a
+reboot, every pre-reboot jail's leftovers are due at once. So the first restored launch runs its biggest
+reaping pass (7 `podman rmi`s at this reboot) while the other workspaces still
+need Podman. Five of the slot's seven classes run Podman: the image reap; the
+store-output and flake-bundle reaps, which ask `podman ps -a` and
+`podman inspect` which containers are live; the small classes (`podman ps -a`);
+and the scratch-volume reap. The slot also holds the machine-wide
+housekeeping lock, which every other launch's image load takes around its
+re-inspect, for 16.1 s at this reboot. The image reap was about 4 s of that.
+The store outputs ran until 14:34:34Z, and the small classes and flake bundles
+until 14:34:40Z.
+
+- **A. Unchanged.** Simplest. The reboot window keeps a yolo-made Podman load
+  and a 16 s machine-wide hold.
+- **B. Skip the whole slot on a launch whose gate took more than one attempt
+  or waited past the grace period.** Every class is debounced on its own
+  stamp, and the stamps are untouched, so the next ordinary launch runs them.
+  No cross-process signal is needed, and the lock is not taken at all. At this
+  reboot, the 4.0 s probe would have triggered it. The cost: on a disk-starved
+  host (the same morning's Syncthing warning), every class's reclamation waits
+  one more launch, including the two that run no Podman (the cache purge and
+  the image tars).
+- **C. Skip the same slot while host uptime is under a fixed window.** This
+  also covers a launch whose own probe was fast but whose neighbors' probes
+  are slow. It is a timer standing in for a cause.
 
 ## Testing and the real-host check
 
@@ -372,24 +443,13 @@ rootless host or CI**, and so is the whole of a real reboot.
 ## Open Questions
 
 1. ✅ <a id="OQ-PR1"></a>**[OQ-PR1](#OQ-PR1): Does the 60 s budget apply to every
-   Linux Podman launch, or only to one shortly after a boot?** This applies to
-   every Linux Podman launch and every `yolo check`, including one typed by hand.
-   It decides how late a permanently broken Podman on a warm host gives its final
-   refusal, against whether a slow Podman outside the boot window is waited for.
-   The number itself is a measured constant ([PR-D12](#PR-D12)), not this question.
+   Linux Podman launch, or only to one shortly after a boot?** What it decides,
+   and each option in full: [where the budget applies](#where-the-budget-applies).
 
-   - **A. Always.** Every launch gets the full budget. A permanent fault shows
-     its reason at about 2 s, and its final refusal comes at 60 s, on a warm host
-     too. A Podman refresh that runs outside a boot (the
-     [alternative reading](#what-happened-and-what-is-still-unknown): its runtime
-     directory removed with linger off) is recovered the same way, and so is any
-     other slow `info` whatever its cause.
+   - **A. Always.** Every launch gets the full budget.
    - **B. Boot window only.** The full budget while `/proc/uptime` is under 10
      minutes, otherwise today's single 10 s attempt, with an unreadable uptime
-     counting as "not recently booted". Permanent faults fail fast on a warm
-     host. The cost is a timer standing in for a cause: the runtime-directory
-     refresh and any slow `info` outside the window get today's 10 s refusal
-     back, though without the kill ([PR-D2](#PR-D2) still holds).
+     counting as "not recently booted".
 
    _Leaning:_ A. The first failure's reason prints within 2 s, so the late
    refusal is a cost the user can see and cut short, not a silent minute. And the
@@ -415,28 +475,13 @@ rootless host or CI**, and so is the whole of a real reboot.
    v6.1.2's own error texts, and anything it does not recognise keeps retrying.
 
 2. ✅ <a id="OQ-PR2"></a>**[OQ-PR2](#OQ-PR2): Should a launch that found Podman
-   slow skip its housekeeping pass?** After a reboot, every pre-reboot jail's
-   leftovers are due at once. So the first restored launch runs its biggest
-   reaping pass (7 `podman rmi`s at this reboot) while the other workspaces still
-   need Podman. Five of the slot's seven classes run Podman: the image reap; the
-   store-output and flake-bundle reaps, which ask `podman ps -a` and
-   `podman inspect` which containers are live; the small classes (`podman ps -a`);
-   and the scratch-volume reap. The slot also holds the machine-wide
-   housekeeping lock, which every other launch's image load takes around its
-   re-inspect, for 16.1 s at this reboot. The image reap was about 4 s of that.
-   The store outputs ran until 14:34:34Z, and the small classes and flake bundles
-   until 14:34:40Z.
+   slow skip its housekeeping pass?** What a reboot's first pass costs, and each
+   option in full: [housekeeping after a reboot](#housekeeping-after-a-reboot).
 
    - **A. Unchanged.** Simplest. The reboot window keeps a yolo-made Podman load
      and a 16 s machine-wide hold.
    - **B. Skip the whole slot on a launch whose gate took more than one attempt
-     or waited past the grace period.** Every class is debounced on its own
-     stamp, and the stamps are untouched, so the next ordinary launch runs them.
-     No cross-process signal is needed, and the lock is not taken at all. At this
-     reboot, the 4.0 s probe would have triggered it. The cost: on a disk-starved
-     host (the same morning's Syncthing warning), every class's reclamation waits
-     one more launch, including the two that run no Podman (the cache purge and
-     the image tars).
+     or waited past the grace period.**
    - **C. Skip the same slot while host uptime is under a fixed window.** This
      also covers a launch whose own probe was fast but whose neighbors' probes
      are slow. It is a timer standing in for a cause.
@@ -468,21 +513,13 @@ rootless host or CI**, and so is the whole of a real reboot.
 
 3. ✅ <a id="OQ-PR3"></a>**[OQ-PR3](#OQ-PR3): Should every launch leave one
    line in a machine-wide log, so one reboot's storm can be read in one place?**
-   This investigation could not find the failing launch. Launch records live in
-   each workspace's `.yolo/`. The storm was reconstructed only from the loophole
-   crossing log, which records jails that got as far as a loophole, and a
-   launch refused at runtime selection never does.
+   Why it was asked, and each option in full:
+   [a machine-wide launch log](#a-machine-wide-launch-log).
 
-   - **A. Per-workspace only** (`launch.log`, `host-perf.log`). Nothing new is
-     disclosed, and the next incident is as hard to reconstruct as this one.
+   - **A. Per-workspace only** (`launch.log`, `host-perf.log`).
    - **B. One line per launch in `~/.local/share/yolo-jail/logs/`** (UTC time,
      `paths.JailShortHash` of the container name, gate wait, attempts, outcome),
-     beside `crossings.log`. It adds no names and no secrets, but it does disclose
-     something new: `crossings.log` records only jails that reached a loophole,
-     and this line records the time and outcome of every launch, refused ones and
-     ones with no loophole included. A jail that mounts that directory, as this
-     one does at `/ctx/host-yolo-logs`, sees all of it under hashes that are
-     opaque but stable.
+     beside `crossings.log`.
    - **C. B, but with workspace names.** Easier to read. A jail that mounts the
      log directory then learns the names of the user's other projects.
    - **D. Only when timing is on.** Off exactly when an unplanned reboot happens.

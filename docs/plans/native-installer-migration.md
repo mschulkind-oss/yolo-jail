@@ -358,46 +358,56 @@ edit, so each step's proof is its own CI cell on both arches.
   it disagrees about cannot happen (see the bullet above), so the disagreement is intact and waiting
   at the flip.
 
+### The self-updater after the flip
+
+Moved here verbatim from [OQ-NI1](#OQ-NI1), which is open. Filed 2026-10-01, from
+[Blockers](#blockers), which says the flip re-opens it. *NI* stands for native installers; the
+prefix is new with this question.
+
+**What it decides:** whether the flip ships with copilot's self-updater on, carrying the
+2026-09-12 flag ruling forward, or off, with `--no-auto-update` back on the native build. That
+decides whether yolo's launcher is the only writer of copilot's binary.
+
+**The starting position is the dropped flag.** The maintainer's words of 2026-09-12: *"drop
+the no auto update too, we decided to just let agents be agents."* Under npm that changes
+nothing a user sees: `isSea()` is false there, so the updater can only notify
+([Blockers](#blockers)). The flip makes `isSea()` true, and the unobserved download-and-replace
+starts with it.
+
+**Two other agents already work this way.** `claude` and `agy` are installer packs, and the
+program-delivery design lists both vendor self-updaters as Unmanaged
+([its tier table](../design/program-delivery.md#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)).
+claude's was observed in a jail: it went from 2.1.220 to 2.1.260 within hours of a stuck
+capture being cleared on 2026-09-03
+([per-agent facts](../design/program-delivery.md#per-agent-facts-verified-2026-09-03)). agy's
+is inferred from its binary's `AUTO_UPDATE` strings and has not been watched. So an agent CLI
+updating itself unobserved is already how claude behaves in a jail, and this question decides
+whether copilot joins it.
+
+What each option shows and costs, as the question stated it:
+
+- **(A)** *You see:* copilot current with nothing for yolo to do. *You lose:* a record of which
+  copilot ran. Drift becomes the reconcile's to report, which is what Unmanaged means.
+- **(B)** *You see:* updates only when yolo runs one. *You lose:* copilot's own updates between
+  launches, and copilot behaves unlike claude and agy. It reverses the 2026-09-12 ruling for this
+  build.
+- **(C)** *You lose:* the single native binary and `VERSION=` pinning, which is what
+  [OQ-PD13](../design/program-delivery.md#decision-ledger) chose native installers for.
+
 ## Open question
 
 1. 💬 <a id="OQ-NI1"></a>**[OQ-NI1](#OQ-NI1): Once copilot is installed natively, may its own
-   updater replace its binary unobserved?** Filed 2026-10-01, from [Blockers](#blockers), which
-   says the flip re-opens it. *NI* stands for native installers; the prefix is new with this
-   question.
-
-   **What it decides:** whether the flip ships with copilot's self-updater on, carrying the
-   2026-09-12 flag ruling forward, or off, with `--no-auto-update` back on the native build. That
-   decides whether yolo's launcher is the only writer of copilot's binary.
-
-   **The starting position is the dropped flag.** The maintainer's words of 2026-09-12: *"drop
-   the no auto update too, we decided to just let agents be agents."* Under npm that changes
-   nothing a user sees: `isSea()` is false there, so the updater can only notify
-   ([Blockers](#blockers)). The flip makes `isSea()` true, and the unobserved download-and-replace
-   starts with it.
-
-   **Two other agents already work this way.** `claude` and `agy` are installer packs, and the
-   program-delivery design lists both vendor self-updaters as Unmanaged
-   ([its tier table](../design/program-delivery.md#61-three-tiers-of-control--the-answer-to-what-about-a-mechanism-we-cant-control)).
-   claude's was observed in a jail: it went from 2.1.220 to 2.1.260 within hours of a stuck
-   capture being cleared on 2026-09-03
-   ([per-agent facts](../design/program-delivery.md#per-agent-facts-verified-2026-09-03)). agy's
-   is inferred from its binary's `AUTO_UPDATE` strings and has not been watched. So an agent CLI
-   updating itself unobserved is already how claude behaves in a jail, and this question decides
-   whether copilot joins it.
+   updater replace its binary unobserved?** What it decides, the maintainer's starting position,
+   the two agents that already work this way, and what each option shows and costs:
+   [the self-updater after the flip](#the-self-updater-after-the-flip).
 
    - **(A) Flip with the flag still dropped.** copilot's updater replaces its binary on its own
-     schedule, as claude's does, and any update verb the pack declares runs beside it. *You see:*
-     copilot current with nothing for yolo to do. *You lose:* a record of which copilot ran.
-     Drift becomes the reconcile's to report, which is what Unmanaged means.
+     schedule, as claude's does, and any update verb the pack declares runs beside it.
    - **(B) Flip, and put `--no-auto-update` back for the native build only.** The launcher's
      update verb is then the only writer, and evergreen comes from it, since
      [OQ-PD14](../design/program-delivery.md#decision-ledger)'s declared verb shipped on
-     2026-09-04. *You see:* updates only when yolo runs one. *You lose:* copilot's own updates
-     between launches, and copilot behaves unlike claude and agy. It reverses the 2026-09-12 ruling
-     for this build.
-   - **(C) Do not flip.** copilot stays on npm, where its updater can only notify. *You lose:* the
-     single native binary and `VERSION=` pinning, which is what
-     [OQ-PD13](../design/program-delivery.md#decision-ledger) chose native installers for.
+     2026-09-04.
+   - **(C) Do not flip.** copilot stays on npm, where its updater can only notify.
 
    <!-- vantage: question id=OQ-NI1 leaning="(A): flip with the flag still dropped. It is the maintainer's 2026-09-12 position, and claude already self-updates unobserved in jails (observed), with agy listed the same way, so copilot would match them rather than open a new class. (B) is the choice only if yolo should be the one writer of every agent binary, and then claude and agy owe the same." -->
 

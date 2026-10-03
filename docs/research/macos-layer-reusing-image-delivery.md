@@ -597,7 +597,7 @@ What each step settles:
 
 ## Decisions
 
-1. ✅ <a id="OQ-LR1"></a>[**OQ-LR1**](#OQ-LR1) (ruled): Build the delta archive for the two Mac backends?** It is the only option that
+1. ✅ <a id="OQ-LR1"></a>**[OQ-LR1](#OQ-LR1) (ruled): Build the delta archive for the two Mac backends?** It is the only option that
    reuses layers with no listener and no new binary. It helps the maintainer's day-to-day Mac and
    does nothing for CI's ephemeral runners.
 
@@ -612,7 +612,7 @@ What each step settles:
    **Answer:**
    > **Ruled 2026-09-24 (maintainer): build it.** "yes build" — for both Mac backends, in `deliverViaArchive`, with the empty present set as today's full archive and the single retry. Built after this ruling, not after the Mac run; the Mac run now verifies it rather than gating it.
 
-2. ✅ <a id="OQ-LR2"></a>[**OQ-LR2**](#OQ-LR2) (ruled): Is the first load worth its own work?** On CI's ephemeral Intel runners, reuse
+2. ✅ <a id="OQ-LR2"></a>**[OQ-LR2](#OQ-LR2) (ruled): Is the first load worth its own work?** On CI's ephemeral Intel runners, reuse
    cannot help. The candidates are:
    - a gzip archive (2.8× fewer bytes, CPU paid);
    - `podman machine ssh` reading over virtiofs;
@@ -707,7 +707,7 @@ What each step settles:
    Linux against a stand-in Go program that never returns: `SIGQUIT: quit`, its stacks, then
    `yolo in-VM copier exited rc=124`.
 
-3. ✅ <a id="OQ-LR3"></a>[**OQ-LR3**](#OQ-LR3) (decided): What is Apple Container's present-set probe?** Podman has one:
+3. ✅ <a id="OQ-LR3"></a>**[OQ-LR3](#OQ-LR3) (decided): What is Apple Container's present-set probe?** Podman has one:
    `PresentLayerDigests`. For Apple Container the choice is `container image inspect`, if it
    lists layer digests, or yolo's own record of which image.json it last delivered, confirmed by
    `container image list`.

@@ -449,6 +449,23 @@ jail notch. A jail launch writes its own tables, so a nested `yolo` the agent st
 > its own profile while the bridge serves the earlier one. Hence `(bridge)` and no upstream until the bridge
 > publishes its state.
 
+### 4.1 The one-launch `-p` case at the host
+
+[OQ-FT15](#OQ-FT15)'s background, moved here from the question. Opened 2026-09-25 from
+[§4](#4-where-the-facts-come-from-and-how-fresh-they-are)'s measured case: `yolo host -p zai -- claude` with
+`use_profiles: {claude: bedrock}` shows `Bedrock`. Two facts decide the options. First, the renderer takes all three
+tables from the env as soon as `YOLO_USE_PROFILES` is set (`footer.WithHostTables`), so exporting the selection alone
+would leave it with no profiles or providers to resolve it against. Second, outside a jail the renderer is the only
+reader of these three names in the environment today: `overlayGateProfiles` (`internal/cli/host.go`) reads
+`YOLO_USE_PROFILES` only at the jail notch, and the other readers run in-jail.
+
+Each option's cost, as the question stated it:
+
+- (a) Cost: these are the jail's wire names, so any later host-side reader of them would take one launch's
+  selection for the user's table.
+- (b) Cost: a second name for the same fact, and a small change to `hostFooterTables`.
+- (c) Cost: the footer can name the wrong provider, which is the one thing it exists to get right.
+
 ## Later: cost and failover (a separate design)
 
 You asked for Bedrock cost in a future doc, so none of it is ruled here. Facts for that doc:
@@ -487,38 +504,38 @@ Withdrawn on review 2026-09-25, hence the gaps: rendering's home and the table-v
 decide, and the cost questions moved to the [later design](#later-cost-and-failover-a-separate-design). Rulings are
 in the [Decision Ledger](#decision-ledger).
 
-1. ✅ <a id="OQ-FT1"></a>[**OQ-FT1**](#OQ-FT1) (ruled 2026-09-25, as its leaning): **On by default, or opt-in?**
+1. ✅ <a id="OQ-FT1"></a>**[OQ-FT1](#OQ-FT1) (ruled 2026-09-25, as its leaning): On by default, or opt-in?**
 
    <!-- vantage: question id=OQ-FT1 -->
 
    On by default, in each agent pack's defaults ([§3](#3-how-a-users-own-footer-survives)).
 
-2. ✅ <a id="OQ-FT4"></a>[**OQ-FT4**](#OQ-FT4) (ruled 2026-09-25, leaning overruled): **What else goes in?**
+2. ✅ <a id="OQ-FT4"></a>**[OQ-FT4](#OQ-FT4) (ruled 2026-09-25, leaning overruled): What else goes in?**
 
    <!-- vantage: question id=OQ-FT4 -->
 
    The billing route in plain words and the notch; no region, version or backend ([§1](#1-what-the-footer-shows)).
 
-3. ✅ <a id="OQ-FT5"></a>[**OQ-FT5**](#OQ-FT5) (ruled 2026-09-25, as its leaning): **How does a user keep their own
+3. ✅ <a id="OQ-FT5"></a>**[OQ-FT5](#OQ-FT5) (ruled 2026-09-25, as its leaning): How does a user keep their own
    footer and yolo's segment?**
 
    <!-- vantage: question id=OQ-FT5 -->
 
    Their footer wins, and they call the renderer from it.
 
-4. ✅ <a id="OQ-FT6"></a>[**OQ-FT6**](#OQ-FT6) (ruled 2026-09-25, as its leaning): **Does your host Claude get it?**
+4. ✅ <a id="OQ-FT6"></a>**[OQ-FT6](#OQ-FT6) (ruled 2026-09-25, as its leaning): Does your host Claude get it?**
 
    <!-- vantage: question id=OQ-FT6 -->
 
    Yes: env first, else your user config's profile selection ([§4](#4-where-the-facts-come-from-and-how-fresh-they-are)).
 
-5. ✅ <a id="OQ-FT7"></a>[**OQ-FT7**](#OQ-FT7) (ruled 2026-09-25): **Does yolo turn on Copilot's experimental flag?**
+5. ✅ <a id="OQ-FT7"></a>**[OQ-FT7](#OQ-FT7) (ruled 2026-09-25): Does yolo turn on Copilot's experimental flag?**
 
    <!-- vantage: question id=OQ-FT7 -->
 
    No, and it does not check it either: the status line is written like every other agent's.
 
-6. ✅ <a id="OQ-FT12"></a>[**OQ-FT12**](#OQ-FT12) (ruled 2026-09-25): **In agy, stack yolo's line with agy's own,
+6. ✅ <a id="OQ-FT12"></a>**[OQ-FT12](#OQ-FT12) (ruled 2026-09-25): In agy, stack yolo's line with agy's own,
    or replace it?**
 
    <!-- vantage: question id=OQ-FT12 -->
@@ -527,11 +544,13 @@ in the [Decision Ledger](#decision-ledger).
    [OQ-FT5](#OQ-FT5)'s, and just works. The rule behind the answer covers every agent: [DIR-FT2](#DIR-FT2).
 
 7. ✅ <a id="OQ-FT13"></a>**OQ-FT13: What does a macos-user session's footer say, and what tells the renderer?**
-   Today it would say `host` ([§1.2](#12-the-notch)). Options: (a) the macos-user launch sets `YOLO_VERSION` as the
-   container launch does, so it says `jail`, the notch its config resolves to (`ResolveConfinement` defaults to
-   `jail`) and the one yolo renders it at; that moves every other `config.InJail()` caller on that backend, so each
-   is checked first. (b) A marker only the renderer reads: a second answer to "am I in a jail?". (c) `host` until
-   the guest notch is built.
+   Today it would say `host` ([§1.2](#12-the-notch)). Options:
+
+   - (a) the macos-user launch sets `YOLO_VERSION` as the container launch does, so it says `jail`, the notch its
+     config resolves to (`ResolveConfinement` defaults to `jail`) and the one yolo renders it at; that moves every
+     other `config.InJail()` caller on that backend, so each is checked first.
+   - (b) A marker only the renderer reads: a second answer to "am I in a jail?".
+   - (c) `host` until the guest notch is built.
 
    <!-- vantage: question id=OQ-FT13 -->
 
@@ -554,23 +573,18 @@ in the [Decision Ledger](#decision-ledger).
    Bedrock, since a home holds one login, and naming the plan means reading Claude's undocumented account cache on
    every run."*
 
-9. ✅ <a id="OQ-FT15"></a>**OQ-FT15: How should `yolo host --` tell the footer about a one-launch `-p`?** Opened
-   2026-09-25 from [§4](#4-where-the-facts-come-from-and-how-fresh-they-are)'s measured case:
-   `yolo host -p zai -- claude` with `use_profiles: {claude: bedrock}` shows `Bedrock`. Two facts decide the
-   options. First, the renderer takes all three tables from the env as soon as `YOLO_USE_PROFILES` is set
-   (`footer.WithHostTables`), so exporting the selection alone would leave it with no profiles or providers to
-   resolve it against. Second, outside a jail the renderer is the only reader of these three names in the
-   environment today: `overlayGateProfiles` (`internal/cli/host.go`) reads `YOLO_USE_PROFILES` only at the jail
-   notch, and the other readers run in-jail. Options:
-   (a) `yolo host --` exports the three tables it already composed for the launch, with only its own agent's
-   entry in `YOLO_USE_PROFILES`. The renderer needs no change. Cost: these are the jail's wire names, so any
-   later host-side reader of them would take one launch's selection for the user's table.
-   (b) `yolo host --` exports one footer-only variable naming the profile, for example `YOLO_FOOTER_PROFILE`
-   *(coined here)*, and the host arm of the renderer resolves it against the tables it already composes. No
-   other reader can mistake it for a launch table. Cost: a second name for the same fact, and a small change to
-   `hostFooterTables`.
-   (c) Leave it unbuilt, and document that a one-launch `-p` at the host shows the config's selection or
-   `(env)`. Cost: the footer can name the wrong provider, which is the one thing it exists to get right.
+9. ✅ <a id="OQ-FT15"></a>**OQ-FT15: How should `yolo host --` tell the footer about a one-launch `-p`?**
+
+   The measured case, the two facts that decide it and each option's cost are in
+   [§4.1](#41-the-one-launch--p-case-at-the-host). Options:
+
+   - (a) `yolo host --` exports the three tables it already composed for the launch, with only its own agent's
+     entry in `YOLO_USE_PROFILES`. The renderer needs no change.
+   - (b) `yolo host --` exports one footer-only variable naming the profile, for example `YOLO_FOOTER_PROFILE`
+     *(coined here)*, and the host arm of the renderer resolves it against the tables it already composes. No
+     other reader can mistake it for a launch table.
+   - (c) Leave it unbuilt, and document that a one-launch `-p` at the host shows the config's selection or
+     `(env)`.
 
    _Leaning:_ (b). It fixes the measured wrong label without putting the jail's wire tables into a host
    agent's env, where a later host reader could take them for the user's config.

@@ -176,6 +176,19 @@ What changes around the grammar:
 - **A bare list** (`-p zai,openrouter`, no `=`) is today refused as an undeclared profile named
   `zai,openrouter`. What it should mean is [OQ-AP3](#OQ-AP3).
 
+**Why [OQ-AP1](#OQ-AP1) mattered** (moved here from the question): the answer is the
+user-facing grammar, which is expensive to change once it ships, and it decides whether a comma
+leaves the profile-name alphabet. A comma string in config (`"zai,openrouter"`) is offered by none
+of its options, since a JSON array already is a list.
+
+#### A bare list today
+
+Moved here verbatim from [OQ-AP3](#OQ-AP3), which ruled C. A bare name (`-p zai`) selects that
+profile for every selected pack today. A bare list (`-p zai,openrouter`) is refused today, as an
+undeclared name. This decides whether one list can switch every agent at once, which interacts with
+[OQ-AP2](#OQ-AP2) and with [OQ-PP3](providers-and-profiles-redesign.md#OQ-PP3) (what a bare
+`-p X` does for an agent that cannot reach X, open).
+
 ### 4.2 The set's rules
 
 - **Order is meaning.** The first entry is the primary ([§1.1](#11-terms)). The rest keep their
@@ -213,6 +226,26 @@ What changes around the grammar:
 - **`yolo.model_for`** gains an optional provider argument, answering only for a provider in the
   calling agent's set and `nil` for any other, so the XM-D1 guarantee (never borrow another
   provider's alias) holds for the set. With no argument it answers for the primary.
+
+#### The options for a single-provider agent
+
+Moved here verbatim from [OQ-AP2](#OQ-AP2), which ruled A. None of them can hold two providers
+natively ([§3](#3-what-each-agent-can-hold)). This decides whether `-p claude=zai,openrouter` is an
+error, a narrowing, or a bridge feature.
+
+- **A. Refuse, by name.** The launch refuses before anything runs, naming the agent, saying it
+  runs one provider per session, and naming the one-entry spelling. It follows
+  [AP-P2](#AP-P2) with no new mechanism. The cost: claude users get nothing from sets.
+- **B. The first entry wins, loudly.** One launch line names the entries that do not run for
+  that agent. It lets one `use_profiles` list serve every agent, and it is a declaration
+  accepted and partly ignored, which P1 permits only because it is disclosed.
+- **C. The bridge, for claude.** A set for claude points it at a wire-bridge route that sends
+  each request to the provider whose model it names, the everything profile's routing
+  ([`wire-bridge-gateway.md` Part 2](wire-bridge-gateway.md#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled))
+  generalized from one provider to the set, with each route's credential from its own
+  provider. claude's picker renders the union. It is the only option that gives claude what pi
+  gets, and it is unbuilt, unmeasured, and a new route kind. codex and copilot would still
+  take A or B.
 
 ### 4.4 Models: the union, and the start model
 
@@ -412,9 +445,8 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
 
 ## 10. Open Questions
 
-1. ✅ <a id="OQ-AP1"></a>**[OQ-AP1](#OQ-AP1): How is a set spelled, and what does it list?** The
-   answer is the user-facing grammar, which is expensive to change once it ships, and it decides
-   whether a comma leaves the profile-name alphabet.
+1. ✅ <a id="OQ-AP1"></a>**[OQ-AP1](#OQ-AP1): How is a set spelled, and what does it list?** Why
+   it matters: [§4.1](#41-the-spelling).
 
    - **A. Profiles; commas continue a pair on the command line; an array in config.**
      `-p pi=zai,openrouter` and `use_profiles: {pi: ["zai", "openrouter"]}`. It is the
@@ -425,9 +457,6 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    - **C. Providers, not profiles.** `-p pi=zai,openrouter` names providers directly. It drops
      per-entry options such as the start model, and it answers
      [OQ-PP1](providers-and-profiles-redesign.md#OQ-PP1) in passing.
-
-   A comma string in config (`"zai,openrouter"`) is offered by none of these, since a JSON array
-   already is a list.
 
    _Leaning:_ A. It is what the maintainer typed, it fixes today's silent drop of exactly that
    input, and the first entry is the primary with no extra key.
@@ -446,23 +475,12 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    agent ([AP-D13](#AP-D13)).
 
 2. ✅ <a id="OQ-AP2"></a>**[OQ-AP2](#OQ-AP2): What does yolo do with a set of more than one for
-   claude, codex or copilot?** None of them can hold two providers natively
-   ([§3](#3-what-each-agent-can-hold)). This decides whether `-p claude=zai,openrouter` is an
-   error, a narrowing, or a bridge feature.
+   claude, codex or copilot?** Why it matters, and each option in full:
+   [the options for a single-provider agent](#the-options-for-a-single-provider-agent).
 
-   - **A. Refuse, by name.** The launch refuses before anything runs, naming the agent, saying it
-     runs one provider per session, and naming the one-entry spelling. It follows
-     [AP-P2](#AP-P2) with no new mechanism. The cost: claude users get nothing from sets.
-   - **B. The first entry wins, loudly.** One launch line names the entries that do not run for
-     that agent. It lets one `use_profiles` list serve every agent, and it is a declaration
-     accepted and partly ignored, which P1 permits only because it is disclosed.
-   - **C. The bridge, for claude.** A set for claude points it at a wire-bridge route that sends
-     each request to the provider whose model it names, the everything profile's routing
-     ([`wire-bridge-gateway.md` Part 2](wire-bridge-gateway.md#3-part-2--routing-by-model-id-for-claudes-everything-profile-ruled))
-     generalized from one provider to the set, with each route's credential from its own
-     provider. claude's picker renders the union. It is the only option that gives claude what pi
-     gets, and it is unbuilt, unmeasured, and a new route kind. codex and copilot would still
-     take A or B.
+   - **A. Refuse, by name.**
+   - **B. The first entry wins, loudly.**
+   - **C. The bridge, for claude.**
 
    _Leaning:_ A now, C for claude later. Refusal costs nothing to build and closes the silent
    drop. C is the real answer for claude, but it waits on the bridge's model-id routing, which is
@@ -477,12 +495,8 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    > naming the agent and the single-provider fix. Claude may take a list later through the wire
    > bridge once it can route per model. (Relayed: *"47 A."*)
 
-3. ✅ <a id="OQ-AP3"></a>**[OQ-AP3](#OQ-AP3): What does a bare list mean?** A bare name
-   (`-p zai`) selects that profile for every selected pack today. A bare list
-   (`-p zai,openrouter`) is refused today, as an undeclared name. This decides whether one list
-   can switch every agent at once, which interacts with
-   [OQ-AP2](#OQ-AP2) and with [OQ-PP3](providers-and-profiles-redesign.md#OQ-PP3) (what a bare
-   `-p X` does for an agent that cannot reach X, open).
+3. ✅ <a id="OQ-AP3"></a>**[OQ-AP3](#OQ-AP3): What does a bare list mean?** Today's behavior and
+   what it interacts with: [a bare list today](#a-bare-list-today).
 
    - **A. Refused, as today.** A set is always per CLI. At `yolo host`, where there is one
      command, a bare list is that command's set, since a pair naming the command already means

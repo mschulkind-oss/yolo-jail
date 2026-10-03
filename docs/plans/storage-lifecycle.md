@@ -242,12 +242,15 @@ listed, and `Run` in `internal/prune/prunecmd.go` is the current order:
   a *human*-declared layout yolo merely consumes is the only acceptable shape.
   A store-GC feature must not become a backdoor to that.
 
-**Where a safe store-GC fits:** a new, opt-in prune section that (a) enumerates
-live jails' loaded image closures (the same tri-state liveness prune already
-uses for containers/relays/build-roots), (b) confirms each is a registered GC
-root, and (c) only then invokes a **bounded** `nix-collect-garbage` (or
-`nix store gc`) — never touching anything a live root protects. This is
-**host-gated and last in priority**; it must not ship before rooting ([§1](#1-root-the-running-images-closure--first-everything-depends-on-it)).
+**Where a safe store-GC fits:** a new, opt-in prune section that:
+
+1. enumerates live jails' loaded image closures (the same tri-state liveness
+   prune already uses for containers/relays/build-roots);
+2. confirms each is a registered GC root;
+3. only then invokes a **bounded** `nix-collect-garbage` (or `nix store gc`) —
+   never touching anything a live root protects.
+
+This is **host-gated and last in priority**; it must not ship before rooting ([§1](#1-root-the-running-images-closure--first-everything-depends-on-it)).
 
 ---
 

@@ -285,6 +285,13 @@ workspace". Nothing like it exists today, and it is its own design.
 D is the cheapest correct answer. C is the correct answer that keeps the declaration in the workspace. B is C
 without the part that keeps a stranger from asking.
 
+### 3.6 Two later rulings that bear on C against D
+
+Moved here from [OQ-WT1](#OQ-WT1). Two later rulings point different ways, and neither is about a writable path.
+[OQ-EW1](agent-event-watchers.md#OQ-EW1) (A, 2026-09-29) refuses a helper that runs on the host from workspace
+config entirely. [OQ-BB7](boundary-broker.md#OQ-BB7) (2026-09-29) lets agent-editable workspace state widen what
+a host-side broker may reach, once the config-change prompt approves it.
+
 ## 4. The recommendation: C — scope for the author, trust for the agent
 
 Recommend **C**, and **ice it** until an rw mount is actually wanted
@@ -394,6 +401,33 @@ mounts is [OQ-AS3](../research/agent-safehouse.md#OQ-AS3)'s to decide.
 - In-jail `yolo trust` in `/workspace` refuses and names the host.
 - The same config gets the same verdict on podman, Apple Container and macos-user.
 
+### 4.9 The consent step: a prompt section, or a command
+
+Moved here verbatim from [OQ-WT5](#OQ-WT5), which is open. *Restated 2026-09-30.* This was first asked as the
+direnv shape (refuse and name the verb) against the mise shape (a prompt at launch). Two later rulings put
+agent-editable workspace state into the config-change prompt rather than a command of its own.
+[OQ-BB7](boundary-broker.md#OQ-BB7) (2026-09-29) did so for the repositories a broker may reach with the host's
+credential, in the maintainer's words *"perhaps this is set in a way that is like part of the launch configuration
+where we confirm config changes. It's just part of that bundle"*. It is built as the approval record's scope part
+([BB-D30](boundary-broker.md#BB-D30)). [OQ-EW7](agent-event-watchers.md#OQ-EW7) (B, 2026-09-29) did so for a
+repository's own sidecars, over a leaning that cited this question's. Neither rules this question, since a sidecar
+runs inside the jail and neither is a writable host path. So the options are restated in those terms, and the
+leaning moves to (A).
+
+- **(A) A labeled section of the config-change prompt.** The prompt that already shows every edit to the local
+  file shows the grant set in a section of its own. The grant set is recorded as another part of the host-side
+  approval record, beside the scope part. A `y` approves it and `N` aborts the launch. With no terminal the
+  launch refuses unless `--accept-config-changes` is passed, and the flag approves the section too, as it
+  approves the scope. There is no new command, and no toll on a human who typed the grant, whose edit to the
+  local file is asked about anyway. Cost: a script or CI launch that passes `--accept-config-changes` admits a
+  writable host path an agent wrote, and nobody reads it.
+- **(B) Refuse, and name `yolo trust`.** This was the original leaning, and
+  [§4.2](#42-the-trust-record), [§4.4](#44-at-launch) and [§4.6](#46-the-verb) specify it. With a terminal or
+  without, an untrusted grant set refuses the launch and prints the exact command. There is no launch prompt and
+  no launch flag, and `--accept-config-changes` never grants trust. Cost: a new command and record, which the
+  human pays even for a path they typed themselves
+  ([§4.3](#43-the-honest-cost-the-human-pays-the-agents-toll)). A CI setup runs `yolo trust --yes` on the host.
+
 ## 5. What this does not propose
 
 - **No trust for the committed file, ever,** under C. The maintainer's "never in a git-committed file" becomes a
@@ -443,10 +477,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    every writable host path in user config, as `cache_relocations` is
    ([§3.4](#34-option-d--user-scope-only-which-is-the-status-quo-rule-applied-to-rw-mounts)). Its cost is that user
    config has no per-workspace section, so a writable path declared there reaches the jail of every workspace
-   launched on the machine. Two later rulings point different ways, and neither is about a writable path.
-   [OQ-EW1](agent-event-watchers.md#OQ-EW1) (A, 2026-09-29) refuses a helper that runs on the host from workspace
-   config entirely. [OQ-BB7](boundary-broker.md#OQ-BB7) (2026-09-29) lets agent-editable workspace state widen what
-   a host-side broker may reach, once the config-change prompt approves it.
+   launched on the machine. Later rulings: [§3.6](#36-two-later-rulings-that-bear-on-c-against-d).
 
    _Leaning:_ **C, iced**. Until an rw mount is actually wanted, D is the rule, since that is the
    `cache_relocations` precedent. Thaw when someone needs an rw mount that is workspace-specific and cannot move
@@ -504,29 +535,12 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    section of the config-change prompt, or with a separate `yolo trust` command that the launch names when it
    refuses?** And may `--accept-config-changes` approve it?
 
-   *Restated 2026-09-30.* This was first asked as the direnv shape (refuse and name the verb) against the mise
-   shape (a prompt at launch). Two later rulings put agent-editable workspace state into the config-change prompt
-   rather than a command of its own. [OQ-BB7](boundary-broker.md#OQ-BB7) (2026-09-29) did so for the repositories a
-   broker may reach with the host's credential, in the maintainer's words *"perhaps this is set in a way that is
-   like part of the launch configuration where we confirm config changes. It's just part of that bundle"*. It is
-   built as the approval record's scope part ([BB-D30](boundary-broker.md#BB-D30)).
-   [OQ-EW7](agent-event-watchers.md#OQ-EW7) (B, 2026-09-29) did so for a repository's own sidecars, over a leaning
-   that cited this question's. Neither rules this question, since a sidecar runs inside the jail and neither is a
-   writable host path. So the options are restated in those terms, and the leaning moves to (A).
+   Why it was restated, and each option in full: [§4.9](#49-the-consent-step-a-prompt-section-or-a-command).
 
-   - **(A) A labeled section of the config-change prompt.** The prompt that already shows every edit to the local
-     file shows the grant set in a section of its own. The grant set is recorded as another part of the host-side
-     approval record, beside the scope part. A `y` approves it and `N` aborts the launch. With no terminal the
-     launch refuses unless `--accept-config-changes` is passed, and the flag approves the section too, as it
-     approves the scope. There is no new command, and no toll on a human who typed the grant, whose edit to the
-     local file is asked about anyway. Cost: a script or CI launch that passes `--accept-config-changes` admits a
-     writable host path an agent wrote, and nobody reads it.
-   - **(B) Refuse, and name `yolo trust`.** This was the original leaning, and
-     [§4.2](#42-the-trust-record), [§4.4](#44-at-launch) and [§4.6](#46-the-verb) specify it. With a terminal or
-     without, an untrusted grant set refuses the launch and prints the exact command. There is no launch prompt and
-     no launch flag, and `--accept-config-changes` never grants trust. Cost: a new command and record, which the
-     human pays even for a path they typed themselves
-     ([§4.3](#43-the-honest-cost-the-human-pays-the-agents-toll)). A CI setup runs `yolo trust --yes` on the host.
+   - **(A) A labeled section of the config-change prompt.** The flag approves the section too. Cost: a script or
+     CI launch that passes `--accept-config-changes` admits a writable host path an agent wrote, and nobody reads it.
+   - **(B) Refuse, and name `yolo trust`.** `--accept-config-changes` never grants trust. Cost: a new command and
+     record, which the human pays even for a path they typed themselves.
 
    _Leaning:_ **(A)**, restated 2026-09-30. It is the shape the maintainer chose twice for agent-editable state,
    and a labeled section gives the gate the differentiation that

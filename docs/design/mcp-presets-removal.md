@@ -547,7 +547,7 @@ Observable outcomes a human can check, not test names:
    exclusivity rule and the review posture for free, and shape B is principle 2 violated from the
    other side. See [§6.1](#61-the-three-candidate-shapes).
 
-   **Answer (2026-09-20):**
+   **Answer:** (2026-09-20)
    > **A new `mcp` kind** — a named server entry composed into `mcp_servers` the way the
    > `provider` kind composes into `providers`. **Exclusive by server name**, and **never
    > review-worthy**: an MCP server declaration reaches only the jail, so it does not enter the
@@ -561,8 +561,8 @@ Observable outcomes a human can check, not test names:
    `command` is a jail path that the host does not know."* **The host does know it**, and the
    mechanism has been in `internal/paths` the whole time.
 
-   **Answer (2026-09-20): compose HOST-SIDE, exactly like `providers`. There is no second option
-   and no new placeholder vocabulary.**
+   **Answer:** (2026-09-20) **compose HOST-SIDE, exactly like `providers`. There is no second
+   option and no new placeholder vocabulary.**
 
    Three facts settle it, each verified in the tree rather than reasoned:
 
@@ -607,7 +607,7 @@ Observable outcomes a human can check, not test names:
    core resolves puts browser-finding back in core; a bare binary name loses to environment
    sanitization. The existing orphan script is a working implementation of exactly this.
 
-   **Answer (2026-09-20):**
+   **Answer:** (2026-09-20)
    > **`requires` plus run-time resolution in the pack's own wrapper.** Core resolving a
    > candidate list would put browser-finding logic back in core, which is the thing this change
    > removes. A bare binary name loses to environment sanitization, so the wrapper resolves at
@@ -625,7 +625,7 @@ Observable outcomes a human can check, not test names:
    in-jail warning half is not optional either way: see [§9](#9-the-day-this-ships--pre-existing-state)
    case 3.
 
-   **Answer (2026-09-20):**
+   **Answer:** (2026-09-20)
    > **Full retirement, both names**, with a targeted message naming the packs to add and an
    > `mcp_servers` snippet to paste. A warn-and-ignore release means the browser is **silently
    > gone** from a jail whose config still asks for one, which is strictly worse than a refusal
@@ -638,7 +638,7 @@ Observable outcomes a human can check, not test names:
    *The leaning was "accept it: what a workspace loses is the power to cause an install, which is
    exactly the power the `packs` scope rule withholds on purpose." That was REJECTED.*
 
-   **Answer (2026-09-20):**
+   **Answer:** (2026-09-20)
    > **No — do not just lose it.** The right move is to reconsider "no packs in workspaces" by
    > defining a **safe subset** of packs a workspace MAY declare. The point of the rule was never
    > to stop a workspace configuring the jail; it was to stop a workspace controlling **what runs
@@ -691,7 +691,7 @@ Observable outcomes a human can check, not test names:
    conversion as a later, free move. Shipping two new kinds in one change is how neither gets
    reviewed properly.
 
-   **Answer (2026-09-20): keep it simple and unchanged.**
+   **Answer:** (2026-09-20) **keep it simple and unchanged.**
    > **An executable path — one plain wrapper script, not a service and not a daemon.** It must
    > not be always-running and must not be orphaned. The `service` conversion is explicitly NOT
    > taken now; if it is ever wanted it is a later, separate change.

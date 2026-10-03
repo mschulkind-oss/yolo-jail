@@ -33,8 +33,14 @@ carry all drifted, and a wrong one costs more than no pointer at all.
 ## TL;DR
 
 - **Four layers install runtimes/tools**, in ascending order of "how often it
-  changes": (1) baked into the Nix OCI image, (2) mise, (3) npm globals, (4) Go
-  `go install` + native curl installers. PATH puts the mise shim dir ahead of `/bin`, but
+  changes":
+
+  1. baked into the Nix OCI image;
+  2. mise;
+  3. npm globals;
+  4. Go `go install` + native curl installers.
+
+  PATH puts the mise shim dir ahead of `/bin`, but
   **mise only creates a shim for a tool it installed** — and yolo default-installs none — so
   in a default jail a bare `node`/`python`/`go` falls through to the **baked** copy, and a
   mise copy wins only where a workspace pinned one.

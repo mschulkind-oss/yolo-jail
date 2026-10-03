@@ -1320,6 +1320,81 @@ three. So the briefing fixes land together or not at all.
 > the floor or the provisioning stage does not work, a carve-out that is currently un-declared
 > re-opens.
 
+## 12. Background to three of the questions
+
+The background of [OQ-DP8](#OQ-DP8), [OQ-DP5](#OQ-DP5) and [OQ-DP7](#OQ-DP7), moved here verbatim
+from the questions so each question stays short. Their rulings are in
+[Open Questions](#open-questions) and the [Decision Ledger](#decision-ledger).
+
+### 12.1 A declared `jail_daemon.cmd` on a backend with no image
+
+From [OQ-DP8](#OQ-DP8). Every shipped declaration names a binary that exists only inside the
+container image — e.g. `yolo-jaild openai-auth-adapter --listen 127.0.0.1:1460`. `macos-user` has no image, so the
+argv as declared cannot be executed, and this decides what runs instead. It also decides
+whether `{jail_loophole_dir}` becomes backend-parameterised, which is what the `hello-daemon`
+subject turns on. **With [OQ-DP9](#OQ-DP9), it gates steps 3 and 4 of the jail-daemon plan,
+since built ([`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)).**
+
+### 12.2 What a site says when it cannot honor a declaration
+
+From [OQ-DP5](#OQ-DP5). A warning is the obvious answer, and the tree has already ruled against
+it: [OQ-BP-3](backend-parity.md#OQ-BP-3) is live and says *"a warning people learn to skip
+is worse than none."* Every "add a line" in [§6](#6-alignable-with-the-mechanism-and-its-cost)
+collides with that. **Three better shapes already ship in this repo, so the menu is not
+hypothetical:**
+
+| | Shape | What already ships it |
+| :--- | :--- | :--- |
+| **(a)** | a coded decline with ONE disclosure line, which can never refuse a launch | `internal/hostcas` — every decline carries a code, a reason string, a banner line (`run.noteHostCASAlias`) and a `yolo stores` row |
+| **(b)** | a user-declarable EXPECTED absence, so yolo stops guessing | `platforms: ["linux"]` on a `packages:` entry — the user says "absent here is correct", validated as a closed set, everything else fatal |
+| **(c)** | a third disposition between honored and refused, held as DATA | `render.hostUnimplemented`, whose own comment says *"an empty map is the end state"* and which loses one entry per phase |
+
+**The second half is not separable from the first.**
+[DP-B31](#54-the-host-notch-and-the-entry-point) shows that the machinery built to guarantee
+*"nothing a pack declares is silently absent"* is keyed on `packdecl.Kind`, so it is blind to
+every CONFIG KEY — `packages`, `mounts`, `network`, `resources`. **Does the census vocabulary
+extend past pack kinds?** Until that is answered,
+[DP-L16](#6-alignable-with-the-mechanism-and-its-cost) is not expressible at all.
+
+**What it decides:** the shape of every fix in
+[§6](#6-alignable-with-the-mechanism-and-its-cost) — including the three lines
+[§5.1.1](#511-dp-b3-by-entry-form-and-why-the-remedy-is-not-refusal) and
+[§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) each want to print,
+which are the first fixes this ruling reaches.
+
+### 12.3 The third spelling: the generated launcher
+
+From [OQ-DP7](#OQ-DP7). [DP-B44](#562-the-rows) is the one spelling of a launch that carries no
+pack-declared flags at all: a NON-INTERACTIVE shell inside the jail — an agent's own `bash -c claude`, a build
+script, anything not typed at the prompt. It expands no alias and passes through no host
+argv. `~/.yolo/bin/launch/<bin>` is the natural carrier, already first-on-PATH after the
+blockers, already generated on both backends, and today it `exec`s the real binary bare.
+
+**What makes this a decision rather than a fix**, from
+[§5.6.1](#561-can-they-be-one-path):
+
+| | The cost | Why it is not incidental |
+| :--- | :--- | :--- |
+| **(a)** | [`entrypoint.launcherShadows`](../../internal/entrypoint/launchercollision.go) writes no launcher for a name `/bin` or a declared `mise_tools` entry provides | a pack whose binary the image bakes would get NO flags, reported as a missing installer. Coverage would be partial — the *"accepted and not honored"* shape this whole catalog exists to name |
+| **(b)** | one script is both installer and wrapper | "write it anyway when it carries flags" also installs a second copy of a binary the image ships. Closing (a) means SPLITTING the two jobs |
+| **(c)** | the flags would reach commands nobody typed at yolo | a build script calling `claude` gets a permission bypass. Consistent with the notch (autonomy is ON at `jail`), and still a widening of who gets it |
+
+⚠ **THIS IS NARROWER THAN "UNIFY THE INJECTION PATHS", WHICH ALREADY SHIPPED.** The two
+mechanisms [§5.6](#56-one-declaration-two-mechanisms-the-argv-rewrite-and-the-shell-alias)
+names — the host argv rewrite and the in-jail shell alias — were unified behind one
+disclosing mechanism on 2026-09-13 ([DP-B42](#562-the-rows)): the alias now states each
+rewrite at the boot that writes it, from the injector's own record. **That work is done and
+is not what this question asks.** What is left is a THIRD spelling neither mechanism covers
+— the generated wrapper in `~/.yolo/bin/launch`,
+[§5.6.1](#561-can-they-be-one-path) (3) — which would also catch the non-interactive in-jail
+invocation ([DP-B44](#56-one-declaration-two-mechanisms-the-argv-rewrite-and-the-shell-alias)).
+Read this question as "close the third", never as "start the unification".
+
+**What it does NOT decide:** whether the host keeps rewriting argv. It keeps rewriting it
+either way — it is the only producer that reaches every backend and every entry point, and
+the only one whose disclosure lands while the user can still Ctrl-C
+([§5.6.1](#561-can-they-be-one-path) (3)).
+
 ---
 
 ## Open Questions
@@ -1340,17 +1415,13 @@ The original seven are all ruled. The review of 2026-09-12 ruled four and dissol
 [OQ-DP5](#OQ-DP5) from the original catalog and [OQ-DP7](#OQ-DP7) raised by
 [§5.6](#56-one-declaration-two-mechanisms-the-argv-rewrite-and-the-shell-alias) — were ruled on
 2026-09-13 and carried decisive leanings before that. All seven are compacted into the
-[Decision Ledger](#decision-ledger); both are kept in full below because their reasoning is
+[Decision Ledger](#decision-ledger); both are kept in full, their rulings below and their
+reasoning in [§12](#12-background-to-three-of-the-questions), because that reasoning is
 what the catalog's remaining fixes are shaped by. Everything else in this catalog is an
 approval, not a decision — see [§3](#3-the-four-dispositions-and-how-to-walk-the-catalog).
 
 1. ✅ <a id="OQ-DP8"></a>**[OQ-DP8](#OQ-DP8): how does a declared `jail_daemon.cmd` resolve on a backend with no image?**
-   Every shipped declaration names a binary that exists only inside the container image — e.g.
-   `yolo-jaild openai-auth-adapter --listen 127.0.0.1:1460`. `macos-user` has no image, so the
-   argv as declared cannot be executed, and this decides what runs instead. It also decides
-   whether `{jail_loophole_dir}` becomes backend-parameterised, which is what the `hello-daemon`
-   subject turns on. **With [OQ-DP9](#OQ-DP9), it gates steps 3 and 4 of
-the jail-daemon plan, since built ([`macos-user-nix-and-features.md`](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)).**
+   What it decides and what it gated: [§12.1](#121-a-declared-jail_daemoncmd-on-a-backend-with-no-image).
 
       Three candidates, and the choice is visible outside the code:
 
@@ -1401,30 +1472,14 @@ the jail-daemon plan, since built ([`macos-user-nix-and-features.md`](../referen
    > ownership.
 
 3. ✅ <a id="OQ-DP5"></a>**OQ-DP5: When a site cannot honor a declaration, what does it SAY?**
-   A warning is the obvious answer, and the tree has already ruled against it:
-   [OQ-BP-3](backend-parity.md#OQ-BP-3) is live and says *"a warning people learn to skip
-   is worse than none."* Every "add a line" in [§6](#6-alignable-with-the-mechanism-and-its-cost)
-   collides with that. **Three better shapes already ship in this repo, so the menu is not
-   hypothetical:**
+   Why not a warning, where each shape already ships, and what the ruling reaches:
+   [§12.2](#122-what-a-site-says-when-it-cannot-honor-a-declaration). The three shapes:
 
-   | | Shape | What already ships it |
-   | :--- | :--- | :--- |
-   | **(a)** | a coded decline with ONE disclosure line, which can never refuse a launch | `internal/hostcas` — every decline carries a code, a reason string, a banner line (`run.noteHostCASAlias`) and a `yolo stores` row |
-   | **(b)** | a user-declarable EXPECTED absence, so yolo stops guessing | `platforms: ["linux"]` on a `packages:` entry — the user says "absent here is correct", validated as a closed set, everything else fatal |
-   | **(c)** | a third disposition between honored and refused, held as DATA | `render.hostUnimplemented`, whose own comment says *"an empty map is the end state"* and which loses one entry per phase |
+   - **(a)** a coded decline with ONE disclosure line, which can never refuse a launch
+   - **(b)** a user-declarable EXPECTED absence, so yolo stops guessing
+   - **(c)** a third disposition between honored and refused, held as DATA
 
-   **The second half is not separable from the first.**
-   [DP-B31](#54-the-host-notch-and-the-entry-point) shows that the machinery built to guarantee
-   *"nothing a pack declares is silently absent"* is keyed on `packdecl.Kind`, so it is blind to
-   every CONFIG KEY — `packages`, `mounts`, `network`, `resources`. **Does the census vocabulary
-   extend past pack kinds?** Until that is answered,
-   [DP-L16](#6-alignable-with-the-mechanism-and-its-cost) is not expressible at all.
-
-   **What it decides:** the shape of every fix in
-   [§6](#6-alignable-with-the-mechanism-and-its-cost) — including the three lines
-   [§5.1.1](#511-dp-b3-by-entry-form-and-why-the-remedy-is-not-refusal) and
-   [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) each want to print,
-   which are the first fixes this ruling reaches.
+   The second half: **Does the census vocabulary extend past pack kinds?**
 
    <!-- vantage: question id=OQ-DP5 -->
 
@@ -1461,36 +1516,9 @@ the jail-daemon plan, since built ([`macos-user-nix-and-features.md`](../referen
    at the host rather than unbuilt.
 
 4. ✅ <a id="OQ-DP7"></a>**OQ-DP7: Should the generated launcher inject the flags too, closing the third spelling?**
-   [DP-B44](#562-the-rows) is the one spelling of a launch that carries no pack-declared flags
-   at all: a NON-INTERACTIVE shell inside the jail — an agent's own `bash -c claude`, a build
-   script, anything not typed at the prompt. It expands no alias and passes through no host
-   argv. `~/.yolo/bin/launch/<bin>` is the natural carrier, already first-on-PATH after the
-   blockers, already generated on both backends, and today it `exec`s the real binary bare.
-
-   **What makes this a decision rather than a fix**, from
-   [§5.6.1](#561-can-they-be-one-path):
-
-   | | The cost | Why it is not incidental |
-   | :--- | :--- | :--- |
-   | **(a)** | [`entrypoint.launcherShadows`](../../internal/entrypoint/launchercollision.go) writes no launcher for a name `/bin` or a declared `mise_tools` entry provides | a pack whose binary the image bakes would get NO flags, reported as a missing installer. Coverage would be partial — the *"accepted and not honored"* shape this whole catalog exists to name |
-   | **(b)** | one script is both installer and wrapper | "write it anyway when it carries flags" also installs a second copy of a binary the image ships. Closing (a) means SPLITTING the two jobs |
-   | **(c)** | the flags would reach commands nobody typed at yolo | a build script calling `claude` gets a permission bypass. Consistent with the notch (autonomy is ON at `jail`), and still a widening of who gets it |
-
-   ⚠ **THIS IS NARROWER THAN "UNIFY THE INJECTION PATHS", WHICH ALREADY SHIPPED.** The two
-   mechanisms [§5.6](#56-one-declaration-two-mechanisms-the-argv-rewrite-and-the-shell-alias)
-   names — the host argv rewrite and the in-jail shell alias — were unified behind one
-   disclosing mechanism on 2026-09-13 ([DP-B42](#562-the-rows)): the alias now states each
-   rewrite at the boot that writes it, from the injector's own record. **That work is done and
-   is not what this question asks.** What is left is a THIRD spelling neither mechanism covers
-   — the generated wrapper in `~/.yolo/bin/launch`,
-   [§5.6.1](#561-can-they-be-one-path) (3) — which would also catch the non-interactive in-jail
-   invocation ([DP-B44](#56-one-declaration-two-mechanisms-the-argv-rewrite-and-the-shell-alias)).
-   Read this question as "close the third", never as "start the unification".
-
-   **What it does NOT decide:** whether the host keeps rewriting argv. It keeps rewriting it
-   either way — it is the only producer that reaches every backend and every entry point, and
-   the only one whose disclosure lands while the user can still Ctrl-C
-   ([§5.6.1](#561-can-they-be-one-path) (3)).
+   The spelling it closes, the three costs that make it a decision, and what it does not
+   decide: [§12.3](#123-the-third-spelling-the-generated-launcher). Read this question as
+   "close the third", never as "start the unification".
 
    <!-- vantage: question id=OQ-DP7 -->
 

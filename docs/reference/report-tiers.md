@@ -434,13 +434,16 @@ did not achieve (P7).
 `config drift`'s 0/3/4 is the house precedent for a report verb encoding its finding, and it is
 deliberately not copied: a dry run that has JSON does not need the exit code to carry the verdict.
 
-- 💬 <a id="oq-ro8"></a>**[`OQ-RO8`](#oq-ro8) — the dry run exits 1 on a refusal or a failed
-  stage. Does the code move, or the ruling?** Filed 2026-10-02.
+**The code does not yet match that ruling** ([OQ-RO8](#oq-ro8), filed 2026-10-02). **READ FROM CODE**:
+`applyHostSurveyed` (`internal/cli/apply.go`) returns 1 from a dry run that meets a refusal or
+an overlay problem; a [broken link](#broken-links) leaves it at 0. The launch gate reads a
+non-zero observe pass as *cannot determine* (`hostapplygate.go`). The question has no leaning
+yet: which scripts read the dry run's exit is the fact a leaning would need.
 
-  [OQ-RO5](#why-its-this-way) rules that the dry run exits 0. **READ FROM CODE:**
-  `applyHostSurveyed` (`internal/cli/apply.go`) returns 1 from a dry run that meets a refusal or
-  an overlay problem; a [broken link](#broken-links) leaves it at 0. The launch gate reads a
-  non-zero observe pass as *cannot determine* (`hostapplygate.go`).
+- 💬 <a id="oq-ro8"></a>**[`OQ-RO8`](#oq-ro8) — the dry run exits 1 on a refusal or a failed
+  stage. Does the code move, or the ruling?**
+
+  [OQ-RO5](#why-its-this-way) rules exit 0; the code differs ([Exit codes](#exit-codes)).
 
   - **(a) The code follows the ruling.** The dry run exits 0 every time, and the launch gate reads
     a failure from the survey. *You pay:* a script reading the 1 reads `--format json`'s
@@ -451,7 +454,7 @@ deliberately not copied: a dry run that has JSON does not need the exit code to 
 
   <!-- vantage: question id=OQ-RO8 -->
 
-  It has no leaning yet: which scripts read the dry run's exit is the fact a leaning would need.
+  No leaning yet; [Exit codes](#exit-codes) names the fact one needs.
 
   **Answer:**
   > _(empty — fill in when decided)_
