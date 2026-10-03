@@ -42,6 +42,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The launch, `yolo pack footprint` and `yolo host apply` now name the code a wrapped Claude plugin
   runs from Claude Code's default places (hooks, MCP and language servers, monitors, `bin/`), not
   only what its manifest declares.
+- In a jail, `gh` now runs `--jq` and `--template`, takes an encoded branch name such as
+  `MS%2Fmain`, and answers `gh auth status` without your machine's paths or the token's scopes; a
+  write says at once that nothing ran and to run it on your machine.
+- A jail's `gh` can no longer reach past the project through `--org` or `--user` on a secret or
+  variable write, a `..` in an argument, or a `:owner` or `:repo` placeholder.
+- A macos-user launch of Codex or Pi no longer refuses when the shared OpenAI credential service
+  restarts just as it connects.
 
 ## [0.11.1] - 2026-10-02
 
