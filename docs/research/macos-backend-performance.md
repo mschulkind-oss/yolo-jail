@@ -620,11 +620,17 @@ on that Mac, not in the repository.
 launch, not the VM** (MEASURED). Every launch, attach included, found claude, codex and agy
 "never recorded on this machine" and ran each one's installer in a capture jail. Each installer
 "left nothing in the capture surfaces", so nothing was stored, and the next launch tried again:
-`launch.auto_capture` took 61 s per fresh launch and 14 s per attach. That is a yolo defect in
-its own right, diagnosed from the code 2026-10-03 and not yet re-run on a Mac: the capture walked
-surface paths that exist only on podman ([OQ-PD24](../design/program-delivery.md#decision-ledger)), an
-attach repeated the fresh launch's attempt ([OQ-PD25](../design/program-delivery.md#decision-ledger)),
-and a failure was never remembered ([OQ-PD26](../design/program-delivery.md#decision-ledger)).
+`launch.auto_capture` took 61 s per fresh launch and 14 s per attach. That was a yolo defect in
+its own right, diagnosed from the code and fixed on main 2026-10-03; the fix is not yet measured
+on a Mac. The capture walked surface paths that exist only on podman
+([OQ-PD24](../design/program-delivery.md#decision-ledger)), an attach repeated the fresh launch's
+attempt ([OQ-PD25](../design/program-delivery.md#decision-ledger)), and a failure was never
+remembered ([OQ-PD26](../design/program-delivery.md#decision-ledger)). The next Mac run should see
+the first fresh launch store all three programs, and no later launch spend about 61 s in
+`launch.auto_capture`. An attach should not run it at all. If that first launch still stores
+nothing, it now says when it will try again and later launches skip the capture until then, so
+the 61 s stops either way; only the stored programs show that
+[OQ-PD24](../design/program-delivery.md#decision-ledger)'s fix works.
 Without the auto-capture, a fresh launch's 6.9 s is mostly two steps: `image.nix_build` at 3.2
 to 3.5 s (a no-op build that still runs at every launch, through the builder VM) and
 `launch.run_with_proxy` at 2.5 s (VM boot plus the boot script). The attach's own `attach.exec`
