@@ -157,8 +157,8 @@ a declared floor the host cannot show met starts it too).
 
 ### When an install cannot happen
 
-This is the background to [OQ-JR1](#OQ-JR1), moved out of the question so the question stays
-short; the question and its leaning are unchanged.
+This is the background to [OQ-JR1](#OQ-JR1): why the question arises, the two standing rulings it
+sits between, and its options in full.
 
 Every neighbour in the provisioning stage degrades — `mise install` failing prints
 `PROVISIONING FAILED` and continues unless a human at a TTY says no; the bootstrap records that
@@ -244,7 +244,7 @@ The options in full:
 ## 8. Open Questions
 
 1. 💬 <a id="OQ-JR1"></a>**[OQ-JR1](#OQ-JR1): does an install that cannot happen refuse the launch, or degrade?**
-   Every neighbour in the provisioning stage degrades, and two standing rulings pull opposite
+   Every other step in the provisioning stage degrades, and two standing rulings pull opposite
    ways; the evidence and each option in full are in
    [When an install cannot happen](#when-an-install-cannot-happen). Stakes: whether "ready" is a
    promise or a best effort at this notch.
