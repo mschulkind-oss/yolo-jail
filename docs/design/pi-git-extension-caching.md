@@ -13,16 +13,18 @@ vantage:
 # Sharing pi git extensions across jails: immutable per-commit trees, never one shared checkout
 
 **Status:** 2026-09-26 — **redesigned after review on 2026-09-25**, and [OQ-5](#OQ-5) ruled on 2026-09-26 (npm gets the same design, git first). The redesign is
-built and green on the branch `wip/pi-extension-store` but **not on main**: [OQ-6](#OQ-6), the rewrite hook against [`OQ-LT2`](../reference/pack-system.md#oq-lt2), must be ruled first. What `c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared
+built, and was green, on the local branch `held/pi-extension-store` (`d44cb88b9`) but **not on main**: [OQ-6](#OQ-6), the rewrite hook against [`OQ-LT2`](../reference/pack-system.md#oq-lt2), must be ruled first. What `c402dd43` built from the first draft is half withdrawn: its `.pi-shared-git` shared
 checkout is REVERTED, with the boot step that removes the link it left BUILT
 ([§3.10](#310-migration-from-what-c402dd43-shipped)), and its `due_on_change` refresh trigger
 stays ([§3.12](#312-the-refresh-trigger-that-stays)). Until the redesign is built, each workspace
 clones its own git extensions again, as before `c402dd43`. **MEASURED:**
 pi 0.87.1's package manager, read (not run) at `dist/core/package-manager.js` in the jail's install.
 **UNMEASURED:** nothing has run against a real pi git extension; every cost figure is an estimate.
-Re-checked 2026-09-30: the branch is still unmerged, its tests have not been re-run since its own
-commit (`f300bf00`, whose message says the launcher templates must be rebased over the credential
-gate before it can land), and the npm half is still live on main as one shared prefix:
+Re-checked 2026-10-03: the work is still unmerged. It was first built as `f300bf00` on
+`wip/pi-extension-store`, and that commit's message says the launcher templates must be rebased
+over the credential gate before it can land. `3ab39946f` (2026-09-30) is that rebase, and its message says
+the tests were green again; with five follow-ups it is the held branch, whose merge base with main
+is `c5261b998`. The `wip/` branches are deleted. The npm half is still live on main as one shared prefix:
 `packs/pi/pack.json` declares `.pi-shared-npm` at `scope: "machine"` with a `shared_directory`
 hook from `.pi/agent/npm`, the leak [OQ-5](#OQ-5)'s ruling replaces.
 

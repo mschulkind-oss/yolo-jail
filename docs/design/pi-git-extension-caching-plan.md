@@ -14,8 +14,9 @@ depends-on:
 is open. Rewritten for the redesign ([design §3](pi-git-extension-caching.md#3-the-design--share-content-never-state)).
 Nobody builds from this; the design wins on behavior. Re-checked 2026-09-30: [§1](#1-the-revert-first-interim-independent-of-the-rest),
 the revert, is built on main (the design's PG-D8, the `unshare_directory` hook; `shareddirgit_test.go`
-is gone), and the trees of [§2](#2-the-trees-after-the-revert) are built only on the branch
-`wip/pi-extension-store`. This line used to say the sketch was unstable while
+is gone), and the trees of [§2](#2-the-trees-after-the-revert) are built only on the local branch
+`held/pi-extension-store` (`d44cb88b9`; corrected 2026-10-03, the `wip/` branch they were first
+built on being deleted). This line used to say the sketch was unstable while
 [OQ-5](pi-git-extension-caching.md#OQ-5) was open; that question was ruled on 2026-09-26.
 
 ## 1. The revert first (interim, independent of the rest)
