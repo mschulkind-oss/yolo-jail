@@ -49,7 +49,7 @@ func TestNormalizeOAuthPreservesEntitlementMetadata(t *testing.T) {
 	upstream.Set("expires_in", jsonx.IntValue(3600))
 	upstream.Set("scope", "user:inference user:profile")
 
-	out := NormalizeOAuth(upstream, previous)
+	out := NormalizeOAuth(upstream, previous, "RT_old")
 
 	for key, want := range map[string]string{
 		"subscriptionType": "team",

@@ -250,7 +250,7 @@ func doRefreshLocked(credsPath string, cached func(string) *jsonx.OrderedMap) Re
 				return errResult("error", "upstream_unreachable", "message", err.Error())
 			}
 		}
-		newOAuth := NormalizeOAuth(resp, current)
+		newOAuth := NormalizeOAuth(resp, current, refreshToken)
 		if err := s.saveLocked(newOAuth); err != nil {
 			// Log a failed shared-creds write — it silently strands every jail
 			// on the stale token.

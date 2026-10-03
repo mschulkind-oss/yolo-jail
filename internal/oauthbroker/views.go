@@ -433,7 +433,7 @@ func (s store) adoptEnrollmentLocked(r *viewRegistration, st viewState) {
 			TokenFP(rt), r.Path(), err)
 		return
 	}
-	next := NormalizeOAuth(resp, st.oauth)
+	next := NormalizeOAuth(resp, st.oauth, rt)
 	if nrt, _ := stringField(next, "refreshToken"); nrt == rt {
 		logWarn("enrollment: the redemption returned no new refresh token; the machine keeps " +
 			"the one the jail presented")

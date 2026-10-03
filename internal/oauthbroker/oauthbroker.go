@@ -289,6 +289,11 @@ func AsOAuthResponse(oauth *jsonx.OrderedMap) *jsonx.OrderedMap {
 	return out
 }
 
+// refreshTokenExpiresAtKey is the claudeAiOauth field in which Claude Code keeps a login's
+// refresh-token deadline, in epoch milliseconds, and from which it warns that the login expires
+// in N days during the last three.
+const refreshTokenExpiresAtKey = "refreshTokenExpiresAt"
+
 func getOrNil(m *jsonx.OrderedMap, key string) any {
 	if v, ok := m.Get(key); ok {
 		return v
@@ -297,19 +302,30 @@ func getOrNil(m *jsonx.OrderedMap, key string) any {
 }
 
 // NormalizeOAuth converts an upstream {access_token, refresh_token,
-// expires_in, scope} response to the Claude-Code on-disk shape, preserving
-// fields from previous.
+// expires_in, refresh_token_expires_in, scope} response to the Claude-Code
+// on-disk shape, preserving fields from previous. redeemed is the refresh
+// token the response was minted from, and "" for a login's authorization-code
+// exchange.
 //   - out = dict(previous) then override accessToken/expiresAt
 //   - refreshToken only overridden if present in the response
+//   - refreshTokenExpiresAt (refreshTokenExpiresAtKey) is now +
+//     refresh_token_expires_in when the response carries that number; else
+//     previous's value only when redeemed is previous's own refresh token, a
+//     refresh within one login; else removed, so a previous LOGIN's deadline
+//     is never written onto a new login's tokens. That is Claude Code's own
+//     rule (2.1.288: `formatTokens` for a login, `Kk` for every save, which
+//     carries the stored value only after its check that the stored record
+//     holds the refresh token just redeemed).
 //   - scopes only synthesized from response `scope` when absent in previous
 //     (and never an empty list)
-func NormalizeOAuth(upstream, previous *jsonx.OrderedMap) *jsonx.OrderedMap {
+func NormalizeOAuth(upstream, previous *jsonx.OrderedMap, redeemed string) *jsonx.OrderedMap {
 	expiresIn := int64(3600)
 	if v, ok := upstream.Get("expires_in"); ok {
 		if n, ok := asInt64(v); ok {
 			expiresIn = n
 		}
 	}
+	now := nowMS()
 	// Copy previous, preserving key order, then override below.
 	out := jsonx.NewOrderedMap()
 	for _, k := range previous.Keys() {
@@ -322,7 +338,12 @@ func NormalizeOAuth(upstream, previous *jsonx.OrderedMap) *jsonx.OrderedMap {
 	if rt, ok := upstream.Get("refresh_token"); ok {
 		out.Set("refreshToken", rt)
 	}
-	out.Set("expiresAt", jsonx.IntValue(nowMS()+expiresIn*1000))
+	out.Set("expiresAt", jsonx.IntValue(now+expiresIn*1000))
+	if n, ok := refreshTokenExpiresIn(upstream); ok {
+		out.Set(refreshTokenExpiresAtKey, jsonx.IntValue(now+n*1000))
+	} else if prevRT, _ := stringField(previous, "refreshToken"); redeemed == "" || redeemed != prevRT {
+		out.Delete(refreshTokenExpiresAtKey)
+	}
 	if _, has := out.Get("scopes"); !has {
 		scopeStr := ""
 		if v, ok := upstream.Get("scope"); ok {
@@ -340,6 +361,16 @@ func NormalizeOAuth(upstream, previous *jsonx.OrderedMap) *jsonx.OrderedMap {
 		}
 	}
 	return out
+}
+
+// refreshTokenExpiresIn reads a token response's refresh_token_expires_in, in seconds, when it
+// is a JSON number, which is the only form Claude Code reads (`typeof e==="number"`).
+func refreshTokenExpiresIn(upstream *jsonx.OrderedMap) (int64, bool) {
+	v, ok := upstream.Get("refresh_token_expires_in")
+	if !ok || v == nil {
+		return 0, false
+	}
+	return asInt64(v)
 }
 
 // WriteTokens atomically writes the shared credentials file via

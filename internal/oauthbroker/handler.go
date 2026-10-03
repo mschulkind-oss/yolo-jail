@@ -67,6 +67,29 @@ func isClaudeCodeClientID(decoded proxyRequest) bool {
 	return true
 }
 
+// redeemedRefreshToken is the refresh token a proxied token request redeems: its refresh_token
+// when its grant_type is refresh_token, and "" for anything else, a /login's authorization-code
+// exchange above all. The body is read as isClaudeCodeClientID reads it, JSON first and then
+// form-encoded. The mirror needs it to tell a refresh within the machine's login, which keeps
+// that login's refresh-token deadline, from a different login, which must not (NormalizeOAuth).
+func redeemedRefreshToken(decoded proxyRequest) string {
+	if len(decoded.body) == 0 {
+		return ""
+	}
+	var grant, token string
+	var jsonMap map[string]any
+	if err := json.Unmarshal(decoded.body, &jsonMap); err == nil {
+		grant, _ = jsonMap["grant_type"].(string)
+		token, _ = jsonMap["refresh_token"].(string)
+	} else if vals, err := url.ParseQuery(string(decoded.body)); err == nil {
+		grant, token = vals.Get("grant_type"), vals.Get("refresh_token")
+	}
+	if grant != "refresh_token" {
+		return ""
+	}
+	return token
+}
+
 // PresentedRefreshTokenKey is the refresh frame's field carrying the refresh token the
 // terminator's caller presented (DoRefreshAsCaller). One spelling for both binaries.
 const PresentedRefreshTokenKey = oauthterminator.PresentedRefreshTokenKey
@@ -246,7 +269,7 @@ func maybePropagateTokenResponse(credsPath string, decoded proxyRequest, respons
 					}
 				}
 			}
-			propagate(credsPath, upstreamResp)
+			propagate(credsPath, upstreamResp, redeemedRefreshToken(decoded))
 			return
 		}
 	}
@@ -256,8 +279,9 @@ func maybePropagateTokenResponse(credsPath string, decoded proxyRequest, respons
 }
 
 // propagate is the write-under-flock tail of maybePropagateTokenResponse, split
-// out so the parse-failure returns above read linearly.
-func propagate(credsPath string, upstreamResp *jsonx.OrderedMap) {
+// out so the parse-failure returns above read linearly. redeemed is the refresh
+// token the proxied request redeemed, "" for a /login (NormalizeOAuth).
+func propagate(credsPath string, upstreamResp *jsonx.OrderedMap, redeemed string) {
 	_, hasAT := upstreamResp.Get("access_token")
 	_, hasRT := upstreamResp.Get("refresh_token")
 	if !hasAT || !hasRT {
@@ -271,7 +295,7 @@ func propagate(credsPath string, upstreamResp *jsonx.OrderedMap) {
 		if err != nil {
 			previous = jsonx.NewOrderedMap()
 		}
-		newOAuth := NormalizeOAuth(upstreamResp, previous)
+		newOAuth := NormalizeOAuth(upstreamResp, previous, redeemed)
 		if werr := s.saveLocked(newOAuth); werr != nil {
 			logWarn("proxy mirror: could not write %s: %s", credsPath, werr)
 			return nil

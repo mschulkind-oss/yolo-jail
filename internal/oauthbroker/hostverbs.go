@@ -95,7 +95,7 @@ func ForceRefresh(delay time.Duration) (*jsonx.OrderedMap, error) {
 			}
 			return err
 		}
-		next := NormalizeOAuth(resp, current)
+		next := NormalizeOAuth(resp, current, rt)
 		if delay > 0 {
 			viewDelay = func() { time.Sleep(delay) }
 			defer func() { viewDelay = nil }()
