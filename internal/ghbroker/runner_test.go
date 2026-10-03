@@ -22,7 +22,9 @@ const fakeToken = "gho_FAKEfakeFAKEfake0123456789"
 // every other call's argv, cwd, environment and stdin under dir/calls, and then does what
 // the argv's first word asks: `leak` prints the token split across two writes, `big`
 // prints n bytes, `sleep` sleeps, `authfail` exits 4. A `--jq=env` or `--jq=$ENV` filter
-// prints the environment, which is what gh's jq reads for those two (BB-D64).
+// prints the environment, which is what gh's jq reads for those two (BB-D64). The broker's
+// own `auth status --hostname github.com --active --json hosts` gets gh's JSON for a login
+// whose token source is a host path, or, with a `nologin` file in dir, gh's answer for none.
 func fakeGH(t *testing.T, dir, version string) string {
 	t.Helper()
 	calls := filepath.Join(dir, "calls")
@@ -47,6 +49,15 @@ case "$1" in
   big) head -c "$2" /dev/zero | tr '\0' x ;;
   sleep) sleep "$2" ;;
   authfail) echo "To get started with GitHub CLI, please run:  gh auth login" >&2; exit 4 ;;
+  auth) if [ "$*" = "auth status --hostname github.com --active --json hosts" ]; then
+          if [ -e "` + dir + `/nologin" ]; then
+            echo "You are not logged into any GitHub hosts. To log in, run: gh auth login" >&2
+            echo '{"hosts":{}}'; exit 0
+          fi
+          echo '{"hosts":{"github.com":[{"state":"success","active":true,"host":"github.com","login":"me","tokenSource":"` + dir + `/run/1-x/config/hosts.yml","scopes":"gist, read:org, repo","gitProtocol":"https"}]}}'
+          exit 0
+        fi
+        echo "ran $*" ;;
   *) case "$*" in
        *--repo=o/nologin*) echo "To get started with GitHub CLI, please run:  gh auth login" >&2; exit 4 ;;
        *--jq=env*|*--jq=\$ENV*) env; exit 0 ;;

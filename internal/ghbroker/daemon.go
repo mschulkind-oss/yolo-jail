@@ -1,9 +1,11 @@
 package ghbroker
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // daemon.go is the github-broker's host daemon, `yolo internal daemon github-broker`
@@ -326,6 +330,9 @@ func (b *Broker) Serve(req Request, jail string, stdout, stderr func([]byte)) in
 			"its own approval, which this version cannot ask for. Nothing ran.")
 		return finish(ExitNoPerm)
 	}
+	if d.Path == "auth status" && !slices.Contains(d.Argv, "--help") {
+		return finish(b.answerAuthStatus(d.Argv, &ev, stdout, stderr, say))
+	}
 	var stdin []byte
 	if d.ReadsStdin {
 		stdin = req.Stdin
@@ -343,12 +350,81 @@ func (b *Broker) Serve(req Request, jail string, stdout, stderr func([]byte)) in
 	code := res.Exit
 	if code == ghExitAuth {
 		// §3.5: no host login is the broker's unavailability, not the jail's missing token.
-		say("the host's gh has no usable GitHub login; run `gh auth status` on the host. The broker " +
-			"never starts a login.")
+		say(noHostLogin)
 		ev.Reason = "gh exited 4: no host login"
 		code = ExitUnavailable
 	}
 	return finish(code)
+}
+
+// noHostLogin is what a call is told when the host gh has no login the broker can use.
+const noHostLogin = "the host's gh has no usable GitHub login; run `gh auth status` on the host. " +
+	"The broker never starts a login."
+
+// answerAuthStatus is a jail's `gh auth status`, which the broker answers itself (BB-D65):
+// who the jail is logged in as, through what, and which repositories it may use. gh's own
+// answer describes the host's login, the path of the run dir's hosts.yml copy, the token's
+// prefix and its scopes, none of which means anything in the jail or decides anything there:
+// the broker's sets and scope do. The host gh is asked only for the active account, and only
+// the login and the state of gh's check of it are used.
+//
+// The text keeps gh's own first lines (`github.com`, then `✓ Logged in to github.com account
+// <login>`), so a script that greps for them still matches; `--json hosts` keeps gh's shape,
+// with the token source naming the broker and no scopes. Exit 0 when logged in, as gh's; no
+// usable host login is the broker's 69, as for every other call.
+func (b *Broker) answerAuthStatus(argv []string, ev *brokeraudit.Event, stdout, stderr func([]byte),
+	say func(string)) int {
+	jsonFields := ""
+	for _, a := range argv {
+		if v, ok := strings.CutPrefix(a, "--json="); ok {
+			jsonFields = v
+		}
+	}
+	if jsonFields != "" {
+		for _, f := range strings.Split(jsonFields, ",") {
+			if f = strings.TrimSpace(f); f != "hosts" {
+				// gh's own message for a field it does not have, before it does anything.
+				stderr([]byte(fmt.Sprintf("Unknown JSON field: %q\nAvailable fields:\n  hosts\n", f)))
+				ev.Outcome, ev.Reason = "refused", "auth status: unknown JSON field"
+				return 1
+			}
+		}
+	}
+	acct, err := b.runner.ActiveAccount()
+	ev.Outcome = "ran"
+	if err != nil || acct.Login == "" || acct.State != "success" {
+		ev.Reason = "auth status: no usable host login"
+		say(noHostLogin)
+		return ExitUnavailable
+	}
+	ev.Reason = "auth status: answered by the broker"
+	login := termsafe.Visible(acct.Login)
+	var out []byte
+	if jsonFields != "" {
+		type entry struct {
+			State       string `json:"state"`
+			Active      bool   `json:"active"`
+			Host        string `json:"host"`
+			Login       string `json:"login"`
+			TokenSource string `json:"tokenSource"`
+			GitProtocol string `json:"gitProtocol"`
+		}
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(map[string]any{"hosts": map[string][]entry{"github.com": {{State: "success",
+			Active: true, Host: "github.com", Login: acct.Login, TokenSource: "github-broker (host)",
+			GitProtocol: acct.GitProtocol}}}})
+		out = buf.Bytes()
+	} else {
+		out = []byte("github.com\n" +
+			"  ✓ Logged in to github.com account " + login + " through yolo's github-broker; the token " +
+			"stays on the host\n" +
+			"  - Repositories this jail can use: " + b.scope.describe() + "\n")
+	}
+	ev.BytesOut = int64(len(out))
+	stdout(out)
+	return 0
 }
 
 // agentName keeps a reported agent name to something printable and short, since it is

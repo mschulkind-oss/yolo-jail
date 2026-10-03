@@ -3,6 +3,7 @@ package ghbroker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -259,6 +260,43 @@ func (r *Runner) capture(args []string) (string, string, int) {
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
 	return out.String(), errb.String(), exitCode(err)
+}
+
+// Account is the host gh's active github.com login, as `gh auth status --json hosts`
+// reports it. Login is "" when the host gh has none.
+type Account struct {
+	Login, State, GitProtocol string
+}
+
+// ActiveAccount asks the host gh which github.com account it would use, and whether that
+// login passed gh's own check (State "success"), for the broker's answer to a jail's
+// `gh auth status` (BB-D65). The argv is the broker's alone, and gh's JSON form drops the
+// token; nothing it prints crosses but the login and the state. It runs through Run, so
+// Shutdown ends it like any call.
+func (r *Runner) ActiveAccount() (Account, error) {
+	var out, errOut bytes.Buffer
+	res := r.Run([]string{"auth", "status", "--hostname", "github.com", "--active", "--json", "hosts"}, nil,
+		func(b []byte) { out.Write(b) }, func(b []byte) { errOut.Write(b) })
+	if res.Exit != 0 {
+		return Account{}, fmt.Errorf("gh auth status exited %d", res.Exit)
+	}
+	var doc struct {
+		Hosts map[string][]struct {
+			State       string `json:"state"`
+			Active      bool   `json:"active"`
+			Login       string `json:"login"`
+			GitProtocol string `json:"gitProtocol"`
+		} `json:"hosts"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		return Account{}, fmt.Errorf("gh auth status printed no JSON: %w", err)
+	}
+	for _, e := range doc.Hosts["github.com"] {
+		if e.Active {
+			return Account{Login: e.Login, State: e.State, GitProtocol: e.GitProtocol}, nil
+		}
+	}
+	return Account{}, nil
 }
 
 // RunResult is what one run did.

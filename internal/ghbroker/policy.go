@@ -286,8 +286,15 @@ var readOnly = map[string]readRule{
 	"project field-list": {scope: scopeAccount},
 	"project item-list":  {scope: scopeAccount},
 
+	// The broker answers `auth status` itself (BB-D65), so a filter has no gh output to run
+	// over.
 	"auth status": {scope: scopeNone, refuseFlags: map[string]string{
-		"show-token": "it prints the host's token"}},
+		"show-token": "it prints the host's token",
+		"jq": "the broker answers `gh auth status` itself, so no filter runs on it. To filter " +
+			"it, pipe `gh auth status --json hosts` into jq",
+		"template": "the broker answers `gh auth status` itself, so no template runs on it. To " +
+			"filter it, pipe `gh auth status --json hosts` into jq",
+	}},
 
 	// `api` is read-only only under apiRule; the entry makes it a candidate.
 	"api": {},

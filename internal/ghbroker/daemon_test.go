@@ -2,6 +2,7 @@ package ghbroker
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,6 +128,95 @@ func TestServeRunsAJqFilterWhoseEnvironmentHoldsNoToken(t *testing.T) {
 		if ev := lastAudit(t); ev.Set != SetReadOnly || ev.Outcome != "ran" || ev.Redactions != 0 {
 			t.Errorf("--jq %s: audit %+v", filter, ev)
 		}
+	}
+}
+
+// BB-D65: `gh auth status` is the broker's to answer. It asks the host gh for its active
+// github.com login and says who the jail is logged in as, through what, and which
+// repositories it may use. gh's own answer is the host's: the run dir's hosts.yml path, the
+// token's prefix and its scopes, which mean nothing in the jail.
+func TestServeAnswersAuthStatusItself(t *testing.T) {
+	f := newBrokerFixture(t, "2.101.0")
+	f.b.scope = NewScope([]string{"o/r", "o/lib"})
+	code, out, errOut := f.serve(t, Request{Argv: []string{"auth", "status"}})
+	if code != 0 {
+		t.Fatalf("code %d out %q err %q", code, out, errOut)
+	}
+	for _, want := range []string{"github.com\n", "Logged in to github.com account me through yolo's github-broker",
+		"the token stays on the host", "o/lib, o/r"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, out)
+		}
+	}
+	for _, host := range []string{f.fakeDir, "hosts.yml", "gho_", "read:org", "scopes"} {
+		if strings.Contains(out+errOut, host) {
+			t.Errorf("the answer carries the host's %q:\n%s%s", host, out, errOut)
+		}
+	}
+	// The host gh was asked exactly the broker's own question, never the jail's argv.
+	if got := oneCall(t, f.fakeDir)["argv"]; got != "auth\nstatus\n--hostname\ngithub.com\n--active\n--json\nhosts\n" {
+		t.Errorf("the host gh ran %q", got)
+	}
+	if ev := lastAudit(t); ev.Set != SetReadOnly || ev.Outcome != "ran" || *ev.Exit != 0 {
+		t.Errorf("audit %+v", ev)
+	}
+}
+
+func TestServeAnswersAuthStatusJSONWithoutTheHostsFacts(t *testing.T) {
+	f := newBrokerFixture(t, "2.101.0")
+	code, out, errOut := f.serve(t, Request{Argv: []string{"auth", "status", "--json", "hosts", "-a"}})
+	if code != 0 {
+		t.Fatalf("code %d out %q err %q", code, out, errOut)
+	}
+	var doc struct {
+		Hosts map[string][]map[string]any `json:"hosts"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	entries := doc.Hosts["github.com"]
+	if len(entries) != 1 || entries[0]["login"] != "me" || entries[0]["state"] != "success" ||
+		entries[0]["active"] != true || entries[0]["tokenSource"] != "github-broker (host)" {
+		t.Fatalf("hosts %v", doc.Hosts)
+	}
+	if _, ok := entries[0]["scopes"]; ok || strings.Contains(out, f.fakeDir) {
+		t.Fatalf("the JSON carries the host's scopes or a host path: %s", out)
+	}
+	// gh's own refusal of a field it does not have.
+	code, _, errOut = f.serve(t, Request{Argv: []string{"auth", "status", "--json", "login"}})
+	if code != 1 || !strings.Contains(errOut, "Unknown JSON field: \"login\"") {
+		t.Fatalf("--json login: code %d err %q", code, errOut)
+	}
+}
+
+func TestServeAuthStatusWithNoHostLoginSaysSo(t *testing.T) {
+	f := newBrokerFixture(t, "2.101.0")
+	if err := os.WriteFile(filepath.Join(f.fakeDir, "nologin"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := f.serve(t, Request{Argv: []string{"auth", "status"}})
+	if code != ExitUnavailable || out != "" || !strings.Contains(errOut, "`gh auth status` on the host") {
+		t.Fatalf("code %d out %q err %q", code, out, errOut)
+	}
+}
+
+// A filter has nothing of gh's to run over, since the broker writes the answer itself; the
+// refusal names the pipe that does the same.
+func TestServeRefusesAFilterOnAuthStatusAndNamesThePipe(t *testing.T) {
+	f := newBrokerFixture(t, "2.101.0")
+	for _, argv := range [][]string{
+		{"auth", "status", "--json", "hosts", "--jq", ".hosts"},
+		{"auth", "status", "--json", "hosts", "--template", "{{.hosts}}"},
+	} {
+		code, _, errOut := f.serve(t, Request{Argv: argv})
+		if code != ExitUsage || !strings.Contains(errOut, "pipe `gh auth status --json hosts` into jq") {
+			t.Errorf("gh %v: code %d err %q", argv, code, errOut)
+		}
+	}
+	// --help is gh's own text and still runs.
+	code, out, _ := f.serve(t, Request{Argv: []string{"auth", "status", "--help"}})
+	if code != 0 || out != "ran auth status --help\n" {
+		t.Fatalf("auth status --help: code %d out %q", code, out)
 	}
 }
 
