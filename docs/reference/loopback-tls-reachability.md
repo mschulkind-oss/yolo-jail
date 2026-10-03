@@ -108,7 +108,8 @@ does the packet actually arrive?**
 | **netavark bridge** (rootful) | the host's **global** address ⚠ — podman's own answer here too, *not* the bridge gateway | the host's global address. The gateway does reach the host over a real bridge interface, but nothing in the jail dials it | **The gateway, yes** — a genuine host interface — but it is not what the jail resolves, and nothing binds it either way | ❌ broken — [disclosed since 2026-09-16](#a-rootful-podman-is-told-not-fixed), silent before |
 | **`--net=host`** (no namespace) | n/a — the jail *shares* the host's stack | itself | Yes, trivially | ✅ works |
 | **nested jail** (podman-in-podman) | forced onto `--net=host` | itself | Yes | ✅ works — **and this is why nobody caught it** |
-| **Apple Container / `macos-user`** | a VM hop, not pasta | out of scope | — | not affected |
+| **Apple Container** (`container` 1.1.0, measured on every CI run since 2026-09-15) | nothing: `host.containers.internal` does not resolve | nowhere. A dial to the container's gateway, `192.168.64.1`, the Mac's own vmnet address, reaches the Mac but not its loopback, so a `127.0.0.1` listener refuses it | **No** — there is no address to bind. `192.168.64.1` can be bound, but a listener there or on `0.0.0.0` accepts and is torn down before a byte crosses | ❌ broken, a different fault from pasta's: no launch is refused for it, because the disposition here is `unknown`. Apple's documented `--localhost` route is unmeasured ([`backend-parity.md` §5.5](../design/backend-parity.md#55-the-container-to-host-probe-every-run-since-2026-09-15)) |
+| **`macos-user`** | n/a — the sandbox shares the launcher's network stack, so services advertise `127.0.0.1` | itself | Yes, trivially | not affected |
 
 > [!WARNING]
 > Read the fourth column downward. **In every rootless mode, yolo cannot bind the address the jail

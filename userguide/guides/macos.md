@@ -53,8 +53,9 @@ are announced when a jail starts; the ones that are not are marked **silent**.
 
 - Two jails sharing one Claude login can log each other out, because the service that takes Claude's
   refreshes one at a time cannot be reached. Claude still logs in and works.
-- `codex` and `pi` cannot use a ChatGPT subscription login; they print
-  `OpenAI login is required.` Use an API key instead.
+- `codex`, `pi` and `opencode` cannot use a ChatGPT subscription login; they print
+  `OpenAI login is required.` Use an API key instead. Claude's `codex` profile needs the same
+  login, so it does not work there either.
 - AWS Bedrock through `aws-auth`, serial devices and your own host services are skipped, one line
   each at launch.
 

@@ -541,6 +541,132 @@ and unrun on the Mac.
 The macos-user checks #6, #7, #9 and #14 are still unrun: the last `macos-user.yml` run, on
 2026-09-25, did not select them.
 
+### 5.5 The container-to-host probe, every run since 2026-09-15
+
+`TestAppleContainerReachesHostLoopback`
+([`applecontainer_test.go`](../../integration/applecontainer_test.go)) asks whether an Apple
+Container container can reach a program listening on the Mac. It is the measurement
+[OQ-BP-4](#decision-ledger) waited on, and every line it logs starts `AC-HOST-REACH`. The test
+process binds three listeners: `127.0.0.1`, the address yolo's host services bind; `0.0.0.0`;
+and the vmnet gateway `192.168.64.1`. A container then dials each at five candidate addresses.
+A listener answers only after the container sends a request line, so a dial counts only if bytes
+cross.
+
+**Measured 2026-10-03** (`apple-container.yml` run 37133569003 at `5ca9b7485`, `container`
+1.1.0, macOS 26.5):
+
+| The container dials | `127.0.0.1` listener | `0.0.0.0` listener | `192.168.64.1` listener |
+| :--- | :--- | :--- | :--- |
+| `host.containers.internal`, `host.docker.internal`, `gateway.docker.internal` | name does not resolve | name does not resolve | name does not resolve |
+| `127.0.0.1`, the container's own loopback | refused | refused | refused |
+| `192.168.64.1` | refused | connects, then carries nothing; no accept reached the listener | connects, then carries nothing; the listener accepted `192.168.64.96`, then read `socket is not connected` |
+
+**Every run since 2026-09-15 says the same.** The first ten runs, earlier on 2026-09-15, logged
+other verdicts, and those were faults in the probe, fixed by `4b8f4bec9` and `a1e5d08ff`. After
+that, all 126 runs that conducted it, through 2026-10-03, logged
+`THE HOST IS NOT USABLE FROM A CONTAINER` on `container` 1.1.0. That count was read on 2026-10-03 from the job log of every `apple-container.yml`
+run, through the GitHub API. The `192.168.64.1` listener accepted a peer and then read
+`socket is not connected` in every run. The `0.0.0.0` listener did the same in 116 runs and saw no
+accept in 10.
+
+**The two shapes are probably one fault** (INFERRED). The test reads "no accept" as Apple's own
+network answering the dial. A simpler reading also fits. Go's `Accept` silently retries a
+connection that died while it waited to be accepted (`ECONNABORTED`, in Go's `internal/poll`), so
+the same teardown, landing a moment earlier, leaves no trace at the listener.
+
+**Local Network privacy is not the cause, on this evidence.** It is the obvious suspect, because it
+is what broke published ports (#10 in [§5.4](#54-which-test-answers-which-row)): upstream,
+[apple/container#1702](https://github.com/apple/container/issues/1702) and
+[#2067](https://github.com/apple/container/issues/2067) were both closed once the reporter granted
+Local Network access to Apple Container's port forwarder. Three things argue against it here:
+
+- **Apple says accepting needs no permission.**
+  [TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy),
+  read 2026-10-03, lists *"Listening for and accepting incoming TCP connections"* as needing no
+  local network access; outgoing traffic does. The Mac side of this probe only listens and accepts.
+- **The container's traffic is not a Mac program's** (INFERRED from the peer address). The
+  listener saw the container's own address as the peer. So the packets reached the Mac's network
+  stack directly, not through a Mac helper program that the permission could block.
+- **The test process's permission changed and the result did not** (MEASURED). The same `go test`
+  process also dials a container's own address, in #10's probe. From 2026-09-25 to 2026-09-28,
+  every run's dial failed with `no route to host` (`EHOSTUNREACH`), Local Network privacy's
+  signature. On 2026-10-03 it connected on the first try. This probe's verdict was identical in
+  both. The 2026-09-16 hand pass agrees
+  ([setup-support-gaps.md §5.1](../plans/setup-support-gaps.md#51-what-is-now-measured), rows 6
+  and 7): a dial from the Mac to a container's own address returned data, while a host listener
+  accepted a container's connection and broke the pipe on its first write.
+
+So the roadmap's wait on a Local Network grant or Apple's signed package concerns published ports,
+not this probe. What tears the connection down is unknown. One unmeasured candidate is the macOS
+application firewall, which screens incoming connections per program and treats Apple's own
+programs differently from an ad-hoc-signed test binary (INFERRED).
+`/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate` reads its state.
+
+**An interactive user very likely sees the same** (INFERRED). TN3179 grants local network access
+automatically, with no prompt, to command-line tools run from Terminal or over SSH, and to their
+child processes. A detached process can fall outside that, as the tmux shell denied on 2026-09-25
+did. Neither matters here: the Mac side only accepts, which needs no access, and the verdict did
+not move when the test process's access did. Nobody has run the probe from Terminal.
+
+**The probe never tried Apple's documented route** (read from Apple's 1.1.0 docs and source).
+`sudo container system dns create <domain> --localhost <IPv4>` makes containers resolve `<domain>`
+to that address, and adds a packet-filter rule that redirects it to the Mac's `127.0.0.1`
+(`rdr inet from any to <IPv4> -> 127.0.0.1`, in the `com.apple.container` anchor). That reaches a
+listener on `127.0.0.1`, which is what yolo binds. Apple's own caveats: it needs `sudo`, the rule is
+removed on a restart, and it disables Private Relay. Before 1.5.0, released 2026-09-29, creating or
+deleting such a domain also reloads the whole packet-filter ruleset and cuts the containers'
+internet access ([apple/container#2256](https://github.com/apple/container/pull/2256)). So the
+verdict covers the five candidates above, not every route.
+
+**What it means for loopholes on Apple Container today** (read from the code at `36cfa0e3c`):
+
+- **One shipped service needs the Mac from an Apple Container jail: OpenAI authentication.**
+  `loopholeAllow` starts only `openai-auth-broker` there. It also starts Claude's broker when the
+  launch delivers Claude's credential view, which is a file that nothing in the jail dials. `codex`,
+  `pi` and `opencode` dial the OpenAI service for a ChatGPT subscription login. So does Claude's
+  `codex` profile, through the wire bridge's Codex route.
+- **That service is unreachable twice over, before the teardown matters.** Its daemon binds
+  `127.0.0.1`, so a container's dial to its port at `192.168.64.1` is refused. And it advertises
+  `host.containers.internal`, because `advertiseHostFor` has no Apple Container arm, and that name
+  does not resolve there.
+- **No launch is refused for it.** Apple Container's host-loopback disposition is `unknown`, which
+  the in-jail witness [never escalates](../reference/loopback-tls-reachability.md#what-may-escalate).
+  The launch prints `backendInertReason`'s line for every pack loophole, and no other shipped
+  loophole starts there.
+
+So the skip stays. If Apple's route works, using it is design work, not a flag: an Apple Container
+arm in `advertiseHostFor` that publishes a `--localhost` domain, plus a `sudo` step the user runs.
+
+**The measurement that settles it.** Run it on the runner Mac, from Terminal, with no yolo
+involved:
+
+```console
+$ /usr/bin/python3 -m http.server 8000 --bind 127.0.0.1 &
+$ /usr/bin/python3 -m http.server 8001 --bind 192.168.64.1 &
+$ sudo container system dns create host.container.internal --localhost 203.0.113.113
+$ container run --rm alpine/curl curl http://host.container.internal:8000
+$ container run --rm alpine/curl curl http://192.168.64.1:8001
+$ sudo container system dns delete host.container.internal
+```
+
+The first dial is Apple's own documented example. Apple's `/usr/bin/python3` was not blocked by
+Local Network privacy on this Mac on 2026-09-25 ([§5.4](#54-which-test-answers-which-row)), and the
+application firewall allows Apple's built-in programs by default (INFERRED). Each outcome names its
+next step:
+
+- **Both dials print a directory listing:** the teardown belongs to the CI test process or its
+  runner, not to Apple Container, and an interactive user can reach the Mac. Next, rerun the probe's listener as Apple's `python3` under
+  the runner to find which gate the test binary hits.
+- **Only the first does:** Apple's route works, and the `192.168.64.1` teardown is the runtime's.
+  Next, design the `--localhost` arm for `advertiseHostFor`.
+- **Neither does:** this release carries nothing from a container to the Mac, for anyone. Next,
+  rerun on 1.5.0, then report it upstream with these commands.
+
+On 1.1.0, the two `dns` steps can cut the containers' internet access
+([apple/container#1241](https://github.com/apple/container/issues/1241)). Upgrading the runner to
+1.5.0 first avoids that, and re-measures this probe on the newer release: no release note from
+1.2.0 to 1.5.0 names a fix for it.
+
 ---
 
 ## 6. The second shared fix: compose the briefing from what was APPLIED
@@ -839,5 +965,5 @@ Fourteen new launch lines exist as of today — the number was ten when this que
 | :--- | :--- | :--- | :--- |
 | OQ-BP-3 | **No: a `Warned` line is never suppressible.** Answered by a standing ruling this question predates, [`OQ-RO3`](../reference/report-tiers.md#why-its-this-way) (2026-09-11): *"No quiet flag for the launch, ever"*. The reference states the rule as *"A launch has no quiet mode, and no flag may be added that could acquire one. The compression above is the whole density control"*, and `TestTheLaunchHasNoQuietFlag` enforces it. A per-key switch is a quiet mode for the line it hides, so it is refused too. The leaning's *"add the suppression when someone asks"* goes. What remains when the lines grow is compression: one line, with the list in `launch.log`, as the boot catalog was compressed | 2026-09-11, recorded 2026-09-30 | [`OQ-BP-3`](#OQ-BP-3); [`report-tiers.md`](../reference/report-tiers.md#the-launch-stream) |
 | OQ-BP-5 | **An ACE — a fifth candidate, and the mode never widens.** ANSWERED BY CODE one day after being opened: `6d118252` starts the `openai-auth-broker` on the macos-user arm and `macosuser.BuildRunPlan` stages `macosuser.EndpointGrantCommands` for its endpoint file — two `chmod +a` entries, `user:` and not `group:`, granting `read,readattr,readextattr,readsecurity` on the file and `search` on its 0700 directory. The file stays **0600 and the publisher's**, so the two-readers-two-uids objection dissolves instead of being traded off: `yolo check`'s probe is unaffected and there is no second copy to leak or sweep. (b) — publish twice — was the leaning and is not what shipped; the ACE is the minimal form of (a) with (a)'s actual defect removed, since it names one uid rather than a group containing the host user. (c) survives as the shape to grow into, for the part an ACE cannot fix: the sandbox account can read that service's token, because dialling the service is the capability being granted. ⚠ **Never executed** — `chmod +a` is macOS-only, so this is argv verified by unit test and nothing more; a wrong right-set fails closed, as a jail that cannot reach its own broker | 2026-09-15 | [`OQ-BP-5`](#OQ-BP-5); `internal/macosuser/runplan.go`, `internal/macosuser/macosuser.go` |
-| OQ-BP-4 | **The reason is STALE; the goal is loopholes as fully as possible on EVERY backend** (maintainer's direction). The blanket skip is justified in `loopholeinert.go` by *"no socket bind-mount there"*, and that is true of almost nothing shipped: **four of six shipped loopholes declare `transport: loopback-tls`** — `claude-oauth-broker`, `host-processes`, `journal`, `serial` — which reach the host over the NETWORK and learn their endpoint from a 0600 file in a bind-mounted DIRECTORY, which Apple Container mounts fine. The other two (`audio`, `cgroup-delegate`) declare `transport: none`, so there is no socket to mount for them either. The socket-era reason survives for **zero** of the six. ⚠ **macos-user's reason is different and only half wrong:** *"a native process already reaches the host directly, so the whole mechanism is bypassed"* answers REACHABILITY and is silent on SERIALIZATION — the broker exists to serialise refreshes of a single-use OAuth token across concurrent jails, which reaching the host directly does not do, so that race is live on macos-user too. **The real limits are per-LOOPHOLE, not per-backend:** `--add-host` is unsupported on AC (apple/container#673), which blocks an *intercepting* loophole only; `cgroup-delegate` is Linux + cgroup-v2 and AF_UNIX + SO_PEERCRED, hence NotApplicable on both macOS backends; `audio`'s sockets do not exist on macOS. **Sequencing is part of the ruling:** whether an AC container reaches a host loopback listener is the one thing no Linux test can answer, and it must be MEASURED before the skip is lifted — the in-jail reachability witness is FATAL, so enabling an unreachable service converts a working AC launch into a refusing one. ⚠ **MEASURED 2026-09-15, AND THE ANSWER INVERTS THIS FOR APPLE CONTAINER: the skip is CONFIRMED, for a reason nobody had.** On `container` 1.1.0 a container→host connection completes its TCP handshake and then carries nothing — two mechanisms alternating on the same address: *TEARDOWN* (the host reads `ENOTCONN` on a socket `Accept()` had just returned) and *PHANTOM* (the container reports CONNECTED to a port the test holds bound while no accept ever happens, so the runtime's NAT answered it). **No bind address helps** — `bridge` and `wildcard` connect and die exactly like `127.0.0.1`, and `host.containers.internal` does not resolve there at all. Verified with **no yolo in the path** (a `python3` listener holding the connection open reads `Broken pipe`; a bare `container run … /dev/tcp` prints CONNECTED then instant EOF), and BOUNDED in the same session so it is not the larger claim: container→internet WORKS, Mac→container WORKS, container→Mac does not. `TestAppleContainerReachesHostLoopback` records it as a passing measurement. **So the ruling's direction stands and its consequence for THIS backend is: do not split.** The old reason (*"no socket bind-mount there"*) was still wrong, and the true one is narrower and testable — it will expire with an upstream release, which is why the test's positive branches are already written. **macos-user is untouched by this**: a native process is not a container, so none of it applies there, and [`OQ-BP-5`](#OQ-BP-5) remains the live path. Original sequencing, kept as the record: measure first, then split. ⚠ **The two backends have DIFFERENT blockers and only one is a measurement** (established 2026-09-14): **AC** waits on the reachability probe (`TestAppleContainerReachesHostLoopback`, unrun). **macos-user does NOT** — `sharesLauncherNetns` already returns true for it (`paths.NativeRuntimes`), the jail is a native process on the host so `127.0.0.1` IS the host loopback, and the Seatbelt profile is `(allow default)`, which permits network. Its blocker is a CREDENTIAL-BOUNDARY decision instead: `svcendpoint.Publish` writes the endpoint file **0600**, and `DialLocal` documents the property that mode buys — *"it reads the same 0600 file as the same uid that published it"*. On podman and AC the jail is root in a container with that file bind-mounted; on macos-user it runs as `_yolojail`, **a different uid from the human who published it**, so a 0600 file is unreadable and there is no mount to reshape. The token in that file is the whole reason for the mode, so widening it, adding a group, or copying it per jail is a decision about the credential boundary and not a hoist. **Whoever builds the macos-user half rules that first** — and they did, one day later: [`OQ-BP-5`](#OQ-BP-5) is answered by an ACE (the row above), and the macos-user half was started **one loophole deep** — `openai-auth-broker` alone, through a hardcoded allow-list. ⚠ **Superseded 2026-09-17:** that arm now goes through `startLoopholesDisclosed` like a container launch and starts **every** admitted host daemon, ACL-granting each endpoint; what is inert there is the JAIL half, declined by name ([reference](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)) | 2026-09-14 | the OQ above; [§7](#7-what-this-does-not-propose) |
+| OQ-BP-4 | **The reason is STALE; the goal is loopholes as fully as possible on EVERY backend** (maintainer's direction). The blanket skip is justified in `loopholeinert.go` by *"no socket bind-mount there"*, and that is true of almost nothing shipped: **four of six shipped loopholes declare `transport: loopback-tls`** — `claude-oauth-broker`, `host-processes`, `journal`, `serial` — which reach the host over the NETWORK and learn their endpoint from a 0600 file in a bind-mounted DIRECTORY, which Apple Container mounts fine. The other two (`audio`, `cgroup-delegate`) declare `transport: none`, so there is no socket to mount for them either. The socket-era reason survives for **zero** of the six. ⚠ **macos-user's reason is different and only half wrong:** *"a native process already reaches the host directly, so the whole mechanism is bypassed"* answers REACHABILITY and is silent on SERIALIZATION — the broker exists to serialise refreshes of a single-use OAuth token across concurrent jails, which reaching the host directly does not do, so that race is live on macos-user too. **The real limits are per-LOOPHOLE, not per-backend:** `--add-host` is unsupported on AC (apple/container#673), which blocks an *intercepting* loophole only; `cgroup-delegate` is Linux + cgroup-v2 and AF_UNIX + SO_PEERCRED, hence NotApplicable on both macOS backends; `audio`'s sockets do not exist on macOS. **Sequencing is part of the ruling:** whether an AC container reaches a host loopback listener is the one thing no Linux test can answer, and it must be MEASURED before the skip is lifted — the in-jail reachability witness is FATAL, so enabling an unreachable service converts a working AC launch into a refusing one. ⚠ **MEASURED 2026-09-15, AND THE ANSWER INVERTS THIS FOR APPLE CONTAINER: the skip is CONFIRMED, for a reason nobody had.** On `container` 1.1.0 a container→host connection completes its TCP handshake and then carries nothing — two mechanisms alternating on the same address: *TEARDOWN* (the host reads `ENOTCONN` on a socket `Accept()` had just returned) and *PHANTOM* (the container reports CONNECTED to a port the test holds bound while no accept ever happens, so the runtime's NAT answered it). **No bind address helps** — `bridge` and `wildcard` connect and die exactly like `127.0.0.1`, and `host.containers.internal` does not resolve there at all. Verified with **no yolo in the path** (a `python3` listener holding the connection open reads `Broken pipe`; a bare `container run … /dev/tcp` prints CONNECTED then instant EOF), and BOUNDED in the same session so it is not the larger claim: container→internet WORKS, Mac→container WORKS, container→Mac does not. `TestAppleContainerReachesHostLoopback` records it as a passing measurement. Every run through 2026-10-03 says the same; the run history, why Local Network privacy is not the cause, and Apple's documented `--localhost` route, which the probe never tried, are in [§5.5](#55-the-container-to-host-probe-every-run-since-2026-09-15). **So the ruling's direction stands and its consequence for THIS backend is: do not split.** The old reason (*"no socket bind-mount there"*) was still wrong, and the true one is narrower and testable — it will expire with an upstream release, which is why the test's positive branches are already written. **macos-user is untouched by this**: a native process is not a container, so none of it applies there, and [`OQ-BP-5`](#OQ-BP-5) remains the live path. Original sequencing, kept as the record: measure first, then split. ⚠ **The two backends have DIFFERENT blockers and only one is a measurement** (established 2026-09-14): **AC** waits on the reachability probe (`TestAppleContainerReachesHostLoopback`, unrun). **macos-user does NOT** — `sharesLauncherNetns` already returns true for it (`paths.NativeRuntimes`), the jail is a native process on the host so `127.0.0.1` IS the host loopback, and the Seatbelt profile is `(allow default)`, which permits network. Its blocker is a CREDENTIAL-BOUNDARY decision instead: `svcendpoint.Publish` writes the endpoint file **0600**, and `DialLocal` documents the property that mode buys — *"it reads the same 0600 file as the same uid that published it"*. On podman and AC the jail is root in a container with that file bind-mounted; on macos-user it runs as `_yolojail`, **a different uid from the human who published it**, so a 0600 file is unreadable and there is no mount to reshape. The token in that file is the whole reason for the mode, so widening it, adding a group, or copying it per jail is a decision about the credential boundary and not a hoist. **Whoever builds the macos-user half rules that first** — and they did, one day later: [`OQ-BP-5`](#OQ-BP-5) is answered by an ACE (the row above), and the macos-user half was started **one loophole deep** — `openai-auth-broker` alone, through a hardcoded allow-list. ⚠ **Superseded 2026-09-17:** that arm now goes through `startLoopholesDisclosed` like a container launch and starts **every** admitted host daemon, ACL-granting each endpoint; what is inert there is the JAIL half, declined by name ([reference](../reference/macos-user-nix-and-features.md#the-jail-daemons-run-in-the-sandbox)) | 2026-09-14 | the OQ above; [§7](#7-what-this-does-not-propose) |
 | OQ-BP-2 | **Deliver them, and they are delivered** — ANSWERED BY CODE. The host composes skills + briefings by destination (`buildMacosHomeOverlay`), the launch stages the tree as `YOLO_DARWIN_HOME_OVERLAY`, the boot copies it over the sandbox home (`InstallHomeOverlay`). Disposition moves `Warned` → `HonoredBy`; [§5](#5-what-is-already-fixed-2026-08-24)'s fourteen is unchanged. What survives is smaller: the copy is writable where a bind is `:ro`. (It also said *"and the home is machine-wide"*; that half went when the per-workspace home-tier layout shipped — [Open Questions](#open-questions) item 2's warning.) | shipped 2026-09-03 (`ef0282ab`), noticed here 2026-09-09 | [Open Questions](#open-questions) item 2 |
