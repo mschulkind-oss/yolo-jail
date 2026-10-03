@@ -109,6 +109,7 @@ func listingOnly() bool {
 // its exit code. Under -short it does none of that (only the non-container fast tests
 // run).
 func runSuite(m *testing.M) int {
+	applySuiteEnv()
 	if testing.Short() || listingOnly() {
 		return m.Run()
 	}
@@ -146,6 +147,20 @@ func runSuite(m *testing.M) int {
 	tearDownRunStore()
 	os.RemoveAll(binDir)
 	return code
+}
+
+// applySuiteEnv sets, in this test process's own environment, what every launch the suite makes
+// must have, before the first one: the warmup's, runCommand's, and those of the tests that build a
+// launch's environment from os.Environ() themselves all inherit it from here. A test changes one
+// for its own launch with a runOption, whose entry comes after the inherited one and so wins.
+//
+// The automatic reapers are off (autoReapersOffEnv). Left on, a launch's housekeeping reaped images
+// and yolo's store outputs in the middle of the suite, through the machine's own runtime and nix
+// daemon, while other tests were using them: on CI that is the runner's, and in a jail with
+// YOLO_VERSION unset, so that the launch takes itself for a host one, it is the HOST's nix daemon
+// (found 2026-10-03, when a reaper's stamp showed it had run on the maintainer's host).
+func applySuiteEnv() {
+	os.Setenv(autoReapersOffEnv, "1")
 }
 
 // warmJail pays the suite's ONE-TIME container costs here, where nothing is being
@@ -721,6 +736,21 @@ func withTimeout(d time.Duration) runOption {
 // withEnv("K", "v") compiles and appends two broken entries.
 func withEnv(pairs ...string) runOption {
 	return func(c *runConfig) { c.env = append(c.env, pairs...) }
+}
+
+// autoReapersOffEnv turns off every automatic reaper a launch's housekeeping runs: superseded
+// images, yolo's own store outputs, flake-bundle generations, image tars, leftover scratch volumes
+// and the small classes (autoReapOptOutEnv, internal/cli/run/autoreapimages.go). TestMain sets it
+// for the whole suite (applySuiteEnv).
+const autoReapersOffEnv = "YOLO_NO_AUTO_IMAGE_REAP"
+
+// withAutoReapers turns the automatic reapers back ON for one launch, for a test whose subject is
+// one of them (TestTheSlotReapsLeftoverScratchVolumes). One variable gates them all, so that launch
+// runs every reaper that is due, the image reaper included, against the machine's runtime; only a
+// test that needs one should ask. An empty value is "on": the reapers test for a non-empty one,
+// and the launch's environment keeps the last of two entries for a name.
+func withAutoReapers() runOption {
+	return withEnv(autoReapersOffEnv + "=")
 }
 
 // withLauncherPrefix runs the built yolo binary UNDER a wrapper argv: the command becomes

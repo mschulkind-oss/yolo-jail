@@ -246,6 +246,9 @@ func awaitScratchRemoval(t *testing.T, dir, cname string, runs int) string {
 // down mid-delete — is dangling, and the next launch's housekeeping slot removes it once
 // it is past the age floor. A young dangling volume (a jail being created right now) and
 // a volume that is not a scratch volume are left alone.
+//
+// The one launch here turns the automatic reapers back on (withAutoReapers), which the suite
+// keeps off: this reaper is its subject.
 func TestTheSlotReapsLeftoverScratchVolumes(t *testing.T) {
 	requireJail(t)
 	requirePodman(t)
@@ -272,7 +275,7 @@ func TestTheSlotReapsLeftoverScratchVolumes(t *testing.T) {
 
 	dir := writeProject(t, `{}`)
 	// Long enough for the slot to run on the proxy goroutine before the jail exits.
-	res := runYolo(t, dir, "sleep 8")
+	res := runYolo(t, dir, "sleep 8", withAutoReapers())
 	if res.rc != 0 {
 		t.Fatalf("rc=%d\n%s", res.rc, res.combined())
 	}
