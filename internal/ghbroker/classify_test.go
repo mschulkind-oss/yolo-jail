@@ -1,6 +1,8 @@
 package ghbroker
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -397,5 +399,66 @@ func TestEveryAccountShapedFlagIsReviewed(t *testing.T) {
 			}
 			t.Errorf("%s (%s) is neither an account flag, a repository flag nor a reviewed filter", key, f.desc)
 		}
+	}
+}
+
+// BB-D60: gh path-escapes a word it puts into a REST path (MEASURED: `run view
+// ../../../other/x -R o/r` sends GET /repos/o/r/actions/runs/..%2F..%2F..%2Fother%2Fx), so
+// a server that decodes the %2F and resolves dot segments would read another repository's
+// path. A word with a . or .. segment is refused on every command but `gh api`, which has its
+// own rule, and the searches, whose words are query text.
+func TestClassifyAWordThatClimbsOutOfTheRepositoryPath(t *testing.T) {
+	for _, c := range []struct {
+		argv    string
+		outcome Outcome
+		reason  string
+	}{
+		{"run view ../../../other/x -R o/r", OutcomeRefused, "dot segment"},
+		{"run watch 5/../../../../other/x -R o/r", OutcomeRefused, "dot segment"},
+		{"run view --job ../../../other/x -R o/r", OutcomeRefused, "--job"},
+		{"repo read-file ../../../other/x/contents/secret -R o/r", OutcomeRefused, "dot segment"},
+		{"repo read-file ./README.md -R o/r", OutcomeRefused, "dot segment"},
+		{"repo gitignore view ../../repos/other/x", OutcomeRefused, "dot segment"},
+		{"repo license view ..%2Frepos%2Fother%2Fx", OutcomeRefused, "dot segment"},
+		{"repo license view %252e%252e%252Frepos", OutcomeRefused, "dot segment"},
+		{"release view ../../../other/x -R o/r", OutcomeRefused, "dot segment"},
+		{"secret list --env ../../../other/x -R o/r", OutcomeRefused, "--env"},
+		{"variable get X --env 'a\\..\\..\\x' -R o/r", OutcomeRefused, "--env"},
+		{"label edit .. --color fff -R o/r", OutcomeRefused, "dot segment"},
+		{"pr view https://github.com/o/r/../../other/x/pull/1", OutcomeRefused, "dot segment"},
+		// Words without a dot segment, and text that is never a path, run as before.
+		{"run view 5 -R o/r", OutcomeStanding, ""},
+		{"release view v1.2.3 -R o/r", OutcomeStanding, ""},
+		{"repo read-file docs/a..b.md -R o/r", OutcomeStanding, ""},
+		{"repo read-file docs/... -R o/r", OutcomeStanding, ""},
+		{"pr comment 1 --body './build.sh fails' -R o/r", OutcomeWindowed, ""},
+		{"issue create --title ../x --body ./y -R o/r", OutcomeWindowed, ""},
+		{"search code ./config --repo o/r", OutcomeStanding, ""},
+		{"pr list -S ./x -R o/r", OutcomeStanding, ""},
+	} {
+		d := Classify(splitArgv(c.argv), "", testScope)
+		if d.Outcome != c.outcome || !strings.Contains(d.Reason, c.reason) {
+			t.Errorf("gh %s: %q (%s), want %q with %q", c.argv, d.Outcome, d.Reason, c.outcome, c.reason)
+		}
+		if d.Outcome == OutcomeRefused && !strings.Contains(d.Reason, "without . or .. segments") {
+			t.Errorf("gh %s: the refusal names no next step: %s", c.argv, d.Reason)
+		}
+	}
+}
+
+// BB-D60 through the production path: a word that climbs out of the repository's REST path
+// answers 64 and never reaches the host gh.
+func TestServeRefusesAWordThatClimbsOutOfTheRepositoryPath(t *testing.T) {
+	f := newBrokerFixture(t, "2.101.0")
+	code, _, errOut := f.serve(t, Request{Argv: []string{"repo", "read-file", "../../../other/x/contents/secret", "-R", "o/r"}})
+	if code != ExitUsage || !strings.Contains(errOut, "dot segment") {
+		t.Fatalf("code %d err %q", code, errOut)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(f.fakeDir, "calls")); len(entries) != 0 {
+		t.Fatal("a climbing word ran gh")
+	}
+	if code, out, errOut := f.serve(t, Request{Argv: []string{"repo", "read-file", "docs/README.md", "-R", "o/r"}}); code != 0 ||
+		out != "ran repo read-file --repo=o/r docs/README.md\n" {
+		t.Fatalf("a plain path: code %d out %q err %q", code, out, errOut)
 	}
 }

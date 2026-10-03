@@ -2,6 +2,7 @@ package ghbroker
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -116,6 +117,10 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 				"https://github.com/, and the broker talks to github.com only", a)
 			return d
 		}
+	}
+	if why := climbingWord(p); why != "" {
+		d.Outcome, d.Reason = OutcomeRefused, why
+		return d
 	}
 
 	// 2. Scope: which repositories the command touches, made explicit in the argv.
@@ -478,6 +483,65 @@ func repoValuedFlag(path, long string) bool {
 		if f == long {
 			return true
 		}
+	}
+	return false
+}
+
+// freeTextFlags are flags whose value gh sends as text, in a request body, a GraphQL variable
+// or a search query, and never as a REST path segment, so their values may hold any dot
+// segment (BB-D60). A free-text flag missing from this list fails safe: a value of it with a
+// . or .. segment is refused, and the refusal says to write it without one.
+var freeTextFlags = map[string]bool{
+	"body": true, "title": true, "notes": true, "search": true, "description": true,
+	"subject": true, "text": true, "query": true, "field": true, "raw-field": true,
+	"squash-merge-commit-message": true,
+}
+
+// climbingWord returns why an argument or a flag value would climb out of the repository's
+// REST path, or "" (BB-D60). gh puts many of them into a path segment, escaping a / as %2F
+// and leaving the dots (MEASURED against gh 2.101.0 and a local fake API: `run view
+// ../../../other/x -R o/r` sends GET /repos/o/r/actions/runs/..%2F..%2F..%2Fother%2Fx, and so
+// do run view --job, release view's tag, repo read-file's path, --env, and the gitignore and
+// license names, which name no repository at all). A server that decodes that %2F and then
+// resolves dot segments reads /repos/other/x. Whether GitHub does is UNMEASURED, so the broker
+// does not rely on it. `gh api` has its own rule (apiPathProblem), and a search sends its
+// words as query text.
+func climbingWord(p *parsed) string {
+	if p.cmd.path == "api" || strings.HasPrefix(p.cmd.path, "search ") {
+		return ""
+	}
+	const why = "has a dot segment (. or ..), as typed or once decoded, and gh puts it into a " +
+		"REST path, where a server that decodes the %%2F gh writes for each / and resolves dot " +
+		"segments reads a path outside the repository. Name it without . or .. segments: a file " +
+		"path from the repository's root, or a tag, branch or id as GitHub spells it"
+	for _, a := range p.positionals {
+		if hasDotSegment(a) {
+			return fmt.Sprintf("argument %q "+why, a)
+		}
+	}
+	for _, u := range p.flags {
+		if u.hasValue && !freeTextFlags[u.flag.long] && hasDotSegment(u.value) {
+			return fmt.Sprintf("--%s %q "+why, u.flag.long, u.value)
+		}
+	}
+	return ""
+}
+
+// hasDotSegment reports whether v, split on / or \, has a . or .. segment as typed or once
+// or twice percent-decoded: what a server reads once it undoes the escape gh adds, or that
+// and the jail's own.
+func hasDotSegment(v string) bool {
+	for i := 0; i < 3; i++ {
+		for _, seg := range strings.FieldsFunc(v, func(r rune) bool { return r == '/' || r == '\\' }) {
+			if seg == "." || seg == ".." {
+				return true
+			}
+		}
+		d, err := url.PathUnescape(v)
+		if err != nil || d == v {
+			return false
+		}
+		v = d
 	}
 	return false
 }
