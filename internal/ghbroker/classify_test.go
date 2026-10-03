@@ -462,3 +462,24 @@ func TestServeRefusesAWordThatClimbsOutOfTheRepositoryPath(t *testing.T) {
 		t.Fatalf("a plain path: code %d out %q err %q", code, out, errOut)
 	}
 }
+
+// Found by FuzzClassify (testdata/fuzz/FuzzClassify/c7921640bbbaae74): one argv word holding
+// a space resolved as a two-word command, which gh itself refuses as an unknown command, and
+// an empty second repository skipped the scope check that every other value gets.
+func TestClassifyWhatTheFuzzerFound(t *testing.T) {
+	for _, c := range []struct {
+		argv   []string
+		reason string
+	}{
+		{[]string{"label clone", "x/y"}, "not a gh command"},
+		{[]string{"pr view", "1", "-R", "o/r"}, "not a gh command"},
+		{[]string{"pr", "view\t", "1", "-R", "o/r"}, "group of commands"},
+		{[]string{"label", "clone", "", "-R", "o/r"}, "not OWNER/REPO"},
+		{[]string{"issue", "transfer", "1", "", "-R", "o/r"}, "not OWNER/REPO"},
+	} {
+		d := Classify(c.argv, "o/r", testScope)
+		if d.Outcome != OutcomeRefused || !strings.Contains(d.Reason, c.reason) {
+			t.Errorf("gh %q: %q %q (%s), want refused with %q", c.argv, d.Outcome, d.Argv, d.Reason, c.reason)
+		}
+	}
+}

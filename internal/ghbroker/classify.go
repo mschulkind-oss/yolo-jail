@@ -329,9 +329,11 @@ func repoScope(p *parsed, fieldRepo string) scopeResult {
 	}
 	// A second repository a command names positionally (`issue transfer <destination-repo>`,
 	// `label clone <source-repository>`) must be in scope too.
-	if extra := secondRepoPositional(p); extra != "" {
+	// An empty one is checked too, rather than left for gh to refuse (found by FuzzClassify).
+	if extra, ok := secondRepoPositional(p); ok {
 		if !ValidRepo(extra) {
-			return scopeResult{refused: fmt.Sprintf("argument %q is not OWNER/REPO", extra)}
+			return scopeResult{refused: fmt.Sprintf("argument %q is not OWNER/REPO: the broker "+
+				"needs the repository spelled in full to check it against the scope. Spell it OWNER/REPO", extra)}
 		}
 		add(extra)
 	}
@@ -350,18 +352,18 @@ func repoPositional(c *ghCommand) bool {
 	return first == "repository"
 }
 
-func secondRepoPositional(p *parsed) string {
+func secondRepoPositional(p *parsed) (string, bool) {
 	switch p.cmd.path {
 	case "issue transfer":
 		if len(p.positionals) > 1 {
-			return p.positionals[1]
+			return p.positionals[1], true
 		}
 	case "label clone":
 		if len(p.positionals) > 0 {
-			return p.positionals[0]
+			return p.positionals[0], true
 		}
 	}
-	return ""
+	return "", false
 }
 
 // searchBacked are the commands whose query text and filter values gh sends to GitHub's

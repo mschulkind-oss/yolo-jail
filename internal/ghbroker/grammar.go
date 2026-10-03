@@ -2,6 +2,7 @@ package ghbroker
 
 import (
 	"strings"
+	"unicode"
 )
 
 // grammar.go is the lookup half of the gh flag grammar grammar_gen.go carries.
@@ -131,8 +132,13 @@ func join(parent, word string) string {
 }
 
 // childPath resolves word under parent: the canonical child path when word is a built-in
-// command name or a built-in alias of one, and "" otherwise.
+// command name or a built-in alias of one, and "" otherwise. A word holding a space names no
+// command, as gh reads it, though the table's space-joined keys would match it: `gh "pr view"`
+// is gh's unknown command, never `gh pr view` (found by FuzzClassify).
 func childPath(parent, word string) string {
+	if word == "" || strings.ContainsFunc(word, unicode.IsSpace) {
+		return ""
+	}
 	if p := join(parent, word); grammar[p] != nil {
 		return p
 	}
