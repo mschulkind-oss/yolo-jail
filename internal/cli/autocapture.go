@@ -182,13 +182,11 @@ func autoCapture(bins []string, platform string, out, errw io.Writer, color bool
 
 	for i, bin := range missing {
 		pr.Printf("[dim]  [%d/%d][/dim] %s", i+1, len(missing), bin)
+		// A capture that stores the program clears its memo inside captureHost, as `yolo capture
+		// <bin>` and the host floor's capture do, so a success needs nothing more here.
 		if rc := captureHost([]string{bin}, out, errw, color); rc != 0 {
 			autoCaptureFailed(store, bin, platform, errw)
-			continue
 		}
-		// Recorded: whatever an earlier failure remembered has nothing left to say, and a later
-		// failure (after `yolo prune`, say) starts from the first wait again.
-		_ = store.ClearAutoFailure(bin, platform)
 	}
 }
 

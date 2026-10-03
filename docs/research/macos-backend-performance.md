@@ -3,7 +3,7 @@ title: "Is macos-user faster than Apple Container? What the sources say, and a b
 date: 2026-10-01
 status: in-review
 stage: DESIGN
-next: "The maintainer rules on OQ-MB1, what backs an Apple Container jail's /mise so that two jails can run at once; a Mac session reruns §7's two-jail check on container 1.5.0; a person at the same Mac works through Appendix A's Before the session list, runs the harness for macos-user and native (it needs sudo's password) and adds the results to the Results section; auto-capture's retry on every launch is filed as a defect"
+next: "The maintainer rules on OQ-MB1, what backs an Apple Container jail's /mise so that two jails can run at once; a Mac session reruns §7's two-jail check on container 1.5.0; a person at the same Mac works through Appendix A's Before the session list, runs the harness for macos-user and native (it needs sudo's password) and adds the results to the Results section; a Mac launch pass confirms that auto-capture now stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26)"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]
 summary: "The maintainer asked for a benchmark instead of an assumption: is macos-user really faster than Apple Container? Sources answer part of it. Apple Container gives each container its own small VM; the VM takes RAM only as the guest touches it, but keeps every page it touched until the container stops, so the maintainer's reading is half right. CPU work should run within a few percent of native, while file work in the shared workspace is where the VM probably costs most: about 2.7 times native in one published measurement of the same macOS file sharing, and 6 to 9 times by Apple's maintainer's rough figures for builds. The doc lists every claim the repo makes about the two backends' speed and memory, a protocol for one Mac running both against one workspace, and a POSIX sh harness that runs the protocol and writes the results table. It measures; it does not choose a backend."
 vantage:
@@ -611,10 +611,14 @@ launch, not the VM** (MEASURED). Every launch, attach included, found claude, co
 "never recorded on this machine" and ran each one's installer in a capture jail. Each installer
 "left nothing in the capture surfaces", so nothing was stored, and the next launch tried again:
 `launch.auto_capture` took 61 s per fresh launch and 14 s per attach. That is a yolo defect in
-its own right, not yet diagnosed. Without it, a fresh launch's 6.9 s is mostly two steps:
-`image.nix_build` at 3.2 to 3.5 s (a no-op build that still runs at every launch, through the
-builder VM) and `launch.run_with_proxy` at 2.5 s (VM boot plus the boot script). The attach's own
-`attach.exec` took 1.4 s.
+its own right, diagnosed from the code 2026-10-03 and not yet re-run on a Mac: the capture walked
+surface paths that exist only on podman ([OQ-PD24](../design/program-delivery.md#decision-ledger)), an
+attach repeated the fresh launch's attempt ([OQ-PD25](../design/program-delivery.md#decision-ledger)),
+and a failure was never remembered ([OQ-PD26](../design/program-delivery.md#decision-ledger)).
+Without the auto-capture, a fresh launch's 6.9 s is mostly two steps: `image.nix_build` at 3.2
+to 3.5 s (a no-op build that still runs at every launch, through the builder VM) and
+`launch.run_with_proxy` at 2.5 s (VM boot plus the boot script). The attach's own `attach.exec`
+took 1.4 s.
 
 ### Timings (M5 to M12)
 

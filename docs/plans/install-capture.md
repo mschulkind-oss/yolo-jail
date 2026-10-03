@@ -972,7 +972,9 @@ wrong one to sequence on.
    *And one thing NOT built, stated so it is not assumed.* A failed capture is not remembered, so a
    program whose installer fails every time re-pays its attempt once per launch. The common cause is
    a transient network and a negative memo is per-machine state with no expiry rule anyone has ruled
-   on; if it is ever observed on a shipped pack, the fix is a stamp beside the store.
+   on; if it is ever observed on a shipped pack, the fix is a stamp beside the store. ⚠ **Built
+   2026-10-03**, once every Apple Container launch was measured re-paying three installers:
+   [OQ-PD26](../design/program-delivery.md#decision-ledger) remembers a failure and backs off.
 
    **The integration suite does not cover this slice, deliberately.** Six of its files select the
    `claude` pack, so a live trigger would put a ~205 MiB vendor download on every push — the class

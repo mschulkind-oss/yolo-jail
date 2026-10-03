@@ -505,3 +505,29 @@ func TestAContendedAutoCaptureIsNotRememberedAsAFailure(t *testing.T) {
 		t.Errorf("the next launch, with the lock free, ran %d capture jails, want 1", captures)
 	}
 }
+
+// TestAManualCaptureThatSucceedsClearsTheMemo: `yolo capture <bin>` is the retry the failure's
+// warning names, so the memo goes when it stores the program, as it goes when a launch's
+// auto-capture does. Left behind, it would outlive the entry it was about: a launch that missed
+// again under the same yolo would wait out a back-off this success had ended, and count its
+// failure as the next in a run this success had broken.
+//
+// Red before captureHost cleared it: only the auto-capture loop did.
+func TestAManualCaptureThatSucceedsClearsTheMemo(t *testing.T) {
+	home := captureFixtureHome(t, captureFixtureInstaller)
+	store := &capture.Store{Dir: paths.CapturesDirUnder(home)}
+	if err := store.RecordAutoFailure(capture.AutoFailure{Bin: "probetool", Platform: capturedPlatform,
+		Version: autoCaptureVersion(), Failures: 2, Last: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	var seen run.Options
+	withFakeCaptureJail(t, fakeCaptureJail(t, &seen, probetoolEntries()))
+
+	var out, errw bytes.Buffer
+	if rc := captureHost([]string{"probetool"}, &out, &errw, false); rc != 0 {
+		t.Fatalf("yolo capture probetool exited %d\n%s%s", rc, out.String(), errw.String())
+	}
+	if f, ok := store.AutoFailure("probetool", capturedPlatform); ok {
+		t.Errorf("the memo outlived a `yolo capture` that stored the program: %+v", f)
+	}
+}

@@ -248,6 +248,12 @@ func captureHost(args []string, out, errw io.Writer, color bool) int {
 			"names, %s, which writes the receipt.\n", captureAgain(bin))
 		return 1
 	}
+	// A REMEMBERED AUTO-CAPTURE FAILURE ENDS HERE, whichever act asked for this capture: a launch's
+	// auto-capture, the `yolo capture <bin>` its warning names as the retry, or the host floor's
+	// (docs/design/program-delivery.md OQ-PD26). The program is stored, so the memo has nothing
+	// left to say, and a launch that misses again later starts from the first wait. Best-effort:
+	// a memo that stays only holds off a capture of a program the store now holds.
+	_ = store.ClearAutoFailure(bin, m.Platform)
 	pr.Printf("[green]captured[/green] %s  [cyan]%s[/cyan]  %d paths, %s  [dim]%s[/dim]",
 		bin, entry.Key, len(m.Entries), humanBytes(m.TotalBytes()), entry.Root)
 	return 0

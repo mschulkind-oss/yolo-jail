@@ -234,7 +234,8 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    (`TestHostApplyVerdictCountsAProgramTheFloorCouldNotInstall`).
 6. **Re-running is always safe.** The next step for nearly any interrupted command is to run it
    again, and that only works if a second run can't make things worse.
-   *In yolo:* a failed auto-capture says `The next launch retries.`, and a launcher whose update is
+   *In yolo:* a failed auto-capture says when a launch will try it again and that
+   `yolo capture <bin>` retries it now, and a launcher whose update is
    busy or fails runs the installed version. An agent's launcher whose first-use install fails
    ends `⚠ <name> not available: its install failed, above. Run <name> again to retry the install.`,
    and the next run does retry it. An install that reports success (npm, or the vendor's
