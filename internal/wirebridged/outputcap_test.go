@@ -80,6 +80,11 @@ func capRequestThroughShippedRoute(t *testing.T, user, profile, keyLine, model s
 	home := t.TempDir()
 	writeAgentKey(t, home, "claude", keyLine)
 	p.adapter.ListenAddr = freeLoopback(t)
+	// The shipped profiles may bring a via route on the bridge's fixed address, which a running
+	// bridge on this machine (any jail's own) already holds; the test serves on a port of its own.
+	if len(p.via.Routes) > 0 {
+		p.via.ListenAddr = freeLoopback(t)
+	}
 	startPlan(t, p, home)
 	resp, body := postTo(t, "http://"+p.adapter.ListenAddr+"/v1/messages",
 		`{"model":"`+model+`","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`, nil)
