@@ -561,11 +561,13 @@ cross.
 | `127.0.0.1`, the container's own loopback | refused | refused | refused |
 | `192.168.64.1` | refused | connects, then carries nothing; no accept reached the listener | connects, then carries nothing; the listener accepted `192.168.64.96`, then read `socket is not connected` |
 
-**Every run since 2026-09-15 says the same.** The first ten runs, earlier on 2026-09-15, logged
-other verdicts, and those were faults in the probe, fixed by `4b8f4bec9` and `a1e5d08ff`. After
-that, all 126 runs that conducted it, through 2026-10-03, logged
-`THE HOST IS NOT USABLE FROM A CONTAINER` on `container` 1.1.0. That count was read on 2026-10-03 from the job log of every `apple-container.yml`
-run, through the GitHub API. The `192.168.64.1` listener accepted a peer and then read
+**Every run since 2026-09-15 says the same.** The first ten runs to conduct the probe, earlier on
+2026-09-15, logged other verdicts, and those were faults in the probe, fixed by `4b8f4bec9` and
+`a1e5d08ff`. After that, all 126 runs that conducted it, through 2026-10-03, logged
+`THE HOST IS NOT USABLE FROM A CONTAINER` on `container` 1.1.0. That count was read on 2026-10-03,
+through the GitHub API, from the job log of every `apple-container.yml` run that still has one. The
+one that does not, run 36751182007, stopped while loading the image, before its tests, by the
+API's step list. The `192.168.64.1` listener accepted a peer and then read
 `socket is not connected` in every run. The `0.0.0.0` listener did the same in 116 runs and saw no
 accept in 10.
 
@@ -575,7 +577,8 @@ connection that died while it waited to be accepted (`ECONNABORTED`, in Go's `in
 the same teardown, landing a moment earlier, leaves no trace at the listener.
 
 **Local Network privacy is not the cause, on this evidence.** It is the obvious suspect, because it
-is what broke published ports (#10 in [§5.4](#54-which-test-answers-which-row)): upstream,
+most likely broke published ports (#10 in [§5.4](#54-which-test-answers-which-row), where that is
+inferred from the dial pattern rather than measured on the forwarder): upstream,
 [apple/container#1702](https://github.com/apple/container/issues/1702) and
 [#2067](https://github.com/apple/container/issues/2067) were both closed once the reporter granted
 Local Network access to Apple Container's port forwarder. Three things argue against it here:
@@ -585,28 +588,32 @@ Local Network access to Apple Container's port forwarder. Three things argue aga
   read 2026-10-03, lists *"Listening for and accepting incoming TCP connections"* as needing no
   local network access; outgoing traffic does. The Mac side of this probe only listens and accepts.
 - **The container's traffic is not a Mac program's** (INFERRED from the peer address). The
-  listener saw the container's own address as the peer. So the packets reached the Mac's network
+  listener saw `192.168.64.96` as the peer: an address on the containers' subnet, one past the
+  first container's `192.168.64.95`, so very likely the dialing container's own. The 2026-09-16
+  hand pass saw a container's own address the same way. So the packets reached the Mac's network
   stack directly, not through a Mac helper program that the permission could block.
-- **The test process's permission changed and the result did not** (MEASURED). The same `go test`
-  process also dials a container's own address, in #10's probe. From 2026-09-25 to 2026-09-28,
-  every run's dial failed with `no route to host` (`EHOSTUNREACH`), Local Network privacy's
-  signature. On 2026-10-03 it connected on the first try. This probe's verdict was identical in
-  both. The 2026-09-16 hand pass agrees
+- **The test process's own dials changed and the result did not** (MEASURED). The same `go test`
+  process also dials a container's own address, in #10's probe. Every run that made that dial,
+  from the first on 2026-09-25 to 2026-09-28, failed with `no route to host` (`EHOSTUNREACH`),
+  Local Network privacy's signature. On 2026-10-03 it connected on the first try. This probe's
+  verdict was identical in both. The 2026-09-16 hand pass agrees
   ([setup-support-gaps.md §5.1](../plans/setup-support-gaps.md#51-what-is-now-measured), rows 6
   and 7): a dial from the Mac to a container's own address returned data, while a host listener
   accepted a container's connection and broke the pipe on its first write.
 
-So the roadmap's wait on a Local Network grant or Apple's signed package concerns published ports,
-not this probe. What tears the connection down is unknown. One unmeasured candidate is the macOS
-application firewall, which screens incoming connections per program and treats Apple's own
-programs differently from an ad-hoc-signed test binary (INFERRED).
+So the fix [§5.4](#54-which-test-answers-which-row) named for #10, a Local Network grant or Apple's
+signed package, concerns published ports, not this probe. What tears the connection down is
+unknown. One unmeasured candidate is the macOS application firewall, which screens incoming
+connections per program and treats Apple's own programs differently from an ad-hoc-signed test
+binary (INFERRED).
 `/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate` reads its state.
 
 **An interactive user very likely sees the same** (INFERRED). TN3179 grants local network access
 automatically, with no prompt, to command-line tools run from Terminal or over SSH, and to their
-child processes. A detached process can fall outside that, as the tmux shell denied on 2026-09-25
-did. Neither matters here: the Mac side only accepts, which needs no access, and the verdict did
-not move when the test process's access did. Nobody has run the probe from Terminal.
+child processes. A detached process can fall outside that, which may be why the tmux shell was
+denied on 2026-09-25; [§5.4](#54-which-test-answers-which-row) does not record why. Neither
+matters here: the Mac side only accepts, which needs no access, and the verdict did not move when
+the test process's access did. Nobody has run the probe from Terminal.
 
 **The probe never tried Apple's documented route** (read from Apple's 1.1.0 docs and source).
 `sudo container system dns create <domain> --localhost <IPv4>` makes containers resolve `<domain>`
@@ -631,8 +638,8 @@ verdict covers the five candidates above, not every route.
   does not resolve there.
 - **No launch is refused for it.** Apple Container's host-loopback disposition is `unknown`, which
   the in-jail witness [never escalates](../reference/loopback-tls-reachability.md#what-may-escalate).
-  The launch prints `backendInertReason`'s line for every pack loophole, and no other shipped
-  loophole starts there.
+  The launch prints `backendInertReason`'s line for every pack loophole, and no shipped loophole
+  besides the two above starts there.
 
 So the skip stays. If Apple's route works, using it is design work, not a flag: an Apple Container
 arm in `advertiseHostFor` that publishes a `--localhost` domain, plus a `sudo` step the user runs.
@@ -655,10 +662,13 @@ application firewall allows Apple's built-in programs by default (INFERRED). Eac
 next step:
 
 - **Both dials print a directory listing:** the teardown belongs to the CI test process or its
-  runner, not to Apple Container, and an interactive user can reach the Mac. Next, rerun the probe's listener as Apple's `python3` under
-  the runner to find which gate the test binary hits.
+  runner, not to Apple Container, and an interactive user can reach the Mac. Next, rerun the
+  probe's listener as Apple's `python3` under the runner to find which gate the test binary hits.
 - **Only the first does:** Apple's route works, and the `192.168.64.1` teardown is the runtime's.
   Next, design the `--localhost` arm for `advertiseHostFor`.
+- **Only the second does:** the Mac is reachable over vmnet, so the CI teardown is the test
+  process's as in the first case, and Apple's redirect is what fails. Next, check that the rule
+  loaded with `sudo pfctl -a com.apple.container -s nat`, then take the first case's next step.
 - **Neither does:** this release carries nothing from a container to the Mac, for anyone. Next,
   rerun on 1.5.0, then report it upstream with these commands.
 
