@@ -2,7 +2,7 @@
 title: "Which macOS VM runs a Python, Django and Postgres workload best? Apple Container, Podman Machine on libkrun and on applehv, measured without yolo"
 date: 2026-10-03
 status: in-review
-stage: RESEARCH
+stage: DESIGN
 next: "Run run-all.sh and memsess.sh on OrbStack and Docker Desktop once the maintainer installs their trials (needs sudo); then decide whether VM-local volumes for chosen workspace folders (apple-container-file-cost.md §4) go ahead on the backends yolo already has"
 tags: [research, macos, apple-container, podman, libkrun, virtiofs, memory, postgres, benchmark]
 summary: "The maintainer asked whether re-adding a Docker-style backend on macOS would make development faster, and whether keeping hot files on the VM's own disk would. The same Python, Django and Postgres workload ran natively and in three VMs, each on a shared Mac folder and on a VM-local disk, without yolo. On a VM-local disk all three VMs beat native macOS at the Python steps (pytest 0.9 s against 1.85 s, pip install 1.9 s against 4.0 s) and ran Postgres at 59 to 64 percent of native's read-write rate. On a shared folder, the two Virtualization.framework VMs took 2 to 5 times native on file-heavy steps, and libkrun was up to 9 times slower again. No VM gave a freed 2 GiB back to macOS within 120 s, libkrun included. So where files live matters far more than which VM runs them. OrbStack and Docker Desktop are not measured yet."

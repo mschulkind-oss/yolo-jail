@@ -15,7 +15,7 @@ vantage:
 **Status:** 2026-10-03, research only, and nothing is ruled. **Measured since:** a libkrun Podman
 Machine did *not* give a freed 2 GiB back on yolo's Mac, even under host memory pressure
 ([the runtime comparison, §4](macos-vm-runtime-comparison.md#4-memory-does-a-vm-give-a-freed-2-gib-back)),
-so §4's libkrun row is SOURCED from others' runs and contradicted by ours. Read through the GitHub API, Apple's documentation and the issue trackers named in each
+so [§4](#4-other-macos-vms)'s libkrun row is SOURCED from others' runs and contradicted by ours. Read through the GitHub API, Apple's documentation and the issue trackers named in each
 item, by an agent on 2026-10-03. It follows
 [the macOS backend benchmark](macos-backend-performance.md), which measured an Apple Container jail
 holding all of a 2 GiB load 120 s after it ended, and giving it back only when the jail stopped
