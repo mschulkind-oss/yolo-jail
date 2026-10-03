@@ -367,8 +367,8 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 					detectedRuntime = p.name
 				}
 			case gate.EndedOnScratchError():
-				// yolo's own scratch file, not podman: podman never ran, so the row is the
-				// refusal and its temporary-directory fix, with no podman step and no "start it".
+				// yolo's own scratch file, not podman: the gate's last attempt never ran podman, so
+				// the row is the refusal and its fix, with no podman step and no "start it".
 				r.fail(p.name+" not checked: "+gate.Refusal(p.name), recheck)
 				broken = append(broken, p.name)
 			case gate.Outcome == runtime.PodmanNotStarted:

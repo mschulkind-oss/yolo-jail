@@ -86,7 +86,8 @@ func (r ReadyResult) DoneText() string {
 // Refusal is the body of the refusal a gate that did not answer ends in: the attempt count,
 // the elapsed time, podman's last reason line, the fix when there is one, and any podman left
 // running (PR-D9). A gate that ended on yolo's own scratch file (EndedOnScratchError) says
-// that instead, since podman never ran: the error, and its fix. "" for a ready result.
+// that instead, since its last attempt never ran podman: the error, podman's last error when
+// an earlier attempt ran it, and the error's fix. "" for a ready result.
 func (r ReadyResult) Refusal(rt string) string {
 	if r.Outcome == PodmanReady {
 		return ""
@@ -99,8 +100,16 @@ func (r ReadyResult) Refusal(rt string) string {
 	span := fmt.Sprintf("%s, %.1fs", attempts, r.Elapsed.Seconds())
 	var b strings.Builder
 	if scratch, ok := r.scratchError(); ok {
-		fmt.Fprintf(&b, "yolo could not create the scratch file for podman's answer, so %s info never ran (%s): %s.",
-			rt, span, scratch.Err)
+		// "Never ran" only when no attempt ran podman; otherwise the last attempt did not, and
+		// podman's own last error is kept, as the default refusal keeps it.
+		if ran, ok := r.lastRanPodman(); ok {
+			fmt.Fprintf(&b, "yolo could not create the scratch file for podman's answer, so the last attempt "+
+				"never ran %s info (%s): %s; the last error %s info gave: %s.",
+				rt, span, scratch.Err, rt, Describe(ran, classifyAttempt(ran)))
+		} else {
+			fmt.Fprintf(&b, "yolo could not create the scratch file for podman's answer, so %s info never ran (%s): %s.",
+				rt, span, scratch.Err)
+		}
 		if r.Failure.Fix != "" {
 			fmt.Fprintf(&b, "\nFix: %s.", r.Failure.Fix)
 		}
@@ -138,9 +147,9 @@ func (r ReadyResult) Refusal(rt string) string {
 }
 
 // EndedOnScratchError reports a gate that did not answer because its last attempt could not
-// create yolo's own scratch files (*ProbeScratchError): podman never ran, so the refusal's fix,
-// the temporary directory's, is the whole next step, and a caller's step that points at podman
-// is wrong there. False when the last attempt ran podman, whatever an earlier one hit.
+// create yolo's own scratch files (*ProbeScratchError): that attempt never ran podman, so the
+// refusal's fix, the temporary directory's, is the next step, and a caller's step that points
+// at podman is wrong there. False when the last attempt ran podman, whatever an earlier one hit.
 func (r ReadyResult) EndedOnScratchError() bool {
 	_, ok := r.scratchError()
 	return ok
@@ -153,6 +162,18 @@ func (r ReadyResult) scratchError() (*ProbeScratchError, bool) {
 		return nil, false
 	}
 	return scratch, true
+}
+
+// lastRanPodman is the last attempt that ran podman and saw it exit; false when none did. In a
+// gate that ended on yolo's scratch file every such attempt exited early, since an answer, an
+// attempt still running and an interrupt each end the gate.
+func (r ReadyResult) lastRanPodman() (Attempt, bool) {
+	for i := len(r.Attempts) - 1; i >= 0; i-- {
+		if a := r.Attempts[i]; a.StartErr == nil && a.Exited {
+			return a, true
+		}
+	}
+	return Attempt{}, false
 }
 
 // lastAnswered is the index of the last attempt that ended with an answer — it exited, or it

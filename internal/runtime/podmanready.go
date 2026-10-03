@@ -218,16 +218,7 @@ func WaitForPodman(argv []string, budget time.Duration, seams ReadySeams, hooks 
 		deadline := s.Now().Add(budget - elapsed())
 		a := s.Attempt(argv, deadline, s.Interrupt)
 		res.Attempts = append(res.Attempts, a)
-		var f Failure
-		switch {
-		case a.StartErr != nil:
-			f = ClassifyStartError(a.StartErr)
-		case a.Exited && a.RC == 0 && isJSONObject(a.Stdout):
-		case a.Exited && a.RC == 0:
-			f = Failure{Class: FailureUnknown, Line: "the output is not JSON"}
-		case a.Exited:
-			f = ClassifyPodmanFailure(a.Stderr)
-		}
+		f := classifyAttempt(a)
 		if hooks.OnAttempt != nil {
 			hooks.OnAttempt(n+1, a, f)
 		}
@@ -276,6 +267,23 @@ func WaitForPodman(argv []string, budget time.Duration, seams ReadySeams, hooks 
 		}
 		slept += wait
 	}
+}
+
+// classifyAttempt is the gate's reading of one attempt: a start error by its errno, an exit by
+// podman's stderr, an exit 0 whose output is not JSON as unknown, and {} for an answer or an
+// attempt that has not ended.
+func classifyAttempt(a Attempt) Failure {
+	switch {
+	case a.StartErr != nil:
+		return ClassifyStartError(a.StartErr)
+	case a.Exited && a.RC == 0 && isJSONObject(a.Stdout):
+		return Failure{}
+	case a.Exited && a.RC == 0:
+		return Failure{Class: FailureUnknown, Line: "the output is not JSON"}
+	case a.Exited:
+		return ClassifyPodmanFailure(a.Stderr)
+	}
+	return Failure{}
 }
 
 // isJSONObject is the gate's success test beside exit 0: the output parses as one JSON

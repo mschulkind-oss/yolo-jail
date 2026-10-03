@@ -490,6 +490,16 @@ func scratchAttempt(errno syscall.Errno) Attempt {
 	return Attempt{StartErr: &ProbeScratchError{Err: &os.PathError{Op: "open", Path: "/tmp/yolo-podman-ready-1.out", Err: errno}}}
 }
 
+// ranPodman reports a script with an attempt that started podman.
+func ranPodman(script []Attempt) bool {
+	for _, a := range script {
+		if a.StartErr == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // A gate that ends on yolo's own scratch file (PR-D23) never ran podman, so its refusal leads with
 // that error and names the step the error calls for, never podman's: a full disk and a descriptor
 // limit are retried until the budget ends, a temporary directory that is missing refuses at once,
@@ -513,6 +523,13 @@ func TestARefusalThatEndsOnAScratchFileNamesItAndItsFix(t *testing.T) {
 		{"no temp dir", []Attempt{scratchAttempt(syscall.ENOENT)}, PodmanNotStarted, true, []string{
 			"yolo could not create the scratch file for podman's answer, so podman info never ran (1 attempt, ",
 			"\nFix: make the temporary directory usable: TMPDIR"}},
+		// Podman ran on the first two attempts, so "never ran" would be false: the refusal says
+		// the last attempt did not run it, and keeps the last error podman gave.
+		{"after podman ran", []Attempt{busy(), busy(), scratchAttempt(syscall.ENFILE)}, PodmanNotReady, true, []string{
+			"yolo could not create the scratch file for podman's answer, so the last attempt never ran podman info (",
+			": too many open files in system; the last error podman info gave: exit 125: " +
+				"Error: acquiring runtime init lock: resource temporarily unavailable.",
+			"\nFix: the system's open-files table is full"}},
 		{"before one still running", []Attempt{scratchAttempt(syscall.ENOSPC), {Pid: 4242}}, PodmanNotReady, false, []string{
 			"podman info did not answer within 60s",
 			"; the last error it gave: could not run: yolo could not create the scratch file",
@@ -537,6 +554,9 @@ func TestARefusalThatEndsOnAScratchFileNamesItAndItsFix(t *testing.T) {
 			}
 			if tc.scratch && (strings.Contains(refusal, "did not answer") || strings.Contains(refusal, "install podman")) {
 				t.Errorf("a refusal about yolo's scratch file blames podman:\n%s", refusal)
+			}
+			if ranPodman(tc.script) && strings.Contains(refusal, "never ran (") {
+				t.Errorf("the refusal says podman info never ran, after attempts that ran it:\n%s", refusal)
 			}
 		})
 	}

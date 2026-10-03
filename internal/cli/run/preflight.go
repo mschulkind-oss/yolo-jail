@@ -271,8 +271,8 @@ func (o *Options) validateExplicitRuntime(rt, source string) (string, bool) {
 
 // printRuntimeFailureHint prints the step under a runtime that did not answer: the platform's
 // start or diagnose step (runtimeStartHint), except after a readiness gate that ended on yolo's
-// own scratch file, where podman never ran and the refusal above already names the temporary
-// directory's fix, so a step pointing at podman would be the wrong one.
+// own scratch file, whose last attempt never ran podman and whose refusal above already names
+// the fix that error calls for, so a step pointing at podman would be the wrong one.
 func (o *Options) printRuntimeFailureHint(out printer, rt string) {
 	if o.usesReadinessGate(rt) && o.readiness != nil && o.readiness.EndedOnScratchError() {
 		return
