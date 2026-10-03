@@ -73,16 +73,20 @@ build order) is in git history (`git log --follow -- docs/design/workspace-skill
 
 6. ✅ <a id="OQ-WS6"></a>**OQ-WS6: For the links, root `.gitignore`, `.git/info/exclude`, or a yolo-owned
    parent's `.gitignore`?** Decides what `git status` shows after a launch under B, and which
-   file yolo becomes a writer of. **(a) root `.gitignore` append**, write-once by content check
-   — `yolo init`'s precedent; visible as `M .gitignore` once, then quiet for every clone once
-   committed; but it is a launch editing a tracked file. **(b) `.git/info/exclude` append** —
-   invisible, per clone, never committed; but it is the blind cell, the file
-   [`../reference/host-execution-from-the-workspace.md`](../reference/host-execution-from-the-workspace.md#the-two-axes)
-   calls load-bearing precisely because writing it moves things from visible to invisible; it
-   is shared across worktrees; and `workspace_readonly` may lock it. **(c) a `.gitignore` inside
-   each parent directory yolo itself created** — the `.yolo/` trick; clean when yolo made
-   `.codex/`, impossible when the repo already has `.codex/`, so it needs (a) or (b) as a
-   fallback anyway.
+   file yolo becomes a writer of.
+
+   - **(a) root `.gitignore` append**, write-once by content check
+     — `yolo init`'s precedent; visible as `M .gitignore` once, then quiet for every clone once
+     committed; but it is a launch editing a tracked file.
+   - **(b) `.git/info/exclude` append** —
+     invisible, per clone, never committed; but it is the blind cell, the file
+     [`../reference/host-execution-from-the-workspace.md`](../reference/host-execution-from-the-workspace.md#the-two-axes)
+     calls load-bearing precisely because writing it moves things from visible to invisible; it
+     is shared across worktrees; and `workspace_readonly` may lock it.
+   - **(c) a `.gitignore` inside
+     each parent directory yolo itself created** — the `.yolo/` trick; clean when yolo made
+     `.codex/`, impossible when the repo already has `.codex/`, so it needs (a) or (b) as a
+     fallback anyway.
 
 
    _Leaning:_ **(a).** P4 decides it: a visible one-line edit the user commits once beats an

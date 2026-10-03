@@ -581,10 +581,10 @@ defect bites). **Motivated by:** a host agent following the migration guide woul
 the only protection when there is no jail. Today those keys are unconditional pack config
 with nothing marking them jail-only.
 
+<!-- vantage: question id=OQ-11 -->
+
 ✅ **[OQ-11](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) — RESOLVED (2026-08-01): a dedicated `autonomy` contribution kind (Encoding A
 below).**
-
-<!-- vantage: question id=OQ-11 -->
 
 The maintainer delegated the choice ("do the sketch now, I'm not sure I care").
 The sketch ([§9.0](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs)) settles it: the discriminator-field encoding forces the `claude`
@@ -641,21 +641,25 @@ across the file:
 { "kind": "launch", "when": "autonomous", "bin": "claude", "flags": ["--dangerously-skip-permissions"] }
 ```
 
-**Why A wins.** (1) *Safety by construction:* in B, a bypass key mistakenly left in the
-unconditional `config` entry silently ships to `host`; in A the confinement-conditional keys
-physically live in the `autonomy` kind and nowhere else, so "unconditional config" cannot
-contain a bypass. (2) *Legibility:* `describe`/`pack footprint` print one `autonomy` block
-("autonomous → these keys + flags; guarded → these") instead of reconstructing intent from
-`when` tags scattered over N entries. (3) *Bidirectional reads cleanly:* `autonomous` vs
-`guarded` are two named siblings; `pi`'s empty-autonomous / full-guarded shape is obvious.
-(4) *Implementation reuse:* an `autonomy` posture's config half **selects which keys enter
-the `managed` layer** of the pack's own surface — it is NOT a `config-overlay` (that kind is
-defined as a contribution to a surface owned by *another* pack, and it folds in *below*
-`managed`, so it could neither target the pack's own surface nor make the `guarded` value win
-over the jail-default managed keys). Concretely 9.3 is "select the posture, fold its config
-patch into the surface's managed map before compose, and merge its launch flags" — reusing
-the existing managed-layer + `InjectLaunchFlags` machinery, not the overlay path and not a new
-renderer.
+**Why A wins.**
+
+1. *Safety by construction:* in B, a bypass key mistakenly left in the
+   unconditional `config` entry silently ships to `host`; in A the confinement-conditional keys
+   physically live in the `autonomy` kind and nowhere else, so "unconditional config" cannot
+   contain a bypass.
+2. *Legibility:* `describe`/`pack footprint` print one `autonomy` block
+   ("autonomous → these keys + flags; guarded → these") instead of reconstructing intent from
+   `when` tags scattered over N entries.
+3. *Bidirectional reads cleanly:* `autonomous` vs
+   `guarded` are two named siblings; `pi`'s empty-autonomous / full-guarded shape is obvious.
+4. *Implementation reuse:* an `autonomy` posture's config half **selects which keys enter
+   the `managed` layer** of the pack's own surface — it is NOT a `config-overlay` (that kind is
+   defined as a contribution to a surface owned by *another* pack, and it folds in *below*
+   `managed`, so it could neither target the pack's own surface nor make the `guarded` value win
+   over the jail-default managed keys). Concretely 9.3 is "select the posture, fold its config
+   patch into the surface's managed map before compose, and merge its launch flags" — reusing
+   the existing managed-layer + `InjectLaunchFlags` machinery, not the overlay path and not a new
+   renderer.
 
 The cost of A is one new kind (13 → the closed set grows by one) and the schema for a
 posture block. Accepted.
@@ -739,6 +743,8 @@ implementing any phase.
 
   <!-- vantage: question id=OQ-1 -->
 
+  **Answer:**
+
   Undo is "stop declaring the key and re-apply," which drops it with a notice, the shipped
   "regenerate, don't reconcile" model (`internal/entrypoint/prism.go`, OQ12(d)). A `--revert` to a
   pre-yolo state would need a before-snapshot nothing takes. *Consequence:* no revert verb,
@@ -799,6 +805,8 @@ resolved; the reviewer's push on [OQ-4](#open-questions-to-resolve-before-their-
   `rmw` (2026-08-01).**
 
   <!-- vantage: question id=OQ-4 -->
+
+  **Answer:**
 
   The reviewer is right that **overwrite is the only workable option
   for a key yolo manages**, and once you see why, `rmw` is not just workable — it is the
@@ -874,6 +882,8 @@ the call site.
   interaction (2026-08-01).**
 
   <!-- vantage: question id=OQ-9 -->
+
+  **Answer:**
 
   ⚠ **Half-reversed 2026-09-12 by
   [`report-tiers.md`](../reference/report-tiers.md#why-its-this-way)** for `yolo host apply

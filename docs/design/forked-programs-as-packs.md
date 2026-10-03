@@ -462,19 +462,21 @@ implementation choices on 2026-09-30.
    > pack's surface is an overlay, not a drop
    > ([§4.1](#41-a-fork-declares-itself-a-fork-and-the-base-keeps-the-name)).
 
+<a id="oq-fp9-background"></a>**Background to [OQ-FP9](#OQ-FP9), below.**
+
+⚠ *Re-read 2026-09-30:* the relocation rewrite (hand-off H2) landed 2026-09-26, so that half of
+the gap is closed. What stays is the eager slot's position below the `macos-user` return, and
+hand-off H4: no `macos-user` launch can read the capture store, which
+[`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)
+holds as its own ruling.
+
 3. ✅ <a id="OQ-FP9"></a>**[OQ-FP9](#OQ-FP9): what does an eager build do on `macos-user`, which the eager slot cannot reach?**
    [`OQ-FP4`](#14-decision-ledger) puts the build at the notch's readiness act, and on the container
    backends that is auto-capture's existing slot — which sits **below the `macos-user` return** in the
    run pipeline, so nothing there emits the captures-dir variable and slice 6's relocation rewrite is
    unbuilt. So the ruling is unimplementable on the one backend [§8](#8-notch-coverage-and-the-one-that-does-not-exist)
    calls the interesting one. Stakes: whether this route ships container-only with a named gap, or
-   waits for the backend.
-
-   ⚠ *Re-read 2026-09-30:* the relocation rewrite (hand-off H2) landed 2026-09-26, so that half of
-   the gap is closed. What stays is the eager slot's position below the `macos-user` return, and
-   hand-off H4: no `macos-user` launch can read the capture store, which
-   [`install-capture.md`](../plans/install-capture.md#hand-offs--what-is-not-wired-and-the-exact-line-that-wires-it)
-   holds as its own ruling.
+   waits for the backend. [Which half of the gap has closed since](#oq-fp9-background) is above.
 
    _Leaning:_ **Ship container-only, with the gap named and reported on that backend.** `macos-user`
    is where relocation must be proven anyway and wants its own slice; what it must not do is silently

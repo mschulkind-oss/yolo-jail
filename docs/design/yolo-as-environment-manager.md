@@ -947,32 +947,38 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
 [environment-manager-user-stories.md](environment-manager-user-stories.md), by id. They are
 **not** duplicated here.
 
+<a id="oq-em1-background"></a>**Background to [OQ-EM1](#OQ-EM1), below: what shipped.**
+
+**The confirm-gated rule is the shipped rule, so the doc-vs-code contradiction this question was
+opened for is gone.** `render.HostFields()` honors `program` — *"honored but confirm-gated by the
+caller"* — and `isProbedDep` reads that `Honors` answer, so the census is load-bearing rather
+than decorative; `applyhostdepgate.go` is the caller: on `--assert` a missing declared
+dependency prints its exact install command, one prompt covers the set, a decline is FATAL at the
+prompt with nothing written, and an install that leaves the binary missing counts as a decline.
+`refusalReasons`' *"install is refused below jail"* string is now unreachable — both FieldSets
+honor `program`, so `Refuse` returns `""` for it, and `Refuse` has no production caller
+regardless. The threat-model
+pass [§8](#8-what-this-costs) asked for is [`OQ-6`](../plans/environment-manager-plan.md#blocks-phase-43-confirm-gated-install)/[`OQ-7`](../plans/environment-manager-plan.md#blocks-phase-43-confirm-gated-install), resolved 2026-08-01, and the shape that shipped is
+ruled in [`../reference/report-tiers.md`](../reference/report-tiers.md#the-dependency-rule)'s
+dependency rule.
+
+**Two deviations from [§4.1](#41-the-escape-valve-which-is-the-actual-user-story)'s spelling, and the first is a correction rather than a gap.**
+*There is no TTY gate*: `promptYesNo` reads a nil or EOF stdin as NO by contract, which delivers
+the fail-closed CI outcome [§4.1](#41-the-escape-valve-which-is-the-actual-user-story) wanted, and the dependency rule ruled that a terminal
+test is deliberately NOT added — a piped `y` installs, and what protects the user is that the
+commands print above the prompt whether it is answered or not. (Testing for a terminal is the
+intuitive reading of "TTY-only" and it was ruled against.) *And there is one prompt, not one per
+elevation class*: [`OQ-7`](../plans/environment-manager-plan.md#blocks-phase-43-confirm-gated-install)'s category-(a)/(b) split still has no consumer
+([`OQ-9`](#9-decision-ledger)'s ledger row carries that half).
+
 1. ✅ <a id="OQ-EM1"></a>**OQ-EM1: `program` below `jail` — is the elevation-class batching still owed?** [§4.1](#41-the-escape-valve-which-is-the-actual-user-story) and [§5](#5-packs-are-the-batteries-and-the-batteries-are-data) of this doc
    revised the original rule from *"`install` is never honored below `jail`, refused by name"* to
    *"confirm-gated, TTY-only, command shown, permission-bounded"*, and [§8](#8-what-this-costs) flagged it as needing a
    threat-model pass before shipping.
 
-   **The confirm-gated rule is the shipped rule, so the doc-vs-code contradiction this question was
-   opened for is gone.** `render.HostFields()` honors `program` — *"honored but confirm-gated by the
-   caller"* — and `isProbedDep` reads that `Honors` answer, so the census is load-bearing rather
-   than decorative; `applyhostdepgate.go` is the caller: on `--assert` a missing declared
-   dependency prints its exact install command, one prompt covers the set, a decline is FATAL at the
-   prompt with nothing written, and an install that leaves the binary missing counts as a decline.
-   `refusalReasons`' *"install is refused below jail"* string is now unreachable — both FieldSets
-   honor `program`, so `Refuse` returns `""` for it, and `Refuse` has no production caller
-   regardless. The threat-model
-   pass [§8](#8-what-this-costs) asked for is [`OQ-6`](../plans/environment-manager-plan.md#blocks-phase-43-confirm-gated-install)/[`OQ-7`](../plans/environment-manager-plan.md#blocks-phase-43-confirm-gated-install), resolved 2026-08-01, and the shape that shipped is
-   ruled in [`../reference/report-tiers.md`](../reference/report-tiers.md#the-dependency-rule)'s
-   dependency rule.
-
-   **Two deviations from [§4.1](#41-the-escape-valve-which-is-the-actual-user-story)'s spelling, and the first is a correction rather than a gap.**
-   *There is no TTY gate*: `promptYesNo` reads a nil or EOF stdin as NO by contract, which delivers
-   the fail-closed CI outcome [§4.1](#41-the-escape-valve-which-is-the-actual-user-story) wanted, and the dependency rule ruled that a terminal
-   test is deliberately NOT added — a piped `y` installs, and what protects the user is that the
-   commands print above the prompt whether it is answered or not. (Testing for a terminal is the
-   intuitive reading of "TTY-only" and it was ruled against.) *And there is one prompt, not one per
-   elevation class*: [`OQ-7`](../plans/environment-manager-plan.md#blocks-phase-43-confirm-gated-install)'s category-(a)/(b) split still has no consumer
-   ([`OQ-9`](#9-decision-ledger)'s ledger row carries that half).
+   What shipped, and how it differs from
+   [§4.1](#41-the-escape-valve-which-is-the-actual-user-story)'s spelling, is
+   [in the background above](#oq-em1-background).
 
    **What is left to decide:** whether that batching — and with it the `sudo`-first ordering — is
    still worth building now that one prompt ships and works, or whether plan Phase 4.3 shrinks to
@@ -997,6 +1003,16 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    > included. The one prompt the dependency rule keeps is unchanged by this answer. Recorded
    > 2026-09-30.
 
+<a id="oq-em2-background"></a>**Background to [OQ-EM2](#OQ-EM2), below.**
+
+**The cost this question was built on is gone with it.** It rested on `host` provenance being
+displayed from a hand-maintained two-entry map (`surfaceHasHostLayer`) rather than from the
+per-surface declaration the boot render reads; that map was **deleted** on 2026-09-09 and both
+columns are derived — `manifest.Surface.ReadsHost` is the predicate and `packload.SurfaceHostFile`
+derives the `/ctx` path both halves evaluate
+([`host-render-target.md`](host-render-target.md#0-the-one-paragraph-version)'s postscript, item
+1). So no surface takes a machine-shaped input that `config ls` cannot show.
+
 2. ✅ <a id="OQ-EM2"></a>**OQ-EM2: is retiring the `host` read-in layer ([`OQ-3`](#9-decision-ledger)) still the plan?**
    **No — the layer stays, and the disclosure this question asked for shipped instead.** Answered
    by [`config-ownership-and-promotion.md`](config-ownership-and-promotion.md#13-decision-ledger)
@@ -1007,13 +1023,7 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    [`OQ-CO10`](config-ownership-and-promotion.md#13-decision-ledger) moved the declaration onto the
    surface, made the read fail CLOSED, and made coverage a visible per-surface yes/no.
 
-   **The cost this question was built on is gone with it.** It rested on `host` provenance being
-   displayed from a hand-maintained two-entry map (`surfaceHasHostLayer`) rather than from the
-   per-surface declaration the boot render reads; that map was **deleted** on 2026-09-09 and both
-   columns are derived — `manifest.Surface.ReadsHost` is the predicate and `packload.SurfaceHostFile`
-   derives the `/ctx` path both halves evaluate
-   ([`host-render-target.md`](host-render-target.md#0-the-one-paragraph-version)'s postscript, item
-   1). So no surface takes a machine-shaped input that `config ls` cannot show.
+   [Why the cost it was built on is gone too](#oq-em2-background) is above.
 
    <!-- vantage: question id=OQ-EM2 -->
 

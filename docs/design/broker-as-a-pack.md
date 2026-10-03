@@ -970,15 +970,17 @@ on a baked daemon, which an official pack may do. The first two are settled. [OQ
 its release matrix ([§14](#14-the-release-matrix)), is open, and blocks one step of that plan and
 nothing in the tree.
 
+<a id="oq-bp5-background"></a>**Background to [OQ-BP5](#OQ-BP5), below.**
+
+⚠ **The leaning's precedent no longer exists** (re-checked 2026-09-24): `InstallerURL` is not origin-gated any more — `packload.Pack.HonoredInstalls` refuses nothing since [`OQ-TP9`](trust-paths.md#decision-ledger) — so "origin-gated exactly as `InstallerURL` is" now means "not gated". A build step that should be origin-gated would need a refusal source of its own, and that code's own comment says any new one needs its own design ruling. The download half of the leaning is unaffected. Related: [`forked-programs-as-packs.md`](forked-programs-as-packs.md) designs source builds for `kind: "program"` — built in a throwaway capture jail, never on the host — which is the same "declared build step" question for a different artifact.
+
 1. ✅ <a id="OQ-BP5"></a>**[OQ-BP5](#OQ-BP5) — download-with-digest only, or also a declared build step?**
 
-   The review asks for both as candidates ([§3.1](#31-what-is-actually-unresolved-here)). They are not symmetric: a download can be pinned by `sha256` and therefore satisfies **P4** (a pinned pack pins everything that runs); a build step generally cannot, because builds are not bit-reproducible, so what runs is decided at install time by whatever toolchain the machine happens to have. A build step is also the same risk class as `packdecl.Install.InstallerURL`, which the schema calls *"the sharpest thing a manifest can name"* and which a fetched pack could not introduce until [`OQ-TP9`](trust-paths.md#decision-ledger) deleted the origin rule on 2026-09-04.
+   The review asks for both as candidates ([§3.1](#31-what-is-actually-unresolved-here)). They are not symmetric: a download can be pinned by `sha256` and therefore satisfies **P4** (a pinned pack pins everything that runs); a build step generally cannot, because builds are not bit-reproducible, so what runs is decided at install time by whatever toolchain the machine happens to have. A build step is also the same risk class as `packdecl.Install.InstallerURL`, which the schema calls *"the sharpest thing a manifest can name"* and which a fetched pack could not introduce until [`OQ-TP9`](trust-paths.md#decision-ledger) deleted the origin rule on 2026-09-04. [Why the leaning's precedent no longer exists](#oq-bp5-background) is above.
 
    <!-- vantage: question id=OQ-BP5 -->
 
    _Leaning:_ **Download-with-digest now; no build step until something needs one B cannot serve.** If a build step is added later, it should be jail-side only and origin-gated exactly as `InstallerURL` is — and it should be honest that a built artifact is unpinned, rather than inheriting the word "pinned" from the commit that produced its recipe.
-
-   ⚠ **The leaning's precedent no longer exists** (re-checked 2026-09-24): `InstallerURL` is not origin-gated any more — `packload.Pack.HonoredInstalls` refuses nothing since [`OQ-TP9`](trust-paths.md#decision-ledger) — so "origin-gated exactly as `InstallerURL` is" now means "not gated". A build step that should be origin-gated would need a refusal source of its own, and that code's own comment says any new one needs its own design ruling. The download half of the leaning is unaffected. Related: [`forked-programs-as-packs.md`](forked-programs-as-packs.md) designs source builds for `kind: "program"` — built in a throwaway capture jail, never on the host — which is the same "declared build step" question for a different artifact.
 
    **Answer:**
    > Decided as an implementation choice ([BP-D1](#BP-D1)), reversible: download-with-digest
@@ -987,15 +989,17 @@ nothing in the tree.
    > built in a throwaway capture jail, rather than a second build path. The origin gate the
    > leaning named is dropped, because [`OQ-TP9`](trust-paths.md#decision-ledger) deleted it.
 
+<a id="oq-bp6-background"></a>**Background to [OQ-BP6](#OQ-BP6), below.**
+
+⚠ **Two facts under this leaning changed on 2026-09-04, two days after it was verified** ([`OQ-TP9`](trust-paths.md#decision-ledger)): there is no host-execution approval to gate on any more, and there are no origin-refused fields — `reads-host`, `mount` and `InstallerURL` are all honored for a fetched pack. What survives is disclosure: the claim is still enumerated, `yolo pack footprint` shows it, and the launch prints it before the daemon spawns. So a fetched pack's `host_daemon.cmd` runs on the host today with no approval, disclosed, and the halfway-measure argument is *stronger* — refusing the binary would be the only origin refusal in the tree. What is now open is whether that disclosure is enough for a shipped host binary, or whether it is the case that earns a new refusal source. **Not answered by [`OQ-TP9`](trust-paths.md#decision-ledger)**, which ruled on selection and approval rather than on shipped binaries, so this stays open.
+
 2. ✅ <a id="OQ-BP6"></a>**[OQ-BP6](#OQ-BP6) — may a *fetched* pack ship a host-side daemon binary?**
 
-   [§3.1](#31-what-is-actually-unresolved-here)'s two-gate split says a jail-side binary is roughly as sharp as what a pack can already do, while a host-side one is a host-execution grant. This asks whether the second is available to a fetched pack at all, or whether — like `InstallerURL` and `host_files` — it is refused by origin regardless of what the user would approve. Not needed for the broker, which is official; needed before anyone else ships one.
+   [§3.1](#31-what-is-actually-unresolved-here)'s two-gate split says a jail-side binary is roughly as sharp as what a pack can already do, while a host-side one is a host-execution grant. This asks whether the second is available to a fetched pack at all, or whether — like `InstallerURL` and `host_files` — it is refused by origin regardless of what the user would approve. Not needed for the broker, which is official; needed before anyone else ships one. [What changed under the leaning on 2026-09-04](#oq-bp6-background) is above.
 
    <!-- vantage: question id=OQ-BP6 -->
 
    _Leaning:_ **Allow it, gated by the existing host-execution approval rather than refused by origin.** A fetched pack can already declare a `host_daemon.cmd` naming an arbitrary host argv — verified 2026-09-02: the loophole claim producer (`loopholeClaims`, `internal/packload/loopholesource.go`) enumerates `host_daemon.cmd + doctor_cmd` as an **approvable** claim (*"host EXECUTION"*), distinct from the origin-refused fields (`reads-host`, `mount`, `InstallerURL`) — so refusing a *binary* while permitting an arbitrary *command* would repeat the halfway-measure shape [OQ-LP14](../reference/loophole-system.md#oq-lp14) already suffers from: blocking the declarative form of a capability while permitting the imperative one. But this genuinely is a widening and should be answered deliberately.
-
-   ⚠ **Two facts under this leaning changed on 2026-09-04, two days after it was verified** ([`OQ-TP9`](trust-paths.md#decision-ledger)): there is no host-execution approval to gate on any more, and there are no origin-refused fields — `reads-host`, `mount` and `InstallerURL` are all honored for a fetched pack. What survives is disclosure: the claim is still enumerated, `yolo pack footprint` shows it, and the launch prints it before the daemon spawns. So a fetched pack's `host_daemon.cmd` runs on the host today with no approval, disclosed, and the halfway-measure argument is *stronger* — refusing the binary would be the only origin refusal in the tree. What is now open is whether that disclosure is enough for a shipped host binary, or whether it is the case that earns a new refusal source. **Not answered by [`OQ-TP9`](trust-paths.md#decision-ledger)**, which ruled on selection and approval rather than on shipped binaries, so this stays open.
 
    **Answer:**
    > Answered by [`OQ-TP9`](trust-paths.md#decision-ledger) (2026-09-04): yes, honored and
@@ -1007,35 +1011,44 @@ nothing in the tree.
    > [OQ-HP5](host-tool-provisioning.md#OQ-HP5) says the same of installs (*"You've acknowledged
    > this already. We don't have to ask again"*). No new refusal source is added for a binary.
 
+<a id="oq-bp7-background"></a>**Background to [OQ-BP7](#OQ-BP7), below: the scenario, and the options in full.**
+
+Say `packs/claude`'s in-jail terminator becomes a downloaded program, `cmd/oauth-terminator`,
+pinned by v0.12.0. On main you change how it talks to the host broker, both halves in one
+commit, run `just install`, and start a jail. Everything else in that jail comes from your tree:
+the bundle's binaries are cross-compiled from it, and a launch refuses a host `yolo` built from
+an older tree than the flake it mounts ([`srcskew.go`](../../internal/version/srcskew.go)). The
+terminator would not come from your tree. If pins move only when a release is cut, the manifest
+your `yolo` embeds still names v0.12.0's build, and the jail runs the old terminator against the
+new broker.
+
+- **A — The last release's build.** Pins move only at `just release`, and nothing is added
+  between releases. Every build of main installs, but a from-source jail runs the last released
+  program until the next release, and a change to it can be tried only through a pack configured
+  by path. It allows, for these programs alone, the skew `SourceSkew` refuses for every other
+  binary yolo puts in a jail.
+- **B — The tree's own build, checked on every change.** `just check-ci` rebuilds every official
+  build and refuses a digest the tree no longer reproduces, naming the pin command. `just install`
+  builds the same bytes and seeds the cache with them, so a from-source jail runs the tree's
+  program with no download. The URLs still name the last release until `just release`, so any
+  other build of main fails `yolo pack install` for a changed program, with the integrity error
+  naming both digests. Cost: a pin commit for every change that reaches a program's imports (its
+  source, an internal package it uses, a vendor bump, the toolchain constant), and `just check-ci`
+  cross-compiling every official build.
+- **C — The tree's own build, published on every push.** B, plus a CI job that uploads each new
+  build to a standing prerelease under a name carrying its digest, so every build of main
+  installs. Cost: a second publication channel, carrying programs no release vouched for, written
+  by CI on every push to main.
+
 3. 💬 <a id="OQ-BP7"></a>**[OQ-BP7](#OQ-BP7) — between two releases, does main pin the last release's build of an official binary, or its own?**
 
-   Say `packs/claude`'s in-jail terminator becomes a downloaded program, `cmd/oauth-terminator`,
-   pinned by v0.12.0. On main you change how it talks to the host broker, both halves in one
-   commit, run `just install`, and start a jail. Everything else in that jail comes from your tree:
-   the bundle's binaries are cross-compiled from it, and a launch refuses a host `yolo` built from
-   an older tree than the flake it mounts ([`srcskew.go`](../../internal/version/srcskew.go)). The
-   terminator would not come from your tree. If pins move only when a release is cut, the manifest
-   your `yolo` embeds still names v0.12.0's build, and the jail runs the old terminator against the
-   new broker. This decides what a build from source promises about an official binary, and it
-   blocks step 7 of [§14.4](#144-the-plan-in-order) and nothing else.
+   This decides what a build from source promises about an official binary, and it
+   blocks step 7 of [§14.4](#144-the-plan-in-order) and nothing else. The scenario that poses it, and each option in full
+   with its cost, are [in the background above](#oq-bp7-background).
 
-   - **A — The last release's build.** Pins move only at `just release`, and nothing is added
-     between releases. Every build of main installs, but a from-source jail runs the last released
-     program until the next release, and a change to it can be tried only through a pack configured
-     by path. It allows, for these programs alone, the skew `SourceSkew` refuses for every other
-     binary yolo puts in a jail.
-   - **B — The tree's own build, checked on every change.** `just check-ci` rebuilds every official
-     build and refuses a digest the tree no longer reproduces, naming the pin command. `just install`
-     builds the same bytes and seeds the cache with them, so a from-source jail runs the tree's
-     program with no download. The URLs still name the last release until `just release`, so any
-     other build of main fails `yolo pack install` for a changed program, with the integrity error
-     naming both digests. Cost: a pin commit for every change that reaches a program's imports (its
-     source, an internal package it uses, a vendor bump, the toolchain constant), and `just check-ci`
-     cross-compiling every official build.
-   - **C — The tree's own build, published on every push.** B, plus a CI job that uploads each new
-     build to a standing prerelease under a name carrying its digest, so every build of main
-     installs. Cost: a second publication channel, carrying programs no release vouched for, written
-     by CI on every push to main.
+   - **A — The last release's build.**
+   - **B — The tree's own build, checked on every change.**
+   - **C — The tree's own build, published on every push.**
 
    <!-- vantage: question id=OQ-BP7 leaning="B: main pins its own build, kept current by a check-ci rebuild and seeded into the cache by just install, so a from-source jail runs the tree's program as it runs every other binary yolo puts in a jail, and nothing is published outside a release." -->
 

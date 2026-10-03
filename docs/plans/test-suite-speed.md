@@ -2,7 +2,7 @@
 title: "Test suite speed"
 date: 2026-09-27
 status: in-review
-stage: DECIDED
+stage: DESIGN
 next: "Cut the waits the 2026-10-01 retake names (a 15 s and two 5 s tests in internal/cli/run, six refresh-timeout tests in internal/packsrc), then retake recipe 1 and three idle runs of recipe 3"
 tags: [testing, ci, performance, plan]
 summary: "Why the unit gate doubled and the integration suite grew by half in three weeks, what is being cut, the targets, and four questions for the maintainer, two of them answered."
@@ -24,9 +24,7 @@ integration one (498.0 s, one run); and nothing of the five items as written is 
 coming from tests added since. Four questions each
 asked for one more lever. [OQ-TS1](#OQ-TS1) and [OQ-TS3](#OQ-TS3) were answered 2026-09-29, both as
 leaned and both adding no lever ([Decision Ledger](#decision-ledger)). [OQ-TS2](#OQ-TS2) and
-[OQ-TS4](#OQ-TS4) are still open, and none of the five work items waits on them. This follows the
-precedent [`install-capture.md`](install-capture.md) set for a plan that owes work with an
-additive question still open.
+[OQ-TS4](#OQ-TS4) are still open, and none of the five work items waits on them.
 
 > **In short.** No existing test got slower. The time went into tests added since mid-August,
 > several of which wait on real clocks, and into running the full suite 28 to 34 times a day.

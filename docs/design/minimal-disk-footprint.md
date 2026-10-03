@@ -732,6 +732,8 @@ are [§11.1](#111-decision-ledger) rows.
 
    <!-- vantage: question id=OQ-DF3 -->
 
+   **Answer:**
+
    **The maintainer's words, because both halves of the ruling are in them:**
 
    > *"yes, I don't want to delete podman images we don't own. if our recording is insufficient, record better. is there no other way to identify our images? name? metadata?"*
@@ -750,52 +752,65 @@ are [§11.1](#111-decision-ledger) rows.
 
    **Verification.** `internal/prune/autoreap_test.go` pins the debounce (a second call inside the interval issues no `images`/`rmi` calls) and the veto (a live jail's image, even the OLDEST by CreatedAt, is never among the removed; an unreadable ledger declines the pass and does not stamp). `internal/cli/run/autoreapimages_test.go` pins the same two properties through the real `o.Exec`-to-`prune.RunFunc` adapter, plus the opt-out. Verified live 2026-09-06 by a real nested-jail launch (with `YOLO_NO_AUTO_IMAGE_REAP=1` set, because this jail's own store carried ~18 real multi-GB images no fixture should touch), which left all 18 rows byte-for-byte untouched. **NOT MEASURED:** the label probe on Apple Container — `--filter label=` is podman's spelling, and that backend's reaper does not exist yet ([OQ-BF6](disk-levers-and-backfill.md#OQ-BF6)).
 
-4. 💬 <a id="OQ-DF4"></a>**[OQ-DF4](#OQ-DF4) — does yolo owe the machine a stated number, or only a policy?** UNBLOCKED 2026-09-15: the measurement this question waited on was taken ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)).
+<a id="oq-df4-background"></a>**Background to [OQ-DF4](#OQ-DF4), below: what each answer means, the measurement, and (A)'s cost.**
+UNBLOCKED 2026-09-15: the measurement this question waited on was taken ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)).
 
-   [§4.1](#41-candidate-invariants-weighed)c adopts a byte ceiling as a *contract* but not as a trigger, which leaves open whether the number is ever written down. **A number** means a user-settable budget — a config key, with validation, an entry in the nested-inheritance table, and a lifetime of being defended — that `yolo check` and `yolo prune` both report against. **A policy** means no configurable number at all: the write path keeps its own bytes bounded and there is nothing to tune. Worth noting how thin the current surface is — `prune.warn_threshold_gb` is the **only** disk-budgeting config key there is, and `internal/prune` does not import `internal/config` at all, deliberately, so `yolo check` is that key's sole consumer and `yolo prune` reads no config whatever (re-verified 2026-09-18).
+**A number** means a user-settable budget — a config key, with validation, an entry in the nested-inheritance table, and a lifetime of being defended — that `yolo check` and `yolo prune` both report against. **A policy** means no configurable number at all: the write path keeps its own bytes bounded and there is nothing to tune. Worth noting how thin the current surface is — `prune.warn_threshold_gb` is the **only** disk-budgeting config key there is, and `internal/prune` does not import `internal/config` at all, deliberately, so `yolo check` is that key's sole consumer and `yolo prune` reads no config whatever (re-verified 2026-09-18).
 
-   **What the measurement says, and why it narrows the question rather than answering it** (restated 2026-09-30). Two dated `yolo stores` samples ([OQ-BF9](disk-levers-and-backfill.md#OQ-BF9)'s bounded ledger recorded them) put the unreclaimed residual at **≈196 MiB/day ≈ 70 GiB/yr**, and **not diffuse**: `mise/` and `cache/staticcheck` carried 99 % of it between them. A third reading on 2026-09-30 takes one of the two out ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)'s note): `cache/staticcheck` trims itself, so it is a live working set and not residue. What is left is **one named store, `mise/`**, the tool versions every jail on the machine shares, growing about **36 MiB a day (13 GiB a year)** because a version no workspace uses any more is never removed. A byte ceiling is the instrument for residue you cannot attribute; residue with a name and a path wants a **reclaimer**. So the live decision is the smaller one, and only (C) needs a number:
+**What the measurement says, and why it narrows the question rather than answering it** (restated 2026-09-30). Two dated `yolo stores` samples ([OQ-BF9](disk-levers-and-backfill.md#OQ-BF9)'s bounded ledger recorded them) put the unreclaimed residual at **≈196 MiB/day ≈ 70 GiB/yr**, and **not diffuse**: `mise/` and `cache/staticcheck` carried 99 % of it between them. A third reading on 2026-09-30 takes one of the two out ([§2.6](#26-the-second-sample-2026-09-15--oq-df4-is-unblocked-and-the-residual-has-a-name)'s note): `cache/staticcheck` trims itself, so it is a live working set and not residue. What is left is **one named store, `mise/`**, the tool versions every jail on the machine shares, growing about **36 MiB a day (13 GiB a year)** because a version no workspace uses any more is never removed. A byte ceiling is the instrument for residue you cannot attribute; residue with a name and a path wants a **reclaimer**. So the live decision is the smaller one, and only (C) needs a number:
 
-   - **(A) Policy, and sweep `mise/`.** No budget key. `mise/` joins the offered tier of
-     [`disk-levers-and-backfill.md` §5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping):
-     once 1 GiB of tool versions no jail has used for 30 days piles up, a launch offers to remove
-     them, and a `y` makes it automatic, as the cache age-purge already works. Unbuilt, and it
-     owes a signal yolo does not collect yet: nothing yolo writes records which versions a launch
-     used (mise records it per workspace, as the check below found), and a reaper that cannot
-     tell declines rather than sweeping. The cost is a re-download for a
-     workspace that comes back to an old version.
-   - **(B) Policy, and `mise/` is the human's.** No budget key and no reclaimer. `yolo stores`
-     keeps listing it as a store nothing reclaims, and removing old versions stays the user's
-     job. The cost is the growth, about 13 GiB a year at the measured rate.
-   - **(C) A number.** A user-settable budget key that `yolo check` and `yolo prune` both report
-     against, the contract [§4.1](#41-candidate-invariants-weighed)c adopted. The cost is a key to
-     validate, inherit into nested jails and defend, and a ceiling can only evict what the next
-     launch rebuilds or downloads again ([§9](#9-risks) R5).
+- **(A) Policy, and sweep `mise/`.** No budget key. `mise/` joins the offered tier of
+  [`disk-levers-and-backfill.md` §5.2](disk-levers-and-backfill.md#52-two-tiers-one-mapping):
+  once 1 GiB of tool versions no jail has used for 30 days piles up, a launch offers to remove
+  them, and a `y` makes it automatic, as the cache age-purge already works. Unbuilt, and it
+  owes a signal yolo does not collect yet: nothing yolo writes records which versions a launch
+  used (mise records it per workspace, as the check below found), and a reaper that cannot
+  tell declines rather than sweeping. The cost is a re-download for a
+  workspace that comes back to an old version.
+- **(B) Policy, and `mise/` is the human's.** No budget key and no reclaimer. `yolo stores`
+  keeps listing it as a store nothing reclaims, and removing old versions stays the user's
+  job. The cost is the growth, about 13 GiB a year at the measured rate.
+- **(C) A number.** A user-settable budget key that `yolo check` and `yolo prune` both report
+  against, the contract [§4.1](#41-candidate-invariants-weighed)c adopted. The cost is a key to
+  validate, inherit into nested jails and defend, and a ceiling can only evict what the next
+  launch rebuilds or downloads again ([§9](#9-risks) R5).
 
-   **Checked 2026-10-01: mise's own record holds (A)'s signal, one workspace at a time, and
-   nothing joins the pieces.** MEASURED in this jail, mise 2026.8.6:
+**Checked 2026-10-01: mise's own record holds (A)'s signal, one workspace at a time, and
+nothing joins the pieces.** MEASURED in this jail, mise 2026.8.6:
 
-   - **The record exists.** mise keeps one link per config file it has used, in
-     `~/.local/state/mise/tracked-configs`, and `mise prune` deletes every installed version that
-     no tracked config names as its latest (`mise prune --help`).
-   - **It is per workspace, and the store is not.** That state directory is under the jail's
-     `~/.local`, which is the workspace's own `<workspace>/.yolo/home/local` on the host, while
-     `MISE_DATA_DIR` is `/mise`, the one store every jail on the machine shares. So a
-     `mise prune` in any one jail decides from that workspace's configs alone. Here,
-     `mise ls --prunable` named 24 of the 31 installed versions. Whether another workspace uses
-     any of them cannot be seen from inside this jail.
-   - **Its links name jail paths and go stale.** They point at `/workspace/…`, which is a
-     different directory in every workspace, and 469 of this workspace's 623 links dangled: 309
-     into `/tmp`, which a restart empties, and most of the rest into removed worktrees.
-   - **No list of workspaces exists to join them over.** The only one yolo has is the running
-     jails' (`prune.FindYoloWorkspaces`): a launch runs its container with `--rm`, so a workspace
-     whose jail has exited is not in it. A reaper that cannot see a workspace has to decline, as
-     the tri-state rule requires.
+- **The record exists.** mise keeps one link per config file it has used, in
+  `~/.local/state/mise/tracked-configs`, and `mise prune` deletes every installed version that
+  no tracked config names as its latest (`mise prune --help`).
+- **It is per workspace, and the store is not.** That state directory is under the jail's
+  `~/.local`, which is the workspace's own `<workspace>/.yolo/home/local` on the host, while
+  `MISE_DATA_DIR` is `/mise`, the one store every jail on the machine shares. So a
+  `mise prune` in any one jail decides from that workspace's configs alone. Here,
+  `mise ls --prunable` named 24 of the 31 installed versions. Whether another workspace uses
+  any of them cannot be seen from inside this jail.
+- **Its links name jail paths and go stale.** They point at `/workspace/…`, which is a
+  different directory in every workspace, and 469 of this workspace's 623 links dangled: 309
+  into `/tmp`, which a restart empties, and most of the rest into removed worktrees.
+- **No list of workspaces exists to join them over.** The only one yolo has is the running
+  jails' (`prune.FindYoloWorkspaces`): a launch runs its container with `--rm`, so a workspace
+  whose jail has exited is not in it. A reaper that cannot see a workspace has to decline, as
+  the tri-state rule requires.
 
-   So (A)'s cost is now a known shape: a record, written at each launch, of every workspace that
-   has used the store, read host-side with each `/workspace` link mapped to that workspace's host
-   path, and declining whenever a recorded workspace cannot be read. mise supplies the per-config
-   half; what is missing is the list of workspaces.
+So (A)'s cost is now a known shape: a record, written at each launch, of every workspace that
+has used the store, read host-side with each `/workspace` link mapped to that workspace's host
+path, and declining whenever a recorded workspace cannot be read. mise supplies the per-config
+half; what is missing is the list of workspaces.
+
+4. 💬 <a id="OQ-DF4"></a>**[OQ-DF4](#OQ-DF4) — does yolo owe the machine a stated number, or only a policy?**
+
+   [§4.1](#41-candidate-invariants-weighed)c adopts a byte ceiling as a *contract* but not as a trigger, which leaves open whether the number is ever written down.
+   What a number and a policy each mean, the measurement that narrowed the question to one named
+   store (`mise/`), each option in full, and what (A) would cost are
+   [in the background above](#oq-df4-background). The live decision is the smaller one, and only
+   (C) needs a number:
+
+   - **(A) Policy, and sweep `mise/`.**
+   - **(B) Policy, and `mise/` is the human's.**
+   - **(C) A number.**
 
    _Leaning:_ **(A).** Policy, not a number: if the write path bounds itself, the budget is a property of the design rather than a dial, and "minimal" is not a number a user should have to discover. The condition I held this open for — *"a residual that only a ceiling catches"* — is now observable, and it is one named store, which is the case a ceiling is worst at. Between the two policies, (B) is a reclaimer that waits for a human, which is the defect this doc is named for, and the ruling it executes says *"we need to use minimal disk space"* ([§1](#1-the-ruling-and-what-the-bug-actually-is)).
 

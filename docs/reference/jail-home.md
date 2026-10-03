@@ -35,7 +35,7 @@ covers:
   - internal/entrypoint/scripts.go
   - internal/entrypoint/packhooks.go
 tags: [home, mounts, overlays, storage, entrypoint, path]
-stage: CURRENT
+stage: DESIGN
 next: "Rule OQ-JH1, whether a user may relocate .yolo or .yolo/home with a symbolic link: options (a) keep the refusal and document a bind mount, (b) accept a link whose target is recorded host-side, (c) a YOLO_ALLOW_* hatch; leaning (a)"
 summary: "How /home/agent is composed: a per-jail read-only skeleton, per-workspace writable overlays punched through it, staged :ro content on top, and files the entrypoint regenerates into the overlays on every boot. Covers the mount stack, the write rules that keep bind mounts alive, PATH, what is shared at which scope, and how the three backends differ."
 ---
@@ -903,20 +903,26 @@ overlay can plant one in between. The launch lock rules out a second jail of thi
 whose own workspace contains this one is the remaining writer. Closing that needs bind sources
 podman opens by descriptor, which it does not offer.
 
+<a id="oq-jh1-background"></a>**Background to [`OQ-JH1`](#OQ-JH1), below.** Two facts added 2026-09-30, when this was triaged and left open. A bind mount is not free: on
+Linux it needs root (a `sudo mount --bind` or an `/etc/fstab` line), and macOS has no bind mount
+without a third-party filesystem such as bindfs, so under (a) a Mac user has no supported way to
+move the directory short of moving the whole workspace. And (c) runs against the standing rule
+that an escape hatch is for a broken user configuration, never for yolo's own safety check, which
+leaves (a) or (b) as the real choice.
+
 - 💬 <a id="OQ-JH1"></a>**[`OQ-JH1`](#OQ-JH1) — may a user relocate `.yolo` or `.yolo/home` with a symbolic link?** The launch now
   refuses one, with no override, because it cannot tell a link the user made from one a jail made.
   A user who moved the overlay to another disk that way (the machine-store directories are
-  routinely large) is refused on the next launch. Options: (a) keep the refusal and document a bind
-  mount as the way to relocate, since a mountpoint `Lstat`s as a directory; (b) accept a link whose
-  target is recorded host-side, outside every jail-writable directory, as the user's; (c) add a
-  `YOLO_ALLOW_*` hatch.
+  routinely large) is refused on the next launch. Options:
 
-  Two facts added 2026-09-30, when this was triaged and left open. A bind mount is not free: on
-  Linux it needs root (a `sudo mount --bind` or an `/etc/fstab` line), and macOS has no bind mount
-  without a third-party filesystem such as bindfs, so under (a) a Mac user has no supported way to
-  move the directory short of moving the whole workspace. And (c) runs against the standing rule
-  that an escape hatch is for a broken user configuration, never for yolo's own safety check, which
-  leaves (a) or (b) as the real choice.
+  - (a) keep the refusal and document a bind
+    mount as the way to relocate, since a mountpoint `Lstat`s as a directory;
+  - (b) accept a link whose
+    target is recorded host-side, outside every jail-writable directory, as the user's;
+  - (c) add a
+    `YOLO_ALLOW_*` hatch.
+
+  Two facts added 2026-09-30 bear on (a) and (c): [the background above](#oq-jh1-background).
 
   <!-- vantage: question id=OQ-JH1 leaning="(a): keep the refusal and document a bind mount as the way to relocate. A hatch would be for yolo's own safety check rather than a broken config, and (b) adds a host-side record for a layout nothing documents." -->
 

@@ -171,21 +171,26 @@ version collision made it urgent.
 
 ## 7. Open Questions
 
+<a id="oq-ed1-background"></a>**Background to [OQ-ED1](#OQ-ED1), below.** As first filed, the question named three forms: unset unless the user names an
+editor; derived from a new config key; or derived from what the user's `mise_tools`/`packages`
+happen to provide.
+
+⚠ **Restated 2026-09-30 with letters, and with the premise made explicit.** The question arises
+only if neovim leaves the image, which is [§3](#3-the-proposal) item 1 and has no question of its
+own, so answering this one rules that too. (D) is the way to say no.
+
+Under (A), a
+user names one with an `env_sources` entry such as `{"VISUAL": "vim"}`, which works today: the
+value lands in `~/.config/yolo-user-env.sh`, and the generated `.bashrc` sources that after its
+own `export VISUAL=nvim`.
+
 1. 💬 <a id="OQ-ED1"></a>**[OQ-ED1](#OQ-ED1): what does `VISUAL` become?**
    `EDITOR=cat` is deliberate and stays, which makes `VISUAL` the human's only escape from it — it
-   is what Copilot's ctrl-g uses to open a real editor. Three forms: unset unless the user names an
-   editor; derived from a new config key; or derived from what the user's `mise_tools`/`packages`
-   happen to provide. The stakes: whether "no editor configured" is a legible state or a keystroke
-   that quietly does nothing.
+   is what Copilot's ctrl-g uses to open a real editor. The stakes: whether "no editor configured" is a legible state or a keystroke
+   that quietly does nothing. Answering it also rules whether neovim leaves the image
+   ([the premise, and naming one today](#oq-ed1-background)).
 
-   ⚠ **Restated 2026-09-30 with letters, and with the premise made explicit.** The question arises
-   only if neovim leaves the image, which is [§3](#3-the-proposal) item 1 and has no question of its
-   own, so answering this one rules that too. (D) is the way to say no.
-
-   - **(A) Unset unless the user names one**, and the launch says once that none is configured. A
-     user names one with an `env_sources` entry such as `{"VISUAL": "vim"}`, which works today: the
-     value lands in `~/.config/yolo-user-env.sh`, and the generated `.bashrc` sources that after its
-     own `export VISUAL=nvim`.
+   - **(A) Unset unless the user names one**, and the launch says once that none is configured.
    - **(B) Derived from a new config key** that names the editor.
    - **(C) Derived from what the user's `mise_tools` or `packages` happen to provide.**
    - **(D) Nothing changes**: neovim stays in the image and `VISUAL` stays `nvim`, which is
@@ -200,18 +205,23 @@ version collision made it urgent.
    **Answer:**
    > _(empty — fill in when decided)_
 
+<a id="oq-ed2-background"></a>**Background to [OQ-ED2](#OQ-ED2), below.**
+
+⚠ **Restated 2026-09-30 with letters.** The block used to call this a documented macOS-guide
+behavior; that guide no longer mentions nvim, and `jail-home.md` is where it is written down.
+
+Under (A), a pack can already
+declare the mount (`mount`) and the value (`env`); whether the boot copy fits an existing
+contribution kind is not checked.
+
 2. 💬 <a id="OQ-ED2"></a>**[OQ-ED2](#OQ-ED2): does the host-nvim-config machinery survive, and where does it live?**
    Sites 6 and 7 are a mount, a boot step and a copy-merge into the `.config` overlay, documented in
    [`jail-home.md`](../reference/jail-home.md) — real machinery serving people who do want their own
    nvim config in the jail. Today it runs for anyone whose host has `~/.config/nvim`, whether or not
    they asked. The stakes: whether core keeps editor-shaped code after the preference leaves.
+   [What a pack can already declare](#oq-ed2-background) bears on (A).
 
-   ⚠ **Restated 2026-09-30 with letters.** The block used to call this a documented macOS-guide
-   behavior; that guide no longer mentions nvim, and `jail-home.md` is where it is written down.
-
-   - **(A) Move it to an opt-in pack**, which can also carry the `VISUAL` value. A pack can already
-     declare the mount (`mount`) and the value (`env`); whether the boot copy fits an existing
-     contribution kind is not checked.
+   - **(A) Move it to an opt-in pack**, which can also carry the `VISUAL` value.
    - **(B) Keep it in core, gated on an editor being configured.**
    - **(C) Delete it.**
 
@@ -224,17 +234,22 @@ version collision made it urgent.
    **Answer:**
    > _(empty — fill in when decided)_
 
+<a id="oq-ed3-background"></a>**Background to [OQ-ED3](#OQ-ED3), below.** The two aliases
+are the sharpest edge: yolo rewrites two commands to a third program, so a user who
+installs real `vim` still gets nvim.
+
+⚠ **Restated 2026-09-30 with letters.** They are fixed text in the generated `.bashrc`
+(`bashrcPart4`, [`shell.go`](../../internal/entrypoint/shell.go)). The pack aliases written above
+them add launch flags to the command typed, and the boot announces each one (*"yolo CHANGED what
+these commands mean in this jail's interactive shell"*); these two are announced nowhere. If nvim
+leaves the image they point at nothing, so keeping them unchanged is not offered.
+
 3. 💬 <a id="OQ-ED3"></a>**[OQ-ED3](#OQ-ED3): do `alias vi` / `alias vim` go, and is there a general rule?**
-   These are the sharpest edge: yolo rewrites two commands to a third program, so a user who
-   installs real `vim` still gets nvim. Dropping them is easy; the question worth asking is whether
+   Dropping them is easy; the question worth asking is whether
    the repo wants a stated rule — *core never aliases one program's name to another's* — since a
    one-off deletion invites the next one. The stakes: a line in `AGENTS.md`, or nothing.
-
-   ⚠ **Restated 2026-09-30 with letters.** They are fixed text in the generated `.bashrc`
-   (`bashrcPart4`, [`shell.go`](../../internal/entrypoint/shell.go)). The pack aliases written above
-   them add launch flags to the command typed, and the boot announces each one (*"yolo CHANGED what
-   these commands mean in this jail's interactive shell"*); these two are announced nowhere. If nvim
-   leaves the image they point at nothing, so keeping them unchanged is not offered.
+   What they do, where they live, and why keeping them unchanged is not offered, is
+   [in the background above](#oq-ed3-background).
 
    - **(A) Drop them, and state the rule** in `AGENTS.md`: core never aliases one program's name to
      another's.
@@ -251,43 +266,46 @@ version collision made it urgent.
    **Answer:**
    > _(empty — fill in when decided)_
 
+<a id="oq-ed4-background"></a>**Background to [OQ-ED4](#OQ-ED4), below: the measurement.**
+
+✅ **MEASURED 2026-09-22, and the answer is: it is a floor AUDIT.** `coreFloorNames` holds **36**
+entries (not the ~40 this doc guessed), and `darwinpkg.ImageCoreNames` matches it entry-for-entry,
+so the drift gate holds. Applying [§2](#2-dependency-or-preference--the-test-the-floor-does-not-apply)'s
+test mechanically — zero exec, zero env reference, zero manifest reference across `internal/`,
+`cmd/` and `packs/` — splits them **21 dependency, 13 preference, 2 pack-dependency**.
+
+The 13 with no consumer: `neovim`, `gh`, `sox`, `overmind`, `which`, `gnupatch`, `diffutils`,
+`gzip`, `bzip2`, `xz`, `gnutar`, `unzip`, `zip`. In measured-bytes order the only ones worth a
+decision are **neovim ~220 MB, sox ~100 MB, gh 41 MB, overmind 18 MB**; the remaining nine are
+under 10 MB combined and are not worth a doc between them.
+
+> [!WARNING]
+> **Two of this question's own guesses were WRONG, and both would have cost something.**
+>
+> - **`ripgrep`/`fd` are NOT stale.** They are live dependencies of `packs/guardrails`, which
+>   declares `requires` for both — and a blocker shim is generated only when its `replacement`
+>   resolves on the agent's PATH. Drop them and guardrails **silently stops blocking** `grep`
+>   and `find`, which is the failure mode that pack exists to prevent.
+> - **`overmind`'s baked justification is false, but not for the reason to act on.** `flake.nix`
+>   says "exercised by overmind isolation tests"; the test only echoes `$OVERMIND_SOCKET` and
+>   `cat`s the socket path. The binary is never run.
+>
+> And one adjacent doc defect the audit found: `briefing.txt` told every agent "GitHub CLI (gh)
+> is pre-authenticated", but nothing grants a token and `~/.config/gh` does not exist in a jail —
+> so that line was false regardless of what this question rules. **Fixed 2026-09-25**: the
+> briefing now says gh is not signed in, and `TestBriefingDoesNotClaimGhIsAuthenticated`
+> (`internal/cli/briefingclaims_test.go`) holds it there. `config_ref.txt`'s *Identity & Auth*
+> block made the same claim ("pre-authenticated via the shared home"); **fixed 2026-09-25** to
+> say gh is not signed in, held by `TestConfigRefDoesNotClaimGhIsAuthenticated` in the same
+> file.
+
 4. ✅ <a id="OQ-ED4"></a>**[OQ-ED4](#OQ-ED4): is `neovim` the only preference in the floor?**
    [§2](#2-dependency-or-preference--the-test-the-floor-does-not-apply)'s test is cheap to apply to
    the rest of the list, and `gh` is the obvious next candidate — nothing in yolo requires the GitHub
    CLI. `ripgrep` and `fd` are the interesting case: they were dependencies of the *default* blocked
    list, and that default is now empty and opt-in, so their justification may have moved out from
    under them. The stakes: whether this is one removal or a floor audit.
-
-   ✅ **MEASURED 2026-09-22, and the answer is: it is a floor AUDIT.** `coreFloorNames` holds **36**
-   entries (not the ~40 this doc guessed), and `darwinpkg.ImageCoreNames` matches it entry-for-entry,
-   so the drift gate holds. Applying [§2](#2-dependency-or-preference--the-test-the-floor-does-not-apply)'s
-   test mechanically — zero exec, zero env reference, zero manifest reference across `internal/`,
-   `cmd/` and `packs/` — splits them **21 dependency, 13 preference, 2 pack-dependency**.
-
-   The 13 with no consumer: `neovim`, `gh`, `sox`, `overmind`, `which`, `gnupatch`, `diffutils`,
-   `gzip`, `bzip2`, `xz`, `gnutar`, `unzip`, `zip`. In measured-bytes order the only ones worth a
-   decision are **neovim ~220 MB, sox ~100 MB, gh 41 MB, overmind 18 MB**; the remaining nine are
-   under 10 MB combined and are not worth a doc between them.
-
-   > [!WARNING]
-   > **Two of this question's own guesses were WRONG, and both would have cost something.**
-   >
-   > - **`ripgrep`/`fd` are NOT stale.** They are live dependencies of `packs/guardrails`, which
-   >   declares `requires` for both — and a blocker shim is generated only when its `replacement`
-   >   resolves on the agent's PATH. Drop them and guardrails **silently stops blocking** `grep`
-   >   and `find`, which is the failure mode that pack exists to prevent.
-   > - **`overmind`'s baked justification is false, but not for the reason to act on.** `flake.nix`
-   >   says "exercised by overmind isolation tests"; the test only echoes `$OVERMIND_SOCKET` and
-   >   `cat`s the socket path. The binary is never run.
-   >
-   > And one adjacent doc defect the audit found: `briefing.txt` told every agent "GitHub CLI (gh)
-   > is pre-authenticated", but nothing grants a token and `~/.config/gh` does not exist in a jail —
-   > so that line was false regardless of what this question rules. **Fixed 2026-09-25**: the
-   > briefing now says gh is not signed in, and `TestBriefingDoesNotClaimGhIsAuthenticated`
-   > (`internal/cli/briefingclaims_test.go`) holds it there. `config_ref.txt`'s *Identity & Auth*
-   > block made the same claim ("pre-authenticated via the shared home"); **fixed 2026-09-25** to
-   > say gh is not signed in, held by `TestConfigRefDoesNotClaimGhIsAuthenticated` in the same
-   > file.
+   The measurement that answered it is [in the background above](#oq-ed4-background).
 
    _Leaning:_ **Rule on `neovim` alone here; the table above is what a follow-up sprint would take.**
    That was the leaning before the measurement and it survives it — the audit's value is that the

@@ -286,9 +286,13 @@ GitHub's own issue tracker:
 > automatically namespaced using the `/plugin-name:skill-name` format … matching the
 > colon-based namespacing convention used by Claude CLI."*
 
-**Methodology warning, because it cost real time here.** A docs-only research pass reported
-(a) that Copilot does not read `.claude/skills`, (b) that namespacing does not exist, and
-(c) that #1766 was still open. **All three were wrong.** `docs.github.com`'s add-skills page
+**Methodology warning, because it cost real time here.** A docs-only research pass reported:
+
+- (a) that Copilot does not read `.claude/skills`,
+- (b) that namespacing does not exist, and
+- (c) that #1766 was still open.
+
+**All three were wrong.** `docs.github.com`'s add-skills page
 is simply incomplete; Copilot's own in-app help text, in the bundle, says:
 
 > Skills are loaded from:

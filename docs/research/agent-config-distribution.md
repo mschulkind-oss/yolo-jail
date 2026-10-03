@@ -491,10 +491,16 @@ clone-then-`install.sh`-or-symlink. distrobox's default is sharing the host `$HO
 outright (`DBX_CONTAINER_HOME_PREFIX` is an opt-in, buggy escape hatch).
 
 **So the honest differentiator of an extracted prism is a triple, and no surveyed
-tool has all three:** (1) a *declared* layer precedence over **existing** app
-formats with RFC-7386 semantics, (2) a sandboxed transform over the
-already-merged value, (3) in-place edits surviving regeneration via a capture-diff
-overlay. (3) is the least replicated — chezmoi's answer to a self-rewriting app is
+tool has all three:**
+
+1. a *declared* layer precedence over **existing** app
+   formats with RFC-7386 semantics,
+2. a sandboxed transform over the
+   already-merged value,
+3. in-place edits surviving regeneration via a capture-diff
+   overlay.
+
+(3) is the least replicated — chezmoi's answer to a self-rewriting app is
 `ignore`, home-manager's is refuse-or-backup, ruler/rulesync's is overwrite.
 
 Two prism features a standalone product would have to keep are documented as

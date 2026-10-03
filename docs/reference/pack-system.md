@@ -29,7 +29,7 @@ covers:
   - internal/loopholedecl/capabilities.go
   - packs/
 tags: [packs, config, kinds, manifest, prism, trust, disclosure]
-stage: CURRENT
+stage: DESIGN
 next: "Rule OQ-PK1, whose options and leaning were drafted 2026-10-01 (the leaning: shipped packs whose contributions all stay inside the jail, executable kinds included); mcp-presets-removal.md's build steps 1-3 wait on the ruling"
 ---
 
@@ -2235,29 +2235,61 @@ the way [OQ-LT2](#oq-lt2) accepts the third. Their ids continue the additive con
 design's numbering ([`OQ-AL1`](#oq-al1), [`OQ-AL2`](#oq-al2)), because both are that design's
 residue.
 
+<a id="oq-al3-options"></a>**[`OQ-AL3`](#oq-al3)'s options in full**, as drafted 2026-10-01
+against the tree at `d4e435a3`:
+
+- **(a) Leave them, and record that as accepted**, the way [OQ-LT2](#oq-lt2) records its gap.
+  `yolo host apply --revert` stays the one withdrawal. *You keep:* an entry a dropped pack put
+  in pi's `packages` list, which pi still loads whenever it starts outside yolo, installing it
+  first if it is missing.
+- **(b) Withdraw them in the drop prune, behind the same prompt as overlay keys**
+  ([R3 (pack drop)](#pd-r3)). The insert record already names exactly the entries yolo put in
+  the file (`agentcfg.ListInsertRecord`), and the prune already reaches a dropped owner's
+  surfaces through the shipped set (`entrypoint.PruneHostOverlayKeys`). *You pay:* the insert
+  record names no pack per entry, so the prompt groups these entries by surface rather than by
+  pack, unless the record gains a pack per entry. An owner yolo does not ship stays out of
+  reach, as it is for `--revert`.
+- **(c) Rule it together with the owner's own keys.** A dropped owner leaves its `managed` keys
+  in the file too, an axis the drop prune names as a different ruling (`retired:managed`,
+  `internal/entrypoint/hostoverlayprune.go`). Withdrawing only the list entries leaves a file
+  half retired.
+
+<a id="oq-al4-options"></a>**[`OQ-AL4`](#oq-al4)'s options in full**, as drafted 2026-10-01
+against the tree at `d4e435a3`. A list capture
+records per-entry additions and removals relative to the last render (`ListRecord`,
+`internal/agentcfg/listcontrib.go`), and promote's report names both kinds as not promotable
+(`promoteListNote`, `internal/cli/configpromote.go`).
+
+- **(a) No: list captures stay in the workspace**, named by promote's report, as today.
+  *You keep:* a `pi install` made in a jail reaches that workspace and no other, however many
+  times it is promoted.
+- **(b) Lift the additions, as one `config-list` contribution in the promotion target; leave
+  the removals.** An addition is exactly a `config-list` `add`: the same whole-value equality,
+  and a fold that keeps the user's existing entries. A removal has no pack form, since a list
+  contribution only appends ([OQ-LT2](#oq-lt2) accepts that), so removals stay in the workspace
+  capture and the report keeps naming them. *You pay:* one surface's list edits then live in two
+  places, and a lifted entry may land at another position in the array, because a contribution
+  appends after every overlay. The sensitive check reads key names
+  (`internal/cli/configpromotesensitive.go`), so a string entry, which is what pi's `packages`
+  holds, gives it nothing to read: a URL carrying a token would pass it.
+- **(c) Lift both.** It needs a per-entry removal on the pack side, which `config-list` lacks
+  on purpose, so it reopens [OQ-LT2](#oq-lt2).
+
+**The two questions, each option in brief:**
+
 - 💬 <a id="oq-al3"></a>**[`OQ-AL3`](#oq-al3) — should dropping the owner and every contributor
   withdraw the entries yolo inserted?** Today they stay in the host file: the drop prune in
   `yolo host apply` retires `config-overlay` keys only, and no render reaches a surface whose owner
   is not loaded. `yolo host apply --revert` is the one path that removes them, and only for an
   owner yolo ships.
 
-  Options and a leaning drafted 2026-10-01, against the tree at `d4e435a3`:
+  Options and a leaning drafted 2026-10-01, against the tree at `d4e435a3`, each
+  [in full above](#oq-al3-options):
 
   - **(a) Leave them, and record that as accepted**, the way [OQ-LT2](#oq-lt2) records its gap.
-    `yolo host apply --revert` stays the one withdrawal. *You keep:* an entry a dropped pack put
-    in pi's `packages` list, which pi still loads whenever it starts outside yolo, installing it
-    first if it is missing.
   - **(b) Withdraw them in the drop prune, behind the same prompt as overlay keys**
-    ([R3 (pack drop)](#pd-r3)). The insert record already names exactly the entries yolo put in
-    the file (`agentcfg.ListInsertRecord`), and the prune already reaches a dropped owner's
-    surfaces through the shipped set (`entrypoint.PruneHostOverlayKeys`). *You pay:* the insert
-    record names no pack per entry, so the prompt groups these entries by surface rather than by
-    pack, unless the record gains a pack per entry. An owner yolo does not ship stays out of
-    reach, as it is for `--revert`.
-  - **(c) Rule it together with the owner's own keys.** A dropped owner leaves its `managed` keys
-    in the file too, an axis the drop prune names as a different ruling (`retired:managed`,
-    `internal/entrypoint/hostoverlayprune.go`). Withdrawing only the list entries leaves a file
-    half retired.
+    ([R3 (pack drop)](#pd-r3)).
+  - **(c) Rule it together with the owner's own keys.**
 
   <!-- vantage: question id=OQ-AL3 leaning="(b): withdraw them in the drop prune, behind R3 (pack drop)'s prompt, from the insert record. The prune already removes a dropped contributor's overlay keys from a surface whose owner is gone too, and a list entry is the list-shaped twin of an overlay key." -->
 
@@ -2277,23 +2309,12 @@ residue.
   captures?** Today it leaves them in the workspace and names how many captured list entries a
   surface holds, and at which paths ([the list above](#config-list-visibility)).
 
-  Options and a leaning drafted 2026-10-01, against the tree at `d4e435a3`. A list capture
-  records per-entry additions and removals relative to the last render (`ListRecord`,
-  `internal/agentcfg/listcontrib.go`), and promote's report names both kinds as not promotable
-  (`promoteListNote`, `internal/cli/configpromote.go`).
+  Options and a leaning drafted 2026-10-01, against the tree at `d4e435a3`, each
+  [in full above](#oq-al4-options):
 
   - **(a) No: list captures stay in the workspace**, named by promote's report, as today.
-    *You keep:* a `pi install` made in a jail reaches that workspace and no other, however many
-    times it is promoted.
   - **(b) Lift the additions, as one `config-list` contribution in the promotion target; leave
-    the removals.** An addition is exactly a `config-list` `add`: the same whole-value equality,
-    and a fold that keeps the user's existing entries. A removal has no pack form, since a list
-    contribution only appends ([OQ-LT2](#oq-lt2) accepts that), so removals stay in the workspace
-    capture and the report keeps naming them. *You pay:* one surface's list edits then live in two
-    places, and a lifted entry may land at another position in the array, because a contribution
-    appends after every overlay. The sensitive check reads key names
-    (`internal/cli/configpromotesensitive.go`), so a string entry, which is what pi's `packages`
-    holds, gives it nothing to read: a URL carrying a token would pass it.
+    the removals.**
   - **(c) Lift both.** It needs a per-entry removal on the pack side, which `config-list` lacks
     on purpose, so it reopens [OQ-LT2](#oq-lt2).
 
@@ -2604,22 +2625,32 @@ config-composition pipeline has no user-supplied script slot.
 > string still varies between runs. Nothing yolo ships does. The package doc and
 > `sandbox.go` record the remaining gap.
 
-- 💬 <a id="oq-dr1"></a>**[`OQ-DR1`](#oq-dr1) — should the sandbox enforce reference identity too?** Opened 2026-09-25,
-  when `5c1bfa5d` closed the randomness half and recorded this one as open. *DR* stands for "derive";
-  the prefix is new with this question.
+<a id="oq-dr1-options"></a>**[`OQ-DR1`](#oq-dr1) in full.** Opened 2026-09-25,
+when `5c1bfa5d` closed the randomness half and recorded this one as open. *DR* stands for "derive";
+the prefix is new with this question. The options, each with its cost:
 
-  - **(a) Leave it a requirement on the script.** Documented here and in the package doc; nothing
-    yolo ships prints a reference. Cost: a third-party `derive.lua` that emits `tostring(t)`
-    produces a different computed layer every boot, and nothing names the cause.
-  - **(b) Close it in the sandbox, as the randomness half was closed.** Replace the base
-    `tostring` with one that renders a table, function, userdata or thread as its type name
-    alone (`"table"`), so no Go pointer reaches the script. Cost: it must reach every path that
-    renders a reference, not only the global `tostring`, or it becomes a partial fix that reads
-    as complete.
-  - **(c) Detect it at the output instead.** Run each derive twice and refuse a layer that
-    differs between the runs. This catches every source of variation, not only this one. Cost:
-    it doubles derive time on every boot, or covers only the shipped packs if it runs only in
-    `TestEveryShippedPackDeriveStillRuns`.
+- **(a) Leave it a requirement on the script.** Documented here and in the package doc; nothing
+  yolo ships prints a reference. Cost: a third-party `derive.lua` that emits `tostring(t)`
+  produces a different computed layer every boot, and nothing names the cause.
+- **(b) Close it in the sandbox, as the randomness half was closed.** Replace the base
+  `tostring` with one that renders a table, function, userdata or thread as its type name
+  alone (`"table"`), so no Go pointer reaches the script. Cost: it must reach every path that
+  renders a reference, not only the global `tostring`, or it becomes a partial fix that reads
+  as complete.
+- **(c) Detect it at the output instead.** Run each derive twice and refuse a layer that
+  differs between the runs. This catches every source of variation, not only this one. Cost:
+  it doubles derive time on every boot, or covers only the shipped packs if it runs only in
+  `TestEveryShippedPackDeriveStillRuns`.
+
+**The question, each option in brief:**
+
+- 💬 <a id="oq-dr1"></a>**[`OQ-DR1`](#oq-dr1) — should the sandbox enforce reference identity too?**
+
+  Each option, with its cost, is [in full above](#oq-dr1-options):
+
+  - **(a) Leave it a requirement on the script.**
+  - **(b) Close it in the sandbox, as the randomness half was closed.**
+  - **(c) Detect it at the output instead.**
 
   <!-- vantage: question id=OQ-DR1 leaning="(b), with a test that renders a table through every path gopher-lua offers and asserts no 0x appears. It matches how the randomness half was closed: take the nondeterministic source out of the sandbox, so the script cannot reach it at all." -->
 
@@ -2837,81 +2868,95 @@ The object form adds `name` and `only`/`exclude` globs, for per-project narrowin
 corpus. A config still carrying the retired `allow_exec` is refused as an unknown key, because
 a key that does nothing must not be accepted quietly.
 
+<a id="oq-pk1-background"></a>**Background to [`OQ-PK1`](#oq-pk1), below**, which asks for the safe
+subset of packs [`OQ-MP7`](../design/mcp-presets-removal.md#OQ-MP7) ruled a workspace config should
+be able to declare. The hard case the ruling names is an
+`mcp` entry, which is code that runs unconditionally at jail start in a home holding real
+credentials, so the rule has to say why that is acceptable or admit content kinds first and
+leave executable kinds to a second ruling. The ruling asks for
+[`OQ-WS1`](agent-briefings.md#oq-ws1) (the same question for skills) to be ruled in
+the same sitting, and names R5 in [`loophole-system.md`](loophole-system.md#principles) as the
+wording it amends. It blocks building
+[`mcp-presets-removal.md`](../design/mcp-presets-removal.md): that doc's
+[§13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) steps 1–3 wait on it,
+because that ruling moved the workspace-scope boundary they build against. Its answer also
+decides whether the compose engine's `workspace` layer, which nothing fills today, ever gets a
+producer ([the layer](#config-surfaces-and-the-compose-engine)). *PK* stands for the `packs`
+key; the prefix is new with this question.
+
+Options and a leaning drafted 2026-10-01, against the tree at `d4e435a3`. Five facts bear on
+the subset:
+
+- **A workspace config already runs code in the jail without a pack.** `mcp_servers` may name
+  any command, and each MCP-enabled agent spawns it; `packages` builds into the image. Neither
+  key is refused at workspace scope: no user-scope-only refusal in `internal/config` names
+  either. So for a workspace-selected MCP entry the new grant is the install its pack carries,
+  not the execution.
+- **Every source but a bare name reaches the host.** A `git+` entry makes the host fetch with
+  the user's own git credentials ([fetch](#fetch-refresh-lock)), and a `file://` entry reads
+  whatever host directory it names. On [OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7)'s
+  axis, host reach rather than install, only a pack yolo ships, named by its bare name, reaches
+  nothing at selection.
+- **The skills half is already ruled another way.** [`OQ-WS1`](agent-briefings.md#oq-ws1)
+  was ruled on 2026-09-27: the workspace became a skills source of its own, at the lowest
+  layer, read by a confined reader rather than through a pack. So the same-sitting request is
+  overtaken, and a repository's own skills need no pack.
+- **Two kinds steer credentials, and that is ruled user-scope already.** A `provider` names
+  where a key goes and a `profile` selects one, and the workspace refusals of both carry
+  [`OQ-CS5`](providers.md#oq-cs5)'s reason: *"declaring the profile and activating it are two
+  spellings of the same steering"* (`userScopeOnlyMessage`, `internal/config/profiles.go`).
+- **Which shipped packs each option admits** is a fact about the manifests, and drifts with
+  them. At `d4e435a3`, (a) below admits only `guardrails`, and (b) also admits `copilot`, `omp`
+  and `wire-bridge`. Every other shipped pack declares a `loophole`, `intercept`, `provider`,
+  `profile`, `machine`-scope `state` or a cross-workspace hook. Re-derive it from the kinds
+  each `packs/*/pack.json` declares.
+
+The options:
+
+- **(a) Content packs only, from the packs yolo ships.** A workspace may name a shipped pack by
+  bare name when every contribution is one that runs nothing and reaches nothing outside the
+  jail: `skills`, `briefing`, `files`, `config`, `config-overlay`, `config-list`, `env`,
+  `models`, `requires` and `blocked-tool`. Any other kind refuses the entry and names the kind,
+  and the executable kinds wait for a second ruling. *You see:* a repository that commits
+  `"packs": ["guardrails"]` gets it for every collaborator. *You lose:* [OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7)'s own case. A
+  `chrome-devtools` pack carries an MCP entry, so the scope demotion that ruling rejected stands
+  for it until the second ruling.
+- **(b) Shipped packs whose contributions all stay inside the jail, executable kinds
+  included.** (a)'s set plus `program`, `service`, `adapter`, `autonomy`, workspace-scope
+  `state`, the `per_jail_history` and `unshare_directory` hooks, and the MCP kind
+  [`mcp-presets-removal.md`](../design/mcp-presets-removal.md#6-there-is-no-mcp-contribution-kind)
+  adds. Refused: `loophole`, `reads-host`, `mount`, `intercept` (a forwarder into a loophole),
+  `provider`, `profile`, `machine`-scope `state`, and the `shared_credentials` and
+  `shared_directory` hooks, which reach every other workspace through a machine-wide store.
+  *You see:* a repository commits `chrome-devtools` (once it exists), `copilot` or `omp`, and
+  every collaborator's jail gets it. *You lose:* nothing a workspace has today. The cost is a
+  workspace verdict every new kind must carry, as each already carries `MayBeReviewWorthy`.
+- **(c) (b), plus a pack the repository carries.** A path inside the workspace names a pack in
+  the repository. *You pay:* that tree is clone-populated and agent-editable, so it needs the
+  confined reader workspace skills use (`confinedTree`,
+  `internal/jailcontent/workspaceskills.go`) rather than the pack stager. And it reopens
+  [Ruling 2](#open-rulings-2), whose reason still holds: *"A repository needs no distribution
+  mechanism to reach files it already owns"*.
+
+Whichever is ruled, R5's *"install is user-scope"* in
+[`loophole-system.md`](loophole-system.md#principles) becomes a rule about host reach, as
+[OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7) says.
+
+**The question, each option in brief:**
+
 - 💬 <a id="oq-pk1"></a>**[`OQ-PK1`](#oq-pk1) — which packs may a workspace config declare?**
   The user-scope rule above stands in the code, but
   [`OQ-MP7`](../design/mcp-presets-removal.md#OQ-MP7) ruled on 2026-09-20 that it should not
   simply stand: define a **safe subset** of packs a workspace may declare, drawn on host reach
-  rather than on install. The subset itself is not ruled. The hard case the ruling names is an
-  `mcp` entry, which is code that runs unconditionally at jail start in a home holding real
-  credentials, so the rule has to say why that is acceptable or admit content kinds first and
-  leave executable kinds to a second ruling. The ruling asks for
-  [`OQ-WS1`](agent-briefings.md#oq-ws1) (the same question for skills) to be ruled in
-  the same sitting, and names R5 in [`loophole-system.md`](loophole-system.md#principles) as the
-  wording it amends. It blocks building
-  [`mcp-presets-removal.md`](../design/mcp-presets-removal.md): that doc's
-  [§13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) steps 1–3 wait on it,
-  because that ruling moved the workspace-scope boundary they build against. Its answer also
-  decides whether the compose engine's `workspace` layer, which nothing fills today, ever gets a
-  producer ([the layer](#config-surfaces-and-the-compose-engine)). *PK* stands for the `packs`
-  key; the prefix is new with this question.
+  rather than on install. The subset itself is not ruled.
 
-  Options and a leaning drafted 2026-10-01, against the tree at `d4e435a3`. Five facts bear on
-  the subset:
+  Options and a leaning drafted 2026-10-01, against the tree at `d4e435a3`; each option in full,
+  and the five facts that bear on the subset, are [in the background above](#oq-pk1-background):
 
-  - **A workspace config already runs code in the jail without a pack.** `mcp_servers` may name
-    any command, and each MCP-enabled agent spawns it; `packages` builds into the image. Neither
-    key is refused at workspace scope: no user-scope-only refusal in `internal/config` names
-    either. So for a workspace-selected MCP entry the new grant is the install its pack carries,
-    not the execution.
-  - **Every source but a bare name reaches the host.** A `git+` entry makes the host fetch with
-    the user's own git credentials ([fetch](#fetch-refresh-lock)), and a `file://` entry reads
-    whatever host directory it names. On [OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7)'s
-    axis, host reach rather than install, only a pack yolo ships, named by its bare name, reaches
-    nothing at selection.
-  - **The skills half is already ruled another way.** [`OQ-WS1`](agent-briefings.md#oq-ws1)
-    was ruled on 2026-09-27: the workspace became a skills source of its own, at the lowest
-    layer, read by a confined reader rather than through a pack. So the same-sitting request is
-    overtaken, and a repository's own skills need no pack.
-  - **Two kinds steer credentials, and that is ruled user-scope already.** A `provider` names
-    where a key goes and a `profile` selects one, and the workspace refusals of both carry
-    [`OQ-CS5`](providers.md#oq-cs5)'s reason: *"declaring the profile and activating it are two
-    spellings of the same steering"* (`userScopeOnlyMessage`, `internal/config/profiles.go`).
-  - **Which shipped packs each option admits** is a fact about the manifests, and drifts with
-    them. At `d4e435a3`, (a) below admits only `guardrails`, and (b) also admits `copilot`, `omp`
-    and `wire-bridge`. Every other shipped pack declares a `loophole`, `intercept`, `provider`,
-    `profile`, `machine`-scope `state` or a cross-workspace hook. Re-derive it from the kinds
-    each `packs/*/pack.json` declares.
-
-  The options:
-
-  - **(a) Content packs only, from the packs yolo ships.** A workspace may name a shipped pack by
-    bare name when every contribution is one that runs nothing and reaches nothing outside the
-    jail: `skills`, `briefing`, `files`, `config`, `config-overlay`, `config-list`, `env`,
-    `models`, `requires` and `blocked-tool`. Any other kind refuses the entry and names the kind,
-    and the executable kinds wait for a second ruling. *You see:* a repository that commits
-    `"packs": ["guardrails"]` gets it for every collaborator. *You lose:* [OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7)'s own case. A
-    `chrome-devtools` pack carries an MCP entry, so the scope demotion that ruling rejected stands
-    for it until the second ruling.
+  - **(a) Content packs only, from the packs yolo ships.**
   - **(b) Shipped packs whose contributions all stay inside the jail, executable kinds
-    included.** (a)'s set plus `program`, `service`, `adapter`, `autonomy`, workspace-scope
-    `state`, the `per_jail_history` and `unshare_directory` hooks, and the MCP kind
-    [`mcp-presets-removal.md`](../design/mcp-presets-removal.md#6-there-is-no-mcp-contribution-kind)
-    adds. Refused: `loophole`, `reads-host`, `mount`, `intercept` (a forwarder into a loophole),
-    `provider`, `profile`, `machine`-scope `state`, and the `shared_credentials` and
-    `shared_directory` hooks, which reach every other workspace through a machine-wide store.
-    *You see:* a repository commits `chrome-devtools` (once it exists), `copilot` or `omp`, and
-    every collaborator's jail gets it. *You lose:* nothing a workspace has today. The cost is a
-    workspace verdict every new kind must carry, as each already carries `MayBeReviewWorthy`.
-  - **(c) (b), plus a pack the repository carries.** A path inside the workspace names a pack in
-    the repository. *You pay:* that tree is clone-populated and agent-editable, so it needs the
-    confined reader workspace skills use (`confinedTree`,
-    `internal/jailcontent/workspaceskills.go`) rather than the pack stager. And it reopens
-    [Ruling 2](#open-rulings-2), whose reason still holds: *"A repository needs no distribution
-    mechanism to reach files it already owns"*.
-
-  Whichever is ruled, R5's *"install is user-scope"* in
-  [`loophole-system.md`](loophole-system.md#principles) becomes a rule about host reach, as
-  [OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7) says.
+    included.**
+  - **(c) (b), plus a pack the repository carries.**
 
   <!-- vantage: question id=OQ-PK1 leaning="(b): shipped packs whose contributions all stay inside the jail, executable kinds included. OQ-MP7's own answer says an MCP server for an agent inside the jail is not what the rule protects, and a workspace config can already name any command in mcp_servers. Bare names only, because a git+ or file:// source reaches the host." -->
 
@@ -3214,17 +3259,26 @@ longer waits for the other launch's staging.
   READ FROM CODE, not run on a Mac.
 - **A lock file that cannot be opened** warns and leaves the launch unserialised, because the
   workspace lock is a courtesy (`acquireWorkspaceLock`).
-- 💬 <a id="oq-pk3"></a>**[`OQ-PK3`](#oq-pk3) — a host-scoped singleton that names `{loophole_dir}` in its `host_daemon.cmd` resolves it
-  inside the launch's own tree**, and that tree goes once the launch's container is known gone,
-  while the singleton, by design, outlives the jail that started it (`internal/broker`). A
+- <a id="oq-pk3-background"></a>**Background to [`OQ-PK3`](#oq-pk3), below: what a host-scoped
+  singleton loses when its launch's tree goes.** A
   singleton that reads its module dir after it starts (a lazy import, a data file) then loses it;
   under the shared tree the dir lasted until the pack left `packs`. No shipped pack is affected:
   the shipped singletons self-exec `yolo internal daemon …`, and the one shipped `{loophole_dir}`,
-  the audio pack's, is a per-jail bind. **Needs a ruling**, since each remedy changes something a
-  pack author sees or adds a store: keep a tree while a singleton spawned from it lives (which
-  also needs the orphan-staging reaper to honour that veto); resolve the token, for host scope
-  only, against a stable content-addressed copy with its own liveness collection; or refuse the
-  token in a host-scoped `cmd` and say why.
+  the audio pack's, is a per-jail bind.
+- 💬 <a id="oq-pk3"></a>**[`OQ-PK3`](#oq-pk3) — a host-scoped singleton that names `{loophole_dir}` in its `host_daemon.cmd` resolves it
+  inside the launch's own tree**, and that tree goes once the launch's container is known gone,
+  while the singleton, by design, outlives the jail that started it (`internal/broker`). What it
+  loses then, and why no shipped pack is affected: [the background above](#oq-pk3-background).
+
+  **Needs a ruling**, since each remedy changes something a
+  pack author sees or adds a store:
+
+  - keep a tree while a singleton spawned from it lives (which
+    also needs the orphan-staging reaper to honour that veto);
+  - resolve the token, for host scope
+    only, against a stable content-addressed copy with its own liveness collection;
+  - or refuse the
+    token in a host-scoped `cmd` and say why.
 
   <!-- vantage: question id=OQ-PK3 leaning="Refuse {loophole_dir} in a host-scoped host_daemon.cmd, naming why: no shipped pack uses it, and keeping a tree alive for a singleton (a reaper veto) or a content-addressed host-scope copy (a new store) each add machinery for a case nobody has." -->
 
@@ -3235,9 +3289,11 @@ longer waits for the other launch's staging.
   Whether `TestMacosUserTwoConcurrentLaunchesOfOneWorkspace` reaches its sessions, and whether an
   Apple Container attach finds its tree through the host record, are for a Mac run to show.
 
+<!-- vantage: question id=OQ-PK2 -->
+
 #### <a id="oq-pk2"></a>✅ [`OQ-PK2`](#oq-pk2) — does a running jail keep the pack tree it booted with?
 
-<!-- vantage: question id=OQ-PK2 -->
+**Answer:**
 
 **Ruled (c), 2026-09-26, and built the same day:** one immutable pack tree per
 launch, plus a notice on attach (`newPackTree` and `noteBootedPackSetDiffers`, pinned by

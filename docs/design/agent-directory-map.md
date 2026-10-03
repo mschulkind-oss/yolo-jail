@@ -930,9 +930,12 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
 
 ## 12. Open questions
 
-1. 💬 <a id="OQ-AM1"></a>**OQ-AM1: What "yours" means, and who declares it.** Pi's own layout is the pi pack's to
-   declare. Pi's package ecosystem writes into the same directory, and the pi pack cannot know which
-   packages a user installs. The answer decides whether the unknown-file signal survives
+<a id="oq-am1-background"></a>**Background to [OQ-AM1](#OQ-AM1), below.** Pi's own layout is the pi pack's to
+declare. Pi's package ecosystem writes into the same directory, and the pi pack cannot know which
+packages a user installs.
+
+1. 💬 <a id="OQ-AM1"></a>**OQ-AM1: What "yours" means, and who declares it.** [Why the pi pack
+   cannot know](#oq-am1-background) is above. The answer decides whether the unknown-file signal survives
    extensions.
 
    - **A: The agent pack declares everything**, including the common third-party packages' names.
@@ -950,8 +953,11 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    **Answer:**
    > _(empty — fill in when decided)_
 
-2. 💬 <a id="OQ-AM2"></a>**OQ-AM2: The class set.** The surveys asked for credential, transient, retired, legacy,
-   program and view as classes of their own. This decides what every map entry can say, and what
+<a id="oq-am2-background"></a>**Background to [OQ-AM2](#OQ-AM2), below.** The surveys asked for credential, transient, retired, legacy,
+program and view as classes of their own.
+
+2. 💬 <a id="OQ-AM2"></a>**OQ-AM2: The class set.** [What the surveys asked for](#oq-am2-background)
+   is above. This decides what every map entry can say, and what
    every later verb has to handle.
 
    - **A: Three declared classes** (state, cache, yours), **marks** (`credential`, `transient`,

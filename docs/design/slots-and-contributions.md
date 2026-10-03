@@ -292,7 +292,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 
    <!-- vantage: question id=OQ-D1 -->
 
-   **Answer (2026-09-20):**
+   **Answer:** (2026-09-20)
    > **A second axis.** A `kind` names a contribution; a slot is not one, and making it a kind
    > would put the receiving role inside the supplying vocabulary — the conflation this doc
    > exists to delete, one level up.
@@ -301,7 +301,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 
    <!-- vantage: question id=OQ-D2 -->
 
-   **Answer (2026-09-20):**
+   **Answer:** (2026-09-20)
    > **The agent (`bin`) name** — so content survives swapping which pack supplies that agent. A
    > pack-keyed address would couple every content pack to a supplier it must not have to know.
 
@@ -313,55 +313,61 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    not a new design; it is the existing one, unnamed. Only `files` lacks it. That reframes
    [OQ-D3](#OQ-D3) and is why its leaning changed.
 
+<a id="oq-d3-background"></a>**Background to [OQ-D3](#OQ-D3), below: why its original leaning was withdrawn, and the three
+candidate spellings.**
+
+⚠ **The original leaning ("all three, eventually") rested on a premise the tree does not
+support, and it is withdrawn.** It said the `agent`/`agents` flag "lives in all three kinds",
+implying all three carry both roles. Measured 2026-09-20:
+
+- **No shipped manifest uses `agents` (plural) at all** — zero occurrences across
+  `packs/*/pack.json`. The audience half exists in the schema and in the built-in
+  `configuring-the-jail` skill as a *user-facing* example (`"agents": ["pi"]` for a personal or
+  shared pack). Nothing yolo ships writes one.
+- **Every `briefing` and `skills` contribution is unambiguously a destination** — `agent` +
+  `into`, seven packs, fourteen contributions, no exceptions.
+- **The one shipped `files` contribution declares neither** (`pi`'s extension: `from` + `into`).
+
+So the conflation is **real in the schema and absent from the corpus** for `briefing` and
+`skills`. For those two, the split is a **rename of a shape that is already unambiguous in
+practice**: seven packs migrate, fourteen contributions change spelling, and no behaviour moves.
+`files` is different in kind — that is where the shape actually broke, and where the alias-root
+bug came from.
+
+**⚠ AND THE MIGRATION CANNOT BE PRICED YET, WHICH IS THE REAL STATE OF THIS QUESTION.** Asked
+point-blank what the new spelling would be, this doc cannot answer. Today's line, in all seven
+agent packs:
+
+```jsonc
+// packs/claude/pack.json — today
+{ "kind": "briefing", "agent": "claude", "into": ".claude/CLAUDE.md" }
+```
+
+[§2](#2-what-a-kind-is-and-what-a-slot-is) says a slot carries `name` / `into` / `accepts` and
+that **"`agent` and `agents` both disappear"** — but [§3](#3-the-address-the-agent-never-the-pack)
+addresses a slot as `(agent, name)`, so the agent has to come from *somewhere*. Three spellings
+satisfy [§2](#2-what-a-kind-is-and-what-a-slot-is)'s example and they are not the same proposal:
+
+| Candidate | The line becomes | What it costs |
+| :--- | :--- | :--- |
+| **A — the slot carries it** | `{"name": "briefing", "agent": "claude", "into": ".claude/CLAUDE.md", "accepts": "concat"}` | `agent` does **not** disappear; it is renamed in place, and [§2](#2-what-a-kind-is-and-what-a-slot-is)'s claim is false as written |
+| **B — the pack declares its identity once** | pack-level `"agent": "claude"`, then `{"name": "briefing", "into": …}` | The repetition goes, which is [`manifest-language.md`](manifest-language.md)'s concern exactly — but it is a second structural change riding on this one |
+| **C — derived from the `program` bin** | `{"name": "briefing", "into": …}`, agent inferred | **Mechanically available and ruled out.** Measured 2026-09-20: the declared `agent` equals the pack's own `program` bin in **7 of 7** agent packs, `oh-omp` included — so the derivation would work. [`OQ-BA2`](../reference/agent-briefings.md#oq-ba2) forbade it anyway: the audience match is against a declared string, typed and compared literally, never anything derived. (The profile chain does map a CLI name to the pack whose `program` installs it, `packload.binOwner`; the audience match deliberately does not use it.) |
+
+That 7-of-7 is the fact that reframes this question. The `agent` key on a destination is not
+carrying information today — it **restates the pack's own `program` bin, every time**. So the
+`briefing`/`skills` migration is not "a rename that changes no behaviour"; it is the occasion on
+which that redundancy is either removed (B), renamed (A), or deliberately kept (C rejected
+again). Those have different costs and different blast radii.
+
 3. ✅ <a id="OQ-D3"></a> **OQ-D3: Does the split reach `briefing` and `skills`, or only `files`?**
 
    <!-- vantage: question id=OQ-D3 -->
 
-   ⚠ **The original leaning ("all three, eventually") rested on a premise the tree does not
-   support, and it is withdrawn.** It said the `agent`/`agents` flag "lives in all three kinds",
-   implying all three carry both roles. Measured 2026-09-20:
+   Its original leaning, why it was withdrawn, and the candidate spellings A/B/C are
+   [in the background above](#oq-d3-background).
 
-   - **No shipped manifest uses `agents` (plural) at all** — zero occurrences across
-     `packs/*/pack.json`. The audience half exists in the schema and in the built-in
-     `configuring-the-jail` skill as a *user-facing* example (`"agents": ["pi"]` for a personal or
-     shared pack). Nothing yolo ships writes one.
-   - **Every `briefing` and `skills` contribution is unambiguously a destination** — `agent` +
-     `into`, seven packs, fourteen contributions, no exceptions.
-   - **The one shipped `files` contribution declares neither** (`pi`'s extension: `from` + `into`).
-
-   So the conflation is **real in the schema and absent from the corpus** for `briefing` and
-   `skills`. For those two, the split is a **rename of a shape that is already unambiguous in
-   practice**: seven packs migrate, fourteen contributions change spelling, and no behaviour moves.
-   `files` is different in kind — that is where the shape actually broke, and where the alias-root
-   bug came from.
-
-   **⚠ AND THE MIGRATION CANNOT BE PRICED YET, WHICH IS THE REAL STATE OF THIS QUESTION.** Asked
-   point-blank what the new spelling would be, this doc cannot answer. Today's line, in all seven
-   agent packs:
-
-   ```jsonc
-   // packs/claude/pack.json — today
-   { "kind": "briefing", "agent": "claude", "into": ".claude/CLAUDE.md" }
-   ```
-
-   [§2](#2-what-a-kind-is-and-what-a-slot-is) says a slot carries `name` / `into` / `accepts` and
-   that **"`agent` and `agents` both disappear"** — but [§3](#3-the-address-the-agent-never-the-pack)
-   addresses a slot as `(agent, name)`, so the agent has to come from *somewhere*. Three spellings
-   satisfy [§2](#2-what-a-kind-is-and-what-a-slot-is)'s example and they are not the same proposal:
-
-   | Candidate | The line becomes | What it costs |
-   | :--- | :--- | :--- |
-   | **A — the slot carries it** | `{"name": "briefing", "agent": "claude", "into": ".claude/CLAUDE.md", "accepts": "concat"}` | `agent` does **not** disappear; it is renamed in place, and [§2](#2-what-a-kind-is-and-what-a-slot-is)'s claim is false as written |
-   | **B — the pack declares its identity once** | pack-level `"agent": "claude"`, then `{"name": "briefing", "into": …}` | The repetition goes, which is [`manifest-language.md`](manifest-language.md)'s concern exactly — but it is a second structural change riding on this one |
-   | **C — derived from the `program` bin** | `{"name": "briefing", "into": …}`, agent inferred | **Mechanically available and ruled out.** Measured 2026-09-20: the declared `agent` equals the pack's own `program` bin in **7 of 7** agent packs, `oh-omp` included — so the derivation would work. [`OQ-BA2`](../reference/agent-briefings.md#oq-ba2) forbade it anyway: the audience match is against a declared string, typed and compared literally, never anything derived. (The profile chain does map a CLI name to the pack whose `program` installs it, `packload.binOwner`; the audience match deliberately does not use it.) |
-
-   That 7-of-7 is the fact that reframes this question. The `agent` key on a destination is not
-   carrying information today — it **restates the pack's own `program` bin, every time**. So the
-   `briefing`/`skills` migration is not "a rename that changes no behaviour"; it is the occasion on
-   which that redundancy is either removed (B), renamed (A), or deliberately kept (C rejected
-   again). Those have different costs and different blast radii.
-
-   **Answer (2026-09-20):**
+   **Answer:** (2026-09-20)
    > **All three.** The conflation is identical, and fixing `files` alone leaves two kinds
    > carrying the flag this doc exists to delete.
 
@@ -396,7 +402,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    the same lever [`manifest-language.md`](manifest-language.md) is pulling, so the two should be
    ruled together rather than twice.
 
-   **Answer (2026-09-20):**
+   **Answer:** (2026-09-20)
    > **B, stated as a rule about core's vocabulary rather than about a field:** core knows an
    > "agent" **only insofar as it identifies a config target**. A pack provides **0 or 1** agents,
    > and if it provides one it **must name it** — declared once, never derived.
@@ -437,7 +443,7 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
 
    <!-- vantage: question id=OQ-D4 -->
 
-   **Answer (2026-09-20):**
+   **Answer:** (2026-09-20)
    > **Provisional.** `exposes`/`accepts` read as the receiving end; `to` is the shortest thing
    > that is not `into`. Names must not collide with an existing key, and `to` must stay
    > distinguishable from `into` (the owner's landing path). Cheap to change now and expensive
@@ -457,52 +463,57 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    because this answer already says the name is settled only until someone proposes better: this is
    the measurement that says someone should.
 
+<a id="oq-d6-background"></a>**Background to [OQ-D6](#OQ-D6), below: what the skew test documents, and how its premise has
+moved since.** [`agentsurfaces_test.go`](../../internal/packload/agentsurfaces_test.go)'s
+`TestShippedAgentPacksKeepIntoForSkew` documents why a shipped pack cannot migrate: `DecodeTolerant` ignores
+unknown FIELDS but still validates the entries it keeps, so an entrypoint baked before the change
+refuses `{"kind":"briefing"}` with `kind "briefing" needs "into"` — *"a fatal boot, from a
+manifest the host staged, unrecoverable without a `just load`."* Its conclusion is explicit:
+*"Only a USER's own pack — which no old entrypoint has ever seen — may reach the addressed
+shape."* This is [`AGENTS.md`](../../AGENTS.md)'s *"the two halves deploy on different
+cadences"* class, and `version.SourceSkew` does not cover it — it compares the host binary to
+HEAD, not a staged manifest to a baked entrypoint.
+
+> **Premise changed, not ruled here.** The image has baked no yolo binary since 2026-09-06: the
+> entrypoint is mounted from the flake bundle on every launch
+> ([`jailprefix.go`](../../internal/cli/run/jailprefix.go)). So "an entrypoint baked before the
+> change" and "unrecoverable without a `just load`" no longer describe the tree. (The test
+> comment said them too when this note was written; by 2026-09-30 it had been rewritten to name
+> where an older entrypoint still comes from: a from-source launch whose binary and tree differ,
+> under `YOLO_ALLOW_SOURCE_SKEW=1` or a skew the gate cannot prove.) The shipped manifests are staged from the host `yolo`'s own
+> embed, so the pairing that bricks a boot is now a host `yolo` newer than the bundle its
+> entrypoint comes from. `just install` publishes the two together, a release ships them
+> together, and `version.SourceSkew` refuses a from-source launch whose binary and checkout
+> disagree. Whether any supported path still produces that pairing is not measured here, and
+> it decides how wide this window is. Separately, today's entrypoint accepts
+> `{"kind":"briefing"}` as a broadcast ([briefing P2](../reference/pack-system.md#briefing-p2)),
+> so only an entrypoint older than that refuses it.
+
+> **Premise changed again, 2026-09-29, not ruled here.** Since
+> [DS-D33](durable-scratch-space.md#DS-D33) the claude and pi packs each ship one ADDRESSED
+> CONTENT line, `{"kind": "briefing", "from": "briefing/worktrees.md", "agents": ["claude"]}`
+> (`["pi"]` for pi), and `TestShippedAgentPacksKeepIntoForSkew` no longer says *"Only a USER's
+> own pack … may reach the addressed shape"*: it admits exactly that line on an agent pack. The
+> rule for DESTINATIONS is unchanged — they keep `into` and take no `agents` — so the `exposes`
+> migration this question is about stands where it did. The line opens this question's window
+> for content: an entrypoint older than the audiences field (`9218bf76`, first released in
+> v0.9.0) refuses it and fails the boot. The note above overstates the guard:
+> `version.SourceSkew` refuses a from-source launch only when the checkout contains the
+> binary's commit, and returns nil when it does not or when the flake tree is not a git
+> repository (`TestSourceSkewSilentWithoutProof`). Pairing is what closes the window:
+> `just install` and a release each publish both halves together. Measured the same day, the
+> two lines widen no window: the readers at v0.8.0 and at `9218bf76`'s parent already refuse
+> every launch that selects claude or pi for other reasons (DS-D33, and its doc's Appendix A). Whether
+> those two lines may ship on that premise is part of this question, and DS-D33 waits on it.
+
 6. 💬 <a id="OQ-D6"></a>**[OQ-D6](#OQ-D6): what is the MIGRATION WINDOW — and does a shipped pack
    ever get to use the new shape?** **This is the blocker.** Slice 4 migrates the seven agent packs,
-   and [`agentsurfaces_test.go`](../../internal/packload/agentsurfaces_test.go)'s
-   `TestShippedAgentPacksKeepIntoForSkew` already documents why it cannot: `DecodeTolerant` ignores
-   unknown FIELDS but still validates the entries it keeps, so an entrypoint baked before the change
-   refuses `{"kind":"briefing"}` with `kind "briefing" needs "into"` — *"a fatal boot, from a
-   manifest the host staged, unrecoverable without a `just load`."* Its conclusion is explicit:
-   *"Only a USER's own pack — which no old entrypoint has ever seen — may reach the addressed
-   shape."* Both outcomes of ignoring it are bad and one is silent: a migrated pack either bricks an
+   and `TestShippedAgentPacksKeepIntoForSkew` already documents why it cannot
+   ([the background above](#oq-d6-background), with how that premise has moved since).
+   Both outcomes of ignoring it are bad and one is silent: a migrated pack either bricks an
    older entrypoint's boot, or (if the destination is removed cleanly) that entrypoint drops the
    unknown `exposes`, honors nothing, and delivers **every briefing and every skill NOWHERE** with
-   no error anywhere. This is [`AGENTS.md`](../../AGENTS.md)'s *"the two halves deploy on different
-   cadences"* class, and `version.SourceSkew` does not cover it — it compares the host binary to
-   HEAD, not a staged manifest to a baked entrypoint.
-
-   > **Premise changed, not ruled here.** The image has baked no yolo binary since 2026-09-06: the
-   > entrypoint is mounted from the flake bundle on every launch
-   > ([`jailprefix.go`](../../internal/cli/run/jailprefix.go)). So "an entrypoint baked before the
-   > change" and "unrecoverable without a `just load`" no longer describe the tree. (The test
-   > comment said them too when this note was written; by 2026-09-30 it had been rewritten to name
-   > where an older entrypoint still comes from: a from-source launch whose binary and tree differ,
-   > under `YOLO_ALLOW_SOURCE_SKEW=1` or a skew the gate cannot prove.) The shipped manifests are staged from the host `yolo`'s own
-   > embed, so the pairing that bricks a boot is now a host `yolo` newer than the bundle its
-   > entrypoint comes from. `just install` publishes the two together, a release ships them
-   > together, and `version.SourceSkew` refuses a from-source launch whose binary and checkout
-   > disagree. Whether any supported path still produces that pairing is not measured here, and
-   > it decides how wide this window is. Separately, today's entrypoint accepts
-   > `{"kind":"briefing"}` as a broadcast ([briefing P2](../reference/pack-system.md#briefing-p2)),
-   > so only an entrypoint older than that refuses it.
-
-   > **Premise changed again, 2026-09-29, not ruled here.** Since
-   > [DS-D33](durable-scratch-space.md#DS-D33) the claude and pi packs each ship one ADDRESSED
-   > CONTENT line, `{"kind": "briefing", "from": "briefing/worktrees.md", "agents": ["claude"]}`
-   > (`["pi"]` for pi), and `TestShippedAgentPacksKeepIntoForSkew` no longer says *"Only a USER's
-   > own pack … may reach the addressed shape"*: it admits exactly that line on an agent pack. The
-   > rule for DESTINATIONS is unchanged — they keep `into` and take no `agents` — so the `exposes`
-   > migration this question is about stands where it did. The line opens this question's window
-   > for content: an entrypoint older than the audiences field (`9218bf76`, first released in
-   > v0.9.0) refuses it and fails the boot. The note above overstates the guard:
-   > `version.SourceSkew` refuses a from-source launch only when the checkout contains the
-   > binary's commit, and returns nil when it does not or when the flake tree is not a git
-   > repository (`TestSourceSkewSilentWithoutProof`). Pairing is what closes the window:
-   > `just install` and a release each publish both halves together. Measured the same day, the
-   > two lines widen no window: the readers at v0.8.0 and at `9218bf76`'s parent already refuse
-   > every launch that selects claude or pi for other reasons (DS-D33, and its doc's Appendix A). Whether
-   > those two lines may ship on that premise is part of this question, and DS-D33 waits on it.
+   no error anywhere.
 
    <!-- vantage: question id=OQ-D6 leaning="Ship `exposes` as ADDITIVE and keep `into` on every shipped pack for a release: a jail reads whichever it understands, and only a user's own pack may go exposes-only — which is the boundary the skew test already draws." -->
 
@@ -519,20 +530,30 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    **Answer:**
    > _(empty — fill in when decided)_
 
+<a id="oq-d7-background"></a>**Background to [OQ-D7](#OQ-D7), below: the values written so far, and three readings.** [§2.1](#21-what-a-slot-declares) names four shapes in prose ("an opaque
+tree, a single file, a JSON document, a set of *things*"), [§2](#2-what-a-kind-is-and-what-a-slot-is)'s
+example writes `"tree"`, and [OQ-D3](#OQ-D3)'s candidate table writes a fifth value, `"concat"`.
+Three readings, three behaviours:
+
+- **(a)** a closed enum — which makes it the fifth skew-sensitive
+  closed enum in this schema, and `packdecl` warns that whoever adds one *extends its tolerance
+  first, in its own change*;
+- **(b)** documentation-only — the accepted-and-ignored declaration this
+  schema refuses everywhere else (see the `adapts`/`profile`/`agent` refusals);
+- **(c)** the
+  authority for how content combines — which collides head-on with `Combine`, a fact about the KIND
+  today (`files` exclusive, `briefing` concat, `skills` merge) and the thing that decides whether
+  two packs addressing one slot is legal or fatal.
+
+A contribution still carries its `kind` in
+[§2](#2-what-a-kind-is-and-what-a-slot-is)'s own example, so under (c) one fact is declared twice
+— the disease, not the cure.
+
 7. ✅ <a id="OQ-D7"></a>**[OQ-D7](#OQ-D7): what is `accepts`, in a vocabulary — and who wins when it
-   disagrees with `kind`?** [§2.1](#21-what-a-slot-declares) names four shapes in prose ("an opaque
-   tree, a single file, a JSON document, a set of *things*"), [§2](#2-what-a-kind-is-and-what-a-slot-is)'s
-   example writes `"tree"`, and [OQ-D3](#OQ-D3)'s candidate table writes a fifth value, `"concat"`.
+   disagrees with `kind`?**
    Nothing says whether the set is CLOSED, whether the field is REQUIRED, or what any value DOES.
-   Three readings, three behaviours: **(a)** a closed enum — which makes it the fifth skew-sensitive
-   closed enum in this schema, and `packdecl` warns that whoever adds one *extends its tolerance
-   first, in its own change*; **(b)** documentation-only — the accepted-and-ignored declaration this
-   schema refuses everywhere else (see the `adapts`/`profile`/`agent` refusals); **(c)** the
-   authority for how content combines — which collides head-on with `Combine`, a fact about the KIND
-   today (`files` exclusive, `briefing` concat, `skills` merge) and the thing that decides whether
-   two packs addressing one slot is legal or fatal. A contribution still carries its `kind` in
-   [§2](#2-what-a-kind-is-and-what-a-slot-is)'s own example, so under (c) one fact is declared twice
-   — the disease, not the cure.
+   The values written so far, and the three readings (a), (b) and (c) with their behaviours, are
+   [in the background above](#oq-d7-background).
 
    <!-- vantage: question id=OQ-D7 -->
 
@@ -551,6 +572,19 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    > its duplicate, so the leaning was the one answer left. Its tolerance follows `via`'s, as
    > [SC-D1](#SC-D1) records.
 
+<a id="oq-d8-background"></a>**Background to [OQ-D8](#OQ-D8), below: the borrower that must match slots by something.** It
+also decides whether core's own synthetic zero-ceremony borrower can find anything at all: core
+mints it for any pack that declares no destination of that kind (the pack with no `pack.json` is
+the live case), it carries a `Kind` and no address, so it must match slots by SOMETHING — and the
+only candidates are a conventional name or the kind itself.
+
+> **Premise changed, not ruled here:** since the briefing defaults were built
+> ([P2](../reference/pack-system.md#briefing-p2), [P3](../reference/pack-system.md#briefing-p3)),
+> the kind-only borrower is not only core's. A manifest may declare a broadcast
+> (`{"kind":"briefing"}`), and the implicit one covers every `briefing/` file no contribution
+> names, whatever destinations the pack declares. Each carries a kind and no address, so this
+> question now decides how a DECLARED broadcast finds its slots too.
+
 8. ✅ <a id="OQ-D8"></a>**[OQ-D8](#OQ-D8): what are the briefing and skills slots CALLED?**
    [§4](#4-the-split-applied) says `{agent, into}` "becomes an `exposes` entry" for both kinds and
    names no slot; [§2.1](#21-what-a-slot-declares) says a slot's `name` is *"local to the agent it
@@ -558,18 +592,8 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    **`"briefing"`** and `packs/pi` exposing `"briefing"` is a CONVENTION every content pack then
    depends on (and which "local to the agent" does not mandate), while `"CLAUDE.md"` and
    `"AGENTS.md"` are equally legal under that sentence and make every content pack hardcode a
-   per-agent slot name — the coupling this doc exists to delete, relocated from paths to names. It
-   also decides whether core's own synthetic zero-ceremony borrower can find anything at all: core
-   mints it for any pack that declares no destination of that kind (the pack with no `pack.json` is
-   the live case), it carries a `Kind` and no address, so it must match slots by SOMETHING — and the
-   only candidates are a conventional name or the kind itself.
-
-   > **Premise changed, not ruled here:** since the briefing defaults were built
-   > ([P2](../reference/pack-system.md#briefing-p2), [P3](../reference/pack-system.md#briefing-p3)),
-   > the kind-only borrower is not only core's. A manifest may declare a broadcast
-   > (`{"kind":"briefing"}`), and the implicit one covers every `briefing/` file no contribution
-   > names, whatever destinations the pack declares. Each carries a kind and no address, so this
-   > question now decides how a DECLARED broadcast finds its slots too.
+   per-agent slot name — the coupling this doc exists to delete, relocated from paths to names.
+   What else it decides is [in the background above](#oq-d8-background).
 
    <!-- vantage: question id=OQ-D8 -->
 
@@ -588,6 +612,14 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    > spells a slot, which is the coupling [OQ-D2](#OQ-D2) ruled out, and would leave a kind-only
    > contribution nothing to match.
 
+<a id="oq-d9-background"></a>**Background to [OQ-D9](#OQ-D9), below: broadcast.** **Correcting the obvious first guess:** BROADCAST is not at risk. A manifest cannot
+declare one today (a bare `{"kind":"briefing"}` is refused for want of `into`), and broadcast is
+reachable only through the borrower core SYNTHESIZES for a pack that declares no destination of
+the kind — core owns that value, so it survives the schema change untouched. The audience LIST is
+the whole loss.
+
+> **Premise changed, not ruled here:** since [briefing P2](../reference/pack-system.md#briefing-p2) a manifest CAN declare broadcast (`{"kind":"briefing"}` is valid), and two content contributions sharing one `from` are refused ([`OQ-PB5`](../reference/pack-system.md#oq-pb5)), so `to` needs a broadcast spelling.
+
 9. 💬 <a id="OQ-D9"></a>**[OQ-D9](#OQ-D9): is `to` a scalar, and where does a MULTI-AGENT audience
    go?** `agents` is a LIST, two entries are supported today and pinned
    (`{"kind":"briefing","from":"prose/claude.md","agents":["claude","pi"]}` validates, and
@@ -595,13 +627,8 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    [§2](#2-what-a-kind-is-and-what-a-slot-is)'s `to` is a scalar and [§2](#2-what-a-kind-is-and-what-a-slot-is)
    says `agents` "disappears". So: is `to` a list? Is it two contributions sharing one `from`? Those
    differ in behaviour, not spelling — a union of destinations versus N deliveries with N provenance
-   headers. **Correcting the obvious first guess:** BROADCAST is not at risk. A manifest cannot
-   declare one today (a bare `{"kind":"briefing"}` is refused for want of `into`), and broadcast is
-   reachable only through the borrower core SYNTHESIZES for a pack that declares no destination of
-   the kind — core owns that value, so it survives the schema change untouched. The audience LIST is
-   the whole loss.
-
-   > **Premise changed, not ruled here:** since [briefing P2](../reference/pack-system.md#briefing-p2) a manifest CAN declare broadcast (`{"kind":"briefing"}` is valid), and two content contributions sharing one `from` are refused ([`OQ-PB5`](../reference/pack-system.md#oq-pb5)), so `to` needs a broadcast spelling.
+   headers. Whether BROADCAST is at risk too, and why `to` now needs a broadcast spelling, is
+   [in the background above](#oq-d9-background).
 
    <!-- vantage: question id=OQ-D9 leaning="`to` takes one address or a list of them, decoded as N deliveries of one source — the same thing two `agents` entries mean today, so no behaviour moves and the provenance stays per destination." -->
 
@@ -613,18 +640,22 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
    **Answer:**
    > _(empty — fill in when decided)_
 
+<a id="oq-d10-background"></a>**Background to [OQ-D10](#OQ-D10), below: why the tree split the two failures.**
+[`agentaudience.go`](../../internal/packload/agentaudience.go)'s package comment is a whole essay
+on why the second failure is REPORTED rather than FATAL — *"where the remedy is a line in
+the owning pack rather than a line in the addressing one"* — because refusing the launch over it
+*"would punish the wrong author"* (agent-briefings.md [R1](../reference/agent-briefings.md#ba-r1)/[R4](../reference/agent-briefings.md#ba-r4), and the `files` half of it is
+implemented verbatim in the run pipeline). "Refused at load" also lands
+the gate where R5 says it must not be — `yolo pack lint` takes a pack root with no config and
+cannot know the selected slot vocabulary.
+
 10. 💬 <a id="OQ-D10"></a>**[OQ-D10](#OQ-D10): does an unmatched `to` have ONE severity or two?**
     [§3](#3-the-address-the-agent-never-the-pack) says *"an unmatched `to` is refused at load with a
-    fix naming the slots that exist"*. That fuses two failures the tree split ON PURPOSE, and
-    [`agentaudience.go`](../../internal/packload/agentaudience.go)'s package comment is a whole essay
-    on why: **is the name in the vocabulary?** is FATAL (the addressing author's mistake), while
-    **did the name reach a destination of this kind?** is REPORTED — *"where the remedy is a line in
-    the owning pack rather than a line in the addressing one"* — because refusing the launch over it
-    *"would punish the wrong author"* (agent-briefings.md [R1](../reference/agent-briefings.md#ba-r1)/[R4](../reference/agent-briefings.md#ba-r4), and the `files` half of it is
-    implemented verbatim in the run pipeline). `to: "pi/extensions"` fuses them into one string: `pi`
-    unknown is case 1, `pi` known with no `extensions` slot is case 2. "Refused at load" also lands
-    the gate where R5 says it must not be — `yolo pack lint` takes a pack root with no config and
-    cannot know the selected slot vocabulary.
+    fix naming the slots that exist"*. That fuses two failures the tree split ON PURPOSE
+    ([why, and where "refused at load" would put the gate](#oq-d10-background)):
+    **is the name in the vocabulary?** is FATAL (the addressing author's mistake), while
+    **did the name reach a destination of this kind?** is REPORTED. `to: "pi/extensions"` fuses them into one string: `pi`
+    unknown is case 1, `pi` known with no `extensions` slot is case 2.
 
     <!-- vantage: question id=OQ-D10 leaning="Two severities, split exactly where they are split today: an unknown AGENT segment is fatal at the launch pre-flight and `host apply`; a known agent with no such slot is reported, never fatal, and never at `pack lint`." -->
 
@@ -636,14 +667,18 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
     **Answer:**
     > _(empty — fill in when decided)_
 
+<a id="oq-d11-background"></a>**Background to [OQ-D11](#OQ-D11), below.**
+[§5](#5-what-this-costs)'s ⚠ pulls the config surfaces into scope on the claim that `agent`
+there is *"the same field name holding the same string"*. The field's own docstring disagrees:
+it is the owning agent id **"or a non-agent surface owner such as `mcp`, `lsp`, `mise`,
+`identity`"** — and core ships `Agent: "mise"` for a surface that *"belongs to no pack and
+renders unconditionally"*. `mise` is in neither agent vocabulary (not a pack claim, not an
+installed CLI); it is baked by the image and installed by no pack.
+
 11. ✅ <a id="OQ-D11"></a>**[OQ-D11](#OQ-D11): what does pack-scope identity do to core's OWN
     surfaces, and to a pack that addresses an agent it does not provide?**
-    [§5](#5-what-this-costs)'s ⚠ pulls the config surfaces into scope on the claim that `agent`
-    there is *"the same field name holding the same string"*. The field's own docstring disagrees:
-    it is the owning agent id **"or a non-agent surface owner such as `mcp`, `lsp`, `mise`,
-    `identity`"** — and core ships `Agent: "mise"` for a surface that *"belongs to no pack and
-    renders unconditionally"*. `mise` is in neither agent vocabulary (not a pack claim, not an
-    installed CLI); it is baked by the image and installed by no pack. So under "the pack-scope
+    Why core's own `mise/config` surface is the hard case is
+    [in the background above](#oq-d11-background). So under "the pack-scope
     identity", `mise/config` has no pack to take an identity from, while `config-overlay
     surface: "mise/config"` is a live target. Mirror image, same ruling: nothing today restricts a
     pack to surfaces under its own name, and the pack-scope identity silently forbids that — a
@@ -671,22 +706,27 @@ a fact declared twice and drifting, which is the same disease `exposes` is presc
     > every `agent` field in `packs/*/pack.json` names its own pack's identity, so no shipped pack
     > loses anything.
 
+<a id="oq-d12-background"></a>**Background to [OQ-D12](#OQ-D12), below.** [`pi-pack-extensions.md`](pi-pack-extensions.md)'s
+[OQ-1](pi-pack-extensions.md#10-decision-ledger) — *"one files destination per agent; a second
+is a load error"* — is no longer merely unretired: it is **built** as of 2026-09-21
+([§5.1](#51-what-landed-instead-2026-09-21)). Note which gate can see either of the two new cases: the existing
+cross-pack `AgentNameCollisions` fires only when TWO PACKS hold one name, so it is not the guard
+against one pack declaring a name twice. And for the mirror-image half,
+[§5.1](#51-what-landed-instead-2026-09-21) item 4 refused a second tree, because the
+landing path carries the contributing pack and two trees then name one directory — but MERGING
+them is a coherent alternative that the host notch already performs by accident and the jail
+cannot perform at all (a bind mount unions nothing, so it would need a staged merge).
+
 12. 💬 <a id="OQ-D12"></a>**[OQ-D12](#OQ-D12): how many slots may one agent expose, and what makes
-    two of them an error?** [`pi-pack-extensions.md`](pi-pack-extensions.md)'s
-    [OQ-1](pi-pack-extensions.md#10-decision-ledger) — *"one files destination per agent; a second
-    is a load error"* — is no longer merely unretired: it is **built** as of 2026-09-21
-    ([§5.1](#51-what-landed-instead-2026-09-21)). `exposes` plus a slot `name` is exactly what makes
-    two slots per agent legal, so this doc must retire that ruling EXPLICITLY, and answer the two
+    two of them an error?** `exposes` plus a slot `name` is exactly what makes
+    two slots per agent legal, so this doc must retire
+    [pi-pack-extensions' built one-destination ruling](#oq-d12-background) EXPLICITLY, and answer the two
     cases the new shape invents: two `exposes` entries with the SAME `name` on one agent, and two
-    with different names pointing at the same `into`. Note which gate can see either: the existing
-    cross-pack `AgentNameCollisions` fires only when TWO PACKS hold one name, so it is not the guard
-    against one pack declaring a name twice.
+    with different names pointing at the same `into`.
 
     **And the mirror-image half, which is the one that bit:** how many trees may ONE pack send to
-    one slot? [§5.1](#51-what-landed-instead-2026-09-21) item 4 refused a second one, because the
-    landing path carries the contributing pack and two trees then name one directory — but MERGING
-    them is a coherent alternative that the host notch already performs by accident and the jail
-    cannot perform at all (a bind mount unions nothing, so it would need a staged merge). Whichever
+    one slot? Today a second one is refused ([background](#oq-d12-background)), and merging them is
+    the coherent alternative. Whichever
     way this goes, it must be one answer for both notches.
 
     <!-- vantage: question id=OQ-D12 leaning="Many slots per agent, that being the point; a duplicate slot NAME within a pack is a load error like every other duplicate name in this schema, and two names at one `into` is a real arrangement (two shapes, one directory) — reported, not refused." -->
