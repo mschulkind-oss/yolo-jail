@@ -3,7 +3,7 @@ title: "A pack's service runs wherever its agent runs"
 date: 2026-09-28
 status: accepted
 stage: BUILT
-next: "Read TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox in the next macos-user.yml run: its config names a region since 2026-09-30, so that run is the first that can measure the AWS doorway on a Mac"
+next: "Record the AWS doorway's first Mac verdict in this doc: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox with its config naming a region"
 tags: [design, services, wire-bridge, host, notches, profiles, credentials, macos-user]
 summary: "Built 2026-09-28: yolo host and the macos-user launch start each needed pack service's host half as a child of that one launch, on a loopback port it picked, answering only that launch's caller token, and stop it when the agent exits (OQ-NC1 ruled A, OQ-HS3 per launch, OQ-HS4 as leaned). Built 2026-09-29: the doorway rule (HS-D15), so macos-user opens the Codex and AWS credential doorways the same way, and yolo host opens the AWS one for an agent on Bedrock. This doc holds the shape, the rulings, and the implementation decisions under them."
 vantage:

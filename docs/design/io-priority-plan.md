@@ -3,7 +3,7 @@ title: "Implementation sketch: disk I/O priority, build steps 5 and 6"
 date: 2026-09-27
 status: draft
 stage: SKETCH
-next: "Read step 5's measurement from the scheduled macos-user.yml run: the IOPOL VERDICT line TestMacosUserIOPolicyAcrossTheLaunchArgv logs, then record it at IO-D7"
+next: "Record step 5's measurement at IO-D7 (the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) logged IOPOL VERDICT: SURVIVES), then turn step 5 into a hand-off, since that measurement was all it waited on"
 depends-on:
   - io-priority.md#OQ-IO7
 tags: [sketch, plan, io, resources, cgroups, implementation]

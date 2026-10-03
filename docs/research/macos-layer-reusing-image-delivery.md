@@ -6,7 +6,7 @@ status: accepted
 tags: [research, macos, image-delivery, podman, apple-container]
 summary: "Can podman-on-macOS and Apple Container get the per-layer reuse skopeo gives podman on Linux? Measured on Linux, sourced for the Mac side. A delta archive gets it with no new listener, but Apple Container still rebuilds its ext4 snapshot for every new image."
 stage: DECIDED
-next: "Read the next archive-delivery-macos nightly's OQ-LR2 IN-VM COPIER line: the copier now runs under an in-VM SIGQUIT deadline and reports its exit, so a goroutine dump or the exit marker says whether the copy or the ssh session hung"
+next: "Record the in-VM copier's first completed run: the 2026-10-02 dispatched macOS nightly (GitHub Actions run 37056529987, at 0e34798c6) logged OQ-LR2 IN-VM COPIER: LANDED in 32m0.3s, against 17m0.3s for the archive path in the same job; the 2026-10-03 scheduled run timed out inside that step and GitHub kept no log of it"
 vantage:
   status-chip: true
 ---

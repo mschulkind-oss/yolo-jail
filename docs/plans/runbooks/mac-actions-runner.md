@@ -4,7 +4,7 @@ status: accepted
 date: 2026-09-14
 tags: [ci, macos, apple-container, self-hosted, runbook]
 stage: CURRENT
-next: "Nothing is owed until the next Mac; if a Local Network grant makes backend-parity.md's #10 hold, add that grant to this procedure"
+next: "Ask the maintainer what changed on the runner Mac before backend-parity.md's #10 held on 2026-10-03 (apple-container.yml run 37133569003), and add it to this procedure if it was a Local Network grant"
 summary: "The one-time procedure for registering a maintainer's Mac as the self-hosted runner apple-container.yml has been waiting for: the runner registration and the one label it needs, Apple Container's per-user apiserver, the optional launchd dispatcher that replaced a cron plus an admin PAT, and the account decision — including the launchd constraint that rules out the hidden service account pattern the rest of this repo uses. It needs no repository secret: a runner is an outbound client, so the Mac can answer 'am I online' locally for free."
 ---
 

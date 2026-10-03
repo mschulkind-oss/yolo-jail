@@ -5,7 +5,7 @@ status: accepted
 tags: [base-home, jail-home, storage, backend-parity, design]
 summary: "Podman mounts ONE machine-wide base, <state>/home, read-only at /home/agent in every jail. A jail needs nothing in it: it holds empty mountpoints, three redirect links, the machine's shared credential dirs and a login seed only the host reads. Sharing it is the defect: one workspace's pack dirs, host_files links and old bytes show up in every jail, and a jail that did not select claude can read the machine's Claude credential file. The design: mount a per-jail read-only skeleton built from the SELECTED packs, keep <state>/home as the machine store for the shared dirs and the Claude login seed, delete seedAgentDir, and leave legacy bytes unmounted and unread."
 stage: BUILT
-next: "Read the AC-PARITY login-seed verdict from the next apple-container.yml run (TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed) into §3 and the OQ-BH12 ledger row"
+next: "Record the AC-PARITY login-seed verdict in §3 and the OQ-BH12 ledger row: the 2026-10-03 apple-container.yml run (GitHub Actions run 37133569003, at 5ca9b7485) logged HOLDS for TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed"
 ---
 
 # Why does every podman jail share one home? It should not — a per-jail skeleton instead

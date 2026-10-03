@@ -5,7 +5,7 @@ status: accepted
 tags: [plan, sketch, base-home, jail-home, storage]
 summary: "Build sketch for the per-jail read-only skeleton that replaces podman's shared base home: the seed fixes that ship first, the skeleton builder and the writers it takes over, the tests and fixtures that move, and the traps found in the tree. No design decision lives here."
 stage: BUILT
-next: "Verify step 4 on a Mac, through the Apple Container check that base-home-legacy-state.md names as its next step"
+next: "Step 4's Mac check held: the 2026-10-03 apple-container.yml run (GitHub Actions run 37133569003, at 5ca9b7485) passed TestAppleContainerFreshWorkspaceBootsWithTheLoginSeed; once base-home-legacy-state.md records it, nothing here is left to verify"
 ---
 
 # Per-jail home skeleton — build sketch

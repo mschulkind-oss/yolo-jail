@@ -2,7 +2,7 @@
 title: "Threat model: the macos-user host-side nix build step"
 status: in-review
 stage: DESIGN
-next: "Read the Q3 cache-miss step's summary from the next macos-user.yml runs (jq rebuilt from source with the sandbox on) into §Q3's run record; Q2 and Q3 are the maintainer's to rule"
+next: "Record the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) in §Q3's run record: the floor built under --option sandbox true with no build failed or refused, and jq's cache-miss rebuild built under the sandbox, its output differing from the substituted one; Q2 and Q3 are the maintainer's to rule"
 ---
 
 # Threat model: the macos-user host-side nix build step

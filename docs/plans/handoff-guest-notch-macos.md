@@ -2,7 +2,7 @@
 title: "Handoff: the `guest` notch, and the macOS work only a Mac can finish"
 status: accepted
 stage: DECIDED
-next: "Read §4's render-mark twin back from the scheduled macos-user.yml run (TestMacosUserComposesARenderedHostFileAsABaseline); the Cachix row is handoff-cachix-cache.md's own next"
+next: "Record §4's render-mark twin: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserComposesARenderedHostFileAsABaseline; the Cachix row is handoff-cachix-cache.md's own next"
 depends-on:
   - environment-manager-plan.md
 ---

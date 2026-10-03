@@ -3,7 +3,7 @@ title: "Yielding the disk: which kernel lever reaches a jail build's I/O, and on
 date: 2026-09-27
 status: in-review
 stage: DESIGN
-next: "Read the Mac measurement step 5 waits on from the scheduled macos-user.yml run (TestMacosUserIOPolicyAcrossTheLaunchArgv's IOPOL VERDICT line) and record it at IO-D7"
+next: "Record the Mac measurement at IO-D7: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) logged IOPOL VERDICT: SURVIVES, a process-scope IOPOL_THROTTLE on the launcher reaching the sandboxed shell through sudo, env -i and sandbox-exec; step 5, macos-user, waited only on that"
 tags: [resources, io, cgroups, bfq, storage, latency, podman, performance]
 summary: "A jail build can saturate the host disk and stall the desktop. Process I/O priority is free to set and reaches every program the jail runs, but only their reads and synchronous writes, and only on BFQ or mq-deadline disks; buffered writeback answers to the cgroup io controller alone, which a stock rootless host neither delegates nor enables. The design sets a declared resources.io.priority on every thread of the jail and names, at launch and in yolo check, each place it does nothing, and that much is built. Of three filed questions, one is decided and two are answered from existing rulings; four stay open: the default, a per-command flag, the host notch, and whether any cgroup half ships."
 vantage:

@@ -2,7 +2,7 @@
 title: "Handoff — publish the prebuilt image to a Cachix cache"
 status: accepted
 stage: BUILT
-next: "Read the CACHIX lines TestMacImageSubstitutesFromCachix logs in the next macOS nightly into this status line, or run the Final test below on a Mac"
+next: "Record the CACHIX lines in this status line: the 2026-10-03 scheduled macOS nightly (GitHub Actions run 37118791671, shard 11, at 0e34798c6) passed TestMacImageSubstitutesFromCachix, each case would build 13 to 15 derivations no substituter serves, and 2 of about 600 fetched paths came from yolo-jail.cachix.org"
 ---
 
 # Handoff — publish the prebuilt image to a Cachix cache

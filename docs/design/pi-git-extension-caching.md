@@ -3,7 +3,7 @@ title: "Sharing pi git extensions across jails: immutable per-commit trees, neve
 date: 2026-09-25
 status: in-review
 stage: DESIGN
-next: "Rule OQ-6: the store is rebased onto main and green on branch wip/pi-extension-store-rebased, and every OQ-6 option keeps it, so landing waits only on the ruling"
+next: "Rule OQ-6: the store is built and was green on the local branch held/pi-extension-store (d44cb88b9, cut from main at c5261b998 on 2026-09-30), every OQ-6 option keeps it, and landing it rebases that branch onto main and reruns the gate"
 tags: [pi, extensions, git, caching, machine-tier, storage, isolation]
 summary: "pi's git extensions cost every new jail a clone and a dependency build. The first build shared one mutable checkout per repository across jails, which let one jail's pin or update change the files another jail was running; the maintainer's rulings of 2026-09-25 withdraw it. The redesign shares content, never state: a machine store of bare mirrors and one immutable tree per resolved commit, each jail pointing at the commit its own config resolves to, pi loading each tree as a local package so it never clones or updates one itself. A launch waits for the tree it needs and never boots on another launch's leftovers. The npm store gets the same treatment, git first (ruled 2026-09-26). One question is open: whether the pi pack may rewrite its own packages list after the merge."
 vantage:

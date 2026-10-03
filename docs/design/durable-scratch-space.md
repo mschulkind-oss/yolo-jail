@@ -5,7 +5,7 @@ status: accepted
 tags: [design, briefing, jail-home, storage-classes, worktrees, scratch, workflows, packs, pi, claude, codex, opencode, macos-user]
 summary: "An agent put its landing worktree in /tmp, a restart deleted it, and the next command cherry-picked onto main ungated. yolo gives every jail six kinds of writable and read-only space with different lifetimes and tells the agent about none of them. The design names those storage classes, generates a briefing section from the launch's own mounts, adds one agent-neutral durable dir at <workspace>/.yolo/durable exported as $YOLO_DURABLE_DIR, reports what accumulates there at every launch and in yolo check and yolo stores without ever deleting it, and has each agent's own pack point its workflow tool there where the tool's default is not durable."
 stage: BUILT
-next: "Read the AC-PARITY storage-classes verdict from the next apple-container.yml run (TestAppleContainerBriefingCarriesItsStorageClasses) into this status line"
+next: "Record the AC-PARITY storage-classes verdict in this status line: the 2026-10-03 apple-container.yml run (GitHub Actions run 37133569003, at 5ca9b7485) logged HOLDS for TestAppleContainerBriefingCarriesItsStorageClasses"
 depends-on:
   - slots-and-contributions.md#OQ-D6
 vantage:

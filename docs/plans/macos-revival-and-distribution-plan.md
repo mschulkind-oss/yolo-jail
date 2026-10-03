@@ -2,7 +2,7 @@
 title: "Plan: macOS revival + source-distribution fix (post-ejection)"
 status: in-review
 stage: BUILT
-next: "Read A2's twin back from the scheduled macos-user.yml run: TestMacosUserAPackageWithNoDarwinBuildAbortsTheLaunch must show the hard error firing on iptables and a Linux-only entry launching"
+next: "Record A2's twin in this plan: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserAPackageWithNoDarwinBuildAbortsTheLaunch, both its declared and its linux_only subtests"
 ---
 
 # Plan: macOS revival + source-distribution fix (post-ejection)

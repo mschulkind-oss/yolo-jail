@@ -2,8 +2,8 @@
 title: "Synced skill trees — implementation sketch"
 date: 2026-09-18
 status: accepted
-stage: BUILT
-next: "Nothing here: the design's three steps shipped, and both defects this measurement found are fixed"
+stage: GRADUATED
+next: "Nothing is owed: the design graduated on 2026-10-01 into pack-system.md's reserved-children rules, and this file keeps the measurement transcripts it cites"
 tags: [plan, sketch, skills, packs, host-notch, claude]
 summary: "The parking lot for `synced-skill-trees.md`: the measurement transcripts that doc cites, and the checks worth re-running against them. Not a hand-off artifact — no design decision is made here. The design's fence, notice and recovery report shipped 2026-09-22, so the build-side notes here are history; its last question, which belongs to the config-ownership axis, was decided on 2026-09-30."
 vantage:

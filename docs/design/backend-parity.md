@@ -5,7 +5,7 @@ status: in-review
 tags: [backends, apple-container, macos-user, parity, silent-drop]
 summary: "Issue #39 was not one bug. A 48-agent sweep found 42 candidates and confirmed 31, deduping to 17 distinct defects — 21 once a class test written for three of them found a fourth nobody had looked for. All one shape: a mechanism wired into the podman branch of the run pipeline with nothing checking the other two backends. Fourteen are fixed or warned; the rest need a census — a per-backend disposition table with FOUR states, because 'achieved another way' is the state that half the audit turned out to be."
 stage: DESIGN
-next: "Rule OQ-BP-1 — build the per-backend census table, or keep the annotation check and the two hand-kept tables"
+next: "Record #10 in §5.4: the 2026-10-03 apple-container.yml run (GitHub Actions run 37133569003, at 5ca9b7485) logged AC-PARITY #10 VERDICT: HOLDS, a published port answering the Mac under an explicit network.mode: host as under the default; then rule OQ-BP-1, the per-backend census table or the annotation check and the two hand-kept tables"
 ---
 
 # Three backends, one pipeline, and no census — why a mechanism goes missing quietly

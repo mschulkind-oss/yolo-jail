@@ -3,7 +3,7 @@ title: "Companion implementation sketch: pi git extension trees"
 date: 2026-09-25
 status: draft
 stage: SKETCH
-next: "Nothing to build from here: §2 onward is already built on branch wip/pi-extension-store, which waits on the design's ruling on the post-merge rewrite"
+next: "Nothing to build from here: §2 onward is built on the local branch held/pi-extension-store (d44cb88b9), which waits on the design's ruling on the post-merge rewrite"
 depends-on:
   - pi-git-extension-caching.md#OQ-6
 ---
