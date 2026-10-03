@@ -10,6 +10,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+**Claude Code plugins and mods.** A new guide covers the ways to bring a Claude Code plugin or mod
+into a jail, and what each launch shows about the code it runs. See
+[Claude Code plugins and mods](userguide/guides/claude-plugins-and-mods.md).
+
 ### Fixed
 
 - When `yolo host` has no container runtime to capture an agent with, it now says to install one.
@@ -41,7 +47,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   why, instead of saying nothing or that the jail stays up.
 - The launch, `yolo pack footprint` and `yolo host apply` now name the code a wrapped Claude plugin
   runs from Claude Code's default places (hooks, MCP and language servers, monitors, `bin/`), not
-  only what its manifest declares.
+  only what its manifest declares, and the launch says when its hooks include a mod's module.
+- A Claude plugin at the root of a pack with no `skills/` folder, the usual shape of a Claude Code
+  mod, now reaches a jail.
+- A plugin whose manifest names it with a path, such as `../x`, is refused instead of being written
+  outside the skills folder.
 - In a jail, `gh` now runs `--jq` and `--template`, takes an encoded branch name such as
   `MS%2Fmain`, and answers `gh auth status` without your machine's paths or the token's scopes; a
   write says at once that nothing ran and to run it on your machine.
