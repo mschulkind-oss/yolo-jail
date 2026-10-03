@@ -156,6 +156,17 @@ func TestClassify(t *testing.T) {
 			outcome: OutcomeWindowed, set: SetReadWrite},
 		{name: "the query text is still checked beside a filter", argv: "pr list -S 'x) OR (is:pr' --json number --jq . -R o/r",
 			outcome: OutcomeOutOfScope, reason: "a parenthesis"},
+		// The commonest filters are `.` and `..` (recursive descent), and `./2` divides. They are
+		// jq's, applied to gh's output and sent to no one, so no rule that reads an argument as a
+		// REST path segment may read a filter's dots as one (BB-D64).
+		{name: "a filter's . is jq's, not a path segment", argv: "run view 7 -R o/r --json jobs --jq .",
+			outcome: OutcomeStanding, set: SetReadOnly, run: "run view --repo=o/r --json=jobs --jq=. 7"},
+		{name: "a filter's .. is jq's, not a path segment", argv: "release view v1 -R o/r --json assets -q ..",
+			outcome: OutcomeStanding, set: SetReadOnly, run: "release view --repo=o/r --json=assets --jq=.. v1"},
+		{name: "a filter's ./2 is jq's, not a path", argv: "pr view 1 -R o/r --json number --jq ./2",
+			outcome: OutcomeStanding, set: SetReadOnly, run: "pr view --repo=o/r --json=number --jq=./2 1"},
+		{name: "a template's lone . is output, not a path segment", argv: "pr view 1 -R o/r --json title --template .",
+			outcome: OutcomeStanding, set: SetReadOnly, run: "pr view --repo=o/r --json=title --template=. 1"},
 
 		// §12 done criterion 2 and §5.4: refused, whatever set is held.
 		{name: "auth token", argv: "auth token", outcome: OutcomeRefused, reason: "host's GitHub login"},
