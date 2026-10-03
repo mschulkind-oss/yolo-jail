@@ -803,3 +803,28 @@ func TestResolveDestinationsDoesNotMutateTheOriginal(t *testing.T) {
 		t.Errorf("the copy lost pack identity: %+v vs %+v", d.Pack, zc)
 	}
 }
+
+// A ROOT PLUGIN BESIDE A SKILLS FOLDER THAT CARRIES SKILLS IS ROUTED ONCE: it rides that folder's
+// layers (every layer of a pack carries its plugins), so the root-plugin pass adds nothing, and
+// reporting its audience a second time would print the addressed delivery twice, or, with no
+// destination matched, a second `no effect` line about one contribution.
+func TestResolveDestinationsReportsARootPluginBesideCarriedSkillsOnce(t *testing.T) {
+	claude := agentPack(t, "claude", packdecl.Contribution{Kind: packdecl.KindSkills,
+		From: "skills", Into: ".claude/skills", Agent: "claude"})
+	pi := agentPack(t, "pi", packdecl.Contribution{Kind: packdecl.KindSkills,
+		From: "skills", Into: ".pi/agent/skills", Agent: "pi"})
+	mod := addressedPack(t, "modpack", map[string]string{
+		".claude-plugin/plugin.json": `{"name":"modpack"}`,
+		"hooks/hooks.json":           `{"hooks":{}}`,
+		"skills/review/SKILL.md":     "body\n",
+	}, packdecl.Contribution{Kind: packdecl.KindSkills, Agents: []string{"claude"}})
+
+	d := mod.ResolveDestinations([]*Pack{claude, pi, mod})
+	if len(d.Addressed) != 1 {
+		t.Errorf("Addressed = %+v, want the one skills contribution once", d.Addressed)
+	}
+	if want := []string{".claude/skills"}; !sameStrings(intos(d.Inferred, packdecl.KindSkills), want) {
+		t.Errorf("inferred skills = %v, want %v — the pack addresses its skills to claude",
+			intos(d.Inferred, packdecl.KindSkills), want)
+	}
+}

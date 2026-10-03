@@ -81,7 +81,7 @@ func DeliverPlugin(req PluginRequest) ([]Result, error) {
 			Name: name, Path: req.Plugin.ManifestPath, Action: ActionRefused,
 			Detail: "plugin not delivered: its manifest's name is not a plain folder name, so " +
 				"what it carries would land outside its own folder in this skills dir — set `name` " +
-				"in its " + req.Plugin.ManifestRel() + " to one with no \"/\" and no \"..\"",
+				"in its " + req.Plugin.ManifestRel() + " to one with no `/` and no `..`",
 		}}, nil
 	}
 	tier, downgrade := ProbeTier(req.Tier, req.SkillsDir, name)
@@ -218,9 +218,13 @@ func deliverPluginFlat(req PluginRequest, name string) ([]Result, error) {
 	// Flat is the pack's default (PackTier), so the fix is the pack's own opt-in; a pack that
 	// opted in and was downgraded (ProbeTier) has nothing to set, and what it has to move is the
 	// folder standing at the plugin's name.
+	//
+	// NO DOUBLE QUOTE in either, as in DeliverPlugin's name refusal: a launch prints this detail
+	// through run.displaySafe, which Go-quotes a line holding one, so `"skills_tier"` reached the
+	// jail's output backslash-escaped, a spelling that is not JSON.
 	why := "this skills dir is flat"
-	fix := `add "skills_tier": "namespaced" to pack ` + req.Pack + `'s pack.json (at the ` +
-		`pack's root) to deliver the plugin whole`
+	fix := "set `skills_tier` to `namespaced` in pack " + req.Pack + "'s pack.json (at the " +
+		"pack's root) to deliver the plugin whole"
 	if req.Tier == TierNamespaced {
 		why = "its namespaced delivery here was downgraded to flat"
 		fix = "move what is at " + filepath.Join(req.SkillsDir, name) + " elsewhere to deliver " +

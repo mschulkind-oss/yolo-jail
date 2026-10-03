@@ -202,7 +202,7 @@ func TestFlatRefusesNonSkillComponentsByName(t *testing.T) {
 		}
 		// EVERY STOP NAMES THE NEXT STEP: the flat tier is the PACK's default, so the fix is
 		// the pack's own opt-in, in its own manifest.
-		for _, fix := range []string{`"skills_tier": "namespaced"`, "pack wrapper's pack.json"} {
+		for _, fix := range []string{"set `skills_tier` to `namespaced`", "pack wrapper's pack.json"} {
 			if !strings.Contains(detail, fix) {
 				t.Errorf("the refusal of %q does not name the fix (%q):\n%s", want, fix, detail)
 			}

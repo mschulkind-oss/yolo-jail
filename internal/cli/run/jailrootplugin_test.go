@@ -109,8 +109,10 @@ func TestAJailDeliversARootModWithNoSkillsFolder(t *testing.T) {
 
 // THE FLAT DEFAULT STILL HOLDS: a pack with no pack.json is flat, and a flat skills folder can
 // carry a plugin's skills and nothing else (hostskills.deliverPluginFlat). So the mod does not
-// arrive — and the launch now SAYS so, naming the hooks that cannot, where it used to stage
-// nothing and say nothing.
+// arrive — and the launch now SAYS so, naming the hooks that cannot and the setting that would
+// carry them, where it used to stage nothing and say nothing. The setting has to read as it
+// does at the host: a detail holding a double quote is printed Go-quoted here (displaySafe), so
+// `"skills_tier"` reached the launch as `\"skills_tier\"`.
 func TestAJailNamesAFlatRootModThatCannotArrive(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude",`+writeRootMod(t, t.TempDir(), "first-mod", "first-mod", "")+`]`)
@@ -122,10 +124,14 @@ func TestAJailNamesAFlatRootModThatCannotArrive(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dest, "hooks")); !os.IsNotExist(err) {
 		t.Errorf("a flat pack's mod spilled its hooks/ into the jail's skills folder (%v)", err)
 	}
-	for _, want := range []string{"Skills:", "first-mod:hooks", "cannot arrive", "~/.claude/skills"} {
+	for _, want := range []string{"Skills:", "first-mod:hooks", "cannot arrive", "~/.claude/skills",
+		"set `skills_tier` to `namespaced` in pack first-mod's pack.json"} {
 		if !strings.Contains(said, want) {
 			t.Errorf("the launch did not say %q about the mod a flat pack cannot deliver:\n%s", want, said)
 		}
+	}
+	if strings.Contains(said, `\"`) {
+		t.Errorf("the launch printed a refusal Go-quoted, its fix backslash-escaped:\n%s", said)
 	}
 }
 
@@ -188,10 +194,15 @@ func TestAJailRefusesARootModWhoseNameIsAPath(t *testing.T) {
 					t.Errorf("a mod named %q was written to %s (%v)", name, p, err)
 				}
 			}
-			for _, want := range []string{"Skills:", "not a plain folder name", "set `name` in its .claude-plugin/plugin.json"} {
+			for _, want := range []string{"Skills:", "not a plain folder name",
+				"set `name` in its .claude-plugin/plugin.json to one with no `/` and no `..`"} {
 				if !strings.Contains(said, want) {
 					t.Errorf("the launch did not say %q about a mod named %q:\n%s", want, name, said)
 				}
+			}
+			// The mod's own name is quoted on purpose (quoteSafe); the refusal after it is not.
+			if strings.Contains(said, `\"`) {
+				t.Errorf("the launch printed the rename Go-quoted, backslash-escaped:\n%s", said)
 			}
 		})
 	}
