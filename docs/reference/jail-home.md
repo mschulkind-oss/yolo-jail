@@ -918,7 +918,7 @@ podman opens by descriptor, which it does not offer.
   that an escape hatch is for a broken user configuration, never for yolo's own safety check, which
   leaves (a) or (b) as the real choice.
 
-  <!-- vantage: oq id=OQ-JH1 leaning="(a): keep the refusal and document a bind mount as the way to relocate. A hatch would be for yolo's own safety check rather than a broken config, and (b) adds a host-side record for a layout nothing documents." -->
+  <!-- vantage: question id=OQ-JH1 leaning="(a): keep the refusal and document a bind mount as the way to relocate. A hatch would be for yolo's own safety check rather than a broken config, and (b) adds a host-side record for a layout nothing documents." -->
 
   _Leaning:_ **(a)**, keep the refusal and document a bind mount as the way to relocate. A hatch
   would be for yolo's own safety check rather than a broken config, and (b) adds a host-side

@@ -1313,7 +1313,7 @@ and it already has a home in the tree.
    narrow question by the 2026-09-04 reopening** — the closure question for the doc as a whole
    is now [`OQ-WP8`](#OQ-WP8).
 
-   <!-- vantage: oq id=OQ-WP1 -->
+   <!-- vantage: question id=OQ-WP1 -->
 
    _Leaning (as filed):_ Accept. But I am asking rather than asserting, because a maintainer's lived
    annoyance is evidence a repo sweep cannot produce, and "this bites me weekly" would
@@ -1341,7 +1341,7 @@ and it already has a home in the tree.
    Fixing it means binding a per-workspace directory over one vendor-specific path — a
    mount added for one tool's cache layout, which is the shape yolo usually refuses.
 
-   <!-- vantage: oq id=OQ-WP3 -->
+   <!-- vantage: question id=OQ-WP3 -->
 
    _Leaning:_ Leave it, and note it in [`jail-home.md`](../reference/jail-home.md) [§2.1](../reference/jail-home.md#the-mount-stack) so the next person
    who finds interleaved MCP logs does not spend an afternoon on it. Revisit if a
@@ -1361,7 +1361,7 @@ and it already has a home in the tree.
    [`trust-paths.md`](trust-paths.md)'s scope model, which currently lists workspace `mounts`
    as un-scope-ruled, and it stands whether or not mirroring ever happens.
 
-   <!-- vantage: oq id=OQ-WP4 -->
+   <!-- vantage: question id=OQ-WP4 -->
 
    _Leaning:_ Raise it in [`trust-paths.md`](trust-paths.md), not here. The measured blast
    radius is small (a workspace subdir gets a second read-only appearance under `/ctx`; the
@@ -1380,7 +1380,7 @@ and it already has a home in the tree.
    would block a future *yes*, and it is cheap to measure for whoever next has AC hardware
    in front of them. `docs/design/backend-parity.md` is where the answer belongs.
 
-   <!-- vantage: oq id=OQ-WP5 -->
+   <!-- vantage: question id=OQ-WP5 -->
 
    _Leaning:_ Unverified, and I would guess yes (AC does ordinary directory binds), but a
    guess is exactly what this repo's doc norms forbid recording as fact.
@@ -1415,7 +1415,7 @@ and it already has a home in the tree.
    *not* sharing those was worth paying for. Worth a paragraph of intent before anyone
    invests in it.
 
-   <!-- vantage: oq id=OQ-WP6 -->
+   <!-- vantage: question id=OQ-WP6 -->
 
    **Superseded in substance by [§12](#12-follow-up-maximal-mirroring), 2026-09-04** — the
    question was asked for real and is now analysed rather than deferred. Its verdict half is
@@ -1444,7 +1444,7 @@ and it already has a home in the tree.
    [`../research/mise-host-jail-path-mismatch.md`](../research/mise-host-jail-path-mismatch.md)'s
    [`OQ-MP1`](#decision-ledger) so the two answers are found together.
 
-   <!-- vantage: oq id=OQ-WP7 leaning="Keep this doc, re-stamped `REJECTED (2026-09-04)`, and cross-link it from `mise-host-jail-path-mismatch.md`'s OQ-MP1 so the two answers are found together. The question was already re-asked once." -->
+   <!-- vantage: question id=OQ-WP7 leaning="Keep this doc, re-stamped `REJECTED (2026-09-04)`, and cross-link it from `mise-host-jail-path-mismatch.md`'s OQ-MP1 so the two answers are found together. The question was already re-asked once." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1486,7 +1486,7 @@ and it already has a home in the tree.
    (B), a coherent position, and it would flip me, but it should be taken deliberately rather
    than by omission. The two new crossings do not move it: both were fixed without mirroring.
 
-   <!-- vantage: oq id=OQ-WP8 leaning="(A) accept the no. Maximal mirroring makes path NAMES agree while CONTENTS stay side-determined (Arch host / NixOS jail, Mach-O / ELF), converting loud ENOENT failures into silent wrong-artifact ones; it deletes the credential boundary's cheapest signal; and macos-user cannot express the mirrored home. The two crossings found since (git worktree links, jail nix roots) each got a targeted fix without mirroring. (B), mirror because a mirrored reference is usually right, is the position most worth arguing." -->
+   <!-- vantage: question id=OQ-WP8 leaning="(A) accept the no. Maximal mirroring makes path NAMES agree while CONTENTS stay side-determined (Arch host / NixOS jail, Mach-O / ELF), converting loud ENOENT failures into silent wrong-artifact ones; it deletes the credential boundary's cheapest signal; and macos-user cannot express the mirrored home. The two crossings found since (git worktree links, jail nix roots) each got a targeted fix without mirroring. (B), mirror because a mirrored reference is usually right, is the position most worth arguing." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1497,7 +1497,7 @@ and it already has a home in the tree.
    evidence, but the guard is already thin: it misses any jail-made venv whose recorded
    interpreter happens to exist on the host at the same path.
 
-   <!-- vantage: oq id=OQ-WP9 -->
+   <!-- vantage: question id=OQ-WP9 -->
 
    _Leaning:_ Yes, but as separate, small work, and only if a better oracle exists. Reading
    the ELF interpreter out of the recorded `home` binary was the candidate. It is now measured
@@ -1619,7 +1619,7 @@ and it already has a home in the tree.
     or already true (the Linux `guest` notch uses the same closure). The leaning as filed,
     *"I suspect yes"*, predates HP-DIR3.
 
-    <!-- vantage: oq id=OQ-WP10 leaning="(b): the want was human-legible paths, so section 3.3's targeted fixes are the lever and alternative G is dropped as a stated goal. HP-DIR3 (2026-09-29) already ruled out the host half, which was G's main case here: at the host yolo never provisions the workspace's runtime. What remains of G is either impossible (a podman jail and macos-user are ELF against Mach-O) or already true (the Linux guest notch takes the same nix packages closure as the jail)." -->
+    <!-- vantage: question id=OQ-WP10 leaning="(b): the want was human-legible paths, so section 3.3's targeted fixes are the lever and alternative G is dropped as a stated goal. HP-DIR3 (2026-09-29) already ruled out the host half, which was G's main case here: at the host yolo never provisions the workspace's runtime. What remains of G is either impossible (a podman jail and macos-user are ELF against Mach-O) or already true (the Linux guest notch takes the same nix packages closure as the jail)." -->
 
     **Answer:**
     > _(empty — fill in when decided)_
@@ -1631,7 +1631,7 @@ and it already has a home in the tree.
     constant that mirroring would remove. So slice 6 is not blocked on this decision and the
     two work streams do not collide.
 
-    <!-- vantage: oq id=OQ-WP11 -->
+    <!-- vantage: question id=OQ-WP11 -->
 
     _Leaning:_ Yes — one line in [`../plans/install-capture.md`](../plans/install-capture.md)'s
     build-order step 6 saying the deletion is not available, so nobody sequences around a
@@ -1654,7 +1654,7 @@ and it already has a home in the tree.
     [`macos-no-vm-direction.md`](../reference/macos-no-vm-direction.md) (*"Per-workspace isolation
     … not one shared home"*), and carried a cross-workspace transcript leak.
 
-    <!-- vantage: oq id=OQ-WP12 -->
+    <!-- vantage: question id=OQ-WP12 -->
 
     _Leaning (as filed):_ the maintainer's call — a tier tradeoff — with the bar
     [`backend-parity.md`](backend-parity.md) sets: restore **both** tiers explicitly, never just

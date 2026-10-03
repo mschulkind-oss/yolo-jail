@@ -1943,7 +1943,7 @@ jail with mise 2026.8.6:
 So the first task is done as far as any record goes. The exclusion's original reason can come
 only from the PR's author, and every effect the tree shows works against a project's own pin.
 
-<!-- vantage: oq id=OQ-PD19 leaning="Narrow both steps to the pnpm question and retire the rest. Step five dissolves for agent dependencies by OQ-PD6's own amendment, and step three's user-scope venue goes with it. What survives is one concrete question — how does yolo pin pnpm, given mise is closed to it and nobody remembers why — which is small, real, and not what either step proposed to build." -->
+<!-- vantage: question id=OQ-PD19 leaning="Narrow both steps to the pnpm question and retire the rest. Step five dissolves for agent dependencies by OQ-PD6's own amendment, and step three's user-scope venue goes with it. What survives is one concrete question — how does yolo pin pnpm, given mise is closed to it and nobody remembers why — which is small, real, and not what either step proposed to build." -->
 
 _Leaning:_ **Narrow both steps to the pnpm question and retire the rest.** Step five dissolves for
 agent dependencies by [`OQ-PD6`](#decision-ledger)'s own amendment; step three's user-scope venue goes with it, because a
@@ -2001,7 +2001,7 @@ option (c) would now also hide what a dropped fork leaves in `$GOBIN`.
   survives the window stays for the life of the home, which is the invisibility the finder was kept
   to prevent.
 
-<!-- vantage: oq id=OQ-PD20 leaning="(b) now, (c) later. Autoprune must never delete bytes yolo did not install, and nothing yolo runs installs into $GOBIN any more. The explicit verb keeps the leftovers collectable. Retire the class once a release has passed since the recipe table's deletion." -->
+<!-- vantage: question id=OQ-PD20 leaning="(b) now, (c) later. Autoprune must never delete bytes yolo did not install, and nothing yolo runs installs into $GOBIN any more. The explicit verb keeps the leftovers collectable. Retire the class once a release has passed since the recipe table's deletion." -->
 
 _Leaning:_ **(b) now, then (c) after a release.** The rule autoprune should keep is that a boot
 never deletes bytes yolo did not install, and since 2026-09-25 nothing yolo runs installs into
@@ -2026,7 +2026,7 @@ why.
 **What it decides:** whether that pin is a project-style pin on an agent dependency, which P6
 does not allow, or a vendor-compatibility hold, which would be an exception P6 does not yet state.
 
-<!-- vantage: oq id=OQ-PD21 -->
+<!-- vantage: question id=OQ-PD21 -->
 
 It has no leaning yet: why the pack pins is the fact a leaning would need, and nothing records it.
 
@@ -2063,7 +2063,7 @@ auto-capture ([OQ-PD18](#decision-ledger)) already captures there.
   host, and a jail picks a new version up at its next launch.
 - **(C) Leave it as it is.** The hang is fixed either way ([OQ-PD22](#decision-ledger)).
 
-<!-- vantage: oq id=OQ-PD23 leaning="B: one capture per release per machine. The launch runs on the host, where auto-capture already captures, so OQ-CP4's premise that no host act can follow an update no longer holds; one download per release replaces one per workspace, and no vendor updater runs inside a jail." -->
+<!-- vantage: question id=OQ-PD23 leaning="B: one capture per release per machine. The launch runs on the host, where auto-capture already captures, so OQ-CP4's premise that no host act can follow an update no longer holds; one download per release replaces one per workspace, and no vendor updater runs inside a jail." -->
 
 _Leaning:_ **(B).** One download per machine per release is what the maintainer expected, it takes
 the vendor updater out of every jail, and the premise [OQ-CP4](../reference/agent-cli-copies.md#oq-cp4) rested on no longer holds.

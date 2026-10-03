@@ -1141,7 +1141,7 @@ Carry these forward; do not build on them without re-checking.
    anything in Part 4 is a new config surface at all, and every other question
    here inherits its answer.
 
-   <!-- vantage: oq id=OQ-LM1 leaning="Make local endpoints a mode, reusing the existing framing, rather than a parallel key that will need reconciling later." -->
+   <!-- vantage: question id=OQ-LM1 leaning="Make local endpoints a mode, reusing the existing framing, rather than a parallel key that will need reconciling later." -->
 
    _Leaning:_ make local endpoints a **mode**, reusing the existing framing,
    rather than a parallel key that will need reconciling later.
@@ -1163,7 +1163,7 @@ Carry these forward; do not build on them without re-checking.
    this feature can ever carry a hosted (non-local) endpoint**, since that is the
    only case where a real secret is at stake.
 
-   <!-- vantage: oq id=OQ-LM2 leaning="`requires_env`-style gating, matching the MCP precedent; and document that local endpoints normally need no key at all." -->
+   <!-- vantage: question id=OQ-LM2 leaning="`requires_env`-style gating, matching the MCP precedent; and document that local endpoints normally need no key at all." -->
 
    _Leaning:_ `requires_env`-style gating, matching the MCP precedent; and
    document that local endpoints normally need no key at all.
@@ -1185,7 +1185,7 @@ Carry these forward; do not build on them without re-checking.
    security-closure question** — it is the one answer that cannot be revised
    later without a breaking config change.
 
-   <!-- vantage: oq id=OQ-LM3 leaning="User-scope only. The blast radius of getting this wrong is total." -->
+   <!-- vantage: question id=OQ-LM3 leaning="User-scope only. The blast radius of getting this wrong is total." -->
 
    _Leaning:_ **user-scope only.** The blast radius of getting this wrong is
    total.
@@ -1203,7 +1203,7 @@ Carry these forward; do not build on them without re-checking.
    deserve its own fix regardless of what happens here. Answering it decides
    whether [OQ-LM3](#oq-lm3)'s ruling is sufficient or merely closes one of two doors.
 
-   <!-- vantage: oq id=OQ-LM4 leaning="File it separately; do not couple it to this work." -->
+   <!-- vantage: question id=OQ-LM4 leaning="File it separately; do not couple it to this work." -->
 
    _Leaning:_ file separately; do not couple it to this work.
 
@@ -1231,7 +1231,7 @@ Carry these forward; do not build on them without re-checking.
    they compete for the same attention. Blocks nothing technically; it is purely
    a sequencing call on the maintainer's own attention.
 
-   <!-- vantage: oq id=OQ-LM5 leaning="Option 1 now, with one manual smoke test per agent, since nothing in this doc has been exercised against a live server — then Option 2 once the per-agent configs are proven." -->
+   <!-- vantage: question id=OQ-LM5 leaning="Option 1 now, with one manual smoke test per agent, since nothing in this doc has been exercised against a live server — then Option 2 once the per-agent configs are proven." -->
 
    _Leaning:_ Option 1 now — with one manual smoke test per agent, since
    **nothing in this doc has been exercised against a live server** — then Option
@@ -1255,7 +1255,7 @@ Carry these forward; do not build on them without re-checking.
    a two-writers bug here corrupts a working config on the maintainer's daily
    driver.
 
-   <!-- vantage: oq id=OQ-LM6 leaning="Resolve the two-writers question before shipping, not after." -->
+   <!-- vantage: question id=OQ-LM6 leaning="Resolve the two-writers question before shipping, not after." -->
 
    _Leaning:_ resolve the two-writers question before shipping, not after.
 

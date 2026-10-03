@@ -167,7 +167,7 @@ concerns during `yolo check`.
    - **Option (a) [Recommended]:** Declarative JSON under `"kind": "traps"`. Fast, safe, and easily inspectable by `yolo check`.
    - **Option (b):** Executable pack self-checks. More flexible for complex inspections, but slower, executes pack code, and needs an origin gate of its own. Both options cost a new contribution kind — the existing `doctor_cmd` seam belongs to a loophole and is activation-gated ([§3](#3-proposed-mechanism)), so it cannot carry this.
 
-   <!-- vantage: oq id=OQ-1 leaning="(a) Declarative JSON under kind traps: fast, safe to evaluate without running pack code, and easily inspectable by yolo check. Either option costs a new contribution kind." -->
+   <!-- vantage: question id=OQ-1 leaning="(a) Declarative JSON under kind traps: fast, safe to evaluate without running pack code, and easily inspectable by yolo check. Either option costs a new contribution kind." -->
 
    _Leaning:_ (a), the option marked recommended.
 
@@ -175,7 +175,7 @@ concerns during `yolo check`.
    - **Option (a) [Recommended]:** In `yolo check` only. `yolo check` is the designated diagnostic tool for environment health; launches and applies should stay fast and focused on execution.
    - **Option (b):** In `yolo check` and also as an informational warning during `yolo host apply`.
 
-   <!-- vantage: oq id=OQ-2 leaning="(a) In yolo check only: it is the designated environment-health tool, and launches and applies stay fast and focused on execution." -->
+   <!-- vantage: question id=OQ-2 leaning="(a) In yolo check only: it is the designated environment-health tool, and launches and applies stay fast and focused on execution." -->
 
    _Leaning:_ (a), the option marked recommended.
 
@@ -183,7 +183,7 @@ concerns during `yolo check`.
    - **Option (a) [Recommended]:** Host `$HOME` only (`~`). Workspace files (`<workspace>/pi/agent/APPEND_SYSTEM.md`) in dotfile repositories may just be source files awaiting installation; checking host `$HOME` catches the actual deployed files.
    - **Option (b):** Both host `$HOME` and workspace paths.
 
-   <!-- vantage: oq id=OQ-3 leaning="(a) Host $HOME only: workspace copies in a dotfiles repository may be sources awaiting installation, and $HOME holds the deployed files." -->
+   <!-- vantage: question id=OQ-3 leaning="(a) Host $HOME only: workspace copies in a dotfiles repository may be sources awaiting installation, and $HOME holds the deployed files." -->
 
    _Leaning:_ (a), the option marked recommended.
 

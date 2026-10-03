@@ -808,7 +808,7 @@ found only the per-launch scratch volumes. All three questions were ruled in rev
    live? — RESOLVED (2026-09-28)** The path every briefing names and every agent writes into
    memory.
 
-   <!-- vantage: oq id=OQ-DS1 -->
+   <!-- vantage: question id=OQ-DS1 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A, `<workspace>/.yolo/durable` and
@@ -818,7 +818,7 @@ found only the per-launch scratch volumes. All three questions were ruled in rev
 2. ✅ <a id="OQ-DS2"></a>**[OQ-DS2](#OQ-DS2): Who reclaims the durable dir? — RESOLVED
    (2026-09-28)** Whether yolo ever deletes an agent's work, and how the growth stays visible.
 
-   <!-- vantage: oq id=OQ-DS2 -->
+   <!-- vantage: question id=OQ-DS2 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned and extended:** A, report and never delete. The
@@ -832,7 +832,7 @@ found only the per-launch scratch volumes. All three questions were ruled in rev
 3. ✅ <a id="OQ-DS3"></a>**[OQ-DS3](#OQ-DS3): What does the host notch get? — RESOLVED
    (2026-09-28)** Whether the same variable exists at every notch.
 
-   <!-- vantage: oq id=OQ-DS3 -->
+   <!-- vantage: question id=OQ-DS3 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A, one static sentence in the host header and no

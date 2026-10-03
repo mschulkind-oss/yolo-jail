@@ -316,7 +316,7 @@ two depend on how a particular day's agents were scheduled.
    test. It would also make every other agent that reaches its landing wait for the current run to
    finish.
 
-   <!-- vantage: oq id=OQ-TS1 -->
+   <!-- vantage: question id=OQ-TS1 -->
 
    _Leaning:_ No. A suite-wide lock works against the maintainer's standing preference not to limit
    parallelism ([TS-D1](#TS-D1)). Isolating the two tests that share state (the **integration**
@@ -344,7 +344,7 @@ two depend on how a particular day's agents were scheduled.
    `ci.yml` has no `concurrency` block, so each push to a pull request runs the whole workflow again
    while the earlier run keeps going. At 1085 s for the x64 integration job, that adds up.
 
-   <!-- vantage: oq id=OQ-TS2 leaning="Yes for pull-request branches only, keyed on the branch. No for main, where every push's result is a record of that commit and a cancelled run would leave a commit that was never checked." -->
+   <!-- vantage: question id=OQ-TS2 leaning="Yes for pull-request branches only, keyed on the branch. No for main, where every push's result is a record of that commit and a cancelled run would leave a commit that was never checked." -->
 
    _Leaning:_ Yes, but for pull-request branches only, with the concurrency group keyed on the branch.
    No for `main`: there, each push's result is the record for that commit, and a cancelled run would
@@ -359,7 +359,7 @@ two depend on how a particular day's agents were scheduled.
    that other runs share. The repository already uses this pattern once: `YOLO_TEST_REAL_PACK_INSTALLS`,
    which the `test` recipe in the [`Justfile`](../../Justfile) sets.
 
-   <!-- vantage: oq id=OQ-TS3 -->
+   <!-- vantage: question id=OQ-TS3 -->
 
    _Leaning:_ No. The full suite now runs only at landing, so a run that is not a landing already
    executes only the tests its change reaches. A second switch would add another way to land with
@@ -378,7 +378,7 @@ two depend on how a particular day's agents were scheduled.
    `just check-ci`?** That pass has cost 43 s since 09-13. Taking it out of the local gate would cut
    that time for everyone, but a darwin-only finding would then first appear after a push.
 
-   <!-- vantage: oq id=OQ-TS4 leaning="No. The Justfile comment rules that the landing gate is the one that must not be blind to darwin-only files, and the pass is close to free on a warm cache. Parallelizing recovers much of the cold cost instead." -->
+   <!-- vantage: question id=OQ-TS4 leaning="No. The Justfile comment rules that the landing gate is the one that must not be blind to darwin-only files, and the pass is close to free on a warm cache. Parallelizing recovers much of the cold cost instead." -->
 
    _Leaning:_ No. The comment above the `lint` recipe's darwin pass in the [`Justfile`](../../Justfile) rules against it: the
    landing gate is the one that must not miss darwin-only files. On a warm cache the pass costs close

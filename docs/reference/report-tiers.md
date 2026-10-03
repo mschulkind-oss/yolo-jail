@@ -449,7 +449,7 @@ deliberately not copied: a dry run that has JSON does not need the exit code to 
     stage, and 0 for every other finding. *You pay:* [OQ-RO5](#why-its-this-way)'s reason, that a
     dry run failing on its own findings trains scripts to ignore its exit.
 
-  <!-- vantage: oq id=OQ-RO8 -->
+  <!-- vantage: question id=OQ-RO8 -->
 
   It has no leaning yet: which scripts read the dry run's exit is the fact a leaning would need.
 

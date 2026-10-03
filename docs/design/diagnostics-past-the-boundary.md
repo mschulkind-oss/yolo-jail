@@ -649,7 +649,7 @@ Observable outcomes a human can check, not test names:
    not a level the emitter picks" for the host half, and the two halves disagreeing about
    that is a vocabulary skew a future author has to hold in their head.
 
-   <!-- vantage: oq id=OQ-DB1 leaning="A boolean, and probably not even that — the tier's sink is a file with no volume budget, so most of what a level would gate should simply be always-on. Match report-tiers' model: the fact carries the tier, the emitter does not pick." -->
+   <!-- vantage: question id=OQ-DB1 leaning="A boolean, and probably not even that — the tier's sink is a file with no volume budget, so most of what a level would gate should simply be always-on. Match report-tiers' model: the fact carries the tier, the emitter does not pick." -->
 
    _Leaning:_ A boolean — and possibly no dial at all. The tier writes to a file nobody is
    watching, so the volume argument that motivates levels does not apply; most of what a
@@ -667,7 +667,7 @@ Observable outcomes a human can check, not test names:
    because the natural reaction to a broken jail is to re-run it. This decides whether the
    6 s of a snapshot is spent on every refusal or on none of the first ones.
 
-   <!-- vantage: oq id=OQ-DB2 leaning="Always-on, on the refusal path only. A refused boot has no second chance by construction, the cost lands only when something is already wrong, and OQ-RO3 governs the terminal rather than the file." -->
+   <!-- vantage: question id=OQ-DB2 leaning="Always-on, on the refusal path only. A refused boot has no second chance by construction, the cost lands only when something is already wrong, and OQ-RO3 governs the terminal rather than the file." -->
 
    _Leaning:_ Always-on, and only on the give-up paths. A refused boot is a one-shot event
    whose container is about to vanish; the cost is paid only when something is already
@@ -684,7 +684,7 @@ Observable outcomes a human can check, not test names:
    meaning that is not the other three, and P5's skew argument applies to the *implication*
    as much as to the variable.
 
-   <!-- vantage: oq id=OQ-DB3 leaning="Imply it — one spelling for the user, the launcher translating to the separately-named jail variable, exactly as it already does for YOLO_JAIL_TIMING. The translation is the thing P5 protects; a second user-facing flag is not." -->
+   <!-- vantage: question id=OQ-DB3 leaning="Imply it — one spelling for the user, the launcher translating to the separately-named jail variable, exactly as it already does for YOLO_JAIL_TIMING. The translation is the thing P5 protects; a second user-facing flag is not." -->
 
    _Leaning:_ Imply it. The launcher translates one user-facing spelling into the
    separately-named jail variable — which is precisely the shape `YOLO_JAIL_TIMING` already
@@ -703,7 +703,7 @@ Observable outcomes a human can check, not test names:
    pin *named* things (`TestTheLaunchHasNoQuietFlag`, `shippedclients_test.go`) rather than
    shapes.
 
-   <!-- vantage: oq id=OQ-DB4 leaning="A gate, but on a list rather than a pattern: enumerate the bounded waits and assert each reports, so a new one is added deliberately. Cheaper than a shape lint, and it must pin the CALL SITE — flock_test.go is the cautionary precedent, pinning the notice while nothing asserts the wiring that supplies it." -->
+   <!-- vantage: question id=OQ-DB4 leaning="A gate, but on a list rather than a pattern: enumerate the bounded waits and assert each reports, so a new one is added deliberately. Cheaper than a shape lint, and it must pin the CALL SITE — flock_test.go is the cautionary precedent, pinning the notice while nothing asserts the wiring that supplies it." -->
 
    _Leaning:_ A gate, but over an enumerated list rather than a syntactic pattern — name the
    bounded waits and assert each one reports. That avoids lint false positives. Whichever way
@@ -724,7 +724,7 @@ Observable outcomes a human can check, not test names:
    other reasons. **This is the question the implementer cannot route around**, and it is the
    one place this design's *"no new sink"* cost line may have to give.
 
-   <!-- vantage: oq id=OQ-DB5 leaning="A single supervisor-owned yolo-jaild.log, byte-capped on the crossaudit model with a stated total ceiling. It is the only candidate a wedged daemon cannot take down, it keeps the one-writer property every sink in §2.4 has, and it is assertable in a test — which is what makes a reportable timeout testable at all." -->
+   <!-- vantage: question id=OQ-DB5 leaning="A single supervisor-owned yolo-jaild.log, byte-capped on the crossaudit model with a stated total ceiling. It is the only candidate a wedged daemon cannot take down, it keeps the one-writer property every sink in §2.4 has, and it is assertable in a test — which is what makes a reportable timeout testable at all." -->
 
    _Leaning:_ One supervisor-owned `yolo-jaild.log`, byte-capped on `crossaudit`'s model with
    a stated total ceiling rather than an unbounded append. It is the only candidate no single
@@ -750,7 +750,7 @@ Observable outcomes a human can check, not test names:
    stated. Re-checked 2026-09-30: the line still goes through `e.warn`
    (`internal/entrypoint/runtime.go`, the port-forward loop's "already established" branch).
 
-   <!-- vantage: oq id=OQ-DB6 -->
+   <!-- vantage: question id=OQ-DB6 -->
 
    **Answer:**
    > _(empty — fill in when decided)_

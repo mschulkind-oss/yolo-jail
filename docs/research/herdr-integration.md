@@ -1300,7 +1300,7 @@ in the [Decision Ledger](#7-decision-ledger).
      own conversation. The cost is a jail-to-host channel for the id, a resume template in each
      agent pack, and a per-session key. It depends on Option 2.
 
-   <!-- vantage: oq id=OQ-HR2 leaning="C, resume the right conversation, built as a second slice after the launcher sets the hint; A until then; never B, because a pane that looks restored but lost its conversation is worse than an honest empty shell." -->
+   <!-- vantage: question id=OQ-HR2 leaning="C, resume the right conversation, built as a second slice after the launcher sets the hint; A until then; never B, because a pane that looks restored but lost its conversation is worse than an honest empty shell." -->
 
    _Leaning:_ **C, as a second slice after Option 2, and A until then. Not B.** A pane that looks
    restored but has lost its conversation is worse than an honest empty shell. C is the only
@@ -1332,7 +1332,7 @@ in the [Decision Ledger](#7-decision-ledger).
    - **C. Leave it as it is.** *You see:* git fails inside the jail with
      `fatal: not a git repository: (null)`.
 
-   <!-- vantage: oq id=OQ-HR3 leaning="A, mount the main repository's git directory at its host path read-write and disclose it: git needs it to work at all, it grants what a jail in the main checkout already has, and B leaves herdr's headline flow broken." -->
+   <!-- vantage: question id=OQ-HR3 leaning="A, mount the main repository's git directory at its host path read-write and disclose it: git needs it to work at all, it grants what a jail in the main checkout already has, and B leaves herdr's headline flow broken." -->
 
    _Leaning:_ **A.** git cannot work in a linked worktree without its main repository's git
    directory, read-write, because commits land there. That directory is what a jail in the main
@@ -1382,7 +1382,7 @@ in the [Decision Ledger](#7-decision-ledger).
      removed public methods with no replacement ([§2.5](#25-the-socket-and-its-one-lock)), and
      that filter is the whole security boundary.
 
-   <!-- vantage: oq id=OQ-HR4 leaning="A, no herdr handle crosses into a jail for now: B overlaps yolo notify and herdr's own status notifications, and C is a real feature whose boundary is a filter over an API that is still changing; revisit if in-jail orchestration is wanted." -->
+   <!-- vantage: question id=OQ-HR4 leaning="A, no herdr handle crosses into a jail for now: B overlaps yolo notify and herdr's own status notifications, and C is a real feature whose boundary is a filter over an API that is still changing; revisit if in-jail orchestration is wanted." -->
 
    _Leaning:_ **A, for now.** B mostly duplicates `yolo notify` and herdr's own status
    notifications, which already tell the human when an agent is done or blocked. C is a real

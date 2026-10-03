@@ -1697,7 +1697,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    for third-party host code, as [OQ-HS4](host-notch-services.md#OQ-HS4) left it. The boundary
    is disclosure, which [OQ-TP9](trust-paths.md#decision-ledger) chose over approval.
 
-   <!-- vantage: oq id=OQ-EW1 -->
+   <!-- vantage: question id=OQ-EW1 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A.** Only the user's own word may declare a host-side
@@ -1738,7 +1738,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    can define the shape of a watcher, but it needs explicit permission to activate it. That is
    definitely the right route to go."* Recorded as [EW-DIR2](#EW-DIR2).
 
-   <!-- vantage: oq id=OQ-EW2 -->
+   <!-- vantage: question id=OQ-EW2 -->
 
    **Answer:**
    > **Superseded 2026-09-29, not ruled.** The redesign is
@@ -1761,7 +1761,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    _Leaning:_ **A**, with a host-side declaration refused from workspace scope under every answer
    to [OQ-EW1](#OQ-EW1).
 
-   <!-- vantage: oq id=OQ-EW3 -->
+   <!-- vantage: question id=OQ-EW3 -->
 
    **Answer:**
    > **Ruled 2026-09-29, none of the options as written: yes, but gated.** The maintainer: *"i
@@ -1794,7 +1794,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    crosses nothing, and a host-side one is already gated by [OQ-EW1](#OQ-EW1). The launch
    discloses every sidecar it starts, so an unwanted one is visible at once.
 
-   <!-- vantage: oq id=OQ-EW4 -->
+   <!-- vantage: question id=OQ-EW4 -->
 
    **Answer:**
    > **Ruled 2026-09-29: A, inside a gate.** The maintainer: *"The answer is yes. That was when I
@@ -1839,7 +1839,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    much friction. The ledger rows that assume A, [EW-D14](#EW-D14)'s writer,
    [EW-D16](#EW-D16)'s no-prompt rule and [EW-D17](#EW-D17), change under B.
 
-   <!-- vantage: oq id=OQ-EW5 -->
+   <!-- vantage: question id=OQ-EW5 -->
 
    **Answer:**
    > **Ruled 2026-09-29: A, with the command's scope narrowed.** The maintainer: *"yes, I think
@@ -1894,7 +1894,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    Both off switches A adds, `disable` for one workspace and `disable --all-workspaces` for the
    machine, are host records the agent cannot touch.
 
-   <!-- vantage: oq id=OQ-EW6 -->
+   <!-- vantage: question id=OQ-EW6 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A.** One workspace by default; a whole-machine option
@@ -1930,7 +1930,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    leaning [`workspace-config-trust.md`](workspace-config-trust.md#OQ-WT5) took for a similar
    grant: refuse and name the verb, and `--accept-config-changes` never grants it.
 
-   <!-- vantage: oq id=OQ-EW7 -->
+   <!-- vantage: question id=OQ-EW7 -->
 
    **Answer:**
    > **Ruled 2026-09-29: B.** (Relayed: *"71 B."*) A repository's own sidecars get their own
@@ -1977,7 +1977,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    ([EW-P1](#EW-P1)). B is the fallback if a merge-button run that no machine hears is worse
    than a duplicate.
 
-   <!-- vantage: oq id=OQ-EW8 -->
+   <!-- vantage: question id=OQ-EW8 -->
 
    **Answer:**
    > **Ruled 2026-09-29: B.** (Relayed: *"72 B."*) No filter keeps two machines from acting on
@@ -2007,7 +2007,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    - **C — The enable command names the agent.** `yolo sidecar enable ci-watch --to claude` wakes
      every claude session and never pings pi.
 
-   <!-- vantage: oq id=OQ-EW9 -->
+   <!-- vantage: question id=OQ-EW9 -->
 
    _Leaning:_ **A.** [OQ-EW2](#OQ-EW2)'s old leaning, *"a session that does not care ignores
    one line"*, answered a smaller worry than two sessions that both care and share one checkout.
@@ -2060,7 +2060,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
       watcher; a repository's own sidecar and a fetched pack's stay gated under every answer
       ([OQ-EW3](#OQ-EW3)).
 
-    <!-- vantage: oq id=OQ-EW10 -->
+    <!-- vantage: question id=OQ-EW10 -->
 
     _Leaning:_ **A.** [EW-DIR2](#EW-DIR2) says it for a watcher in general: *"you can define the
     shape of a watcher, but it needs explicit permission to activate it."* An exemption written in
@@ -2115,7 +2115,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
       background task cannot ring its session unless some sidecar is on there. For Claude its own
       Monitor tool already covers that case ([Appendix A.1](#a1-claude-21284)); for pi nothing does.
 
-    <!-- vantage: oq id=OQ-EW11 leaning="B: turn the doorbell on only where a sidecar will start, since nothing in yolo is active by default, A runs an unmeasured hook in every Claude session and a resident yolo host launch for a box nothing writes; the use B gives up, any background process ringing, stays open by declaring that process a sidecar." -->
+    <!-- vantage: question id=OQ-EW11 leaning="B: turn the doorbell on only where a sidecar will start, since nothing in yolo is active by default, A runs an unmeasured hook in every Claude session and a resident yolo host launch for a box nothing writes; the use B gives up, any background process ringing, stays open by declaring that process a sidecar." -->
 
     _Leaning:_ **B.** Nothing in yolo is active by default: an empty config gives a jail with no
     agent, and the launch says so (`run.warnIfNoPacks`, [`AGENTS.md`](../../AGENTS.md)). A pays
@@ -2167,7 +2167,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
       by a claim; an agent-side sidecar's pings never move; and two keys are coupled through the
       writer.
 
-    <!-- vantage: oq id=OQ-EW12 leaning="A: one workspace at two notches at once is the uncommon case, the launch line and yolo notify master say where the pings go and how to move them, B brings back the duplicate the master exists to prevent, and C couples two keys for a claim that works in one direction only." -->
+    <!-- vantage: question id=OQ-EW12 leaning="A: one workspace at two notches at once is the uncommon case, the launch line and yolo notify master say where the pings go and how to move them, B brings back the duplicate the master exists to prevent, and C couples two keys for a claim that works in one direction only." -->
 
     _Leaning:_ **A.** One workspace open at two notches at once is the uncommon case, and A tells
     the user where the pings go and how to move them, in the launch line and in
@@ -2216,7 +2216,7 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
       their next quit or arrival
       ([JL-D19](jail-lifetime-last-session-wins.md#JL-D19)).
 
-    <!-- vantage: oq id=OQ-EW13 leaning="B: it keeps OQ-EW5's words, the next launch starts it, with the disclosure printed by a launch before the start; the keeper already starts a sidecar late after re-checking the gate when another key gives one up, so B reuses that path rather than adding one; A can delay an enable for as long as any tab stays open, and C starts code with no launch to say so." -->
+    <!-- vantage: question id=OQ-EW13 leaning="B: it keeps OQ-EW5's words, the next launch starts it, with the disclosure printed by a launch before the start; the keeper already starts a sidecar late after re-checking the gate when another key gives one up, so B reuses that path rather than adding one; A can delay an enable for as long as any tab stays open, and C starts code with no launch to say so." -->
 
     _Leaning:_ **B.** It keeps [OQ-EW5](#OQ-EW5)'s words, *"the next launch of that workspace
     starts the sidecar"*, with the disclosure printed by a launch before the start. The keeper

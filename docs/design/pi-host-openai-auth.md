@@ -643,7 +643,7 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
    - **F — `yolo host apply` seeds under `host_management`.** Moves the host-management credential
      line.
 
-   <!-- vantage: oq id=OQ-1 leaning="D2 — a native openai-codex provider whose key check answers only with the host socket: it writes nothing, so NC-D37 stands as written, and pi then acts at the host as it does in a jail. If a file write is preferred, A′ rather than A, because A deletes an own login." -->
+   <!-- vantage: question id=OQ-1 leaning="D2 — a native openai-codex provider whose key check answers only with the host socket: it writes nothing, so NC-D37 stands as written, and pi then acts at the host as it does in a jail. If a file write is preferred, A′ rather than A, because A deletes an own login." -->
 
    _Leaning:_ D2. It writes nothing, so NC-D37 stands as written and the host acts as a jail does at
    start. The plain-pi loss is what [OQ-HS3](host-notch-services.md#OQ-HS3) already accepts. A's
@@ -668,7 +668,7 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
    - **C — Leave `apiKey` off a built-in's row when the row's variable is pi's own name for it.**
      Silences the warning for those rows, with the same key when it is set. Other rows keep it.
 
-   <!-- vantage: oq id=OQ-2 leaning="C — leave apiKey off a built-in's row when the row's variable is pi's own name for it: measured to silence the refresh error with the same key when set, and every row stays, which A cannot manage at the host or across an attach." -->
+   <!-- vantage: question id=OQ-2 leaning="C — leave apiKey off a built-in's row when the row's variable is pi's own name for it: measured to silence the refresh error with the same key when set, and every row stays, which A cannot manage at the host or across an attach." -->
 
    _Leaning:_ C. It is measured to silence the error and keeps every row, which A cannot do at the host
    or across an attach. A's basis was a startup network failure, and there is none. This may be an
@@ -694,7 +694,7 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
    - **C — Two lineages, kept apart.** [OQ-1](#OQ-1)'s E: the managed directory serves `yolo host`, and the
      user's `~/.pi/agent` keeps its own login untouched.
 
-   <!-- vantage: oq id=OQ-3 leaning="A — the user's own login wins and refreshes through OpenAI by the marker dispatch; yolo's login serves only a missing or broker-marked entry. It fixes today's silent replacement without a file write and matches OQ-NC7 A; codex's precedent, OQ-OA3, is C's shape, which costs E's managed directory." -->
+   <!-- vantage: question id=OQ-3 leaning="A — the user's own login wins and refreshes through OpenAI by the marker dispatch; yolo's login serves only a missing or broker-marked entry. It fixes today's silent replacement without a file write and matches OQ-NC7 A; codex's precedent, OQ-OA3, is C's shape, which costs E's managed directory." -->
 
    _Leaning:_ A. It fixes today's silent replacement without a file write, so it composes with [OQ-1](#OQ-1)'s
    D2, and it matches [OQ-NC7](../plans/notch-convergence.md#OQ-NC7) A, where host claude keeps its own

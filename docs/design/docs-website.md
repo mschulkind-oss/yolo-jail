@@ -50,7 +50,7 @@ alternatives and its measurement of Vantage's setup are in git history
    first, and a check that each named page exists under `userguide/`, since the closed-tree check
    reads links, not message strings.
 
-   <!-- vantage: oq id=OQ-DW3 leaning="(a), once a page's own address is shown to load; until then (b) ships, since a URL that returns an error is worse than a path." -->
+   <!-- vantage: question id=OQ-DW3 leaning="(a), once a page's own address is shown to load; until then (b) ships, since a URL that returns an error is worse than a path." -->
 
    _Leaning (agent-drafted, 2026-10-01):_ **(a)**, once a page's own address is shown to load.
    The message is read by whoever ran yolo, and for most of them a repository path names nothing.

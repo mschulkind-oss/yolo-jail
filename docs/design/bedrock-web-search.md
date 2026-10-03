@@ -545,7 +545,7 @@ projects to. That doc owns the rule; this one only records the reading.
     _Leaning:_ A. It is the one home a company pack and a user can both write today, and it needs
     no new gate. The launch discloses the gateway host whenever the preset is delivered.
 
-    <!-- vantage: oq id=OQ-BR19 leaning="A: an environment variable (proposed AGENTCORE_WEB_SEARCH_GATEWAY) the preset lists in requires_env — a company pack sets it with a kind: env contribution, a user with a local pack or env_sources. requires_env already drops the entry with a notice when it is unset, so no new gate is needed; the launch discloses the gateway host when the preset is delivered." -->
+    <!-- vantage: question id=OQ-BR19 leaning="A: an environment variable (proposed AGENTCORE_WEB_SEARCH_GATEWAY) the preset lists in requires_env — a company pack sets it with a kind: env contribution, a user with a local pack or env_sources. requires_env already drops the entry with a notice when it is unset, so no new gate is needed; the launch discloses the gateway host when the preset is delivered." -->
 
     **Answer:**
     > _(empty — fill in when decided)_
@@ -563,7 +563,7 @@ projects to. That doc owns the rule; this one only records the reading.
     with IAM inbound authorization, a `web-search` connector target, an `InvokeGateway` grant) and
     `yolo check` names what is missing.
 
-    <!-- vantage: oq id=OQ-BR20 leaning="No: the gateway, its web-search target and its service role are an organization's AWS resources, created once per company; yolo consumes AWS and does not administer it. The pack README documents the three calls that create one, and yolo check names what is missing." -->
+    <!-- vantage: question id=OQ-BR20 leaning="No: the gateway, its web-search target and its service role are an organization's AWS resources, created once per company; yolo consumes AWS and does not administer it. The pack README documents the three calls that create one, and yolo check names what is missing." -->
 
     **Answer:**
     > _(empty — fill in when decided)_
@@ -590,7 +590,7 @@ projects to. That doc owns the rule; this one only records the reading.
     bridge needs ([R11](#12-risks)), and keeps a credential in no process the agent did not start.
     B stays the upgrade if a per-agent proxy process proves costly.
 
-    <!-- vantage: oq id=OQ-BR21 -->
+    <!-- vantage: question id=OQ-BR21 -->
 
     **Answer:**
     > **Decided 2026-09-29 (implementation decision, no ruling needed):** A. The signing proxy is a
@@ -644,7 +644,7 @@ projects to. That doc owns the rule; this one only records the reading.
     It is written spelling-neutral so it can be ruled before [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2);
     only build step 9.3 waits on that.
 
-    <!-- vantage: oq id=OQ-BR22 -->
+    <!-- vantage: question id=OQ-BR22 -->
 
     **Answer:**
     > **Answered 2026-09-29 by rulings ([DIR-BR4](#DIR-BR4),
@@ -692,7 +692,7 @@ projects to. That doc owns the rule; this one only records the reading.
     queries stay in AWS. A user who prefers Tavily removes the preset by name, visibly, in their own
     config.
 
-    <!-- vantage: oq id=OQ-BR23 leaning="A: where the AgentCore preset is delivered, other web_search servers are dropped for that render with a notice naming them — one search tool per render, as validate.go's one-server-per-provides rule already intends, and queries stay in AWS. A user who prefers Tavily removes the preset by name (mcp_servers.agentcore-web-search: null)." -->
+    <!-- vantage: question id=OQ-BR23 leaning="A: where the AgentCore preset is delivered, other web_search servers are dropped for that render with a notice naming them — one search tool per render, as validate.go's one-server-per-provides rule already intends, and queries stay in AWS. A user who prefers Tavily removes the preset by name (mcp_servers.agentcore-web-search: null)." -->
 
     **Answer:**
     > _(empty — fill in when decided)_

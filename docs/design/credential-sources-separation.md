@@ -483,7 +483,7 @@ works:
 
 1. ✅ <a id="OQ-ES1"></a>**OQ-ES1: Should credentials move out of `env_sources` into a key of their own?**
 
-   <!-- vantage: oq id=OQ-ES1 -->
+   <!-- vantage: question id=OQ-ES1 -->
 
    This was filed as question 1, and ruling it **revisits a ruling you made.**
    [OQ-CN1](../reference/providers.md#oq-cn1) put the key-to-provider fact on the provider
@@ -512,7 +512,7 @@ works:
 
 2. ✅ <a id="OQ-ES2"></a>**OQ-ES2: Under a split, what happens to a claimed name found in `env_sources`?**
 
-   <!-- vantage: oq id=OQ-ES2 -->
+   <!-- vantage: question id=OQ-ES2 -->
 
    **Moot (2026-09-30):** [OQ-ES1](#OQ-ES1) is answered no, so there is no split. This was filed
    as question 2, blocked on [OQ-ES1](#OQ-ES1) and moot if that ruled no.
@@ -533,7 +533,7 @@ works:
 
 4. ✅ <a id="OQ-ES4"></a>**OQ-ES4: Under a split, at which config scope may `credential_sources` appear?**
 
-   <!-- vantage: oq id=OQ-ES4 -->
+   <!-- vantage: question id=OQ-ES4 -->
 
    **Moot (2026-09-30):** [OQ-ES1](#OQ-ES1) is answered no, so there is no `credential_sources`.
    This was filed as question 4, blocked on [OQ-ES1](#OQ-ES1) and moot if that ruled no. The
@@ -549,7 +549,7 @@ works:
 5. 💬 <a id="OQ-ES5"></a>**OQ-ES5: An explicit grant for a command `-p` cannot reach?** — **the host half RULED
    2026-09-27; the jail half open**
 
-   <!-- vantage: oq id=OQ-ES5 leaning="Jail half, (A): the same --with-credentials flag at every notch. In a jail or a macos-user jail it hands the one launched command the named providers' claimed env_sources values, keys only, carried in that entry's exec environment, disclosed on every entry and never in config, as the host ruling has it, by the parity direction ('host is supposed to act like everywhere else'). (B) keeps it host-only, with the hand-sourced per-agent file as the jail's only route." -->
+   <!-- vantage: question id=OQ-ES5 leaning="Jail half, (A): the same --with-credentials flag at every notch. In a jail or a macos-user jail it hands the one launched command the named providers' claimed env_sources values, keys only, carried in that entry's exec environment, disclosed on every entry and never in config, as the host ruling has it, by the parity direction ('host is supposed to act like everywhere else'). (B) keeps it host-only, with the hand-sourced per-agent file as the jail's only route." -->
 
    This case had no mechanism when it was filed:
    - a jail shell (`-p bash=zai` is refused);
@@ -637,7 +637,7 @@ works:
 
 6. 💬 <a id="OQ-ES6"></a>**OQ-ES6: May a user share a claimed generic name, such as `AWS_PROFILE`, with every process?**
 
-   <!-- vantage: oq id=OQ-ES6 leaning="Yes, by a user-scope, per-name acknowledgment that shares that one claimed name with every process and is disclosed on every launch: a deliberate user exception to OQ-BR4 that only the user file can express, since a workspace config is agent-editable." -->
+   <!-- vantage: question id=OQ-ES6 leaning="Yes, by a user-scope, per-name acknowledgment that shares that one claimed name with every process and is disclosed on every launch: a deliberate user exception to OQ-BR4 that only the user file can express, since a workspace config is agent-editable." -->
 
    bedrock's claim list makes the claude pack alone enough to take `AWS_PROFILE` and the static
    AWS pair from `aws` and `terraform`, at the host and in every jail shell
@@ -663,7 +663,7 @@ works:
 
 7. ✅ <a id="OQ-ES7"></a>**OQ-ES7: Does a typed host `-p` hand an ad-hoc command a CLI-less pack's gated env?**
 
-   <!-- vantage: oq id=OQ-ES7 -->
+   <!-- vantage: question id=OQ-ES7 -->
 
    Today `yolo host -p bedrock -- bash` receives the static AWS pair but not aws-auth's
    `AWS_CONTAINER_CREDENTIALS_FULL_URI`. `gateFiresFor` does not fire for a basename that no

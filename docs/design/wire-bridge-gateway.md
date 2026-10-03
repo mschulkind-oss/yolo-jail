@@ -1430,7 +1430,7 @@ Three earlier non-licenses are reopened here by name:
    waiting on [OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2).
 
 
-   <!-- vantage: oq id=OQ-WG1 -->
+   <!-- vantage: question id=OQ-WG1 -->
 
    **Answer:**
    > **(a) now, with (b) owed as a follow-up** (ruled in review, 2026-09-25): *"Yes, let's do A,
@@ -1451,7 +1451,7 @@ Three earlier non-licenses are reopened here by name:
    the same switch.
 
 
-   <!-- vantage: oq id=OQ-WG2 -->
+   <!-- vantage: question id=OQ-WG2 -->
 
    **Answer:**
    > **Per profile, opt-in, off by default** (ruled in review, 2026-09-25): *"this should be a
@@ -1473,7 +1473,7 @@ Three earlier non-licenses are reopened here by name:
    ([providers reference](../reference/providers.md#no-launch-time-model-id-refusal)) stays rejected as the enforcement point.
 
 
-   <!-- vantage: oq id=OQ-WG3 -->
+   <!-- vantage: question id=OQ-WG3 -->
 
    **Answer:**
    > **One list, and a separate gate that defaults on** (ruled in review, 2026-09-25): *"I don't
@@ -1497,7 +1497,7 @@ Three earlier non-licenses are reopened here by name:
    That every agent keeps a base URL's path is INFERRED, not read.
 
 
-   <!-- vantage: oq id=OQ-WG4 -->
+   <!-- vantage: question id=OQ-WG4 -->
 
    **Answer:**
    > **A path prefix per agent on the one listen port**, delegated to the implementer in
@@ -1519,7 +1519,7 @@ Three earlier non-licenses are reopened here by name:
    asks for it".
 
 
-   <!-- vantage: oq id=OQ-WG5 -->
+   <!-- vantage: question id=OQ-WG5 -->
 
    **Answer:**
    > **One path per profile: native, or the bridge** (ruled in review, 2026-09-25): *"a straight
@@ -1550,7 +1550,7 @@ Three earlier non-licenses are reopened here by name:
    redesign ([OQ-BR2](providers-and-profiles-redesign.md#OQ-BR2)) that WG1 was ruled to avoid.
 
 
-   <!-- vantage: oq id=OQ-WG6 -->
+   <!-- vantage: question id=OQ-WG6 -->
 
    **Answer:**
    > **(b)**, ruled in review 2026-09-25: a profile field (e.g. `via: "bridge"`). The derive writes
@@ -1585,7 +1585,7 @@ Three earlier non-licenses are reopened here by name:
    env name) rather than adding a new one.
 
 
-   <!-- vantage: oq id=OQ-WG7 -->
+   <!-- vantage: question id=OQ-WG7 -->
 
    **Answer:**
    > **All five as tabled**, 2026-09-25. The maintainer's review: *"there's only one answer here …
@@ -1663,7 +1663,7 @@ Three earlier non-licenses are reopened here by name:
    file later takes the variables out of pi's environment. The placeholder path is read from
    pi's source, not measured: no pi session has sent a Converse request through it.
 
-   <!-- vantage: oq id=OQ-WG8 -->
+   <!-- vantage: question id=OQ-WG8 -->
 
    **Answer:**
    > Decided as an implementation choice ([WG-I36](#WG-I36)), reversible: (b), pi's via override

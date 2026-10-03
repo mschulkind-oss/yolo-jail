@@ -1396,7 +1396,7 @@ while it runs, and its next `/new` would fail.
    shipping a list, and `-p bedrock` gets defaults with no new always-on rule. The cost: (b)
    could ship this week and (a) waits on a new kind.
 
-   <!-- vantage: oq id=OQ-ML1 -->
+   <!-- vantage: question id=OQ-ML1 -->
 
    **Answer:**
    > **Ruled 2026-09-29: neither a separate picks pack nor always-on.** Each provider declares
@@ -1420,7 +1420,7 @@ while it runs, and its next `/new` would fail.
    provider-switching's same-tier-word done-condition unless ruled otherwise. Each id is dated in
    the pack README and covered by [OQ-BR14](#OQ-BR14)'s warning.
 
-   <!-- vantage: oq id=OQ-ML2 -->
+   <!-- vantage: question id=OQ-ML2 -->
 
    **Answer:**
    > **Ruled 2026-09-29, narrower than the leaning** (the maintainer: *"YOLO by default should
@@ -1443,7 +1443,7 @@ while it runs, and its next `/new` would fail.
 
 3. ✅ <a id="OQ-BR3"></a>**[OQ-BR3](#OQ-BR3): Does yolo ship model aliases at all?**
 
-   <!-- vantage: oq id=OQ-BR3 -->
+   <!-- vantage: question id=OQ-BR3 -->
 
    (moved
    from [`bedrock-plumbing.md`](bedrock-plumbing.md) on 2026-09-25, id kept.) **Ruled
@@ -1458,7 +1458,7 @@ while it runs, and its next `/new` would fail.
 4. ✅ <a id="OQ-PSW3"></a>**[OQ-PSW3](#OQ-PSW3): Does yolo ship the model ids, or only the empty
    provider shape?**
 
-   <!-- vantage: oq id=OQ-PSW3 -->
+   <!-- vantage: question id=OQ-PSW3 -->
 
    (moved from the retired `provider-switching.md` on 2026-09-25,
    where it was `PS3` before the rename noted at the top of this doc.) **Answered 2026-09-25 by [OQ-BR3](#OQ-BR3)'s ruling:** yolo ships the ids, in a
@@ -1486,7 +1486,7 @@ while it runs, and its next `/new` would fail.
    _Leaning:_ A. `add` unions in pack order, `only` intersects, and the user's config is the last
    writer. yolo's own packs ship as few ids as [OQ-BR3](#OQ-BR3)'s ruling allows.
 
-   <!-- vantage: oq id=OQ-BR12 -->
+   <!-- vantage: question id=OQ-BR12 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A, for every provider.** The maintainer: *"you ship a pack
@@ -1516,7 +1516,7 @@ while it runs, and its next `/new` would fail.
    _Leaning:_ A. Move the GPT-6 lists into data under a byte-identical test, which needs the
    `description` field.
 
-   <!-- vantage: oq id=OQ-BR13 -->
+   <!-- vantage: question id=OQ-BR13 -->
 
    **Answer:**
    > **Directed 2026-09-29: set the model selection however each agent allows.** The maintainer:
@@ -1556,7 +1556,7 @@ while it runs, and its next `/new` would fail.
    _Leaning:_ A. Warn, never refuse; say so when no catalog could be read; no launch network
    call; no "newer model exists" report.
 
-   <!-- vantage: oq id=OQ-BR14 -->
+   <!-- vantage: question id=OQ-BR14 -->
 
    **Answer:**
    > Decided as an implementation choice ([MM-D16](#MM-D16)), reversible: A, the agents' own
@@ -1575,7 +1575,7 @@ while it runs, and its next `/new` would fail.
    _Leaning:_ Move, with synonyms. A vendor tier name cannot survive a switch to another vendor,
    and synonyms make the move free for existing config.
 
-   <!-- vantage: oq id=OQ-PSW1 -->
+   <!-- vantage: question id=OQ-PSW1 -->
 
    **Answer:**
    > Decided as an implementation choice ([MM-D17](#MM-D17)), reversible: claude's derive reads
@@ -1600,7 +1600,7 @@ while it runs, and its next `/new` would fail.
    _Leaning:_ A. Measure first. If discovery survives, serve the effective list from memory and
    never call upstream for it.
 
-   <!-- vantage: oq id=OQ-BR15 -->
+   <!-- vantage: question id=OQ-BR15 -->
 
    **Answer:**
    > **Settled 2026-09-29 by the measurement it waited on: C, never** ([MM-D4](#MM-D4)). Discovery
@@ -1625,7 +1625,7 @@ while it runs, and its next `/new` would fail.
     host some other way, such as a host-notch file the extension reads, a second channel ML-D3
     rejected for the jail.
 
-    <!-- vantage: oq id=OQ-ML3 -->
+    <!-- vantage: question id=OQ-ML3 -->
 
     **Answer:** A, for now. The maintainer, 2026-09-27: *"basically option 1, but then make sure
     there's a design doc about the host option left."* Host pi keeps pi-ai's own `openai-codex`
@@ -1672,7 +1672,7 @@ while it runs, and its next `/new` would fail.
     - **C. Exact for the user's own list, beside for a pack's.** Dana sees exactly her five; Priya
       sees her three beside the catalog. The same list means two things depending on who wrote it.
 
-    <!-- vantage: oq id=OQ-MM1 leaning="A: an add sits beside the agent's own catalog for that provider, and only an only makes the menu exact (claude's native built-ins stay, opencode and pi keep their catalogs); a provider the agent has no catalog for (any provider claude is routed to, or a key the agent does not ship) is exact anyway. The verbs already say 'these too' and 'just these', and B would let yolo's own one-model default shrink a menu." -->
+    <!-- vantage: question id=OQ-MM1 leaning="A: an add sits beside the agent's own catalog for that provider, and only an only makes the menu exact (claude's native built-ins stay, opencode and pi keep their catalogs); a provider the agent has no catalog for (any provider claude is routed to, or a key the agent does not ship) is exact anyway. The verbs already say 'these too' and 'just these', and B would let yolo's own one-model default shrink a menu." -->
 
     _Leaning:_ A. The verbs already say it: `add` means "these too" and `only` means "just these",
     so a company gets either with one line. B lets yolo's own default pick cut a menu to one
@@ -1720,7 +1720,7 @@ while it runs, and its next `/new` would fail.
     _Leaning:_ B. It adds a second file of a kind that already exists, in the same directory, with
     the same readers.
 
-    <!-- vantage: oq id=OQ-MM2 -->
+    <!-- vantage: question id=OQ-MM2 -->
 
     **Answer:**
     > **Settled 2026-09-29 on a corrected premise, rather than asked: B** ([MM-D10](#MM-D10)). The
@@ -1771,7 +1771,7 @@ while it runs, and its next `/new` would fail.
       turning the switch off gives him `glm-4.7` with a start that stays valid. Omar starts valid
       either way.
 
-    <!-- vantage: oq id=OQ-MM3 leaning="C: refuse by default wherever the list is the whole universe, as OQ-WG3's default-on switch says, and when the switch is off check claude's start with a pin yolo writes once into claude's settings model key through the selection namespace, so a later /model choice is kept. It keeps both rulings as spoken, and the one exception to providers.md's rule is paid only with the switch off." -->
+    <!-- vantage: question id=OQ-MM3 leaning="C: refuse by default wherever the list is the whole universe, as OQ-WG3's default-on switch says, and when the switch is off check claude's start with a pin yolo writes once into claude's settings model key through the selection namespace, so a later /model choice is kept. It keeps both rulings as spoken, and the one exception to providers.md's rule is paid only with the switch off." -->
 
     _Leaning:_ C. It keeps both rulings as spoken: the list enforced by default
     ([OQ-WG3](wire-bridge-gateway.md#OQ-WG3)) and every start valid ([OQ-ML2](#OQ-ML2)). A gateway
@@ -1821,7 +1821,7 @@ while it runs, and its next `/new` would fail.
       updates, and copilot's help says offline wants the environment variable
       `COPILOT_PROVIDER_BASE_URL`, so whether it accepts the file at all is unmeasured.
 
-    <!-- vantage: oq id=OQ-MM4 leaning="A: keep copilot on one COPILOT_MODEL and drop MM-D10, since a profile picks one path (OQ-WG5, as MM-D5 reads it for a list) and every other agent's list stays inside the provider the profile selects; B and C would be the only renderings in this doc that let a session leave its provider, and D costs copilot's web tools, GitHub MCP server and updates on a mode not measured to accept the file. Revisit when copilot offers a way to show a file's models alone." -->
+    <!-- vantage: question id=OQ-MM4 leaning="A: keep copilot on one COPILOT_MODEL and drop MM-D10, since a profile picks one path (OQ-WG5, as MM-D5 reads it for a list) and every other agent's list stays inside the provider the profile selects; B and C would be the only renderings in this doc that let a session leave its provider, and D costs copilot's web tools, GitHub MCP server and updates on a mode not measured to accept the file. Revisit when copilot offers a way to show a file's models alone." -->
 
     _Leaning:_ A. A profile picks one path, as [OQ-WG5](wire-bridge-gateway.md#OQ-WG5) ruled for
     the native and bridged paths and [MM-D5](#MM-D5) reads for a list, and every other agent's
@@ -1869,7 +1869,7 @@ while it runs, and its next `/new` would fail.
       host for codex**, naming `yolo host apply` with that profile configured. Nothing runs on a
       provider the user did not mean, and `-p` stops being usable for codex at the host.
 
-    <!-- vantage: oq id=OQ-MM5 leaning="B: a host -p moves codex for that launch by writing the launch's selection into the CODEX_HOME yolo already rebuilds at every launch with its login, and the menu follows it, since NC-D1 rules that the host acts like every other notch and at every other notch -p codex -- codex is the subscription with its menu; the user's own ~/.codex stays untouched, and until this is ruled MM-D25 builds only where the -p and the configured profile agree." -->
+    <!-- vantage: question id=OQ-MM5 leaning="B: a host -p moves codex for that launch by writing the launch's selection into the CODEX_HOME yolo already rebuilds at every launch with its login, and the menu follows it, since NC-D1 rules that the host acts like every other notch and at every other notch -p codex -- codex is the subscription with its menu; the user's own ~/.codex stays untouched, and until this is ruled MM-D25 builds only where the -p and the configured profile agree." -->
 
     _Leaning:_ B. [NC-D1](../plans/notch-convergence.md#7-decision-ledger) rules that the host acts
     like every other notch (*"host is supposed to act like everywhere else"*), and at every other

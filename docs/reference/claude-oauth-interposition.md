@@ -1048,7 +1048,7 @@ one login per workspace into one per machine.
 
 ### <a id="oq-ci1"></a>💬 [`OQ-CI1`](#oq-ci1) — should the credential be shared at all?
 
-<!-- vantage: oq id=OQ-CI1 leaning="B, on the view's schedule. Keep one login per machine, and let `yolo host -- claude` read a view of it once the view's measures pass, as `yolo host -- codex` already shares the OpenAI login; a host claude that yolo did not launch keeps its own. The maintainer approved a jail's `/login` enrolling the machine, and on 2026-10-02 asked whether the host shares it yet. Cost: a dead login stops every jail and the host's yolo-launched claude together, and nothing warns ahead of it until something reads `refreshTokenExpiresAt`." -->
+<!-- vantage: question id=OQ-CI1 leaning="B, on the view's schedule. Keep one login per machine, and let `yolo host -- claude` read a view of it once the view's measures pass, as `yolo host -- codex` already shares the OpenAI login; a host claude that yolo did not launch keeps its own. The maintainer approved a jail's `/login` enrolling the machine, and on 2026-10-02 asked whether the host shares it yet. Cost: a dead login stops every jail and the host's yolo-launched claude together, and nothing warns ahead of it until something reads `refreshTokenExpiresAt`." -->
 
 Should every jail on a machine share one Claude login, or should each workspace keep its own?
 Evidence: [above](#sharing-the-login-what-each-choice-keeps-and-pays).

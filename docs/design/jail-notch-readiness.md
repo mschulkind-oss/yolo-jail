@@ -238,7 +238,7 @@ a declared floor the host cannot show met starts it too).
    - **(C)** Always refuse, as [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) does for a
      floor. An offline cold home cannot start a jail while a program-declaring pack is selected.
 
-   <!-- vantage: oq id=OQ-JR1 leaning="(A): degrade on a network failure, refuse on a failure with the network up — the distinction being whether anything but the connection is wrong. (C) makes an offline cold boot unusable; (B) re-creates the false success this doc opens with for a package that will never install." -->
+   <!-- vantage: question id=OQ-JR1 leaning="(A): degrade on a network failure, refuse on a failure with the network up — the distinction being whether anything but the connection is wrong. (C) makes an offline cold boot unusable; (B) re-creates the false success this doc opens with for a package that will never install." -->
 
    _Leaning:_ **(A).** (C) makes an offline cold boot unusable. (B) re-creates the false success
    this doc opens with for a package that will never install.
@@ -257,7 +257,7 @@ a declared floor the host cannot show met starts it too).
    will run, which is the registry this project deleted — and the cost is one-time rather than
    per-launch, which is what made the earlier shape intolerable.
 
-   <!-- vantage: oq id=OQ-JR2 -->
+   <!-- vantage: question id=OQ-JR2 -->
 
    **Answer:**
    > Answered by [HP-DIR2](host-tool-provisioning.md#HP-DIR2) (2026-09-29): *"we construct an
@@ -281,7 +281,7 @@ a declared floor the host cannot show met starts it too).
    provisions, that sentence is true, and a second path to the same work is a second thing to keep
    correct. Revisit if a consumer appears that cannot afford to start a container just to provision.
 
-   <!-- vantage: oq id=OQ-JR3 -->
+   <!-- vantage: question id=OQ-JR3 -->
 
    **Answer:**
    > Decided as an implementation choice ([JR-D1](#JR-D1)), reversible: `yolo apply --at jail`

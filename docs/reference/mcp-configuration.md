@@ -699,7 +699,7 @@ duplicate each other.
   - **(b) Whole, as `~/.claude.json`'s table is.** Both faults end with no new code path.
     *You pay:* the next apply removes every server you added with `pi mcp add`.
 
-  <!-- vantage: oq id=OQ-MC1 leaning="(a): per server, with --revert taking only yolo's servers and an emptied entry deleted. pi writes this file itself (pi mcp add, /mcp), and owning the table whole would delete what the user added there." -->
+  <!-- vantage: question id=OQ-MC1 leaning="(a): per server, with --revert taking only yolo's servers and an emptied entry deleted. pi writes this file itself (pi mcp add, /mcp), and owning the table whole would delete what the user added there." -->
 
   _Leaning:_ **(a).** pi writes this file itself, so owning the table whole deletes what the user
   added with pi's own command.
@@ -718,7 +718,7 @@ duplicate each other.
     the `npm` command that updates it, and a leftover `mcp-adapter.json` with the exact `rm`.
   - **(c) Nothing.**
 
-  <!-- vantage: oq id=OQ-MC2 leaning="(b): no version floor and no deletion; yolo check at the host names an old pi and a leftover mcp-adapter.json, each with the one command that fixes it, which is the happy path principle's one-command step." -->
+  <!-- vantage: question id=OQ-MC2 leaning="(b): no version floor and no deletion; yolo check at the host names an old pi and a leftover mcp-adapter.json, each with the one command that fixes it, which is the happy path principle's one-command step." -->
 
   _Leaning:_ **(b).** It is the [happy path principle](happy-path-principle.md)'s one-command step,
   and it deletes nothing in a real home.

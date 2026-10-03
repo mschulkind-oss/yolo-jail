@@ -1619,7 +1619,7 @@ addresses this. Options: refuse to re-stage when the container is already runnin
 and the pack set differs; warn loudly; or make staging per-session rather than
 per-container.
 
-<!-- vantage: oq id=OQ-ACP1 -->
+<!-- vantage: question id=OQ-ACP1 -->
 
 _Leaning:_ detect and warn in phase 1 (cheap, honest), then refuse-on-mismatch
 in phase 3. Silently mutating a running session's instructions is the worst of
@@ -1657,7 +1657,7 @@ becomes the dominant complaint, the right fix is upstream in opencode.
 > [`OQ-WS4`](../reference/agent-briefings.md#oq-ws4) is filed to answer it and to record the
 > answer here.
 
-<!-- vantage: oq id=OQ-ACP2 -->
+<!-- vantage: question id=OQ-ACP2 -->
 
 **Answer:**
 > **Never in containers or on `macos-user`**, ruled 2026-09-27 as [`OQ-WS4`](../reference/agent-briefings.md#oq-ws4): *"A alone in containers and on macos-user; B is a host-notch tool and nothing else — and this ruling closes [`OQ-ACP2`](#OQ-ACP2) in its own doc."* The workspace's skills reach every agent through the staged mirror, which writes nothing into `/workspace`; writing links into a repo is left to the host notch, deferred to v2 ([`OQ-WS5`](../reference/agent-briefings.md#oq-ws5)).
@@ -1671,7 +1671,7 @@ hard cap. Claude Code emits OpenTelemetry including skill names with
 `OTEL_LOG_TOOL_DETAILS`, so a `yolo pack usage` view is mechanically available
 for at least one agent.
 
-<!-- vantage: oq id=OQ-ACP4 leaning="Out of scope for all phases: no usage telemetry. Name pruning as a human responsibility in the user docs, and show an owner in pack ls so there is someone to ask." -->
+<!-- vantage: question id=OQ-ACP4 leaning="Out of scope for all phases: no usage telemetry. Name pruning as a human responsibility in the user docs, and show an owner in pack ls so there is someone to ask." -->
 
 _Leaning:_ out of scope for all phases, but worth a paragraph in the user docs
 naming pruning as a human responsibility, plus `owner` in `pack ls` so there is
@@ -1707,7 +1707,7 @@ var. Runner-up against, and the killer for the in-jail half: boot re-renders eve
 surface on every invocation, so there is no durable in-jail write posture to build a
 verb on.
 
-<!-- vantage: oq id=OQ-ACP3 -->
+<!-- vantage: question id=OQ-ACP3 -->
 
 _Leaning:_ split the three. (a) Do **not** block packs on it — phase 2 fills
 `Inputs.Workspace` from data, which is the last step of making the manifest

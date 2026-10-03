@@ -834,7 +834,7 @@ What I would build, in order:
      Linux there is no dialog at all, since the Secret Service has no per-application access rules
      ([E4](#E4)). It does not reach macos-user either way ([§4.1](#41-macos-user-no-seam-and-probably-no-keychain)).
 
-   <!-- vantage: oq id=OQ-KC1 leaning="A, a yolo-owned login shared only by jails: the token carries the repo and codespace scopes, and B would make the host's own login a jail credential and add security to its access list." -->
+   <!-- vantage: question id=OQ-KC1 leaning="A, a yolo-owned login shared only by jails: the token carries the repo and codespace scopes, and B would make the host's own login a jail credential and add security to its access list." -->
 
    _Leaning:_ A. The token carries the `repo` and `codespace` scopes
    ([§2.3](#23-what-copilot-keeps-there)), so it can write to every repository the user can reach
@@ -868,7 +868,7 @@ What I would build, in order:
      learn: after a logout of the machine account, the next login, as whichever account, becomes
      the machine login.
 
-   <!-- vantage: oq id=OQ-KC2 leaning="B, only the login entries on the pack's machine list are machine-wide and every other Copilot secret stays per workspace; the list must be confirmed against a real 1.0.89 login. Its cost falls on a user with two GitHub accounts, whose logins then share one namespace; the launch line names every login held there, and C is the answer if that user is expected." -->
+   <!-- vantage: question id=OQ-KC2 leaning="B, only the login entries on the pack's machine list are machine-wide and every other Copilot secret stays per workspace; the list must be confirmed against a real 1.0.89 login. Its cost falls on a user with two GitHub accounts, whose logins then share one namespace; the launch line names every login held there, and C is the answer if that user is expected." -->
 
    _Leaning:_ B, with the list confirmed against a real 1.0.89 login
    ([§6](#6-build-order) step 4), since that version's service name is unverified. Its cost falls
@@ -898,7 +898,7 @@ What I would build, in order:
      too. All of it is per workspace unless a pack declares it machine-wide, and the launch line
      says the whole jail has a keychain.
 
-   <!-- vantage: oq id=OQ-KC3 leaning="A, Copilot only with other packs opting in one at a time: each opt-in is where that program's machine list is declared and checked against a real login, while a jail-wide address would move gh's and Codex's secrets with nobody having checked what they store." -->
+   <!-- vantage: question id=OQ-KC3 leaning="A, Copilot only with other packs opting in one at a time: each opt-in is where that program's machine list is declared and checked against a real login, while a jail-wide address would move gh's and Codex's secrets with nobody having checked what they store." -->
 
    _Leaning:_ A. Each opt-in is where that program's machine list is declared and checked against
    a real login. A jail-wide address would move `gh`'s and Codex's secrets with nobody having
@@ -924,7 +924,7 @@ What I would build, in order:
      that keychain too, so Claude's login on this backend stops living in the shared file that
      CL-D22's bridge manages.
 
-   <!-- vantage: oq id=OQ-KC4 leaning="Measure first: run security default-keychain as _yolojail, then create, unlock and add a test item as that account from a Terminal launch. If the account can hold an unlocked keychain without a login session, choose B and settle Claude's store on this backend in the same change; otherwise A." -->
+   <!-- vantage: question id=OQ-KC4 leaning="Measure first: run security default-keychain as _yolojail, then create, unlock and add a test item as that account from a Terminal launch. If the account can hold an unlocked keychain without a login session, choose B and settle Claude's store on this backend in the same change; otherwise A." -->
 
    _Leaning:_ Measure first. Run `sudo -u _yolojail security default-keychain`, then create,
    unlock and add a test item as that account from a Terminal launch. If the account can hold an

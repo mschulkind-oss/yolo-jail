@@ -1978,7 +1978,7 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
 1. ✅ <a id="OQ-JL1"></a>**[OQ-JL1](#OQ-JL1): Who owns a shared jail's host services once the
    first terminal may leave?** Directed 2026-09-29.
 
-   <!-- vantage: oq id=OQ-JL1 -->
+   <!-- vantage: question id=OQ-JL1 -->
 
    **The setup, as it was asked.** Matt has two terminals in one workspace's jail. The first
    terminal's `yolo` process *is* the jail's host services
@@ -2042,7 +2042,7 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
      session, so the launch is that process, and Matt sees no change there. HS3 then reads "per
      launch" at those notches and "per jail" at the container backends, which is HD-R1's unit.
 
-   <!-- vantage: oq id=OQ-JL5 -->
+   <!-- vantage: question id=OQ-JL5 -->
 
    _Leaning:_ **B.** The code that starts, discloses and stops host services stays one path at
    every notch. What differs is which process runs it, and that is decided by whether sessions
@@ -2113,7 +2113,7 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
      `yolo config diff` and any launch have to wait for the drain after it, or E3's race reopens;
      the last quit no longer shows the teardown; and the lifecycle gets its one timer.
 
-   <!-- vantage: oq id=OQ-JL6 -->
+   <!-- vantage: question id=OQ-JL6 -->
 
    _Leaning:_ **A.** The jail's own shell already switches agents with no teardown and no new
    machinery. B buys a few seconds and a warm `/tmp`, and pays with the lifecycle's only timer
@@ -2164,7 +2164,7 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
      repair runs only after a crash, so it is the path that rots; a replacement from a newer build
      (after `just install`) runs an older launch's plan; and JL-P4 is reopened.
 
-   <!-- vantage: oq id=OQ-JL7 -->
+   <!-- vantage: question id=OQ-JL7 -->
 
    _Leaning:_ **A.** Nothing a terminal does reaches the keeper
    ([§9.7](#97-signal-handling-sig-proxy-and-a-pane-close)), and an orderly signal ends the jail
@@ -2210,7 +2210,7 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
      today. Claude works on until it finishes or until the last counted session leaves, and then
      dies with the jail, mid-edit if it was editing.
 
-   <!-- vantage: oq id=OQ-JL8 -->
+   <!-- vantage: question id=OQ-JL8 -->
 
    _Leaning:_ **A.** It is what closing a terminal does on the host. herdr already keeps an agent
    alive across a window close, because closing herdr's window only detaches its client
@@ -2279,7 +2279,7 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
      the home directory, which has no key ([§9.9.3](#993-one-keeper-per-workspace-per-notch)),
      still needs a home and a lock of its own.
 
-   <!-- vantage: oq id=OQ-JL9 leaning="A: the keeper holds what a workspace's sessions share, at the scope they share it; the bridge is shared by no one, and the Codex home is shared by the whole machine, where NC-D18 already counts it; B moves processes without moving ownership, and C splits Codex's history per workspace to retire one count and still leaves the home-directory launch its own." -->
+   <!-- vantage: question id=OQ-JL9 leaning="A: the keeper holds what a workspace's sessions share, at the scope they share it; the bridge is shared by no one, and the Codex home is shared by the whole machine, where NC-D18 already counts it; B moves processes without moving ownership, and C splits Codex's history per workspace to retire one count and still leaves the home-directory launch its own." -->
 
    _Leaning:_ **A.** The keeper holds what a workspace's sessions share, at the scope they share
    it: every container host service, everything macos-user starts outside its sandbox, and the
@@ -2310,7 +2310,7 @@ defect found on the way: the keeper fixes 3, and 6 is left for its own fix.
    - **(b) Keep today's rule.** An interrupt before ready ends the jail, and the other session is
      told why. *You keep:* one rule for a boot, whoever else arrived during it.
 
-   <!-- vantage: oq id=OQ-JL10 -->
+   <!-- vantage: question id=OQ-JL10 -->
 
    It has no leaning yet: how often a second session arrives inside a boot is the fact a leaning
    would need, and nothing has measured it.

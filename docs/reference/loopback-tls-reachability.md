@@ -384,7 +384,7 @@ are otherwise the same bytes.
 - 💬 <a id="oq-r8"></a>**[`OQ-R8`](#oq-r8) — should a required jail daemon that cannot publish
   refuse the launch with nothing to get past it?**
 
-  <!-- vantage: oq id=OQ-R8 leaning="(a): the hatch reaches the supervisor's readiness refusal too. The witness's own refusal promises a shell to a user who only needs one, OQ-R4 already put an endpoint that never published inside the hatch's scope, and the bridge's failures are mostly the user's own state, which is what a hatch is for." -->
+  <!-- vantage: question id=OQ-R8 leaning="(a): the hatch reaches the supervisor's readiness refusal too. The witness's own refusal promises a shell to a user who only needs one, OQ-R4 already put an endpoint that never published inside the hatch's scope, and the bridge's failures are mostly the user's own state, which is what a hatch is for." -->
 
   The escape hatch downgrades the witness, but the jail-daemon supervisor
   (`startJailDaemonSupervisor`, `internal/entrypoint/runtime.go`) refuses on its own, through the boot's `genStep`, which reads no hatch. So a jail whose required

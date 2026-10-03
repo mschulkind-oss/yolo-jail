@@ -1238,7 +1238,7 @@ Verified 2026-09-10.
 
 - ✅ **[OQ-L1](#open-questions-blocking) — the access-scoping model for the Track L proxy.**
 
-  <!-- vantage: oq id=OQ-L1 -->
+  <!-- vantage: question id=OQ-L1 -->
 
   **Answered, checked 2026-09-30, by [`boundary-broker.md`](../design/boundary-broker.md)'s
   rulings of 2026-09-29** ([§1.2](../design/boundary-broker.md#12-what-it-rules)): no credential

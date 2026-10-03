@@ -183,7 +183,7 @@ That single property does more work in this design than anything else measured
 
 1. ✅ <a id="OQ-ST2"></a> **OQ-ST2: Is the fence pack-declared, or does core know the name?**
 
-   <!-- vantage: oq id=OQ-ST2 -->
+   <!-- vantage: question id=OQ-ST2 -->
 
    **Answer (2026-09-20):**
    > **Pack-declared, per P2.** Hardcoding `synced` into core is cheaper today and is exactly the

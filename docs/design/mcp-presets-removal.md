@@ -541,7 +541,7 @@ Observable outcomes a human can check, not test names:
    other answer here is downstream of it, and it is the one that adds a twentieth entry to a
    deliberately closed registry.
 
-   <!-- vantage: oq id=OQ-MP3 -->
+   <!-- vantage: question id=OQ-MP3 -->
 
    _Leaning:_ **A new `kind: "mcp"`.** The `provider` precedent gives the composition rule, the
    exclusivity rule and the review posture for free, and shape B is principle 2 violated from the
@@ -555,7 +555,7 @@ Observable outcomes a human can check, not test names:
 
 2. ✅ <a id="OQ-MP4"></a> **OQ-MP4: Does an `mcp` declaration compose on the HOST or inside the JAIL? — DISSOLVED 2026-09-20.**
 
-   <!-- vantage: oq id=OQ-MP4 -->
+   <!-- vantage: question id=OQ-MP4 -->
 
    **The question rested on a false premise and is withdrawn.** It asserted that *"a preset's
    `command` is a jail path that the host does not know."* **The host does know it**, and the
@@ -601,7 +601,7 @@ Observable outcomes a human can check, not test names:
    list core resolves at boot; or the entry names a bare binary and something else guarantees
    PATH.
 
-   <!-- vantage: oq id=OQ-MP5 -->
+   <!-- vantage: question id=OQ-MP5 -->
 
    _Leaning:_ **`requires` plus run-time resolution in the pack's own wrapper.** A candidate list
    core resolves puts browser-finding back in core; a bare binary name loses to environment
@@ -618,7 +618,7 @@ Observable outcomes a human can check, not test names:
    warn-and-ignore on both notches? This decides whether an unmigrated user's next launch fails
    or degrades.
 
-   <!-- vantage: oq id=OQ-MP6 -->
+   <!-- vantage: question id=OQ-MP6 -->
 
    _Leaning:_ **Full retirement.** Warn-and-ignore means the browser silently disappears from a
    jail that still says it wants one — worse than a refusal that names the replacement. The
@@ -633,7 +633,7 @@ Observable outcomes a human can check, not test names:
 
 5. ✅ <a id="OQ-MP7"></a> **OQ-MP7: Is the scope demotion acceptable? — RULED NO, 2026-09-20, and it reopened a bigger question.**
 
-   <!-- vantage: oq id=OQ-MP7 -->
+   <!-- vantage: question id=OQ-MP7 -->
 
    *The leaning was "accept it: what a workspace loses is the power to cause an install, which is
    exactly the power the `packs` scope rule withholds on purpose." That was REJECTED.*
@@ -684,7 +684,7 @@ Observable outcomes a human can check, not test names:
    loopback, shared across spawns and surviving a server restart). The second is what the orphan
    script implements and what a future `kind: "service"` would supervise.
 
-   <!-- vantage: oq id=OQ-MP8 -->
+   <!-- vantage: question id=OQ-MP8 -->
 
    _Leaning:_ **One script, the `--browser-url` shape, not yet a service.** It keeps the resolution
    behaviour that is currently unreachable, deletes the pinned path, and leaves the `service`

@@ -465,7 +465,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    Should `~/.pi/agent/npm` live in machine-scoped storage (`paths.GlobalHome()`, mounted across
    all workspaces) or remain workspace-scoped with independent downloads?
 
-   <!-- vantage: oq id=OQ-1 -->
+   <!-- vantage: question id=OQ-1 -->
 
    **Answer (2026-09-20):**
    > **Machine-scoped storage.** Extensions are shared tool capabilities, like global binaries.
@@ -480,7 +480,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    pins the package set through `internal/packsrc` + `packs.lock.json`, and the launcher only
    materializes it** ([Alternative D](#alternative-d-resolve-and-pin-through-yolos-existing-pack-source-store)).
 
-   <!-- vantage: oq id=OQ-2 -->
+   <!-- vantage: question id=OQ-2 -->
 
    **Answer (2026-09-20): option (c).**
    > YOLO resolves and **pins** through `internal/packsrc` + `packs.lock.json`, and the launcher
@@ -530,7 +530,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
    should YOLO attempt to suppress Pi's warning box (e.g. by setting pinned versions in generated
    settings) or leave it untouched?
 
-   <!-- vantage: oq id=OQ-3 -->
+   <!-- vantage: question id=OQ-3 -->
 
    **Answer (2026-09-20):**
    > **Leave it untouched.** In the normal path the pre-launch update runs before the TUI starts,
@@ -604,7 +604,7 @@ We enforce mutual exclusion using YOLO's standard non-blocking directory lock al
      the contended case. It costs [§3.3](#33-concurrency-tier-cross-jail-mutual-exclusion)'s rule that a jail never waits on the lock, and it does
      nothing for the throttled case or for exact pins.
 
-   <!-- vantage: oq id=OQ-4 leaning="(a) Accept and document: the unlocked install happens only while a configured package is missing from the store or outside its range, and it closes once one install lands. No shipped pack declares a Pi package today." -->
+   <!-- vantage: question id=OQ-4 leaning="(a) Accept and document: the unlocked install happens only while a configured package is missing from the store or outside its range, and it closes once one install lands. No shipped pack declares a Pi package today." -->
 
    _Leaning (the builder's, restated after review; not a ruling):_ (a) for now. The window is
    bounded per package: it opens while that package is missing from the store or outside its

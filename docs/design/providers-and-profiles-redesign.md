@@ -368,7 +368,7 @@ transport's home leaves the everything profile distinguished only by its name. T
    ([OQ-BR22](bedrock-web-search.md#OQ-BR22)). The bridge's signer does not wait: [OQ-WG1](wire-bridge-gateway.md#OQ-WG1)
    leans toward keying it on the upstream host.
 
-   <!-- vantage: oq id=OQ-BR2 -->
+   <!-- vantage: question id=OQ-BR2 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned.** A provider declares what service it is in an
@@ -429,7 +429,7 @@ transport's home leaves the everything profile distinguished only by its name. T
    _Leaning:_ The first option, as the bullets above spell it, built with
    [OQ-BR4](../reference/providers.md#oq-br4)'s fix, which is the same function.
 
-   <!-- vantage: oq id=OQ-BR8 -->
+   <!-- vantage: question id=OQ-BR8 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: key provider facts on the provider, never the profile's
@@ -477,7 +477,7 @@ transport's home leaves the everything profile distinguished only by its name. T
    >   we should allow configurations to force the bridge"*), and [OQ-PP2](#OQ-PP2) is answered
    >   the same way.
 
-   <!-- vantage: oq id=OQ-PP1 leaning="(a), keep what is built: -p names a profile, and a profile points at one provider plus its options. D5 is closed (OQ-BR8), and every ruling since built on the profile (OQ-AP1's lists, PP-D10's profile key, OQ-WG2's via). The remaining cost is two nouns to explain, which is a plain-words rewrite of providers.md, not a schema change. (c) is overtaken by OQ-BR1." -->
+   <!-- vantage: question id=OQ-PP1 leaning="(a), keep what is built: -p names a profile, and a profile points at one provider plus its options. D5 is closed (OQ-BR8), and every ruling since built on the profile (OQ-AP1's lists, PP-D10's profile key, OQ-WG2's via). The remaining cost is two nouns to explain, which is a plain-words rewrite of providers.md, not a schema change. (c) is overtaken by OQ-BR1." -->
 
    _Leaning (⚠ added 2026-09-30):_ **(a), keep what is built.** The doc first had no leaning,
    deliberately, so as not to steer the redesign. Since then [OQ-BR8](#OQ-BR8) has closed D5 and
@@ -505,7 +505,7 @@ transport's home leaves the everything profile distinguished only by its name. T
    and is never preferred over a native endpoint. This confirms
    [OQ-BR1](bedrock-plumbing.md#OQ-BR1)'s Bedrock leaning for every provider.
 
-   <!-- vantage: oq id=OQ-PP2 -->
+   <!-- vantage: question id=OQ-PP2 -->
 
    **Answer:**
    > **Answered by [OQ-BR1](bedrock-plumbing.md#OQ-BR1) (2026-09-29), with
@@ -532,7 +532,7 @@ transport's home leaves the everything profile distinguished only by its name. T
    _Leaning:_ One launch line naming the agents X does not reach. A disclosure, never a
    refusal, so a jail with several agents still launches.
 
-   <!-- vantage: oq id=OQ-PP3 -->
+   <!-- vantage: question id=OQ-PP3 -->
 
    **Answer:**
    > **Answered by [OQ-AP3](active-provider-sets.md#OQ-AP3) (2026-09-29): one launch line

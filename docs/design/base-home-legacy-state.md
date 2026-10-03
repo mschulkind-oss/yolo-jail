@@ -539,7 +539,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    Options: (a) under `paths.AgentsDir()/<cname>/`; (b) a new `<state>/skeletons/<cname>` with
    its own reaper. `wsState` is ruled out ([§2.2](#22-where-it-lives-host-only-never-in-wsstate)).
 
-   <!-- vantage: oq id=OQ-BH9 -->
+   <!-- vantage: question id=OQ-BH9 -->
 
    _Leaning:_ (a). It is already reaped by the liveness-gated `PruneOrphanAgentStaging`; a
    second reaper is one more liveness rule to get right.
@@ -556,7 +556,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    (c) a new directory per fresh launch under the [OQ-BH9](#OQ-BH9) root, never modified after,
    old ones reaped with the jail's `AgentsDir` entry by the existing reaper.
 
-   <!-- vantage: oq id=OQ-BH10 -->
+   <!-- vantage: question id=OQ-BH10 -->
 
    _Leaning:_ (c). No launch ever removes a mountpoint, so its safety needs no liveness answer,
    and the reaper already declines when liveness is unknown. The cost is a few 16K directories
@@ -573,7 +573,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    runtime-aware paths in `prepareWsState`; (b) bind that backend's pack dirs the podman way,
    adding mounts where mount count is the constraint.
 
-   <!-- vantage: oq id=OQ-BH12 -->
+   <!-- vantage: question id=OQ-BH12 -->
 
    _Leaning:_ (a), verified on a Mac, landing separately from the podman change.
 
@@ -588,7 +588,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    refusal, keep the check report and its printed `mv`; (b) delete both, with
    `internal/basehome`; (c) keep the refusal as a one-line launch disclosure.
 
-   <!-- vantage: oq id=OQ-BH13 -->
+   <!-- vantage: question id=OQ-BH13 -->
 
    _Leaning:_ (a), in the same change as the skeleton; the refusal stays until then. A hatch is
    for a user's broken config, never for a yolo bug, and once the mount is gone it guards
@@ -605,7 +605,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    unselected pack's effect under [DIR-BH1](#10-decision-ledger). Options: (a) keep it, as
    DIR-BH1's one named exception; (b) narrow it to the selected packs, validated each launch.
 
-   <!-- vantage: oq id=OQ-BH14 -->
+   <!-- vantage: question id=OQ-BH14 -->
 
    _Leaning:_ (a). Its effect is a refused config key, never anything inside a jail. Narrowing
    works, since validation knows the selection, but the refusal would then arrive the day the
@@ -626,7 +626,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    with validation resolving the selection as `writable_home_dirs` now does
    (`resolveSelectedPacks`); (b) keep it as DIR-BH1's one named exception.
 
-   <!-- vantage: oq id=OQ-BH15 -->
+   <!-- vantage: question id=OQ-BH15 -->
 
 
    _Leaning:_ (a). The collision it guards against, two writers for one file, is still refused
@@ -670,7 +670,7 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    is the only launch that knows its name; (c) have the launch's housekeeping remove its own
    name's older skeletons, keeping the one its running container is bound from.
 
-   <!-- vantage: oq id=OQ-BH16 -->
+   <!-- vantage: question id=OQ-BH16 -->
 
 
    _Leaning:_ (b). It removes only a directory no other launch knows the name of, and only after

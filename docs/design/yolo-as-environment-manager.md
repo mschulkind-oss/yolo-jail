@@ -985,7 +985,7 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    the prompt already, so a `sudo` is visible before the answer. The part of [`OQ-7`](../plans/environment-manager-plan.md#blocks-phase-43-confirm-gated-install) worth
    keeping is ordering `sudo` first, so the OS password prompt arrives at the front.
 
-   <!-- vantage: oq id=OQ-EM1 -->
+   <!-- vantage: question id=OQ-EM1 -->
 
    **Answer:**
    > Answered by [`OQ-HP5`](host-tool-provisioning.md#OQ-HP5) (2026-09-29): no. The maintainer
@@ -1015,7 +1015,7 @@ org (**Q5**), the exposure view (**Q6**), Linux `guest` (**Q7**) — live in
    ([`host-render-target.md`](host-render-target.md#0-the-one-paragraph-version)'s postscript, item
    1). So no surface takes a machine-shaped input that `config ls` cannot show.
 
-   <!-- vantage: oq id=OQ-EM2 -->
+   <!-- vantage: question id=OQ-EM2 -->
 
    **Answer:**
    > **The layer stays, disclosed per surface.** Retirement is off the table, not deferred:

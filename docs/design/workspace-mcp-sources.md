@@ -115,7 +115,7 @@ table yolo owns is regenerated wholesale, and an entry it does not declare is dr
 [the remedy contract](../reference/report-tiers.md#the-remedy-contract)).
 Silently losing to a workspace file is the same surprise the notice exists to prevent.
 
-<!-- vantage: oq id=OQ-WM1 leaning="Workspace wins, and yolo discloses it: one line on the launch stream naming the server and the workspace file that overrode the canonical table's entry, with no precedence rule of yolo's own." -->
+<!-- vantage: question id=OQ-WM1 leaning="Workspace wins, and yolo discloses it: one line on the launch stream naming the server and the workspace file that overrode the canonical table's entry, with no precedence rule of yolo's own." -->
 
 **Leaning.** Workspace wins, but yolo **discloses** when a workspace source overrides a server the
 canonical table named — one line on the launch stream, naming the server and the file. This is

@@ -493,7 +493,7 @@ that owns the copy-verify-swap — or whether the honest primitive is one level
 down (host filesystem) or one level out (per-tool env), in which case yolo's job
 shrinks to *consuming* a host-declared layout rather than *managing* one.
 
-<!-- vantage: oq id=OQ-CR1 -->
+<!-- vantage: question id=OQ-CR1 -->
 
 _Leaning:_ genuinely undecided — this is a real fork, not a formality. Revisit
 alongside the host-side-reflection question; they resolve together.
@@ -509,7 +509,7 @@ alternative is to make the host agree physically — a bind mount or symlink at
 `cache/<subdir>` — so `du`, backup tools, and anything else that walks the cache
 see one truth without knowing about yolo.
 
-<!-- vantage: oq id=OQ-CR2 leaning="No: keep relocation container-side and teach prune. A host symlink is the primitive the threat model rejects, and a host bind mount would make yolo own a mount unit's lifecycle; it resolves together with OQ-CR1." -->
+<!-- vantage: question id=OQ-CR2 leaning="No: keep relocation container-side and teach prune. A host symlink is the primitive the threat model rejects, and a host bind mount would make yolo own a mount unit's lifecycle; it resolves together with OQ-CR1." -->
 
 _Leaning:_ No. A symlink there is the primitive the [threat
 model](#threat-model-why-user-scope-is-the-whole-design) rejects, and a host bind
@@ -532,7 +532,7 @@ cache. That is a different feature (shared, possibly read-only, contention on
 `huggingface_hub`'s lock files) and might argue for a `mode` field rather than a
 bare path.
 
-<!-- vantage: oq id=OQ-CR3 leaning="Out of scope for v1: ship the bare subdir-to-path map, since a value struct can be added later compatibly and a second top-level key cannot." -->
+<!-- vantage: question id=OQ-CR3 leaning="Out of scope for v1: ship the bare subdir-to-path map, since a value struct can be added later compatibly and a second top-level key cannot." -->
 
 _Leaning:_ Out of scope for v1 — ship the bare `subdir → path` map. Adding a
 value struct later is a compatible change (string or object); adding a second

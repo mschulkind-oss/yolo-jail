@@ -66,7 +66,7 @@ build order) is in git history (`git log --follow -- docs/design/workspace-skill
    _Leaning:_ **v2.** The container answer stands alone; the host half is a single exec-time
    step that can land later without reshaping anything, and it should not delay A.
 
-   <!-- vantage: oq id=OQ-WS5 -->
+   <!-- vantage: question id=OQ-WS5 -->
 
    **Answer:**
    > **As leaned, not in v1**, ruled 2026-09-27 in review: *"Out of scope for v1 — ship A in containers first; the host half is B or nothing, is one exec-time step, and can follow once [`OQ-WS6`](#OQ-WS6) is ruled."*
@@ -97,7 +97,7 @@ build order) is in git history (`git log --follow -- docs/design/workspace-skill
    ran more than once. So "not fought" does not carry over by itself; (a) needs its own record of
    having written the line once. The leaning itself is unchanged.
 
-   <!-- vantage: oq id=OQ-WS6 -->
+   <!-- vantage: question id=OQ-WS6 -->
 
    **Answer:**
    > **Deferred with [OQ-WS5](#OQ-WS5)**, 2026-09-27: the maintainer confirmed it is moot for v1

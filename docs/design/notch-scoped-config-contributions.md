@@ -560,7 +560,7 @@ it leaks on `macos-user`, and it depends on the mark outliving the `assert` reti
    host-only scalar ever exists. The motivating case needs none: pi-automode keeps its own
    settings in `~/.pi/agent/extensions/pi-automode/config.json` (its README, as reported).
 
-   <!-- vantage: oq id=OQ-3 -->
+   <!-- vantage: question id=OQ-3 -->
 
    _Leaning:_ Defer until a real case arrives. Nothing in the motivating case needs it, and
    widening the posture's `config` reach is a ruling of its own.
@@ -586,7 +586,7 @@ it leaks on `macos-user`, and it depends on the mark outliving the `assert` reti
    it builds [§4.2](#42-the-first-drafts-modifier-corrected), a `posture` modifier on
    `config-list` and `config-overlay`.
 
-   <!-- vantage: oq id=OQ-5 -->
+   <!-- vantage: question id=OQ-5 -->
 
    _Leaning:_ They hold; build posture lists. A permission gate is exactly the content
    [OQ-11](yolo-as-environment-manager.md#9-decision-ledger) put

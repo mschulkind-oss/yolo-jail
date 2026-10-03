@@ -1570,7 +1570,7 @@ covered:
    of it never ask) while making "read my other private repositories" a thing a human sees once.
    Starting narrow and widening later needs no migration; the reverse does.
 
-   <!-- vantage: oq id=OQ-BB1 -->
+   <!-- vantage: question id=OQ-BB1 -->
 
    **Answer:**
    > **Ruled 2026-09-29: B's default, with widening still open.** The maintainer: *"by default,
@@ -1602,7 +1602,7 @@ covered:
    repository-wide ones stay in front of the human. unYOLO's single best idea is exactly this
    floor as a code-owned flag ([§A.1](#a1-the-six-claims-from-the-website-pass-checked-against-code)).
 
-   <!-- vantage: oq id=OQ-BB2 -->
+   <!-- vantage: question id=OQ-BB2 -->
 
    **Answer:**
    > **Ruled 2026-09-29, against the leaning: grants are named permission sets.** The maintainer:
@@ -1628,7 +1628,7 @@ covered:
    - **B — Allow read-write 15 min · 1 hour · This session**, dismissal meaning Deny. Three
      durations, but every press hands over the whole set, with no one-shot yes and no visible no.
 
-   <!-- vantage: oq id=OQ-BB3 -->
+   <!-- vantage: question id=OQ-BB3 -->
 
    _Leaning:_ **A.** "Allow once" is the answer that most often fits a single comment. The
    permission-set ruling makes it matter more: without it, the only yes to one comment hands over
@@ -1650,7 +1650,7 @@ covered:
      Developer ID signed and notarized in a downloaded release. Ours to maintain; no install step.
    - **C — `osascript` `display dialog`.** Nothing to install, but a modal window, not a toast.
 
-   <!-- vantage: oq id=OQ-BB4 -->
+   <!-- vantage: question id=OQ-BB4 -->
 
    _Leaning:_ **A now, B once yolo's macOS release has a signing step.** terminal-notifier 3.x is
    the same UserNotifications API a helper would call, Homebrew installs it unquarantined (a
@@ -1700,7 +1700,7 @@ covered:
      account-wide reads, ring, and are grantable for a time"*), which this doc's body does not
      yet follow ([BB-D20](#BB-D20)). It composes with (a) to (d).
 
-   <!-- vantage: oq id=OQ-BB6 -->
+   <!-- vantage: question id=OQ-BB6 -->
 
    _Leaning:_ **(a), without (e).** A user-scope entry keyed by workspace is the plain answer to
    *"how do you give a user level permission a workspace level thing"*: only the host user writes
@@ -1735,7 +1735,7 @@ covered:
      agent cannot widen the next session. A remote the user adds waits for [OQ-BB6](#OQ-BB6), and the first
      launch trusts whatever remotes the workspace had then.
 
-   <!-- vantage: oq id=OQ-BB7 -->
+   <!-- vantage: question id=OQ-BB7 -->
 
    _Leaning:_ **B.** It is the only option under which [BB-P9](#BB-P9) holds across sessions, which
    is the maintainer's *"we can't allow it to be widened in the workspace"*. It departs from the
@@ -1774,7 +1774,7 @@ covered:
      the pack system. Cost: agents type `gh` from habit, get the real one with no login and exit
      4, and the briefing must teach the new name.
 
-   <!-- vantage: oq id=OQ-BB8 -->
+   <!-- vantage: question id=OQ-BB8 -->
 
    _Leaning:_ **A.** Agents keep typing `gh`, the image does not move, and interception is what the
    first `PATH` directory already means.
@@ -1813,7 +1813,7 @@ covered:
      a dimension the model does not have today: the scope says where and the sets say what, and
      nothing says "this set, only here".
 
-   <!-- vantage: oq id=OQ-BB9 -->
+   <!-- vantage: question id=OQ-BB9 -->
 
    _Leaning:_ **A.** It is the smallest shape that does what the ruling asks, widening that
    workspace alone. It keeps the sets about what and the scope about where ([BB-P8](#BB-P8)). And
@@ -1884,7 +1884,7 @@ covered:
     - **C — Only where the broker already speaks:** the refusal text, `yolo check` and the log.
       [§6.5](#65-when-there-is-no-notifier-or-nobody-answers)'s terminal line becomes `yolo approve`'s own listing.
 
-    <!-- vantage: oq id=OQ-BB10 leaning="A: a notice file beside the daemon's socket, printed at readiness and tailed for the jail's life, because the later request notices need it and B is a subset of it." -->
+    <!-- vantage: question id=OQ-BB10 leaning="A: a notice file beside the daemon's socket, printed at readiness and tailed for the jail's life, because the later request notices need it and B is a subset of it." -->
 
     _Leaning:_ **A.** It is the only option that serves [§6.5](#65-when-there-is-no-notifier-or-nobody-answers)'s notices after the launch, which
     the no-notifier path depends on, and B's start-up case is a special case of it.
@@ -1958,7 +1958,7 @@ covered:
     Under A or B, a copy already written keeps the key until that workspace's next fresh
     container launch rewrites it.
 
-    <!-- vantage: oq id=OQ-BB11 leaning="A: drop brokered from the delivery copy, for the reason both inherited files already leave it out: nothing in a jail reads it to do anything, the jail's own widening is already said by its launch line, and each out-of-scope refusal lists the scope." -->
+    <!-- vantage: question id=OQ-BB11 leaning="A: drop brokered from the delivery copy, for the reason both inherited files already leave it out: nothing in a jail reads it to do anything, the jail's own widening is already said by its launch line, and each out-of-scope refusal lists the scope." -->
 
     _Leaning:_ **A.** It is the smallest change that ends the exposure, and it extends to the
     delivery copy the rule [`inherit.go`](../../internal/config/inherit.go) already applies to
@@ -1981,7 +1981,7 @@ covered:
     - **B — A file beside the user config, per project, written by the command.** The user
       config is never touched.
 
-    <!-- vantage: oq id=OQ-BB12 -->
+    <!-- vantage: question id=OQ-BB12 -->
 
     **Answer:**
     > **Ruled 2026-10-01: B.** In the maintainer's words: *"I don't want to do anything that edits
@@ -2002,7 +2002,7 @@ covered:
       command run there or pointing at it.
     - **B — Per project, or every project from the user config.**
 
-    <!-- vantage: oq id=OQ-BB13 -->
+    <!-- vantage: question id=OQ-BB13 -->
 
     **Answer:**
     > **Ruled 2026-10-01: A.** In the maintainer's words: *"And yes, I think we should go with this

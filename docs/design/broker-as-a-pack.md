@@ -974,7 +974,7 @@ nothing in the tree.
 
    The review asks for both as candidates ([§3.1](#31-what-is-actually-unresolved-here)). They are not symmetric: a download can be pinned by `sha256` and therefore satisfies **P4** (a pinned pack pins everything that runs); a build step generally cannot, because builds are not bit-reproducible, so what runs is decided at install time by whatever toolchain the machine happens to have. A build step is also the same risk class as `packdecl.Install.InstallerURL`, which the schema calls *"the sharpest thing a manifest can name"* and which a fetched pack could not introduce until [`OQ-TP9`](trust-paths.md#decision-ledger) deleted the origin rule on 2026-09-04.
 
-   <!-- vantage: oq id=OQ-BP5 -->
+   <!-- vantage: question id=OQ-BP5 -->
 
    _Leaning:_ **Download-with-digest now; no build step until something needs one B cannot serve.** If a build step is added later, it should be jail-side only and origin-gated exactly as `InstallerURL` is — and it should be honest that a built artifact is unpinned, rather than inheriting the word "pinned" from the commit that produced its recipe.
 
@@ -991,7 +991,7 @@ nothing in the tree.
 
    [§3.1](#31-what-is-actually-unresolved-here)'s two-gate split says a jail-side binary is roughly as sharp as what a pack can already do, while a host-side one is a host-execution grant. This asks whether the second is available to a fetched pack at all, or whether — like `InstallerURL` and `host_files` — it is refused by origin regardless of what the user would approve. Not needed for the broker, which is official; needed before anyone else ships one.
 
-   <!-- vantage: oq id=OQ-BP6 -->
+   <!-- vantage: question id=OQ-BP6 -->
 
    _Leaning:_ **Allow it, gated by the existing host-execution approval rather than refused by origin.** A fetched pack can already declare a `host_daemon.cmd` naming an arbitrary host argv — verified 2026-09-02: the loophole claim producer (`loopholeClaims`, `internal/packload/loopholesource.go`) enumerates `host_daemon.cmd + doctor_cmd` as an **approvable** claim (*"host EXECUTION"*), distinct from the origin-refused fields (`reads-host`, `mount`, `InstallerURL`) — so refusing a *binary* while permitting an arbitrary *command* would repeat the halfway-measure shape [OQ-LP14](../reference/loophole-system.md#oq-lp14) already suffers from: blocking the declarative form of a capability while permitting the imperative one. But this genuinely is a widening and should be answered deliberately.
 
@@ -1037,7 +1037,7 @@ nothing in the tree.
      installs. Cost: a second publication channel, carrying programs no release vouched for, written
      by CI on every push to main.
 
-   <!-- vantage: oq id=OQ-BP7 leaning="B: main pins its own build, kept current by a check-ci rebuild and seeded into the cache by just install, so a from-source jail runs the tree's program as it runs every other binary yolo puts in a jail, and nothing is published outside a release." -->
+   <!-- vantage: question id=OQ-BP7 leaning="B: main pins its own build, kept current by a check-ci rebuild and seeded into the cache by just install, so a from-source jail runs the tree's program as it runs every other binary yolo puts in a jail, and nothing is published outside a release." -->
 
    _Leaning:_ **B.** It keeps the rule that a build from source runs the tree, which `SourceSkew`
    enforces for every other binary yolo puts in a jail, and it keeps publication at the release. A

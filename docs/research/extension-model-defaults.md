@@ -169,7 +169,7 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ yes. It's the one core change, it names no extension, and claude's and opencode's
    derives can adopt it to lose their hand-written copies.
 
-   <!-- vantage: oq id=OQ-XM1 -->
+   <!-- vantage: question id=OQ-XM1 -->
 
       **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** yes. A derive helper resolves a tier alias for the
@@ -185,7 +185,7 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ keep yolo's three and add `frontier` as a fourth conventional alias, with the same
    warn-don't-refuse rule. Each adapter maps names; core does not.
 
-   <!-- vantage: oq id=OQ-XM2 -->
+   <!-- vantage: question id=OQ-XM2 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** keep `default`, `fast` and `balanced`, and add
@@ -219,7 +219,7 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ (a), and it answers [OQ-PM1](pi-model-selection-ux.md#OQ-PM1) the same way: the adapter writes `defaultModel` from the
    profile's `default` alias and `modelScope` from the provider's models, for every provider.
 
-   <!-- vantage: oq id=OQ-XM3 -->
+   <!-- vantage: question id=OQ-XM3 -->
 
       **Answer:**
    > **Ruled in review 2026-09-28, amending the options:** the rule is not about codex. *"I want
@@ -244,7 +244,7 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ not until per-agent env exists ([OQ-CN6](../reference/providers.md#oq-cn6));
    then as `YOLO_MODEL_<ROLE>` per agent.
 
-   <!-- vantage: oq id=OQ-XM4 -->
+   <!-- vantage: question id=OQ-XM4 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** not until per-agent environment exists
@@ -264,7 +264,7 @@ in-jail edit is the user's. That's the intended behavior, not a gap.
    _Leaning:_ yes. It would let yolo's pi derive write one key and most adapters retire, and
    `@henryqw/pi-task-models` shows the demand.
 
-   <!-- vantage: oq id=OQ-XM5 -->
+   <!-- vantage: question id=OQ-XM5 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, against the leaning:** no. yolo does not propose a model-roles

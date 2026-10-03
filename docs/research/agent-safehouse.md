@@ -859,7 +859,7 @@ Re-check these before quoting them; everything here moved within the last six mo
 
 1. <a id="OQ-AS1"></a>💬 **OQ-AS1: How far should `macos-user`'s Seatbelt profile move toward deny-default?**
 
-   <!-- vantage: oq id=OQ-AS1 leaning="Take the incremental denies now, and only consider the full inversion once a policy-assertion suite exists to catch what it breaks." -->
+   <!-- vantage: question id=OQ-AS1 leaning="Take the incremental denies now, and only consider the full inversion once a policy-assertion suite exists to catch what it breaks." -->
 
    Stakes: the profile is a short deny list against Safehouse's 2,919 lines, and the
    difference is not cosmetic — network, exec, mach lookup, signals and IOKit are all open on
@@ -882,7 +882,7 @@ Re-check these before quoting them; everything here moved within the last six mo
 
 2. <a id="OQ-AS2"></a>💬 **OQ-AS2: Does yolo want a published per-agent investigation series at all?**
 
-   <!-- vantage: oq id=OQ-AS2 leaning="No series; instead give the existing measured tables one home in docs/research/ and adopt their provenance header, so the format is available without committing to thirteen documents." -->
+   <!-- vantage: question id=OQ-AS2 leaning="No series; instead give the existing measured tables one home in docs/research/ and adopt their provenance header, so the format is available without committing to thirteen documents." -->
 
    Stakes: Safehouse's 10,020 lines of per-agent prose are the best human artifact in this
    comparison and they rotted in seven months, measurably — 106 commits to the policy against 3
@@ -900,7 +900,7 @@ Re-check these before quoting them; everything here moved within the last six mo
 
 3. <a id="OQ-AS3"></a>💬 **OQ-AS3: Should `mounts` and `env_sources` become user-scope-only?**
 
-   <!-- vantage: oq id=OQ-AS3 leaning="Yes for env_sources at least — source-bearing host_files is already user-scope-only for exactly this reason, and env_sources reaches the same host files by another name." -->
+   <!-- vantage: question id=OQ-AS3 leaning="Yes for env_sources at least — source-bearing host_files is already user-scope-only for exactly this reason, and env_sources reaches the same host files by another name." -->
 
    *(Opened 2026-09-18 by the maintainer while reading this comparison's trust-boundary
    section, and verified against `internal/config` before filing.)*

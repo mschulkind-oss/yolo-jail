@@ -404,7 +404,7 @@ unlocked. It is independent of the store's shape, so it stays either way.
    surface, deterministic, never user-supplied) keeps what [`OQ-LT2`](../reference/pack-system.md#oq-lt2) protected: no script over a raw
    file the host owns, and no config key that runs code.
 
-   <!-- vantage: oq id=OQ-6 leaning="(a): amend OQ-LT2 so a pack's own yolo.finalize on its own surface is the one allowed post-fold step — deterministic, in the derive sandbox, in every compose including the capture's, never user- or config-supplied. Built and tested. (b), a declarative pattern-to-template op in pack.json, needs per-capture transforms and so grows the filter vocabulary the transform removal retired." -->
+   <!-- vantage: question id=OQ-6 leaning="(a): amend OQ-LT2 so a pack's own yolo.finalize on its own surface is the one allowed post-fold step — deterministic, in the derive sandbox, in every compose including the capture's, never user- or config-supplied. Built and tested. (b), a declarative pattern-to-template op in pack.json, needs per-capture transforms and so grows the filter vocabulary the transform removal retired." -->
 
    **Answer:**
 
@@ -421,7 +421,7 @@ unlocked. It is independent of the store's shape, so it stays either way.
    - **(c)** Unshare the npm store for now (per-workspace prefixes). No leakage, at the cost of a
      full npm install per workspace until (a).
 
-   <!-- vantage: oq id=OQ-5 -->
+   <!-- vantage: question id=OQ-5 -->
 
    _Leaning:_ **(a)**, sequenced git first then npm inside one build. The rulings apply to npm
    exactly as they do to git, and a second mechanism for the same property is the drift this repo

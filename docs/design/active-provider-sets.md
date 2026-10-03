@@ -432,7 +432,7 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    _Leaning:_ A. It is what the maintainer typed, it fixes today's silent drop of exactly that
    input, and the first entry is the primary with no extra key.
 
-   <!-- vantage: oq id=OQ-AP1 -->
+   <!-- vantage: question id=OQ-AP1 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A.** A comma continues one agent's list (`-p
@@ -469,7 +469,7 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    itself unmeasured. B is the one I would not pick, because it makes a list mean different things
    to different agents in one config.
 
-   <!-- vantage: oq id=OQ-AP2 -->
+   <!-- vantage: question id=OQ-AP2 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A.** A set of more than one provider given to an agent that
@@ -498,7 +498,7 @@ and [declaration parity](declaration-parity.md#1-the-principle-and-what-it-does-
    almost everywhere, and C imports the one behavior [OQ-AP2](#OQ-AP2)'s leaning rejects. A can be
    widened later without breaking anything that works.
 
-   <!-- vantage: oq id=OQ-AP3 -->
+   <!-- vantage: question id=OQ-AP3 -->
 
    **Answer:**
    > **Ruled 2026-09-29: C, in the maintainer's words.** *"if you don't direct it at a specific

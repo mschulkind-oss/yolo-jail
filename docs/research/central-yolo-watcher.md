@@ -621,7 +621,7 @@ choice with one answer, recorded as [YW-D8](#YW-D8).
    meets [§7](#7-what-would-have-to-be-true-before-building-one) items 2, 3 and 6 first, and a
    call-site test pins its launch-path floor.
 
-   <!-- vantage: oq id=OQ-YW1 -->
+   <!-- vantage: question id=OQ-YW1 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: A.** A6 stands: disk reclaim stays at launch, and any timer

@@ -271,7 +271,7 @@ would need re-checking.
 _Leaning:_ close it. The economics at Business rates are break-even, so even a favourable
 legal reading buys nothing — which makes the legal question moot rather than pending.
 
-<!-- vantage: oq id=OQ-GC1 -->
+<!-- vantage: question id=OQ-GC1 -->
 
 > **Answer:** Closed, 2026-09-17 — *"forget that, seems like a dead end."* No counsel review
 > was sought and none is needed: the economics ruling ([§2](#2-what-actually-changed-in-the-billing-model), break-even at Business rates)

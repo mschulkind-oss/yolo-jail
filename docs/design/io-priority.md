@@ -598,7 +598,7 @@ severity) are answered from existing rulings.
    helps BFQ hosts only. It would print no disclosure line there either, because nothing was
    declared ([§5.2](#52-the-launcher-one-decision-per-backend-and-the-disk-it-lands-on)).
 
-   <!-- vantage: oq id=OQ-IO3 leaning="Keep it opt-in, default normal. A default low acts only on BFQ disks, slows every build that meets contention without anyone choosing it, and cuts against the house posture that nothing is active by default. Revisit after measuring real workloads." -->
+   <!-- vantage: question id=OQ-IO3 leaning="Keep it opt-in, default normal. A default low acts only on BFQ disks, slows every build that meets contention without anyone choosing it, and cuts against the house posture that nothing is active by default. Revisit after measuring real workloads." -->
 
    _Leaning:_ Keep it opt-in. The cost is that a user who never finds the key gets no protection,
    as the incident's user did not. The cost of flipping it is a slowdown nobody chose, on the one
@@ -615,7 +615,7 @@ severity) are answered from existing rulings.
    - `nice -n 19` moves I/O only on BFQ, and only for a thread with no class set, so under a
      declared priority it moves nothing.
 
-   <!-- vantage: oq id=OQ-IO4 leaning="No. Keep yolo-cglimit the cgroup-delegate client; the per-command lever already exists as util-linux's ionice through packages. Revisit if agents are seen needing it." -->
+   <!-- vantage: question id=OQ-IO4 leaning="No. Keep yolo-cglimit the cgroup-delegate client; the per-command lever already exists as util-linux's ionice through packages. Revisit if agents are seen needing it." -->
 
    _Leaning:_ No. The cost is that an agent wanting to demote one command needs `util-linux` in
    `packages` first. The cost of yes is a second job for a binary whose whole description is the
@@ -632,7 +632,7 @@ severity) are answered from existing rulings.
    [P4](declaration-parity.md#1-the-principle-and-what-it-does-not-say) has `yolo host` read the
    user-scope config only, so a workspace's `resources.io` could never reach it.
 
-   <!-- vantage: oq id=OQ-IO6 leaning="No, out of scope. The host notch confines nothing, only a user-scope key could reach it, and a user who wants a host command demoted can run ionice on the host." -->
+   <!-- vantage: question id=OQ-IO6 leaning="No, out of scope. The host notch confines nothing, only a user-scope key could reach it, and a user who wants a host command demoted can run ionice on the host." -->
 
    _Leaning:_ No. The cost is that `yolo host -- cargo build` gets nothing from yolo, and the
    user reaches for `ionice` on the host. The cost of yes is amending that sketch's host-notch
@@ -656,7 +656,7 @@ severity) are answered from existing rulings.
      line.
    - **(c) neither in v1.**
 
-   <!-- vantage: oq id=OQ-IO7 leaning="(c) neither in v1: ship the priority alone. (a) does nothing against desktop apps in the one-jail case, and (b) helps only mq-deadline disks on hosts that delegated io; revisit (b) first, after one measurement on a delegated mq-deadline host." -->
+   <!-- vantage: question id=OQ-IO7 leaning="(c) neither in v1: ship the priority alone. (a) does nothing against desktop apps in the one-jail case, and (b) helps only mq-deadline disks on hosts that delegated io; revisit (b) first, after one measurement on a delegated mq-deadline host." -->
 
    _Leaning:_ (c). The cost is that v1 has no lever over writeback, though a stock host could not
    use one anyway. (b) is the one to revisit first, after a measurement on a delegated mq-deadline

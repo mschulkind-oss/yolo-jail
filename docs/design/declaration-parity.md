@@ -1360,7 +1360,7 @@ the jail-daemon plan, since built ([`macos-user-nix-and-features.md`](../referen
    | ship `yolo-jaild` for darwin | grows the host ship set from `{yolo}`, which AGENTS.md states as a property |
    | stage a shim at the declared name | argv untouched, but it is a generated in-jail client, which the transport unification exists to end |
 
-   <!-- vantage: oq id=OQ-DP8 -->
+   <!-- vantage: question id=OQ-DP8 -->
 
    _Leaning:_ **`yolo` gains the dispatch and `argv[0]` is rewritten.** The in-jail daemons
    already dispatch on plain `args[0]` rather than on `argv[0]` or a symlink, so the dispatch is
@@ -1386,7 +1386,7 @@ the jail-daemon plan, since built ([`macos-user-nix-and-features.md`](../referen
    so. **Getting it wrong puts a pack-declared long-running process outside the only confinement
    this backend has**, which is the property `macos-user` is otherwise defined by.
 
-   <!-- vantage: oq id=OQ-DP9 -->
+   <!-- vantage: question id=OQ-DP9 -->
 
       _Leaning:_ **Yes, confined.** Silence in `DP-L3` is not permission, and a pack-declared
    long-running process is exactly the code the profile exists to bound. The cost is that a daemon
@@ -1426,7 +1426,7 @@ the jail-daemon plan, since built ([`macos-user-nix-and-features.md`](../referen
    [§6.1](#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured) each want to print,
    which are the first fixes this ruling reaches.
 
-   <!-- vantage: oq id=OQ-DP5 -->
+   <!-- vantage: question id=OQ-DP5 -->
 
    _Leaning:_ **(a) for what yolo decides, (b) wherever the USER can decide it, (c) for anything
    genuinely unbuilt.** (c) has the best track record of the three: four of its five entries were
@@ -1492,7 +1492,7 @@ the jail-daemon plan, since built ([`macos-user-nix-and-features.md`](../referen
    the only one whose disclosure lands while the user can still Ctrl-C
    ([§5.6.1](#561-can-they-be-one-path) (3)).
 
-   <!-- vantage: oq id=OQ-DP7 -->
+   <!-- vantage: question id=OQ-DP7 -->
 
    _Leaning:_ **close it, but never as the SOLE injector, and only with (b) paid for.** A
    partial injector is worse than none here: it would deliver the bypass for most packs and

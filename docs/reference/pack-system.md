@@ -2259,7 +2259,7 @@ residue.
     `internal/entrypoint/hostoverlayprune.go`). Withdrawing only the list entries leaves a file
     half retired.
 
-  <!-- vantage: oq id=OQ-AL3 leaning="(b): withdraw them in the drop prune, behind R3 (pack drop)'s prompt, from the insert record. The prune already removes a dropped contributor's overlay keys from a surface whose owner is gone too, and a list entry is the list-shaped twin of an overlay key." -->
+  <!-- vantage: question id=OQ-AL3 leaning="(b): withdraw them in the drop prune, behind R3 (pack drop)'s prompt, from the insert record. The prune already removes a dropped contributor's overlay keys from a surface whose owner is gone too, and a list entry is the list-shaped twin of an overlay key." -->
 
   _Leaning:_ **(b).** [R3 (pack drop)](#pd-r3) already removes a dropped contributor's overlay
   keys from a surface whose owner is gone too. That is why the prune reads the shipped set: *"the
@@ -2297,7 +2297,7 @@ residue.
   - **(c) Lift both.** It needs a per-entry removal on the pack side, which `config-list` lacks
     on purpose, so it reopens [OQ-LT2](#oq-lt2).
 
-  <!-- vantage: oq id=OQ-AL4 leaning="(b): lift the additions as one config-list contribution in the promotion target and leave the removals, named, in the workspace. An addition is exactly a config-list add, and promote is the step the assert retirement relies on to bring a captured edit under declaration." -->
+  <!-- vantage: question id=OQ-AL4 leaning="(b): lift the additions as one config-list contribution in the promotion target and leave the removals, named, in the workspace. An addition is exactly a config-list add, and promote is the step the assert retirement relies on to bring a captured edit under declaration." -->
 
   _Leaning:_ **(b).** An addition maps onto `config-list` with nothing new to design, and
   promote is the step the retirement of `host_management: "assert"` relies on: the maintainer's
@@ -2621,7 +2621,7 @@ config-composition pipeline has no user-supplied script slot.
     it doubles derive time on every boot, or covers only the shipped packs if it runs only in
     `TestEveryShippedPackDeriveStillRuns`.
 
-  <!-- vantage: oq id=OQ-DR1 leaning="(b), with a test that renders a table through every path gopher-lua offers and asserts no 0x appears. It matches how the randomness half was closed: take the nondeterministic source out of the sandbox, so the script cannot reach it at all." -->
+  <!-- vantage: question id=OQ-DR1 leaning="(b), with a test that renders a table through every path gopher-lua offers and asserts no 0x appears. It matches how the randomness half was closed: take the nondeterministic source out of the sandbox, so the script cannot reach it at all." -->
 
   _Leaning:_ **(b)**, pinned by a test that renders a table and a function through every path
   gopher-lua offers and asserts that no pointer appears. That is how the randomness half was
@@ -2913,7 +2913,7 @@ a key that does nothing must not be accepted quietly.
   [`loophole-system.md`](loophole-system.md#principles) becomes a rule about host reach, as
   [OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7) says.
 
-  <!-- vantage: oq id=OQ-PK1 leaning="(b): shipped packs whose contributions all stay inside the jail, executable kinds included. OQ-MP7's own answer says an MCP server for an agent inside the jail is not what the rule protects, and a workspace config can already name any command in mcp_servers. Bare names only, because a git+ or file:// source reaches the host." -->
+  <!-- vantage: question id=OQ-PK1 leaning="(b): shipped packs whose contributions all stay inside the jail, executable kinds included. OQ-MP7's own answer says an MCP server for an agent inside the jail is not what the rule protects, and a workspace config can already name any command in mcp_servers. Bare names only, because a git+ or file:// source reaches the host." -->
 
   _Leaning:_ **(b).** [OQ-MP7](../design/mcp-presets-removal.md#OQ-MP7)'s answer draws the line itself: *"it was to stop a workspace
   controlling what runs on the host. An MCP server for an agent inside the jail is not that."*
@@ -3226,7 +3226,7 @@ longer waits for the other launch's staging.
   only, against a stable content-addressed copy with its own liveness collection; or refuse the
   token in a host-scoped `cmd` and say why.
 
-  <!-- vantage: oq id=OQ-PK3 leaning="Refuse {loophole_dir} in a host-scoped host_daemon.cmd, naming why: no shipped pack uses it, and keeping a tree alive for a singleton (a reaper veto) or a content-addressed host-scope copy (a new store) each add machinery for a case nobody has." -->
+  <!-- vantage: question id=OQ-PK3 leaning="Refuse {loophole_dir} in a host-scoped host_daemon.cmd, naming why: no shipped pack uses it, and keeping a tree alive for a singleton (a reaper veto) or a content-addressed host-scope copy (a new store) each add machinery for a case nobody has." -->
 
   _Leaning:_ refuse the token in a host-scoped `cmd`, naming why: no shipped pack uses it, and the
   other two add a veto or a store for a case nobody has yet.
@@ -3237,7 +3237,7 @@ longer waits for the other launch's staging.
 
 #### <a id="oq-pk2"></a>✅ [`OQ-PK2`](#oq-pk2) — does a running jail keep the pack tree it booted with?
 
-<!-- vantage: oq id=OQ-PK2 -->
+<!-- vantage: question id=OQ-PK2 -->
 
 **Ruled (c), 2026-09-26, and built the same day:** one immutable pack tree per
 launch, plus a notice on attach (`newPackTree` and `noteBootedPackSetDiffers`, pinned by

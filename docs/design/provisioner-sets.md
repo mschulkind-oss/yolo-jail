@@ -1724,7 +1724,7 @@ recommendation the doc rests on.
    the second. [`HP-D2`](host-tool-provisioning.md#HP-D2) wants one materialization path for the
    floor. And the user's pluralism (*"claude from brew"*) is still served by the override.
 
-   <!-- vantage: oq id=OQ-PS1 -->
+   <!-- vantage: question id=OQ-PS1 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: (b).** The maintainer: *"maybe we can allow you to use Nix
@@ -1764,7 +1764,7 @@ recommendation the doc rests on.
    name and *"the capture is the package"* becomes literal; it does not earn it as a re-spelling of
    one half of a surviving pair.
 
-   <!-- vantage: oq id=OQ-PS5 leaning="(a): rename to package, and only if OQ-PS11 collapses program and requires into one kind; otherwise keep both names. The rename earns its blast radius when there is one declaration to name and 'the capture is the package' becomes literal, not as a re-spelling of one half of a surviving pair." -->
+   <!-- vantage: question id=OQ-PS5 leaning="(a): rename to package, and only if OQ-PS11 collapses program and requires into one kind; otherwise keep both names. The rename earns its blast radius when there is one declaration to name and 'the capture is the package' becomes literal, not as a re-spelling of one half of a surviving pair." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1795,7 +1795,7 @@ recommendation the doc rests on.
    three unfree CLIs build locally on first use ([M3](../plans/runbooks/mac-provisioner-measurements.md#m3--does-nix-profile-install-refuse-the-unfree-agent-clis-on-darwin)),
    which is a real cost against ranking nix first on macOS.
 
-   <!-- vantage: oq id=OQ-PS6 -->
+   <!-- vantage: question id=OQ-PS6 -->
 
    **Answer:**
    > **Answered by [`OQ-PS1`](#OQ-PS1)'s ruling and [`HP-DIR4`](host-tool-provisioning.md#HP-DIR4)
@@ -1843,7 +1843,7 @@ recommendation the doc rests on.
    rarely-read key is how *"don't overwhelm"* and *"claude from brew"* are both true.
    Per-environment, never global, because a jail's list must not be a host's (P2).
 
-   <!-- vantage: oq id=OQ-PS7 leaning="A per-environment ordered list as the advertised surface, with a per-package override that exists but is not advertised — that is how 'claude from brew' and 'don't overwhelm the user' are both satisfied. Per-environment rather than global, because a jail's list must not be a host's." -->
+   <!-- vantage: question id=OQ-PS7 leaning="A per-environment ordered list as the advertised surface, with a per-package override that exists but is not advertised — that is how 'claude from brew' and 'don't overwhelm the user' are both satisfied. Per-environment rather than global, because a jail's list must not be a host's." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -1883,7 +1883,7 @@ recommendation the doc rests on.
    is unchanged: an installer that genuinely needs an answer fails instead of prompting, which is
    the right failure for something running where nobody is watching.
 
-   <!-- vantage: oq id=OQ-PS8 -->
+   <!-- vantage: question id=OQ-PS8 -->
 
    **Answer:**
    > **Decided as an implementation choice ([`PS-D1`](#PS-D1)), reversible: core runs every vendor
@@ -1966,7 +1966,7 @@ recommendation the doc rests on.
    run nix by one command while another tells them nix is missing. *Closed 2026-09-30 as
    [`PS-D8`](#PS-D8): nix is probed like every other manager, and a PATH with none names none.*
 
-   <!-- vantage: oq id=OQ-PS9 -->
+   <!-- vantage: question id=OQ-PS9 -->
 
    **Answer:**
    > **Answered by the maintainer's reframe in the 2026-09-11 review, narrowed by
@@ -2047,7 +2047,7 @@ recommendation the doc rests on.
    own root ([`OQ-NX2`](#decision-ledger)). Revisit if generations and rollback are ever asked for
    by name.
 
-   <!-- vantage: oq id=OQ-PS10 -->
+   <!-- vantage: question id=OQ-PS10 -->
 
    **Answer:**
    > **Decided as an implementation choice ([`PS-D2`](#PS-D2)), reversible: (a), a closure pinned by
@@ -2099,7 +2099,7 @@ recommendation the doc rests on.
    host in the first place. The honest cost is the blast radius
    ([§7.3](#73-naming-is-downstream)) and a migration for every shipped manifest declaring either kind.
 
-   <!-- vantage: oq id=OQ-PS11 leaning="(a): collapse them. Under OQ-PS3's ruling a requires is already a need with an empty recipe list, so two names for one declaration is a distinction the resolver never reads, and F3's nine jail-side differences are better predicted by 'has a recipe here' than by the kind label. The cost is the blast radius and a migration for every shipped manifest declaring either kind." -->
+   <!-- vantage: question id=OQ-PS11 leaning="(a): collapse them. Under OQ-PS3's ruling a requires is already a need with an empty recipe list, so two names for one declaration is a distinction the resolver never reads, and F3's nine jail-side differences are better predicted by 'has a recipe here' than by the kind label. The cost is the blast radius and a migration for every shipped manifest declaring either kind." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -2122,7 +2122,7 @@ recommendation the doc rests on.
    [`trust-paths.md`](trust-paths.md), not with a preference list; opening it later costs nothing
    that closing it now does not already pay.
 
-   <!-- vantage: oq id=OQ-PS12 -->
+   <!-- vantage: question id=OQ-PS12 -->
 
    **Answer:**
    > **Decided as an implementation choice ([`PS-D3`](#PS-D3)), reversible: the override re-ranks
@@ -2215,7 +2215,7 @@ recommendation the doc rests on.
     is the fallback: it fixes every case the research found, and it grows into (a) without changing
     a core row.
 
-    <!-- vantage: oq id=OQ-NX4 leaning="(a): a declared table of locator rows with three sources: core rows (PKG_CONFIG_PATH extended to share/pkgconfig, a CA bundle built at launch, a generated macOS fonts.conf), a new pack contribution kind for profile-relative locator rows, and an env field on a packages: entry. Rows ship ahead of failure reports, as the maintainer directed on 2026-09-29. No TZDIR or LD_LIBRARY_PATH row on macOS, since no reader there needs them. The new kind is refused at the host alone under HP-DIR3 (not dropped from HostFields, which guest shares), container backends resolve rows where their packages land or refuse by name, and the CA row's source is OQ-PS14's. Fallback: (b), core rows only." -->
+    <!-- vantage: question id=OQ-NX4 leaning="(a): a declared table of locator rows with three sources: core rows (PKG_CONFIG_PATH extended to share/pkgconfig, a CA bundle built at launch, a generated macOS fonts.conf), a new pack contribution kind for profile-relative locator rows, and an env field on a packages: entry. Rows ship ahead of failure reports, as the maintainer directed on 2026-09-29. No TZDIR or LD_LIBRARY_PATH row on macOS, since no reader there needs them. The new kind is refused at the host alone under HP-DIR3 (not dropped from HostFields, which guest shares), container backends resolve rows where their packages land or refuse by name, and the CA row's source is OQ-PS14's. Fallback: (b), core rows only." -->
 
     **Answer:**
     > _(empty — fill in when decided)_
@@ -2256,7 +2256,7 @@ recommendation the doc rests on.
     the user declared explicitly. And now that the host trigger is gone, (a) can stand without a
     revisit clause unless a guest-side surprise shows up.
 
-    <!-- vantage: oq id=OQ-NX5 -->
+    <!-- vantage: question id=OQ-NX5 -->
 
     **Answer:**
     > **Ruled 2026-09-29, as leaned: (a).** The maintainer: *"the warning is in principle useful,
@@ -2327,7 +2327,7 @@ recommendation the doc rests on.
     accurate there until [env-manager Phase 7](../plans/environment-manager-plan.md) designs one,
     and nothing needs ruling for `guest` now.
 
-    <!-- vantage: oq id=OQ-NX8 leaning="Q1 (b): at the host, check prints a by-design inert line at info level, matching yolo host apply and OQ-NC8's 'named as inert' for mise_tools; a presence probe needs a nix-attribute-to-binary map yolo lacks and drifts toward managing the workspace's runtime. Q2 yes: the host-notch report says inert whatever the runtime, because a confinement: host launch refuses and the macos-user profile never serves the host. HP-DIR3 (2026-09-29) already settled that packages: is permanently inert at the host, so the env-manager's '✗ packages' line is true there and 'no package layer yet' text should change." -->
+    <!-- vantage: question id=OQ-NX8 leaning="Q1 (b): at the host, check prints a by-design inert line at info level, matching yolo host apply and OQ-NC8's 'named as inert' for mise_tools; a presence probe needs a nix-attribute-to-binary map yolo lacks and drifts toward managing the workspace's runtime. Q2 yes: the host-notch report says inert whatever the runtime, because a confinement: host launch refuses and the macos-user profile never serves the host. HP-DIR3 (2026-09-29) already settled that packages: is permanently inert at the host, so the env-manager's '✗ packages' line is true there and 'no package layer yet' text should change." -->
 
     **Answer:**
     > _(empty — fill in when decided)_
@@ -2354,7 +2354,7 @@ recommendation the doc rests on.
     diagnose a nix installation, not a notch, and `check` has no notch-shaped reason to run them
     on a Linux host that is about to launch a container.
 
-    <!-- vantage: oq id=OQ-NX9 -->
+    <!-- vantage: question id=OQ-NX9 -->
 
     **Answer:**
     > **Decided as an implementation choice ([`PS-D5`](#PS-D5)), reversible, once
@@ -2401,7 +2401,7 @@ recommendation the doc rests on.
     _Leaning:_ **(b).** It keeps point 3 true without rewording it, and a refusal that names the URL is
     what the jail already gives for the same fault.
 
-    <!-- vantage: oq id=OQ-PS13 -->
+    <!-- vantage: question id=OQ-PS13 -->
 
     **Answer:**
     > **Decided as an implementation choice ([`PS-D4`](#PS-D4)), reversible: (b), the gate prints
@@ -2476,7 +2476,7 @@ recommendation the doc rests on.
     to certificates. Keep (d) only as evidence of what users already expect. The cost of the read
     is unmeasured ([§16.6](#166-what-a-mac-session-must-measure-before-the-ruling), item 8).
 
-    <!-- vantage: oq id=OQ-PS14 leaning="(a): at every launch the host-side yolo reads the System keychain, keeps only CAs macOS trusts for TLS, joins them with Mozilla's bundle and any loophole CA, and points NIX_SSL_CERT_FILE, SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE and GIT_SSL_CAINFO at the result (NODE_EXTRA_CA_CERTS at the extra CAs alone), naming each CA at launch. The keychain stays the source of truth, read fresh and never written, and the Seatbelt keychain denies stay. Keep (d) only as evidence of what users expect." -->
+    <!-- vantage: question id=OQ-PS14 leaning="(a): at every launch the host-side yolo reads the System keychain, keeps only CAs macOS trusts for TLS, joins them with Mozilla's bundle and any loophole CA, and points NIX_SSL_CERT_FILE, SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE and GIT_SSL_CAINFO at the result (NODE_EXTRA_CA_CERTS at the extra CAs alone), naming each CA at launch. The keychain stays the source of truth, read fresh and never written, and the Seatbelt keychain denies stay. Keep (d) only as evidence of what users expect." -->
 
     **Answer:**
     > _(empty — fill in when decided)_
@@ -2509,7 +2509,7 @@ recommendation the doc rests on.
     Mac, and the launch names what it left out, so Lee is not left guessing. The opt-in serves the
     user who wants their own shell's trust and says so.
 
-    <!-- vantage: oq id=OQ-PS15 leaning="(c), shipping (a) first: by default the sandbox trusts only the Mac's System keychain, and the launch names any login-keychain-only CA it left out; a later config key opts in to exporting the user's own TLS-trusted CAs. The sandbox account is by design another user of the Mac." -->
+    <!-- vantage: question id=OQ-PS15 leaning="(c), shipping (a) first: by default the sandbox trusts only the Mac's System keychain, and the launch names any login-keychain-only CA it left out; a later config key opts in to exporting the user's own TLS-trusted CAs. The sandbox account is by design another user of the Mac." -->
 
     **Answer:**
     > _(empty — fill in when decided)_

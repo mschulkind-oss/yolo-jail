@@ -452,7 +452,7 @@ is reported verified only against a real rootless host or CI, with
    act like everywhere else" asks for. After item 1, a service on the host's loopback is no weaker
    than one in a jail.
 
-   <!-- vantage: oq id=OQ-NC1 -->
+   <!-- vantage: question id=OQ-NC1 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A, run them launch-owned. It is the `openaiauthhost`
@@ -488,7 +488,7 @@ is reported verified only against a real rootless host or CI, with
    _Leaning:_ C, falling back to A with the race disclosed. B refuses a configuration that works
    today for a reason the user cannot act on.
 
-   <!-- vantage: oq id=OQ-NC2 -->
+   <!-- vantage: question id=OQ-NC2 -->
 
    **Answer:**
    > **Answered by [OQ-CL1](../design/claude-login-without-interception.md#OQ-CL1) (2026-09-28):
@@ -530,7 +530,7 @@ is reported verified only against a real rootless host or CI, with
       _Leaning:_ A. Autonomy rests on filesystem confinement, which a shared network does not remove,
    and item 1 closes yolo's own listeners.
 
-   <!-- vantage: oq id=OQ-NC3 -->
+   <!-- vantage: question id=OQ-NC3 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A. Keep autonomy, and disclose it from a network
@@ -549,7 +549,7 @@ is reported verified only against a real rootless host or CI, with
 
       _Leaning:_ A. It is the only order a user can predict from their own config.
 
-   <!-- vantage: oq id=OQ-NC4 -->
+   <!-- vantage: question id=OQ-NC4 -->
 
    **Answer:**
    > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
@@ -570,7 +570,7 @@ is reported verified only against a real rootless host or CI, with
       _Leaning:_ A. The grant exists now and is ruled, so a second, implicit route for the same thing
    is the duplicate path this plan removes.
 
-   <!-- vantage: oq id=OQ-NC5 -->
+   <!-- vantage: question id=OQ-NC5 -->
 
    **Answer:**
    > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
@@ -589,7 +589,7 @@ is reported verified only against a real rootless host or CI, with
 
       _Leaning:_ A. [OQ-LM3](../research/local-model-endpoints.md#oq-lm3)'s reason applies unchanged: the blast radius is total.
 
-   <!-- vantage: oq id=OQ-NC6 -->
+   <!-- vantage: question id=OQ-NC6 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A. Every provider field that decides where a
@@ -608,7 +608,7 @@ is reported verified only against a real rootless host or CI, with
 
       _Leaning:_ A. A shared store without interception is worse than two lineages.
 
-   <!-- vantage: oq id=OQ-NC7 -->
+   <!-- vantage: question id=OQ-NC7 -->
 
    **Answer:**
    > **Ruled in review 2026-09-28, as leaned:** A. Host claude keeps its own login until
@@ -627,7 +627,7 @@ is reported verified only against a real rootless host or CI, with
 
       _Leaning:_ B. It ends the silence today without choosing an ownership model early.
 
-   <!-- vantage: oq id=OQ-NC8 -->
+   <!-- vantage: question id=OQ-NC8 -->
 
    **Answer:**
    > **Ruled 2026-09-28 by parity, against the leaning** (the maintainer, 2026-09-28: *"yes, NC as
@@ -663,7 +663,7 @@ is reported verified only against a real rootless host or CI, with
    the jail refusing a pack the host accepts, and it keeps the no-escape rule for the case that
    motivated it.
 
-   <!-- vantage: oq id=OQ-NC9 -->
+   <!-- vantage: question id=OQ-NC9 -->
 
    **Answer:**
    > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
@@ -694,7 +694,7 @@ is reported verified only against a real rootless host or CI, with
     get past a prompt that no longer exists. B re-creates a grant for the one question the gate
     deliberately keeps behind a terminal.
 
-    <!-- vantage: oq id=OQ-NC10 -->
+    <!-- vantage: question id=OQ-NC10 -->
 
     **Answer:**
     > **Ruled in review 2026-09-28, as leaned:** A. The zero-prompt auto-apply left the host launch
@@ -737,7 +737,7 @@ is reported verified only against a real rootless host or CI, with
     an A12 boot failure inside a running jail, so the stranding cost S5 weighs does not apply. The
     jail has to honor the tier, or the remedy the message offers does nothing there.
 
-    <!-- vantage: oq id=OQ-NC11 -->
+    <!-- vantage: question id=OQ-NC11 -->
 
     **Answer:**
     > **Ruled 2026-09-28 by parity, as leaned** (the maintainer, 2026-09-28: *"yes, NC as parity for
@@ -797,7 +797,7 @@ is reported verified only against a real rootless host or CI, with
     Under each option a removal ranks with its source, except an `env_sources` null. That is the
     only removal a user writes, and it keeps beating every assignment, as it does at the host.
 
-    <!-- vantage: oq id=OQ-NC12 leaning="A: the shape var, then env_sources, then the pack env fold, at every vehicle; the most specific source wins, and a user who wants a dotenv value to beat a profile has the per-command spelling OQ-CN8 makes win." -->
+    <!-- vantage: question id=OQ-NC12 leaning="A: the shape var, then env_sources, then the pack env fold, at every vehicle; the most specific source wins, and a user who wants a dotenv value to beat a profile has the per-command spelling OQ-CN8 makes win." -->
 
     _Leaning:_ A. A profile is chosen per agent or per launch, so its derive's value is the more
     specific intent, the reasoning pv-oq-8 applies inside the fold. The case B protects, a value
@@ -830,7 +830,7 @@ is reported verified only against a real rootless host or CI, with
     - **C — The shell's value wins, with no record.** A value from an old `eval` then beats a
       changed profile until the user runs the `eval` again.
 
-    <!-- vantage: oq id=OQ-NC13 leaning="B: the shell's value wins at the host too, and yolo host env records what it exported so a stale value it left is replaced, which is the jail's rule whole at the host." -->
+    <!-- vantage: question id=OQ-NC13 leaning="B: the shell's value wins at the host too, and yolo host env records what it exported so a stale value it left is replaced, which is the jail's rule whole at the host." -->
 
     _Leaning:_ B. It is the jail's rule at the host, which "host is supposed to act like everywhere
     else" asks for. The record is the one thing the host lacks to apply the rule's second half. A

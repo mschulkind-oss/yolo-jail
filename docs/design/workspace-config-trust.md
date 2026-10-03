@@ -452,7 +452,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    `cache_relocations` precedent. Thaw when someone needs an rw mount that is workspace-specific and cannot move
    into the workspace. C only adds to D, so shipping D first forecloses nothing.
 
-   <!-- vantage: oq id=OQ-WT1 leaning="C (scope for the repo author, host-side consent for the in-jail agent), iced; D (user scope only, the cache_relocations precedent) is the rule until an rw mount is actually wanted, and C only adds to it." -->
+   <!-- vantage: question id=OQ-WT1 leaning="C (scope for the repo author, host-side consent for the in-jail agent), iced; D (user scope only, the cache_relocations precedent) is the rule until an rw mount is actually wanted, and C only adds to it." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -464,7 +464,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    _Leaning:_ **Refuse them**, from either workspace file. The builder reads the local file's own top level only.
    A grant always sits in one file that `yolo trust` names.
 
-   <!-- vantage: oq id=OQ-WT2 -->
+   <!-- vantage: question id=OQ-WT2 -->
 
    **Answer:**
    > Decided as an implementation choice ([WT-D1](#WT-D1)), reversible: a grant is honored only from the local
@@ -480,7 +480,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    property cannot be kept. Separately, `yolo init` should add the local file's names to `.gitignore`, alongside
    `.yolo/`.
 
-   <!-- vantage: oq id=OQ-WT3 -->
+   <!-- vantage: question id=OQ-WT3 -->
 
    **Answer:**
    > Decided as an implementation choice ([WT-D2](#WT-D2)), reversible: a warning, never a refusal, raised only
@@ -494,7 +494,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    edit, doubling the approval gate's prompts. That is the fatigue [OQ-S1](../reference/config-safety.md#oq-s1)
    ruled against.
 
-   <!-- vantage: oq id=OQ-WT4 -->
+   <!-- vantage: question id=OQ-WT4 -->
 
    **Answer:**
    > Decided as an implementation choice ([WT-D3](#WT-D3)), reversible: the grant set, resolved on the host and
@@ -538,7 +538,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    can ask only through a local file it tracks, and [WT-D2](#WT-D2)'s warning names that file at the launch under
    either option.
 
-   <!-- vantage: oq id=OQ-WT5 leaning="(A), restated 2026-09-30: a labeled section of the config-change prompt, recorded as another part of the host-side approval record; a y or --accept-config-changes approves it, as OQ-BB7 ruled for the broker's repository scope. (B), refuse and name yolo trust with --accept-config-changes never granting, was the original leaning." -->
+   <!-- vantage: question id=OQ-WT5 leaning="(A), restated 2026-09-30: a labeled section of the config-change prompt, recorded as another part of the host-side approval record; a y or --accept-config-changes approves it, as OQ-BB7 ruled for the broker's repository scope. (B), refuse and name yolo trust with --accept-config-changes never granting, was the original leaning." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -549,7 +549,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    same human, on the same host, should not consent to one edit twice. The approval gate still re-asks for any
    later edit.
 
-   <!-- vantage: oq id=OQ-WT6 -->
+   <!-- vantage: question id=OQ-WT6 -->
 
    **Answer:**
    > Decided as an implementation choice ([WT-D4](#WT-D4)), reversible: one edit is consented to once, so
@@ -562,7 +562,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    mount. Provider `base_url` stays user-scope-only even though trust could admit it, because a steered endpoint
    receives every credential the provider hydrates, and a mistaken trust there costs more than a mistaken mount.
 
-   <!-- vantage: oq id=OQ-WT7 -->
+   <!-- vantage: question id=OQ-WT7 -->
 
    **Answer:**
    > Decided as an implementation choice ([WT-D5](#WT-D5)), reversible: only the rw context mount in version 1.
@@ -574,7 +574,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    _Leaning:_ **Pair.** AS3 stays the question of whether ro `mounts` and `env_sources` leave workspace scope. This
    doc adds a third answer to it: "local file plus trust". AS3 can then rule without this doc being built.
 
-   <!-- vantage: oq id=OQ-WT8 -->
+   <!-- vantage: question id=OQ-WT8 -->
 
    **Answer:**
    > Decided as an implementation choice ([WT-D6](#WT-D6)), reversible: pair. AS3 keeps its question in
@@ -587,7 +587,7 @@ says "agent-editable" (a record the agent cannot write would answer that reason)
    governs only its own children (P1 and Test 2). A refusal for the jail's own workspace stops an agent believing it
    trusted the outer launch.
 
-   <!-- vantage: oq id=OQ-WT9 -->
+   <!-- vantage: question id=OQ-WT9 -->
 
    **Answer:**
    > Decided as an implementation choice ([WT-D7](#WT-D7)), reversible: from inside a jail, consent for the jail's

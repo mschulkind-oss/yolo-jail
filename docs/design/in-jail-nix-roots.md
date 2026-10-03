@@ -361,7 +361,7 @@ translated copy of it would root nothing more.
    - **D — A mirrored roots directory.** Protects only what is steered into it, and puts a
      host-spelled path in the jail.
 
-   <!-- vantage: oq id=OQ-NR1 leaning="C with A as its hand-run form: it is host nix's own semantics, covers every root-making tool because it watches the daemon call rather than argv, and cannot break a nix command because nothing sits in nix's path." -->
+   <!-- vantage: question id=OQ-NR1 leaning="C with A as its hand-run form: it is host nix's own semantics, covers every root-making tool because it watches the daemon call rather than argv, and cannot break a nix command because nothing sits in nix's path." -->
 
    _Leaning:_ C, with A as its hand-run form. It gives host nix's own semantics, covers every
    root-making tool because it watches the daemon call rather than argv, and cannot break a nix
@@ -377,7 +377,7 @@ translated copy of it would root nothing more.
    `/home/matt/sysadmin/obsrec` uncensored in [§3](#3-measured-in-this-jail). The difference is
    that the mount also shows dead entries and shows changes as they happen.
 
-   <!-- vantage: oq id=OQ-NR2 leaning="Yes, disclosed at launch like every other mount: it exposes paths, not contents, and FindRoots already hands an untrusted jail most of the same list." -->
+   <!-- vantage: question id=OQ-NR2 leaning="Yes, disclosed at launch like every other mount: it exposes paths, not contents, and FindRoots already hands an untrusted jail most of the same list." -->
 
    _Leaning:_ Yes, disclosed at launch like every other mount. It exposes paths, not contents,
    and `FindRoots` already hands an untrusted jail most of the same list.
@@ -393,7 +393,7 @@ translated copy of it would root nothing more.
    _Leaning:_ Binds only in the first version. `/tmp` is scratch, and a nested jail's own roots are
    better handled by [OQ-NR4](#OQ-NR4) than by translating volumes.
 
-   <!-- vantage: oq id=OQ-NR3 -->
+   <!-- vantage: question id=OQ-NR3 -->
 
    **Answer:**
    > Decided as an implementation choice ([NR-D1](#NR-D1)), reversible: binds only. The map holds
@@ -412,7 +412,7 @@ translated copy of it would root nothing more.
    check when building it: the host's reapers enumerate the host's own `build/roots` directories,
    so a nested jail's roots under a workspace's home overlay would need their own reaping story.
 
-   <!-- vantage: oq id=OQ-NR4 -->
+   <!-- vantage: question id=OQ-NR4 -->
 
    **Answer:**
    > Decided as an implementation choice ([NR-D2](#NR-D2)), reversible: yes, as the first

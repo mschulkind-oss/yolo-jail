@@ -363,7 +363,7 @@ test do run, so the podman-VM install path is exercised on macOS by the pinned f
 - 💬 <a id="oq-ci7"></a>**[`OQ-CI7`](#oq-ci7) — should the macOS nightly run any vendor agent
   install at all?**
 
-  <!-- vantage: oq id=OQ-CI7 leaning="(c): vendor installs on the macos-user workflow, per pack and hard-failing, via: npm packs first. darwin is the one platform whose vendor bytes no CI job installs, and the npm half is the one never measured on a Mac, while the podman nightly would re-install linux-x64 bytes Pack Installs already covers, at the highest setup cost." -->
+  <!-- vantage: question id=OQ-CI7 leaning="(c): vendor installs on the macos-user workflow, per pack and hard-failing, via: npm packs first. darwin is the one platform whose vendor bytes no CI job installs, and the npm half is the one never measured on a Mac, while the podman nightly would re-install linux-x64 bytes Pack Installs already covers, at the highest setup cost." -->
 
   Today it runs none, as above. Filed 2026-09-26; until then the question had no id. Options,
   stakes and a leaning drafted 2026-10-01, from the workflows at `d4e435a3` and the runs named

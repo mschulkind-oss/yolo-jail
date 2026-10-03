@@ -584,7 +584,7 @@ reaches everything. That is arguably correct (it is what the pack declared) and 
 regression, and `pack-system.md`'s own advice pushed authors toward declaring rather than
 staying silent.
 
-<!-- vantage: oq id=OQ-S4 leaning="(2): run ResolveDestinations on the jail path too, so a pack that declares a destination delivers only there and one that declares none borrows every destination; and do (1), honest reporting in pack-system.md and yolo pack footprint, either way." -->
+<!-- vantage: question id=OQ-S4 leaning="(2): run ResolveDestinations on the jail path too, so a pack that declares a destination delivers only there and one that declares none borrows every destination; and do (1), honest reporting in pack-system.md and yolo pack footprint, either way." -->
 
 _Leaning:_ **(2)**, because it makes both notches answer from one inference instead of two,
 makes `into` mean what it says, and makes `yolo pack footprint` true — the same argument F1
@@ -624,7 +624,7 @@ fingerprint gate depend on.
 3. **Leave it, and say so.** `raw` already round-trips a hand-written file byte-exact, and
    `config-ref` already documents the structured-codec trade. *Cost:* none new.
 
-<!-- vantage: oq id=OQ-E4 leaning="(3) for now: leave stateful surfaces without comment preservation and say so; build (1), the TriviaCodec route, only when a stateful surface's host source is a commented TOML file a user maintains." -->
+<!-- vantage: question id=OQ-E4 leaning="(3) for now: leave stateful surfaces without comment preservation and say so; build (1), the TriviaCodec route, only when a stateful surface's host source is a commented TOML file a user maintains." -->
 
 _Leaning:_ **(3) for now, then (1) when something needs it.** The reader this was for — an
 agent reading config to learn *why* a value is what it is — is now served on the file the

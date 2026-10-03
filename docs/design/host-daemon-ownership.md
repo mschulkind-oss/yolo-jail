@@ -1042,7 +1042,7 @@ each, because a deleted question is one the next reader re-derives.
      the question.
    - **Both**, with the catch-up as the fallback when no timer is installed.
 
-   <!-- vantage: oq id=OQ-HD9 leaning="Both, timer optional and catch-up unconditional: the catch-up is the correctness floor that needs no installation, and the timer is the optimization that makes the first launch of the week fast. Keep the timer's job to one refresh - never process supervision." -->
+   <!-- vantage: question id=OQ-HD9 leaning="Both, timer optional and catch-up unconditional: the catch-up is the correctness floor that needs no installation, and the timer is the optimization that makes the first launch of the week fast. Keep the timer's job to one refresh - never process supervision." -->
 
    _Leaning:_ **Both**, with the catch-up unconditional and the timer optional. The catch-up
    is the correctness floor and it needs nothing installed, which matters because a design
@@ -1091,7 +1091,7 @@ each, because a deleted question is one the next reader re-derives.
    lock enough to cover what the spawn flock covered — including the duties it was never
    asked to do — and if not, does per-jail owe macos-user a real spawn guard?**
 
-   <!-- vantage: oq id=OQ-HD10 leaning="Measure two concurrent macos-user launches of one workspace before removing anything. The existing per-workspace lock is a provisioning courtesy that warns and continues, not a socket owner, so 'a lock already exists' is not yet an answer." -->
+   <!-- vantage: question id=OQ-HD10 leaning="Measure two concurrent macos-user launches of one workspace before removing anything. The existing per-workspace lock is a provisioning courtesy that warns and continues, not a socket owner, so 'a lock already exists' is not yet an answer." -->
 
    _Leaning:_ **Measure before removing.** What two concurrent macos-user launches of one
    workspace do *today* is checkable and nobody has checked it. If they already collide over
@@ -1229,7 +1229,7 @@ each, because a deleted question is one the next reader re-derives.
    that property's absence, so the property is now load-bearing in two places and still
    written down in neither.
 
-   <!-- vantage: oq id=OQ-HD4 leaning="Keep the hard reclaim and record why: state the request-scoped-forwarder property as a requirement on jail daemons, so the next one that breaks it is a declaration problem rather than a silent data loss. HD-R1 makes the same property the discriminator for detach-vs-kill, which is a second reason to write it down." -->
+   <!-- vantage: question id=OQ-HD4 leaning="Keep the hard reclaim and record why: state the request-scoped-forwarder property as a requirement on jail daemons, so the next one that breaks it is a declaration problem rather than a silent data loss. HD-R1 makes the same property the discriminator for detach-vs-kill, which is a second reason to write it down." -->
 
    _Leaning:_ Keep it. A SIGTERM-then-wait would reintroduce the indefinite wait the comment
    rejects, for daemons that provably lose nothing. What I would change is the *status* of the
@@ -1252,7 +1252,7 @@ each, because a deleted question is one the next reader re-derives.
    there, holding the child's `exec.Cmd` in the jail's own `yolo` process, so the question
    narrows to **what should it print, and to whom**.
 
-   <!-- vantage: oq id=OQ-HD5 leaning="Degraded-until-relaunch is the right lifecycle and the silence is separable from it. Under HD-R1 the owner exists, so this stops being an architecture question and becomes a reporting one: the front knows, and now so does the process holding the child." -->
+   <!-- vantage: question id=OQ-HD5 leaning="Degraded-until-relaunch is the right lifecycle and the silence is separable from it. Under HD-R1 the owner exists, so this stops being an architecture question and becomes a reporting one: the front knows, and now so does the process holding the child." -->
 
    _Leaning:_ Keep the lifecycle — a front re-ensuring on demand would put a spawn inside a
    request path, and N fronts doing it would lean on the lock for something it was not
@@ -1280,7 +1280,7 @@ where the ruling went past them — that record is the point.
    the other seven hung off, and the one that decided whether [OQ-HD3](#OQ-HD3) stayed a
    trade or stopped existing.
 
-   <!-- vantage: oq id=OQ-HD1 -->
+   <!-- vantage: question id=OQ-HD1 -->
 
    _Leaning (preserved):_ The right unit is a **wire-contract generation**, not a build
    version — the same thing the stamp's single bit means today, promoted from a file beside
@@ -1307,7 +1307,7 @@ where the ruling went past them — that record is the point.
    the OpenAI daemon on a different predicate, and nothing reconciles them. This decided
    whether that was a second ruling or a contradiction.
 
-   <!-- vantage: oq id=OQ-HD3 -->
+   <!-- vantage: question id=OQ-HD3 -->
 
    _Leaning (preserved):_ Both stand; what is missing is the sentence. The restart-loop
    argument is about a path that runs on **every launch**; a human typing `yolo host -- codex`
@@ -1329,7 +1329,7 @@ where the ruling went past them — that record is the point.
    reaper which cannot ask declines rather than sweeping. [OQ-HD1](#OQ-HD1) made this urgent
    rather than academic — versioned paths strand daemons on purpose.
 
-   <!-- vantage: oq id=OQ-HD6 -->
+   <!-- vantage: question id=OQ-HD6 -->
 
    _Leaning (preserved):_ No reaper, ruled rather than merely absent. An idle singleton costs
    one sleeping process and one socket; a wrong reaper cuts off a live jail's credential path,
@@ -1354,7 +1354,7 @@ where the ruling went past them — that record is the point.
    enumerates it. This decided whether the other questions were about three daemons or an
    open-ended population.
 
-   <!-- vantage: oq id=OQ-HD7 -->
+   <!-- vantage: question id=OQ-HD7 -->
 
    _Leaning (preserved):_ Keep it free. The pack-only rule and the origin gate already govern
    the crossing, and a second gate would duplicate it. What is missing is not a gate but
@@ -1380,7 +1380,7 @@ where the ruling went past them — that record is the point.
    dial the 0600 socket, and is refused by the reachability witness with a message naming the
    socket rather than the collision.
 
-   <!-- vantage: oq id=OQ-HD8 -->
+   <!-- vantage: question id=OQ-HD8 -->
 
    _Leaning (preserved):_ Declare it a non-goal and fix the *message*. A uid in the rendezvous
    is a small change and it would work, but it promises a multi-user-host story nothing else

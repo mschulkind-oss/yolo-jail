@@ -489,39 +489,39 @@ in the [Decision Ledger](#decision-ledger).
 
 1. ✅ <a id="OQ-FT1"></a>[**OQ-FT1**](#OQ-FT1) (ruled 2026-09-25, as its leaning): **On by default, or opt-in?**
 
-   <!-- vantage: oq id=OQ-FT1 -->
+   <!-- vantage: question id=OQ-FT1 -->
 
    On by default, in each agent pack's defaults ([§3](#3-how-a-users-own-footer-survives)).
 
 2. ✅ <a id="OQ-FT4"></a>[**OQ-FT4**](#OQ-FT4) (ruled 2026-09-25, leaning overruled): **What else goes in?**
 
-   <!-- vantage: oq id=OQ-FT4 -->
+   <!-- vantage: question id=OQ-FT4 -->
 
    The billing route in plain words and the notch; no region, version or backend ([§1](#1-what-the-footer-shows)).
 
 3. ✅ <a id="OQ-FT5"></a>[**OQ-FT5**](#OQ-FT5) (ruled 2026-09-25, as its leaning): **How does a user keep their own
    footer and yolo's segment?**
 
-   <!-- vantage: oq id=OQ-FT5 -->
+   <!-- vantage: question id=OQ-FT5 -->
 
    Their footer wins, and they call the renderer from it.
 
 4. ✅ <a id="OQ-FT6"></a>[**OQ-FT6**](#OQ-FT6) (ruled 2026-09-25, as its leaning): **Does your host Claude get it?**
 
-   <!-- vantage: oq id=OQ-FT6 -->
+   <!-- vantage: question id=OQ-FT6 -->
 
    Yes: env first, else your user config's profile selection ([§4](#4-where-the-facts-come-from-and-how-fresh-they-are)).
 
 5. ✅ <a id="OQ-FT7"></a>[**OQ-FT7**](#OQ-FT7) (ruled 2026-09-25): **Does yolo turn on Copilot's experimental flag?**
 
-   <!-- vantage: oq id=OQ-FT7 -->
+   <!-- vantage: question id=OQ-FT7 -->
 
    No, and it does not check it either: the status line is written like every other agent's.
 
 6. ✅ <a id="OQ-FT12"></a>[**OQ-FT12**](#OQ-FT12) (ruled 2026-09-25): **In agy, stack yolo's line with agy's own,
    or replace it?**
 
-   <!-- vantage: oq id=OQ-FT12 -->
+   <!-- vantage: question id=OQ-FT12 -->
 
    Stack. It was only ever about agy's built-in line; a footer you write yourself is
    [OQ-FT5](#OQ-FT5)'s, and just works. The rule behind the answer covers every agent: [DIR-FT2](#DIR-FT2).
@@ -533,7 +533,7 @@ in the [Decision Ledger](#decision-ledger).
    is checked first. (b) A marker only the renderer reads: a second answer to "am I in a jail?". (c) `host` until
    the guest notch is built.
 
-   <!-- vantage: oq id=OQ-FT13 -->
+   <!-- vantage: question id=OQ-FT13 -->
 
    _Leaning:_ (a). One probe keeps one answer, and `host` inside a sandbox is the one label that is plainly wrong.
 
@@ -546,7 +546,7 @@ in the [Decision Ledger](#decision-ledger).
    credential file, which yolo never reads. Options: (a) `Claude subscription`; (b) `Claude Team`, read from that
    cache on every run: a second exception to "reads no file" beside [OQ-FT6](#OQ-FT6)'s, from an undocumented file.
 
-   <!-- vantage: oq id=OQ-FT14 -->
+   <!-- vantage: question id=OQ-FT14 -->
 
    _Leaning:_ (a). A home holds one login, so `Claude subscription` already tells your Team login from Bedrock.
 
@@ -575,7 +575,7 @@ in the [Decision Ledger](#decision-ledger).
    _Leaning:_ (b). It fixes the measured wrong label without putting the jail's wire tables into a host
    agent's env, where a later host reader could take them for the user's config.
 
-   <!-- vantage: oq id=OQ-FT15 -->
+   <!-- vantage: question id=OQ-FT15 -->
 
    **Answer:**
    > Decided as an implementation choice ([FT-D2](#FT-D2)), reversible: **(a)**, against the leaning.

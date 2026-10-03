@@ -268,7 +268,7 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
    produce **different image contents**, silently, from the same config string. That is why this
    rule gates the feature as a whole rather than one corner of it.
 
-   <!-- vantage: oq id=OQ-1 leaning="Output wins on the leaf; a deeper path wins over both — if the remaining path is exactly one component and it is in `curr.outputs`, resolve it as an output, otherwise keep walking. Held loosely: refusing the ambiguity with a throw that names both candidate resolutions is the alternative worth ruling for instead." -->
+   <!-- vantage: question id=OQ-1 leaning="Output wins on the leaf; a deeper path wins over both — if the remaining path is exactly one component and it is in `curr.outputs`, resolve it as an output, otherwise keep walking. Held loosely: refusing the ambiguity with a throw that names both candidate resolutions is the alternative worth ruling for instead." -->
 
    _Leaning:_ **output wins on the leaf; a deeper path wins over both.** Concretely: if the remaining
    path is exactly one component and that component is in `curr.outputs`, resolve it as an output;

@@ -728,7 +728,7 @@ option A and are moot under its option B.
    owner ([OQ-HD9](host-daemon-ownership.md#OQ-HD9)'s question), and needs a caller secret that
    outlives every launch, which NC-D3's per-launch secret is not.
 
-   <!-- vantage: oq id=OQ-HS3 -->
+   <!-- vantage: question id=OQ-HS3 -->
 
    **Answer:**
    > **Ruled 2026-09-28, as leaned: per launch.** The maintainer: *"how or why would a host
@@ -767,7 +767,7 @@ option A and are moot under its option B.
    special case ([§5](#5-alternatives-considered)), and the loophole `host_daemon` machinery,
    since a daemon with no grants is not a loophole ([WB-D16](../reference/wire-bridge.md#wb-d16)).
 
-   <!-- vantage: oq id=OQ-HS4 -->
+   <!-- vantage: question id=OQ-HS4 -->
 
    **Answer:**
    > **Decided 2026-09-28 by the orchestrator, as leaned**, as the mechanism [OQ-HS3](#OQ-HS3)'s

@@ -723,14 +723,14 @@ are [§11.1](#111-decision-ledger) rows.
 
 2. ✅ <a id="OQ-DF2"></a>**[OQ-DF2](#OQ-DF2) — ANSWERED 2026-09-08, and COMPACTED: where does the automatic reclamation live — the write path, the launch path, or `yolo prune`'s default?** The ruling and the fourth placement it could not have named are [§11.1](#111-decision-ledger)'s row; the argument it settled runs through [§4.2](#42-the-shape-this-lands-on) and [§3.3](#33-ledger-c--the-runtime-image-store-and-the-nameless-row).
 
-   <!-- vantage: oq id=OQ-DF2 -->
+   <!-- vantage: question id=OQ-DF2 -->
 
    > [!WARNING]
    > **Do not read the launch-path reap as a reversal of this ruling's objection to the launch path.** The objection was P7 — a sweep that fires during another jail's build — and that is a property of the MOMENT, not of the component. The housekeeping slot pays it off rather than refusing it ([`disk-levers-and-backfill.md`](disk-levers-and-backfill.md) [§5.1](disk-levers-and-backfill.md#51-the-housekeeping-slot)). The debounce and the unchanged veto are load-bearing precisely because a launch-triggered sweep was the riskiest of the three options.
 
 3. ✅ <a id="OQ-DF3"></a>**[OQ-DF3](#OQ-DF3) — RULED IN THREE HALVES and COMPACTED: how much of the runtime's image store may yolo reclaim, on what trigger, and how many images does it keep?** NUMBER and TRIGGER 2026-09-06, REACH 2026-09-08; all three are [§11.1](#111-decision-ledger) rows. The reach argument is [§3.3](#33-ledger-c--the-runtime-image-store-and-the-nameless-row), the retention argument [§10](#10-sequencing--what-i-would-build-in-order) step 4.
 
-   <!-- vantage: oq id=OQ-DF3 -->
+   <!-- vantage: question id=OQ-DF3 -->
 
    **The maintainer's words, because both halves of the ruling are in them:**
 
@@ -799,7 +799,7 @@ are [§11.1](#111-decision-ledger) rows.
 
    _Leaning:_ **(A).** Policy, not a number: if the write path bounds itself, the budget is a property of the design rather than a dial, and "minimal" is not a number a user should have to discover. The condition I held this open for — *"a residual that only a ceiling catches"* — is now observable, and it is one named store, which is the case a ceiling is worst at. Between the two policies, (B) is a reclaimer that waits for a human, which is the defect this doc is named for, and the ruling it executes says *"we need to use minimal disk space"* ([§1](#1-the-ruling-and-what-the-bug-actually-is)).
 
-   <!-- vantage: oq id=OQ-DF4 leaning="(A) policy, not a number, and sweep mise/ through the offered cleanup tier. The residual a ceiling was held open for is now one named store: cache/staticcheck trims itself (re-measured 2026-09-30), leaving mise/ at about 13 GiB a year. A ceiling is worst at named residue, and leaving mise/ to the human is the reclamation-that-waits-for-a-human defect this doc is named for." -->
+   <!-- vantage: question id=OQ-DF4 leaning="(A) policy, not a number, and sweep mise/ through the offered cleanup tier. The residual a ceiling was held open for is now one named store: cache/staticcheck trims itself (re-measured 2026-09-30), leaving mise/ at about 13 GiB a year. A ceiling is worst at named residue, and leaving mise/ to the human is the reclamation-that-waits-for-a-human defect this doc is named for." -->
 
    **Answer:**
    > _(empty — fill in when decided)_

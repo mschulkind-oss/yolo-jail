@@ -434,7 +434,7 @@ The mechanism is decided in [§11](#11-decision-ledger). These two change what a
    entry and the terminator are deleted, or kept for bridged podman jails beside a second
    mechanism for shared namespaces, `macos-user` and Apple Container.
 
-   <!-- vantage: oq id=OQ-CL1 -->
+   <!-- vantage: question id=OQ-CL1 -->
 
       _Leaning:_ **Everywhere, deleted rather than switched.** Two mechanisms for one concern is what
    [notch convergence](../plans/notch-convergence.md#1-the-thesis) exists to end. The view covers
@@ -463,7 +463,7 @@ The mechanism is decided in [§11](#11-decision-ledger). These two change what a
    JE(…)`, offset 217147433), and it rewrites the view without its `claudeAiOauth` entry. This
    decides what the broker does with each.
 
-   <!-- vantage: oq id=OQ-CL2 -->
+   <!-- vantage: question id=OQ-CL2 -->
 
       _Leaning:_ **`/login` in any jail still enrolls the machine; `/logout` in a jail signs out that
    workspace; machine-wide logout is a host verb.** The broker adopts a view that carries a

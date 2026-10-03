@@ -209,7 +209,7 @@ the config, the existing behavior is unchanged.
      profile naming an exact id selects nothing, a bare `deepseek-` id is sent to Kilo as typed,
      and every window must be declared.
 
-   <!-- vantage: oq id=OQ-GP4 leaning="Split it. Keep the literal-id fallback, since a profile naming an exact id is a user's explicit choice, and amend §3 to say so for every provider. Move the context window out of the derives and into the user's curated map, which per-model facts (b16fa0aa) now make possible. Keep the deepseek- rewrite only with a provenance comment naming Kilo's catalog and the date, or drop it." -->
+   <!-- vantage: question id=OQ-GP4 leaning="Split it. Keep the literal-id fallback, since a profile naming an exact id is a user's explicit choice, and amend §3 to say so for every provider. Move the context window out of the derives and into the user's curated map, which per-model facts (b16fa0aa) now make possible. Keep the deepseek- rewrite only with a provenance comment naming Kilo's catalog and the date, or drop it." -->
 
    _Leaning:_ **(A), split it.** Keep the literal-id fallback — a profile naming an exact id is the
    user's explicit choice — and amend [§3](#3-failure-and-safety-rules) to say so for every

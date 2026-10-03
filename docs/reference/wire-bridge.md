@@ -1086,7 +1086,7 @@ the picked port have not run on a Mac: the macos-user arm is pinned by unit test
 
 ### <a id="oq-wb1"></a>✅ [`OQ-WB1`](#oq-wb1) — what does the Codex route do with `response.failed`? — **RULED (b), BUILT 2026-09-25**
 
-<!-- vantage: oq id=OQ-WB1 -->
+<!-- vantage: question id=OQ-WB1 -->
 
 Opened 2026-09-25. *WB* stands for "wire bridge"; the prefix is new with this question. **What
 follows is the defect as it stood before the ruling was built**; the answer below says what the bridge

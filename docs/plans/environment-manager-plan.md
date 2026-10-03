@@ -584,7 +584,7 @@ with nothing marking them jail-only.
 ✅ **[OQ-11](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs) — RESOLVED (2026-08-01): a dedicated `autonomy` contribution kind (Encoding A
 below).**
 
-<!-- vantage: oq id=OQ-11 -->
+<!-- vantage: question id=OQ-11 -->
 
 The maintainer delegated the choice ("do the sketch now, I'm not sure I care").
 The sketch ([§9.0](#90-the-sketch-that-resolved-oq-11-two-encodings-vs-the-real-packs)) settles it: the discriminator-field encoding forces the `claude`
@@ -737,7 +737,7 @@ implementing any phase.
 
 - ✅ **[OQ-1](#open-questions-to-resolve-before-their-phase) — Is there a `--revert` verb on the host target? → RESOLVED: NO (2026-08-01).**
 
-  <!-- vantage: oq id=OQ-1 -->
+  <!-- vantage: question id=OQ-1 -->
 
   Undo is "stop declaring the key and re-apply," which drops it with a notice, the shipped
   "regenerate, don't reconcile" model (`internal/entrypoint/prism.go`, OQ12(d)). A `--revert` to a
@@ -751,7 +751,7 @@ implementing any phase.
 - ✅ **[OQ-2](#open-questions-to-resolve-before-their-phase) — Is host management user-scoped, with the workspace contributing nothing? →
   RESOLVED: YES (2026-08-01).**
 
-  <!-- vantage: oq id=OQ-2 -->
+  <!-- vantage: question id=OQ-2 -->
 
   What `yolo host apply` asserts is a function of your *user*
   config + the packs *you* installed, never of the repo you ran it from — the same
@@ -785,7 +785,7 @@ resolved; the reviewer's push on [OQ-4](#open-questions-to-resolve-before-their-
 
 - ✅ **[OQ-3](#open-questions-to-resolve-before-their-phase) — Retire the `reads-host` read-*in* layer? → RESOLVED: YES (2026-08-01).**
 
-  <!-- vantage: oq id=OQ-3 -->
+  <!-- vantage: question id=OQ-3 -->
 
   Drop
   settings-inheritance (yolo reading your real `~/.claude/settings.json` *into* a jail as a
@@ -798,7 +798,7 @@ resolved; the reviewer's push on [OQ-4](#open-questions-to-resolve-before-their-
 - ✅ **[OQ-4](#open-questions-to-resolve-before-their-phase) — On the host notch, `rmw` (surgical) or whole-file compose? → RESOLVED: pure
   `rmw` (2026-08-01).**
 
-  <!-- vantage: oq id=OQ-4 -->
+  <!-- vantage: question id=OQ-4 -->
 
   The reviewer is right that **overwrite is the only workable option
   for a key yolo manages**, and once you see why, `rmw` is not just workable — it is the
@@ -830,7 +830,7 @@ resolved; the reviewer's push on [OQ-4](#open-questions-to-resolve-before-their-
 
 - ✅ **~~[OQ-5](#open-questions-to-resolve-before-their-phase) — where does a host capture overlay live?~~ → MOOT.**
 
-  <!-- vantage: oq id=OQ-5 -->
+  <!-- vantage: question id=OQ-5 -->
 
   It only existed if [OQ-4](#open-questions-to-resolve-before-their-phase)
   chose capture. With pure `rmw` there is no host capture overlay, so there is no new
@@ -845,7 +845,7 @@ the call site.
 - ✅ **[OQ-6](#open-questions-to-resolve-before-their-phase) — What does the curl-to-shell install confirm display? → RESOLVED: URL only
   (2026-08-01).**
 
-  <!-- vantage: oq id=OQ-6 -->
+  <!-- vantage: question id=OQ-6 -->
 
   Show the resolved install URL; do not fetch-and-display the script or a
   hash. (Simplest, and consistent with the confirm being "approve running *this command*,"
@@ -853,7 +853,7 @@ the call site.
 - ✅ **[OQ-7](#open-questions-to-resolve-before-their-phase) — Where is the category-(a) *no-elevation* / category-(b) *needs-`sudo`* line drawn
   per remedy? → RESOLVED (2026-08-01).**
 
-  <!-- vantage: oq id=OQ-7 -->
+  <!-- vantage: question id=OQ-7 -->
 
   (a) = writes only under the user's own tree (user
   `brew`, `pip --user`, `~`); (b) = anything else (a system `apt install`, anything outside
@@ -865,7 +865,7 @@ the call site.
 - ✅ **[OQ-8](#open-questions-to-resolve-before-their-phase) — Dep-checker boundary: a declared schema, or an importable Go package? → RESOLVED:
   schema, evolvable (2026-08-01).**
 
-  <!-- vantage: oq id=OQ-8 -->
+  <!-- vantage: question id=OQ-8 -->
 
   Start with a declared schema a third-party doctor can
   read; this can grow a Go helper later if a spec proves too weak. No lock-in either way.
@@ -873,7 +873,7 @@ the call site.
 - ✅ **[OQ-9](#open-questions-to-resolve-before-their-phase) — Offer-to-run confirm UX → RESOLVED: batch by elevation class, minimize
   interaction (2026-08-01).**
 
-  <!-- vantage: oq id=OQ-9 -->
+  <!-- vantage: question id=OQ-9 -->
 
   ⚠ **Half-reversed 2026-09-12 by
   [`report-tiers.md`](../reference/report-tiers.md#why-its-this-way)** for `yolo host apply
@@ -890,7 +890,7 @@ the call site.
 
 - ✅ **[OQ-10](#open-questions-to-resolve-before-their-phase) — The composable-primitive model shape (Phase 2).**
 
-  <!-- vantage: oq id=OQ-10 -->
+  <!-- vantage: question id=OQ-10 -->
 
   How confinement is represented
   internally (separate user / Seatbelt / bwrap / namespace as independent knobs) so a fourth

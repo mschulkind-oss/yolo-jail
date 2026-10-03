@@ -191,7 +191,7 @@ version collision made it urgent.
    - **(D) Nothing changes**: neovim stays in the image and `VISUAL` stays `nvim`, which is
      [§4](#4-alternatives-with-verdicts)'s alternative A.
 
-   <!-- vantage: oq id=OQ-ED1 leaning="Unset unless the user names one, with the launch saying so once. A variable yolo invents is how the current circular justification happened; and an unset VISUAL makes ctrl-g fail in a way a user can act on, where VISUAL pointing at a missing binary fails in a way they cannot." -->
+   <!-- vantage: question id=OQ-ED1 leaning="Unset unless the user names one, with the launch saying so once. A variable yolo invents is how the current circular justification happened; and an unset VISUAL makes ctrl-g fail in a way a user can act on, where VISUAL pointing at a missing binary fails in a way they cannot." -->
 
    _Leaning:_ **Unset unless the user names one**, with the launch disclosing it once. A
    yolo-invented value is how the present circularity happened, and an unset `VISUAL` fails in a way
@@ -215,7 +215,7 @@ version collision made it urgent.
    - **(B) Keep it in core, gated on an editor being configured.**
    - **(C) Delete it.**
 
-   <!-- vantage: oq id=OQ-ED2 leaning="Move it to an opt-in pack. It is the guardrails precedent applied exactly: a genuinely useful editor-specific behaviour that core has no reason to know about, and a pack is where the mount, the boot copy and the VISUAL value can travel together." -->
+   <!-- vantage: question id=OQ-ED2 leaning="Move it to an opt-in pack. It is the guardrails precedent applied exactly: a genuinely useful editor-specific behaviour that core has no reason to know about, and a pack is where the mount, the boot copy and the VISUAL value can travel together." -->
 
    _Leaning:_ **Move it to an opt-in pack** — the `guardrails` precedent applied exactly. The mount,
    the copy step and the `VISUAL` value are one feature, and a pack is where they can travel
@@ -242,7 +242,7 @@ version collision made it urgent.
    - **(C) Derive them from [OQ-ED1](#OQ-ED1)'s answer**: `vi` and `vim` alias to the editor the user
      named, and to nothing when none is named.
 
-   <!-- vantage: oq id=OQ-ED3 leaning="Drop them, and state the rule. The blocker shims already occupy the legitimate version of this (refuse and suggest, never silently substitute), so an alias that silently substitutes is the same act without the disclosure." -->
+   <!-- vantage: question id=OQ-ED3 leaning="Drop them, and state the rule. The blocker shims already occupy the legitimate version of this (refuse and suggest, never silently substitute), so an alias that silently substitutes is the same act without the disclosure." -->
 
    _Leaning:_ **Drop them and state the rule.** The blocker shims already hold the legitimate form of
    this — refuse and suggest, never silently substitute — so an alias that silently substitutes is
@@ -293,7 +293,7 @@ version collision made it urgent.
    That was the leaning before the measurement and it survives it — the audit's value is that the
    follow-up now has a priority order set by bytes rather than by guesswork.
 
-   <!-- vantage: oq id=OQ-ED4 -->
+   <!-- vantage: question id=OQ-ED4 -->
 
    **Answer:**
    > Decided as an implementation choice ([ED-D1](#ED-D1)), reversible: this doc rules on `neovim`

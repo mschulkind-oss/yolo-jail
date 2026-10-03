@@ -449,7 +449,7 @@ reproduces only by unsetting PATH in-process.
    nobody turns on guarantees nothing. [`OQ-HE0`](../reference/host-agent-environment.md#oq-he0) isn't
    engaged, because the prefix is machine state yolo owns rather than an ambient input.
 
-   <!-- vantage: oq id=OQ-HP1 -->
+   <!-- vantage: question id=OQ-HP1 -->
 
       **Answer:**
       > **Ruled 2026-09-29: (a), on by default.** The maintainer: *"this floor should be on by
@@ -470,7 +470,7 @@ reproduces only by unsetting PATH in-process.
    so through [OQ-PS7](provisioner-sets.md#OQ-PS7)'s override, and then the prefix never holds
    that name. It also matches the jail, where the launch dir precedes every install prefix.
 
-   <!-- vantage: oq id=OQ-HP2 -->
+   <!-- vantage: question id=OQ-HP2 -->
 
       **Answer:**
       > **Ruled 2026-09-29: moot — the prefix is on no PATH of the user's.** The maintainer: *"It
@@ -505,7 +505,7 @@ reproduces only by unsetting PATH in-process.
    _Leaning:_ **(a), with (c) on macOS**, pending a measurement that a captured `claude` runs on
    a Linux host. It is the only option that keeps the standing ruling.
 
-   <!-- vantage: oq id=OQ-HP3 -->
+   <!-- vantage: question id=OQ-HP3 -->
 
       **Answer:**
       > **Ruled 2026-09-29: (a), and on macOS a host capture instead of hint-only.** The maintainer:
@@ -530,7 +530,7 @@ reproduces only by unsetting PATH in-process.
    _Leaning:_ **(a)**, with (b) and (c) left to [OQ-PS6](provisioner-sets.md#OQ-PS6)'s ranking
    later. It is the only source present on every host, and it lives entirely inside the prefix.
 
-   <!-- vantage: oq id=OQ-HP4 -->
+   <!-- vantage: question id=OQ-HP4 -->
 
       **Answer:**
       > **Ruled 2026-09-29, as leaned: (a).** The official Node tarball, checksum-verified, at a
@@ -549,7 +549,7 @@ reproduces only by unsetting PATH in-process.
    The refresh runs at the agent's own invocation rather than in the background, and a changed
    recipe prompts again ([§4](#4-when-provisioning-runs)).
 
-   <!-- vantage: oq id=OQ-HP5 -->
+   <!-- vantage: question id=OQ-HP5 -->
 
       **Answer:**
       > **Ruled 2026-09-29, past both options: no consent prompt at all.** The maintainer: *"why is
@@ -572,7 +572,7 @@ reproduces only by unsetting PATH in-process.
    _Leaning:_ **(a).** It is what the user's own `mise.toml` asks for. mise's trust prompt
    already guards a cloned repository's config. A widget can't consent to a download.
 
-   <!-- vantage: oq id=OQ-HP6 -->
+   <!-- vantage: question id=OQ-HP6 -->
 
       **Answer:**
       > **Ruled 2026-09-29: never** ([HP-DIR3](#HP-DIR3)). The maintainer: *"when you're inside of
@@ -591,7 +591,7 @@ reproduces only by unsetting PATH in-process.
    startup is fixed; what it runs sees the user's own shell environment. **(b)** The set
    environment all the way down, so `npm test` runs on the floor's node.
 
-   <!-- vantage: oq id=OQ-HP7 -->
+   <!-- vantage: question id=OQ-HP7 -->
 
    **Answer:**
    > **Ruled 2026-09-29: (a)** ([HP-DIR3](#HP-DIR3)). Only a delivered agent's own startup runs in

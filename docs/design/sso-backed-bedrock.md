@@ -1267,7 +1267,7 @@ Bedrock credential comes from. Two terms both use:
    narrowing nor [§7](#7-refresh--what-happens-when-you-log-in-again)'s refresh happens, and
    every turn still succeeds — which is what makes it silent.
 
-   <!-- vantage: oq id=OQ-SSO8 -->
+   <!-- vantage: question id=OQ-SSO8 -->
 
    _Leaning:_ refuse the pair beside the pointer, worded like the bearer refusal, with no hatch.
 
@@ -1404,7 +1404,7 @@ Bedrock credential comes from. Two terms both use:
    generic client at the gateway route by hand, and whether
    [§12](#12-what-i-would-build-in-order) step 7 is built or deleted.
 
-   <!-- vantage: oq id=OQ-SSO9 -->
+   <!-- vantage: question id=OQ-SSO9 -->
 
    _Leaning:_ retire option D, and document the gateway route as API-key-only.
 
@@ -1473,7 +1473,7 @@ Bedrock credential comes from. Two terms both use:
    `needs` `aws-auth`) would put that silence in front of every claude user who selects the
    `bedrock` profile.
 
-   <!-- vantage: oq id=OQ-SSO10 -->
+   <!-- vantage: question id=OQ-SSO10 -->
 
    _Leaning:_ (a).
 

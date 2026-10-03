@@ -844,7 +844,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
    AgentCore search preset ([`bedrock-web-search.md`](bedrock-web-search.md)). The vendor is
    declared, never parsed.
 
-   <!-- vantage: oq id=OQ-BR9 -->
+   <!-- vantage: question id=OQ-BR9 -->
 
    **Answer:**
    > **Ruled 2026-09-29: A, with the packaging left to the build.** The maintainer: *"I guess we
@@ -892,7 +892,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
    its spelling is yours to rule. No profile is named for an agent or a vendor. Rule it with
    [OQ-BR9](#OQ-BR9).
 
-   <!-- vantage: oq id=OQ-BR1 -->
+   <!-- vantage: question id=OQ-BR1 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned.** The maintainer: *"we get to select it and point it at an
@@ -907,7 +907,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
 3. ✅ <a id="OQ-BR5"></a>[**OQ-BR5**](#OQ-BR5) (ruled 2026-09-25): **Is pi bound through its native
    Converse client, or through runtime's OpenAI-compatible route?**
 
-   <!-- vantage: oq id=OQ-BR5 -->
+   <!-- vantage: question id=OQ-BR5 -->
 
    Both ([Decision Ledger](#decision-ledger)). The
    native half is [§6.2](#62-what-each-derive-emits)'s pi row. The bridge half is pi's OpenAI
@@ -918,7 +918,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
 4. ✅ <a id="OQ-BR6"></a>[**OQ-BR6**](#OQ-BR6) (ruled 2026-09-25, as its leaning): **Refuse the
    launch when no region is resolvable?**
 
-   <!-- vantage: oq id=OQ-BR6 -->
+   <!-- vantage: question id=OQ-BR6 -->
 
    Only when yolo can see none; the rule is in
    [§8](#8-behaviour-this-design-fixes). Its premise: codex refuses and names the sources, while
@@ -938,7 +938,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
 5. ✅ <a id="OQ-BR7"></a>[**OQ-BR7**](#OQ-BR7) (answered 2026-09-25 by [DIR-BR3](#DIR-BR3)): **Is
    `endpoint_family` its own field?**
 
-   <!-- vantage: oq id=OQ-BR7 -->
+   <!-- vantage: question id=OQ-BR7 -->
 
    No; with one family there is nothing to name. The fact it
    protected now shows as the mantle recipe being its own provider.
@@ -946,7 +946,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
 6. ✅ <a id="OQ-BR11"></a>[**OQ-BR11**](#OQ-BR11) (ruled 2026-09-24): **How does claude use native
    Bedrock for Anthropic ids and the bridge for the rest?**
 
-   <!-- vantage: oq id=OQ-BR11 -->
+   <!-- vantage: question id=OQ-BR11 -->
 
    Both profiles, with the everything
    profile routing by model id; [`wire-bridge-gateway.md`](wire-bridge-gateway.md) owns the routing
@@ -966,7 +966,7 @@ R6 to R11 moved with the bridge, model-list and search designs.
    agent binding Bedrock needs the pack. Needing them puts the Bedrock provider, `aws-auth` and an
    idle bridge into every copilot or oh-omp jail, Bedrock or not.
 
-   <!-- vantage: oq id=OQ-BR24 leaning="Yes: both need bedrock and wire-bridge, so one pack alone works on -p bedrock the way codex does, at the cost of an idle bridge in each such jail." -->
+   <!-- vantage: question id=OQ-BR24 leaning="Yes: both need bedrock and wire-bridge, so one pack alone works on -p bedrock the way codex does, at the cost of an idle bridge in each such jail." -->
 
    _Leaning:_ yes, as [OQ-BR9](#OQ-BR9) ruled for the agents with their own client: a user should
    not have to select a second agent to make `-p bedrock` work for the first.

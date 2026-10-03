@@ -396,7 +396,7 @@ rootless host or CI**, and so is the whole of a real reboot.
    alternative reading of this incident is a refresh at 10:49 with no reboot,
    which B would not recover.
 
-   <!-- vantage: oq id=OQ-PR1 -->
+   <!-- vantage: question id=OQ-PR1 -->
 
    **Answer:**
    > **Ruled 2026-09-29: the budget applies always (the doc's A), and never on a reboot test.**
@@ -449,7 +449,7 @@ rootless host or CI**, and so is the whole of a real reboot.
    this workspace's probe had finished before its slot began. What is measured is
    the 16.1 s lock hold on the load path.
 
-   <!-- vantage: oq id=OQ-PR2 -->
+   <!-- vantage: question id=OQ-PR2 -->
 
    **Answer:**
    > **Ruled 2026-09-29, none of the doc's options as written: the cleanup takes its lock one
@@ -491,7 +491,7 @@ rootless host or CI**, and so is the whole of a real reboot.
    for a jail that mounts the log directory is every other workspace's launch
    times and outcomes under stable hashes, never which project a hash is.
 
-   <!-- vantage: oq id=OQ-PR3 -->
+   <!-- vantage: question id=OQ-PR3 -->
 
    **Answer:**
    > **Ruled 2026-09-29, as leaned: B.** One line per launch in `~/.local/share/yolo-jail/logs/`,

@@ -489,7 +489,7 @@ day. Nothing in this section is left to build.
    the first place. **This decides whether `check` ever exits non-zero for a reference it had to
    resolve, or only ever shows a `[FAIL]` row that the launch then enforces.**
 
-   <!-- vantage: oq id=OQ-RM1 -->
+   <!-- vantage: question id=OQ-RM1 -->
 
    _Leaning:_ `check` shows `[FAIL]` and exits non-zero here as well — it already does exactly this
    for every parse-time check, and a `check` that passes on a config the next launch refuses is the
@@ -513,7 +513,7 @@ day. Nothing in this section is left to build.
    rule stands and binds any future refusal source, which a refusing supersession would be. Its
    "approve" option no longer exists.)*
 
-   <!-- vantage: oq id=OQ-RM2 -->
+   <!-- vantage: question id=OQ-RM2 -->
 
    _Leaning:_ (a), refuse the launch, for consistency with the shipped TP6 rule — *"no partial
    packs: fix it, remove it, or approve it."* A pack that half-loads is the state that rule exists
@@ -539,7 +539,7 @@ day. Nothing in this section is left to build.
    host `yolo` older than its source through a git comparison, `run.refuseOnSourceSkew` — see
    [§4.6](#46-skew-your-image-is-older-than-your-tree)'s note.)*
 
-   <!-- vantage: oq id=OQ-RM3 -->
+   <!-- vantage: question id=OQ-RM3 -->
 
    _Leaning:_ Compute it **lazily — only when a reference has already failed to match.** The refusal
    is the slow path by definition, and 0.3 s on the way to an error message nobody minds. Do not put
@@ -558,7 +558,7 @@ day. Nothing in this section is left to build.
    has one — `YOLO_ALLOW_STALE_IMAGE`, `YOLO_ALLOW_UNREACHABLE_SERVICES`, `YOLO_NO_HOST_LOOPBACK` —
    each loud, each naming itself in the refusal.
 
-   <!-- vantage: oq id=OQ-RM4 leaning="No hatch, at least at first: the other three exist for conditions outside the user's config, and a mistyped name is always the config. If a real case turns up, YOLO_ALLOW_UNMATCHED_REFERENCES is the spelling that matches the family." -->
+   <!-- vantage: question id=OQ-RM4 leaning="No hatch, at least at first: the other three exist for conditions outside the user's config, and a mistyped name is always the config. If a real case turns up, YOLO_ALLOW_UNMATCHED_REFERENCES is the spelling that matches the family." -->
 
    _Leaning:_ **No hatch, at least at first.** Those three exist because the condition can be true
    through no fault of the user's config (an offline machine, a host that cannot forward loopback).

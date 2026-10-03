@@ -253,7 +253,7 @@ Dhall (total, typed).
      ([`OQ-D6`](slots-and-contributions.md#OQ-D6) to [`OQ-D12`](slots-and-contributions.md#OQ-D12)).
    - **(C) No.** The flat, `kind`-tagged list stays, and readability waits for [OQ-M2](#OQ-M2).
 
-   <!-- vantage: oq id=OQ-M1 leaning="Yes. Grouping by kind and stating the pack's identity once are syntax-independent and are the two largest sources of redundancy." -->
+   <!-- vantage: question id=OQ-M1 leaning="Yes. Grouping by kind and stating the pack's identity once are syntax-independent and are the two largest sources of redundancy." -->
 
    _Leaning:_ Yes — it is independent of the syntax decision, needs no dependency, and removes the
    bulk of the measured redundancy. The identity half of it has a recorded shape already:
@@ -267,7 +267,7 @@ Dhall (total, typed).
 
 2. 💬 <a id="OQ-M2"></a>**OQ-M2: Which syntax — JSON restructured, data-only Lua, or Starlark?**
 
-   <!-- vantage: oq id=OQ-M2 leaning="JSON restructured if it reads well; else data-only Lua (already vendored); Starlark only if we accept a new dependency for a purpose-built hermetic language." -->
+   <!-- vantage: question id=OQ-M2 leaning="JSON restructured if it reads well; else data-only Lua (already vendored); Starlark only if we accept a new dependency for a purpose-built hermetic language." -->
 
    ⚠ **MEASURED 2026-09-22, and the result is that this question should be DISSOLVED rather than
    answered on the stated rule.** The re-measure was takeable with no build — I restructured
@@ -314,7 +314,7 @@ Dhall (total, typed).
 
 3. 💬 <a id="OQ-M3"></a>**OQ-M3: May a manifest be pure code that RETURNS data — executed to be read?**
 
-   <!-- vantage: oq id=OQ-M3 leaning="Yes, if the sandbox is pure and the RESULT is validated and footprinted, so the total-claim rule survives by construction rather than by trust." -->
+   <!-- vantage: question id=OQ-M3 leaning="Yes, if the sandbox is pure and the RESULT is validated and footprinted, so the total-claim rule survives by construction rather than by trust." -->
 
    ⚠ **Restated 2026-09-30 with letters.** It matters only if [OQ-M2](#OQ-M2) picks (B) or (C).
    **(A) Yes**, on M5's condition below. **(B) No**: a manifest is always a literal data file, which
@@ -334,7 +334,7 @@ Dhall (total, typed).
 
 4. ✅ <a id="OQ-M4"></a>**OQ-M4: Does the user/workspace config (`yolo-jail.jsonc`) share the language?**
 
-   <!-- vantage: oq id=OQ-M4 -->
+   <!-- vantage: question id=OQ-M4 -->
 
    _Leaning:_ Not necessarily — the user config is *settings* (no claims to enumerate), so it may
    keep a plain data syntax even if the manifest moves. Sharing is a convenience, not a

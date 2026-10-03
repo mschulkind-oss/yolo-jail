@@ -113,7 +113,7 @@ and nothing else here does.** Verified against `flake.nix` 2026-08-23.
   [`handoff-mac-unmeasured-claims.md` §4](../plans/handoff-mac-unmeasured-claims.md#4-the-nightly--five-links-all-now-named),
   where it was recorded without an id.
 
-  <!-- vantage: oq id=OQ-MX2 -->
+  <!-- vantage: question id=OQ-MX2 -->
 
   **Answer:** moot (2026-09-30): the failure it asks about no longer happens. The nightly's
   `build-image` job realizes the `zbar` and `libsodium.dev` image variants on Linux and pushes
@@ -332,7 +332,7 @@ is the single collected list, with the open questions attached.
      until GitHub retires the image (planned around late 2027). Cost: the flake keeps an
      unpatched nixpkgs for `x86_64-darwin`, which is also what a real Intel Mac user gets.
 
-   <!-- vantage: oq id=OQ-MX1 leaning="(A): move the podman macOS suite onto the self-hosted Mac that already runs the Apple Container job. Podman stays a supported Mac runtime on Apple Silicon for features Apple Container lacks, and uptime-shaped coverage is the trade already accepted there. (B) is the fallback if a full run on one machine is too slow." -->
+   <!-- vantage: question id=OQ-MX1 leaning="(A): move the podman macOS suite onto the self-hosted Mac that already runs the Apple Container job. Podman stays a supported Mac runtime on Apple Silicon for features Apple Container lacks, and uptime-shaped coverage is the trade already accepted there. (B) is the fallback if a full run on one machine is too slow." -->
 
    _Leaning:_ **(A).** The runner exists and already carries one Mac backend. Podman stays a
    supported Mac runtime on Apple Silicon too, for the shared Claude login and published ports

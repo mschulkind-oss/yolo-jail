@@ -239,7 +239,7 @@ Whether `gh` reaches the keychain on `macos-user` is the same open fact as Copil
 1. 💬 **OQ-CT1: Which route makes Copilot's login machine-wide?** A shares state that was never
    meant to be shared. B shares exactly one token, but asks the user to create a token.
 
-   <!-- vantage: oq id=OQ-CT1 leaning="B, documented in the user guide as the way to log Copilot in once per machine, with C as the default; not A, which shares folder trust and plugin state across repositories and depends on two unmeasured write behaviors." -->
+   <!-- vantage: question id=OQ-CT1 leaning="B, documented in the user guide as the way to log Copilot in once per machine, with C as the default; not A, which shares folder trust and plugin state across repositories and depends on two unmeasured write behaviors." -->
 
    _Leaning:_ B, as a documented user-guide recipe, with C left as the default. Not A.
 

@@ -432,7 +432,7 @@ implementation choices on 2026-09-30.
    a human can retry. A launch cannot, and refusing a jail because another jail is building the same
    bytes is the mis-scoped fatal the 2026-09-03 reversal deleted, in a new costume.
 
-   <!-- vantage: oq id=OQ-FP7 -->
+   <!-- vantage: question id=OQ-FP7 -->
 
    **Answer:**
    > Decided as an implementation choice ([FP-D1](#FP-D1)), reversible: a launch that finds the
@@ -451,7 +451,7 @@ implementation choices on 2026-09-30.
    `bin` or on an owning pack, so one blanket rule is false for at least one of them — and its failure
    mode is a silently dropped contribution.
 
-   <!-- vantage: oq id=OQ-FP8 -->
+   <!-- vantage: question id=OQ-FP8 -->
 
    **Answer:**
    > Decided as an implementation choice ([FP-D2](#FP-D2)), reversible: one rule, not a per-kind
@@ -480,7 +480,7 @@ implementation choices on 2026-09-30.
    is where relocation must be proven anyway and wants its own slice; what it must not do is silently
    deliver no program.
 
-   <!-- vantage: oq id=OQ-FP9 -->
+   <!-- vantage: question id=OQ-FP9 -->
 
    **Answer:**
    > Decided as an implementation choice ([FP-D3](#FP-D3)), reversible: the route ships in

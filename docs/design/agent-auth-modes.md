@@ -485,7 +485,7 @@ dropped it without answering it (the roadmap and sibling docs cited it as [`auth
    > and `env_sources` is its source. Whether that answers this question, or it asks for more
    > (a declared pair with a hydration template, say), is the maintainer's to say.
 
-   <!-- vantage: oq id=OQ-9 leaning="Leave AWS's two-part credential on env_sources until a second multi-var credential shows up. The provider-catalog work (OQ-CS8) is moving env composition into per-agent env derives that can read whatever the environment holds — that likely absorbs this question rather than answering it, and deciding it now would design against a moving surface." -->
+   <!-- vantage: question id=OQ-9 leaning="Leave AWS's two-part credential on env_sources until a second multi-var credential shows up. The provider-catalog work (OQ-CS8) is moving env composition into per-agent env derives that can read whatever the environment holds — that likely absorbs this question rather than answering it, and deciding it now would design against a moving surface." -->
 
    **Answer:**
    > _(empty — fill in when decided)_

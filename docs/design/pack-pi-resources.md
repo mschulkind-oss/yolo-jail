@@ -312,7 +312,7 @@ one-slot-per-agent rule does not bind.
    _Leaning:_ **Yes.** It is the only option with no pi path and no file list, and it covers
    themes and prompts in the same line.
 
-   <!-- vantage: oq id=OQ-PR1 leaning="Yes: C, a slot outside pi's auto-discovery whose landed trees core registers as local pi packages. The only option with no pi path and no file list, covering themes and prompts in the same line." -->
+   <!-- vantage: question id=OQ-PR1 leaning="Yes: C, a slot outside pi's auto-discovery whose landed trees core registers as local pi packages. The only option with no pi path and no file list, covering themes and prompts in the same line." -->
 
    **Answer:**
    > _(empty — fill in when decided)_

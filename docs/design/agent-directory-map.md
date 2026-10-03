@@ -943,7 +943,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    - **C: Unmatched children of `agent/` default to yours.** This is quiet, and it loses the signal
      that found `mantle/`.
 
-   <!-- vantage: oq id=OQ-AM1 leaning="B — the pack that adds a package declares what it writes, and the local pack explains the user's own files; yours means authored by the user, not untouched by the vendor." -->
+   <!-- vantage: question id=OQ-AM1 leaning="B — the pack that adds a package declares what it writes, and the local pack explains the user's own files; yours means authored by the user, not untouched by the vendor." -->
 
    _Leaning:_ B. "Yours" means the user authored it. It does not mean the vendor never touches it.
 
@@ -963,7 +963,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    - **C: The proposal's four declared classes, including composed.** This rules out
      [P1](#1-the-verdict-and-the-principles-it-rests-on).
 
-   <!-- vantage: oq id=OQ-AM2 leaning="A — three declared classes plus credential, transient and executes marks, with composed, laid and retired derived; legacy is a note and program is cache." -->
+   <!-- vantage: question id=OQ-AM2 leaning="A — three declared classes plus credential, transient and executes marks, with composed, laid and retired derived; legacy is a note and program is cache." -->
 
    _Leaning:_ A, with `executes` in the pi slice because pi's `extensions/` is the case.
 
@@ -979,7 +979,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    - **C: Structural findings only** at launch and apply. Unexplained entries appear only in
      `yolo check` and the map view.
 
-   <!-- vantage: oq id=OQ-AM3 leaning="A — strict at every walked level, with each new name printed once; opaque subtrees and walked-directory defaults are the per-agent volume control." -->
+   <!-- vantage: question id=OQ-AM3 leaning="A — strict at every walked level, with each new name printed once; opaque subtrees and walked-directory defaults are the per-agent volume control." -->
 
    _Leaning:_ A. Opaque subtrees and per-directory defaults are the per-agent volume control.
 
@@ -995,7 +995,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
      link is harmless.
    - **C: Never refused, but `yolo check` exits non-zero on a dangling link.**
 
-   <!-- vantage: oq id=OQ-AM4 leaning="A — never refused anywhere; the agent's own failure is louder than any refusal yolo could add, and a vendor file must never break a launch." -->
+   <!-- vantage: question id=OQ-AM4 leaning="A — never refused anywhere; the agent's own failure is louder than any refusal yolo could add, and a vendor file must never break a launch." -->
 
    _Leaning:_ A.
 
@@ -1011,7 +1011,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    - **C: A verb that resets a whole root**, moving state and yours into an archive the way host
      adoption does.
 
-   <!-- vantage: oq id=OQ-AM5 leaning="A for the pi slice; B later only if asked. No verb ever removes state, yours or a credential." -->
+   <!-- vantage: question id=OQ-AM5 leaning="A for the pi slice; B later only if asked. No verb ever removes state, yours or a credential." -->
 
    _Leaning:_ A for the pi slice, and B later only if asked for. No verb ever removes state, yours
    or a credential.
@@ -1029,7 +1029,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
      suppress the false findings.
    - **C: No, host notch only in v1.**
 
-   <!-- vantage: oq id=OQ-AM6 leaning="A — the jail's copy is walked from inside the jail by yolo check, never host-side, and the boot prints nothing new." -->
+   <!-- vantage: question id=OQ-AM6 leaning="A — the jail's copy is walked from inside the jail by yolo check, never host-side, and the boot prints nothing new." -->
 
    _Leaning:_ A.
 
@@ -1046,7 +1046,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
      because it classifies nothing.
    - **C: Prune reclaims every cache entry.**
 
-   <!-- vantage: oq id=OQ-AM7 leaning="B, after every agent has a map — cache entries opt in to age-based reclaim, and prune's per-agent lists are deleted." -->
+   <!-- vantage: question id=OQ-AM7 leaning="B, after every agent has a map — cache entries opt in to age-based reclaim, and prune's per-agent lists are deleted." -->
 
    _Leaning:_ B, and never in the pi slice.
 
@@ -1064,7 +1064,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    - **B: Keep both.** `traps` for "inert here" diagnostics, and the map for classification. That is
      two kinds naming the same paths.
 
-   <!-- vantage: oq id=OQ-AM8 leaning="A — a trap is a map entry with a note, and pack-declared-file-diagnostics.md is superseded by this doc." -->
+   <!-- vantage: question id=OQ-AM8 leaning="A — a trap is a map entry with a note, and pack-declared-file-diagnostics.md is superseded by this doc." -->
 
    _Leaning:_ A.
 
@@ -1081,7 +1081,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
    - **B: `~/.pi/agent` only.** A smaller map, and `~/.pi/workflows`, `~/.pi/web-search.json` and
      pi's `$HOME` project scope go unexamined.
 
-   <!-- vantage: oq id=OQ-AM9 leaning="A — root at ~/.pi so the project scope and extension files beside agent/ are covered; ~/.pi-shared-npm is a jail-only second root." -->
+   <!-- vantage: question id=OQ-AM9 leaning="A — root at ~/.pi so the project scope and extension files beside agent/ are covered; ~/.pi-shared-npm is a jail-only second root." -->
 
    _Leaning:_ A.
 
@@ -1097,7 +1097,7 @@ this doc's survey ([Appendix A](#appendix-a-evidence)).
       second test of the model.
     - **C: copilot second**, because its `config.json` loop may be a live defect.
 
-    <!-- vantage: oq id=OQ-AM10 leaning="A — opencode proves the root needs no state kind on a small map, then claude, codex, copilot once measured, agy, omp." -->
+    <!-- vantage: question id=OQ-AM10 leaning="A — opencode proves the root needs no state kind on a small map, then claude, codex, copilot once measured, agy, omp." -->
 
     _Leaning:_ A. Copilot's measurement should happen immediately either way, because it is a
     measurement and not a map.

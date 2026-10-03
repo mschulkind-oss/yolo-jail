@@ -246,7 +246,7 @@ Collected so an implementer does not discover them one at a time.
 
 1. <a id="OQ-CW1"></a>💬 **[`OQ-CW1`](#OQ-CW1) — Config key now, or a plumbed seam first?**
 
-   <!-- vantage: oq id=OQ-CW1 leaning="Plumb the root through as a parameter and ship the derived deny plus the whitelist; hold the config key until someone needs a second root." -->
+   <!-- vantage: question id=OQ-CW1 leaning="Plumb the root through as a parameter and ship the derived deny plus the whitelist; hold the config key until someone needs a second root." -->
 
    The security work in [§4](#4-the-proposal-derive-a-second-deny-from-the-root) and
    [§5](#5-the-tightening-is-separable-and-cheaper) needs no config key — it needs the root to be a
@@ -259,7 +259,7 @@ Collected so an implementer does not discover them one at a time.
 
 2. <a id="OQ-CW2"></a>💬 **[`OQ-CW2`](#OQ-CW2) — Is "outside any user home" enforced lexically or by enumerating real homes?**
 
-   <!-- vantage: oq id=OQ-CW2 leaning="Lexically, against the configured root — a whitelist is what makes the four bypasses unreachable, and enumerating homes re-opens the blacklist it replaces." -->
+   <!-- vantage: question id=OQ-CW2 leaning="Lexically, against the configured root — a whitelist is what makes the four bypasses unreachable, and enumerating homes re-opens the blacklist it replaces." -->
 
    A whitelist answers *"is this under the root?"* and needs no notion of a home at all, which is
    what closes [§5](#5-the-tightening-is-separable-and-cheaper)'s four spellings. But a *configured*
@@ -272,7 +272,7 @@ Collected so an implementer does not discover them one at a time.
 
 3. <a id="OQ-CW3"></a>💬 **[`OQ-CW3`](#OQ-CW3) — Does the derived deny cover the root, or the root's parent?**
 
-   <!-- vantage: oq id=OQ-CW3 leaning="The root. Denying the parent protects unrelated neighbours the user did not ask yolo to hide and makes the rule harder to predict." -->
+   <!-- vantage: question id=OQ-CW3 leaning="The root. Denying the parent protects unrelated neighbours the user did not ask yolo to hide and makes the rule harder to predict." -->
 
    Denying `(subpath ROOT)` hides sibling projects. Denying the root's *parent* would also hide
    whatever else lives beside the root — protective, but it extends yolo's policy over directories
@@ -282,7 +282,7 @@ Collected so an implementer does not discover them one at a time.
 
 4. <a id="OQ-CW4"></a>💬 **[`OQ-CW4`](#OQ-CW4) — Does a root outside `/Users` need its own ACL story, or does the existing one carry?**
 
-   <!-- vantage: oq id=OQ-CW4 leaning="Unknown until measured on hardware; the inheriting-ACE mechanism is not obviously /Users-specific, but /Users/Shared's own permissions are unusual and nothing has been run anywhere else." -->
+   <!-- vantage: question id=OQ-CW4 leaning="Unknown until measured on hardware; the inheriting-ACE mechanism is not obviously /Users-specific, but /Users/Shared's own permissions are unusual and nothing has been run anywhere else." -->
 
    Workspace sharing is granted by inheriting `chmod +a` ACEs rather than ownership, and
    `macos-fix-permissions` applies them to any resolved non-home target — implemented, never

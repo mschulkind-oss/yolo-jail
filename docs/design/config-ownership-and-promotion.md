@@ -2832,7 +2832,7 @@ a developer who has written the key is unaffected by either face.
   every key yolo wrote into a jail as the user's own `host` layer: the laundering that
   [the `retired:` label](../reference/pack-system.md#the-retired-provenance-label) exists to stop.
 
-<!-- vantage: oq id=OQ-CO14 leaning="Face 1: refuse with a targeted message naming own (with yolo config promote) and none, as every retired spelling in this config is refused. Face 2: no upgrade prompt, but on a home that carries yolo's provenance record the none refusal and yolo check name own and --revert, --revert runs under none there, and the retirement never clears the mark itself." -->
+<!-- vantage: question id=OQ-CO14 leaning="Face 1: refuse with a targeted message naming own (with yolo config promote) and none, as every retired spelling in this config is refused. Face 2: no upgrade prompt, but on a home that carries yolo's provenance record the none refusal and yolo check name own and --revert, --revert runs under none there, and the retirement never clears the mark itself." -->
 
 _Leaning:_ **Face 1: refuse, with a message of its own.** It names `own`, with `yolo config
 promote` for the keys the user keeps by hand, and `none`. That is the shape every retired
@@ -2896,7 +2896,7 @@ not an implementation shape, because the options differ in what that pack's user
   object-valued key it does not declare in full. Loud and early, and it forbids a shape the
   host arm already handles.
 
-<!-- vantage: oq id=OQ-CO15 leaning="(a) assert its leaves: it is what the host notch already does, so it makes one declaration mean one thing at both notches, which is the scope note's own requirement." -->
+<!-- vantage: question id=OQ-CO15 leaning="(a) assert its leaves: it is what the host notch already does, so it makes one declaration mean one thing at both notches, which is the scope note's own requirement." -->
 
 _Leaning:_ **(a).** It is what the host notch already does, so it makes one declaration mean
 one thing at both notches, which is what the scope note above requires. (b) hides a pack's
@@ -2926,7 +2926,7 @@ plausibly have.
 - **(c) Decide per catalog.** For example, keep the ones whose agent has no way to add a
   provider in its own UI, and stop declaring the rest.
 
-<!-- vantage: oq id=OQ-CO16 leaning="(a) keep them declared in full: a stale provider entry names an endpoint the jail no longer serves, which fails at use rather than at boot, and yolo config already has a place for a user's own provider." -->
+<!-- vantage: question id=OQ-CO16 leaning="(a) keep them declared in full: a stale provider entry names an endpoint the jail no longer serves, which fails at use rather than at boot, and yolo config already has a place for a user's own provider." -->
 
 _Leaning:_ **(a).** A stale provider entry names an endpoint or credential the jail no longer
 serves, so it fails when the agent uses it rather than at boot, which is worse than a dropped

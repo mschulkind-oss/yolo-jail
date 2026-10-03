@@ -601,7 +601,7 @@ What each step settles:
    reuses layers with no listener and no new binary. It helps the maintainer's day-to-day Mac and
    does nothing for CI's ephemeral runners.
 
-   <!-- vantage: oq id=OQ-LR1 -->
+   <!-- vantage: question id=OQ-LR1 -->
 
 
    _Leaning:_ Yes, once the Mac commands above confirm two things. First, that on Podman Machine
@@ -619,7 +619,7 @@ What each step settles:
    - on machines with `/nix` shared, a Linux copier running inside the VM, which is exactly the
      Linux path.
 
-   <!-- vantage: oq id=OQ-LR2 -->
+   <!-- vantage: question id=OQ-LR2 -->
 
 
    _Leaning:_ Measure before building. The in-VM copier is the only candidate that removes the
@@ -712,7 +712,7 @@ What each step settles:
    lists layer digests, or yolo's own record of which image.json it last delivered, confirmed by
    `container image list`.
 
-   <!-- vantage: oq id=OQ-LR3 -->
+   <!-- vantage: question id=OQ-LR3 -->
 
 
    _Leaning:_ yolo's own record. It depends on no Apple Container output format, and a wrong

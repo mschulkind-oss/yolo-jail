@@ -431,7 +431,7 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    a new manifest schema field to `packdecl` for a single provider is unnecessary complexity when
    `openai-codex` is already recognized across core as the sole subscription provider.
 
-   <!-- vantage: oq id=OQ-1 -->
+   <!-- vantage: question id=OQ-1 -->
 
    **Answer:**
    > **Name exclusion for v1**, ruled in review 2026-09-26: *"to match Codex CLI, deferring schema
@@ -450,7 +450,7 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    architectural defect was not declaring the endpoint; it was Pi's derive assuming that any declared
    endpoint must be cataloged in `models.json`, even for providers Pi implements natively.
 
-   <!-- vantage: oq id=OQ-2 -->
+   <!-- vantage: question id=OQ-2 -->
 
    **Answer:**
    > **Keep the endpoint on `openai-codex` in `packs/openai-auth`, and establish the rule**, ruled
@@ -473,7 +473,7 @@ or masked to prevent tools or subagents from inadvertently picking them up.
    narrow reading reaches today. The broad reading also changes four other providers' rows in three
    agents, and it decides [OQ-WG8](wire-bridge-gateway.md#OQ-WG8), which defers to this rule.
 
-   <!-- vantage: oq id=OQ-3 leaning="The narrow reading: only a subscription provider the agent implements with its own client and login. The harm P1 names needs a subscription client displaced by a key-driven wire; the broad reading would take opencode's zai off the coding plan, turn off via for every same-named provider and forbid OQ-WG8's override, while fixing no reported failure. It narrows the ruled words, so it is for the maintainer to confirm or overrule." -->
+   <!-- vantage: question id=OQ-3 leaning="The narrow reading: only a subscription provider the agent implements with its own client and login. The harm P1 names needs a subscription client displaced by a key-driven wire; the broad reading would take opencode's zai off the coding plan, turn off via for every same-named provider and forbid OQ-WG8's override, while fixing no reported failure. It narrows the ruled words, so it is for the maintainer to confirm or overrule." -->
 
    **What yolo writes today.** Composed from the shipped packs, pi's, omp's and opencode's derives
    each write a catalog row for `zai`, `cerebras`, `openrouter`, `kilo` and `llamacpp`. Which of

@@ -561,7 +561,7 @@ included, so the cause was not attributed.
    _Leaning:_ Interactive restart prompt in TTY (`Restart jail now? [Y/n]`), fatal refusal
    in non-interactive/CI unless `YOLO_ALLOW_ATTACH_SKEW=1` is passed.
 
-   <!-- vantage: oq id=OQ-SK1 -->
+   <!-- vantage: question id=OQ-SK1 -->
 
    **Answer:**
    > **As leaned, and never silent**, ruled 2026-09-26 in review (*"Interactive restart prompt in
@@ -585,7 +585,7 @@ included, so the cause was not attributed.
    Tags make requirements explicit in pack manifests and avoid merge collisions on a single
    monotonic number.
 
-   <!-- vantage: oq id=OQ-SK2 -->
+   <!-- vantage: question id=OQ-SK2 -->
 
    **Answer:**
    > **Named capability tags, as leaned**, ruled 2026-09-26 in review: *"Feature tags allow
@@ -604,7 +604,7 @@ included, so the cause was not attributed.
    Degrading gracefully (e.g., omitting the yolo status line) allows the agent to run
    without crashing.
 
-   <!-- vantage: oq id=OQ-SK3 -->
+   <!-- vantage: question id=OQ-SK3 -->
 
    **Answer:**
    > **Only under the explicit acknowledgment, never silently**, ruled 2026-09-26 in review: *"Is
@@ -625,7 +625,7 @@ included, so the cause was not attributed.
    _Leaning:_ Briefing injection into `AGENTS.md`. It survives TUI screen clears and provides
    ground truth to both the agent and developer.
 
-   <!-- vantage: oq id=OQ-SK4 -->
+   <!-- vantage: question id=OQ-SK4 -->
 
    **Answer:**
    > Decided as an implementation choice (SK-D15, [ledger](#decision-ledger)), reversible: the

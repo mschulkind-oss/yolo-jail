@@ -189,7 +189,7 @@ reaped once old, even under a running image.
   more than the retention horizon on an image no later launch rebuilt then has an unrooted closure
   again. Read from code, not measured. Filed 2026-09-26.
 
-  <!-- vantage: oq id=OQ-LS4 -->
+  <!-- vantage: question id=OQ-LS4 -->
 
   **Answer (ruled 2026-09-28):** No, it does not hold for a running image. Proposed to the
   maintainer: *"rule [OQ-LS4](#oq-ls4) so the image root of a running container is held by liveness, the way

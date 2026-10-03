@@ -532,7 +532,7 @@ Each one must show:
    than an element-level one, which matters only if
    [`workspace-config-trust.md`](workspace-config-trust.md) rules for scope rather than a trust record.
 
-   <!-- vantage: oq id=OQ-CX1 -->
+   <!-- vantage: question id=OQ-CX1 -->
 
    _Leaning:_ **(a)**. It gives one list, one briefing section and one duplicate check. Either
    shape can carry the trust predicate from [§2.2](#22-where-an-rw-mount-may-be-declared-deferred).
@@ -546,7 +546,7 @@ Each one must show:
    (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, …)?** **(a)** The boundary predicate plus
    workspace overlap only ([§2.3](#23-refusal-set)). **(b)** Also a named list.
 
-   <!-- vantage: oq id=OQ-CX2 -->
+   <!-- vantage: question id=OQ-CX2 -->
 
    _Leaning:_ **(a)**. An actor who passes the trust predicate already has host-user authority
    ([gate-placement Test 1](../reference/gate-placement-principle.md#test-1--the-authority-test-could-this-actor-already-do-it)).
@@ -564,7 +564,7 @@ Each one must show:
    `yolo-jail.jsonc` mounts `~/.local/share/yolo-jail/logs` read-only, and that mount would trip
    the "inside a yolo dir" clause.
 
-   <!-- vantage: oq id=OQ-CX3 -->
+   <!-- vantage: question id=OQ-CX3 -->
 
    _Leaning:_ **no**. Reading is not the injection channel, and the ro form is workspace-scopable
    behind the diff prompt. Refusing would break a mount this repo relies on.
@@ -580,7 +580,7 @@ Each one must show:
 4. ✅ <a id="OQ-CX4"></a>**[OQ-CX4](#OQ-CX4): may a pack declare a rw `mount`?**
    ([§2.7](#27-packs).)
 
-   <!-- vantage: oq id=OQ-CX4 -->
+   <!-- vantage: question id=OQ-CX4 -->
 
    _Leaning:_ **not in v1**. There is no approval gate any more ([OQ-TP9](trust-paths.md#decision-ledger)), so a selected pack
    would write into the user's home on disclosure alone, and no shipped pack needs it. Revisit
@@ -597,7 +597,7 @@ Each one must show:
    **(b)** Narrow it: deliver by link plus Seatbelt wherever the DAC preflight and siting rules
    pass, and refuse fatally elsewhere ([§3.1](#31-does-dp-d15-still-hold)).
 
-   <!-- vantage: oq id=OQ-CX5 -->
+   <!-- vantage: question id=OQ-CX5 -->
 
    _Leaning:_ **(b)**. DP-D15's reason was size, and its premise was that copying is the only
    mechanism. For a reachable source neither applies: nothing is copied, and the bytes are live.
@@ -614,7 +614,7 @@ Each one must show:
    ([§3.2](#32-where-the-bytes-are-named).) The name is coined here, and it sits beside the
    existing `YOLO_CTX_ROOT`, which means something else.
 
-   <!-- vantage: oq id=OQ-CX6 -->
+   <!-- vantage: question id=OQ-CX6 -->
 
    _Leaning:_ **yes, on every backend, always exported, under this name** (or another the
    maintainer prefers). Parity is the point: pack text and agents write one spelling everywhere.
@@ -642,7 +642,7 @@ Each one must show:
    deliberately, and whether a `literal` allows listing the directory is unmeasured. (b) is [§6.1](declaration-parity.md#61-dp-l1-the-mechanism-is-a-copy-and-what-nobody-has-measured)'s
    declined consent surface. If the refusal proves intolerable, prefer (b) over (c).
 
-   <!-- vantage: oq id=OQ-CX7 leaning="(a) for v1: refuse home-sited sources. (c) extends ancestorLiterals into homes, which it deliberately refuses; (b) is §6.1's declined consent surface. If the refusal proves intolerable, prefer (b) over (c)." -->
+   <!-- vantage: question id=OQ-CX7 leaning="(a) for v1: refuse home-sited sources. (c) extends ancestorLiterals into homes, which it deliberately refuses; (b) is §6.1's declined consent surface. If the refusal proves intolerable, prefer (b) over (c)." -->
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -650,7 +650,7 @@ Each one must show:
 8. ✅ <a id="OQ-CX8"></a>**[OQ-CX8](#OQ-CX8): `/Volumes` and TCC-protected sources.**
    ([§3.6](#36-volumes-and-tcc).)
 
-   <!-- vantage: oq id=OQ-CX8 -->
+   <!-- vantage: question id=OQ-CX8 -->
 
    _Leaning:_ **refuse until measured**, naming the reason. Record the probe results from
    [§4](#4-staging-and-the-tests-that-pin-each-piece) and revisit.
@@ -664,7 +664,7 @@ Each one must show:
 9. ✅ <a id="OQ-CX9"></a>**[OQ-CX9](#OQ-CX9): rw on rootful podman.** Writes land host-root-owned
    in the user's tree.
 
-   <!-- vantage: oq id=OQ-CX9 -->
+   <!-- vantage: question id=OQ-CX9 -->
 
    _Leaning:_ **disclose, don't refuse**. Rootful is uncommon and deliberate, and the launch line
    says what will happen.

@@ -729,7 +729,7 @@ no block. [OQ-TP10](#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle
 was about the loophole's claim-free daemon, and the [inventory](#2-the-inventory) has no row for a
 service, so the ruling does not say.
 
-<!-- vantage: oq id=OQ-TP11 leaning="Yes: a service's in-jail daemon is named on its pack's line like a loophole's, since disclosure is the whole trust boundary today and the line costs nothing." -->
+<!-- vantage: question id=OQ-TP11 leaning="Yes: a service's in-jail daemon is named on its pack's line like a loophole's, since disclosure is the whole trust boundary today and the line costs nothing." -->
 
 _Leaning:_ yes. Disclosure is today's whole trust boundary, and a supervised program running in
 the jail is the same exposure whichever contribution kind starts it.

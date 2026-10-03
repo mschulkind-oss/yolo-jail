@@ -819,7 +819,7 @@ row cannot carry them.
    waits for a prompt like the cache purge does. It also decides the offer's shape — a prompt with
    `y / n (7 d) / never`, TTY only, non-TTY prints and skips.
 
-   <!-- vantage: oq id=OQ-BF1 -->
+   <!-- vantage: question id=OQ-BF1 -->
 
    _Leaning:_ **Two tiers.** Automatic where the veto is the one that already protects live state
    and regeneration is a build or a load; offered once, with the size, where the re-fetch is
@@ -861,7 +861,7 @@ row cannot carry them.
    whether L1 is "offered once, then automatic in the slot" (the [§5.2](#52-two-tiers-one-mapping)
    row) or stays manual, and whether `nce` and `staticcheck` join the default list.
 
-   <!-- vantage: oq id=OQ-BF2 -->
+   <!-- vantage: question id=OQ-BF2 -->
 
    _Leaning:_ **Yes — offered once for the backlog, then automatic in the slot**, 30 d unchanged;
    add `nce` to the default list (1.86 GiB dead here) and leave `staticcheck` out until it shows
@@ -906,7 +906,7 @@ row cannot carry them.
    and touches only what yolo realized. The answer decides whether P5 ("never carelessly GC the
    host store") admits a *named, self-scoped* deletion as something other than a GC.
 
-   <!-- vantage: oq id=OQ-BF3 -->
+   <!-- vantage: question id=OQ-BF3 -->
 
    _Leaning:_ **Yes, gated on [OQ-BF4](#OQ-BF4).** Delete unrooted prefixes and Go builds by name in
    the slot, host-only, never a blanket GC, never `--ignore-liveness`; until BF4 lands, offer the
@@ -952,7 +952,7 @@ row cannot carry them.
    the per-checkout out-link stays as the build's own output link. It is [OQ-BF3](#OQ-BF3)'s stated
    prerequisite, and it is a fix regardless of disk.
 
-   <!-- vantage: oq id=OQ-BF4 -->
+   <!-- vantage: question id=OQ-BF4 -->
 
    _Leaning:_ **Yes.** Register the prefix as images are registered — a durable root per store
    path under `BuildDir()`, protected by the same age floor `PruneOrphanImageRoots` applies, reaped
@@ -993,7 +993,7 @@ row cannot carry them.
    in the slot. The cost is the machine-wide lock [§5.4](#54-one-writer-concurrency-failure) asks
    for, which the pre-start placement needs just as much and does not have.
 
-   <!-- vantage: oq id=OQ-BF5 -->
+   <!-- vantage: question id=OQ-BF5 -->
 
    _Leaning:_ **Yes, move it, and land the lock in the same change.** The race exists today; the
    pre-start placement neither closes it nor spares the launch.
@@ -1018,7 +1018,7 @@ row cannot carry them.
    [`minimal-disk-footprint.md`](minimal-disk-footprint.md)'s and the component that runs it is
    [OQ-DF2](minimal-disk-footprint.md#OQ-DF2)'s; this question only asks whether the number follows the ruling.
 
-   <!-- vantage: oq id=OQ-BF6 -->
+   <!-- vantage: question id=OQ-BF6 -->
 
    _Leaning:_ **Yes — 0 on podman, unchanged on Apple Container** until [OQ-DF2](minimal-disk-footprint.md#OQ-DF2)
    rules its component. Automatic under P3: the tar is one-shot, regeneration is a build, the
@@ -1072,7 +1072,7 @@ row cannot carry them.
    > unit assertion on the refusal (`TestDarwinRefusesAStorePrefix`, shipped in the same commit),
    > which pins the decision but not the podman behaviour behind it.
 
-   <!-- vantage: oq id=OQ-BF7 -->
+   <!-- vantage: question id=OQ-BF7 -->
 
    _Leaning:_ **Stage it under a path the VM already shares** (the host home) rather than mounting
    it out of `/nix/store`. Baking on macOS only is the safe fallback, but it re-splits the backends
@@ -1140,7 +1140,7 @@ row cannot carry them.
    at once; after C8 the count of distinct images barely moves at all, since the image now changes
    only on `flake.*` and `packages:` ([§2.5](#25-does-anything-ever-read-it-back--reuse-per-store)).
 
-   <!-- vantage: oq id=OQ-BF8 -->
+   <!-- vantage: question id=OQ-BF8 -->
 
    _Leaning:_ **Keep the veto, stop letting its length set retention.** Size it by concurrent jails
    — derivable from the container list rather than guessed — and let `--keep-images` own the reuse
@@ -1189,7 +1189,7 @@ row cannot carry them.
    "must never mutate" acquires one exception, and an exception to a forbidden-behavior rule is
    worth a ruling rather than a default.
 
-   <!-- vantage: oq id=OQ-BF9 -->
+   <!-- vantage: question id=OQ-BF9 -->
 
    _Leaning:_ **Yes — append one dated line per store per run**, default on, `--no-record` to opt
    out, the command as the ledger's single writer, and the ledger itself **bounded** (last 30
@@ -1229,7 +1229,7 @@ row cannot carry them.
     write into the host user's own cache. **(3) the migration** — aliasing does not delete the
     40 G already pooled jail-side; it strands it, so a ruling here creates its own backfill item.
 
-    <!-- vantage: oq id=OQ-BF10 -->
+    <!-- vantage: question id=OQ-BF10 -->
 
     _Leaning:_ **Yes for the content-addressed half only**, gated on the host matching the jail's OS
     and arch, writable, and limited to caches whose own tool documents a shared per-user store —

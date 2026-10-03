@@ -399,7 +399,7 @@ edit, so each step's proof is its own CI cell on both arches.
      single native binary and `VERSION=` pinning, which is what
      [OQ-PD13](../design/program-delivery.md#decision-ledger) chose native installers for.
 
-   <!-- vantage: oq id=OQ-NI1 leaning="(A): flip with the flag still dropped. It is the maintainer's 2026-09-12 position, and claude already self-updates unobserved in jails (observed), with agy listed the same way, so copilot would match them rather than open a new class. (B) is the choice only if yolo should be the one writer of every agent binary, and then claude and agy owe the same." -->
+   <!-- vantage: question id=OQ-NI1 leaning="(A): flip with the flag still dropped. It is the maintainer's 2026-09-12 position, and claude already self-updates unobserved in jails (observed), with agy listed the same way, so copilot would match them rather than open a new class. (B) is the choice only if yolo should be the one writer of every agent binary, and then claude and agy owe the same." -->
 
    _Leaning:_ **(A).** It is the maintainer's 2026-09-12 position, and claude already updates
    itself unobserved in jails, with agy listed the same way, so (A) makes copilot match them
