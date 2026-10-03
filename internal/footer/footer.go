@@ -45,12 +45,15 @@
 //
 // # At the host
 //
-// No host launch exports the profile tables, so at the host notch "env first" would find
-// nothing and every footer would name the agent's login. OQ-FT6 rules the one exception to
-// reading no file: when this process is not in a jail and its env carries no
-// YOLO_USE_PROFILES, the tables come from the caller's HostTables, which composes them from
-// the user config the way `yolo host env` resolves a profile. This package does not compose
-// them itself because that composition lives in internal/cli, which imports this one.
+// A `yolo host --` launch exports the three tables it composed for its agent, empty ones
+// included, under the names a jail uses (docs/design/agent-footer.md FT-D2), so its footer
+// reads them from the env like a jail's. An agent started at the host any other way — typed
+// in a shell after `yolo host apply` — carries none, and there "env first" would find nothing
+// and every footer would name the agent's login. OQ-FT6 rules the one exception to reading no
+// file: when this process is not in a jail and its env carries no YOLO_USE_PROFILES, the
+// tables come from the caller's HostTables, which composes them from the user config the way
+// `yolo host env` resolves a profile. This package does not compose them itself because that
+// composition lives in internal/cli, which imports this one.
 package footer
 
 import (
