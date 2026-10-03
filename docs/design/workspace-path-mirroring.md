@@ -1492,9 +1492,10 @@ and it already has a home in the tree.
 
 10. 💬 <a id="OQ-WP10"></a>**OQ-WP10: Is the real goal alternative G — one userland at several notches?**
 
-    [§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle) and
-    [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content) found that
-    content, not naming, blocks an artifact from crossing between notches, and
+    [§12.7](#127-the-notch-model--no-statement-anywhere-names-paths-as-the-obstacle) found that
+    nothing in the env-manager corpus names paths as the obstacle to notch portability, and
+    [§12.4](#124-the-new-central-objection-you-can-mirror-a-name-but-not-its-content) that
+    content, not naming, blocks an artifact from crossing.
     [HP-DIR3](host-tool-provisioning.md#HP-DIR3) has since ruled out G's host half. What G is,
     what is left of it, and each option in full: [background](#background-to-oq-wp10).
 
