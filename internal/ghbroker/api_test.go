@@ -121,3 +121,78 @@ func TestServeForwardsAnEncodedEndpointAsGiven(t *testing.T) {
 		t.Fatal("an encoded owner ran gh")
 	}
 }
+
+// BB-D61: raw GraphQL stays refused, since a query reaches any object the login can read and
+// no check of its text holds it to the scope, and the refusal names the gh command that asks
+// GitHub's GraphQL the same question for a repository the broker checks.
+func TestGraphQLRefusalNamesTheCommandToUseInstead(t *testing.T) {
+	for _, c := range []struct {
+		argv []string
+		want string
+	}{
+		{[]string{"api", "graphql", "-f", `query={repository(owner:"o",name:"r"){pullRequest(number:1){title}}}`}, "gh pr view"},
+		{[]string{"api", "graphql", "-f", `query=query{repository(owner:"o",name:"r"){pullRequests(first:5){nodes{title}}}}`}, "gh pr list"},
+		{[]string{"api", "graphql", "-F", `query={repository(owner:"o",name:"r"){issue(number:1){title}}}`}, "gh issue view"},
+		{[]string{"api", "graphql", "--raw-field", `query={repository(owner:"o",name:"r"){issues(first:5){nodes{title}}}}`}, "gh issue list"},
+		{[]string{"api", "graphql", "-f", `query={repository(owner:"o",name:"r"){discussions(first:1){nodes{title}}}}`}, "gh discussion"},
+		{[]string{"api", "graphql", "-f", `query={repository(owner:"o",name:"r"){releases(first:1){nodes{name}}}}`}, "gh release"},
+		{[]string{"api", "graphql", "-f", `query={repository(owner:"o",name:"r"){description}}`}, "gh repo view"},
+		{[]string{"api", "graphql", "-f", "query={viewer{login}}"}, "gh pr view"},
+		{[]string{"api", "/graphql", "--input", "-"}, "gh pr view"},
+	} {
+		d := Classify(c.argv, "o/r", testScope)
+		if d.Outcome != OutcomeOutOfScope || !d.AccountWide {
+			t.Errorf("gh %q: %q (%s), want account-wide", c.argv, d.Outcome, d.Reason)
+			continue
+		}
+		for _, w := range []string{c.want, "node ID", "repos/OWNER/REPO"} {
+			if !strings.Contains(d.Reason, w) {
+				t.Errorf("gh %q: reason %q, want it to name %q", c.argv, d.Reason, w)
+			}
+		}
+	}
+}
+
+// Every account-wide refusal ends with a next step: what to name instead, or that the host
+// user runs it on the host.
+func TestEveryAccountWideRefusalNamesANextStep(t *testing.T) {
+	for _, c := range []struct {
+		argv, field, want string
+	}{
+		{"api user", "", "repos/OWNER/REPO/"},
+		{"api repositories/1/pulls", "", "repos/OWNER/REPO/"},
+		{"api search/issues -f q=x", "", "repos/OWNER/REPO/"},
+		{"search code foo", "", "--repo OWNER/REPO"},
+		{"search issues foo --repo o/r --owner o", "", "--owner"},
+		{"pr view 1", "", "-R OWNER/REPO"},
+		{"repo view", "", "OWNER/REPO"},
+		{"status", "", "on the host"},
+		{"gist view abc", "", "on the host"},
+		{"repo create x --private", "", "on the host"},
+		{"cs ls", "", "on the host"},
+		{"secret list --org acme", "", "--org"},
+	} {
+		d := Classify(splitArgv(c.argv), c.field, testScope)
+		if d.Outcome != OutcomeOutOfScope || !d.AccountWide {
+			t.Errorf("gh %s: %q (%s), want account-wide", c.argv, d.Outcome, d.Reason)
+			continue
+		}
+		if !strings.Contains(d.Reason, c.want) || !strings.Contains(d.Reason, "no widening entry") &&
+			!strings.Contains(d.Reason, "No widening entry") {
+			t.Errorf("gh %s: reason %q, want it to keep the widening sentence and name %q", c.argv, d.Reason, c.want)
+		}
+	}
+}
+
+// The production path: the jail is told which command to use instead.
+func TestServeRefusesGraphQLNamingTheCommandToUse(t *testing.T) {
+	f := newBrokerFixture(t, "2.101.0")
+	code, _, errOut := f.serve(t, Request{Argv: []string{"api", "graphql", "-f",
+		`query={repository(owner:"o",name:"r"){pullRequest(number:1){title}}}`}, Repo: "o/r"})
+	if code != ExitUsage || !strings.Contains(errOut, "out of scope") || !strings.Contains(errOut, "gh pr view") {
+		t.Fatalf("code %d err %q", code, errOut)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(f.fakeDir, "calls")); len(entries) != 0 {
+		t.Fatal("a GraphQL call ran gh")
+	}
+}

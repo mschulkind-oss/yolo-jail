@@ -96,8 +96,8 @@ func apiScope(p *parsed, fieldRepo string) scopeResult {
 	}
 	switch {
 	case path == "graphql" || path == "api/graphql":
-		// A GraphQL call names no repository the broker can check (§5.3 rule 6).
-		return scopeResult{account: true}
+		// A GraphQL call names no repository the broker can check (§5.3 rule 6, BB-D61).
+		return scopeResult{account: true, why: graphqlWhy, next: graphqlAdvice(graphqlQuery(p))}
 	case apiRepoPathRE.MatchString(path):
 		m := apiRepoPathRE.FindStringSubmatch(path)
 		repo := m[1] + "/" + m[2]
@@ -108,8 +108,69 @@ func apiScope(p *parsed, fieldRepo string) scopeResult {
 			apiRead: method == "GET" || method == "HEAD"}
 	default:
 		// A path with no repository reads or writes across the account.
-		return scopeResult{account: true}
+		return scopeResult{account: true, next: "Name a REST path under repos/OWNER/REPO/ for a " +
+			"repository in scope; a path across the account (the user, an organization, a search, " +
+			"a gist) is the host user's to run on the host."}
 	}
+}
+
+// graphqlWhy is why raw GraphQL is account-wide however its query reads (BB-D61). A query
+// whose every repository(owner:, name:) is in scope is still not checkable: GraphQL is a
+// graph, and the scope is not closed under its edges, so a query rooted in an in-scope
+// repository reaches others through an issue's author's repositories, a fork's parent or a
+// cross-reference, and node(id:) or nodes(ids:) reach any object by its global ID with no
+// owner or name in the text at all. Holding a query to the scope would take a schema-aware
+// proof that no field leaves it, which the broker does not attempt.
+const graphqlWhy = "a GraphQL query reaches any object the login can read, not only a " +
+	"repository it names: an edge out of one (an issue's author's repositories, a fork's " +
+	"parent, a cross-reference) or a global node ID (node(id:)) lands in another, so no check " +
+	"of the query's text holds it to the scope"
+
+// graphqlHints map a word in a refused GraphQL query to the gh command that asks GitHub the
+// same question for a repository the broker checks; the host gh then runs GitHub's GraphQL
+// itself, with gh's own query and the repository as its variables (MEASURED against gh
+// 2.101.0: pr view, pr list, issue view, issue list, repo view, release list, label list and
+// discussion list each send repository(owner: $owner, name: $repo) with the -R the broker
+// checked). The first match wins, so a plural is listed before its singular.
+var graphqlHints = []struct{ word, use string }{
+	{"pullrequests", "gh pr list -R OWNER/REPO --json <fields>"},
+	{"pullrequest", "gh pr view <number> -R OWNER/REPO --json <fields>"},
+	{"issues", "gh issue list -R OWNER/REPO --json <fields>"},
+	{"issue", "gh issue view <number> -R OWNER/REPO --json <fields>"},
+	{"discussion", "gh discussion view <number> or gh discussion list -R OWNER/REPO --json <fields>"},
+	{"release", "gh release view <tag> or gh release list -R OWNER/REPO --json <fields>"},
+	{"label", "gh label list -R OWNER/REPO --json <fields>"},
+	{"statuscheckrollup", "gh pr checks <number> -R OWNER/REPO"},
+	{"checkrun", "gh pr checks <number> -R OWNER/REPO, or gh run view <run-id> -R OWNER/REPO"},
+}
+
+// graphqlAdvice is the refusal's next step, naming the command for what the query asks
+// where one is plain from its words. It is advice alone: nothing in it widens what runs.
+func graphqlAdvice(query string) string {
+	use := "gh pr view, gh issue view, gh repo view or gh release list with -R OWNER/REPO and " +
+		"--json <fields>"
+	q := strings.ToLower(query)
+	for _, h := range graphqlHints {
+		if strings.Contains(q, h.word) {
+			use = h.use
+			break
+		}
+	}
+	return "Use the gh command that asks the same of a repository the broker checks, which the " +
+		"host gh answers with GitHub's GraphQL for you: " + use + "; or a REST path under " +
+		"gh api repos/OWNER/REPO/."
+}
+
+// graphqlQuery is the `query` field a `gh api graphql` call carries, or "".
+func graphqlQuery(p *parsed) string {
+	for _, long := range []string{"raw-field", "field"} {
+		for _, v := range p.values(long) {
+			if q, ok := strings.CutPrefix(v, "query="); ok {
+				return q
+			}
+		}
+	}
+	return ""
 }
 
 func acceptHeader(v string) bool {

@@ -169,8 +169,12 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 			d.Reason = "`gh " + p.cmd.path + "`: " + sr.why + ". No widening entry admits a command " +
 				"across the account. This jail's repository scope is " + scope.describe() + "."
 		}
-		if sr.next != "" {
+		switch {
+		case sr.next != "":
 			d.Reason += " " + sr.next
+		case sr.why == "":
+			d.Reason += " A command across the account is the host user's to run on the host, " +
+				"outside the jail."
 		}
 		return d
 	}
@@ -274,7 +278,8 @@ func repoScope(p *parsed, fieldRepo string) scopeResult {
 				break
 			}
 			if fieldRepo == "" {
-				return scopeResult{account: true}
+				return scopeResult{account: true, next: "Name the repository with -R OWNER/REPO, or " +
+					"run it in a checkout whose origin remote is in scope."}
 			}
 			if !ValidRepo(fieldRepo) {
 				return scopeResult{refused: fmt.Sprintf("the forwarder's repository %q is not OWNER/REPO", fieldRepo)}
@@ -296,7 +301,8 @@ func repoScope(p *parsed, fieldRepo string) scopeResult {
 			}
 		} else {
 			if fieldRepo == "" || !ValidRepo(fieldRepo) {
-				return scopeResult{account: true}
+				return scopeResult{account: true, next: "Name the repository: gh " + p.cmd.path +
+					" OWNER/REPO."}
 			}
 			add(fieldRepo)
 			argv = append(argv, fieldRepo)
@@ -427,7 +433,8 @@ func queryWidens(p *parsed) string {
 // already checked the query text.
 func searchScope(p *parsed) scopeResult {
 	if p.has("owner") {
-		return scopeResult{account: true}
+		return scopeResult{account: true, next: "Leave out --owner and name the repositories " +
+			"with --repo OWNER/REPO."}
 	}
 	var repos []string
 	for _, v := range p.values("repo") {
@@ -440,7 +447,7 @@ func searchScope(p *parsed) scopeResult {
 		}
 	}
 	if len(repos) == 0 {
-		return scopeResult{account: true}
+		return scopeResult{account: true, next: "Add --repo OWNER/REPO naming a repository in scope."}
 	}
 	return scopeResult{repos: repos, argv: p.canonical()}
 }
