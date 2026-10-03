@@ -104,8 +104,8 @@ func TestTheMacosUserArmStartsTheOpenAIServiceAgainWhenItExitsAfterTheEnsure(t *
 }
 
 // AND ONLY ONCE. A credential service that still refuses after the second ensure is not
-// retried again: the launch refuses, before the command runs, and the warning says yolo already
-// started it again and names the daemon's log. Deleting the bound makes the launch probe until
+// retried again: the launch refuses, before the command runs, the warning says yolo already
+// started it again and names the daemon's log, and the refusal names the command to run next. Deleting the bound makes the launch probe until
 // something else stops it.
 func TestTheMacosUserArmEnsuresTheOpenAIServiceAtMostTwice(t *testing.T) {
 	o, stderr, seen := codexNativeLaunch(t)
@@ -136,7 +136,12 @@ func TestTheMacosUserArmEnsuresTheOpenAIServiceAtMostTwice(t *testing.T) {
 			t.Errorf("the warning lacks %q:\n%s", want, stdout)
 		}
 	}
-	if !strings.Contains(stderr.String(), "OpenAI credential service did not start; refusing the macos-user launch.") {
-		t.Errorf("the launch did not say it refused:\n%s", stderr.String())
+	// EVERY STOP NAMES ITS NEXT STEP: the refusal gives the one command that starts the
+	// service (and names its log when it cannot), not only the fact of the refusal.
+	for _, want := range []string{"OpenAI credential service did not start; refusing the macos-user launch.",
+		"Start it with: " + broker.CycleCommand(openAIAuthBrokerName), "then launch again"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, stderr.String())
+		}
 	}
 }

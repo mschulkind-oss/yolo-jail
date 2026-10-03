@@ -578,7 +578,7 @@ func Run(opts Options) (rc int) {
 			// already warns about by name and which no launch of this backend is refused
 			// for — this arm emits no reachability disposition at all (loopholesruntime.go).
 			if openAIAuthLoopholeActive(cfg) && !startedLoophole(handles, openAIAuthBrokerName) {
-				o.pr(o.Stderr).print("[bold red]OpenAI credential service did not start; refusing the macos-user launch.[/bold red]")
+				o.pr(o.Stderr).print(openAIServiceRefusal())
 				return 1
 			}
 			// THE DOORWAYS (macosuserdoorways.go), once the host services they forward to are up

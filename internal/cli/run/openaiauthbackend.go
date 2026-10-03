@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/broker"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 )
@@ -21,6 +22,15 @@ const (
 	openAIAuthMountSentinelName    = ".mount-sentinel"
 	openAIAuthMountSentinelContent = "yolo-openai-auth-mount-v1\n"
 )
+
+// openAIServiceRefusal is what the macos-user arm prints when it refuses a launch whose OpenAI
+// credential service did not start, and it names the next step: the one command that starts the
+// shared service, which says it started or names the daemon's log when it cannot.
+func openAIServiceRefusal() string {
+	return "[bold red]OpenAI credential service did not start; refusing the macos-user launch.[/bold red]\n" +
+		"  Start it with: " + broker.CycleCommand(openAIAuthBrokerName) +
+		" (it names the daemon's log if it cannot), then launch again."
+}
 
 func openAIAuthLoopholeActive(cfg *jsonx.OrderedMap) bool {
 	set := loopholes.NewHostSet(cfgMap(cfg, "loopholes"))
