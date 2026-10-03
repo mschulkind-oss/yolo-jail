@@ -117,14 +117,18 @@ func HousekeepingPassLockPath() string {
 // caller is best-effort housekeeping on a debounce; another launch's pass running
 // means the work is already being done, so waiting would buy a duplicate pass at the
 // price of a slot. The one thing that must not happen is two passes interleaving,
-// and the pass lock, taken non-blocking for the whole pass, prevents it.
+// and the pass lock, taken non-blocking for the whole pass, prevents it between
+// passes of this rule.
 //
 // fn is handed the per-deletion prune.Guard every class brackets each deletion with:
 // it takes the SHARED lock (HousekeepingLockPath), blocking, runs the class's
 // recheck, deletes only if the item is still unused, and lets go. Blocking is right
 // there: the other holders are a launch's re-inspect-and-record, which is short, and
-// a pass from a yolo older than this rule, which holds the shared lock for its whole
-// pass — waiting it out keeps the two passes' deletions from interleaving too.
+// a pass from a yolo older than this rule, which knows no pass lock and holds the
+// shared lock for its whole pass. Waiting that out keeps the two passes' DELETIONS
+// from overlapping, not the passes from interleaving: an old pass that finds the
+// shared lock free between this pass's deletions runs whole there, and this pass's
+// next deletion rechecks after it (PR-D14). Only an upgrade in progress mixes them.
 //
 // THE RACE THE SHARED LOCK CLOSES is narrower than "two reapers at once", because
 // `rmi` is no longer forced (feddc5e0) and fails on an image with a container. What

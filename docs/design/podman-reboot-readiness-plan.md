@@ -95,9 +95,10 @@ design, which wins on behavior).
   `flakebundle.ReapGuarded`) whose recheck runs under that lock; the manual `yolo prune`
   keeps the unguarded names.
 - **The machine-wide launch line** ([OQ-PR3](podman-reboot-readiness.md#OQ-PR3)):
-  [`launchrecord.go`](../../internal/cli/run/launchrecord.go), armed in `Run` beside
-  the launch log and written once, from `onStarted`, the attach, the macos-user
-  dispatch, or `Run`'s return.
+  [`launchrecord.go`](../../internal/cli/run/launchrecord.go), armed first thing in
+  `Run`, above the three guards that refuse before any other work, and written once,
+  from the keeper's `spawned` event, the attach, the macos-user dispatch, or `Run`'s
+  return, under a lock file beside the log that rotation never renames.
 
 ## Tests
 

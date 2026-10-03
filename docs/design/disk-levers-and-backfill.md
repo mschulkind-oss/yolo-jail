@@ -658,7 +658,10 @@ write and the container's creation.
 > **The lock's scope changed on 2026-09-29 ([OQ-PR2](podman-reboot-readiness.md#OQ-PR2)).** A pass
 > no longer holds `housekeeping.lock` for its whole length: it holds a separate pass lock,
 > non-blocking, so two passes still never interleave and a loser still skips, and takes the shared
-> lock around each deletion only, rechecking under it that the item is still unused. The image
+> lock around each deletion only, rechecking under it that the item is still unused. (While an
+> upgrade mixes versions, an older pass, which knows only the shared lock, can run between a newer
+> pass's deletions; their deletions still never overlap:
+> [PR-D14](podman-reboot-readiness.md#PR-D14).) The image
 > reap's recheck reads the current-image pointers and the sentinel a launch records under the same
 > lock. A whole-pass hold kept a launch's re-inspect waiting 16.1 s at the 2026-09-29 reboot; the
 > gap between the sentinel write and the container's creation stated above was never inside that
