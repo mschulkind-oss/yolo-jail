@@ -1048,18 +1048,44 @@ func (o *Options) startHostSingleton(
 	// It is also where a live daemon running settings this launch just replaced is
 	// RESTARTED rather than reused (broker.EnsureSingleton, host-daemon-ownership.md
 	// HD-D2). The file writeLoopholeSettings wrote above is what it compares against.
-	ensured := broker.EnsureSingleton(deps)
-	if ensured.Stale != nil {
-		// THE ONE OUTCOME THAT REFUSES THE FRONT: a daemon known to be serving other
-		// settings, which the ensure could not replace (it could not take the spawn lock,
-		// and killing a singleton without it races another launch's spawn). Fronting it
-		// anyway would hand this jail the settings its config no longer says, silently —
-		// the defect HD-D2 exists to end. Keys only, never values.
-		o.pr(o.Stdout).print("[red]Refusing to use the host-wide daemon for '" + name +
-			"': it is running with settings other than the configured ones (" +
-			strings.Join(ensured.Stale.Changed, ", ") + ") and yolo could not restart it. " +
-			"Clear the lock problem above, then run: " + broker.CycleCommand(name) + "[/red]")
-		return loopholeDaemon{}, false
+	//
+	// AND IT RUNS AT MOST TWICE. The daemon an ensure finds alive can stop accepting before
+	// this launch dials it: a concurrent `yolo host-daemon restart`, another launch replacing
+	// it, or the daemon leaving because its state dir was retired or deleted
+	// (hostservice.WatchStateDir) all land in that gap, and a slow or loaded machine widens
+	// it. The readiness probe is the first to see the daemon gone, so a refused probe ensures
+	// once more, under the same flock, which then finds no live daemon and starts a fresh one.
+	// Giving up at the first refusal left the jail without the service, and refused the
+	// macos-user launch outright when it was the OpenAI credential service. Only once: a
+	// daemon that will not stay up is its log's to explain.
+	for attempt := 1; ; attempt++ {
+		ensured := broker.EnsureSingleton(deps)
+		if ensured.Stale != nil {
+			// THE ONE OUTCOME THAT REFUSES THE FRONT: a daemon known to be serving other
+			// settings, which the ensure could not replace (it could not take the spawn lock,
+			// and killing a singleton without it races another launch's spawn). Fronting it
+			// anyway would hand this jail the settings its config no longer says, silently —
+			// the defect HD-D2 exists to end. Keys only, never values.
+			o.pr(o.Stdout).print("[red]Refusing to use the host-wide daemon for '" + name +
+				"': it is running with settings other than the configured ones (" +
+				strings.Join(ensured.Stale.Changed, ", ") + ") and yolo could not restart it. " +
+				"Clear the lock problem above, then run: " + broker.CycleCommand(name) + "[/red]")
+			return loopholeDaemon{}, false
+		}
+		// The daemon's readiness is its socket ACCEPTING A CONNECT — never bare
+		// existence, which a stale file satisfies instantly. A spawning ensure has already
+		// waited and already warned if the daemon never bound; this re-asks because the
+		// ensure may have been a no-op that observed a daemon which has since stopped.
+		if hostSingletonAccepting(daemonPath, time.Second) {
+			break
+		}
+		if attempt == 2 {
+			o.pr(o.Stdout).print("[yellow]Warning: the host-wide daemon for '" + name +
+				"' is not accepting connections at " + daemonPath +
+				", even after yolo started it again — " + o.unreachableBy() +
+				" cannot reach it. See " + deps.LogPath + "[/yellow]")
+			return loopholeDaemon{}, false
+		}
 	}
 	if broker.BrokerIsAlive(deps) && !broker.SingletonSpeaksPreamble(deps) {
 		// ALIVE BUT INCOMPATIBLE — the one state every other surface calls healthy.
@@ -1082,16 +1108,6 @@ func (o *Options) startHostSingleton(
 			"  It will accept connections and fail every request — for a credential daemon\n" +
 			"  that means token refresh is broken on this host, silently.\n" +
 			"  Fix it with: " + broker.CycleCommand(name) + "[/yellow]")
-	}
-	// The daemon's readiness is its socket ACCEPTING A CONNECT — never bare
-	// existence, which a stale file satisfies instantly. BrokerSpawn has already
-	// waited and already warned if it never bound; this re-asks because the ensure
-	// may have been a no-op that observed a PID file whose process has since died.
-	if !socketConnectable(daemonPath, time.Second) {
-		o.pr(o.Stdout).print("[yellow]Warning: the host-wide daemon for '" + name +
-			"' is not accepting connections at " + daemonPath +
-			" — " + o.unreachableBy() + " cannot reach it. See " + deps.LogPath + "[/yellow]")
-		return loopholeDaemon{}, false
 	}
 	frontStop := make(chan struct{})
 	frontDone, frontFailed := frontRun(hostPath, advertiseHost, daemonPath, frontStop,
@@ -1643,6 +1659,11 @@ func frontPublishFailure(endpointPath string, timeout time.Duration, failed <-ch
 		time.Sleep(servicePollInterval)
 	}
 }
+
+// hostSingletonAccepting is startHostSingleton's readiness probe on the host-wide daemon's
+// socket: socketConnectable, a variable so a test can make the daemon exit at the one instant
+// a real machine cannot be made to, between the ensure and this probe.
+var hostSingletonAccepting = socketConnectable
 
 // socketConnectable is a plain connect() probe. The dial error is the ANSWER (false)
 // rather than something to report: every caller turns it into a failure clause of its
