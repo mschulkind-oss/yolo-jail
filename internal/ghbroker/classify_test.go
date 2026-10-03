@@ -467,7 +467,8 @@ func TestServeRefusesAWordThatClimbsOutOfTheRepositoryPath(t *testing.T) {
 // a space resolved as a two-word command, which gh itself refuses as an unknown command, and
 // an empty second repository skipped the scope check that every other value gets. Then
 // (b165e469e64ef9d2) a github.com URL argument was read decoded, where gh's own reading of an
-// encoded one is not that (MEASURED: gh refuses `repo view` of one as an invalid path).
+// encoded one is not that (MEASURED: gh refuses `repo view` of one as an invalid path), and
+// (b7c51892e55c1251) a search's --repo was checked with its spaces trimmed.
 func TestClassifyWhatTheFuzzerFound(t *testing.T) {
 	for _, c := range []struct {
 		argv   []string
@@ -483,6 +484,12 @@ func TestClassifyWhatTheFuzzerFound(t *testing.T) {
 		{[]string{"pr", "view", "https://github.com/o%2Fr/"}, "-R OWNER/REPO"},
 		{[]string{"pr", "view", "https://github.com/o%2Fother/r/pull/1"}, "-R OWNER/REPO"},
 		{[]string{"issue", "develop", "1", "--branch-repo", "https://github.com/o%2Fr", "-R", "o/r"}, "OWNER/REPO"},
+		// testdata/fuzz/FuzzClassify/b7c51892e55c1251: a search --repo was checked trimmed and
+		// sent as given; gh quotes it, `repo:"o/r "` (MEASURED).
+		{[]string{"search", "code", "--repo", "o/r "}, "no spaces"},
+		{[]string{"search", "issues", "x", "--repo", " o/r"}, "no spaces"},
+		{[]string{"search", "issues", "x", "--repo", "o/r, me/r-fork"}, "no spaces"},
+		{[]string{"search", "issues", "x", "--repo", `"o/r,other/x"`}, "no spaces"},
 	} {
 		d := Classify(c.argv, "o/r", testScope)
 		if d.Outcome != OutcomeRefused || !strings.Contains(d.Reason, c.reason) {

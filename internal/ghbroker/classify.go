@@ -440,12 +440,15 @@ func searchScope(p *parsed) scopeResult {
 		return scopeResult{account: true, next: "Leave out --owner and name the repositories " +
 			"with --repo OWNER/REPO."}
 	}
+	// gh splits --repo as CSV and quotes a value holding a space into the query, `repo:"o/r "`
+	// (MEASURED), so each name is checked exactly as gh will send it, never trimmed; a name
+	// that is OWNER/REPO holds no quote or space, so CSV and a split on commas agree on it.
 	var repos []string
 	for _, v := range p.values("repo") {
 		for _, r := range strings.Split(v, ",") {
-			r = strings.TrimSpace(r)
 			if !ValidRepo(r) {
-				return scopeResult{refused: fmt.Sprintf("--repo %q is not OWNER/REPO", r)}
+				return scopeResult{refused: fmt.Sprintf("--repo %q is not OWNER/REPO. Spell each "+
+					"repository OWNER/REPO, separated by commas with no spaces or quotes", r)}
 			}
 			repos = append(repos, r)
 		}
