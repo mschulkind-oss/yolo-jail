@@ -534,6 +534,17 @@ stale-token case: the check ignores expiry, so the provider stays listed after i
 
 The letters are [OQ-2](#OQ-2)'s.
 
+In brief, as [OQ-2](#OQ-2) first listed them:
+
+- **A — Only render providers with available credentials in `models.json`.** Omit a row whose key
+  credential scoping withholds, at the host and in a jail. Cannot follow a launch's `-p` at the
+  host, and loses rows an attach or a direct launch needs.
+- **B — Leave `models.json` intact.** The warning stays, in the picker only.
+- **C — Leave `apiKey` off a built-in's row when the row's variable is pi's own name for it.**
+  Silences the warning for those rows, with the same key when it is set. Other rows keep it.
+
+In full:
+
 - **A — Filter `models.json` by the active profile.** Write a row only when its credential is delivered
   this launch, or its key is a literal such as `local`.
   - **At the host** (INFERRED): `models.json` is rendered by `yolo host apply` from the user-scope
