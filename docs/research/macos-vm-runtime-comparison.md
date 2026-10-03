@@ -1,11 +1,11 @@
 ---
-title: "Which macOS VM runs a Python, Django and Postgres workload best? Apple Container, Podman Machine on libkrun and on applehv, measured without yolo"
+title: "Which macOS VM runs a Python, Django and Postgres workload best? Apple Container, Podman Machine on libkrun and on applehv, and OrbStack, measured without yolo"
 date: 2026-10-03
 status: in-review
 stage: DESIGN
-next: "Run run-all.sh and memsess.sh on OrbStack and Docker Desktop once the maintainer installs their trials (needs sudo); then decide whether VM-local volumes for chosen workspace folders (apple-container-file-cost.md §4) go ahead on the backends yolo already has"
-tags: [research, macos, apple-container, podman, libkrun, virtiofs, memory, postgres, benchmark]
-summary: "The maintainer asked whether re-adding a Docker-style backend on macOS would make development faster, and whether keeping hot files on the VM's own disk would. The same Python, Django and Postgres workload ran natively and in three VMs, each on a shared Mac folder and on a VM-local disk, without yolo. On a VM-local disk all three VMs beat native macOS at the Python steps (pytest 0.9 s against 1.85 s, pip install 1.9 s against 4.0 s) and ran Postgres at 59 to 64 percent of native's read-write rate. On a shared folder, the two Virtualization.framework VMs took 2 to 5 times native on file-heavy steps, and libkrun was up to 9 times slower again. No VM gave a freed 2 GiB back to macOS within 120 s, libkrun included. So where files live matters far more than which VM runs them. OrbStack and Docker Desktop are not measured yet."
+next: "The maintainer decides between a Docker-API backend aimed at OrbStack (closed source, paid for commercial use, and the fastest shared folders and the only memory return measured here) and VM-local volumes for chosen workspace folders on the backends yolo already has (apple-container-file-cost.md §4)"
+tags: [research, macos, apple-container, podman, libkrun, orbstack, virtiofs, memory, postgres, benchmark]
+summary: "The maintainer asked whether re-adding a Docker-style backend on macOS would make development faster, and whether keeping hot files on the VM's own disk would. The same Python, Django and Postgres workload ran natively and in four VMs, each on a shared Mac folder and on a VM-local disk, without yolo. On a VM-local disk every VM beat native macOS at the Python steps (pytest 0.9 s against 1.85 s, pip install 1.8 to 2.0 s against 4.0 s). On a shared folder, the two Virtualization.framework VMs took 2 to 5 times native on file-heavy steps and libkrun up to 9 times slower again, while OrbStack came within 1.3 to 2.6 times native on all but one step and ran Postgres's reads at 90 percent of native. OrbStack was also the only VM to give a freed 2 GiB back to macOS, within 10 s; libkrun's free page reporting returned nothing even under pressure. OrbStack is closed source and paid for commercial use; Docker Desktop was not run, its licence ruling it out for the maintainer's commercial work."
 vantage:
   status-chip: true
 ---
@@ -13,9 +13,10 @@ vantage:
 # Which macOS VM runs a Python, Django and Postgres workload best?
 
 **Status:** 2026-10-03.
-- **MEASURED** on one Mac for native, Apple Container, and Podman Machine on libkrun and on applehv.
-- **Not run yet:** OrbStack and Docker Desktop. Their trial installs need `sudo`, which an agent
-  cannot type.
+- **MEASURED** on one Mac for native, Apple Container, Podman Machine on libkrun and on applehv,
+  and OrbStack (a trial install, which the maintainer made).
+- **Not run:** Docker Desktop. The maintainer ruled it out (2026-10-03): its licence makes it
+  *"non-viable to even test … for commercial work."*
 - **INFERRED:** every reading of the numbers that a row does not show directly.
 - Nothing is ruled.
 
@@ -34,18 +35,23 @@ whatever we can, without yolo support yet."*
 > - **The VM's own disk beats the Mac for this workload, in every VM.** Building a virtualenv,
 >   Django start-up, 2,000 pytest tests and Postgres set-up run 1.2 to 2.5 times as fast as native
 >   macOS ([§3.1](#31-on-a-vm-local-disk)). Postgres's read-write rate is the exception, at 59 to 64 percent of native.
-> - **A shared Mac folder is where the cost is**, and libkrun's sharing is far slower than
->   Virtualization.framework's. On a shared folder, pip install takes 8.4 s on Apple Container and
+> - **A shared Mac folder is where the cost is, except on OrbStack**, and libkrun's sharing is
+>   far slower than Virtualization.framework's. On a shared folder, pip install takes 8.4 s on Apple Container and
 >   32.7 s on libkrun against 4.0 s native, and Postgres's read-only rate drops to 46 percent of
->   native on Apple Container and to 5 percent on libkrun ([§3.2](#32-on-a-shared-mac-folder)).
-> - **No VM gave memory back.** A freed 2 GiB stayed resident for 120 s in all three. Under host
->   memory pressure, libkrun's VM was compressed rather than dropping the pages its guest had
->   reported free ([§4](#4-memory-does-a-vm-give-a-freed-2-gib-back)).
-> - **So far a new runtime buys less than a VM-local disk would.** Apple Container on its own disk
->   is already in the fastest group. The proposal in
->   [apple-container-file-cost.md §4](apple-container-file-cost.md#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders)
->   would bring that to the backend yolo already ships. OrbStack and Docker Desktop might still
->   beat it on shared folders or memory; that is what their runs would show.
+>   native on Apple Container and to 5 percent on libkrun. **OrbStack's shared folder is in another
+>   class**: pip install 5.3 s, `stat` 9 times as fast as Apple Container's, and Postgres's reads at
+>   90 percent of native ([§3.2](#32-on-a-shared-mac-folder)).
+> - **Only OrbStack gave memory back.** A freed 2 GiB left its VM within 10 s, and a deleted 2 GiB
+>   file's cache within 120 s. It stayed resident in the other three; under host memory pressure,
+>   libkrun's VM was compressed rather than dropping the pages its guest had reported free
+>   ([§4](#4-memory-does-a-vm-give-a-freed-2-gib-back)).
+> - **OrbStack's weak spot is Postgres writes on its own disk**: 2,940 read-write transactions per
+>   second against 9,000 to 10,000 on the other VMs ([§3.1](#31-on-a-vm-local-disk)).
+> - **Two ways forward, both inferred** ([§5](#5-what-this-means-for-the-maintainers-question)):
+>   - a Docker-API backend aimed at OrbStack, which fixes both of Apple Container's weaknesses
+>     but is closed source and paid for commercial use;
+>   - [VM-local volumes](apple-container-file-cost.md#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders)
+>     on the backends yolo already has, which fixes file speed for chosen folders and not memory.
 
 ## Terms
 
@@ -59,6 +65,9 @@ whatever we can, without yolo support yet."*
   Apple Container, or the Podman Machine's own disk for a podman volume.
 - **Free page reporting**: the virtio balloon feature by which a guest tells the host which pages
   it has freed (defined in [the memory reclaim doc](macos-vm-memory-reclaim.md#terms)).
+- **OrbStack**: a closed-source macOS app from OrbStack, Inc. running one Linux VM that serves the
+  Docker API. It is free for personal use and paid for commercial use
+  ([pricing](https://orbstack.dev/pricing); SOURCED).
 - **RSS**: the resident memory macOS's `ps` shows for a process, here the process holding the
   VM's memory.
 
@@ -78,6 +87,7 @@ whatever we can, without yolo support yet."*
 | `container` | Apple Container, one VM per container | 5 | 8 GiB |
 | `krun` | Podman Machine `bench-krun`, libkrun provider, krunkit 1.3.2 with libkrun 1.19.0 | 5 | 8 GiB |
 | `applehv` | Podman Machine `podman-machine-default`, applehv (VZ) provider, the maintainer's existing machine | **4** | 8 GiB |
+| `orbstack` | OrbStack 2.2.3, its Docker engine (guest kernel 7.0.14), set down from its default 10 CPUs and 16 GiB | 5 | 8 GiB |
 
 For `krun`, Homebrew's krunkit tap carried libkrun 1.16.0, older than the free page reporting
 change, so the run used krunkit's own release build instead ([Appendix B](#appendix-b-setting-up-the-libkrun-machine)).
@@ -86,7 +96,7 @@ change, so the run used krunkit's own release build instead ([Appendix B](#appen
 - yolo's Apple Container builder VM (8 CPUs, a 12 GiB cap) ran throughout.
 - The maintainer's own jail was not listed as running two minutes into the VM runs.
 - Each Podman Machine was started before its run and stopped after it, and only one runtime
-  ran at a time.
+  ran at a time. OrbStack's VM stayed up between its runs.
 
 **The workload** ([`wl.sh`](#appendix-a-the-scripts)) runs in one folder:
 1. the earlier docs' `fs.js` and `imp.py`;
@@ -117,7 +127,8 @@ Postgres 17.
   [the file cost doc](apple-container-file-cost.md#21-per-file-cost-not-bandwidth)). Postgres on
   macOS does not use `F_FULLFSYNC` unless `wal_sync_method = fsync_writethrough` is set
   (SOURCED: Postgres's WAL configuration documentation), so all four Postgres rates are at the same, development-grade
-  durability.
+  durability. OrbStack's guest syncs at 1,164 per second on its own disk and 1,779 on a shared
+  folder, between the two, so its writes may reach further down (INFERRED).
 - **applehv has 4 CPUs where the others have 5.** This touches only the parallel steps (ripgrep,
   `pgbench`), and applehv still matches or beats the 5-CPU VMs on both.
 
@@ -125,30 +136,30 @@ Postgres 17.
 
 ### 3.1 On a VM-local disk
 
-| Step | native | Apple Container | libkrun | applehv |
-| :--- | ---: | ---: | ---: | ---: |
-| create 20,000 small files | 3.16 s | 0.13 s | 0.36 s | 0.30 s |
-| `stat` 20,000 | 91 ms | 29 ms | 39 ms | 36 ms |
-| `stat` 20,000 missing names | 183 ms | 347 ms | 377 ms | 375 ms |
-| open and read 20,000 | 1284 ms | 93 ms | 143 ms | 130 ms |
-| delete 20,000 | 1917 ms | 43 ms | 196 ms | 134 ms |
-| sequential write / read, MB/s | 4509 / 9190 | 1424 / 3572 | 2494 / 3706 | 2319 / 3665 |
-| 40 imports, first / warm process | 806 / 176 ms | 408 / 70 ms | 415 / 74 ms | 414 / 74 ms |
-| create the virtualenv | 2.07 s | 1.73 s | 1.77 s | 1.75 s |
-| pip install, offline | 4.01 s | 2.01 s | 1.87 s | 1.85 s |
-| ripgrep over the virtualenv | 0.292 s | 0.019 s | 0.022 s | 0.024 s |
-| `django.setup()` | 0.290 s | 0.136 s | 0.147 s | 0.146 s |
-| `manage.py check` | 0.302 s | 0.159 s | 0.166 s | 0.165 s |
-| pytest, 2,000 tests, first / median | 2.79 / 1.85 s | 1.65 / 0.90 s | 1.71 / 0.97 s | 1.70 / 0.95 s |
-| Postgres `initdb` | 0.91 s | 0.37 s | 0.41 s | 0.38 s |
-| `pgbench` load, scale 20 | 2.34 s | 1.27 s | 1.39 s | 1.26 s |
-| `pgbench` read-write, transactions/s | 15,575 | 9,205 | 9,173 | 9,952 |
-| `pgbench` read-only, transactions/s | 120,508 | 92,744 | 145,537 | 135,170 |
+| Step | native | Apple Container | libkrun | applehv | OrbStack |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| create 20,000 small files | 3.16 s | 0.13 s | 0.36 s | 0.30 s | 0.28 s |
+| `stat` 20,000 | 91 ms | 29 ms | 39 ms | 36 ms | 31 ms |
+| `stat` 20,000 missing names | 183 ms | 347 ms | 377 ms | 375 ms | 357 ms |
+| open and read 20,000 | 1284 ms | 93 ms | 143 ms | 130 ms | 96 ms |
+| delete 20,000 | 1917 ms | 43 ms | 196 ms | 134 ms | 304 ms |
+| sequential write / read, MB/s | 4509 / 9190 | 1424 / 3572 | 2494 / 3706 | 2319 / 3665 | 1088 / 3353 |
+| 40 imports, first / warm process | 806 / 176 ms | 408 / 70 ms | 415 / 74 ms | 414 / 74 ms | 432 / 74 ms |
+| create the virtualenv | 2.07 s | 1.73 s | 1.77 s | 1.75 s | 1.74 s |
+| pip install, offline | 4.01 s | 2.01 s | 1.87 s | 1.85 s | 1.80 s |
+| ripgrep over the virtualenv | 0.292 s | 0.019 s | 0.022 s | 0.024 s | 0.027 s |
+| `django.setup()` | 0.290 s | 0.136 s | 0.147 s | 0.146 s | 0.140 s |
+| `manage.py check` | 0.302 s | 0.159 s | 0.166 s | 0.165 s | 0.163 s |
+| pytest, 2,000 tests, first / median | 2.79 / 1.85 s | 1.65 / 0.90 s | 1.71 / 0.97 s | 1.70 / 0.95 s | 1.69 / 0.88 s |
+| Postgres `initdb` | 0.91 s | 0.37 s | 0.41 s | 0.38 s | 1.18 s |
+| `pgbench` load, scale 20 | 2.34 s | 1.27 s | 1.39 s | 1.26 s | 1.79 s |
+| `pgbench` read-write, transactions/s | 15,575 | 9,205 | 9,173 | 9,952 | 2,940 |
+| `pgbench` read-only, transactions/s | 120,508 | 92,744 | 145,537 | 135,170 | 153,119 |
 
 MEASURED. What it shows:
 
-- **The three VMs are within about 12 percent of each other** on every Python and Postgres
-  set-up step. Which hypervisor runs the guest hardly matters once its files are local. The
+- **The four VMs are within about 12 percent of each other** on every Python step, and the three
+  non-OrbStack VMs on every Postgres set-up step too. Which hypervisor runs the guest hardly matters once its files are local. The
   file primitives and Postgres's read-only rate vary more.
 - **The VMs beat native by 1.2 to 2.5 times** on every Python and Postgres set-up step, and by
   9 to 45 times on creating, reading and deleting small files. `stat` on missing names is the
@@ -159,34 +170,43 @@ MEASURED. What it shows:
   higher on the two Podman VMs than natively. INFERRED: Apple Container's lower read-only rate
   may come from sharing the CPU with the builder VM. Nothing here separates that cause from the
   runtime.
+- **OrbStack's own disk is slow for Postgres writes**: `initdb` 3 times the other VMs and 2,940
+  read-write transactions per second, about a third of theirs, while its read-only rate is the
+  highest measured. That fits its slower syncs (§2), and makes its shared folder the faster home
+  for a Postgres it writes to (7,101, §3.2).
 
 ### 3.2 On a shared Mac folder
 
-| Step | native | Apple Container | libkrun | applehv |
-| :--- | ---: | ---: | ---: | ---: |
-| create 20,000 small files | 3.16 s | 11.1 s | **20.2 s** | 12.8 s |
-| `stat` 20,000 | 91 ms | 2171 ms | **6899 ms** | 2306 ms |
-| `stat` 20,000 missing names | 183 ms | 1713 ms | **6457 ms** | 1847 ms |
-| open and read 20,000 | 1284 ms | 6070 ms | **15,483 ms** | 7421 ms |
-| delete 20,000 | 1917 ms | 4638 ms | **12,845 ms** | 5412 ms |
-| sequential write / read, MB/s | 4509 / 9190 | 972 / 1670 | 947 / 1718 | 973 / 1569 |
-| 40 imports, first / warm process | 806 / 176 ms | 742 / 163 ms | 1600 / 690 ms | 823 / 188 ms |
-| create the virtualenv | 2.07 s | 3.82 s | 9.81 s | 3.75 s |
-| pip install, offline | 4.01 s | 8.35 s | **32.7 s** | 9.26 s |
-| ripgrep over the virtualenv | 0.292 s | 1.568 s | 3.921 s | 1.411 s |
-| `django.setup()` | 0.290 s | 0.307 s | 1.332 s | 0.364 s |
-| `manage.py check` | 0.302 s | 0.361 s | 1.538 s | 0.420 s |
-| pytest, 2,000 tests, first / median | 2.79 / 1.85 s | 2.29 / 1.32 s | 6.18 / 4.89 s | 2.51 / 1.44 s |
-| Postgres `initdb` | 0.91 s | 2.27 s | 4.90 s | 2.68 s |
-| `pgbench` load, scale 20 | 2.34 s | 11.36 s | 9.47 s | 11.86 s |
-| `pgbench` read-write, transactions/s | 15,575 | 4,103 | 2,554 | 4,605 |
-| `pgbench` read-only, transactions/s | 120,508 | 55,383 | **6,097** | 51,009 |
+| Step | native | Apple Container | libkrun | applehv | OrbStack |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| create 20,000 small files | 3.16 s | 11.1 s | **20.2 s** | 12.8 s | 5.12 s |
+| `stat` 20,000 | 91 ms | 2171 ms | **6899 ms** | 2306 ms | 241 ms |
+| `stat` 20,000 missing names | 183 ms | 1713 ms | **6457 ms** | 1847 ms | 1551 ms |
+| open and read 20,000 | 1284 ms | 6070 ms | **15,483 ms** | 7421 ms | 2204 ms |
+| delete 20,000 | 1917 ms | 4638 ms | **12,845 ms** | 5412 ms | 2556 ms |
+| sequential write / read, MB/s | 4509 / 9190 | 972 / 1670 | 947 / 1718 | 973 / 1569 | 1822 / 1702 |
+| 40 imports, first / warm process | 806 / 176 ms | 742 / 163 ms | 1600 / 690 ms | 823 / 188 ms | 582 / 107 ms |
+| create the virtualenv | 2.07 s | 3.82 s | 9.81 s | 3.75 s | 2.80 s |
+| pip install, offline | 4.01 s | 8.35 s | **32.7 s** | 9.26 s | 5.34 s |
+| ripgrep over the virtualenv | 0.292 s | 1.568 s | 3.921 s | 1.411 s | 0.370 s |
+| `django.setup()` | 0.290 s | 0.307 s | 1.332 s | 0.364 s | 0.211 s |
+| `manage.py check` | 0.302 s | 0.361 s | 1.538 s | 0.420 s | 0.240 s |
+| pytest, 2,000 tests, first / median | 2.79 / 1.85 s | 2.29 / 1.32 s | 6.18 / 4.89 s | 2.51 / 1.44 s | 2.08 / 1.17 s |
+| Postgres `initdb` | 0.91 s | 2.27 s | 4.90 s | 2.68 s | 1.18 s |
+| `pgbench` load, scale 20 | 2.34 s | 11.36 s | 9.47 s | 11.86 s | 2.12 s |
+| `pgbench` read-write, transactions/s | 15,575 | 4,103 | 2,554 | 4,605 | 7,101 |
+| `pgbench` read-only, transactions/s | 120,508 | 55,383 | **6,097** | 51,009 | 107,871 |
 
 MEASURED. What it shows:
 
 - **The two VZ runtimes share one cost.** Apple Container and applehv are within about 25
   percent of each other on every row, so it is VZ's virtiofs, not Apple Container's own code, that
   sets this cost.
+- **OrbStack's shared folder is 1.1 to 9 times as fast as VZ's**, and the only one close to
+  native. `stat` is 2.6 times native against VZ's 24; pip install 1.3 times against 2.1; the
+  `pgbench` load is faster than native; read-only Postgres runs at 90 percent of native and
+  read-write at 46 percent, against VZ's 26 to 30. Warm pytest (1.17 s) and `django.setup()`
+  (0.21 s) beat native. How it does this is undisclosed; it is closed source.
 - **libkrun's virtiofs costs 1.6 to 9 times VZ's on all but one step.** `stat` is 3.2 times VZ's, pip install 3.9
   times, warm pytest 3.7 times, and Postgres's read-only rate falls to a ninth; the `pgbench` load, about a fifth faster than
   on VZ, is the exception. INFERRED:
@@ -205,15 +225,19 @@ after each of three steps:
 - 120 s pass;
 - the container writes a 2 GiB file to its VM-local disk, reads it back and deletes it.
 
-| RSS of the VM process, MiB | Apple Container | libkrun | applehv |
-| :--- | ---: | ---: | ---: |
-| idle | 617 | 1540 | 1636 |
-| holding 2 GiB | 2751 | 3490 | 3725 |
-| 120 s after it exited | 2752 | 3494 | 3725 |
-| after the 2 GiB file was written and read | 4275 | 6831 | 5100 |
-| 120 s after the file was deleted | 4275 | 6833 | 5101 |
+| RSS of the VM process, MiB | Apple Container | libkrun | applehv | OrbStack |
+| :--- | ---: | ---: | ---: | ---: |
+| idle | 617 | 1540 | 1636 | 1181 |
+| holding 2 GiB | 2751 | 3490 | 3725 | 3118 |
+| 120 s after it exited | 2752 | 3494 | 3725 | 1066 |
+| after the 2 GiB file was written and read | 4275 | 6831 | 5100 | 4527 |
+| 120 s after the file was deleted | 4275 | 6833 | 5101 | 1016 |
 
-MEASURED. **No VM's RSS fell**, libkrun's included.
+MEASURED. **Only OrbStack's RSS fell.** It dropped by 2 GiB within 10 s of the process
+exiting, and the deleted file's cache left within 120 s. The compressor did not move, and after
+the file was deleted the Mac's free memory rose by 1.8 GiB, so the memory went back to macOS
+rather than into compression. How
+OrbStack does it is undisclosed. No other VM's RSS fell, libkrun's included.
 
 That was expected of the VZ runtimes. libkrun's guest does support reporting:
 - the Fedora CoreOS guest has `virtio_balloon` and `page_reporting` loaded, with a reporting
@@ -247,9 +271,10 @@ What this run cannot settle:
 [lima #4220](https://github.com/lima-vm/lima/issues/4220) both reported memory coming back. The
 difference from this run is unexplained.
 
-⚠ **`footprint` does not see libkrun's guest memory.** It reported 305 MiB for a krunkit process
-whose RSS was 3.6 GiB, while `vmmap -summary` showed a 3.6 GiB physical footprint. So
-`memsess.sh`'s footprint column is meaningless for `krun`, and the table uses RSS.
+⚠ **`footprint` does not see libkrun's or OrbStack's guest memory.** It reported 305 MiB for a
+krunkit process whose RSS was 3.6 GiB, while `vmmap -summary` showed a 3.6 GiB physical
+footprint, and 90 to 212 MiB for OrbStack's helper throughout. So `memsess.sh`'s footprint column
+means something only for the VZ runtimes, and the table uses RSS.
 
 ⚠ **Running `pressure.py` costs the Mac.** It pushed 9 GiB into the compressor and evicted most
 of the file cache, both recovered within minutes. Run it on a Mac nobody is using.
@@ -258,18 +283,21 @@ of the file cache, both recovered within minutes. Run it on a Mac nobody is usin
 
 INFERRED from [§3](#3-results) and [§4](#4-memory-does-a-vm-give-a-freed-2-gib-back).
 
-- **The win is a VM-local disk, and Apple Container already has one.** Every VM on its own disk
-  beat native on the development steps. VZ's runtimes and libkrun were within about 12 percent
-  of each other on the Python and Postgres set-up steps there.
+- **A VM-local disk is fast in every VM, and Apple Container already has one.** Every VM on its
+  own disk beat native on the Python steps, within about 12 percent of each other.
 - **libkrun is not a reason to switch.** Its shared folders are the slowest measured, and the
   memory reclaim that made it the candidate did not show up.
-- **Re-adding Docker-style support** can only pay off on shared-folder speed or memory return,
-  the two places Apple Container is weak. OrbStack advertises both, and Docker Desktop advertises
-  memory return on its own VMM. Both need their runs before that question can be answered.
-- **The design that follows from these numbers** works on any VM backend:
-  [VM-local volumes for chosen workspace folders](apple-container-file-cost.md#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders).
-  The candidate folders are the virtualenv, `node_modules`, build caches and a database's data
-  folder.
+- **OrbStack is the one runtime that fixes both of Apple Container's weaknesses**: its shared
+  folder is near native, so a workspace needs no relocation, and it gives memory back. Using it
+  means:
+  - re-adding a Docker-API backend, which yolo removed;
+  - one shared VM for every jail, as on Podman Machine, rather than one VM per jail;
+  - a closed-source, paid dependency for commercial use, with this Mac's trial lasting 30 days.
+- **VM-local volumes on the backends yolo has** fix file speed for the folders a user names
+  (the virtualenv, `node_modules`, build caches, a database's data folder), on Apple Container
+  and Podman alike, and leave memory where it is:
+  [the design sketch](apple-container-file-cost.md#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders).
+- **Docker Desktop** was not measured, by the maintainer's ruling on its licence.
 
 ## 6. Re-running it
 
@@ -277,8 +305,9 @@ INFERRED from [§3](#3-results) and [§4](#4-memory-does-a-vm-give-a-freed-2-gib
    `podman build -t localhost/vmbench:1 vmbench && podman save --format oci-archive -o vmbench/vmbench.oci.tar localhost/vmbench:1`.
 2. For the native run, download macOS wheels for the host's Python into `vmbench/wheels-darwin`:
    `pip download --dest vmbench/wheels-darwin 'django==5.2.*' 'pytest==8.*' 'psycopg[binary]==3.2.*'`.
-3. Run `./run-all.sh native container krun applehv orbstack docker`, naming only the runtimes
-   present. It writes `results/<runtime>-share.tsv` and `results/<runtime>-vol.tsv`.
+3. Run `./run-all.sh native container krun applehv orbstack`, naming only the runtimes
+   present (`docker` is wired for Docker Desktop but was never run). OrbStack's `docker` CLI is
+   in `~/.orbstack/bin`; put it on `PATH`. It writes `results/<runtime>-share.tsv` and `results/<runtime>-vol.tsv`.
 4. Run `./memsess.sh <runtime>` for each runtime, one at a time.
 5. `python3 pivot.py results/*.tsv` prints one table.
 
@@ -448,7 +477,8 @@ run() { case $rt in
 esac; }
 case $rt in
   krun) PAT='krunkit' ;;
-  *) PAT='com.apple.Virtualization.VirtualMachine|OrbStack Helper|vmgr' ;;
+  orbstack) PAT='OrbStack Helper.*vmgr' ;; # OrbStack runs its VM inside this helper
+  *) PAT='com.apple.Virtualization.VirtualMachine' ;;
 esac
 before=$(vmprocs)
 case $rt in
