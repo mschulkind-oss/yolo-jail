@@ -3,7 +3,7 @@ title: "Bedrock from an SSO login, without handing over the account"
 date: 2026-09-17
 status: accepted
 stage: GRADUATED
-next: "Read TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox (integration/macosuserdoorway_test.go) in the next macos-user.yml run: its config names a region since 2026-09-30, after its first Mac run was refused at the region pre-flight before it reached the doorway"
+next: "Record macos-user's first AWS doorway verdict in the status line: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserOpensTheAWSDoorwayOutsideTheSandbox (integration/macosuserdoorway_test.go), its config naming the region the 2026-09-30 run lacked"
 tags: [aws, bedrock, sso, credentials, loopholes, packs, boundary, graduated]
 summary: "GRADUATED 2026-09-29 into docs/reference/agent-credentials.md, whose SSO-backed Bedrock section now states the delivered behavior. This file stays whole as the argument: how a host-side `aws sso login` becomes Bedrock access inside a jail without the jail holding anything else the login can reach, why narrowing and refresh are independent problems, the evidence, and the Decision Ledger the reference links for its reasoning. The live-login try-out happened 2026-09-29 (the maintainer's jails, daily, on a Linux host); a running jail picking up each new login, with no relaunch, was observed the same day; a turn during a real lapse is still unobserved."
 ---

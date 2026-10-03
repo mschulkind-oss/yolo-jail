@@ -2,7 +2,7 @@
 title: "What only a Mac can verify"
 status: accepted
 stage: CURRENT
-next: "Write item 2's automated twin, a launch whose probe reads a mode-0644 file the host user made for it (§0.5)"
+next: "Record item 1's twin as run, in §0.1's map and in item 1: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserLaunchRunsAsTheSandboxAccountInTheWorkspace. Then write item 2's automated twin, a launch whose probe reads a mode-0644 file the host user made for it (§0.5)"
 ---
 
 # What only a Mac can verify

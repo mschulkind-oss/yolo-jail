@@ -3,7 +3,7 @@ title: "Host-only config contributions — the gate is missing, and the jail lea
 date: 2026-09-27
 status: accepted
 stage: BUILT
-next: "Step 2 of §5, the maintainer's by hand: add the guarded posture list to the matt pack, run yolo host apply --assert on the host, and confirm pi-automode loads there and in no jail"
+next: "Record §4.3's Mac check: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserComposesARenderedHostFileAsABaseline. Then step 2 of §5, the maintainer's by hand: add the guarded posture list to the matt pack, run yolo host apply --assert on the host, and confirm pi-automode loads there and in no jail"
 tags: [packs, notch, autonomy, host, config-list, config-overlay, pi, permissions]
 summary: "A pack could not declare a config-list entry for the host alone, because packoverlay.Collect placed every list at every notch. A host-applied entry coming back into a jail through a readsHost mount was already prevented on podman and Apple Container by the OQ-CR6 render mark, and happened only on macos-user. Recommended, and built on 2026-09-27 on OQ-5's leaning: posture-selected lists inside the autonomy kind, where standing rulings put confinement-conditional content, plus render-mark parity on macos-user (unit-tested only)."
 vantage:

@@ -2,7 +2,7 @@
 title: "Handoff: what the first macos-user hardware run left open"
 status: accepted
 stage: DECIDED
-next: "Write item 2's twin (§3): a TestMacosUser… launch whose probe reads a mode-0644 file the host user made for it, which the Seatbelt profile must refuse, for the macos-user CI job to run"
+next: "Record item 1's twin as run in §3: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserLaunchRunsAsTheSandboxAccountInTheWorkspace. Then write item 2's twin (§3): a TestMacosUser… launch whose probe reads a mode-0644 file the host user made for it, which the Seatbelt profile must refuse, for the macos-user CI job to run"
 date: 2026-09-12
 tags: [macos-user, handoff, lsp, integration, provisioning]
 summary: "The macos-user manual-checks runbook was run end to end on hardware for the first time on 2026-09-12. All ten items now have a measurement, three defects were found and fixed that day, and seven threads were opened. Four are left: one test-suite design flaw that only bites a persistent Mac and three automation gaps that are work nobody has done rather than problems. Three are closed: provider credentials on every argv this backend builds, the launch.log gap (fixed 2026-09-17), and the one product defect (lsp_servers installed nothing here) — wired on 2026-09-13, then closed by deletion on 2026-09-25 when yolo stopped installing language servers on any backend."

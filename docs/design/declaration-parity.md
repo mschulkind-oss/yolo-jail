@@ -3,7 +3,7 @@ title: "One declaration, many mechanisms — and the four inputs that decide whi
 date: 2026-09-12
 status: accepted
 stage: DECIDED
-next: "Approve or decline DP-B46's fix, a §5 row: ask OQ-CAP2's capability gate from `yolo host --` too, which moves required_capabilities off KeyUnbuilt in internal/render/configkeys.go. DP-L16 is withdrawn by host-tool-provisioning.md's HP-DIR3"
+next: "Record in §11 step 7 that DP-B6's narrowed row held: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserBriefingAndLaunchLinesDescribeThisBackend. Then approve or decline DP-B46's fix, a §5 row: ask OQ-CAP2's capability gate from `yolo host --` too, which moves required_capabilities off KeyUnbuilt in internal/render/configkeys.go. DP-L16 is withdrawn by host-tool-provisioning.md's HP-DIR3"
 tags: [confinement, notches, backends, macos-user, guest, parity, silent-drop]
 summary: "The maintainer's principle already holds where it is built: `packages:` ships three mechanisms behind one key. But it quantifies over a composed primitive vector, not over a backend, and that vector has FOUR inputs — notch, mechanism, platform, and which verb is running — of which two are now named, one is a plain word, and one is deliberately nameless. This is the catalog of every declaration a site accepts and does not honor, sorted into four dispositions. Four of its questions were ruled in review on 2026-09-12, a fifth dissolved, and two more ruled on 2026-09-13. Two filed on 2026-09-21 — OQ-DP8 and OQ-DP9, how a macos-user jail daemon's argv resolves with no image and whether it runs confined — were ruled on 2026-09-28 and are built."
 vantage:

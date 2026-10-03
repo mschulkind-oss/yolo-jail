@@ -3,7 +3,7 @@ title: "Which provider is this session on? — yolo facts in every agent's foote
 date: 2026-09-25
 status: accepted
 stage: BUILT
-next: "Watch one live session per agent with a footer hook and read its footer back, as section 2.1 names: a human check, since no test may start an agent"
+next: "Record the Mac check: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserFooterSaysJail, all three of its subtests. Then watch one live session per agent with a footer hook and read its footer back, as section 2.1 names: a human check, since no test may start an agent"
 tags: [footer, statusline, packs, providers, profiles, confinement, claude, pi, omp, agy, copilot, opencode, codex]
 summary: "Six of the seven agents yolo ships can show extra text in their footer, through one of three hooks: a status-line command (claude, copilot, agy), a keyed status call in an extension (pi, omp), or a TUI plugin (opencode). Codex has no hook. One core renderer, `yolo internal footer`, prints two facts: what the session is billed through, in plain words, and where the agent runs (jail, guest or host). Each agent pack wires it into its agent's hook, on by default at the lowest layer so a user's own footer replaces it, and always beside the agent's stock status line, never over it. Bedrock cost and bridge failover state are a separate, later design."
 ---

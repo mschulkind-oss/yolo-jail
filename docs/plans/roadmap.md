@@ -34,7 +34,7 @@ host or an outside account follows under [External waits](#external-waits).
 3. [Rule whether a project's own mise pin of `pnpm` stays hidden](../design/program-delivery.md) — a declared `pnpm` gets
    its pnpm now; what [OQ-PD19](../design/program-delivery.md#OQ-PD19) still decides is whether a project's `mise.toml` pin
    is hidden when yolo supplies the pnpm. [Autoprune's `$GOBIN` class](../design/program-delivery.md#OQ-PD20), whose leaning
-   waited on a release (0.11.1 shipped 2026-10-02), and [a pack's agent-CLI pin](../design/program-delivery.md#OQ-PD21) ride in the same sitting.
+   retires it once a release ships past the 2026-09-25 deletion (0.11.0 did, on 2026-09-28), and [a pack's agent-CLI pin](../design/program-delivery.md#OQ-PD21) ride in the same sitting.
 4. [Rule whether an agent CLI updates once per machine](../design/program-delivery.md#OQ-PD23) — each workspace downloads every
    release itself, and the hourly stamp all workspaces share can keep one on an old version while another keeps it fresh.
 5. [Rule whether the jail's config copy keeps other workspaces' widening entries](../design/boundary-broker.md#OQ-BB11) — `.yolo/config-assembled.json`,
@@ -59,13 +59,16 @@ host or an outside account follows under [External waits](#external-waits).
    home. Rule [whether the dry run's exit follows OQ-RO5](../reference/report-tiers.md#OQ-RO8) in the same sitting: the code
    exits 1 where the ruling says 0, and the launch gate reads that exit.
 10. Read the Mac runs of 2026-10-02 and 2026-10-03 into the docs that wait on them — agent work now, and ahead of the
-    rulings below because two of the reads unblock work: [the AWS doorway](../design/host-notch-services.md),
-    [A2's twin](macos-revival-and-distribution-plan.md), [the render-mark twin](handoff-guest-notch-macos.md),
+    rulings below because two of the reads unblock work: [the AWS doorway](../design/host-notch-services.md) and
+    [its Bedrock design](../design/sso-backed-bedrock.md), [A2's twin](macos-revival-and-distribution-plan.md),
+    [the render-mark twin](handoff-guest-notch-macos.md) and [its design](../design/notch-scoped-config-contributions.md#43-render-mark-parity-on-macos-user),
+    [item 1's twin](handoff-macos-user-open-threads.md) and [its runbook row](runbooks/macos-user-manual-checks.md),
+    [DP-B6's narrowed row](../design/declaration-parity.md), [the footer's Mac check](../design/agent-footer.md#what-i-would-build-in-order),
     [the I/O policy's verdict](../design/io-priority.md#9-what-i-would-build-in-order), which frees step 5,
     [the build sandbox's Q3 runs](../design/macos-user-build-step-threat-model.md), [the context-mount
-    cases](../design/context-mounts.md#4-staging-and-the-tests-that-pin-each-piece), which free
-    item 33's ruling on home sources, [the Cachix lines](handoff-cachix-cache.md), [the in-VM
-    copier](../research/macos-layer-reusing-image-delivery.md), which landed, [the login seed](../design/base-home-legacy-state.md),
+    cases](../design/context-mounts.md#4-staging-and-the-tests-that-pin-each-piece), which free the ruling on
+    context sources inside a home, [the Cachix lines](handoff-cachix-cache.md), [the in-VM
+    copier](../research/macos-layer-reusing-image-delivery.md), which completed, [the login seed](../design/base-home-legacy-state.md),
     [the storage classes](../design/durable-scratch-space.md) and [published ports](../design/backend-parity.md#54-which-test-answers-which-row),
     which hold, and [the keeper measures](../design/jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order), three of
     which do not hold on [the 2026-10-03 Apple Container run](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37133569003).
@@ -90,7 +93,8 @@ host or an outside account follows under [External waits](#external-waits).
     `--with-credentials` and [its build sketch](../design/credential-sources-separation-plan.md) wait on it.
 18. [Rule one env composition order](notch-convergence.md), and [whether every jail on a machine shares one Claude login](../reference/claude-oauth-interposition.md#OQ-CI1)
     — one variable's value depends on how the agent starts, and the login's leaning, drafted 2026-10-02, lets `yolo host -- claude`
-    join it, reopening the plan's host-claude ruling; its other held items wait on rulings 13, 17 and 19.
+    join it, reopening the plan's host-claude ruling; its other held items wait on the workspace-config and jail-credential
+    rulings above and the `assert` ruling next.
 19. [Settle what retiring `host_management: "assert"` does to configs on it](../design/config-ownership-and-promotion.md)
     — the retirement cannot start until then.
 20. [Rule what serializes a daemon's spawn once the host singleton goes](../design/host-daemon-ownership.md), against [the plan's table of what the
@@ -131,7 +135,7 @@ host or an outside account follows under [External waits](#external-waits).
     [who installs a pi package the refresh missed](../design/pi-extension-lifecycle.md), [the `:ro` degradation rows](../design/composed-file-permissions.md),
     [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md),
     [copilot's updater](native-installer-migration.md), [whether array-append pinning closes](BACKLOG.md#E5), [the pack system's other calls](../reference/pack-system.md),
-    [relocating `.yolo` by a link](../reference/jail-home.md#OQ-JH1) and, once item 10 reads its cases back,
+    [relocating `.yolo` by a link](../reference/jail-home.md#OQ-JH1) and, once the Mac runs' read-back records its cases,
     [context sources inside a home](../design/context-mounts.md) — each has its facts and a leaning, so each is a short sitting.
 34. [Rule whether yolo may hold an editor preference](../design/baked-editor-preference.md) — the maintainer asked
     for it, and its first ruling decides the rest and an image change every jail pays.
