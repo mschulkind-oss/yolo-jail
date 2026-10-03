@@ -237,16 +237,27 @@ now retired — kept because they remain true of the lockfile and constrain anyt
 
    > **"Plugin" and "hook body", defined — they are the AGENT's extension mechanism, not yolo's.**
    > A pack may ship a **Claude Code plugin**: a `.claude-plugin/plugin.json` manifest that the agent
-   > reads directly. yolo delivers it and reports what it declares, but never interprets it. A
-   > manifest can declare six component kinds, and yolo marks three of them as running code
-   > (the `components` table in [`pluginpack.go`](../../internal/pluginpack/pluginpack.go)):
+   > reads directly. yolo delivers it and reports what it carries, but never interprets it. yolo
+   > reports eight component kinds and marks five of them as running code (the `components` table
+   > in [`pluginpack.go`](../../internal/pluginpack/pluginpack.go)). Each counts whether the
+   > manifest declares it or it sits at the **default location** Claude Code loads it from when
+   > the manifest says nothing (the "Standard layout" table of Claude Code's
+   > [plugin reference](https://code.claude.com/docs/en/plugins-reference)). A component found
+   > both ways is one component:
    >
-   > | Component | What it does | Runs code |
-   > | :--- | :--- | :--- |
-   > | `hooks` | runs code at agent lifecycle events | ✅ |
-   > | `mcpServers` | starts MCP server processes | ✅ |
-   > | `lspServers` | starts language server processes | ✅ |
-   > | `commands` · `agents` · `outputStyles` | slash commands, sub-agent definitions, output styles | ❌ |
+   > | Component | Default location | What it does | Runs code |
+   > | :--- | :--- | :--- | :--- |
+   > | `hooks` | `hooks/hooks.json` | runs code at agent lifecycle events | ✅ |
+   > | `mcpServers` | `.mcp.json` | starts MCP server processes | ✅ |
+   > | `lspServers` | `.lsp.json` | starts language server processes | ✅ |
+   > | `monitors` | `monitors/monitors.json` | runs background shell commands for the whole session | ✅ |
+   > | `bin` | `bin/` | puts executables on the agent's shell PATH | ✅ |
+   > | `commands` · `agents` · `outputStyles` | `commands/` · `agents/` · `output-styles/` | slash commands, sub-agent definitions, output styles | ❌ |
+   >
+   > Until 2026-10-03 yolo read only the manifest, so code at a default location reached no
+   > disclosure. That covered a hooks file with no `hooks` field, which `claude plugin validate`
+   > loads all the same ([the footer research](../research/claude-code-extensions-footer.md)).
+   > It also covered every monitor and `bin/` executable, which had no row at all.
    >
    > A **hook body** is the script a `hooks` entry names — the thing the *agent* executes when it
    > reaches one of its own lifecycle events. yolo never runs it and never reads it.

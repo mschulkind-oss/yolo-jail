@@ -126,10 +126,12 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 	// composition's retire pass read, so gating it on the write succeeding would make an
 	// unwritable plugin dir look like an orphan to retire.
 	claimPath(req.Composed, req.Claimed, dest, req.Pack, req.Observe)
-	// Components that RUN are delivered here (the destination tool loads the manifest, which
-	// is the point of tier A) — so say so. The install-time approval decided whether they may
-	// come at all; this is the always-warn half, because "a pack put a hook in my real home"
-	// is not something a user should have to read a lockfile to discover.
+	// Components that RUN are delivered here (the destination tool loads the plugin, which is
+	// the point of tier A) — so say so, for each one the plugin carries: declared in its
+	// manifest OR sitting at the default location the tool loads it from without one
+	// (pluginpack.Components), since the verbatim copy brings both. This is the always-warn
+	// half of the disclosure, because "a pack put a hook in my real home" is not something a
+	// user should have to read a footprint to discover.
 	for _, c := range req.Plugin.Components() {
 		if !c.RunsCode {
 			continue
@@ -139,7 +141,10 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 			detail = "would be delivered — " + c.Detail + " once your tool loads the plugin"
 		}
 		out = append(out, Result{
-			Name: name + ":" + c.Name, Path: req.Plugin.ManifestPath,
+			Name: name + ":" + c.Name,
+			// The SOURCE file or directory that carries it: the manifest when it declares the
+			// component, else the default location (hooks/hooks.json, bin/, …).
+			Path:   filepath.Join(req.Plugin.Dir, filepath.FromSlash(c.Sources[0])),
 			Action: wroteAction(req.Observe), Detail: detail,
 			// The components arrive with the tree, in the same copy, so they carry the tree's
 			// verdict. The ACTION stays the always-warn wording whatever the verdict — "a pack

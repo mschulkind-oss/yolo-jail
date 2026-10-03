@@ -249,6 +249,7 @@ reloads the hooks module"* (reference:68). Seeing it load in a live session is U
 
 > [!WARNING]
 > **yolo's disclosure cannot see a hooks module, or any plugin hook at its default location.**
+> (Fixed 2026-10-03, as build-order step 1 below; this callout records the finding.)
 > `pluginpack.Components` reports only the manifest's own fields, on the stated belief that *"a `hooks/` directory
 > with no manifest entry is inert to the tools"* ([pluginpack.go:153-166](../../internal/pluginpack/pluginpack.go#L153-L166)).
 > For Claude Code 2.1.288 that is false. `claude plugin validate` read the prototype's `hooks/hooks.json` and listed
@@ -358,6 +359,8 @@ Build order:
    code. This is worth doing whatever is ruled below, since it is live for every wrapped plugin today. Cover the
    other default locations in the same change: a root `.mcp.json`, a default monitors file and the `monitors` key,
    and `bin/` executables, each SOURCED in the changelog ([§6](#6-delivery-through-yolos-existing-plugin-mechanism)).
+   **Done 2026-10-03**, with `.lsp.json` too. What each report now says is in
+   [pack-system.md](../reference/pack-system.md#transparency-at-every-launch).
 2. **Ship the plugin dormant beside the `statusLine` default**, in a new `packs/claude/skills/yolo/`. It yields to
    yolo's own command, so nothing changes on screen yet. With step 1 in, every claude launch then discloses it
    ([§6](#6-delivery-through-yolos-existing-plugin-mechanism)). Extend the adapter tests to read its `FOOTER_ARGS`.

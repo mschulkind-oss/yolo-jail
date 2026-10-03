@@ -701,9 +701,11 @@ func FootprintOf(p *Pack) Footprint {
 	}
 
 	// A WRAPPED PLUGIN is a claim in its own right, and one the contributions cannot
-	// express: what it declares lives in ITS manifest, not in pack.json. So a plugin's
-	// components are invisible to the loop above — which for `hooks`/`mcpServers` would mean a
-	// pack that runs code on the user's behalf showing a footprint that says only "skills".
+	// express: what it carries lives in ITS manifest and at the default locations its tool
+	// loads without one (hooks/hooks.json, .mcp.json, bin/, …), not in pack.json. So a
+	// plugin's components are invisible to the loop above — which for hooks or MCP servers
+	// would mean a pack that runs code on the user's behalf showing a footprint that says only
+	// "skills".
 	// Reported under KindSkills because that is the kind that carries it (see the plugin
 	// contribution note in kinds.go), with a target no real `into` path can collide with
 	// (manifest paths may not contain a colon).
@@ -857,7 +859,8 @@ func configListShown(add json.RawMessage) string {
 }
 
 // pluginClaimDetail describes a wrapped plugin in one footprint line: the components it
-// declares, with the code-running ones marked, since those are what the review flag is about.
+// carries (pluginpack.Components: its manifest's and its default locations'), with the
+// code-running ones marked, since those are what the review flag is about.
 //
 // The word "RUNS CODE" is spelled out rather than left to the ⚠ marker because this claim is
 // the one place a user learns that installing a pack of "skills" also starts an MCP server.

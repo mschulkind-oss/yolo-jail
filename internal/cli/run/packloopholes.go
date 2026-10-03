@@ -317,10 +317,12 @@ func disclosureClassOfClaim(c packload.Claim) disclosureClass {
 //
 // ReviewWorthy is the discriminator because on THIS claim it is the code question: the
 // producer sets it from pluginpack.Plugin.RunsCode (footprint.go's Plugins loop), which is
-// true exactly when the manifest declares `hooks`, `mcpServers` or `lspServers`. A plugin
-// shipping only skills, commands or output styles is prose, keeps `skills`'s disclosureSkip,
-// and stays off the launch — announcing it is option (c), which OQ-TP10 rejected for burying
-// the hooks in the noise.
+// true exactly when the plugin carries hooks, MCP or LSP servers, monitors or `bin/`
+// executables — declared in its manifest or sitting at the default location Claude Code
+// loads them from without one (hooks/hooks.json, .mcp.json, .lsp.json,
+// monitors/monitors.json, bin/). A plugin shipping only skills, commands or output styles is
+// prose, keeps `skills`'s disclosureSkip, and stays off the launch — announcing it is option
+// (c), which OQ-TP10 rejected for burying the hooks in the noise.
 func pluginCodeClaim(c packload.Claim) bool {
 	return c.Kind == packdecl.KindSkills &&
 		strings.HasPrefix(c.Target, pluginClaimTargetPrefix) && c.ReviewWorthy
@@ -609,9 +611,10 @@ func jailDaemonSummary(names []string) string {
 	return s + " — " + strings.Join(names, ", ")
 }
 
-// jailCodeSummary is one pack's counted line. The component order is the manifest's own
-// (pluginpack.Components returns a fixed order), so two launches of one pack print the same
-// line and a reader can compare them.
+// jailCodeSummary is one pack's counted line. The component order is pluginpack.Components'
+// fixed one, so two launches of one pack print the same line and a reader can compare them.
+// A count is of plugins carrying the component, never of files: a plugin whose hooks are both
+// in its manifest and in hooks/hooks.json counts once (pluginpack.Component.Sources).
 func jailCodeSummary(plugins int, order []string, counts map[string]int) string {
 	s := strconv.Itoa(plugins) + " wrapped plugin runs code in the jail"
 	if plugins != 1 {

@@ -3542,13 +3542,26 @@ other two ([`OQ-RO3`](report-tiers.md#why-its-this-way): a launch has no quiet m
 > exec, so a new kind's claims are announced before anything spawns even before someone writes
 > the row down — correct at runtime, loud in review.
 
-> [!WARNING]
-> **A wrapped plugin's `hooks` and `mcpServers` are reported under the `skills` kind, which the
-> banner's filter classifies as skip.** They therefore show in `yolo pack footprint` and in **no
-> launch banner**, while the agent runs the hook at every tool call. Tracked as
-> [`OQ-TP10`](../design/trust-paths.md#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner) in [`../design/trust-paths.md`](../design/trust-paths.md), and pinned where the behaviour
-> actually is by `run.TestWrappedPluginHooksAreDeliveredAndDisclosed`, whose doc comment names
-> the banner as the gap.
+**A wrapped plugin's code is disclosed as JAIL code**, a fourth class beside read, exec and skip
+([`OQ-TP10`](../design/trust-paths.md#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)).
+The claim is reported under the `skills` kind, which stays skip, and is reclassified per claim
+when the plugin runs code. What counts as code is a plugin's hooks, MCP and LSP servers,
+monitors and `bin/` executables. Each counts whether the plugin's manifest declares it or it
+sits at the default location Claude Code loads without one: `hooks/hooks.json` (classic hooks,
+and a hooks module's `modules` entry), `.mcp.json`, `.lsp.json`, `monitors/monitors.json` and
+`bin/`. One component found both ways counts once
+([`pluginpack.Components`](../../internal/pluginpack/pluginpack.go); the table is
+[trust-paths.md's](../design/trust-paths.md#where-a-pin-would-change-the-outcome)). That one reading feeds every report:
+
+| Where | What it says |
+| :--- | :--- |
+| every launch, every backend | one counted line per pack, `<pack>: 1 wrapped plugin runs code in the jail — hooks (1), mcpServers (1), monitors (1), bin (1)` (`run.notePackJailCode`, unsuppressible) |
+| `yolo pack footprint` | `plugin:<name>  wrapped agent plugin declaring hooks, … — RUNS CODE ⚠ review` |
+| `yolo pack init --from-plugin` | one line per component, with `⚠ RUNS CODE` and the file or directory that carries it |
+| `yolo host apply` | at a namespaced destination, `<plugin>:<component>  … delivered — <what it does> once your tool loads the plugin` under `--verbose`. At a flat one, the component refused by name in the default view, and kept out of the copy |
+
+A plugin of skills, commands, agents and output styles alone runs nothing and stays off the
+launch.
 
 ## Command surface
 

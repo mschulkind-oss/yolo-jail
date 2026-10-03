@@ -28,6 +28,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
@@ -113,27 +114,30 @@ func packInitFromPlugin(pluginDir, packRoot, name string, out, errw io.Writer) i
 		return rc
 	}
 
-	// Report what the plugin declares, with the code-running components called out. This is
+	// Report what the plugin carries, with the code-running components called out. This is
 	// the moment the user is deciding whether to trust the thing, so it is the moment to say
 	// what it does — not at the next launch's disclosure banner, and certainly not at first
-	// apply.
+	// apply. Each line names where the component sits, because one found at its default
+	// location (hooks/hooks.json, bin/, …) is named nowhere in the manifest the user may have
+	// read.
 	fmt.Fprintf(out, "\nWrapped plugin %s (from %s)\n", pluginName, pluginAbs)
 	comps := plugin.Components()
 	if len(comps) == 0 {
-		fmt.Fprintf(out, "  declares skills only.\n")
+		fmt.Fprintf(out, "  carries skills only.\n")
 	} else {
-		fmt.Fprintf(out, "  declares:\n")
+		fmt.Fprintf(out, "  carries:\n")
 		for _, c := range comps {
 			flag := ""
 			if c.RunsCode {
 				flag = "   ⚠ RUNS CODE"
 			}
-			fmt.Fprintf(out, "    %-14s %s%s\n", c.Name, c.Detail, flag)
+			fmt.Fprintf(out, "    %-14s %s%s  (%s)\n", c.Name, c.Detail, flag,
+				strings.Join(c.Sources, ", "))
 		}
 	}
 	if plugin.RunsCode() {
 		fmt.Fprintf(out, "\n  Those components run code on your behalf. On a namespaced "+
-			"destination they are DELIVERED (the tool loads the plugin's manifest); on a flat "+
+			"destination they are DELIVERED (the tool loads the plugin); on a flat "+
 			"one they are refused by name. Nothing asks you to approve them later, from a git "+
 			"address or anywhere else: selecting the pack in your config is the consent, and "+
 			"`yolo pack footprint` is where to review what it runs.\n")

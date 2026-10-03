@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack/pluginpacktest"
 )
 
 // writeSourcePlugin creates a plugin tree to wrap, under t.TempDir().
@@ -187,5 +189,36 @@ func TestPlainInitStillScaffoldsTheExampleSkill(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "pack.json")); err == nil {
 		t.Error("plain init must stay zero-ceremony — no pack.json")
+	}
+}
+
+// A component at Claude Code's DEFAULT location is named at init time too, with where it sits:
+// the manifest the user may have read names none of them.
+func TestInitFromPluginNamesDefaultLocationCode(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "acme-tools")
+	pluginpacktest.WriteDefaultLocationPlugin(t, src, "acme-tools")
+	packDir := filepath.Join(t.TempDir(), "wrapper")
+
+	var out, errw bytes.Buffer
+	if rc := packMain([]string{"init", "--from-plugin", src, packDir},
+		&out, &errw, false); rc != 0 {
+		t.Fatalf("rc = %d: %s", rc, errw.String())
+	}
+	lines := strings.Split(out.String(), "\n")
+	for comp, where := range map[string]string{
+		"hooks": "hooks/hooks.json", "mcpServers": ".mcp.json",
+		"monitors": "monitors/monitors.json", "bin": "bin",
+	} {
+		var found bool
+		for _, l := range lines {
+			f := strings.Fields(l)
+			if len(f) > 0 && f[0] == comp && strings.Contains(l, "RUNS CODE") &&
+				strings.Contains(l, "("+where+")") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("init did not name %s as code at %s:\n%s", comp, where, out.String())
+		}
 	}
 }

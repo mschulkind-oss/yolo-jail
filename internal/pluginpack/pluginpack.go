@@ -15,12 +15,19 @@
 //
 //   - the NAME, because it is the destination directory AND the namespace the tools
 //     qualify the plugin's skills with (`<name>:<skill>`);
-//   - WHICH COMPONENTS are declared, because some of them are CODE THAT RUNS. A plugin is
-//     someone else's repo, and `hooks`/`mcpServers`/`lspServers` mean processes started on
-//     the user's behalf. Those are what the footprint's ⚠ RUNS CODE line reports
-//     (packload.FootprintOf), and a manifest yolo failed to notice would be hooks nobody
-//     was told about. They were an APPROVAL question until OQ-TP9 deleted the prompt
-//     (docs/design/trust-paths.md, 2026-09-04); they are a DISCLOSURE question now.
+//   - WHICH COMPONENTS it carries, because some of them are CODE THAT RUNS. A plugin is
+//     someone else's repo, and hooks, MCP and LSP servers, monitors and `bin/` executables
+//     mean processes started on the user's behalf. Those are what the footprint's ⚠ RUNS
+//     CODE line reports (packload.FootprintOf), and a component yolo failed to notice would
+//     be hooks nobody was told about. They were an APPROVAL question until OQ-TP9 deleted the
+//     prompt (docs/design/trust-paths.md, 2026-09-04); they are a DISCLOSURE question now.
+//
+// "Carries" is the manifest AND the filesystem. Claude Code gives every component a default
+// location it loads when the manifest is silent (hooks/hooks.json, .mcp.json, .lsp.json,
+// monitors/monitors.json, bin/, …: the "Standard layout" table of
+// https://code.claude.com/docs/en/plugins-reference), so a manifest-only reading misses code
+// that runs. That reading is the one thing here that is not a pass-through: the defaults are
+// listed in the components table below, beside the fields they stand in for.
 //
 // It is dependency-free on the rest of the repo, for the same reason packdecl is: both the
 // host CLI (footprint, `pack init`) and the host renderer read it.
@@ -78,6 +85,27 @@ type Manifest struct {
 	LSPServers json.RawMessage `json:"lspServers"`
 
 	OutputStyles json.RawMessage `json:"outputStyles"`
+
+	// Monitors is the top-level spelling of a plugin's background monitors, which Claude Code
+	// still loads with a `claude plugin validate` warning; Experimental carries the current
+	// one, `experimental.monitors`. Experimental stays raw for the reason every field here
+	// does: typing it would make a manifest with any other shape there unreadable, and an
+	// unreadable manifest is not a plugin at all, so its hooks would be disclosed nowhere.
+	Monitors     json.RawMessage `json:"monitors"`
+	Experimental json.RawMessage `json:"experimental"`
+}
+
+// monitors is the declared monitors value: `experimental.monitors` when present, else the
+// top-level `monitors`.
+func (m Manifest) monitors() json.RawMessage {
+	var exp struct {
+		Monitors json.RawMessage `json:"monitors"`
+	}
+	if declared(m.Experimental) && json.Unmarshal(m.Experimental, &exp) == nil &&
+		declared(exp.Monitors) {
+		return exp.Monitors
+	}
+	return m.Monitors
 }
 
 // Plugin is one recognized plugin tree.
@@ -114,9 +142,10 @@ func (p *Plugin) Name() string {
 	return filepath.Base(p.Dir)
 }
 
-// Component is one thing a plugin manifest declares, as yolo reports it.
+// Component is one thing a plugin carries, as yolo reports it.
 type Component struct {
-	// Name is the manifest field ("hooks", "mcpServers", …).
+	// Name is the manifest field ("hooks", "mcpServers", …), or "bin" for the executables
+	// directory, which has no field.
 	Name string
 	// Detail is a one-line human note for the footprint and refusal lines.
 	Detail string
@@ -125,46 +154,135 @@ type Component struct {
 	// (internal/packload/footprint.go). It gated an install approval until that
 	// approval was deleted; disclosure is what it feeds now.
 	RunsCode bool
+	// Sources is where the plugin carries it, plugin-relative and slash-separated: the
+	// manifest file when a manifest field declares it, then the default location when Claude
+	// Code loads that too. At least one entry. A component named both ways is ONE component
+	// with two sources, so a count of components is a count of kinds of code, never of files.
+	Sources []string
 }
 
-// components is the closed description of what yolo reports per manifest field, with the
+// defaultShape is what makes a default location present.
+type defaultShape int
+
+const (
+	// defaultFile is present when a file (not a directory) sits there.
+	defaultFile defaultShape = iota
+	// defaultDir is present when a directory with at least one entry sits there. An empty
+	// directory loads nothing.
+	defaultDir
+	// defaultExecDir is present when a directory sits there holding at least one entry that
+	// is not a directory: `bin/` goes on a shell's PATH, and a PATH lookup never descends.
+	defaultExecDir
+)
+
+// components is the closed description of what yolo reports per component, with the
 // code-running verdict attached. `skills` is absent on purpose: it is the one component
 // yolo models itself, so it is delivered rather than reported as a pass-through.
+//
+// The order is the report's: code first, then prose. Two launches of one pack print the same
+// line only because this order is fixed.
+//
+// def and merges are Claude Code's, verified against its plugin reference
+// (https://code.claude.com/docs/en/plugins-reference, "Standard layout" and "How each key
+// combines with its default location", read 2026-10-03) and its changelog:
+//
+//   - hooks/hooks.json, .mcp.json and .lsp.json MERGE with the manifest field: the default
+//     file loads first, then what the manifest declares. hooks/hooks.json also carries the
+//     `modules` key of a JavaScript or TypeScript hooks module (Claude Code 2.1.287's mods),
+//     which runs inside the agent itself.
+//   - monitors/monitors.json, commands/, agents/ and output-styles/ are REPLACED by their field:
+//     a manifest that sets one loads its paths and not the default.
+//   - bin/ has no field: "Files in bin/ at the plugin root are on the PATH of the Bash tool's
+//     shell while the plugin is enabled" (changelog 2.1.91: "Plugins can now ship executables
+//     under bin/ and invoke them as bare commands from the Bash tool").
 var components = []struct {
 	name     string
 	detail   string
 	runsCode bool
-	pick     func(Manifest) json.RawMessage
+	// pick is the manifest field's value; nil when the component has no field.
+	pick func(Manifest) json.RawMessage
+	// def is the plugin-relative default location, slash-separated; "" for none.
+	def   string
+	shape defaultShape
+	// merges says the default loads beside a declaration rather than being replaced by it.
+	merges bool
 }{
 	{"hooks", "runs code at agent lifecycle events", true,
-		func(m Manifest) json.RawMessage { return m.Hooks }},
+		func(m Manifest) json.RawMessage { return m.Hooks }, "hooks/hooks.json", defaultFile, true},
 	{"mcpServers", "starts MCP server processes", true,
-		func(m Manifest) json.RawMessage { return m.MCPServers }},
+		func(m Manifest) json.RawMessage { return m.MCPServers }, ".mcp.json", defaultFile, true},
 	{"lspServers", "starts language server processes", true,
-		func(m Manifest) json.RawMessage { return m.LSPServers }},
+		func(m Manifest) json.RawMessage { return m.LSPServers }, ".lsp.json", defaultFile, true},
+	{"monitors", "runs background shell commands for the whole session", true,
+		Manifest.monitors, "monitors/monitors.json", defaultFile, false},
+	{"bin", "puts executables on the agent's shell PATH", true,
+		nil, "bin", defaultExecDir, false},
 	{"commands", "adds slash commands (prompt text)", false,
-		func(m Manifest) json.RawMessage { return m.Commands }},
+		func(m Manifest) json.RawMessage { return m.Commands }, "commands", defaultDir, false},
 	{"agents", "adds sub-agent definitions", false,
-		func(m Manifest) json.RawMessage { return m.Agents }},
+		func(m Manifest) json.RawMessage { return m.Agents }, "agents", defaultDir, false},
 	{"outputStyles", "adds output styles", false,
-		func(m Manifest) json.RawMessage { return m.OutputStyles }},
+		func(m Manifest) json.RawMessage { return m.OutputStyles }, "output-styles", defaultDir, false},
 }
 
-// Components returns the non-skill components this plugin declares, in a stable order.
-// Nothing is inferred from the filesystem: a `hooks/` directory with no manifest entry is
-// inert to the tools, so reporting it would cry wolf.
+// Components returns the non-skill components this plugin carries, in a stable order: each
+// one its manifest declares, and each one sitting at the default location Claude Code loads
+// it from (see components). Inferring from the filesystem is not crying wolf: a
+// hooks/hooks.json with no manifest entry runs, which `claude plugin validate` shows by
+// listing its hooks. What is reported is only what would load — a hooks/ directory without
+// hooks.json, an empty bin/, a default a replacing field overrides — so a prose plugin stays
+// unflagged.
 func (p *Plugin) Components() []Component {
 	var out []Component
 	for _, c := range components {
-		if !declared(c.pick(p.Manifest)) {
+		var sources []string
+		isDeclared := c.pick != nil && declared(c.pick(p.Manifest))
+		if isDeclared {
+			sources = append(sources, p.ManifestRel())
+		}
+		if c.def != "" && (c.merges || !isDeclared) && defaultPresent(p.Dir, c.def, c.shape) {
+			sources = append(sources, c.def)
+		}
+		if len(sources) == 0 {
 			continue
 		}
-		out = append(out, Component{Name: c.name, Detail: c.detail, RunsCode: c.runsCode})
+		out = append(out, Component{Name: c.name, Detail: c.detail, RunsCode: c.runsCode,
+			Sources: sources})
 	}
 	return out
 }
 
-// RunsCode reports whether any declared component starts a process or runs a script.
+// defaultPresent reports whether a component's default location holds something Claude Code
+// would load. Stat, not Lstat: the tools follow a symlinked file or directory, so a disclosure
+// that did not would miss what they load.
+func defaultPresent(dir, rel string, shape defaultShape) bool {
+	path := filepath.Join(dir, filepath.FromSlash(rel))
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if shape == defaultFile {
+		return !fi.IsDir()
+	}
+	if !fi.IsDir() {
+		return false
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if shape == defaultDir {
+			return true
+		}
+		if sub, err := os.Stat(filepath.Join(path, e.Name())); err == nil && !sub.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+// RunsCode reports whether any component it carries starts a process or runs a script.
 func (p *Plugin) RunsCode() bool {
 	for _, c := range p.Components() {
 		if c.RunsCode {
@@ -275,8 +393,9 @@ func (p *Plugin) SkillDirs() map[string]string {
 // turns the refusal into a cosmetic message while the components land anyway, which is worse
 // than either delivering or refusing honestly.
 //
-// Driven by the manifest rather than by a hardcoded dir list, because the point is to exclude
-// what THIS plugin says its components are, not what a plugin usually calls them.
+// Driven by the manifest, because the point is to exclude what THIS plugin says its components
+// are, and by the components table's default locations, the same table Components reads, so
+// what a flat delivery refuses by name and what it keeps out of the copy cannot disagree.
 func (p *Plugin) ComponentPaths() []string {
 	var out []string
 	for _, sub := range manifestDirs {
@@ -292,12 +411,7 @@ func (p *Plugin) ComponentPaths() []string {
 	// missed the real directory, which a running test caught. A component declared as an inline
 	// object (hooks as a map, say) has no path to exclude at all: its content lives in the
 	// manifest, already excluded above.
-	for field, raw := range map[string]json.RawMessage{
-		"skills": p.Manifest.Skills, "commands": p.Manifest.Commands,
-		"agents": p.Manifest.Agents, "hooks": p.Manifest.Hooks,
-		"mcpServers": p.Manifest.MCPServers, "lspServers": p.Manifest.LSPServers,
-		"outputStyles": p.Manifest.OutputStyles,
-	} {
+	exclude := func(field string, raw json.RawMessage) {
 		out = append(out, filepath.Join(p.Dir, field), filepath.Join(p.Dir, kebab(field)))
 		paths, _, _ := pathSpec(raw)
 		for _, rel := range paths {
@@ -310,9 +424,19 @@ func (p *Plugin) ComponentPaths() []string {
 			out = append(out, abs)
 		}
 	}
-	// `.mcp.json` is the conventional sibling file an mcpServers entry points at, and it is
-	// plugin machinery wherever it is named from.
-	out = append(out, filepath.Join(p.Dir, ".mcp.json"))
+	exclude("skills", p.Manifest.Skills)
+	for _, c := range components {
+		// Each component's DEFAULT location too, by its top-level entry (`hooks/` for
+		// hooks/hooks.json, `.mcp.json`, `bin/`): it is plugin machinery whether or not the
+		// manifest names it, and Components reports it as refused on a flat destination.
+		if c.def != "" {
+			top, _, _ := strings.Cut(c.def, "/")
+			out = append(out, filepath.Join(p.Dir, top))
+		}
+		if c.pick != nil {
+			exclude(c.name, c.pick(p.Manifest))
+		}
+	}
 	return dedupe(out)
 }
 
