@@ -169,23 +169,41 @@ func TestTheSessionCountLeavesOutAHoldMainProcess(t *testing.T) {
 // launcher is dead, is not entered; the refusal names what runs in it and `yolo stop`. A jail whose
 // keeper is alive, or whose older launcher still is, or that records no owner at all, is entered as
 // it always was.
+//
+// The remedy is the same on Apple Container: run 37133569003 (2026-10-03, at 5ca9b7485) recorded
+// the refusal there naming `container stop <name>`, which ends the jail without waiting for its
+// teardown, and b60178182 made every remedy name `yolo stop`, which JL-D79 lets read an Apple
+// Container jail.
 func TestAnArrivalAtAJailWhoseKeeperIsGoneIsRefused(t *testing.T) {
 	const cname = "yolo-ws-abcd1234"
-	for _, tc := range []struct {
+	type arrival struct {
 		name          string
 		owner         string
 		alive, record bool
 		keeperHolds   bool
 		refuse        bool
-	}{
-		{"a keeper that died", "4242", false, true, false, true},
-		{"a keeper whose pid was reused", "4242", true, true, false, true},
-		{"an earlier launcher that died", "4242", false, false, false, true},
-		{"a live keeper", "4242", false, true, true, false},
-		{"an earlier launcher still alive", "4242", true, false, false, false},
-		{"no owner recorded", "", false, false, false, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+	}
+	var cases []struct {
+		rt string
+		arrival
+	}
+	for _, rt := range []string{"podman", "container"} {
+		for _, a := range []arrival{
+			{"a keeper that died", "4242", false, true, false, true},
+			{"a keeper whose pid was reused", "4242", true, true, false, true},
+			{"an earlier launcher that died", "4242", false, false, false, true},
+			{"a live keeper", "4242", false, true, true, false},
+			{"an earlier launcher still alive", "4242", true, false, false, false},
+			{"no owner recorded", "", false, false, false, false},
+		} {
+			cases = append(cases, struct {
+				rt string
+				arrival
+			}{rt, a})
+		}
+	}
+	for _, tc := range cases {
+		t.Run(tc.rt+"/"+tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			o := goldenOptions("/ws", t.TempDir())
 			var errBuf bytes.Buffer
@@ -214,12 +232,15 @@ func TestAnArrivalAtAJailWhoseKeeperIsGoneIsRefused(t *testing.T) {
 				}
 				defer releaseLock(live)
 			}
-			if got := o.refuseUnkeptJail(cname, "podman"); got != tc.refuse {
+			if got := o.refuseUnkeptJail(cname, tc.rt); got != tc.refuse {
 				t.Fatalf("refused=%v, want %v:\n%s", got, tc.refuse, errBuf.String())
 			}
 			if tc.refuse && (!strings.Contains(errBuf.String(), "Refusing to enter "+cname) ||
 				!strings.Contains(errBuf.String(), "'yolo stop' from this workspace")) {
 				t.Errorf("the refusal does not name the jail and the remedy:\n%s", errBuf.String())
+			}
+			if strings.Contains(errBuf.String(), "container stop") {
+				t.Errorf("the refusal names `container stop`, which skips the keeper's teardown:\n%s", errBuf.String())
 			}
 		})
 	}
