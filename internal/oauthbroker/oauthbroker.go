@@ -316,8 +316,14 @@ func getOrNil(m *jsonx.OrderedMap, key string) any {
 //     rule (2.1.288: `formatTokens` for a login, `Kk` for every save, which
 //     carries the stored value only after its check that the stored record
 //     holds the refresh token just redeemed).
-//   - scopes only synthesized from response `scope` when absent in previous
-//     (and never an empty list)
+//   - scopes is the response's `scope` string split on spaces when that
+//     holds at least one scope; else, by the same rule as the deadline,
+//     previous's list only within one login; else removed, and never an
+//     empty list.
+//     Claude Code itself takes the response's `scope` on a login and on a
+//     refresh alike (2.1.288: `scopes:Evn(e.scope)` in `formatTokens`,
+//     `Evn(B.scope)` in its refresh, and `Kk` saves that list, never the
+//     stored one).
 func NormalizeOAuth(upstream, previous *jsonx.OrderedMap, redeemed string) *jsonx.OrderedMap {
 	expiresIn := int64(3600)
 	if v, ok := upstream.Get("expires_in"); ok {
@@ -339,28 +345,43 @@ func NormalizeOAuth(upstream, previous *jsonx.OrderedMap, redeemed string) *json
 		out.Set("refreshToken", rt)
 	}
 	out.Set("expiresAt", jsonx.IntValue(now+expiresIn*1000))
+	// sameLogin: the response rotated previous's own refresh token, a refresh within one login.
+	// Only then may a field that belongs to the login, not to the response, be carried forward.
+	prevRT, _ := stringField(previous, "refreshToken")
+	sameLogin := redeemed != "" && redeemed == prevRT
 	if n, ok := refreshTokenExpiresIn(upstream); ok {
 		out.Set(refreshTokenExpiresAtKey, jsonx.IntValue(now+n*1000))
-	} else if prevRT, _ := stringField(previous, "refreshToken"); redeemed == "" || redeemed != prevRT {
+	} else if !sameLogin {
 		out.Delete(refreshTokenExpiresAtKey)
 	}
-	if _, has := out.Get("scopes"); !has {
-		scopeStr := ""
-		if v, ok := upstream.Get("scope"); ok {
-			if s, ok := v.(string); ok {
-				scopeStr = s
-			}
-		}
-		fields := strings.Fields(scopeStr)
-		if len(fields) > 0 {
-			arr := make([]any, len(fields))
-			for i, f := range fields {
-				arr[i] = f
-			}
-			out.Set("scopes", arr)
-		}
+	if scopes := responseScopes(upstream); len(scopes) > 0 {
+		out.Set("scopes", scopes)
+	} else if !sameLogin {
+		out.Delete("scopes")
 	}
 	return out
+}
+
+// responseScopes splits a token response's `scope` string on whitespace; nil when the member is
+// absent, not a string, or holds no scope.
+func responseScopes(upstream *jsonx.OrderedMap) []any {
+	v, ok := upstream.Get("scope")
+	if !ok {
+		return nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return nil
+	}
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return nil
+	}
+	arr := make([]any, len(fields))
+	for i, f := range fields {
+		arr[i] = f
+	}
+	return arr
 }
 
 // refreshTokenExpiresIn reads a token response's refresh_token_expires_in, in seconds, when it
