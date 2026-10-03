@@ -16,24 +16,26 @@
 //   - the NAME, because it is the destination directory AND the namespace the tools
 //     qualify the plugin's skills with (`<name>:<skill>`);
 //   - WHICH COMPONENTS it carries, because some of them are CODE THAT RUNS. A plugin is
-//     someone else's repo, and hooks, MCP and LSP servers, monitors and `bin/` executables
-//     mean processes started on the user's behalf. Those are what the footprint's ⚠ RUNS
-//     CODE line reports (packload.FootprintOf), and a component yolo failed to notice would
-//     be hooks nobody was told about. They were an APPROVAL question until OQ-TP9 deleted the
+//     someone else's repo, and hooks, MCP and LSP servers, monitors, `bin/` executables and a
+//     subagent status line mean processes started on the user's behalf. Those are what the
+//     footprint's ⚠ RUNS CODE line reports (packload.FootprintOf), and a component yolo failed
+//     to notice would be hooks nobody was told about. They were an APPROVAL question until OQ-TP9 deleted the
 //     prompt (docs/design/trust-paths.md, 2026-09-04); they are a DISCLOSURE question now.
 //
-// "Carries" is the manifest AND the filesystem. Claude Code gives every component a default
+// "Carries" is every manifest AND the filesystem. Claude Code gives every component a default
 // location it loads when the manifest is silent (hooks/hooks.json, .mcp.json, .lsp.json,
-// monitors/monitors.json, bin/, …: the "Standard layout" table of
+// monitors/monitors.json, bin/, settings.json, …: the "Standard layout" table of
 // https://code.claude.com/docs/en/plugins-reference), so a manifest-only reading misses code
-// that runs. That reading is the one thing here that is not a pass-through: the defaults are
-// listed in the components table below, beside the fields they stand in for.
+// that runs; and the tools disagree about which manifest is the plugin's (see manifestDirs).
+// That reading is the one thing here that is not a pass-through: the defaults are listed in
+// the components table below, beside the fields they stand in for.
 //
 // It is dependency-free on the rest of the repo, for the same reason packdecl is: both the
 // host CLI (footprint, `pack init`) and the host renderer read it.
 package pluginpack
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -48,8 +50,12 @@ import (
 //
 // All four are recognized even though Claude reads only `.claude-plugin/`, because
 // recognition drives the TRUST report: a manifest yolo did not notice is a manifest whose
-// hooks were never surfaced for approval. Which one was found is recorded (Plugin.Manifest
-// Path) so delivery writes its ownership marker back into the same file.
+// hooks were never surfaced. And every one PRESENT is read, not only the first, because the
+// tools disagree about which is the plugin's: Copilot takes the first in this order that
+// parses, while Claude Code reads `.claude-plugin/plugin.json` whatever else sits beside it
+// (measured on 2.1.288), so a component-free `plugin.json` at the root used to hide the
+// manifest Claude Code runs. Which one is primary is recorded (Plugin.ManifestPath) so
+// delivery writes its ownership marker back into the same file.
 var manifestDirs = []string{".plugin", ".", ".github/plugin", ".claude-plugin"}
 
 // manifestName is the manifest file inside one of manifestDirs.
@@ -93,6 +99,22 @@ type Manifest struct {
 	// unreadable manifest is not a plugin at all, so its hooks would be disclosed nowhere.
 	Monitors     json.RawMessage `json:"monitors"`
 	Experimental json.RawMessage `json:"experimental"`
+
+	// Settings is the inline form of the plugin's root settings.json. Of the two keys Claude
+	// Code honors there, `subagentStatusLine` is a shell command it runs to draw each
+	// subagent's row in the agent panel; `agent` names one of the plugin's own agents.
+	Settings json.RawMessage `json:"settings"`
+}
+
+// subagentStatusLine is the manifest's `settings.subagentStatusLine`.
+func (m Manifest) subagentStatusLine() json.RawMessage {
+	var s struct {
+		Line json.RawMessage `json:"subagentStatusLine"`
+	}
+	if declared(m.Settings) && json.Unmarshal(m.Settings, &s) == nil {
+		return s.Line
+	}
+	return nil
 }
 
 // monitors is the declared monitors value: `experimental.monitors` when present, else the
@@ -116,6 +138,21 @@ type Plugin struct {
 	ManifestPath string
 	// Manifest is what it declared.
 	Manifest Manifest
+
+	// others is every OTHER manifest the tree carries that parses, in manifestDirs order.
+	// Components and ComponentPaths read them beside Manifest (see manifestDirs).
+	others []foundManifest
+}
+
+// foundManifest is one parsed manifest and its plugin-relative, slash-separated path.
+type foundManifest struct {
+	rel string
+	m   Manifest
+}
+
+// manifests is the primary manifest, then the others.
+func (p *Plugin) manifests() []foundManifest {
+	return append([]foundManifest{{rel: p.ManifestRel(), m: p.Manifest}}, p.others...)
 }
 
 // ManifestRel is the manifest's path relative to the plugin dir, slash-separated. Delivery
@@ -173,6 +210,9 @@ const (
 	// defaultExecDir is present when a directory sits there holding at least one entry that
 	// is not a directory: `bin/` goes on a shell's PATH, and a PATH lookup never descends.
 	defaultExecDir
+	// defaultKeyInFile is present when a JSON object sits there declaring the component's own
+	// name as a key: a root settings.json counts for subagentStatusLine only when it sets it.
+	defaultKeyInFile
 )
 
 // components is the closed description of what yolo reports per component, with the
@@ -195,6 +235,10 @@ const (
 //   - bin/ has no field: "Files in bin/ at the plugin root are on the PATH of the Bash tool's
 //     shell while the plugin is enabled" (changelog 2.1.91: "Plugins can now ship executables
 //     under bin/ and invoke them as bare commands from the Bash tool").
+//   - subagentStatusLine is a setting, in a root settings.json or the manifest's `settings`,
+//     and settings.json "takes precedence over this key" (the reference's `settings` row). It
+//     is listed as merging so that both are reported when both are present: which one wins
+//     decides only which command runs, not whether one does.
 var components = []struct {
 	name     string
 	detail   string
@@ -217,6 +261,8 @@ var components = []struct {
 		Manifest.monitors, "monitors/monitors.json", defaultFile, false},
 	{"bin", "puts executables on the agent's shell PATH", true,
 		nil, "bin", defaultExecDir, false},
+	{"subagentStatusLine", "runs a shell command to draw each subagent's status row", true,
+		Manifest.subagentStatusLine, "settings.json", defaultKeyInFile, true},
 	{"commands", "adds slash commands (prompt text)", false,
 		func(m Manifest) json.RawMessage { return m.Commands }, "commands", defaultDir, false},
 	{"agents", "adds sub-agent definitions", false,
@@ -226,21 +272,28 @@ var components = []struct {
 }
 
 // Components returns the non-skill components this plugin carries, in a stable order: each
-// one its manifest declares, and each one sitting at the default location Claude Code loads
-// it from (see components). Inferring from the filesystem is not crying wolf: a
-// hooks/hooks.json with no manifest entry runs, which `claude plugin validate` shows by
-// listing its hooks. What is reported is only what would load — a hooks/ directory without
+// one any of its manifests declares (see manifestDirs), and each one sitting at the default
+// location Claude Code loads it from (see components). Inferring from the filesystem is not
+// crying wolf: a hooks/hooks.json with no manifest entry runs, which `claude plugin validate`
+// shows by listing its hooks. What is reported is only what would load — a hooks/ directory without
 // hooks.json, an empty bin/, a default a replacing field overrides — so a prose plugin stays
 // unflagged.
 func (p *Plugin) Components() []Component {
 	var out []Component
+	manifests := p.manifests()
 	for _, c := range components {
 		var sources []string
-		isDeclared := c.pick != nil && declared(c.pick(p.Manifest))
-		if isDeclared {
-			sources = append(sources, p.ManifestRel())
+		if c.pick != nil {
+			for _, fm := range manifests {
+				if declared(c.pick(fm.m)) {
+					sources = append(sources, fm.rel)
+				}
+			}
 		}
-		if c.def != "" && (c.merges || !isDeclared) && defaultPresent(p.Dir, c.def, c.shape) {
+		// A replacing key overrides its default only for a tool whose manifest sets it, so the
+		// default still loads unless EVERY manifest a tool might read sets it.
+		replaced := !c.merges && len(sources) == len(manifests)
+		if c.def != "" && !replaced && defaultPresent(p.Dir, c.def, c.shape, c.name) {
 			sources = append(sources, c.def)
 		}
 		if len(sources) == 0 {
@@ -255,7 +308,7 @@ func (p *Plugin) Components() []Component {
 // defaultPresent reports whether a component's default location holds something Claude Code
 // would load. Stat, not Lstat: the tools follow a symlinked file or directory, so a disclosure
 // that did not would miss what they load.
-func defaultPresent(dir, rel string, shape defaultShape) bool {
+func defaultPresent(dir, rel string, shape defaultShape, key string) bool {
 	path := filepath.Join(dir, filepath.FromSlash(rel))
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -263,6 +316,11 @@ func defaultPresent(dir, rel string, shape defaultShape) bool {
 	}
 	if shape == defaultFile {
 		return !fi.IsDir()
+	}
+	if shape == defaultKeyInFile {
+		data, err := os.ReadFile(path)
+		var obj map[string]json.RawMessage
+		return err == nil && json.Unmarshal(trimBOM(data), &obj) == nil && declared(obj[key])
 	}
 	if !fi.IsDir() {
 		return false
@@ -424,7 +482,10 @@ func (p *Plugin) ComponentPaths() []string {
 			out = append(out, abs)
 		}
 	}
-	exclude("skills", p.Manifest.Skills)
+	manifests := p.manifests()
+	for _, fm := range manifests {
+		exclude("skills", fm.m.Skills)
+	}
 	for _, c := range components {
 		// Each component's DEFAULT location too, by its top-level entry (`hooks/` for
 		// hooks/hooks.json, `.mcp.json`, `bin/`): it is plugin machinery whether or not the
@@ -434,40 +495,64 @@ func (p *Plugin) ComponentPaths() []string {
 			out = append(out, filepath.Join(p.Dir, top))
 		}
 		if c.pick != nil {
-			exclude(c.name, c.pick(p.Manifest))
+			for _, fm := range manifests {
+				exclude(c.name, c.pick(fm.m))
+			}
 		}
 	}
 	return dedupe(out)
 }
 
-// Load reads the plugin manifest in dir, returning ok=false when dir is not plugin-shaped.
+// Load reads the plugin manifests in dir, returning ok=false when dir is not plugin-shaped.
+// The first manifest in manifestDirs order that parses is the primary one, the one Copilot
+// reads; every other one that parses is kept, because Claude Code may read it instead.
 //
-// A malformed manifest reads as NOT a plugin rather than as an error, and that direction is
-// deliberate: the caller's alternative is to fail an entire pack load over a file it only
-// consults to be generous. The tree still stages as ordinary content, and the tools
-// themselves log the parse failure — where the plugin's author can act on it.
+// A tree whose every manifest is malformed reads as NOT a plugin rather than as an error, and
+// that direction is deliberate: the caller's alternative is to fail an entire pack load over a
+// file it only consults to be generous. The tree still stages as ordinary content, and the
+// tools themselves log the parse failure — where the plugin's author can act on it. One
+// malformed manifest beside a sound one does not unmake the plugin: Copilot skips it and reads
+// the next, and Claude Code never reads a root one, so treating the tree as ordinary content
+// would copy a loadable plugin whole into a flat skills dir with nothing refused.
 func Load(dir string) (*Plugin, bool) {
-	path, ok := ManifestPath(dir)
-	if !ok {
-		return nil, false
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false
-	}
-	var m Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, false
-	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		abs = dir
 	}
-	absManifest, err := filepath.Abs(path)
-	if err != nil {
-		absManifest = path
+	var found []foundManifest
+	primary := ""
+	for _, sub := range manifestDirs {
+		path := filepath.Join(dir, sub, manifestName)
+		if fi, err := os.Stat(path); err != nil || fi.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var m Manifest
+		if err := json.Unmarshal(trimBOM(data), &m); err != nil {
+			continue
+		}
+		if primary == "" {
+			primary = path
+		}
+		found = append(found, foundManifest{rel: filepath.ToSlash(filepath.Join(sub, manifestName)), m: m})
 	}
-	return &Plugin{Dir: abs, ManifestPath: absManifest, Manifest: m}, true
+	if len(found) == 0 {
+		return nil, false
+	}
+	absManifest, err := filepath.Abs(primary)
+	if err != nil {
+		absManifest = primary
+	}
+	return &Plugin{Dir: abs, ManifestPath: absManifest, Manifest: found[0].m, others: found[1:]}, true
+}
+
+// trimBOM drops a leading UTF-8 byte order mark, which Claude Code strips before it parses a
+// manifest and encoding/json refuses.
+func trimBOM(data []byte) []byte {
+	return bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 }
 
 // ManifestPath returns the plugin manifest inside dir and whether one exists, searching

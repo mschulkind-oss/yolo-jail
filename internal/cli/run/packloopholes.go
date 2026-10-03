@@ -317,10 +317,10 @@ func disclosureClassOfClaim(c packload.Claim) disclosureClass {
 //
 // ReviewWorthy is the discriminator because on THIS claim it is the code question: the
 // producer sets it from pluginpack.Plugin.RunsCode (footprint.go's Plugins loop), which is
-// true exactly when the plugin carries hooks, MCP or LSP servers, monitors or `bin/`
-// executables — declared in its manifest or sitting at the default location Claude Code
-// loads them from without one (hooks/hooks.json, .mcp.json, .lsp.json,
-// monitors/monitors.json, bin/). A plugin shipping only skills, commands or output styles is
+// true exactly when the plugin carries hooks, MCP or LSP servers, monitors, `bin/`
+// executables or a subagentStatusLine — declared in any of its manifests or sitting at the
+// default location Claude Code loads them from without one (hooks/hooks.json, .mcp.json,
+// .lsp.json, monitors/monitors.json, bin/, settings.json). A plugin shipping only skills, commands or output styles is
 // prose, keeps `skills`'s disclosureSkip, and stays off the launch — announcing it is option
 // (c), which OQ-TP10 rejected for burying the hooks in the noise.
 func pluginCodeClaim(c packload.Claim) bool {

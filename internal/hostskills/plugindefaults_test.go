@@ -105,3 +105,34 @@ func TestFlatDeliveryRefusesAndExcludesDefaultLocationCode(t *testing.T) {
 		}
 	}
 }
+
+// A manifest that starts with a UTF-8 byte order mark is a plugin (Claude Code strips the mark
+// and loads it), so the delivered copy must carry yolo's marker like any other. Unmarked, the
+// next apply reads its own output as a plugin the user wrote and downgrades the destination.
+func TestByteOrderMarkManifestIsMarkedOnDelivery(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "acme-tools")
+	pluginpacktest.WriteDefaultLocationPlugin(t, dir, "acme-tools")
+	if err := os.WriteFile(filepath.Join(dir, ".claude-plugin", "plugin.json"),
+		[]byte("\ufeff"+`{"name":"acme-tools"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pl, ok := pluginpack.Load(dir)
+	if !ok {
+		t.Fatal("a manifest with a byte order mark is not plugin-shaped")
+	}
+	req := PluginRequest{
+		Pack: "wrapper", Plugin: pl, Tier: TierNamespaced,
+		SkillsDir:   filepath.Join(t.TempDir(), ".claude", "skills"),
+		Composed:    &Manifest{Entries: map[string]string{}},
+		Claimed:     map[string]string{},
+		ArchiveRoot: ArchiveRoot(filepath.Join(t.TempDir(), "archive")),
+		Stamp:       "20261003-000000",
+	}
+	if _, err := DeliverPlugin(req); err != nil {
+		t.Fatal(err)
+	}
+	if dest := filepath.Join(req.SkillsDir, "acme-tools"); !IsYoloPluginDir(dest) {
+		t.Errorf("the delivered copy of a byte-order-marked manifest carries no yolo marker, so "+
+			"the next apply would not recognize %s as its own", dest)
+	}
+}

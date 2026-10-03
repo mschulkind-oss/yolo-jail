@@ -3546,10 +3546,12 @@ other two ([`OQ-RO3`](report-tiers.md#why-its-this-way): a launch has no quiet m
 ([`OQ-TP10`](../design/trust-paths.md#oq-tp10--a-wrapped-plugins-hooks-reach-the-agents-lifecycle-and-appear-in-no-launch-banner)).
 The claim is reported under the `skills` kind, which stays skip, and is reclassified per claim
 when the plugin runs code. What counts as code is a plugin's hooks, MCP and LSP servers,
-monitors and `bin/` executables. Each counts whether the plugin's manifest declares it or it
-sits at the default location Claude Code loads without one: `hooks/hooks.json` (classic hooks,
-and a hooks module's `modules` entry), `.mcp.json`, `.lsp.json`, `monitors/monitors.json` and
-`bin/`. One component found both ways counts once
+monitors, `bin/` executables and a `subagentStatusLine` setting. Each counts whether any of the
+plugin's manifests declares it or it sits at the default location Claude Code loads without
+one: `hooks/hooks.json` (classic hooks, and a hooks module's `modules` entry), `.mcp.json`,
+`.lsp.json`, `monitors/monitors.json`, `bin/` and `settings.json`. Every manifest is read, not
+only the first found, because Copilot takes the first that parses while Claude Code reads
+`.claude-plugin/plugin.json`. One component found more than one way counts once
 ([`pluginpack.Components`](../../internal/pluginpack/pluginpack.go); the table is
 [trust-paths.md's](../design/trust-paths.md#where-a-pin-would-change-the-outcome)). That one reading feeds every report:
 

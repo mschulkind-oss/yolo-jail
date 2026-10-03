@@ -287,8 +287,10 @@ func markedManifestBytes(path string) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
+	// A leading byte order mark is dropped, as Claude Code drops it before parsing: such a
+	// manifest is a plugin (pluginpack.Load), and the re-encoded copy needs no mark.
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &raw); err != nil {
 		return data, false, nil
 	}
 	marker, err := json.Marshal(yoloManagedMarker)
