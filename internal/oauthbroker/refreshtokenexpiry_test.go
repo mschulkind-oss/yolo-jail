@@ -139,7 +139,15 @@ func TestTheProxyMirrorNeverWritesAPreviousLoginsRefreshDeadline(t *testing.T) {
 		{"a /login whose response spells the deadline as a string has none, as Claude reads it",
 			`{"grant_type":"authorization_code","code":"fake-code","client_id":"` + ClientID + `"}`,
 			-1, 0},
+		// Claude Code's own refresh posts JSON (2.1.288: `grant_type:"refresh_token",refresh_token:e,
+		// client_id:…,scope:…` sent with Content-Type application/json), so this is the shape a jail's
+		// proxied refresh arrives in; the form-encoded spelling below it is the one isClaudeCodeClientID
+		// also reads.
 		{"a refresh of the machine's own token keeps that login's deadline",
+			`{"grant_type":"refresh_token","refresh_token":"RT_old","client_id":"` + ClientID +
+				`","scope":"user:inference user:profile"}`,
+			0, oldDeadline},
+		{"a form-encoded refresh of the machine's own token keeps that login's deadline",
 			`grant_type=refresh_token&refresh_token=RT_old&client_id=` + ClientID,
 			0, oldDeadline},
 		{"a refresh of the machine's own token takes a deadline its response carries",
@@ -258,5 +266,27 @@ func TestAForcedRefreshKeepsTheLoginsRefreshDeadline(t *testing.T) {
 	got, present := rtDeadlineOf(t, CanonicalPath)
 	if !present || got != deadline {
 		t.Fatalf("canonical %s = %d (present %v), want the login's %d", refreshTokenExpiresAtKey, got, present, deadline)
+	}
+}
+
+// TestALoginOntoARecordWithNoRefreshTokenDoesNotKeepItsDeadline pins the `redeemed == ""` half of
+// NormalizeOAuth's lineage check. A /login's exchange redeems no refresh token, so an empty
+// redeemed must never match a previous record that has no refresh token either and so carry that
+// record's deadline onto the new login.
+func TestALoginOntoARecordWithNoRefreshTokenDoesNotKeepItsDeadline(t *testing.T) {
+	now := pinClock(t)
+	previous := jsonx.NewOrderedMap()
+	previous.Set("accessToken", "AT_old")
+	previous.Set("expiresAt", jsonx.IntValue(now-60_000))
+	previous.Set(refreshTokenExpiresAtKey, jsonx.IntValue(now+2*86_400_000))
+	upstream := jsonx.NewOrderedMap()
+	upstream.Set("access_token", "AT_new")
+	upstream.Set("refresh_token", "RT_new")
+	upstream.Set("expires_in", jsonx.IntValue(28800))
+
+	out := NormalizeOAuth(upstream, previous, "")
+
+	if v, ok := out.Get(refreshTokenExpiresAtKey); ok {
+		t.Fatalf("%s = %v; want none: the previous record's deadline is another login's", refreshTokenExpiresAtKey, v)
 	}
 }
