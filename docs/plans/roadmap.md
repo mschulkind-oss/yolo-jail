@@ -43,9 +43,11 @@ host or an outside account follows under [External waits](#external-waits).
     refusal](../reference/loopback-tls-reachability.md#OQ-R8), which the documented hatch cannot reach today; [`--no-daemon` for every in-jail `codex`](../research/codex-background-service.md#OQ-CDX3),
     since `codex agents` there still starts the daemon yolo turns off, stale model list and all; [how host pi gets its
     OpenAI subscription credential](../design/pi-host-openai-auth.md), since `yolo host -- pi` on the `codex` profile starts
-    on another model and lists no ChatGPT model; and [who owns the host's pi `mcp.json` server table](../reference/mcp-configuration.md#oq-mc1),
+    on another model and lists no ChatGPT model; [who owns the host's pi `mcp.json` server table](../reference/mcp-configuration.md#oq-mc1),
     with [an old pi and a leftover `mcp-adapter.json` there](../reference/mcp-configuration.md#oq-mc2), since `--revert` removes
-    the servers you added with `pi mcp add` and a dropped server leaves an empty entry pi warns about.
+    the servers you added with `pi mcp add` and a dropped server leaves an empty entry pi warns about; and [what backs an
+    Apple Container jail's `/mise`](../research/macos-backend-performance.md#OQ-MB1), since while one such jail runs, a jail
+    in another workspace cannot start.
 7. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
     — with the defects, since [rule 2](../reference/happy-path-principle.md#the-rules) calls a success that names no
     next command a dead end and an `--assert` ends at its counts, and last among them, since that run has still
@@ -144,8 +146,9 @@ host or an outside account follows under [External waits](#external-waits).
 
 ## External waits
 
-35. One Mac session checks [whether two Apple Container jails mount the shared mise volume read-write at once](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)
-    — first among the waits because, if they do, the ext4 disk can be corrupted; read from `container`'s source, not seen.
+35. One Mac session reruns [the check of two Apple Container jails on one mise volume](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)
+    on `container` 1.5.0 — first among the waits because only 1.1.0 was run, where the second jail failed to start
+    instead of mounting the ext4 disk read-write beside the first.
 36. A human with a subscription login clears [Claude's login without interception](../design/claude-login-without-interception.md)
     by running [its runbook](runbooks/claude-credential-view-measures.md), on a Mac and for a day on a rootless host,
     and [the OpenAI service](../design/openai-auth-broker-plan.md) by recording one browser login and one shared expiry.

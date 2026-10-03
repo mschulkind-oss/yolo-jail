@@ -331,9 +331,10 @@ orientation, not an inventory.
   symlinks that point into them.
 - **The mise store at `/mise`** — a host bind on Linux, a named volume on macOS. Inside a
   nested jail the store is `/mise` itself, so every nesting depth shares one store. The
-  host's own mise data directory is never mounted. ⚠ On Apple Container that volume is a disk
-  attached to one jail's VM at a time, so while one jail runs, a jail in another workspace
-  fails to start (measured on `container` 1.1.0). What should back it instead is
+  host's own mise data directory is never mounted. ⚠ On Apple Container, while one jail runs,
+  a jail in another workspace fails to start (measured on `container` 1.1.0). That this volume's
+  disk is the attachment refused, since it attaches to one VM at a time, is inferred: the error
+  does not name it. What should back it instead is
   [OQ-MB1](../research/macos-backend-performance.md#OQ-MB1).
 - **Host nix daemon socket and store** — mounted when both exist and the runtime is not
   Apple Container; macOS podman additionally requires an opt-in env var. Without it, nix

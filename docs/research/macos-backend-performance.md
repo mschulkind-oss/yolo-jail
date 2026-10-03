@@ -3,7 +3,7 @@ title: "Is macos-user faster than Apple Container? What the sources say, and a b
 date: 2026-10-01
 status: in-review
 stage: DESIGN
-next: "The maintainer rules on OQ-MB1, what backs an Apple Container jail's /mise so that two jails can run at once; a person at the same Mac works through Appendix A's Before the session list, runs the harness for macos-user and native (it needs sudo's password) and adds the results to the Results section; auto-capture's retry on every launch is filed as a defect"
+next: "The maintainer rules on OQ-MB1, what backs an Apple Container jail's /mise so that two jails can run at once; a Mac session reruns §7's two-jail check on container 1.5.0; a person at the same Mac works through Appendix A's Before the session list, runs the harness for macos-user and native (it needs sudo's password) and adds the results to the Results section; auto-capture's retry on every launch is filed as a defect"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]
 summary: "The maintainer asked for a benchmark instead of an assumption: is macos-user really faster than Apple Container? Sources answer part of it. Apple Container gives each container its own small VM; the VM takes RAM only as the guest touches it, but keeps every page it touched until the container stops, so the maintainer's reading is half right. CPU work should run within a few percent of native, while file work in the shared workspace is where the VM probably costs most: about 2.7 times native in one published measurement of the same macOS file sharing, and 6 to 9 times by Apple's maintainer's rough figures for builds. The doc lists every claim the repo makes about the two backends' speed and memory, a protocol for one Mac running both against one workspace, and a POSIX sh harness that runs the protocol and writes the results table. It measures; it does not choose a backend."
 vantage:
@@ -550,7 +550,7 @@ virtiofs reaches several. Two facts the options rest on:
   `e/eterm` and `E/Eterm` (MEASURED, from the archive listing). On a case-insensitive APFS
   volume, macOS's default, each pair is one file (INFERRED).
 
-1. 💬 **OQ-MB1: What should back an Apple Container jail's `/mise`, now that one jail's volume shuts out the next?**
+1. 💬 <a id="OQ-MB1"></a>**OQ-MB1: What should back an Apple Container jail's `/mise`, now that one jail's volume shuts out the next?**
 
    Podman's machine-wide volume is untouched either way.
 
@@ -559,14 +559,15 @@ virtiofs reaches several. Two facts the options rest on:
      arm64 unpacks to 189 MiB, MEASURED), and `yolo prune` must learn to remove a deleted
      workspace's volume.
    - **B — The machine's mise folder over virtiofs, as on Linux.** One shared store and almost
-     no code. File work over virtiofs ran 3 to 5 times native in [§8](#8-results), and
-     the store lands on APFS, where those case pairs collapse.
+     no code. Workspace file work over virtiofs ran 3 to 5 times native in [§8](#8-results);
+     `/mise`'s own reads were not measured. The store lands on APFS, where those case pairs
+     collapse.
 
-   <!-- vantage: question id=OQ-MB1 leaning="A, a volume per workspace: it keeps today's speed and a case-sensitive store, and its costs are one download per workspace and disk that yolo prune can reclaim, where B's cost lands on every jail's toolchain reads." -->
+   <!-- vantage: question id=OQ-MB1 leaning="A, a volume per workspace: it keeps today's speed and a case-sensitive store, and its costs are one download per workspace and disk that yolo prune can reclaim, where B's cost would land on every jail's toolchain reads." -->
 
    _Leaning:_ A. It keeps today's speed and a case-sensitive store, and its costs are one
-   download per workspace and disk that `yolo prune` can reclaim, where B's cost lands on every
-   jail's toolchain reads.
+   download per workspace and disk that `yolo prune` can reclaim, where B's cost would land on
+   every jail's toolchain reads.
 
    **Answer:**
 
