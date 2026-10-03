@@ -2,8 +2,11 @@ package ghbroker
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // api.go is `gh api`'s rule (docs/design/boundary-broker.md §5.3), applied to the broker's
@@ -87,8 +90,8 @@ func apiScope(p *parsed, fieldRepo string) scopeResult {
 		method = "POST"
 	}
 
-	path, _, _ := strings.Cut(strings.TrimPrefix(endpoint, "/"), "?")
-	if why := apiPathProblem(path); why != "" {
+	path, why := apiEndpointPath(endpoint)
+	if why != "" {
 		return scopeResult{refused: fmt.Sprintf("gh api endpoint %q is refused: %s", endpoint, why)}
 	}
 	switch {
@@ -115,20 +118,84 @@ func acceptHeader(v string) bool {
 		acceptRE.MatchString(strings.TrimSpace(val))
 }
 
-// apiPathProblem refuses a path whose meaning could differ between the broker's reading
-// and the server's: an encoded character, a dot segment, an empty segment or a backslash.
-func apiPathProblem(path string) string {
-	switch {
-	case path == "":
-		return "it is empty"
-	case strings.ContainsAny(path, "%\\"):
-		return "it carries an encoded or escaped character"
-	case strings.Contains(path, "//"):
-		return "it has an empty path segment"
+// apiEndpointPath returns the path an endpoint names, as gh sends it, or why it is refused.
+// gh builds the URL as https://api.github.com/ and the endpoint with one leading slash
+// trimmed, and Go's URL parser ends the path at the first `#` and then the first `?`
+// (MEASURED against gh 2.101.0 and a local fake API, BB-D58). A `#` is refused rather than
+// read past: what follows it is never sent, so an endpoint carrying one is a mistake whose
+// result would be some other path's.
+func apiEndpointPath(endpoint string) (path, why string) {
+	rest := strings.TrimPrefix(endpoint, "/")
+	if strings.Contains(rest, "#") {
+		return "", "it carries a #, which ends the path gh sends, so what follows it never " +
+			"reaches GitHub. Write a # that belongs in the path as %23"
 	}
-	for _, seg := range strings.Split(path, "/") {
-		if seg == "." || seg == ".." {
-			return "it has a dot segment"
+	path, _, _ = strings.Cut(rest, "?")
+	return path, apiPathProblem(path)
+}
+
+// apiPathProblem refuses a path whose meaning could differ between the broker's reading and
+// the server's (BB-D58). gh sends the path's encoding as the jail spelled it, so the broker
+// decodes it exactly once, segment by segment, and refuses what any common server reading
+// could resolve outside the repository it checks: an invalid escape, bytes that are not
+// UTF-8, an escape still left after one decoding (a server that decodes twice), a control
+// character, a backslash (read as / by some servers), a dot segment or an interior empty
+// segment of the decoded path, and any encoding inside the `repos/OWNER/REPO` prefix, which
+// is the part the scope check reads. Anything else may stay encoded, so a branch named MS/main
+// is `branches/MS%2Fmain`, and the endpoint gh runs is the one the jail sent.
+func apiPathProblem(path string) string {
+	if path == "" {
+		return "it is empty. Name a REST path, such as repos/OWNER/REPO/pulls"
+	}
+	raw := strings.Split(path, "/")
+	dec := make([]string, len(raw))
+	for i, seg := range raw {
+		d, err := url.PathUnescape(seg)
+		if err != nil {
+			return "it carries a % that does not begin a two-digit hex escape, so the broker " +
+				"cannot read the path as GitHub will. Encode each character that needs it as %XX " +
+				"(a / inside a branch name as %2F); for a file whose name holds a literal %, " +
+				"read it with gh repo read-file PATH -R OWNER/REPO, which encodes the name itself"
+		}
+		dec[i] = d
+	}
+	decoded := strings.Join(dec, "/")
+	switch {
+	case !utf8.ValidString(decoded):
+		return "it decodes to bytes that are not UTF-8, which a server could read as other " +
+			"characters (an overlong %c0%ae is a dot to some). Encode each character's UTF-8 bytes"
+	case strings.Contains(decoded, "%"):
+		return "it is still encoded after one decoding (a %25 followed by more), which a server " +
+			"that decodes twice reads as another path. Encode each character once; for a file " +
+			"whose name holds a literal %, read it with gh repo read-file PATH -R OWNER/REPO"
+	case strings.ContainsFunc(decoded, unicode.IsControl):
+		return "it carries a control character, as typed or encoded, which no GitHub path holds. " +
+			"Remove it"
+	case strings.Contains(decoded, "\\"):
+		return "it carries a backslash, as typed or as %5C, which some servers read as a /. " +
+			"Write the path with / alone"
+	}
+	segs := strings.Split(decoded, "/")
+	for i, seg := range segs {
+		switch {
+		case seg == "." || seg == "..":
+			return "it has a dot segment (. or ..), as typed or once decoded, which a server " +
+				"that resolves dot segments reads as a path outside repos/OWNER/REPO. Write the " +
+				"path without . or .. segments"
+		case seg == "" && i < len(segs)-1:
+			return "it has an empty segment (//, as typed or once decoded), which some servers " +
+				"collapse into another path. Write the path with single slashes"
+		}
+	}
+	// The prefix the scope check reads must read the same decoded or not.
+	if segs[0] == "repos" {
+		for i := 0; i < 3 && i < len(segs); i++ {
+			if i >= len(raw) || raw[i] != segs[i] {
+				return "it encodes a character in its repos/OWNER/REPO part, which decoding turns " +
+					"into a different path than the one the broker checks. Spell repos/OWNER/REPO " +
+					"as plain text, since GitHub owner and repository names never need encoding; " +
+					"the rest of the path may stay encoded (repos/OWNER/REPO/branches/MS%2Fmain)"
+			}
 		}
 	}
 	return ""
