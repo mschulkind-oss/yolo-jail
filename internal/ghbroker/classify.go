@@ -142,11 +142,14 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 		d.Outcome, d.Reason = OutcomeRefused, sr.refused
 		return d
 	}
-	if r, ok := readOnly[p.cmd.path]; ok {
-		for _, f := range r.accountFlags {
-			if p.has(f) {
-				sr.account = true
-			}
+	for _, u := range p.flags {
+		if accountFlagOf(p.cmd.path, u.flag.long) {
+			sr.account = true
+			sr.why = "--" + u.flag.long + " makes it act on an organization's or a user's, not on " +
+				"one repository's"
+			sr.next = "Leave out --" + u.flag.long + " to act on the repository's own; an " +
+				"organization's or a user's is the host user's to run on the host."
+			break
 		}
 	}
 	d.Repos = sr.repos
@@ -160,6 +163,9 @@ func Classify(argv []string, fieldRepo string, scope Scope) Decision {
 		if sr.why != "" {
 			d.Reason = "`gh " + p.cmd.path + "`: " + sr.why + ". No widening entry admits a command " +
 				"across the account. This jail's repository scope is " + scope.describe() + "."
+		}
+		if sr.next != "" {
+			d.Reason += " " + sr.next
 		}
 		return d
 	}
@@ -215,7 +221,9 @@ type scopeResult struct {
 	account bool
 	// why replaces the account-wide reason for a command that names a repository but
 	// whose text could reach past it (queryWidens).
-	why     string
+	why string
+	// next is the next step an account-wide refusal ends with.
+	next    string
 	refused string
 	argv    []string
 	apiRead bool
@@ -291,6 +299,21 @@ func repoScope(p *parsed, fieldRepo string) scopeResult {
 	default:
 		if len(sr.repos) == 0 {
 			return scopeResult{account: true}
+		}
+	}
+	// A flag whose value is a repository (`issue develop --branch-repo`) names one the scope
+	// checks too; gh takes a name or a github.com URL there.
+	for _, long := range repoFlags[p.cmd.path] {
+		for _, v := range p.values(long) {
+			r := v
+			if strings.HasPrefix(v, "https://github.com/") {
+				r = repoFromGitHubURL(v)
+			}
+			if !ValidRepo(r) {
+				return scopeResult{refused: fmt.Sprintf("--%s %q is not OWNER/REPO: the broker needs "+
+					"the repository spelled in full to check it against the scope. Spell it OWNER/REPO", long, v)}
+			}
+			add(r)
 		}
 	}
 	// A second repository a command names positionally (`issue transfer <destination-repo>`,
@@ -415,4 +438,46 @@ func searchScope(p *parsed) scopeResult {
 		return scopeResult{account: true}
 	}
 	return scopeResult{repos: repos, argv: p.canonical()}
+}
+
+// writeAccountFlags are the flags that make a command outside the read-only set act on an
+// organization's or a user's secret or variable rather than the repository's (BB-D59), as
+// readRule.accountFlags do for the read-only set's own. With one present the command is
+// account-wide, whatever -R says: `gh secret set X --org acme -R o/r` sets acme's secret.
+// --repos, --no-repos-selected and --visibility describe an organization's or a user's
+// secret alone, so they count too. TestEveryAccountShapedFlagIsReviewed fails when a
+// regenerated grammar adds such a flag nobody placed.
+var writeAccountFlags = map[string][]string{
+	"secret set":      {"org", "user", "repos", "no-repos-selected", "visibility"},
+	"secret delete":   {"org", "user"},
+	"variable set":    {"org", "repos", "visibility"},
+	"variable delete": {"org"},
+}
+
+// accountFlagOf reports whether a flag makes a command account-wide when present.
+func accountFlagOf(path, long string) bool {
+	for _, f := range readOnly[path].accountFlags {
+		if f == long {
+			return true
+		}
+	}
+	for _, f := range writeAccountFlags[path] {
+		if f == long {
+			return true
+		}
+	}
+	return false
+}
+
+// repoFlags are flags whose value names a repository, which the scope checks like -R
+// (BB-D59): `issue develop --branch-repo` makes the branch in the repository it names.
+var repoFlags = map[string][]string{"issue develop": {"branch-repo"}}
+
+func repoValuedFlag(path, long string) bool {
+	for _, f := range repoFlags[path] {
+		if f == long {
+			return true
+		}
+	}
+	return false
 }

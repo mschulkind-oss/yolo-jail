@@ -2,6 +2,7 @@ package ghbroker
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -323,5 +324,78 @@ func TestNewScopeDropsMalformedAndDuplicates(t *testing.T) {
 	s := NewScope([]string{"o/r", "O/R", "x", "a/b/c", "b/a"})
 	if want := []string{"b/a", "o/r"}; !reflect.DeepEqual(s.Repos(), want) {
 		t.Fatalf("scope %v, want %v", s.Repos(), want)
+	}
+}
+
+// BB-D59: a write that acts on an organization's or a user's secret or variable, rather than
+// the repository's, reaches past the repository scope however -R reads. Found by the fuzz
+// oracle's seed corpus (FuzzClassify) and a sweep of the grammar's flags.
+func TestClassifyAnAccountFlagOnAWriteIsAccountWide(t *testing.T) {
+	for _, c := range []struct {
+		argv    string
+		outcome Outcome
+		reason  string
+	}{
+		{"secret set X --org other --body y -R o/r", OutcomeOutOfScope, "--org"},
+		{"secret set X --user --body y -R o/r", OutcomeOutOfScope, "--user"},
+		{"secret set X --repos o/r --body y -R o/r", OutcomeOutOfScope, "--repos"},
+		{"secret set X --visibility all --body y -R o/r", OutcomeOutOfScope, "--visibility"},
+		{"secret set X --no-repos-selected --body y -R o/r", OutcomeOutOfScope, "--no-repos-selected"},
+		{"secret delete X --org other -R o/r", OutcomeOutOfScope, "--org"},
+		{"secret delete X --user -R o/r", OutcomeOutOfScope, "--user"},
+		{"variable set X --org other --body y -R o/r", OutcomeOutOfScope, "--org"},
+		{"variable set X --repos o/r --body y -R o/r", OutcomeOutOfScope, "--repos"},
+		{"variable delete X --org other -R o/r", OutcomeOutOfScope, "--org"},
+		{"secret list --org other -R o/r", OutcomeOutOfScope, "--org"},
+		// The repository's own secrets and variables stay in scope.
+		{"secret set X --body y -R o/r", OutcomeWindowed, ""},
+		{"secret set X --env prod --body y -R o/r", OutcomeWindowed, ""},
+		{"variable delete X -R o/r", OutcomeWindowed, ""},
+		// issue develop --branch-repo names the repository the branch is made in.
+		{"issue develop 1 --branch-repo other/x -R o/r", OutcomeOutOfScope, "other/x is outside"},
+		{"issue develop 1 --list --branch-repo other/x -R o/r", OutcomeOutOfScope, "other/x is outside"},
+		{"issue develop 1 --branch-repo https://github.com/other/x -R o/r", OutcomeOutOfScope, "other/x is outside"},
+		{"issue develop 1 --branch-repo x -R o/r", OutcomeRefused, "--branch-repo"},
+		{"issue develop 1 --branch-repo me/r-fork -R o/r", OutcomeWindowed, ""},
+	} {
+		d := Classify(splitArgv(c.argv), "", testScope)
+		if d.Outcome != c.outcome || !strings.Contains(d.Reason, c.reason) {
+			t.Errorf("gh %s: %q (%s), want %q with %q", c.argv, d.Outcome, d.Reason, c.outcome, c.reason)
+		}
+		if d.Outcome == OutcomeOutOfScope && d.AccountWide && !strings.Contains(d.Reason, "on the host") {
+			t.Errorf("gh %s: the refusal names no next step: %s", c.argv, d.Reason)
+		}
+	}
+}
+
+// Every flag that could point a command past its repository, on a command the broker may
+// run, is reviewed: it makes the command account-wide, names a repository the scope checks,
+// or is a filter inside the repository. A regenerated grammar that adds one fails here until
+// it is placed.
+func TestEveryAccountShapedFlagIsReviewed(t *testing.T) {
+	shaped := regexp.MustCompile(`^(org|user|owner|enterprise|repos|.*-owner|.*-repo|no-repos-selected|visibility)$`)
+	filters := map[string]string{
+		"run list --user":             "filters runs by who triggered them",
+		"repo edit --visibility":      "the repository's own visibility",
+		"search commits --visibility": "a search filter, under the search rule",
+		"search issues --visibility":  "a search filter, under the search rule",
+		"search prs --visibility":     "a search filter, under the search rule",
+	}
+	for path, c := range grammar {
+		if isGroup(path) || refusedFor(&parsed{cmd: c}) != "" || isAccountWide(path) || path == "api" {
+			continue
+		}
+		for _, f := range c.flags {
+			if !shaped.MatchString(f.long) {
+				continue
+			}
+			key := path + " --" + f.long
+			_, filter := filters[key]
+			if filter || accountFlagOf(path, f.long) || repoValuedFlag(path, f.long) ||
+				(strings.HasPrefix(path, "search ") && f.long == "owner") {
+				continue
+			}
+			t.Errorf("%s (%s) is neither an account flag, a repository flag nor a reviewed filter", key, f.desc)
+		}
 	}
 }
