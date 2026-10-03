@@ -26,6 +26,12 @@ func hostFloorCheckFixture(t *testing.T, userConfig string) (*Options, *hostfloo
 	t.Helper()
 	home := floortest.ResolvedTemp(t)
 	t.Setenv("HOME", home)
+	// OUT OF A JAIL, pinned rather than inherited, as launchPathCheckFixture does: the Getenv seam
+	// below answers "" for YOLO_VERSION, but hostpath.Resolve asks the PROCESS environment, and in
+	// a jail it returns the seam's PATH alone, so a `host_path` folder was on no launch PATH.
+	// Unset, not emptied, because internal/loopholes reads the variable's presence.
+	t.Setenv("YOLO_VERSION", "")
+	os.Unsetenv("YOLO_VERSION")
 	cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
 	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
 		t.Fatal(err)

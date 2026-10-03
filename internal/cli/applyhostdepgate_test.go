@@ -76,6 +76,12 @@ func depGateFixtureWithConfig(t *testing.T, contributions ...string) (home, brie
 		`{"packs":[{"source":"file://`+packDir+`","name":"gatepack"}]}`)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// OUT OF A JAIL, pinned rather than inherited, for the PATH sentence's reason: this is a host
+	// apply, and in a jail (YOLO_VERSION set) the launch PATH is the process PATH alone, so a
+	// test's `host_path` folder was on no PATH yolo searched (hostpath.Resolve). Unset, not
+	// emptied, because internal/loopholes reads the variable's presence.
+	t.Setenv("YOLO_VERSION", "")
+	os.Unsetenv("YOLO_VERSION")
 	return home, filepath.Join(home, ".gate", "AGENTS.md"),
 		filepath.Join(home, ".gp", "settings.json"), binDir
 }

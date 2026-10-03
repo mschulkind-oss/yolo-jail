@@ -32,6 +32,12 @@ type brokerLaunch struct {
 func launchWithGitHub(t *testing.T, userExtra string) (home, ws string, run func() brokerLaunch) {
 	t.Helper()
 	home = packHome(t)
+	// OUT OF A JAIL, pinned rather than inherited: this is a HOST launch, and in a jail
+	// (YOLO_VERSION set) a workspace file's switch of a brokered loophole is a WARNING, the
+	// workspace being live-mounted, so the launch went on to put the broker in play. Unset, not
+	// emptied, because internal/loopholes reads the variable's presence.
+	t.Setenv("YOLO_VERSION", "")
+	os.Unsetenv("YOLO_VERSION")
 	dir := filepath.Join(home, ".config", "yolo-jail")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)

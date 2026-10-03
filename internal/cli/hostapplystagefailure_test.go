@@ -10,6 +10,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -255,6 +256,12 @@ func TestAnInputsRefusalIsARefusalInTheDocument(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// OUT OF A JAIL, pinned rather than inherited: in a jail (YOLO_VERSION set) the retired key is
+	// a WARNING, the config being the host-generated snapshot, so the host apply had nothing to
+	// refuse and wrote the home. Unset, not emptied, because internal/loopholes reads the
+	// variable's presence.
+	t.Setenv("YOLO_VERSION", "")
+	os.Unsetenv("YOLO_VERSION")
 	// The retired `use_profiles` key: every launch refuses it, and so does the host apply.
 	selectPacks(t, home, `"claude"`)
 	writeFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"),
