@@ -45,7 +45,9 @@ Then select it in your user config, `~/.config/yolo-jail/config.jsonc`, and run 
 
 Every jail then gets the whole plugin, manifest, hooks and all, read-only in `~/.claude/skills/`,
 and Claude Code loads it from there with no further step. It keeps its own name, so its skills run
-as `/first-mod:<skill>`. `yolo host apply` delivers the same plugin to your own `~/.claude/skills/`.
+as `/first-mod:<skill>`. `yolo host apply --assert` writes the same plugin into your own
+`~/.claude/skills/`; `yolo host apply` alone shows what it would change
+([Your own machine](confinement.md#your-own-machine)).
 
 - **It is a copy.** The pack does not follow the plugin's own updates. To refresh it, delete the
   pack's `skills/first-mod/` folder and run the same `yolo pack init --from-plugin` again.
@@ -128,17 +130,20 @@ yolo pack init --from-plugin <project>/.yolo/home/claude/dev-mods/<session>/<mod
 **Before you select a pack,** `yolo pack init --from-plugin` lists what the plugin carries, and
 `yolo pack footprint <folder>` lists every wrapped plugin in a pack and whether it runs code.
 
-**At every launch,** each pack whose wrapped plugins run code gets one line, and no setting hides it:
+**Each time a jail starts,** each pack whose wrapped plugins run code gets one line, and no setting
+hides it:
 
 ```text
 This launch delivers pack code that runs inside the jail (`yolo pack footprint` names each plugin):
   first-mod-pack: 1 wrapped plugin runs code in the jail — hooks (1)
 ```
 
-The line counts hooks, a mod's hooks module among them, tool (MCP) servers, language servers,
-background monitors, programs in the plugin's `bin/` folder and a status line for subagents. It
-counts them whether the plugin's manifest names them or they sit where Claude Code looks for them by
-default. A plugin of skills, commands, subagents or output styles runs no code and gets no line.
+The line names each kind of code the pack's plugins carry, and the number beside a kind is how many
+of those plugins carry it, not how many hooks or servers there are. The kinds are hooks, a mod's
+hooks module among them, tool (MCP) servers, language servers, background monitors, programs in the
+plugin's `bin/` folder and a status line for subagents. Each counts whether the plugin's manifest
+names it or it sits where Claude Code looks for it by default. A plugin of skills, commands,
+subagents or output styles runs no code and gets no line.
 
 **What the launch does not list:** a plugin kept in the project, and a plugin Claude Code installs
 itself, from your settings or a `/plugin install`. Check those in Claude Code: `/plugin` shows what
@@ -174,7 +179,8 @@ blocks every marketplace, the official one included
 yolo does not check for this yet. If yolo's plugins do not load when you sign in with an
 organization account, ask your organization's Claude Code administrator to add
 `{"source": "skills-dir"}` to the allowlist. For mods, `claude plugin test`, run in a folder that
-holds no mod, says whether mods can load for you at all.
+holds no mod, says whether a setting or your organization turns mods off altogether. It does not
+check this allowlist, so it can say mods can load while the allowlist still stops yolo's plugins.
 
 ## Planned
 
