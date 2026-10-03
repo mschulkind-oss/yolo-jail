@@ -188,8 +188,9 @@ reference:124).
   remote feature-flag service) is off, the default applies: *"a third-party provider, or telemetry opted out"*
   (MEASURED). So a Bedrock session is on, while a subscription session gets what the server says. Also off:
   safe mode, `disableAllHooks`, managed-only hooks, and `--bare` (MEASURED, binary strings). A managed
-  `disableSideloadFlags` setting stops skills-dir loading altogether
-  ([mcp-configuration.md, OQ-LSP3](../reference/mcp-configuration.md#oq-lsp3)), and so does any managed
+  `disableSideloadFlags` does NOT stop skills-dir loading; corrected 2026-10-03 in
+  [claude-code-mods-management.md G6](claude-code-mods-management.md#g6-an-organization-policy-silently-blocks-the-whole-route),
+  against Claude's control matrix and the 2.1.288 strings. What stops it is any managed
   `strictKnownMarketplaces` allowlist unless it names the skills-dir sentinel: *"Policy-list sentinel for the
   ~/.claude/skills/ auto-load (@skills-dir plugins). In strictKnownMarketplaces: opt the scan back IN (by default
   any allowlist blocks it)"* (MEASURED, binary strings).
