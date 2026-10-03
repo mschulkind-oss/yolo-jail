@@ -746,8 +746,28 @@ func launchCommand(cfg runConfig, bin string, args []string) (string, []string) 
 // stdout and stderr separately. The run is bounded by jailTimeout() (overridable
 // via withTimeout); on deadline expiry it force-removes the workspace's
 // container before failing the test, so a hung run leaves no orphan (ports
-// run_yolo's TimeoutExpired handler).
+// run_yolo's TimeoutExpired handler), and the failure carries the run's own last
+// lines and what its processes were doing (hangreport_test.go).
 func runCommand(t *testing.T, dir string, args []string, opts ...runOption) result {
+	t.Helper()
+	res, timedOut := runLaunch(t, dir, args, opts...)
+	if timedOut != nil {
+		t.Fatalf("%s", timedOut)
+	}
+	return res
+}
+
+// launchTimeout is a launch its deadline ended: the one-line summary, then the detail a
+// reader of a CI log needs to say where it stood (timeoutDetail).
+type launchTimeout struct {
+	summary, detail string
+}
+
+func (lt *launchTimeout) String() string { return lt.summary + "\n" + lt.detail }
+
+// runLaunch is runCommand's body, returning a timeout instead of failing on it, so the
+// timeout's report can be tested without a failed test (TestATimedOutLaunchSaysWhereItStood).
+func runLaunch(t *testing.T, dir string, args []string, opts ...runOption) (result, *launchTimeout) {
 	t.Helper()
 	cfg := runConfig{timeout: jailTimeout()}
 	for _, o := range opts {
@@ -768,11 +788,15 @@ func runCommand(t *testing.T, dir string, args []string, opts ...runOption) resu
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	hang := armHangReport(cmd)
 
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		forceRemoveContainer(dir)
-		t.Fatalf("yolo timed out after %s: yolo %s", cfg.timeout, strings.Join(args, " "))
+		return result{}, &launchTimeout{
+			summary: fmt.Sprintf("yolo timed out after %s: yolo %s", cfg.timeout, strings.Join(args, " ")),
+			detail:  timeoutDetail(stdout.String(), stderr.String(), hang),
+		}
 	}
 
 	rc := 0
@@ -790,7 +814,7 @@ func runCommand(t *testing.T, dir string, args []string, opts ...runOption) resu
 	// tree (see imagebuildfailure_test.go for why this cannot live in TestMain's
 	// skew check). Every run* helper funnels through here, so no test opts in.
 	failIfImageBuildFailed(t, args, res)
-	return res
+	return res, nil
 }
 
 // runYolo runs a shell script inside the jail via a login shell:

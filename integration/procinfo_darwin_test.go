@@ -61,3 +61,36 @@ func processChildren(ppid int) []int {
 	}
 	return kids
 }
+
+// processTable is every process one `ps -A` listing shows, with its parent and command name.
+func processTable() []procRow {
+	out, err := exec.Command("ps", "-A", "-o", "pid=,ppid=,comm=").Output()
+	if err != nil {
+		return nil
+	}
+	var rows []procRow
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			continue
+		}
+		pid, err1 := strconv.Atoi(f[0])
+		ppid, err2 := strconv.Atoi(f[1])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		rows = append(rows, procRow{pid: pid, ppid: ppid, comm: strings.Join(f[2:], " ")})
+	}
+	return rows
+}
+
+// processDetail is one line about pid for a hang report, as ps prints it: parent, state, elapsed
+// time, wait channel and command line. darwin has no /proc to read open files from.
+func processDetail(pid int) string {
+	out, err := exec.Command("ps", "-ww", "-o", "pid=,ppid=,stat=,etime=,wchan=,command=",
+		"-p", strconv.Itoa(pid)).Output()
+	if s := strings.TrimSpace(string(out)); err == nil && s != "" {
+		return "pid ppid stat elapsed wchan command: " + s
+	}
+	return "pid " + strconv.Itoa(pid) + ": gone before it could be read"
+}

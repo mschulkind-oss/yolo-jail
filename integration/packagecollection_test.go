@@ -152,7 +152,7 @@ func nixEvalDrvPath(t *testing.T, attr, spec string) (string, string, error) {
 	if repoRoot == "" {
 		t.Skip("module root unresolved")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), nixEvalTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "nix",
 		"--extra-experimental-features", "nix-command flakes",
@@ -162,9 +162,19 @@ func nixEvalDrvPath(t *testing.T, attr, spec string) (string, string, error) {
 	cmd.Env = append(cmd.Environ(), "YOLO_EXTRA_PACKAGES="+spec)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
+	// A deadline that ends the eval says what nix was waiting on (hangreport_test.go): on
+	// 2026-10-03 four of these were killed with an EMPTY stderr, which named nothing.
+	hang := armHangReport(cmd)
 	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return strings.TrimSpace(string(out)), stderr.String() + "\n(nix eval timed out)\n" + hang.String(), err
+	}
 	return strings.TrimSpace(string(out)), stderr.String(), err
 }
+
+// nixEvalTimeout bounds one nixEvalDrvPath. A variable so TestANixEvalThatOverrunsSaysWhatItWaitedOn
+// can run one out in a second.
+var nixEvalTimeout = 4 * time.Minute
 
 // nixSystem is this machine's nix system double. The flake's outputs are
 // per-system (flake-utils eachSystem), and hardcoding x86_64-linux would make
