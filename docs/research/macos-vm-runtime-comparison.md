@@ -172,8 +172,8 @@ MEASURED. What it shows:
   runtime.
 - **OrbStack's own disk is slow for Postgres writes**: `initdb` 3 times the other VMs and 2,940
   read-write transactions per second, about a third of theirs, while its read-only rate is the
-  highest measured. That fits its slower syncs (§2), and makes its shared folder the faster home
-  for a Postgres it writes to (7,101, §3.2).
+  highest measured. That fits its slower syncs ([§2](#2-what-differs-between-the-runs-and-does-not-matter-here)), and makes its shared folder the faster home
+  for a Postgres it writes to (7,101, [§3.2](#32-on-a-shared-mac-folder)).
 
 ### 3.2 On a shared Mac folder
 
