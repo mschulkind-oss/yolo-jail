@@ -19,8 +19,9 @@ Mac: Apple Container and the native control on 2026-10-02, macos-user and the na
 measured on different days, so each is compared with its own day's native run. Two follow-ups
 grew out of the results:
 [why Apple Container's file work is slow](apple-container-file-cost.md) (per-file cost, not
-bandwidth, and what that means for a large Python monorepo) and
-[whether any macOS VM can give memory back](macos-vm-memory-reclaim.md). CI logs hold launch times for each backend, but they come from two different Macs. The
+bandwidth, and what that means for a large Python monorepo),
+[whether any macOS VM can give memory back](macos-vm-memory-reclaim.md), and
+[a Python, Django and Postgres workload on three macOS VMs](macos-vm-runtime-comparison.md). CI logs hold launch times for each backend, but they come from two different Macs. The
 upstream source was read on 2026-09-30, at apple/container `0a48a1bd` (one day after release 1.5.0)
 and apple/containerization `f24df2ac` (1.5.0 is built on its tag 0.47.0). yolo evidence is at
 `a5665814`.

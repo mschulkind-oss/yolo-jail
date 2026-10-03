@@ -12,7 +12,9 @@ vantage:
 
 # Why file work is slow in an Apple Container jail, and what it means for a large Python monorepo
 
-**Status:** 2026-10-03. MEASURED on one Mac ([§2](#2-results)); the workload assessment ([§3](#3-what-this-means-for-a-large-python-and-django-monorepo)) and the design sketch
+**Status:** 2026-10-03. MEASURED on one Mac ([§2](#2-results)), and extended to a Python, Django
+and Postgres workload on three VMs in [the runtime comparison](macos-vm-runtime-comparison.md),
+which found every VM's own disk faster than native for it; the workload assessment ([§3](#3-what-this-means-for-a-large-python-and-django-monorepo)) and the design sketch
 ([§4](#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders)) are INFERRED from those numbers, and nothing is ruled. It follows
 [the macOS backend benchmark](macos-backend-performance.md), whose M5 to M7 showed Apple
 Container at 3 to 5 times native on files in the shared workspace, and asks the maintainer's next

@@ -3,7 +3,7 @@ title: "Can a macOS VM give memory back while it runs? Apple Container's missing
 date: 2026-10-03
 status: accepted
 stage: DECIDED
-next: "Run the benchmark's memory session (§4.3) against a Podman Machine on the default libkrun provider, reading host memory pressure and the compressor rather than footprint; only if that fails, reproduce the VZ balloon result before writing any Apple Container patch"
+next: "Find out why libkrun's free page reporting returned nothing on this Mac (macos-vm-runtime-comparison.md §4): a krunkit build with debug logging, or the Lima krunkit driver, shows whether reports reach the device; measure OrbStack and Docker Desktop's reclaim once their trials are installed"
 tags: [research, macos, apple-container, memory, balloon, libkrun, podman]
 summary: "The maintainer asked whether Apple Container has a balloon that returns memory, whether yolo could add one, and whether another macOS VM does it. Apple Container is Apache-2.0 and takes outside contributions, but attaches no balloon. The one proposal was an outside contributor's issue and two PRs, closed in a sweep of that contributor's 30 or so PRs, not on their merits. Virtualization.framework offers only a traditional balloon with no free page reporting, and the one published measurement saw the host's footprint rise, not fall, when it was driven. libkrun, the default Podman Machine provider on macOS, does report free pages and one third party saw memory come back; yolo already supports podman on macOS, so that is the path to test first."
 vantage:
@@ -12,8 +12,10 @@ vantage:
 
 # Can a macOS VM give memory back while it runs? Apple Container's missing balloon, and the alternatives
 
-**Status:** 2026-10-03, research only; nothing here was measured on yolo's own Mac, and nothing is
-ruled. Read through the GitHub API, Apple's documentation and the issue trackers named in each
+**Status:** 2026-10-03, research only, and nothing is ruled. **Measured since:** a libkrun Podman
+Machine did *not* give a freed 2 GiB back on yolo's Mac, even under host memory pressure
+([the runtime comparison, §4](macos-vm-runtime-comparison.md#4-memory-does-a-vm-give-a-freed-2-gib-back)),
+so §4's libkrun row is SOURCED from others' runs and contradicted by ours. Read through the GitHub API, Apple's documentation and the issue trackers named in each
 item, by an agent on 2026-10-03. It follows
 [the macOS backend benchmark](macos-backend-performance.md), which measured an Apple Container jail
 holding all of a 2 GiB load 120 s after it ended, and giving it back only when the jail stopped
