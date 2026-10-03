@@ -39,6 +39,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   date.
 - On Apple Container, a terminal whose jail is stopped while it runs now says the jail stopped and
   why, instead of saying nothing or that the jail stays up.
+- The launch, `yolo pack footprint` and `yolo host apply` now name the code a wrapped Claude plugin
+  runs from Claude Code's default places (hooks, MCP and language servers, monitors, `bin/`), not
+  only what its manifest declares.
 
 ## [0.11.1] - 2026-10-02
 
