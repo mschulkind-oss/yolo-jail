@@ -109,7 +109,13 @@ func (o *Options) attachTeardown(rt, cname, sessionID string) func() {
 // user who ends one of two sessions with a `kill`, or a Ctrl-C that reaches the launcher rather
 // than the agent, is told the jail is still up and how to end it. It asks as the quit asks: the
 // session lets its own count go, which its exit would do a moment later, and probeAfterQuit reads
-// who else holds the jail, within quitProbeWait.
+// who else holds the jail.
+//
+// ONCE, NOT WITHIN quitProbeWait (JL-D81). Only another session's shared hold gives the line, and
+// that hold is there the moment this session's goes. The quit's wait looks again only while nobody
+// holds the lock, until the keeper's drain or the bound, and neither gives a line here. For a first
+// session the count could not hold (JL-P3), whose keeper never takes the lock, nobody holds it for
+// good, and the wait added its whole bound to the session's exit.
 //
 // WITHOUT THE COUNT. The number the quit's line gives is the jail's live exec sessions
 // (jailSessionCount), and this session's own can still be one of them here: its client is killed
@@ -132,7 +138,7 @@ func (o *Options) noteJailStaysUpOnSignal(cname, rt string) {
 		return
 	}
 	o.releaseSessionLock()
-	state, locks := o.probeAfterQuit(cname)
+	state, locks := o.probeAfterQuitWithin(cname, 0)
 	locks.release()
 	if state == quitOthers {
 		o.sayJailStaysUpFor(cname, rt, othersUncounted)

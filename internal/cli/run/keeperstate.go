@@ -301,6 +301,12 @@ func (o *Options) keeperEra(cname string) (keeperRecord, bool) {
 // A free liveness lock is no keeper: an unkept jail (keeperEra), reaped by the session that finds
 // no other one, or a jail an older yolo's launcher still owns.
 func (o *Options) probeAfterQuit(cname string) (quitState, quitLocks) {
+	return o.probeAfterQuitWithin(cname, quitProbeWait)
+}
+
+// probeAfterQuitWithin is probeAfterQuit looking again for nobody's hold only until wait runs out,
+// quitUnknown after it. A wait of 0 reads the lock once.
+func (o *Options) probeAfterQuitWithin(cname string, wait time.Duration) (quitState, quitLocks) {
 	live, err := holdLivenessLock(cname)
 	switch {
 	case errors.Is(err, errKeeperAlive):
@@ -319,7 +325,7 @@ func (o *Options) probeAfterQuit(cname string) (quitState, quitLocks) {
 		}
 		return quitUnkeptLast, quitLocks{liveness: live, sessions: sessions.f}
 	}
-	deadline := time.Now().Add(quitProbeWait)
+	deadline := time.Now().Add(wait)
 	for {
 		f, err := openSessionLock(cname)
 		if err != nil {

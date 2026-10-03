@@ -296,3 +296,38 @@ func TestAHangupSaysNothingOfTheJailStayingUp(t *testing.T) {
 	other.release()
 	awaitKeeperEnd(t, l, "the keeper did not end the jail once its sessions left")
 }
+
+// TestASignalToAnUncountedLoneSessionExitsWithoutWaiting: a first session the count could not hold
+// (JL-P3) has a keeper that never takes the session lock, so once the session lets its own count go
+// nobody holds it, and nobody will. The teardown asked as a quit asks, looking again for the
+// keeper's drain until quitProbeWait ran out, and then said nothing, since only another session's
+// hold gives the line: the bound added that long to the session's exit for nothing (JL-D81). It
+// reads the lock once, which is all a line can come of.
+func TestASignalToAnUncountedLoneSessionExitsWithoutWaiting(t *testing.T) {
+	saved := quitProbeWait
+	quitProbeWait = 6 * time.Second
+	t.Cleanup(func() { quitProbeWait = saved })
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
+		t.Run(sig.String(), func(t *testing.T) {
+			cname := "yolo-staysup-uncounted-" + strings.ToLower(strings.ReplaceAll(sig.String(), " ", "-"))
+			l := startReadyWindowLaunch(t, cname, false, nil)
+			l.retargetToTheSession(t)
+			sent := time.Now()
+			if code := signalArm(t, sig, l.codes); code != 128+int(sig) {
+				t.Errorf("the session's arm exited %d, want %d", code, 128+int(sig))
+			}
+			took := time.Since(sent)
+			t.Logf("the session exited %s after its %s", took.Round(time.Microsecond), sig)
+			if took >= quitProbeWait/2 {
+				t.Errorf("the session took %s to exit after its %s, looking for a drain its uncounted keeper never "+
+					"makes (the probe's bound is %s), to say nothing", took.Round(time.Millisecond), sig, quitProbeWait)
+			}
+			if got := l.stderr.String(); strings.Contains(got, staysUpLine(cname)) {
+				t.Errorf("a lone session said its jail stays up for other sessions:\n%s", got)
+			}
+			if n := l.jail.stopCount(); n != 0 {
+				t.Errorf("the jail of an uncounted first session was stopped %d times", n)
+			}
+		})
+	}
+}
