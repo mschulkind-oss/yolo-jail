@@ -81,10 +81,13 @@ run the program.
   builds agree. Nothing here verifies a build against a reference.
 - **Cross-compilation.** A notch gets an artifact built for its own platform, or it gets
   nothing. Building Linux artifacts on a Mac is out.
-- **Patch-set management, on this route.** A fork here is *a revision of a repository*, and
-  maintaining it — rebases, patch queues, upstream tracking — is git's job. A fork that applies a
-  patch series to its upstream's latest is a second mode, which the maintainer asked for on
-  2026-10-03 and [`patched-forks.md`](patched-forks.md) designs.
+- **Patch-set management.** yolo delivers *a revision of a repository*. Maintaining the fork
+  — rebases, patch queues, upstream tracking — is git's job and stays outside.
+  ⚠ **Amended 2026-10-03** by the maintainer's request for a second mode: *"I want another mode
+  where you can specify a set of patches that will then get applied to the latest of the upstream
+  … so that we don't have to just do essentially clean rebases for every new upstream version."*
+  The non-goal stands for a fork pinned at one revision; [`patched-forks.md`](patched-forks.md)
+  designs the mode, for forks whose manifest declares `patches`.
 - **Agent-specific anything.** A forked agent is the motivating case and gets no special
   path; see [§3](#3-why-this-is-not-an-agent-feature).
 
@@ -424,9 +427,10 @@ None is open. All three were raised by ruling the original six, and all three we
 implementation choices on 2026-09-30.
 
 **See also** [`patched-forks.md`](patched-forks.md), in design since 2026-10-03: a fork that names
-its upstream and a patch series instead of a fork repository, whose pin follows the upstream while
-the series applies and builds. It is the one exception to [§9](#9-failure-modes)'s *"never rebuild
-on a timer"*, scoped to forks that declare `patches`, and its open questions are its own.
+its upstream and a patch series instead of a fork repository, and follows the upstream while the
+series applies and builds. For forks that declare `patches`, and only those, it overrides several of
+this route's rules, [§9](#9-failure-modes)'s *"never rebuild on a timer"* among them; its
+[PF-D8](patched-forks.md#PF-D8) names each one, and its open questions are its own.
 
 1. ✅ <a id="OQ-FP7"></a>**[OQ-FP7](#OQ-FP7): should the loser of a build race WAIT for the winner?**
    The per-program lock is a non-blocking flock whose loser prints and exits non-zero
