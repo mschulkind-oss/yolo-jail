@@ -544,7 +544,7 @@ password to give. To finish, from a terminal on the same Mac, extract the curren
 Appendix A's `awk` line and run it as `BENCH_BACKENDS="macos-user native" sh /tmp/macos-backend-bench.sh`.
 
 **The Mac:** Apple M1 Max (8 performance and 2 efficiency cores), 32 GiB, macOS 26.5 (25F71), on
-mains power. `container` CLI **1.1.0**, older than the 1.5.0 whose source §2 read. yolo
+mains power. `container` CLI **1.1.0**, older than the 1.5.0 whose source [§2](#2-what-the-sources-say) read. yolo
 `0.11.0+358.ge09919d2`, nix 2.34.7. The Apple Container jail had 5 CPUs (`JOBS=5`) and a
 16 GiB cap. The harness ran from an agent's shell and not from a terminal app, so the
 developer-tool setting does not apply and was not recorded. **yolo's own nix builder VM,
@@ -581,7 +581,7 @@ builder VM) and `launch.run_with_proxy` at 2.5 s (VM boot plus the boot script).
 
 ### Timings (M5 to M12)
 
-Seconds: median (min-max). The verdict is §4.4's rule applied to container against native; the
+Seconds: median (min-max). The verdict is [§4.4](#44-what-counts-as-a-difference)'s rule applied to container against native; the
 harness's own verdict column compares only container with macos-user, so it was empty.
 
 | Metric | container | native | container against native |
@@ -598,13 +598,13 @@ harness's own verdict column compares only container with macos-user, so it was 
 | M12 second exec | 0.001 (0.001-0.001), n=10 | 0.007 (0.006-0.007), n=10 | container faster |
 
 - **Files: the prediction holds, and at the high end.** Work over the shared workspace ran 3 to 5
-  times native, between the 2.7× and the 6 to 9× of §2.3. One M5 run took 0.207 s against 0.86 s
+  times native, between the 2.7× and the 6 to 9× of [§2.3](#23-shared-folders-virtiofs). One M5 run took 0.207 s against 0.86 s
   for the rest, so warm `git status` on virtiofs is bimodal here; the cause was not looked at.
 - **CPU: a wash on one thread, about 16% slower on a parallel build** at the same thread count.
 - **Process start is where the Mac loses.** A darwin exec costs about 4 ms against Linux's
-  0.6 ms, and a binary's first exec costs about 0.4 s, 57 times its second (§4.2's rule for a
-  first-exec gap is twice). Why is not measured (§6); XProtect's first-launch scan is the
-  candidate §4.5 names. A native control shares this cost with macos-user, which this run did not
+  0.6 ms, and a binary's first exec costs about 0.4 s, 57 times its second ([§4.2](#42-the-metrics)'s rule for a
+  first-exec gap is twice). Why is not measured ([§6](#6-what-the-harness-cannot-measure)); XProtect's first-launch scan is the
+  candidate [§4.5](#45-confounds-and-what-the-harness-does-about-each) names. A native control shares this cost with macos-user, which this run did not
   measure.
 - **M8 has no verdict:** every timed run exited 1 on both sides, with 111 packages passing on
   both, 9 failing in the jail and 5 natively. The harness leaves non-zero runs out of the table,
@@ -613,7 +613,7 @@ harness's own verdict column compares only container with macos-user, so it was 
 ### Memory (M4), Apple Container
 
 MiB, from the host. *footprint* is `top`'s MEM for the VM process (pid found by the process
-diff, as §4.3 intends), *resident* its `ps` RSS. The load was 2048 MiB.
+diff, as [§4.3](#43-the-memory-session) intends), *resident* its `ps` RSS. The load was 2048 MiB.
 
 | When | VM footprint | VM resident | Mac free |
 | :--- | ---: | ---: | ---: |
@@ -626,7 +626,7 @@ diff, as §4.3 intends), *resident* its `ps` RSS. The load was 2048 MiB.
 | after the guest's drop-caches step | 3023 | 5316 | 251 |
 | 10 s after the jail exited | - | - | 4025 |
 
-- **Held, as §2.2 predicts** (MEASURED): 120 s after each load ended, the VM still held 104% of
+- **Held, as [§2.2](#22-memory-backed-on-first-touch-kept-until-the-container-stops) predicts** (MEASURED): 120 s after each load ended, the VM still held 104% of
   it over idle. Dropping the guest's caches gave nothing back. Only the jail's exit did.
 - **The later loads added no footprint.** The scratch file and the workspace read each left the
   footprint within 6 MiB of where the anonymous load left it. INFERRED: the guest reused pages
