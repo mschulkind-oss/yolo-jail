@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -132,8 +133,13 @@ type fakeJail struct {
 	stopped bool
 	// stuck is a runtime whose stop ends nothing: the container runs on after it.
 	stuck bool
-	stops int
-	calls []string
+	// pinned is a runtime whose stop ends the container but whose --rm removal fails, as podman's
+	// does on an exec session it still counts as live and cannot take a handle on: the stopped
+	// container stays, a plain rm fails on it, and a forced rm removes it and still exits 125
+	// (MEASURED in nested podman, JL-D82).
+	pinned bool
+	stops  int
+	calls  []string
 	// execs, once reportExecs sets it, is how many exec sessions the runtime's inspect says the
 	// container has, its main process a hold (jailSessionCount); 0 answers nothing, a count unknown.
 	execs int
@@ -176,8 +182,17 @@ func (f *fakeJail) exec(argv []string, _ string, _ []string, _ time.Duration) Ex
 		f.stopped = true
 		_ = os.WriteFile(filepath.Join(f.dir, "stop"), nil, 0o644)
 		return ExecResult{Ran: true}
+	case len(argv) > 1 && argv[1] == "rm":
+		if !f.pinned {
+			return ExecResult{Ran: true}
+		}
+		if slices.Contains(argv, "--force") || slices.Contains(argv, "-f") {
+			f.pinned = false
+		}
+		return ExecResult{Ran: true, RC: 125, Stderr: "Error: removing exec sessions: getting the PID handle: " +
+			"openByHandleAt failed: operation not permitted"}
 	case strings.Contains(joined, "ps -a -q"):
-		if f.stopped {
+		if f.stopped && !f.pinned {
 			return ExecResult{Ran: true}
 		}
 		return ExecResult{Ran: true, Stdout: "abc123\n"}

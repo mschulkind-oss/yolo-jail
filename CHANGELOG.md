@@ -25,6 +25,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   refusing, and one that gives up waiting for Podman now always shows Podman's last error.
 - On Apple Container, a launch that cannot tell whether its jail is running now says to run
   `container ls`, not `container ps`.
+- Ending a jail no longer waits on, and leaves behind, a stopped container Podman could not remove
+  itself, as can happen after a terminal closes while its session starts.
 
 ## [0.11.1] - 2026-10-02
 

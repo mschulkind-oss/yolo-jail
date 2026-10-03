@@ -809,19 +809,32 @@ var keeperGoneAttempts = restartPollAttempts
 // name exists, and removes a stopped leftover it finds: a `--rm` removal fails while a headless exec
 // was live at the stop (MEASURED in nested podman, §4.4). It never removes a running container. It
 // reports whether the container is gone.
+//
+// THE LEFTOVER GOES THE MOMENT IT IS SEEN STOPPED, BY FORCE (JL-D82). A container still there once
+// the runtime says it is not running is one whose removal failed, or is finishing, and waiting
+// changes neither. The failure MEASURED in nested podman is an exec session podman still counts as
+// live, one whose client was killed while podman was starting it: podman cannot take a handle on
+// its process (`openByHandleAt ... operation not permitted`), a plain `rm` fails on that every time,
+// and `rm --force` removes the container and still exits 125. So the removal is judged by the
+// existence probe, never by its status, and tried once. The keeper used to poll its whole bound
+// first, about 16 s that its last session's quit and `yolo stop` stream, then try a plain `rm` and
+// leave the jail unkept, its container holding the scratch volumes their detached remover then
+// waited a minute for.
 func (k *keeper) confirmGone() bool {
 	o, p := k.o, k.plan
+	forced := false
 	for i := 0; i < keeperGoneAttempts; i++ {
 		if id, known := o.probeExistingContainer(p.Cname, p.Runtime, trackingProbeTimeout); known && id == "" {
 			return true
 		}
-		time.Sleep(restartPollInterval)
-	}
-	if id, known := o.probeRunningContainer(p.Cname, p.Runtime, trackingProbeTimeout); known && id == "" {
-		if o.removeStaleContainer(p.Cname, p.Runtime) {
-			k.sink.logf("keeper: removed the stopped container %s its --rm left behind", p.Cname)
-			return true
+		if id, known := o.probeRunningContainer(p.Cname, p.Runtime, trackingProbeTimeout); !forced && known && id == "" {
+			forced = true
+			if o.forceRemoveStoppedContainer(p.Cname, p.Runtime) {
+				k.sink.logf("keeper: removed the stopped container %s its --rm left behind", p.Cname)
+				return true
+			}
 		}
+		time.Sleep(restartPollInterval)
 	}
 	k.sink.logf("keeper: %s is still there after its stop, so the keeper leaves it unkept: its host-services dir and records stay, a new session is refused, and %s ends it", p.Cname, stopRemedy(p.Runtime, p.Cname))
 	return false

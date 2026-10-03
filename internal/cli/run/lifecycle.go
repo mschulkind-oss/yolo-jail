@@ -167,6 +167,20 @@ func (o *Options) removeStaleContainer(cname, rt string) bool {
 	return false
 }
 
+// forceRemoveStoppedContainer removes cname, which the caller has just seen stopped, by force, and
+// reports whether the existence probe then answers that no container of the name exists. The
+// removal's own status is not the answer: podman's forced rm of a container whose exec session it
+// cannot take a handle on removes the container and still exits 125 (JL-D82). Never for a container
+// that may run: removeStaleContainer is the removal that refuses a live one.
+func (o *Options) forceRemoveStoppedContainer(cname, rt string) bool {
+	o.Exec([]string{rt, "rm", "--force", cname}, "", nil, trackingProbeTimeout)
+	if id, known := o.probeExistingContainer(cname, rt, trackingProbeTimeout); known && id == "" {
+		runtime.CleanupContainerTracking(cname)
+		return true
+	}
+	return false
+}
+
 // liveYoloContainers returns the names of yolo-* containers
 // running/paused/restarting, or (nil, false) when the runtime can't be
 // enumerated ("liveness unknown" — never read as "nothing live").

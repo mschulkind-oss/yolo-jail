@@ -35,8 +35,8 @@ package integration
 //
 // EACH TRY IS A WORKSPACE OF ITS OWN. A nested podman sometimes cannot remove the jail's stopped
 // container after so quick a stop (the `openByHandleAt` failure the design's §4.4 records, seen in
-// 1 of 5 tries in one workspace); the keeper then leaves the jail unkept, as it should, and a next
-// try in the same workspace would meet the leftover rather than test the window.
+// 1 of 5 tries in one workspace). The keeper removes it by force since JL-D82, and a try in a
+// workspace of its own does not depend on that.
 
 import (
 	"context"

@@ -235,3 +235,55 @@ func TestARefusedBootIsNotStoppedAgain(t *testing.T) {
 		t.Errorf("the keeper stopped a container that had already gone (%d stops)", f.jail.stopCount())
 	}
 }
+
+// TestAStoppedContainerItsRemovalLeftBehindIsRemovedAtOnce: a stop whose --rm removal failed leaves
+// the stopped container behind, and waiting does not change that. Podman was measured doing it in a
+// nested jail, on an exec session it still counted as live: one whose client was killed while podman
+// was starting it, which a signal in the ready window does. A plain rm fails on the same session,
+// and a forced one removes the container and still exits 125. The keeper used to poll the whole
+// bound, 75 tries 200 ms apart, which its last session's quit and `yolo stop` stream, and then try a
+// plain rm and leave the jail unkept, with a container that held its scratch volumes, so their
+// detached remover waited out its own minute too. It removes the leftover at once, by force, and
+// judges by whether the container is gone (JL-D82).
+func TestAStoppedContainerItsRemovalLeftBehindIsRemovedAtOnce(t *testing.T) {
+	var session *sessionLock
+	f := startKeeperFixture(t, true, func(p *keeperPlan) {
+		lock, _, err := takeSessionLock(p.Cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		session = lock
+	})
+	if !f.relay() {
+		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())
+	}
+	f.jail.mu.Lock()
+	f.jail.pinned = true
+	f.jail.mu.Unlock()
+	left := time.Now()
+	session.release()
+	if rc := f.wait(); rc != 0 {
+		t.Errorf("the keeper ended %d", rc)
+	}
+	bound := time.Duration(keeperGoneAttempts) * restartPollInterval
+	if took := time.Since(left); took >= bound/4 {
+		t.Errorf("the keeper took %s to end the jail after its last session left, waiting on a removal that had "+
+			"already failed (its bound is %s)", took.Round(time.Millisecond), bound)
+	}
+	f.jail.mu.Lock()
+	pinned := f.jail.pinned
+	calls := strings.Join(f.jail.calls, "\n")
+	f.jail.mu.Unlock()
+	if pinned {
+		t.Errorf("the keeper left the stopped container behind; the runtime saw:\n%s", calls)
+	}
+	if _, ok := readKeeperRecord(f.cname); ok {
+		t.Error("the keeper left its start record, so the jail reads as unkept though its container is gone")
+	}
+	if _, ok := readOwnerPID(f.cname); ok {
+		t.Error("the keeper left the owner-PID file, so the jail reads as unkept though its container is gone")
+	}
+	if log := f.keeperLog(); !strings.Contains(log, "removed the stopped container") {
+		t.Errorf("the keeper's log does not say it removed the leftover:\n%s", log)
+	}
+}
