@@ -49,7 +49,7 @@ into a jail, and what each launch shows about the code it runs. See
   runs from Claude Code's default places (hooks, MCP and language servers, monitors, `bin/`), not
   only what its manifest declares, and the launch says when its hooks include a mod's module.
 - A Claude plugin at the root of a pack with no `skills/` folder, the usual shape of a Claude Code
-  mod, now reaches a jail.
+  mod, now reaches a jail and `yolo host apply`.
 - A plugin whose manifest names it with a path, such as `../x`, is refused instead of being written
   outside the skills folder.
 - In a jail, `gh` now runs `--jq` and `--template`, takes an encoded branch name such as
@@ -63,8 +63,8 @@ into a jail, and what each launch shows about the code it runs. See
   calling it not started after 10 seconds.
 - A launch stopped by a signal sent to yolo alone, such as `kill` or a supervisor's, while nix
   builds or evaluates its image no longer leaves that nix running.
-- A launch no longer hangs for good, printing nothing, when nix prints one very long line while it
-  builds the jail's image or yolo's own binaries.
+- A launch, or `yolo check`, no longer hangs for good, printing nothing, when nix prints one very
+  long line while it builds the jail's image or yolo's own binaries.
 
 ## [0.11.1] - 2026-10-02
 
