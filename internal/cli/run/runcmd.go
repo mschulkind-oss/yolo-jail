@@ -478,6 +478,10 @@ type Options struct {
 	// realBuildImageExtras. A seam for the same reason MaterializeStorePackages is one,
 	// and only ever called on a launch that already took the store-delivery fast path.
 	BuildImageExtras func(repoRoot string) (string, error)
+	// StopNixChildren ends the nix processes this launch has running, when a signal ends the
+	// launch before its keeper (launchguard.go). nil => image.StopNixChildren. A seam so the
+	// guard's call is assertable without a nix to interrupt.
+	StopNixChildren func()
 	// autoLoad is the image build/load itself. Unexported: it is not a CLI-facing seam,
 	// it exists so autoLoadImage's own DECISIONS are assertable without nix and podman —
 	// above all C4's, which is a single assignment (`extra = nil`) that silently reverts

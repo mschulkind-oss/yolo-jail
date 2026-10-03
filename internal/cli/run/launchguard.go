@@ -26,6 +26,8 @@ package run
 import (
 	"errors"
 	"sync"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/image"
 )
 
 // errLaunchEnded is a keeper spawn refused because a signal's teardown has begun ending the launch.
@@ -67,6 +69,9 @@ func (o *Options) armLaunchGuard(cname, rt string) {
 // teardown, whose lifeline close has the keeper unwind.
 func (o *Options) launchGuardTeardown(g *launchGuard) func() {
 	return func() {
+		// First, whichever way the launch ends: a nix it has running is its own, and a signal
+		// sent to this process alone reaches no child (image.StopNixChildren).
+		o.stopNixChildren()
 		left, kp := g.end()
 		if kp != nil {
 			o.keeperPreReadyTeardown(kp, g.cname, g.rt)()
@@ -78,6 +83,15 @@ func (o *Options) launchGuardTeardown(g *launchGuard) func() {
 		o.releaseHerdrAgent()
 		o.restoreTerminal()
 	}
+}
+
+// stopNixChildren ends the nix this launch has running, through the seam or image.StopNixChildren.
+func (o *Options) stopNixChildren() {
+	if o.StopNixChildren != nil {
+		o.StopNixChildren()
+		return
+	}
+	image.StopNixChildren()
 }
 
 // abandonLaunch is the guard's outer hook: a launch running inside this one, in this process (a

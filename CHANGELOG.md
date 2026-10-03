@@ -61,6 +61,8 @@ into a jail, and what each launch shows about the code it runs. See
   restarts just as it connects.
 - On a Mac, a launch and `yolo check` wait up to a minute for a busy Podman machine instead of
   calling it not started after 10 seconds.
+- A launch stopped by a signal sent to yolo alone, such as `kill` or a supervisor's, while nix
+  builds or evaluates its image no longer leaves that nix running.
 
 ## [0.11.1] - 2026-10-02
 

@@ -6,6 +6,7 @@ package image
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1355,9 +1356,16 @@ func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink stri
 	if err != nil {
 		return "", []string{"could not pipe nix stderr: " + err.Error()}
 	}
-	if err := cmd.Start(); err != nil {
+	// Tracked while it runs, so a launch a signal ends stops it rather than leaving it
+	// behind (nixchildren.go).
+	release, err := nixChildren.start(cmd)
+	if errors.Is(err, errNixStopped) {
+		return "", []string{err.Error()}
+	}
+	if err != nil {
 		return "", []string{"nix command not found"}
 	}
+	defer release()
 	var tail []string
 	scanner := bufio.NewScanner(stderr)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -433,5 +434,21 @@ func TestWhatTheLaunchMakesWhileTheGuardTearsDownIsNotLeftBehind(t *testing.T) {
 	if left.tracking || left.live || left.skeleton {
 		t.Errorf("the launch exited leaving what it made during its guard's teardown: tracking file %v, "+
 			"live-tree record %v, skeleton %v", left.tracking, left.live, left.skeleton)
+	}
+}
+
+// TestAGuardedLaunchStopsItsNixBeforeItExits: a signal that ends a launch before its keeper ends
+// the nix it has running first. A signal sent to this process alone reaches no child, and the nix
+// of a launch that exited without stopping it ran on with no parent (image.StopNixChildren).
+func TestAGuardedLaunchStopsItsNixBeforeItExits(t *testing.T) {
+	var stopped, stoppedAtExit atomic.Bool
+	f := newGuardFixtureWith(t, "yolo-guard-stops-nix", func() { stoppedAtExit.Store(stopped.Load()) })
+	f.o.StopNixChildren = func() { stopped.Store(true) }
+	e := f.interrupt(t, syscall.SIGINT)
+	if e.code != 128+int(syscall.SIGINT) {
+		t.Errorf("the launch exited %d, want %d", e.code, 128+int(syscall.SIGINT))
+	}
+	if !stoppedAtExit.Load() {
+		t.Error("the launch a signal ended exited without stopping the nix it had running")
 	}
 }

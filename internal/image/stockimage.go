@@ -1,6 +1,7 @@
 package image
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -269,11 +270,14 @@ func EvalImageIdentity(repoRoot string) (string, bool) {
 	cmd.Dir = repoRoot
 	// stdout only: nix puts "Git tree is dirty" and the untrusted-substituter
 	// warnings on stderr, and they would bury the one line we want.
-	out, err := cmd.Output()
-	if err != nil {
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	// RunNix rather than Output: tracked, so a launch a signal ends stops this eval
+	// too (nixchildren.go).
+	if err := RunNix(cmd); err != nil {
 		return "", false
 	}
-	return ParseImageIdentity(string(out))
+	return ParseImageIdentity(out.String())
 }
 
 // stockInputs reports whether THIS launch is asking for a stock image: the
