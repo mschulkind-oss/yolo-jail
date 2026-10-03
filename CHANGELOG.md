@@ -31,6 +31,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ran their installers again and recorded nothing.
 - Joining a running jail no longer runs agent installers to record them first; only a launch that
   starts a jail does.
+- When yolo cannot record an agent's install, the next launches no longer try again each time: the
+  launch that failed says when it will retry, and `yolo capture <agent>` retries at once.
 
 ## [0.11.1] - 2026-10-02
 

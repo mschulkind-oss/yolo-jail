@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
 // autocapture.go is run.Options.AutoCapture's implementation: the launch-time act that
@@ -53,18 +55,27 @@ import (
 //     nothing and warns, rather than filing an entry that materializes a program that
 //     is not there.
 //
-// # Failure is never fatal, and the retry is deliberate
+// # Failure is never fatal, and it is remembered
 //
 // Network down, installer serves HTML, disk full, EXDEV on admit: warn once, name the
 // program, continue the launch. The same discipline materialize's silent miss follows
 // (internal/entrypoint/shims.go), one notch louder because nobody asked for this one.
 //
-// A failure is NOT remembered, so the next launch tries again. That is the honest default
-// — the overwhelmingly common cause is a transient network, and a negative memo would be
-// per-machine state with no expiry rule anyone has ruled on — but it does mean a program
-// whose installer fails *every* time re-pays its attempt once per launch. If that is ever
-// observed on a shipped pack, the fix is a stamp beside the store, not a special case
-// here.
+// A FAILURE IS REMEMBERED, per program and platform on this machine, by a memo beside the
+// store (capture.AutoFailure), and the launches that follow BACK OFF (OQ-PD26). It used to be
+// forgotten, on the argument that the common cause is a transient network — and then a program
+// whose capture fails EVERY time re-pays its installer on every launch. That was observed:
+// every Apple Container launch ran claude's, codex's and agy's installers and stored nothing,
+// 61 s of every fresh launch (MEASURED, docs/research/macos-backend-performance.md §8). The
+// back-off keeps the transient case cheap: the first retry is a day away, each further failure
+// doubles the wait up to a week, and a different yolo (which may be the fix) retries at once.
+// The launch that fails says when it will try again and the two next steps — `yolo capture
+// <bin>` to retry now, NoAutoCaptureEnv to stop — and the launches inside the back-off say
+// nothing, because nothing new happened.
+//
+// LOSING THE LOCK IS NOT A FAILURE. Another workspace capturing the same program is the
+// pre-capture status quo for this launch, and remembering it would hold the next launch off for
+// a day behind a capture that may be storing the program right now.
 
 // NoAutoCaptureEnv is the escape hatch out of the trigger.
 //
@@ -75,7 +86,41 @@ import (
 // cannot say no reaches for `--help` and finds nothing.
 const NoAutoCaptureEnv = "YOLO_NO_AUTO_CAPTURE"
 
-// autoCapture records every program in bins that has no store entry for platform.
+// autoCaptureNow and autoCaptureVersion are the back-off's two inputs, vars so a test can step a
+// machine through launches days apart and through a yolo update.
+var (
+	autoCaptureNow     = time.Now
+	autoCaptureVersion = version.Baked
+)
+
+// The back-off after a failed auto-capture (OQ-PD26): the first retry waits a day, each further
+// consecutive failure under the same yolo doubles the wait, and no wait exceeds a week.
+const (
+	autoCaptureFirstBackoff = 24 * time.Hour
+	autoCaptureMaxBackoff   = 7 * 24 * time.Hour
+)
+
+// autoCaptureRetryAt is when the launches after failure f may try again.
+func autoCaptureRetryAt(f capture.AutoFailure) time.Time {
+	wait := autoCaptureFirstBackoff
+	for i := 1; i < f.Failures && wait < autoCaptureMaxBackoff; i++ {
+		wait *= 2
+	}
+	if wait > autoCaptureMaxBackoff {
+		wait = autoCaptureMaxBackoff
+	}
+	return f.Last.Add(wait)
+}
+
+// autoCaptureBackedOff reports whether a failure this yolo remembered for (bin, platform) still
+// holds the trigger off. A memo from another yolo holds nothing: the update may be the fix.
+func autoCaptureBackedOff(store *capture.Store, bin, platform string) bool {
+	f, ok := store.AutoFailure(bin, platform)
+	return ok && f.Version == autoCaptureVersion() && autoCaptureNow().Before(autoCaptureRetryAt(f))
+}
+
+// autoCapture records every program in bins that has no store entry for platform, unless a
+// failure this yolo remembered for it is still backing off (autoCaptureBackedOff).
 //
 // bins is the selected packs' `via: "installer"` program set and platform is the JAIL's
 // (run.containerJailPlatform) — both decided by the pipeline, because only it knows the
@@ -111,6 +156,18 @@ func autoCapture(bins []string, platform string, out, errw io.Writer, color bool
 			NoAutoCaptureEnv, humanList(missing), platform)
 		return
 	}
+	// A PROGRAM WHOSE CAPTURE FAILED IS HELD OFF, silently: the launch that failed said what
+	// happened and when the next try is, and nothing has changed since.
+	var due []string
+	for _, bin := range missing {
+		if !autoCaptureBackedOff(store, bin, platform) {
+			due = append(due, bin)
+		}
+	}
+	missing = due
+	if len(missing) == 0 {
+		return
+	}
 
 	pr := richtext.Printer{W: out, Color: color}
 	// THE COST IS STATED WHERE IT IS PAID. The first launch on a fresh machine grows by
@@ -126,16 +183,61 @@ func autoCapture(bins []string, platform string, out, errw io.Writer, color bool
 	for i, bin := range missing {
 		pr.Printf("[dim]  [%d/%d][/dim] %s", i+1, len(missing), bin)
 		if rc := captureHost([]string{bin}, out, errw, color); rc != 0 {
-			// ONE WARNING, NAMING THE PROGRAM, and then on with the launch. captureHost
-			// has already printed what went wrong; what it cannot say is that nothing
-			// downstream depends on it, which is the sentence a user needs in order not
-			// to stop and investigate a jail that is about to work fine.
-			fmt.Fprintf(errw, "Warning: could not capture %s (see above) — nothing was "+
-				"stored, and this launch continues.\n"+
-				"  %s will install the ordinary way, one download per workspace. "+
-				"The next launch retries.\n", bin, bin)
+			autoCaptureFailed(store, bin, platform, errw)
+			continue
 		}
+		// Recorded: whatever an earlier failure remembered has nothing left to say, and a later
+		// failure (after `yolo prune`, say) starts from the first wait again.
+		_ = store.ClearAutoFailure(bin, platform)
 	}
+}
+
+// autoCaptureFailed is what a launch does about one capture that did not store its program:
+// remember it, unless another process holds the program's capture, and say so ONCE.
+//
+// ONE WARNING, NAMING THE PROGRAM, and then on with the launch. captureHost has already printed
+// what went wrong; what it cannot say is that nothing downstream depends on it, which is the
+// sentence a user needs in order not to stop and investigate a jail that is about to work fine
+// — and, now that the failure is remembered, when the next try is and how to have it sooner.
+func autoCaptureFailed(store *capture.Store, bin, platform string, errw io.Writer) {
+	// ANOTHER CAPTURE OF IT: the lock is held right now, or the holder has already stored it.
+	// Neither is this program failing, so nothing is remembered.
+	if _, _, err := resolveCaptureFor(store, bin, platform); err == nil || captureBusy(bin) {
+		fmt.Fprintf(errw, "Warning: could not capture %s (see above) — another capture of it is "+
+			"running, and this launch continues.\n"+
+			"  %s installs the ordinary way this time; a later launch uses what that capture "+
+			"stores.\n", bin, bin)
+		return
+	}
+	now := autoCaptureNow()
+	f := capture.AutoFailure{Bin: bin, Platform: platform, Version: autoCaptureVersion(), Failures: 1, Last: now}
+	if prev, ok := store.AutoFailure(bin, platform); ok && prev.Version == f.Version {
+		f.Failures = prev.Failures + 1
+	}
+	fmt.Fprintf(errw, "Warning: could not capture %s (see above) — nothing was stored, and this "+
+		"launch continues.\n"+
+		"  %s will install the ordinary way, one download per workspace.\n", bin, bin)
+	if err := store.RecordAutoFailure(f); err != nil {
+		// Unremembered, the next launch tries again, which is the old behaviour: say so, and
+		// what stopped the memo.
+		fmt.Fprintf(errw, "  The next launch tries again: this failure could not be remembered "+
+			"(%v).\n  To stop auto-capture: %s=1\n", err, NoAutoCaptureEnv)
+		return
+	}
+	fmt.Fprintf(errw, "  Launches will not try to capture it again until %s, or until yolo is "+
+		"updated.\n  To retry now: yolo capture %s    To stop auto-capture: %s=1\n",
+		autoCaptureRetryAt(f).Local().Format("2006-01-02 15:04 MST"), bin, NoAutoCaptureEnv)
+}
+
+// captureBusy reports whether another process holds bin's capture lock right now. Asked after
+// captureHost has returned and released its own hold, so a held lock is someone else's.
+func captureBusy(bin string) bool {
+	l := tryFlockAt(captureLockPath(bin))
+	if l == nil {
+		return true
+	}
+	l.Close()
+	return false
 }
 
 // humanList renders a bin list for one line of prose: "claude", "claude and agy",
