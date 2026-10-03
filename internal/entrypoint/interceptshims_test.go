@@ -133,6 +133,31 @@ func TestInterceptShimRuns(t *testing.T) {
 	}
 }
 
+// BB-D67: an intercept lives in the block dir (OQ-BB8's ruling), so `type gh` answering
+// ~/.yolo/bin/block/gh reads like a block to whoever is debugging. The shim's own text says
+// what it is: not a blocker, whose forwarder, what it runs, and what is behind it.
+func TestAnInterceptSaysItIsAForwarderNotABlocker(t *testing.T) {
+	s := InterceptShimContent("github", "gh", "/bin/gh", []string{"yolo", "gh", "--"})
+	for _, want := range []string{
+		"# NOT A BLOCKER: this gh is pack github's forwarder (a yolo intercept).",
+		"# It runs `yolo gh --` with the same arguments.",
+		"intercepts as well as blocked tools",
+		"# Behind it: /bin/gh, which YOLO_BYPASS_SHIMS=1 runs instead.",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the shim lacks %q:\n%s", want, s)
+		}
+	}
+	none := InterceptShimContent("github", "gh", "", []string{"yolo", "gh", "--"})
+	if !strings.Contains(none, "# Behind it: no gh is installed, so YOLO_BYPASS_SHIMS=1 has nothing to run.") {
+		t.Errorf("with nothing behind it:\n%s", none)
+	}
+	// Every comment line is one line, and the script still starts with its interpreter.
+	if !strings.HasPrefix(s, "#!/bin/sh\n# NOT A BLOCKER") {
+		t.Errorf("the header is not where a reader looks first:\n%s", s)
+	}
+}
+
 // A value from a pack's manifest cannot break out of the shim.
 func TestInterceptShimQuotesTheForwarder(t *testing.T) {
 	s := InterceptShimContent("p\nrm -rf /", "x", "", []string{"fwd", "$(touch /pwn)", "a'b"})

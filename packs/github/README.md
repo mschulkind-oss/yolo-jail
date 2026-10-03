@@ -16,6 +16,7 @@ and the message says to run the command on the host.
 - **`intercept`** `gh` → `yolo gh --`: a shim at `~/.yolo/bin/block/gh`, first on the
   jail's `PATH`, so a bare `gh` reaches the broker while the image's own `/bin/gh` stays
   where it is (and `YOLO_BYPASS_SHIMS=1 gh …` runs it). That `gh` has no login in the jail.
+  The shim is a forwarder, not a blocker, and its first lines say so.
 
 ## Turning it on
 

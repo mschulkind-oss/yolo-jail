@@ -71,11 +71,23 @@ func GenerateIntercepts(e *Env) error {
 // realBin is where `<bin>` resolved behind the block dir, "" when nothing did: with
 // YOLO_BYPASS_SHIMS set the shim execs it, which is how an installer or a script that
 // needs the real tool reaches it, as with every other shim here.
+//
+// THE HEADER SAYS IT IS NOT A BLOCKER (docs/design/boundary-broker.md BB-D67). The shim lives
+// in the block dir by OQ-BB8's ruling, so `type <bin>` names ~/.yolo/bin/block/<bin>, which
+// reads as a refusal to whoever is debugging; the first lines of the file say what it is
+// instead: whose forwarder, what it runs, and what is behind it.
 func InterceptShimContent(pack, bin, realBin string, forward []string) string {
+	b := sanitizeComment(bin)
+	behind := "# Behind it: " + sanitizeComment(realBin) + ", which YOLO_BYPASS_SHIMS=1 runs instead."
+	if realBin == "" {
+		behind = "# Behind it: no " + b + " is installed, so YOLO_BYPASS_SHIMS=1 has nothing to run."
+	}
 	lines := []string{
 		"#!/bin/sh",
-		"# yolo intercept (pack " + sanitizeComment(pack) + "): " + sanitizeComment(bin) +
-			" is forwarded; YOLO_BYPASS_SHIMS=1 runs the program behind it.",
+		"# NOT A BLOCKER: this " + b + " is pack " + sanitizeComment(pack) + "'s forwarder (a yolo intercept).",
+		"# It runs `" + sanitizeComment(strings.Join(forward, " ")) + "` with the same arguments.",
+		"# Its directory comes first on PATH, so it holds intercepts as well as blocked tools.",
+		behind,
 		`if [ -n "$YOLO_BYPASS_SHIMS" ]; then`,
 	}
 	if realBin != "" {
