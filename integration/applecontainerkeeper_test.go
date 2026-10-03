@@ -6,10 +6,11 @@ package integration
 // outlives its client, and whether that client has a detach sequence) and the keeper's lifecycle,
 // run on the Mac the Apple Container job dispatches to.
 //
-// ⚠ NONE OF THESE HAS RUN ON APPLE CONTAINER. They landed unrun, which this suite's header allows
-// only for an experiment, so every one is an experiment: both of its answers pass, and only a run
-// that could not conduct it is red. What has run is the instrument, against podman in this
-// repo's own Linux jail before it landed (see "What has run" below).
+// ⚠ THEY LANDED UNRUN ON APPLE CONTAINER, which this suite's header allows only for an experiment,
+// so every one is an experiment: both of its answers pass, and only a run that could not conduct
+// it is red. The instrument ran against podman in this repo's own Linux jail before they landed,
+// and one Apple Container run has asked them since; the three lifecycle runs that held there are
+// strict now, by the promotion rule (see "What has run" below).
 //
 // # Why a Mac, and why these
 //
@@ -56,10 +57,17 @@ package integration
 //
 // # What has run
 //
-// On Apple Container: nothing, as above. When these were written the Apple Container job had run
-// on one commit that has the keeper, and that run (36752464537, 2026-09-30) was cancelled while
-// staging the flake bundle, before its parity tests, so even the keeper's plainest launch there,
-// TestAppleContainerJailStarts, is unmeasured.
+// On Apple Container, once: run 37133569003 (apple-container.yml, 2026-10-03, the maintainer's M1
+// Max, container 1.1.0, at 5ca9b7485). HOLDS, and strict since: first-session-quits-alone,
+// hangup-ends-one-session and main-process-client-killed. DOES NOT HOLD: killed-keeper, whose
+// refusal named `container stop <name>` (b60178182, after that commit, makes it `yolo stop`), and
+// both stop-says-why runs, whose sessions asked once whether their jail was gone while Apple
+// Container still listed it (JL-D83). NOT CONDUCTED: the sweep, whose second workspace's jail
+// failed to start with the VZErrorDomain Code=2 that OQ-MB1 of
+// docs/research/macos-backend-performance.md records. The measures: an exec's process SURVIVED its
+// client in all eight cases, the detach sequence REACHED the process, the container RUNS ON when its
+// main process's client is killed, and an attached exec returned 137 at both stops.
+// docs/design/jail-lifetime-last-session-wins.md §7 step 4 has the whole record.
 //
 // The instrument was run on 2026-10-01, before this landed, by pointing every body below at podman
 // 5.8.7 in this repo's own Linux jail (nested, so rootful), from a test file that was not
@@ -737,6 +745,7 @@ func endWithEOF(t *testing.T, master *os.File, done <-chan error, rt, cname, mar
 // container and no keeper.
 func keeperFirstSessionQuitsAlone(t *testing.T, rt, dir, cname string) {
 	rec := newKeeperRecord(t, "first-session-quits-alone (§8 items 1, 2, 4)")
+	rec.strict = true // HOLDS on Apple Container, run 37133569003 (2026-10-03, container 1.1.0)
 	first := keeperHolding(t, rt, "FIRST", dir, "release-first")
 	awaitLaunchLockReleased(t, dir, first)
 	rec.expect(strings.Contains(first.combined(), "keeper: yolo internal daemon jail-keeper will hold") &&
@@ -789,6 +798,7 @@ func keeperFirstSessionQuitsAlone(t *testing.T, rt, dir, cname string) {
 // that started the jail; a third session holds the jail throughout and is the last to quit.
 func keeperHangupEndsOneSession(t *testing.T, rt, dir, cname string) {
 	rec := newKeeperRecord(t, "hangup-ends-one-session (JL-D4)")
+	rec.strict = true // HOLDS on Apple Container, run 37133569003 (2026-10-03, container 1.1.0)
 	const firstSleep, attachSleep = "sleep 4321", "sleep 4322"
 	first := keeperSession(t, rt, "FIRST", dir, `exec `+firstSleep)
 	awaitLaunchLockReleased(t, dir, first)
@@ -885,6 +895,7 @@ func keeperKilledLeavesSessionsRunning(t *testing.T, rt, dir, cname string) {
 //     (observation 3 of §9.5), so the keeper exits, no container is left, and the session returns.
 func keeperMainClientDeath(t *testing.T, rt, dir, cname string) {
 	rec := newKeeperRecord(t, "main-process-client-killed (§9.5 item 3, JL-D64)")
+	rec.strict = true // HOLDS on Apple Container, run 37133569003 (2026-10-03, container 1.1.0)
 	first := keeperHolding(t, rt, "FIRST", dir, "release-first")
 	awaitLaunchLockReleased(t, dir, first)
 	keeper, why := findKeeperPID(dir, 30*time.Second)
@@ -983,8 +994,9 @@ func keeperSweepSparesAKeptJail(t *testing.T, rt, dir, cname, other string) {
 // keeperStopSaysWhy is TestAnAttachWhoseJailEndedSaysWhy's claims (JL-D53): a session attached
 // when its jail ends prints why, first after `yolo stop`, then after a stop from outside yolo,
 // which records nothing. The attach reads why only for an exec status in jailEndStatus (137, 125,
-// 255, the statuses podman gives); whether `container exec` gives one of them is unmeasured, so the
-// status each stop gave is part of the record. Each stop also takes the stop-listing-lag measure
+// 255, the statuses podman gives); an attached `container exec` returned 137 at both stops on run
+// 37133569003 (2026-10-03, container 1.1.0), and the status each stop gives stays part of the
+// record. Each stop also takes the stop-listing-lag measure
 // (startStopListingLag): how long the runtime still lists the jail after the stop has ended an
 // exec, which on Apple Container the attach waits out (JL-D83).
 func keeperStopSaysWhy(t *testing.T, rt string) {
