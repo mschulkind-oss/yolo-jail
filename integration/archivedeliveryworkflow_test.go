@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // THE WORKFLOW HALF OF THE MAC ARCHIVE-DELIVERY CHECKS (macarchivedelivery_test.go), pinned on
@@ -229,4 +230,65 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// THE OQ-LR2 STEP MUST END ON ITS OWN DEADLINES, NOT ON ITS CAP.
+//
+// The step's two tests bound their slow phases themselves: the uncompressed load, the gzip
+// write, the gzip load and the in-VM copy. The last of those is the one that matters — when
+// it fires, the copier is sent SIGQUIT inside the VM and the test prints its goroutine dump
+// and a verdict. A step cap shorter than the deadlines before it kills the step first, and
+// then nothing prints: until 2026-10-03 the cap was 125 minutes against 175 of deadlines.
+//
+// The job cap has the same relation to its steps: if it is shorter than their caps, a step
+// still inside its own bound is cancelled with the job, which names no step.
+const (
+	// What the step spends outside those deadlines: the uncompressed archive's write (3m12s at
+	// the slowest), each test's realize, evict and probe work (3m17s and 2m38s at the
+	// slowest) and `go test`'s own start (19s) — 9m26s, read from the job logs of the runs
+	// 36711874486 to 37056529987.
+	oqLR2UnboundedAllowance = 10 * time.Minute
+	// The job's uncapped steps: checkout, Nix, Cachix, Go, the test selection and the post
+	// steps, about 4 minutes at the slowest in the same runs.
+	archiveJobUncappedAllowance = 10 * time.Minute
+)
+
+func TestTheOQLR2StepEndsOnItsOwnDeadlines(t *testing.T) {
+	wf := parseWorkflow(t, nightlyWorkflow)
+	step := jobStepRunning(t, wf, archiveDeliveryJob, "steps.select.outputs.firstload")
+
+	// The deadlines as the step's own environment sets them.
+	t.Setenv("YOLO_TEST_JAIL_TIMEOUT", step.Env["YOLO_TEST_JAIL_TIMEOUT"])
+	// The uncompressed load, the gzip load and the in-VM copy each take macArchiveLaunchTimeout.
+	deadlines := 3*macArchiveLaunchTimeout() + gzipArchiveWriteTimeout
+	need := deadlines + oqLR2UnboundedAllowance
+	if got := minutesOf(t, step.Name, step.TimeoutMinutes); got < need {
+		t.Errorf("%s: %q is capped at %s, but its tests' own deadlines add up to %s, plus %s for "+
+			"what they do not bound. A run slow enough to need them is killed by the cap before the "+
+			"in-VM copier's deadline fires, and the step ends with no verdict and no goroutine dump. "+
+			"Raise its `timeout-minutes` to at least %d.", nightlyWorkflow, step.Name, got, deadlines,
+			oqLR2UnboundedAllowance, int((need+time.Minute-1)/time.Minute))
+	}
+
+	job := wf.Jobs[archiveDeliveryJob]
+	var steps time.Duration
+	for _, s := range job.Steps {
+		if strings.TrimSpace(s.TimeoutMinutes) != "" {
+			steps += minutesOf(t, s.Name, s.TimeoutMinutes)
+		}
+	}
+	jobNeed := steps + archiveJobUncappedAllowance
+	if got := minutesOf(t, archiveDeliveryJob, job.TimeoutMinutes); got < jobNeed {
+		t.Errorf("%s: job %q is capped at %s, but its capped steps add up to %s, plus %s for the "+
+			"uncapped ones. A step still inside its own cap would be cancelled with the job, which "+
+			"names no step. Raise the job's `timeout-minutes` to at least %d.", nightlyWorkflow,
+			archiveDeliveryJob, got, steps, archiveJobUncappedAllowance,
+			int((jobNeed+time.Minute-1)/time.Minute))
+	}
+	// GitHub stops a hosted runner's job at 6 hours whatever the cap says, so a cap past that
+	// promises time the job cannot have.
+	if got := minutesOf(t, archiveDeliveryJob, job.TimeoutMinutes); got > 6*time.Hour {
+		t.Errorf("%s: job %q is capped at %s, past the 6 hours GitHub allows a hosted-runner job; "+
+			"shorten a step instead.", nightlyWorkflow, archiveDeliveryJob, got)
+	}
 }

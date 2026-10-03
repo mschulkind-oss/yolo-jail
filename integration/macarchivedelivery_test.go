@@ -1140,7 +1140,7 @@ func TestMacArchiveFirstLoadCompressionOnPodman(t *testing.T) {
 	gzRef := image.JailImageRepository(rt) + ":lr2-gzip-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	t.Cleanup(func() { macEvictImage(t, rt, gzRef) })
 	t0 := time.Now()
-	cout, crc := macRun(40*time.Minute, imgs.copier, "--insecure-policy", "copy", "nix:"+imgs.a,
+	cout, crc := macRun(gzipArchiveWriteTimeout, imgs.copier, "--insecure-policy", "copy", "nix:"+imgs.a,
 		"oci-archive:"+gz+":"+gzRef)
 	writeG := time.Since(t0)
 	if crc != 0 {
@@ -1183,6 +1183,10 @@ func TestMacArchiveFirstLoadCompressionOnPodman(t *testing.T) {
 		"",
 	)
 }
+
+// gzipArchiveWriteTimeout bounds the copier writing the gzip oci-archive above. It is one of the
+// deadlines the OQ-LR2 step's cap has to outlast (TestTheOQLR2StepEndsOnItsOwnDeadlines).
+const gzipArchiveWriteTimeout = 40 * time.Minute
 
 // ociArchiveLayerCompression reports how many of an oci-archive's manifest layers carry a gzip
 // media type, out of how many.

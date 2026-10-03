@@ -890,8 +890,10 @@ jobs:
     runs-on: macos-26-intel
     needs: build-image
     # The outer bound only; each expensive step carries its own. 25 (machine) + 90 (the two
-    # deliveries) + 125 (OQ-LR2: the two loads plus the in-VM copy) plus checkout, Nix and Go.
-    timeout-minutes: 255
+    # deliveries) + 190 (OQ-LR2: the two loads plus the in-VM copy) plus checkout, Nix and Go,
+    # about 4 minutes at the slowest measured. Inside the 6 hours GitHub allows a hosted job.
+    # integration/archivedeliveryworkflow_test.go redoes this sum.
+    timeout-minutes: 315
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -981,13 +983,24 @@ jobs:
       # research doc's second candidate, which needs no archive at all. Runs even when the step
       # above failed — each test evicts A itself and depends on nothing that step leaves.
       #
-      # THE CAP WAS 80 AND IS 125, raised 2026-09-25 for the third cold delivery: the two loads
-      # were sized at up to ~33 min each on this runner, and the in-VM copy has no measurement
-      # yet, so it gets its own deadline inside the test (macArchiveLaunchTimeout) and this cap
-      # leaves room for it. Revise it against the step duration a run reports.
+      # THE CAP WAS 80, then 125 (2026-09-25, for the third cold delivery), and is 190 since
+      # 2026-10-03, because 125 was shorter than the deadlines the step's own tests set. They
+      # bound the uncompressed load, the gzip write, the gzip load and the in-VM copy at
+      # 45 + 40 + 45 + 45 minutes (macArchiveLaunchTimeout, gzipArchiveWriteTimeout), and the
+      # in-VM copy's deadline is the one that prints: it sends the copier SIGQUIT and the test
+      # reports its goroutine dump and a verdict. Under a 125 cap a run slow in every phase is
+      # killed before that deadline and prints neither. 175 minutes of deadlines plus what they
+      # leave unbounded (the uncompressed write and each test's realize/evict/probe work, 9m26s
+      # at the slowest measured) is 185, so 190.
+      #
+      # MEASURED, the whole step, on the four runs whose in-VM copy ran to an end: 63m43s,
+      # 66m07s, 72m14s, and 103m37s on 2026-09-30, when the copy was killed at its 45-minute
+      # deadline. On 2026-10-03 (run 37118791671) this job died 89m into the step because GitHub
+      # lost the runner, at 2h07m of a 4h15m budget: no cap fired and no log was kept, and no cap
+      # can change that. integration/archivedeliveryworkflow_test.go redoes the sum above.
       - name: OQ-LR2 — time a cold first load, uncompressed vs gzip vs the in-VM copier (measurement only)
         if: ${{ !cancelled() && steps.cachix.outputs.enabled == 'true' && steps.select.outcome == 'success' }}
-        timeout-minutes: 125
+        timeout-minutes: 190
         run: go test -count=1 -timeout 0 -v -run '${{ steps.select.outputs.firstload }}' ./integration
         env:
           YOLO_RUNTIME: podman
