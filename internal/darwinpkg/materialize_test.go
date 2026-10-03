@@ -86,15 +86,3 @@ func TestProfilePathsFromStdoutCarriesProfilePath(t *testing.T) {
 		t.Errorf("PathPrefix %q should be ProfilePath + /bin (%q)", got.PathPrefix, got.ProfilePath)
 	}
 }
-
-// TestStderrTailBounded confirms the ring keeps only the last N lines (the
-// Python stderr_tail cap at 30).
-func TestStderrTailBounded(t *testing.T) {
-	tail := newStderrTail(3)
-	for _, l := range []string{"a", "b", "c", "d", "e"} {
-		tail.push(l)
-	}
-	if want := []string{"c", "d", "e"}; !reflect.DeepEqual(tail.lines(), want) {
-		t.Errorf("tail = %q, want %q", tail.lines(), want)
-	}
-}

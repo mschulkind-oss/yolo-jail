@@ -5,8 +5,6 @@ package image
 // docs/reference/nix-across-backends.md
 
 import (
-	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +15,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/containerbuilder"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixstderr"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/progress"
@@ -1367,7 +1366,7 @@ func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink stri
 		return "", []string{"nix command not found"}
 	}
 	defer release()
-	tail := readNixStderr(stderr, func(clean string) {
+	tail := nixstderr.Read(stderr, 30, func(clean string) {
 		if summary := SummarizeNixLine(clean); summary != "" {
 			fmt.Fprintln(out, summary)
 		}
@@ -1380,60 +1379,6 @@ func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink stri
 		return resolved, tail
 	}
 	return outLink, tail
-}
-
-// readNixStderr reads nix's stderr to the end of the stream, hands each non-blank line to onLine
-// (when non-nil), and returns the last 30 of them for failure diagnosis.
-//
-// EVERY LINE IS READ TO THE END OF THE STREAM, however long. A bufio.Scanner capped at maxNixLine
-// ended the read at the first longer line, and the Wait after it then waited on a nix blocked
-// writing into a pipe nothing read any more: a launch, or `yolo check`, hung for good and printed
-// nothing (TestANixLineLongerThanTheScannerReadsDoesNotWedgeTheBuild,
-// TestACheckBuildOfALongNixLineDoesNotWedge). Both builds read through here, so neither can get
-// that loop back on its own.
-func readNixStderr(stderr io.Reader, onLine func(clean string)) []string {
-	var tail []string
-	r := bufio.NewReaderSize(stderr, 64*1024)
-	for {
-		line, long, err := readLineCapped(r, maxNixLine)
-		clean := strings.TrimRight(string(line), " \t\r\n")
-		if long {
-			clean += fmt.Sprintf(" … (nix printed a line longer than %d bytes; the rest of it is not kept)", maxNixLine)
-		}
-		if clean != "" {
-			tail = append(tail, clean)
-			if len(tail) > 30 {
-				tail = tail[1:]
-			}
-			if onLine != nil {
-				onLine(clean)
-			}
-		}
-		if err != nil {
-			return tail
-		}
-	}
-}
-
-// maxNixLine is how much of one line of nix's stderr readNixStderr keeps.
-const maxNixLine = 1024 * 1024
-
-// readLineCapped reads one line from r, keeping at most max bytes of it (its newline dropped) and
-// consuming the rest, so a line of any length is read whole. long reports a line cut short; err is
-// r's: io.EOF at the end of the stream, with whatever an unterminated last line held.
-func readLineCapped(r *bufio.Reader, max int) (line []byte, long bool, err error) {
-	for {
-		frag, err := r.ReadSlice('\n')
-		frag = bytes.TrimSuffix(frag, []byte{'\n'})
-		if room := max - len(line); len(frag) > room {
-			long = true
-			frag = frag[:room]
-		}
-		line = append(line, frag...)
-		if err != bufio.ErrBufferFull {
-			return line, long, err
-		}
-	}
 }
 
 // buildImageWithContainerBuilder is the macOS build-offload (J3): start a Linux

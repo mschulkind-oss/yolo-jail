@@ -64,7 +64,7 @@ into a jail, and what each launch shows about the code it runs. See
 - A launch stopped by a signal sent to yolo alone, such as `kill` or a supervisor's, while nix
   builds or evaluates its image no longer leaves that nix running.
 - A launch, or `yolo check`, no longer hangs for good, printing nothing, when nix prints one very
-  long line while it builds the jail's image or yolo's own binaries.
+  long line while it builds the jail's image, yolo's own binaries, or a macOS sandbox's packages.
 
 ## [0.11.1] - 2026-10-02
 

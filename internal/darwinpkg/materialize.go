@@ -5,7 +5,6 @@ package darwinpkg
 // last piece left in Python when the pure builders (darwinpkg.go) landed; the
 // macos-user run wiring needs it, so it is ported here now.
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/nixstderr"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -211,9 +211,12 @@ func skippedNames(repoRoot string, env []string, system string) []string {
 	return ParseSkippedNames(stdout.String())
 }
 
-// streamStderrTail starts cmd, streams its stderr live to errStderr (so a
-// from-source build stays VISIBLE), and returns the last `max` non-blank lines
-// plus the child's exit code. The stderr pipe is drained SYNCHRONOUSLY before
+// streamStderrTail starts cmd, streams each non-blank line of its stderr live to
+// errStderr (so a from-source build stays VISIBLE), and returns the last `max`
+// of them plus the child's exit code. It reads through nixstderr.Read, so a line
+// of any length is read past rather than ending the read and leaving the Wait
+// below waiting on a child blocked on its full pipe
+// (TestStreamStderrTailReadsPastALongLine). The stderr pipe is drained SYNCHRONOUSLY before
 // cmd.Wait() — the idiom os/exec documents for StderrPipe — so the tail is
 // always complete and there is no concurrent access to the buffer. (The prior
 // code called cmd.Wait() while a pump goroutine was still draining, which could
@@ -230,16 +233,7 @@ func streamStderrTail(cmd *exec.Cmd, errStderr io.Writer, max int) (tail []strin
 	if serr := cmd.Start(); serr != nil {
 		return nil, 0, serr
 	}
-	ring := newStderrTail(max)
-	sc := bufio.NewScanner(stderrPipe)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		line := sc.Text()
-		fmt.Fprintln(errStderr, line)
-		if clean := strings.TrimRight(line, " \t\r\n"); clean != "" {
-			ring.push(clean)
-		}
-	}
+	tail = nixstderr.Read(stderrPipe, max, func(clean string) { fmt.Fprintln(errStderr, clean) })
 	waitErr := cmd.Wait()
 	code := 0
 	if cmd.ProcessState != nil {
@@ -247,23 +241,5 @@ func streamStderrTail(cmd *exec.Cmd, errStderr io.Writer, max int) (tail []strin
 	} else if waitErr != nil {
 		code = 1
 	}
-	return ring.lines(), code, nil
+	return tail, code, nil
 }
-
-// stderrTail is a bounded ring of the last N non-blank stderr lines (the Python
-// stderr_tail list capped at 30).
-type stderrTail struct {
-	max int
-	buf []string
-}
-
-func newStderrTail(max int) *stderrTail { return &stderrTail{max: max} }
-
-func (s *stderrTail) push(line string) {
-	s.buf = append(s.buf, line)
-	if len(s.buf) > s.max {
-		s.buf = s.buf[len(s.buf)-s.max:]
-	}
-}
-
-func (s *stderrTail) lines() []string { return s.buf }

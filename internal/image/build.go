@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nixstderr"
 )
 
 // ImageExtrasAttr is C5's store-delivered bulk — the `fullPackages` set plus the
@@ -125,8 +126,8 @@ func BuildOCIImage(req OCIBuildRequest) (string, []string) {
 	}
 
 	// Every line, however long, before the Wait: a read that stopped early would leave the Wait
-	// waiting on a nix blocked on its full pipe (readNixStderr).
-	tail := readNixStderr(stderr, nil)
+	// waiting on a nix blocked on its full pipe (nixstderr.Read).
+	tail := nixstderr.Read(stderr, 30, nil)
 	_ = cmd.Wait()
 	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 0 {
 		return "", tail
