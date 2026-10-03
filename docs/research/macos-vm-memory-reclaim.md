@@ -17,7 +17,7 @@ ruled. Read through the GitHub API, Apple's documentation and the issue trackers
 item, by an agent on 2026-10-03. It follows
 [the macOS backend benchmark](macos-backend-performance.md), which measured an Apple Container jail
 holding all of a 2 GiB load 120 s after it ended, and giving it back only when the jail stopped
-([§8, Memory](macos-backend-performance.md#memory-m4-apple-container)).
+([Apple Container's memory results](macos-backend-performance.md#memory-m4-apple-container)).
 
 **The questions,** in the maintainer's words (2026-10-03): *"I thought apple container had a balloon
 to get memory back? can we tune that?"* and *"Is Apple Container open source? … Are there other
@@ -27,14 +27,14 @@ Container ourselves? Like if we can make this more efficient and better for peop
 > **In short.**
 >
 > - **No balloon, and nothing to tune.** Apple Container attaches no memory balloon, and its own
->   documentation says freed guest memory is not returned (§2).
-> - **Open source, and outside PRs are merged.** Both repositories are Apache-2.0 (§1).
+>   documentation says freed guest memory is not returned ([§2](#2-the-balloon-proposal-and-what-happened-to-it)).
+> - **Open source, and outside PRs are merged.** Both repositories are Apache-2.0 ([§1](#1-apple-container-is-open-source-and-takes-outside-work)).
 > - **The balloon proposal was not rejected on its merits.** It was swept closed with about 30
->   other PRs from the same contributor, with no comment (§2).
+>   other PRs from the same contributor, with no comment ([§2](#2-the-balloon-proposal-and-what-happened-to-it)).
 > - **Adding one would probably not help.** Virtualization.framework's only device is a traditional
->   balloon, and the one published measurement of driving it saw the host's footprint *rise* (§3).
+>   balloon, and the one published measurement of driving it saw the host's footprint *rise* ([§3](#3-what-virtualizationframework-offers)).
 > - **libkrun does give memory back**, and it is Podman Machine's default provider on macOS, which
->   yolo already supports. That is the thing to measure first (§4, §5).
+>   yolo already supports. That is the thing to measure first ([§4](#4-other-macos-vms), [§5](#5-adding-it-to-apple-container-ourselves)).
 
 ## Terms
 
@@ -159,7 +159,7 @@ is shared by every jail rather than kept per jail.
 - **Its costs** (INFERRED): a traditional balloon gives memory back to the guest only when the host
   raises the target, so a lagging loop can push the guest into its OOM killer; `DEFLATE_ON_OOM`
   softens that. Compacting the guest costs CPU.
-- **It would probably gain nothing.** The one host-side measurement (§3) shows VZ keeping the
+- **It would probably gain nothing.** The one host-side measurement ([§3](#3-what-virtualizationframework-offers)) shows VZ keeping the
   pages. Before writing a patch, reproduce that with incompressible data (from `/dev/urandom`) and
   read host memory pressure and the compressor, not footprint.
 - **What would actually help is a free page reporting device in VZ**, which only Apple can add.

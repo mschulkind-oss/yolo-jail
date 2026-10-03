@@ -12,8 +12,8 @@ vantage:
 
 # Why file work is slow in an Apple Container jail, and what it means for a large Python monorepo
 
-**Status:** 2026-10-03. MEASURED on one Mac (§2); the workload assessment (§3) and the design sketch
-(§4) are INFERRED from those numbers, and nothing is ruled. It follows
+**Status:** 2026-10-03. MEASURED on one Mac ([§2](#2-results)); the workload assessment ([§3](#3-what-this-means-for-a-large-python-and-django-monorepo)) and the design sketch
+([§4](#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders)) are INFERRED from those numbers, and nothing is ruled. It follows
 [the macOS backend benchmark](macos-backend-performance.md), whose M5 to M7 showed Apple
 Container at 3 to 5 times native on files in the shared workspace, and asks the maintainer's next
 question (2026-10-03): *"are we IO bound? or number of files bound?"* — for a development setup
@@ -24,12 +24,12 @@ slow in VMs."*
 >
 > - **Bound by the number of files, not by bandwidth.** On the shared workspace a large file
 >   streams at 1.3 to 1.6 GB/s, a fifth to a third of native. A small file's create, stat, open or delete
->   costs 60 to 400 µs more than native, and that is where the 3 to 5 times comes from (§2).
+>   costs 60 to 400 µs more than native, and that is where the 3 to 5 times comes from ([§2](#2-results)).
 > - **The VM's own ext4 disk is faster than the Mac for small files**: 20,000 files are created
 >   in 0.2 s on it against 3.0 s natively and 11.1 s on the shared workspace. ripgrep over the
 >   benchmark's 100,000-file tree takes 0.08 s there, 2.5 s natively and 14.8 s shared.
 > - **A Python monorepo's hot trees all sit on the slow path today**: the virtualenv,
->   `node_modules`, the build tool's caches and the jail's `~/.cache` (§3). Python imports from
+>   `node_modules`, the build tool's caches and the jail's `~/.cache` ([§3](#3-what-this-means-for-a-large-python-and-django-monorepo)). Python imports from
 >   the shared workspace took 2.4 times as long as from ext4.
 > - **CPU work is native, and process start is faster than the Mac's** (the benchmark's M9 to
 >   M12), so the VM's cost for this kind of work is almost entirely the file path and the memory it
@@ -131,19 +131,19 @@ comparison does not control; ext4 against the shared workspace is the same inter
 The workload the maintainer asked about, described generically: a Python and Django monorepo with
 a Node front end, built and tested with Pants, running Postgres and a dozen or so Django processes
 under a process manager. Its working tree is about 200,000 files, most of them in two folders: the
-virtualenv (about 84,000) and the front end's `node_modules` (about 95,000). All INFERRED from §2
+virtualenv (about 84,000) and the front end's `node_modules` (about 95,000). All INFERRED from [§2](#2-results)
 and from reading that repository's layout.
 
 - **Every hot tree is on the slow path.** The virtualenv, `node_modules` and Pants's work folders
   are in the workspace; Pants's caches are under `~/.cache`. All are virtiofs.
 - **Imports multiply.** A Django process imports thousands of modules, and Python's search tries
   several names in each `sys.path` entry for each one, most of them missing. A dozen processes,
-  each test worker and each Pants subprocess pay that from scratch. §2.3's 160 ms per 40 packages
+  each test worker and each Pants subprocess pay that from scratch. [§2.3](#23-python-imports)'s 160 ms per 40 packages
   becomes seconds per process.
 - **The host's virtualenv cannot be used in the jail.** It holds macOS binaries, and a Linux one
   at the same path would overwrite it, so the two sides need separate trees.
 - **Postgres belongs on ext4.** Its data folder in the workspace pays the per-file cost on every
-  table and index file; on a VM-local disk it gets §2.1's 4,000 to 5,000 syncs per second.
+  table and index file; on a VM-local disk it gets [§2.1](#21-per-file-cost-not-bandwidth)'s 4,000 to 5,000 syncs per second.
 - **Memory fills and stays full.** Test runs and builds fill the guest's file cache, and `/tmp`
   is RAM. The jail grows to its 16 GiB cap on a 32 GiB Mac and keeps it until it stops (the
   benchmark's M4).
@@ -151,7 +151,7 @@ and from reading that repository's layout.
   than on the Mac. A parallel build gets half the cores by default.
 
 **macos-user is the other answer.** It ran at native speed on every metric
-([§8](macos-backend-performance.md#macos-user-2026-10-03)), so the host's own virtualenv, a native
+([the macos-user run](macos-backend-performance.md#macos-user-2026-10-03)), so the host's own virtualenv, a native
 Postgres and the existing macOS setup work as they do outside a jail. In exchange it is macOS, not
 Linux, and needs `sudo` at every launch.
 

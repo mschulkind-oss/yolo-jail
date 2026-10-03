@@ -713,7 +713,7 @@ output: `results-20261003-131315`, beside the first session's.
 | M2 fresh, to exit | 5.5 s (5.5-5.6), n=5 | - | - |
 | warm-up launch | 8.4 s to the marker, 15.4 s to exit | - | - |
 | M5 `git status`, 100,000 files | 0.174 (0.173-0.178) | 0.174 (0.171-0.177) | no difference |
-| M6 ripgrep, same tree | 2.881 (2.777-2.972) | 2.748 (2.717-2.774) | 5% slower; not a difference by §4.4 |
+| M6 ripgrep, same tree | 2.881 (2.777-2.972) | 2.748 (2.717-2.774) | 5% slower; not a difference by [§4.4](#44-what-counts-as-a-difference) |
 | M7 `npm ci`, offline | 1.773 (1.756-1.796) | 1.740 (1.696-1.794) | no difference |
 | M8 `go test` | did not run | 232.2 (227.8-235.8), 113 ok, 0 FAIL | - |
 | M9 node loop | 16.260 (16.253-16.329) | 16.229 (16.212-16.237) | no difference |
