@@ -1609,6 +1609,8 @@ widening the boundary.
 > copy-paste worse, and threat-model-identical. See
 > `three-decisions.md` (archived 2026-09-09; superseded by `docs/reference/pack-system.md`) (`three-decisions.md`, archived 2026-09-09 — superseded by [`pack-system.md`](../reference/pack-system.md)).
 
+<!-- vantage: question id=OQ-ACP1 -->
+
 ### <a id="OQ-ACP1"></a>✅ [OQ-ACP1](#OQ-ACP1) — what happens when two people attach to the same jail with different pack sets
 
 `refreshJailBriefings` runs on **every** invocation including attach, so an
@@ -1618,8 +1620,6 @@ silently changing a colleague's live session's instructions mid-work. Pairing an
 addresses this. Options: refuse to re-stage when the container is already running
 and the pack set differs; warn loudly; or make staging per-session rather than
 per-container.
-
-<!-- vantage: question id=OQ-ACP1 -->
 
 _Leaning:_ detect and warn in phase 1 (cheap, honest), then refuse-on-mismatch
 in phase 3. Silently mutating a running session's instructions is the worst of
@@ -1635,6 +1635,8 @@ the three.
 > question's first leaning, detect and warn; the ruling names no refusal on mismatch. The premise
 > above, that an attach re-renders from the attaching user's config, describes the tree before
 > that ruling. Found answered on 2026-09-30, when this label changed.
+
+<!-- vantage: question id=OQ-ACP2 -->
 
 ### <a id="OQ-ACP2"></a>✅ [OQ-ACP2](#OQ-ACP2) — whether opencode's skills gap should be closed by writing into `/workspace`
 
@@ -1656,8 +1658,6 @@ becomes the dominant complaint, the right fix is upstream in opencode.
 > [the workspace skills layer](../reference/agent-briefings.md#the-workspace-layer)'s
 > [`OQ-WS4`](../reference/agent-briefings.md#oq-ws4) is filed to answer it and to record the
 > answer here.
-
-<!-- vantage: question id=OQ-ACP2 -->
 
 **Answer:**
 > **Never in containers or on `macos-user`**, ruled 2026-09-27 as [`OQ-WS4`](../reference/agent-briefings.md#oq-ws4): *"A alone in containers and on macos-user; B is a host-notch tool and nothing else — and this ruling closes [`OQ-ACP2`](#OQ-ACP2) in its own doc."* The workspace's skills reach every agent through the staged mirror, which writes nothing into `/workspace`; writing links into a repo is left to the host notch, deferred to v2 ([`OQ-WS5`](../reference/agent-briefings.md#oq-ws5)).
@@ -1706,8 +1706,6 @@ with no Seatbelt around the host-side process — trades that for a string in an
 var. Runner-up against, and the killer for the in-jail half: boot re-renders every
 surface on every invocation, so there is no durable in-jail write posture to build a
 verb on.
-
-<!-- vantage: question id=OQ-ACP3 -->
 
 _Leaning:_ split the three.\
 (a) Do **not** block packs on it — phase 2 fills

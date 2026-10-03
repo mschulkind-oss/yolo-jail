@@ -259,6 +259,8 @@ documents and supports.
 
 ## 6. Open questions
 
+<!-- vantage: question id=OQ-GC1 -->
+
 ### ✅ [OQ-GC1](#-oq-gc1--is-the-copilot-as-provider-thread-closed-or-parked-pending-counsel--resolved-2026-09-17) — is the Copilot-as-provider thread closed, or parked pending counsel? — RESOLVED (2026-09-17)
 
 **Stakes.** [§4.2](#42-what-the-terms-do-not-say) found that GitHub has *not* written the prohibition everyone quotes. The
@@ -271,9 +273,9 @@ would need re-checking.
 _Leaning:_ close it. The economics at Business rates are break-even, so even a favourable
 legal reading buys nothing — which makes the legal question moot rather than pending.
 
-<!-- vantage: question id=OQ-GC1 -->
+**Answer:**
 
-> **Answer:** Closed, 2026-09-17 — *"forget that, seems like a dead end."* No counsel review
+> Closed, 2026-09-17 — *"forget that, seems like a dead end."* No counsel review
 > was sought and none is needed: the economics ruling ([§2](#2-what-actually-changed-in-the-billing-model), break-even at Business rates)
 > disposes of the thread on its own, so the legal reading in [§4](#4-the-terms-quoted) never becomes load-bearing.
 > **What would reopen it:** a Copilot plan whose included credits materially beat Anthropic

@@ -325,6 +325,8 @@ rm ~/.local/share/mise/installs/rust/1.95.0   # unblocked `mise install` on host
 > ledger because each answer carries a *refuted objection* that is cheaper to
 > read here than to re-derive.
 
+<!-- vantage: question id=OQ-MP1 -->
+
 ### ✅ [OQ-MP1](#-oq-mp1-should-workspace-become-a-symlink-to-the-real-host-path-option-a--resolved-2026-07-03): Should `/workspace` become a symlink to the real host path (option A)? — RESOLVED (2026-07-03)
 
 This changes a documented invariant that agents and shims rely on. Everything
@@ -339,12 +341,12 @@ collision — see the "Residual issue" section in
 [jail-state-separation-design.md](../reference/jail-state-separation-design.md); new
 leaning is boot-time prune (C) instead.)_
 
-<!-- vantage: question id=OQ-MP1 -->
-
 **Answer:**
 > No (2026-07-03). Superseded by the accepted separation bundle; the
 > jail↔jail residue is handled by boot-time prune per the "Residual issue"
 > section of jail-state-separation-design.md.
+
+<!-- vantage: question id=OQ-MP2 -->
 
 ### ✅ [OQ-MP2](#-oq-mp2-does-apple-container-support-arbitrary-same-path-bind-targets--moot-2026-07-03): Does Apple Container support arbitrary same-path bind targets? — MOOT (2026-07-03)
 
@@ -353,12 +355,12 @@ verify the Apple Container backend before committing to A.
 
 _Leaning:_ Unverified; needs a check on macOS.
 
-<!-- vantage: question id=OQ-MP2 -->
-
 **Answer:**
 > Moot (2026-07-03). Option A is rejected and the accepted bundle mounts at
 > the fixed path `/mise` — no arbitrary same-path targets needed on any
 > runtime.
+
+<!-- vantage: question id=OQ-MP3 -->
 
 ### ✅ [OQ-MP3](#-oq-mp3-is-mise_trust1-run_cmdpy1194-actually-a-mise-env-var--resolved-2026-07-03): Is `MISE_TRUST=1` (run_cmd.py:1194) actually a mise env var? — RESOLVED (2026-07-03)
 
@@ -369,13 +371,13 @@ how the `.mise.toml` gap shipped.
 _Leaning:_ Probably a no-op; replace with `MISE_TRUSTED_CONFIG_PATHS=/workspace`
 and un-gate the `mise trust` calls (run without a path argument).
 
-<!-- vantage: question id=OQ-MP3 -->
-
 **Answer:**
 > Confirmed a no-op (2026-07-03): `mise settings ls --all` has no `trust`
 > setting, only `trusted_config_paths`. Replace with
 > `MISE_TRUSTED_CONFIG_PATHS=/workspace` and fix the filename-gated trust
 > calls (three sites, see above).
+
+<!-- vantage: question id=OQ-MP4 -->
 
 ### ✅ [OQ-MP4](#-oq-mp4-under-f-how-do-workspace-venvs-get-recreated-per-side--resolved-by-the-code-leaning-confirmed-verified-2026-08-23): Under F+, how do workspace venvs get recreated per side? — RESOLVED BY THE CODE (leaning confirmed; verified 2026-08-23)
 
@@ -390,8 +392,6 @@ no project config, and the pre-create hook populates the jail side
 naturally. (The earlier `.mise.local.toml` idea is unworkable: the file
 would live in the shared workspace and leak to the host; also nothing in
 `src/` generates one today — option D's claim above was wrong.)
-
-<!-- vantage: question id=OQ-MP4 -->
 
 **Answer:**
 > **Shadow mount — the leaning shipped, and then generalized.** This question
@@ -421,6 +421,8 @@ would live in the shared workspace and leak to the host; also nothing in
 > at all** — the launcher warns and the jail sees the host's entry. A per-side
 > path must be a directory (or absent); this is the trap.
 
+<!-- vantage: question id=OQ-MP5 -->
+
 ### ✅ [OQ-MP5](#-oq-mp5-should-provisioning-failures-abort-jail-boot--resolved-2026-07-03): Should provisioning failures abort jail boot? — RESOLVED (2026-07-03)
 
 Today a failed `mise install` during provisioning scrolls past and the jail
@@ -429,8 +431,6 @@ unnoticed).
 
 _Leaning:_ Don't abort (agents can often self-serve), but print a red
 end-of-boot summary line so it can't be missed.
-
-<!-- vantage: question id=OQ-MP5 -->
 
 **Answer:**
 > Decided 2026-07-03 — three parts:
