@@ -56,7 +56,9 @@ host or an outside account follows under [External waits](#external-waits).
     forks that follow their upstream while a patch series applies, and the build waits on the rulings.
 10. [Rule how the Claude footer moves into a Claude Code plugin](../research/claude-code-extensions-footer.md) — the
     plugin ends a process per refresh and keeps yolo's segment beside your own status line, and its first build
-    step, disclosing a wrapped plugin's default-location hooks, is under way.
+    step, disclosing a wrapped plugin's default-location hooks, is under way. [How yolo installs and manages
+    Claude Code mods](../research/claude-code-mods-management.md) rides in the same sitting, since its rulings and
+    its first build step rest on that plugin route and that disclosure fix.
 11. [Rule whether a successful `yolo host apply --assert` names a next command](../reference/happy-path-principle.md#the-rules)
    — last among the defects, since [rule 2](../reference/happy-path-principle.md#the-rules) calls a success naming no next
    command a dead end, an `--assert` ends at its counts, and the line waits on a ruling against [the verdict
