@@ -413,7 +413,10 @@ func TestALaunchEndedByTheLaunchInsideItLeavesItsLine(t *testing.T) {
 // once that arm is installed and the guard retired, and never that it spawned the runtime; it
 // unwinds once the lifeline closes, as keeper.go's does before ready. Run does not return here: its
 // arm owns the exit, so Run waits for the process to end (run.go's select {}), and its goroutine
-// is left there.
+// is left there. None of Run's defers runs either, so the process state they would put back is put
+// back here: the pack records (packRecordScope) and the macos-user backend's launch writer
+// (attachLaunchLog). Left as this launch set them, a later test read this launch's empty pack
+// records, and TestOnlyAWorkspaceSwitchedOnStartsTheBroker failed after it.
 func TestALaunchASignalEndsBeforeItsRuntimeIsSpawnedLeavesItsLine(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
@@ -421,6 +424,8 @@ func TestALaunchASignalEndsBeforeItsRuntimeIsSpawnedLeavesItsLine(t *testing.T) 
 	cname := yoloruntime.FromWorkspace(ws)
 	t.Setenv("PATH", t.TempDir())
 	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
+	t.Cleanup(packRecordScope())
+	t.Cleanup(macosuser.SetLaunchWriter(nil))
 	var atExit string
 	exits := seeArmExitsWith(t, cname, func() { atExit = launchLogAtExit() })
 	catchSignal(t, syscall.SIGINT)
