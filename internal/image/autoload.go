@@ -1367,11 +1367,32 @@ func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink stri
 		return "", []string{"nix command not found"}
 	}
 	defer release()
+	tail := readNixStderr(stderr, func(clean string) {
+		if summary := SummarizeNixLine(clean); summary != "" {
+			fmt.Fprintln(out, summary)
+		}
+	})
+	_ = cmd.Wait()
+	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 0 {
+		return "", tail
+	}
+	if resolved, err := os.Readlink(outLink); err == nil {
+		return resolved, tail
+	}
+	return outLink, tail
+}
+
+// readNixStderr reads nix's stderr to the end of the stream, hands each non-blank line to onLine
+// (when non-nil), and returns the last 30 of them for failure diagnosis.
+//
+// EVERY LINE IS READ TO THE END OF THE STREAM, however long. A bufio.Scanner capped at maxNixLine
+// ended the read at the first longer line, and the Wait after it then waited on a nix blocked
+// writing into a pipe nothing read any more: a launch, or `yolo check`, hung for good and printed
+// nothing (TestANixLineLongerThanTheScannerReadsDoesNotWedgeTheBuild,
+// TestACheckBuildOfALongNixLineDoesNotWedge). Both builds read through here, so neither can get
+// that loop back on its own.
+func readNixStderr(stderr io.Reader, onLine func(clean string)) []string {
 	var tail []string
-	// EVERY LINE IS READ TO THE END OF THE STREAM, however long. A bufio.Scanner capped at
-	// maxNixLine ended this loop at the first longer line, and the Wait below then waited on
-	// a nix blocked writing into a pipe nothing read any more: the launch hung for good and
-	// printed nothing (TestANixLineLongerThanTheScannerReadsDoesNotWedgeTheBuild).
 	r := bufio.NewReaderSize(stderr, 64*1024)
 	for {
 		line, long, err := readLineCapped(r, maxNixLine)
@@ -1384,25 +1405,17 @@ func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink stri
 			if len(tail) > 30 {
 				tail = tail[1:]
 			}
-			if summary := SummarizeNixLine(clean); summary != "" {
-				fmt.Fprintln(out, summary)
+			if onLine != nil {
+				onLine(clean)
 			}
 		}
 		if err != nil {
-			break
+			return tail
 		}
 	}
-	_ = cmd.Wait()
-	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 0 {
-		return "", tail
-	}
-	if resolved, err := os.Readlink(outLink); err == nil {
-		return resolved, tail
-	}
-	return outLink, tail
 }
 
-// maxNixLine is how much of one line of nix's stderr runNixBuild keeps.
+// maxNixLine is how much of one line of nix's stderr readNixStderr keeps.
 const maxNixLine = 1024 * 1024
 
 // readLineCapped reads one line from r, keeping at most max bytes of it (its newline dropped) and

@@ -1,7 +1,6 @@
 package image
 
 import (
-	"bufio"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -125,19 +124,9 @@ func BuildOCIImage(req OCIBuildRequest) (string, []string) {
 		return "", []string{"nix command not found"}
 	}
 
-	var tail []string
-	scanner := bufio.NewScanner(stderr)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		clean := strings.TrimRight(scanner.Text(), " \t\r\n")
-		if clean == "" {
-			continue
-		}
-		tail = append(tail, clean)
-		if len(tail) > 30 {
-			tail = tail[1:]
-		}
-	}
+	// Every line, however long, before the Wait: a read that stopped early would leave the Wait
+	// waiting on a nix blocked on its full pipe (readNixStderr).
+	tail := readNixStderr(stderr, nil)
 	_ = cmd.Wait()
 	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 0 {
 		return "", tail
