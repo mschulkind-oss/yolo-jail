@@ -126,23 +126,27 @@ func jailEndStatus(rc int) bool { return rc == 137 || rc == 125 || rc == 255 }
 
 // The attach's wait for a record written as its jail ended: the first session's end is recorded
 // by its launcher just after the session returns, while the jail's own end follows within a poll
-// of it, so the record can land a moment after the attach sees the jail gone. Vars so a test
-// need not wait them out.
+// of it, so the record can land a moment after the attach sees the jail gone. Then the wait for a
+// runtime whose listing trails its jail's end (listingTrailsAJailsEnd). Vars so a test need not
+// wait them out.
 var (
 	stopRecordWait  = time.Second
 	stopRecordPoll  = 50 * time.Millisecond
 	stopProbeBudget = 5 * time.Second
+	jailGoneWait    = 5 * time.Second
+	jailGonePoll    = 100 * time.Millisecond
 )
 
 // whyTheJailEnded answers, for an attach whose exec returned rc, whether its jail ended under it,
 // and why when a record says. ended is true only when the runtime answered that no container of
-// the name is running: a jail still up, or a runtime that could not say, means the session ended
-// on its own, and nothing is claimed. reason is "" when nothing recorded why.
+// the name is running (jailGoneAfterItsEnd): a jail still up, or a runtime that could not say,
+// means the session ended on its own, and nothing is claimed. reason is "" when nothing recorded
+// why.
 func (o *Options) whyTheJailEnded(cname, rt string, rc int, since time.Time) (reason string, ended bool) {
 	if !jailEndStatus(rc) {
 		return "", false
 	}
-	if id, known := o.probeRunningContainer(cname, rt, stopProbeBudget); !known || id != "" {
+	if !o.jailGoneAfterItsEnd(cname, rt) {
 		return "", false
 	}
 	deadline := time.Now().Add(stopRecordWait)
@@ -155,6 +159,46 @@ func (o *Options) whyTheJailEnded(cname, rt string, rc int, since time.Time) (re
 		}
 		time.Sleep(stopRecordPoll)
 	}
+}
+
+// jailGoneAfterItsEnd asks rt whether cname's jail is gone, for a session whose exec returned a
+// status a jail's end gives: true only when the runtime answered that no container of the name is
+// running, and false when it lists one or cannot say. A runtime whose listing trails its jail's end
+// is asked again while it still lists the jail, every jailGonePoll within jailGoneWait, since its
+// first answer comes before the listing has caught up with the end that returned the exec. The
+// session waits that bound only for a 137, 125 or 255 its jail survives, which is its own end.
+func (o *Options) jailGoneAfterItsEnd(cname, rt string) bool {
+	deadline := time.Now().Add(jailGoneWait)
+	for {
+		id, known := o.probeRunningContainer(cname, rt, stopProbeBudget)
+		switch {
+		case !known:
+			return false
+		case id == "":
+			return true
+		case !listingTrailsAJailsEnd(rt) || !time.Now().Before(deadline):
+			return false
+		}
+		time.Sleep(jailGonePoll)
+	}
+}
+
+// JailGoneWait is jailGoneAfterItsEnd's bound, for the Apple Container keeper test's measure of how
+// long `container ls` lists a jail a stop has ended (integration/applecontainerkeeper_test.go).
+func JailGoneWait() time.Duration { return jailGoneWait }
+
+// listingTrailsAJailsEnd reports whether rt still lists a jail as running for a while after every
+// process in it has ended, so that a session's exec returns before the listing says the jail is
+// gone. Apple Container does (read from apple/container 1.1.0 and containerization 0.35.0, not
+// measured): `container stop` kills every process in the container (LinuxContainer.stop's kill of
+// pid -1), then unmounts the rootfs, syncs and stops the VM, and only then, deregistering the
+// runtime service, marks the container stopped (ContainersService.handleContainerExit), while
+// `container ls` lists the containers marked running. Run 37133569003 (2026-10-03, container 1.1.0)
+// recorded what that does to a single ask: no session whose jail a stop ended was told so
+// (docs/design/jail-lifetime-last-session-wins.md JL-D83). Podman's `ps` reads the OCI runtime's
+// live state, so its one answer stands.
+func listingTrailsAJailsEnd(rt string) bool {
+	return rt == "container" // parity: HonoredBy — the same answer by asking again: Apple Container marks a stopped container stopped only once its VM is down, where podman's ps reads the OCI runtime's live state
 }
 
 // reportJailEnded prints why a session's jail ended, for whyTheJailEnded's answer: nothing when it

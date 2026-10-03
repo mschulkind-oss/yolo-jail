@@ -30,7 +30,8 @@ package integration
 //	TestAppleContainerKeeperKilledLeavesSessionsRunning   §8 item 7, OQ-JL7, JL-D30 ("on Apple Container too")
 //	TestAppleContainerKeeperMainClientDeath               §9.5 item 3, JL-D64: the keeper's `container run` client killed
 //	TestAppleContainerKeeperSweepSparesAKeptJail          JL-D7's Apple Container branch
-//	TestAppleContainerKeeperStopSaysWhy                   JL-D53: an attach whose jail ended says why
+//	TestAppleContainerKeeperStopSaysWhy                   JL-D53: an attach whose jail ended says why;
+//	                                                      measure: how long the listing names a jail a stop ended (JL-D83)
 //
 // # Both answers pass. Only a run that failed to conduct the experiment is red
 //
@@ -88,6 +89,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	naming "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -982,7 +984,9 @@ func keeperSweepSparesAKeptJail(t *testing.T, rt, dir, cname, other string) {
 // when its jail ends prints why, first after `yolo stop`, then after a stop from outside yolo,
 // which records nothing. The attach reads why only for an exec status in jailEndStatus (137, 125,
 // 255, the statuses podman gives); whether `container exec` gives one of them is unmeasured, so the
-// status each stop gave is part of the record.
+// status each stop gave is part of the record. Each stop also takes the stop-listing-lag measure
+// (startStopListingLag): how long the runtime still lists the jail after the stop has ended an
+// exec, which on Apple Container the attach waits out (JL-D83).
 func keeperStopSaysWhy(t *testing.T, rt string) {
 	const release = "release-first"
 	start := func(t *testing.T, dir string) (first, attach *bgRun) {
@@ -999,8 +1003,10 @@ func keeperStopSaysWhy(t *testing.T, rt string) {
 		rec := newKeeperRecord(t, "stop-says-why/yolo-stop (JL-D53)")
 		dir := writeProject(t, `{}`)
 		first, attach := start(t, dir)
+		lag := startStopListingLag(t, rt, naming.FromWorkspace(dir), 4501)
 		stop := runCommand(t, dir, []string{"stop"}, keeperEnv(rt))
 		t.Logf("%s `yolo stop` returned %d:\n%s", acKeeperTag, stop.rc, lastLines(stop.combined(), 30))
+		lag.report(t, "`yolo stop`")
 		rc := rec.awaitEnd(attach)
 		stepSummary(t, fmt.Sprintf("%s MEASURE stop-status (%s): an attached `%s exec` %s when `yolo stop` ended its jail",
 			acKeeperTag, runtimeVersion(rt), rt, endedWord(rc)))
@@ -1025,9 +1031,11 @@ func keeperStopSaysWhy(t *testing.T, rt string) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), jailTimeout())
 		defer cancel()
+		lag := startStopListingLag(t, rt, cname, 4502)
 		if out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput(); err != nil {
 			t.Logf("%s `%s`: %v\n%s", acKeeperTag, strings.Join(argv, " "), err, out)
 		}
+		lag.report(t, "`"+strings.Join(argv, " ")+"`")
 		rc := rec.awaitEnd(attach)
 		stepSummary(t, fmt.Sprintf("%s MEASURE stop-status (%s): an attached `%s exec` %s when `%s stop` ended its jail",
 			acKeeperTag, runtimeVersion(rt), rt, endedWord(rc), rt))
@@ -1040,4 +1048,168 @@ func keeperStopSaysWhy(t *testing.T, rt string) {
 			fmt.Sprintf("the first session is told its jail ended (rc %d)", frc), first.combined())
 		rec.verdict()
 	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Measure: how long the runtime lists a jail a stop has ended
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+// stopListingLag is the stop-listing-lag measure (JL-D83 of
+// docs/design/jail-lifetime-last-session-wins.md): how long after a stop has ended an exec's
+// process the runtime still lists the jail as running. A session whose jail ended asks the
+// runtime whether it is gone (internal/cli/run's whyTheJailEnded), and on Apple Container it asks
+// again while `container ls` still lists the jail, within run.JailGoneWait. That the listing
+// trails the end is read from apple/container 1.1.0's source (ContainersService marks the
+// container stopped only after the VM is down); how long it trails is what this asks, so the
+// bound can be checked against it. Both answers pass.
+//
+// It asks the runtime alone: a bare `<rt> exec` client runs a sleep of its own in the jail, a
+// poll of the listing starts just before the stop, and each records when it saw its end, from the
+// moment the stop began. An ask's answer is the listing at some moment while it ran, so the poll
+// records when the last ask that named the jail BEGAN and when the first that did not ANSWERED:
+// the jail left the listing between the two.
+type stopListingLag struct {
+	rt, cname  string
+	conducted  string // why the measure could not be taken, or ""
+	began      time.Time
+	execDone   chan struct{}
+	execAfter  time.Duration
+	execWord   string
+	pollDone   chan struct{}
+	listedAsk  time.Duration // when the last ask that named the jail began; -1 when none did
+	goneAnswer time.Duration // when the first ask that did not name it answered; -1 when none did within the bound
+	pollFailed int           // listings that could not be read
+}
+
+// startStopListingLag starts the bare client, waits until its `/bin/sleep <n>` runs in the jail,
+// and starts the listing's poll; the stop must follow at once. A measure that cannot start is
+// recorded as not conducted and leaves the run's claims to go on.
+func startStopListingLag(t *testing.T, rt, cname string, n int) *stopListingLag {
+	t.Helper()
+	m := &stopListingLag{rt: rt, cname: cname, execDone: make(chan struct{}), pollDone: make(chan struct{}),
+		listedAsk: -1, goneAnswer: -1}
+	sleep := "/bin/sleep " + strconv.Itoa(n)
+	client := exec.Command(rt, "exec", cname, "/bin/sleep", strconv.Itoa(n))
+	client.WaitDelay = 5 * time.Second
+	if err := client.Start(); err != nil {
+		m.conducted = "the bare `" + rt + " exec` client did not start: " + err.Error()
+		close(m.execDone)
+		close(m.pollDone)
+		return m
+	}
+	t.Cleanup(func() { _ = client.Process.Kill() })
+	if got, out, err := awaitJailCountQuiet(rt, cname, sleep, 1, 30*time.Second); err != nil || got != 1 {
+		_ = client.Process.Kill()
+		m.conducted = fmt.Sprintf("the bare client's `%s` was not found in the jail (count %d, %v): %s", sleep, got, err, lastLines(out, 5))
+	}
+	m.began = time.Now()
+	go func() {
+		defer close(m.execDone)
+		err := client.Wait()
+		m.execAfter, m.execWord = time.Since(m.began), exitWord(err)
+	}()
+	go func() {
+		defer close(m.pollDone)
+		for deadline := m.began.Add(jailTimeout()); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			asked := time.Since(m.began)
+			listed, ok := listsRunning(rt, cname)
+			switch {
+			case !ok:
+				m.pollFailed++
+			case listed:
+				m.listedAsk = asked
+			default:
+				m.goneAnswer = time.Since(m.began)
+				return
+			}
+		}
+	}()
+	return m
+}
+
+// awaitJailCountQuiet is awaitJailCount for a measure, which records a failure rather than ending
+// the run.
+func awaitJailCountQuiet(rt, cname, prefix string, want int, bound time.Duration) (int, string, error) {
+	deadline := time.Now().Add(bound)
+	for {
+		n, out, err := jailCount(rt, cname, prefix)
+		if (err == nil && n == want) || time.Now().After(deadline) {
+			return n, out, err
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// listsRunning asks the runtime's listing of running containers whether it lists cname; ok is false
+// when the listing could not be read.
+func listsRunning(rt, cname string) (listed, ok bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if rt == "container" {
+		out, err := exec.CommandContext(ctx, rt, "ls").Output()
+		if err != nil {
+			return false, false
+		}
+		_, listed = naming.ParseContainerLsLive(string(out))[cname]
+		return listed, true
+	}
+	out, err := exec.CommandContext(ctx, rt, "ps", "--format", "{{.Names}}").Output()
+	if err != nil {
+		return false, false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(line) == cname {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+// report waits for both ends, within the bound, and records the measure for the stop it followed.
+func (m *stopListingLag) report(t *testing.T, stop string) {
+	t.Helper()
+	head := fmt.Sprintf("%s MEASURE stop-listing-lag (%s), after %s", acKeeperTag, runtimeVersion(m.rt), stop)
+	if m.conducted != "" {
+		stepSummary(t, head+": NOT CONDUCTED — "+m.conducted)
+		return
+	}
+	bound := time.After(jailTimeout())
+	for _, done := range []chan struct{}{m.execDone, m.pollDone} {
+		select {
+		case <-done:
+		case <-bound:
+			stepSummary(t, head+": NOT CONDUCTED — the bare client or the listing's poll was still waiting after "+jailTimeout().String())
+			return
+		}
+	}
+	ms := func(d time.Duration) string { return strconv.FormatInt(d.Milliseconds(), 10) + "ms" }
+	line := fmt.Sprintf("%s: a bare `%s exec` client %s %s after the stop began", head, m.rt, m.execWord, ms(m.execAfter))
+	if m.goneAnswer < 0 {
+		stepSummary(t, line+fmt.Sprintf(", and the listing still named the jail %s after the stop began (%d listings unread)",
+			jailTimeout(), m.pollFailed))
+		return
+	}
+	least, most := m.listedAsk-m.execAfter, m.goneAnswer-m.execAfter
+	line += fmt.Sprintf("; the last listing that named the jail was asked at %s and the first that did not answered at %s",
+		ms(m.listedAsk), ms(m.goneAnswer))
+	if m.listedAsk < 0 {
+		line = fmt.Sprintf("%s: a bare `%s exec` client %s %s after the stop began; no listing named the jail, and the "+
+			"first answered at %s", head, m.rt, m.execWord, ms(m.execAfter), ms(m.goneAnswer))
+	}
+	wait := run.JailGoneWait()
+	switch {
+	case least <= 0:
+		line += ", so an ask begun once the exec returned did not name the jail: one ask answers"
+	case most <= wait:
+		line += fmt.Sprintf(", so the jail left the listing %s to %s after the exec returned, within the %s a "+
+			"session asks for (run.JailGoneWait)", ms(least), ms(most), wait)
+	case least > wait:
+		line += fmt.Sprintf(", so the jail left the listing %s to %s after the exec returned, PAST the %s a "+
+			"session asks for (run.JailGoneWait)", ms(least), ms(most), wait)
+	default:
+		line += fmt.Sprintf(", so the jail left the listing %s to %s after the exec returned, which may be past "+
+			"the %s a session asks for (run.JailGoneWait)", ms(least), ms(most), wait)
+	}
+	line += fmt.Sprintf(" (%d listings unread)", m.pollFailed)
+	stepSummary(t, line)
 }

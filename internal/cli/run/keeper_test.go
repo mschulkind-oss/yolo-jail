@@ -822,6 +822,27 @@ func TestAFirstSessionAStopEndedReturnsWhatItDid(t *testing.T) {
 			}
 		})
 	}
+	// On Apple Container the first session's exec returns while `container ls` still lists the
+	// ending jail (acListingBehind), and the 143 holds there too: run 37133569003 (2026-10-03,
+	// container 1.1.0) recorded 137 after `yolo stop`.
+	t.Run("the first session on Apple Container, a recorded stop its listing trails", func(t *testing.T) {
+		fastJailGoneWait(t)
+		t.Setenv("HOME", t.TempDir())
+		o := goldenOptions("/ws", t.TempDir())
+		var errBuf bytes.Buffer
+		o.Stderr = &errBuf
+		o.Now = time.Now
+		asks := 0
+		o.Exec = acListingBehind("yolo-ended", 2, 0, &asks)
+		since := time.Now()
+		writeJailStop("yolo-ended", jailStopRecord{At: since.Add(time.Millisecond), Reason: YoloStopReason(9)})
+		if got := o.endSession("yolo-ended", "container", 137, since, 0, true); got != 143 {
+			t.Errorf("status %d after %d asks, want 143:\n%s", got, asks, errBuf.String())
+		}
+		if !strings.Contains(errBuf.String(), "This session ended because its jail stopped: "+YoloStopReason(9)) {
+			t.Errorf("the session did not say why:\n%s", errBuf.String())
+		}
+	})
 }
 
 // TestASessionThatLeavesOthersSaysSoAndReturns: §4.5's one line, with the count when the runtime

@@ -7,6 +7,7 @@ package run
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,14 @@ func fastStopRecordWait(t *testing.T) {
 	savedWait, savedPoll := stopRecordWait, stopRecordPoll
 	stopRecordWait, stopRecordPoll = 300*time.Millisecond, 10*time.Millisecond
 	t.Cleanup(func() { stopRecordWait, stopRecordPoll = savedWait, savedPoll })
+}
+
+// fastJailGoneWait shrinks the wait for a runtime whose listing trails its jail's end.
+func fastJailGoneWait(t *testing.T) {
+	t.Helper()
+	savedWait, savedPoll := jailGoneWait, jailGonePoll
+	jailGoneWait, jailGonePoll = 300*time.Millisecond, 10*time.Millisecond
+	t.Cleanup(func() { jailGoneWait, jailGonePoll = savedWait, savedPoll })
 }
 
 // TestAStopRecordIsReplacedByTheNextCause: a stop replaces any record, since it is the cause, and
@@ -249,4 +258,147 @@ func exitWith(t *testing.T, rc string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
+}
+
+// acListingBehind answers Apple Container's `container ls` the way its API server does while a
+// jail ends: the jail's row stays for the first behind asks, and then is gone. Apple's
+// ContainersService marks a container stopped only at the end of `container stop`, once the VM is
+// down and its runtime service deregistered, while every process in it was killed before that, so
+// the session's exec has returned by the time the listing catches up (read from apple/container
+// 1.1.0's source, not measured: the AC keeper test's stop-listing-lag measure asks it on a Mac).
+// fail makes every ask from the failAt-th on exit 1. asks counts them.
+func acListingBehind(cname string, behind, failAt int, asks *int) func([]string, string, []string, time.Duration) ExecResult {
+	return func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		if len(argv) != 2 || argv[0] != "container" || argv[1] != "ls" {
+			return ExecResult{Ran: false}
+		}
+		*asks++
+		if failAt > 0 && *asks >= failAt {
+			return ExecResult{Ran: true, RC: 1}
+		}
+		out := "ID  IMAGE  OS  ARCH  STATE\n"
+		if *asks <= behind {
+			out += cname + "  yolo-jail:latest  linux  arm64  running\n"
+		}
+		return ExecResult{Ran: true, Stdout: out}
+	}
+}
+
+// TestWhyTheJailEndedWaitsForAppleContainersListing: on Apple Container a session's exec returns
+// while `container ls` still lists its ending jail, so the attach asks again until the row goes,
+// within a bound, and then reads the record as on podman. A jail still listed at the bound, or a
+// listing that cannot be read, claims nothing. Podman's `ps` reads the OCI runtime's live state, so
+// its one answer stands and costs no second ask.
+func TestWhyTheJailEndedWaitsForAppleContainersListing(t *testing.T) {
+	stopRecordHome(t)
+	fastStopRecordWait(t)
+	fastJailGoneWait(t)
+	o := goldenOptions("/ws", t.TempDir())
+	since := time.Now()
+
+	writeJailStop("yolo-ws-1", jailStopRecord{At: since.Add(time.Second), Reason: "this jail's"})
+	asks := 0
+	o.Exec = acListingBehind("yolo-ws-1", 3, 0, &asks)
+	if reason, ended := o.whyTheJailEnded("yolo-ws-1", "container", 137, since); !ended || reason != "this jail's" {
+		t.Errorf("a recorded stop the listing trailed: reason %q ended %v after %d asks; want the record", reason, ended, asks)
+	}
+
+	writeJailStop("yolo-ws-1", jailStopRecord{At: since.Add(-time.Hour), Reason: "an earlier jail's"})
+	asks = 0
+	o.Exec = acListingBehind("yolo-ws-1", 3, 0, &asks)
+	if reason, ended := o.whyTheJailEnded("yolo-ws-1", "container", 137, since); !ended || reason != "" {
+		t.Errorf("an unrecorded stop the listing trailed: reason %q ended %v after %d asks; want ended, no reason",
+			reason, ended, asks)
+	}
+
+	asks = 0
+	o.Exec = acListingBehind("yolo-ws-1", 1<<30, 0, &asks)
+	start := time.Now()
+	if _, ended := o.whyTheJailEnded("yolo-ws-1", "container", 137, since); ended {
+		t.Error("a jail still listed at the bound was claimed ended")
+	}
+	if took := time.Since(start); took > jailGoneWait+time.Second {
+		t.Errorf("a jail that stays listed held the session %s, past the %s bound", took, jailGoneWait)
+	}
+	if asks < 2 {
+		t.Errorf("a jail Apple Container still lists was asked about %d time(s); want it asked again", asks)
+	}
+
+	asks = 0
+	o.Exec = acListingBehind("yolo-ws-1", 1<<30, 3, &asks)
+	if _, ended := o.whyTheJailEnded("yolo-ws-1", "container", 137, since); ended {
+		t.Error("a listing that stopped answering was read as the jail gone")
+	}
+
+	var calls []string
+	o.Exec = probeRuntime("running", &calls)
+	if _, ended := o.whyTheJailEnded("yolo-ws-1", "podman", 137, since); ended || len(calls) != 1 {
+		t.Errorf("podman's running jail: ended %v after %q; want one ask and no claim", ended, calls)
+	}
+}
+
+// TestAnAppleContainerAttachWhoseJailEndedSaysWhy drives attachExisting on Apple Container to an
+// exec that returns 137 while `container ls` still lists the jail, as it does for a moment after a
+// stop has killed every process in it (acListingBehind): the attach says what ended it, or that
+// nothing recorded why and that a `container stop` is one cause. Run 37133569003 (2026-10-03,
+// container 1.1.0) recorded the attach saying neither, after `yolo stop` and after a `container
+// stop` alike.
+func TestAnAppleContainerAttachWhoseJailEndedSaysWhy(t *testing.T) {
+	fastStopRecordWait(t)
+	fastJailGoneWait(t)
+	for _, tc := range []struct{ name, reason string }{
+		{"a recorded stop", YoloStopReason(9)},
+		{"nothing recorded", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packs := zaiSelected(t)
+			o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, hydratedKey(), nil)
+			inspect := acRuntime(t, currentJailEnv)
+			bin := t.TempDir()
+			execed := filepath.Join(bin, "execed")
+			// The session's exec: it returns 137, as an attached `container exec` did at both stops.
+			if err := os.WriteFile(filepath.Join(bin, "container"),
+				[]byte("#!/bin/sh\n: > '"+execed+"'\nexit 137\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin)
+			// The jail is listed until its session's exec has run, and for two asks after it.
+			asks := 0
+			listing := acListingBehind("yolo-ws-abcd1234", 2, 0, &asks)
+			o.Exec = func(argv []string, dir string, env []string, d time.Duration) ExecResult {
+				if len(argv) == 2 && argv[0] == "container" && argv[1] == "ls" {
+					if _, err := os.Stat(execed); err != nil {
+						return ExecResult{Ran: true, Stdout: "ID  IMAGE  OS  ARCH  STATE\n" +
+							"yolo-ws-abcd1234  yolo-jail:latest  linux  arm64  running\n"}
+					}
+					return listing(argv, dir, env, d)
+				}
+				return inspect(argv, dir, env, d)
+			}
+			if tc.reason != "" {
+				writeJailStop("yolo-ws-abcd1234", jailStopRecord{At: o.Now().Add(time.Second), Reason: tc.reason})
+			}
+			rc, _ := o.attachExisting("yolo-ws-abcd1234", "container", "true", cfg,
+				stagedPacks{root: "/ctx/packs", packs: packs}, channel, false, nil)
+			out := stderr.String()
+			if _, err := os.Stat(execed); err != nil {
+				t.Fatalf("the attach never ran its exec (rc %d):\n%s", rc, out)
+			}
+			if rc != 137 {
+				t.Errorf("the attach returned %d, want its exec's 137:\n%s", rc, out)
+			}
+			if tc.reason != "" {
+				if !strings.Contains(out, "This session ended because its jail stopped: "+tc.reason+".") {
+					t.Errorf("the attach did not say that `yolo stop` ended its jail:\n%s", out)
+				}
+				return
+			}
+			if !strings.Contains(out, "nothing recorded why") || !strings.Contains(out, "`container stop`") {
+				t.Errorf("the attach did not say that nothing recorded why its jail ended:\n%s", out)
+			}
+			if strings.Contains(out, "stays up") {
+				t.Errorf("the attach said its ended jail stays up:\n%s", out)
+			}
+		})
+	}
 }
