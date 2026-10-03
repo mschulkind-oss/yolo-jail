@@ -77,8 +77,10 @@ func holdUntil(file string) string {
 
 // endHeld ends every process recorded in the held directory dir that still runs: a SIGKILL to its
 // process group when it leads one, so the sleep its loop waits on goes too, and to it alone
-// otherwise; then a bounded wait for it to end. A recorded pid whose process's command line does not
-// name dir ended already, and the pid is left alone, whoever has it now.
+// otherwise; then a bounded wait until that pid's process has ended (hasEnded). A recorded pid whose
+// process's command line does not name dir ended already, and the pid is left alone, whoever has it
+// now. The command line decides only whether to kill: a killed process stops naming dir before it
+// has ended, so a wait on the command line would return while the process still runs.
 func endHeld(t testing.TB, dir string) {
 	raw, err := os.ReadFile(filepath.Join(dir, heldPIDsName))
 	if err != nil {
@@ -94,7 +96,14 @@ func endHeld(t testing.TB, dir string) {
 			target = -pid
 		}
 		_ = syscall.Kill(target, syscall.SIGKILL)
-		for deadline := time.Now().Add(10 * time.Second); namesDir(pid, dir); time.Sleep(5 * time.Millisecond) {
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+			ended, known := hasEnded(pid)
+			if !known {
+				ended = !namesDir(pid, dir)
+			}
+			if ended {
+				break
+			}
 			if time.Now().After(deadline) {
 				t.Errorf("fake process %d, holding on %s, still runs 10s after its SIGKILL", pid, dir)
 				break
@@ -105,6 +114,7 @@ func endHeld(t testing.TB, dir string) {
 
 // namesDir reports whether pid is a running process whose command line names dir. An exited process
 // not yet reaped names nothing: Linux's cmdline of one is empty, and ps shows no arguments for one.
+// Nor, on Linux, does a process still exiting (hasEnded), so naming nothing is not having ended.
 func namesDir(pid int, dir string) bool {
 	if cmdline, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline"); err == nil {
 		return bytes.Contains(cmdline, []byte(dir))
@@ -127,21 +137,23 @@ func pidGoneWithin(pid int, bound time.Duration) bool {
 	}
 }
 
-// runsNow reports whether pid is running at this instant, a zombie (exited, not yet reaped) counting
-// as ended. It takes no time, so a hold about to see its stop file still counts as running. Off
-// Linux there is no /proc to read the state from, and known is false.
-func runsNow(pid int) (runs, known bool) {
+// hasEnded reports whether pid's process has ended at this instant: no process has the pid, or it
+// is a zombie (exited, not yet reaped). A process still exiting has not: for some tens of
+// milliseconds after a SIGKILL, Linux shows it running (state R) with its memory, and so its command
+// line, already gone. It takes no time, so a hold about to see its stop file has not ended either.
+// Off Linux there is no /proc to read the state from, and known is false.
+func hasEnded(pid int) (ended, known bool) {
 	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		if _, perr := os.Stat("/proc/self/stat"); perr != nil {
 			return false, false
 		}
-		return false, true
+		return true, true
 	}
 	// The state is the field after the command, which is in parentheses and may hold anything.
 	rest := stat[bytes.LastIndexByte(stat, ')')+1:]
 	fields := strings.Fields(string(rest))
-	return len(fields) > 0 && fields[0] != "Z" && fields[0] != "X", true
+	return len(fields) == 0 || fields[0] == "Z" || fields[0] == "X", true
 }
 
 // TestAFakeJailsMainProcessEndsWithItsTest: a test that leaves its fake jail's main process holding,
@@ -181,11 +193,11 @@ func TestAFakeJailsMainProcessEndsWithItsTest(t *testing.T) {
 					if pid == 0 {
 						return
 					}
-					runs, known := runsNow(pid)
+					ended, known := hasEnded(pid)
 					if !known {
-						runs = !pidGoneWithin(pid, 5*time.Second)
+						ended = pidGoneWithin(pid, 5*time.Second)
 					}
-					if runs {
+					if !ended {
 						t.Errorf("the fake's main process (pid %d) still ran after the fake's cleanups, "+
 							"with its directory not yet removed", pid)
 					}
