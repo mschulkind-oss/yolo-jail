@@ -27,8 +27,9 @@ This version is read-only: commands in the read-only set (pr view, pr list,
 issue view, run view, workflow list, api GET under repos/OWNER/REPO, …) run
 against this workspace's own GitHub repositories; every write exits 77, "writes
 need approval, which this version cannot ask for". Commands that could print the
-credential or reach the host (auth token, --jq, --web, api to a URL, …) are
-refused with exit 64, as is anything outside the workspace's repositories.
+credential or reach the host (auth token, --web, api to a URL, a host file, …)
+are refused with exit 64, as is anything outside the workspace's repositories.
+--jq and --template work as they do in gh.
 
 The repository is -R OWNER/REPO, or this workspace's origin remote. Standard
 input is sent when the arguments read it (` + "`--body-file -`" + `).

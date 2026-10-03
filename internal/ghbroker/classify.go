@@ -428,7 +428,7 @@ func queryWidens(p *parsed) string {
 		}
 	}
 	for _, u := range p.flags {
-		if !u.hasValue {
+		if !u.hasValue || isOutputFilter(u.flag) {
 			continue
 		}
 		if w := check("--"+u.flag.long+" "+strconv.Quote(u.value), u.value); w != "" {
@@ -437,6 +437,12 @@ func queryWidens(p *parsed) string {
 	}
 	return ""
 }
+
+// isOutputFilter reports whether a flag is one gh applies to its own output after the
+// request, `--jq` or the formatting `--template`, which it sends to no one (BB-D64). Its
+// text is never search query text, so queryWidens does not read it: a jq filter's
+// parenthesis is jq's.
+func isOutputFilter(f *ghFlag) bool { return f.long == "jq" || isFormattingTemplate(f) }
 
 // searchScope is §5.2's search rule: in scope only when the complete qualifier set, from
 // flags and query text together, names in-scope repositories alone. queryWidens has

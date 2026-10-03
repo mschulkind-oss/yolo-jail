@@ -129,16 +129,39 @@ func TestClassify(t *testing.T) {
 		{name: "pr merge is a write", argv: "pr merge 3 -R o/r --squash", outcome: OutcomeWindowed,
 			set: SetReadWrite, run: "pr merge --repo=o/r --squash 3"},
 
+		// BB-D64: --jq and the formatting --template run where gh runs, on the host, whose
+		// environment the broker builds from nothing, so `env` there holds no token (H2, now
+		// closed by §4.1 rather than by a refusal). A filter is never query text: gh applies it
+		// to its own output and sends it to no one, so a parenthesis in one does not widen a
+		// search (queryWidens).
+		{name: "--jq runs: the host env it can read holds no token", argv: "pr view 32 --jq env.GH_TOKEN",
+			field: "o/r", outcome: OutcomeStanding, set: SetReadOnly, run: "pr view --jq=env.GH_TOKEN 32 --repo=o/r"},
+		{name: "-q is --jq", argv: "pr view 32 -q .title -R o/r", outcome: OutcomeStanding, set: SetReadOnly,
+			run: "pr view --jq=.title --repo=o/r 32"},
+		{name: "the formatting --template runs", argv: "pr view 1 -R o/r --template '{{.title}}'",
+			outcome: OutcomeStanding, set: SetReadOnly, run: "pr view --repo=o/r --template={{.title}} 1"},
+		{name: "a jq filter on a search-backed list is not query text",
+			argv:    "pr list --json number,title --jq 'map(select(.title | test(\"x\"))) | length' -R o/r",
+			outcome: OutcomeStanding, set: SetReadOnly,
+			run: "pr list --json=number,title --jq=map(select(.title | test(\"x\"))) | length --repo=o/r"},
+		{name: "a template on a search-backed list is not query text",
+			argv:    "issue list -S bug --json title --template '{{range .}}{{printf \"%s\" (.title)}} OR {{end}}' -R o/r",
+			outcome: OutcomeStanding, set: SetReadOnly,
+			run: "issue list --search=bug --json=title --template={{range .}}{{printf \"%s\" (.title)}} OR {{end}} --repo=o/r"},
+		{name: "api --jq", argv: "api repos/o/r/pulls --jq '.[].number'", outcome: OutcomeStanding,
+			set: SetReadOnly, run: "api --jq=.[].number repos/o/r/pulls"},
+		{name: "api -t is the formatting --template", argv: "api repos/o/r -t '{{.full_name}}'",
+			outcome: OutcomeStanding, set: SetReadOnly, run: "api --template={{.full_name}} repos/o/r"},
+		{name: "a filter does not make an api write a read", argv: "api -X POST repos/o/r/issues -f title=x --jq .number",
+			outcome: OutcomeWindowed, set: SetReadWrite},
+		{name: "the query text is still checked beside a filter", argv: "pr list -S 'x) OR (is:pr' --json number --jq . -R o/r",
+			outcome: OutcomeOutOfScope, reason: "a parenthesis"},
+
 		// §12 done criterion 2 and §5.4: refused, whatever set is held.
 		{name: "auth token", argv: "auth token", outcome: OutcomeRefused, reason: "host's GitHub login"},
 		{name: "auth status -t", argv: "auth status -t", outcome: OutcomeRefused, reason: "prints the host's token"},
 		{name: "auth status --hostname", argv: "auth status --hostname x.example", outcome: OutcomeRefused,
 			reason: "--hostname"},
-		{name: "--jq reads the environment (H2)", argv: "pr view 32 --jq env.GH_TOKEN", field: "o/r",
-			outcome: OutcomeRefused, reason: "--jq is refused"},
-		{name: "-q is --jq", argv: "pr view 32 -q .title -R o/r", outcome: OutcomeRefused, reason: "--jq"},
-		{name: "formatting --template", argv: "pr view 1 -R o/r --template '{{.}}'", outcome: OutcomeRefused,
-			reason: "formatting --template"},
 		{name: "api to a URL (H1)", argv: "api http://example.com/x", outcome: OutcomeRefused, reason: "URL"},
 		{name: "api https URL", argv: "api https://api.github.com/user", outcome: OutcomeRefused, reason: "URL"},
 		{name: "co is pr checkout", argv: "-R x co 1", outcome: OutcomeRefused, reason: "pr checkout"},

@@ -347,23 +347,26 @@ func hostFileRule(path, long string) (hostFileFlag, bool) {
 	return hostFileFlag{}, false
 }
 
-// isFormattingTemplate tells the formatting `--template` (a Go template over JSON, which
-// can read the environment) from the `-T/--template` issue and pr create take, by the
-// command's own grammar rather than the spelling (§5.2).
+// isFormattingTemplate tells the formatting `--template` (a Go template over gh's own JSON
+// output) from the `-T/--template` issue and pr create take, by the command's own grammar
+// rather than the spelling (§5.2).
 func isFormattingTemplate(f *ghFlag) bool {
 	return f.long == "template" && strings.HasPrefix(f.desc, "Format JSON output using a Go template")
 }
 
 // globalFlagRefusal returns why one flag use is refused on any command, or "".
+//
+// `--jq` and the formatting `--template` are NOT here (BB-D64). Both run inside the host gh,
+// over its own output, and what they can reach there was measured against gh 2.101.0 and
+// read in the go-gh and gojq it links: gh compiles a jq filter with the environment and
+// nothing else (no module loader, so `import` and `include` fail; no input iterator, so
+// `input` fails; no file, network or process builtin exists), and its templates add
+// formatting functions only (no `env`). The environment is the one buildEnv makes from
+// nothing, which holds no token (TestTheEnvironmentAJqFilterCanReadIsExactlyTheReviewedSet).
+// So a filter prints nothing the jail may not have, and the output crosses verbatim (OQ-C).
 func globalFlagRefusal(p *parsed, u flagUse) string {
 	f := u.flag
 	switch {
-	case f.long == "jq":
-		return "--jq is refused: gh evaluates it with the environment in reach, where it can print " +
-			"the host's token (`--jq env.GH_TOKEN`). Pipe `--json` output into jq in the jail instead"
-	case isFormattingTemplate(f):
-		return "the formatting --template is refused: a Go template over the output can read the " +
-			"host's environment. Pipe `--json` output into jq in the jail instead"
 	case f.long == "web":
 		return "--web is refused: it runs the host's web browser"
 	case f.long == "editor":

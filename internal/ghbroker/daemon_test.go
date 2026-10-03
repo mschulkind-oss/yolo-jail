@@ -89,7 +89,6 @@ func TestServeRefusesAndAuditsAsRefused(t *testing.T) {
 	f := newBrokerFixture(t, "2.101.0")
 	for _, argv := range [][]string{
 		{"auth", "token"},
-		{"pr", "view", "32", "--jq", "env.GH_TOKEN", "-R", "o/r"},
 		{"api", "http://example.com/x"},
 		{"-R", "x", "co", "1"},
 		{"api", "-F", "q=@/etc/passwd", "user"},
@@ -104,6 +103,30 @@ func TestServeRefusesAndAuditsAsRefused(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(filepath.Join(f.fakeDir, "calls")); len(entries) != 0 {
 		t.Fatalf("a refused command ran gh")
+	}
+}
+
+// BB-D64: a jq filter's `env` and `$ENV` read the environment of the gh evaluating them,
+// which is the broker's, built from nothing (§4.1). Through Serve, against a fake gh that
+// answers those two filters by printing its environment as gh's jq would: the call runs, and
+// no token the host holds, in its environment or in its gh login, is in what crosses. The
+// redaction count stays zero, so the token was never there to be cut, rather than cut.
+func TestServeRunsAJqFilterWhoseEnvironmentHoldsNoToken(t *testing.T) {
+	f := newBrokerFixture(t, "2.101.0")
+	for _, filter := range []string{"env", "$ENV"} {
+		code, out, errOut := f.serve(t, Request{Argv: []string{"pr", "view", "1", "-R", "o/r",
+			"--json", "title", "--jq", filter}})
+		if code != 0 || !strings.Contains(out, "GH_HOST=github.com") {
+			t.Fatalf("--jq %s: code %d out %q err %q", filter, code, out, errOut)
+		}
+		for _, secret := range []string{fakeToken, "gho_from_the_environment", "ghp_from_the_environment"} {
+			if strings.Contains(out+errOut, secret) {
+				t.Errorf("--jq %s printed a token:\n%s%s", filter, out, errOut)
+			}
+		}
+		if ev := lastAudit(t); ev.Set != SetReadOnly || ev.Outcome != "ran" || ev.Redactions != 0 {
+			t.Errorf("--jq %s: audit %+v", filter, ev)
+		}
 	}
 }
 

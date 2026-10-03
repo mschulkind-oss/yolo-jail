@@ -21,7 +21,8 @@ const fakeToken = "gho_FAKEfakeFAKEfake0123456789"
 // fakeGH writes a gh stand-in into dir. It answers --version and `auth token`, records
 // every other call's argv, cwd, environment and stdin under dir/calls, and then does what
 // the argv's first word asks: `leak` prints the token split across two writes, `big`
-// prints n bytes, `sleep` sleeps, `authfail` exits 4.
+// prints n bytes, `sleep` sleeps, `authfail` exits 4. A `--jq=env` or `--jq=$ENV` filter
+// prints the environment, which is what gh's jq reads for those two (BB-D64).
 func fakeGH(t *testing.T, dir, version string) string {
 	t.Helper()
 	calls := filepath.Join(dir, "calls")
@@ -48,6 +49,7 @@ case "$1" in
   authfail) echo "To get started with GitHub CLI, please run:  gh auth login" >&2; exit 4 ;;
   *) case "$*" in
        *--repo=o/nologin*) echo "To get started with GitHub CLI, please run:  gh auth login" >&2; exit 4 ;;
+       *--jq=env*|*--jq=\$ENV*) env; exit 0 ;;
      esac
      echo "ran $*" ;;
 esac
@@ -204,6 +206,47 @@ func TestRunnerRunsGHUnderConditionsItOwns(t *testing.T) {
 	sort.Strings(keys)
 	if len(keys) > 0 {
 		t.Errorf("GIT_* variables reached gh: %v", keys)
+	}
+}
+
+// BB-D64: `--jq env`, `--jq $ENV` and the formatting --template run on the host, and a jq
+// filter reads the whole environment of the gh evaluating it (MEASURED against gh 2.101.0:
+// `env` printed exactly the broker's variables, plus TCELL_MINIMIZE, which gh sets itself).
+// So that environment is a set reviewed name by name, not a set some names are kept out of:
+// a variable added here crosses to any jail that asks for `env`, and this test fails until
+// someone has looked at it.
+func TestTheEnvironmentAJqFilterCanReadIsExactlyTheReviewedSet(t *testing.T) {
+	f := newRunnerFixture(t, "2.101.0", nil)
+	var s sinks
+	f.r.Run([]string{"pr", "view", "--repo=o/r", "1"}, nil, s.stdout, s.stderr)
+	call := oneCall(t, f.fakeDir)
+	var got []string
+	for _, line := range strings.Split(strings.TrimSpace(call["env"]), "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "PWD", "OLDPWD", "SHLVL", "_":
+			continue // the fake's own shell sets these; gh is not a shell
+		}
+		got = append(got, k)
+		for _, secret := range []string{fakeToken, "gho_from_the_environment", "ghp_from_the_environment"} {
+			if strings.Contains(v, secret) {
+				t.Errorf("gh's %s carries a token: %q", k, v)
+			}
+		}
+	}
+	sort.Strings(got)
+	want := []string{
+		"DBUS_SESSION_BUS_ADDRESS", "DO_NOT_TRACK", "GH_CONFIG_DIR", "GH_HOST",
+		"GH_NO_EXTENSION_UPDATE_NOTIFIER", "GH_NO_UPDATE_NOTIFIER", "GH_PAGER", "GH_PROMPT_DISABLED",
+		"GH_SPINNER_DISABLED", "GH_TELEMETRY", "HOME", "NO_COLOR", "PATH", "TMPDIR",
+		"XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("gh's environment is %v, want exactly %v: a jail's `--jq env` prints every one, "+
+			"so a new variable is reviewed for what it reveals before it is added (BB-D64)", got, want)
 	}
 }
 

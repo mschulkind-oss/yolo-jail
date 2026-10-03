@@ -14,12 +14,13 @@ import (
 // parameter was added; `--method` overrides.
 
 // apiFlags are the `gh api` flags the broker accepts at all. The rest of api's grammar is
-// refused by the global flag rules (--hostname, --jq, --template, --verbose); this list is
-// the allowlist that says so for anything a later grammar adds.
+// refused by the global flag rules (--hostname, --verbose); this list is the allowlist that
+// says so for anything a later grammar adds. `--jq` and `--template` filter the response on
+// the host, where they reach nothing secret (BB-D64).
 var apiFlags = map[string]bool{
 	"method": true, "field": true, "raw-field": true, "header": true, "include": true,
 	"input": true, "paginate": true, "slurp": true, "silent": true, "preview": true,
-	"cache": true, "allow-escape-sequences": true, "help": true,
+	"cache": true, "allow-escape-sequences": true, "help": true, "jq": true, "template": true,
 }
 
 // acceptRE is the one header value the broker passes: a GitHub media type, or JSON. Any
