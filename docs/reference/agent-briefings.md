@@ -630,9 +630,14 @@ behavior:
   has a `skills/` folder. That is the shape of a Claude Code
   [mod](https://code.claude.com/docs/en/plugins/mods/overview), a manifest and `hooks/` and
   nothing else. It reaches the destinations the pack's skills are addressed to
-  (`packload.Pack.SkillsAudience`), since it sits in none of the pack's skills sources. A plugin
-  whose manifest `name` is not a plain folder name, one with a `/` or a `..`, is refused at both
-  notches, with the rename to make, rather than written where that path points.
+  (`packload.Pack.SkillsAudience`), since it sits in none of the pack's skills sources.
+  `yolo host apply` delivers it to the same places (`packload.Pack.ResolveDestinations`). A
+  pack that names no skills destination of its own reaches every agent its `skills/` folder is
+  addressed to, or every agent when nothing addresses it. That covers a `pack.json` saying only
+  `"skills_tier": "namespaced"` and a pack with no `pack.json` at all. A pack that names a
+  destination delivers the plugin there. A plugin whose manifest `name` is not a plain folder
+  name, one with a `/` or a `..`, is refused at both notches, with the rename to make, rather
+  than written where that path points.
 
 The built-in suite and the workspace fill only the names the packs left free, so the order is
 unchanged. A **reserved child** a destination declares (`packs/claude` reserves `synced`) is

@@ -50,6 +50,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
 
 // inferrableKinds are the kinds a silent pack's content can be routed for: the two with a
@@ -172,6 +173,49 @@ type AddressedDelivery struct {
 func (p *Pack) ResolveDestinations(set []*Pack) Destinations {
 	out := Destinations{Pack: p}
 	orphaned := map[string]bool{}
+	// route records one borrowing contribution's outcome: `dests` is everywhere its audience
+	// reaches, for the report, and `add` the destinations to synthesize for it — the same list,
+	// except for the root-plugin pass below, which reaches some of its destinations through
+	// layers the pack already has.
+	route := func(kind packdecl.Kind, src packdecl.Contribution, dests, add []packdecl.Contribution) {
+		if len(src.Agents) > 0 {
+			// Recorded whether or not anything matched, because both outcomes are things
+			// the user has to be able to see: a delivery that reads as "declares no
+			// destination" is a lie about an addressed pack, and one that matched nothing
+			// is R1.
+			into := make([]string, 0, len(dests))
+			for _, d := range dests {
+				into = append(into, d.Into)
+			}
+			out.Addressed = append(out.Addressed, AddressedDelivery{
+				Kind: kind, Agents: src.Agents, From: src.From, Into: into,
+			})
+		}
+		if len(dests) == 0 {
+			// Reported, never silent (R1) — and this is the branch the old
+			// conventional-source-only probe hid an ADDRESSED contribution from: it skipped
+			// at the carriesFor check, before reaching here, so a content pack that named a
+			// source the pack really holds went inert with `Inferred=[] Orphaned=[]`.
+			//
+			// Deduplicated per KIND AND AUDIENCE, which is the report's granularity
+			// (apply.go's reportInferredDestinations prints one line per Orphan, and the line
+			// it prints depends on the audience). Per kind alone was the granularity while
+			// the reason was one reason: it collapsed an unaddressed orphan and an addressed
+			// one into a single entry, so whichever came first chose the message for both.
+			// The audience is what the two differ by, so it belongs in the key — a pack
+			// briefing claude from one file and pi from another, neither matched, is two
+			// facts and gets two lines.
+			key := string(kind) + "\x00" + strings.Join(src.Agents, "\x00")
+			if !orphaned[key] {
+				orphaned[key] = true
+				out.Orphaned = append(out.Orphaned,
+					Orphan{Kind: kind, Agents: src.Agents})
+			}
+			return
+		}
+		out.Inferred = append(out.Inferred, add...)
+	}
+	conventionalCarried := false
 	for _, kind := range inferrableKinds {
 		for _, src := range p.borrowingSources(kind) {
 			if !p.carriesFor(src) {
@@ -179,44 +223,41 @@ func (p *Pack) ResolveDestinations(set []*Pack) Destinations {
 				// of packs, including all six shipped ones for `files`-shaped content.
 				continue
 			}
+			if kind == packdecl.KindSkills && src.SourceKey() == packdecl.DefaultSkillsDir {
+				conventionalCarried = true
+			}
 			dests := borrowedDestinations(src, p, set)
-			if len(src.Agents) > 0 {
-				// Recorded whether or not anything matched, because both outcomes are things
-				// the user has to be able to see: a delivery that reads as "declares no
-				// destination" is a lie about an addressed pack, and one that matched nothing
-				// is R1.
-				into := make([]string, 0, len(dests))
-				for _, d := range dests {
-					into = append(into, d.Into)
-				}
-				out.Addressed = append(out.Addressed, AddressedDelivery{
-					Kind: kind, Agents: src.Agents, From: src.From, Into: into,
-				})
-			}
-			if len(dests) == 0 {
-				// Reported, never silent (R1) — and this is the branch the old
-				// conventional-source-only probe hid an ADDRESSED contribution from: it skipped
-				// above, before reaching here, so a content pack that named a source the pack
-				// really holds went inert with `Inferred=[] Orphaned=[]`.
-				//
-				// Deduplicated per KIND AND AUDIENCE, which is the report's granularity
-				// (apply.go's reportInferredDestinations prints one line per Orphan, and the line
-				// it prints depends on the audience). Per kind alone was the granularity while
-				// the reason was one reason: it collapsed an unaddressed orphan and an addressed
-				// one into a single entry, so whichever came first chose the message for both.
-				// The audience is what the two differ by, so it belongs in the key — a pack
-				// briefing claude from one file and pi from another, neither matched, is two
-				// facts and gets two lines.
-				key := string(kind) + "\x00" + strings.Join(src.Agents, "\x00")
-				if !orphaned[key] {
-					orphaned[key] = true
-					out.Orphaned = append(out.Orphaned,
-						Orphan{Kind: kind, Agents: src.Agents})
-				}
-				continue
-			}
-			out.Inferred = append(out.Inferred, dests...)
+			route(kind, src, dests, dests)
 		}
+	}
+	// THE PACK'S ROOT PLUGINS, which no source above carries when its skills/ holds no skill:
+	// a Claude Code mod is exactly that pack, a manifest and hooks/ at its root and no skills/
+	// folder (docs/research/claude-code-mods-management.md, G10). Every layer this pack gets
+	// carries its plugins (hostskills.ComposeHostSkills), so all the mod lacked was a layer, and
+	// the jail had already given it one, addressed to the pack's skills audience
+	// (run.jailSkillSources). Without this the jail delivered the mod while `yolo host apply`
+	// wrote nothing and said nothing, which the parity ruling forbids
+	// (docs/plans/notch-convergence.md#OQ-NC11).
+	//
+	// Only the destinations the pack does not ALREADY reach are synthesized. A destination
+	// another source of this pack reaches carries the plugin on that source's layer, and a
+	// second layer would deliver the one plugin twice into one folder, where the second copy
+	// is refused as two packs wanting one name.
+	if src, ok := p.rootPluginBorrower(); ok && !conventionalCarried {
+		reached := map[string]bool{}
+		for _, c := range out.Inferred {
+			if c.Kind == packdecl.KindSkills {
+				reached[c.Into] = true
+			}
+		}
+		dests := borrowedDestinations(src, p, set)
+		var add []packdecl.Contribution
+		for _, d := range dests {
+			if !reached[d.Into] {
+				add = append(add, d)
+			}
+		}
+		route(packdecl.KindSkills, src, dests, add)
 	}
 	if len(out.Inferred) == 0 {
 		return out
@@ -327,6 +368,62 @@ func (p *Pack) borrowingSources(kind packdecl.Kind) []packdecl.Contribution {
 		out = append(out, g.c)
 	}
 	return out
+}
+
+// rootPluginBorrower is the borrowing contribution that routes this pack's ROOT PLUGINS — the
+// plugins sitting in none of its skills sources, which is a plugin at the pack root
+// (pluginpack.DiscoverIn's wrap-in-place shape) — and false when the pack has none, or names a
+// skills destination of its own.
+//
+// IT IS THE CONVENTIONAL SKILLS SOURCE'S GOVERNOR: the contribution naming `skills/` when one
+// does (`{kind: skills, agents: ["claude"]}` routes the mod to claude alone, as its skills/ would
+// have gone), else the implicit broadcast, whether or not skills/ exists. For a pack that names
+// no skills destination that is the audience the jail gives the same plugin
+// (Pack.SkillsAudience), with one narrower corner: a pack that also addresses ANOTHER source
+// holding no skill, whose audience the jail adds and this does not. The governor is borrowed
+// rather than that wider audience because its `from` resolves to skills/, the tree it governs,
+// so a layer synthesized from it can never carry another source's skills to an agent they were
+// not addressed to.
+//
+// A PACK THAT NAMES A SKILLS DESTINATION OF ITS OWN routes nothing here, as content or as an
+// agent's own directory: its plugins ride the layers its declaration already gets, and a
+// declaration is honored exactly (ResolveDestinations), never widened into another agent's home.
+func (p *Pack) rootPluginBorrower() (packdecl.Contribution, bool) {
+	for _, c := range p.declaration() {
+		if c.Kind == packdecl.KindSkills && c.Into != "" {
+			return packdecl.Contribution{}, false
+		}
+	}
+	if !p.carriesRootPlugin() {
+		return packdecl.Contribution{}, false
+	}
+	govs, _ := p.governors(packdecl.KindSkills)
+	for _, c := range govs {
+		if c.SourceKey() == packdecl.DefaultSkillsDir {
+			return c, true
+		}
+	}
+	return packdecl.Contribution{Kind: packdecl.KindSkills}, true
+}
+
+// carriesRootPlugin reports whether any plugin the pack wraps sits in none of its skills
+// sources, by the containment test run.jailSkillSources uses for the same question.
+func (p *Pack) carriesRootPlugin() bool {
+	sources, _ := p.SkillsSources()
+	plugins, _ := p.HonoredPlugins()
+	for _, pl := range plugins {
+		inSource := false
+		for _, s := range sources {
+			if pluginpack.Contains(s.Dir, pl.Dir) {
+				inSource = true
+				break
+			}
+		}
+		if !inSource {
+			return true
+		}
+	}
+	return false
 }
 
 // audienceOf is the set of agent names ONE borrowing contribution addresses, or nil when it names
