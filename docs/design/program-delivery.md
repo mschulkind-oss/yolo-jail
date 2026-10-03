@@ -5,7 +5,7 @@ status: in-review
 tags: [packs, uniformity, delivery, pinning, npm, mise, image, evergreen]
 summary: "Four delivery classes, one of which kept no record and was never re-derived — and all divergence lived there. Amended 2026-09-03 with a second axis: a dependency serves either the AGENT (evergreen, updated at its own invocation) or the PROJECT (pinned, reproducible), and the delivery mechanism does not tell you which. Largely implemented by 2026-09-04."
 stage: DESIGN
-next: "Rule OQ-PD19, OQ-PD20 and OQ-PD21 in one sitting. OQ-PD19's first task is done as far as any record goes (2026-10-01: PR #19 records no reason, and the exclusion hides a project's own mise pin of pnpm; a declared mise_tools pnpm, which it also hid, is delivered by mise since 2026-10-01). OQ-PD20's ruling is ready: its leaning waited for a tagged release past the 2026-09-25 recipe-table deletion, and 0.11.0 (2026-09-28) and 0.11.1 (2026-10-02) both shipped it."
+next: "Rule OQ-PD19, OQ-PD20 and OQ-PD21 in one sitting. OQ-PD19's first task is done as far as any record goes (2026-10-01: PR #19 records no reason, and the exclusion hides a project's own mise pin of pnpm; a declared mise_tools pnpm, which it also hid, is delivered by mise since 2026-10-01). OQ-PD20's ruling is ready: its leaning waited for a tagged release past the 2026-09-25 recipe-table deletion, and 0.11.0 (2026-09-28) and 0.11.1 (2026-10-02) both shipped it. OQ-PD21's facts are recorded (2026-10-03): the pin is a vendor-compatibility hold from the OMP design, which never weighed P6"
 ---
 
 # How executable content gets into a jail — and what makes two jails the same
@@ -242,7 +242,9 @@ sibling docs can cite it, as P1–P5 are.)*
 > never refreshes, which is the *Pin: none* cell above not holding. Nothing in the tree or the
 > commit records why. Read against P6 it is either a project-style pin on an agent dependency or a
 > vendor-compatibility hold; this warning does not rule which. Filed 2026-09-26 as
-> [OQ-PD21](#oq-pd21), for the maintainer.
+> [OQ-PD21](#oq-pd21), for the maintainer. *Found 2026-10-03:* the deleted design the pack was
+> built from records a vendor-compatibility hold; the evidence is in
+> [OQ-PD21](#oq-pd21)'s facts.
 
 **This narrows [OQ-PD3](#decision-ledger) rather than reversing it.** That ruling said *"no-evergreen
 extends to mise — it is a principle, not an npm fix."* The mise half stands and is untouched: mise
@@ -2031,15 +2033,55 @@ ruled elsewhere.
 **The setup.** [§3.5](#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)'s P6
 table gives an agent dependency no pin: *"there is nothing to be reproducible against."*
 `packs/omp` (added 2026-09-15) declares `@oh-labs/oh-omp@0.15.3`, a version selector, so its npm
-launcher takes the pinned branch and never refreshes. Nothing in the tree or the commit records
-why.
+launcher takes the pinned branch and never refreshes. Nothing in today's tree or in the commit
+message records why. The design the pack was built from does (below).
 
 **What it decides:** whether that pin is a project-style pin on an agent dependency, which P6
 does not allow, or a vendor-compatibility hold, which would be an exception P6 does not yet state.
 
+**The facts, found 2026-10-03.**
+
+- **Where the pin came from.** `git log -S'oh-omp@0.15.3' -- packs` finds one commit, `e0d62605`
+  (2026-09-15, *"feat: add OMP and Codex Claude bridge"*), whose message has no body. Its design was
+  `docs/design/omp-and-codex-claude-profile.md`. That design was deleted the same day, when it
+  graduated into [the OMP reference](../reference/omp-and-codex-claude-profile.md) (`a5015f15`),
+  so it is read from history (`git show a5015f15^:docs/design/omp-and-codex-claude-profile.md`).
+  Its first question asked which OMP distribution the pack installs from. Its leaning was *"Use
+  OMP's official package-manager distribution, pinned by its package version; yolo should not
+  vendor a moving third-party agent"*. It was settled on that leaning the same day (`558ca93c`),
+  with no answer text. Its body says *"Yolo does not vendor OMP or silently float to a new upstream
+  release; the supported version is recorded in the pack's diagnostics."* Its risk table names the
+  danger: *"OMP's upstream config format changes"*, mitigated by *"Pin and test the supported OMP
+  release"*.
+- **So the pin is a vendor-compatibility hold** against a change in OMP's config format. The pack
+  writes two of OMP's config files, `~/.oh-omp/agent/models.yml` and `~/.oh-omp/agent/config.yml`
+  (`packs/omp/pack.json`). The design never weighed P6. Neither of its revisions mentions this
+  document, evergreen updates or P6, though P6 had been ruled twelve days earlier
+  ([OQ-PD11](#decision-ledger), 2026-09-03).
+- **The design's other half is not built** (READ FROM CODE). `packs/omp/pack.json` reports no
+  version: it declares a program, a briefing, skills, one file, two config files and a state
+  directory. The version is recorded in the reference's *Current values* table instead. The
+  install is tested by the matrix in `integration/agents_test.go`, which runs only
+  `oh-omp --version` and skips arm64.
+- **What the pin holds back** (MEASURED from the npm registry, 2026-10-03). 0.15.3 was published
+  2026-09-06, so it was the newest version when the pack landed. 0.15.4 followed on 2026-09-29 and
+  is `latest` now, so the pin is one release behind. The package's `upstream.json` names
+  `open-horizon-labs/oh-omp` as its source; the registry entry has no repository field. Upstream's
+  changelog gives 0.15.4 one entry: projection RPC commands behind a default-off
+  `--experimental-projections` flag. Its three commits since `v0.15.3` touch the RPC mode, the CLI's
+  argument parser and entry point, tests, docs and the version number (read from upstream's tag
+  comparison, nothing run). So nothing in 0.15.4 is a reason to hold for either file the pack
+  writes (INFERRED from that file list).
+- **The cost a hold can carry** (read from upstream's changelog). 0.15.2's only fix (2026-09-02)
+  raised the Claude Code user agent it sends, so that Anthropic models requiring Claude Code
+  2.1.251 or later stop refusing it. A pin set before that release would have kept the refusal.
+
 <!-- vantage: question id=OQ-PD21 -->
 
-It has no leaning yet: why the pack pins is the fact a leaning would need, and nothing records it.
+It has no leaning yet. The facts above say why the pack pins: a vendor-compatibility hold. A
+leaning still needs the maintainer's view on whether P6 should name that exception, or whether
+`packs/omp` should drop the version and take the evergreen launcher, as the other npm agent packs
+do.
 
 **Answer:**
 > _(empty — fill in when decided)_
