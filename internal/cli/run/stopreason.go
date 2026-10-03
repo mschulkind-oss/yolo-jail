@@ -194,7 +194,8 @@ func JailGoneWait() time.Duration { return jailGoneWait }
 // pid -1), then unmounts the rootfs, syncs and stops the VM, and only then, deregistering the
 // runtime service, marks the container stopped (ContainersService.handleContainerExit), while
 // `container ls` lists the containers marked running. Run 37133569003 (2026-10-03, container 1.1.0)
-// recorded what that does to a single ask: no session whose jail a stop ended was told so
+// recorded what a single ask gave, which fits that reading but did not observe the listing: no
+// session whose jail a stop ended was told so
 // (docs/design/jail-lifetime-last-session-wins.md JL-D83). Podman's `ps` reads the OCI runtime's
 // live state, so its one answer stands.
 func listingTrailsAJailsEnd(rt string) bool {

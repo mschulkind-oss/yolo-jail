@@ -172,7 +172,7 @@ func TestTheSessionCountLeavesOutAHoldMainProcess(t *testing.T) {
 //
 // The remedy is the same on Apple Container: run 37133569003 (2026-10-03, at 5ca9b7485) recorded
 // the refusal there naming `container stop <name>`, which ends the jail without waiting for its
-// teardown, and b60178182 made every remedy name `yolo stop`, which JL-D79 lets read an Apple
+// teardown, and 6f881d8fd made every remedy name `yolo stop`, which JL-D79 lets read an Apple
 // Container jail.
 func TestAnArrivalAtAJailWhoseKeeperIsGoneIsRefused(t *testing.T) {
 	const cname = "yolo-ws-abcd1234"

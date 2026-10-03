@@ -60,9 +60,10 @@ package integration
 // On Apple Container, once: run 37133569003 (apple-container.yml, 2026-10-03, the maintainer's M1
 // Max, container 1.1.0, at 5ca9b7485). HOLDS, and strict since: first-session-quits-alone,
 // hangup-ends-one-session and main-process-client-killed. DOES NOT HOLD: killed-keeper, whose
-// refusal named `container stop <name>` (b60178182, after that commit, makes it `yolo stop`), and
-// both stop-says-why runs, whose sessions asked once whether their jail was gone while Apple
-// Container still listed it (JL-D83). NOT CONDUCTED: the sweep, whose second workspace's jail
+// refusal named `container stop <name>` (6f881d8fd, which that run predates, makes it `yolo stop`),
+// and both stop-says-why runs, whose sessions asked once whether their jail was gone while, by
+// Apple's source (read from code, not measured), Apple Container still listed it (JL-D83). NOT
+// CONDUCTED: the sweep, whose second workspace's jail
 // failed to start with the VZErrorDomain Code=2 that OQ-MB1 of
 // docs/research/macos-backend-performance.md records. The measures: an exec's process SURVIVED its
 // client in all eight cases, the detach sequence REACHED the process, the container RUNS ON when its

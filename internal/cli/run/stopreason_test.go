@@ -338,8 +338,9 @@ func TestWhyTheJailEndedWaitsForAppleContainersListing(t *testing.T) {
 }
 
 // TestAnAppleContainerAttachWhoseJailEndedSaysWhy drives attachExisting on Apple Container to an
-// exec that returns 137 while `container ls` still lists the jail, as it does for a moment after a
-// stop has killed every process in it (acListingBehind): the attach says what ended it, or that
+// exec that returns 137 while `container ls` still lists the jail, as Apple's source says it does
+// for a moment after a stop has killed every process in it (read from code, not measured:
+// acListingBehind): the attach says what ended it, or that
 // nothing recorded why and that a `container stop` is one cause. Run 37133569003 (2026-10-03,
 // container 1.1.0) recorded the attach saying neither, after `yolo stop` and after a `container
 // stop` alike.
