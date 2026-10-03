@@ -5,7 +5,7 @@ status: in-review
 stage: SKETCH
 next: "Rule OQ-CM1 to OQ-CM3. Then build step 1, the plugin disclosure fix, which is worth doing whatever is ruled, and take one live look at the prototype's status entry beside Claude's own hints"
 tags: [research, claude, footer, statusline, extensions, hooks-modules, plugins, packs, wire-bridge]
-summary: "Claude Code 2.1.287 added hooks modules, which its changelog calls Claude Mods: a plugin runs a TypeScript or JavaScript module inside Claude and can draw a status entry under the prompt, add text to the hint line, or draw a band above the prompt. Most of yolo's Claude footer can move into one. The plugin runs `yolo internal footer` once per session for the billing route and the notch, which are fixed for the process, and redraws the model and effort level from Claude's own events. That ends the process Claude starts on every refresh. It also brings back the keyboard hints Claude hides whenever any status line is set, puts yolo's segment beside a user's own status line instead of being replaced by it, and lets a fix reach the host, where today's command is frozen after its first fill. The costs: a version floor (2.1.287), an early-access API that Anthropic can switch off remotely, a model id where the status line had a display name, and no effort level until the first request. It ships through the plugin route yolo already has, a plugin in the claude pack's skills folder. But yolo's code-running disclosure cannot see a hooks module today, and must be fixed first. A prototype passes `claude plugin validate --strict`, `tsc`, and six `claude plugin test` cases that open no network connection. Three rulings are owed."
+summary: "Claude Code 2.1.287 added hooks modules, which its changelog calls Claude Mods: a plugin runs a TypeScript or JavaScript module inside Claude and can draw a status entry under the prompt, add text to the hint line, or draw a band above the prompt. Most of yolo's Claude footer can move into one. The plugin runs `yolo internal footer` once per session for the billing route and the notch, which are fixed for the process, and redraws the model and effort level from Claude's own events. That ends the process Claude starts on every refresh. It should also bring back the keyboard hints Claude hides whenever any status line is set (inferred from Claude's docs, not seen live), puts yolo's segment beside a user's own status line instead of being replaced by it, and lets a fix reach the host, where today's command is frozen after its first fill. The costs: a version floor (2.1.287), an early-access API that Anthropic can switch off remotely, a model id where the status line had a display name, no effort level until the first request, and a status entry Claude draws in its warning style, a ⚠ in the warning color, read from the binary and not yet seen live. It ships through the plugin route yolo already has, a plugin in the claude pack's skills folder. But yolo's code-running disclosure cannot see a hooks module today, and must be fixed first. A prototype passes `claude plugin validate --strict`, `tsc`, and six `claude plugin test` cases that open no network connection. Three rulings are owed."
 ---
 
 # Claude Code's hooks modules: moving yolo's Claude footer from a status-line command into an extension
@@ -24,6 +24,9 @@ How this round was done:
 - **Run here:** `claude plugin validate` and `claude plugin test` on a prototype outside the repository, `tsc`, and
   `yolo internal footer`. The renderer makes no agent or API call. The plugin test opened no network connection at
   all ([Appendix A](#appendix-a-evidence)).
+- **A review round** re-ran `claude plugin validate` (plain and `--strict`, and on a copy carrying yolo's delivery
+  marker), `tsc` and the renderer, and read the binary for how a status entry is drawn and which headers Claude
+  sends. It did not re-run `claude plugin test`.
 
 **Labels.** **READ**: a file in the tree. **SOURCED**: Claude Code's shipped reference, types or changelog.
 **MEASURED**: I ran it here, or read the string from the binary. **INFERRED**: reasoned, not checked.
@@ -31,8 +34,9 @@ How this round was done:
 
 > **In short.** Keep the logic in Go and move the drawing into Claude. A small plugin calls the existing renderer
 > once per session and draws its line as a status entry. Claude redraws the model and effort from its own events
-> with no process at all. That fixes three limits of the status-line route, the hidden keyboard hints, the
-> replace-or-be-replaced rule, and the frozen host command, and costs a version floor and some early-access risk.
+> with no process at all. That should fix three limits of the status-line route, the hidden keyboard hints
+> (INFERRED), the replace-or-be-replaced rule, and the frozen host command. It costs a version floor, some
+> early-access risk, and a line Claude draws as a warning (`⚠ yolo: …` in the warning color, read from the binary).
 
 ## Terms used here
 
@@ -98,8 +102,8 @@ surface may change between releases without notice"* (types:4).
 
 | Site | What it is | Surfaces | Fit for the footer |
 |---|---|---|---|
-| `$.ui.status(text)` | *"Pins `text` as this plugin's status line under the prompt, beside the engine's own pinned notices"*, one per plugin (types:2263-2273). In the terminal it is a pinned, low-priority notification drawn as `<plugin name>: <text>` (MEASURED, binary strings `plugin-status-${E}` and `` `${lre(e)}: ${IFe(n)}` ``). Desktop and SDK hosts are sent a `ui_status` message, *"One status line per plugin"* (MEASURED, binary strings) | terminal; a push to the others, whose drawing is UNMEASURED | **Adopt first.** It is the prototype's site |
-| `PromptHint`, its `tail` prop | The hint line itself. A hook's `tail` is drawn dim at the end of Claude's own line, and *"the terminal keeps the engine's line (its pills stay live)"*. *"No other surface draws it yet"* (types:9531-9566) | terminal draws; desktop raises but does not draw `tail` | **Fallback** if the live look puts the status entry somewhere poor |
+| `$.ui.status(text)` | *"Pins `text` as this plugin's status line under the prompt, beside the engine's own pinned notices"*, one per plugin (types:2263-2273). In the terminal it is a pinned, low-priority notification with the text `<plugin name>: <text>` (MEASURED, binary strings `plugin-status-${E}` and `` `${lre(e)}: ${IFe(n)}` ``). The pinned-notice block draws each entry as `⚠ <text>` in the theme's `warning` color unless the notice names a color, which `$.ui.status`'s does not, cut at the row's end (MEASURED, binary strings: `cre` draws `[qb," ",E.text]` with `color:E.color??"warning"` and `wrap:E.wrap?"wrap":"truncate"`; `qb="⚠"`). So yolo's segment would read `⚠ yolo: claude-opus-5-5 · high · Bedrock · jail` in the color of a warning. The same block carries the engine's own pinned warnings, such as failed transcript writes. Desktop and SDK hosts are sent a `ui_status` message, *"One status line per plugin"* (MEASURED, binary strings) | terminal; a push to the others, whose drawing is UNMEASURED | **Adopt first**, with the warning style as a known cost for the live look. It is the prototype's site |
+| `PromptHint`, its `tail` prop | The hint line itself. A hook's `tail` is drawn dim at the end of Claude's own line, and *"the terminal keeps the engine's line (its pills stay live)"*. *"No other surface draws it yet"* (types:9531-9566). That line is the one a configured `statusLine` thins ([agent-footer.md:661](../design/agent-footer.md#L661)), so under a user's own `statusLine` this site may show little or nothing (INFERRED; UNMEASURED) | terminal draws; desktop raises but does not draw `tail` | **Fallback** if the live look puts the status entry somewhere poor or its warning style reads badly. It is dim, not a warning |
 | `SessionMode`, its `modes` prop | The dim mode labels at the right of the prompt footer. A hook adds one label (types:9516-9529) | terminal, desktop | Rejected for the footer: one word, and `jail` is already in the segment |
 | `AbovePrompt` | A band above the input *"where the engine draws nothing of its own"*, collapsible (types:9569-9620) | terminal, desktop | Not for the default footer, which would cost rows on every screen. Kept for a richer view a user opens |
 | `Pane` | A framed region; the one site drawn on every surface (types:9630-9632) | all | Too heavy for a footer |
@@ -112,8 +116,8 @@ No `StatusLine` render component exists (types:8712, the full list), so a plugin
 | Need | API | Notes |
 |---|---|---|
 | Run once per session | `session.start`: *"once per process for each loaded plugin, before the first prompt, then once per fresh load"*, and awaited (types:4053-4063). Its input is `cwd`, `surface`, `isInteractive` (types:10982-10997) | It carries no model |
-| The model | `$.session.model()`, *"as `/model` shows it"* (types:2581-2583); `turn.step`'s `e.model`, *"as the engine resolved it for this step (the session's, a fallback's)"* (types:12639-12641); `classic.PostModelSwitch`'s `to_model`, a resolved id (types:7337-7356) | Ids only. Nothing in the types carries a display name like the status line's `Opus` (MEASURED, a search of the types file) |
-| The effort level | `turn.step`'s `e.effort`, *"the session's setting or the model's default, absent for a model without effort"* (types:12643-12647). Classic hooks fired inside a tool call also carry `effort.level` (types:693-701) | No event in the types names an effort change, and no getter exists (MEASURED, a search of the types file). So it is unknown before the first request. Whether `/effort` raises `config.set` is UNMEASURED |
+| The model | `$.session.model()`, *"as `/model` shows it"* (types:2581-2583); `turn.step`'s `e.model`, *"as the engine resolved it for this step (the session's, a fallback's)"* (types:12639-12641); `classic.PostModelSwitch`'s `to_model`, a resolved id (types:7337-7356) | Ids, or for `$.session.model()` whatever `/model` shows, whose exact spelling is UNMEASURED. Nothing in the types carries a display name like the status line's `Opus` (MEASURED, a search of the types file) |
+| The effort level | `turn.step`'s `e.effort`, *"the session's setting or the model's default, absent for a model without effort"* (types:12643-12647). Classic hooks fired inside a tool call also carry `effort.level` (types:693-701) | No event in the types names an effort change, and no getter exists (MEASURED, a search of the types file). So it is unknown before the first request. Whether `/effort` raises `config.set` is UNMEASURED. The settings schema has an `effortLevel` key, *"Persisted effort level for supported models"* (MEASURED, binary strings), which `$.settings.read()` would return. But it is the saved choice, not this session's level, so drawing it would be a guess |
 | Cost, context, rate limits | `session.measure`, pushed *"after each main-thread turn, and when a rate-limit window moves a whole point"* (types:4133-4143); `$.session.usage()`, the same figures *"as the status line has them"*, free to call (types:2622-2642) | Claude's own estimate at list price, as today |
 | Run yolo | `$.process.run(argv, { cwd, env, stdin, timeoutMs })`: *"Commands on the host, run as the user the session runs as. CLI only."* No shell; 30 s default timeout (types:3285-3307). `env` is *"Variables set over the host process's own environment"* (types:7545-7547) | The child inherits Claude's env, as the status-line command does |
 | Read a file | `$.fs.read(path)`, text or bytes, at most 4 MiB (types:3017-3034) | — |
@@ -123,7 +127,8 @@ No `StatusLine` render component exists (types:8712, the full list), so a plugin
 | Keep work alive | `$.clock.every` and `$.clock.after` timers, dropped on reload (reference:124-131) | — |
 
 The module runs *"in an environment of its own, with no DOM and no Node"* (reference:23). A hook has 10 s of its own
-time per dispatch, and waiting on a `$` call does not count (reference:124).
+time per dispatch, and waiting on a `$` call does not count (`HookBudget.ms: 10_000`, types:4803-4812;
+reference:124).
 
 ### 2.3 How the module reads yolo's facts, with no Node
 
@@ -144,12 +149,14 @@ time per dispatch, and waiting on a `$` call does not count (reference:124).
 | **Claude's cost estimate** (later design) | In the stdin JSON, not shown | `session.measure` pushes `cost.usd` (types:10410-10433) | **Same data, better delivery**: pushed after each turn, no process. Still Anthropic list price, not what Bedrock bills ([agent-footer.md:473-474](../design/agent-footer.md#L473-L474)) |
 | **Billed Bedrock cost** (later design) | Not available | Not available | **Same**: no agent reports it |
 | **Bridge upstream and failover** (later design) | A read per refresh, kept off the footer for its cost; and no bridge state exists | One read per turn (`turn.complete`) or per `session.measure`, through `$.http.fetch` or `$.fs.read` | **Better, once the bridge publishes per-model state** ([agent-footer.md, Later](../design/agent-footer.md#later-cost-and-failover-a-separate-design)). A failover could also raise one `$.ui.toast` |
-| **A per-session meter** (later design) | No session key | `$.session.id()` (types:2588-2592) gives the plugin one | **Better on one side only.** The plugin knows its session, but `turn.step` can rewrite only the model and effort, not headers, so the bridge still cannot tell sessions apart (INFERRED) |
+| **A per-session meter** (later design) | No session key in the footer. But Claude already stamps its session id on its API requests: `X-Claude-Code-Session-Id` is among the headers of its main request path and of its Bedrock and Vertex clients (MEASURED, binary strings `var pbt="X-Claude-Code-Session-Id"`, `function xw(){return{"x-app":…,"User-Agent":…,[pbt]:q()}}` and the per-request `xe={...xw(),…}`) | `$.session.id()` (types:2588-2592) gives the plugin one | **Better on the display side only.** The plugin knows its session. `turn.step` can rewrite only the model and effort (types:12626), so the plugin adds nothing on the wire. Whether the header Claude already sends reaches the bridge at a custom `ANTHROPIC_BASE_URL`, and so whether the bridge can already tell sessions apart without any plugin, is UNMEASURED |
 
 ## 4. What an extension makes newly possible
 
 - **yolo's segment sits beside your own `statusLine`.** The status entry and the `statusLine` row are different
-  sites, so neither replaces the other (INFERRED from the types; the layout is UNMEASURED). The plugin can also
+  sites, so neither replaces the other. The pinned-notice block is a child of the prompt's footer column with no
+  `statusLine` condition on it (MEASURED, binary strings: `e(D1,{})` among that column's children); the on-screen
+  layout is UNMEASURED. The plugin can also
   read your `statusLine` through `$.settings.read()` and act on it. Whether it should stay quiet is
   [OQ-CM2](#OQ-CM2).
 - **Claude's keyboard hints come back,** because yolo no longer needs a `statusLine` at all
@@ -182,12 +189,22 @@ time per dispatch, and waiting on a `$` call does not count (reference:124).
   (MEASURED). So a Bedrock session is on, while a subscription session gets what the server says. Also off:
   safe mode, `disableAllHooks`, managed-only hooks, and `--bare` (MEASURED, binary strings). A managed
   `disableSideloadFlags` setting stops skills-dir loading altogether
-  ([mcp-configuration.md, OQ-LSP3](../reference/mcp-configuration.md#oq-lsp3)).
-- **It fails quietly.** Outside a hot-reload session, a module that did not load is reported only in the debug log
-  (reference:72-75). So the footer would vanish with nothing on screen, against
-  [the happy-path principle](../reference/happy-path-principle.md).
+  ([mcp-configuration.md, OQ-LSP3](../reference/mcp-configuration.md#oq-lsp3)), and so does any managed
+  `strictKnownMarketplaces` allowlist unless it names the skills-dir sentinel: *"Policy-list sentinel for the
+  ~/.claude/skills/ auto-load (@skills-dir plugins). In strictKnownMarketplaces: opt the scan back IN (by default
+  any allowlist blocks it)"* (MEASURED, binary strings).
+- **It fails quietly.** The transcript names a module that did not load only for the folders a session hot-reloads
+  in that sense: the mods folder, a `--plugin-dir` or a `CLAUDE_CODE_PLUGIN_DIRS` folder. Everywhere else the line
+  goes to the debug log alone (reference:72-75). A skills-dir plugin is not in that list, so in every session the
+  footer would vanish with nothing on screen, against [the happy-path principle](../reference/happy-path-principle.md).
+- **It looks like a warning.** The status entry is drawn as `⚠ yolo: …` in the theme's warning color, in the block
+  that holds Claude's own pinned warnings ([§2.1](#21-where-a-plugin-can-draw); MEASURED from minified strings, so
+  confirm it in the live look). A permanent footer drawn as a warning is a cost the status-line row does not have.
 - **Surfaces.** The status entry is drawn in the terminal. Desktop and the SDK are sent a `ui_status` message whose
-  drawing is UNMEASURED. `PromptHint.tail` is terminal-only.
+  drawing is UNMEASURED. But the prototype sends them nothing: it returns at `session.start` when `isInteractive`
+  is false, which the types define as *"false for a `-p` run or the SDK"* (types:10993-10996), and the reference
+  counts desktop among *"a long-lived headless session (SDK, desktop)"* (reference:69). So a desktop or SDK session
+  gets no yolo segment and runs no renderer. `PromptHint.tail` is terminal-only.
 - **Workspace trust.** *"hooks modules not loaded until workspace trust is accepted"* (MEASURED, binary strings).
   That is the gate the status-line command already has, which the claude pack pre-accepts in a jail
   ([pack.json:61-65](../../packs/claude/pack.json#L61-L65)). **Same.**
@@ -219,7 +236,8 @@ time per dispatch, and waiting on a `$` call does not count (reference:124).
 `<pack>/skills/<plugin>/.claude-plugin/plugin.json` ([pluginpack.go:371-387](../../internal/pluginpack/pluginpack.go#L371-L387)),
 and a skills contribution carries it ([plugins.go:27-34](../../internal/packload/plugins.go#L27-L34)). The claude
 pack's skills contribution has no `from`, so the conventional `skills/` folder applies
-([pack.json:47-54](../../packs/claude/pack.json#L47-L54)). The pack is `skills_tier: "namespaced"`
+([pack.json:47-54](../../packs/claude/pack.json#L47-L54)). That folder does not exist at `026fca67`
+(`packs/claude/` holds `briefing/`, `loopholes/`, `derive.lua` and `pack.json`, READ), so step 2 creates it. The pack is `skills_tier: "namespaced"`
 ([pack.json:190](../../packs/claude/pack.json#L190)), so the tree lands whole at `~/.claude/skills/<plugin>/`
 ([plugin.go:91](../../internal/hostskills/plugin.go#L91)). The embed takes dot-folders (`all:claude`,
 [embed.go:87](../../packs/embed.go#L87)). One writer serves both notches. In a jail `~/.claude/skills` is a
@@ -240,6 +258,26 @@ reloads the hooks module"* (reference:68). Seeing it load in a live session is U
 > ([packloopholes.go:556-616](../../internal/cli/run/packloopholes.go#L556-L616)), and not the host-apply warning
 > ([plugin.go:129-151](../../internal/hostskills/plugin.go#L129-L151)). That is live today for any wrapped plugin,
 > a fetched pack's included. At the host, a module's `$.process.run` runs commands as you (types:3285).
+>
+> The hooks file is not the only default location the manifest walk misses. Claude's changelog SOURCES three more:
+> a root `.mcp.json` declares MCP servers (changelog:4489), a plugin may carry *"a default monitors file"*
+> (changelog:1640) and a top-level `monitors` key (changelog:5204), and *"Plugins can now ship executables under
+> `bin/` and invoke them as bare commands from the Bash tool"* (changelog:5459). `pluginpack.Manifest` reads no
+> `monitors` field at all ([pluginpack.go:63-81](../../internal/pluginpack/pluginpack.go#L63-L81)).
+
+**The fix makes yolo's own plugin a standing disclosure.** Once step 1 lands, the claude pack's `yolo` plugin counts
+as code-running. The jail-code line covers every selected pack, shipped ones included, and cannot be gated
+([packloopholes.go:650-683](../../internal/cli/run/packloopholes.go#L650-L683)), so every claude launch would print
+it. The host-apply warning is always-warn by design, so every `yolo host apply` would print it too
+([plugin.go:129-151](../../internal/hostskills/plugin.go#L129-L151)). That is correct, since the plugin does run
+code, but it is a cost of shipping it (INFERRED from the code; not run).
+
+**The delivered tree is not the prototype.** A namespaced delivery adds yolo's ownership marker,
+`"x-yolo-managed-by": "yolo-jail"`, to `plugin.json` ([plugin.go:280-299](../../internal/hostskills/plugin.go#L280-L299),
+[tier.go:158](../../internal/hostskills/tier.go#L158)). On a copy of the prototype with that key added,
+`claude plugin validate --strict` fails with *"Unknown field 'x-yolo-managed-by'. Claude Code ignores it at load
+time."* (MEASURED). Loading is unaffected, but a strict validation in CI must run on the source tree, not on a
+delivered one.
 
 **The statusLine on an older Claude, or where modules are off.** The plugin cannot create, draw into or remove a
 `statusLine` ([§2.1](#21-where-a-plugin-can-draw)). And yolo cannot tell at compose time whether Claude will load the module, since the rollout
@@ -265,7 +303,13 @@ as they do pi's (`TestExtensionAdaptersSetOneYoloStatus`, `TestBridgedRoutesAreM
 under a kit whose bottom hook *"throws, naming its event"* for anything a test does not answer (types:14917). So no
 model request can be made. This round's run also opened no network connection. Whether it may run in CI is
 [OQ-CM3](#OQ-CM3). One trap: the jail's lazy `claude` launcher puts `--dangerously-skip-permissions` ahead of the
-arguments, and `claude plugin test` refuses that spelling. A test must call the real binary (MEASURED).
+arguments, and `claude plugin test` refuses that spelling (MEASURED). A test must call the real binary, or the
+launcher with `YOLO_NO_LAUNCH_FLAGS=1`, which makes it add no flags
+([launchflags.go:53](../../internal/entrypoint/launchflags.go#L53); the generated launcher's `_yolo_launch_argv`
+returns early on it, READ). CI runs no jail launcher, so there it is the real binary either way. A second trap:
+`plugin test` consults the remote rollout flag. 2.1.288 fixed it *"reporting mods as turned off remotely when it
+had only read an out-of-date saved setting"* (changelog:93). So a CI run should keep Claude's feature-flag service
+off, the traffic-off environment this round used, which makes the default (on) apply.
 
 ## 7. Other Claude-specific shims that could follow
 
@@ -311,19 +355,22 @@ Build order:
 
 1. **Fix the plugin disclosure.** `pluginpack.Components` should also report a hooks file at Claude's default
    location, `hooks/hooks.json`, as code-running, whatever the manifest says. Add a test that fails on today's
-   code. This is worth doing whatever is ruled below, since it is live for every wrapped plugin today. Check the
-   other default locations in the same change; that an `.mcp.json` at a plugin's root is loaded the same way is
-   INFERRED.
-2. **Ship the plugin dormant beside the `statusLine` default**, in `packs/claude/skills/yolo/`. It yields to yolo's
-   own command, so nothing changes on screen yet. Extend the adapter tests to read its `FOOTER_ARGS`.
+   code. This is worth doing whatever is ruled below, since it is live for every wrapped plugin today. Cover the
+   other default locations in the same change: a root `.mcp.json`, a default monitors file and the `monitors` key,
+   and `bin/` executables, each SOURCED in the changelog ([§6](#6-delivery-through-yolos-existing-plugin-mechanism)).
+2. **Ship the plugin dormant beside the `statusLine` default**, in a new `packs/claude/skills/yolo/`. It yields to
+   yolo's own command, so nothing changes on screen yet. With step 1 in, every claude launch then discloses it
+   ([§6](#6-delivery-through-yolos-existing-plugin-mechanism)). Extend the adapter tests to read its `FOOTER_ARGS`.
 3. **One live look,** a human check, since no test may start an agent. In a fresh nested jail with the default
    removed, check:
    - where the status entry sits;
+   - whether it reads as a warning, the `⚠` and the warning color the binary suggests;
    - that the hints are back;
    - how long a model id reads;
    - that the effort level appears after the first request.
 
-   If the status entry sits badly, try `PromptHint.tail` instead.
+   If the status entry sits badly or reads as a warning, try `PromptHint.tail` instead, and check it beside a
+   user's own `statusLine` too, since that line thins the hint row.
 4. **Drop the `statusLine` default**, as [OQ-CM1](#OQ-CM1) rules. `yolo host apply` names the deletion where a frozen
    yolo command remains.
 5. **Later, with the cost and failover design:** the bridge publishes per-model state, and the plugin reads it once
@@ -335,8 +382,9 @@ Build order:
 1. 💬 **OQ-CM1: When Claude can load the plugin, does yolo stop shipping the `statusLine` default?**
 
    Dropping it brings the hints back and ends the per-refresh process. But the footer then depends on an
-   early-access API that Anthropic can switch off remotely or a policy can block, and it vanishes silently when it
-   does ([§5](#5-what-it-cannot-do-and-what-it-costs)).
+   early-access API that Anthropic can switch off remotely or a policy can block, it vanishes silently when it
+   does, and the binary suggests Claude draws it as a warning ([§5](#5-what-it-cannot-do-and-what-it-costs)). The
+   live look in step 3 settles the last point before this is ruled.
 
    - **A — Plugin only.** Drop the default once the live look passes. The plugin yields to a yolo command it finds.
    - **B — Both.** Keep the default too. The plugin then yields everywhere, and nothing improves.
@@ -392,8 +440,10 @@ Build order:
 - **Every line number in the types file** is 2.1.288's. The file is regenerated per build, and the API is early
   access (types:4).
 - **The version floor, 2.1.287**, and the rollout flag `tengu_plugin_hooks_modules` with its default on.
-- **The status entry's terminal form,** `<plugin name>: <text>` as a pinned low-priority notification. It was read
-  from minified code, so the names `lre`, `aYe` and `IFe` will not survive a release.
+- **The status entry's terminal form,** `⚠ <plugin name>: <text>` in the warning color, as a pinned low-priority
+  notification. It was read from minified code, so the names `lre`, `aYe`, `IFe`, `cre`, `D1` and `qb` will not
+  survive a release.
+- **The session header,** `X-Claude-Code-Session-Id` among Claude's default request headers (`pbt`, `xw`).
 - **The `statusLine` refresh triggers** and the 300 ms debounce.
 - **That a skills-dir plugin is enabled by default,** measured against 2.1.278
   ([OQ-LSP3](../reference/mcp-configuration.md#oq-lsp3)).
@@ -404,7 +454,11 @@ Build order:
 |---|---|---|
 | The API's shapes | Types file lines as cited; reference lines as cited | SOURCED |
 | Introduced in 2.1.287 | Changelog lines 95-97: *"Added Claude Mods: plugins may now modify deeper behavior"*; 2.1.288 added `$.ui.selection()` (line 5) | SOURCED |
-| Status entry's terminal form | Binary strings: `` status:(E,N)=>{…X=`plugin-status-${E}`…H.addNotification({key:X,kind:"event",text:aYe(E,N),priority:"low",pinned:!0})} `` and `` function aYe(e,n){return`${lre(e)}: ${IFe(n)}`} `` | MEASURED |
+| Status entry's terminal form | Binary strings: `` status:(E,N)=>{…X=`plugin-status-${E}`…H.addNotification({key:X,kind:"event",text:aYe(E,N),priority:"low",pinned:!0})} `` and `` function aYe(e,n){return`${lre(e)}: ${IFe(n)}`} ``; a pinned notice goes to `notifications.pinned`, which `D1` maps through `cre`, whose text arm is `r(n,{color:H,wrap:N,children:[qb," ",E.text]})` with `H=E.color??"warning"`, `N=E.wrap?"wrap":"truncate"`, and `qb="⚠"` | MEASURED |
+| The pinned-notice block ignores `statusLine` | Binary strings: `Wat=e(D1,{})` is placed among the prompt footer column's children (`children:[fw,gw,GO,Wat,H6,…]`) with no `statusLine` condition | MEASURED |
+| Claude stamps its session id on requests | Binary strings: `var pbt="X-Claude-Code-Session-Id"`, `function xw(){return{"x-app":…,"User-Agent":JO(),[pbt]:q()}}`, the per-request header set `xe={...xw(),...fe,...u0(),…}` beside `x-claude-code-agent-id`, and `F7()`, built from `xw()`, spread into the Bedrock and Vertex clients' `defaultHeaders` | MEASURED |
+| The delivered manifest fails `--strict` | A copy of the prototype with `"x-yolo-managed-by": "yolo-jail"` added: `claude plugin validate --strict` printed *"Unknown field 'x-yolo-managed-by'. Claude Code ignores it at load time."* and *"Validation failed (--strict treats warnings as errors)"*, exit 1 | MEASURED |
+| `strictKnownMarketplaces` blocks the skills-dir scan | Binary strings: *"Policy-list sentinel for the ~/.claude/skills/ auto-load (@skills-dir plugins). In strictKnownMarketplaces: opt the scan back IN (by default any allowlist blocks it)"* | MEASURED |
 | `ui_status` to SDK hosts | Binary strings: `subtype:R("ui_status")`, *"One status line per plugin"* | MEASURED |
 | Rollout flag and its default | Binary strings: `var JQ="tengu_plugin_hooks_modules";var pIe=!0`; *"installed plugins' hooks modules not loaded: rollout flag (…) is off"*; the source map naming *"from the default (GrowthBook is off for this session: a third-party provider, or telemetry opted out)"* | MEASURED |
 | Workspace-trust gate | Binary strings: *"hooks modules not loaded until workspace trust is accepted: "* | MEASURED |
@@ -430,7 +484,8 @@ Build order:
 - `hooks/hooks.json`: `{"modules": ["./register.ts"]}`.
 - `hooks/register.ts`, which:
   - holds `FOOTER_ARGS` as JSON: the claude pack's command with the template `{yolo.billing} · {yolo.notch}`;
-  - on `session.start` in an interactive session, yields to a yolo `statusLine` found through `$.settings.read()`,
+  - on `session.start` in an interactive session (never a `-p` run or the SDK, desktop included), yields to a yolo
+    `statusLine` found through `$.settings.read()`,
     else runs the renderer once through `$.process.run` (2 s timeout, stdin closed), reads `$.session.model()`
     and pins `<model> · <facts>`;
   - on each main-loop `turn.step`, redraws when the model or effort changed;
