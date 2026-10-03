@@ -889,11 +889,11 @@ jobs:
   archive-delivery-macos:
     runs-on: macos-26-intel
     needs: build-image
-    # The outer bound only; each expensive step carries its own. 25 (machine) + 90 (the two
+    # The outer bound only; each expensive step carries its own. 35 (machine) + 90 (the two
     # deliveries) + 190 (OQ-LR2: the two loads plus the in-VM copy) plus checkout, Nix and Go,
     # about 4 minutes at the slowest measured. Inside the 6 hours GitHub allows a hosted job.
     # integration/archivedeliveryworkflow_test.go redoes this sum.
-    timeout-minutes: 315
+    timeout-minutes: 325
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -939,9 +939,12 @@ jobs:
           go-version-file: go.mod
 
       # Capped for the reason the shards' step is: a VM that never boots must fail here, named.
+      # 35, the shards' cap, because the script runs the shards' sequence (two starts, a VM reset,
+      # a last start) and so needs the same 30m27s sum; at 25 a machine whose starts all hang was
+      # killed inside its last attempt. integration/macosmachinereset_test.go redoes it for both.
       - name: Install Podman and start the machine
         if: steps.cachix.outputs.enabled == 'true'
-        timeout-minutes: 25
+        timeout-minutes: 35
         run: scripts/ci-macos-podman-machine.sh
 
       # COMPUTED, WITH THE ZERO-SELECTION REFUSAL, like the shards' partition: a `-run` pattern

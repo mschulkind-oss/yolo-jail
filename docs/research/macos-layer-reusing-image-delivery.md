@@ -650,9 +650,9 @@ What each step settles:
    section per candidate, and the job log has a line that starts with this question's id followed
    by `IN-VM COPIER:`, carrying the argv and the output. **The step's cap was raised from 80 to 125 minutes, and the job's from 210 to 255,** to
    fit the third cold delivery. The in-VM copy has no measurement yet, so it also carries its own
-   deadline inside the test. **On 2026-10-03 they went to 190 and 315 minutes**, because the
-   tests' own deadlines add up to 175 minutes and a 125-minute cap could end the step before the
-   in-VM copy's deadline printed its verdict.
+   deadline inside the test. **On 2026-10-03 the step's went to 190 minutes**, and the job's
+   with it, because the tests' own deadlines add up to 175 minutes and a 125-minute cap could end
+   the step before the in-VM copy's deadline printed its verdict.
 
    **Three more nightlies have run both candidates (read 2026-09-30 from the job logs).** One
    cold `podman load` sample each, into a store with A evicted, on GitHub's `macos-26-intel`:

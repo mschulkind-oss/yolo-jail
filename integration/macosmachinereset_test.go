@@ -295,7 +295,20 @@ func TestTheNightlysMachineStepResetsTheVMBeforeItsLastAttempt(t *testing.T) {
 	if _, err := exec.LookPath("pkill"); err != nil {
 		t.Skip("no pkill on PATH; the step's reset watchdog uses it (macOS and the CI runners ship it)")
 	}
-	script := nightlyMachineStep(t).Run
+	// BOTH COPIES OF THE BRING-UP RUN EVERY SCENARIO. The archive job starts its machine from
+	// scripts/ci-macos-podman-machine.sh, whose header says it owes the shards' inline step
+	// agreement; TestArchiveDeliveryMachineMatchesTheShards reads the two side by side, and a
+	// reading could not tell that one of them had lost the reset.
+	for _, subject := range []struct{ name, script string }{
+		{"the shards' inline step", nightlyMachineStep(t).Run},
+		{"the archive job's script", readRepoFile(t, podmanMachineScript)},
+	} {
+		t.Run(subject.name, func(t *testing.T) { checkMachineStartRecovery(t, subject.script) })
+	}
+}
+
+// checkMachineStartRecovery runs one copy of the machine bring-up through every scenario.
+func checkMachineStartRecovery(t *testing.T, script string) {
 	run := func(t *testing.T, starts string, initHangsOn int) machineStepRun {
 		t.Helper()
 		r := runNightlyMachineStep(t, script, starts, initHangsOn)
@@ -417,8 +430,9 @@ func TestTheNightlysMachineStepResetsTheVMBeforeItsLastAttempt(t *testing.T) {
 // cap, and the cap fired INSIDE the last attempt twice: run 36862305695 shard 7 (during its
 // stop, so the step's own error never printed) and run 37056529987 shard 10.
 //
-// So this redoes the sum from the step itself: its bounded phases read from the script, and
-// its unbounded ones at the slowest the logs show.
+// So this redoes the sum for both machine steps, the shards' and the archive job's (which ran
+// the same sequence under the same 25m cap): the bounded phases read from what each step runs,
+// and the unbounded ones at the slowest the logs show.
 const (
 	// The download and the .pkg install: 4s–16s in the logs read.
 	measuredPodmanInstall = 20 * time.Second
@@ -439,8 +453,25 @@ var (
 )
 
 func TestTheNightlysMachineStepCapCoversEveryAttempt(t *testing.T) {
-	step := nightlyMachineStep(t)
-	code := uncommentedYAML(step.Run)
+	wf := parseWorkflow(t, nightlyWorkflow)
+	shards := jobStepRunning(t, wf, nightlyShardJob, "podman machine start")
+	archive := jobStepRunning(t, wf, archiveDeliveryJob, podmanMachineScript)
+	// The archive job's step only names the script, so its bounded phases are read from there.
+	for _, c := range []struct {
+		step workflowStep
+		code string
+	}{
+		{shards, shards.Run},
+		{archive, readRepoFile(t, podmanMachineScript)},
+	} {
+		checkMachineStepCap(t, c.step, uncommentedYAML(c.code))
+	}
+}
+
+// checkMachineStepCap redoes one machine step's sum: its bounded phases read from code (the
+// script the step runs), its unbounded ones at the slowest the logs show.
+func checkMachineStepCap(t *testing.T, step workflowStep, code string) {
+	t.Helper()
 	stepCap := minutesOf(t, step.Name, step.TimeoutMinutes)
 
 	seconds := func(re *regexp.Regexp, what string) time.Duration {
@@ -464,7 +495,7 @@ func TestTheNightlysMachineStepCapCoversEveryAttempt(t *testing.T) {
 		time.Duration(attempts)*start + reset +
 		time.Duration(attempts-1)*(measuredHungMachineStop+machineRetryPause)
 	if stepCap < need {
-		t.Errorf("%s is capped at %s, and a shard whose starts all hang needs %s: the install "+
+		t.Errorf("%s is capped at %s, and a machine whose starts all hang needs %s: the install "+
 			"(%s), the first init (%s), %d starts at %s, the reset at %s, and a stop plus a pause "+
 			"between attempts (%s + %s each). The cap then fires inside the last attempt and its "+
 			"report never prints — measured twice at a 25m cap (runs 36862305695, 37056529987). "+

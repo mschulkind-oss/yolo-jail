@@ -19,7 +19,8 @@ import (
 //
 //   - the archive-delivery job's podman machine (scripts/ci-macos-podman-machine.sh) is the
 //     shards' machine: same shares, same probes, same release, a bounded retried start — the
-//     second copy macosmachineshares_test.go says must be "single-sourced and read";
+//     second copy macosmachineshares_test.go says must be "single-sourced and read" (the retry
+//     itself, VM reset included, is run against both by macosmachinereset_test.go);
 //   - image B's `packages:` list is realized on BOTH Linux arches, spelled exactly as the Go
 //     test launches it, so a Mac substitutes B instead of failing to build it;
 //   - the podman job takes NO preload — the thing it exists to get past — and every step after
@@ -71,7 +72,8 @@ func TestArchiveDeliveryMachineMatchesTheShards(t *testing.T) {
 			podmanMachineScript, got, want)
 	}
 	if n := podmanMachineInits(script); n != 1 {
-		t.Errorf("%s runs `podman machine init` %d times; retry the start, never the init", podmanMachineScript, n)
+		t.Errorf("%s runs `podman machine init` %d times; to make a fresh machine, call the function "+
+			"that holds the one init (`machine_init`) rather than writing another", podmanMachineScript, n)
 	}
 
 	wantProbe, gotProbe := parseMachineShareProbe(t, wf), parseMachineShareProbe(t, script)
