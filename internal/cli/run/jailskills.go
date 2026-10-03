@@ -21,13 +21,22 @@ import (
 // ONE CONVERSION FOR BOTH READERS: the launch's own staging (packSkillSourceDirs) and an attach
 // adopting the running jail's packs (adoptPackRecords). Two copies of this conversion would be
 // two answers to what a pack's skills are called, which is the divergence the ruling removes.
+//
+// A PLUGIN INSIDE NO SOURCE GETS A RECORD OF ITS OWN, with no Dir. That is the wrap-in-place
+// shape, the pack root itself (pluginpack.DiscoverIn), and it is how a Claude Code mod is laid
+// out: a manifest and hooks/, with no skills/ folder at all. It used to ride the pack's sources
+// instead, so a pack with none delivered its plugin to no jail while `yolo host apply` wrote it
+// whole (docs/research/claude-code-mods-management.md, G10), the notch asymmetry the parity ruling
+// removed (docs/plans/notch-convergence.md#OQ-NC11). Its audience is the pack's skills audience
+// (packload.Pack.SkillsAudience), and jailcontent.SkillPlan folds the record into the pack's one
+// layer, so a pack that does have sources composes exactly as before.
 func jailSkillSources(p *packload.Pack, sources []packload.SkillsSource) []jailcontent.PackSkillSource {
 	layer := hostskills.PackLayer(p)
-	out := make([]jailcontent.PackSkillSource, 0, len(sources))
-	// A plugin inside NO source is the wrap-in-place shape, the pack root itself
-	// (pluginpack.DiscoverIn): it rides every source of the pack, as the host carries a pack's
-	// plugins on every one of its layers. jailcontent.SkillPlan delivers each plugin once per
-	// destination.
+	record := func(dir string, agents []string, plugins []*pluginpack.Plugin) jailcontent.PackSkillSource {
+		return jailcontent.PackSkillSource{Dir: dir, Agents: agents, Pack: p.Name, Tier: layer.Tier,
+			Description: layer.Description, Plugins: plugins, SourceOf: layer.SourceOf}
+	}
+	out := make([]jailcontent.PackSkillSource, 0, len(sources)+1)
 	var rooted []*pluginpack.Plugin
 	for _, pl := range layer.Plugins {
 		inSource := false
@@ -38,17 +47,21 @@ func jailSkillSources(p *packload.Pack, sources []packload.SkillsSource) []jailc
 			rooted = append(rooted, pl)
 		}
 	}
+	// First, so the pack's layer lists its plugins in the host's order (PackLayer's: the root,
+	// then each source's).
+	if len(rooted) > 0 {
+		out = append(out, record("", p.SkillsAudience(), rooted))
+	}
 	for _, src := range sources {
 		// A plugin inside a source belongs to it, so an addressed source's plugin reaches only
 		// that source's audience — the same rule its skills follow.
-		plugins := append([]*pluginpack.Plugin(nil), rooted...)
+		var plugins []*pluginpack.Plugin
 		for _, pl := range layer.Plugins {
 			if pluginpack.Contains(src.Dir, pl.Dir) {
 				plugins = append(plugins, pl)
 			}
 		}
-		out = append(out, jailcontent.PackSkillSource{Dir: src.Dir, Agents: src.Agents, Pack: p.Name,
-			Tier: layer.Tier, Description: layer.Description, Plugins: plugins, SourceOf: layer.SourceOf})
+		out = append(out, record(src.Dir, src.Agents, plugins))
 	}
 	return out
 }

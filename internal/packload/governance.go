@@ -355,6 +355,39 @@ func (p *Pack) governedSkills() ([]GovernedSource, []governanceProblem) {
 	return out, problems
 }
 
+// SkillsAudience is who this pack's skills are FOR, read off every skills governor whether or not
+// its source exists: the union of their audiences, nil (broadcast) when any one broadcasts, the
+// implicit governor of an unnamed skills/ included.
+//
+// It is the audience of what a pack carries OUTSIDE every skills source, which is a plugin at the
+// pack root (pluginpack.DiscoverIn's wrap-in-place shape). No source contains it, so no source's
+// audience is its own, and a pack whose every source is absent has none at all: a Claude Code mod
+// is exactly that pack, a manifest and hooks/ with no skills/ folder. The jail delivers such a
+// plugin to this audience (run.jailSkillSources), which is where it would have gone riding the
+// pack's sources had they all existed.
+func (p *Pack) SkillsAudience() []string {
+	govs, _ := p.governors(packdecl.KindSkills)
+	named := false
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range govs {
+		named = named || c.SourceKey() == packdecl.DefaultSkillsDir
+		if len(c.Agents) == 0 {
+			return nil
+		}
+		for _, a := range c.Agents {
+			if !seen[a] {
+				seen[a] = true
+				out = append(out, a)
+			}
+		}
+	}
+	if !named {
+		return nil
+	}
+	return out
+}
+
 // skillsDir resolves a skills source key to an absolute directory, with SkillsSourceDir's three
 // outcomes (its doc comment is the authority): a readable directory; a NON-conventional source
 // that is absent, a file, or escaping → "" plus a problem; the conventional dir absent → "", no

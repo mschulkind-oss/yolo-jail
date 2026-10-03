@@ -56,7 +56,9 @@ var packSkillDirs []PackSkillSource
 // get wrong; the rest is hostskills.PackLayer's, the one constructor the host composition reads a
 // pack through too (run.jailSkillSources fills it).
 type PackSkillSource struct {
-	// Dir is the absolute source directory to copy skill subdirs from.
+	// Dir is the absolute source directory to copy skill subdirs from. EMPTY MEANS NO SOURCE: the
+	// record carries the pack's root plugins alone (Plugins), which sit inside none of its sources
+	// and reach a jail whether or not the pack has any (run.jailSkillSources).
 	Dir string
 	// Agents is the audience this source names. EMPTY MEANS BROADCAST (P2) — every pack that
 	// ships today, and the only thing a pack with no pack.json can ask for.
@@ -71,9 +73,9 @@ type PackSkillSource struct {
 	Tier hostskills.Tier
 	// Description goes into a namespaced subtree's plugin manifest.
 	Description string
-	// Plugins are the wrapped plugin trees this pack carries INSIDE Dir, delivered as the host
-	// delivers them: verbatim at a namespaced tier, their skills alone (and every other component
-	// named as refused) at a flat one.
+	// Plugins are the wrapped plugin trees this pack carries INSIDE Dir, or at the pack root when
+	// Dir is empty, delivered as the host delivers them: verbatim at a namespaced tier, their
+	// skills alone (and every other component named as refused) at a flat one.
 	Plugins []*pluginpack.Plugin
 	// SourceOf maps a path under Dir to the file the user edits, for a collision message: the
 	// launch reads a STAGED copy of every pack. Nil is identity.
@@ -185,8 +187,12 @@ func SkillPlan(sources []PackSkillSource, targets []SkillTarget) []hostskills.De
 				d.Layers = append(d.Layers, hostskills.Layer{Pack: src.Pack, Description: src.Description,
 					Tier: src.Tier, SourceOf: src.SourceOf})
 			}
-			d.Layers[i].Sources = append(d.Layers[i].Sources, src.Dir)
-			// Once per layer: a wrap-in-place plugin rides every source of its pack.
+			// A record with no Dir carries plugins and nothing to copy: the host's writer delivers
+			// a layer's plugins whether or not it has a source (hostskills.writeLayer).
+			if src.Dir != "" {
+				d.Layers[i].Sources = append(d.Layers[i].Sources, src.Dir)
+			}
+			// Once per layer, should two records of one pack name one plugin.
 			for _, pl := range src.Plugins {
 				dup := false
 				for _, have := range d.Layers[i].Plugins {

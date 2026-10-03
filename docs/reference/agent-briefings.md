@@ -626,7 +626,11 @@ behavior:
   yolo's plugin manifest and invoke as `/<pack>:<skill>`, as at the host.
 - **Wrapped plugins are delivered as at the host**: verbatim, with yolo's marker, from a
   namespaced pack; at the flat default only the plugin's skills, with every other component
-  named as refused.
+  named as refused. A plugin at the pack's root is delivered the same way whether or not the pack
+  has a `skills/` folder. That is the shape of a Claude Code
+  [mod](https://code.claude.com/docs/en/plugins/mods/overview), a manifest and `hooks/` and
+  nothing else. It reaches the destinations the pack's skills are addressed to
+  (`packload.Pack.SkillsAudience`), since it sits in none of the pack's skills sources.
 
 The built-in suite and the workspace fill only the names the packs left free, so the order is
 unchanged. A **reserved child** a destination declares (`packs/claude` reserves `synced`) is

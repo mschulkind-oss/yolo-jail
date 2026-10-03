@@ -232,6 +232,42 @@ func TestGovernedSkillsTheTreeIsOneUnit(t *testing.T) {
 	}
 }
 
+// SkillsAudience is every skills governor's audience whether or not its source exists — the
+// audience a plugin at the pack root reaches, since no source contains it. The implicit skills/
+// governor broadcasts, so a pack addressing ANOTHER tree still broadcasts its root plugin; only a
+// pack whose every governor is addressed, skills/ included, narrows it. A destination governs
+// nothing and narrows nothing.
+func TestSkillsAudienceIsEveryGovernorsWithOrWithoutASource(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		contributes []packdecl.Contribution
+		want        []string
+	}{
+		{"no manifest: the implicit skills/ broadcasts", nil, nil},
+		{"an addressed other tree leaves skills/ implicit", []packdecl.Contribution{
+			{Kind: packdecl.KindSkills, From: "extra", Agents: []string{"pi"}}}, nil},
+		{"skills/ addressed", []packdecl.Contribution{
+			{Kind: packdecl.KindSkills, Agents: []string{"claude"}}}, []string{"claude"}},
+		{"skills/ and another tree addressed", []packdecl.Contribution{
+			{Kind: packdecl.KindSkills, Agents: []string{"claude"}},
+			{Kind: packdecl.KindSkills, From: "extra", Agents: []string{"pi", "claude"}}}, []string{"claude", "pi"}},
+		{"skills/ addressed beside a declared broadcast", []packdecl.Contribution{
+			{Kind: packdecl.KindSkills, Agents: []string{"claude"}},
+			{Kind: packdecl.KindSkills, From: "extra"}}, nil},
+		{"a destination narrows nothing", []packdecl.Contribution{
+			{Kind: packdecl.KindSkills, Agent: "claude", Into: ".claude/skills"}}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// No skills tree on disk at all: the audience is the declaration's, not the tree's.
+			p := addressedPack(t, "mod", map[string]string{".claude-plugin/plugin.json": `{"name":"mod"}`},
+				tc.contributes...)
+			if got := p.SkillsAudience(); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("SkillsAudience() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // OQ-PB2: a reserved basename INSIDE briefing/ is a FATAL LoadDir problem naming the move — with a
 // manifest or without — and is never read even by a caller that discards the problem.
 func TestLoadDirRefusesAReservedNameInsideBriefing(t *testing.T) {
