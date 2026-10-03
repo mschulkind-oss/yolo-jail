@@ -43,8 +43,16 @@ func seeArmExits(t *testing.T, cname string) <-chan armExit {
 // seeArmExitsWith is seeArmExits that also runs atExit at each exit, before it reports, for what
 // else a test must read at that moment. An arm takes launchArmExit when it is installed, so this
 // is swapped in before the arm.
+//
+// It also gives the test a set of tracked nix children of its own (image.IsolateNixChildren). An
+// arm whose exit is faked here has run the launch's teardown, whose first act is the real
+// image.StopNixChildren, and a stop is permanent for the set it ran on: shared with the rest of
+// the binary, it refused every later test's tracked nix (TestAGuardTestsNixStopEndsWithTheTest).
+// A test runs that teardown and lives on only with the arm's exit faked, and this is where it is
+// faked.
 func seeArmExitsWith(t *testing.T, cname string, atExit func()) <-chan armExit {
 	t.Helper()
+	image.IsolateNixChildren(t)
 	exits := make(chan armExit, 4)
 	saved := launchArmExit
 	launchArmExit = func(code int) {
@@ -450,5 +458,33 @@ func TestAGuardedLaunchStopsItsNixBeforeItExits(t *testing.T) {
 	}
 	if !stoppedAtExit.Load() {
 		t.Error("the launch a signal ended exited without stopping the nix it had running")
+	}
+}
+
+// TestAGuardTestsNixStopEndsWithTheTest: a test that interrupts a guarded launch runs the real
+// image.StopNixChildren, and a stop is permanent for the process it runs in. That is right for a
+// launch a signal is ending, which exits next, and wrong for this test binary, which fakes that
+// exit (seeArmExitsWith) and goes on to other tests: each later test that started a tracked nix was
+// refused, so whether it passed depended on the order the tests ran in. The stop must end with the
+// test that made it. The nix after it is the store-delivered extras build's own, a stand-in first
+// on PATH that prints a store path.
+func TestAGuardTestsNixStopEndsWithTheTest(t *testing.T) {
+	t.Run("an interrupted launch stops its nix", func(t *testing.T) {
+		f := newGuardFixture(t, "yolo-guard-real-nix-stop")
+		if e := f.interrupt(t, syscall.SIGINT); e.code != 128+int(syscall.SIGINT) {
+			t.Errorf("the launch exited %d, want %d", e.code, 128+int(syscall.SIGINT))
+		}
+	})
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "nix"), []byte("#!/bin/sh\necho /nix/store/fake-extras\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	profile, err := nixBuildImageExtrasProfile(t.TempDir())
+	if err != nil {
+		t.Fatalf("a nix started after an earlier test's interrupted launch was refused: %v", err)
+	}
+	if profile != "/nix/store/fake-extras" {
+		t.Errorf("the extras build returned %q, want the stand-in's store path", profile)
 	}
 }

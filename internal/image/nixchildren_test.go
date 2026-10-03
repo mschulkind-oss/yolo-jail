@@ -11,18 +11,13 @@ import (
 	"time"
 )
 
-// freshNixChildren swaps in an empty set for one test and returns it: a stop is permanent for the
-// set it ran on, as it is for the process a signal is ending. The cleanup stops the set again, so
-// a red run leaves none of its stand-in nix processes looping after the test binary exits.
+// freshNixChildren swaps in an empty set for one test and returns it (isolateNixChildren): a stop
+// is permanent for the set it ran on, as it is for the process a signal is ending. The cleanup
+// stops the set again, so a red run leaves none of its stand-in nix processes looping after the
+// test binary exits.
 func freshNixChildren(t *testing.T) *nixChildSet {
 	t.Helper()
-	saved, s := nixChildren, newNixChildSet()
-	nixChildren = s
-	t.Cleanup(func() {
-		s.stop(time.Second, nil)
-		nixChildren = saved
-	})
-	return s
+	return isolateNixChildren(t)
 }
 
 // awaitTracked waits for s to hold n running children.

@@ -147,3 +147,28 @@ func RunNix(cmd *exec.Cmd) error {
 // more. A launch's signal teardown calls it before the process exits, with awaitExit waiting for
 // that exit: the goroutine each stopped nix belonged to runs it before going on.
 func StopNixChildren(awaitExit func()) { nixChildren.stop(nixStopGrace, awaitExit) }
+
+// IsolateNixChildren gives the calling test a set of tracked nix children of its own until it
+// ends: an empty set now, stopped when the test ends so no stand-in nix it started outlives it,
+// and then the previous set back. For tests only; nothing in a launch calls it.
+//
+// A stop is permanent for the set it ran on, as it must be for a process a signal is ending, which
+// exits next. A test binary fakes that exit and goes on to other tests, so a test that drove a
+// launch's signal teardown through the real StopNixChildren left every later test in its binary
+// that started a tracked nix refused, and whether that test passed depended on the order the
+// tests ran in (internal/cli/run's TestAGuardTestsNixStopEndsWithTheTest).
+//
+// t is a *testing.T; Cleanup is all this needs of it, so the yolo binary does not link the
+// testing package.
+func IsolateNixChildren(t interface{ Cleanup(func()) }) { isolateNixChildren(t) }
+
+// isolateNixChildren is IsolateNixChildren, returning the set it swapped in.
+func isolateNixChildren(t interface{ Cleanup(func()) }) *nixChildSet {
+	saved, s := nixChildren, newNixChildSet()
+	nixChildren = s
+	t.Cleanup(func() {
+		s.stop(time.Second, nil)
+		nixChildren = saved
+	})
+	return s
+}
