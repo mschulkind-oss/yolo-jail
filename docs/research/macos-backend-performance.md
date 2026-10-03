@@ -628,8 +628,9 @@ attempt ([OQ-PD25](../design/program-delivery.md#decision-ledger)), and a failur
 remembered ([OQ-PD26](../design/program-delivery.md#decision-ledger)). The next Mac run should see
 the first fresh launch store all three programs, and no later launch spend about 61 s in
 `launch.auto_capture`. An attach should not run it at all. If that first launch still stores
-nothing, it now says when it will try again and later launches skip the capture until then, so
-the 61 s stops either way; only the stored programs show that
+nothing, it now says when it will try again and later launches skip the capture until then, a
+day after a first failure (INFERRED from `internal/cli/autocapture.go`, not run on a Mac), so the
+61 s stops either way; only the stored programs show that
 [OQ-PD24](../design/program-delivery.md#decision-ledger)'s fix works.
 Without the auto-capture, a fresh launch's 6.9 s is mostly two steps: `image.nix_build` at 3.2
 to 3.5 s (a no-op build that still runs at every launch, through the builder VM) and

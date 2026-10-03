@@ -3,7 +3,7 @@ title: "Sharing pi git extensions across jails: immutable per-commit trees, neve
 date: 2026-09-25
 status: in-review
 stage: DESIGN
-next: "Rule OQ-6: the store is built and was green on the local branch held/pi-extension-store (d44cb88b9, cut from main at c5261b998 on 2026-09-30), every OQ-6 option keeps it, and landing it rebases that branch onto main and reruns the gate"
+next: "Rule OQ-6: the store is built and was green on the local branch held/pi-extension-store (d44cb88b9: six commits on a5665814, which main does not contain; merge base c5261b998), every OQ-6 option keeps it, and landing it rebases those six onto main with --onto and reruns the gate"
 tags: [pi, extensions, git, caching, machine-tier, storage, isolation]
 summary: "pi's git extensions cost every new jail a clone and a dependency build. The first build shared one mutable checkout per repository across jails, which let one jail's pin or update change the files another jail was running; the maintainer's rulings of 2026-09-25 withdraw it. The redesign shares content, never state: a machine store of bare mirrors and one immutable tree per resolved commit, each jail pointing at the commit its own config resolves to, pi loading each tree as a local package so it never clones or updates one itself. A launch waits for the tree it needs and never boots on another launch's leftovers. The npm store gets the same treatment, git first (ruled 2026-09-26). One question is open: whether the pi pack may rewrite its own packages list after the merge."
 vantage:
@@ -23,8 +23,13 @@ pi 0.87.1's package manager, read (not run) at `dist/core/package-manager.js` in
 Re-checked 2026-10-03: the work is still unmerged. It was first built as `f300bf00` on
 `wip/pi-extension-store`, and that commit's message says the launcher templates must be rebased
 over the credential gate before it can land. `3ab39946f` (2026-09-30) is that rebase, and its message says
-the tests were green again; with five follow-ups it is the held branch, whose merge base with main
-is `c5261b998`. The `wip/` branches are deleted. The npm half is still live on main as one shared prefix:
+the tests were green again. That commit and five follow-ups are the held work, `a5665814..d44cb88b9`.
+Main does not contain their base `a5665814`: it holds re-committed copies of that line, made
+later on 2026-09-30, so the merge base is `c5261b998`. Of the 33 commits after it, up to and
+including `a5665814`, 32 are patch-equivalent to main's copies (`git cherry`), and one, the roadmap
+rebuild `897592d5`, is not. A plain `git rebase main` stops on that commit (tried 2026-10-03 on a
+detached copy of the branch); `git rebase --onto main a5665814 held/pi-extension-store` replays
+only the held work. The `wip/` branches are deleted. The npm half is still live on main as one shared prefix:
 `packs/pi/pack.json` declares `.pi-shared-npm` at `scope: "machine"` with a `shared_directory`
 hook from `.pi/agent/npm`, the leak [OQ-5](#OQ-5)'s ruling replaces.
 

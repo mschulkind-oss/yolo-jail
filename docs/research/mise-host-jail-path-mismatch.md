@@ -326,7 +326,7 @@ rm ~/.local/share/mise/installs/rust/1.95.0   # unblocked `mise install` on host
 > [OQ-MP2](../design/mcp-presets-removal.md#decision-ledger) are rows of its Decision
 > Ledger, and [OQ-MP3](../design/mcp-presets-removal.md#OQ-MP3) to
 > [OQ-MP8](../design/mcp-presets-removal.md#OQ-MP8) are its questions. So this file's
-> [OQ-MP1](#OQ-MP1) to [OQ-MP5](#OQ-MP5) each share an id with a question there, and a
+> [OQ-MP1](#OQ-MP1) to [OQ-MP5](#OQ-MP5) each share an id with an entry there, and a
 > citation from another file needs the file to say which. Neither set is renumbered,
 > because both are cited.
 > These five questions were previously untitled headings with no stable
