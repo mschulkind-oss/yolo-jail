@@ -5,7 +5,7 @@ package run
 // internal/cli/check/probes.go read it that way already), so the podman template the attach used
 // for every runtime read nothing there: the contract gate then treated every AC jail as current,
 // and an older one silently received a scoped delivery its launchers never source. A remedy an AC
-// attach names is `container stop`, the stop its restart runs there (stopRemedy); it was chosen
+// attach names is `yolo stop`, as on every other runtime (stopRemedy). It named `container stop`
 // while `yolo stop` read the same template and said "No jail running" there (G11,
 // docs/plans/setup-support-gaps.md), which JL-D79 ended.
 
@@ -99,19 +99,22 @@ func acAttach(t *testing.T, env string) (rc int, execed bool, stderr string, env
 }
 
 // TestTheContractGateReadsAnAppleContainerJail: an AC jail launched before the per-agent env
-// files is refused a scoped delivery, and the refusal names the stop that works on AC.
+// files is refused a scoped delivery, and the refusal names `yolo stop`, which ends an AC jail as
+// it ends any other since JL-D79, and not the bare `container stop`, which bypasses the jail's
+// keeper.
 func TestTheContractGateReadsAnAppleContainerJail(t *testing.T) {
 	rc, execed, stderr, envFile, before := acAttach(t, preGateEnv)
 	if rc != 1 || execed {
 		t.Fatalf("an older Apple Container jail was handed a scoped delivery: rc=%d execed=%v\n%s", rc, execed, stderr)
 	}
-	for _, want := range []string{"Refusing to attach", "agent-env-files", "'container stop yolo-ws-abcd1234'"} {
+	for _, want := range []string{"Refusing to attach", "agent-env-files", "'yolo stop' from this workspace"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("the refusal must name %q:\n%s", want, stderr)
 		}
 	}
-	if strings.Contains(stderr, "yolo stop") {
-		t.Errorf("an Apple Container refusal names 'yolo stop' beside the 'container stop' its restart runs:\n%s", stderr)
+	if strings.Contains(stderr, "container stop") {
+		t.Errorf("an Apple Container refusal names 'container stop', where 'yolo stop' ends the jail as on every "+
+			"other runtime:\n%s", stderr)
 	}
 	assertLiveChannelFileUnchanged(t, envFile, before)
 }

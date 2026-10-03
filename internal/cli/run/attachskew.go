@@ -43,14 +43,13 @@ func (o *Options) warnIfJailIsOlderThanTheLauncher(rt, cname, baked string) {
 }
 
 // stopRemedy names the command that stops cname's jail on rt, for a message that prescribes a
-// restart. `yolo stop` everywhere but Apple Container, where it is `container stop`, the stop
-// restartJailForAttach runs there. It was chosen while `yolo stop` read an AC jail through a
-// Go-template inspect that runtime does not take, and so said "No jail running" while the jail ran
-// (G11, docs/plans/setup-support-gaps.md); `yolo stop` asks `container ls` since JL-D79
-// (docs/design/jail-lifetime-last-session-wins.md), and `container stop` still ends the jail.
+// restart: `yolo stop` from the workspace, on every runtime (SK-D14,
+// docs/design/attach-skew-and-contract-guardrails.md). Apple Container's was `container stop
+// <name>` while `yolo stop` read an AC jail through a Go-template inspect that runtime does not
+// take, and so said "No jail running" while the jail ran (G11, docs/plans/setup-support-gaps.md).
+// Since JL-D79 (docs/design/jail-lifetime-last-session-wins.md) `yolo stop` asks the runtime that
+// launched the jail, and Apple Container with `container ls`, and it waits for the jail's keeper to
+// finish its teardown, which a bare `container stop` does not.
 func stopRemedy(rt, cname string) string {
-	if rt == "container" { // parity: Honored — the stop a restart runs there, which ends the jail as `yolo stop` does
-		return "'container stop " + cname + "'"
-	}
 	return "'yolo stop' from this workspace"
 }

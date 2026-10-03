@@ -46,8 +46,7 @@ import (
 //     is not written, so the jail keeps what its last entry gave it.
 //   - a terminal on stdin and stdout: `Restart jail now? [Y/n]`, naming the sessions a stop
 //     ends. Yes stops the jail and this launch continues as a fresh one; no refuses.
-//   - anything else: refuse, naming `yolo stop` (`container stop` on Apple Container, the stop
-//     the restart runs there: stopRemedy) and then a launch.
+//   - anything else: refuse, naming `yolo stop` (stopRemedy) and then a launch.
 //
 // WHAT THIS OVERRULES. The config-only arms this replaced warned and proceeded because
 // "refusing here would hold a workspace's day-to-day re-entry hostage to a one-time upgrade".
