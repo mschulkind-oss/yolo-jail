@@ -169,24 +169,30 @@ reverted — listed here because a tracker that only grows is one nobody trusts:
 These are the "what to build" details for the rows above that came out of an overturned hard claim. They are the
 most actionable material in the audit because each names an existing seam.
 
-**G1 (re-entry).** Three mechanisms, ascending. **(1)** Move the env block onto the channel that already
-re-delivers per entry: add `exportPlain` lines for `YOLO_MISE_TOOLS`, `YOLO_LSP_SERVERS`, `YOLO_LSP_*_INSTALL`,
-`YOLO_MCP_SERVERS`, `YOLO_MCP_PRESETS`, `YOLO_BLOCK_CONFIG`, `YOLO_REQUIRED_CAPABILITIES`,
-`YOLO_FORWARD_HOST_PORTS` to `writeUserEnvFile`'s channel section (`internal/cli/run/userenv.go:83-127`) and
-delete the matching `-e` pairs from `internal/cli/run/assemble.go:932,945-950,963`. Nothing else changes:
-plain-form lines already beat the frozen container env (`boot.go:164-170`), hydrate is the boot's first step
-(`boot.go:509`), and the attach arm already rewrites the file (`run.go:1630-1631`). This is the fix that kills the
-headline symptom. Hazard the code already documents: a plain-form line must not also be a def-form default, or a
-stale copy survives an entry that did not compose it. **(2)** Call
-`config.WorkspaceConfigDrift(o.Workspace)` (`internal/config/drift.go:65`) from `attachExisting` and print the
-diff restricted to argv-only keys, with the "restart to pick this up" remedy the provider branch already words
-(`run.go:1620-1625`) — ~20 lines, turns `Dropped` into `Warned` on its own. **(3)** The runtime-mutable subset:
-`podman update` accepts `--memory`/`--cpus`/`--pids-limit` on a running container, **but whether it takes effect
-live is unsettled** — measured in this nested jail (podman 5.8.6, `rootless=false`, cgroupfs v2),
-`podman update --memory 1g` errored `open memory.max for writing: Read-only file system` and yet still moved
-`HostConfig.Memory` while `memory.max` stayed `max`. That is CARVE-OUT 2 territory; the instrument is a real
-non-nested rootless Linux host. The delegate-daemon route (`internal/cgd/ops.go:83-111` pointed at the jail's own
-cgroup) does not depend on that answer. Separately and independently: make the briefing honest on attach — render
+**G1 (re-entry).** Three mechanisms, ascending:
+
+1. Move the env block onto the channel that already
+   re-delivers per entry: add `exportPlain` lines for `YOLO_MISE_TOOLS`, `YOLO_LSP_SERVERS`, `YOLO_LSP_*_INSTALL`,
+   `YOLO_MCP_SERVERS`, `YOLO_MCP_PRESETS`, `YOLO_BLOCK_CONFIG`, `YOLO_REQUIRED_CAPABILITIES`,
+   `YOLO_FORWARD_HOST_PORTS` to `writeUserEnvFile`'s channel section (`internal/cli/run/userenv.go:83-127`) and
+   delete the matching `-e` pairs from `internal/cli/run/assemble.go:932,945-950,963`. Nothing else changes:
+   plain-form lines already beat the frozen container env (`boot.go:164-170`), hydrate is the boot's first step
+   (`boot.go:509`), and the attach arm already rewrites the file (`run.go:1630-1631`). This is the fix that kills the
+   headline symptom. Hazard the code already documents: a plain-form line must not also be a def-form default, or a
+   stale copy survives an entry that did not compose it.
+2. Call
+   `config.WorkspaceConfigDrift(o.Workspace)` (`internal/config/drift.go:65`) from `attachExisting` and print the
+   diff restricted to argv-only keys, with the "restart to pick this up" remedy the provider branch already words
+   (`run.go:1620-1625`) — ~20 lines, turns `Dropped` into `Warned` on its own.
+3. The runtime-mutable subset:
+   `podman update` accepts `--memory`/`--cpus`/`--pids-limit` on a running container, **but whether it takes effect
+   live is unsettled** — measured in this nested jail (podman 5.8.6, `rootless=false`, cgroupfs v2),
+   `podman update --memory 1g` errored `open memory.max for writing: Read-only file system` and yet still moved
+   `HostConfig.Memory` while `memory.max` stayed `max`. That is CARVE-OUT 2 territory; the instrument is a real
+   non-nested rootless Linux host. The delegate-daemon route (`internal/cgd/ops.go:83-111` pointed at the jail's own
+   cgroup) does not depend on that answer.
+
+Separately and independently: make the briefing honest on attach — render
 the resources/ports sections from the container's **inspected** env, or suppress them, because
 `refreshJailBriefings` at `run.go:781` runs *above* the attach return at `:789` and today re-renders live config
 into a briefing the container does not implement.

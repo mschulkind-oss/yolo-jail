@@ -325,7 +325,17 @@ pi's built-in `openai-codex` refresh. The extension already imports `builtinProv
 ([L143-L170](../../packs/pi/extensions/yolo-openai-auth.js#L143-L170)). Pi supports one oauth method
 per provider, so `/login` stays yolo's broker login. An own login made before the extension arrived
 survives; a new one cannot be made while the extension is loaded. Whether the user's login or yolo's
-should win at all is [OQ-3](#OQ-3).
+should win at all is [OQ-3](#OQ-3). Its options in full:
+
+- **A — The user's own login wins.** A stored own login keeps serving and refreshes through OpenAI,
+  using the marker dispatch. yolo's login serves only a missing or broker-marked entry. `/login`
+  stays yolo's, so a new own login cannot be made while the extension is loaded, and the extension
+  says when an own login is serving.
+- **B — yolo's login wins under `yolo host` with the `codex` profile.** An own login is replaced, as
+  today, but disclosed. Pi's resolve order puts a stored credential first, so B forces a file write,
+  ruling out D for [OQ-1](#OQ-1).
+- **C — Two lineages, kept apart.** [OQ-1](#OQ-1)'s E: the managed directory serves `yolo host`, and the
+  user's `~/.pi/agent` keeps its own login untouched.
 
 What each option does to an own login is a column of the table in [§3.4](#34-for-the-authjson-seeding-the-option-space).
 
@@ -333,6 +343,25 @@ What each option does to an own login is a column of the table in [§3.4](#34-fo
 
 A, B and C are the first draft's [OQ-1](#OQ-1) options, and E takes the place of its third
 seeding option; A′, D and F come from reading pi's runtime and the codex precedent.
+
+In brief, as [OQ-1](#OQ-1) first listed them:
+
+- **A — Host prelaunch merges `auth.json` (amend NC-D37).** `openaiauthhost.Prepare` calls
+  `WritePiAuth` on `~/.pi/agent/auth.json` on every `codex`-profile launch. It keeps other
+  providers, but deletes an own login and replaces a symlinked file.
+- **A′ — Marker-gated merge (amend NC-D37).** Writes in place only when the entry is absent or is
+  already a broker view.
+- **B — `yolo-openai-auth.js` seeds `auth.json` on extension load.** When `openai-codex` is
+  missing it writes `brokerToken()`'s view, through pi's exported runtime and so under pi's own
+  lock.
+- **C — Require explicit `/login` once on the host**, with a line that says so. `/login` reuses
+  the broker's login with no browser. No amendment; no jail parity.
+- **D — Mark the provider configured with no file write.** D2, a native provider with a key check
+  gated on the host socket, keeps the subscription label and blocks nothing. No amendment.
+- **E — A managed pi agent directory**, as host codex has. Two lineages; the user's other pi logins
+  are absent under `yolo host`.
+- **F — `yolo host apply` seeds under `host_management`.** Moves the host-management credential
+  line.
 
 #### A — Host prelaunch seeding with `WritePiAuth` (amend NC-D37)
 
@@ -626,22 +655,13 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
    and whether plain `pi` keeps a working subscription after a `yolo host` launch. Each option is in
    [§3.4](#34-for-the-authjson-seeding-the-option-space).
 
-   - **A — Host prelaunch merges `auth.json` (amend NC-D37).** `openaiauthhost.Prepare` calls
-     `WritePiAuth` on `~/.pi/agent/auth.json` on every `codex`-profile launch. It keeps other
-     providers, but deletes an own login and replaces a symlinked file.
-   - **A′ — Marker-gated merge (amend NC-D37).** Writes in place only when the entry is absent or is
-     already a broker view.
-   - **B — `yolo-openai-auth.js` seeds `auth.json` on extension load.** When `openai-codex` is
-     missing it writes `brokerToken()`'s view, through pi's exported runtime and so under pi's own
-     lock.
-   - **C — Require explicit `/login` once on the host**, with a line that says so. `/login` reuses
-     the broker's login with no browser. No amendment; no jail parity.
-   - **D — Mark the provider configured with no file write.** D2, a native provider with a key check
-     gated on the host socket, keeps the subscription label and blocks nothing. No amendment.
-   - **E — A managed pi agent directory**, as host codex has. Two lineages; the user's other pi logins
-     are absent under `yolo host`.
-   - **F — `yolo host apply` seeds under `host_management`.** Moves the host-management credential
-     line.
+   - **A — Host prelaunch merges `auth.json` (amend NC-D37).**
+   - **A′ — Marker-gated merge (amend NC-D37).**
+   - **B — `yolo-openai-auth.js` seeds `auth.json` on extension load.**
+   - **C — Require explicit `/login` once on the host.**
+   - **D — Mark the provider configured with no file write.**
+   - **E — A managed pi agent directory.**
+   - **F — `yolo host apply` seeds under `host_management`.**
 
    <!-- vantage: question id=OQ-1 leaning="D2 — a native openai-codex provider whose key check answers only with the host socket: it writes nothing, so NC-D37 stands as written, and pi then acts at the host as it does in a jail. If a file write is preferred, A′ rather than A, because A deletes an own login." -->
 
@@ -662,11 +682,10 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
    [§3.5](#35-for-catalog-refresh-noise).
 
    - **A — Only render providers with available credentials in `models.json`.** Omit a row whose key
-     credential scoping withholds, at the host and in a jail. Cannot follow a launch's `-p` at the
-     host, and loses rows an attach or a direct launch needs.
+     credential scoping withholds, at the host and in a jail.
    - **B — Leave `models.json` intact.** The warning stays, in the picker only.
    - **C — Leave `apiKey` off a built-in's row when the row's variable is pi's own name for it.**
-     Silences the warning for those rows, with the same key when it is set. Other rows keep it.
+     Silences the warning for those rows, with the same key when it is set.
 
    <!-- vantage: question id=OQ-2 leaning="C — leave apiKey off a built-in's row when the row's variable is pi's own name for it: measured to silence the refresh error with the same key when set, and every row stays, which A cannot manage at the host or across an attach." -->
 
@@ -681,18 +700,14 @@ handling and a test that an own entry and a symlinked file survive a `codex`-pro
 3. 💬 **OQ-3: Whose OpenAI login does host pi use when the user has their own?**
    A host pi may hold an `openai-codex` login of its own, made before yolo's extension was installed.
    Today the first refresh under `yolo host` replaces it with yolo's
-   ([§3.3](#33-a-host-pi-that-already-has-its-own-openai-codex-login)). The answer decides what [OQ-1](#OQ-1)'s
+   ([§3.3](#33-a-host-pi-that-already-has-its-own-openai-codex-login), which also has each option
+   in full). The answer decides what [OQ-1](#OQ-1)'s
    options may do to that entry and which refresh pi runs.
 
-   - **A — The user's own login wins.** A stored own login keeps serving and refreshes through OpenAI,
-     using the marker dispatch. yolo's login serves only a missing or broker-marked entry. `/login`
-     stays yolo's, so a new own login cannot be made while the extension is loaded, and the extension
-     says when an own login is serving.
-   - **B — yolo's login wins under `yolo host` with the `codex` profile.** An own login is replaced, as
-     today, but disclosed. Pi's resolve order puts a stored credential first, so B forces a file write,
+   - **A — The user's own login wins.**
+   - **B — yolo's login wins under `yolo host` with the `codex` profile.** It forces a file write,
      ruling out D for [OQ-1](#OQ-1).
-   - **C — Two lineages, kept apart.** [OQ-1](#OQ-1)'s E: the managed directory serves `yolo host`, and the
-     user's `~/.pi/agent` keeps its own login untouched.
+   - **C — Two lineages, kept apart.** [OQ-1](#OQ-1)'s E.
 
    <!-- vantage: question id=OQ-3 leaning="A — the user's own login wins and refreshes through OpenAI by the marker dispatch; yolo's login serves only a missing or broker-marked entry. It fixes today's silent replacement without a file write and matches OQ-NC7 A; codex's precedent, OQ-OA3, is C's shape, which costs E's managed directory." -->
 

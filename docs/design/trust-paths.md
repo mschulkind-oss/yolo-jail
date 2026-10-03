@@ -2,7 +2,7 @@
 title: "Every path by which someone else's content runs in your jail"
 date: 2026-09-06
 status: in-review
-stage: DECIDED
+stage: DESIGN
 next: "The boot.log itemization the TP10 ruling named: it needs a host-side sink for detail-only lines, which the launcher's tee does not have (`yolo pack footprint` stands in for it meanwhile)"
 tags: [trust, packs, security, inventory]
 summary: "Twenty-six paths, enumerated from the code, each with when trust is extended and whether the content can change afterwards. Pinning changes an outcome in three of them, because every gate keys on a declaration and none on content. All ten questions are settled — the fetched-pack approval prompt among them, deleted as theatre, and last the disclosure hole that deletion opened: a wrapped plugin's hooks get their own disclosure class, rendered as one counted line per pack, which also names each loophole jail daemon the launch runs."
@@ -131,8 +131,13 @@ writes the lockfile **in the same loop iteration**
 (`packInstall` in [`pack.go`](../../internal/cli/pack.go) — `store.Sync`, then the `lock.Set`
 write a few lines later; re-checked 2026-09-24). The act that moves the content *is* the act that moves the
 pin. A pin advanced by the same command that changes the bytes is a receipt. It becomes a gate only
-if three things hold together — (i) enforced at use, (ii) advanced by a *different* act than the one
-that changes content, (iii) that act shows you what changed. Today **none** hold, and nobody is
+if three things hold together:
+
+- (i) enforced at use;
+- (ii) advanced by a *different* act than the one that changes content;
+- (iii) that act shows you what changed.
+
+Today **none** hold, and nobody is
 proposing to fix (ii). Since 2026-09-25 a host launch is a second such act: its fetch and its
 lockfile write are one step too ([`OQ-PF1`](../reference/pack-system.md#oq-pf1)), and what it
 adds toward (iii) is a disclosure line naming the old and new commit whenever a pack moved.

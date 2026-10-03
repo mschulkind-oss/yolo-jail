@@ -476,6 +476,24 @@ programs ([§9.5](#95-host-code-execution-through-gh)):
   workspace tree is invisible to environment inspection. yolo removes neither; both are the
   user's ([BB-D18](#BB-D18)).
 
+#### The `gh` forwarder question, as filed
+
+**[OQ-BB8](#OQ-BB8).** The image bakes `gh` at `/bin/gh`, `launchercollision.go` writes no pack
+launcher for a name the image provides, and the one earlier `PATH` directory holds blockers
+([§4.3](#43-the-jail-side)).
+
+- **A — A new interception contribution,** rendered into `~/.yolo/bin/block`, the head-of-`PATH`
+  directory whose job is to intercept a name before anything installed. `gh` then resolves to
+  the forwarder; `/bin/gh` and `YOLO_BYPASS_SHIMS=1` still reach the real one, which holds no
+  credential in the jail. Cost: one pack contribution kind, and that directory no longer only
+  refuses.
+- **B — Drop `gh` from the image's core floor,** so the forwarder is an ordinary launcher. No
+  new kind. Cost: every jail without the pack loses `gh` unless the user lists it in
+  `packages`, and the image moves for everyone.
+- **C — A different name** (`yolo gh`, or a short alias), leaving `gh` alone. Nothing new in
+  the pack system. Cost: agents type `gh` from habit, get the real one with no login and exit
+  4, and the briefing must teach the new name.
+
 ### 4.4 Per notch and backend
 
 | Where the agent runs | The broker | How the jail reaches it | Notes |
@@ -877,6 +895,87 @@ workspace with no GitHub remote has an empty scope, and the launch says so. Only
 [§5.2](#52-the-read-only-set) marks with scope *none* run there, unless a widening entry adds a
 repository.
 
+#### The scope questions as filed
+
+The background and options of four ruled questions, moved here from
+[§14](#14-open-questions) as they were filed.
+
+**[OQ-BB1](#OQ-BB1).** The host's `gh` login reads every private repository and org the user belongs to. A
+free read of all of them lets a confined, possibly prompt-injected agent read any of them
+without asking, and carry it out through the jail's own network.
+
+- **A — Every repository.** The brief's words taken at their widest. No setup; the most
+  exposure.
+- **B — The workspace's repositories, pinned at launch.** The GitHub remotes the launch reads
+  from the workspace, disclosed (*"github-broker: free reads for o/r"*), plus a user-scope
+  setting listing more. Reads elsewhere, and account-wide reads, ring, and are grantable for a
+  time. The remotes are agent-editable, which is why they are pinned at launch and disclosed
+  rather than re-read per call.
+- **C — B, with account-wide reads free.** Search and GraphQL queries stay free; repository
+  paths stay scoped. Leaves GraphQL, which names repositories the broker cannot check, as a
+  hole in B's fence.
+
+**[OQ-BB6](#OQ-BB6).** Raised by [OQ-BB1](#OQ-BB1)'s ruling. A workspace's own config may never widen its own
+permission, since the agent can edit it; a plain user-scope repository list would widen every
+workspace at once. The stakes: whether "this project may also read org/other-repo" is
+expressible at all, and, if [OQ-BB7](#OQ-BB7) pins the scope once, how a remote the user adds
+later is admitted. The maintainer's *"i don't know that we have this yet"* is right: yolo has
+no user-scope config keyed by workspace, and no host-side, per-workspace grant record. The
+fetched-pack approval record was one, and [OQ-TP9](trust-paths.md#decision-ledger) deleted it
+on 2026-09-04. The nearest existing machinery is the config-change gate
+([`config-safety.md`](../reference/config-safety.md)): a host-side snapshot of the approved
+workspace config under `paths.ApprovalsDir`, a diff and a y/N at launch, which
+[OQ-A13](../reference/loophole-system.md#oq-a13) already uses for a workspace switching on a
+host-reaching loophole.
+
+- **(a)** A user-scope map keyed by workspace (its path, or its pinned remote), e.g.
+  `"brokered": {"github": {"workspaces": {"~/code/app": {"read": ["org/lib"]}}}}`. User-owned,
+  so no workspace can widen itself; the key decides which workspace it applies to. A new shape
+  for yolo's user config.
+- **(b)** A host-side grant record per workspace, written by `yolo approve --persist` at the
+  host or by an "always for this workspace" answer, and shown at launch. A new record kind no
+  jail can write.
+- **(c)** Both: (a) for what a user declares ahead of time, (b) for "always for this workspace"
+  answered at the notification.
+- **(d)** A workspace-scope key, honored only once a human approves it through the existing
+  config-change diff. It reuses a gate that exists, and it is literally a user-level approval
+  of a workspace-level thing. But the text is written in the file the agent edits, and it
+  rides a diff the human may approve alongside an ordinary package change.
+- **(e)** Separately from any of those: an out-of-scope read rings, and Allow runs that one
+  command, never persisted. This is the ruled option B's own text (*"Reads elsewhere, and
+  account-wide reads, ring, and are grantable for a time"*), which this doc's body does not
+  yet follow ([BB-D20](#BB-D20)). It composes with (a) to (d).
+
+**[OQ-BB7](#OQ-BB7).**
+
+- **A — Read at each launch, pinned for that launch, and disclosed.** The ruled option B's own
+  words (*"The GitHub remotes the launch reads from the workspace … pinned at launch …
+  rather than re-read per call"*). A remote the user adds is in scope at the next launch. So is
+  one the agent added in the previous session, and the launch line is the only notice.
+- **B — Pinned at the workspace's first broker launch (trust on first use).** Later GitHub
+  remotes are disclosed as outside the scope and admitted only through [OQ-BB6](#OQ-BB6)'s mechanism. An
+  agent cannot widen the next session. A remote the user adds waits for [OQ-BB6](#OQ-BB6), and the first
+  launch trusts whatever remotes the workspace had then.
+
+**[OQ-BB9](#OQ-BB9).** Raised by [OQ-BB6](#OQ-BB6)'s ruling, which chose a user-scope entry keyed by workspace
+([§5.6](#56-the-repository-scope)) but not what the entry holds. The option's example listed
+repositories to read (`{"read": ["org/lib"]}`). In the ruled design, though, the scope bounds
+every set, and account-wide commands are refused in every workspace with no way in:
+unqualified search, every GraphQL call, gists, `status`.
+
+- **A — Whole repositories, joining the scope for every set.** A listed repository behaves
+  like one read from a remote: its reads are free, and its writes ring for the request's set.
+  Account-wide commands stay refused everywhere. Nothing new in the model. The cost: a
+  read-write grant rung for `o/r` also covers merges on `org/lib` for its window, which the
+  notification names ([§6.3](#63-what-the-notification-shows)).
+- **B — A, plus a per-entry switch admitting account-wide commands** in that workspace, in
+  whatever set admits them. `gh search code` and GraphQL queries become usable where the user
+  wants them, at the cost of the widest read the login has, for that workspace.
+- **C — Repositories, each with the sets it may be used under,** such as `org/lib` under
+  `read-only` alone. A user can say "read, never write" for a borrowed repository. The cost is
+  a dimension the model does not have today: the scope says where and the sets say what, and
+  nothing says "this set, only here".
+
 ### 5.7 Permission sets
 
 [OQ-BB2](#OQ-BB2)'s ruling: each source defines named permission sets, and a grant hands over one
@@ -956,6 +1055,19 @@ the implementer picks it, and `yolo config-ref` is its authority once built. It 
   [OQ-BB6](#OQ-BB6). That half is built, and its workspace-scope refusal with it
   ([BB-D52](#BB-D52)); the `sets` half is not, so a `sets` key under a source is refused today
   as an unknown key.
+
+#### What a grant covers, as filed
+
+**[OQ-BB2](#OQ-BB2).**
+
+- **A — Every write, from this jail.** The literal reading. One press, anything.
+- **B — Grantable writes to one repository, from this jail; a fixed ask-every-time list.** The
+  list: every delete (`issue delete`, `repo delete`, `release delete`, `run delete`,
+  `cache delete`, `gist delete`, `label delete`, `-X DELETE`), repository settings
+  (`repo edit`, `rename`, `archive`, `unarchive`, `transfer`), secrets, variables, deploy,
+  SSH and GPG keys, rulesets, `workflow enable/disable`, `pr merge`, every `gh api` write, and
+  every account-wide write. Those can only be allowed once.
+- **C — B's scope with no ask-every-time list.** Simpler; a 15-minute grant can merge.
 
 ## 6. The doorbell: a persistent desktop notification
 
@@ -1091,6 +1203,12 @@ Rendered by the broker from its own parse ([BB-P4](#BB-P4)), never from a string
 - **Cleaned:** control characters and terminal escapes removed from every field, and bidirectional
   override characters too, so no field can visually reorder another.
 
+#### The three buttons, as filed
+
+**[OQ-BB3](#OQ-BB3).** *Restated 2026-09-29 for [OQ-BB2](#OQ-BB2)'s permission sets.
+The duration button now hands over the request's whole set, `read-write` by default, so it is
+labeled with the set. The options and the leaning are otherwise unchanged.*
+
 ### 6.4 Choosing a duration
 
 GNOME shows three buttons, so the notification carries three, and every longer choice goes through
@@ -1136,6 +1254,29 @@ exit 3 or 4, or no terminal-notifier 3.0 or later on a Mac, where `yolo check` n
    In a jail, `yolo approve` refuses, naming the host spelling: the store is not mounted there.
 4. **Nobody answers in 60 minutes:** the request expires as denied, the notification is
    withdrawn, and the agent gets a ping.
+
+#### A daemon's line at the launching terminal
+
+[OQ-BB10](#OQ-BB10) was raised building step 1. The design has the launching `yolo`
+print lines only the broker knows: [§5.1](#51-the-rule) rule 6's *"The launch says so too"*
+when the host `gh` is outside the tested range, and [§6.5](#65-when-there-is-no-notifier-or-nobody-answers)'s
+notice line, `github-broker: r-… waits for approval: yolo approve r-…`, when there is no
+notifier. But the broker is a spawned per-jail daemon whose output goes to its log, nothing
+carries a line from it back to the launching process, and core cannot run `gh --version`
+itself without naming the tool. This decides whether step 2's no-notifier path says anything
+at the terminal, and whether step 1's untested-version case is said at launch or only where
+step 1 says it now: in each refusal, the daemon's log and `yolo check`'s doctor row.
+
+- **A — A notice file beside the daemon's socket,** which the launch prints once the daemon
+  is ready and then tails for the jail's life, so later lines (the request notices) reach
+  the terminal too. Generic: any daemon may write one. The cost is a new host-to-daemon
+  contract and a reader in the launching process, and the line lands above the agent's
+  screen, which [§6.5](#65-when-there-is-no-notifier-or-nobody-answers) already accepts.
+- **B — The launch runs the loophole's `doctor_cmd` before the spawn and prints its first
+  line.** Cheap, generic, and good for facts known at start; nothing for a later notice, and a
+  slow doctor slows every launch.
+- **C — Only where the broker already speaks:** the refusal text, `yolo check` and the log.
+  [§6.5](#65-when-there-is-no-notifier-or-nobody-answers)'s terminal line becomes `yolo approve`'s own listing.
 
 ### 6.6 One store, several front-ends
 
@@ -1349,6 +1490,73 @@ without its own Allow once.
   credential or has none. The credential-injecting proxy for git is B1b
   ([§13](#13-what-this-does-not-cover-and-the-other-two-tiers)).
 
+### 9.7 The delivery copy and other workspaces' widening entries
+
+Background to [OQ-BB11](#OQ-BB11). Raised building the widening entry
+([BB-D52](#BB-D52)), filed 2026-10-01. Every fresh container launch writes the merged config,
+user scope and workspace together, into the workspace as `.yolo/config-assembled.json`, so
+that a jail's own config reads see what the host saw. That file is the **delivery copy**
+[`config-safety.md`](../reference/config-safety.md#file-locations) defines. Nothing filters
+it, so it holds the user config's whole `brokered` key: every widening entry the user has
+written, each workspace's host path and the repositories added to it. Those can name private
+repositories and other projects' folders. Nothing that reads the copy grants anything, and
+the broker never reads it. This decides what a jail can learn about the user's other
+workspaces from that file.
+
+Where it is, at `197694c34`:
+
+- **Written** by `config.WriteAssembledConfig` (`internal/config/assembled.go:70`), which
+  serializes the config it is handed, whole. Its one caller, `writeLaunchConfigArtifacts`
+  (`internal/cli/run/preflight.go:427`), runs after the approval gate on the fresh container
+  launch (`internal/cli/run/run.go:1214`), with the config `loadAndValidateConfig` merged
+  (`run.go:169`). The macos-user arm returns before that write (`run.go:801`), so this is
+  a question about the container backends.
+- **Read in the jail** by `config.LoadConfig`, which returns the copy as it is for the jail's
+  own workspace (`internal/config/load.go:416`).
+- **Left out of both files a jail inherits** already, the user config each launch generates
+  for the jail and the one a nested launch composes from
+  ([OQ-LP9](../reference/loophole-system.md#oq-lp9)), because nothing in a jail has the
+  paths the key is keyed by (`internal/config/inherit.go:257`).
+
+Every reader of `brokered` in the copy today:
+
+- `yolo config dump` (`internal/cli/configdrift.go:135`) and `yolo describe --json`
+  (`internal/cli/describe.go:54`) print it. `describe --hash`, and the hash on `describe`'s
+  summary line, cover it.
+- `yolo internal config-dump` (`internal/cli/internal.go:419`) prints it and validates it:
+  `validateBrokered` checks each entry's shape (`internal/config/brokered.go:290`) and skips
+  its warning about an unknown source inside a jail (`brokered.go:309`).
+
+What does not read it: the scope. `config.BrokeredWidening` reads the user config file
+itself (`brokered.go:71`), at the host launch that writes the scope file
+(`internal/cli/run/brokeredscope.go:89`), and the broker reads only that scope file. Inside a
+jail the user config file is the generated one, which leaves the key out. An in-jail
+`yolo check` merges the two config files itself (`internal/cli/check/check.go:112`) and
+never reads the copy.
+
+- **A — Drop `brokered` from the delivery copy.** The write leaves the key out, as both
+  inherited files already do and for their reason. A jail learns nothing about any
+  workspace's widening from the file. The cost: in a jail, `yolo config dump` and
+  `describe --json` no longer show the key, so they differ from the same commands at the host
+  by it, and so does `describe --hash`. The jail's own widening stays visible only where the
+  launch already says it: its launch line, which `.yolo/launch.log` keeps, and the
+  out-of-scope refusal, which lists the whole scope. And when [§5.7](#57-permission-sets)'s sets land under the same key,
+  they are dropped too, unless that build keeps them.
+- **B — Keep only this workspace's entries.** The write keeps each entry whose key names this
+  workspace, by the match the scope file's reader uses, and drops every other. A jail learns
+  what its launch line already told it, and how the user spelled the key, which can be a link
+  outside the workspace. The cost: one more filter, which must call the reader's own match or
+  the copy and the scope file disagree about which entry applies; and a `brokered` in
+  `yolo config dump` that looks like the user's file and is not.
+- **C — Keep it as is.** No change. The cost: every container jail can read, for every
+  workspace the user has widened, its host path and the repositories added to it, and can
+  send them anywhere its network reaches. That holds whether or not its own launch starts a
+  broker, since the copy is written at every fresh container launch and holds every user
+  key. Nothing more: no reader of the copy grants anything.
+
+Under A or B, a copy already written keeps the key until that workspace's next fresh
+container launch rewrites it.
+
 ## 10. Options compared
 
 | Option | Credential in the jail? | Per-action control | Async answer | Setup | Verdict |
@@ -1549,24 +1757,16 @@ covered:
 ## 14. Open questions
 
 1. ✅ <a id="OQ-BB1"></a>**[OQ-BB1](#OQ-BB1): Do free reads reach every repository the host login
-   can see?** The host's `gh` login reads every private repository and org the user belongs to. A
-   free read of all of them lets a confined, possibly prompt-injected agent read any of them
-   without asking, and carry it out through the jail's own network. This decides step 1's read
+   can see?** This decides step 1's read
    scope and whether account-wide reads (`search`, GraphQL queries, `gh api` paths with no
-   repository) ring.
+   repository) ring. The background, and each option in full, are in
+   [the scope questions as filed](#the-scope-questions-as-filed).
 
-   - **A — Every repository.** The brief's words taken at their widest. No setup; the most
-     exposure.
-   - **B — The workspace's repositories, pinned at launch.** The GitHub remotes the launch reads
-     from the workspace, disclosed (*"github-broker: free reads for o/r"*), plus a user-scope
-     setting listing more. Reads elsewhere, and account-wide reads, ring, and are grantable for a
-     time. The remotes are agent-editable, which is why they are pinned at launch and disclosed
-     rather than re-read per call.
-   - **C — B, with account-wide reads free.** Search and GraphQL queries stay free; repository
-     paths stay scoped. Leaves GraphQL, which names repositories the broker cannot check, as a
-     hole in B's fence.
+   - **A — Every repository.**
+   - **B — The workspace's repositories, pinned at launch.**
+   - **C — B, with account-wide reads free.**
 
-      _Leaning:_ **B.** It keeps the brief's default (the reads an agent needs for the work in front
+   _Leaning:_ **B.** It keeps the brief's default (the reads an agent needs for the work in front
    of it never ask) while making "read my other private repositories" a thing a human sees once.
    Starting narrow and widening later needs no migration; the reverse does.
 
@@ -1586,18 +1786,14 @@ covered:
 2. ✅ <a id="OQ-BB2"></a>**[OQ-BB2](#OQ-BB2): What does a time grant cover, and which writes ask
    every time anyway?** *"You can use GitHub for 15 minutes"* is the brief's example, and taken
    literally it covers merges, deletes and settings. This decides how much one button press
-   authorizes.
+   authorizes. Each option in full:
+   [what a grant covers, as filed](#what-a-grant-covers-as-filed).
 
-   - **A — Every write, from this jail.** The literal reading. One press, anything.
-   - **B — Grantable writes to one repository, from this jail; a fixed ask-every-time list.** The
-     list: every delete (`issue delete`, `repo delete`, `release delete`, `run delete`,
-     `cache delete`, `gist delete`, `label delete`, `-X DELETE`), repository settings
-     (`repo edit`, `rename`, `archive`, `unarchive`, `transfer`), secrets, variables, deploy,
-     SSH and GPG keys, rulesets, `workflow enable/disable`, `pr merge`, every `gh api` write, and
-     every account-wide write. Those can only be allowed once.
-   - **C — B's scope with no ask-every-time list.** Simpler; a 15-minute grant can merge.
+   - **A — Every write, from this jail.**
+   - **B — Grantable writes to one repository, from this jail; a fixed ask-every-time list.**
+   - **C — B's scope with no ask-every-time list.**
 
-      _Leaning:_ **B.** It is the brief's *"appropriate decision"* made once per class: comments,
+   _Leaning:_ **B.** It is the brief's *"appropriate decision"* made once per class: comments,
    reviews, labels, issue edits and PR creation flow under a grant, and the irreversible or
    repository-wide ones stay in front of the human. unYOLO's single best idea is exactly this
    floor as a code-owned flag ([§A.1](#a1-the-six-claims-from-the-website-pass-checked-against-code)).
@@ -1618,9 +1814,8 @@ covered:
 
 3. ✅ <a id="OQ-BB3"></a>**[OQ-BB3](#OQ-BB3): Which three buttons?** GNOME shows three and drops
    the rest, so the notification carries three choices and `yolo approve` the others. This decides
-   what one press most often grants. *Restated 2026-09-29 for [OQ-BB2](#OQ-BB2)'s permission sets.
-   The duration button now hands over the request's whole set, `read-write` by default, so it is
-   labeled with the set. The options and the leaning are otherwise unchanged.*
+   what one press most often grants. Why the duration button names a set:
+   [the three buttons, as filed](#the-three-buttons-as-filed).
 
    - **A — Allow once · Allow read-write 15 min · Deny.** An explicit Deny, the brief's 15
      minutes, and a narrow yes: the one command shown, against a set that under the ruled default
@@ -1670,35 +1865,18 @@ covered:
    > release has a signing step. Never a modal dialog.
 
 5. ✅ <a id="OQ-BB6"></a>**[OQ-BB6](#OQ-BB6): How does a user widen one workspace's reach without every workspace getting it?**
-   Raised by [OQ-BB1](#OQ-BB1)'s ruling. A workspace's own config may never widen its own
-   permission, since the agent can edit it; a plain user-scope repository list would widen every
-   workspace at once. The stakes: whether "this project may also read org/other-repo" is
-   expressible at all, and, if [OQ-BB7](#OQ-BB7) pins the scope once, how a remote the user adds
-   later is admitted. The maintainer's *"i don't know that we have this yet"* is right: yolo has
-   no user-scope config keyed by workspace, and no host-side, per-workspace grant record. The
-   fetched-pack approval record was one, and [OQ-TP9](trust-paths.md#decision-ledger) deleted it
-   on 2026-09-04. The nearest existing machinery is the config-change gate
-   ([`config-safety.md`](../reference/config-safety.md)): a host-side snapshot of the approved
-   workspace config under `paths.ApprovalsDir`, a diff and a y/N at launch, which
-   [OQ-A13](../reference/loophole-system.md#oq-a13) already uses for a workspace switching on a
-   host-reaching loophole.
-   - **(a)** A user-scope map keyed by workspace (its path, or its pinned remote), e.g.
-     `"brokered": {"github": {"workspaces": {"~/code/app": {"read": ["org/lib"]}}}}`. User-owned,
-     so no workspace can widen itself; the key decides which workspace it applies to. A new shape
-     for yolo's user config.
-   - **(b)** A host-side grant record per workspace, written by `yolo approve --persist` at the
-     host or by an "always for this workspace" answer, and shown at launch. A new record kind no
-     jail can write.
-   - **(c)** Both: (a) for what a user declares ahead of time, (b) for "always for this workspace"
-     answered at the notification.
+   Raised by [OQ-BB1](#OQ-BB1)'s ruling. The stakes: whether "this project may also read
+   org/other-repo" is expressible at all, and, if [OQ-BB7](#OQ-BB7) pins the scope once, how a
+   remote the user adds later is admitted. The background, and each option in full, are in
+   [the scope questions as filed](#the-scope-questions-as-filed).
+
+   - **(a)** A user-scope map keyed by workspace (its path, or its pinned remote).
+   - **(b)** A host-side grant record per workspace.
+   - **(c)** Both.
    - **(d)** A workspace-scope key, honored only once a human approves it through the existing
-     config-change diff. It reuses a gate that exists, and it is literally a user-level approval
-     of a workspace-level thing. But the text is written in the file the agent edits, and it
-     rides a diff the human may approve alongside an ordinary package change.
+     config-change diff.
    - **(e)** Separately from any of those: an out-of-scope read rings, and Allow runs that one
-     command, never persisted. This is the ruled option B's own text (*"Reads elsewhere, and
-     account-wide reads, ring, and are grantable for a time"*), which this doc's body does not
-     yet follow ([BB-D20](#BB-D20)). It composes with (a) to (d).
+     command, never persisted.
 
    <!-- vantage: question id=OQ-BB6 -->
 
@@ -1724,16 +1902,11 @@ covered:
 6. ✅ <a id="OQ-BB7"></a>**[OQ-BB7](#OQ-BB7): Is a workspace's scope pinned once, or read from its
    remotes at each launch?** The remotes live in the workspace, which the agent can edit. This
    decides whether a `git remote add` changes the next launch's scope, and whether a user who adds
-   an `upstream` remote needs [OQ-BB6](#OQ-BB6) to admit it.
+   an `upstream` remote needs [OQ-BB6](#OQ-BB6) to admit it. Each option in full:
+   [the scope questions as filed](#the-scope-questions-as-filed).
 
-   - **A — Read at each launch, pinned for that launch, and disclosed.** The ruled option B's own
-     words (*"The GitHub remotes the launch reads from the workspace … pinned at launch …
-     rather than re-read per call"*). A remote the user adds is in scope at the next launch. So is
-     one the agent added in the previous session, and the launch line is the only notice.
-   - **B — Pinned at the workspace's first broker launch (trust on first use).** Later GitHub
-     remotes are disclosed as outside the scope and admitted only through [OQ-BB6](#OQ-BB6)'s mechanism. An
-     agent cannot widen the next session. A remote the user adds waits for [OQ-BB6](#OQ-BB6), and the first
-     launch trusts whatever remotes the workspace had then.
+   - **A — Read at each launch, pinned for that launch, and disclosed.**
+   - **B — Pinned at the workspace's first broker launch (trust on first use).**
 
    <!-- vantage: question id=OQ-BB7 -->
 
@@ -1757,22 +1930,15 @@ covered:
    > written: A's re-read with B's approval.
 
 7. ✅ <a id="OQ-BB8"></a>**[OQ-BB8](#OQ-BB8): How does the jail's `gh` forwarder outrank the
-   image's own `gh`?** The image bakes `gh` at `/bin/gh`, `launchercollision.go` writes no pack
-   launcher for a name the image provides, and the one earlier `PATH` directory holds blockers
-   ([§4.3](#43-the-jail-side)). This decides what an agent's bare `gh` runs in every jail with
-   the pack selected, and whether the pack system gains a kind.
+   image's own `gh`?** This decides what an agent's bare `gh` runs in every jail with
+   the pack selected, and whether the pack system gains a kind. Why the image's `gh` wins today,
+   and each option in full:
+   [the `gh` forwarder question, as filed](#the-gh-forwarder-question-as-filed).
 
    - **A — A new interception contribution,** rendered into `~/.yolo/bin/block`, the head-of-`PATH`
-     directory whose job is to intercept a name before anything installed. `gh` then resolves to
-     the forwarder; `/bin/gh` and `YOLO_BYPASS_SHIMS=1` still reach the real one, which holds no
-     credential in the jail. Cost: one pack contribution kind, and that directory no longer only
-     refuses.
-   - **B — Drop `gh` from the image's core floor,** so the forwarder is an ordinary launcher. No
-     new kind. Cost: every jail without the pack loses `gh` unless the user lists it in
-     `packages`, and the image moves for everyone.
-   - **C — A different name** (`yolo gh`, or a short alias), leaving `gh` alone. Nothing new in
-     the pack system. Cost: agents type `gh` from habit, get the real one with no login and exit
-     4, and the briefing must teach the new name.
+     directory whose job is to intercept a name before anything installed.
+   - **B — Drop `gh` from the image's core floor,** so the forwarder is an ordinary launcher.
+   - **C — A different name** (`yolo gh`, or a short alias), leaving `gh` alone.
 
    <!-- vantage: question id=OQ-BB8 -->
 
@@ -1792,26 +1958,16 @@ covered:
    > which holds no credential in the jail.
 
 8. ✅ <a id="OQ-BB9"></a>**[OQ-BB9](#OQ-BB9): What may a workspace's widening entry admit?**
-   Raised by [OQ-BB6](#OQ-BB6)'s ruling, which chose a user-scope entry keyed by workspace
-   ([§5.6](#56-the-repository-scope)) but not what the entry holds. The option's example listed
-   repositories to read (`{"read": ["org/lib"]}`). In the ruled design, though, the scope bounds
-   every set, and account-wide commands are refused in every workspace with no way in:
-   unqualified search, every GraphQL call, gists, `status`. This decides whether a widened
+   Raised by [OQ-BB6](#OQ-BB6)'s ruling. This decides whether a widened
    repository is writable under a read-write grant, and whether any workspace can ever run an
-   account-wide read.
+   account-wide read. The background, and each option in full, are in
+   [the scope questions as filed](#the-scope-questions-as-filed).
 
-   - **A — Whole repositories, joining the scope for every set.** A listed repository behaves
-     like one read from a remote: its reads are free, and its writes ring for the request's set.
-     Account-wide commands stay refused everywhere. Nothing new in the model. The cost: a
-     read-write grant rung for `o/r` also covers merges on `org/lib` for its window, which the
-     notification names ([§6.3](#63-what-the-notification-shows)).
+   - **A — Whole repositories, joining the scope for every set.**
    - **B — A, plus a per-entry switch admitting account-wide commands** in that workspace, in
-     whatever set admits them. `gh search code` and GraphQL queries become usable where the user
-     wants them, at the cost of the widest read the login has, for that workspace.
+     whatever set admits them.
    - **C — Repositories, each with the sets it may be used under,** such as `org/lib` under
-     `read-only` alone. A user can say "read, never write" for a borrowed repository. The cost is
-     a dimension the model does not have today: the scope says where and the sets say what, and
-     nothing says "this set, only here".
+     `read-only` alone.
 
    <!-- vantage: question id=OQ-BB9 -->
 
@@ -1863,26 +2019,17 @@ covered:
    > once called it the maintainer's call; he can still overturn it.
 
 10. 💬 <a id="OQ-BB10"></a>**[OQ-BB10](#OQ-BB10): How does a host daemon hand the launching
-    terminal a line to print?** Raised building step 1. The design has the launching `yolo`
-    print lines only the broker knows: [§5.1](#51-the-rule) rule 6's *"The launch says so too"*
-    when the host `gh` is outside the tested range, and [§6.5](#65-when-there-is-no-notifier-or-nobody-answers)'s
-    notice line, `github-broker: r-… waits for approval: yolo approve r-…`, when there is no
-    notifier. But the broker is a spawned per-jail daemon whose output goes to its log, nothing
-    carries a line from it back to the launching process, and core cannot run `gh --version`
-    itself without naming the tool. This decides whether step 2's no-notifier path says anything
-    at the terminal, and whether step 1's untested-version case is said at launch or only where
-    step 1 says it now: in each refusal, the daemon's log and `yolo check`'s doctor row.
+    terminal a line to print?** This decides whether step 2's no-notifier path says anything at
+    the terminal, and whether
+    step 1's untested-version case is said at launch or only where step 1 says it now. The lines
+    in question, and each option's cost:
+    [a daemon's line at the launching terminal](#a-daemons-line-at-the-launching-terminal).
 
     - **A — A notice file beside the daemon's socket,** which the launch prints once the daemon
-      is ready and then tails for the jail's life, so later lines (the request notices) reach
-      the terminal too. Generic: any daemon may write one. The cost is a new host-to-daemon
-      contract and a reader in the launching process, and the line lands above the agent's
-      screen, which [§6.5](#65-when-there-is-no-notifier-or-nobody-answers) already accepts.
+      is ready and then tails for the jail's life.
     - **B — The launch runs the loophole's `doctor_cmd` before the spawn and prints its first
-      line.** Cheap, generic, and good for facts known at start; nothing for a later notice, and a
-      slow doctor slows every launch.
+      line.**
     - **C — Only where the broker already speaks:** the refusal text, `yolo check` and the log.
-      [§6.5](#65-when-there-is-no-notifier-or-nobody-answers)'s terminal line becomes `yolo approve`'s own listing.
 
     <!-- vantage: question id=OQ-BB10 leaning="A: a notice file beside the daemon's socket, printed at readiness and tailed for the jail's life, because the later request notices need it and B is a subset of it." -->
 
@@ -1893,70 +2040,16 @@ covered:
     > _(empty — fill in when decided)_
 
 11. 💬 <a id="OQ-BB11"></a>**[OQ-BB11](#OQ-BB11): Does the merged config a jail can read keep
-    other workspaces' widening entries?** Raised building the widening entry
-    ([BB-D52](#BB-D52)), filed 2026-10-01. Every fresh container launch writes the merged config,
-    user scope and workspace together, into the workspace as `.yolo/config-assembled.json`, so
-    that a jail's own config reads see what the host saw. That file is the **delivery copy**
-    [`config-safety.md`](../reference/config-safety.md#file-locations) defines. Nothing filters
-    it, so it holds the user config's whole `brokered` key: every widening entry the user has
-    written, each workspace's host path and the repositories added to it. Those can name private
-    repositories and other projects' folders. Nothing that reads the copy grants anything, and
-    the broker never reads it. This decides what a jail can learn about the user's other
-    workspaces from that file.
+    other workspaces' widening entries?** Every fresh container launch writes the merged config
+    into the workspace as `.yolo/config-assembled.json`, unfiltered, so it holds the user config's
+    whole `brokered` key: every widened workspace's host path and the repositories added to it.
+    This decides what a jail can learn about the user's other workspaces from that file. Where
+    the file is written and read, and each option's cost:
+    [§9.7](#97-the-delivery-copy-and-other-workspaces-widening-entries).
 
-    Where it is, at `197694c34`:
-
-    - **Written** by `config.WriteAssembledConfig` (`internal/config/assembled.go:70`), which
-      serializes the config it is handed, whole. Its one caller, `writeLaunchConfigArtifacts`
-      (`internal/cli/run/preflight.go:427`), runs after the approval gate on the fresh container
-      launch (`internal/cli/run/run.go:1214`), with the config `loadAndValidateConfig` merged
-      (`run.go:169`). The macos-user arm returns before that write (`run.go:801`), so this is
-      a question about the container backends.
-    - **Read in the jail** by `config.LoadConfig`, which returns the copy as it is for the jail's
-      own workspace (`internal/config/load.go:416`).
-    - **Left out of both files a jail inherits** already, the user config each launch generates
-      for the jail and the one a nested launch composes from
-      ([OQ-LP9](../reference/loophole-system.md#oq-lp9)), because nothing in a jail has the
-      paths the key is keyed by (`internal/config/inherit.go:257`).
-
-    Every reader of `brokered` in the copy today:
-
-    - `yolo config dump` (`internal/cli/configdrift.go:135`) and `yolo describe --json`
-      (`internal/cli/describe.go:54`) print it. `describe --hash`, and the hash on `describe`'s
-      summary line, cover it.
-    - `yolo internal config-dump` (`internal/cli/internal.go:419`) prints it and validates it:
-      `validateBrokered` checks each entry's shape (`internal/config/brokered.go:290`) and skips
-      its warning about an unknown source inside a jail (`brokered.go:309`).
-
-    What does not read it: the scope. `config.BrokeredWidening` reads the user config file
-    itself (`brokered.go:71`), at the host launch that writes the scope file
-    (`internal/cli/run/brokeredscope.go:89`), and the broker reads only that scope file. Inside a
-    jail the user config file is the generated one, which leaves the key out. An in-jail
-    `yolo check` merges the two config files itself (`internal/cli/check/check.go:112`) and
-    never reads the copy.
-
-    - **A — Drop `brokered` from the delivery copy.** The write leaves the key out, as both
-      inherited files already do and for their reason. A jail learns nothing about any
-      workspace's widening from the file. The cost: in a jail, `yolo config dump` and
-      `describe --json` no longer show the key, so they differ from the same commands at the host
-      by it, and so does `describe --hash`. The jail's own widening stays visible only where the
-      launch already says it: its launch line, which `.yolo/launch.log` keeps, and the
-      out-of-scope refusal, which lists the whole scope. And when [§5.7](#57-permission-sets)'s sets land under the same key,
-      they are dropped too, unless that build keeps them.
-    - **B — Keep only this workspace's entries.** The write keeps each entry whose key names this
-      workspace, by the match the scope file's reader uses, and drops every other. A jail learns
-      what its launch line already told it, and how the user spelled the key, which can be a link
-      outside the workspace. The cost: one more filter, which must call the reader's own match or
-      the copy and the scope file disagree about which entry applies; and a `brokered` in
-      `yolo config dump` that looks like the user's file and is not.
-    - **C — Keep it as is.** No change. The cost: every container jail can read, for every
-      workspace the user has widened, its host path and the repositories added to it, and can
-      send them anywhere its network reaches. That holds whether or not its own launch starts a
-      broker, since the copy is written at every fresh container launch and holds every user
-      key. Nothing more: no reader of the copy grants anything.
-
-    Under A or B, a copy already written keeps the key until that workspace's next fresh
-    container launch rewrites it.
+    - **A — Drop `brokered` from the delivery copy.**
+    - **B — Keep only this workspace's entries.**
+    - **C — Keep it as is.**
 
     <!-- vantage: question id=OQ-BB11 leaning="A: drop brokered from the delivery copy, for the reason both inherited files already leave it out: nothing in a jail reads it to do anything, the jail's own widening is already said by its launch line, and each out-of-scope refusal lists the scope." -->
 

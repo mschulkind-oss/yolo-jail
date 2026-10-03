@@ -573,12 +573,17 @@ Everything below is what the 2026-08-20 pass did not establish.
   `properties.options.properties.{apiKey, baseURL}`. There is no top-level
   `baseURL` on a provider to confuse with the OpenAI SDK's spelling.
 - **Unset `model` falls back to the persisted interactive choice.**
-  `defaultModel` (`provider.ts:1947-1980`) resolves in order: (1) `cfg.model`;
-  (2) the `recent` array in `<state>/model.json`, taking the first entry whose
-  provider **and** model still exist; (3) the first configured provider's first
-  model under opencode's `sort` — priority ids `gpt-5`, `claude-sonnet-4`,
-  `big-pickle`, `gemini-3-pro` first, then id descending
-  (`:1986-1995`); else `NoProvidersError` / `NoModelsError`. `<state>` is
+  `defaultModel` (`provider.ts:1947-1980`) resolves in order:
+
+  1. `cfg.model`;
+  2. the `recent` array in `<state>/model.json`, taking the first entry whose
+     provider **and** model still exist;
+  3. the first configured provider's first
+     model under opencode's `sort` — priority ids `gpt-5`, `claude-sonnet-4`,
+     `big-pickle`, `gemini-3-pro` first, then id descending
+     (`:1986-1995`);
+
+  else `NoProvidersError` / `NoModelsError`. `<state>` is
   `xdgState/opencode` (`packages/core/src/global.ts:14`), i.e.
   `~/.local/state/opencode/model.json` — a path the source names in its own
   comment (`packages/opencode/src/cli/cmd/run/variant.shared.ts:6`).

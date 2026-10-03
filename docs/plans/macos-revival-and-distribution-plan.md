@@ -1247,19 +1247,21 @@ Verified 2026-09-10.
   read-write set a human grants for a window; and every brokered call goes to a host audit log
   no jail mounts. The question as filed follows.
 
-  *Blocks Track L
-  part 2 (the specific proxy), not part 1 (framework plumbing).* Before building
-  the GitHub-scoping/auditing daemon, the maintainer needs to pin down what
-  "scoped access" precisely means: which credential the host daemon holds and how
-  it mints the narrowed one (fine-grained PAT vs GitHub App installation token vs
-  short-lived OIDC exchange); the scoping axes it must enforce (repo/org
-  allowlist, read-vs-write, which API surfaces); how it authenticates *which jail*
-  is calling so per-jail scopes don't leak across jails on a shared host; and what
-  the audit log captures and where it lives. Getting this wrong ships a **false**
-  security boundary — an agent believing it is sandboxed to one repo while the
-  token reaches others — which is worse than shipping nothing. Resolve deliberately
-  (a short design note), then build. Until then part 2 stays parked; part 1 can
-  proceed independently since it's just transport plumbing.
+**[OQ-L1](#OQ-L1) as filed**, kept as history:
+
+*Blocks Track L
+part 2 (the specific proxy), not part 1 (framework plumbing).* Before building
+the GitHub-scoping/auditing daemon, the maintainer needs to pin down what
+"scoped access" precisely means: which credential the host daemon holds and how
+it mints the narrowed one (fine-grained PAT vs GitHub App installation token vs
+short-lived OIDC exchange); the scoping axes it must enforce (repo/org
+allowlist, read-vs-write, which API surfaces); how it authenticates *which jail*
+is calling so per-jail scopes don't leak across jails on a shared host; and what
+the audit log captures and where it lives. Getting this wrong ships a **false**
+security boundary — an agent believing it is sandboxed to one repo while the
+token reaches others — which is worse than shipping nothing. Resolve deliberately
+(a short design note), then build. Until then part 2 stays parked; part 1 can
+proceed independently since it's just transport plumbing.
 
 ## Risks / watch items
 

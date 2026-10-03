@@ -185,6 +185,15 @@ held and keep the file. The reaper then does what [OQ-BH10](#OQ-BH10) assumed. O
 also removes the skeleton its launch built ([OQ-BH16](#OQ-BH16)), so the reaper is left only the
 launches that died with no teardown.
 
+**What the reaper left behind before [OQ-BH16](#OQ-BH16)**, the background that question was filed on. With the tracking file gone at exit,
+`PruneOrphanAgentStaging` reaps a workspace's whole `AGENTS_DIR/<cname>` once no container of
+that name is live and the entry is an hour old. It runs from `yolo prune` and from a host
+launch's housekeeping slot (debounced, `reapSmallAutomaticClasses`), but the slot always
+keeps the launching jail's OWN name. So on a machine
+where one workspace is used alone, that workspace's skeletons, one per fresh launch, go only
+when someone runs `yolo prune --apply`. With two or more workspaces, any other workspace's
+launch reaps the idle one.
+
 ### 2.3 When it is built
 
 - **Only on the fresh-launch path, and only for podman**, where `prepareWsState` and
@@ -311,6 +320,14 @@ unselected pack's dir is an ordinary path and the entry gets its normal skeleton
   directory. `host_files`' surface-path reservation, a list of files rather than directories,
   follows the selection too since [OQ-BH15](#OQ-BH15) (`selectedSurfacePaths`): e.g.
   `~/.codex/config.toml` is refused only while codex is selected.
+
+**How an unselected pack could have this effect at all** (background to [OQ-BH15](#OQ-BH15)). Every shipped pack is compiled
+into the yolo binary, and `packload.Embedded()` hands back all of them, selected or not. A few
+readers need the whole shipped set on purpose: `yolo pack ls` and `footprint` describe packs
+you have not selected, and `storage.EnsureGlobalStorage` runs before config is loaded.
+`builtinSurfacePaths` is not one of those. It was written before selection-aware resolution
+existed, and it is the last validation rule that reads the shipped set instead of your
+selection.
 
 ### 2.9 Backends
 
@@ -550,11 +567,14 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 
 2. ✅ <a id="OQ-BH10"></a>**OQ-BH10: Edit one skeleton in place, add only, or a new one per launch?** Decides
    whether a dropped mountpoint or `host_files` link ever goes away, and whether a launch can
-   detach a live jail's bind. Options: (a) reconcile in place, removing only when a new
-   tri-state probe says no `cname` container exists and the flock was acquired
-   ([§2.4](#24-the-three-rules-the-shared-base-obeys-by-accident)); (b) add only, forever;
-   (c) a new directory per fresh launch under the [OQ-BH9](#OQ-BH9) root, never modified after,
-   old ones reaped with the jail's `AgentsDir` entry by the existing reaper.
+   detach a live jail's bind. Options:
+
+   - (a) reconcile in place, removing only when a new
+     tri-state probe says no `cname` container exists and the flock was acquired
+     ([§2.4](#24-the-three-rules-the-shared-base-obeys-by-accident));
+   - (b) add only, forever;
+   - (c) a new directory per fresh launch under the [OQ-BH9](#OQ-BH9) root, never modified after,
+     old ones reaped with the jail's `AgentsDir` entry by the existing reaper.
 
    <!-- vantage: question id=OQ-BH10 -->
 
@@ -584,9 +604,13 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 4. ✅ <a id="OQ-BH13"></a>**OQ-BH13: What happens to the launch refusal and `yolo check`'s report?** The refusal
    (`noteLegacyBaseHome`, `internal/cli/run/basehomedisclosure.go`, hatch
    `YOLO_ALLOW_LEGACY_BASE_HOME`) shipped 2026-09-21 on reasons this design removes, printing an
-   `mv` rather than offering a verb ([DIR-BH0](#10-decision-ledger)). Options: (a) delete the
-   refusal, keep the check report and its printed `mv`; (b) delete both, with
-   `internal/basehome`; (c) keep the refusal as a one-line launch disclosure.
+   `mv` rather than offering a verb ([DIR-BH0](#10-decision-ledger)). Options:
+
+   - (a) delete the
+     refusal, keep the check report and its printed `mv`;
+   - (b) delete both, with
+     `internal/basehome`;
+   - (c) keep the refusal as a one-line launch disclosure.
 
    <!-- vantage: question id=OQ-BH13 -->
 
@@ -622,7 +646,9 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    still refuses a destination that ANY shipped pack composes as a surface
    (`builtinSurfacePaths`, `internal/config/hostfiles.go`), so `~/.codex/config.toml` is refused
    in a claude-only workspace, where nothing composes it. That is an unselected pack's effect,
-   which [DIR-BH1](#10-decision-ledger) rules out. Options: (a) narrow it to the selected packs,
+   which [DIR-BH1](#10-decision-ledger) rules out. How an unselected pack could have this effect
+   at all is in [§2.8](#28-reservation-is-a-rule-about-config-names-not-about-directories).
+   Options: (a) narrow it to the selected packs,
    with validation resolving the selection as `writable_home_dirs` now does
    (`resolveSelectedPacks`); (b) keep it as DIR-BH1's one named exception.
 
@@ -637,14 +663,6 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
    which the loader, validation and `SourceLessHostFilesFrom` all call, so each of them would
    need the selection.
 
-   **How an unselected pack could have this effect at all.** Every shipped pack is compiled
-   into the yolo binary, and `packload.Embedded()` hands back all of them, selected or not. A few
-   readers need the whole shipped set on purpose: `yolo pack ls` and `footprint` describe packs
-   you have not selected, and `storage.EnsureGlobalStorage` runs before config is loaded.
-   `builtinSurfacePaths` is not one of those. It was written before selection-aware resolution
-   existed, and it is the last validation rule that reads the shipped set instead of your
-   selection.
-
    **Answer:**
    > **(a)**, by [DIR-BH1](#10-decision-ledger) (*"a non-selected pack can never have an
    > impact"*), confirmed in review 2026-09-25: *"how does host files know about packs that are
@@ -656,19 +674,17 @@ a temp file renamed over the path. MEASURED as a unit test on both backends' pat
 
 7. ✅ <a id="OQ-BH16"></a>**OQ-BH16: Does a launch remove its own skeleton when its jail ends?** Found while
    making [OQ-BH10](#OQ-BH10)'s reaper reach skeletons at all
-   ([§2.2](#22-where-it-lives-host-only-never-in-wsstate)). With the tracking file gone at exit,
-   `PruneOrphanAgentStaging` reaps a workspace's whole `AGENTS_DIR/<cname>` once no container of
-   that name is live and the entry is an hour old. It runs from `yolo prune` and from a host
-   launch's housekeeping slot (debounced, `reapSmallAutomaticClasses`), but the slot always
-   keeps the launching jail's OWN name. So on a machine
-   where one workspace is used alone, that workspace's skeletons, one per fresh launch, go only
-   when someone runs `yolo prune --apply`. With two or more workspaces, any other workspace's
-   launch reaps the idle one. Options: (a) accept that, as within the ruling's "a few 16K
-   directories per workspace between reaps"; (b) at each of the three ends that now remove the
-   tracking file, on the same evidence (the runtime answered that no container of that name
-   exists, and the workspace lock was free), also remove the skeleton this launch built, which
-   is the only launch that knows its name; (c) have the launch's housekeeping remove its own
-   name's older skeletons, keeping the one its running container is bound from.
+   ([§2.2](#22-where-it-lives-host-only-never-in-wsstate), which has what the reaper left
+   behind). Options:
+
+   - (a) accept that, as within the ruling's "a few 16K
+     directories per workspace between reaps";
+   - (b) at each of the three ends that now remove the
+     tracking file, on the same evidence (the runtime answered that no container of that name
+     exists, and the workspace lock was free), also remove the skeleton this launch built, which
+     is the only launch that knows its name;
+   - (c) have the launch's housekeeping remove its own
+     name's older skeletons, keeping the one its running container is bound from.
 
    <!-- vantage: question id=OQ-BH16 -->
 

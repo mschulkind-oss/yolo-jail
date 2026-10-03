@@ -706,6 +706,11 @@ The full question is [OQ-AS1](#OQ-AS1).
 which is one function emitting concatenated directives, plus the ordering invariant already
 pinned by `seatbelt_readonly_test.go`.
 
+⚠ **Both preconditions of [OQ-AS1](#OQ-AS1)'s leaning are now met, and that does not rule it** (2026-09-24):
+the incremental denies shipped (`474f68a0`), and [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost)'s suite exists and runs green on the
+`macos-user` CI job. What is left is the question itself — how much this backend is meant to
+promise.
+
 ### 8.3 Disclose the profile on a real launch — **small cost, clear ruling behind it**
 
 **What.** Print the profile path on a live `macos-user` launch, and the profile itself at the
@@ -816,6 +821,44 @@ architecture rather than their ideas.
 layer is simple. It is simple *for them* because the policy is the whole product. yolo's
 equivalent logic is already Go and already tested.
 
+### 9.1 The scope rule, applied unevenly: `mounts` and `env_sources`
+
+*([OQ-AS3](#OQ-AS3) was opened 2026-09-18 by the maintainer while reading this comparison's trust-boundary
+section, and verified against `internal/config` before filing.)*
+
+*Paired 2026-09-25 with [`workspace-config-trust.md`](../design/workspace-config-trust.md), which
+adds a third answer — grants allowed in the local file only against a host-side trust record —
+and argues that [§9](#9-negative-space--what-not-to-adopt) item 1's scope rule holds against the repo author but not against the in-jail
+agent, who can write the local file.*
+
+Stakes: the comparison's sharpest finding about Safehouse is that they gate a repo-supplied
+policy behind explicit per-directory trust while yolo honours a repo-committed
+`yolo-jail.jsonc`. The recommendation there was a SCOPE rule rather than a trust prompt —
+and the tree turns out to apply that rule unevenly. `packs`, `profiles`/`use_profiles`,
+source-bearing `host_files`, loophole `settings` and a provider's `base_url` are each refused
+in a workspace config by ruling, because that file is agent-editable and travels with the
+repo. **`mounts` and `env_sources` are not: neither has a workspace-scope refusal anywhere in
+`internal/config` (verified 2026-09-18).** So a repo-committed config can name a host
+directory to mount at `/ctx` and a host dotenv whose values become the jail's environment,
+disclosed only by the config-change diff.
+
+*Re-checked 2026-09-30.* Two narrower refusals have landed since, and neither answers this
+question. A read-write `mounts` element is refused from a workspace config
+(`validateMountScope`, `internal/config/mounts.go`, from
+[`context-mounts.md`](../design/context-mounts.md)), and a workspace mount of a path a
+brokered loophole fences is refused (`validateBrokerMountFence`,
+`internal/config/brokerfence.go`). A read-only string element and every `env_sources` entry
+still pass from a workspace config.
+
+`env_sources` is the sharper half: source-bearing `host_files` is user-scope-only precisely
+because it carries host bytes into the jail, and `env_sources` reaches the same class of host
+file by another name — the shipped example is `~/.config/claude/env`.
+
+The counter-argument is real and should be answered rather than assumed away: yolo's stated
+boundary is DISCLOSURE, not consent ([`OQ-TP9`](../design/trust-paths.md#decision-ledger)),
+and the config-change prompt does disclose. The question is whether these two keys belong in
+the set where disclosure was already judged insufficient.
+
 ---
 
 ## 10. What I could not verify
@@ -867,15 +910,11 @@ Re-check these before quoting them; everything here moved within the last six mo
    nix substrate theirs does not share; the incremental denies in
    [§8.2](#82-tighten-the-profile-toward-deny-default--highest-ceiling-highest-cost) are cheap
    and independently revertible. This is a ruling about how much this backend is meant to
-   promise, which is why it is not a task.
+   promise, which is why it is not a task. Where the leaning's preconditions stand:
+   [§8.2](#82-tighten-the-profile-toward-deny-default--highest-ceiling-highest-cost).
 
    _Leaning:_ Incremental denies now; the full inversion only after
    [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost) exists.
-
-   ⚠ **Both preconditions of the leaning are now met, and that does not rule it** (2026-09-24):
-   the incremental denies shipped (`474f68a0`), and [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost)'s suite exists and runs green on the
-   `macos-user` CI job. What is left is the question itself — how much this backend is meant to
-   promise.
 
    **Answer:**
    > _(empty — fill in when decided)_
@@ -902,41 +941,10 @@ Re-check these before quoting them; everything here moved within the last six mo
 
    <!-- vantage: question id=OQ-AS3 leaning="Yes for env_sources at least — source-bearing host_files is already user-scope-only for exactly this reason, and env_sources reaches the same host files by another name." -->
 
-   *(Opened 2026-09-18 by the maintainer while reading this comparison's trust-boundary
-   section, and verified against `internal/config` before filing.)*
-
-   *Paired 2026-09-25 with [`workspace-config-trust.md`](../design/workspace-config-trust.md), which
-   adds a third answer — grants allowed in the local file only against a host-side trust record —
-   and argues that [§9](#9-negative-space--what-not-to-adopt) item 1's scope rule holds against the repo author but not against the in-jail
-   agent, who can write the local file.*
-
-   Stakes: the comparison's sharpest finding about Safehouse is that they gate a repo-supplied
-   policy behind explicit per-directory trust while yolo honours a repo-committed
-   `yolo-jail.jsonc`. The recommendation there was a SCOPE rule rather than a trust prompt —
-   and the tree turns out to apply that rule unevenly. `packs`, `profiles`/`use_profiles`,
-   source-bearing `host_files`, loophole `settings` and a provider's `base_url` are each refused
-   in a workspace config by ruling, because that file is agent-editable and travels with the
-   repo. **`mounts` and `env_sources` are not: neither has a workspace-scope refusal anywhere in
-   `internal/config` (verified 2026-09-18).** So a repo-committed config can name a host
-   directory to mount at `/ctx` and a host dotenv whose values become the jail's environment,
-   disclosed only by the config-change diff.
-
-   *Re-checked 2026-09-30.* Two narrower refusals have landed since, and neither answers this
-   question. A read-write `mounts` element is refused from a workspace config
-   (`validateMountScope`, `internal/config/mounts.go`, from
-   [`context-mounts.md`](../design/context-mounts.md)), and a workspace mount of a path a
-   brokered loophole fences is refused (`validateBrokerMountFence`,
-   `internal/config/brokerfence.go`). A read-only string element and every `env_sources` entry
-   still pass from a workspace config.
-
-   `env_sources` is the sharper half: source-bearing `host_files` is user-scope-only precisely
-   because it carries host bytes into the jail, and `env_sources` reaches the same class of host
-   file by another name — the shipped example is `~/.config/claude/env`.
-
-   The counter-argument is real and should be answered rather than assumed away: yolo's stated
-   boundary is DISCLOSURE, not consent ([`OQ-TP9`](../design/trust-paths.md#decision-ledger)),
-   and the config-change prompt does disclose. The question is whether these two keys belong in
-   the set where disclosure was already judged insufficient.
+   Stakes: a repo-committed config can name a host directory to mount at `/ctx` and a host
+   dotenv whose values become the jail's environment, disclosed only by the config-change diff.
+   The evidence, the narrower refusals since, and the counter-argument are in
+   [§9.1](#91-the-scope-rule-applied-unevenly-mounts-and-env_sources).
 
    _Leaning:_ Yes for `env_sources`, on the `host_files` precedent — the same authority under a
    different key name should not have a different scope. Less certain for `mounts`, where the

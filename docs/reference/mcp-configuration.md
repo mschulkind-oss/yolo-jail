@@ -1,6 +1,6 @@
 ---
 status: current
-stage: CURRENT
+stage: DESIGN
 next: "Make the boot's drop notice (noteDroppedManagedEntries, internal/entrypoint/prism.go) tell a server the requires_env gate removed from one not in config, as it tells a capability-withheld one since 2026-10-01: a copy a previous render left in the file is still called not in config"
 verified: 2026-09-23
 verified_commit: 7ad8358c

@@ -1,7 +1,7 @@
 ---
 title: "macOS support matrix — every runtime × builder × config"
 status: in-review
-stage: CURRENT
+stage: DESIGN
 next: "Rule OQ-MX1 before nixpkgs 26.05's security window for the Intel runner closes at the end of 2026"
 tags: [research, macos, tracker, ci]
 ---
@@ -304,33 +304,16 @@ is the single collected list, with the open questions attached.
    (Open Decision #3, 2026-07-23). No longer a documented fallback; the
    container builder is the sole builder. A user's own nix-darwin
    `linux-builder` remains only as a personal escape hatch (row above).
-8. 💬 <a id="OQ-MX1"></a>**[OQ-MX1](#OQ-MX1): Decide what replaces `macos-26-intel` before nixpkgs 26.05 lapses** —
-   NEW, added 2026-08-23. See [§0](#0-the-platform-deadline--x86_64-darwin-is-on-a-clock): 26.05 is the last branch supporting
-   `x86_64-darwin` and is security-fixed only to the end of 2026, while the
-   nightly must stay on an Intel runner because GitHub's Apple Silicon runners
-   cannot nest a VM for Podman Machine. Deadline-driven, not
-   defect-driven — it needs a ruling before the window closes, and it is the only
-   item in this list with a date attached. *(The id was minted 2026-09-26 so the question can be
-   linked.)*
+8. 💬 <a id="OQ-MX1"></a>**[OQ-MX1](#OQ-MX1): Decide what replaces `macos-26-intel` before nixpkgs 26.05 lapses**
 
-   **Restated 2026-09-30.** When this was filed the self-hosted option meant standing up a
-   runner. One exists now: the maintainer registered a Mac on 2026-09-14 and it runs
-   [`apple-container.yml`](../../.github/workflows/apple-container.yml), dispatched by a
-   launchd agent on the Mac while it is awake. That workflow's header measured what such a
-   runner gives: coverage shaped like the Mac's uptime, not like a cron. And
-   [`mac-actions-runner.md`](../plans/runbooks/mac-actions-runner.md) records that moving the
-   podman suite there was considered and deferred on 2026-09-14. The options, lettered here
-   for the first time:
+   Deadline-driven: 26.05 is security-fixed only to the end of 2026. The background, and each
+   option's cost in full, are in
+   [Replacing `macos-26-intel`](#replacing-macos-26-intel--the-background-and-each-options-cost).
    - **(A)** Move the podman macOS suite onto the self-hosted Mac, dispatched the way the
-     Apple Container job is. Keeps real Podman Machine coverage on arm64. Cost: runs happen
-     only while the Mac is awake, and today's twelve hosted shards become one machine, so a
-     full run takes hours longer.
-   - **(B)** Drop the container-backend macOS tests to macos-user only, which runs on GitHub's
-     hosted `macos-latest`. Cost: podman on macOS loses its only hardware coverage; the
-     argv-level Linux tests remain.
-   - **(C)** Keep the Intel runner on the frozen 26.05 pin after its security window closes,
-     until GitHub retires the image (planned around late 2027). Cost: the flake keeps an
-     unpatched nixpkgs for `x86_64-darwin`, which is also what a real Intel Mac user gets.
+     Apple Container job is.
+   - **(B)** Drop the container-backend macOS tests to macos-user only, on GitHub's hosted
+     `macos-latest`.
+   - **(C)** Keep the Intel runner on the frozen 26.05 pin until GitHub retires the image.
 
    <!-- vantage: question id=OQ-MX1 leaning="(A): move the podman macOS suite onto the self-hosted Mac that already runs the Apple Container job. Podman stays a supported Mac runtime on Apple Silicon for features Apple Container lacks, and uptime-shaped coverage is the trade already accepted there. (B) is the fallback if a full run on one machine is too slow." -->
 
@@ -339,8 +322,38 @@ is the single collected list, with the open questions attached.
    Apple Container lacks ([`macos.md`](../../userguide/guides/macos.md#choosing-a-runtime)), so
    its hardware coverage is worth keeping, and coverage shaped like the Mac's uptime is the trade
    already accepted for Apple Container. (B) is the cheap fallback if a full run on one machine
-   proves too slow. (C) keeps covering Intel Macs, where the guide sends Intel users, but only
+   proves too slow. Option C keeps covering Intel Macs, where the guide sends Intel users, but only
    postpones the choice to late 2027.
+
+### Replacing `macos-26-intel` — the background and each option's cost
+
+[OQ-MX1](#OQ-MX1), roadmap item 8 above, was NEW, added 2026-08-23. See
+[§0](#0-the-platform-deadline--x86_64-darwin-is-on-a-clock): 26.05 is the last branch supporting
+`x86_64-darwin` and is security-fixed only to the end of 2026, while the
+nightly must stay on an Intel runner because GitHub's Apple Silicon runners
+cannot nest a VM for Podman Machine. Deadline-driven, not
+defect-driven — it needs a ruling before the window closes, and it is the only
+item in the roadmap list with a date attached. *(The id was minted 2026-09-26 so the question can be
+linked.)*
+
+**Restated 2026-09-30.** When this was filed the self-hosted option meant standing up a
+runner. One exists now: the maintainer registered a Mac on 2026-09-14 and it runs
+[`apple-container.yml`](../../.github/workflows/apple-container.yml), dispatched by a
+launchd agent on the Mac while it is awake. That workflow's header measured what such a
+runner gives: coverage shaped like the Mac's uptime, not like a cron. And
+[`mac-actions-runner.md`](../plans/runbooks/mac-actions-runner.md) records that moving the
+podman suite there was considered and deferred on 2026-09-14. The options, lettered here
+for the first time:
+- **(A)** Move the podman macOS suite onto the self-hosted Mac, dispatched the way the
+  Apple Container job is. Keeps real Podman Machine coverage on arm64. Cost: runs happen
+  only while the Mac is awake, and today's twelve hosted shards become one machine, so a
+  full run takes hours longer.
+- **(B)** Drop the container-backend macOS tests to macos-user only, which runs on GitHub's
+  hosted `macos-latest`. Cost: podman on macOS loses its only hardware coverage; the
+  argv-level Linux tests remain.
+- **(C)** Keep the Intel runner on the frozen 26.05 pin after its security window closes,
+  until GitHub retires the image (planned around late 2027). Cost: the flake keeps an
+  unpatched nixpkgs for `x86_64-darwin`, which is also what a real Intel Mac user gets.
 
 ## 6. Cross-refs
 - **[runbooks/mac-ac-container-builder.md](../plans/runbooks/mac-ac-container-builder.md)** — Mac test (zero-sudo) for the gating AC-builder cell.

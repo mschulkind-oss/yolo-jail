@@ -221,6 +221,13 @@ switched only once the install exits 0 and the entry binary exists. A failed or 
 leaves the previous version serving, or no entry at all, never a half-written one. The next attempt
 removes leftover staging directories whose lock holder is gone.
 
+**What [OQ-HP3](#OQ-HP3)'s options left open, as filed.** For (a): the capture store is `:ro` in every jail
+([§1](#1-what-exists-today)). Whether a captured binary runs on the host outside the image's
+libraries is NOT MEASURED. For (b): it would re-open the
+*"it's just not going to be a bash script"* ruling
+([`provisioner-sets.md` §8.4](provisioner-sets.md#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves)),
+and the vendor's own self-updater may still write under the real `$HOME` (NOT MEASURED).
+
 ## 4. When provisioning runs
 
 | Trigger | Entry state | What happens |
@@ -441,9 +448,13 @@ reproduces only by unsetting PATH in-process.
 
 1. ✅ <a id="OQ-HP1"></a>**[OQ-HP1](#OQ-HP1): Is the floor on by default?**
    **Stakes:** whether a bare `"packs": ["claude"]` host user gets offered installs they never
-   asked for. **(a)** On by default: every launch checks, and installs happen only on consent
-   ([§4](#4-when-provisioning-runs)). **(b)** Opt-in through a user-scope key. **(c)** Off, with
-   the check reported by `yolo check` only.
+   asked for.
+
+   - **(a)** On by default: every launch checks, and installs happen only on consent
+     ([§4](#4-when-provisioning-runs)).
+   - **(b)** Opt-in through a user-scope key.
+   - **(c)** Off, with
+     the check reported by `yolo check` only.
 
    _Leaning:_ **(a).** The check is cheap, the install is always consented to, and a floor
    nobody turns on guarantees nothing. [`OQ-HE0`](../reference/host-agent-environment.md#oq-he0) isn't
@@ -461,9 +472,11 @@ reproduces only by unsetting PATH in-process.
       > still need consent. Host wrappers stay optional: they are sugar for `yolo host`.
 
 2. ✅ <a id="OQ-HP2"></a>**[OQ-HP2](#OQ-HP2): Where does the prefix sit on the composed host PATH?**
-   **Stakes:** whether yolo's copy or the user's declared copy wins when both exist. **(a)**
-   First, ahead of `host_path`. **(b)** After `host_path` and before the baseline, as a fallback.
-   **(c)** Last.
+   **Stakes:** whether yolo's copy or the user's declared copy wins when both exist.
+
+   - **(a)** First, ahead of `host_path`.
+   - **(b)** After `host_path` and before the baseline, as a fallback.
+   - **(c)** Last.
 
    _Leaning:_ **(a).** `bin/` holds only floor names ([§3](#3-the-host-prefix)), and only ones
    nothing on the composed PATH provided at install time. A user who wants their own copy says
@@ -490,17 +503,16 @@ reproduces only by unsetting PATH in-process.
       > earlier on that PATH has one.
 
 3. ✅ <a id="OQ-HP3"></a>**[OQ-HP3](#OQ-HP3): How do the installer-recipe agents (`claude`, `codex`, `agy`) reach the prefix?**
-   **Stakes:** the three most-used agents. **(a)** Materialize a `yolo capture` of the
-   installer into the prefix, where the host's OS and architecture match the capture jail's
-   (Linux), and leave them hint-only on macOS. The capture store is `:ro` in every jail
-   ([§1](#1-what-exists-today)). Whether a captured binary runs on the host outside the image's
-   libraries is NOT MEASURED. **(b)** Run the vendor script under a prefix-private `$HOME`, the
-   way macos-user runs it in the guest's home. That covers macOS. It would re-open the
-   *"it's just not going to be a bash script"* ruling
-   ([`provisioner-sets.md` §8.4](provisioner-sets.md#84-the-ruling-a-pack-declares-a-need-and-its-recipes-the-environment-resolves)),
-   and the vendor's own self-updater may still write under the real `$HOME` (NOT MEASURED).
-   **(c)** Keep installer programs out of the floor, reported as **missing** with the pack's
-   hint.
+   **Stakes:** the three most-used agents. What (a) and (b) each left unmeasured, or would
+   re-open, is in [§3](#3-the-host-prefix).
+
+   - **(a)** Materialize a `yolo capture` of the
+     installer into the prefix, where the host's OS and architecture match the capture jail's
+     (Linux), and leave them hint-only on macOS.
+   - **(b)** Run the vendor script under a prefix-private `$HOME`, the
+     way macos-user runs it in the guest's home. That covers macOS.
+   - **(c)** Keep installer programs out of the floor, reported as **missing** with the pack's
+     hint.
 
    _Leaning:_ **(a), with (c) on macOS**, pending a measurement that a captured `claude` runs on
    a Linux host. It is the only option that keeps the standing ruling.
@@ -522,10 +534,14 @@ reproduces only by unsetting PATH in-process.
 
 4. ✅ <a id="OQ-HP4"></a>**[OQ-HP4](#OQ-HP4): Where does the prefix's Node come from?**
    **Stakes:** the four npm agents can't install or run without an interpreter, and the floor
-   may not assume one on the ambient PATH. **(a)** The official Node tarball for the platform,
-   verified against the release's published checksums, at a version yolo ships. It is raised to
-   the highest `node_floor` a selected pack declares. **(b)** The user's nix when present
-   ([OQ-PS1](provisioner-sets.md#OQ-PS1)). **(c)** The user's mise when present.
+   may not assume one on the ambient PATH.
+
+   - **(a)** The official Node tarball for the platform,
+     verified against the release's published checksums, at a version yolo ships. It is raised to
+     the highest `node_floor` a selected pack declares.
+   - **(b)** The user's nix when present
+     ([OQ-PS1](provisioner-sets.md#OQ-PS1)).
+   - **(c)** The user's mise when present.
 
    _Leaning:_ **(a)**, with (b) and (c) left to [OQ-PS6](provisioner-sets.md#OQ-PS6)'s ranking
    later. It is the only source present on every host, and it lives entirely inside the prefix.
@@ -563,11 +579,14 @@ reproduces only by unsetting PATH in-process.
 
 6. ✅ <a id="OQ-HP6"></a>**[OQ-HP6](#OQ-HP6): Does yolo run `mise install` on the stale-shim verdict?**
    **Stakes:** the maintainer's *"by default when you run on the host we should probably run
-   the mise install."* **(a)** Yes, at a TTY, as [§5](#5-mise-the-stale-shim-verdict) scopes it:
-   one tool, in the invocation's cwd, printed before it runs, with mise's own trust as the gate.
-   **(b)** Yes, including non-TTY launches. **(c)** No: print the remedy, as
-   [`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs)
-   has it.
+   the mise install."*
+
+   - **(a)** Yes, at a TTY, as [§5](#5-mise-the-stale-shim-verdict) scopes it:
+     one tool, in the invocation's cwd, printed before it runs, with mise's own trust as the gate.
+   - **(b)** Yes, including non-TTY launches.
+   - **(c)** No: print the remedy, as
+     [`host-agent-environment.md`'s launch PATH](../reference/host-agent-environment.md#the-launch-path-and-which-copy-of-a-program-runs)
+     has it.
 
    _Leaning:_ **(a).** It is what the user's own `mise.toml` asks for. mise's trust prompt
    already guards a cloned repository's config. A widget can't consent to a download.

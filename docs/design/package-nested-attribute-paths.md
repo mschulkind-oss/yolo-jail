@@ -167,6 +167,40 @@ Therefore, the resolver must distinguish:
 - **`drv` (Base Derivation):** The parent derivation providing the package (`gtk4`, `rocmPackages.clr`), from which `.outPath`, `getLib`, and `propagatedClosure` are derived.
 - **`outputs`:** The requested outputs (e.g. `["dev"]`), or `null` for default.
 
+### 4.3 The collision between a collection member and an output
+
+If package `foo` has an output named `bar` and nixpkgs also has an attrset `foo.bar`, the dotted
+string `foo.bar` has two readings; [OQ-1](#OQ-1) asks which one wins.
+
+**What [OQ-1](#OQ-1) decides:** the resolver's central disambiguation rule, and therefore the whole feature.
+[§5.1](#51-resolution-algorithm-flakenix)'s `walk` already encodes an answer — it tests `builtins.elem (head remaining) (curr.outputs
+or ["out"])` *before* it tries a deeper attribute — so ruling the other way is not a tweak to that
+code, it is a different algorithm. It also decides what [§4.2](#42-the-base-derivation-vs-output-trap-in-lib-farm-extraction)'s base-derivation contract means in
+the ambiguous case: an output resolution keeps `foo` as the base and feeds `getLib foo` to the
+`/lib` farm, while a member resolution makes `foo.bar` the base and feeds `getLib foo.bar`. Those
+produce **different image contents**, silently, from the same config string. That is why this
+rule gates the feature as a whole rather than one corner of it.
+
+**Measured 2026-10-01: the collision exists, in one family.** A `nix eval` over the nixpkgs
+this flake pins (`e158d9ed` in `flake.lock`) asked, of every derivation, whether any name in
+its `outputs` resolves to an attribute that is not that output (its `outputName` differs). A
+positive control, a derivation whose `passthru.lib` shadows its `lib` output, was caught.
+
+- **Top level: none**, among 24,786 derivations.
+- **One level down: 1,961**, among the 79,811 derivations of the 292 package sets marked
+  `recurseForDerivations`. All but one are `texlivePackages.<pkg>.texsource`: `texsource` is in
+  the package's `outputs` (`["tex", "texdoc", "texsource"]`), but the attribute is a separate
+  derivation named `<pkg>-texsource` whose `outputName` is `out`. The other is
+  `cygwin.newlib-cygwin-nobin.bin`, a cross-compilation set.
+
+So the rule [OQ-1](#OQ-1)'s leaning states resolves `texlivePackages.abc.texsource` as an output of
+`texlivePackages.abc` and feeds `getLib texlivePackages.abc` to the `/lib` farm, while the
+member reading would feed `getLib` of the separate texsource derivation: the different image
+contents the question warns of, on a real path. The `throw` alternative would refuse those
+1,960 paths, none of which `packages` can spell today, since `packageNameRe` allows one dot.
+UNMEASURED: sets nested more than one level deep, and whether anyone wants such a path in
+`packages`.
+
 ---
 
 ## 5. Proposed Solution
@@ -260,13 +294,8 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
    of the `foo` collection?
 
    **What it decides:** the resolver's central disambiguation rule, and therefore the whole feature.
-   [§5.1](#51-resolution-algorithm-flakenix)'s `walk` already encodes an answer — it tests `builtins.elem (head remaining) (curr.outputs
-   or ["out"])` *before* it tries a deeper attribute — so ruling the other way is not a tweak to that
-   code, it is a different algorithm. It also decides what [§4.2](#42-the-base-derivation-vs-output-trap-in-lib-farm-extraction)'s base-derivation contract means in
-   the ambiguous case: an output resolution keeps `foo` as the base and feeds `getLib foo` to the
-   `/lib` farm, while a member resolution makes `foo.bar` the base and feeds `getLib foo.bar`. Those
-   produce **different image contents**, silently, from the same config string. That is why this
-   rule gates the feature as a whole rather than one corner of it.
+   Why, and the 2026-10-01 measurement that found a real collision:
+   [§4.3](#43-the-collision-between-a-collection-member-and-an-output).
 
    <!-- vantage: question id=OQ-1 leaning="Output wins on the leaf; a deeper path wins over both — if the remaining path is exactly one component and it is in `curr.outputs`, resolve it as an output, otherwise keep walking. Held loosely: refusing the ambiguity with a throw that names both candidate resolutions is the alternative worth ruling for instead." -->
 
@@ -281,32 +310,12 @@ Update `noncontainerResolved` in `flake.nix` to use `pkgs.lib.hasAttrByPath` and
    exists to break) and cannot silently produce the wrong `/lib` farm tomorrow. If you want the
    resolver to have no surprising cases at all, that is the ruling to make.
 
-   **Measured 2026-10-01: the collision exists, in one family.** A `nix eval` over the nixpkgs
-   this flake pins (`e158d9ed` in `flake.lock`) asked, of every derivation, whether any name in
-   its `outputs` resolves to an attribute that is not that output (its `outputName` differs). A
-   positive control, a derivation whose `passthru.lib` shadows its `lib` output, was caught.
-
-   - **Top level: none**, among 24,786 derivations.
-   - **One level down: 1,961**, among the 79,811 derivations of the 292 package sets marked
-     `recurseForDerivations`. All but one are `texlivePackages.<pkg>.texsource`: `texsource` is in
-     the package's `outputs` (`["tex", "texdoc", "texsource"]`), but the attribute is a separate
-     derivation named `<pkg>-texsource` whose `outputName` is `out`. The other is
-     `cygwin.newlib-cygwin-nobin.bin`, a cross-compilation set.
-
-   So the leaning's rule resolves `texlivePackages.abc.texsource` as an output of
-   `texlivePackages.abc` and feeds `getLib texlivePackages.abc` to the `/lib` farm, while the
-   member reading would feed `getLib` of the separate texsource derivation: the different image
-   contents this question warns of, on a real path. The `throw` alternative would refuse those
-   1,960 paths, none of which `packages` can spell today, since `packageNameRe` allows one dot.
-   UNMEASURED: sets nested more than one level deep, and whether anyone wants such a path in
-   `packages`.
-
    **Answer:**
    > _(empty — fill in when decided)_
 
 ## Appendix: re-running the collision probe
 
-The 2026-10-01 measurement in [OQ-1](#OQ-1), as one expression. Save it as `collide.nix` and run
+The 2026-10-01 measurement in [§4.3](#43-the-collision-between-a-collection-member-and-an-output), for [OQ-1](#OQ-1), as one expression. Save it as `collide.nix` and run
 `nix eval --impure --json --file collide.nix`; pin `rev` and `narHash` to the `nixpkgs` node of
 `flake.lock`. It finished in a few minutes in a jail.
 

@@ -1088,6 +1088,26 @@ and whether the status came from the hint or from the self-report.
   The first pane launches the jail fresh and the rest attach.
 - **Cost: medium.** [OQ-HR2](#OQ-HR2) asks whether to build it.
 
+#### Four panes after a reboot: the scenario and each answer
+
+The scenario and options of [OQ-HR2](#OQ-HR2), as filed.
+
+**Setup.** Matt has four herdr panes, each running `yolo -- claude` in the same repository: one
+jail, four sessions. He reboots. herdr restores the layout: four panes, each a plain shell in
+the repository, with nothing running. Today he types `yolo -- claude --resume` four times and
+picks each conversation from Claude's list. It is a question because herdr would retype a
+command for him if yolo reported one, but the conversation id lives inside the jail, and each
+cheap variant has a cost.
+
+- **A. Report nothing,** as today. *You see:* four shells, and you relaunch by hand.
+- **B. Report the launch's own command,** `yolo -- claude`, with no id. *You see:* four agents
+  start by themselves, 100 ms apart, in one jail. The panes look restored, but every
+  conversation is new, and the old ones are reachable only through Claude's own resume picker.
+- **C. Report `yolo -- claude --resume <id>`, built on the host**
+  ([§4.4](#44-option-3-resume-after-a-herdr-restart)). *You see:* each pane comes back in its
+  own conversation. The cost is a jail-to-host channel for the id, a resume template in each
+  agent pack, and a per-session key. It depends on Option 2.
+
 ### 4.5 Option 4: git in herdr's worktrees
 
 - **The idea.** When the workspace is a linked worktree whose main repository is outside it, the
@@ -1177,6 +1197,47 @@ in for the host.
   check (`safe.directory`). git left the `gitdir` file as it was, read back after the first read-write and read-only
   runs. MEASURED. A rootless host maps uids differently and is unmeasured.
 
+#### A herdr worktree jail: the scenario, each answer, and what was measured since the leaning
+
+The scenario and options of [OQ-HR3](#OQ-HR3), as filed, then what was measured after its
+leaning was written.
+
+**Setup.** Matt presses herdr's worktree key in yolo-jail. herdr runs
+`git worktree add ~/.herdr/worktrees/yolo-jail/<slug>` and opens a new herdr workspace there.
+In its pane he runs `yolo -- claude`. The jail starts with that directory as `/workspace`, and
+every git command inside fails with `fatal: not a git repository: (null)`
+([§3.5](#35-herdrs-worktrees)). The checkout's `.git` file points at the main repository's
+`.git` under `~/code`, which the jail never mounted. Any `git worktree add ../x` does the same;
+herdr only makes it the everyday flow. It is a question because the fix widens what a jail can
+write.
+
+- **A. Mount the main repository's git directory at its host path, read-write, and disclose it**
+  ([§4.5](#45-option-4-git-in-herdrs-worktrees)). *You see:* git works, and the launch prints
+  one line naming the extra mount. The jail can then write that repository's refs, config and
+  hooks. A jail started in the main checkout can already do exactly that, but this jail was
+  started somewhere else. A path inside the credential boundary is refused.
+- **B. Refuse, or warn, at launch.** *You see:* a message naming the fault and the ways round
+  it (`yolo host`, or a worktree the agent makes inside the jail under `$YOLO_DURABLE_DIR`),
+  instead of a git that fails later with `(null)`.
+- **C. Leave it as it is.** *You see:* git fails inside the jail with
+  `fatal: not a git repository: (null)`.
+
+_Measured since the leaning_ (2026-10-01, rootful podman,
+[§4.5](#45-option-4-git-in-herdrs-worktrees)). A's premise holds: with the `.git` bound
+read-write at its host path, the worktree commits and the commits land where the host reads
+them. A read-only bind is no middle way: `git status` works and every commit fails. Two things
+A's text does not say yet:
+
+- Inside the jail its own checkout shows as `prunable`. So a `git worktree prune`, or a `git gc`
+  once the checkout's index is three months old, deletes `.git/worktrees/<name>`, the directory
+  git keeps for the checkout, for the host too. A jail in the main checkout can already do that
+  to every outside worktree.
+- A narrower A, with a read-only `config` file bound over the read-write `.git`, holds only
+  until the host's next `git config`.
+
+[§4.5](#45-option-4-git-in-herdrs-worktrees) measured two guards against the first. Whether A
+takes one is part of the ruling.
+
 ### 4.6 Option 5: a narrow herdr door for jailed agents
 
 - **The idea.** A loophole (a host capability deliberately opened into a jail through a mediated
@@ -1195,6 +1256,31 @@ in for the host.
   written by yolo. It does not include `notification.show`, so a toast would still need yolo's
   own filter. INFERRED.
 - [OQ-HR4](#OQ-HR4) asks whether to build it.
+
+#### Starting three reviewers: the scenario and each answer
+
+The scenario and options of [OQ-HR4](#OQ-HR4), as filed.
+
+**Setup.** herdr ships an agent skill that teaches an agent to split panes, start sibling agents
+and read their output. Matt's jailed Claude is asked to "start three reviewers in new panes".
+Today it cannot: the jail has no herdr binary, no socket and no `HERDR_*` variables, and herdr's
+skill stops at its first line. It is a question because herdr's socket has one lock, its file
+mode. Whoever connects can split a host pane and type into it, so any door is a filter that
+yolo would have to write and keep current
+([§3.8](#38-the-socket-is-full-control-of-the-host)).
+
+- **A. No.** No herdr handle crosses into a jail. *You see:* the skill refuses inside a jail.
+  You drive herdr yourself, or run the orchestrating agent at `yolo host`.
+- **B. A notify-and-label door** ([§4.6](#46-option-5-a-narrow-herdr-door-for-jailed-agents)).
+  *You see:* a jailed agent can raise a herdr toast and label its own pane. It cannot open or
+  type into panes. herdr's unmerged report-only listener
+  ([herdr#2434](https://github.com/herdrdev/herdr/pull/2434)) is prior art: if upstream ships
+  one, the label half would need no yolo filter.
+- **C. An orchestration door** that can open new panes only to run `yolo -- <agent>` in the
+  same workspace. *You see:* the skill's "start reviewers" flow works, and every reviewer is
+  jailed. The cost is that yolo re-implements a filtered slice of an API that has already
+  removed public methods with no replacement ([§2.5](#25-the-socket-and-its-one-lock)), and
+  that filter is the whole security boundary.
 
 ### 4.7 Rejected
 
@@ -1284,21 +1370,15 @@ in the [Decision Ledger](#7-decision-ledger).
 
 2. 💬 <a id="OQ-HR2"></a>**[OQ-HR2](#OQ-HR2): What does a jail pane do after a herdr restart?**
 
-   **Setup.** Matt has four herdr panes, each running `yolo -- claude` in the same repository: one
-   jail, four sessions. He reboots. herdr restores the layout: four panes, each a plain shell in
-   the repository, with nothing running. Today he types `yolo -- claude --resume` four times and
-   picks each conversation from Claude's list. It is a question because herdr would retype a
-   command for him if yolo reported one, but the conversation id lives inside the jail, and each
-   cheap variant has a cost.
+   herdr would retype a command for each restored pane if yolo reported one, but the
+   conversation id lives inside the jail, and each cheap variant has a cost. The four-pane
+   scenario, and what you see under each answer, are in
+   [the reboot scenario](#four-panes-after-a-reboot-the-scenario-and-each-answer).
 
-   - **A. Report nothing,** as today. *You see:* four shells, and you relaunch by hand.
-   - **B. Report the launch's own command,** `yolo -- claude`, with no id. *You see:* four agents
-     start by themselves, 100 ms apart, in one jail. The panes look restored, but every
-     conversation is new, and the old ones are reachable only through Claude's own resume picker.
+   - **A. Report nothing,** as today.
+   - **B. Report the launch's own command,** `yolo -- claude`, with no id.
    - **C. Report `yolo -- claude --resume <id>`, built on the host**
-     ([§4.4](#44-option-3-resume-after-a-herdr-restart)). *You see:* each pane comes back in its
-     own conversation. The cost is a jail-to-host channel for the id, a resume template in each
-     agent pack, and a per-session key. It depends on Option 2.
+     ([§4.4](#44-option-3-resume-after-a-herdr-restart)). It depends on Option 2.
 
    <!-- vantage: question id=OQ-HR2 leaning="C, resume the right conversation, built as a second slice after the launcher sets the hint; A until then; never B, because a pane that looks restored but lost its conversation is worse than an honest empty shell." -->
 
@@ -1312,25 +1392,17 @@ in the [Decision Ledger](#7-decision-ledger).
 3. 💬 <a id="OQ-HR3"></a>**[OQ-HR3](#OQ-HR3): What does a container jail do when its workspace is
    a worktree of a repository outside it?**
 
-   **Setup.** Matt presses herdr's worktree key in yolo-jail. herdr runs
-   `git worktree add ~/.herdr/worktrees/yolo-jail/<slug>` and opens a new herdr workspace there.
-   In its pane he runs `yolo -- claude`. The jail starts with that directory as `/workspace`, and
-   every git command inside fails with `fatal: not a git repository: (null)`
-   ([§3.5](#35-herdrs-worktrees)). The checkout's `.git` file points at the main repository's
-   `.git` under `~/code`, which the jail never mounted. Any `git worktree add ../x` does the same;
-   herdr only makes it the everyday flow. It is a question because the fix widens what a jail can
-   write.
+   git fails inside such a jail with `fatal: not a git repository: (null)`: the checkout's `.git`
+   points at the main repository's `.git`, which the jail never mounted. It is a question because
+   the fix widens what a jail can write. The scenario, each answer in full, and what was measured
+   since the leaning:
+   [the worktree scenario](#a-herdr-worktree-jail-the-scenario-each-answer-and-what-was-measured-since-the-leaning).
+   Part of the ruling: whether A takes one of the two guards [§4.5](#45-option-4-git-in-herdrs-worktrees)
+   measured against `git worktree prune`.
 
-   - **A. Mount the main repository's git directory at its host path, read-write, and disclose it**
-     ([§4.5](#45-option-4-git-in-herdrs-worktrees)). *You see:* git works, and the launch prints
-     one line naming the extra mount. The jail can then write that repository's refs, config and
-     hooks. A jail started in the main checkout can already do exactly that, but this jail was
-     started somewhere else. A path inside the credential boundary is refused.
-   - **B. Refuse, or warn, at launch.** *You see:* a message naming the fault and the ways round
-     it (`yolo host`, or a worktree the agent makes inside the jail under `$YOLO_DURABLE_DIR`),
-     instead of a git that fails later with `(null)`.
-   - **C. Leave it as it is.** *You see:* git fails inside the jail with
-     `fatal: not a git repository: (null)`.
+   - **A. Mount the main repository's git directory at its host path, read-write, and disclose it.**
+   - **B. Refuse, or warn, at launch.**
+   - **C. Leave it as it is.**
 
    <!-- vantage: question id=OQ-HR3 leaning="A, mount the main repository's git directory at its host path read-write and disclose it: git needs it to work at all, it grants what a jail in the main checkout already has, and B leaves herdr's headline flow broken." -->
 
@@ -1340,47 +1412,20 @@ in the [Decision Ledger](#7-decision-ledger).
    honest but leaves herdr's main worktree flow broken in every container jail. If A is ruled, B's
    message is still the fallback where the path is refused.
 
-   _Measured since the leaning_ (2026-10-01, rootful podman,
-   [§4.5](#45-option-4-git-in-herdrs-worktrees)). A's premise holds: with the `.git` bound
-   read-write at its host path, the worktree commits and the commits land where the host reads
-   them. A read-only bind is no middle way: `git status` works and every commit fails. Two things
-   A's text does not say yet:
-
-   - Inside the jail its own checkout shows as `prunable`. So a `git worktree prune`, or a `git gc`
-     once the checkout's index is three months old, deletes `.git/worktrees/<name>`, the directory
-     git keeps for the checkout, for the host too. A jail in the main checkout can already do that
-     to every outside worktree.
-   - A narrower A, with a read-only `config` file bound over the read-write `.git`, holds only
-     until the host's next `git config`.
-
-   [§4.5](#45-option-4-git-in-herdrs-worktrees) measured two guards against the first. Whether A
-   takes one is part of the ruling.
-
    **Answer:**
    > _(empty — fill in when decided)_
 
 4. 💬 <a id="OQ-HR4"></a>**[OQ-HR4](#OQ-HR4): May a jailed agent drive herdr?**
 
-   **Setup.** herdr ships an agent skill that teaches an agent to split panes, start sibling agents
-   and read their output. Matt's jailed Claude is asked to "start three reviewers in new panes".
-   Today it cannot: the jail has no herdr binary, no socket and no `HERDR_*` variables, and herdr's
-   skill stops at its first line. It is a question because herdr's socket has one lock, its file
-   mode. Whoever connects can split a host pane and type into it, so any door is a filter that
-   yolo would have to write and keep current
-   ([§3.8](#38-the-socket-is-full-control-of-the-host)).
+   herdr's socket has one lock, its file mode: whoever connects can split a host pane and type
+   into it, so any door is a filter that yolo would have to write and keep current. The scenario,
+   and what you see under each answer, are in
+   [the orchestration scenario](#starting-three-reviewers-the-scenario-and-each-answer).
 
-   - **A. No.** No herdr handle crosses into a jail. *You see:* the skill refuses inside a jail.
-     You drive herdr yourself, or run the orchestrating agent at `yolo host`.
+   - **A. No.** No herdr handle crosses into a jail.
    - **B. A notify-and-label door** ([§4.6](#46-option-5-a-narrow-herdr-door-for-jailed-agents)).
-     *You see:* a jailed agent can raise a herdr toast and label its own pane. It cannot open or
-     type into panes. herdr's unmerged report-only listener
-     ([herdr#2434](https://github.com/herdrdev/herdr/pull/2434)) is prior art: if upstream ships
-     one, the label half would need no yolo filter.
    - **C. An orchestration door** that can open new panes only to run `yolo -- <agent>` in the
-     same workspace. *You see:* the skill's "start reviewers" flow works, and every reviewer is
-     jailed. The cost is that yolo re-implements a filtered slice of an API that has already
-     removed public methods with no replacement ([§2.5](#25-the-socket-and-its-one-lock)), and
-     that filter is the whole security boundary.
+     same workspace.
 
    <!-- vantage: question id=OQ-HR4 leaning="A, no herdr handle crosses into a jail for now: B overlaps yolo notify and herdr's own status notifications, and C is a real feature whose boundary is a filter over an API that is still changing; revisit if in-jail orchestration is wanted." -->
 

@@ -1675,15 +1675,296 @@ which no jail turn-on outranks. A repository's instructions can steer the agent 
 only toward a sidecar the user's own config or packs declare, since a repository's own sidecar
 takes the config-change prompt ([EW-D34](#EW-D34)).
 
+### 12.10 What the questions weighed, in full
+
+The setups, the options in full, and the history each question carried, moved here from
+[§13](#13-open-questions) so that each question there stays short. The text is as filed.
+
+#### Who may declare a host-side sidecar
+
+As filed for [OQ-EW1](#OQ-EW1).
+
+A host-side sidecar runs its command on the host, outside every confinement, at every launch.
+[OQ-HS4](host-notch-services.md#OQ-HS4) limited a *service's* host half to embedded
+official packs, but that was about a third party's daemon, and here the author is usually
+the user.
+
+#### Every session, or one
+
+As filed for [OQ-EW2](#OQ-EW2).
+
+- **A — Every session.** Each reader gets every ping. Simple, and a session that does not care
+  ignores one line.
+- **B — The first reader to take it.** One session handles each event. Which one is a race.
+- **C — A target the sidecar names**, by agent. Precise, but a sidecar has to know which
+  agents run, which [EW-P1](#EW-P1) set out to avoid.
+
+**Directed 2026-09-29, back to the drawing board.** The maintainer, answering this question:
+*"this is a much deeper question i think and i don't think we can actually release this feature
+until we really nail this down ... normally i put these settings in my dot files i share them
+across computers ... i may have two agents across different computers ... waiting ... on the same
+project ... a distributed set of ci watchers and agents that are both going to try to act and
+that's not going to be good for anyone ... this really just needs to be a very intentional act
+to enable this ci watcher somewhere ... it can't be driven even from the user settings directly,
+because then when my.file syncing setup, I'm going to get it in two places without even thinking
+about it."* The feature is not released until enablement is an intentional, per-machine act that
+a synced dotfile cannot trigger, and the cross-machine duplicate is designed for. A redesign is
+in progress; this question is restated with it.
+
+**Directed again 2026-09-29.** The maintainer: *"I understand that we can't guarantee a single
+watcher across machines. We're not going to do that. But I do like your clarification that you
+can define the shape of a watcher, but it needs explicit permission to activate it. That is
+definitely the right route to go."* Recorded as [EW-DIR2](#EW-DIR2).
+
+#### A command, or a question at launch
+
+As filed for [OQ-EW5](#OQ-EW5).
+
+_Setup:_ Matt keeps his yolo user config and his pack in a dotfiles tree that syncs between
+his desk and his laptop. On the desk he adds `ci-watch` to the pack. The laptop pulls it
+overnight. The next morning he runs `yolo -- claude` in yolo-jail on the laptop. Under
+[§12](#12-enabling-a-sidecar-redesign-2026-09-29) the watcher does not start there, because
+nothing on the laptop has turned it on, and the launch says so. The question is what that act
+on a machine is: a command he types, or a question the launch asks him.
+
+- **A — A command at the host.** `yolo sidecar enable ci-watch` writes the enablement record.
+  Until then each launch prints `sidecar ci-watch (pack matt, agent side): not enabled on this
+  machine; to start it here: yolo sidecar enable ci-watch` and starts nothing. No launch ever
+  asks.
+- **B — The launch asks, once per machine.** The first launch that finds `ci-watch` declared
+  and not enabled asks `Start ci-watch on this machine for this workspace? [y/N]` and records
+  either answer. A launch with no terminal starts nothing and asks next time. One step fewer,
+  but the question appears on every machine the dotfiles reach, at the first launch after a
+  sync, which is where a reflexive y lands.
+- **C — A config file that stays on the machine**, such as the `overrides.jsonc` his config
+  includes only if found. Nothing new to build, but yolo cannot tell a file that syncs from
+  one that does not, and it is user settings, which [EW-DIR1](#EW-DIR1)'s words rule out.
+
+#### One workspace, or every workspace on the machine
+
+As filed for [OQ-EW6](#OQ-EW6).
+
+_Setup:_ Matt wants his desk to watch CI for all 12 of his GitHub repositories. On the laptop
+he wants only his dotfiles repository watched, although he sometimes works on yolo-jail there
+too. Both machines have the same pack, so both see `ci-watch` declared in every workspace.
+
+**How each option sits with [OQ-EW4](#OQ-EW4)'s ruling.** He ruled there that a selected
+sidecar needs no second switch per workspace, and rejected *"one more line per workspace"*.
+B keeps that ruling, and so does A's `--all-workspaces`. A's default and C bring a
+per-workspace act back, and D a per-launch one, so choosing any of them narrows what he
+ruled.
+
+- **A — One workspace by default, with a machine-wide form.** `yolo sidecar enable ci-watch`
+  in a workspace covers that workspace on this machine. `--all-workspaces` covers every
+  workspace here that declares it, and `yolo sidecar disable ci-watch` in one workspace turns
+  it off there even under the machine-wide form. The desk takes one `--all-workspaces`, and
+  the laptop one command in the dotfiles checkout. A moved workspace loses its own record and
+  says so; a re-clone at the same path keeps it, since the record is keyed on the path (a
+  repository's own sidecar is still held back by its declaration hash).
+- **B — The whole machine only.** One command covers every workspace on the machine. The
+  laptop case then needs an `"enabled": false` veto in each workspace that should not be
+  watched there, and the only veto that stays on the laptop is each checkout's untracked
+  `yolo-jail.local.jsonc`, since the committed file travels with the repository to the desk.
+  That file is one the agent can edit or delete from inside the jail
+  ([§12.1](#121-declaring-is-not-enabling)), so under B every laptop-only off switch is one
+  the agent can remove, with only the config-change prompt's y in the way.
+- **C — One workspace only.** Twelve commands on the desk, and one more for every repository
+  he clones.
+- **D — One launch.** `yolo --sidecar ci-watch -- claude` starts it for that launch and records
+  nothing. Nothing to forget to turn off, but a launch without the flag has no watcher, which
+  loses the *"just starts up"* of [§1.1](#11-why-now).
+
+#### A repository's sidecar: the same command, or the config prompt
+
+As filed for [OQ-EW7](#OQ-EW7).
+
+_Setup:_ Matt clones a colleague's repository whose committed `yolo-jail.jsonc` declares
+`devserver-errors`, an agent-side sidecar that tails the dev server's log and pings on each
+error. Its first launch shows the config diff and asks y/N, as every fresh workspace with a
+non-empty config does ([OQ-S3](../reference/config-safety.md#oq-s3)). The question is whether
+that y also acknowledges the sidecar.
+
+- **A — The same command as every other sidecar.** Answering y launches the jail without the
+  sidecar, and a line shows its `cmd` and names `yolo sidecar enable devserver-errors`. The
+  command prints the whole declaration and the file it came from, asks y/N, and records the
+  hash of exactly what it printed, so a later change to any field stops it being started,
+  with a line saying why. The hash covers the declaration, not the script it runs: a pull
+  that edits `scripts/x.sh` under an unchanged `cmd` keeps it running
+  ([§12.4](#124-a-sidecar-a-repository-declares)). `--accept-config-changes` never starts a
+  sidecar.
+- **B — The config prompt is the acknowledgement.** The diff shows sidecars in a section of
+  their own, recorded as another part of the approval record in [BB-D30](boundary-broker.md#BB-D30)'s
+  shape, and a y starts them. One prompt instead of a prompt and a command, but a script or a
+  CI launch passing `--accept-config-changes` then starts a stranger's background process that
+  nobody read.
+
+#### Two machines enabled for one project
+
+As filed for [OQ-EW8](#OQ-EW8).
+
+_Setup:_ Matt enables `ci-watch` for yolo-jail on the desk, and weeks later on the laptop,
+having forgotten. He pushes from the laptop and CI fails. Both watchers see it, both agents
+start fixing it, and neither can see the other. The maintainer ruled that yolo will not try to
+guarantee one watcher across machines ([EW-DIR2](#EW-DIR2)), so the question is only whether
+anything short of that is worth having.
+
+- **A — Disclosure, plus an authorship filter in his own watcher.** Each launch on each
+  machine says `ci-watch … enabled on this machine … since <date>`, and `yolo sidecar list`
+  shows that machine's records. The watcher also reports only runs of commits this checkout
+  pushed, which git records locally ([§12.6](#126-two-machines-one-project)). The machine that
+  pushed hears, and the other stays silent. Runs of commits that no checkout pushed (the merge
+  button, bots, other people's pull requests) reach no machine unless one opts in with a flag.
+  No core change, no shared state, no write token.
+- **B — Disclosure only.** The same launch lines and list, and both agents act. The worst case
+  is duplicated work: the second unforced push is refused as non-fast-forward, so nothing
+  shared is corrupted unless an agent force-pushes.
+
+A lease on GitHub, such as creating one ref per run so that the second create fails, is not
+offered: it is the guarantee EW-DIR2 declined, and it needs a write token the watcher does not
+hold.
+
+#### Several sessions in one jail
+
+As filed for [OQ-EW9](#OQ-EW9).
+
+_Setup:_ On the desk, claude and pi are attached to one yolo-jail jail in two terminals,
+working in the same checkout. `ci-watch` reports a failure on main. Both agents have
+deliverers that can wake an idle session.
+
+- **A — One session is woken, and the rest are told.** The woken one is the session the user
+  last typed into, among those whose agent can be woken. The others see the ping at their
+  next turn, marked `delivered to claude (session …)`. The box hands each ping to one waker
+  atomically. The cost is one more hook per agent pack, recording when the user last prompted
+  that session.
+- **B — Every session is woken.** Both agents take a turn on the failure. In one checkout
+  their fixes can edit the same files at once, which is worse than two machines, where at
+  least the working trees are separate.
+- **C — The enable command names the agent.** `yolo sidecar enable ci-watch --to claude` wakes
+  every claude session and never pings pi.
+
+#### Gated, or exempt
+
+As filed for [OQ-EW10](#OQ-EW10).
+
+_Setup:_ Matt's synced pack declares two sidecars: `ci-watch`, which he wants on one machine
+only, and `flaky-log`, which tails a local test log and pings when a test flakes. Running
+`flaky-log` on both his desk and his laptop duplicates nothing, because each machine's log is
+its own. He adds both to the pack on the desk, and the laptop pulls it overnight. The question
+is whether `flaky-log` also waits for `yolo sidecar enable flaky-log` on each machine.
+
+- **A — Every sidecar is gated.** Neither starts on either machine until that machine enables
+  it. `flaky-log` costs one command per machine (one `--all-workspaces` under
+  [OQ-EW6](#OQ-EW6)'s leaning), and no declaration can exempt itself.
+- **B — The config marks which are gated.** Taken literally, only marked sidecars wait, and
+  an unmarked one starts on every machine the dotfiles reach, which is the duplicate
+  [EW-DIR1](#EW-DIR1) was about whenever the author forgets the mark. So B is only safe with
+  gated as the default and an explicit `"gated": false` that only the user's own word
+  ([OQ-EW1](#OQ-EW1)'s set) may write. `flaky-log` then starts everywhere with no command.
+  That one line is a synced setting starting a process, which EW-DIR1 ruled out for the CI
+  watcher; a repository's own sidecar and a fetched pack's stay gated under every answer
+  ([OQ-EW3](#OQ-EW3)).
+
+#### The doorbell where no sidecar is on
+
+The setup and the options of [OQ-EW11](#OQ-EW11).
+
+_Setup:_ Matt has not enabled `ci-watch` on his laptop. In yolo-jail there he runs
+`yolo -- claude` in one terminal and `yolo -- pi` in another, and nothing on the laptop is set
+to ring. As designed, both sessions still register in the jail's box, claude's deliverer waits
+after every turn, and when pi runs `yolo notify "tests done"` from a background task, claude,
+the master, is woken by it. On his Mac, every `yolo host -- claude` there also gets a keeper
+for its box, and stays resident as claude's parent.
+
+- **A — On in every launch, as designed.** `yolo notify` works from any shell, script or
+  background task in any launch, and the master takes each ping. Matt sees no change from
+  [§3.3](#33-yolo-notify-and-the-ping-box). The cost: the deliverer runs in every Claude
+  session whether anything rings or not, before its behavior over a long idle is measured
+  ([§8](#8-costs-and-risks)); any agent session in a jail can wake another; and every
+  `yolo host` launch gets a keeper and a resident `yolo`.
+- **B — On only where a sidecar will start.** The box exists in a launch only when at least one
+  sidecar passes its gate for that workspace on that machine, enabled or acknowledged.
+  Elsewhere there is no box: a deliverer finds none and returns at once, as
+  [§3.3](#33-yolo-notify-and-the-ping-box) already specifies; no agent session registers;
+  `yolo notify` exits 3 saying no sidecar is on for this workspace on this machine; and a
+  `yolo host` launch with nothing else to hold execs as today. The cost: an agent's own
+  background task cannot ring its session unless some sidecar is on there. For Claude its own
+  Monitor tool already covers that case ([Appendix A.1](#a1-claude-21284)); for pi nothing does.
+
+#### One workspace at two notches
+
+The setup and the options of [OQ-EW12](#OQ-EW12).
+
+_Setup:_ On his Mac, Matt has `ci-watch` enabled host side for yolo-jail. He runs
+`yolo -- codex` there in one tab, which is a macos-user sandbox, and later
+`yolo host -- claude` in another tab of the same checkout. The two notches are two keepers
+with two ping boxes, because a box never crosses notches
+([JL-D37](jail-lifetime-last-session-wins.md#JL-D37)). `ci-watch` runs once per workspace per
+machine ([EW-D25](#EW-D25)), under the keeper that started it, the macos-user one. So every CI
+ping wakes codex, that box's master, and claude in the host tab hears none. When he asks
+claude to take the pings over, `yolo notify master --claim` works only inside claude's own
+box, which no sidecar rings. The only way to move them is to quit every macos-user session,
+after which the `yolo host` keeper starts its own `ci-watch`.
+
+- **A — The notch whose keeper started the sidecar keeps its pings.** The host tab's launch
+  line says `ci-watch` runs under the macos-user keeper and that its pings reach that box's
+  master ([§12.5](#125-what-the-launch-says)), and `yolo notify master` in the host tab says
+  the same and names the way to move it: quit that notch's sessions. The cost: a claim does
+  not reach across notches.
+- **B — One watcher per notch.** Each keeper starts its own `ci-watch`, so both boxes' masters
+  are pinged, and codex and claude both wake on one CI failure in one checkout. The cost: the
+  duplicate [EW-DIR3](#EW-DIR3) set out to prevent, now inside one machine, and two pollers of
+  one repository.
+- **C — A claim made at `yolo host` pulls a host-side sidecar's pings across.** A host-side
+  sidecar's writer runs on the host, and may read the `yolo host` box, which only the user's
+  own processes write. Before each ping it checks there for a claim, and rings the claiming
+  box instead of its own, so claude's `--claim` in the host tab takes `ci-watch`'s pings from
+  the macos-user keeper. The cost: it works in one direction only, since the host side never
+  reads a box a jail or a sandbox writes ([EW-D8](#EW-D8)), so codex could not pull them back
+  by a claim; an agent-side sidecar's pings never move; and two keys are coupled through the
+  writer.
+
+#### Enabling while a keeper runs
+
+The setup and the options of [OQ-EW13](#OQ-EW13).
+
+_Setup:_ On his Mac, Matt keeps `yolo host -- claude` open in yolo-jail all day. At noon he runs
+`yolo sidecar enable ci-watch` there, then opens a second tab with `yolo host -- pi`. That tab
+joins the running keeper
+([`jail-lifetime-last-session-wins.md` §9.9.5](jail-lifetime-last-session-wins.md#995-how-a-second-launch-joins)),
+which runs what it started with at 9 a.m., and that had no `ci-watch`. As designed, `ci-watch`
+does not start: the second tab's line says it runs from the workspace's next fresh launch at
+`yolo host`, which comes only once every `yolo host` session there has quit. With one tab open
+all day, that is tomorrow. A container jail behaves the same for a host-side sidecar, since an
+attach starts none ([EW-D10](#EW-D10)). [OQ-EW5](#OQ-EW5)'s answer said *"the next launch of
+that workspace starts the sidecar"* and *"then when you start up, it's going to fire it up"*,
+which the keeper turns into "the next fresh launch".
+
+- **A — The next fresh launch starts it, as designed.** `yolo sidecar enable` says so, and so
+  does each joining launch's line: *"enabled since 12:04; starts at this workspace's next fresh
+  launch here, once its 1 other session has quit"*. Nothing starts beside a running keeper.
+  The cost: an always-open tab delays it indefinitely.
+- **B — Any next launch starts it, through the running keeper.** The joining launch prints the
+  sidecar's line as a fresh launch would, then hands the keeper that one sidecar. The keeper
+  re-checks the gate, as it does before starting a sidecar another key gave up
+  ([EW-D25](#EW-D25)), starts it, and holds it to the key's end like the rest. Matt's second tab
+  starts `ci-watch` at noon. The cost: the keeper runs more than its first plan, a second path
+  from a disclosure to a start, for sidecars only ([JL-D39](jail-lifetime-last-session-wins.md#JL-D39)
+  refuses it for a joiner's services); and in a container jail it reaches host-side sidecars
+  only, since an agent-side one's supervisor is fixed at boot.
+- **C — `yolo sidecar enable` starts it in every running keeper of the workspace on this
+  machine.** The command prints the disclosure in its own terminal and asks each keeper to
+  start it, so nothing waits for a launch. The cost: the same second path, driven by a command
+  rather than a launch; the same agent-side limit; and the running sessions learn of it only at
+  their next quit or arrival
+  ([JL-D19](jail-lifetime-last-session-wins.md#JL-D19)).
+
 ## 13. Open Questions
 
-1. ✅ <a id="OQ-EW1"></a>**[OQ-EW1](#OQ-EW1): Who may declare a host-side sidecar?** A
-   host-side sidecar runs its command on the host, outside every confinement, at every launch.
+1. ✅ <a id="OQ-EW1"></a>**[OQ-EW1](#OQ-EW1): Who may declare a host-side sidecar?**
    This decides whether the token-keeping half of [EW-P4](#EW-P4) is available to the
    maintainer's own pack, and what a pack someone else wrote can make his host run.
-   [OQ-HS4](host-notch-services.md#OQ-HS4) limited a *service's* host half to embedded
-   official packs, but that was about a third party's daemon, and here the author is usually
-   the user.
+   The background, and the precedent it departs from:
+   [who may declare a host-side sidecar](#who-may-declare-a-host-side-sidecar).
 
    - **A — The user's own word only.** User-scope config, the conventional local pack, and any
      pack the user-scope config selects by path. Refused from workspace config and from fetched
@@ -1709,34 +1990,16 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    or one?** **Superseded 2026-09-29 by [OQ-EW8](#OQ-EW8) (two machines) and [OQ-EW9](#OQ-EW9)
    (sessions in one jail).** The text below is kept as asked. An attach can put claude and pi in
    one container, both with deliverers. This decides whether a CI result interrupts both, and
-   whether a sidecar ever has to name a target.
+   whether a sidecar ever has to name a target. The options in full, and the two directions that
+   superseded it: [every session, or one](#every-session-or-one).
 
-   - **A — Every session.** Each reader gets every ping. Simple, and a session that does not care
-     ignores one line.
-   - **B — The first reader to take it.** One session handles each event. Which one is a race.
-   - **C — A target the sidecar names**, by agent. Precise, but a sidecar has to know which
-     agents run, which [EW-P1](#EW-P1) set out to avoid.
+   - **A — Every session.**
+   - **B — The first reader to take it.**
+   - **C — A target the sidecar names**, by agent.
 
    _Leaning:_ **A.** The box cannot know which session cares, and the other two either race or
    make the sidecar know about agents. Two agents in one jail is rare, and C can be added later as
    an optional `--to` without changing A's default.
-
-   **Directed 2026-09-29, back to the drawing board.** The maintainer, answering this question:
-   *"this is a much deeper question i think and i don't think we can actually release this feature
-   until we really nail this down ... normally i put these settings in my dot files i share them
-   across computers ... i may have two agents across different computers ... waiting ... on the same
-   project ... a distributed set of ci watchers and agents that are both going to try to act and
-   that's not going to be good for anyone ... this really just needs to be a very intentional act
-   to enable this ci watcher somewhere ... it can't be driven even from the user settings directly,
-   because then when my.file syncing setup, I'm going to get it in two places without even thinking
-   about it."* The feature is not released until enablement is an intentional, per-machine act that
-   a synced dotfile cannot trigger, and the cross-machine duplicate is designed for. A redesign is
-   in progress; this question is restated with it.
-
-   **Directed again 2026-09-29.** The maintainer: *"I understand that we can't guarantee a single
-   watcher across machines. We're not going to do that. But I do like your clarification that you
-   can define the shape of a watcher, but it needs explicit permission to activate it. That is
-   definitely the right route to go."* Recorded as [EW-DIR2](#EW-DIR2).
 
    <!-- vantage: question id=OQ-EW2 -->
 
@@ -1811,25 +2074,12 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    command, or a question at launch?** This decides what the maintainer does on each machine,
    and whether a synced declaration can ever reach a running watcher through a reflexive answer.
 
-   _Setup:_ Matt keeps his yolo user config and his pack in a dotfiles tree that syncs between
-   his desk and his laptop. On the desk he adds `ci-watch` to the pack. The laptop pulls it
-   overnight. The next morning he runs `yolo -- claude` in yolo-jail on the laptop. Under
-   [§12](#12-enabling-a-sidecar-redesign-2026-09-29) the watcher does not start there, because
-   nothing on the laptop has turned it on, and the launch says so. The question is what that act
-   on a machine is: a command he types, or a question the launch asks him.
+   The setup, and each option in full: [a command, or a question at launch](#a-command-or-a-question-at-launch).
 
-   - **A — A command at the host.** `yolo sidecar enable ci-watch` writes the enablement record.
-     Until then each launch prints `sidecar ci-watch (pack matt, agent side): not enabled on this
-     machine; to start it here: yolo sidecar enable ci-watch` and starts nothing. No launch ever
-     asks.
-   - **B — The launch asks, once per machine.** The first launch that finds `ci-watch` declared
-     and not enabled asks `Start ci-watch on this machine for this workspace? [y/N]` and records
-     either answer. A launch with no terminal starts nothing and asks next time. One step fewer,
-     but the question appears on every machine the dotfiles reach, at the first launch after a
-     sync, which is where a reflexive y lands.
+   - **A — A command at the host.**
+   - **B — The launch asks, once per machine.**
    - **C — A config file that stays on the machine**, such as the `overrides.jsonc` his config
-     includes only if found. Nothing new to build, but yolo cannot tell a file that syncs from
-     one that does not, and it is user settings, which [EW-DIR1](#EW-DIR1)'s words rule out.
+     includes only if found.
 
    _Leaning:_ **A.** It is the shape of direnv's `direnv allow` and launchd's `launchctl
    disable`: a verb that writes state outside the synced tree, and a launch that names the verb
@@ -1855,35 +2105,13 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    every workspace on the machine?** This decides how many commands each machine takes, and how
    much one mistaken command duplicates.
 
-   _Setup:_ Matt wants his desk to watch CI for all 12 of his GitHub repositories. On the laptop
-   he wants only his dotfiles repository watched, although he sometimes works on yolo-jail there
-   too. Both machines have the same pack, so both see `ci-watch` declared in every workspace.
+   The setup, how each option sits with [OQ-EW4](#OQ-EW4)'s ruling, and each option in full:
+   [one workspace, or every workspace on the machine](#one-workspace-or-every-workspace-on-the-machine).
 
-   **How each option sits with [OQ-EW4](#OQ-EW4)'s ruling.** He ruled there that a selected
-   sidecar needs no second switch per workspace, and rejected *"one more line per workspace"*.
-   B keeps that ruling, and so does A's `--all-workspaces`. A's default and C bring a
-   per-workspace act back, and D a per-launch one, so choosing any of them narrows what he
-   ruled.
-
-   - **A — One workspace by default, with a machine-wide form.** `yolo sidecar enable ci-watch`
-     in a workspace covers that workspace on this machine. `--all-workspaces` covers every
-     workspace here that declares it, and `yolo sidecar disable ci-watch` in one workspace turns
-     it off there even under the machine-wide form. The desk takes one `--all-workspaces`, and
-     the laptop one command in the dotfiles checkout. A moved workspace loses its own record and
-     says so; a re-clone at the same path keeps it, since the record is keyed on the path (a
-     repository's own sidecar is still held back by its declaration hash).
-   - **B — The whole machine only.** One command covers every workspace on the machine. The
-     laptop case then needs an `"enabled": false` veto in each workspace that should not be
-     watched there, and the only veto that stays on the laptop is each checkout's untracked
-     `yolo-jail.local.jsonc`, since the committed file travels with the repository to the desk.
-     That file is one the agent can edit or delete from inside the jail
-     ([§12.1](#121-declaring-is-not-enabling)), so under B every laptop-only off switch is one
-     the agent can remove, with only the config-change prompt's y in the way.
-   - **C — One workspace only.** Twelve commands on the desk, and one more for every repository
-     he clones.
-   - **D — One launch.** `yolo --sidecar ci-watch -- claude` starts it for that launch and records
-     nothing. Nothing to forget to turn off, but a launch without the flag has no watcher, which
-     loses the *"just starts up"* of [§1.1](#11-why-now).
+   - **A — One workspace by default, with a machine-wide form.**
+   - **B — The whole machine only.**
+   - **C — One workspace only.**
+   - **D — One launch.**
 
    _Leaning:_ **A**, and it narrows [OQ-EW4](#OQ-EW4)'s ruling on purpose rather than fitting
    it. The duplicate [EW-DIR1](#EW-DIR1) raised is two machines acting on one project, so the
@@ -1906,25 +2134,11 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    the same command, or part of the config-change prompt?** This decides whether "launch with
    this config" and "run this background process here" are one answer or two.
 
-   _Setup:_ Matt clones a colleague's repository whose committed `yolo-jail.jsonc` declares
-   `devserver-errors`, an agent-side sidecar that tails the dev server's log and pings on each
-   error. Its first launch shows the config diff and asks y/N, as every fresh workspace with a
-   non-empty config does ([OQ-S3](../reference/config-safety.md#oq-s3)). The question is whether
-   that y also acknowledges the sidecar.
+   The setup, and each option in full:
+   [a repository's sidecar: the same command, or the config prompt](#a-repositorys-sidecar-the-same-command-or-the-config-prompt).
 
-   - **A — The same command as every other sidecar.** Answering y launches the jail without the
-     sidecar, and a line shows its `cmd` and names `yolo sidecar enable devserver-errors`. The
-     command prints the whole declaration and the file it came from, asks y/N, and records the
-     hash of exactly what it printed, so a later change to any field stops it being started,
-     with a line saying why. The hash covers the declaration, not the script it runs: a pull
-     that edits `scripts/x.sh` under an unchanged `cmd` keeps it running
-     ([§12.4](#124-a-sidecar-a-repository-declares)). `--accept-config-changes` never starts a
-     sidecar.
-   - **B — The config prompt is the acknowledgement.** The diff shows sidecars in a section of
-     their own, recorded as another part of the approval record in [BB-D30](boundary-broker.md#BB-D30)'s
-     shape, and a y starts them. One prompt instead of a prompt and a command, but a script or a
-     CI launch passing `--accept-config-changes` then starts a stranger's background process that
-     nobody read.
+   - **A — The same command as every other sidecar.**
+   - **B — The config prompt is the acknowledgement.**
 
    _Leaning:_ **A.** One act covers every source, and the two answers stay separate. It is the
    leaning [`workspace-config-trust.md`](workspace-config-trust.md#OQ-WT5) took for a similar
@@ -1951,26 +2165,11 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    does anything stop both agents acting on one event?** This decides whether the maintainer's
    watcher narrows what it reports, given that yolo will not guarantee one watcher.
 
-   _Setup:_ Matt enables `ci-watch` for yolo-jail on the desk, and weeks later on the laptop,
-   having forgotten. He pushes from the laptop and CI fails. Both watchers see it, both agents
-   start fixing it, and neither can see the other. The maintainer ruled that yolo will not try to
-   guarantee one watcher across machines ([EW-DIR2](#EW-DIR2)), so the question is only whether
-   anything short of that is worth having.
+   The setup, each option in full, and the lease not offered:
+   [two machines enabled for one project](#two-machines-enabled-for-one-project).
 
-   - **A — Disclosure, plus an authorship filter in his own watcher.** Each launch on each
-     machine says `ci-watch … enabled on this machine … since <date>`, and `yolo sidecar list`
-     shows that machine's records. The watcher also reports only runs of commits this checkout
-     pushed, which git records locally ([§12.6](#126-two-machines-one-project)). The machine that
-     pushed hears, and the other stays silent. Runs of commits that no checkout pushed (the merge
-     button, bots, other people's pull requests) reach no machine unless one opts in with a flag.
-     No core change, no shared state, no write token.
-   - **B — Disclosure only.** The same launch lines and list, and both agents act. The worst case
-     is duplicated work: the second unforced push is refused as non-fast-forward, so nothing
-     shared is corrupted unless an agent force-pushes.
-
-   A lease on GitHub, such as creating one ref per run so that the second create fails, is not
-   offered: it is the guarantee EW-DIR2 declined, and it needs a write token the watcher does not
-   hold.
+   - **A — Disclosure, plus an authorship filter in his own watcher.**
+   - **B — Disclosure only.**
 
    _Leaning:_ **A.** It removes the common case, where the machine that pushed is the one whose
    agent should react, with no credential and no shared state, and core stays blind to CI
@@ -1992,20 +2191,11 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
    ([EW-DIR3](#EW-DIR3)), and designed in [§3.6](#36-which-session-a-ping-wakes-the-master).
    The options below are kept as asked; the direction supersedes all three.**
 
-   _Setup:_ On the desk, claude and pi are attached to one yolo-jail jail in two terminals,
-   working in the same checkout. `ci-watch` reports a failure on main. Both agents have
-   deliverers that can wake an idle session.
+   The setup, and each option in full: [several sessions in one jail](#several-sessions-in-one-jail).
 
-   - **A — One session is woken, and the rest are told.** The woken one is the session the user
-     last typed into, among those whose agent can be woken. The others see the ping at their
-     next turn, marked `delivered to claude (session …)`. The box hands each ping to one waker
-     atomically. The cost is one more hook per agent pack, recording when the user last prompted
-     that session.
-   - **B — Every session is woken.** Both agents take a turn on the failure. In one checkout
-     their fixes can edit the same files at once, which is worse than two machines, where at
-     least the working trees are separate.
-   - **C — The enable command names the agent.** `yolo sidecar enable ci-watch --to claude` wakes
-     every claude session and never pings pi.
+   - **A — One session is woken, and the rest are told.**
+   - **B — Every session is woken.**
+   - **C — The enable command names the agent.**
 
    <!-- vantage: question id=OQ-EW9 -->
 
@@ -2042,23 +2232,10 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
     [EW-D13](#EW-D13) and [§12.1](#121-declaring-is-not-enabling) follow the leaning below until
     this is ruled.
 
-    _Setup:_ Matt's synced pack declares two sidecars: `ci-watch`, which he wants on one machine
-    only, and `flaky-log`, which tails a local test log and pings when a test flakes. Running
-    `flaky-log` on both his desk and his laptop duplicates nothing, because each machine's log is
-    its own. He adds both to the pack on the desk, and the laptop pulls it overnight. The question
-    is whether `flaky-log` also waits for `yolo sidecar enable flaky-log` on each machine.
+    The setup, and each option in full: [gated, or exempt](#gated-or-exempt).
 
-    - **A — Every sidecar is gated.** Neither starts on either machine until that machine enables
-      it. `flaky-log` costs one command per machine (one `--all-workspaces` under
-      [OQ-EW6](#OQ-EW6)'s leaning), and no declaration can exempt itself.
-    - **B — The config marks which are gated.** Taken literally, only marked sidecars wait, and
-      an unmarked one starts on every machine the dotfiles reach, which is the duplicate
-      [EW-DIR1](#EW-DIR1) was about whenever the author forgets the mark. So B is only safe with
-      gated as the default and an explicit `"gated": false` that only the user's own word
-      ([OQ-EW1](#OQ-EW1)'s set) may write. `flaky-log` then starts everywhere with no command.
-      That one line is a synced setting starting a process, which EW-DIR1 ruled out for the CI
-      watcher; a repository's own sidecar and a fetched pack's stay gated under every answer
-      ([OQ-EW3](#OQ-EW3)).
+    - **A — Every sidecar is gated.**
+    - **B — The config marks which are gated.**
 
     <!-- vantage: question id=OQ-EW10 -->
 
@@ -2093,27 +2270,11 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
     doorbell ([§1.2](#12-terms)), meaning the ping box, the deliverers and the session list; the
     `yolo notify` command itself ships either way. No sidecar is on by default under any answer.
 
-    _Setup:_ Matt has not enabled `ci-watch` on his laptop. In yolo-jail there he runs
-    `yolo -- claude` in one terminal and `yolo -- pi` in another, and nothing on the laptop is set
-    to ring. As designed, both sessions still register in the jail's box, claude's deliverer waits
-    after every turn, and when pi runs `yolo notify "tests done"` from a background task, claude,
-    the master, is woken by it. On his Mac, every `yolo host -- claude` there also gets a keeper
-    for its box, and stays resident as claude's parent.
+    The setup, and each option and its cost in full:
+    [the doorbell where no sidecar is on](#the-doorbell-where-no-sidecar-is-on).
 
-    - **A — On in every launch, as designed.** `yolo notify` works from any shell, script or
-      background task in any launch, and the master takes each ping. Matt sees no change from
-      [§3.3](#33-yolo-notify-and-the-ping-box). The cost: the deliverer runs in every Claude
-      session whether anything rings or not, before its behavior over a long idle is measured
-      ([§8](#8-costs-and-risks)); any agent session in a jail can wake another; and every
-      `yolo host` launch gets a keeper and a resident `yolo`.
-    - **B — On only where a sidecar will start.** The box exists in a launch only when at least one
-      sidecar passes its gate for that workspace on that machine, enabled or acknowledged.
-      Elsewhere there is no box: a deliverer finds none and returns at once, as
-      [§3.3](#33-yolo-notify-and-the-ping-box) already specifies; no agent session registers;
-      `yolo notify` exits 3 saying no sidecar is on for this workspace on this machine; and a
-      `yolo host` launch with nothing else to hold execs as today. The cost: an agent's own
-      background task cannot ring its session unless some sidecar is on there. For Claude its own
-      Monitor tool already covers that case ([Appendix A.1](#a1-claude-21284)); for pi nothing does.
+    - **A — On in every launch, as designed.**
+    - **B — On only where a sidecar will start.**
 
     <!-- vantage: question id=OQ-EW11 leaning="B: turn the doorbell on only where a sidecar will start, since nothing in yolo is active by default, A runs an unmeasured hook in every Claude session and a resident yolo host launch for a box nothing writes; the use B gives up, any background process ringing, stays open by declaring that process a sidecar." -->
 
@@ -2138,34 +2299,14 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
     the pings over across notches, which [EW-DIR3](#EW-DIR3)'s *"claim it for themselves if they
     need to"* asks of it within one box.
 
-    _Setup:_ On his Mac, Matt has `ci-watch` enabled host side for yolo-jail. He runs
-    `yolo -- codex` there in one tab, which is a macos-user sandbox, and later
-    `yolo host -- claude` in another tab of the same checkout. The two notches are two keepers
-    with two ping boxes, because a box never crosses notches
-    ([JL-D37](jail-lifetime-last-session-wins.md#JL-D37)). `ci-watch` runs once per workspace per
-    machine ([EW-D25](#EW-D25)), under the keeper that started it, the macos-user one. So every CI
-    ping wakes codex, that box's master, and claude in the host tab hears none. When he asks
-    claude to take the pings over, `yolo notify master --claim` works only inside claude's own
-    box, which no sidecar rings. The only way to move them is to quit every macos-user session,
-    after which the `yolo host` keeper starts its own `ci-watch`.
+    The setup, and each option and its cost in full:
+    [one workspace at two notches](#one-workspace-at-two-notches).
 
-    - **A — The notch whose keeper started the sidecar keeps its pings.** The host tab's launch
-      line says `ci-watch` runs under the macos-user keeper and that its pings reach that box's
-      master ([§12.5](#125-what-the-launch-says)), and `yolo notify master` in the host tab says
-      the same and names the way to move it: quit that notch's sessions. The cost: a claim does
-      not reach across notches.
-    - **B — One watcher per notch.** Each keeper starts its own `ci-watch`, so both boxes' masters
-      are pinged, and codex and claude both wake on one CI failure in one checkout. The cost: the
-      duplicate [EW-DIR3](#EW-DIR3) set out to prevent, now inside one machine, and two pollers of
-      one repository.
-    - **C — A claim made at `yolo host` pulls a host-side sidecar's pings across.** A host-side
-      sidecar's writer runs on the host, and may read the `yolo host` box, which only the user's
-      own processes write. Before each ping it checks there for a claim, and rings the claiming
-      box instead of its own, so claude's `--claim` in the host tab takes `ci-watch`'s pings from
-      the macos-user keeper. The cost: it works in one direction only, since the host side never
-      reads a box a jail or a sandbox writes ([EW-D8](#EW-D8)), so codex could not pull them back
-      by a claim; an agent-side sidecar's pings never move; and two keys are coupled through the
-      writer.
+    - **A — The notch whose keeper started the sidecar keeps its pings.** A claim does not reach
+      across notches.
+    - **B — One watcher per notch.** Both boxes' masters are pinged.
+    - **C — A claim made at `yolo host` pulls a host-side sidecar's pings across.** In one
+      direction only.
 
     <!-- vantage: question id=OQ-EW12 leaning="A: one workspace at two notches at once is the uncommon case, the launch line and yolo notify master say where the pings go and how to move them, B brings back the duplicate the master exists to prevent, and C couples two keys for a claim that works in one direction only." -->
 
@@ -2185,36 +2326,15 @@ takes the config-change prompt ([EW-D34](#EW-D34)).
     one?** This decides how soon `yolo sidecar enable` takes effect wherever a session stays open
     all day.
 
-    _Setup:_ On his Mac, Matt keeps `yolo host -- claude` open in yolo-jail all day. At noon he runs
-    `yolo sidecar enable ci-watch` there, then opens a second tab with `yolo host -- pi`. That tab
-    joins the running keeper
-    ([`jail-lifetime-last-session-wins.md` §9.9.5](jail-lifetime-last-session-wins.md#995-how-a-second-launch-joins)),
-    which runs what it started with at 9 a.m., and that had no `ci-watch`. As designed, `ci-watch`
-    does not start: the second tab's line says it runs from the workspace's next fresh launch at
-    `yolo host`, which comes only once every `yolo host` session there has quit. With one tab open
-    all day, that is tomorrow. A container jail behaves the same for a host-side sidecar, since an
-    attach starts none ([EW-D10](#EW-D10)). [OQ-EW5](#OQ-EW5)'s answer said *"the next launch of
-    that workspace starts the sidecar"* and *"then when you start up, it's going to fire it up"*,
-    which the keeper turns into "the next fresh launch".
+    The setup, and each option and its cost in full:
+    [enabling while a keeper runs](#enabling-while-a-keeper-runs).
 
-    - **A — The next fresh launch starts it, as designed.** `yolo sidecar enable` says so, and so
-      does each joining launch's line: *"enabled since 12:04; starts at this workspace's next fresh
-      launch here, once its 1 other session has quit"*. Nothing starts beside a running keeper.
-      The cost: an always-open tab delays it indefinitely.
-    - **B — Any next launch starts it, through the running keeper.** The joining launch prints the
-      sidecar's line as a fresh launch would, then hands the keeper that one sidecar. The keeper
-      re-checks the gate, as it does before starting a sidecar another key gave up
-      ([EW-D25](#EW-D25)), starts it, and holds it to the key's end like the rest. Matt's second tab
-      starts `ci-watch` at noon. The cost: the keeper runs more than its first plan, a second path
-      from a disclosure to a start, for sidecars only ([JL-D39](jail-lifetime-last-session-wins.md#JL-D39)
-      refuses it for a joiner's services); and in a container jail it reaches host-side sidecars
-      only, since an agent-side one's supervisor is fixed at boot.
+    - **A — The next fresh launch starts it, as designed.** An always-open tab delays it
+      indefinitely.
+    - **B — Any next launch starts it, through the running keeper.** The keeper runs more than
+      its first plan.
     - **C — `yolo sidecar enable` starts it in every running keeper of the workspace on this
-      machine.** The command prints the disclosure in its own terminal and asks each keeper to
-      start it, so nothing waits for a launch. The cost: the same second path, driven by a command
-      rather than a launch; the same agent-side limit; and the running sessions learn of it only at
-      their next quit or arrival
-      ([JL-D19](jail-lifetime-last-session-wins.md#JL-D19)).
+      machine.**
 
     <!-- vantage: question id=OQ-EW13 leaning="B: it keeps OQ-EW5's words, the next launch starts it, with the disclosure printed by a launch before the start; the keeper already starts a sidecar late after re-checking the gate when another key gives one up, so B reuses that path rather than adding one; A can delay an enable for as long as any tab stays open, and C starts code with no launch to say so." -->
 

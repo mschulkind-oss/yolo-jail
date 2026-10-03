@@ -51,11 +51,11 @@ Both are cheap to rule and expensive to discover later. Neither blocks anything 
 > Everything else the body held is in
 > [`loophole-system.md`](../reference/loophole-system.md).
 
-## Open questions
+## Background to the two questions
 
-#### <a id="oq-lp5"></a>💬 **[OQ-LP5](#oq-lp5)** — does `jail_env` stay refused for pack-shipped loopholes?
+### `jail_env` and the pack-shipped subset
 
-<!-- vantage: question id=OQ-LP5 leaning="Keep the refusal: audio wants conditional env and tolerates the unconditional form, and a cost one consumer absorbs is not yet a reason for a cross-kind collision pass. Revisit at the first pack that cannot absorb it." -->
+Background to [OQ-LP5](#oq-lp5).
 
 The pack-shipped subset refuses `jail_env` because it emits container environment variables
 into the same target namespace the `env` contribution kind claims, and cross-kind collisions
@@ -76,26 +76,14 @@ itself, which is purely additive. (This sentence used to name `launch` as `progr
 that kind was retired on 2026-09-12, its flags moving into the `autonomy` kind's postures, and
 the argument is unchanged by the substitution.)
 
-**What the answer decides:** whether a pack can ever set an environment variable
-*conditionally on a loophole actually activating*, or whether "the pack is selected" stays the
-only granularity yolo offers. Every future pack whose loophole is predicate-gated inherits
-this.
-
 **Verified 2026-09-09, re-checked 2026-09-24.** The refusal is `packJailEnvProblems` in `internal/loopholedecl`
 (`packshipped.go`), whose own doc comment names this question and this resolution path;
 `packs/audio/pack.json` does declare both variables through the `env` kind, so the cost is
 paid in the shipped tree rather than in prospect.
 
-_Leaning:_ **keep the refusal.** `audio` wants conditional env and tolerates the
-unconditional form, which is the whole evidence base — a cost one consumer absorbs is not yet
-a reason for a cross-kind collision pass. Revisit at the first pack that **cannot** absorb it.
+### `guest` and `HostFields()`
 
-**Answer:**
-> _(empty — fill in when decided)_
-
-#### <a id="oq-lp7"></a>💬 **[OQ-LP7](#oq-lp7)** — does `guest` get its own field census, or keep borrowing `HostFields()`?
-
-<!-- vantage: question id=OQ-LP7 leaning="Split the census when the guest notch lands, and not before: the funnel is wrong for a reason, but a third field set with zero consumers grows the vocabulary faster than the system it describes." -->
+Background to [OQ-LP7](#oq-lp7).
 
 A loophole is **incoherent at the `host` target** — it is a host daemon whose only client is a
 container, so with no jail there is no client and nothing for the endpoint file to be mounted
@@ -110,9 +98,6 @@ that is settled and the half that is not — `guest` must not fall into the *jai
 would honor `mount` / `reads-host` / `state` at a notch with no mount namespace to honor them
 with, and its real census is the guest notch's own work to state. So the fail-closed direction
 is chosen and built; what is still open is only whether `guest` ever gets a census of its own.
-
-**What the answer decides:** the shape of the first loophole on a no-VM, separate-user
-backend — decided deliberately rather than discovered by whoever writes it.
 
 **The backend is not idle, so that is not why this blocks nothing.** `macos-user` — which
 [`declaration-parity.md` §8](declaration-parity.md#8-the-guest-notch-is-not-a-backend) calls *the
@@ -129,6 +114,37 @@ production caller at all
 and `macos-user` itself runs at `confinement: jail`, reasoning from `render.GuestProfileMacOS()`
 rather than from any field census. So nothing consults the over-permission today, while a loophole
 is live on the very backend this question is about.
+
+## Open questions
+
+#### <a id="oq-lp5"></a>💬 **[OQ-LP5](#oq-lp5)** — does `jail_env` stay refused for pack-shipped loopholes?
+
+<!-- vantage: question id=OQ-LP5 leaning="Keep the refusal: audio wants conditional env and tolerates the unconditional form, and a cost one consumer absorbs is not yet a reason for a cross-kind collision pass. Revisit at the first pack that cannot absorb it." -->
+
+**What the answer decides:** whether a pack can ever set an environment variable
+*conditionally on a loophole actually activating*, or whether "the pack is selected" stays the
+only granularity yolo offers. Every future pack whose loophole is predicate-gated inherits
+this.
+
+Why the refusal exists, what the shipped `audio` pack pays for it, and the justification not to
+re-offer are in [`jail_env` and the pack-shipped subset](#jail_env-and-the-pack-shipped-subset).
+
+_Leaning:_ **keep the refusal.** `audio` wants conditional env and tolerates the
+unconditional form, which is the whole evidence base — a cost one consumer absorbs is not yet
+a reason for a cross-kind collision pass. Revisit at the first pack that **cannot** absorb it.
+
+**Answer:**
+> _(empty — fill in when decided)_
+
+#### <a id="oq-lp7"></a>💬 **[OQ-LP7](#oq-lp7)** — does `guest` get its own field census, or keep borrowing `HostFields()`?
+
+<!-- vantage: question id=OQ-LP7 leaning="Split the census when the guest notch lands, and not before: the funnel is wrong for a reason, but a third field set with zero consumers grows the vocabulary faster than the system it describes." -->
+
+**What the answer decides:** the shape of the first loophole on a no-VM, separate-user
+backend — decided deliberately rather than discovered by whoever writes it.
+
+Where the funnel stands in the code, and why it blocks nothing while loopholes run on
+`macos-user` today: [`guest` and `HostFields()`](#guest-and-hostfields).
 
 _Leaning:_ **split the census when the guest notch lands, and not before.** The funnel is
 wrong for a reason, but inventing a third field set with zero consumers is how a vocabulary
