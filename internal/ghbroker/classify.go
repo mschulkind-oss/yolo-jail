@@ -255,7 +255,9 @@ func repoScope(p *parsed, fieldRepo string) scopeResult {
 		if strings.HasPrefix(a, "https://github.com/") {
 			r := repoFromGitHubURL(a)
 			if r == "" {
-				sr.refused = fmt.Sprintf("argument %q is a github.com URL that names no repository", a)
+				sr.refused = fmt.Sprintf("argument %q is a github.com URL that names no repository "+
+					"the broker can read plainly: OWNER/REPO as its first two path segments, with no "+
+					"percent-encoding. Pass the repository with -R OWNER/REPO and the number instead", a)
 				return sr
 			}
 			add(r)

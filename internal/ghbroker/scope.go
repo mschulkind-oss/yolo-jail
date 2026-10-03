@@ -99,10 +99,16 @@ func (s Scope) widenAdvice(repo string) string {
 func ValidRepo(s string) bool { return brokerscope.ValidRepo(s) }
 
 // repoFromGitHubURL returns the `owner/repo` an https://github.com URL names, or "" when
-// the URL is not one.
+// the URL is not one. A path with any percent-encoding is not one: decoded it names one
+// repository and as sent another (`https://github.com/o%2Fr/` is o/r decoded), so it is
+// refused rather than read, as the `gh api` rule refuses an encoded `repos/OWNER/REPO`
+// (BB-D58; found by FuzzClassify). gh itself refuses such a URL for `repo view` (MEASURED).
 func repoFromGitHubURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || !strings.EqualFold(u.Host, "github.com") || u.User != nil {
+		return ""
+	}
+	if u.RawPath != "" || strings.Contains(u.EscapedPath(), "%") {
 		return ""
 	}
 	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")

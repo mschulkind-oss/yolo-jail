@@ -465,7 +465,9 @@ func TestServeRefusesAWordThatClimbsOutOfTheRepositoryPath(t *testing.T) {
 
 // Found by FuzzClassify (testdata/fuzz/FuzzClassify/c7921640bbbaae74): one argv word holding
 // a space resolved as a two-word command, which gh itself refuses as an unknown command, and
-// an empty second repository skipped the scope check that every other value gets.
+// an empty second repository skipped the scope check that every other value gets. Then
+// (b165e469e64ef9d2) a github.com URL argument was read decoded, where gh's own reading of an
+// encoded one is not that (MEASURED: gh refuses `repo view` of one as an invalid path).
 func TestClassifyWhatTheFuzzerFound(t *testing.T) {
 	for _, c := range []struct {
 		argv   []string
@@ -476,6 +478,11 @@ func TestClassifyWhatTheFuzzerFound(t *testing.T) {
 		{[]string{"pr", "view\t", "1", "-R", "o/r"}, "group of commands"},
 		{[]string{"label", "clone", "", "-R", "o/r"}, "not OWNER/REPO"},
 		{[]string{"issue", "transfer", "1", "", "-R", "o/r"}, "not OWNER/REPO"},
+		// testdata/fuzz/FuzzClassify/b165e469e64ef9d2: a github.com URL whose path is
+		// percent-encoded names o/r decoded and o%2Fr/ as sent.
+		{[]string{"pr", "view", "https://github.com/o%2Fr/"}, "-R OWNER/REPO"},
+		{[]string{"pr", "view", "https://github.com/o%2Fother/r/pull/1"}, "-R OWNER/REPO"},
+		{[]string{"issue", "develop", "1", "--branch-repo", "https://github.com/o%2Fr", "-R", "o/r"}, "OWNER/REPO"},
 	} {
 		d := Classify(c.argv, "o/r", testScope)
 		if d.Outcome != OutcomeRefused || !strings.Contains(d.Reason, c.reason) {
