@@ -15,10 +15,13 @@ package oauthbroker
 // previous record's list only when the response rotated that record's own refresh token, a
 // refresh within one login: the rule refreshTokenExpiresAt follows (refreshtokenexpiry_test.go).
 //
-// No real login: the token endpoint is an httptest server and every token is a fake.
+// No real login: the token endpoint is an httptest server or a fake transport, and every token is
+// a fake.
 
 import (
 	"encoding/base64"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -26,6 +29,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/oauthterminator"
 )
 
 // seededScopes is the list seedLoginWithDeadline gives the previous login, and widerScope a
@@ -158,5 +162,48 @@ func TestABrokerRefreshTakesTheResponsesScopesAndOtherwiseKeepsTheLogins(t *test
 				t.Fatalf("scopes = %s, want %s", scopesText(got), scopesText(tc.want))
 			}
 		})
+	}
+}
+
+// roundTripFunc is an http.RoundTripper made of one function: the fake token endpoint the broker's
+// proxy action reaches through httpClient, which DoProxy aims at UpstreamHost itself.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestAJailsLoginThroughTheBrokersProxyActionTakesItsResponsesScopes enters the mirror where
+// production does: the jail's terminator ships a /login's code exchange to the real BuildHandler
+// behind a real endpoint, whose "proxy" case forwards it upstream and then mirrors the response.
+// The cases above enter at maybePropagateTokenResponse, so deleting that call in BuildHandler
+// left every one of them green; this one fails.
+func TestAJailsLoginThroughTheBrokersProxyActionTakesItsResponsesScopes(t *testing.T) {
+	creds := singleFileStore(t)
+	seedLoginWithDeadline(t, creds, "AT_old", "RT_old", nowMS()-60_000, nowMS()+2*86_400_000)
+	saved := httpClient
+	httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != UpstreamHost || r.URL.Path != "/v1/oauth/token" {
+			return nil, fmt.Errorf("the proxy forwarded to %s, not the token endpoint", r.URL.Redacted())
+		}
+		body := scopedTokenBody("AT_new", "RT_new", `,"scope":"`+widerScope+`"`)
+		return &http.Response{StatusCode: http.StatusOK, Request: r,
+			Header: http.Header{"Content-Type": {"application/json"}},
+			Body:   io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	t.Cleanup(func() { httpClient = saved })
+	endpoint := serveBroker(t, creds)
+
+	login := `{"grant_type":"authorization_code","code":"fake-code","client_id":"` + ClientID + `"}`
+	res := oauthterminator.ProxyUpstream(endpoint, "POST", "/v1/oauth/token",
+		map[string]string{"Content-Type": "application/json"}, []byte(login))
+	if res.Status != http.StatusOK {
+		t.Fatalf("the proxied /login got HTTP %d, want 200: the test proved nothing", res.Status)
+	}
+	if oa, _ := oauthFromCreds(creds); str(oa, "refreshToken") != "RT_new" {
+		t.Fatal(`the broker's proxy action did not mirror the /login's tokens: BuildHandler's "proxy" ` +
+			"case must call maybePropagateTokenResponse")
+	}
+	if got, want := scopesOf(t, creds), strings.Fields(widerScope); !reflect.DeepEqual(got, want) {
+		t.Fatalf("scopes = %s, want the /login response's, %s (the previous login's are %s)",
+			scopesText(got), scopesText(want), scopesText(seededScopes))
 	}
 }
