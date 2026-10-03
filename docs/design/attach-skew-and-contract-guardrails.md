@@ -22,11 +22,13 @@ attached container immediately errors on startup — e.g., `unknown command "foo
 because the newly rendered settings reference CLI verbs, flags, or daemons that the
 container's older mounted binaries do not possess.
 
-**The shape.** A three-layer guard: (1) capability advertising in the container's
-inspect environment, (2) a pre-attach capability compatibility check in
-[`deliverChannelOnAttach`](../../internal/cli/run/run.go), and
-(3) automated remediation (interactive restart prompt in a TTY, loud refusal in CI,
-and safe feature degradation in pack rendering).
+**The shape.** A three-layer guard:
+
+1. capability advertising in the container's inspect environment;
+2. a pre-attach capability compatibility check in
+   [`deliverChannelOnAttach`](../../internal/cli/run/run.go);
+3. automated remediation (interactive restart prompt in a TTY, loud refusal in CI,
+   and safe feature degradation in pack rendering).
 
 **Cost.** Breaking attach to a severely outdated jail requires either an interactive
 restart confirmation or an explicit bypass hatch (`YOLO_ALLOW_ATTACH_SKEW=1`).

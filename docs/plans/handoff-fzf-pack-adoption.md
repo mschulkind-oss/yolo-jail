@@ -247,12 +247,17 @@ reading only the pack would miss these.
 ## 5. Three product defects this pack surfaced
 
 > [!NOTE]
-> **All three are fixed, checked 2026-09-30.** (1) No launcher is written for a name the image
-> already provides (`internal/entrypoint/launchercollision.go`, the generation-time half of
-> [`OQ-PD12a`](../design/program-delivery.md#decision-ledger)). (2) Every `program` in a pack installs
-> ([`pack-system.md`'s Q2.1](../reference/pack-system.md#q2-1)).
-> (3) Each launch stages a new pack tree holding only the selected packs
-> (`internal/cli/run/packtree.go`, `b2e796a7`). The list below is the 2026-08-02 record.
+> **All three are fixed, checked 2026-09-30.**
+>
+> 1. No launcher is written for a name the image already provides
+>    (`internal/entrypoint/launchercollision.go`, the generation-time half of
+>    [`OQ-PD12a`](../design/program-delivery.md#decision-ledger)).
+> 2. Every `program` in a pack installs
+>    ([`pack-system.md`'s Q2.1](../reference/pack-system.md#q2-1)).
+> 3. Each launch stages a new pack tree holding only the selected packs
+>    (`internal/cli/run/packtree.go`, `b2e796a7`).
+>
+> The list below is the 2026-08-02 record.
 
 All three are why [§2.2](#22-no-program-contribution--a-workaround-not-a-design-choice--adopted-requires-2026-08-03) exists. Full context and the decisions needed are in
 [`../reference/pack-system.md#program`](../reference/pack-system.md#program); Phase 11 of the plan

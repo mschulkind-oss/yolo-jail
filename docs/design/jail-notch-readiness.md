@@ -155,6 +155,43 @@ did), and macos-user ran no stage at all unless `mise_tools` asked for one
 ([`OQ-AR5`](../reference/agent-program-runtimes.md#oq-ar5), built as [AR-L3](../reference/agent-program-runtimes.md#ar-l3):
 a declared floor the host cannot show met starts it too).
 
+### When an install cannot happen
+
+This is the background to [OQ-JR1](#OQ-JR1), moved out of the question so the question stays
+short; the question and its leaning are unchanged.
+
+Every neighbour in the provisioning stage degrades — `mise install` failing prints
+`PROVISIONING FAILED` and continues unless a human at a TTY says no; the bootstrap records that
+*"an offline boot fails here routinely and simply retries next launch"*. But a jail that started
+without the program its pack declared is the unready environment this doc exists to stop.
+
+*Restated 2026-09-30.* Two standing rulings pull opposite ways.
+[`OQ-PD12`](program-delivery.md#decision-ledger) scoped an absent agent's failed install to the
+command: *"Offline with the agent **absent** → that command fails, loudly, naming the network.
+**No jail refuses to boot over this**"*
+([`program-delivery.md`](program-delivery.md#what-evergreen-means-precisely)). That was ruled
+for the launcher's install at first use, which is all there was. And
+[`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) refuses a launch whose declared Node
+floor nothing satisfies, an offline one included, because *"if a pack is selected, the jail must
+be able to run what it declares."* The leaning was written two ways, and one of them cannot
+hold: readiness installs only a program that is absent ([§3](#3-what-ready-has-to-mean-here)),
+so every failed install leaves that pack with *"no runnable program"*, and a test on that alone
+refuses every failure, offline ones included. The leaning's other wording splits by the
+failure's cause instead, and that is the one restated as (A).
+
+The options in full:
+
+- **(A)** Split by cause. Offline, the launch starts, names each program it could not install,
+  and the launcher's cold branch retries when the name is run. A package or installer that
+  fails while the network is up refuses the launch, naming the pack, the program and the
+  installer's error, with no escape hatch. yolo has to tell the two apart, by whether the
+  registry or installer URL answered at all.
+- **(B)** Always degrade. The launch starts and names each program it could not install,
+  whatever the cause. It is [`OQ-PD12`](program-delivery.md#decision-ledger)'s rule carried to
+  the launch.
+- **(C)** Always refuse, as [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) does for a
+  floor. An offline cold home cannot start a jail while a program-declaring pack is selected.
+
 ## 4. What this does not license
 
 - **No refresh on the readiness path.** Currency stays at invocation. This doc installs what is
@@ -207,36 +244,16 @@ a declared floor the host cannot show met starts it too).
 ## 8. Open Questions
 
 1. 💬 <a id="OQ-JR1"></a>**[OQ-JR1](#OQ-JR1): does an install that cannot happen refuse the launch, or degrade?**
-   Every neighbour in the provisioning stage degrades — `mise install` failing prints
-   `PROVISIONING FAILED` and continues unless a human at a TTY says no; the bootstrap records that
-   *"an offline boot fails here routinely and simply retries next launch"*. But a jail that started
-   without the program its pack declared is the unready environment this doc exists to stop. Stakes:
-   whether "ready" is a promise or a best effort at this notch.
+   Every neighbour in the provisioning stage degrades, and two standing rulings pull opposite
+   ways; the evidence and each option in full are in
+   [When an install cannot happen](#when-an-install-cannot-happen). Stakes: whether "ready" is a
+   promise or a best effort at this notch.
 
-   *Restated 2026-09-30.* Two standing rulings pull opposite ways.
-   [`OQ-PD12`](program-delivery.md#decision-ledger) scoped an absent agent's failed install to the
-   command: *"Offline with the agent **absent** → that command fails, loudly, naming the network.
-   **No jail refuses to boot over this**"*
-   ([`program-delivery.md`](program-delivery.md#what-evergreen-means-precisely)). That was ruled
-   for the launcher's install at first use, which is all there was. And
-   [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) refuses a launch whose declared Node
-   floor nothing satisfies, an offline one included, because *"if a pack is selected, the jail must
-   be able to run what it declares."* The leaning was written two ways, and one of them cannot
-   hold: readiness installs only a program that is absent ([§3](#3-what-ready-has-to-mean-here)),
-   so every failed install leaves that pack with *"no runnable program"*, and a test on that alone
-   refuses every failure, offline ones included. The leaning's other wording splits by the
-   failure's cause instead, and that is the one restated as (A).
-
-   - **(A)** Split by cause. Offline, the launch starts, names each program it could not install,
-     and the launcher's cold branch retries when the name is run. A package or installer that
-     fails while the network is up refuses the launch, naming the pack, the program and the
-     installer's error, with no escape hatch. yolo has to tell the two apart, by whether the
-     registry or installer URL answered at all.
-   - **(B)** Always degrade. The launch starts and names each program it could not install,
-     whatever the cause. It is [`OQ-PD12`](program-delivery.md#decision-ledger)'s rule carried to
-     the launch.
+   - **(A)** Split by cause: offline, the launch starts and names what it could not install; a
+     failure with the network up refuses it.
+   - **(B)** Always degrade, whatever the cause.
    - **(C)** Always refuse, as [`OQ-AR3`](../reference/agent-program-runtimes.md#oq-ar3) does for a
-     floor. An offline cold home cannot start a jail while a program-declaring pack is selected.
+     floor.
 
    <!-- vantage: question id=OQ-JR1 leaning="(A): degrade on a network failure, refuse on a failure with the network up — the distinction being whether anything but the connection is wrong. (C) makes an offline cold boot unusable; (B) re-creates the false success this doc opens with for a package that will never install." -->
 
