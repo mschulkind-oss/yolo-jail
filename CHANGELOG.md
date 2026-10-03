@@ -27,6 +27,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `container ls`, not `container ps`.
 - Ending a jail no longer waits on, and leaves behind, a stopped container Podman could not remove
   itself, as can happen after a terminal closes while its session starts.
+- On Apple Container, claude, codex and agy are now recorded once per machine, where every launch
+  ran their installers again and recorded nothing.
 
 ## [0.11.1] - 2026-10-02
 

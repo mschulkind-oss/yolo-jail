@@ -84,6 +84,16 @@ type Options struct {
 	// Manifest.Home stays the real HOME, because the tree is materialized into a home and
 	// the capture-time home is what an absolute reference would have to be rewritten
 	// from. Nothing about what a capture MEANS depends on which door the driver used.
+	//
+	// IT IS CHECKED, NOT TRUSTED (surfaceDoor). A surface is reached through
+	// <SurfaceRoot>/<Subtree> only when that is provably the directory <Home>/<HomeRel> is,
+	// and through the home otherwise. The host passes the same root on every container
+	// backend, and only podman's layout makes it true: Apple Container binds
+	// <ws>/.yolo/home WHOLE at the home, so `.local` there is <root>/.local and <root>/local
+	// is a directory nothing creates. Trusted, that root walked an absent `.local`, and
+	// every capture on that backend came back empty (MEASURED on a Mac 2026-10-02,
+	// docs/research/macos-backend-performance.md §8). Through the home, the walk sees what
+	// the installer wrote and the move copies across the mount, which Result.Copied reports.
 	SurfaceRoot string
 	// Excludes are home-relative, slash-separated subtrees the delta never contains, no
 	// matter what the installer did to them. Nil is DefaultExcludes(); an explicit empty
@@ -243,6 +253,10 @@ type driver struct {
 	tree     string
 	surfaces []paths.HomeSurface
 	excludes []string
+	// doors is the path each surface is walked and moved through, keyed by HomeRel, decided
+	// once before the baseline (surfaceDoor) so the walk, the move and the parents' modes all
+	// use the same one.
+	doors map[string]string
 }
 
 func newDriver(opts Options) (*driver, error) {
@@ -282,22 +296,28 @@ func newDriver(opts Options) (*driver, error) {
 	if opts.SurfaceRoot != "" && !filepath.IsAbs(opts.SurfaceRoot) {
 		return nil, fmt.Errorf("capture: surface root %q must be an absolute path", opts.SurfaceRoot)
 	}
+	d.doors = make(map[string]string, len(d.surfaces))
+	for _, s := range d.surfaces {
+		d.doors[s.HomeRel] = surfaceDoor(d.home, opts.SurfaceRoot, s)
+	}
 	// The scratch dir inside a capture surface would capture ITSELF, growing without
 	// bound and filing yolo's own scratch as the vendor's install. Refused rather than
 	// filtered: an out dir elsewhere is always available, and a filter would be a rule a
 	// reader of the manifest could not see.
 	//
-	// BOTH DOORS ARE CHECKED. With a SurfaceRoot the same directory has two paths, and an
-	// out dir under the second one is just as self-capturing as one under the first — it
-	// simply would not have looked it.
+	// BOTH DOORS ARE CHECKED, whichever one surfaceDoor chose. With a SurfaceRoot the same
+	// directory can have two paths, and an out dir under the second one is just as
+	// self-capturing as one under the first — it simply would not have looked it.
 	for _, s := range d.surfaces {
-		if within(d.surfacePath(s), filepath.Clean(opts.Out)) {
-			return nil, fmt.Errorf("capture: out dir %s is inside the capture surface %s — "+
-				"it would capture itself", opts.Out, d.surfacePath(s))
+		candidates := []string{filepath.Join(d.home, filepath.FromSlash(s.HomeRel))}
+		if opts.SurfaceRoot != "" {
+			candidates = append([]string{filepath.Join(opts.SurfaceRoot, filepath.FromSlash(s.Subtree))}, candidates...)
 		}
-		if home := filepath.Join(d.home, filepath.FromSlash(s.HomeRel)); within(home, filepath.Clean(opts.Out)) {
-			return nil, fmt.Errorf("capture: out dir %s is inside the capture surface %s — "+
-				"it would capture itself", opts.Out, home)
+		for _, c := range candidates {
+			if within(c, filepath.Clean(opts.Out)) {
+				return nil, fmt.Errorf("capture: out dir %s is inside the capture surface %s — "+
+					"it would capture itself", opts.Out, c)
+			}
 		}
 	}
 	if err := os.MkdirAll(opts.Out, 0o755); err != nil {
@@ -324,19 +344,75 @@ func (d *driver) surfaceRels() []string {
 	return out
 }
 
-// surfacePath is the path this driver reaches one surface through — <SurfaceRoot>/<Subtree>
-// when a surface root was given, <Home>/<HomeRel> otherwise.
-//
-// This is the ONE place in the driver where paths.HomeSurface's two spellings are both
-// used, and using both is the point: the Subtree name is the host side of the bind and the
-// HomeRel name is the jail side, so a capture that walks one and reports the other is
-// walking and reporting the same directory only because that pair is written down once
-// (paths.InstalledProgramSurfaces).
+// surfacePath is the path this driver reaches one surface through: the door surfaceDoor chose
+// for it before the baseline.
 func (d *driver) surfacePath(s paths.HomeSurface) string {
-	if d.opts.SurfaceRoot != "" {
-		return filepath.Join(d.opts.SurfaceRoot, filepath.FromSlash(s.Subtree))
+	if door, ok := d.doors[s.HomeRel]; ok {
+		return door
 	}
-	return filepath.Join(d.home, filepath.FromSlash(s.HomeRel))
+	return surfaceDoor(d.home, d.opts.SurfaceRoot, s)
+}
+
+// surfaceDoor decides the path one surface is walked and moved through: <root>/<Subtree> when
+// that is PROVABLY the directory <home>/<HomeRel> is, and <home>/<HomeRel> in every other case.
+//
+// This is the ONE place in the driver where paths.HomeSurface's two spellings are both used,
+// and using both is the point: the Subtree name is the host side of podman's bind and the
+// HomeRel name is the jail side, so a capture that walks one and reports the other is walking
+// and reporting the same directory only when the two really are one directory. That is a fact
+// about the BACKEND's mounts, which the driver cannot be told reliably — the host passes the same
+// root to every container backend — so it is checked here instead:
+//
+//   - podman binds `<ws>/.yolo/home/local` at `~/.local`, so `<root>/local` and `~/.local` are one
+//     directory on one filesystem, same device and inode, and the root is used: the move is a
+//     rename (Options.SurfaceRoot).
+//   - Apple Container binds `<ws>/.yolo/home` whole at the home (appleContainerBaseMounts), so
+//     `~/.local` is `<root>/.local` and `<root>/local` does not exist. Even where a name agrees
+//     (`go`), the guest reaches the two through different virtiofs mounts, which a Linux guest
+//     gives different devices (INFERRED: each mount is its own superblock; not measured on a
+//     Mac). The home is used, and the move copies across the mount: correct, and paid once per
+//     program per machine.
+//
+// The proof is taken at the DEEPEST level both spellings exist, because a surface is often
+// absent until its installer runs (`.codex/packages/standalone` before codex's): the pair of
+// top directories (`codex` and `.codex`) is compared instead, and the rest of the path must then
+// be spelled the same on both sides, since one directory has one set of child names. A level
+// where only ONE side exists is a disproof, as is a door that is itself a symlink (WalkDir would
+// record the link and descend into nothing). Anything that cannot be proved takes the home, the
+// door the installer writes through, which can only cost a copy; a wrong door costs the capture.
+func surfaceDoor(home, root string, s paths.HomeSurface) string {
+	homeDoor := filepath.Join(home, filepath.FromSlash(s.HomeRel))
+	if root == "" {
+		return homeDoor
+	}
+	rootDoor := filepath.Join(root, filepath.FromSlash(s.Subtree))
+	hc := strings.Split(filepath.ToSlash(s.HomeRel), "/")
+	rc := strings.Split(filepath.ToSlash(s.Subtree), "/")
+	if len(hc) != len(rc) {
+		return homeDoor
+	}
+	dirAt := func(p string) (fs.FileInfo, bool) {
+		fi, err := os.Stat(p)
+		return fi, err == nil && fi.IsDir()
+	}
+	for k := len(hc); k >= 1; k-- {
+		hi, hok := dirAt(filepath.Join(append([]string{home}, hc[:k]...)...))
+		ri, rok := dirAt(filepath.Join(append([]string{root}, rc[:k]...)...))
+		switch {
+		case !hok && !rok:
+			continue
+		case hok != rok:
+			return homeDoor
+		}
+		if !os.SameFile(hi, ri) || strings.Join(hc[k:], "/") != strings.Join(rc[k:], "/") {
+			return homeDoor
+		}
+		if fi, err := os.Lstat(rootDoor); err == nil && !fi.IsDir() {
+			return homeDoor
+		}
+		return rootDoor
+	}
+	return homeDoor
 }
 
 // abs maps a home-relative path to the filesystem path this driver touches it through.
