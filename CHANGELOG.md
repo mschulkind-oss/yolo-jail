@@ -33,6 +33,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   starts a jail does.
 - When yolo cannot record an agent's install, the next launches no longer try again each time: the
   launch that failed says when it will retry, and `yolo capture <agent>` retries at once.
+- A launch whose temporary directory is full or unusable now says so and how to fix it, instead of
+  pointing at Podman.
+- After a `/login` in a jail, Claude no longer keeps the previous login's permissions or expiry
+  date.
+- On Apple Container, a terminal whose jail is stopped while it runs now says the jail stopped and
+  why, instead of saying nothing or that the jail stays up.
 
 ## [0.11.1] - 2026-10-02
 
