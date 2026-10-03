@@ -32,7 +32,7 @@ import (
 //     this launch's report still holds the pane (HR-D8). Cleared at the session's end.
 //
 // WHEN. Each arm registers only once a signal arm covers it, just before its session starts
-// (the fresh launch's armLaunchSignals, an attach's attachSignalArm), and releases when the
+// (the fresh launch's armLaunchSignalsWith, an attach's attachSignalArm), and releases when the
 // session returns, before that arm is disarmed; each arm's teardown releases too, and Run's
 // defer covers every other return. herdr keeps a report from a source it does not know
 // until it is released or replaced, or the pane closes, and the `--agent` guard alone does not

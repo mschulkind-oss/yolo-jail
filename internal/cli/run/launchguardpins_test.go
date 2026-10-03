@@ -59,10 +59,10 @@ func TestTheLaunchGuardIsHandedOverWhereAnArmTakesOver(t *testing.T) {
 
 	runContainer := funcDecl(t, "run.go", "runContainer")
 	fresh := first(runContainer, "buildHomeSkeleton", "noteSkeleton",
-		"record", "runtimeWriteTracking", "writeLivePackTree", "startKeeper", "armLaunchSignals",
+		"record", "runtimeWriteTracking", "writeLivePackTree", "startKeeper", "armLaunchSignalsWith",
 		"retireLaunchGuard", "registerHerdrAgent", "relay")
 	inOrder("runContainer", fresh, "buildHomeSkeleton", "noteSkeleton", "record",
-		"runtimeWriteTracking", "writeLivePackTree", "startKeeper", "armLaunchSignals",
+		"runtimeWriteTracking", "writeLivePackTree", "startKeeper", "armLaunchSignalsWith",
 		"retireLaunchGuard", "registerHerdrAgent", "relay")
 
 	// The two records are written INSIDE the guard's record, under its hold, and the launch stops

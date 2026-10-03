@@ -182,7 +182,7 @@ func TestALaunchRefusedBeforeItsSessionRegistersNothing(t *testing.T) {
 // TestTheHerdrPaneIsRegisteredOnlyUnderASignalArm is the call-site pin for the container arms,
 // which no unit test drives to a session. Each registers only once its signal arm is installed,
 // and releases before the arm is disarmed, so no signal can end the launcher by its default
-// action while herdr holds the pane: the fresh launch between armLaunchSignals and the keeper's
+// action while herdr holds the pane: the fresh launch between armLaunchSignalsWith and the keeper's
 // relay, and before each disarm; an attach between its arm and its exec, and before its disarm.
 // The macos-user arm, which has no signal arm, registers after its config prompt and just before
 // the backend. Both teardowns a signal runs release, and Run makes the slot and defers the
@@ -267,10 +267,10 @@ func TestTheHerdrPaneIsRegisteredOnlyUnderASignalArm(t *testing.T) {
 	}
 
 	fresh := callsOf(funcDecl(t, "run.go", "runContainer"))
-	ordered("runContainer", fresh, "armLaunchSignals", "registerHerdrAgent", "relay",
+	ordered("runContainer", fresh, "armLaunchSignalsWith", "registerHerdrAgent", "relay",
 		"runArmedSession", "endSession")
 	releasedAfter("runContainer", fresh, "runArmedSession", "endSession")
-	releasedBeforeEachDisarm("runContainer", fresh, first(fresh, "armLaunchSignals"))
+	releasedBeforeEachDisarm("runContainer", fresh, first(fresh, "armLaunchSignalsWith"))
 
 	attach := callsOf(funcDecl(t, "run.go", "attachExisting"))
 	ordered("attachExisting", attach, "attachSignalArm", "registerHerdrAgent", "runArmedSession",

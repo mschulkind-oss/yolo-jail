@@ -327,8 +327,9 @@ func endingOnAHangup() bool {
 	return ending && sig == syscall.SIGHUP
 }
 
-// armLaunchSignalsWith is armLaunchSignals with the process exit as a parameter, so a test can
-// drive the arm to its end without ending the test binary.
+// armLaunchSignalsWith is armLaunchSignals with the process exit as a parameter: for an arm whose
+// exit writes the launch's machine-wide line first (interruptedArmExit, launchrecord.go), and so a
+// test can drive the arm to its end without ending the test binary.
 func armLaunchSignalsWith(onTerminate func(), exit func(int)) *launchSignalArm {
 	return armLaunchSignalsOuter(onTerminate, nil, exit)
 }

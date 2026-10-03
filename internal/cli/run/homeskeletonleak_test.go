@@ -99,7 +99,7 @@ func TestNoReturnAfterTheSkeletonLeaksIt(t *testing.T) {
 	// a spawn that succeeded, and returns after that are exempt here.
 	spawned := token.NoPos
 	ast.Inspect(fd, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok && skelCallee(call) == "armLaunchSignals" && spawned == token.NoPos {
+		if call, ok := n.(*ast.CallExpr); ok && skelCallee(call) == "armLaunchSignalsWith" && spawned == token.NoPos {
 			spawned = call.Pos()
 		}
 		return true

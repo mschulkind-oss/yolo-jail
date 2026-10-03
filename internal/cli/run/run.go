@@ -43,8 +43,9 @@ func Run(opts Options) (rc int) {
 
 	// THE MACHINE-WIDE LAUNCH LINE (launchrecord.go, OQ-PR3): one line per launch in
 	// GLOBAL_STORAGE/logs/launches.log, written when the container starts or the attach
-	// begins — or at return, for a launch that did neither. ARMED FIRST, above even the
-	// three guards below, because the ruling is one line per launch refused or not, and
+	// begins — or, for a launch that did neither, at the exit of a signal its launch guard or
+	// its keeper's arm before ready takes, and otherwise at return. ARMED FIRST, above even
+	// the three guards below, because the ruling is one line per launch refused or not, and
 	// those guards refuse launches too. It is the one write above them, and none of their
 	// reasons reaches it: it writes nothing under the workspace (the line lands in yolo's own
 	// log directory, the one every launch writes, whatever its workspace) and names the
@@ -1936,8 +1937,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// alone, which closes the lifeline and so has the keeper unwind; from ready on it is the
 	// session's arm, retargeted rather than replaced, so no signal falls between two arms. It takes
 	// over from the launch guard, which goes once it is installed (armstack.go: the innermost arm
-	// alone acts).
-	arm := armLaunchSignals(o.keeperPreReadyTeardown(kp, cname, rt))
+	// alone acts). Its exit writes the launch's machine-wide line first, as the guard's does
+	// (launchrecord.go): a signal before the keeper's spawned event, which writes it, ends the
+	// process before Run's deferred record could.
+	arm := armLaunchSignalsWith(o.keeperPreReadyTeardown(kp, cname, rt), o.interruptedArmExit())
 	if !o.retireLaunchGuard() {
 		// The launch guard is ending this launch, through its keeper: it keeps every later signal,
 		// so the arm just installed never runs the same teardown beside it. Never race it.

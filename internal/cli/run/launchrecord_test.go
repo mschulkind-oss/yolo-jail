@@ -7,8 +7,10 @@ package run
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -401,4 +403,134 @@ func TestALaunchEndedByTheLaunchInsideItLeavesItsLine(t *testing.T) {
 		t.Errorf("at the inner launch's exit the log held %q, want the outer launch's line, "+
 			"outcome=interrupted rc=129", atExit)
 	}
+}
+
+// A SIGNAL AFTER THE KEEPER'S SPAWN AND BEFORE IT SPAWNS THE RUNTIME ends the launch through the
+// arm the launch installs once its keeper is spawned (keeperPreReadyTeardown, keeperspawn.go),
+// before its line is written: the relay records started only at the keeper's spawned event, and
+// that arm's exit, like the guard's, is os.Exit, which Run's deferred record never follows. So
+// that arm's exit writes the line too. The keeper here says it started, which the relay reads only
+// once that arm is installed and the guard retired, and never that it spawned the runtime; it
+// unwinds once the lifeline closes, as keeper.go's does before ready. Run does not return here: its
+// arm owns the exit, so Run waits for the process to end (run.go's select {}), and its goroutine
+// is left there.
+func TestALaunchASignalEndsBeforeItsRuntimeIsSpawnedLeavesItsLine(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `[]`)
+	ws := t.TempDir()
+	cname := yoloruntime.FromWorkspace(ws)
+	t.Setenv("PATH", t.TempDir())
+	t.Cleanup(func() { _ = os.RemoveAll(hostServiceSocketsDir(cname, false)) })
+	var atExit string
+	exits := seeArmExitsWith(t, cname, func() { atExit = launchLogAtExit() })
+	catchSignal(t, syscall.SIGINT)
+	before := installedLaunchArms()
+	// The arm that fired never disarms (its exit would have ended the process): it goes here, so
+	// a later signal to the test binary reaches no dead arm.
+	t.Cleanup(func() {
+		for _, a := range installedLaunchArms() {
+			if !slices.Contains(before, a) {
+				popLaunchArm(a)
+			}
+		}
+	})
+
+	saved := defaultKeeperSpawner
+	t.Cleanup(func() { defaultKeeperSpawner = saved })
+	defaultKeeperSpawner = func(_ *Options, planPath string, progress, lifeline, _ *os.File, _ []*os.File) (func() int, error) {
+		removeKeeperPlan(planPath)
+		prog, err := dupCloseOnExec(progress)
+		if err != nil {
+			return nil, err
+		}
+		life, err := dupCloseOnExec(lifeline)
+		if err != nil {
+			_ = prog.Close()
+			return nil, err
+		}
+		if err := writeFrame(prog, frameStarted, []byte("4242")); err != nil {
+			_ = prog.Close()
+			_ = life.Close()
+			return nil, err
+		}
+		return func() int {
+			_, _ = io.Copy(io.Discard, life)
+			_ = life.Close()
+			_ = prog.Close()
+			return 1
+		}, nil
+	}
+
+	var stdout bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &stdout, &bytes.Buffer{}, nil)
+	started := make(chan struct{})
+	stderr := &markWriter{mark: "keeper: started, pid 4242", seen: started}
+	o.Stderr = stderr
+	repo, _ := o.RepoRoot()
+	o.PathExists = func(p string) bool { return p == filepath.Join(prebuiltBinDir(repo.Root), "yolo-entrypoint") }
+	o.Exec = func([]string, string, []string, time.Duration) ExecResult { return ExecResult{Ran: true, RC: 0} }
+	o.autoLoad = func(image.AutoLoadOptions) image.LoadResult { return image.LoadResult{OK: true, Ref: goldenImageRef} }
+	o.RestoreTerminal = func() {}
+	go Run(*o)
+
+	select {
+	case <-started:
+	case <-time.After(20 * time.Second):
+		t.Fatalf("the launch never relayed its keeper's start, so this test says nothing about its line\n"+
+			"stderr:\n%s", stderr.String())
+	}
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case e := <-exits:
+		if e.code != 128+int(syscall.SIGINT) {
+			t.Errorf("the launch exited %d, want %d", e.code, 128+int(syscall.SIGINT))
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatalf("no arm ended the launch on its SIGINT\nstderr:\n%s", stderr.String())
+	}
+	if !strings.Contains(atExit, "outcome=interrupted rc=130") || strings.Count(atExit, "\n") != 0 {
+		t.Errorf("at the exit of the launch's arm the launch log held %q, want this launch's one "+
+			"line, outcome=interrupted rc=130: a real exit writes nothing after it", atExit)
+	}
+	assertOneLaunchLine(t, ws, "runtime=podman", "outcome=interrupted", "rc=130")
+}
+
+// installedLaunchArms is the process's launch arms now, innermost last (armstack.go).
+func installedLaunchArms() []*launchSignalArm {
+	launchArms.mu.Lock()
+	defer launchArms.mu.Unlock()
+	return slices.Clone(launchArms.arms)
+}
+
+// dupCloseOnExec duplicates f as a spawned keeper's copy, close-on-exec under syscall.ForkLock as
+// inProcessKeeper's are, so no process started meanwhile inherits it.
+func dupCloseOnExec(f *os.File) (*os.File, error) {
+	syscall.ForkLock.RLock()
+	fd, err := syscall.Dup(int(f.Fd()))
+	if err == nil {
+		syscall.CloseOnExec(fd)
+	}
+	syscall.ForkLock.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), f.Name()), nil
+}
+
+// markWriter is a lockedBuffer that closes seen the first time what it holds contains mark.
+type markWriter struct {
+	lockedBuffer
+	mark string
+	seen chan struct{}
+	once sync.Once
+}
+
+func (m *markWriter) Write(p []byte) (int, error) {
+	n, err := m.lockedBuffer.Write(p)
+	if strings.Contains(m.lockedBuffer.String(), m.mark) {
+		m.once.Do(func() { close(m.seen) })
+	}
+	return n, err
 }

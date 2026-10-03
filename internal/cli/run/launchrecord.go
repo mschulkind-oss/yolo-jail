@@ -58,7 +58,8 @@ const (
 	launchNotStarted = "not-started"
 	// launchInterrupted: a signal ended the launch before its line was written — a Ctrl-C
 	// during the podman readiness wait (exit 130), or a SIGINT, SIGHUP or SIGTERM its launch
-	// guard took from its pack staging on (exit 128+N, launchguard.go).
+	// guard took from its pack staging on (launchguard.go), or its keeper's arm took before the
+	// keeper spawned the runtime (run.go), each exiting 128+N.
 	launchInterrupted = "interrupted"
 )
 
