@@ -269,8 +269,11 @@ func TestClassifyStartError(t *testing.T) {
 		{"scratch: no temp dir", scratch(syscall.ENOENT), FailurePermanent, "TMPDIR"},
 		{"scratch: not writable", scratch(syscall.EACCES), FailurePermanent, "TMPDIR"},
 		{"scratch: read-only", scratch(syscall.EROFS), FailurePermanent, "TMPDIR"},
-		{"scratch: disk full", scratch(syscall.ENOSPC), FailureUnknown, ""},
-		{"scratch: out of descriptors", scratch(syscall.EMFILE), FailureUnknown, ""},
+		{"scratch: disk full", scratch(syscall.ENOSPC), FailureUnknown, "free space in the temporary directory"},
+		{"scratch: over quota", scratch(syscall.EDQUOT), FailureUnknown, "free space in the temporary directory"},
+		{"scratch: out of descriptors", scratch(syscall.EMFILE), FailureUnknown, "limit on open files"},
+		{"scratch: system out of descriptors", scratch(syscall.ENFILE), FailureUnknown, "open-files table is full"},
+		{"scratch: an errno no row names", scratch(syscall.EIO), FailureUnknown, "TMPDIR"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := ClassifyStartError(tc.err)
@@ -476,6 +479,64 @@ func TestARefusalAfterRetriedStartErrorsCarriesTheStartError(t *testing.T) {
 				if !strings.Contains(refusal, want) {
 					t.Errorf("refusal lacks %q:\n%s", want, refusal)
 				}
+			}
+		})
+	}
+}
+
+// scratchAttempt is an attempt that never ran podman: yolo could not create the scratch file
+// for its answer, for errno.
+func scratchAttempt(errno syscall.Errno) Attempt {
+	return Attempt{StartErr: &ProbeScratchError{Err: &os.PathError{Op: "open", Path: "/tmp/yolo-podman-ready-1.out", Err: errno}}}
+}
+
+// A gate that ends on yolo's own scratch file (PR-D23) never ran podman, so its refusal leads with
+// that error and names the step the error calls for, never podman's: a full disk and a descriptor
+// limit are retried until the budget ends, a temporary directory that is missing refuses at once,
+// and both say the same thing. A scratch error behind an attempt still running at the end is not
+// what the gate ended on: podman ran then, and the refusal is about podman.
+func TestARefusalThatEndsOnAScratchFileNamesItAndItsFix(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		script  []Attempt
+		outcome ReadyOutcome
+		scratch bool
+		want    []string
+	}{
+		{"disk full", []Attempt{scratchAttempt(syscall.ENOSPC)}, PodmanNotReady, true, []string{
+			"yolo could not create the scratch file for podman's answer, so podman info never ran (",
+			"): open /tmp/yolo-podman-ready-1.out: no space left on device.",
+			"\nFix: free space in the temporary directory (TMPDIR, or /tmp when TMPDIR is unset)"}},
+		{"out of descriptors", []Attempt{scratchAttempt(syscall.EMFILE)}, PodmanNotReady, true, []string{
+			"yolo could not create the scratch file for podman's answer, so podman info never ran (",
+			": too many open files.", "\nFix: yolo reached its limit on open files"}},
+		{"no temp dir", []Attempt{scratchAttempt(syscall.ENOENT)}, PodmanNotStarted, true, []string{
+			"yolo could not create the scratch file for podman's answer, so podman info never ran (1 attempt, ",
+			"\nFix: make the temporary directory usable: TMPDIR"}},
+		{"before one still running", []Attempt{scratchAttempt(syscall.ENOSPC), {Pid: 4242}}, PodmanNotReady, false, []string{
+			"podman info did not answer within 60s",
+			"; the last error it gave: could not run: yolo could not create the scratch file",
+			"podman (pid 4242) is still running; yolo left it to finish."}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &fakeGateClock{t: time.Unix(1000, 0)}
+			calls := 0
+			res := WaitForPodman(PodmanInfoArgv("podman"), PodmanReadyBudget,
+				fakeSeams(c, scriptedAttempts(c, tc.script, &calls)), ReadyHooks{})
+			if res.Outcome != tc.outcome {
+				t.Fatalf("outcome = %v after %d attempts, want %v", res.Outcome, calls, tc.outcome)
+			}
+			if got := res.EndedOnScratchError(); got != tc.scratch {
+				t.Errorf("EndedOnScratchError() = %v, want %v", got, tc.scratch)
+			}
+			refusal := res.Refusal("podman")
+			for _, want := range tc.want {
+				if !strings.Contains(refusal, want) {
+					t.Errorf("refusal lacks %q:\n%s", want, refusal)
+				}
+			}
+			if tc.scratch && (strings.Contains(refusal, "did not answer") || strings.Contains(refusal, "install podman")) {
+				t.Errorf("a refusal about yolo's scratch file blames podman:\n%s", refusal)
 			}
 		})
 	}

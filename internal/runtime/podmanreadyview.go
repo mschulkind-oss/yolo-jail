@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -84,7 +85,8 @@ func (r ReadyResult) DoneText() string {
 
 // Refusal is the body of the refusal a gate that did not answer ends in: the attempt count,
 // the elapsed time, podman's last reason line, the fix when there is one, and any podman left
-// running (PR-D9). "" for a ready result.
+// running (PR-D9). A gate that ended on yolo's own scratch file (EndedOnScratchError) says
+// that instead, since podman never ran: the error, and its fix. "" for a ready result.
 func (r ReadyResult) Refusal(rt string) string {
 	if r.Outcome == PodmanReady {
 		return ""
@@ -96,6 +98,14 @@ func (r ReadyResult) Refusal(rt string) string {
 	}
 	span := fmt.Sprintf("%s, %.1fs", attempts, r.Elapsed.Seconds())
 	var b strings.Builder
+	if scratch, ok := r.scratchError(); ok {
+		fmt.Fprintf(&b, "yolo could not create the scratch file for podman's answer, so %s info never ran (%s): %s.",
+			rt, span, scratch.Err)
+		if r.Failure.Fix != "" {
+			fmt.Fprintf(&b, "\nFix: %s.", r.Failure.Fix)
+		}
+		return b.String()
+	}
 	switch r.Outcome {
 	case PodmanNotStarted:
 		fmt.Fprintf(&b, "%s info could not run: %s.", rt, r.Failure.Line)
@@ -125,6 +135,24 @@ func (r ReadyResult) Refusal(rt string) string {
 		fmt.Fprintf(&b, "\n%s (pid %d) is still running; yolo left it to finish.", rt, r.Running)
 	}
 	return b.String()
+}
+
+// EndedOnScratchError reports a gate that did not answer because its last attempt could not
+// create yolo's own scratch files (*ProbeScratchError): podman never ran, so the refusal's fix,
+// the temporary directory's, is the whole next step, and a caller's step that points at podman
+// is wrong there. False when the last attempt ran podman, whatever an earlier one hit.
+func (r ReadyResult) EndedOnScratchError() bool {
+	_, ok := r.scratchError()
+	return ok
+}
+
+// scratchError is the scratch-file error the gate ended on, when EndedOnScratchError.
+func (r ReadyResult) scratchError() (*ProbeScratchError, bool) {
+	var scratch *ProbeScratchError
+	if r.Outcome != PodmanNotReady && r.Outcome != PodmanNotStarted || !errors.As(r.Last().StartErr, &scratch) {
+		return nil, false
+	}
+	return scratch, true
 }
 
 // lastAnswered is the index of the last attempt that ended with an answer — it exited, or it

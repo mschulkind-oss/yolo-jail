@@ -230,7 +230,7 @@ func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 		}
 		for i, rt := range offline {
 			out.print(failures[i])
-			out.printf("[dim]%s[/dim]", runtimeStartHint(rt, o.IsMacOS))
+			o.printRuntimeFailureHint(out, rt)
 		}
 		return "", false
 	}
@@ -263,10 +263,21 @@ func (o *Options) validateExplicitRuntime(rt, source string) (string, bool) {
 			out.printf("[bold red]Cannot query configured runtime '%s' (from %s).[/bold red]", rt, source)
 		}
 		out.print(reason)
-		out.printf("[dim]%s[/dim]", runtimeStartHint(rt, o.IsMacOS))
+		o.printRuntimeFailureHint(out, rt)
 		return "", false
 	}
 	return rt, true
+}
+
+// printRuntimeFailureHint prints the step under a runtime that did not answer: the platform's
+// start or diagnose step (runtimeStartHint), except after a readiness gate that ended on yolo's
+// own scratch file, where podman never ran and the refusal above already names the temporary
+// directory's fix, so a step pointing at podman would be the wrong one.
+func (o *Options) printRuntimeFailureHint(out printer, rt string) {
+	if o.usesReadinessGate(rt) && o.readiness != nil && o.readiness.EndedOnScratchError() {
+		return
+	}
+	out.printf("[dim]%s[/dim]", runtimeStartHint(rt, o.IsMacOS))
 }
 
 // runtimeStartHint gives a platform-specific next step for a failed probe.

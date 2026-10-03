@@ -306,7 +306,9 @@ type Failure struct {
 	// Line is the stderr line the class was read from (podman's own words), or the first
 	// meaningful stderr line when nothing matched.
 	Line string
-	// Fix is the next step to name when Class is FailurePermanent.
+	// Fix is the next step to name when Class is FailurePermanent, and for every failure of
+	// yolo's own scratch files whatever its class: podman never ran then, so the step is the
+	// temporary directory's, never podman's (scratchFix).
 	Fix string
 }
 
@@ -446,20 +448,19 @@ func ClassifyPodmanFailure(stderr string) Failure {
 //     moment passes, and an errno this list does not name keeps retrying, never refusing
 //     early.
 //
-// A failure of yolo's own scratch files (*ProbeScratchError) says so, with its own fix:
-// permanent when the temporary directory cannot be used at all (missing, not a directory,
-// not writable, read-only), retried otherwise (a full disk may be freed, a descriptor limit
-// may lift).
+// A failure of yolo's own scratch files (*ProbeScratchError) says so, with its own fix
+// (scratchFix): permanent when the temporary directory cannot be used at all (missing, not a
+// directory, not writable, read-only), retried otherwise (a full disk may be freed, a
+// descriptor limit may lift).
 func ClassifyStartError(err error) Failure {
 	line := err.Error()
 	var scratch *ProbeScratchError
 	if errors.As(err, &scratch) {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) ||
-			errors.Is(err, syscall.EROFS) || errors.Is(err, syscall.ENOTDIR) {
-			return Failure{Class: FailurePermanent, Line: line,
-				Fix: "make the temporary directory usable: TMPDIR, or /tmp when TMPDIR is unset, must be a writable directory"}
+		class := FailureUnknown
+		if unusableTempDir(err) {
+			class = FailurePermanent
 		}
-		return Failure{Class: FailureUnknown, Line: line}
+		return Failure{Class: class, Line: line, Fix: scratchFix(err)}
 	}
 	switch {
 	case errors.Is(err, errEmptyArgv):
@@ -480,6 +481,33 @@ func ClassifyStartError(err error) Failure {
 		return Failure{Class: FailureTransient, Line: line}
 	}
 	return Failure{Class: FailureUnknown, Line: line}
+}
+
+// unusableTempDir reports a scratch-file error that only a change to the temporary directory
+// clears: it is missing, not a directory, not writable, or read-only.
+func unusableTempDir(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) ||
+		errors.Is(err, syscall.EROFS) || errors.Is(err, syscall.ENOTDIR)
+}
+
+// scratchFix is the next step for a scratch file yolo could not create, read from its errno.
+// Podman never ran, so the step is never podman's: the temporary directory's, or for a
+// descriptor limit, that limit's.
+func scratchFix(err error) string {
+	switch {
+	case unusableTempDir(err):
+		return "make the temporary directory usable: TMPDIR, or /tmp when TMPDIR is unset, must be a writable directory"
+	case errors.Is(err, syscall.ENOSPC), errors.Is(err, syscall.EDQUOT):
+		return "free space in the temporary directory (TMPDIR, or /tmp when TMPDIR is unset), " +
+			"or point TMPDIR at a writable directory that has room"
+	case errors.Is(err, syscall.EMFILE):
+		return "yolo reached its limit on open files (`ulimit -Hn` in the shell that runs yolo shows it): " +
+			"raise it, or report a yolo bug if it is already high"
+	case errors.Is(err, syscall.ENFILE):
+		return "the system's open-files table is full: close programs that hold many files open"
+	}
+	return "check the temporary directory (TMPDIR, or /tmp when TMPDIR is unset), " +
+		"or point TMPDIR at another writable directory"
 }
 
 // fatalLines is stderr without podman's logrus lines and blanks.

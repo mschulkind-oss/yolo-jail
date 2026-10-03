@@ -360,13 +360,18 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 			// THE LAUNCH'S GATE, not a probe of check's own (podmanready.go): up to a minute
 			// for podman to finish post-boot cleanup, and the same refusal a launch prints.
 			gate := o.podmanGate()
-			switch gate.Outcome {
-			case runtime.PodmanReady:
+			switch {
+			case gate.Outcome == runtime.PodmanReady:
 				r.ok(p.name + ": " + version)
 				if detectedRuntime == "" {
 					detectedRuntime = p.name
 				}
-			case runtime.PodmanNotStarted:
+			case gate.EndedOnScratchError():
+				// yolo's own scratch file, not podman: podman never ran, so the row is the
+				// refusal and its temporary-directory fix, with no podman step and no "start it".
+				r.fail(p.name+" not checked: "+gate.Refusal(p.name), recheck)
+				broken = append(broken, p.name)
+			case gate.Outcome == runtime.PodmanNotStarted:
 				r.fail(p.name+" found but not working: "+gate.Refusal(p.name), probeNote(p.livenessCmd...))
 				broken = append(broken, p.name)
 			default:

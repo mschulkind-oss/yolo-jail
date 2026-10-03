@@ -535,3 +535,29 @@ func containsLine(lines []string, want string) bool {
 	}
 	return false
 }
+
+// A gate that ends on yolo's own scratch file never ran podman: the launch's refusal names that
+// error and the temporary directory's fix, and no step that points at podman follows it.
+func TestARefusalOnYolosScratchFileNamesNoPodmanStep(t *testing.T) {
+	for _, p := range gatePaths() {
+		t.Run(p.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			o := gateOptions(p, &stdout, &stderr)
+			scriptedPodman(o, yoloruntime.Attempt{StartErr: &yoloruntime.ProbeScratchError{
+				Err: &os.PathError{Op: "open", Path: "/tmp/yolo-podman-ready-1.out", Err: syscall.ENOSPC}}})
+			if _, ok := o.resolveRuntime(p.cfg); ok {
+				t.Fatal("a launch whose gate never ran podman was accepted")
+			}
+			got := stdout.String()
+			for _, want := range []string{"so podman info never ran", "no space left on device",
+				"Fix: free space in the temporary directory"} {
+				if !strings.Contains(got, want) {
+					t.Errorf("refusal lacks %q:\n%s", want, got)
+				}
+			}
+			if strings.Contains(got, "podman info` to diagnose") || strings.Contains(got, "did not answer") {
+				t.Errorf("the refusal of a launch that never ran podman points at podman:\n%s", got)
+			}
+		})
+	}
+}

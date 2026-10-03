@@ -7,7 +7,9 @@ package check
 
 import (
 	"bytes"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -141,5 +143,37 @@ func TestCheckOnMacOSNeverAsksTheGate(t *testing.T) {
 	}
 	if gate.count() != 0 {
 		t.Errorf("macOS asked the readiness gate %d times", gate.count())
+	}
+}
+
+// A gate that ends on yolo's own scratch file never ran podman, so check's one row for it names
+// that error and the temporary directory's fix: no "Run 'podman info'", and no "start it".
+func TestTheRuntimeSectionNamesYolosScratchFileNotPodman(t *testing.T) {
+	var out bytes.Buffer
+	opts := baseOptions(t, &out)
+	opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
+	opts.Exec = fakeExec(map[string]ExecResult{
+		"podman --version": {Stdout: "podman version 6.1.2", Ran: true, RC: 0},
+	})
+	scriptedPodman(&opts, runtime.Attempt{StartErr: &runtime.ProbeScratchError{
+		Err: &os.PathError{Op: "open", Path: "/tmp/yolo-podman-ready-1.out", Err: syscall.ENOSPC}}})
+	r := newReporter(&out, false)
+	if rt := opts.sectionContainerRuntime(r); rt != "" {
+		t.Fatalf("detected %q from a gate that never ran podman", rt)
+	}
+	got := stripANSI(out.String())
+	for _, want := range []string{"[FAIL] podman not checked: yolo could not create the scratch file",
+		"no space left on device", "Fix: free space in the temporary directory"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("section lacks %q:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{"podman info' to diagnose", "START it", "not started"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("the section points at podman (%q) for a podman that never ran:\n%s", bad, got)
+		}
+	}
+	if n := strings.Count(got, "[FAIL]"); n != 1 {
+		t.Errorf("one cause, %d [FAIL] rows:\n%s", n, got)
 	}
 }
