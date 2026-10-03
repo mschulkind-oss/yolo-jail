@@ -238,4 +238,6 @@ you declared; see [Packages and Tools](packages-and-tools.md).
   agent's own files.
 - [Writing your own pack](migrating-to-packs.md): move your skills, house rules and settings into a
   pack you own.
+- [Claude Code Plugins and Mods](claude-plugins-and-mods.md): bring a Claude Code plugin or mod into a
+  jail, as a pack or through Claude Code's own installs.
 - [Providers and Models](providers-and-models.md): point an agent at a different model service.

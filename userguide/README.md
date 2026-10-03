@@ -81,6 +81,7 @@ The **[feature index](features.md)** links every feature to the page that covers
 | [macOS](guides/macos.md) | Apple Container, Podman and the `macos-user` sandbox, and what each can do |
 | [Where Agents Run](guides/confinement.md) | The jail, your own machine, and guest confinement |
 | [Packs and Skills](guides/packs-and-skills.md) | Choosing packs, checking them, sharing skills, keeping agents updated |
+| [Claude Code Plugins and Mods](guides/claude-plugins-and-mods.md) | Bringing a Claude Code plugin or mod into a jail, and what the launch shows about it |
 | [Settings Across Agents](guides/agent-settings.md) | How yolo writes each agent's settings, and how to inspect them |
 | [Providers and Models](guides/providers-and-models.md) | Providers, profiles, API keys and the wire bridge |
 | [Logins](guides/authentication.md) | Logging in, shared logins, and pushing to git from a jail |

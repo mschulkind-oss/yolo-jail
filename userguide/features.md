@@ -39,6 +39,10 @@ yolo ships, write your own, or share one from a git repository.
 you name, and a project can take only part of a pack.
 [Skills and house rules →](guides/packs-and-skills.md#skills-and-house-rules)
 
+**Bring your Claude Code plugins and mods.** Wrap a plugin as a pack, keep a mod in the repository,
+or install one with Claude Code and share it with every jail. Each launch names the packs whose
+plugins run code. [Claude Code plugins and mods →](guides/claude-plugins-and-mods.md)
+
 **Settings that follow you across agents.** MCP servers, language servers and model choices are
 written into each agent's own settings files, where that agent supports them.
 [Settings across agents →](guides/agent-settings.md) · [MCP and LSP →](guides/mcp-and-lsp.md)
