@@ -1,8 +1,17 @@
 package run
 
-// autocapture.go is the pipeline half of AUTO-CAPTURE: the decision, taken on the host
-// after packs resolve and before any container starts, that this machine has never
-// recorded what one of the selected packs' vendor installers leaves behind.
+// autocapture.go is the pipeline half of AUTO-CAPTURE: the decision, taken on the host by a
+// FRESH launch — below every attach decision, before its container starts — that this machine
+// has never recorded what one of the selected packs' vendor installers leaves behind.
+//
+// # A fresh launch only
+//
+// OQ-PD18 rules it "on first launch", and an attach is never one: the jail it enters was started
+// by a fresh launch that met the miss first. The trigger used to sit above the backend dispatch,
+// so every terminal that joined a running jail repeated it: 14 s per attach on Apple Container
+// (MEASURED, docs/research/macos-backend-performance.md §8), where a capture jail cannot start
+// beside the running one (INFERRED from §7, which MEASURED that a second unsealed jail cannot).
+// OQ-PD25 moved it into runContainer's fresh-launch path, beside the fork builds.
 //
 // # Why a launch does this at all
 //
@@ -14,8 +23,8 @@ package run
 //
 // # Container backends only, and that is structural rather than a guard
 //
-// The call site is BELOW the macos-user arm's return in Run, so this file cannot run for
-// that backend. The reason:
+// The call site is in runContainer, BELOW the macos-user arm's return in Run, so this file
+// cannot run for that backend. The reason:
 //
 //   - NOTHING ON macos-user CAN MATERIALIZE A CAPTURE. entrypoint.CapturesDirEnv is
 //     emitted by capturesArgs (the podman/Apple-Container argv) and by nothing else, so

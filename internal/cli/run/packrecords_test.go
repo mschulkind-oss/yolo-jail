@@ -46,55 +46,52 @@ func TestASubLaunchLeavesTheParentLaunchsPackRecordsAlone(t *testing.T) {
 	// for the loophole it contributes (claude-oauth-broker); journal because it ships a
 	// loophole module and no CLI, so the record has a second entry from a second pack.
 	writeUserPacks(t, home, `["claude", "journal"]`)
-	ws := t.TempDir()
-
-	var stdout, stderr bytes.Buffer
-	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
-	o.CapturesDir = func() string { return t.TempDir() }
-
-	// The parent's own pack tree is one of those under its pack-tree root, and the only
-	// launch staging there is the parent's.
-	parentRoot := paths.PackTreeRoot(yoloruntime.FromWorkspace(ws))
 
 	var beforeMods, afterMods []loopholes.PackModule
 	var beforeSkills, afterSkills []jailcontent.PackSkillSource
 	var missingAfter []string
+	var parentRoot string
 	subRC, subs := 0, 0
-	o.AutoCapture = func([]string, string) {
-		beforeMods, beforeSkills = loopholes.PackModules(), jailcontent.PackSkillDirs()
-		subs++
-		// EXACTLY what runCaptureJail configures: the ordinary pipeline, a throwaway
-		// workspace of its own, no capture store (the recursion guard), never attach.
-		var subOut, subErr bytes.Buffer
-		sub := dispatchOptions(t, t.TempDir(), "podman", &subOut, &subErr, nil)
-		sub.CapturesDir = func() string { return "" }
-		sub.NeverAttach = true
-		sub.AcceptConfigChanges = true
-		subRC = Run(*sub)
-		afterMods, afterSkills = loopholes.PackModules(), jailcontent.PackSkillDirs()
-		// Read NOW, while the parent is still mid-launch: the parent's own pack tree is its
-		// own and goes when the parent's Run returns, so a stat after that would say nothing
-		// about what the sub-launch left.
-		for _, m := range afterMods {
-			if _, err := os.Stat(m.Dir); err != nil {
-				missingAfter = append(missingAfter, fmt.Sprintf("%s (%v)", m.Dir, err))
+	// A FRESH launch, because that is where the trigger sits (OQ-PD25): below every attach
+	// decision, so the parent must get past the runtime probe that dispatchOptions' stubbed
+	// Exec cannot answer. fakePodmanLaunch answers it, as the fork-build tests do.
+	_, printed := fakePodmanLaunch(t, func(o *Options) {
+		// The parent's own pack tree is one of those under its pack-tree root, and the only
+		// launch staging there is the parent's.
+		parentRoot = paths.PackTreeRoot(yoloruntime.FromWorkspace(o.Workspace))
+		o.AutoCapture = func([]string, string) {
+			beforeMods, beforeSkills = loopholes.PackModules(), jailcontent.PackSkillDirs()
+			subs++
+			// EXACTLY what runCaptureJail configures: the ordinary pipeline, a throwaway
+			// workspace of its own, no capture store (the recursion guard), never attach.
+			var subOut, subErr bytes.Buffer
+			sub := dispatchOptions(t, t.TempDir(), "podman", &subOut, &subErr, nil)
+			sub.CapturesDir = func() string { return "" }
+			sub.NeverAttach = true
+			sub.AcceptConfigChanges = true
+			subRC = Run(*sub)
+			afterMods, afterSkills = loopholes.PackModules(), jailcontent.PackSkillDirs()
+			// Read NOW, while the parent is still mid-launch: the parent's own pack tree is its
+			// own and goes when the parent's Run returns, so a stat after that would say nothing
+			// about what the sub-launch left.
+			for _, m := range afterMods {
+				if _, err := os.Stat(m.Dir); err != nil {
+					missingAfter = append(missingAfter, fmt.Sprintf("%s (%v)", m.Dir, err))
+				}
 			}
 		}
-	}
-
-	Run(*o)
+	})
 
 	if subs != 1 {
 		t.Fatalf("the auto-capture seam ran %d times, want 1 — the launch never reached "+
-			"the trigger, so nothing below measures anything\nstdout:\n%s\nstderr:\n%s",
-			subs, stdout.String(), stderr.String())
+			"the trigger, so nothing below measures anything\n%s", subs, printed)
 	}
 	_ = subRC // the sub-launch fails in runContainer under the stubbed Exec; irrelevant here.
 
 	// The premise: the parent really did record something, and it really was its own.
 	if len(beforeMods) == 0 {
 		t.Fatalf("the parent launch recorded no pack loophole modules, so a leak could "+
-			"not be observed\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+			"not be observed\n%s", printed)
 	}
 	for _, m := range beforeMods {
 		if !strings.HasPrefix(m.Dir, parentRoot+string(os.PathSeparator)) {

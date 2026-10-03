@@ -835,45 +835,8 @@ func Run(opts Options) (rc int) {
 			launchEnv, packload.BlockedTools(staged.packs),
 			channel.guestJailDaemons(guestDaemons, launchEnv))
 	}
-	// AUTO-CAPTURE, the last host-side act before the container arm starts anything
-	// (OQ-PD18, install-capture.md slice 7). Every selected pack's `via: "installer"`
-	// program that this machine has never recorded is captured now, in a throwaway jail
-	// of its own, so that this workspace and every later one materialize the install
-	// instead of downloading it.
-	//
-	// HERE, and the placement carries three decisions:
-	//
-	//   - BELOW the macos-user return, which is what makes it container-only. See
-	//     autocapture.go for why that backend is excluded — nothing there emits
-	//     CapturesDirEnv (hand-off H4; slice 6's relocation rewrite, the second reason this
-	//     said, landed as hand-off H2) — and why `yolo capture` stays available on it as an
-	//     explicit act.
-	//   - BELOW stageRunPacks, because the pack set is the input: the trigger asks the
-	//     SELECTED packs what they install, through HonoredInstalls, so a pack the
-	//     config dropped stops being captured and a fetched pack's refused installer
-	//     never runs.
-	//   - ABOVE runContainer, so the capture jail's own launch is the thing that builds
-	//     and loads the image, and this launch reuses it. It is BLOCKING and it says so
-	//     while it works: on a fresh machine the first launch grows by one installer
-	//     download per uncaptured program (~205 MiB for claude). A detached child would
-	//     keep the launch fast and is the obvious follow-up, but it buys invisible
-	//     failures and a host-process lifecycle yolo does not have — a second step, on
-	//     evidence that the wait hurts.
-	//
-	// It cannot fail this launch. Every outcome inside is a warning (autoCapture in
-	// internal/cli), because nobody asked for this work and a machine that cannot do it
-	// must still get its jail.
-	//
-	// Spanned because it is the pipeline's biggest HIDDEN cost: a fresh machine's
-	// first launch grows by one installer download per uncaptured program, and
-	// the very first nested --timing run measured 109 of its 125 seconds in
-	// this call — every bit of it between two spans, pointing at nothing.
-	sp := o.Perf.Span("launch.auto_capture")
-	o.autoCaptureInstallerPrograms(staged.packs)
-	sp.End()
-	// THE FORK BUILDS are NOT in this slot, though they share its reasons (forkbuild.go): they run
-	// in runContainer's fresh-launch path, below the attach decision, because a jail bakes its
-	// fork decisions at boot and an attach could not deliver a build it waited for (FP-D14).
+	// AUTO-CAPTURE is not in this slot any more: it runs on the fresh-launch path inside
+	// runContainer, below every attach decision, beside the fork builds (OQ-PD25).
 	return o.runContainer(cfg, rt, repoRoot, cname, staged, injectedArgs, channel, jailDaemons)
 }
 
@@ -1321,14 +1284,48 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// runtime answers that no container of the name exists (packtree.go).
 	o.retireLegacyPackStaging(cname, rt)
 
+	// AUTO-CAPTURE (OQ-PD18, install-capture.md slice 7): every selected pack's `via: "installer"`
+	// program this machine has never recorded is captured now, in a throwaway jail of its own, so
+	// that this workspace and every later one materialize the install instead of downloading it.
+	//
+	// HERE, on the fresh-launch path below every attach site (OQ-PD25), and the placement carries
+	// four decisions:
+	//
+	//   - NOT ON AN ATTACH. OQ-PD18 rules it "on first launch", and an attach never is one: the
+	//     jail it enters was started by a fresh launch that met the miss first. Above the dispatch
+	//     it ran again for every terminal that joined, and on Apple Container its jail cannot
+	//     start beside the running one (INFERRED from docs/research/macos-backend-performance.md
+	//     §7, which MEASURED that a second unsealed jail cannot).
+	//   - BELOW the macos-user return, which is what makes it container-only. See
+	//     autocapture.go for why that backend is excluded — nothing there emits
+	//     CapturesDirEnv (hand-off H4) — and why `yolo capture` stays available on it as an
+	//     explicit act.
+	//   - ABOVE the image load, so the capture jail's own launch is the thing that builds and
+	//     loads the image, and this launch reuses it. It is BLOCKING and it says so while it
+	//     works: on a fresh machine the first launch grows by one installer download per
+	//     uncaptured program (~205 MiB for claude).
+	//   - UNDER THE LAUNCH LOCK, as the fork builds and the image load are: a second terminal in
+	//     this workspace waits for this jail and then attaches to it, rather than capturing too.
+	//
+	// It cannot fail this launch. Every outcome inside is a warning (autoCapture in
+	// internal/cli), because nobody asked for this work and a machine that cannot do it
+	// must still get its jail.
+	//
+	// Spanned because it is the pipeline's biggest HIDDEN cost: a fresh machine's
+	// first launch grows by one installer download per uncaptured program, and
+	// the very first nested --timing run measured 109 of its 125 seconds in
+	// this call — every bit of it between two spans, pointing at nothing.
+	captureSpan := o.Perf.Span("launch.auto_capture")
+	o.autoCaptureInstallerPrograms(staged.packs)
+	captureSpan.End()
+
 	// THE FORK BUILDS (forkbuild.go; OQ-FP4, eager at the notch's readiness act): every selected
 	// fork this machine holds no build of at its pin is built now, in a sealed jail of its own, and
 	// this jail is handed each fork's store key or the reason it has none. A hit builds nothing, and
-	// no outcome fails this launch (§9). HERE, below every attach site, rather than beside
-	// auto-capture above the dispatch (FP-D14): a running jail read its decisions once at boot, so
-	// a build an attach waited for would reach no jail, and an auto-capture differs in exactly that
-	// a running jail's launchers read the store lazily. Under the launch lock, as the image load
-	// is: a second terminal in this workspace waits for this jail and then attaches to it.
+	// no outcome fails this launch (§9). HERE, below every attach site (FP-D14): a running jail read
+	// its decisions once at boot, so a build an attach waited for would reach no jail. Under the
+	// launch lock, as the image load is: a second terminal in this workspace waits for this jail
+	// and then attaches to it.
 	forkSpan := o.Perf.Span("launch.fork_builds")
 	o.forkDelivered = o.forkDeliveriesFor(rt)
 	forkSpan.End()

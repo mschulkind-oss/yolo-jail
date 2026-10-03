@@ -2,9 +2,14 @@ package run
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"testing"
+	"time"
+
+	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // autocapture_test.go pins the auto-capture TRIGGER at the call site, from Run's own
@@ -19,42 +24,53 @@ import (
 // delete that line from run.go and the seam is never invoked.
 //
 // The podman arm, because the trigger is container-only by placement (it sits below the
-// macos-user return). Run goes on to fail in runContainer with no real daemon behind the
-// stubbed Exec, which is fine and deliberately not asserted on — what is being measured
-// happens strictly before that.
+// macos-user return), and driven to the FRESH-LAUNCH path with fakePodmanLaunch, because
+// that is where the trigger sits (OQ-PD25): below every attach decision, beside the fork
+// builds. An attach is driven the way TestAnAttachTriggersNoForkBuild drives one.
+
+// installerLaunchHome selects one local pack whose only program installs `via: "installer"` —
+// the shape claude, codex and agy ship — and returns the home.
+func installerLaunchHome(t *testing.T) string {
+	t.Helper()
+	home := packHome(t)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_PACK_ROOT", "")
+	dir := filepath.Join(t.TempDir(), "installerpack")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"contributes":[{"kind":"program","bin":"probetool","via":"installer",` +
+		`"url":"https://example.invalid/install.sh"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeUserPacks(t, home, `[{"source":"file://`+dir+`","name":"installerpack"}]`)
+	return home
+}
 
 // TestALaunchAutoCapturesAnUncapturedInstallerProgram is the slice's required test.
 //
-// claude is the pack because it is the one shipped pack whose program is `via:
-// "installer"` (agy is the other; both would do). A launch that selects it must reach the
-// trigger with claude in the bin list.
+// The pack is a local one whose program is `via: "installer"`, the shape claude, codex and agy
+// ship. A fresh launch that selects it must reach the trigger with that bin in the list.
 func TestALaunchAutoCapturesAnUncapturedInstallerProgram(t *testing.T) {
-	home := packHome(t)
-	writeUserPacks(t, home, `["claude"]`)
-	ws := t.TempDir()
-
-	var stdout, stderr bytes.Buffer
-	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
-	// A store that exists and is empty — i.e. an ordinary launch, not the capture jail.
-	o.CapturesDir = func() string { return t.TempDir() }
+	installerLaunchHome(t)
 
 	var gotBins []string
 	var gotPlatform string
 	called := 0
-	o.AutoCapture = func(bins []string, platform string) {
-		called++
-		gotBins, gotPlatform = bins, platform
-	}
-
-	Run(*o)
+	_, printed := fakePodmanLaunch(t, func(o *Options) {
+		o.AutoCapture = func(bins []string, platform string) {
+			called++
+			gotBins, gotPlatform = bins, platform
+		}
+	})
 
 	if called != 1 {
 		t.Fatalf("the launch invoked the auto-capture trigger %d times, want 1 — "+
-			"OQ-PD18's default-on trigger is not wired into the run pipeline\n"+
-			"stdout:\n%s\nstderr:\n%s", called, stdout.String(), stderr.String())
+			"OQ-PD18's default-on trigger is not wired into the run pipeline\n%s", called, printed)
 	}
-	if len(gotBins) != 1 || gotBins[0] != "claude" {
-		t.Errorf("trigger bins = %v, want [claude] — the trigger must ask the SELECTED "+
+	if len(gotBins) != 1 || gotBins[0] != "probetool" {
+		t.Errorf("trigger bins = %v, want [probetool] — the trigger must ask the SELECTED "+
 			"packs what they install via an installer URL", gotBins)
 	}
 	// THE PLATFORM IS THE JAIL'S. A host-side capture.Platform() would answer
@@ -71,6 +87,40 @@ func TestALaunchAutoCapturesAnUncapturedInstallerProgram(t *testing.T) {
 	}
 }
 
+// TestAnAttachTriggersNoAutoCapture: OQ-PD18 rules auto-capture ON FIRST LAUNCH, and an attach
+// is never one — the jail it enters was started by a fresh launch, which had the miss in front of
+// it first. Running it again on entry only repeats that launch's attempt on every terminal that
+// joins: 14 s per attach on Apple Container (MEASURED, docs/research/macos-backend-performance.md
+// §8), where its jail cannot start beside the running one (INFERRED from §7, which MEASURED that a
+// second unsealed jail cannot). OQ-PD25 moved the trigger below the attach decision.
+//
+// Red before the move: the trigger sat above runContainer, so the attach below ran it.
+func TestAnAttachTriggersNoAutoCapture(t *testing.T) {
+	installerLaunchHome(t)
+	called := 0
+	_, printed := fakePodmanLaunch(t, func(o *Options) {
+		cname := yoloruntime.FromWorkspace(o.Workspace)
+		o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+			joined := strings.Join(argv, " ")
+			switch {
+			case len(argv) >= 2 && argv[1] == "ps" && strings.Contains(joined, "name=^/"+cname+"$"):
+				return ExecResult{Ran: true, RC: 0, Stdout: "abc123\n"}
+			case len(argv) >= 2 && argv[1] == "inspect":
+				return ExecResult{Ran: true, RC: 0, Stdout: "YOLO_VERSION=9.9.9-test\n" + entrypointContractTagsLine() + "\n"}
+			}
+			return ExecResult{Ran: true, RC: 0}
+		}
+		o.AutoCapture = func([]string, string) { called++ }
+	})
+	if !strings.Contains(printed, "Attaching to existing jail") {
+		t.Fatalf("the fixture did not attach, so the attach path is unexercised:\n%s", printed)
+	}
+	if called != 0 {
+		t.Errorf("an attach ran the auto-capture trigger %d times; it belongs to the fresh "+
+			"launch that started the jail:\n%s", called, printed)
+	}
+}
+
 // TestACaptureJailDoesNotAutoCapture is the recursion guard: the throwaway jail `yolo
 // capture` runs must not itself trigger a capture, or a capture would capture a capture.
 //
@@ -79,23 +129,17 @@ func TestALaunchAutoCapturesAnUncapturedInstallerProgram(t *testing.T) {
 // Delete the `o.CapturesDir() == ""` clause from autoCaptureInstallerPrograms and this
 // goes red.
 func TestACaptureJailDoesNotAutoCapture(t *testing.T) {
-	home := packHome(t)
-	writeUserPacks(t, home, `["claude"]`)
-	ws := t.TempDir()
-
-	var stdout, stderr bytes.Buffer
-	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
-	// Exactly what internal/cli/capturehost.go's runCaptureJail sets.
-	o.CapturesDir = func() string { return "" }
-
+	installerLaunchHome(t)
 	called := 0
-	o.AutoCapture = func([]string, string) { called++ }
-
-	Run(*o)
+	_, printed := fakePodmanLaunch(t, func(o *Options) {
+		// Exactly what internal/cli/capturehost.go's runCaptureJail sets.
+		o.CapturesDir = func() string { return "" }
+		o.AutoCapture = func([]string, string) { called++ }
+	})
 
 	if called != 0 {
 		t.Fatalf("the capture jail triggered %d auto-captures — a capture must not "+
-			"recursively trigger a capture (install-capture.md slice 4(f), slice 7)", called)
+			"recursively trigger a capture (install-capture.md slice 4(f), slice 7)\n%s", called, printed)
 	}
 }
 
@@ -111,21 +155,16 @@ func TestACaptureJailDoesNotAutoCapture(t *testing.T) {
 func TestAJailWithNoInstallerProgramsTriggersNothing(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["copilot"]`)
-	ws := t.TempDir()
-
-	var stdout, stderr bytes.Buffer
-	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
-	o.CapturesDir = func() string { return t.TempDir() }
 
 	var gotBins []string
 	called := 0
-	o.AutoCapture = func(bins []string, _ string) { called++; gotBins = bins }
-
-	Run(*o)
+	_, printed := fakePodmanLaunch(t, func(o *Options) {
+		o.AutoCapture = func(bins []string, _ string) { called++; gotBins = bins }
+	})
 
 	if called != 0 {
 		t.Fatalf("an npm-only pack set triggered auto-capture with bins %v; only "+
-			"`via: \"installer\"` programs have anything to capture", gotBins)
+			"`via: \"installer\"` programs have anything to capture\n%s", gotBins, printed)
 	}
 }
 

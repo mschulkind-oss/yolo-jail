@@ -29,6 +29,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   itself, as can happen after a terminal closes while its session starts.
 - On Apple Container, claude, codex and agy are now recorded once per machine, where every launch
   ran their installers again and recorded nothing.
+- Joining a running jail no longer runs agent installers to record them first; only a launch that
+  starts a jail does.
 
 ## [0.11.1] - 2026-10-02
 
