@@ -6,6 +6,7 @@ package image
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -1367,19 +1368,28 @@ func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink stri
 	}
 	defer release()
 	var tail []string
-	scanner := bufio.NewScanner(stderr)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		clean := strings.TrimRight(scanner.Text(), " \t\r\n")
-		if clean == "" {
-			continue
+	// EVERY LINE IS READ TO THE END OF THE STREAM, however long. A bufio.Scanner capped at
+	// maxNixLine ended this loop at the first longer line, and the Wait below then waited on
+	// a nix blocked writing into a pipe nothing read any more: the launch hung for good and
+	// printed nothing (TestANixLineLongerThanTheScannerReadsDoesNotWedgeTheBuild).
+	r := bufio.NewReaderSize(stderr, 64*1024)
+	for {
+		line, long, err := readLineCapped(r, maxNixLine)
+		clean := strings.TrimRight(string(line), " \t\r\n")
+		if long {
+			clean += fmt.Sprintf(" … (nix printed a line longer than %d bytes; the rest of it is not kept)", maxNixLine)
 		}
-		tail = append(tail, clean)
-		if len(tail) > 30 {
-			tail = tail[1:]
+		if clean != "" {
+			tail = append(tail, clean)
+			if len(tail) > 30 {
+				tail = tail[1:]
+			}
+			if summary := SummarizeNixLine(clean); summary != "" {
+				fmt.Fprintln(out, summary)
+			}
 		}
-		if summary := SummarizeNixLine(clean); summary != "" {
-			fmt.Fprintln(out, summary)
+		if err != nil {
+			break
 		}
 	}
 	_ = cmd.Wait()
@@ -1390,6 +1400,27 @@ func runNixBuild(argv []string, repoRoot string, buildEnv []string, outLink stri
 		return resolved, tail
 	}
 	return outLink, tail
+}
+
+// maxNixLine is how much of one line of nix's stderr runNixBuild keeps.
+const maxNixLine = 1024 * 1024
+
+// readLineCapped reads one line from r, keeping at most max bytes of it (its newline dropped) and
+// consuming the rest, so a line of any length is read whole. long reports a line cut short; err is
+// r's: io.EOF at the end of the stream, with whatever an unterminated last line held.
+func readLineCapped(r *bufio.Reader, max int) (line []byte, long bool, err error) {
+	for {
+		frag, err := r.ReadSlice('\n')
+		frag = bytes.TrimSuffix(frag, []byte{'\n'})
+		if room := max - len(line); len(frag) > room {
+			long = true
+			frag = frag[:room]
+		}
+		line = append(line, frag...)
+		if err != bufio.ErrBufferFull {
+			return line, long, err
+		}
+	}
 }
 
 // buildImageWithContainerBuilder is the macOS build-offload (J3): start a Linux

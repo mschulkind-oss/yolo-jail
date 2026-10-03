@@ -1,0 +1,78 @@
+package image
+
+import (
+	"bufio"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// TestANixLineLongerThanTheScannerReadsDoesNotWedgeTheBuild: runNixBuild reads nix's stderr a line
+// at a time, up to 1 MiB a line. A longer line ended the read loop, and the Wait after it then
+// waited on a nix blocked writing into a pipe nobody read any more — a launch hung for good, with
+// nothing printed. The stand-in prints a 2 MiB line, then a last line, and exits 0.
+func TestANixLineLongerThanTheScannerReadsDoesNotWedgeTheBuild(t *testing.T) {
+	freshNixChildren(t)
+	out := filepath.Join(t.TempDir(), "out")
+	script := `head -c 2097152 /dev/zero | tr '\0' x >&2; echo >&2; echo "after the long line" >&2; ln -s /nix/store/fake-out ` + out
+	type built struct {
+		path string
+		tail []string
+	}
+	done := make(chan built, 1)
+	go func() {
+		p, tail := runNixBuild([]string{"sh", "-c", script}, t.TempDir(), os.Environ(), out, io.Discard)
+		done <- built{p, tail}
+	}()
+	select {
+	case b := <-done:
+		if b.path == "" {
+			t.Errorf("a nix that exited 0 was reported as a failed build: %q", b.tail)
+		}
+		joined := strings.Join(b.tail, "\n")
+		if !strings.Contains(joined, "nix printed a line longer than") {
+			t.Errorf("the tail does not say a line was too long to keep (%d bytes)", len(joined))
+		}
+		if !strings.HasSuffix(joined, "after the long line") {
+			t.Errorf("the lines after the long one were not read: the tail ends %q",
+				joined[max(0, len(joined)-200):])
+		}
+		if len(joined) > maxNixLine+4096 {
+			t.Errorf("the tail kept %d bytes of a 2 MiB line, more than the %d-byte cap", len(joined), maxNixLine)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("runNixBuild never returned from a nix that printed a line over 1 MiB and exited: " +
+			"the read loop stopped at the long line and Wait waits on a nix blocked on its full pipe")
+	}
+}
+
+// TestReadLineCappedReadsEveryLineWhole: each line comes back without its newline, cut to the cap
+// and flagged when longer, and the reader is left at the next line either way.
+func TestReadLineCappedReadsEveryLineWhole(t *testing.T) {
+	long := strings.Repeat("y", 100)
+	r := bufio.NewReaderSize(strings.NewReader("short\n"+"exactly10!\n"+long+"\n"+"last, no newline"), 16)
+	want := []struct {
+		line string
+		long bool
+	}{
+		{"short", false},
+		{"exactly10!", false},
+		{long[:10], true},
+		{"last, no n", true},
+	}
+	for i, w := range want {
+		line, isLong, err := readLineCapped(r, 10)
+		if string(line) != w.line || isLong != w.long {
+			t.Errorf("line %d: got (%q, long %v), want (%q, long %v)", i, line, isLong, w.line, w.long)
+		}
+		if i < len(want)-1 && err != nil {
+			t.Fatalf("line %d: %v", i, err)
+		}
+		if i == len(want)-1 && err != io.EOF {
+			t.Errorf("the unterminated last line ended with %v, want io.EOF", err)
+		}
+	}
+}
