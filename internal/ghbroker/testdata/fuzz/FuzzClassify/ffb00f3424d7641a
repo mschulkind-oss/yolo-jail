@@ -1,0 +1,3 @@
+go test fuzz v1
+string("pr\x00list\x00-t(0000\x00-Ro/r")
+string("0")

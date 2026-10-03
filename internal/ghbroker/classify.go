@@ -521,6 +521,9 @@ var freeTextFlags = map[string]bool{
 	"body": true, "title": true, "notes": true, "search": true, "description": true,
 	"subject": true, "text": true, "query": true, "field": true, "raw-field": true,
 	"squash-merge-commit-message": true,
+	// A --jq filter or a formatting --template runs over gh's output on the host and is never
+	// part of a request (BB-D64), so its . and .. are jq's and the template's, not path segments.
+	"jq": true, "template": true,
 }
 
 // climbingWord returns why an argument or a flag value would climb out of the repository's

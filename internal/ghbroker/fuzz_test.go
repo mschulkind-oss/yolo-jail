@@ -222,7 +222,7 @@ var (
 	oracleFreeText = map[string]bool{
 		"body": true, "title": true, "notes": true, "search": true, "description": true,
 		"subject": true, "text": true, "query": true, "field": true, "raw-field": true, "json": true,
-		"squash-merge-commit-message": true,
+		"squash-merge-commit-message": true, "jq": true, "template": true,
 	}
 	oracleWidensRE = regexp.MustCompile(`(?i)(^|\W)(repo|org|user|owner):|[()]|(^|\W)(OR|NOT)(\W|$)`)
 	// oraclePlaceholderRE is what gh 2.101.0 fills (MEASURED): {owner}, {repo} and {branch},
@@ -298,7 +298,9 @@ func ghReach(argv []string) reach {
 	if has("help") {
 		return reach{scopeFree: true}
 	}
-	for _, long := range []string{"hostname", "jq", "web", "editor"} {
+	// --jq and a formatting --template run on the host over gh's output, with an environment that
+	// holds no secret and no file or network builtin (BB-D64), so they reach nothing a call does not.
+	for _, long := range []string{"hostname", "web", "editor"} {
 		if has(long) {
 			return reach{problem: "--" + long + " reaches the host or another server"}
 		}
@@ -355,6 +357,11 @@ func ghReach(argv []string) reach {
 			}
 		}
 		for _, u := range flags {
+			// A --jq filter or a --template formats gh's output on the host and never reaches
+			// GitHub's search, so it cannot widen it (BB-D64).
+			if u.long == "jq" || u.long == "template" {
+				continue
+			}
 			if oracleWidensRE.MatchString(u.value) {
 				r.account, r.why = true, "search text --"+u.long
 			}
