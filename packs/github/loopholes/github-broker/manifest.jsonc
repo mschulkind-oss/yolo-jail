@@ -11,7 +11,7 @@
 // answers every write with exit 77.
 {
   "name": "github-broker",
-  "description": "Run the host's gh login for the jail against this workspace's own GitHub repositories: read-only commands run, writes wait for an approval step that is not built yet, and every call is audited on the host (yolo audit).",
+  "description": "Run the host's gh login for the jail against this workspace's own GitHub repositories: read-only commands run, a write exits 77 at once because its approval step is not built yet (run it on the host), and every call is audited on the host (yolo audit).",
   "version": 1,
 
   // OFF until enabled, as every loophole that ships in a pack is (loophole-system.md R2), and

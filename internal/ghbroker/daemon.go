@@ -302,10 +302,15 @@ func (b *Broker) Serve(req Request, jail string, stdout, stderr func([]byte)) in
 		say("out of scope: " + d.Reason)
 		return finish(ExitUsage)
 	case OutcomeWindowed:
+		// BB-D66: at once, never a wait. Step 1 has no request store and no notifier, so
+		// there is nothing to wait for; the 30-second wait of §3.2 arrives with them.
 		ev.Set, ev.Outcome = d.Set, "denied"
 		ev.Reason = "writes need approval, which this version cannot ask for"
-		say("`gh " + d.Path + "` is in the " + d.Set + " set, and writes need approval, which " +
-			"this version cannot ask for. Nothing ran.")
+		say("`gh " + d.Path + "` is a write (the " + d.Set + " set), and no write runs from a jail yet: " +
+			"a write acts on GitHub with the host user's login, so it needs that user's approval on the " +
+			"host, and that approval step is not built yet. Nothing ran and nothing is waiting (exit " +
+			"77). To make the change, ask the user to run it on the host; `yolo audit --set read-write` " +
+			"there shows the exact command.")
 		return finish(ExitNoPerm)
 	}
 
@@ -327,7 +332,9 @@ func (b *Broker) Serve(req Request, jail string, stdout, stderr func([]byte)) in
 		ev.Reason = "host gh " + b.runner.Version + " is outside the tested range " + testedMinor + ".x"
 		say("the host's gh is version " + b.runner.Version + ", outside the " + testedMinor +
 			".x range this broker was measured against, so no set applies and every command needs " +
-			"its own approval, which this version cannot ask for. Nothing ran.")
+			"its own approval, which this version cannot ask for. Nothing ran and nothing is waiting " +
+			"(exit 77). Ask the user to install gh " + testedMinor + ".x on the host (`yolo check` there " +
+			"shows the version the broker found), or to run the command there.")
 		return finish(ExitNoPerm)
 	}
 	if d.Path == "auth status" && !slices.Contains(d.Argv, "--help") {

@@ -25,8 +25,10 @@ credential. With the ` + "`github`" + ` pack selected, a bare ` + "`gh`" + ` in 
 
 This version is read-only: commands in the read-only set (pr view, pr list,
 issue view, run view, workflow list, api GET under repos/OWNER/REPO, …) run
-against this workspace's own GitHub repositories; every write exits 77, "writes
-need approval, which this version cannot ask for". Commands that could print the
+against this workspace's own GitHub repositories. Every write exits 77 at once:
+it needs the host user's approval, and that step is not built yet, so nothing
+runs and nothing waits; ask the user to run it on the host. Commands that could
+print the
 credential or reach the host (auth token, --web, api to a URL, a host file, …)
 are refused with exit 64, as is anything outside the workspace's repositories.
 --jq and --template work as they do in gh.
@@ -35,7 +37,7 @@ The repository is -R OWNER/REPO, or this workspace's origin remote. Standard
 input is sent when the arguments read it (` + "`--body-file -`" + `).
 
 Exit codes: gh's own, plus 64 refused or out of scope, 69 no broker or no
-host login, 77 needs an approval this version cannot ask for.
+host login, 77 a write, which this version runs only on the host.
 
 Flags:
   --help, -h    Show this help (as the first argument, before any ` + "`--`" + `).

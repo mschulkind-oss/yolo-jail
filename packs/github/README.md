@@ -5,8 +5,9 @@ this workspace's own GitHub repositories. The jail holds no GitHub credential. E
 the broker is sent is recorded on the host, and `yolo audit` lists them.
 
 Design: [`boundary-broker.md`](../../docs/design/boundary-broker.md). This is step 1 of its
-[§11](../../docs/design/boundary-broker.md#11-recommendation-and-the-first-build-slice): **read-only**. A write (`gh pr comment`, `gh issue edit`, `gh api -X POST …`) exits 77,
-"writes need approval, which this version cannot ask for".
+[§11](../../docs/design/boundary-broker.md#11-recommendation-and-the-first-build-slice): **read-only**. A write (`gh pr comment`, `gh issue edit`, `gh api -X POST …`) exits 77
+at once: writes need an approval step that is not built yet, so nothing runs and nothing waits,
+and the message says to run the command on the host.
 
 ## Two contributions
 
@@ -54,7 +55,7 @@ user config, in what yolo calls a **widening entry**; the launch names what it a
 | | |
 | :--- | :--- |
 | Runs | the read-only set, against an approved repository: `pr view/list/diff/status/checks`, `issue view/list/status`, `run view/list/watch`, `workflow view/list`, `repo view/read-file/read-dir`, `release view/list`, `label list`, `secret list`, `search` with an in-scope `--repo`, `api` GET under `repos/OWNER/REPO`, and more |
-| Exit 77 | every write: it needs an approval this version cannot ask for |
+| Exit 77 | every write, at once: it needs an approval step that is not built yet; run it on the host, where `yolo audit --set read-write` shows the exact command |
 | Exit 64 | anything that could print the credential or reach the host (`auth token`, `--web`, `api` to a URL, host-file arguments, …), and anything outside the repository scope, including account-wide commands such as an unqualified `search` or any GraphQL call, which no widening entry admits |
 | Exit 69 | no broker in this jail, or no `gh` or login on the host |
 

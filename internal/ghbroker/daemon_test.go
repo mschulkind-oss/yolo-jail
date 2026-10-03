@@ -68,13 +68,22 @@ func TestServeRunsAReadAndAuditsIt(t *testing.T) {
 	}
 }
 
-// §11 step 1: every read-write command exits 77, runs nothing, and is audited.
+// §11 step 1: every read-write command exits 77, runs nothing, and is audited. BB-D66: the
+// answer says why (a write needs the host user's approval, not built yet), that nothing is
+// waiting, and the next step, which is the host's.
 func TestServeAnswersEveryWrite77AndRunsNothing(t *testing.T) {
 	f := newBrokerFixture(t, "2.101.0")
 	code, _, errOut := f.serve(t, Request{Argv: []string{"pr", "comment", "32", "-R", "o/r", "--body-file", "-"},
 		Stdin: []byte("hi"), StdinSent: true})
-	if code != ExitNoPerm || !strings.Contains(errOut, "writes need approval, which this version cannot ask for") {
+	if code != ExitNoPerm {
 		t.Fatalf("code %d err %q", code, errOut)
+	}
+	for _, want := range []string{"`gh pr comment` is a write", "no write runs from a jail yet",
+		"with the host user's login", "approval step is not built yet", "Nothing ran and nothing is waiting (exit 77)",
+		"ask the user to run it on the host", "`yolo audit --set read-write`"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("the write's answer lacks %q:\n%s", want, errOut)
+		}
 	}
 	if entries, _ := os.ReadDir(filepath.Join(f.fakeDir, "calls")); len(entries) != 0 {
 		t.Fatalf("a write ran gh")
@@ -240,7 +249,8 @@ func TestServeOutOfScopeRingsNobodyAndRunsNothing(t *testing.T) {
 func TestServeAnUntestedGHRunsNothing(t *testing.T) {
 	f := newBrokerFixture(t, "2.99.0")
 	code, _, errOut := f.serve(t, Request{Argv: []string{"pr", "view", "1", "-R", "o/r"}})
-	if code != ExitNoPerm || !strings.Contains(errOut, "outside the 2.101.x range") {
+	if code != ExitNoPerm || !strings.Contains(errOut, "outside the 2.101.x range") ||
+		!strings.Contains(errOut, "nothing is waiting (exit 77)") || !strings.Contains(errOut, "install gh 2.101.x on the host") {
 		t.Fatalf("code %d err %q", code, errOut)
 	}
 }
@@ -341,13 +351,18 @@ func TestForwardThroughTheFront(t *testing.T) {
 		t.Fatalf("the audit line must carry the preamble's jail id: %+v", ev)
 	}
 
-	// stdin crosses when the argv reads it, and a write answers 77 through the front.
+	// stdin crosses when the argv reads it, and a write answers 77 through the front, at once:
+	// step 1 has no approval to wait for, so nothing holds the call (BB-D66).
 	out.Reset()
 	errOut.Reset()
+	start := time.Now()
 	code = Forward([]string{"pr", "comment", "1", "--body-file", "-"}, ForwardEnv{Getenv: env,
 		Stdin: strings.NewReader("body"), Stdout: &out, Stderr: &errOut, OriginRepo: func() string { return "o/r" }})
-	if code != ExitNoPerm {
+	if code != ExitNoPerm || !strings.Contains(errOut.String(), "nothing is waiting") {
 		t.Fatalf("a forwarded write: code %d err %q", code, errOut.String())
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("a forwarded write took %s; it must answer at once", took)
 	}
 	if ev := lastAudit(t); ev.Stdin == nil || ev.Stdin.Bytes != 4 {
 		t.Fatalf("stdin was not forwarded: %+v", ev)
