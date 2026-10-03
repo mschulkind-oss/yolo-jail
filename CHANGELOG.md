@@ -49,6 +49,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   variable write, a `..` in an argument, or a `:owner` or `:repo` placeholder.
 - A macos-user launch of Codex or Pi no longer refuses when the shared OpenAI credential service
   restarts just as it connects.
+- On a Mac, a launch and `yolo check` wait up to a minute for a busy Podman machine instead of
+  calling it not started after 10 seconds.
 
 ## [0.11.1] - 2026-10-02
 
