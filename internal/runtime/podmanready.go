@@ -185,6 +185,17 @@ type ReadyResult struct {
 	Failure Failure
 	// Running is the pid of a probe yolo stopped waiting on and left running, 0 when none.
 	Running int
+	// Machine is true for the result of WaitForPodmanMachine, macOS's patient one-shot
+	// (podmanmachine.go), which asks once and retries nothing; its refusal says so.
+	Machine bool
+}
+
+// StillRunning reports whether the wait ended on a probe that had not answered: the budget
+// ran out with the last attempt still running (Running names it). A budget spent on early
+// exits is podman's answer, not this.
+func (r ReadyResult) StillRunning() bool {
+	last := r.Last()
+	return r.Outcome == PodmanNotReady && len(r.Attempts) > 0 && last.StartErr == nil && !last.Exited
 }
 
 // Last is the last attempt, or the zero Attempt when there was none.

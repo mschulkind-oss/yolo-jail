@@ -22,7 +22,7 @@ const PodmanReadyLabel = "Checking that podman is running"
 // and note receives each attempt's `runtime.ready.attempt` detail (nil records nothing). The
 // caller closes the line with the result's DoneText.
 func WaitForPodmanShowing(line *progress.Line, rt string, seams ReadySeams, note func(detail string)) ReadyResult {
-	stop := showReadyWait(line, PodmanReadyBudget)
+	stop := showWait(line, PodmanReadyBudget, "waiting for podman to answer (it may be finishing post-boot cleanup)")
 	res := WaitForPodman(PodmanInfoArgv(rt), PodmanReadyBudget, seams, ReadyHooks{
 		OnAttempt: func(n int, a Attempt, f Failure) {
 			if note != nil {
@@ -38,17 +38,17 @@ func WaitForPodmanShowing(line *progress.Line, rt string, seams ReadySeams, note
 	return res
 }
 
-// showReadyWait keeps the line's detail current while the gate waits: "waiting for podman to
-// answer (it may be finishing post-boot cleanup), 14s of 60s". Its own clock, the wall clock,
-// because the line is a person's view of a real wait. The returned func stops it.
-func showReadyWait(line *progress.Line, budget time.Duration) func() {
+// showWait keeps the line's detail current while the gate waits: what, then how much of the
+// budget has gone ("waiting for podman to answer (it may be finishing post-boot cleanup), 14s
+// of 60s"). Its own clock, the wall clock, because the line is a person's view of a real wait.
+// The returned func stops it.
+func showWait(line *progress.Line, budget time.Duration, what string) func() {
 	if line == nil {
 		return func() {}
 	}
 	start := time.Now()
 	set := func() {
-		line.Set(fmt.Sprintf("waiting for podman to answer (it may be finishing post-boot cleanup), %ds of %ds",
-			int(time.Since(start).Seconds()), int(budget.Seconds())))
+		line.Set(fmt.Sprintf("%s, %ds of %ds", what, int(time.Since(start).Seconds()), int(budget.Seconds())))
 	}
 	set()
 	stop, stopped := make(chan struct{}), make(chan struct{})
@@ -115,17 +115,29 @@ func (r ReadyResult) Refusal(rt string) string {
 		}
 		return b.String()
 	}
-	switch r.Outcome {
-	case PodmanNotStarted:
+	switch {
+	case r.Outcome == PodmanNotStarted:
 		fmt.Fprintf(&b, "%s info could not run: %s.", rt, r.Failure.Line)
 		if r.Failure.Fix != "" {
 			fmt.Fprintf(&b, "\nFix: %s.", r.Failure.Fix)
 		}
-	case PodmanRefused:
+	case r.Outcome == PodmanRefused && r.Machine:
+		// The patient one-shot retries nothing (podmanmachine.go), so this is podman's one
+		// answer, not a verdict that it cannot clear: on macOS, almost always a stopped machine.
+		fmt.Fprintf(&b, "%s info failed: %s.", rt, Describe(last, r.Failure))
+		if r.Failure.Fix != "" {
+			fmt.Fprintf(&b, "\nFix: %s.", r.Failure.Fix)
+		}
+	case r.Outcome == PodmanRefused:
 		fmt.Fprintf(&b, "%s info failed with an error that does not clear on its own (%s): %s\nFix: %s.",
 			rt, span, Describe(last, r.Failure), r.Failure.Fix)
-	case PodmanInterrupted:
+	case r.Outcome == PodmanInterrupted:
 		fmt.Fprintf(&b, "Interrupted while waiting for %s info to answer (%s).", rt, span)
+	case r.Machine:
+		// Still running at the end of the budget: the machine took the connection and has not
+		// answered, which a stopped machine never does (podmanmachine.go).
+		fmt.Fprintf(&b, "%s info did not answer within %ds (%s); the Podman machine may be busy or still starting.",
+			rt, int(PodmanReadyBudget.Seconds()), span)
 	default:
 		fmt.Fprintf(&b, "%s info did not answer within %ds (%s)", rt, int(PodmanReadyBudget.Seconds()), span)
 		// Podman's own reason whenever it gave one: the last attempt's, or — when the last

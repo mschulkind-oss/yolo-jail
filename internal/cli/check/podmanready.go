@@ -18,8 +18,9 @@ import (
 // probe of its own. The one it had
 // discarded stderr, and disagreed with the launch about why podman was down.
 //
-// Out of scope, as on the launch path (PR-D7): macOS and Apple Container keep their one-shot
-// probe.
+// On macOS podman takes the gate's PATIENT ONE-SHOT instead, as on the launch path (PR-D24,
+// runtime.WaitForPodmanMachine): one attempt, the same budget, no retry. Apple Container keeps
+// its one-shot probe (PR-D7).
 
 // defaultPodmanAttempt is the attempt runner check uses when Options.PodmanReadiness leaves it
 // nil. A package variable only so this package's TestMain can make it refuse: a unit test
@@ -29,6 +30,17 @@ var defaultPodmanAttempt runtime.AttemptRunner = runtime.RunPodmanAttempt
 // usesReadinessGate is the gate's scope: podman on a Linux host.
 func (o *Options) usesReadinessGate(rt string) bool {
 	return rt == "podman" && !o.IsMacOS
+}
+
+// usesPatientOneShot is the patient one-shot's scope: podman on macOS, a client of the Podman
+// machine's VM.
+func (o *Options) usesPatientOneShot(rt string) bool {
+	return rt == "podman" && o.IsMacOS
+}
+
+// asksPodmanGate reports whether rt's liveness is podmanGate's answer: podman on either host.
+func (o *Options) asksPodmanGate(rt string) bool {
+	return o.usesReadinessGate(rt) || o.usesPatientOneShot(rt)
 }
 
 // podmanGate runs the gate the first time it is asked and returns that one result every
@@ -49,7 +61,12 @@ func (o *Options) podmanGate() runtime.ReadyResult {
 	// A nil Stderr (a section driven directly by a test) draws nothing: Start returns a nil
 	// line, on which every method is a no-op.
 	line := cfg.Start(o.Stderr, runtime.PodmanReadyLabel)
-	res := runtime.WaitForPodmanShowing(line, "podman", seams, nil)
+	var res runtime.ReadyResult
+	if o.usesPatientOneShot("podman") {
+		res = runtime.WaitForPodmanMachineShowing(line, "podman", seams, nil)
+	} else {
+		res = runtime.WaitForPodmanShowing(line, "podman", seams, nil)
+	}
 	line.Done(res.DoneText())
 	o.podmanReady = &res
 	return res

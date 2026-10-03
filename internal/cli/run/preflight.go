@@ -201,7 +201,7 @@ func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 		candidates = []string{"podman"}
 	}
 	var offline []string
-	var failures []string
+	var downs []runtimeDown
 	for _, rt := range candidates {
 		path, ok := o.LookPath(rt)
 		if !ok {
@@ -210,27 +210,45 @@ func (o *Options) resolveRuntime(cfg *jsonx.OrderedMap) (string, bool) {
 		if rt == "container" && !o.isAppleContainer(path) {
 			continue
 		}
-		if ok, reason := o.runtimeIsConnectable(rt); !ok {
+		if ok, down := o.runtimeIsConnectable(rt); !ok {
 			offline = append(offline, rt)
-			failures = append(failures, reason)
+			downs = append(downs, down)
 			continue
 		}
 		return rt, true
 	}
 	// PATH presence does not tell us whether a VM is stopped: on Linux there
-	// is no VM, and a failed info probe may instead be a transient error.
+	// is no VM, and a failed info probe may instead be a transient error. And on macOS a
+	// runtime that took the probe and never answered is not stopped either (PR-D24), so it
+	// gets a headline of its own; nor is one whose probe ended on yolo's own scratch file and
+	// never ran podman (PR-D23), which yolo could not query.
 	if len(offline) > 0 {
 		out := o.pr(o.Stdout)
-		if o.IsMacOS {
-			out.printf("[bold red]Container runtime installed but not started (%s).[/bold red]",
-				strings.Join(offline, ", "))
-		} else {
-			out.printf("[bold red]Cannot query container runtime (%s).[/bold red]",
-				strings.Join(offline, ", "))
-		}
+		var stopped, unqueried, unanswered []string
 		for i, rt := range offline {
-			out.print(failures[i])
-			o.printRuntimeFailureHint(out, rt)
+			switch d := downs[i]; {
+			case d.unanswered:
+				unanswered = append(unanswered, rt)
+			case o.IsMacOS && !d.scratch:
+				stopped = append(stopped, rt)
+			default:
+				unqueried = append(unqueried, rt)
+			}
+		}
+		if len(stopped) > 0 {
+			out.printf("[bold red]Container runtime installed but not started (%s).[/bold red]",
+				strings.Join(stopped, ", "))
+		}
+		if len(unqueried) > 0 {
+			out.printf("[bold red]Cannot query container runtime (%s).[/bold red]",
+				strings.Join(unqueried, ", "))
+		}
+		if len(unanswered) > 0 {
+			out.printf("[bold red]Container runtime installed but not answering (%s).[/bold red]",
+				strings.Join(unanswered, ", "))
+		}
+		for _, down := range downs {
+			down.print(out)
 		}
 		return "", false
 	}
@@ -256,28 +274,46 @@ func (o *Options) validateExplicitRuntime(rt, source string) (string, bool) {
 		out.printf("[dim]Install it, or unset %s to auto-detect. Run `yolo check` to validate.[/dim]", source)
 		return "", false
 	}
-	if ok, reason := o.runtimeIsConnectable(rt); !ok {
-		if o.IsMacOS {
+	if ok, down := o.runtimeIsConnectable(rt); !ok {
+		switch {
+		case down.unanswered:
+			out.printf("[bold red]Configured runtime '%s' (from %s) is installed but not answering.[/bold red]", rt, source)
+		case o.IsMacOS && !down.scratch:
 			out.printf("[bold red]Configured runtime '%s' (from %s) is installed but not started.[/bold red]", rt, source)
-		} else {
+		default:
 			out.printf("[bold red]Cannot query configured runtime '%s' (from %s).[/bold red]", rt, source)
 		}
-		out.print(reason)
-		o.printRuntimeFailureHint(out, rt)
+		down.print(out)
 		return "", false
 	}
 	return rt, true
 }
 
-// printRuntimeFailureHint prints the step under a runtime that did not answer: the platform's
-// start or diagnose step (runtimeStartHint), except after a readiness gate that ended on yolo's
-// own scratch file, whose last attempt never ran podman and whose refusal above already names
-// the fix that error calls for, so a step pointing at podman would be the wrong one.
-func (o *Options) printRuntimeFailureHint(out printer, rt string) {
-	if o.usesReadinessGate(rt) && o.readiness != nil && o.readiness.EndedOnScratchError() {
-		return
+// runtimeDown is why runtime selection could not use a runtime it found on PATH, in the words
+// its refusal prints under the headline.
+type runtimeDown struct {
+	// reason is the probe's evidence: what it ran and what came back.
+	reason string
+	// hint is the next step, "" when reason already ends in it.
+	hint string
+	// unanswered: the runtime took the probe and did not answer, which a stopped Podman
+	// machine never does (runtime.WaitForPodmanMachine, PR-D24). It is reported as not
+	// answering, never as not started.
+	unanswered bool
+	// scratch: the probe ended on yolo's own scratch file (runtime.ReadyResult.EndedOnScratchError),
+	// so its last attempt never ran podman. reason names the step that error calls for and hint
+	// is "", and no headline calls the runtime stopped: a podman step would be the wrong one
+	// (PR-D23).
+	scratch bool
+}
+
+// print writes the refusal's body under its headline: the reason, then the next step when it
+// is not already the reason's last line.
+func (d runtimeDown) print(out printer) {
+	out.print(d.reason)
+	if d.hint != "" {
+		out.printf("[dim]%s[/dim]", d.hint)
 	}
-	out.printf("[dim]%s[/dim]", runtimeStartHint(rt, o.IsMacOS))
 }
 
 // runtimeStartHint gives a platform-specific next step for a failed probe.
@@ -307,29 +343,31 @@ func (o *Options) isAppleContainer(path string) bool {
 // Podman on Linux goes through the READINESS GATE (podmanready.go): up to a minute for
 // `podman info` to answer, never killing a probe that may be doing podman's post-boot
 // cleanup, and refusing at once only on an answer that cannot clear on its own
-// (docs/design/podman-reboot-readiness.md). Everything else keeps the one-shot probe,
-// bounded at 5 s (Apple Container) and 10 s (podman on macOS, where a stopped VM and a
-// starting one look alike to `podman info`); a cold runtime can spend most of that, so it
-// has a progress line too (silent when it answers promptly).
-func (o *Options) runtimeIsConnectable(rt string) (ok bool, reason string) {
-	if o.usesReadinessGate(rt) {
+// (docs/design/podman-reboot-readiness.md). Podman on macOS takes the gate's PATIENT ONE-SHOT
+// (PR-D24): one attempt, the same minute to answer, no retry. It used to be killed at 10 s and
+// called "not started", which is how a running machine that was busy got refused on the Intel
+// macOS nightly of 2026-10-03. Apple Container keeps a one-shot probe bounded at 5 s
+// (probeAppleContainer); a cold runtime can spend most of that, so it has a progress line too
+// (silent when it answers promptly).
+func (o *Options) runtimeIsConnectable(rt string) (ok bool, down runtimeDown) {
+	if o.usesReadinessGate(rt) || o.usesPatientOneShot(rt) {
 		return o.waitForPodman(rt)
 	}
 	o.withStderrProgress("Checking that "+rt+" is running", func() bool {
-		ok, reason = o.probeRuntime(rt)
+		ok, down.reason = o.probeAppleContainer()
 		return ok
 	})
-	return ok, reason
+	down.hint = runtimeStartHint(rt, o.IsMacOS)
+	return ok, down
 }
 
-func (o *Options) probeRuntime(rt string) (bool, string) {
-	if rt == "container" {
-		res := o.Exec([]string{"container", "system", "status"}, "", nil, 5*time.Second)
-		return res.Ran && !res.Timeout && res.RC == 0 &&
-			strings.Contains(strings.ToLower(res.Stdout), "running"), runtimeProbeFailure("container system status", res)
-	}
-	res := o.Exec([]string{rt, "info"}, "", nil, 10*time.Second)
-	return res.Ran && !res.Timeout && res.RC == 0, runtimeProbeFailure(rt+" info", res)
+// probeAppleContainer is Apple Container's one-shot probe: `container system status`, bounded
+// at 5 s, answering "running". Podman never comes here: waitForPodman is its probe on both
+// hosts.
+func (o *Options) probeAppleContainer() (bool, string) {
+	res := o.Exec([]string{"container", "system", "status"}, "", nil, 5*time.Second)
+	return res.Ran && !res.Timeout && res.RC == 0 &&
+		strings.Contains(strings.ToLower(res.Stdout), "running"), runtimeProbeFailure("container system status", res)
 }
 
 func runtimeProbeFailure(command string, res ExecResult) string {

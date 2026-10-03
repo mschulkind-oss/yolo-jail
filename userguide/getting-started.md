@@ -466,6 +466,7 @@ And these need fixing before you launch:
 | On a Mac: `Nix daemon: connected but user is NOT trusted` | [Trust your user](#trust-your-user-required-on-a-mac). It is only a `[WARN]`, but the first launch needs it |
 | On Linux: `Nix daemon: store operation timed out` or `Nix daemon: connection failed` | Restart the daemon with the command the note names, usually `sudo systemctl restart nix-daemon`. The launch builds its image through it |
 | `No container runtime installed`, or `… installed but not started` | [Step 2](#step-2-install-a-container-runtime), or the start command the note names |
+| `… installed but not answering` | The runtime is up but did not answer within a minute. On a Mac, `podman machine list` shows whether the machine is running; wait for it, then run `yolo check` again |
 | `No packs are configured, so this jail has no coding agent` | [Choose an agent](#choose-an-agent) |
 
 Run `yolo check` again after every edit to your config.

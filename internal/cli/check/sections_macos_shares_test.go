@@ -88,7 +88,7 @@ func TestMacOSPlatformGradesThePodmanMachineShares(t *testing.T) {
 			o.PathExists = func(p string) bool { return p == "/nix" }
 			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 				switch strings.Join(argv, " ") {
-				case "podman machine info", "podman info":
+				case "podman machine info":
 					return ExecResult{Ran: true}
 				case "podman machine list --format json":
 					return ExecResult{Ran: true, Stdout: `[{"Name": "podman-machine-default", "Default": true}]`}
@@ -99,6 +99,8 @@ func TestMacOSPlatformGradesThePodmanMachineShares(t *testing.T) {
 				}
 				return ExecResult{}
 			}
+			// The machine answers the probe check asks it by, the patient one-shot (PR-D24).
+			answeringPodman(o, `{}`)
 			r := newReporter(&out, false)
 			o.sectionMacOSPlatform(r, nil)
 

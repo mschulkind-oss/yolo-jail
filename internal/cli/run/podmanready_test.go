@@ -212,50 +212,88 @@ func TestAPodmanThatCannotStartFailsAtOnce(t *testing.T) {
 	}
 }
 
-// macOS is out of the gate's scope (PR-D7), with both backends: one probe each, no wait, and
-// never an attempt through the gate.
+// Apple Container is out of the gate's scope (PR-D7): one probe, no wait, and never an
+// attempt through the gate. Podman on macOS takes the gate's patient one-shot instead (PR-D24):
+// one attempt through the gate's runner, whose deadline is the whole budget, and never Exec's
+// killed `podman info` (podmanmachine_test.go pins what it reports).
 func TestMacOSKeepsTheOneShotProbe(t *testing.T) {
-	for _, tc := range []struct {
-		name, rt string
-		probe    string
-		res      ExecResult
-	}{
-		{"podman machine", "podman", "podman info", ExecResult{Ran: true, RC: 125}},
-		{"apple container", "container", "container system status", ExecResult{Ran: true, RC: 1}},
-	} {
-		for _, explicit := range []bool{true, false} {
-			t.Run(tc.name, func(t *testing.T) {
-				var stdout, stderr bytes.Buffer
-				o := &Options{IsMacOS: true}
-				fillDefaults(o)
-				o.Stdout, o.Stderr = &stdout, &stderr
-				o.Getenv = func(k string) string {
-					if explicit && k == "YOLO_RUNTIME" {
-						return tc.rt
-					}
-					return ""
+	for _, explicit := range []bool{true, false} {
+		t.Run("apple container", func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			o := &Options{IsMacOS: true}
+			fillDefaults(o)
+			o.Stdout, o.Stderr = &stdout, &stderr
+			o.Getenv = func(k string) string {
+				if explicit && k == "YOLO_RUNTIME" {
+					return "container"
 				}
-				o.LookPath = func(name string) (string, bool) { return "/opt/bin/" + name, name == tc.rt }
-				probes := 0
-				o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
-					if strings.Join(argv, " ") == tc.probe {
-						probes++
-						return tc.res
-					}
-					if len(argv) == 2 && argv[1] == "--version" {
-						return ExecResult{Ran: true, RC: 0, Stdout: "container CLI version 1.0"}
-					}
-					return ExecResult{Ran: false}
+				return ""
+			}
+			o.LookPath = func(name string) (string, bool) { return "/opt/bin/" + name, name == "container" }
+			probes := 0
+			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+				if strings.Join(argv, " ") == "container system status" {
+					probes++
+					return ExecResult{Ran: true, RC: 1}
 				}
-				gate := scriptedPodman(o, yoloruntime.Attempt{Exited: true, RC: 0, Stdout: "{}"})
-				if _, ok := o.resolveRuntime(nil); ok {
-					t.Fatal("a stopped runtime was accepted")
+				if len(argv) == 2 && argv[1] == "--version" {
+					return ExecResult{Ran: true, RC: 0, Stdout: "container CLI version 1.0"}
 				}
-				if probes != 1 || gate.count() != 0 {
-					t.Errorf("one-shot probes=%d, gate attempts=%d; want 1 and 0", probes, gate.count())
+				return ExecResult{Ran: false}
+			}
+			gate := scriptedPodman(o, yoloruntime.Attempt{Exited: true, RC: 0, Stdout: "{}"})
+			if _, ok := o.resolveRuntime(nil); ok {
+				t.Fatal("a stopped runtime was accepted")
+			}
+			if probes != 1 || gate.count() != 0 {
+				t.Errorf("one-shot probes=%d, gate attempts=%d; want 1 and 0", probes, gate.count())
+			}
+		})
+		t.Run("podman machine", func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			o := &Options{IsMacOS: true}
+			fillDefaults(o)
+			o.Stdout, o.Stderr = &stdout, &stderr
+			o.Getenv = func(k string) string {
+				if explicit && k == "YOLO_RUNTIME" {
+					return "podman"
 				}
-			})
-		}
+				return ""
+			}
+			o.LookPath = func(name string) (string, bool) { return "/opt/bin/" + name, name == "podman" }
+			execProbes := 0
+			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+				if len(argv) >= 2 && argv[0] == "podman" && argv[1] == "info" {
+					execProbes++
+				}
+				return ExecResult{Ran: false}
+			}
+			now := time.Unix(1_000_000, 0)
+			var deadlines []time.Duration
+			var argvs []string
+			o.PodmanReadiness = yoloruntime.ReadySeams{
+				Attempt: func(argv []string, deadline time.Time, _ <-chan struct{}) yoloruntime.Attempt {
+					deadlines = append(deadlines, deadline.Sub(now))
+					argvs = append(argvs, strings.Join(argv, " "))
+					return yoloruntime.Attempt{Exited: true, RC: 125, Stderr: stoppedMachineStderr}
+				},
+				Now:       func() time.Time { return now },
+				Sleep:     func(time.Duration, <-chan struct{}) bool { return true },
+				Interrupt: make(chan struct{}),
+			}
+			if _, ok := o.resolveRuntime(nil); ok {
+				t.Fatal("a stopped machine was accepted")
+			}
+			if execProbes != 0 {
+				t.Errorf("ran `podman info` through Exec %d times, whose timeout kills it", execProbes)
+			}
+			if len(deadlines) != 1 || deadlines[0] != yoloruntime.PodmanReadyBudget {
+				t.Errorf("attempt deadlines = %v; want one, the whole %s budget", deadlines, yoloruntime.PodmanReadyBudget)
+			}
+			if len(argvs) != 1 || argvs[0] != "podman info --format json" {
+				t.Errorf("asked %q", argvs)
+			}
+		})
 	}
 }
 

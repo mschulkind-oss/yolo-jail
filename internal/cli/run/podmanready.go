@@ -18,8 +18,11 @@ import (
 // — the host-loopback decision, the image copy's store facts, and the `podman.facts` note —
 // so no second `podman info` runs (PR-D5).
 //
-// Out of scope and pinned: macOS (Podman Machine) and Apple Container keep their one-shot
-// probe (PR-D7), because to `podman info` a stopped VM and a starting one look alike.
+// macOS (Podman Machine) takes the gate's PATIENT ONE-SHOT instead (runtime.WaitForPodmanMachine,
+// PR-D24, a term coined there): one attempt, never retried, because a stopped machine answers
+// at once (PR-D7), and waited for up to the same budget, because a machine that has not
+// answered is up or coming up. Its answer is not taken as the launch's Podman facts: every
+// reader of them is Linux podman's. Apple Container keeps probeAppleContainer's one-shot probe.
 
 // defaultPodmanAttempt is the attempt runner a launch uses when Options.PodmanReadiness leaves
 // it nil. A package variable only so this package's TestMain can make it refuse: a unit test
@@ -35,9 +38,16 @@ type podmanFacts struct {
 }
 
 // usesReadinessGate is the gate's scope: podman on a Linux host, launched on the host or in
-// a nested jail. Everything else keeps probeRuntime's one-shot probe.
+// a nested jail. Podman on macOS takes the patient one-shot (usesPatientOneShot); everything
+// else keeps probeAppleContainer's one-shot probe.
 func (o *Options) usesReadinessGate(rt string) bool {
-	return rt == "podman" && !o.IsMacOS // parity: HonoredBy — Apple Container and Podman Machine keep probeRuntime's one-shot probe (PR-D7): to `podman info` a stopped VM and a starting one look alike
+	return rt == "podman" && !o.IsMacOS // parity: HonoredBy — Apple Container keeps probeAppleContainer's one-shot probe and Podman Machine the patient one-shot (PR-D7, PR-D24): a stopped VM answers at once, so neither retries
+}
+
+// usesPatientOneShot is the patient one-shot's scope: podman on macOS, where it is a client of
+// the Podman machine's VM (runtime.WaitForPodmanMachine, PR-D24).
+func (o *Options) usesPatientOneShot(rt string) bool {
+	return rt == "podman" && o.IsMacOS // parity: HonoredBy — Linux podman takes the readiness gate, which retries an early exit; Apple Container keeps probeAppleContainer's one-shot probe
 }
 
 // readySeams is Options.PodmanReadiness with the package's attempt runner filled in.
@@ -72,34 +82,51 @@ func (o *Options) readyInterrupt() (<-chan struct{}, func()) {
 	}
 }
 
-// waitForPodman runs the gate for rt and reports (ok, reason). On success the answer is
-// o.podmanFacts; on failure reason is the refusal body its caller prints under the
+// waitForPodman runs the gate for rt — on macOS, the patient one-shot — and reports whether
+// podman answered. On success on Linux the answer is o.podmanFacts; on failure the
+// runtimeDown is the refusal body and next step its caller prints under the
 // runtime-selection headline. Either way the result stays on o.readiness for the
 // machine-wide launch line (launchrecord.go), and every perf event is written before this
 // returns (PR-D10).
-func (o *Options) waitForPodman(rt string) (ok bool, reason string) {
+func (o *Options) waitForPodman(rt string) (ok bool, down runtimeDown) {
 	seams := o.readySeams()
 	interrupt, stopInterrupt := o.readyInterrupt()
 	defer stopInterrupt()
 	seams.Interrupt = interrupt
 
 	sp := o.Perf.Span("runtime.ready")
+	note := func(detail string) { o.Perf.Note("runtime.ready.attempt", detail) }
 	var res runtime.ReadyResult
 	o.withProgressLine(runtime.PodmanReadyLabel, func(line *progress.Line) (bool, string) {
-		res = runtime.WaitForPodmanShowing(line, rt, seams, func(detail string) {
-			o.Perf.Note("runtime.ready.attempt", detail)
-		})
+		if o.usesPatientOneShot(rt) {
+			res = runtime.WaitForPodmanMachineShowing(line, rt, seams, note)
+		} else {
+			res = runtime.WaitForPodmanShowing(line, rt, seams, note)
+		}
 		return res.Outcome == runtime.PodmanReady, res.DoneText()
 	})
 	o.readiness = &res
-	if res.Outcome == runtime.PodmanReady {
+	if res.Outcome == runtime.PodmanReady && !res.Machine {
 		o.acceptPodmanFacts(res.Info)
 	}
 	sp.End()
 	if res.Outcome == runtime.PodmanReady {
-		return true, ""
+		return true, runtimeDown{}
 	}
-	return false, res.Refusal(rt)
+	down = runtimeDown{reason: res.Refusal(rt), hint: runtimeStartHint(rt, o.IsMacOS)}
+	switch {
+	case res.EndedOnScratchError():
+		// yolo's own scratch file, on either host: the last attempt never ran podman, and the
+		// refusal already names the step its error calls for, so no podman step follows it
+		// (PR-D23).
+		down.scratch, down.hint = true, ""
+	case res.Machine && (res.StillRunning() || res.Outcome == runtime.PodmanInterrupted):
+		// A machine that took the probe and did not answer is up or coming up: it is reported
+		// as that, with the step that looks at it, never as one to start (PR-D24).
+		down.unanswered = true
+		down.hint = runtime.PodmanMachineBusyHint("launch again")
+	}
+	return false, down
 }
 
 // acceptPodmanFacts makes info — the gate's answer — the launch's Podman facts, and notes

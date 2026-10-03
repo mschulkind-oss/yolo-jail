@@ -126,23 +126,43 @@ func TestTheRuntimeSectionCarriesTheGatesRefusal(t *testing.T) {
 	}
 }
 
-// macOS keeps the one-shot probe (PR-D7): the gate is never asked.
-func TestCheckOnMacOSNeverAsksTheGate(t *testing.T) {
+// macOS asks the gate's patient one-shot (PR-D24): once for the whole section, through the
+// gate's runner with the whole budget as its deadline, and never through Exec, whose timeout
+// kills the probe. podmanmachine_test.go pins what it reports.
+func TestCheckOnMacOSAsksThePatientOneShotOnce(t *testing.T) {
 	var out bytes.Buffer
 	opts := baseOptions(t, &out)
 	opts.IsMacOS = true
 	opts.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "podman" }
-	opts.Exec = fakeExec(map[string]ExecResult{
-		"podman --version": {Stdout: "podman version 6.1.2", Ran: true, RC: 0},
-		"podman info":      {Stdout: "host: {}", Ran: true, RC: 0},
-	})
-	gate := answeringPodman(&opts, `{}`)
+	execProbes := 0
+	opts.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+		switch key := strings.Join(argv, " "); {
+		case key == "podman --version":
+			return ExecResult{Stdout: "podman version 5.8.4", Ran: true, RC: 0}
+		case strings.HasPrefix(key, "podman info"):
+			execProbes++
+		}
+		return ExecResult{Ran: false}
+	}
+	now := time.Unix(1_000_000, 0)
+	var deadlines []time.Duration
+	opts.PodmanReadiness = runtime.ReadySeams{
+		Attempt: func(_ []string, deadline time.Time, _ <-chan struct{}) runtime.Attempt {
+			deadlines = append(deadlines, deadline.Sub(now))
+			return runtime.Attempt{Exited: true, RC: 0, Stdout: `{}`, Pid: 1}
+		},
+		Now:       func() time.Time { return now },
+		Interrupt: make(chan struct{}),
+	}
 	r := newReporter(&out, false)
 	if rt := opts.sectionContainerRuntime(r); rt != "podman" {
 		t.Fatalf("detected %q", rt)
 	}
-	if gate.count() != 0 {
-		t.Errorf("macOS asked the readiness gate %d times", gate.count())
+	if len(deadlines) != 1 || deadlines[0] != runtime.PodmanReadyBudget {
+		t.Errorf("attempt deadlines = %v; want one, the whole %s budget", deadlines, runtime.PodmanReadyBudget)
+	}
+	if execProbes != 0 {
+		t.Errorf("ran `podman info` through Exec %d times, whose timeout kills it", execProbes)
 	}
 }
 

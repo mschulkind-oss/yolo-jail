@@ -334,7 +334,12 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 		selectedRuntime = ""
 	}
 
-	type offlineEntry struct{ rt, version, hint string }
+	// unanswered: the runtime took the probe and did not answer within the budget (PR-D24), so
+	// it is reported as not answering, never as one to start.
+	type offlineEntry struct {
+		rt, version, hint string
+		unanswered        bool
+	}
 	var offline []offlineEntry
 	// broken is every runtime found on PATH that would not run, each already a [FAIL] naming the
 	// command that shows why. When nothing else works that row is the finding (one cause, one
@@ -356,9 +361,10 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 			continue
 		}
 		version := firstLine(strings.TrimSpace(verRes.Stdout))
-		if o.usesReadinessGate(p.name) {
-			// THE LAUNCH'S GATE, not a probe of check's own (podmanready.go): up to a minute
-			// for podman to finish post-boot cleanup, and the same refusal a launch prints.
+		if o.asksPodmanGate(p.name) {
+			// THE LAUNCH'S PROBE, not one of check's own (podmanready.go): up to a minute for
+			// podman to answer — the readiness gate on Linux, the patient one-shot on macOS —
+			// and the same refusal a launch prints.
 			gate := o.podmanGate()
 			switch {
 			case gate.Outcome == runtime.PodmanReady:
@@ -374,9 +380,19 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 			case gate.Outcome == runtime.PodmanNotStarted:
 				r.fail(p.name+" found but not working: "+gate.Refusal(p.name), probeNote(p.livenessCmd...))
 				broken = append(broken, p.name)
+			case gate.StillRunning() || (gate.Machine && gate.Outcome == runtime.PodmanInterrupted):
+				// Podman took the probe and has not answered within the budget. Not answering
+				// is what was seen; "not started" would be a guess, and START it the wrong fix.
+				// On macOS the machine is up or coming up, so the next step is to look at it and
+				// wait (PR-D24). A budget spent on early exits is podman's answer: default below.
+				hint := p.livenessHint
+				if gate.Machine {
+					hint = runtime.PodmanMachineBusyHint("run `yolo check` again")
+				}
+				offline = append(offline, offlineEntry{p.name, version, hint + "\n" + gate.Refusal(p.name), true})
 			default:
 				// The fix first, then podman's own evidence (HE-D2's one row).
-				offline = append(offline, offlineEntry{p.name, version, p.livenessHint + "\n" + gate.Refusal(p.name)})
+				offline = append(offline, offlineEntry{p.name, version, p.livenessHint + "\n" + gate.Refusal(p.name), false})
 			}
 			continue
 		}
@@ -396,7 +412,7 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 				detectedRuntime = p.name
 			}
 		} else {
-			offline = append(offline, offlineEntry{p.name, version, p.livenessHint})
+			offline = append(offline, offlineEntry{p.name, version, p.livenessHint, false})
 		}
 	}
 
@@ -408,25 +424,40 @@ func (o *Options) sectionContainerRuntime(r *reporter) string {
 	// docs/reference/host-agent-environment.md).
 	if detectedRuntime != "" {
 		for _, e := range offline {
+			state := "not connected"
+			if e.unanswered {
+				state = "not answering"
+			}
 			if e.rt == selectedRuntime {
-				r.warn(e.rt+": "+e.version+" (not connected)", e.hint)
+				r.warn(e.rt+": "+e.version+" ("+state+")", e.hint)
 			} else {
-				r.dim(e.rt + ": " + e.version + " (not connected, not selected)")
+				r.dim(e.rt + ": " + e.version + " (" + state + ", not selected)")
 			}
 		}
 	}
 
 	if detectedRuntime == "" {
-		if len(offline) > 0 {
-			var found []string
-			var starts []string
-			for _, e := range offline {
+		// One [FAIL] per cause: a runtime that is not started, and one that took the probe and
+		// did not answer, have different fixes, so they never share a row (HE-D2).
+		var found, starts, silent, waits []string
+		for _, e := range offline {
+			if e.unanswered {
+				silent = append(silent, e.rt+": "+e.version)
+				waits = append(waits, e.rt+": "+e.hint)
+			} else {
 				found = append(found, e.rt+": "+e.version)
 				starts = append(starts, e.rt+": "+e.hint)
 			}
+		}
+		if len(found) > 0 {
 			r.fail("Container runtime installed but not started ("+strings.Join(found, "; ")+")",
 				strings.Join(starts, "\n")+"\nIt's installed — you just need to START it.")
-		} else if len(broken) == 0 {
+		}
+		if len(silent) > 0 {
+			r.fail("Container runtime installed but not answering ("+strings.Join(silent, "; ")+")",
+				strings.Join(waits, "\n"))
+		}
+		if len(offline) == 0 && len(broken) == 0 {
 			r.fail("No container runtime installed", o.runtimeInstallNote())
 		}
 	}

@@ -117,25 +117,18 @@ func (o *Options) nativeRuntimeCheck(rt, source string) (string, string, bool) {
 	return rt, "", true
 }
 
-// runtimeIsConnectable reports whether the daemon answers. Podman on Linux asks the
-// readiness gate (podmanready.go), the launch's own, once per check; macOS podman and Apple
-// Container keep a one-shot probe.
+// runtimeIsConnectable reports whether the daemon answers. Podman asks podmanGate, the
+// launch's own probe, once per check: the readiness gate on Linux, the patient one-shot on
+// macOS (podmanready.go). Apple Container keeps a one-shot probe.
 func (o *Options) runtimeIsConnectable(rt string) bool {
-	if o.usesReadinessGate(rt) {
+	if o.asksPodmanGate(rt) {
 		return o.podmanGate().Outcome == runtime.PodmanReady
 	}
-	if rt == "container" {
-		res := o.Exec([]string{"container", "system", "status"}, "", nil, 5*time.Second)
-		if !res.Ran || res.Timeout {
-			return false
-		}
-		return res.RC == 0 && strings.Contains(strings.ToLower(res.Stdout), "running")
-	}
-	res := o.Exec([]string{rt, "info"}, "", nil, 10*time.Second)
+	res := o.Exec([]string{"container", "system", "status"}, "", nil, 5*time.Second)
 	if !res.Ran || res.Timeout {
 		return false
 	}
-	return res.RC == 0
+	return res.RC == 0 && strings.Contains(strings.ToLower(res.Stdout), "running")
 }
 
 // isAppleContainer reports whether the binary is Apple's container

@@ -39,7 +39,9 @@ older image.
   Podman finishes its own cleanup, printing each error Podman gives meanwhile. It stops at once only
   when the error cannot clear by itself, and then says what to fix. Each launch also leaves one line
   in `~/.local/share/yolo-jail/logs/launches.log`, so you can see which workspaces came back.
-- On a Mac, check the runtime is up: `container system status`, or `podman machine list`.
+- On a Mac, check the runtime is up: `container system status`, or `podman machine list`. A busy
+  Podman machine gets up to a minute to answer; one that still has not answered is reported as not
+  answering, and needs waiting for, not starting.
 - Start a fresh jail: `yolo stop`, then launch again. `yolo ps` lists running jails.
 
 **"No packs are configured, so this jail has no coding agent".** Add an agent pack to your user

@@ -178,17 +178,19 @@ func TestResolveRuntimeEnvWins(t *testing.T) {
 }
 
 // Podman installed but the machine VM not started: distinct from not-installed;
-// the message must tell the user to START it, not to install it.
+// the message must tell the user to START it, not to install it. The machine's answer comes
+// through the patient one-shot (podmanmachine.go), which reads the gate's seams.
 func TestResolveRuntimeExplicitNotStarted(t *testing.T) {
 	var buf bytes.Buffer
 	o := Options{
 		Getenv:   func(k string) string { return map[string]string{"YOLO_RUNTIME": "podman"}[k] },
 		LookPath: func(string) (string, bool) { return "/usr/bin/podman", true },
-		Exec:     fakeExec(map[string]ExecResult{"podman info": {Ran: true, RC: 1}}),
 		Stdout:   &buf,
+		Stderr:   discardBuf(),
 		IsMacOS:  true,
 	}
 	fillDefaults(&o)
+	scriptedPodman(&o, yoloruntime.Attempt{Exited: true, RC: 125, Stderr: stoppedMachineStderr})
 	o.Getenv = func(k string) string {
 		if k == "YOLO_RUNTIME" {
 			return "podman"
