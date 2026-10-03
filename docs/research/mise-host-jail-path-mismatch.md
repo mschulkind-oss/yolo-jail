@@ -318,8 +318,18 @@ rm ~/.local/share/mise/installs/rust/1.95.0   # unblocked `mise install` on host
 
 ## Open Questions
 
-> IDs use the `MP` prefix (minted 2026-08-23; no other `OQ-MP*` exists in the
-> repo). These five questions were previously untitled headings with no stable
+> IDs use the `MP` prefix, minted for this file on 2026-08-23. ⚠ *Corrected
+> 2026-10-03:* this said no other `OQ-MP*` exists in the repo, which stopped being true
+> on 2026-09-12. [`mcp-presets-removal.md`](../design/mcp-presets-removal.md) numbers its
+> own questions with the same prefix:
+> [OQ-MP1](../design/mcp-presets-removal.md#decision-ledger) and
+> [OQ-MP2](../design/mcp-presets-removal.md#decision-ledger) are rows of its Decision
+> Ledger, and [OQ-MP3](../design/mcp-presets-removal.md#OQ-MP3) to
+> [OQ-MP8](../design/mcp-presets-removal.md#OQ-MP8) are its questions. So this file's
+> [OQ-MP1](#OQ-MP1) to [OQ-MP5](#OQ-MP5) each share an id with a question there, and a
+> citation from another file needs the file to say which. Neither set is renumbered,
+> because both are cited.
+> These five questions were previously untitled headings with no stable
 > handle, so nothing outside this file cites them under any other spelling.
 > All five are settled — the section is retained rather than compacted into a
 > ledger because each answer carries a *refuted objection* that is cheaper to
