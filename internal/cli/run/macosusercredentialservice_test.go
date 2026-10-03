@@ -16,6 +16,7 @@ package run
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"os"
 	"strconv"
@@ -39,7 +40,9 @@ func stopHostSingletonNow(t *testing.T, name string) int {
 		t.Errorf("no live %s to stop (PID file: %q, %v): the premise is gone", name, raw, err)
 		return 0
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+	// ESRCH is the daemon having left on its own, which is the state this helper exists to
+	// produce: the socket check below then finds it refusing at once.
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 		t.Errorf("SIGTERM %s (pid %d): %v", name, pid, err)
 		return 0
 	}
