@@ -3,7 +3,7 @@ title: "Is macos-user faster than Apple Container? What the sources say, and a b
 date: 2026-10-01
 status: in-review
 stage: DESIGN
-next: "The maintainer rules on OQ-MB1, what backs an Apple Container jail's /mise so that two jails can run at once; a Mac session reruns §7's two-jail check on container 1.5.0; a person at the same Mac works through Appendix A's Before the session list, runs the harness for macos-user and native (it needs sudo's password) and adds the results to the Results section; a Mac launch pass confirms that auto-capture now stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26)"
+next: "The maintainer rules on OQ-MB1, what backs an Apple Container jail's /mise so that two jails can run at once; a Mac session reruns §7's two-jail check on container 1.5.0; a Mac launch pass confirms that auto-capture now stores claude, codex and agy (fixed from the code 2026-10-03, OQ-PD24 to OQ-PD26); macos-user's go_test (M8) is re-run now that the harness trusts the clone's mise.toml; the Results section's other defects are filed and the Corrections section's edits made"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]
 summary: "The maintainer asked for a benchmark instead of an assumption: is macos-user really faster than Apple Container? Sources answer part of it. Apple Container gives each container its own small VM; the VM takes RAM only as the guest touches it, but keeps every page it touched until the container stops, so the maintainer's reading is half right. CPU work should run within a few percent of native, while file work in the shared workspace is where the VM probably costs most: about 2.7 times native in one published measurement of the same macOS file sharing, and 6 to 9 times by Apple's maintainer's rough figures for builds. The doc lists every claim the repo makes about the two backends' speed and memory, a protocol for one Mac running both against one workspace, and a POSIX sh harness that runs the protocol and writes the results table. It measures; it does not choose a backend."
 vantage:
@@ -12,11 +12,15 @@ vantage:
 
 # Is macos-user faster than Apple Container? What the sources say, and a benchmark to find out
 
-**Status:** 2026-10-01; research and a benchmark protocol, nothing ruled here. PARTLY MEASURED
-on 2026-10-02: one Mac ran the harness for Apple Container and the native control, and the
-two-jail volume check ([§8](#8-results), [§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)).
-macos-user is still unmeasured, so every comparison between the two backends below is still a
-prediction from sources. CI logs hold launch times for each backend, but they come from two different Macs. The
+**Status:** 2026-10-01; research and a benchmark protocol, nothing ruled here. MEASURED on one
+Mac: Apple Container and the native control on 2026-10-02, macos-user and the native control on
+2026-10-03, and the two-jail volume check ([§8](#8-results),
+[§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)). The two backends were
+measured on different days, so each is compared with its own day's native run. Two follow-ups
+grew out of the results:
+[why Apple Container's file work is slow](apple-container-file-cost.md) (per-file cost, not
+bandwidth, and what that means for a large Python monorepo) and
+[whether any macOS VM can give memory back](macos-vm-memory-reclaim.md). CI logs hold launch times for each backend, but they come from two different Macs. The
 upstream source was read on 2026-09-30, at apple/container `0a48a1bd` (one day after release 1.5.0)
 and apple/containerization `f24df2ac` (1.5.0 is built on its tag 0.47.0). yolo evidence is at
 `a5665814`.
@@ -175,11 +179,16 @@ of them cites a measurement on one Mac.
 4. **Containerization attaches no balloon.** MEASURED:
    `git -C containerization grep -i balloon 0.47.0 -- Sources vminitd` exits 1, and `rg -i balloon`
    finds nothing in either repository's sources. VZ does offer a traditional balloon, which the
-   host has to drive. A contributor proposed attaching it, with an optional reclaim loop
-   (containerization [#882](https://github.com/apple/containerization/pull/882),
-   [#893](https://github.com/apple/containerization/pull/893),
-   [#894](https://github.com/apple/containerization/pull/894)); all three were closed unmerged on
-   2026-08-28 with no comment (SOURCED, through the GitHub API: `merged_at: null`).
+   host has to drive. One outside contributor proposed attaching it: an RFC issue,
+   containerization [#882](https://github.com/apple/containerization/issues/882), and two PRs,
+   [#893](https://github.com/apple/containerization/pull/893) (the device) and
+   [#894](https://github.com/apple/containerization/pull/894) (an optional reclaim loop). A
+   maintainer closed all three on 2026-08-28 with no comment, **in one sweep with the same
+   contributor's other 30 or so PRs of 2026-08-27**, so the closure is not a ruling on ballooning
+   (SOURCED, through the GitHub API's issue events). And driving VZ's balloon may not return
+   memory to macOS at all: the one published host-side measurement saw the guest give up 7 GiB and
+   the host's footprint rise
+   ([memory-reclaim research](macos-vm-memory-reclaim.md#3-what-virtualizationframework-offers)).
    Apple's guest kernel config does enable `CONFIG_VIRTIO_BALLOON` and `CONFIG_PAGE_REPORTING`
    ([config-arm64:920](https://github.com/apple/containerization/blob/f24df2ac817df66fe149a80103251dec987c32dc/kernel/config-arm64#L920),
    [config-arm64:3047](https://github.com/apple/containerization/blob/f24df2ac817df66fe149a80103251dec987c32dc/kernel/config-arm64#L3047));
@@ -575,10 +584,11 @@ virtiofs reaches several. Two facts the options rest on:
 
 ## 8. Results
 
-**Partly measured, 2026-10-02: Apple Container and the native control only. macos-user was not
-run**, because each macos-user launch needs `sudo` and the session ran unattended, with no
-password to give. To finish, from a terminal on the same Mac, extract the current harness with
-Appendix A's `awk` line and run it as `BENCH_BACKENDS="macos-user native" sh /tmp/macos-backend-bench.sh`.
+**Two sessions on one Mac.** 2026-10-02: Apple Container and the native control, run unattended
+by an agent. 2026-10-03: macos-user and the native control, run by the maintainer from a
+terminal, because each macos-user launch needs `sudo`'s password. The tables below are the first
+session's; [macos-user, 2026-10-03](#macos-user-2026-10-03) is the second's, and
+[the side-by-side](#the-two-backends-side-by-side) puts them together.
 
 **The Mac:** Apple M1 Max (8 performance and 2 efficiency cores), 32 GiB, macOS 26.5 (25F71), on
 mains power. `container` CLI **1.1.0**, older than the 1.5.0 whose source [§2](#2-what-the-sources-say) read. yolo
@@ -682,6 +692,87 @@ Apple Container's data root: 26.0 GiB (`du`). `container system df` reports 6 im
 26.72 GB with 93% reclaimable, one 1.02 GB container and a 149.3 MB volume. yolo's machine state
 (`~/.local/share/yolo-jail`) came to 2.3 GiB, and the workspace's `.yolo` to 17 MiB.
 
+### macos-user, 2026-10-03
+
+Same Mac, yolo `0.11.1+15.g5ca9b748`, from a terminal. **One deviation:** the run needed
+`BENCH_ALLOW_RUNNING=1`, because macOS had started its per-user agents for `_yolojail`
+(`distnoted`, `lsd`, `cfprefsd`, `secd`) and the harness counted them as a running jail. Appendix
+A now leaves out every `_yolojail` process under `/usr/libexec`, `/usr/sbin` or `/System`. Raw
+output: `results-20261003-131315`, beside the first session's.
+
+| Metric | macos-user | native, same day | macos-user against native |
+| :--- | :--- | :--- | :--- |
+| M1 fresh, to the marker | **5.5 s** (5.4-5.6), n=5 | - | - |
+| M2 fresh, to exit | 5.5 s (5.5-5.6), n=5 | - | - |
+| warm-up launch | 8.4 s to the marker, 15.4 s to exit | - | - |
+| M5 `git status`, 100,000 files | 0.174 (0.173-0.178) | 0.174 (0.171-0.177) | no difference |
+| M6 ripgrep, same tree | 2.881 (2.777-2.972) | 2.748 (2.717-2.774) | 5% slower; not a difference by §4.4 |
+| M7 `npm ci`, offline | 1.773 (1.756-1.796) | 1.740 (1.696-1.794) | no difference |
+| M8 `go test` | did not run | 232.2 (227.8-235.8), 113 ok, 0 FAIL | - |
+| M9 node loop | 16.260 (16.253-16.329) | 16.229 (16.212-16.237) | no difference |
+| M10 `go build`, pinned to 5 | 9.306 (9.279-9.345) | 9.278 (9.179-9.383) | no difference |
+| M10 `go build`, each default | 8.994 (8.983-9.227) | 9.029 (9.022-9.046) | no difference |
+| M11 2,000 execs of `true` | 9.465 (9.150-9.508) | 10.298 (9.431-10.347) | no difference (ranges overlap) |
+| M12 first exec of a new binary | 0.384 (0.375-0.430) | 0.386 (0.378-0.442) | no difference |
+| M12 second exec | 0.009 (0.006-0.011) | 0.008 (0.007-0.010) | no difference |
+
+- **macos-user is native**, within noise on every metric it ran (MEASURED). The Seatbelt profile
+  and the second account cost nothing measurable here.
+- **macos-user has no attach** (M3): every launch is fresh, and 5.5 s is its whole cost.
+- **M8 did not run**: inside the sandbox `go` is a mise shim, and mise refused the clone's
+  untrusted `mise.toml`, so every run exited 1 in 0.03 s. Appendix A now sets
+  `MISE_TRUSTED_CONFIG_PATHS` to the clone; the re-run is owed.
+- **Memory: everything came back** (MEASURED). 120 s after each 2048 MiB load the `_yolojail`
+  processes held 9 to 77 MiB more than idle, 0 to 2% of the load. The scratch file was ordinary
+  macOS file cache (file-backed rose by 2 GiB while it existed and fell when it was deleted), not
+  RAM held by anything yolo runs.
+- **Disk:** the darwin package closure is 2.2 GiB, the sandbox account's home 566 MiB and
+  `/var/yolo-jail` 58 MiB.
+
+### The two backends side by side
+
+Each backend against its own day's native run, because native itself moved by up to 20% between
+the two days (M8 219 s to 232 s, M11 8.6 s to 10.3 s; the cause, CrowdStrike Falcon's
+endpoint-security extension or something else, was not looked at).
+
+| | Apple Container | macos-user |
+| :--- | :--- | :--- |
+| fresh launch | 6.9 s without auto-capture, 67 s with it | 5.5 s |
+| attach | 1.8 s | none; every launch is fresh |
+| files in the workspace (M5-M7) | 3 to 5 times native | native |
+| one-thread CPU (M9) | native | native |
+| parallel build (M10) | 16% slower at 5 threads; it gets half the cores | native |
+| process start (M11, M12) | 7 to 400 times **faster** than native | native |
+| memory after a load ends | held until the jail stops | returned |
+| sudo | no | at every launch |
+
+**What decides between them is file work against process start.** Apple Container loses badly on
+anything that walks many files in the shared workspace and wins on anything that starts many
+processes or new binaries; macos-user is the Mac, for better and worse. Why the file cost is so
+high, and what it means for a large Python monorepo with a database, is
+[its own write-up](apple-container-file-cost.md).
+
+### Defects found on the way
+
+Each is a yolo defect unless it says otherwise. The first two are being worked on; the rest are
+not filed yet.
+
+1. **Auto-capture retries on every launch** and takes about 90% of an Apple Container launch.
+   Fixed from the code on 2026-10-03, not yet re-run on a Mac (*Launch*, above).
+2. **Two Apple Container jails cannot run at once**: the second is refused by VZ. Waits on
+   [OQ-MB1](#OQ-MB1) ([§7](#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)).
+3. **One workspace cannot alternate between the two backends.** After an Apple Container jail,
+   macos-user's warm-up failed on three real, empty directories in `.yolo/home`
+   (`darwin_home_layout`); after macos-user, Apple Container failed on the symlinks macos-user left
+   there (`mount failed with errno 17: failed to create directory '.claude-shared-credentials'`).
+   Both were cleared by hand. `yolo check` reported neither.
+4. **A jail daemon dials a host service the launch already called unreachable.** Each Apple
+   Container launch says the openai-auth loophole "is inert on this backend", then the in-jail
+   `openai-auth-broker` daemon still dials it and logs `lookup host.containers.internal on
+   192.168.64.1:53: no such host` (the name is podman's). Noise, not a failure: the launch goes on.
+5. **Harness (fixed in Appendix A, untested on macos-user):** macOS's per-user agents for
+   `_yolojail` counted as jail processes, and mise's trust check stopped macos-user's `go test`.
+
 ## 9. Corrections the results feed
 
 Owed by the session that records the results, and not made here: the direction doc's text is a
@@ -728,7 +819,7 @@ ruling, and this doc only adds a pointer beside its premise.
 - [WWDC25 session 346](https://developer.apple.com/videos/play/wwdc2025/346/) and [WWDC26 session 389](https://developer.apple.com/videos/play/wwdc2026/389) — Apple's sub-second start claims and the "no resources when nothing runs" statement.
 - [VZ `memorySize`](https://developer.apple.com/documentation/virtualization/vzvirtualmachineconfiguration/memorysize) and [VZ's traditional balloon](https://developer.apple.com/documentation/virtualization/vzvirtiotraditionalmemoryballoondevice) — reserve-but-not-allocate, and the only reclaim device VZ offers.
 - apple/container issues [#58](https://github.com/apple/container/issues/58), [#738](https://github.com/apple/container/issues/738) and [#1924](https://github.com/apple/container/issues/1924); PRs [#1041](https://github.com/apple/container/pull/1041) and [#2143](https://github.com/apple/container/pull/2143); [discussion #1516](https://github.com/apple/container/discussions/1516) — measured boot times, why there is no VM pool, the root disk's cache mode, the kernel default, and the maintainer on virtiofs builds.
-- apple/containerization [#882](https://github.com/apple/containerization/pull/882), [#893](https://github.com/apple/containerization/pull/893), [#894](https://github.com/apple/containerization/pull/894) — the balloon proposals, closed unmerged.
+- apple/containerization [#882](https://github.com/apple/containerization/issues/882), [#893](https://github.com/apple/containerization/pull/893), [#894](https://github.com/apple/containerization/pull/894) — the balloon proposals (one issue, two PRs), closed unmerged in a sweep of one contributor's PRs.
 - [zot24/macos-container-benchmarks](https://github.com/zot24/macos-container-benchmarks) — boot, file, network and macOS 15 against 26 figures for 0.11.0, with its scripts.
 - [RepoFlow](https://www.repoflow.io/blog/apple-containers-vs-docker-desktop-vs-orbstack) — CPU, memory and small-file figures for 0.6.0 against Docker and OrbStack.
 - [Mainardi](https://www.paolomainardi.com/posts/docker-performance-macos-2025) — the one source with a native baseline for the same VZ virtiofs mechanism.
@@ -911,8 +1002,13 @@ running_jails() {
 # that were running before the harness (BENCH_ALLOW_RUNNING=1) or outlived a session by 120 s.
 # Those are listed once, in leftovers-macos-user.txt, and no wait or memory row counts them again.
 SANDBOX_IGNORE=
+# macOS also starts its per-user agents for the account (distnoted, cfprefsd, secd, lsd, ...);
+# they are not the jail's, live under /usr/libexec, /usr/sbin or /System, and are never counted.
 sandbox_list() { # sandbox_list [more ps columns]
-  ps -axww -o "uid=,pid=,${1:-rss=,comm=}" | awk -v u="$SANDBOX_UID" -v ign=" $SANDBOX_IGNORE " \
+  local os
+  os=$(ps -axww -o uid=,pid=,comm= | awk -v u="$SANDBOX_UID" \
+    '$1 == u && $3 ~ /^\/(usr\/libexec|usr\/sbin|System)\// { printf " %s", $2 }')
+  ps -axww -o "uid=,pid=,${1:-rss=,comm=}" | awk -v u="$SANDBOX_UID" -v ign=" $SANDBOX_IGNORE $os " \
     '$1 == u && index(ign, " " $2 " ") == 0'
 }
 sandbox_procs() { sandbox_list | awk 'END { print NR }'; }
@@ -1238,11 +1334,13 @@ go_pkgs() {
     awk '$0 == "--" { d = 1; next } NF && !d { a[$0] = 1 } NF && d && ($0 in a)'
 }
 # go_test <run>: under env -i, as in CI, because the jail's own variables (YOLO_* and the rest)
-# fail tests that pass on a clean machine
+# fail tests that pass on a clean machine. MISE_TRUSTED_CONFIG_PATHS: where go is a mise shim
+# (macos-user), mise refuses the clone's untrusted mise.toml and no test runs.
 go_test() {
   # shellcheck disable=SC2086 # GO_PKGS is a list of import paths, one word each
   (cd "$fix/yolo-jail" &&
     env -i PATH="$PATH" HOME="$HOME" USER="$(id -un)" TMPDIR="$tmp" GOTOOLCHAIN=local \
+      MISE_TRUSTED_CONFIG_PATHS="$fix/yolo-jail" \
       go test -short -count=1 -p "$JOBS" $GO_PKGS >"$out/go-test.$1.txt" 2>&1)
 }
 io() {
