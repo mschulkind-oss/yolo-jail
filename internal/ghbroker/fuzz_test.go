@@ -61,12 +61,20 @@ var fuzzSeeds = [][]string{
 	{"api", "repos/{owner}/{repo}/../../other/x"},
 	{"api", "user"},
 	{"api", "repositories/1/pulls"},
+	{"api", "repos/:owner/:repo/pulls"},
+	{"api", "repos/o/r/contents/{{owner}wner}"},
+	{"api", "repos/o/r/commits?sha=:branch"},
+	{"api", "-X", "GET", "-F", "x=:repo", "repos/o/r/issues"},
+	{"api", "-X", "GET", "-f", "x={{repo}epo}", "repos/o/r/issues"},
 	{"pr", "view", "1", "-R", "o/r"},
 	{"-R", "o/r", "pr", "view", "1"},
 	{"pr", "view", "1", "-R", "other/x"},
 	{"pr", "view", "1", "-R", "github.com/o/r"},
 	{"pr", "view", "1", "-R", "o/r", "-R", "other/x"},
 	{"pr", "view", "https://github.com/other/x/pull/1"},
+	{"pr", "view", "https://github.com/o/r/issues/1"},
+	{"ruleset", "check", "https://github.com/o/r/x"},
+	{"run", "view", "https://github.com/o/r/x"},
 	{"pr", "view", "https://github.com/o/r/../../other/x/pull/1"},
 	{"pr", "view", "https://github.com/o%2Fother/r/pull/1"},
 	{"pr", "view", "1", "-R", "o/r", "--", "-1"},
@@ -217,6 +225,9 @@ var (
 		"squash-merge-commit-message": true,
 	}
 	oracleWidensRE = regexp.MustCompile(`(?i)(^|\W)(repo|org|user|owner):|[()]|(^|\W)(OR|NOT)(\W|$)`)
+	// oraclePlaceholderRE is what gh 2.101.0 fills (MEASURED): {owner}, {repo} and {branch},
+	// and :owner, :repo and :branch ending at a word boundary.
+	oraclePlaceholderRE = regexp.MustCompile(`\{(owner|repo|branch)\}|:(owner|repo|branch)\b`)
 )
 
 // ghReach reads a canonical argv as gh would.
@@ -351,9 +362,18 @@ func ghReach(argv []string) reach {
 	}
 
 	if path == "api" {
-		for _, v := range append(append([]string(nil), positionals...), flagValues(flags)...) {
-			if strings.Contains(v, "{owner}") || strings.Contains(v, "{repo}") || strings.Contains(v, "{branch}") {
-				r.problem = "gh fills the placeholder in " + v + " from its cwd's git repository"
+		// gh fills its placeholders in the endpoint and in a --field value, never in a
+		// --raw-field value, a header or a preview name (MEASURED).
+		filled := append([]string(nil), positionals...)
+		for _, u := range flags {
+			if u.long == "field" {
+				_, v, _ := strings.Cut(u.value, "=")
+				filled = append(filled, v)
+			}
+		}
+		for _, v := range filled {
+			if oraclePlaceholderRE.MatchString(v) {
+				r.problem = "gh fills the placeholder in " + v + " from the git checkout it finds from its cwd"
 				return r
 			}
 		}
@@ -381,6 +401,15 @@ func ghReach(argv []string) reach {
 				return r
 			}
 		}
+	}
+
+	// A command that takes --repo and was given none asks the git checkout gh finds from its cwd
+	// for its repository, wherever an argument does not name one gh reads (MEASURED: gh reads a
+	// github.com URL only where it expects one, so `ruleset check URL` and `pr view` of an
+	// issue's URL both asked the checkout).
+	if cmd.flagByLong("repo") != nil && !has("repo") {
+		r.problem = "`gh " + path + "` carries no --repo, so gh reads its repository from the git checkout it finds from its cwd"
+		return r
 	}
 
 	// Positionals that name a repository: a github.com URL, or a usage placeholder naming one.
@@ -417,14 +446,6 @@ func ghReach(argv []string) reach {
 }
 
 type flagValue struct{ long, value string }
-
-func flagValues(flags []flagValue) []string {
-	var out []string
-	for _, f := range flags {
-		out = append(out, f.value)
-	}
-	return out
-}
 
 // apiReach reads a `gh api` endpoint as gh builds its URL (https://api.github.com/ plus the
 // endpoint with one leading / trimmed; the endpoint used whole when it carries ://; `graphql`
@@ -594,6 +615,9 @@ func TestTheFuzzOracleCatchesWhatItIsFor(t *testing.T) {
 		{"pr", "view", "--repo=o/r", "--repo=other/x", "1"},
 		{"pr", "view", "--repo=github.com/o/r", "1"},
 		{"pr", "view", "https://github.com/other/x/pull/1"},
+		{"pr", "view", "https://github.com/o/r/issues/1"},
+		{"ruleset", "check", "https://github.com/o/r/x"},
+		{"run", "view", "https://github.com/o/r/x"},
 		{"repo", "view", "other/x"},
 		{"label", "clone", "--repo=o/r", "other/x"},
 		{"issue", "transfer", "--repo=o/r", "1", "other/x"},
@@ -613,6 +637,10 @@ func TestTheFuzzOracleCatchesWhatItIsFor(t *testing.T) {
 		{"api", "user"},
 		{"api", "https://api.github.com/repos/o/r"},
 		{"api", "--field=x=@/etc/passwd", "repos/o/r/issues"},
+		{"api", "repos/o/r/contents/{owner}"},
+		{"api", "repos/o/r/contents/:owner"},
+		{"api", "repos/o/r/commits?sha=:branch"},
+		{"api", "--method=GET", "--field=x=a:repo", "repos/o/r/issues"},
 		{"pr", "view", "1"},
 		{"pr", "view", "--repo=o/r", "-1"},
 		{"pr", "view", "--repo", "o/r", "1"},
@@ -630,6 +658,11 @@ func TestTheFuzzOracleCatchesWhatItIsFor(t *testing.T) {
 	}
 	for _, argv := range [][]string{
 		{"pr", "view", "--repo=o/r", "1"},
+		{"pr", "view", "https://github.com/o/r/pull/1", "--repo=o/r"},
+		{"ruleset", "check", "https://github.com/o/r/x", "--repo=o/r"},
+		{"api", "repos/o/r/contents/:ownerx"},
+		{"api", "--method=GET", "--raw-field=x={owner}", "repos/o/r/issues"},
+		{"api", "--preview=x", "repos/o/r"},
 		{"api", "repos/o/r/branches/MS%2Fmain"},
 		{"api", "repos/o/r/contents/a%23b.md?ref=main"},
 		{"repo", "view", "me/r-fork"},

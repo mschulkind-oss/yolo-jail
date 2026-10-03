@@ -276,7 +276,13 @@ func repoScope(p *parsed, fieldRepo string) scopeResult {
 		}
 		if len(vals) == 0 {
 			if len(sr.repos) > 0 {
-				// A github.com URL argument named the repository; gh reads it from there.
+				// A github.com URL argument named the repository, and it goes in as --repo too:
+				// gh reads the URL only where it expects one (a pull request's to `pr view`), and
+				// anywhere else takes it as a branch, a tag or a path and asks the git checkout
+				// it finds from its cwd for the repository (MEASURED: `ruleset check URL` read a
+				// checkout's above the broker's empty cwd; H7). Where gh reads the URL, it reads
+				// the same repository either way (MEASURED).
+				argv = append(argv, "--repo="+sr.repos[0])
 				break
 			}
 			if fieldRepo == "" {

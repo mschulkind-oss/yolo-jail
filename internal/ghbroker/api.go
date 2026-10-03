@@ -50,30 +50,14 @@ func apiScope(p *parsed, fieldRepo string) scopeResult {
 			"path on api.github.com only, since a URL sends the login to the host it names", endpoint)}
 	}
 
-	// Placeholders: {owner} and {repo} from the forwarder's repository; {branch} names the
-	// local checkout's branch, which the broker does not have.
-	subst := func(s string) (string, string) {
-		if strings.Contains(s, "{branch}") {
-			return "", "the {branch} placeholder names a local checkout's branch, which the broker " +
-				"does not have; spell the branch"
-		}
-		if strings.Contains(s, "{owner}") || strings.Contains(s, "{repo}") {
-			if !ValidRepo(fieldRepo) {
-				return "", "the {owner}/{repo} placeholders need the workspace's repository, and the " +
-					"forwarder found none; spell OWNER/REPO"
-			}
-			owner, repo, _ := strings.Cut(fieldRepo, "/")
-			s = strings.ReplaceAll(strings.ReplaceAll(s, "{owner}", owner), "{repo}", repo)
-		}
-		return s, ""
-	}
-	endpoint, why := subst(endpoint)
+	// Placeholders, filled here so the host gh is left none to fill (fillPlaceholders).
+	endpoint, why := fillPlaceholders(endpoint, fieldRepo, true)
 	if why != "" {
 		return scopeResult{refused: why}
 	}
 	for i := range p.flags {
 		if l := p.flags[i].flag.long; (l == "field" || l == "raw-field") && p.flags[i].hasValue {
-			v, why := subst(p.flags[i].value)
+			v, why := fillPlaceholders(p.flags[i].value, fieldRepo, l == "field")
 			if why != "" {
 				return scopeResult{refused: why}
 			}
@@ -112,6 +96,63 @@ func apiScope(p *parsed, fieldRepo string) scopeResult {
 			"repository in scope; a path across the account (the user, an organization, a search, " +
 			"a gist) is the host user's to run on the host."}
 	}
+}
+
+// ghPlaceholderRE is every placeholder gh fills, MEASURED against gh 2.101.0: {owner}, {repo}
+// and {branch}, and the older :owner, :repo and :branch ending at a word boundary, anywhere in
+// the endpoint, its query included, and in a --field value; never in a --raw-field value, a
+// header or a preview name. gh fills them from the git checkout it finds from its cwd, running
+// `git remote -v` on the host, and the broker's cwd is empty but git looks upward from it: a
+// checkout above it, such as a home directory kept under git, would answer (MEASURED:
+// `repos/o/r/:owner/:repo` reached /repos/o/r/<that checkout's owner>/<its name>; H7).
+var ghPlaceholderRE = regexp.MustCompile(`\{(owner|repo|branch)\}|:(owner|repo|branch)\b`)
+
+// bracePlaceholderRE is the {owner}, {repo} and {branch} spelling alone, which the broker also
+// fills in a --raw-field value, as it always has; gh sends that value as typed.
+var bracePlaceholderRE = regexp.MustCompile(`\{(owner|repo|branch)\}`)
+
+// fillPlaceholders fills s's placeholders from the forwarder's repository, in one pass, or says
+// why it will not: the branch names a local checkout's, which the broker does not have, and an
+// owner or repository needs a forwarder's repository. ghFills says gh would fill what is left
+// (the endpoint and a --field value), so a value still holding a placeholder after the filling
+// is refused: `{{owner}wner}` reads `{owner}` once the inner one is filled, and gh would fill
+// that one from the host's checkout.
+func fillPlaceholders(s, fieldRepo string, ghFills bool) (string, string) {
+	re := bracePlaceholderRE
+	if ghFills {
+		re = ghPlaceholderRE
+	}
+	if !re.MatchString(s) {
+		return s, ""
+	}
+	owner, repo, _ := strings.Cut(fieldRepo, "/")
+	why := ""
+	out := re.ReplaceAllStringFunc(s, func(m string) string {
+		name := strings.Trim(m, "{}:")
+		switch {
+		case why != "":
+		case name == "branch":
+			why = "the " + m + " placeholder names a local checkout's branch, which the broker " +
+				"does not have. Spell the branch out"
+		case !ValidRepo(fieldRepo):
+			why = "the " + m + " placeholder needs the workspace's repository, and the forwarder " +
+				"found none. Spell OWNER/REPO out"
+		case name == "owner":
+			return owner
+		default:
+			return repo
+		}
+		return m
+	})
+	if why != "" {
+		return "", why
+	}
+	if ghFills && ghPlaceholderRE.MatchString(out) {
+		return "", fmt.Sprintf("%q still spells a placeholder once the broker fills in the "+
+			"workspace's repository (%q), which gh would fill from a git checkout on the host. "+
+			"Spell OWNER, REPO and the branch out", s, out)
+	}
+	return out, ""
 }
 
 // graphqlWhy is why raw GraphQL is account-wide however its query reads (BB-D61). A query

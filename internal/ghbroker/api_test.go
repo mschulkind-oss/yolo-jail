@@ -196,3 +196,72 @@ func TestServeRefusesGraphQLNamingTheCommandToUse(t *testing.T) {
 		t.Fatal("a GraphQL call ran gh")
 	}
 }
+
+// gh fills six placeholders from the git checkout it finds from its cwd, running `git remote
+// -v` on the host to do it (MEASURED against gh 2.101.0): {owner}, {repo} and {branch}, and
+// the older :owner, :repo and :branch ending at a word boundary, anywhere in the endpoint, its
+// query included, and in a --field value, never in a --raw-field value or a header. The
+// broker's cwd is empty, but git looks upward from it, so a checkout above it (a home
+// directory kept under git) answers (MEASURED: `repos/o/r/:owner/:repo` reached
+// /repos/o/r/<that checkout's owner>/<its name>). So the broker fills both spellings from the
+// forwarder's repository, refuses the branch, and refuses a value its filling leaves holding a
+// placeholder for gh: `{{owner}wner}` reads `{owner}` once the inner one is filled.
+func TestAPIPlaceholdersLeaveTheHostGHNothingToFill(t *testing.T) {
+	for _, c := range []struct {
+		argv, field string
+		run         string // the canonical argv, "" when refused
+		reason      string
+	}{
+		{argv: "api repos/:owner/:repo/pulls", field: "o/r", run: "api repos/o/r/pulls"},
+		{argv: "api repos/{owner}/:repo/pulls", field: "o/r", run: "api repos/o/r/pulls"},
+		{argv: "api repos/o/r/contents/x?ref=:owner-main", field: "o/r", run: "api repos/o/r/contents/x?ref=o-main"},
+		{argv: "api -X GET repos/o/r/issues -F creator=:owner", field: "o/r",
+			run: "api --method=GET --field=creator=o repos/o/r/issues"},
+		// What gh leaves as typed stays as typed: no word boundary, or a --raw-field value.
+		{argv: "api repos/o/r/contents/:ownerx", field: "o/r", run: "api repos/o/r/contents/:ownerx"},
+		{argv: "api -X GET repos/o/r/issues -f q=a:repo", field: "o/r",
+			run: "api --method=GET --raw-field=q=a:repo repos/o/r/issues"},
+
+		{argv: "api repos/:owner/:repo/pulls", reason: "found none"},
+		{argv: "api repos/o/r/branches/:branch", field: "o/r", reason: ":branch"},
+		{argv: "api repos/o/r/commits?sha=:branch", field: "o/r", reason: ":branch"},
+		{argv: "api -X GET repos/o/r/commits -F sha=:branch", field: "o/r", reason: ":branch"},
+		{argv: "api repos/o/r/contents/{{owner}wner}", field: "o/r", reason: "still spells"},
+		{argv: "api repos/o/r/contents/:{repo}epo", field: "o/r", reason: "still spells"},
+		{argv: "api -X GET repos/o/r/issues -F x={{repo}epo}", field: "o/r", reason: "still spells"},
+	} {
+		d := Classify(splitArgv(c.argv), c.field, testScope)
+		if c.run != "" {
+			if d.Outcome != OutcomeStanding || strings.Join(d.Argv, " ") != c.run {
+				t.Errorf("gh %s: %q runs %q (%s), want a standing read of %q", c.argv, d.Outcome, d.Argv, d.Reason, c.run)
+			}
+			continue
+		}
+		if d.Outcome != OutcomeRefused || !strings.Contains(d.Reason, c.reason) {
+			t.Errorf("gh %s: %q (%s), want refused with %q", c.argv, d.Outcome, d.Reason, c.reason)
+		}
+		if !hasNextStep(d.Reason) {
+			t.Errorf("gh %s: the refusal names no next step: %q", c.argv, d.Reason)
+		}
+	}
+}
+
+// The production path: the host gh receives the endpoint with every placeholder filled, and a
+// value that would still hold one after the broker's filling runs nothing.
+func TestServeLeavesTheHostGHNoPlaceholderToFill(t *testing.T) {
+	f := newBrokerFixture(t, "2.101.0")
+	code, out, errOut := f.serve(t, Request{Argv: []string{"api", "repos/:owner/:repo/pulls"}, Repo: "o/r"})
+	if code != 0 || out != "ran api repos/o/r/pulls\n" {
+		t.Fatalf("code %d out %q err %q", code, out, errOut)
+	}
+	if err := os.RemoveAll(filepath.Join(f.fakeDir, "calls")); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errOut = f.serve(t, Request{Argv: []string{"api", "repos/o/r/contents/{{owner}wner}"}, Repo: "o/r"})
+	if code != ExitUsage || !strings.Contains(errOut, "still spells") {
+		t.Fatalf("a composed placeholder: code %d err %q", code, errOut)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(f.fakeDir, "calls")); len(entries) != 0 {
+		t.Fatal("a composed placeholder ran gh")
+	}
+}

@@ -88,7 +88,7 @@ func TestClassify(t *testing.T) {
 			outcome: OutcomeStanding, set: SetReadOnly, run: "repo read-file README.md --repo=o/r"},
 		{name: "a github.com URL names the repository", argv: "pr view https://github.com/o/r/pull/1",
 			field: "me/r-fork", outcome: OutcomeStanding, set: SetReadOnly,
-			run: "pr view https://github.com/o/r/pull/1"},
+			run: "pr view https://github.com/o/r/pull/1 --repo=o/r"},
 		{name: "secret list is a read", argv: "secret list -R o/r", outcome: OutcomeStanding,
 			set: SetReadOnly, run: "secret list --repo=o/r"},
 		{name: "auth status names no repository", argv: "auth status", outcome: OutcomeStanding,
@@ -495,5 +495,42 @@ func TestClassifyWhatTheFuzzerFound(t *testing.T) {
 		if d.Outcome != OutcomeRefused || !strings.Contains(d.Reason, c.reason) {
 			t.Errorf("gh %q: %q %q (%s), want refused with %q", c.argv, d.Outcome, d.Argv, d.Reason, c.reason)
 		}
+	}
+}
+
+// BB-D40 makes the repository explicit in every canonical argv, because gh takes one from the
+// git checkout it finds from its cwd wherever the argv names none, and git looks upward from
+// the broker's empty cwd. A github.com URL argument names the repository only where gh reads
+// that URL as the command's own: a pull request's URL to `pr view`, an issue's to `issue
+// view`. Anywhere else gh takes the URL as a branch, a tag, a run id or a path, and asks the
+// checkout for the repository (MEASURED against gh 2.101.0, with a checkout above an empty
+// cwd: `ruleset check https://github.com/o/r/x` read that checkout's rules, and `pr view` of
+// an issue's URL looked for a pull request in it). So the URL's repository goes into the argv
+// as --repo too, which gh reads the same as the URL wherever it reads the URL (MEASURED).
+func TestClassifyAURLArgumentStillGetsAnExplicitRepository(t *testing.T) {
+	for _, c := range []struct{ argv, field, run string }{
+		{"pr view https://github.com/o/r/pull/1", "", "pr view https://github.com/o/r/pull/1 --repo=o/r"},
+		{"pr view https://github.com/o/r/pull/1", "me/r-fork", "pr view https://github.com/o/r/pull/1 --repo=o/r"},
+		{"pr view https://github.com/o/r/issues/1", "", "pr view https://github.com/o/r/issues/1 --repo=o/r"},
+		{"ruleset check https://github.com/o/r/x", "", "ruleset check https://github.com/o/r/x --repo=o/r"},
+		{"run view https://github.com/o/r/x", "", "run view https://github.com/o/r/x --repo=o/r"},
+		{"workflow view https://github.com/me/r-fork/x", "o/r",
+			"workflow view https://github.com/me/r-fork/x --repo=me/r-fork"},
+		// An explicit -R stays the one gh reads.
+		{"pr view https://github.com/me/r-fork/pull/1 -R o/r", "", "pr view --repo=o/r https://github.com/me/r-fork/pull/1"},
+	} {
+		d := Classify(splitArgv(c.argv), c.field, testScope)
+		if d.Outcome != OutcomeStanding || strings.Join(d.Argv, " ") != c.run {
+			t.Errorf("gh %s: %q runs %q (%s), want a standing read of %q", c.argv, d.Outcome, d.Argv, d.Reason, c.run)
+		}
+	}
+}
+
+// The production path: the host gh is told the repository a URL argument named.
+func TestServeGivesAURLArgumentAnExplicitRepository(t *testing.T) {
+	f := newBrokerFixture(t, "2.101.0")
+	code, out, errOut := f.serve(t, Request{Argv: []string{"ruleset", "check", "https://github.com/o/r/x"}})
+	if code != 0 || out != "ran ruleset check https://github.com/o/r/x --repo=o/r\n" {
+		t.Fatalf("code %d out %q err %q", code, out, errOut)
 	}
 }
