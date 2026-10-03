@@ -1,9 +1,9 @@
 ---
 title: "Is macos-user faster than Apple Container? What the sources say, and a benchmark to find out"
 date: 2026-10-01
-status: accepted
-stage: DECIDED
-next: "A person at the same Mac works through Appendix A's Before the session list, runs the harness for macos-user and native (it needs sudo's password) and adds the results to the Results section; auto-capture's retry on every launch and the two-jail disk refusal are filed as defects"
+status: in-review
+stage: DESIGN
+next: "The maintainer rules on OQ-MB1, what backs an Apple Container jail's /mise so that two jails can run at once; a person at the same Mac works through Appendix A's Before the session list, runs the harness for macos-user and native (it needs sudo's password) and adds the results to the Results section; auto-capture's retry on every launch is filed as a defect"
 tags: [research, macos, apple-container, macos-user, performance, memory, benchmark, virtiofs]
 summary: "The maintainer asked for a benchmark instead of an assumption: is macos-user really faster than Apple Container? Sources answer part of it. Apple Container gives each container its own small VM; the VM takes RAM only as the guest touches it, but keeps every page it touched until the container stops, so the maintainer's reading is half right. CPU work should run within a few percent of native, while file work in the shared workspace is where the VM probably costs most: about 2.7 times native in one published measurement of the same macOS file sharing, and 6 to 9 times by Apple's maintainer's rough figures for builds. The doc lists every claim the repo makes about the two backends' speed and memory, a protocol for one Mac running both against one workspace, and a POSIX sh harness that runs the protocol and writes the results table. It measures; it does not choose a backend."
 vantage:
@@ -535,6 +535,42 @@ afterwards and mounted `/mise` normally, so the cause is the first jail holding 
 (INFERRED that it is `yolo-mise-data-v2` and not another shared attachment). **So, with this
 `container`, two unsealed Apple Container jails in two workspaces cannot run at once**; nothing
 was corrupted. Not yet re-run on 1.5.0.
+
+**Fixing it is a trade-off, so it waits on a ruling.** No backing gets Apple Container all three
+at once: one store that every workspace shares, the speed of the VM's own disk, and two jails
+running together. The run above points to a volume's disk attaching to one VM at a time, and only
+virtiofs reaches several. Two facts the options rest on:
+
+- **A sealed build already takes its `/mise` from a host folder over virtiofs on this
+  backend**, a folder of its workspace's own ([seal.go](../../internal/cli/run/seal.go)), so
+  option B's mount is one yolo emits today (read from the code, not run on a Mac).
+- **A Linux tool tree can hold names that differ only in case.** python-build-standalone's
+  CPython 3.13.16 for `aarch64-unknown-linux-gnu` (release `20261003`, the `install_only` and
+  `install_only_stripped` builds alike) lists 25 such pairs, all under `share/terminfo`, such as
+  `e/eterm` and `E/Eterm` (MEASURED, from the archive listing). On a case-insensitive APFS
+  volume, macOS's default, each pair is one file (INFERRED).
+
+1. 💬 **OQ-MB1: What should back an Apple Container jail's `/mise`, now that one jail's volume shuts out the next?**
+
+   Podman's machine-wide volume is untouched either way.
+
+   - **A — A volume per workspace.** Keeps the VM disk's speed and a case-sensitive store. Each
+     workspace downloads its toolchains once and keeps its own copy (Node 24.21.0 for Linux
+     arm64 unpacks to 189 MiB, MEASURED), and `yolo prune` must learn to remove a deleted
+     workspace's volume.
+   - **B — The machine's mise folder over virtiofs, as on Linux.** One shared store and almost
+     no code. File work over virtiofs ran 3 to 5 times native in [§8](#8-results), and
+     the store lands on APFS, where those case pairs collapse.
+
+   <!-- vantage: question id=OQ-MB1 leaning="A, a volume per workspace: it keeps today's speed and a case-sensitive store, and its costs are one download per workspace and disk that yolo prune can reclaim, where B's cost lands on every jail's toolchain reads." -->
+
+   _Leaning:_ A. It keeps today's speed and a case-sensitive store, and its costs are one
+   download per workspace and disk that `yolo prune` can reclaim, where B's cost lands on every
+   jail's toolchain reads.
+
+   **Answer:**
+
+   > _(empty — fill in when decided)_
 
 ## 8. Results
 
