@@ -6,7 +6,8 @@ your machine, the **github-broker**, runs each command for the jail and sends ba
 
 This version is **read-only**. An agent can read pull requests, issues, workflow runs, releases and
 files in this project's own GitHub repositories. A command that would change something on GitHub
-does not run yet; it stops and says that writes need an approval step, which is still being built.
+does not run yet: it stops at once and says that writes need an approval step, which is still
+being built, so you run that command on your machine instead.
 
 ## Turning it on
 
@@ -113,18 +114,20 @@ your whole account, such as a search with no `--repo`. `yolo config-ref` has the
 | The agent runs | What happens |
 |---|---|
 | `gh pr view 32`, `gh issue list`, `gh run view --log`, `gh workflow list`, `gh repo view`, `gh release list`, `gh api repos/OWNER/REPO/...` and other reads | It runs with your login, and the output comes back as if it ran in the jail |
-| `gh pr comment`, `gh issue edit`, `gh pr merge`, `gh api -X POST ...` and other writes | Nothing runs. It exits with code 77: writes need an approval step, not built yet |
-| `gh auth token`, `--jq`, `--web`, `gh api` to a full URL, a command that would read or write a file on your machine | Never runs, whatever else is allowed. It exits with code 64 and says why |
+| `gh pr comment`, `gh issue edit`, `gh pr merge`, `gh api -X POST ...` and other writes | Nothing runs, and nothing waits. It exits with code 77 at once: writes need an approval step, not built yet, so the agent asks you to run the command on your machine |
+| `gh auth status` | Says which of your GitHub accounts the broker uses and which repositories the jail can reach. It never shows the token or its scopes |
+| `gh auth token`, `--web`, `gh api` to a full URL, a command that would read or write a file on your machine | Never runs, whatever else is allowed. It exits with code 64 and says why |
 | A repository outside this project, or a command across your whole account, such as a search with no `--repo` | Never runs. It exits with code 64 and names the repositories it can reach, and, for a repository, [the entry that would add it](#adding-a-repository-the-project-has-no-remote-for) |
 | A search whose words could reach another repository: a `repo:`, `org:`, `user:` or `owner:` in the query, a parenthesis, or the word `OR` or `NOT`, in `gh search`, or in `gh pr list`, `gh issue list` or `gh discussion list` with `--search` or a filter | Never runs. It exits with code 64 and says which words. Search with plain words, and filter the `--json` output inside the jail instead |
 
 The repository is the one `-R OWNER/REPO` names, or else the project's `origin` remote. To send
 text on standard input, pass `-`, as in `--body-file -`.
 
-For output formatting, use `--json` and pipe it into `jq` inside the jail. `--jq` and `--template`
-are refused because they could read your machine's environment, where the token lives.
+For output formatting, `--jq` and `--template` work as they do in `gh`, and so does piping
+`--json` output into `jq` inside the jail.
 
-The jail's own copy of `gh` is still there, holding no login: run it with
+In the jail, `type gh` shows `~/.yolo/bin/block/gh`. That is the pack's forwarder, not a blocked
+tool. The jail's own copy of `gh` is still there, holding no login: run it with
 `YOLO_BYPASS_SHIMS=1 gh ...`.
 
 ## What it records
