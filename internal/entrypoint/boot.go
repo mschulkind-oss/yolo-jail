@@ -566,9 +566,11 @@ func Main(args []string) error {
 	// so a launcher signalled during the boot's waits can still hang it up (sessionhangup.go).
 	// This process's pid is the session's for good: execBash keeps it. A jail's main process
 	// is no session, and an exec with no id is one this launcher cannot hang up. A session whose
-	// hangup reached the jail first ends here, before it begins (JL-D77).
+	// hangup reached the jail first ends here, before it begins (JL-D77), and the jail's first
+	// session, ending so, leaves provisioning to the sessions waiting for it (JL-D80).
 	if id := os.Getenv(SessionIDEnv); id != "" && mode != modeHold {
-		if err := enterSession(id, os.Stderr); err != nil {
+		first := mode == modeFirstSession && os.Getenv(JailMainEnv) == JailMainHold
+		if err := enterSession(id, first, os.Stderr); err != nil {
 			return err
 		}
 	}

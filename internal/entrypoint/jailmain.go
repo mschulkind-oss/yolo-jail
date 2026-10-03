@@ -453,6 +453,23 @@ func (g *sessionGate) await() (provisioner bool, err error) {
 	}
 }
 
+// claimUnbegun is the claim a first session that ended before it began records
+// (abandonUnbegunProvisioning), where a session that begins provisioning records its pid.
+const claimUnbegun = "abandoned-unbegun"
+
+// abandonUnbegunProvisioning is the jail's first session ending before it began, which its launcher's
+// hangup ends as it names itself (enterSession, JL-D77): it records the provisioning claim with no
+// run behind it, unless a run already claimed it. The run that session was to begin is then one a
+// waiter reads as abandoned (await): a session with a terminal runs it there, and one without is
+// refused, at once, where without the claim it waited claimWaitLimit for a first session that had
+// already ended (JL-D80). A failure is dropped: the waiter then waits its bound, as it always did.
+func abandonUnbegunProvisioning() {
+	if _, claimed := readMainState(provisionClaimFile); claimed {
+		return
+	}
+	_ = writeMainState(provisionClaimFile, claimUnbegun)
+}
+
 // outcomeVerdict reads the recorded outcome: done=true once there is one, with err set when
 // it was a refusal.
 func outcomeVerdict() (done bool, err error) {

@@ -29,7 +29,9 @@ package integration
 // exec at once, so the session's teardown can hang that session up before its exec has named itself
 // in the jail. The hangup then ended nothing and the session ran on with no terminal (JL-D77). The
 // last test here holds that moment open too, by stopping the exec's client and the launch in turn;
-// the unit tier pins the jail's half (internal/entrypoint/sessionhangupmark_test.go).
+// the unit tier pins the jail's half (internal/entrypoint/sessionhangupmark_test.go). A first
+// session that ends so abandons the provisioning the other session waits for (JL-D80), so that
+// session, which has a terminal as the other terminal it stands for does, runs it and goes on.
 //
 // EACH TRY IS A WORKSPACE OF ITS OWN. A nested podman sometimes cannot remove the jail's stopped
 // container after so quick a stop (the `openByHandleAt` failure the design's §4.4 records, seen in
@@ -39,6 +41,7 @@ package integration
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
@@ -129,9 +132,63 @@ type readyWindowWithAnother struct {
 	keeper       int
 }
 
+// startYoloAtTerminal is startYoloBackground with a terminal of its own: a pty on the launch's
+// stdin, stdout and stderr, whose output combined() returns.
+func startYoloAtTerminal(t *testing.T, name, dir, script string) *bgRun {
+	t.Helper()
+	master, slave := openTestPty(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, yoloBin, append(jailRunArgs(), "--", "bash", "-lc", script)...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "TERM=dumb")
+	cmd.Env = append(cmd.Env, childRepoRootEnv()...)
+	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
+	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
+	if err := cmd.Start(); err != nil {
+		cancel()
+		t.Fatalf("%s: starting yolo: %v", name, err)
+	}
+	// The child holds its own copies; the parent's would keep the master from ever seeing EOF.
+	_ = slave.Close()
+	out := &syncBuffer{}
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := master.Read(buf)
+			if n > 0 {
+				_, _ = out.Write(buf[:n])
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	r := &bgRun{name: name, pid: cmd.Process.Pid, out: out, done: make(chan error, 1), exited: make(chan struct{})}
+	go func() {
+		r.done <- cmd.Wait()
+		close(r.exited)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-r.exited:
+		case <-time.After(30 * time.Second):
+		}
+	})
+	return r
+}
+
 // holdAtReadyWithAnother starts a fresh launch of firstScript in a workspace of its own, stops it
 // (SIGSTOP) once its keeper has started, waits for that keeper to say the jail is ready, and attaches
 // a second session. The launch is left stopped, for the caller to resume.
+//
+// THE SECOND SESSION HAS A TERMINAL, as the other terminal it stands for does. A session that
+// waits for the first session's provisioning takes the run over when the first session abandons it,
+// which the session's teardown order can do: hung up before it named itself (JL-D77), or as it
+// began the run. One with no terminal cannot take it over and is refused instead (JL-D33), and
+// since JL-D80 it is refused at once rather than after the two minutes it used to wait, which this
+// test, ending the second session within them, never saw.
 func holdAtReadyWithAnother(t *testing.T, try int, firstScript string) *readyWindowWithAnother {
 	t.Helper()
 	started := regexp.MustCompile(`keeper: started, pid (\d+)`)
@@ -170,7 +227,7 @@ func holdAtReadyWithAnother(t *testing.T, try int, firstScript string) *readyWin
 	}
 	// The second session attaches to the ready jail and waits there for the first session's
 	// provisioning, which the held launch has not begun.
-	other := startYoloBackground(t, "other", dir, `echo OTHER-IN-$((1+1)); sleep 600`)
+	other := startYoloAtTerminal(t, "other", dir, `echo OTHER-IN-$((1+1)); sleep 600`)
 	for deadline := time.Now().Add(jailTimeout()); !strings.Contains(other.combined(), "first session to begin provisioning"); time.Sleep(20 * time.Millisecond) {
 		select {
 		case err := <-other.done:
@@ -352,6 +409,7 @@ func TestASIGINTBeforeTheFirstSessionNamesItselfLeavesNothingOfItRunning(t *test
 		if rc := first.wait(t, jailTimeout()); rc != 128+int(syscall.SIGINT) {
 			t.Errorf("try %d: the interrupted launch exited %d, want %d:\n%s", try, rc, 128+int(syscall.SIGINT), first.combined())
 		}
+		exited := time.Now()
 		if !held || !ran {
 			t.Logf("try %d: not counted, a stop came too late to hold the window (held %v, the exec ran %v)", try, held, ran)
 			w.endTheOther(t, try)
@@ -383,6 +441,24 @@ func TestASIGINTBeforeTheFirstSessionNamesItselfLeavesNothingOfItRunning(t *test
 		if processGone(w.other.pid) {
 			t.Fatalf("try %d: the other session ended with the interrupted launch:\n%s", try, w.other.combined())
 		}
+		// The first session, ending as it named itself, abandoned the provisioning the other session
+		// waits for (JL-D80), so the other runs it on its terminal and goes on to its command, rather
+		// than wait out the two minutes the jail gives a first session that has not arrived.
+		const began = "OTHER-IN-2"
+		for !strings.Contains(w.other.combined(), began) {
+			if processGone(w.other.pid) {
+				t.Fatalf("try %d: the other session ended instead of running the abandoned provisioning:\n%s",
+					try, w.other.combined())
+			}
+			if time.Since(exited) > 30*time.Second {
+				t.Fatalf("try %d: the other session had not begun %s after the first session ended before it "+
+					"began, so it is still waiting for that session to begin provisioning:\n%s",
+					try, time.Since(exited).Round(time.Second), w.other.combined())
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Logf("try %d: the other session had begun its command when looked at, %s after the interrupted "+
+			"launch exited", try, time.Since(exited).Round(10*time.Millisecond))
 		w.endTheOther(t, try)
 	}
 	if counted < 2 {

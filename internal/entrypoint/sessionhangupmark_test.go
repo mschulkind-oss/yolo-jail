@@ -18,6 +18,9 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 )
 
 // TestASessionHungUpBeforeItNamedItselfDoesNotBegin: the hangup comes first and finds no session;
@@ -87,17 +90,19 @@ func TestAHangupAndItsSessionNamingItselfAtOnceAlwaysMeet(t *testing.T) {
 // TestEnteringAHungUpSessionEndsItWithAHangupsStatus is Main's half (enterSession): a session its
 // launcher hung up before it named itself ends with 128+SIGHUP, as a hung-up session's process
 // does, and says why; a session that could not be named for any other reason warns and goes on, as
-// it always did, since it can still run and only its hangup is lost.
+// it always did, since it can still run and only its hangup is lost. A session that is not the
+// jail's first leaves provisioning alone: the first session may still begin it.
 func TestEnteringAHungUpSessionEndsItWithAHangupsStatus(t *testing.T) {
 	proc, _ := withSessionState(t)
 	self := os.Getpid()
 	fakeProc(t, proc, self, 1, self, 5555)
+	withJailMainDir(t)
 	const id = "00000000feedbeef"
 	if err := hangUpSession(id); err != nil {
 		t.Fatal(err)
 	}
 	var warned bytes.Buffer
-	err := enterSession(id, &warned)
+	err := enterSession(id, false, &warned)
 	var status *ExitStatus
 	if !errors.As(err, &status) || status.Code != 128+int(syscall.SIGHUP) {
 		t.Fatalf("entering a hung-up session returned %v, want an exit status of %d", err, 128+int(syscall.SIGHUP))
@@ -108,15 +113,94 @@ func TestEnteringAHungUpSessionEndsItWithAHangupsStatus(t *testing.T) {
 	if warned.Len() != 0 {
 		t.Errorf("a hung-up session warned as well: %s", warned.String())
 	}
+	if claim, claimed := readMainState(provisionClaimFile); claimed {
+		t.Errorf("a hung-up session that is not the jail's first claimed provisioning (%q), which the first "+
+			"session may still begin", claim)
+	}
 
-	if err := enterSession("NOT-AN-ID", &warned); err != nil {
+	if err := enterSession("NOT-AN-ID", false, &warned); err != nil {
 		t.Errorf("a session that could not be named was refused (%v); it can still run", err)
 	}
 	if !strings.Contains(warned.String(), "could not record this session") {
 		t.Errorf("a session that could not be named did not say so: %q", warned.String())
 	}
 	warned.Reset()
-	if err := enterSession("00000000cafebabe", &warned); err != nil || warned.Len() != 0 {
+	if err := enterSession("00000000cafebabe", false, &warned); err != nil || warned.Len() != 0 {
 		t.Errorf("an ordinary session: err %v, warned %q; want neither", err, warned.String())
+	}
+}
+
+// TestAFirstSessionHungUpBeforeItBeganHandsProvisioningOnAtOnce is Main's half for the jail's FIRST
+// session (JL-D80): the one every other session waits for to begin provisioning. Hung up before it
+// named itself, it ends as any session does, and so never begins provisioning; a session waiting for
+// it used to wait out claimWaitLimit (two minutes) before it took the run over, or was refused, as
+// for a first session that never arrived. Now the first session's end says provisioning is
+// abandoned, and a waiter acts on that at once: one with no terminal is refused, saying to run yolo
+// in one, and one with a terminal runs the stage itself.
+func TestAFirstSessionHungUpBeforeItBeganHandsProvisioningOnAtOnce(t *testing.T) {
+	proc, _ := withSessionState(t)
+	self := os.Getpid()
+	fakeProc(t, proc, self, 1, self, 5555)
+	withJailMainDir(t)
+	claimWaitLimit = 3 * time.Second
+	// Main's first statement re-executes the process for a declared disk I/O priority; none here.
+	t.Setenv(ioprio.EnvVar, "")
+	t.Setenv(ioprio.ReexecMarkerEnv, "")
+	t.Setenv(JailMainEnv, JailMainHold)
+	const id = "0000000000000000000000000000f125"
+	announceReady("stage", &bytes.Buffer{})
+
+	// An attach hung up before it began is no first session: the first may still begin provisioning.
+	const attach = "0000000000000000000000000000a77a"
+	t.Setenv(SessionIDEnv, attach)
+	if err := hangUpSession(attach); err != nil {
+		t.Fatal(err)
+	}
+	var status *ExitStatus
+	if err := Main([]string{"bash"}); !errors.As(err, &status) || status.Code != 128+int(syscall.SIGHUP) {
+		t.Fatalf("the hung-up attach returned %v, want an exit status of %d", err, 128+int(syscall.SIGHUP))
+	}
+	if claim, claimed := readMainState(provisionClaimFile); claimed {
+		t.Fatalf("a hung-up attach claimed provisioning (%q), which the first session may still begin", claim)
+	}
+
+	t.Setenv(SessionIDEnv, id)
+	if err := hangUpSession(id); err != nil {
+		t.Fatal(err)
+	}
+	err := Main([]string{FirstSessionArg, "bash"})
+	if !errors.As(err, &status) || status.Code != 128+int(syscall.SIGHUP) {
+		t.Fatalf("the hung-up first session returned %v, want an exit status of %d", err, 128+int(syscall.SIGHUP))
+	}
+
+	type res struct {
+		provisioner bool
+		err         error
+		took        time.Duration
+	}
+	await := func(tty bool) res {
+		start := time.Now()
+		p, err := newSessionGate(tty, &bytes.Buffer{}).await()
+		return res{p, err, time.Since(start)}
+	}
+	quick := claimWaitLimit / 3
+	got := await(false)
+	var refused *ExitStatus
+	if !errors.As(got.err, &refused) || !strings.Contains(refused.Message, "run `yolo` in a terminal") {
+		t.Errorf("a waiter with no terminal got provisioner=%v err=%v, want the refusal that names a terminal",
+			got.provisioner, got.err)
+	}
+	if got.took >= quick {
+		t.Errorf("a waiter with no terminal waited %s for a first session that had already ended (the bound is %s)",
+			got.took.Round(time.Millisecond), claimWaitLimit)
+	}
+	got = await(true)
+	if got.err != nil || !got.provisioner {
+		t.Errorf("a waiter with a terminal got provisioner=%v err=%v, want it to run provisioning itself",
+			got.provisioner, got.err)
+	}
+	if got.took >= quick {
+		t.Errorf("a waiter with a terminal waited %s for a first session that had already ended (the bound is %s)",
+			got.took.Round(time.Millisecond), claimWaitLimit)
 	}
 }

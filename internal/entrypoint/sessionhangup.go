@@ -148,9 +148,17 @@ var errHungUpBeforeItBegan = errors.New("its launcher hung it up before it began
 // launcher has gone or is going, and its client's death does not reach it. Any other failure to
 // record is a warning on warn and the session goes on, as it always did, since it can still run and
 // only its hangup is lost.
-func enterSession(id string, warn io.Writer) error {
+//
+// first says this is the jail's first session, the one whose terminal provisioning waits for
+// (jailmain.go). Ended here, it never begins provisioning, so it says provisioning is abandoned
+// (abandonUnbegunProvisioning, JL-D80): a session waiting for it then acts at once, as on any
+// abandoned run, rather than wait out claimWaitLimit for a first session that has already ended.
+func enterSession(id string, first bool, warn io.Writer) error {
 	err := registerSession(id)
 	if errors.Is(err, errHungUpBeforeItBegan) {
+		if first {
+			abandonUnbegunProvisioning()
+		}
 		return &ExitStatus{Code: 128 + int(syscall.SIGHUP),
 			Message: "the yolo that started this session was signalled before the session began, so it does not begin"}
 	}

@@ -283,7 +283,8 @@ func TestMainTakesTheHangupFormFirstAndRecordsASessionBeforeItWaits(t *testing.T
 		"return hangUpSession(args[1])",
 		"mode, command := parseEntryArgs(args)",
 		"os.Getenv(SessionIDEnv); id != \"\" && mode != modeHold",
-		"if err := enterSession(id, os.Stderr); err != nil {\n\t\t\treturn err\n\t\t}",
+		"first := mode == modeFirstSession && os.Getenv(JailMainEnv) == JailMainHold",
+		"if err := enterSession(id, first, os.Stderr); err != nil {\n\t\t\treturn err\n\t\t}",
 		"markBoot(bootBooting)",
 		"gate.awaitBoot()",
 	}
