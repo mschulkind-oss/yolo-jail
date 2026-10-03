@@ -221,7 +221,7 @@ The options, lettered here for the first time, with what each costs:
      into the curated map, and keep the `deepseek-` rewrite only with a provenance comment, or
      drop it.
    - **(B)** Keep everything as shipped, and amend [§3](#3-failure-and-safety-rules) and
-     [OQ-GP2](#decision-ledger) to describe it.
+     [OQ-GP2](#decision-ledger) to describe it, with provenance comments.
    - **(C)** Remove all of it and restore [§3](#3-failure-and-safety-rules) as written.
 
    <!-- vantage: question id=OQ-GP4 leaning="Split it. Keep the literal-id fallback, since a profile naming an exact id is a user's explicit choice, and amend §3 to say so for every provider. Move the context window out of the derives and into the user's curated map, which per-model facts (b16fa0aa) now make possible. Keep the deepseek- rewrite only with a provenance comment naming Kilo's catalog and the date, or drop it." -->

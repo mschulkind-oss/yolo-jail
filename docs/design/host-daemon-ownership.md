@@ -1277,10 +1277,13 @@ each, because a deleted question is one the next reader re-derives.
 
 Each keeps its original text. The leanings are preserved as they were written, including
 where the ruling went past them — that record is the point.
-The context each was asked in is kept just below, so each question stays short.
+Kept just below, so each question stays short: the italic line that says why the ruling
+dissolved each one, then the context it was asked in, and for [OQ-HD8](#OQ-HD8) the fix built
+since.
 
-<a id="oq-hd1-context"></a>**[OQ-HD1](#OQ-HD1)'s context.** *A launcher-spawned child is one
-build by construction, so there is no second build for a version to tell apart.*
+<a id="oq-hd1-context"></a>**Why [OQ-HD1](#OQ-HD1) dissolved, and its context.** *A
+launcher-spawned child is one build by construction, so there is no second build for a version
+to tell apart.*
 
 Today it carries a name and nothing else, which is why an incompatible daemon and a new
 yolo meet at all — and why every mechanism in
@@ -1290,8 +1293,8 @@ unrepresentable: a new yolo would find no daemon and start its own. This was the
 the other seven hung off, and the one that decided whether [OQ-HD3](#OQ-HD3) stayed a
 trade or stopped existing.
 
-<a id="oq-hd3-context"></a>**[OQ-HD3](#OQ-HD3)'s context.** *Neither branch has an occasion:
-there is no live daemon of another build to kill or to spare.*
+<a id="oq-hd3-context"></a>**Why [OQ-HD3](#OQ-HD3) dissolved, and its context.** *Neither branch
+has an occasion: there is no live daemon of another build to kill or to spare.*
 
 [`../reference/loophole-transport.md`](../reference/loophole-transport.md) rules that yolo
 names the fixing command rather than killing a skewed daemon, because two yolo versions
@@ -1299,18 +1302,18 @@ would take turns restarting each other's. `ensureSingleton` takes the opposite b
 the OpenAI daemon on a different predicate, and nothing reconciles them. This decided
 whether that was a second ruling or a contradiction.
 
-<a id="oq-hd6-context"></a>**[OQ-HD6](#OQ-HD6)'s context.** *Nothing is unused: a daemon ends
-with the jail that asked for it, and the only survivor is a bounded straggler with a stated
-disposition.*
+<a id="oq-hd6-context"></a>**Why [OQ-HD6](#OQ-HD6) dissolved, and its context.** *Nothing is
+unused: a daemon ends with the jail that asked for it, and the only survivor is a bounded
+straggler with a stated disposition.*
 
 Nothing does, and nothing states that as a position. The obstacle was real: the daemon does
 not know its clients, the rendezvous cannot carry that, and this repo's own rule is that a
 reaper which cannot ask declines rather than sweeping. [OQ-HD1](#OQ-HD1) made this urgent
 rather than academic — versioned paths strand daemons on purpose.
 
-<a id="oq-hd7-context"></a>**[OQ-HD7](#OQ-HD7)'s context.** *The key is retired, so there is no
-host-wide population to govern — a pack declaring a host daemon declares an ordinary per-jail
-one.*
+<a id="oq-hd7-context"></a>**Why [OQ-HD7](#OQ-HD7) dissolved, and its context.** *The key is
+retired, so there is no host-wide population to govern — a pack declaring a host daemon declares
+an ordinary per-jail one.*
 
 Today it may: selecting the pack is the whole gate, and the cost list in
 [§8](#8-one-became-three-and-the-ruling-makes-the-population-stop-mattering) is paid
@@ -1318,9 +1321,9 @@ silently — including three documents that went wrong when the set grew, becaus
 enumerates it. This decided whether the other questions were about three daemons or an
 open-ended population.
 
-<a id="oq-hd8-context"></a>**[OQ-HD8](#OQ-HD8)'s context.** *The name-keyed `/tmp` collision
-goes with the name-keyed paths; what survives is two users on one **workspace path**, which is
-[OQ-HD10](#OQ-HD10)'s.*
+<a id="oq-hd8-context"></a>**Why [OQ-HD8](#OQ-HD8) mostly dissolved, its context, and the fix
+built since.** *The name-keyed `/tmp` collision goes with the name-keyed paths; what survives is
+two users on one **workspace path**, which is [OQ-HD10](#OQ-HD10)'s.*
 
 The rendezvous has no user component, and the ruling that put the name there argues from a
 singleton having no *jail* to be keyed by — it says nothing about users. On a host where
@@ -1337,8 +1340,8 @@ carry no user component, and the reachability witness's later refusal is unchang
 retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
 
 5. <a id="OQ-HD1"></a>✅ **[OQ-HD1](#OQ-HD1) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
-   should a daemon rendezvous carry a version?** Context:
-   [above](#oq-hd1-context).
+   should a daemon rendezvous carry a version?**
+   Why it dissolved, and its context: [above](#oq-hd1-context).
 
    <!-- vantage: question id=OQ-HD1 -->
 
@@ -1358,8 +1361,8 @@ retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
    > [OQ-HD9](#OQ-HD9) installs as a timer.
 
 6. <a id="OQ-HD3"></a>✅ **[OQ-HD3](#OQ-HD3) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
-   does the no-kill ruling still hold, now that one path already kills?** Context:
-   [above](#oq-hd3-context).
+   does the no-kill ruling still hold, now that one path already kills?**
+   Why it dissolved, and its context: [above](#oq-hd3-context).
 
    <!-- vantage: question id=OQ-HD3 -->
 
@@ -1374,8 +1377,8 @@ retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
    > will still read it as a mistake.
 
 7. <a id="OQ-HD6"></a>✅ **[OQ-HD6](#OQ-HD6) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1):
-   should anything ever stop an unused singleton, and on what predicate?** Context:
-   [above](#oq-hd6-context).
+   should anything ever stop an unused singleton, and on what predicate?**
+   Why it dissolved, and its context: [above](#oq-hd6-context).
 
    <!-- vantage: question id=OQ-HD6 -->
 
@@ -1393,8 +1396,8 @@ retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
    > leaning survives as ordinary per-jail service reporting.
 
 8. <a id="OQ-HD7"></a>✅ **[OQ-HD7](#OQ-HD7) — DISSOLVED 2026-09-20 by [`HD-R1`](#HD-R1): may
-   a pack declare `scope: "host"` freely?** Context:
-   [above](#oq-hd7-context).
+   a pack declare `scope: "host"` freely?**
+   Why it dissolved, and its context: [above](#oq-hd7-context).
 
    <!-- vantage: question id=OQ-HD7 -->
 
@@ -1412,8 +1415,8 @@ retiring the singleton is [`HD-R1`](#HD-R1)'s, and not built.
    > are wrong about the tree *today* and stay wrong until this is built.
 
 9. <a id="OQ-HD8"></a>✅ **[OQ-HD8](#OQ-HD8) — MOSTLY DISSOLVED 2026-09-20 by
-   [`HD-R1`](#HD-R1): is one user per host a supported assumption or a documented non-goal?** Context:
-   [above](#oq-hd8-context).
+   [`HD-R1`](#HD-R1): is one user per host a supported assumption or a documented non-goal?**
+   Why it mostly dissolved, its context and the fix built since: [above](#oq-hd8-context).
 
    <!-- vantage: question id=OQ-HD8 -->
 
