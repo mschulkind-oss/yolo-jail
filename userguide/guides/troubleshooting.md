@@ -41,7 +41,8 @@ older image.
   in `~/.local/share/yolo-jail/logs/launches.log`, so you can see which workspaces came back.
 - On a Mac, check the runtime is up: `container system status`, or `podman machine list`. A busy
   Podman machine gets up to a minute to answer; one that still has not answered is reported as not
-  answering, and needs waiting for, not starting.
+  answering. Wait for it, and if it never answers, restart it with `podman machine stop`, then
+  `podman machine start`. That stops every container in the machine, other jails included.
 - Start a fresh jail: `yolo stop`, then launch again. `yolo ps` lists running jails.
 
 **"No packs are configured, so this jail has no coding agent".** Add an agent pack to your user

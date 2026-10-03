@@ -116,7 +116,8 @@ func TestCheckReportsAPodmanMachineThatNeverAnswersAsNotAnswering(t *testing.T) 
 		"podman info did not answer within 60s",
 		"the Podman machine may be busy or still starting",
 		"`podman machine list`",
-		"run `yolo check` again",
+		"wait for it to settle and run `yolo check` again.",
+		"`podman machine stop`, then `podman machine start`",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("the finding lacks %q:\n%s", want, section)

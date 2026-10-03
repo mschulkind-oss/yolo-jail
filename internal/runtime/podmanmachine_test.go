@@ -135,11 +135,19 @@ func TestThePatientOneShotShowingAsksOnceAndNotesTheAttempt(t *testing.T) {
 	}
 }
 
-// The next step after no answer looks at the machine and waits; it names starting only for
-// the case the list shows stopped.
+// The next step after no answer looks at the machine and waits; it names a restart for a
+// machine that never settles (a hung VM, which waiting never clears, so a hint that ended at
+// "wait" sent its user round the same refusal for good), saying what a restart stops, and
+// starting only for the case the list shows stopped.
 func TestPodmanMachineBusyHintNamesTheListAndTheWait(t *testing.T) {
 	got := PodmanMachineBusyHint("launch again")
-	for _, want := range []string{"`podman machine list`", "wait", "launch again", "if it is stopped"} {
+	for _, want := range []string{
+		"`podman machine list`",
+		"wait for it to settle and launch again.",
+		"If it still does not answer, restart it, which stops every container in it: " +
+			"`podman machine stop`, then `podman machine start`.",
+		"If it is stopped, start it with `podman machine start`.",
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("hint lacks %q: %q", want, got)
 		}

@@ -95,8 +95,13 @@ func WaitForPodmanMachineShowing(line *progress.Line, rt string, seams ReadySeam
 
 // PodmanMachineBusyHint is the next step after a patient one-shot podman did not answer: the
 // machine is up or coming up, so starting it is not the fix, and looking at it is. again names
-// what to do once it is up ("launch again", "run `yolo check` again").
+// what to do once it is up ("launch again", "run `yolo check` again"). A machine can also be
+// hung, which waiting never clears (the macOS nightly has seen `podman machine start` run 14
+// minutes and never return), so the hint ends in a restart for one that still does not answer,
+// and says what a restart stops: every container in the machine, other jails included.
 func PodmanMachineBusyHint(again string) string {
-	return fmt.Sprintf("Run `podman machine list` to see the machine's state: if it is running or "+
-		"starting, wait for it to settle and %s; if it is stopped, start it with `podman machine start`.", again)
+	return fmt.Sprintf("Run `podman machine list` to see the machine's state. If it is running or "+
+		"starting, wait for it to settle and %s. If it still does not answer, restart it, which stops "+
+		"every container in it: `podman machine stop`, then `podman machine start`. If it is stopped, "+
+		"start it with `podman machine start`.", again)
 }

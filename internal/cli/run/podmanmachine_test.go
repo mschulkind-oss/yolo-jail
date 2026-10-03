@@ -133,6 +133,8 @@ func TestAPodmanMachineThatNeverAnswersIsNotCalledStopped(t *testing.T) {
 				"the Podman machine may be busy or still starting",
 				"podman (pid 4242) is still running; yolo left it to finish.",
 				"`podman machine list`",
+				"wait for it to settle and launch again.",
+				"`podman machine stop`, then `podman machine start`",
 			} {
 				if !strings.Contains(got, want) {
 					t.Errorf("refusal lacks %q:\n%s", want, got)
