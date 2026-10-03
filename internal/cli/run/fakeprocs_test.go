@@ -10,8 +10,8 @@ package run
 // times a second: 247 of them were found in one jail on 2026-10-03, some 37 hours old, together
 // forking about 10,700 processes a second.
 //
-// So a fake process that holds on a file now does two things, and the helpers below are the only way
-// this package's tests write one (TestEveryHoldOnAFileGoesThroughHoldUntil):
+// So a fake process that holds on a file now does three things, and the helpers below are the only
+// way this package's tests write one (TestEveryHoldOnAFileGoesThroughHoldUntil):
 //
 //  1. It holds on a HELD DIRECTORY (heldDir), a term this file coins for a t.TempDir whose fake
 //     processes record their pids in it (recordPID) and whose own cleanup kills each one that still
@@ -19,6 +19,9 @@ package run
 //     removal, so it runs first, whatever else the test registers.
 //  2. Its loop ends once the file's directory is gone (holdUntil), so even a process that cleanup
 //     never learned of (one that had not yet recorded itself) cannot poll a removed path forever.
+//  3. Its loop ends once the test process that built it is gone (holdUntil): a test binary killed
+//     mid-test (a SIGKILL, a -timeout panic, a harness that gives up on `go test`) runs neither that
+//     cleanup nor the directory's removal.
 
 import (
 	"bytes"
@@ -61,10 +64,15 @@ func recordPID(dir string) string {
 
 // holdUntil is the shell that holds until file exists, and ends as well once file's directory is
 // gone: nothing can write the file into a removed directory, so a hold that missed the moment it was
-// written would otherwise poll for it forever.
+// written would otherwise poll for it forever. It ends too once the test process that built it is
+// gone: a test binary killed mid-test runs no cleanup, so no endHeld kills the hold, its directory
+// stays, and nothing writes the file. The pid is this process's, os.Getpid() baked into the script,
+// not the shell's $PPID: the holding shell's parent may be a fake runtime's script rather than the
+// test binary. `kill -0` sends nothing; it only asks whether the process exists. All three checks are
+// shell builtins, so each poll still starts one process, its sleep.
 func holdUntil(file string) string {
 	return "while [ -d " + shquote.Quote(filepath.Dir(file)) + " ] && [ ! -e " + shquote.Quote(file) +
-		" ]; do sleep 0.02; done"
+		" ] && kill -0 " + strconv.Itoa(os.Getpid()) + " 2>/dev/null; do sleep 0.02; done"
 }
 
 // endHeld ends every process recorded in the held directory dir that still runs: a SIGKILL to its
@@ -209,9 +217,9 @@ func TestAFakeJailsMainProcessEndsWithItsTest(t *testing.T) {
 	}
 }
 
-// TestAHoldEndsOnceItsDirectoryIsGone is the second half on its own: a hold that no cleanup ends, and
-// whose file is never written, still ends once its directory is removed, rather than polling a path
-// that can no longer exist.
+// TestAHoldEndsOnceItsDirectoryIsGone is the second of those on its own: a hold that no cleanup ends,
+// and whose file is never written, still ends once its directory is removed, rather than polling a
+// path that can no longer exist.
 func TestAHoldEndsOnceItsDirectoryIsGone(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "held")
 	if err := os.Mkdir(dir, 0o755); err != nil {
@@ -239,6 +247,124 @@ func TestAHoldEndsOnceItsDirectoryIsGone(t *testing.T) {
 		<-exited
 		t.Error("the hold still polled 5s after its directory was removed")
 	}
+}
+
+// fakeJailHelperEnv, set, makes this test binary TestFakeJailHelperProcess, the helper process
+// TestAFakeJailsMainProcessEndsWithAKilledTest kills. Its value is the file the helper names its fake
+// jail's held directory in.
+const fakeJailHelperEnv = "YOLO_TEST_FAKE_JAIL_HELPER"
+
+// TestAFakeJailsMainProcessEndsWithAKilledTest is the third of those on its own: a test binary killed
+// mid-test (a SIGKILL, a -timeout panic, a harness that gives up on `go test`) runs no cleanup, so no
+// endHeld runs, its held directory stays, and nothing writes the stop file. A fake jail's main process
+// leads a process group of its own (startJailMain), so no kill of the test's group reaches it either.
+// It must still end, with the test process that started it. A helper process, this test binary run
+// again, holds a fake jail as any keeper test does and is SIGKILLed while the main process holds; then
+// no process may name the jail's directory, which still exists, within a few seconds.
+func TestAFakeJailsMainProcessEndsWithAKilledTest(t *testing.T) {
+	if _, err := os.Stat("/proc/self/cmdline"); err != nil {
+		t.Skip("reads every process's command line from /proc")
+	}
+	if os.Getenv(fakeJailHelperEnv) != "" {
+		t.Skip("the helper process")
+	}
+	tmp := t.TempDir()
+	report := filepath.Join(tmp, "held-dir")
+	var out lockedBuffer
+	helper := exec.Command(os.Args[0], "-test.run=^TestFakeJailHelperProcess$", "-test.count=1", "-test.v")
+	// The helper's temp dirs go under this test's, so this test's cleanup removes what the kill leaves.
+	helper.Env = append(os.Environ(), fakeJailHelperEnv+"="+report, "TMPDIR="+tmp)
+	helper.Stdout, helper.Stderr = &out, &out
+	helper.WaitDelay = time.Second // a pipe some descendant kept open holds no Wait here
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan struct{})
+	go func() { _ = helper.Wait(); close(exited) }()
+	var dir string
+	for deadline := time.Now().Add(30 * time.Second); dir == ""; {
+		if b, err := os.ReadFile(report); err == nil {
+			dir = string(b)
+			break
+		}
+		select {
+		case <-exited:
+			t.Fatalf("the helper process ended before its fake jail held:\n%s", out.String())
+		case <-time.After(20 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			_ = helper.Process.Kill()
+			<-exited
+			t.Fatalf("the helper process's fake jail never held:\n%s", out.String())
+		}
+	}
+	_ = helper.Process.Kill()
+	<-exited // reaped, so its pid names no process
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("the killed helper's held directory is gone (%v): nothing here tells the end of its process "+
+			"from the end of its directory", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for pids := processesNaming(t, dir); len(pids) > 0; pids = processesNaming(t, dir) {
+		if time.Now().After(deadline) {
+			// This test leaves nothing of its own running, whatever it found.
+			for _, pid := range pids {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+			t.Fatalf("%d processes still hold on %s 5s after the test process that started them was killed: "+
+				"each would have run until the machine restarts", len(pids), dir)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestFakeJailHelperProcess is TestAFakeJailsMainProcessEndsWithAKilledTest's helper process: a fake
+// jail whose main process holds on its stop file, its held directory named in the report file once it
+// does, then a wait to be killed.
+func TestFakeJailHelperProcess(t *testing.T) {
+	report := os.Getenv(fakeJailHelperEnv)
+	if report == "" {
+		t.Skip("runs only as TestAFakeJailsMainProcessEndsWithAKilledTest's helper process")
+	}
+	jail := newFakeJail(t, "yolo-fake-jail-killed")
+	m, err := startJailMain(jail.mainArgv(true), io.Discard, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.awaitReady() {
+		t.Fatal("the fake jail's main process exited before its ready line")
+	}
+	// Renamed into place, so the test never reads half a path.
+	if err := os.WriteFile(report+".part", []byte(jail.dir), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(report+".part", report); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Minute)
+	t.Error("nothing killed this helper process within a minute")
+}
+
+// processesNaming is the pid of every running process whose command line names s, as `pgrep -f`
+// matches; an exited process not yet reaped names nothing (namesDir).
+func processesNaming(t *testing.T, s string) []int {
+	t.Helper()
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pids []int
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if err == nil && bytes.Contains(raw, []byte(s)) {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
 }
 
 // TestEveryHoldOnAFileGoesThroughHoldUntil keeps the shape that leaked out of this package's tests:
