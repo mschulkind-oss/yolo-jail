@@ -18,6 +18,10 @@ and the message says to run the command on the host.
   where it is (and `YOLO_BYPASS_SHIMS=1 gh …` runs it). That `gh` has no login in the jail.
   The shim is a forwarder, not a blocker, and its first lines say so.
 
+The pack also ships [`briefing/gh.md`](./briefing/gh.md), which the `briefing/` convention
+delivers to every agent: how `gh` behaves in the jail, so an agent does not learn each rule by
+failing once.
+
 ## Turning it on
 
 ```jsonc
