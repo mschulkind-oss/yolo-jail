@@ -51,13 +51,13 @@ type lateJail struct {
 }
 
 // newLateJail is a lateJail whose container comes up lag after its client starts; a negative lag is
-// a client that never brings it up.
+// a client that never brings it up. Its dir is a held directory (heldDir), whose cleanup ends the
+// client after this one's.
 func newLateJail(t *testing.T, lag time.Duration) *lateJail {
-	j := &lateJail{dir: t.TempDir(), lag: lag}
+	j := &lateJail{dir: heldDir(t), lag: lag}
 	t.Cleanup(func() {
-		// The client holds until a stop; and the process bringing the container up writes into
-		// the directory, so it must be done before t.TempDir's removal runs.
-		_ = os.WriteFile(j.marker("stopped"), nil, 0o644)
+		// The process bringing the container up writes into the directory, so it must be done
+		// before t.TempDir's removal runs; it may outlive a client the keeper killed.
 		if lag >= 0 && j.has("spawned") {
 			deadline := time.Now().Add(lag + 2*time.Second)
 			for !j.has("created") && time.Now().Before(deadline) {
@@ -92,13 +92,12 @@ func (j *lateJail) clientRuns() bool {
 // lag in a process of its own that outlives the client, prints a boot line and holds until a stop,
 // its boot never done.
 func (j *lateJail) mainArgv() []string {
-	script := "echo $$ > " + shquote.Quote(j.marker("spawned")) + "; "
+	script := recordPID(j.dir) + "echo $$ > " + shquote.Quote(j.marker("spawned")) + "; "
 	if j.lag >= 0 {
 		script += fmt.Sprintf("( sleep %.3f; touch %s ) </dev/null >/dev/null 2>&1 & ", j.lag.Seconds(),
 			shquote.Quote(j.marker("created")))
 	}
-	script += `echo "a boot line" >&2; while [ ! -e ` + shquote.Quote(j.marker("stopped")) +
-		` ]; do sleep 0.02; done; exit 143`
+	script += `echo "a boot line" >&2; ` + holdUntil(j.marker("stopped")) + `; exit 143`
 	return []string{"sh", "-c", script}
 }
 

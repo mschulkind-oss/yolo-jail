@@ -76,8 +76,8 @@ func TestTheKeeperHoldsTheJailsReservedPortsUntilItStartsTheContainer(t *testing
 		t.Fatal(err)
 	}
 	stop := filepath.Join(jail.dir, "stop")
-	script := shquote.Quote(exe) + " -bind-probe-child " + addr + "; echo \"" + entrypoint.BootReadyLine +
-		"\" >&2; while [ ! -e " + shquote.Quote(stop) + " ]; do sleep 0.02; done; exit 143"
+	script := recordPID(jail.dir) + shquote.Quote(exe) + " -bind-probe-child " + addr + "; echo \"" +
+		entrypoint.BootReadyLine + "\" >&2; " + holdUntil(stop) + "; exit 143"
 	cfg, err := encodeConfig(jsonx.NewOrderedMap())
 	if err != nil {
 		t.Fatal(err)

@@ -79,11 +79,11 @@ func TestARelayThatNeverSeesReadyFlushesItsLastLine(t *testing.T) {
 // is gone.
 func TestTheMainProcessClientRunsDetachedFromTheTerminalsSignals(t *testing.T) {
 	testsupport.UnsetLCAll(t) // the child shell's output is compared exactly
-	release := t.TempDir() + "/release"
-	script := `echo "boot says hello" >&2; echo "stdout line"; printf '%s\n' "$READY" >&2; ` +
-		`while [ ! -e "$RELEASE" ]; do sleep 0.02; done; exit 3`
+	held := heldDir(t)
+	release := held + "/release"
+	script := recordPID(held) + `echo "boot says hello" >&2; echo "stdout line"; printf '%s\n' "$READY" >&2; ` +
+		holdUntil(release) + `; exit 3`
 	t.Setenv("READY", entrypoint.BootReadyLine)
-	t.Setenv("RELEASE", release)
 	var stdout, stderr lockedBuffer
 	exited := make(chan struct{})
 	m, err := startJailMain([]string{"sh", "-c", script}, &stdout, &stderr, func() { close(exited) })

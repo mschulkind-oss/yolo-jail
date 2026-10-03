@@ -166,9 +166,9 @@ func TestAStartedLaunchWritesItsLineWhileTheJailRuns(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `[]`)
 	ws := t.TempDir()
-	bin, rec := t.TempDir(), t.TempDir()
+	bin, rec := heldDir(t), t.TempDir() // bin holds the fake runtime, whose path names it
 	release := filepath.Join(rec, "release")
-	script := "#!/bin/sh\ni=0\nwhile [ ! -e '" + release + "' ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done\n"
+	script := "#!/bin/sh\n" + recordPID(bin) + "\n" + holdUntil(release) + "\n"
 	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

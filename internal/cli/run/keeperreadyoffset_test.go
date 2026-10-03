@@ -53,26 +53,23 @@ func TestADeathBetweenTheReadyFrameAndTheFirstSessionIsNamedOnceByItsQuit(t *tes
 	jail := newFakeJail(t, cname)
 	started := filepath.Join(jail.dir, "started")
 	die := filepath.Join(t.TempDir(), "die")
-	bin := t.TempDir()
+	// Both fakes live in a held directory, which their command lines name by their own paths.
+	bin := heldDir(t)
 	// The runtime: `run` is the main process, its boot and a hold until the fake stop; `exec` is the
 	// first session, which ends at once. Every other runtime call is o.Exec's.
-	podman := "#!/bin/sh\ncase \"$1\" in\nrun)\n  : > '" + started + "'\n" +
+	podman := "#!/bin/sh\ncase \"$1\" in\nrun)\n  " + recordPID(bin) + "\n  : > '" + started + "'\n" +
 		"  echo 'a boot line' >&2\n  echo " + shellQuoteForTest(entrypoint.BootReadyLine) + " >&2\n" +
-		"  while [ ! -e '" + filepath.Join(jail.dir, "stop") + "' ]; do sleep 0.02; done\n  exit 143;;\n" +
+		"  " + holdUntil(filepath.Join(jail.dir, "stop")) + "\n  exit 143;;\n" +
 		"esac\nexit 0\n"
 	// The forward's socat: its socket, then a hold until the death file.
-	socat := "#!/bin/sh\narg=\"$1\"\np=\"${arg#UNIX-LISTEN:}\"\np=\"${p%%,*}\"\n: > \"$p\"\n" +
-		"while [ ! -e '" + die + "' ]; do sleep 0.02; done\nexit 1\n"
+	socat := "#!/bin/sh\n" + recordPID(bin) + "\narg=\"$1\"\np=\"${arg#UNIX-LISTEN:}\"\np=\"${p%%,*}\"\n: > \"$p\"\n" +
+		holdUntil(die) + "\nexit 1\n"
 	for name, body := range map[string]string{"podman": podman, "socat": socat} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("PATH", bin+":/bin:/usr/bin")
-	t.Cleanup(func() {
-		_ = os.WriteFile(filepath.Join(jail.dir, "stop"), nil, 0o644)
-		_ = os.WriteFile(die, nil, 0o644)
-	})
 
 	o := dispatchOptions(t, ws, "podman", new(bytes.Buffer), new(bytes.Buffer), nil)
 	var stdout, stderr lockedBuffer

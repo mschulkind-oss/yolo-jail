@@ -123,7 +123,8 @@ func adoptLaunchSeams(ko, launch *Options) {
 }
 
 // fakeJail is a runtime for one keeper: a main process that is a shell, holding until the fake
-// `podman stop` writes its stop file, and the probes a keeper makes of it.
+// `podman stop` writes its stop file, and the probes a keeper makes of it. Its dir is a held directory
+// (heldDir), so its main process never outlives the test, whether or not anything stopped it.
 type fakeJail struct {
 	mu      sync.Mutex
 	dir     string
@@ -147,17 +148,17 @@ func (f *fakeJail) reportExecs(n int) {
 }
 
 func newFakeJail(t *testing.T, cname string) *fakeJail {
-	return &fakeJail{dir: t.TempDir(), cname: cname}
+	return &fakeJail{dir: heldDir(t), cname: cname}
 }
 
 // mainArgv is the main process: its boot, the ready line, and a hold its stop file ends. ready
 // false leaves out the ready line, a boot that never finishes.
 func (f *fakeJail) mainArgv(ready bool) []string {
-	script := `echo "a boot line" >&2; `
+	script := recordPID(f.dir) + `echo "a boot line" >&2; `
 	if ready {
 		script += `echo "` + entrypoint.BootReadyLine + `" >&2; `
 	}
-	script += `while [ ! -e "` + filepath.Join(f.dir, "stop") + `" ]; do sleep 0.02; done; exit 143`
+	script += holdUntil(filepath.Join(f.dir, "stop")) + `; exit 143`
 	return []string{"sh", "-c", script}
 }
 
@@ -268,10 +269,7 @@ func startKeeperFixtureWith(t *testing.T, ready bool, tune func(*keeperPlan), tu
 		_ = progW.Close()
 		f.done <- rc
 	}()
-	t.Cleanup(func() {
-		_ = os.WriteFile(filepath.Join(f.jail.dir, "stop"), nil, 0o644)
-		_ = lifeW.Close()
-	})
+	t.Cleanup(func() { _ = lifeW.Close() })
 	return f
 }
 

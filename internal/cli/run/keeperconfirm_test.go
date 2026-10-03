@@ -22,7 +22,8 @@ import (
 // keeper holding the jail: its host services stay up for the sessions still in it, and the jail
 // ends as it always does, when its last session leaves and the keeper stops it.
 func TestAMainProcessClientThatDiesUnderARunningJailEndsNothing(t *testing.T) {
-	die := filepath.Join(t.TempDir(), "die")
+	held := heldDir(t)
+	die := filepath.Join(held, "die")
 	var session *sessionLock
 	f := startKeeperFixture(t, true, func(p *keeperPlan) {
 		lock, _, err := takeSessionLock(p.Cname)
@@ -32,8 +33,8 @@ func TestAMainProcessClientThatDiesUnderARunningJailEndsNothing(t *testing.T) {
 		session = lock
 		// The client prints the boot, then dies on its own; the fake runtime still says the
 		// container runs, since nothing stopped it.
-		p.RunCmd = []string{"sh", "-c", `echo "` + entrypoint.BootReadyLine + `" >&2; ` +
-			`while [ ! -e "` + die + `" ]; do sleep 0.02; done; exit 1`}
+		p.RunCmd = []string{"sh", "-c", recordPID(held) + `echo "` + entrypoint.BootReadyLine + `" >&2; ` +
+			holdUntil(die) + `; exit 1`}
 	})
 	if !f.relay() {
 		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())

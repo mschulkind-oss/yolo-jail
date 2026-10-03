@@ -181,13 +181,14 @@ func TestTheKeeperRecordsAPortForwardThatDies(t *testing.T) {
 		t.Skip("spawns host processes")
 	}
 	die := filepath.Join(t.TempDir(), "die")
-	bin := t.TempDir()
+	bin := heldDir(t) // the fake socat's own path names it
 	script := `#!/bin/sh
+` + recordPID(bin) + `
 arg="$1"
 p="${arg#UNIX-LISTEN:}"
 p="${p%%,*}"
 : > "$p"
-while [ ! -e "` + die + `" ]; do sleep 0.02; done
+` + holdUntil(die) + `
 exit 1
 `
 	if err := os.WriteFile(filepath.Join(bin, "socat"), []byte(script), 0o755); err != nil {
@@ -280,10 +281,10 @@ func TestEachHostServiceKindReportsItsEnd(t *testing.T) {
 		o := &Options{Stdout: &buf}
 		fillDefaults(o)
 		o.ServiceTermGrace = 250 * time.Millisecond
-		die := filepath.Join(t.TempDir(), "die")
+		held := heldDir(t)
+		die := filepath.Join(held, "die")
 		spec := jsonx.NewOrderedMap()
-		spec.Set("command", []any{"sh", "-c",
-			`: > "{socket}"; while [ ! -e "` + die + `" ]; do sleep 0.02; done; exit 7`})
+		spec.Set("command", []any{"sh", "-c", recordPID(held) + `: > "{socket}"; ` + holdUntil(die) + `; exit 7`})
 		h, ok := o.startExternalService("ends", spec, t.TempDir(), "", "", nil)
 		if !ok {
 			t.Fatalf("the daemon never became reachable: %q", buf.String())

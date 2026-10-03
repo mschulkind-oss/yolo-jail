@@ -15,7 +15,6 @@ package run
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -39,7 +38,6 @@ func TestASIGINTBetweenReadyAndTheRetargetEndsTheJailWithoutWaitingOutTheBound(t
 	emptyLoopholeDirs(t)
 	cname := "yolo-ready-window-sigint"
 	jail := newFakeJail(t, cname)
-	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(jail.dir, "stop"), nil, 0o644) })
 	o := goldenOptions(t.TempDir(), t.TempDir())
 	o.Exec = jail.exec
 	o.PIDAlive = func(int) bool { return false }
@@ -126,7 +124,6 @@ func startReadyWindowLaunch(t *testing.T, cname string, counted bool, others fun
 	t.Setenv("HOME", t.TempDir())
 	emptyLoopholeDirs(t)
 	jail := newFakeJail(t, cname)
-	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(jail.dir, "stop"), nil, 0o644) })
 	o := goldenOptions(t.TempDir(), t.TempDir())
 	o.Exec = jail.exec
 	o.PIDAlive = func(int) bool { return false }
