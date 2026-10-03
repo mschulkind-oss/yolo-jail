@@ -34,6 +34,11 @@ package run
 // half that has nothing to do with ordering.
 
 import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -43,6 +48,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // packLoopholeKindName is the `contributes[]` kind that ships a loophole module directory
@@ -567,7 +575,7 @@ func pluginJailCodeSummary(p *packload.Pack) string {
 	if len(disclosed) == 0 {
 		return ""
 	}
-	var order []string
+	var order, modules []string
 	counts := map[string]int{}
 	for _, pl := range p.Plugins() {
 		if !disclosed[pl.Name()] {
@@ -582,8 +590,120 @@ func pluginJailCodeSummary(p *packload.Pack) string {
 			}
 			counts[comp.Name]++
 		}
+		if pluginLoadsHooksModule(pl) {
+			modules = append(modules, p.SourcePath(pl.Dir))
+		}
 	}
-	return jailCodeSummary(len(disclosed), order, counts)
+	return jailCodeSummary(len(disclosed), order, counts) + hooksModuleSummary(modules)
+}
+
+// hooksModuleSummary is the clause a pack's line gains when some of its plugins' hooks include a
+// HOOKS MODULE, "" when none do: a JavaScript or TypeScript file Claude Code (2.1.287 and later,
+// the changelog's "Claude Mods") loads into its own process and calls on its events, where a
+// command hook is a process it starts. Counted as hooks alone, a mod read exactly like one shell
+// command (docs/research/claude-code-mods-management.md, G1). dirs are the plugin directories as
+// the user knows them (Pack.SourcePath).
+//
+// The clause ends on the next step rather than an inventory: what a module calls is in its code,
+// which this build does not read, and `claude plugin validate <dir>` lists it (`hooks:` and
+// `calls:`) with no session and no network. Claude's own `claude plugin details` counts no module
+// at all (MEASURED on 2.1.288: `Hooks (0)` for a plugin whose only hook is a module), so this line
+// is the one inventory that does.
+func hooksModuleSummary(dirs []string) string {
+	if len(dirs) == 0 {
+		return ""
+	}
+	cmds := make([]string, len(dirs))
+	for i, d := range dirs {
+		cmds[i] = "`" + richtext.Escape(shquote.JoinDisplay([]string{"claude", "plugin", "validate", d})) + "`"
+	}
+	if len(dirs) == 1 {
+		return "; the hooks include a hooks module, JavaScript or TypeScript that Claude Code runs " +
+			"inside its own process — " + cmds[0] + " lists what it calls"
+	}
+	return "; the hooks of " + strconv.Itoa(len(dirs)) + " plugins include a hooks module, JavaScript " +
+		"or TypeScript that Claude Code runs inside its own process — " + strings.Join(cmds, ", ") +
+		" list what each calls"
+}
+
+// pluginLoadsHooksModule reports whether a plugin carries a hooks file whose `modules` names at
+// least one hooks module, reading only the files pluginpack.Components names for its hooks.
+//
+// Two forms load one, and they are the two `claude plugin validate` reads a module from
+// (MEASURED on 2.1.288): a hooks file itself — the default hooks/hooks.json — and a hooks file a
+// manifest's `hooks` names by path, as a string or in an array. A manifest's INLINE `hooks` object
+// is not one: Claude Code reads its `modules` key as an unknown hook event and ignores it. An empty
+// `modules` loads nothing (validate rejects it), and an entry is a path string.
+func pluginLoadsHooksModule(pl *pluginpack.Plugin) bool {
+	for _, comp := range pl.Components() {
+		if comp.Name != "hooks" {
+			continue
+		}
+		for _, src := range comp.Sources {
+			obj, ok := readPluginJSON(pl.Dir, src)
+			if !ok {
+				continue
+			}
+			if path.Base(src) != "plugin.json" {
+				if namesHooksModule(obj) {
+					return true
+				}
+				continue
+			}
+			// A manifest: its `hooks` names hooks files by path, or is inline (no module).
+			var paths []string
+			if err := json.Unmarshal(obj["hooks"], &paths); err != nil {
+				var one string
+				if json.Unmarshal(obj["hooks"], &one) != nil {
+					continue
+				}
+				paths = []string{one}
+			}
+			for _, rel := range paths {
+				if hooks, ok := readPluginJSON(pl.Dir, rel); ok && namesHooksModule(hooks) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// namesHooksModule reports whether a hooks file's `modules` lists a path.
+func namesHooksModule(hooks map[string]json.RawMessage) bool {
+	var modules []string
+	if json.Unmarshal(hooks["modules"], &modules) != nil {
+		return false
+	}
+	for _, m := range modules {
+		if strings.TrimSpace(m) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// readPluginJSON reads a JSON object at rel inside a plugin dir. A path leaving the dir, anything
+// but a regular file, a file past 1 MiB, and anything that is not an object read as absent: this
+// feeds a disclosure clause, never a refusal, so a file it cannot read costs that clause alone.
+func readPluginJSON(dir, rel string) (map[string]json.RawMessage, bool) {
+	full := filepath.Join(dir, filepath.FromSlash(rel))
+	if !pluginpack.Contains(dir, full) {
+		return nil, false
+	}
+	fi, err := os.Stat(full)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > 1<<20 {
+		return nil, false
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return nil, false
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &obj) != nil {
+		return nil, false
+	}
+	return obj, true
 }
 
 // packJailDaemonNames is the names, in payload order, of the jail daemons in inJail that are

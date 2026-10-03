@@ -3557,7 +3557,7 @@ only the first found, because Copilot takes the first that parses while Claude C
 
 | Where | What it says |
 | :--- | :--- |
-| every launch, every backend | one counted line per pack, `<pack>: 1 wrapped plugin runs code in the jail — hooks (1), mcpServers (1), monitors (1), bin (1)` (`run.notePackJailCode`, unsuppressible) |
+| every launch, every backend | one counted line per pack, `<pack>: 1 wrapped plugin runs code in the jail — hooks (1), mcpServers (1), monitors (1), bin (1)` (`run.notePackJailCode`, unsuppressible). When a hooks file names a hooks module under `modules`, the JavaScript or TypeScript file of a Claude Code [mod](https://code.claude.com/docs/en/plugins/mods/overview), the line adds that Claude Code runs it inside its own process and the `claude plugin validate <dir>` command that lists what it calls |
 | `yolo pack footprint` | `plugin:<name>  wrapped agent plugin declaring hooks, … — RUNS CODE ⚠ review` |
 | `yolo pack init --from-plugin` | one line per component, with `⚠ RUNS CODE` and the file or directory that carries it |
 | `yolo host apply` | at a namespaced destination, `<plugin>:<component>  … delivered — <what it does> once your tool loads the plugin` under `--verbose`. At a flat one, the component refused by name in the default view, and kept out of the copy |
