@@ -445,3 +445,38 @@ func TestARefusalBehindARunningAttemptCarriesTheLastErrorPodmanGave(t *testing.T
 		}
 	}
 }
+
+// A start error that can clear is retried (PR-D23), so it can also be what the budget ends on:
+// the refusal then carries it, as it carries an early exit's error, whether it was the last
+// attempt or came before one still running at the end. Without it the refusal says only that
+// podman did not answer, with no reason at all.
+func TestARefusalAfterRetriedStartErrorsCarriesTheStartError(t *testing.T) {
+	busyBinary := Attempt{StartErr: &os.PathError{Op: "fork/exec", Path: "/usr/bin/podman", Err: syscall.ETXTBSY}}
+	for _, tc := range []struct {
+		name   string
+		script []Attempt
+		want   []string
+	}{
+		{"every attempt", []Attempt{busyBinary},
+			[]string{"; the last attempt: could not run: fork/exec /usr/bin/podman: text file busy."}},
+		{"before one still running", []Attempt{busyBinary, {Pid: 4242}},
+			[]string{"; the last error it gave: could not run: fork/exec /usr/bin/podman: text file busy.",
+				"podman (pid 4242) is still running; yolo left it to finish."}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &fakeGateClock{t: time.Unix(1000, 0)}
+			calls := 0
+			res := WaitForPodman(PodmanInfoArgv("podman"), PodmanReadyBudget,
+				fakeSeams(c, scriptedAttempts(c, tc.script, &calls)), ReadyHooks{})
+			if res.Outcome != PodmanNotReady || calls < len(tc.script) {
+				t.Fatalf("outcome=%v after %d attempts, want the budget to end it", res.Outcome, calls)
+			}
+			refusal := res.Refusal("podman")
+			for _, want := range tc.want {
+				if !strings.Contains(refusal, want) {
+					t.Errorf("refusal lacks %q:\n%s", want, refusal)
+				}
+			}
+		})
+	}
+}

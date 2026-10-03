@@ -384,6 +384,43 @@ func TestAppleContainersAttachProbeKeepsTheTriState(t *testing.T) {
 	}
 }
 
+// THE REFUSAL'S NEXT STEP, at its call site: the attach decision that could not ask names the
+// command that lists the runtime's running containers, `container ls` on Apple Container,
+// through runContainer itself. runningListCommand's own pin above cannot see a call site that
+// goes back to printing "`<rt> ps`", which podman's case alone cannot tell apart.
+func TestTheAttachRefusalNamesEachRuntimesListCommand(t *testing.T) {
+	for _, tc := range []struct{ rt, want string }{
+		{"podman", "Run `podman ps` to diagnose, then launch again."},
+		{"container", "Run `container ls` to diagnose, then launch again."},
+	} {
+		t.Run(tc.rt, func(t *testing.T) {
+			packHome(t)
+			ws := t.TempDir()
+			cname := yoloruntime.FromWorkspace(ws)
+			var stdout, stderr bytes.Buffer
+			o := dispatchOptions(t, ws, tc.rt, &stdout, &stderr, nil)
+			var asked []string
+			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+				asked = append(asked, strings.Join(argv, " "))
+				return ExecResult{Ran: true, RC: 1, Stderr: "Error: the runtime is not answering"}
+			}
+			t.Cleanup(o.releaseLaunchLock)
+			if rc := o.runContainer(nil, tc.rt, t.TempDir(), cname, stagedPacks{}, nil, nil, nil); rc != 1 {
+				t.Fatalf("runContainer = %d, want the attach decision's refusal\nstdout:\n%s", rc, stdout.String())
+			}
+			if !strings.Contains(stdout.String(), "could not ask "+tc.rt+" whether this workspace's jail") ||
+				!strings.Contains(stdout.String(), tc.want) {
+				t.Errorf("the refusal does not name %q:\n%s", tc.want, stdout.String())
+			}
+			for _, a := range asked {
+				if strings.HasPrefix(a, tc.rt+" run") {
+					t.Errorf("a launch that could not ask whether its jail runs started one: %q", a)
+				}
+			}
+		})
+	}
+}
+
 // THE ATTACH DECISION IS TRI-STATE (PR-D8): a `ps` that could not answer refuses the launch
 // rather than starting a fresh jail beside one that may be running.
 func TestAnAttachDecisionThatCannotAskRefuses(t *testing.T) {

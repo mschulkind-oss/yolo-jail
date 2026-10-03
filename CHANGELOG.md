@@ -20,6 +20,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reported to that terminal.
 - `yolo stop` now stops an Apple Container jail, and a jail launched with a different
   `YOLO_RUNTIME`, where it used to say no jail was running.
+- A launch retries a Podman that cannot be started for a moment, such as mid-upgrade, instead of
+  refusing, and one that gives up waiting for Podman now always shows Podman's last error.
+- On Apple Container, a launch that cannot tell whether its jail is running now says to run
+  `container ls`, not `container ps`.
 
 ## [0.11.1] - 2026-10-02
 
