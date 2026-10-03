@@ -977,9 +977,11 @@ Claude in three jails asked the broker for a refresh and was refused with the sa
 so none had a login of its own to fall back on; the jails' own errors are not in this log. Nothing
 surfaced the refusal in the thirty minutes before, since the broker's log has no reader
 ([above](#a-failed-spawn-reports-itself)). After the `/login` made at 17:12 that day, the shared
-file records `refreshTokenExpiresAt`, a field Claude writes and no production yolo code sets:
-2026-10-30 13:45, about 28 days on (MEASURED, that field read alone). So the next deadline is known in advance. No production code in `internal/`,
-`packs/` or `cmd/` reads it yet.
+file records `refreshTokenExpiresAt`, the field in which Claude keeps that deadline:
+2026-10-30 13:45, about 28 days on (MEASURED, that field read alone). So the next deadline is known
+in advance. The broker carries a stored deadline forward only within one login
+([the rule](agent-credentials.md#login-fields)), and nothing in yolo prints it or warns from it
+yet.
 
 What that does to each choice:
 

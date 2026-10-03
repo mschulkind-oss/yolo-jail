@@ -463,12 +463,34 @@ Three beliefs about it were measured false, and each one had been load-bearing s
   `invalid_grant` is wrapped as `{"error":"upstream_http","body":"…"}`, so Claude cannot see a
   truly dead token either and retries instead of prompting a clean re-login.
 
+<a id="login-fields"></a>
+
+#### Two fields that belong to the login, not to the token
+
+Claude's stored login holds two fields that describe the login rather than the access token in
+hand. `refreshTokenExpiresAt` is the refresh token's deadline in epoch milliseconds, from which
+Claude warns during a login's last three days that it is about to expire. `scopes` is the list of
+OAuth scopes the login was granted, which Claude checks for `user:inference`.
+
+Every time the broker writes new tokens, `NormalizeOAuth` sets both by one rule. Its own refreshes
+count, and so does a jail's `/login`, whose code exchange passes through the broker's proxy.
+
+- **The token response carries the field:** the broker takes it, `refresh_token_expires_in`
+  when it is a number and `scope` when it names at least one scope.
+- **The response carries none, and it rotated the previous record's own refresh token:** that is
+  a refresh within one login, so the broker keeps the previous record's value.
+- **Otherwise:** the field is left out, and `scopes` is never written as an empty list.
+
+A `/login` redeems no refresh token, so the previous login's deadline and scopes never reach the
+new one. Claude 2.1.288 also takes both from the response, and carries a stored deadline forward
+only after checking that the stored record holds the refresh token it just redeemed (MEASURED in
+its binary).
+
 > [!WARNING]
-> **The broker discards `refresh_token_expires_in`, the one field that predicts a logout.**
-> Anthropic returns it and Claude 2.1.278 persists it as `refreshTokenExpiresAt`; no production
-> code in `internal/` or `packs/` reads either. `NormalizeOAuth` drops it, so neither the
-> broker's log nor `describeCreds` can say how long the refresh token itself has left — which is
-> why a refresh-token expiry is undiagnosable after the fact rather than merely unpredicted.
+> **Nothing in yolo shows the refresh-token deadline yet.** The broker keeps the field by the rule
+> above, but neither its log nor `yolo claude-auth status` prints the value; `status` lists the
+> field's name among the others. So a refresh-token expiry is undiagnosable after the fact unless
+> someone reads the credentials file itself.
 
 ### The OpenAI subscription credential service
 
