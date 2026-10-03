@@ -1197,7 +1197,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 				out.printf("[bold red]Refusing to launch: could not ask %s whether this workspace's "+
 					"jail (%s) is already running.[/bold red]", rt, cname)
 				out.printf("[dim]Launching fresh could start a second jail beside a running one. Run "+
-					"`%s ps` to diagnose, then launch again.[/dim]", rt)
+					"`%s` to diagnose, then launch again.[/dim]", runningListCommand(rt))
 				return 1
 			}
 			existingCID = cid

@@ -305,6 +305,85 @@ func TestAnInterruptedWaitExitsWith130(t *testing.T) {
 	}
 }
 
+// THE REAL Ctrl-C (readyInterrupt). Every other gate test hands the gate an interrupt channel
+// of its own; this one leaves Options.PodmanReadiness.Interrupt nil, so the launch installs
+// its own SIGINT catch, and the attempt sends this process a real SIGINT while it runs. The
+// catch must turn it into the gate's interrupt: rc 130, the podman it left running named, and
+// the launch recorded as interrupted. Without the catch, the signal's default action ends the
+// test binary, which fails the run.
+func TestARealCtrlCDuringTheWaitStopsTheWaitAndExitsWith130(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `[]`)
+	ws := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	o := dispatchOptions(t, ws, "podman", &stdout, &stderr, nil)
+	o.PodmanReadiness = yoloruntime.ReadySeams{
+		Attempt: func(_ []string, _ time.Time, interrupt <-chan struct{}) yoloruntime.Attempt {
+			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+				t.Errorf("could not send SIGINT: %v", err)
+			}
+			select {
+			case <-interrupt:
+				return yoloruntime.Attempt{Pid: 4321, Interrupted: true}
+			case <-time.After(10 * time.Second):
+				return yoloruntime.Attempt{Exited: true, RC: 0, Stdout: minimalPodmanInfo, Pid: 4321}
+			}
+		},
+	}
+	if rc := Run(*o); rc != 130 {
+		t.Fatalf("Run = %d, want 130: the SIGINT did not stop the wait\nstdout:\n%s", rc, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "podman (pid 4321) is still running; yolo left it to finish.") {
+		t.Errorf("the refusal does not name the podman it left running:\n%s", stdout.String())
+	}
+	assertOneLaunchLine(t, ws, "tries=1", "outcome=interrupted", "rc=130")
+}
+
+// APPLE CONTAINER'S ATTACH PROBE (probeRunningContainer's `container ls` arm, PR-D18): the
+// same tri-state as podman's, asked the way that CLI asks it. A listing that names the jail
+// attaches, one that does not is "not running", and a `container ls` that fails, times out or
+// cannot run is "could not ask", which the attach decision refuses on.
+func TestAppleContainersAttachProbeKeepsTheTriState(t *testing.T) {
+	cname := "yolo-ws-1234abcd"
+	listing := "ID                 IMAGE   OS     ARCH   STATE    ADDR\n" +
+		cname + "   yolo    linux  arm64  running  192.168.64.3\n"
+	for _, tc := range []struct {
+		name      string
+		res       ExecResult
+		wantID    string
+		wantKnown bool
+	}{
+		{"running", ExecResult{Ran: true, RC: 0, Stdout: listing}, cname, true},
+		{"not running", ExecResult{Ran: true, RC: 0, Stdout: "ID  IMAGE  OS  ARCH  STATE  ADDR\n"}, "", true},
+		{"failed", ExecResult{Ran: true, RC: 1, Stderr: "Error: XPC connection error"}, "", false},
+		{"timed out", ExecResult{Ran: true, Timeout: true}, "", false},
+		{"could not run", ExecResult{Ran: false}, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := &Options{}
+			fillDefaults(o)
+			var asked []string
+			o.Exec = func(argv []string, _ string, _ []string, timeout time.Duration) ExecResult {
+				asked = append(asked, strings.Join(argv, " "))
+				if timeout != attachProbeTimeout {
+					t.Errorf("asked with timeout %s, want %s", timeout, attachProbeTimeout)
+				}
+				return tc.res
+			}
+			id, known := o.probeRunningContainer(cname, "container", attachProbeTimeout)
+			if id != tc.wantID || known != tc.wantKnown {
+				t.Errorf("probeRunningContainer = %q,%v; want %q,%v", id, known, tc.wantID, tc.wantKnown)
+			}
+			if len(asked) != 1 || asked[0] != "container ls" {
+				t.Errorf("asked %q, want exactly `container ls`: Apple's CLI has no `ps --filter`", asked)
+			}
+		})
+	}
+	if got := runningListCommand("container"); got != "container ls" {
+		t.Errorf("the refusal tells an Apple Container user to run %q", got)
+	}
+}
+
 // THE ATTACH DECISION IS TRI-STATE (PR-D8): a `ps` that could not answer refuses the launch
 // rather than starting a fresh jail beside one that may be running.
 func TestAnAttachDecisionThatCannotAskRefuses(t *testing.T) {
@@ -328,7 +407,8 @@ func TestAnAttachDecisionThatCannotAskRefuses(t *testing.T) {
 	if rc := Run(*o); rc != 1 {
 		t.Fatalf("Run = %d, want 1\nstdout:\n%s\nstderr:\n%s", rc, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "could not ask podman whether this workspace's jail") {
+	if !strings.Contains(stdout.String(), "could not ask podman whether this workspace's jail") ||
+		!strings.Contains(stdout.String(), "Run `podman ps` to diagnose") {
 		t.Errorf("stdout = %q", stdout.String())
 	}
 	if started {

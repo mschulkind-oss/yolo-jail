@@ -109,6 +109,15 @@ func (o *Options) probeRunningContainer(cname, rt string, timeout time.Duration)
 	return strings.TrimSpace(res.Stdout), true
 }
 
+// runningListCommand is the command that lists rt's running containers, the question the
+// attach decision asks: the one a user runs to see why it could not be asked.
+func runningListCommand(rt string) string {
+	if rt == "container" { // parity: HonoredBy — Apple's CLI lists running containers with `container ls`, the question `ps` answers on podman; the hint names the command probeRunningContainer ran
+		return "container ls"
+	}
+	return rt + " ps"
+}
+
 // findExistingContainer returns the container ID/name if it exists, running OR
 // stopped.
 func (o *Options) findExistingContainer(cname, rt string) string {
