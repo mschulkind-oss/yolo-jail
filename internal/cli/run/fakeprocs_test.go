@@ -78,9 +78,10 @@ func holdUntil(file string) string {
 // endHeld ends every process recorded in the held directory dir that still runs: a SIGKILL to its
 // process group when it leads one, so the sleep its loop waits on goes too, and to it alone
 // otherwise; then a bounded wait until that pid's process has ended (hasEnded). A recorded pid whose
-// process's command line does not name dir ended already, and the pid is left alone, whoever has it
-// now. The command line decides only whether to kill: a killed process stops naming dir before it
-// has ended, so a wait on the command line would return while the process still runs.
+// process's command line does not name dir is left alone, whoever has it now: the process recorded
+// there has ended, or is already exiting. The command line decides only whether to kill: a killed
+// process stops naming dir a moment before it has ended, so a wait on the command line would return
+// while the process still runs.
 func endHeld(t testing.TB, dir string) {
 	raw, err := os.ReadFile(filepath.Join(dir, heldPIDsName))
 	if err != nil {
@@ -138,10 +139,10 @@ func pidGoneWithin(pid int, bound time.Duration) bool {
 }
 
 // hasEnded reports whether pid's process has ended at this instant: no process has the pid, or it
-// is a zombie (exited, not yet reaped). A process still exiting has not: for some tens of
-// milliseconds after a SIGKILL, Linux shows it running (state R) with its memory, and so its command
-// line, already gone. It takes no time, so a hold about to see its stop file has not ended either.
-// Off Linux there is no /proc to read the state from, and known is false.
+// is a zombie (exited, not yet reaped). A process still exiting has not: for a moment after a
+// SIGKILL, longer on a loaded machine, Linux shows it running (state R, sometimes D) with its memory,
+// and so its command line, already gone. It takes no time, so a hold about to see its stop file has
+// not ended either. Off Linux there is no /proc to read the state from, and known is false.
 func hasEnded(pid int) (ended, known bool) {
 	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
